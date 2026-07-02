@@ -2,12 +2,18 @@
 vLLM Runner — daemon HTTP local sur le port 8001.
 Gère un seul processus vLLM à la fois (avec ses enfants).
 """
-import hmac, os, signal, subprocess, threading, time
+import hmac, json, os, signal, subprocess, threading, time
 from flask import Flask, jsonify, request, Response
 
 VLLM_BIN     = os.environ.get("VLLM_BIN", "/root/.local/bin/vllm")
 HF_HOME      = os.environ.get("HF_HOME", "/root/.cache/huggingface")
 RUNNER_TOKEN = os.environ["RUNNER_TOKEN"]  # requis — pas de défaut, le service doit échouer au démarrage si absent
+
+# Persiste le dernier lancement réussi pour pouvoir le reprendre automatiquement
+# après un redémarrage du service (mise à jour système, reboot, crash) — sauf
+# arrêt volontaire via /stop, qui efface ce fichier.
+STATE_FILE = os.path.join(os.environ.get("HOME", "/var/lib/vllm-runner"), "last_model.json")
+MAX_AUTO_RETRIES = 3
 
 app = Flask(__name__)
 
@@ -16,6 +22,7 @@ _proc   = None
 _model  = None
 _logs   = []
 _status = "stopped"   # stopped | starting | running | error
+_auto_retries = 0     # tentatives de relance automatique consécutives échouées
 
 # ── Auth ─────────────────────────────────────────────────────────────────
 # Toutes les routes nécessitent "Authorization: Bearer <RUNNER_TOKEN>".
@@ -72,6 +79,31 @@ def _append(line):
         del _logs[:500]
 
 
+def _save_last_launch(hf_id, name, extra_tokens):
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump({"hf_model_id": hf_id, "model_name": name, "vllm_args": " ".join(extra_tokens)}, f)
+    except OSError as e:
+        _append(f"[runner] impossible d'enregistrer l'état pour la reprise auto : {e}")
+
+
+def _load_last_launch():
+    try:
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _clear_last_launch():
+    try:
+        os.remove(STATE_FILE)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        _append(f"[runner] impossible d'effacer l'état de reprise auto : {e}")
+
+
 def _kill(proc):
     """Tue le process ET tous ses enfants (process group)."""
     try:
@@ -91,7 +123,7 @@ def _kill(proc):
 
 
 def _reader(proc):
-    global _status, _proc, _model
+    global _status, _proc, _model, _auto_retries
     try:
         for raw in proc.stdout:
             line = raw.rstrip()
@@ -102,6 +134,7 @@ def _reader(proc):
             # /launch, peut écraser le statut du NOUVEAU process en cours de démarrage)
             if "Application startup complete" in line and proc is _proc:
                 _status = "running"
+                _auto_retries = 0  # ce lancement a fonctionné, on repart avec un budget de retry frais
     except Exception as e:
         _append(f"[runner] lecture interrompue : {e}")
     proc.wait()
@@ -159,9 +192,52 @@ def stream():
     return Response(generate(), mimetype="text/event-stream", headers=headers)
 
 
+def _start_process(hf_id, name, extra_tokens):
+    """Lance vLLM. Doit être appelé avec _lock déjà tenu."""
+    global _proc, _model, _status
+
+    if _proc and _proc.poll() is None:
+        _append("[runner] Arrêt du modèle précédent…")
+        _kill(_proc)
+
+    _logs.clear()
+    _model  = name
+    _status = "starting"
+
+    cmd = [VLLM_BIN, "serve", hf_id,
+           "--port", "8000", "--host", "0.0.0.0",
+           "--served-model-name", name,
+           ] + extra_tokens
+
+    _append(f"[runner] $ {' '.join(cmd)}")
+
+    # Env minimal explicite plutôt que **os.environ — évite de faire fuiter
+    # l'environnement root complet (secrets divers) dans /logs et /stream.
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
+        "HOME": os.environ.get("HOME", "/root"),
+        "HF_HOME": HF_HOME,
+        "PYTHONUNBUFFERED": "1",
+    }
+    if os.environ.get("HF_TOKEN"):
+        env["HF_TOKEN"] = os.environ["HF_TOKEN"]
+
+    _proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env=env,
+        start_new_session=True,   # nouveau process group → killpg fonctionne
+    )
+    threading.Thread(target=_reader, args=(_proc,), daemon=True).start()
+    return _proc
+
+
 @app.route("/launch", methods=["POST"])
 def launch():
-    global _proc, _model, _logs, _status
+    global _auto_retries
     data     = request.get_json(silent=True) or {}
     hf_id    = data.get("hf_model_id", "").strip()
     name     = data.get("model_name", hf_id).strip()
@@ -176,49 +252,17 @@ def launch():
     extra_tokens = result
 
     with _lock:
-        if _proc and _proc.poll() is None:
-            _append("[runner] Arrêt du modèle précédent…")
-            _kill(_proc)
+        proc = _start_process(hf_id, name, extra_tokens)
+        _auto_retries = 0
 
-        _logs.clear()
-        _model  = name
-        _status = "starting"
-
-        cmd = [VLLM_BIN, "serve", hf_id,
-               "--port", "8000", "--host", "0.0.0.0",
-               "--served-model-name", name,
-               ] + extra_tokens
-
-        _append(f"[runner] $ {' '.join(cmd)}")
-
-        # Env minimal explicite plutôt que **os.environ — évite de faire fuiter
-        # l'environnement root complet (secrets divers) dans /logs et /stream.
-        env = {
-            "PATH": os.environ.get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
-            "HOME": os.environ.get("HOME", "/root"),
-            "HF_HOME": HF_HOME,
-            "PYTHONUNBUFFERED": "1",
-        }
-        if os.environ.get("HF_TOKEN"):
-            env["HF_TOKEN"] = os.environ["HF_TOKEN"]
-
-        _proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            env=env,
-            start_new_session=True,   # nouveau process group → killpg fonctionne
-        )
-
-    threading.Thread(target=_reader, args=(_proc,), daemon=True).start()
-    return jsonify({"status": "starting", "model": name, "pid": _proc.pid})
+    _save_last_launch(hf_id, name, extra_tokens)
+    return jsonify({"status": "starting", "model": name, "pid": proc.pid})
 
 
 @app.route("/stop", methods=["POST"])
 def stop():
     global _proc, _model, _status
+    _clear_last_launch()  # arrêt volontaire : ne pas reprendre tout seul
     with _lock:
         if _proc and _proc.poll() is None:
             _append("[runner] Arrêt demandé.")
@@ -229,5 +273,44 @@ def stop():
     return jsonify({"status": "already_stopped"})
 
 
+def _watchdog():
+    """Reprend automatiquement le dernier modèle lancé s'il s'arrête de façon
+    inattendue (crash, update système, reboot) — pas après un /stop volontaire,
+    qui efface l'état persisté. Limité à MAX_AUTO_RETRIES tentatives consécutives
+    pour ne pas boucler indéfiniment sur une config cassée."""
+    global _auto_retries
+    while True:
+        time.sleep(10)
+        last = _load_last_launch()
+        if not last:
+            continue
+        with _lock:
+            already_running = _proc is not None and _proc.poll() is None
+            mid_launch = _status == "starting"
+            if already_running or mid_launch:
+                continue
+            if _auto_retries >= MAX_AUTO_RETRIES:
+                continue
+            ok, extra_tokens = _validate_vllm_args(last.get("vllm_args", ""))
+            if not ok:
+                _append(f"[runner] reprise auto impossible, args invalides : {extra_tokens}")
+                _auto_retries = MAX_AUTO_RETRIES
+                continue
+            _auto_retries += 1
+            attempt_msg = f"[runner] modèle arrêté de façon inattendue — reprise automatique (tentative {_auto_retries}/{MAX_AUTO_RETRIES})…"
+            _start_process(last["hf_model_id"], last["model_name"], extra_tokens)
+            _append(attempt_msg)  # après _start_process (qui vide _logs) pour qu'il survive
+
+
 if __name__ == "__main__":
+    threading.Thread(target=_watchdog, daemon=True).start()
+
+    _resume = _load_last_launch()
+    if _resume:
+        ok, extra_tokens = _validate_vllm_args(_resume.get("vllm_args", ""))
+        if ok:
+            with _lock:
+                _append("[runner] reprise du dernier modèle au démarrage du service…")
+                _start_process(_resume["hf_model_id"], _resume["model_name"], extra_tokens)
+
     app.run(host="0.0.0.0", port=8001, debug=False, threaded=True)

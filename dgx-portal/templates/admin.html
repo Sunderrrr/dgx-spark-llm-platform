@@ -127,6 +127,88 @@
     </div>
   </div>
 
+  <!-- ── Limite de tokens globale ─────────────────────────────────────────── -->
+  <div class="col-12">
+    <h6 class="text-secondary mb-2"><i class="bi bi-sliders text-info"></i> Limite de tokens par défaut (nouvelles clés)</h6>
+    <div class="card">
+      <div class="card-body">
+        <form method="POST" action="/admin/settings" class="d-flex align-items-end gap-2 flex-wrap">
+          <div>
+            <label class="form-label text-secondary small mb-1">Tokens</label>
+            <input type="number" name="default_key_budget" min="1" step="1"
+                   class="form-control form-control-sm bg-dark text-white border-secondary" style="width:180px"
+                   value="{{ default_key_budget|int }}" required>
+          </div>
+          <div>
+            <label class="form-label text-secondary small mb-1">Durée (ex: 1d, 7d, 12h)</label>
+            <input type="text" name="default_key_duration" pattern="\d+[smhd]" title="ex: 1d, 7d, 12h"
+                   class="form-control form-control-sm bg-dark text-white border-secondary" style="width:140px"
+                   value="{{ default_key_duration }}" required>
+          </div>
+          <button class="btn btn-warning btn-sm"><i class="bi bi-check-lg"></i> Appliquer</button>
+        </form>
+        <div class="text-secondary small mt-2">S'applique aux clés créées après ce changement — n'affecte pas les clés existantes.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Demandes de tokens ───────────────────────────────────────────────── -->
+  <div class="col-12">
+    <h6 class="text-secondary mb-2">
+      <i class="bi bi-lightning-charge text-warning"></i> Demandes de tokens
+      {% if stats.budget_pending %}<span class="badge bg-warning text-dark">{{ stats.budget_pending }}</span>{% endif %}
+    </h6>
+    <div class="card">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0">
+          <thead><tr>
+            <th>Utilisateur</th><th>Clé</th><th>Budget actuel</th><th>Raison</th><th>Date</th><th>Statut</th><th>Action</th>
+          </tr></thead>
+          <tbody>
+          {% for req in budget_reqs %}
+          <tr>
+            <td>
+              <span class="text-white">{{ req.fullname }}</span><br>
+              <small class="text-secondary">{{ req.username }}</small>
+            </td>
+            <td class="text-white small fw-semibold">{{ req.key_alias }}</td>
+            <td class="text-secondary small">{{ "{:,.0f}".format(req.current_budget).replace(',', ' ') if req.current_budget else '—' }}</td>
+            <td class="text-secondary small">{{ req.reason or '—' }}</td>
+            <td class="text-secondary small">{{ req.created_at[:16].replace('T',' ') }}</td>
+            <td>
+              {% if req.status == 'pending' %}
+                <span class="badge badge-pending">En attente</span>
+              {% elif req.status == 'approved' %}
+                <span class="badge badge-done">+{{ "{:,.0f}".format(req.granted_amount).replace(',', ' ') }} ✓</span>
+              {% else %}
+                <span class="badge badge-rejected">Refusé</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if req.status == 'pending' %}
+              <div class="d-flex gap-1">
+                <form method="POST" action="/admin/budget/approve/{{ req.id }}" class="d-flex gap-1">
+                  <input type="number" name="amount" min="1" step="1" placeholder="tokens"
+                         class="form-control form-control-sm bg-dark text-white border-secondary" style="width:110px" required>
+                  <button class="btn btn-success btn-sm">✓</button>
+                </form>
+                <form method="POST" action="/admin/budget/reject/{{ req.id }}">
+                  <button class="btn btn-danger btn-sm">✗</button>
+                </form>
+              </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not budget_reqs %}
+          <tr><td colspan="7" class="text-center text-secondary py-4">Aucune demande.</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Consommation ─────────────────────────────────────────────────────── -->
   {% if spend_data %}
   <div class="col-12">
@@ -140,8 +222,8 @@
           <tr>
             <td class="text-white">{{ k.key_alias or '—' }}</td>
             <td class="text-secondary">{{ k.username or '—' }}</td>
-            <td>{{ "{:,.0f}".format((k.spend or 0) / 0.000000001) }}</td>
-            <td>{% if k.max_budget %}<span class="text-warning">{{ "{:,.0f}".format(k.max_budget / 0.000000001) }}</span>{% else %}<span class="badge bg-warning text-dark">∞</span>{% endif %}</td>
+            <td>{{ "{:,.0f}".format(k.spend or 0).replace(',', ' ') }}</td>
+            <td>{% if k.max_budget %}<span class="text-warning">{{ "{:,.0f}".format(k.max_budget).replace(',', ' ') }}</span>{% else %}<span class="badge bg-warning text-dark">∞</span>{% endif %}</td>
             <td class="text-secondary">{{ k.budget_duration or '—' }}</td>
           </tr>
           {% endfor %}

@@ -1,13 +1,41 @@
 import os, sqlite3, smtplib, requests, time, re
 from flask import Flask, render_template, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
+from ldap3.utils.conv import escape_filter_chars
+from ldap3.utils.dn import escape_rdn
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 from functools import wraps
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 app.secret_key = os.environ['SECRET_KEY']
+
+# ── Durcissement des sessions ────────────────────────────────────────────────
+# HttpOnly : le cookie de session n'est pas lisible en JS (anti-vol via XSS).
+# SameSite=Strict : le navigateur n'envoie jamais le cookie sur une requête
+#   cross-site → neutralise le CSRF sur toutes les routes POST (une requête
+#   forgée depuis un autre site arrive sans session → bloquée par @login_required).
+# Secure : cookie transmis uniquement en HTTPS. Activé via env quand un reverse
+#   proxy TLS est devant (aujourd'hui l'app est en HTTP sur le LAN → défaut off).
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Strict',
+    SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE', '0') == '1',
+)
+
+# Regex de validation des identifiants LDAP (défense en profondeur contre
+# l'injection de filtre/DN, en plus de l'échappement).
+USERNAME_RE = re.compile(r'^[a-zA-Z0-9._-]{1,64}$')
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    resp.headers.setdefault('X-Frame-Options', 'DENY')
+    resp.headers.setdefault('Referrer-Policy', 'same-origin')
+    return resp
 
 LDAP_URI      = os.environ.get('LDAP_URI', 'ldap://lldap.cronos.lan:3890')
 LDAP_BASE     = os.environ.get('LDAP_BASE', 'dc=cronos,dc=website')
@@ -128,16 +156,33 @@ def init_db():
 
 # ── LDAP ────────────────────────────────────────────────────────────────────
 
+def _is_admin_group(dn):
+    """Vrai si un des composants RDN du DN est exactement cn=adm_cronos.
+    Évite le faux positif d'un simple `'adm_cronos' in dn` (qui matcherait
+    cn=adm_cronos_readonly, cn=notadm_cronos, etc.)."""
+    for part in dn.split(','):
+        attr, _, val = part.strip().partition('=')
+        if attr.strip().lower() == 'cn' and val.strip().lower() == 'adm_cronos':
+            return True
+    return False
+
+
 def ldap_authenticate(username, password):
     """Retourne (ok, is_admin, display_name)."""
+    # Rejet strict : un mot de passe vide déclenche un "unauthenticated bind"
+    # LDAP qui réussit sur certains annuaires → bypass d'authentification.
+    # Un identifiant hors charset autorisé est refusé avant tout accès LDAP.
+    if not password or not USERNAME_RE.match(username):
+        return False, False, username
     try:
         server = Server(LDAP_URI, get_info=ALL)
-        user_dn = f"uid={username},ou=people,{LDAP_BASE}"
+        # Échappement anti-injection : RDN pour le DN de bind, filtre pour la recherche.
+        user_dn = f"uid={escape_rdn(username)},ou=people,{LDAP_BASE}"
         conn = Connection(server, user=user_dn, password=password,
                           authentication=SIMPLE, auto_bind=True)
         conn.search(
             search_base=f"ou=people,{LDAP_BASE}",
-            search_filter=f"(uid={username})",
+            search_filter=f"(uid={escape_filter_chars(username)})",
             attributes=['cn', 'memberOf']
         )
         if not conn.entries:
@@ -146,7 +191,7 @@ def ldap_authenticate(username, password):
         entry = conn.entries[0]
         fullname = str(entry.cn) if hasattr(entry, 'cn') else username
         groups = [str(g) for g in entry.memberOf] if hasattr(entry, 'memberOf') else []
-        is_admin = any('adm_cronos' in g for g in groups)
+        is_admin = any(_is_admin_group(g) for g in groups)
         conn.unbind()
         return True, is_admin, fullname
     except Exception:
@@ -411,16 +456,28 @@ def login():
     if 'username' in session:
         return redirect(url_for('index'))
     if request.method == 'POST':
-        username = request.form['username'].strip().lower()
-        password = request.form['password']
+        username = request.form.get('username', '').strip().lower()
+        password = request.form.get('password', '')
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
+            session.clear()
             session['username'] = username
             session['fullname'] = fullname
             session['is_admin'] = is_admin
-            return redirect(request.args.get('next') or url_for('index'))
+            return redirect(_safe_next(request.args.get('next')))
         flash("Identifiants incorrects.", "danger")
     return render_template('login.html')
+
+
+def _safe_next(target):
+    """N'autorise que les redirections vers un chemin local relatif — bloque
+    l'open redirect (?next=https://evil.com ou //evil.com)."""
+    if not target:
+        return url_for('index')
+    parsed = urlparse(target)
+    if parsed.scheme or parsed.netloc or not target.startswith('/') or target.startswith('//'):
+        return url_for('index')
+    return target
 
 @app.route('/logout')
 def logout():
@@ -466,9 +523,19 @@ def keys():
                 flash("Erreur lors de la création de la clé.", "danger")
         elif action == 'revoke':
             k = request.form.get('key')
-            if revoke_litellm_key(k):
-                db = get_db()
-                db.execute("DELETE FROM api_keys WHERE key_value=?", (k,))
+            db = get_db()
+            # Vérifie que la clé appartient bien à l'utilisateur connecté AVANT de
+            # la révoquer côté LiteLLM (anti-IDOR : sinon n'importe quel user pourrait
+            # révoquer la clé d'un autre en soumettant sa valeur).
+            owns = db.execute(
+                "SELECT 1 FROM api_keys WHERE key_value=? AND username=?",
+                (k, session['username'])
+            ).fetchone()
+            if not owns:
+                flash("Clé introuvable.", "danger")
+            elif revoke_litellm_key(k):
+                db.execute("DELETE FROM api_keys WHERE key_value=? AND username=?",
+                           (k, session['username']))
                 db.commit()
                 flash("Clé révoquée.", "success")
                 user_keys = get_user_keys(session['username'])

@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}Admin — DGX Portal{% endblock %}
+{% block content %}
+<div class="row g-4">
+
+  <!-- ── Lancement vLLM ───────────────────────────────────────────────────── -->
+  <div class="col-12">
+    <h5 class="mb-3"><i class="bi bi-gpu-card text-success"></i> Modèles vLLM</h5>
+
+    <!-- Statut courant -->
+    {% set st = v_status.status %}
+    <div class="card mb-3">
+      <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-3">
+        <div>
+          {% if st == 'running' %}
+            <span class="badge bg-success fs-6 me-2">● En ligne</span>
+            <strong class="text-white">{{ v_status.model }}</strong>
+            <span class="text-secondary small ms-2">(PID {{ v_status.pid }})</span>
+          {% elif st == 'starting' %}
+            <span class="badge bg-warning text-dark fs-6 me-2">⟳ Démarrage…</span>
+            <strong class="text-white">{{ v_status.model }}</strong>
+          {% elif st == 'error' %}
+            <span class="badge bg-danger fs-6 me-2">✗ Erreur</span>
+            <span class="text-secondary">Le processus s'est arrêté anormalement</span>
+          {% elif st == 'unreachable' %}
+            <span class="badge bg-secondary fs-6 me-2">? Runner</span>
+            <span class="text-secondary small">vllm-runner inaccessible sur :8001</span>
+          {% else %}
+            <span class="badge bg-secondary fs-6 me-2">○ Arrêté</span>
+            <span class="text-secondary">Aucun modèle actif</span>
+          {% endif %}
+        </div>
+        {% if st in ('running', 'starting') %}
+        <form method="POST" action="/admin/model/stop" onsubmit="return confirm('Arrêter le modèle ?')">
+          <button class="btn btn-danger btn-sm"><i class="bi bi-stop-circle"></i> Arrêter</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Catalogue de modèles -->
+    <div class="row g-3 mb-3">
+      {% for cfg in model_cfgs %}
+      <div class="col-md-4 col-lg-3">
+        <div class="card h-100">
+          <div class="card-body pb-2">
+            <div class="fw-semibold text-white mb-1">{{ cfg.name }}</div>
+            <div class="text-secondary" style="font-size:.75rem;word-break:break-all">{{ cfg.hf_model_id }}</div>
+            {% if cfg.vllm_args %}
+            <div class="text-info mt-1" style="font-size:.72rem"><code>{{ cfg.vllm_args }}</code></div>
+            {% endif %}
+          </div>
+          <div class="card-footer border-0 bg-transparent pt-0 d-flex gap-2">
+            <form method="POST" action="/admin/model/launch" class="flex-grow-1">
+              <input type="hidden" name="model_name" value="{{ cfg.name }}">
+              <button class="btn btn-success btn-sm w-100"
+                {% if st in ('running','starting') %}onclick="return confirm('Remplacer le modèle actif ?')"{% endif %}>
+                <i class="bi bi-play-fill"></i> Lancer
+              </button>
+            </form>
+            <form method="POST" action="/admin/model/delete/{{ cfg.id }}"
+                  onsubmit="return confirm('Supprimer ce modèle ?')">
+              <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+      <!-- Ajouter un modèle -->
+      <div class="col-md-4 col-lg-3">
+        <div class="card h-100 border-dashed" style="border-style:dashed!important">
+          <div class="card-body">
+            <div class="text-secondary small mb-2"><i class="bi bi-plus-circle"></i> Ajouter un modèle</div>
+            <form method="POST" action="/admin/model/add">
+              <input type="text" name="name" class="form-control form-control-sm bg-dark text-white border-secondary mb-2"
+                     placeholder="Nom (ex: llama-3-8b)" required>
+              <input type="text" name="hf_model_id" class="form-control form-control-sm bg-dark text-white border-secondary mb-2"
+                     placeholder="HF ID (ex: meta-llama/Llama-3-8B)" required>
+              <input type="text" name="vllm_args" class="form-control form-control-sm bg-dark text-white border-secondary mb-2"
+                     placeholder="Args vLLM (ex: --dtype fp8)">
+              <button class="btn btn-outline-success btn-sm w-100"><i class="bi bi-plus"></i> Ajouter</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs vLLM -->
+    <div class="card">
+      <div class="card-header d-flex align-items-center justify-content-between text-secondary small">
+        <span><i class="bi bi-terminal text-success"></i> Logs vLLM</span>
+        <div class="d-flex align-items-center gap-2">
+          <div class="form-check form-switch mb-0 me-1">
+            <input class="form-check-input" type="checkbox" id="autoscroll" checked>
+            <label class="form-check-label text-secondary" for="autoscroll" style="font-size:.75rem">Auto-scroll</label>
+          </div>
+          <span id="log-status" class="badge bg-secondary" style="font-size:.7rem">—</span>
+        </div>
+      </div>
+      <div id="log-box" style="background:#0d1117;font-size:.75rem;color:#8b949e;height:280px;overflow-y:auto;padding:.75rem;font-family:monospace;white-space:pre-wrap;word-break:break-all">{% if init_logs %}{{ init_logs | join('\n') }}{% endif %}</div>
+    </div>
+  </div>
+
+  <!-- ── Stats ────────────────────────────────────────────────────────────── -->
+  <div class="col-12">
+    <h5 class="mb-3"><i class="bi bi-shield-lock text-warning"></i> Dashboard</h5>
+    <div class="row g-3">
+      <div class="col-sm-4">
+        <div class="card text-center py-3">
+          <div class="stat-number">{{ stats.pending }}</div>
+          <div class="text-secondary small">Demandes en attente</div>
+        </div>
+      </div>
+      <div class="col-sm-4">
+        <div class="card text-center py-3">
+          <div class="stat-number text-success">{{ stats.done }}</div>
+          <div class="text-secondary small">Lancées</div>
+        </div>
+      </div>
+      <div class="col-sm-4">
+        <div class="card text-center py-3">
+          <div class="stat-number text-danger">{{ stats.rejected }}</div>
+          <div class="text-secondary small">Refusées</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Consommation ─────────────────────────────────────────────────────── -->
+  {% if spend_data %}
+  <div class="col-12">
+    <h6 class="text-secondary mb-2"><i class="bi bi-bar-chart text-info"></i> Consommation par clé</h6>
+    <div class="card">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0 small">
+          <thead><tr><th>Alias</th><th>User</th><th>Tokens</th><th>Budget</th><th>Durée</th></tr></thead>
+          <tbody>
+          {% for k in spend_data %}
+          <tr>
+            <td class="text-white">{{ k.key_alias or '—' }}</td>
+            <td class="text-secondary">{{ k.username or '—' }}</td>
+            <td>{{ "{:,.0f}".format((k.spend or 0) / 0.000000001) }}</td>
+            <td>{% if k.max_budget %}<span class="text-warning">{{ "{:,.0f}".format(k.max_budget / 0.000000001) }}</span>{% else %}<span class="badge bg-warning text-dark">∞</span>{% endif %}</td>
+            <td class="text-secondary">{{ k.budget_duration or '—' }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Demandes de modèles ──────────────────────────────────────────────── -->
+  <div class="col-12">
+    <h6 class="text-secondary mb-2"><i class="bi bi-list-check"></i> Demandes de modèles</h6>
+    <div class="card">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0">
+          <thead><tr>
+            <th>Utilisateur</th><th>Modèle</th><th>Raison</th><th>Date</th><th>Statut</th><th>Action</th>
+          </tr></thead>
+          <tbody>
+          {% for req in requests %}
+          <tr>
+            <td>
+              <span class="text-white">{{ req.fullname }}</span><br>
+              <small class="text-secondary">{{ req.username }}</small>
+            </td>
+            <td class="text-white small fw-semibold" style="word-break:break-all">{{ req.model_id }}</td>
+            <td class="text-secondary small">{{ req.reason or '—' }}</td>
+            <td class="text-secondary small">{{ req.created_at[:16].replace('T',' ') }}</td>
+            <td>
+              {% if req.status == 'pending' %}
+                <span class="badge badge-pending">En attente</span>
+              {% elif req.status == 'done' %}
+                <span class="badge badge-done">Lancé ✓</span>
+              {% else %}
+                <span class="badge badge-rejected">Refusé</span>
+              {% endif %}
+            </td>
+            <td>
+              <form method="POST" action="/admin/update/{{ req.id }}" class="d-flex gap-1">
+                {% if req.status != 'done' %}
+                <button name="status" value="done" class="btn btn-success btn-sm">✓</button>
+                {% endif %}
+                {% if req.status != 'rejected' %}
+                <button name="status" value="rejected" class="btn btn-danger btn-sm">✗</button>
+                {% endif %}
+                {% if req.status != 'pending' %}
+                <button name="status" value="pending" class="btn btn-secondary btn-sm">↩</button>
+                {% endif %}
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not requests %}
+          <tr><td colspan="6" class="text-center text-secondary py-4">Aucune demande.</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const logBox     = document.getElementById('log-box');
+const logStatus  = document.getElementById('log-status');
+const autoScroll = document.getElementById('autoscroll');
+
+// Initialisation depuis le pré-rendu serveur
+let lineCount = logBox.textContent.split('\n').filter(l => l).length;
+if (lineCount > 0) {
+  logBox.scrollTop = logBox.scrollHeight;
+  logStatus.textContent = lineCount + ' lignes';
+  logStatus.className = 'badge bg-success';
+}
+
+function appendLine(line) {
+  if (logBox.textContent) logBox.textContent += '\n';
+  logBox.textContent += line;
+  lineCount++;
+  logStatus.textContent = lineCount + ' lignes';
+  logStatus.className = 'badge bg-success';
+  if (autoScroll.checked) logBox.scrollTop = logBox.scrollHeight;
+}
+
+// SSE → relayé par dgx-portal (même origine), qui parle au runner en interne
+const es = new EventSource('/admin/runner/stream');
+
+es.onopen = function() {
+  logStatus.className = 'badge bg-success';
+};
+
+es.onmessage = function(e) {
+  appendLine(e.data);
+};
+
+es.addEventListener('clear', function() {
+  logBox.textContent = '';
+  lineCount = 0;
+  logStatus.textContent = '0 lignes';
+});
+
+es.onerror = function() {
+  logStatus.textContent = 'runner déconnecté';
+  logStatus.className = 'badge bg-danger';
+};
+</script>
+{% endblock %}

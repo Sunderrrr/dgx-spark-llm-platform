@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Demander un modèle — DGX Portal{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7 col-lg-6">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-send text-success"></i> Demander le lancement d'un modèle
+      </div>
+      <div class="card-body">
+        <p class="text-secondary small mb-4">
+          L'admin sera notifié par Discord et email. Tu verras le statut de ta demande sur la page d'accueil.
+        </p>
+        <form method="POST">
+          <div class="mb-3">
+            <label class="form-label">Identifiant HuggingFace <span class="text-danger">*</span></label>
+            <input type="text" name="model_id" value="{{ prefill }}"
+                   class="form-control bg-dark border-secondary"
+                   placeholder="ex: Qwen/Qwen3-30B-A3B" required>
+            <div class="form-text text-secondary">Format : <code>organisation/nom-du-modèle</code></div>
+          </div>
+          <div class="mb-4">
+            <label class="form-label">Pourquoi ce modèle ? <span class="text-secondary">(optionnel)</span></label>
+            <textarea name="reason" class="form-control bg-dark border-secondary" rows="3"
+                      placeholder="Ex: tester les capacités de raisonnement, comparer avec Ornith..."></textarea>
+          </div>
+          <div class="d-flex gap-2">
+            <a href="/" class="btn btn-outline-secondary">Annuler</a>
+            <button type="submit" class="btn btn-success px-4">
+              <i class="bi bi-send"></i> Envoyer la demande
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <p class="text-secondary small mt-3 text-center">
+      Tu ne connais pas l'ID exact ? <a href="/search" class="text-info">Cherche sur HuggingFace →</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

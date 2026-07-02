@@ -1,0 +1,22 @@
+[Unit]
+Description=Restrict vLLM (8000) and vllm-runner (8001) to localhost + ai-platform docker bridge only
+After=network.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '\
+for PORT in 8000 8001; do \
+  iptables -C INPUT -p tcp --dport $PORT -j DROP 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -j DROP; \
+  iptables -C INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT; \
+  iptables -C INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT; \
+done'
+ExecStop=/bin/sh -c '\
+for PORT in 8000 8001; do \
+  iptables -D INPUT -p tcp --dport $PORT -j DROP 2>/dev/null || true; \
+  iptables -D INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT 2>/dev/null || true; \
+  iptables -D INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT 2>/dev/null || true; \
+done'
+
+[Install]
+WantedBy=multi-user.target

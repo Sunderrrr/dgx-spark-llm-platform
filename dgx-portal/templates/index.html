@@ -3,6 +3,17 @@
 {% block content %}
 <div class="row g-4">
 
+  <!-- En-tête -->
+  <div class="col-12">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div>
+        <h3 class="mb-1 fw-bold">Bonjour, {{ session.fullname.split(' ')[0] }} 👋</h3>
+        <p class="text-secondary mb-0">Ton accès self-service à l'inférence LLM sur DGX Spark.</p>
+      </div>
+      <a href="/keys" class="btn btn-success"><i class="bi bi-key"></i> Mes clés API</a>
+    </div>
+  </div>
+
   <!-- Modèles actifs -->
   <div class="col-12">
     <h5 class="text-secondary mb-3"><i class="bi bi-activity text-success"></i> Modèles disponibles maintenant</h5>

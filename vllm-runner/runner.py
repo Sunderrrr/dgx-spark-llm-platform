@@ -97,13 +97,16 @@ def _reader(proc):
             line = raw.rstrip()
             _append(line)
             # vLLM est prêt quand il imprime "Application startup complete"
-            if "Application startup complete" in line:
+            # (ne touche au statut global que si ce process est toujours le process actif —
+            # sinon un ancien reader thread, encore en train de drainer un process tué par
+            # /launch, peut écraser le statut du NOUVEAU process en cours de démarrage)
+            if "Application startup complete" in line and proc is _proc:
                 _status = "running"
     except Exception as e:
         _append(f"[runner] lecture interrompue : {e}")
     proc.wait()
     with _lock:
-        if _status not in ("stopped",):
+        if proc is _proc and _status != "stopped":
             _status = "error" if proc.returncode not in (0, -15, -9) else "stopped"
         _append(f"[runner] Processus terminé (code {proc.returncode})")
 

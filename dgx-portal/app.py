@@ -108,7 +108,7 @@ def init_db():
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
         ('default_key_duration', KEY_DURATION)
     )
-    ORNITH_ARGS = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 262144 --gpu-memory-utilization 0.6 --max-num-seqs 4"
+    ORNITH_ARGS = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 262144 --gpu-memory-utilization 0.6 --max-num-seqs 8"
     QWEN_ARGS   = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 32768 --gpu-memory-utilization 0.8 --max-num-seqs 8"
     now = datetime.now().isoformat()
     db.executemany(

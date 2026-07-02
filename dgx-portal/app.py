@@ -43,6 +43,18 @@ def close_db(e=None):
     if db:
         db.close()
 
+def get_setting(key, default=None):
+    row = get_db().execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row['value'] if row else default
+
+def set_setting(key, value):
+    db = get_db()
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, str(value))
+    )
+    db.commit()
+
 def init_db():
     os.makedirs('/app/data', exist_ok=True)
     db = sqlite3.connect(DB_PATH)
@@ -71,7 +83,31 @@ def init_db():
             vllm_args   TEXT DEFAULT '',
             added_at    TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS budget_requests (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            username        TEXT NOT NULL,
+            fullname        TEXT NOT NULL,
+            key_alias       TEXT NOT NULL,
+            current_budget  REAL,
+            reason          TEXT,
+            status          TEXT DEFAULT 'pending',
+            granted_amount  REAL,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT
+        );
     ''')
+    db.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
+        ('default_key_budget', str(KEY_BUDGET))
+    )
+    db.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
+        ('default_key_duration', KEY_DURATION)
+    )
     ORNITH_ARGS = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 262144 --gpu-memory-utilization 0.6 --max-num-seqs 4"
     QWEN_ARGS   = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 32768 --gpu-memory-utilization 0.8 --max-num-seqs 8"
     now = datetime.now().isoformat()
@@ -174,13 +210,31 @@ def create_litellm_key(alias, username, is_admin=False):
         "metadata": {"user": username, "created_by": "dgx-portal"},
     }
     if not is_admin:
-        payload["max_budget"] = KEY_BUDGET
-        payload["budget_duration"] = KEY_DURATION
+        payload["max_budget"] = float(get_setting('default_key_budget', KEY_BUDGET))
+        payload["budget_duration"] = get_setting('default_key_duration', KEY_DURATION)
     r = requests.post(f"{LITELLM_URL}/key/generate",
                       headers=litellm_headers(), json=payload, timeout=10)
     if r.ok:
         return r.json().get('key')
     return None
+
+def litellm_key_info(key_value):
+    try:
+        r = requests.get(f"{LITELLM_URL}/key/info", headers=litellm_headers(),
+                         params={'key': key_value}, timeout=5)
+        if r.ok:
+            return r.json().get('info', {})
+    except Exception:
+        pass
+    return {}
+
+def litellm_update_key_budget(key_value, new_max_budget):
+    try:
+        r = requests.post(f"{LITELLM_URL}/key/update", headers=litellm_headers(),
+                          json={'key': key_value, 'max_budget': new_max_budget}, timeout=5)
+        return r.ok
+    except Exception:
+        return False
 
 def revoke_litellm_key(key_value):
     r = requests.post(f"{LITELLM_URL}/key/delete",
@@ -283,6 +337,52 @@ def notify_email(model_id, username, fullname, reason):
     except Exception as e:
         print(f"[email] erreur : {e}")
 
+def notify_budget_discord(username, fullname, key_alias, current_budget, reason):
+    if not DISCORD_WH:
+        return
+    payload = {"embeds": [{
+        "title": "🔋 Demande de tokens supplémentaires — DGX Spark",
+        "color": 0xF0A500,
+        "fields": [
+            {"name": "Utilisateur", "value": f"{fullname} (`{username}`)", "inline": True},
+            {"name": "Clé", "value": f"`{key_alias}`", "inline": True},
+            {"name": "Budget actuel", "value": f"{current_budget:,.0f} tokens" if current_budget is not None else "—", "inline": True},
+            {"name": "Raison", "value": reason or "—"},
+        ],
+        "footer": {"text": "DGX Portal"},
+        "timestamp": datetime.utcnow().isoformat()
+    }]}
+    try:
+        requests.post(DISCORD_WH, json=payload, timeout=5)
+    except Exception:
+        pass
+
+def notify_budget_email(username, fullname, key_alias, current_budget, reason):
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
+        return
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = f"[DGX] Demande de tokens : {username}"
+    msg['From'] = SMTP_FROM or SMTP_USER
+    msg['To'] = ADMIN_EMAIL
+    budget_str = f"{current_budget:,.0f} tokens" if current_budget is not None else "—"
+    body = (
+        f"Nouvelle demande de tokens supplémentaires\n\n"
+        f"Utilisateur   : {fullname} ({username})\n"
+        f"Clé           : {key_alias}\n"
+        f"Budget actuel : {budget_str}\n"
+        f"Raison        : {reason or '—'}\n"
+        f"Date          : {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"Dashboard admin : http://dgx.cronos.lan:5000/admin\n"
+    )
+    msg.attach(MIMEText(body, 'plain'))
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(msg['From'], [ADMIN_EMAIL], msg.as_string())
+    except Exception as e:
+        print(f"[email] erreur : {e}")
+
 # ── Décorateurs ─────────────────────────────────────────────────────────────
 
 def login_required(f):
@@ -374,9 +474,36 @@ def keys():
                 user_keys = get_user_keys(session['username'])
             else:
                 flash("Erreur lors de la révocation.", "danger")
+        elif action == 'request_budget':
+            key_alias = request.form.get('key_alias', '').strip()
+            reason    = request.form.get('reason', '').strip()
+            current   = next((k['max_budget'] for k in user_keys if k['key_alias'] == key_alias), None)
+            if not key_alias:
+                flash("Clé invalide.", "warning")
+                return redirect(url_for('keys'))
+            db = get_db()
+            existing = db.execute(
+                "SELECT id FROM budget_requests WHERE username=? AND key_alias=? AND status='pending'",
+                (session['username'], key_alias)
+            ).fetchone()
+            if existing:
+                flash("Tu as déjà une demande en attente pour cette clé.", "warning")
+                return redirect(url_for('keys'))
+            db.execute(
+                "INSERT INTO budget_requests (username, fullname, key_alias, current_budget, reason, status, created_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (session['username'], session['fullname'], key_alias, current, reason, 'pending',
+                 datetime.now().isoformat())
+            )
+            db.commit()
+            notify_budget_discord(session['username'], session['fullname'], key_alias, current, reason)
+            notify_budget_email(session['username'], session['fullname'], key_alias, current, reason)
+            flash("Demande de tokens envoyée !", "success")
     running = get_running_models()
+    default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
     return render_template('keys.html', user_keys=user_keys, new_key_alias=new_key_alias,
-                           budget_tokens="2 000 000", budget_duration="jour",
+                           budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
+                           budget_duration=get_setting('default_key_duration', KEY_DURATION),
                            running_models=running)
 
 @app.route('/search')
@@ -452,21 +579,25 @@ def admin_get_all_keys_spend():
 @admin_required
 def admin():
     db = get_db()
-    all_reqs   = db.execute("SELECT * FROM model_requests ORDER BY created_at DESC").fetchall()
-    model_cfgs = db.execute("SELECT * FROM model_configs ORDER BY name").fetchall()
-    running    = get_running_models()
-    v_status   = runner_status()
-    init_logs  = runner_logs(300)
-    spend_data = admin_get_all_keys_spend()
+    all_reqs    = db.execute("SELECT * FROM model_requests ORDER BY created_at DESC").fetchall()
+    model_cfgs  = db.execute("SELECT * FROM model_configs ORDER BY name").fetchall()
+    budget_reqs = db.execute("SELECT * FROM budget_requests ORDER BY created_at DESC").fetchall()
+    running     = get_running_models()
+    v_status    = runner_status()
+    init_logs   = runner_logs(300)
+    spend_data  = admin_get_all_keys_spend()
     stats = {
         'pending':  sum(1 for r in all_reqs if r['status'] == 'pending'),
         'done':     sum(1 for r in all_reqs if r['status'] == 'done'),
         'rejected': sum(1 for r in all_reqs if r['status'] == 'rejected'),
+        'budget_pending': sum(1 for r in budget_reqs if r['status'] == 'pending'),
     }
     return render_template('admin.html', requests=all_reqs, running_models=running,
                            stats=stats, spend_data=spend_data,
                            model_cfgs=model_cfgs, v_status=v_status,
-                           init_logs=init_logs)
+                           init_logs=init_logs, budget_reqs=budget_reqs,
+                           default_key_budget=get_setting('default_key_budget', KEY_BUDGET),
+                           default_key_duration=get_setting('default_key_duration', KEY_DURATION))
 
 @app.route('/admin/model/launch', methods=['POST'])
 @admin_required
@@ -514,6 +645,75 @@ def delete_model_cfg(mid):
     db.execute("DELETE FROM model_configs WHERE id=?", (mid,))
     db.commit()
     flash("Modèle supprimé.", "success")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/settings', methods=['POST'])
+@admin_required
+def update_settings():
+    budget   = request.form.get('default_key_budget', '').strip()
+    duration = request.form.get('default_key_duration', '').strip()
+    try:
+        budget_val = float(budget)
+        if budget_val <= 0:
+            raise ValueError
+    except ValueError:
+        flash("Le nombre de tokens par défaut doit être un nombre positif.", "warning")
+        return redirect(url_for('admin'))
+    if not re.match(r'^\d+[smhd]$', duration):
+        flash("Durée invalide (ex: 1d, 7d, 30d, 12h).", "warning")
+        return redirect(url_for('admin'))
+    set_setting('default_key_budget', budget_val)
+    set_setting('default_key_duration', duration)
+    flash(f"Limite globale mise à jour : {budget_val:,.0f} tokens / {duration}.".replace(',', ' '), "success")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/budget/approve/<int:req_id>', methods=['POST'])
+@admin_required
+def approve_budget(req_id):
+    amount = request.form.get('amount', '').strip()
+    db = get_db()
+    breq = db.execute("SELECT * FROM budget_requests WHERE id=?", (req_id,)).fetchone()
+    if not breq or breq['status'] != 'pending':
+        flash("Demande introuvable ou déjà traitée.", "warning")
+        return redirect(url_for('admin'))
+    try:
+        amount_val = float(amount)
+        if amount_val <= 0:
+            raise ValueError
+    except ValueError:
+        flash("Le montant à ajouter doit être un nombre positif.", "warning")
+        return redirect(url_for('admin'))
+    key_row = db.execute(
+        "SELECT key_value FROM api_keys WHERE username=? AND key_alias=?",
+        (breq['username'], breq['key_alias'])
+    ).fetchone()
+    if not key_row:
+        flash("Clé introuvable (peut-être révoquée depuis).", "danger")
+        return redirect(url_for('admin'))
+    info = litellm_key_info(key_row['key_value'])
+    current_budget = info.get('max_budget') or 0
+    new_budget = current_budget + amount_val
+    if not litellm_update_key_budget(key_row['key_value'], new_budget):
+        flash("Erreur lors de la mise à jour du budget sur LiteLLM.", "danger")
+        return redirect(url_for('admin'))
+    db.execute(
+        "UPDATE budget_requests SET status='approved', granted_amount=?, updated_at=? WHERE id=?",
+        (amount_val, datetime.now().isoformat(), req_id)
+    )
+    db.commit()
+    flash(f"+{amount_val:,.0f} tokens accordés à {breq['fullname']} (nouveau total : {new_budget:,.0f}).".replace(',', ' '), "success")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/budget/reject/<int:req_id>', methods=['POST'])
+@admin_required
+def reject_budget(req_id):
+    db = get_db()
+    db.execute(
+        "UPDATE budget_requests SET status='rejected', updated_at=? WHERE id=?",
+        (datetime.now().isoformat(), req_id)
+    )
+    db.commit()
+    flash("Demande rejetée.", "success")
     return redirect(url_for('admin'))
 
 @app.route('/admin/runner/logs')

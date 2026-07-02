@@ -57,20 +57,41 @@
                 <div class="progress mb-1" style="height:5px;width:90px">
                   <div class="progress-bar bg-success" style="width:{{ [100 - pct, 0]|max }}%"></div>
                 </div>
-                <small class="text-secondary">{{ "%.0f"|format((1 - spent/budget)*2000) }}k restants</small>
+                <small class="text-secondary">{{ "{:,.0f}".format([budget - spent, 0]|max).replace(',', ' ') }} tokens restants</small>
               {% else %}
                 <span class="badge bg-warning text-dark">Illimité</span>
               {% endif %}
             </td>
             <td class="text-secondary small">{{ k.get('budget_reset_at','—')[:10] if k.get('budget_reset_at') else '—' }}</td>
             <td>
-              <form method="POST" onsubmit="return confirm('Révoquer cette clé ?')">
-                <input type="hidden" name="action" value="revoke">
-                <input type="hidden" name="key" value="{{ k.get('key','') }}">
-                <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+              <div class="d-flex gap-1">
+                {% if k.get('max_budget') %}
+                <button class="btn btn-outline-warning btn-sm" type="button" title="Demander plus de tokens"
+                        onclick="toggleReqForm('{{ loop.index }}')">
+                  <i class="bi bi-plus-circle"></i>
+                </button>
+                {% endif %}
+                <form method="POST" onsubmit="return confirm('Révoquer cette clé ?')">
+                  <input type="hidden" name="action" value="revoke">
+                  <input type="hidden" name="key" value="{{ k.get('key','') }}">
+                  <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% if k.get('max_budget') %}
+          <tr id="reqform-{{ loop.index }}" class="d-none">
+            <td colspan="5">
+              <form method="POST" class="d-flex align-items-center gap-2">
+                <input type="hidden" name="action" value="request_budget">
+                <input type="hidden" name="key_alias" value="{{ k.get('key_alias','') }}">
+                <input type="text" name="reason" class="form-control form-control-sm bg-dark text-white border-secondary"
+                       placeholder="Raison (optionnel)" style="max-width:320px">
+                <button class="btn btn-warning btn-sm text-nowrap"><i class="bi bi-send"></i> Envoyer la demande</button>
               </form>
             </td>
           </tr>
+          {% endif %}
           {% endfor %}
           </tbody>
         </table>
@@ -332,6 +353,10 @@ function flash(btn, small) {
 
 function copyKey(val, btn) {
   copyText(val).then(() => flash(btn, true));
+}
+
+function toggleReqForm(idx) {
+  document.getElementById('reqform-' + idx)?.classList.toggle('d-none');
 }
 
 function toggleKey(idx, full) {

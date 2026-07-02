@@ -1,0 +1,564 @@
+import os, sqlite3, smtplib, requests, time, re
+from flask import Flask, render_template, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context
+from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from datetime import datetime
+from functools import wraps
+
+app = Flask(__name__)
+app.secret_key = os.environ['SECRET_KEY']
+
+LDAP_URI      = os.environ.get('LDAP_URI', 'ldap://lldap.cronos.lan:3890')
+LDAP_BASE     = os.environ.get('LDAP_BASE', 'dc=cronos,dc=website')
+LDAP_BIND_DN  = os.environ.get('LDAP_BIND_DN', '')
+LDAP_BIND_PW  = os.environ.get('LDAP_BIND_PW', '')
+LITELLM_URL   = os.environ.get('LITELLM_URL', 'http://litellm:4000')
+LITELLM_KEY   = os.environ.get('LITELLM_MASTER_KEY', '')
+VLLM_API      = os.environ.get('VLLM_API_URL', 'http://host.docker.internal:8000/v1')
+RUNNER_URL    = os.environ.get('VLLM_RUNNER_URL', 'http://host.docker.internal:8001')
+RUNNER_TOKEN  = os.environ.get('RUNNER_TOKEN', '')
+DISCORD_WH    = os.environ.get('DISCORD_WEBHOOK_URL', '')
+SMTP_HOST     = os.environ.get('SMTP_HOST', '')
+SMTP_PORT     = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER     = os.environ.get('SMTP_USER', '')
+SMTP_PASS     = os.environ.get('SMTP_PASSWORD', '')
+SMTP_FROM     = os.environ.get('SMTP_FROM', '')
+ADMIN_EMAIL   = os.environ.get('ADMIN_EMAIL', '')
+KEY_BUDGET    = float(os.environ.get('KEY_MAX_BUDGET', '0.002'))
+KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '1d')
+DB_PATH       = '/app/data/portal.db'
+
+# ── DB ─────────────────────────────────────────────────────────────────────
+
+def get_db():
+    if 'db' not in g:
+        g.db = sqlite3.connect(DB_PATH)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+@app.teardown_appcontext
+def close_db(e=None):
+    db = g.pop('db', None)
+    if db:
+        db.close()
+
+def init_db():
+    os.makedirs('/app/data', exist_ok=True)
+    db = sqlite3.connect(DB_PATH)
+    db.executescript('''
+        CREATE TABLE IF NOT EXISTS model_requests (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            username   TEXT NOT NULL,
+            fullname   TEXT NOT NULL,
+            model_id   TEXT NOT NULL,
+            reason     TEXT,
+            status     TEXT DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            username   TEXT NOT NULL,
+            key_alias  TEXT NOT NULL UNIQUE,
+            key_value  TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS model_configs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL UNIQUE,
+            hf_model_id TEXT NOT NULL,
+            vllm_args   TEXT DEFAULT '',
+            added_at    TEXT NOT NULL
+        );
+    ''')
+    ORNITH_ARGS = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 262144 --gpu-memory-utilization 0.6 --max-num-seqs 4"
+    QWEN_ARGS   = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 32768 --gpu-memory-utilization 0.8 --max-num-seqs 8"
+    now = datetime.now().isoformat()
+    db.executemany(
+        "INSERT OR IGNORE INTO model_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
+        [
+            ("ornith-35b-fp8",  "deepreinforce-ai/Ornith-1.0-35B-FP8",  ORNITH_ARGS, now),
+            ("qwen3-coder-30b", "Qwen/Qwen3-Coder-30B-A3B-Instruct",     QWEN_ARGS,   now),
+        ]
+    )
+    # Toujours mettre à jour les args des modèles pré-configurés
+    db.execute("UPDATE model_configs SET hf_model_id=?, vllm_args=? WHERE name=?",
+               ("deepreinforce-ai/Ornith-1.0-35B-FP8", ORNITH_ARGS, "ornith-35b-fp8"))
+    db.execute("UPDATE model_configs SET hf_model_id=?, vllm_args=? WHERE name=?",
+               ("Qwen/Qwen3-Coder-30B-A3B-Instruct", QWEN_ARGS, "qwen3-coder-30b"))
+    db.commit()
+    db.close()
+
+# ── LDAP ────────────────────────────────────────────────────────────────────
+
+def ldap_authenticate(username, password):
+    """Retourne (ok, is_admin, display_name)."""
+    try:
+        server = Server(LDAP_URI, get_info=ALL)
+        user_dn = f"uid={username},ou=people,{LDAP_BASE}"
+        conn = Connection(server, user=user_dn, password=password,
+                          authentication=SIMPLE, auto_bind=True)
+        conn.search(
+            search_base=f"ou=people,{LDAP_BASE}",
+            search_filter=f"(uid={username})",
+            attributes=['cn', 'memberOf']
+        )
+        if not conn.entries:
+            conn.unbind()
+            return False, False, username
+        entry = conn.entries[0]
+        fullname = str(entry.cn) if hasattr(entry, 'cn') else username
+        groups = [str(g) for g in entry.memberOf] if hasattr(entry, 'memberOf') else []
+        is_admin = any('adm_cronos' in g for g in groups)
+        conn.unbind()
+        return True, is_admin, fullname
+    except Exception:
+        return False, False, username
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+def litellm_headers():
+    return {'Authorization': f'Bearer {LITELLM_KEY}', 'Content-Type': 'application/json'}
+
+def get_running_models():
+    try:
+        r = requests.get(f"{VLLM_API}/models", timeout=3)
+        if r.ok:
+            return [m['id'] for m in r.json().get('data', [])]
+    except Exception:
+        pass
+    return []
+
+def get_user_keys(username):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        local_keys = conn.execute(
+            "SELECT key_alias, key_value, created_at FROM api_keys WHERE username=? ORDER BY created_at DESC",
+            (username,)
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return []
+    result = []
+    for k in local_keys:
+        info = {
+            'key_alias': k['key_alias'],
+            'key': k['key_value'],
+            'created_at': k['created_at'],
+            'spend': 0,
+            'max_budget': None,
+            'budget_reset_at': None,
+        }
+        try:
+            r = requests.get(
+                f"{LITELLM_URL}/key/info",
+                headers=litellm_headers(),
+                params={"key": k['key_value']},
+                timeout=3
+            )
+            if r.ok:
+                data = r.json().get('info', {})
+                info['spend'] = data.get('spend', 0)
+                info['max_budget'] = data.get('max_budget')
+                info['budget_reset_at'] = data.get('budget_reset_at', '')
+        except Exception:
+            pass
+        result.append(info)
+    return result
+
+def create_litellm_key(alias, username, is_admin=False):
+    payload = {
+        "key_alias": alias,
+        "metadata": {"user": username, "created_by": "dgx-portal"},
+    }
+    if not is_admin:
+        payload["max_budget"] = KEY_BUDGET
+        payload["budget_duration"] = KEY_DURATION
+    r = requests.post(f"{LITELLM_URL}/key/generate",
+                      headers=litellm_headers(), json=payload, timeout=10)
+    if r.ok:
+        return r.json().get('key')
+    return None
+
+def revoke_litellm_key(key_value):
+    r = requests.post(f"{LITELLM_URL}/key/delete",
+                      headers=litellm_headers(),
+                      json={"keys": [key_value]}, timeout=5)
+    return r.ok
+
+def _runner_headers():
+    return {'Authorization': f'Bearer {RUNNER_TOKEN}'}
+
+def runner_status():
+    try:
+        r = requests.get(f"{RUNNER_URL}/status", headers=_runner_headers(), timeout=3)
+        if r.ok:
+            return r.json()
+    except Exception:
+        pass
+    return {'status': 'unreachable', 'model': None, 'pid': None}
+
+def runner_launch(hf_model_id, model_name, vllm_args=''):
+    try:
+        r = requests.post(f"{RUNNER_URL}/launch",
+                          headers=_runner_headers(),
+                          json={'hf_model_id': hf_model_id, 'model_name': model_name, 'vllm_args': vllm_args},
+                          timeout=5)
+        return r.ok
+    except Exception:
+        return False
+
+def runner_stop():
+    try:
+        r = requests.post(f"{RUNNER_URL}/stop", headers=_runner_headers(), timeout=5)
+        return r.ok
+    except Exception:
+        return False
+
+def runner_logs(n=150):
+    try:
+        r = requests.get(f"{RUNNER_URL}/logs", headers=_runner_headers(), params={'n': n}, timeout=3)
+        if r.ok:
+            return r.json().get('logs', [])
+    except Exception:
+        pass
+    return []
+
+def search_hf_models(query, task='text-generation'):
+    try:
+        r = requests.get(
+            'https://huggingface.co/api/models',
+            params={'search': query, 'filter': task, 'limit': 24,
+                    'sort': 'downloads', 'direction': -1},
+            timeout=8
+        )
+        if r.ok:
+            return r.json()
+    except Exception:
+        pass
+    return []
+
+def notify_discord(model_id, username, fullname, reason):
+    if not DISCORD_WH:
+        return
+    payload = {"embeds": [{
+        "title": "🤖 Nouvelle demande de modèle — DGX Spark",
+        "color": 0x76B900,
+        "fields": [
+            {"name": "Utilisateur", "value": f"{fullname} (`{username}`)", "inline": True},
+            {"name": "Modèle", "value": f"`{model_id}`", "inline": True},
+            {"name": "Raison", "value": reason or "—"},
+        ],
+        "footer": {"text": "DGX Portal"},
+        "timestamp": datetime.utcnow().isoformat()
+    }]}
+    try:
+        requests.post(DISCORD_WH, json=payload, timeout=5)
+    except Exception:
+        pass
+
+def notify_email(model_id, username, fullname, reason):
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
+        return
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = f"[DGX] Demande modèle : {model_id}"
+    msg['From'] = SMTP_FROM or SMTP_USER
+    msg['To'] = ADMIN_EMAIL
+    body = (
+        f"Nouvelle demande de modèle\n\n"
+        f"Utilisateur : {fullname} ({username})\n"
+        f"Modèle      : {model_id}\n"
+        f"Raison      : {reason or '—'}\n"
+        f"Date        : {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"Dashboard admin : http://dgx.cronos.lan:5000/admin\n"
+    )
+    msg.attach(MIMEText(body, 'plain'))
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(msg['From'], [ADMIN_EMAIL], msg.as_string())
+    except Exception as e:
+        print(f"[email] erreur : {e}")
+
+# ── Décorateurs ─────────────────────────────────────────────────────────────
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'username' not in session:
+            return redirect(url_for('login', next=request.path))
+        return f(*args, **kwargs)
+    return decorated
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'username' not in session:
+            return redirect(url_for('login'))
+        if not session.get('is_admin'):
+            flash("Accès réservé aux administrateurs.", "danger")
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated
+
+# ── Routes ──────────────────────────────────────────────────────────────────
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if 'username' in session:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        username = request.form['username'].strip().lower()
+        password = request.form['password']
+        ok, is_admin, fullname = ldap_authenticate(username, password)
+        if ok:
+            session['username'] = username
+            session['fullname'] = fullname
+            session['is_admin'] = is_admin
+            return redirect(request.args.get('next') or url_for('index'))
+        flash("Identifiants incorrects.", "danger")
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+@app.route('/')
+@login_required
+def index():
+    running = get_running_models()
+    db = get_db()
+    my_requests = db.execute(
+        "SELECT * FROM model_requests WHERE username=? ORDER BY created_at DESC LIMIT 5",
+        (session['username'],)
+    ).fetchall()
+    return render_template('index.html', running_models=running, my_requests=my_requests)
+
+@app.route('/keys', methods=['GET', 'POST'])
+@login_required
+def keys():
+    user_keys = get_user_keys(session['username'])
+    new_key_alias = None
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'create':
+            raw_name = request.form.get('key_name', '').strip()
+            if raw_name:
+                alias = re.sub(r'[^a-zA-Z0-9_-]', '-', raw_name)[:40]
+            else:
+                alias = f"{session['username']}-{int(time.time())}"
+            new_key = create_litellm_key(alias, session['username'], is_admin=session.get('is_admin', False))
+            if new_key:
+                db = get_db()
+                db.execute(
+                    "INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) VALUES (?,?,?,?)",
+                    (session['username'], alias, new_key, datetime.now().isoformat())
+                )
+                db.commit()
+                new_key_alias = alias
+                flash("Clé créée !", "success")
+                user_keys = get_user_keys(session['username'])
+            else:
+                flash("Erreur lors de la création de la clé.", "danger")
+        elif action == 'revoke':
+            k = request.form.get('key')
+            if revoke_litellm_key(k):
+                db = get_db()
+                db.execute("DELETE FROM api_keys WHERE key_value=?", (k,))
+                db.commit()
+                flash("Clé révoquée.", "success")
+                user_keys = get_user_keys(session['username'])
+            else:
+                flash("Erreur lors de la révocation.", "danger")
+    running = get_running_models()
+    return render_template('keys.html', user_keys=user_keys, new_key_alias=new_key_alias,
+                           budget_tokens="2 000 000", budget_duration="jour",
+                           running_models=running)
+
+@app.route('/search')
+@login_required
+def search():
+    query = request.args.get('q', '').strip()
+    task  = request.args.get('task', 'text-generation')
+    results = search_hf_models(query, task) if query else []
+    return render_template('search.html', results=results, query=query, task=task)
+
+@app.route('/request', methods=['GET', 'POST'])
+@login_required
+def request_model():
+    prefill = request.args.get('model', '')
+    if request.method == 'POST':
+        model_id = request.form['model_id'].strip()
+        reason   = request.form.get('reason', '').strip()
+        if not model_id:
+            flash("L'identifiant du modèle est requis.", "warning")
+            return render_template('request_form.html', prefill=prefill)
+        db = get_db()
+        existing = db.execute(
+            "SELECT id FROM model_requests WHERE username=? AND model_id=? AND status='pending'",
+            (session['username'], model_id)
+        ).fetchone()
+        if existing:
+            flash("Tu as déjà une demande en attente pour ce modèle.", "warning")
+            return redirect(url_for('index'))
+        db.execute(
+            "INSERT INTO model_requests (username, fullname, model_id, reason, status, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (session['username'], session['fullname'], model_id, reason, 'pending',
+             datetime.now().isoformat())
+        )
+        db.commit()
+        notify_discord(model_id, session['username'], session['fullname'], reason)
+        notify_email(model_id, session['username'], session['fullname'], reason)
+        flash(f"Demande envoyée pour « {model_id} » !", "success")
+        return redirect(url_for('index'))
+    return render_template('request_form.html', prefill=prefill)
+
+def admin_get_all_keys_spend():
+    """Récupère toutes les clés (DB locale) + info spend/budget depuis LiteLLM."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        local_keys = conn.execute(
+            "SELECT username, key_alias, key_value FROM api_keys ORDER BY created_at DESC"
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return []
+    result = []
+    for k in local_keys:
+        info = {'username': k['username'], 'key_alias': k['key_alias'],
+                'spend': 0, 'max_budget': None, 'budget_duration': None, 'budget_reset_at': None}
+        try:
+            r = requests.get(f"{LITELLM_URL}/key/info",
+                             headers=litellm_headers(),
+                             params={"key": k['key_value']}, timeout=3)
+            if r.ok:
+                d = r.json().get('info', {})
+                info['spend']          = d.get('spend', 0)
+                info['max_budget']     = d.get('max_budget')
+                info['budget_duration'] = d.get('budget_duration')
+                info['budget_reset_at'] = d.get('budget_reset_at', '')
+        except Exception:
+            pass
+        result.append(info)
+    return result
+
+@app.route('/admin')
+@admin_required
+def admin():
+    db = get_db()
+    all_reqs   = db.execute("SELECT * FROM model_requests ORDER BY created_at DESC").fetchall()
+    model_cfgs = db.execute("SELECT * FROM model_configs ORDER BY name").fetchall()
+    running    = get_running_models()
+    v_status   = runner_status()
+    init_logs  = runner_logs(300)
+    spend_data = admin_get_all_keys_spend()
+    stats = {
+        'pending':  sum(1 for r in all_reqs if r['status'] == 'pending'),
+        'done':     sum(1 for r in all_reqs if r['status'] == 'done'),
+        'rejected': sum(1 for r in all_reqs if r['status'] == 'rejected'),
+    }
+    return render_template('admin.html', requests=all_reqs, running_models=running,
+                           stats=stats, spend_data=spend_data,
+                           model_cfgs=model_cfgs, v_status=v_status,
+                           init_logs=init_logs)
+
+@app.route('/admin/model/launch', methods=['POST'])
+@admin_required
+def launch_model():
+    name = request.form.get('model_name', '').strip()
+    db   = get_db()
+    cfg  = db.execute("SELECT * FROM model_configs WHERE name=?", (name,)).fetchone()
+    if not cfg:
+        flash("Modèle introuvable.", "danger")
+        return redirect(url_for('admin'))
+    ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '')
+    flash(f"Lancement de {name} en cours…" if ok else "Runner vLLM inaccessible.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/model/stop', methods=['POST'])
+@admin_required
+def stop_model():
+    ok = runner_stop()
+    flash("Modèle arrêté." if ok else "Runner vLLM inaccessible.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/model/add', methods=['POST'])
+@admin_required
+def add_model_cfg():
+    name  = re.sub(r'[^a-zA-Z0-9_-]', '-', request.form.get('name', '').strip())[:40]
+    hf_id = request.form.get('hf_model_id', '').strip()
+    args  = request.form.get('vllm_args', '').strip()
+    if not name or not hf_id:
+        flash("Nom et HF model ID requis.", "warning")
+        return redirect(url_for('admin'))
+    db = get_db()
+    try:
+        db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
+                   (name, hf_id, args, datetime.now().isoformat()))
+        db.commit()
+        flash(f"Modèle {name} ajouté.", "success")
+    except sqlite3.IntegrityError:
+        flash("Un modèle avec ce nom existe déjà.", "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/model/delete/<int:mid>', methods=['POST'])
+@admin_required
+def delete_model_cfg(mid):
+    db = get_db()
+    db.execute("DELETE FROM model_configs WHERE id=?", (mid,))
+    db.commit()
+    flash("Modèle supprimé.", "success")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/runner/logs')
+@admin_required
+def admin_runner_logs():
+    return jsonify({'logs': runner_logs(200)})
+
+@app.route('/admin/runner/stream')
+@admin_required
+def admin_runner_stream():
+    # Le navigateur ne peut pas parler directement à vllm-runner (port 8001) :
+    # ce port est restreint au bridge Docker + localhost, et EventSource ne peut
+    # pas poser de header Authorization. dgx-portal, lui, est sur le bridge et a
+    # le token — on relaie donc le flux SSE ici, en interne, sans jamais exposer
+    # RUNNER_TOKEN au navigateur.
+    upstream = requests.get(f"{RUNNER_URL}/stream", headers=_runner_headers(),
+                            stream=True, timeout=(5, None))
+
+    def generate():
+        try:
+            for chunk in upstream.iter_content(chunk_size=None):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    return Response(stream_with_context(generate()), mimetype="text/event-stream", headers=headers)
+
+@app.route('/admin/update/<int:req_id>', methods=['POST'])
+@admin_required
+def update_request(req_id):
+    status = request.form.get('status')
+    if status not in ('pending', 'done', 'rejected'):
+        flash("Statut invalide.", "danger")
+        return redirect(url_for('admin'))
+    db = get_db()
+    db.execute("UPDATE model_requests SET status=?, updated_at=? WHERE id=?",
+               (status, datetime.now().isoformat(), req_id))
+    db.commit()
+    flash("Statut mis à jour.", "success")
+    return redirect(url_for('admin'))
+
+with app.app_context():
+    init_db()
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)

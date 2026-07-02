@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% block title %}Mes clés API — DGX Portal{% endblock %}
+{% block content %}
+<div class="row g-4">
+
+  <div class="col-12">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h5 class="mb-0"><i class="bi bi-key text-warning"></i> Mes clés API</h5>
+      <form method="POST" class="d-flex align-items-center gap-2">
+        <input type="hidden" name="action" value="create">
+        <input type="text" name="key_name" class="form-control form-control-sm bg-dark text-white border-secondary"
+               placeholder="Nom (ex: mon-laptop)" style="width:190px" maxlength="40"
+               pattern="[a-zA-Z0-9_\-]+" title="Lettres, chiffres, - et _ uniquement">
+        <button class="btn btn-warning btn-sm text-nowrap"><i class="bi bi-plus-lg"></i> Créer</button>
+      </form>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-body text-secondary small">
+        <i class="bi bi-info-circle text-info"></i>
+        {% if session.get('is_admin') %}
+        Limite : <strong class="text-warning">Illimitée (admin)</strong>.
+        {% else %}
+        Limite : <strong class="text-white">{{ budget_tokens }} tokens / {{ budget_duration }}</strong>.
+        {% endif %}
+        Endpoint : <code class="text-info">http://dgx.cronos.lan:4001/v1</code> — compatible OpenAI.
+      </div>
+    </div>
+
+    {% if user_keys %}
+    <div class="card">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0 align-middle">
+          <thead><tr>
+            <th>Alias</th><th>Clé</th><th>Budget</th><th>Reset</th><th></th>
+          </tr></thead>
+          <tbody>
+          {% for k in user_keys %}
+          <tr {% if new_key_alias == k.get('key_alias') %}class="table-warning text-dark"{% endif %}>
+            <td class="fw-semibold">{{ k.get('key_alias','—') }}</td>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <code class="text-secondary" id="kd-{{ loop.index }}" style="font-size:.8rem">{{ k.get('key','')[:10] }}…{{ k.get('key','')[-4:] }}</code>
+                <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="copyKey('{{ k.get('key','') }}', this)" title="Copier">
+                  <i class="bi bi-clipboard" style="font-size:.75rem"></i>
+                </button>
+                <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="toggleKey({{ loop.index }}, '{{ k.get('key','') }}')" title="Afficher">
+                  <i class="bi bi-eye" style="font-size:.75rem"></i>
+                </button>
+              </div>
+            </td>
+            <td>
+              {% set spent = k.get('spend', 0) %}
+              {% set budget = k.get('max_budget') %}
+              {% if budget %}
+                {% set pct = (spent / budget * 100) %}
+                <div class="progress mb-1" style="height:5px;width:90px">
+                  <div class="progress-bar bg-success" style="width:{{ [100 - pct, 0]|max }}%"></div>
+                </div>
+                <small class="text-secondary">{{ "%.0f"|format((1 - spent/budget)*2000) }}k restants</small>
+              {% else %}
+                <span class="badge bg-warning text-dark">Illimité</span>
+              {% endif %}
+            </td>
+            <td class="text-secondary small">{{ k.get('budget_reset_at','—')[:10] if k.get('budget_reset_at') else '—' }}</td>
+            <td>
+              <form method="POST" onsubmit="return confirm('Révoquer cette clé ?')">
+                <input type="hidden" name="action" value="revoke">
+                <input type="hidden" name="key" value="{{ k.get('key','') }}">
+                <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {% else %}
+    <div class="card">
+      <div class="card-body text-center py-5 text-secondary">
+        <i class="bi bi-key fs-2 d-block mb-2"></i>
+        Aucune clé — clique sur <strong>Nouvelle clé</strong> pour en créer une.
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Intégrations ──────────────────────────────────────────────────────── -->
+  {% if user_keys %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header text-secondary small">
+        <i class="bi bi-plug-fill text-success"></i> Intégrations
+      </div>
+      <div class="card-body">
+        <div class="row g-3 mb-3">
+          <div class="col-sm-5">
+            <label class="form-label text-secondary small mb-1">Clé</label>
+            <select class="form-select form-select-sm bg-dark text-white border-secondary" id="int-key">
+              {% for k in user_keys %}
+              <option value="{{ k.get('key','') }}">{{ k.get('key_alias','—') }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-5">
+            <label class="form-label text-secondary small mb-1">Modèle</label>
+            <select class="form-select form-select-sm bg-dark text-white border-secondary" id="int-model">
+              {% if running_models %}
+                {% for m in running_models %}
+                <option value="{{ m }}">{{ m }}</option>
+                {% endfor %}
+              {% else %}
+                <option value="ornith-35b-fp8">ornith-35b-fp8</option>
+                <option value="qwen3-coder-30b">qwen3-coder-30b</option>
+              {% endif %}
+            </select>
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-1 mb-3" id="int-tabs">
+          <a class="btn btn-sm btn-warning active" href="#" data-tool="opencode">OpenCode</a>
+          <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="codex">Codex CLI</a>
+          <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="aider">Aider</a>
+          <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="continue">Continue.dev</a>
+          <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="cursor">Cursor</a>
+          <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="langchain">LangChain Agent</a>
+          <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="python">Python SDK</a>
+          <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="curl">cURL</a>
+          <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="env">Env vars</a>
+        </div>
+
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <button class="btn btn-sm btn-outline-secondary" id="reveal-btn" onclick="toggleReveal()">
+            <i class="bi bi-eye"></i> Révéler la clé
+          </button>
+          <span class="text-secondary small">La clé est masquée par défaut dans les snippets</span>
+        </div>
+        <div class="position-relative">
+          <pre id="int-snippet" class="mb-0 p-3 rounded" style="background:#0d1117;font-size:.82rem;color:#c9d1d9;min-height:90px;white-space:pre-wrap;word-break:break-all"></pre>
+          <button class="btn btn-sm btn-outline-secondary position-absolute top-0 end-0 m-2" id="copy-snip-btn" onclick="copySnippet()">
+            <i class="bi bi-clipboard"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+const BASE = "http://dgx.cronos.lan:4001/v1";
+let tool = "opencode";
+let revealKey = false;
+const keyVis = {};
+
+function maskKey(k) {
+  return k.slice(0, 6) + '••••••••••••••••' + k.slice(-4);
+}
+function dispKey(k) {
+  return revealKey ? k : maskKey(k);
+}
+
+function toggleReveal() {
+  revealKey = !revealKey;
+  const btn = document.getElementById('reveal-btn');
+  btn.innerHTML = revealKey
+    ? '<i class="bi bi-eye-slash"></i> Masquer la clé'
+    : '<i class="bi bi-eye"></i> Révéler la clé';
+  upd();
+}
+
+// tpls affiche la clé masquée ou non selon revealKey.
+// copySnippet() utilise getRealSnippet() qui passe toujours la vraie clé.
+const tpls = {
+  opencode: (k, m) =>
+`# ~/.config/opencode/config.json
+{
+  "model": "openai/${m}",
+  "providers": {
+    "openai": {
+      "apiKey": "${dispKey(k)}",
+      "baseURL": "${BASE}"
+    }
+  }
+}`,
+
+  codex: (k, m) =>
+`# Install : npm install -g @openai/codex
+export OPENAI_API_KEY="${dispKey(k)}"
+export OPENAI_BASE_URL="${BASE}"
+codex --model ${m}`,
+
+  aider: (k, m) =>
+`# Install : pip install aider-chat
+aider \\
+  --openai-api-key "${dispKey(k)}" \\
+  --openai-api-base "${BASE}" \\
+  --model openai/${m}`,
+
+  continue: (k, m) =>
+`// ~/.continue/config.json  →  ajouter dans "models"
+{
+  "models": [
+    {
+      "title": "${m} — DGX Spark",
+      "provider": "openai",
+      "model": "${m}",
+      "apiKey": "${dispKey(k)}",
+      "apiBase": "${BASE}"
+    }
+  ]
+}`,
+
+  cursor: (k, m) =>
+`# Cursor → Settings → Models → Add Model
+#
+# Provider URL : ${BASE}
+# API Key      : ${dispKey(k)}
+# Model name   : ${m}`,
+
+  langchain: (k, m) =>
+`# Install : pip install langchain-openai
+from langchain_openai import ChatOpenAI
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.tools import tool
+
+llm = ChatOpenAI(
+    base_url="${BASE}",
+    api_key="${dispKey(k)}",
+    model="${m}",
+    temperature=0,
+)
+
+@tool
+def get_weather(city: str) -> str:
+    """Retourne la météo d'une ville."""
+    return f"Il fait beau à {{city}} !"
+
+tools = [get_weather]
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "Tu es un assistant utile."),
+    ("human", "{{input}}"),
+    ("placeholder", "{{agent_scratchpad}}"),
+])
+agent = create_tool_calling_agent(llm, tools, prompt)
+AgentExecutor(agent=agent, tools=tools, verbose=True).invoke({"input": "Bonjour !"})`,
+
+  python: (k, m) =>
+`from openai import OpenAI
+
+client = OpenAI(
+    base_url="${BASE}",
+    api_key="${dispKey(k)}"
+)
+response = client.chat.completions.create(
+    model="${m}",
+    messages=[{"role": "user", "content": "Bonjour !"}]
+)
+print(response.choices[0].message.content)`,
+
+  curl: (k, m) =>
+`curl ${BASE}/chat/completions \\
+  -H "Authorization: Bearer ${dispKey(k)}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"${m}","messages":[{"role":"user","content":"Bonjour !"}]}'`,
+
+  env: (k, m) =>
+`export OPENAI_API_KEY="${dispKey(k)}"
+export OPENAI_BASE_URL="${BASE}"
+export OPENAI_DEFAULT_MODEL="${m}"`,
+};
+
+// Version avec vraie clé pour la copie
+const tplsReal = {};
+Object.keys(tpls).forEach(t => {
+  tplsReal[t] = (k, m) => {
+    const orig = revealKey;
+    revealKey = true;
+    const out = tpls[t](k, m);
+    revealKey = orig;
+    return out;
+  };
+});
+
+function upd() {
+  const k = document.getElementById('int-key')?.value || '';
+  const m = document.getElementById('int-model')?.value || '';
+  document.getElementById('int-snippet').textContent = tpls[tool](k, m);
+}
+
+document.getElementById('int-key')?.addEventListener('change', upd);
+document.getElementById('int-model')?.addEventListener('change', upd);
+document.querySelectorAll('#int-tabs [data-tool]').forEach(t => {
+  t.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('#int-tabs [data-tool]').forEach(x => {
+      x.classList.remove('btn-warning', 'active');
+      x.classList.add('btn-outline-secondary');
+    });
+    t.classList.remove('btn-outline-secondary');
+    t.classList.add('btn-warning', 'active');
+    tool = t.dataset.tool;
+    upd();
+  });
+});
+
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  // Fallback HTTP
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  return Promise.resolve();
+}
+
+function flash(btn, small) {
+  const ico = small ? 'font-size:.75rem' : '';
+  btn.innerHTML = `<i class="bi bi-check" style="${ico}"></i>`;
+  setTimeout(() => { btn.innerHTML = `<i class="bi bi-clipboard" style="${ico}"></i>`; }, 1500);
+}
+
+function copyKey(val, btn) {
+  copyText(val).then(() => flash(btn, true));
+}
+
+function toggleKey(idx, full) {
+  const el = document.getElementById('kd-' + idx);
+  keyVis[idx] = !keyVis[idx];
+  el.textContent = keyVis[idx] ? full : full.substring(0, 10) + '…' + full.slice(-4);
+}
+
+function copySnippet() {
+  const k = document.getElementById('int-key')?.value || '';
+  const m = document.getElementById('int-model')?.value || '';
+  const txt = tplsReal[tool](k, m);
+  const btn = document.getElementById('copy-snip-btn');
+  copyText(txt).then(() => flash(btn, false));
+}
+
+upd();
+</script>
+{% endblock %}

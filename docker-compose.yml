@@ -1,0 +1,93 @@
+services:
+
+  # ─── Base de données LiteLLM ───────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: litellm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm && psql -U litellm -d litellm -c 'SELECT 1' > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ─── LiteLLM — API gateway + gestion des clés ─────────────────────────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml
+    environment:
+      DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # SSO Authentik (crée une app OIDC "litellm" dans Authentik, scope: openid profile email)
+      GENERIC_CLIENT_ID: ${AUTHENTIK_LITELLM_CLIENT_ID}
+      GENERIC_CLIENT_SECRET: ${AUTHENTIK_LITELLM_CLIENT_SECRET}
+      GENERIC_AUTHORIZATION_ENDPOINT: https://gjallarhorn.cronos.website/application/o/authorize/
+      GENERIC_TOKEN_ENDPOINT: https://gjallarhorn.cronos.website/application/o/token/
+      GENERIC_USERINFO_ENDPOINT: https://gjallarhorn.cronos.website/application/o/userinfo/
+      GENERIC_REDIRECT_URI: http://dgx.cronos.lan:4001/sso/callback
+      GENERIC_CLIENT_SCOPE: "openid profile email"
+    entrypoint: ["sh", "-c", "sleep 5 && /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4001"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─── DGX Portal — self-service clés API + catalogue modèles ───────────────
+  dgx-portal:
+    build: ./dgx-portal
+    container_name: dgx-portal
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      SECRET_KEY: ${WEBUI_SECRET_KEY}
+      LDAP_URI: ldap://lldap.cronos.lan:3890
+      LDAP_BASE: dc=cronos,dc=website
+      LDAP_BIND_DN: uid=admin,ou=people,dc=cronos,dc=website
+      LDAP_BIND_PW: ${LLDAP_ADMIN_PASSWORD}
+      LITELLM_URL: http://litellm:4001
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      VLLM_API_URL: http://host.docker.internal:8000/v1
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      KEY_MAX_BUDGET: "0.002"
+      KEY_BUDGET_DURATION: "1d"
+      VLLM_RUNNER_URL: http://host.docker.internal:8001
+      RUNNER_TOKEN: ${RUNNER_TOKEN}
+    volumes:
+      - portal_data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - litellm
+
+volumes:
+  postgres_data:
+  portal_data:
+
+# ─── OpenWebUI ────────────────────────────────────────────────────────────────
+# OpenWebUI tourne sur ton autre serveur (vor.cronos.website).
+# Change dans sa config :
+#   OLLAMA_BASE_URL  →  supprimer
+#   Ajouter :
+#     OPENAI_API_BASE_URL=http://dgx.cronos.lan:4001/v1
+#     OPENAI_API_KEY=<LITELLM_MASTER_KEY>
+# Garde tout le reste (Authentik SSO, rôles, etc.) identique.

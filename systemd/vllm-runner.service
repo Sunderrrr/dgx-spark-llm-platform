@@ -1,0 +1,20 @@
+[Unit]
+Description=vLLM Runner — DGX Portal daemon
+After=network.target
+
+[Service]
+Type=simple
+User=vllmrunner
+Group=vllmrunner
+WorkingDirectory=/root/ai-platform/vllm-runner
+EnvironmentFile=/root/ai-platform/.env
+ExecStart=/usr/bin/python3 /root/ai-platform/vllm-runner/runner.py
+Restart=always
+RestartSec=5
+Environment=VLLM_BIN=/root/.local/bin/vllm
+Environment=HF_HOME=/root/.cache/huggingface
+Environment=HOME=/var/lib/vllm-runner
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Chercher un modèle — DGX Portal{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-12">
+    <h5 class="mb-3"><i class="bi bi-search text-info"></i> Catalogue HuggingFace</h5>
+    <form method="GET" class="d-flex gap-2 mb-4">
+      <input type="text" name="q" value="{{ query }}" class="form-control bg-dark border-secondary"
+             placeholder="Nom de modèle, ex: Qwen, Llama, Mistral..." autofocus>
+      <select name="task" class="form-select bg-dark border-secondary" style="max-width:220px">
+        <option value="text-generation" {% if task=='text-generation' %}selected{% endif %}>Text Generation</option>
+        <option value="text2text-generation" {% if task=='text2text-generation' %}selected{% endif %}>Text2Text</option>
+        <option value="conversational" {% if task=='conversational' %}selected{% endif %}>Conversational</option>
+        <option value="feature-extraction" {% if task=='feature-extraction' %}selected{% endif %}>Embeddings</option>
+      </select>
+      <button class="btn btn-info px-4"><i class="bi bi-search"></i> Chercher</button>
+    </form>
+
+    {% if not query %}
+    <div class="text-center py-5 text-secondary">
+      <i class="bi bi-robot fs-1 d-block mb-3"></i>
+      Tape un nom de modèle pour explorer HuggingFace
+    </div>
+    {% elif not results %}
+    <div class="text-center py-5 text-secondary">
+      <i class="bi bi-emoji-frown fs-2 d-block mb-2"></i>
+      Aucun résultat pour « {{ query }} »
+    </div>
+    {% else %}
+    <div class="row g-3">
+      {% for model in results %}
+      <div class="col-md-6 col-lg-4">
+        <div class="card model-card h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <span class="badge bg-secondary small">{{ model.get('pipeline_tag','—') }}</span>
+              <span class="text-secondary small"><i class="bi bi-download"></i> {{ "{:,}".format(model.get('downloads',0)) }}</span>
+            </div>
+            <h6 class="card-title text-white mb-1" style="word-break:break-all;font-size:.9rem">
+              {{ model.get('modelId','—') }}
+            </h6>
+            {% if model.get('tags') %}
+            <div class="mb-2">
+              {% for tag in model.get('tags',[])[:4] %}
+              <span class="badge bg-dark text-secondary border border-secondary me-1" style="font-size:.7rem">{{ tag }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          <div class="card-footer border-0 bg-transparent d-flex gap-2">
+            <a href="https://huggingface.co/{{ model.get('modelId','') }}"
+               target="_blank" class="btn btn-outline-secondary btn-sm flex-fill">
+              <i class="bi bi-box-arrow-up-right"></i> HF
+            </a>
+            <a href="/request?model={{ model.get('modelId','') }}"
+               class="btn btn-outline-success btn-sm flex-fill">
+              <i class="bi bi-send"></i> Demander
+            </a>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

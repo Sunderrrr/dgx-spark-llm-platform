@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Accueil — DGX Portal{% endblock %}
+{% block content %}
+<div class="row g-4">
+
+  <!-- Modèles actifs -->
+  <div class="col-12">
+    <h5 class="text-secondary mb-3"><i class="bi bi-activity text-success"></i> Modèles disponibles maintenant</h5>
+    {% if running_models %}
+    <div class="row g-3">
+      {% for model in running_models %}
+      <div class="col-md-4 col-lg-3">
+        <div class="card model-card h-100">
+          <div class="card-body">
+            <div class="d-flex align-items-start justify-content-between">
+              <span class="badge bg-success mb-2">En ligne</span>
+            </div>
+            <p class="card-text small text-white fw-semibold mb-1" style="word-break:break-all">{{ model }}</p>
+            <p class="text-secondary small mb-0">API : <code class="text-info">dgx.cronos.lan:4001</code></p>
+          </div>
+          <div class="card-footer border-0 bg-transparent pt-0">
+            <a href="/keys" class="btn btn-outline-success btn-sm w-100">
+              <i class="bi bi-key"></i> Créer une clé API
+            </a>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="card-body text-center py-4 text-secondary">
+        <i class="bi bi-moon-stars fs-2 d-block mb-2"></i>
+        Aucun modèle actif — <a href="/request" class="text-success">demander le lancement d'un modèle</a>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Actions rapides -->
+  <div class="col-md-6 col-lg-4">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-key text-warning"></i> Mes clés API</div>
+      <div class="card-body d-flex flex-column">
+        <p class="text-secondary small">Crée des clés personnelles pour accéder aux modèles via l'API OpenAI-compatible.</p>
+        {% if session.get('is_admin') %}
+        <p class="text-secondary small mb-3">Limite : <strong class="text-warning">Illimitée (admin)</strong>.</p>
+        {% else %}
+        <p class="text-secondary small mb-3">Limite : <strong class="text-white">2 000 000 tokens / jour</strong> par clé.</p>
+        {% endif %}
+        <a href="/keys" class="btn btn-warning mt-auto">Gérer mes clés</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6 col-lg-4">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-search text-info"></i> Catalogue HuggingFace</div>
+      <div class="card-body d-flex flex-column">
+        <p class="text-secondary small">Parcours les modèles disponibles sur HuggingFace et demande le lancement de celui qui t'intéresse.</p>
+        <a href="/search" class="btn btn-info mt-auto">Explorer les modèles</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6 col-lg-4">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-send text-success"></i> Demander un modèle</div>
+      <div class="card-body d-flex flex-column">
+        <p class="text-secondary small">Tu connais un modèle que tu veux tester ? Envoie une demande à l'admin.</p>
+        <a href="/request" class="btn btn-success mt-auto">Faire une demande</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mes dernières demandes -->
+  {% if my_requests %}
+  <div class="col-12">
+    <h5 class="text-secondary mb-3"><i class="bi bi-clock-history"></i> Mes dernières demandes</h5>
+    <div class="card">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0">
+          <thead><tr>
+            <th>Modèle</th><th>Raison</th><th>Statut</th><th>Date</th>
+          </tr></thead>
+          <tbody>
+          {% for req in my_requests %}
+          <tr>
+            <td class="text-white small fw-semibold">{{ req.model_id }}</td>
+            <td class="text-secondary small">{{ req.reason or '—' }}</td>
+            <td>
+              {% if req.status == 'pending' %}
+                <span class="badge badge-pending">En attente</span>
+              {% elif req.status == 'done' %}
+                <span class="badge badge-done">Lancé ✓</span>
+              {% else %}
+                <span class="badge badge-rejected">Refusé</span>
+              {% endif %}
+            </td>
+            <td class="text-secondary small">{{ req.created_at[:16].replace('T',' ') }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

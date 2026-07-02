@@ -134,7 +134,7 @@
       <div class="card-body">
         <form method="POST" action="/admin/settings" class="d-flex align-items-end gap-2 flex-wrap">
           <div>
-            <label class="form-label text-secondary small mb-1">Tokens</label>
+            <label class="form-label text-secondary small mb-1">Tokens générés</label>
             <input type="number" name="default_key_budget" min="1" step="1"
                    class="form-control form-control-sm bg-dark text-white border-secondary" style="width:180px"
                    value="{{ default_key_budget|int }}" required>
@@ -147,7 +147,10 @@
           </div>
           <button class="btn btn-warning btn-sm"><i class="bi bi-check-lg"></i> Appliquer</button>
         </form>
-        <div class="text-secondary small mt-2">S'applique aux clés créées après ce changement — n'affecte pas les clés existantes.</div>
+        <div class="text-secondary small mt-2">
+          S'applique aux clés créées après ce changement — n'affecte pas les clés existantes.
+          Unité = 1 token généré par le modèle ; les tokens envoyés dans le prompt comptent pour 1/10e.
+        </div>
       </div>
     </div>
   </div>

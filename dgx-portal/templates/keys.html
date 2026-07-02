@@ -21,7 +21,8 @@
         {% if session.get('is_admin') %}
         Limite : <strong class="text-warning">Illimitée (admin)</strong>.
         {% else %}
-        Limite : <strong class="text-white">{{ budget_tokens }} tokens / {{ budget_duration }}</strong>.
+        Limite : <strong class="text-white">{{ budget_tokens }} tokens générés / {{ budget_duration }}</strong>
+        <span class="text-secondary">(les tokens envoyés dans le prompt comptent 10x moins)</span>.
         {% endif %}
         Endpoint : <code class="text-info">http://dgx.cronos.lan:4001/v1</code> — compatible OpenAI.
       </div>

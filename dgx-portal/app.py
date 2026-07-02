@@ -575,6 +575,26 @@ def admin_get_all_keys_spend():
         result.append(info)
     return result
 
+def admin_get_user_consumption():
+    """Agrège spend/budget par utilisateur (somme sur toutes ses clés)."""
+    per_key = admin_get_all_keys_spend()
+    users = {}
+    for k in per_key:
+        u = users.setdefault(k['username'], {'username': k['username'], 'spend': 0,
+                                               'max_budget': 0, 'unlimited': False, 'key_count': 0})
+        u['spend'] += k['spend'] or 0
+        u['key_count'] += 1
+        if k['max_budget'] is None:
+            u['unlimited'] = True
+        else:
+            u['max_budget'] += k['max_budget']
+    return sorted(users.values(), key=lambda u: u['spend'], reverse=True)
+
+@app.route('/admin/consumption')
+@admin_required
+def admin_consumption():
+    return jsonify({'users': admin_get_user_consumption()})
+
 @app.route('/admin')
 @admin_required
 def admin():
@@ -585,7 +605,7 @@ def admin():
     running     = get_running_models()
     v_status    = runner_status()
     init_logs   = runner_logs(300)
-    spend_data  = admin_get_all_keys_spend()
+    spend_data  = admin_get_user_consumption()
     stats = {
         'pending':  sum(1 for r in all_reqs if r['status'] == 'pending'),
         'done':     sum(1 for r in all_reqs if r['status'] == 'done'),

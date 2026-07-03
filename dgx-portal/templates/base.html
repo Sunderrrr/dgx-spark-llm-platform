@@ -271,17 +271,6 @@
     .rank-row.me { background:var(--accent-soft); border-left:3px solid var(--accent);
                    border-radius:6px; padding-left:.6rem; margin:2px 0; }
 
-    /* ── Graphe horaire empilé ──────────────────────────────── */
-    .hourly { display:flex; align-items:flex-end; gap:2px; height:170px; padding-top:.5rem; }
-    .hourly-col { flex:1; display:flex; flex-direction:column-reverse; align-items:stretch; height:100%;
-                  border-radius:4px 4px 0 0; overflow:hidden; position:relative; }
-    .hourly-seg { width:100%; flex:0 0 auto; border-top:2px solid var(--surface); }
-    .hourly-seg.fill-me { background:var(--accent); }
-    .hourly-col:hover .hourly-seg.fill-me { background:var(--accent-hover); }
-    .hourly-col:hover { outline:2px solid var(--border-strong); outline-offset:1px; }
-    .hourly-peak { box-shadow:inset 0 0 0 2px var(--accent); border-radius:4px 4px 0 0; }
-    .hourly-axis { display:flex; gap:2px; margin-top:.35rem; }
-    .hourly-axis span { flex:1; text-align:center; font-size:.6rem; color:var(--text-faint); font-variant-numeric:tabular-nums; }
 
     /* ── Cartes métriques (style data / monospace) ──────────── */
     .metric-card { background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }

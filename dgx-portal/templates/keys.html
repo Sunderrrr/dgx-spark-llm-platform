@@ -178,6 +178,7 @@
 
 <script>
 const BASE = "{{ public_api_url }}";
+const MODEL_LIMITS = {{ model_limits|tojson }};
 let tool = "opencode";
 let revealKey = false;
 const keyVis = {};
@@ -201,8 +202,13 @@ function toggleReveal() {
 // tpls affiche la clé masquée ou non selon revealKey.
 // copySnippet() utilise getRealSnippet() qui passe toujours la vraie clé.
 const tpls = {
-  opencode: (k, m) =>
-`# ~/.config/opencode/opencode.json
+  opencode: (k, m) => {
+    const lim = MODEL_LIMITS[m];
+    // OpenCode/OpenChamber lit le contexte depuis "limit" ici (pas depuis /v1/models).
+    const modelDef = lim
+      ? `"${m}": {\n          "name": "${m}",\n          "limit": { "context": ${lim.context}, "output": ${lim.output} }\n        }`
+      : `"${m}": { "name": "${m}" }`;
+    return `# ~/.config/opencode/opencode.json
 # Provider dédié "DGX-Cronos" (n'écrase pas le provider openai officiel).
 # Modèle dispo sous : dgx-cronos/${m}  (redémarre OpenCode puis /models)
 {
@@ -216,11 +222,12 @@ const tpls = {
         "apiKey": "${dispKey(k)}"
       },
       "models": {
-        "${m}": { "name": "${m}" }
+        ${modelDef}
       }
     }
   }
-}`,
+}`;
+  },
 
   codex: (k, m) =>
 `# Install : npm install -g @openai/codex

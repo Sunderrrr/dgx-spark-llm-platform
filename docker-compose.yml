@@ -74,6 +74,9 @@ services:
       RUNNER_TOKEN: ${RUNNER_TOKEN}
       # URL publique de l'API compatible OpenAI affichée aux utilisateurs
       PUBLIC_API_URL: https://api.cronos.website/v1
+      # Base LiteLLM pour les stats de consommation (ranking + graphe horaire)
+      LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
+      TZ_DISPLAY: Europe/Paris
       # ── SSO / OIDC (Authentik) ──
       OIDC_METADATA_URL: https://gjallarhorn.cronos.website/application/o/dgx-spark/.well-known/openid-configuration
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}

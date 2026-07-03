@@ -252,14 +252,24 @@
     .fill-s7{background:var(--s7)} .fill-s8{background:var(--s8)} .fill-sother{background:var(--sother)}
     .swatch { width:10px; height:10px; border-radius:3px; display:inline-block; vertical-align:middle; }
 
-    /* ── Barres de classement ───────────────────────────────── */
-    .rank-row { display:grid; grid-template-columns:2rem minmax(90px,170px) 1fr auto; gap:.75rem; align-items:center; padding:.45rem 0; }
+    /* ── Classement (liste enrichie) ────────────────────────── */
+    .rank-row { display:grid; grid-template-columns:2rem minmax(120px,1fr) 90px auto; gap:.9rem;
+                align-items:center; padding:.55rem .25rem; border-bottom:1px solid var(--border-soft); }
+    .rank-row:last-child { border-bottom:none; }
     .rank-num { font-weight:700; color:var(--text-muted); text-align:center; font-variant-numeric:tabular-nums; font-size:1.1rem; }
-    .rank-label { font-weight:600; font-size:.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .rank-bar-track { height:16px; border-radius:5px; background:var(--surface-hover); overflow:hidden; }
-    .rank-bar-fill { height:100%; border-radius:5px; min-width:4px; }
-    .rank-val { font-variant-numeric:tabular-nums; font-weight:600; white-space:nowrap; color:var(--text); }
-    .rank-row.me { background:var(--accent-soft); border-radius:8px; margin:0 -.5rem; padding-left:.5rem; padding-right:.5rem; }
+    .rank-main { min-width:0; }
+    .rank-label { font-weight:600; font-size:.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:5px; }
+    .rank-bar-track { height:6px; border-radius:3px; background:var(--surface-hover); width:70%; max-width:220px; }
+    .rank-bar-fill { height:100%; border-radius:3px; min-width:5px; }
+    .spark { width:88px; height:24px; display:block; }
+    .spark polyline { fill:none; stroke-width:1.5; stroke-linejoin:round; stroke-linecap:round; }
+    .rank-right { text-align:right; white-space:nowrap; }
+    .rank-val { font-variant-numeric:tabular-nums; font-weight:700; color:var(--text); font-size:.95rem; }
+    .rank-delta { font-size:.72rem; color:var(--text-muted); font-variant-numeric:tabular-nums; margin-top:1px; }
+    .rank-delta.up::before   { content:"▲ "; }
+    .rank-delta.down::before { content:"▼ "; }
+    .rank-row.me { background:var(--accent-soft); border-left:3px solid var(--accent);
+                   border-radius:6px; padding-left:.6rem; margin:2px 0; }
 
     /* ── Graphe horaire empilé ──────────────────────────────── */
     .hourly { display:flex; align-items:flex-end; gap:2px; height:170px; padding-top:.5rem; }

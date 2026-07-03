@@ -132,7 +132,18 @@ Réservé aux membres du groupe `adm_cronos`. Permet de :
 - **ajouter / supprimer** des modèles du catalogue (id Hugging Face + args vLLM) ;
 - régler la **limite de tokens par défaut** des nouvelles clés ;
 - traiter les **demandes de tokens** (approuver avec un montant → `POST /key/update` LiteLLM) et les **demandes de modèles** ;
-- suivre la **consommation par utilisateur** (rafraîchie toutes les 3 s).
+- suivre la **consommation par utilisateur** (rafraîchie toutes les 3 s) ;
+- voir le **graphe de consommation par heure** (aujourd'hui), empilé par utilisateur, avec le pic mis en évidence.
+
+---
+
+## Classement (leaderboard)
+
+Page **`/ranking`** visible par tous les utilisateurs connectés : classe les utilisateurs par **coût pondéré** consommé (input × 0,1 + output × 1), avec vue **Jour / Semaine / Mois**.
+
+Source des données : la base **Postgres de LiteLLM** (`LiteLLM_SpendLogs`, une ligne horodatée par requête). Le portail relie chaque clé à son utilisateur via les métadonnées LiteLLM (`metadata.user`), gère le fuseau (`TZ_DISPLAY`, défaut `Europe/Paris`) et exclut la clé maître. Palette de couleurs catégorielle validée pour le daltonisme, cohérente en clair et sombre.
+
+> Nécessite `LITELLM_DATABASE_URL` (fournie par `docker-compose.yml`) pour que le portail lise les logs de consommation.
 
 ---
 

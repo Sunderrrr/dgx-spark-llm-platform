@@ -5,7 +5,8 @@ from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from functools import wraps
 from urllib.parse import urlparse
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -65,6 +66,9 @@ KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '1d')
 DB_PATH       = '/app/data/portal.db'
 # URL publique de l'API compatible OpenAI, affichée aux utilisateurs.
 PUBLIC_API_URL = os.environ.get('PUBLIC_API_URL', 'https://api.cronos.website/v1')
+# Base LiteLLM (Postgres) pour les statistiques de consommation horodatées.
+LITELLM_DB_URL = os.environ.get('LITELLM_DATABASE_URL', '')
+LOCAL_TZ       = os.environ.get('TZ_DISPLAY', 'Europe/Paris')
 
 # ── SSO / OIDC (Authentik) ───────────────────────────────────────────────────
 OIDC_METADATA_URL  = os.environ.get('OIDC_METADATA_URL', '')
@@ -705,6 +709,26 @@ def search():
     results = search_hf_models(query, task) if query else []
     return render_template('search.html', results=results, query=query, task=task)
 
+@app.route('/ranking')
+@login_required
+def ranking():
+    period = request.args.get('period', 'day')
+    if period not in ('day', 'week', 'month'):
+        period = 'day'
+    raw = ranking_data(period)
+    series = _series_for([u for u, _ in raw])
+    top = raw[0][1] if raw else 0
+    rows = [{
+        'rank': i + 1,
+        'username': u,
+        'spend': s,
+        'pct': (s / top * 100) if top else 0,
+        'series': series[u],
+        'is_me': u == session['username'],
+    } for i, (u, s) in enumerate(raw)]
+    labels = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours'}
+    return render_template('ranking.html', rows=rows, period=period, period_label=labels[period])
+
 @app.route('/request', methods=['GET', 'POST'])
 @login_required
 def request_model():
@@ -781,6 +805,118 @@ def admin_get_user_consumption():
             u['max_budget'] += k['max_budget']
     return sorted(users.values(), key=lambda u: u['spend'], reverse=True)
 
+
+# ── Statistiques de consommation (base LiteLLM Postgres) ─────────────────────
+# La colonne SpendLogs.spend applique déjà la pondération input×0.1 + output×1
+# (= "coût pondéré" / budget). startTime est en UTC → converti en LOCAL_TZ.
+
+# Pseudo-clés qui ne correspondent pas à un utilisateur (appels admin/health).
+_NON_USER_KEYS = {'litellm_proxy_master_key', 'None', ''}
+
+def _spend_conn():
+    if not LITELLM_DB_URL:
+        return None
+    try:
+        import psycopg2
+        conn = psycopg2.connect(LITELLM_DB_URL, connect_timeout=4)
+        conn.autocommit = True   # lecture seule : évite qu'une requête ratée avorte la transaction
+        return conn
+    except Exception:
+        return None
+
+def _key_user_map(conn):
+    """token(hash) -> username, depuis les métadonnées des clés (actives + supprimées)."""
+    mapping = {}
+    cur = conn.cursor()
+    for table in ('LiteLLM_VerificationToken', 'LiteLLM_DeletedVerificationToken',
+                  'LiteLLM_DeprecatedVerificationToken'):
+        try:
+            cur.execute(f"SELECT token, metadata->>'user' FROM \"{table}\"")
+            for token, user in cur.fetchall():
+                if token and user and token not in mapping:
+                    mapping[token] = user
+        except Exception:
+            pass
+    return mapping
+
+def _series_for(usernames):
+    """username -> classe de couleur stable (ordre alphabétique, 8 slots + 'other')."""
+    out = {}
+    for i, u in enumerate(sorted(usernames)):
+        out[u] = f"s{i+1}" if i < 8 else "other"
+    return out
+
+def ranking_data(period='day'):
+    """[(username, spend)] trié décroissant sur la fenêtre choisie."""
+    conn = _spend_conn()
+    if not conn:
+        return []
+    try:
+        now_local = datetime.now(ZoneInfo(LOCAL_TZ))
+        if period == 'week':
+            cutoff = (now_local - timedelta(days=7))
+        elif period == 'month':
+            cutoff = (now_local - timedelta(days=30))
+        else:  # day = depuis minuit local aujourd'hui
+            cutoff = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        cutoff_utc = cutoff.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+        umap = _key_user_map(conn)
+        cur = conn.cursor()
+        cur.execute('SELECT api_key, SUM(spend) FROM "LiteLLM_SpendLogs" '
+                    'WHERE "startTime" >= %s GROUP BY api_key', (cutoff_utc,))
+        totals = {}
+        for api_key, spend in cur.fetchall():
+            if api_key in _NON_USER_KEYS:
+                continue
+            user = umap.get(api_key, 'inconnu')
+            totals[user] = totals.get(user, 0) + (spend or 0)
+        return sorted([t for t in totals.items() if t[1] > 0], key=lambda x: x[1], reverse=True)
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+def hourly_data():
+    """Consommation d'aujourd'hui par heure locale, empilée par utilisateur."""
+    conn = _spend_conn()
+    if not conn:
+        return None
+    try:
+        umap = _key_user_map(conn)
+        cur = conn.cursor()
+        cur.execute(
+            'SELECT EXTRACT(HOUR FROM (("startTime" AT TIME ZONE \'UTC\') AT TIME ZONE %s))::int AS h, '
+            'api_key, SUM(spend) FROM "LiteLLM_SpendLogs" '
+            'WHERE (("startTime" AT TIME ZONE \'UTC\') AT TIME ZONE %s)::date '
+            '    = (now() AT TIME ZONE %s)::date '
+            'GROUP BY h, api_key', (LOCAL_TZ, LOCAL_TZ, LOCAL_TZ))
+        by_hour = {h: {} for h in range(24)}
+        users = set()
+        for h, api_key, spend in cur.fetchall():
+            if api_key in _NON_USER_KEYS or not spend:
+                continue
+            user = umap.get(api_key, 'inconnu')
+            by_hour[h][user] = by_hour[h].get(user, 0) + spend
+            users.add(user)
+        series = _series_for(users)
+        max_total = max((sum(v.values()) for v in by_hour.values()), default=0) or 1
+        hours = []
+        peak_hour, peak_val = 0, 0
+        for h in range(24):
+            total = sum(by_hour[h].values())
+            if total > peak_val:
+                peak_val, peak_hour = total, h
+            segs = [{'user': u, 'spend': s, 'h_pct': s / max_total * 100, 'series': series[u]}
+                    for u, s in sorted(by_hour[h].items(), key=lambda x: x[0])]
+            hours.append({'hour': h, 'total': total, 'segments': segs})
+        legend = [{'user': u, 'series': series[u]} for u in sorted(users)]
+        return {'hours': hours, 'legend': legend, 'max_total': max_total,
+                'peak_hour': peak_hour, 'has_data': peak_val > 0}
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
 @app.route('/admin/consumption')
 @admin_required
 def admin_consumption():
@@ -807,6 +943,7 @@ def admin():
                            stats=stats, spend_data=spend_data,
                            model_cfgs=model_cfgs, v_status=v_status,
                            init_logs=init_logs, budget_reqs=budget_reqs,
+                           hourly=hourly_data(),
                            default_key_budget=get_setting('default_key_budget', KEY_BUDGET),
                            default_key_duration=get_setting('default_key_duration', KEY_DURATION))
 

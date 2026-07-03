@@ -237,6 +237,39 @@
     .count.stale .live-dot { background: var(--danger); animation: none; }
     :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+    /* ── Palette catégorielle (validée CVD, cf. dataviz) ─────── */
+    [data-bs-theme="light"] {
+      --s1:#2a78d6; --s2:#1baf7a; --s3:#eda100; --s4:#008300;
+      --s5:#4a3aa7; --s6:#e34948; --s7:#e87ba4; --s8:#eb6834; --sother:#8a949b;
+    }
+    [data-bs-theme="dark"] {
+      --s1:#3987e5; --s2:#199e70; --s3:#c98500; --s4:#008300;
+      --s5:#9085e9; --s6:#e66767; --s7:#d55181; --s8:#d95926; --sother:#6a737a;
+    }
+    .fill-s1{background:var(--s1)} .fill-s2{background:var(--s2)} .fill-s3{background:var(--s3)}
+    .fill-s4{background:var(--s4)} .fill-s5{background:var(--s5)} .fill-s6{background:var(--s6)}
+    .fill-s7{background:var(--s7)} .fill-s8{background:var(--s8)} .fill-sother{background:var(--sother)}
+    .swatch { width:10px; height:10px; border-radius:3px; display:inline-block; vertical-align:middle; }
+
+    /* ── Barres de classement ───────────────────────────────── */
+    .rank-row { display:grid; grid-template-columns:2rem minmax(90px,170px) 1fr auto; gap:.75rem; align-items:center; padding:.45rem 0; }
+    .rank-num { font-weight:700; color:var(--text-muted); text-align:center; font-variant-numeric:tabular-nums; font-size:1.1rem; }
+    .rank-label { font-weight:600; font-size:.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .rank-bar-track { height:16px; border-radius:5px; background:var(--surface-hover); overflow:hidden; }
+    .rank-bar-fill { height:100%; border-radius:5px; min-width:4px; }
+    .rank-val { font-variant-numeric:tabular-nums; font-weight:600; white-space:nowrap; color:var(--text); }
+    .rank-row.me { background:var(--accent-soft); border-radius:8px; margin:0 -.5rem; padding-left:.5rem; padding-right:.5rem; }
+
+    /* ── Graphe horaire empilé ──────────────────────────────── */
+    .hourly { display:flex; align-items:flex-end; gap:2px; height:170px; padding-top:.5rem; }
+    .hourly-col { flex:1; display:flex; flex-direction:column-reverse; align-items:stretch; height:100%;
+                  border-radius:4px 4px 0 0; overflow:hidden; position:relative; }
+    .hourly-seg { width:100%; flex:0 0 auto; border-top:2px solid var(--surface); }
+    .hourly-col:hover { outline:2px solid var(--border-strong); outline-offset:1px; }
+    .hourly-peak { box-shadow:inset 0 0 0 2px var(--accent); border-radius:4px 4px 0 0; }
+    .hourly-axis { display:flex; gap:2px; margin-top:.35rem; }
+    .hourly-axis span { flex:1; text-align:center; font-size:.6rem; color:var(--text-faint); font-variant-numeric:tabular-nums; }
   </style>
 </head>
 <body>
@@ -253,6 +286,7 @@
         <li class="nav-item"><a class="nav-link {% if path.startswith('/keys') %}active{% endif %}" href="/keys"><i class="bi bi-key"></i> Mes clés API</a></li>
         <li class="nav-item"><a class="nav-link {% if path.startswith('/search') %}active{% endif %}" href="/search"><i class="bi bi-search"></i> Chercher un modèle</a></li>
         <li class="nav-item"><a class="nav-link {% if path.startswith('/request') %}active{% endif %}" href="/request"><i class="bi bi-send"></i> Demander un modèle</a></li>
+        <li class="nav-item"><a class="nav-link {% if path.startswith('/ranking') %}active{% endif %}" href="/ranking"><i class="bi bi-trophy"></i> Classement</a></li>
         {% if session.is_admin %}
         <li class="nav-item"><a class="nav-link admin-link {% if path.startswith('/admin') %}active{% endif %}" href="/admin"><i class="bi bi-shield-lock"></i> Admin</a></li>
         {% endif %}

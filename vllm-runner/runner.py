@@ -2,7 +2,7 @@
 vLLM Runner — daemon HTTP local sur le port 8001.
 Gère un seul processus vLLM à la fois (avec ses enfants).
 """
-import hmac, json, os, signal, subprocess, threading, time
+import hmac, json, os, shutil, signal, subprocess, threading, time
 from flask import Flask, jsonify, request, Response
 
 VLLM_BIN     = os.environ.get("VLLM_BIN", "/root/.local/bin/vllm")
@@ -271,6 +271,53 @@ def stop():
             _model  = None
             return jsonify({"status": "stopped"})
     return jsonify({"status": "already_stopped"})
+
+
+# ── Métriques système (hôte) ─────────────────────────────────────────────────
+def _cpu_pct():
+    def snap():
+        with open('/proc/stat') as f:
+            v = list(map(int, f.readline().split()[1:]))
+        idle = v[3] + (v[4] if len(v) > 4 else 0)   # idle + iowait
+        return idle, sum(v)
+    i1, t1 = snap(); time.sleep(0.2); i2, t2 = snap()
+    dt, di = t2 - t1, i2 - i1
+    return round((1 - di / dt) * 100, 1) if dt > 0 else 0.0
+
+def _ram():
+    info = {}
+    with open('/proc/meminfo') as f:
+        for line in f:
+            k, _, rest = line.partition(':')
+            info[k] = int(rest.split()[0])   # kB
+    total = info.get('MemTotal', 0) / 1048576.0
+    avail = info.get('MemAvailable', 0) / 1048576.0
+    used = total - avail
+    return {'used_gb': round(used, 1), 'total_gb': round(total, 1),
+            'pct': round(used / total * 100, 1) if total else 0}
+
+def _gpu():
+    exe = shutil.which('nvidia-smi')
+    if not exe:
+        return None
+    try:
+        out = subprocess.run(
+            [exe, '--query-gpu=utilization.gpu,power.draw,temperature.gpu',
+             '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=4)
+        row = out.stdout.strip().splitlines()[0]
+        parts = [p.strip() for p in row.split(',')]
+        def num(x):
+            try: return float(x)
+            except Exception: return None
+        return {'util': num(parts[0]), 'power': num(parts[1]), 'temp': num(parts[2])}
+    except Exception:
+        return None
+
+@app.route("/metrics")
+def metrics():
+    return jsonify({'cpu_pct': _cpu_pct(), 'ram': _ram(), 'gpu': _gpu(),
+                    'model': _model, 'model_status': _status})
 
 
 def _watchdog():

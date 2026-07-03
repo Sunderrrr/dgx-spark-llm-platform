@@ -272,6 +272,34 @@
     .hourly-peak { box-shadow:inset 0 0 0 2px var(--accent); border-radius:4px 4px 0 0; }
     .hourly-axis { display:flex; gap:2px; margin-top:.35rem; }
     .hourly-axis span { flex:1; text-align:center; font-size:.6rem; color:var(--text-faint); font-variant-numeric:tabular-nums; }
+
+    /* ── Cartes métriques (style data / monospace) ──────────── */
+    .metric-card { background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+    .metric-label { font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:10px;
+                    letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); }
+    .metric-value { font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:20px;
+                    font-weight:600; color:var(--text); margin-top:5px; line-height:1.1; font-variant-numeric:tabular-nums; }
+    .metric-value .unit { font-size:12px; color:var(--text-muted); font-weight:500; }
+
+    /* ── Area chart (ambre, bi-thème) ───────────────────────── */
+    [data-bs-theme="light"] { --chart:#c77d33; --chart-top:rgba(199,125,51,0.22); --chart-bot:rgba(199,125,51,0); }
+    [data-bs-theme="dark"]  { --chart:#f0a868; --chart-top:rgba(240,168,104,0.32); --chart-bot:rgba(240,168,104,0); }
+    .usage-wrap { position:relative; }
+    .usage-chart { width:100%; height:200px; display:block; }
+    .usage-chart .uf-top { stop-color:var(--chart-top); }
+    .usage-chart .uf-bot { stop-color:var(--chart-bot); }
+    .usage-chart .grid-line { stroke:var(--border); stroke-width:1; }
+    .usage-chart .axis-label { fill:var(--text-faint); font-size:10px; font-family:"SF Mono",ui-monospace,monospace; }
+    .usage-chart .area-line { fill:none; stroke:var(--chart); stroke-width:2.5; stroke-linejoin:round; stroke-linecap:round; }
+    .usage-chart .u-data { animation: uReveal 1.1s cubic-bezier(.22,.7,.3,1); }
+    @keyframes uReveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+    .usage-chart .cross { stroke:var(--chart); stroke-width:1; stroke-dasharray:3 3; opacity:0; }
+    .usage-chart .cursor-dot { fill:var(--chart); stroke:var(--surface); stroke-width:2; opacity:0; }
+    .usage-tip { position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--border);
+                 border-radius:8px; padding:.35rem .6rem; box-shadow:var(--shadow); opacity:0; transition:opacity .1s;
+                 white-space:nowrap; z-index:5; transform:translate(-50%, -115%); }
+    .usage-tip .t-h { color:var(--text-muted); font-size:.68rem; font-family:"SF Mono",ui-monospace,monospace; }
+    .usage-tip .t-v { color:var(--chart); font-weight:700; font-size:.9rem; font-variant-numeric:tabular-nums; }
   </style>
 </head>
 <body>

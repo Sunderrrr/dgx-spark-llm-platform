@@ -137,40 +137,6 @@
     </div>
   </div>
 
-  <!-- ── Consommation par heure (aujourd'hui) ─────────────────────────────── -->
-  {% if hourly and hourly.has_data %}
-  <div class="col-12">
-    <div class="section-label">
-      <i class="bi bi-clock-history"></i> Consommation par heure — aujourd'hui
-      <span class="count">pic à {{ "%02d"|format(hourly.peak_hour) }} h</span>
-    </div>
-    <div class="card">
-      <div class="card-body">
-        <!-- Légende (identité jamais par couleur seule) -->
-        <div class="d-flex flex-wrap gap-3 mb-2 small">
-          {% for l in hourly.legend %}
-          <span class="text-secondary"><span class="swatch fill-{{ l.series }}"></span> {{ l.user }}</span>
-          {% endfor %}
-        </div>
-        <div class="hourly">
-          {% for h in hourly.hours %}
-          <div class="hourly-col {% if h.hour == hourly.peak_hour and h.total > 0 %}hourly-peak{% endif %}"
-               title="{{ '%02d'|format(h.hour) }} h — {{ '{:,.0f}'.format(h.total).replace(',', ' ') }}">
-            {% for seg in h.segments %}
-            <div class="hourly-seg fill-{{ seg.series }}" style="height: {{ seg.h_pct }}%"
-                 title="{{ seg.user }} · {{ '{:,.0f}'.format(seg.spend).replace(',', ' ') }} ({{ '%02d'|format(h.hour) }} h)"></div>
-            {% endfor %}
-          </div>
-          {% endfor %}
-        </div>
-        <div class="hourly-axis">
-          {% for h in range(24) %}<span>{% if h % 3 == 0 %}{{ h }}{% endif %}</span>{% endfor %}
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
   <!-- ── Limite de tokens globale ─────────────────────────────────────────── -->
   <div class="col-12">
     <div class="section-label"><i class="bi bi-sliders"></i> Limite de tokens par défaut <span class="text-secondary fw-normal" style="font-size:.82rem">(nouvelles clés)</span></div>

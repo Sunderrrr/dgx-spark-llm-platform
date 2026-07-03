@@ -202,13 +202,22 @@ function toggleReveal() {
 // copySnippet() utilise getRealSnippet() qui passe toujours la vraie clé.
 const tpls = {
   opencode: (k, m) =>
-`# ~/.config/opencode/config.json
+`# ~/.config/opencode/opencode.json
+# Provider dédié "DGX-Cronos" (n'écrase pas le provider openai officiel).
+# Modèle dispo sous : dgx-cronos/${m}  (redémarre OpenCode puis /models)
 {
-  "model": "openai/${m}",
-  "providers": {
-    "openai": {
-      "apiKey": "${dispKey(k)}",
-      "baseURL": "${BASE}"
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "dgx-cronos": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DGX-Cronos",
+      "options": {
+        "baseURL": "${BASE}",
+        "apiKey": "${dispKey(k)}"
+      },
+      "models": {
+        "${m}": { "name": "${m}" }
+      }
     }
   }
 }`,

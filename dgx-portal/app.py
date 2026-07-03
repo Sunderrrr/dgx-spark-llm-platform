@@ -925,47 +925,6 @@ def ranking_full(period='day', me=None):
     finally:
         conn.close()
 
-def hourly_data():
-    """Consommation d'aujourd'hui par heure locale, empilée par utilisateur."""
-    conn = _spend_conn()
-    if not conn:
-        return None
-    try:
-        umap = _key_user_map(conn)
-        cur = conn.cursor()
-        cur.execute(
-            'SELECT EXTRACT(HOUR FROM (("startTime" AT TIME ZONE \'UTC\') AT TIME ZONE %s))::int AS h, '
-            'api_key, SUM(spend) FROM "LiteLLM_SpendLogs" '
-            'WHERE (("startTime" AT TIME ZONE \'UTC\') AT TIME ZONE %s)::date '
-            '    = (now() AT TIME ZONE %s)::date '
-            'GROUP BY h, api_key', (LOCAL_TZ, LOCAL_TZ, LOCAL_TZ))
-        by_hour = {h: {} for h in range(24)}
-        users = set()
-        for h, api_key, spend in cur.fetchall():
-            if api_key in _NON_USER_KEYS or not spend:
-                continue
-            user = umap.get(api_key, 'inconnu')
-            by_hour[h][user] = by_hour[h].get(user, 0) + spend
-            users.add(user)
-        series = _series_for(users)
-        max_total = max((sum(v.values()) for v in by_hour.values()), default=0) or 1
-        hours = []
-        peak_hour, peak_val = 0, 0
-        for h in range(24):
-            total = sum(by_hour[h].values())
-            if total > peak_val:
-                peak_val, peak_hour = total, h
-            segs = [{'user': u, 'spend': s, 'h_pct': s / max_total * 100, 'series': series[u]}
-                    for u, s in sorted(by_hour[h].items(), key=lambda x: x[0])]
-            hours.append({'hour': h, 'total': total, 'segments': segs})
-        legend = [{'user': u, 'series': series[u]} for u in sorted(users)]
-        return {'hours': hours, 'legend': legend, 'max_total': max_total,
-                'peak_hour': peak_hour, 'has_data': peak_val > 0}
-    except Exception:
-        return None
-    finally:
-        conn.close()
-
 def user_hourly(username):
     """24 points horaires (coût pondéré) d'aujourd'hui pour l'utilisateur, + total,
     pic horaire et nombre de clés actives dans la journée."""
@@ -1035,7 +994,6 @@ def admin():
                            stats=stats, spend_data=spend_data,
                            model_cfgs=model_cfgs, v_status=v_status,
                            init_logs=init_logs, budget_reqs=budget_reqs,
-                           hourly=hourly_data(),
                            default_key_budget=get_setting('default_key_budget', KEY_BUDGET),
                            default_key_duration=get_setting('default_key_duration', KEY_DURATION))
 

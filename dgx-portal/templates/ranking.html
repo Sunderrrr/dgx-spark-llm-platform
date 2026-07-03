@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Classement — DGX Portal{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-12">
+    <div class="page-head">
+      <div>
+        <h1 class="page-head-title">Classement</h1>
+        <p class="page-head-sub">Qui consomme le plus, en coût pondéré (les tokens du prompt comptent 10× moins que ceux générés).</p>
+      </div>
+      <div class="btn-group" role="group">
+        <a href="/ranking?period=day"   class="btn btn-sm {{ 'btn-success' if period=='day'   else 'btn-outline-secondary' }}">Jour</a>
+        <a href="/ranking?period=week"  class="btn btn-sm {{ 'btn-success' if period=='week'  else 'btn-outline-secondary' }}">Semaine</a>
+        <a href="/ranking?period=month" class="btn btn-sm {{ 'btn-success' if period=='month' else 'btn-outline-secondary' }}">Mois</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="section-label mb-3"><i class="bi bi-trophy"></i> {{ period_label }}</div>
+        {% if rows %}
+          {% for r in rows %}
+          <div class="rank-row {% if r.is_me %}me{% endif %}">
+            <div class="rank-num">
+              {% if r.rank == 1 %}🥇{% elif r.rank == 2 %}🥈{% elif r.rank == 3 %}🥉{% else %}{{ r.rank }}{% endif %}
+            </div>
+            <div class="rank-label">
+              <span class="swatch fill-{{ r.series }}"></span> {{ r.username }}{% if r.is_me %} <span class="badge bg-secondary">toi</span>{% endif %}
+            </div>
+            <div class="rank-bar-track">
+              <div class="rank-bar-fill fill-{{ r.series }}" style="width: {{ [r.pct, 4]|max }}%"></div>
+            </div>
+            <div class="rank-val">{{ "{:,.0f}".format(r.spend).replace(',', ' ') }}</div>
+          </div>
+          {% endfor %}
+          <div class="text-secondary small mt-3">
+            <i class="bi bi-info-circle"></i> Unité = coût pondéré (input × 0,1 + output × 1). Données depuis les logs LiteLLM.
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <i class="bi bi-bar-chart"></i>
+            Aucune consommation sur cette période.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

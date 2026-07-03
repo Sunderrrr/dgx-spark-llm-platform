@@ -48,6 +48,42 @@
     {% endif %}
   </div>
 
+  <!-- Mon utilisation -->
+  {% if usage and usage.has_data %}
+  <div class="col-12">
+    <div class="section-label"><i class="bi bi-graph-up"></i> Mon utilisation <span class="count">coût pondéré</span></div>
+    <div class="card">
+      <div class="card-body">
+        <div class="row g-3 mb-3 text-center">
+          <div class="col-4">
+            <div class="stat-number">{{ "{:,.0f}".format(usage.today).replace(',', ' ') }}</div>
+            <div class="text-secondary small">Aujourd'hui</div>
+          </div>
+          <div class="col-4">
+            <div class="stat-number">{{ "{:,.0f}".format(usage.week).replace(',', ' ') }}</div>
+            <div class="text-secondary small">7 derniers jours</div>
+          </div>
+          <div class="col-4">
+            <div class="stat-number">{{ "{:,.0f}".format(usage.month).replace(',', ' ') }}</div>
+            <div class="text-secondary small">30 derniers jours</div>
+          </div>
+        </div>
+        <div class="text-secondary small mb-1">14 derniers jours</div>
+        <div class="hourly">
+          {% for d in usage.daily %}
+          <div class="hourly-col" title="{{ d.dow }} {{ d.label }} — {{ '{:,.0f}'.format(d.spend).replace(',', ' ') }}">
+            <div class="hourly-seg fill-me" style="height: {{ d.h_pct }}%"></div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="hourly-axis">
+          {% for d in usage.daily %}<span>{% if loop.index0 % 2 == 0 %}{{ d.label }}{% endif %}</span>{% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Actions rapides -->
   <div class="col-md-6 col-lg-4">
     <div class="card h-100">

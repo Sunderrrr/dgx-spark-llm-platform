@@ -3,14 +3,14 @@
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-md-7 col-lg-6">
-    <div class="card">
-      <div class="card-header">
-        <i class="bi bi-send text-success"></i> Demander le lancement d'un modèle
+    <div class="page-head">
+      <div>
+        <h1 class="page-head-title">Demander un modèle</h1>
+        <p class="page-head-sub">L'admin est notifié par Discord et email. Le statut apparaît sur ta page d'accueil.</p>
       </div>
+    </div>
+    <div class="card">
       <div class="card-body">
-        <p class="text-secondary small mb-4">
-          L'admin sera notifié par Discord et email. Tu verras le statut de ta demande sur la page d'accueil.
-        </p>
         <form method="POST">
           <div class="mb-3">
             <label class="form-label">Identifiant HuggingFace <span class="text-danger">*</span></label>

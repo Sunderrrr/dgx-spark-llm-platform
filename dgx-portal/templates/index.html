@@ -5,10 +5,10 @@
 
   <!-- En-tête -->
   <div class="col-12">
-    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div class="page-head mb-0">
       <div>
-        <h3 class="mb-1 fw-bold">Bonjour, {{ session.fullname.split(' ')[0] }} 👋</h3>
-        <p class="text-secondary mb-0">Ton accès self-service à l'inférence LLM sur DGX Spark.</p>
+        <h1 class="page-head-title">Bonjour, {{ session.fullname.split(' ')[0] }}</h1>
+        <p class="page-head-sub">Ton accès self-service à l'inférence LLM sur DGX Spark.</p>
       </div>
       <a href="/keys" class="btn btn-success"><i class="bi bi-key"></i> Mes clés API</a>
     </div>
@@ -16,7 +16,7 @@
 
   <!-- Modèles actifs -->
   <div class="col-12">
-    <h5 class="text-secondary mb-3"><i class="bi bi-activity text-success"></i> Modèles disponibles maintenant</h5>
+    <div class="section-label"><i class="bi bi-activity"></i> Modèles disponibles maintenant</div>
     {% if running_models %}
     <div class="row g-3">
       {% for model in running_models %}
@@ -87,7 +87,7 @@
   <!-- Mes dernières demandes -->
   {% if my_requests %}
   <div class="col-12">
-    <h5 class="text-secondary mb-3"><i class="bi bi-clock-history"></i> Mes dernières demandes</h5>
+    <div class="section-label"><i class="bi bi-clock-history"></i> Mes dernières demandes</div>
     <div class="card">
       <div class="table-responsive">
         <table class="table table-dark table-hover mb-0">

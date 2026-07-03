@@ -3,7 +3,12 @@
 {% block content %}
 <div class="row g-4">
   <div class="col-12">
-    <h5 class="mb-3"><i class="bi bi-search text-info"></i> Catalogue HuggingFace</h5>
+    <div class="page-head">
+      <div>
+        <h1 class="page-head-title">Chercher un modèle</h1>
+        <p class="page-head-sub">Explore le catalogue Hugging Face et demande le lancement d'un modèle sur le DGX.</p>
+      </div>
+    </div>
     <form method="GET" class="d-flex gap-2 mb-4">
       <input type="text" name="q" value="{{ query }}" class="form-control bg-dark border-secondary"
              placeholder="Nom de modèle, ex: Qwen, Llama, Mistral..." autofocus>
@@ -17,14 +22,14 @@
     </form>
 
     {% if not query %}
-    <div class="text-center py-5 text-secondary">
-      <i class="bi bi-robot fs-1 d-block mb-3"></i>
-      Tape un nom de modèle pour explorer HuggingFace
+    <div class="empty-state">
+      <i class="bi bi-search"></i>
+      Tape un nom de modèle (Qwen, Llama, Mistral…) pour explorer Hugging Face.
     </div>
     {% elif not results %}
-    <div class="text-center py-5 text-secondary">
-      <i class="bi bi-emoji-frown fs-2 d-block mb-2"></i>
-      Aucun résultat pour « {{ query }} »
+    <div class="empty-state">
+      <i class="bi bi-emoji-frown"></i>
+      Aucun résultat pour « {{ query }} ».
     </div>
     {% else %}
     <div class="row g-3">

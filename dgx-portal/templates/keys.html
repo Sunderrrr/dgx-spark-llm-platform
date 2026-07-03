@@ -4,14 +4,17 @@
 <div class="row g-4">
 
   <div class="col-12">
-    <div class="d-flex align-items-center justify-content-between mb-3">
-      <h5 class="mb-0"><i class="bi bi-key text-warning"></i> Mes clés API</h5>
+    <div class="page-head">
+      <div>
+        <h1 class="page-head-title">Mes clés API</h1>
+        <p class="page-head-sub">Des clés personnelles pour appeler les modèles via l'API compatible OpenAI.</p>
+      </div>
       <form method="POST" class="d-flex align-items-center gap-2">
         <input type="hidden" name="action" value="create">
         <input type="text" name="key_name" class="form-control form-control-sm bg-dark text-white border-secondary"
                placeholder="Nom (ex: mon-laptop)" style="width:190px" maxlength="40"
                pattern="[a-zA-Z0-9_\-]+" title="Lettres, chiffres, - et _ uniquement">
-        <button class="btn btn-warning btn-sm text-nowrap"><i class="bi bi-plus-lg"></i> Créer</button>
+        <button class="btn btn-success btn-sm text-nowrap"><i class="bi bi-plus-lg"></i> Nouvelle clé</button>
       </form>
     </div>
 
@@ -101,9 +104,10 @@
 
     {% else %}
     <div class="card">
-      <div class="card-body text-center py-5 text-secondary">
-        <i class="bi bi-key fs-2 d-block mb-2"></i>
-        Aucune clé — clique sur <strong>Nouvelle clé</strong> pour en créer une.
+      <div class="empty-state">
+        <i class="bi bi-key"></i>
+        Aucune clé pour l'instant.<br>
+        Utilise <strong>Nouvelle clé</strong> en haut à droite pour en générer une.
       </div>
     </div>
     {% endif %}

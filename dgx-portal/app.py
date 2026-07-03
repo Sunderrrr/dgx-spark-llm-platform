@@ -604,8 +604,11 @@ def index():
         "SELECT * FROM model_requests WHERE username=? ORDER BY created_at DESC LIMIT 5",
         (session['username'],)
     ).fetchall()
+    default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
     return render_template('index.html', running_models=running, my_requests=my_requests,
-                           public_api_url=PUBLIC_API_URL)
+                           public_api_url=PUBLIC_API_URL,
+                           budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
+                           budget_duration=get_setting('default_key_duration', KEY_DURATION))
 
 @app.route('/keys', methods=['GET', 'POST'])
 @login_required

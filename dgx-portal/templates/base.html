@@ -272,6 +272,17 @@
                    border-radius:6px; padding-left:.6rem; margin:2px 0; }
 
 
+    /* ── Jauges système (CPU / RAM / GPU) ───────────────────── */
+    .meter { }
+    .meter-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:.3rem; }
+    .meter-label { font-size:.8rem; color:var(--text-muted); font-weight:600; display:flex; align-items:center; gap:.35rem; }
+    .meter-val { font-variant-numeric:tabular-nums; font-weight:600; font-size:.85rem; color:var(--text); }
+    .meter-val small { color:var(--text-muted); font-weight:500; }
+    .meter-track { height:8px; border-radius:4px; background:var(--surface-hover); overflow:hidden; }
+    .meter-fill { height:100%; border-radius:4px; background:var(--accent); transition:width .5s ease, background .3s; min-width:2px; }
+    .meter-fill.warn { background:var(--warn); }
+    .meter-fill.crit { background:var(--danger); }
+
     /* ── Cartes métriques (style data / monospace) ──────────── */
     .metric-card { background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
     .metric-label { font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:10px;

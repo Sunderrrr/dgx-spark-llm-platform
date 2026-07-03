@@ -8,20 +8,27 @@ from email.mime.text import MIMEText
 from datetime import datetime
 from functools import wraps
 from urllib.parse import urlparse
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
 app.secret_key = os.environ['SECRET_KEY']
 
+# Derrière Traefik (TLS terminé au proxy, forward en HTTP au conteneur) :
+# fait confiance aux en-têtes X-Forwarded-* pour que Flask connaisse le vrai
+# schéma (https) et l'hôte externe (dgx.cronos.website).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 # ── Durcissement des sessions ────────────────────────────────────────────────
 # HttpOnly : le cookie de session n'est pas lisible en JS (anti-vol via XSS).
-# SameSite=Strict : le navigateur n'envoie jamais le cookie sur une requête
-#   cross-site → neutralise le CSRF sur toutes les routes POST (une requête
-#   forgée depuis un autre site arrive sans session → bloquée par @login_required).
-# Secure : cookie transmis uniquement en HTTPS. Activé via env quand un reverse
-#   proxy TLS est devant (aujourd'hui l'app est en HTTP sur le LAN → défaut off).
+# SameSite=Lax : le cookie n'est pas envoyé sur les requêtes cross-site de type
+#   POST/sous-ressource (→ protège du CSRF sur les routes POST), MAIS il l'est
+#   sur une navigation top-level GET — ce qui est nécessaire pour que le retour
+#   OIDC (Authentik → /api/oauth2-redirect) retrouve l'état OAuth en session.
+# Secure : cookie transmis uniquement en HTTPS. Activé via env (=1) quand un
+#   reverse proxy TLS est devant (dgx.cronos.website via Traefik).
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE='Strict',
+    SESSION_COOKIE_SAMESITE='Lax',
     SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE', '0') == '1',
 )
 
@@ -56,6 +63,27 @@ ADMIN_EMAIL   = os.environ.get('ADMIN_EMAIL', '')
 KEY_BUDGET    = float(os.environ.get('KEY_MAX_BUDGET', '0.002'))
 KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '1d')
 DB_PATH       = '/app/data/portal.db'
+
+# ── SSO / OIDC (Authentik) ───────────────────────────────────────────────────
+OIDC_METADATA_URL  = os.environ.get('OIDC_METADATA_URL', '')
+OIDC_CLIENT_ID     = os.environ.get('OIDC_CLIENT_ID', '')
+OIDC_CLIENT_SECRET = os.environ.get('OIDC_CLIENT_SECRET', '')
+OIDC_REDIRECT_URI  = os.environ.get('OIDC_REDIRECT_URI', '')
+OIDC_LOGOUT_URL    = os.environ.get('OIDC_LOGOUT_URL', '')
+OIDC_ADMIN_GROUP   = os.environ.get('OIDC_ADMIN_GROUP', 'adm_cronos')
+OIDC_ENABLED       = bool(OIDC_METADATA_URL and OIDC_CLIENT_ID and OIDC_CLIENT_SECRET)
+
+oauth = None
+if OIDC_ENABLED:
+    from authlib.integrations.flask_client import OAuth
+    oauth = OAuth(app)
+    oauth.register(
+        name='authentik',
+        server_metadata_url=OIDC_METADATA_URL,
+        client_id=OIDC_CLIENT_ID,
+        client_secret=OIDC_CLIENT_SECRET,
+        client_kwargs={'scope': 'openid profile email'},
+    )
 
 # ── DB ─────────────────────────────────────────────────────────────────────
 
@@ -460,13 +488,10 @@ def login():
         password = request.form.get('password', '')
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
-            session.clear()
-            session['username'] = username
-            session['fullname'] = fullname
-            session['is_admin'] = is_admin
+            _apply_session(username, fullname, is_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
         flash("Identifiants incorrects.", "danger")
-    return render_template('login.html')
+    return render_template('login.html', oidc_enabled=OIDC_ENABLED)
 
 
 def _safe_next(target):
@@ -479,9 +504,93 @@ def _safe_next(target):
         return url_for('index')
     return target
 
+
+def _apply_session(username, fullname, is_admin, via_sso=False):
+    session.clear()
+    session['username'] = username
+    session['fullname'] = fullname
+    session['is_admin'] = is_admin
+    session['sso'] = via_sso
+
+
+def ldap_lookup_admin(username):
+    """Détermine is_admin via un lookup LDAP par uid (compte de service).
+    Utilisé pour le SSO quand le claim OIDC 'groups' est absent."""
+    if not (LDAP_BIND_DN and LDAP_BIND_PW) or not USERNAME_RE.match(username or ''):
+        return False
+    try:
+        server = Server(LDAP_URI, get_info=ALL)
+        conn = Connection(server, user=LDAP_BIND_DN, password=LDAP_BIND_PW,
+                          authentication=SIMPLE, auto_bind=True)
+        conn.search(search_base=f"ou=people,{LDAP_BASE}",
+                    search_filter=f"(uid={escape_filter_chars(username)})",
+                    attributes=['memberOf'])
+        is_admin = False
+        if conn.entries and hasattr(conn.entries[0], 'memberOf'):
+            groups = [str(g) for g in conn.entries[0].memberOf]
+            is_admin = any(_is_admin_group(g) for g in groups)
+        conn.unbind()
+        return is_admin
+    except Exception:
+        return False
+
+
+@app.route('/login/sso')
+def login_sso():
+    if not OIDC_ENABLED:
+        flash("Le SSO n'est pas configuré.", "danger")
+        return redirect(url_for('login'))
+    session['sso_next'] = _safe_next(request.args.get('next'))
+    return oauth.authentik.authorize_redirect(OIDC_REDIRECT_URI or url_for('oauth_callback', _external=True))
+
+
+@app.route('/api/oauth2-redirect')
+def oauth_callback():
+    if not OIDC_ENABLED:
+        return redirect(url_for('login'))
+    try:
+        token = oauth.authentik.authorize_access_token()
+    except Exception:
+        flash("Échec de la connexion SSO. Réessaie.", "danger")
+        return redirect(url_for('login'))
+
+    userinfo = token.get('userinfo') or {}
+    if not userinfo:
+        try:
+            userinfo = oauth.authentik.userinfo(token=token)
+        except Exception:
+            userinfo = {}
+
+    username = (userinfo.get('preferred_username') or userinfo.get('nickname')
+                or (userinfo.get('email') or '').split('@')[0]
+                or userinfo.get('sub') or '').strip().lower()
+    if not username:
+        flash("SSO : profil incomplet (identifiant manquant).", "danger")
+        return redirect(url_for('login'))
+    fullname = userinfo.get('name') or username
+
+    groups = userinfo.get('groups')
+    if isinstance(groups, list):
+        # Authentik renvoie des noms de groupes ("adm_cronos") ; _is_admin_group
+        # couvre aussi le cas où ce serait un DN complet.
+        is_admin = any(g == OIDC_ADMIN_GROUP or _is_admin_group(g) for g in groups)
+    else:
+        # Claim 'groups' absent → on retombe sur un lookup LDAP par uid.
+        is_admin = ldap_lookup_admin(username)
+
+    nxt = session.pop('sso_next', None)
+    _apply_session(username, fullname, is_admin, via_sso=True)
+    return redirect(_safe_next(nxt))
+
+
 @app.route('/logout')
 def logout():
+    was_sso = session.get('sso')
     session.clear()
+    # Déconnexion RP-initiated : si l'utilisateur s'est connecté en SSO, on le
+    # renvoie aussi vers l'end-session Authentik pour fermer la session IdP.
+    if was_sso and OIDC_LOGOUT_URL:
+        return redirect(OIDC_LOGOUT_URL)
     return redirect(url_for('login'))
 
 @app.route('/')

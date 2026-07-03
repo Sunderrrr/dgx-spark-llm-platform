@@ -72,6 +72,15 @@ services:
       KEY_BUDGET_DURATION: "1d"
       VLLM_RUNNER_URL: http://host.docker.internal:8001
       RUNNER_TOKEN: ${RUNNER_TOKEN}
+      # ── SSO / OIDC (Authentik) ──
+      OIDC_METADATA_URL: https://gjallarhorn.cronos.website/application/o/dgx-spark/.well-known/openid-configuration
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      OIDC_REDIRECT_URI: https://dgx.cronos.website/api/oauth2-redirect
+      OIDC_LOGOUT_URL: https://gjallarhorn.cronos.website/application/o/dgx-spark/end-session/
+      OIDC_ADMIN_GROUP: adm_cronos
+      # App servie en HTTPS derrière Traefik → cookie de session Secure
+      SESSION_COOKIE_SECURE: "1"
     volumes:
       - portal_data:/app/data
     extra_hosts:

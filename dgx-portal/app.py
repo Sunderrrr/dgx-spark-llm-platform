@@ -715,19 +715,11 @@ def ranking():
     period = request.args.get('period', 'day')
     if period not in ('day', 'week', 'month'):
         period = 'day'
-    raw = ranking_data(period)
-    series = _series_for([u for u, _ in raw])
-    top = raw[0][1] if raw else 0
-    rows = [{
-        'rank': i + 1,
-        'username': u,
-        'spend': s,
-        'pct': (s / top * 100) if top else 0,
-        'series': series[u],
-        'is_me': u == session['username'],
-    } for i, (u, s) in enumerate(raw)]
+    data = ranking_full(period, me=session['username'])
     labels = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours'}
-    return render_template('ranking.html', rows=rows, period=period, period_label=labels[period])
+    prev_labels = {'day': 'hier', 'week': 'la semaine précédente', 'month': 'les 30 jours précédents'}
+    return render_template('ranking.html', rows=data['rows'], active_count=data['active_count'],
+                           period=period, period_label=labels[period], prev_label=prev_labels[period])
 
 @app.route('/request', methods=['GET', 'POST'])
 @login_required
@@ -846,33 +838,90 @@ def _series_for(usernames):
         out[u] = f"s{i+1}" if i < 8 else "other"
     return out
 
-def ranking_data(period='day'):
-    """[(username, spend)] trié décroissant sur la fenêtre choisie."""
+def _spark_points(spark, w=88, h=24):
+    """Points d'une polyline SVG (normalisée sur son propre max)."""
+    n = len(spark)
+    if n < 2:
+        return ''
+    mx = max(spark) or 1
+    return ' '.join(
+        f"{(j/(n-1)*w):.1f},{(h - 1 - (v/mx)*(h-2)):.1f}" for j, v in enumerate(spark))
+
+def ranking_full(period='day', me=None):
+    """Classement enrichi : total pondéré, delta vs période précédente,
+    répartition prompt/généré, et sparkline de tendance, par utilisateur."""
     conn = _spend_conn()
+    empty = {'period': period, 'rows': [], 'active_count': 0}
     if not conn:
-        return []
+        return empty
+    UTC = ZoneInfo('UTC')
     try:
         now_local = datetime.now(ZoneInfo(LOCAL_TZ))
+        today = now_local.date()
         if period == 'week':
-            cutoff = (now_local - timedelta(days=7))
+            cur_start = now_local - timedelta(days=7)
+            prev_start = now_local - timedelta(days=14)
+            buckets = [today - timedelta(days=i) for i in range(6, -1, -1)]
+            bucket_kind = 'day'
         elif period == 'month':
-            cutoff = (now_local - timedelta(days=30))
-        else:  # day = depuis minuit local aujourd'hui
-            cutoff = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-        cutoff_utc = cutoff.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+            cur_start = now_local - timedelta(days=30)
+            prev_start = now_local - timedelta(days=60)
+            buckets = [today - timedelta(days=i) for i in range(29, -1, -1)]
+            bucket_kind = 'day'
+        else:  # day
+            cur_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+            prev_start = cur_start - timedelta(days=1)
+            buckets = list(range(24))
+            bucket_kind = 'hour'
+        cur_start_utc = cur_start.astimezone(UTC).replace(tzinfo=None)
+        prev_start_utc = prev_start.astimezone(UTC).replace(tzinfo=None)
         umap = _key_user_map(conn)
         cur = conn.cursor()
+        bexpr = ("EXTRACT(HOUR FROM ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::int"
+                 if bucket_kind == 'hour'
+                 else "((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s)::date")
+        # Période courante : par bucket + clé (spend + répartition tokens)
+        cur.execute(
+            f'SELECT {bexpr} AS b, api_key, SUM(spend), SUM(prompt_tokens), SUM(completion_tokens) '
+            'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s GROUP BY b, api_key',
+            (LOCAL_TZ, cur_start_utc))
+        agg = {}
+        for b, api_key, spend, prompt, comp in cur.fetchall():
+            if api_key in _NON_USER_KEYS:
+                continue
+            u = umap.get(api_key, 'inconnu')
+            a = agg.setdefault(u, {'spend': 0, 'prompt': 0, 'completion': 0, 'spark': {}})
+            a['spend'] += spend or 0; a['prompt'] += prompt or 0; a['completion'] += comp or 0
+            if spend:
+                a['spark'][b] = a['spark'].get(b, 0) + spend
+        # Période précédente : total par clé (pour le delta)
         cur.execute('SELECT api_key, SUM(spend) FROM "LiteLLM_SpendLogs" '
-                    'WHERE "startTime" >= %s GROUP BY api_key', (cutoff_utc,))
-        totals = {}
+                    'WHERE "startTime" >= %s AND "startTime" < %s GROUP BY api_key',
+                    (prev_start_utc, cur_start_utc))
+        prev = {}
         for api_key, spend in cur.fetchall():
             if api_key in _NON_USER_KEYS:
                 continue
-            user = umap.get(api_key, 'inconnu')
-            totals[user] = totals.get(user, 0) + (spend or 0)
-        return sorted([t for t in totals.items() if t[1] > 0], key=lambda x: x[1], reverse=True)
+            u = umap.get(api_key, 'inconnu')
+            prev[u] = prev.get(u, 0) + (spend or 0)
+        items = sorted([(u, a) for u, a in agg.items() if a['spend'] > 0],
+                       key=lambda x: x[1]['spend'], reverse=True)
+        series = _series_for([u for u, _ in items])
+        top = items[0][1]['spend'] if items else 0
+        rows = []
+        for i, (u, a) in enumerate(items):
+            pv = prev.get(u, 0)
+            delta = ((a['spend'] - pv) / pv * 100) if pv > 0 else None
+            spark = [a['spark'].get(b, 0) for b in buckets]
+            rows.append({
+                'rank': i + 1, 'username': u, 'series': series[u], 'is_me': u == me,
+                'spend': a['spend'], 'prompt': int(a['prompt']), 'completion': int(a['completion']),
+                'delta': delta, 'bar_pct': (a['spend'] / top * 100) if top else 0,
+                'spark_pts': _spark_points(spark),
+            })
+        return {'period': period, 'rows': rows, 'active_count': len(rows)}
     except Exception:
-        return []
+        return empty
     finally:
         conn.close()
 

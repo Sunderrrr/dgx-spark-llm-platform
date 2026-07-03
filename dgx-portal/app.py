@@ -359,6 +359,15 @@ def runner_logs(n=150):
         pass
     return []
 
+def runner_metrics():
+    try:
+        r = requests.get(f"{RUNNER_URL}/metrics", headers=_runner_headers(), timeout=5)
+        if r.ok:
+            return r.json()
+    except Exception:
+        pass
+    return None
+
 def search_hf_models(query, task='text-generation'):
     try:
         r = requests.get(
@@ -611,6 +620,7 @@ def index():
     default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
     return render_template('index.html', running_models=running, my_requests=my_requests,
                            public_api_url=PUBLIC_API_URL, usage=user_hourly(session['username']),
+                           sysmetrics=runner_metrics(),
                            budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
                            budget_duration=get_setting('default_key_duration', KEY_DURATION))
 
@@ -967,6 +977,11 @@ def user_hourly(username):
 @login_required
 def usage_hourly():
     return jsonify(user_hourly(session['username']) or {'has_data': False})
+
+@app.route('/system/stats')
+@login_required
+def system_stats():
+    return jsonify(runner_metrics() or {})
 
 @app.route('/admin/consumption')
 @admin_required

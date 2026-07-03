@@ -48,6 +48,42 @@
     {% endif %}
   </div>
 
+  <!-- État du serveur (visible par tous) -->
+  {% if sysmetrics %}
+  <div class="col-12">
+    <div class="section-label"><i class="bi bi-hdd-rack"></i> État du serveur <span class="count"><span class="live-dot"></span> live</span></div>
+    <div class="card">
+      <div class="card-body">
+        <div class="row g-4">
+          <div class="col-md-4">
+            <div class="meter">
+              <div class="meter-head"><span class="meter-label"><i class="bi bi-cpu"></i> CPU</span>
+                <span class="meter-val" id="m-cpu-val">{{ sysmetrics.cpu_pct }} %</span></div>
+              <div class="meter-track"><div class="meter-fill" id="m-cpu" style="width: {{ sysmetrics.cpu_pct }}%"></div></div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="meter">
+              <div class="meter-head"><span class="meter-label"><i class="bi bi-memory"></i> RAM</span>
+                <span class="meter-val" id="m-ram-val">{{ sysmetrics.ram.used_gb }} <small>/ {{ sysmetrics.ram.total_gb }} Go</small></span></div>
+              <div class="meter-track"><div class="meter-fill" id="m-ram" style="width: {{ sysmetrics.ram.pct }}%"></div></div>
+            </div>
+          </div>
+          {% if sysmetrics.gpu %}
+          <div class="col-md-4">
+            <div class="meter">
+              <div class="meter-head"><span class="meter-label"><i class="bi bi-gpu-card"></i> GPU</span>
+                <span class="meter-val" id="m-gpu-val">{{ (sysmetrics.gpu.util or 0)|round|int }} % <small>· {{ (sysmetrics.gpu.power or 0)|round|int }} W · {{ (sysmetrics.gpu.temp or 0)|round|int }} °C</small></span></div>
+              <div class="meter-track"><div class="meter-fill" id="m-gpu" style="width: {{ (sysmetrics.gpu.util or 0) }}%"></div></div>
+            </div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Mon utilisation -->
   {% if usage and usage.has_data %}
   <div class="col-12">
@@ -264,6 +300,28 @@
       var mk = document.querySelector('[data-metric="keys"]'); if (mk && d.active_keys != null) mk.textContent = d.active_keys;
     }).catch(function () {});
   }, 20000);
+})();
+</script>
+{% endif %}
+
+{% if sysmetrics %}
+<script>
+(function () {
+  function cls(pct) { return pct >= 90 ? 'crit' : (pct >= 75 ? 'warn' : ''); }
+  function setMeter(id, pct, valText) {
+    var fill = document.getElementById(id); if (fill) { fill.style.width = Math.max(0, Math.min(100, pct)) + '%'; fill.className = 'meter-fill ' + cls(pct); }
+    var v = document.getElementById(id + '-val'); if (v && valText != null) v.innerHTML = valText;
+  }
+  function apply(d) {
+    if (!d) return;
+    if (d.cpu_pct != null) setMeter('m-cpu', d.cpu_pct, Math.round(d.cpu_pct) + ' %');
+    if (d.ram) setMeter('m-ram', d.ram.pct, d.ram.used_gb + ' <small>/ ' + d.ram.total_gb + ' Go</small>');
+    if (d.gpu) setMeter('m-gpu', d.gpu.util || 0,
+      Math.round(d.gpu.util || 0) + ' % <small>· ' + Math.round(d.gpu.power || 0) + ' W · ' + Math.round(d.gpu.temp || 0) + ' °C</small>');
+  }
+  setInterval(function () {
+    fetch('/system/stats').then(function (r) { return r.ok ? r.json() : null; }).then(apply).catch(function () {});
+  }, 4000);
 })();
 </script>
 {% endif %}

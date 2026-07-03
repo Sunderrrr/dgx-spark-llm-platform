@@ -143,6 +143,8 @@ Page **`/ranking`** visible par tous les utilisateurs connectés : classe les ut
 
 Source des données : la base **Postgres de LiteLLM** (`LiteLLM_SpendLogs`, une ligne horodatée par requête). Le portail relie chaque clé à son utilisateur via les métadonnées LiteLLM (`metadata.user`), gère le fuseau (`TZ_DISPLAY`, défaut `Europe/Paris`) et exclut la clé maître. Palette de couleurs catégorielle validée pour le daltonisme, cohérente en clair et sombre.
 
+Chaque utilisateur voit aussi, sur sa **page d'accueil**, sa propre consommation : totaux (aujourd'hui / 7 j / 30 j) et un graphe des **14 derniers jours**.
+
 > Nécessite `LITELLM_DATABASE_URL` (fournie par `docker-compose.yml`) pour que le portail lise les logs de consommation.
 
 ---

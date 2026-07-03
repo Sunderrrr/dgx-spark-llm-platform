@@ -610,7 +610,7 @@ def index():
     ).fetchall()
     default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
     return render_template('index.html', running_models=running, my_requests=my_requests,
-                           public_api_url=PUBLIC_API_URL,
+                           public_api_url=PUBLIC_API_URL, usage=user_usage(session['username']),
                            budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
                            budget_duration=get_setting('default_key_duration', KEY_DURATION))
 
@@ -912,6 +912,51 @@ def hourly_data():
         legend = [{'user': u, 'series': series[u]} for u in sorted(users)]
         return {'hours': hours, 'legend': legend, 'max_total': max_total,
                 'peak_hour': peak_hour, 'has_data': peak_val > 0}
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+def user_usage(username, days=14):
+    """Consommation personnelle : totaux jour/semaine/mois + série quotidienne
+    (coût pondéré) sur les `days` derniers jours, pour l'utilisateur connecté."""
+    conn = _spend_conn()
+    if not conn:
+        return None
+    try:
+        umap = _key_user_map(conn)
+        # tokens(hash) appartenant à cet utilisateur
+        my_keys = {tok for tok, u in umap.items() if u == username}
+        if not my_keys:
+            return {'has_data': False, 'today': 0, 'week': 0, 'month': 0, 'daily': []}
+        cur = conn.cursor()
+        cur.execute(
+            'SELECT (("startTime" AT TIME ZONE \'UTC\') AT TIME ZONE %s)::date AS d, '
+            'api_key, SUM(spend) FROM "LiteLLM_SpendLogs" '
+            'WHERE api_key = ANY(%s) '
+            '  AND (("startTime" AT TIME ZONE \'UTC\') AT TIME ZONE %s)::date '
+            '      >= (now() AT TIME ZONE %s)::date - INTERVAL \'29 days\' '
+            'GROUP BY d, api_key', (LOCAL_TZ, list(my_keys), LOCAL_TZ, LOCAL_TZ))
+        by_date = {}
+        for d, api_key, spend in cur.fetchall():
+            by_date[d] = by_date.get(d, 0) + (spend or 0)
+        today = datetime.now(ZoneInfo(LOCAL_TZ)).date()
+        totals = {'today': 0, 'week': 0, 'month': 0}
+        for d, s in by_date.items():
+            delta = (today - d).days
+            totals['month'] += s
+            if delta < 7:
+                totals['week'] += s
+            if delta == 0:
+                totals['today'] += s
+        chart_days = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
+        vals = [by_date.get(d, 0) for d in chart_days]
+        mx = max(vals) or 1
+        daily = [{'label': d.strftime('%d/%m'), 'dow': d.strftime('%a'),
+                  'spend': v, 'h_pct': v / mx * 100}
+                 for d, v in zip(chart_days, vals)]
+        return {'has_data': totals['month'] > 0, 'today': totals['today'],
+                'week': totals['week'], 'month': totals['month'], 'daily': daily}
     except Exception:
         return None
     finally:

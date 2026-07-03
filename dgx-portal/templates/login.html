@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DGX Portal — Connexion</title>
+  <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzgzYzAwMCIvPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDYgNi41KSBzY2FsZSgxLjI1KSIgZmlsbD0iIzBjMTUwMCI+PHBhdGggZD0iTTQgOGExLjUgMS41IDAgMSAxIDMgMCAxLjUgMS41IDAgMCAxLTMgMG03LjUtMS41YTEuNSAxLjUgMCAxIDAgMCAzIDEuNSAxLjUgMCAwIDAgMC0zIi8+PHBhdGggZD0iTTAgMS41QS41LjUgMCAwIDEgLjUgMWgxYS41LjUgMCAwIDEgLjUuNVY0aDEzLjVhLjUuNSAwIDAgMSAuNS41djdhLjUuNSAwIDAgMS0uNS41SDJ2Mi41YS41LjUgMCAwIDEtMSAwVjJILjVhLjUuNSAwIDAgMS0uNS0uNW01LjUgNGEyLjUgMi41IDAgMSAwIDAgNSAyLjUgMi41IDAgMCAwIDAtNU05IDhhMi41IDIuNSAwIDEgMCA1IDAgMi41IDIuNSAwIDAgMC01IDAiLz48cGF0aCBkPSJNMyAxMi41aDMuNXYxYS41LjUgMCAwIDEtLjUuNUgzLjVhLjUuNSAwIDAgMS0uNS0uNXptNCAxdi0xaDR2MWEuNS41IDAgMCAxLS41LjVoLTNhLjUuNSAwIDAgMS0uNS0uNSIvPjwvZz48L3N2Zz4=">
   <script>
     (function () {
       var saved = localStorage.getItem('theme');
@@ -63,10 +64,21 @@
     }
     .btn-login {
       width: 100%; border: none; border-radius: 9px; padding: .65rem; font-weight: 600;
-      background: var(--accent); color: var(--accent-fg); transition: background .15s;
+      background: var(--accent); color: var(--accent-fg); transition: background .15s; text-decoration: none;
       display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
     }
     .btn-login:hover { background: var(--accent-hover); color: var(--accent-fg); }
+    .btn-alt {
+      width: 100%; border-radius: 9px; padding: .6rem; font-weight: 600;
+      background: transparent; color: var(--text); border: 1px solid var(--border-strong);
+      transition: all .15s; display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+    }
+    .btn-alt:hover { border-color: var(--text-faint); color: var(--text); background: var(--surface); }
+    .divider { display: flex; align-items: center; gap: .75rem; margin: 1.1rem 0; }
+    .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+    .divider span { color: var(--text-faint); font-size: .78rem; }
+    details.ldap summary { list-style: none; cursor: pointer; }
+    details.ldap summary::-webkit-details-marker { display: none; }
     .alert { border-radius: 10px; font-size: .88rem; }
     .alert-danger { background: rgba(214,59,65,0.12); border: 1px solid transparent; color: var(--danger); }
   </style>
@@ -84,6 +96,24 @@
     {% endfor %}
   {% endwith %}
 
+  {% if oidc_enabled %}
+  <a href="/login/sso" class="btn-login mt-4"><i class="bi bi-shield-lock"></i> Se connecter avec le SSO Cronos</a>
+  <div class="divider"><span>ou avec un compte LLDAP</span></div>
+  <details class="ldap">
+    <summary><span class="btn-alt"><i class="bi bi-person"></i> Connexion par identifiant</span></summary>
+    <form method="POST" class="mt-3">
+      <div class="mb-3">
+        <label class="form-label">Identifiant LLDAP</label>
+        <input type="text" name="username" class="form-control" required autocomplete="username">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Mot de passe</label>
+        <input type="password" name="password" class="form-control" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn-alt"><i class="bi bi-box-arrow-in-right"></i> Se connecter</button>
+    </form>
+  </details>
+  {% else %}
   <form method="POST" class="mt-4">
     <div class="mb-3">
       <label class="form-label">Identifiant LLDAP</label>
@@ -95,6 +125,7 @@
     </div>
     <button type="submit" class="btn-login"><i class="bi bi-box-arrow-in-right"></i> Se connecter</button>
   </form>
+  {% endif %}
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
         integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>

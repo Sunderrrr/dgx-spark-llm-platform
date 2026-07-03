@@ -63,6 +63,8 @@ ADMIN_EMAIL   = os.environ.get('ADMIN_EMAIL', '')
 KEY_BUDGET    = float(os.environ.get('KEY_MAX_BUDGET', '0.002'))
 KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '1d')
 DB_PATH       = '/app/data/portal.db'
+# URL publique de l'API compatible OpenAI, affichée aux utilisateurs.
+PUBLIC_API_URL = os.environ.get('PUBLIC_API_URL', 'https://api.cronos.website/v1')
 
 # ── SSO / OIDC (Authentik) ───────────────────────────────────────────────────
 OIDC_METADATA_URL  = os.environ.get('OIDC_METADATA_URL', '')
@@ -602,7 +604,8 @@ def index():
         "SELECT * FROM model_requests WHERE username=? ORDER BY created_at DESC LIMIT 5",
         (session['username'],)
     ).fetchall()
-    return render_template('index.html', running_models=running, my_requests=my_requests)
+    return render_template('index.html', running_models=running, my_requests=my_requests,
+                           public_api_url=PUBLIC_API_URL)
 
 @app.route('/keys', methods=['GET', 'POST'])
 @login_required
@@ -680,7 +683,7 @@ def keys():
     return render_template('keys.html', user_keys=user_keys, new_key_alias=new_key_alias,
                            budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
                            budget_duration=get_setting('default_key_duration', KEY_DURATION),
-                           running_models=running)
+                           running_models=running, public_api_url=PUBLIC_API_URL)
 
 @app.route('/search')
 @login_required

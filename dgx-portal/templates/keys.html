@@ -27,7 +27,7 @@
         Limite : <strong class="text-white">{{ budget_tokens }} tokens générés / {{ budget_duration }}</strong>
         <span class="text-secondary">(les tokens envoyés dans le prompt comptent 10x moins)</span>.
         {% endif %}
-        Endpoint : <code class="text-info">http://dgx.cronos.lan:4001/v1</code> — compatible OpenAI.
+        Endpoint : <code class="text-info">{{ public_api_url }}</code> — compatible OpenAI.
       </div>
     </div>
 
@@ -177,7 +177,7 @@
 </div>
 
 <script>
-const BASE = "http://dgx.cronos.lan:4001/v1";
+const BASE = "{{ public_api_url }}";
 let tool = "opencode";
 let revealKey = false;
 const keyVis = {};

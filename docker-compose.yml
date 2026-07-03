@@ -72,6 +72,8 @@ services:
       KEY_BUDGET_DURATION: "1d"
       VLLM_RUNNER_URL: http://host.docker.internal:8001
       RUNNER_TOKEN: ${RUNNER_TOKEN}
+      # URL publique de l'API compatible OpenAI affichée aux utilisateurs
+      PUBLIC_API_URL: https://api.cronos.website/v1
       # ── SSO / OIDC (Authentik) ──
       OIDC_METADATA_URL: https://gjallarhorn.cronos.website/application/o/dgx-spark/.well-known/openid-configuration
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}

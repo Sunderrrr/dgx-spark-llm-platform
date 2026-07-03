@@ -98,7 +98,7 @@
           <span id="log-status" class="badge bg-secondary" style="font-size:.7rem">—</span>
         </div>
       </div>
-      <div id="log-box" style="background:#0d1117;font-size:.75rem;color:#8b949e;height:280px;overflow-y:auto;padding:.75rem;font-family:monospace;white-space:pre-wrap;word-break:break-all">{% if init_logs %}{{ init_logs | join('\n') }}{% endif %}</div>
+      <div id="log-box" class="terminal" style="height:280px;overflow-y:auto;padding:.75rem">{% if init_logs %}{{ init_logs | join('\n') }}{% endif %}</div>
     </div>
   </div>
 

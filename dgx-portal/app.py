@@ -683,9 +683,18 @@ def keys():
             flash("Demande de tokens envoyée !", "success")
     running = get_running_models()
     default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
+    # Limites de contexte par modèle (déduites de --max-model-len), pour les snippets
+    # d'intégration qui déclarent la fenêtre côté client (OpenCode/OpenChamber).
+    model_limits = {}
+    for row in get_db().execute("SELECT name, vllm_args FROM model_configs"):
+        mm = re.search(r'--max-model-len\s+(\d+)', row['vllm_args'] or '')
+        if mm:
+            ctx = int(mm.group(1))
+            model_limits[row['name']] = {'context': ctx, 'output': min(ctx // 4, 65536)}
     return render_template('keys.html', user_keys=user_keys, new_key_alias=new_key_alias,
                            budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
                            budget_duration=get_setting('default_key_duration', KEY_DURATION),
+                           model_limits=model_limits,
                            running_models=running, public_api_url=PUBLIC_API_URL)
 
 @app.route('/search')

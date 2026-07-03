@@ -57,7 +57,7 @@
         {% if session.get('is_admin') %}
         <p class="text-secondary small mb-3">Limite : <strong class="text-warning">Illimitée (admin)</strong>.</p>
         {% else %}
-        <p class="text-secondary small mb-3">Limite : <strong class="text-white">2 000 000 tokens / jour</strong> par clé.</p>
+        <p class="text-secondary small mb-3">Limite : <strong class="text-white">{{ budget_tokens }} tokens / {{ budget_duration }}</strong> par clé.</p>
         {% endif %}
         <a href="/keys" class="btn btn-warning mt-auto">Gérer mes clés</a>
       </div>

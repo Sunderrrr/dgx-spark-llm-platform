@@ -1177,7 +1177,9 @@ def admin_runner_stream():
 # Args vLLM prudents par défaut pour un modèle validé (à ajuster ensuite).
 # max-model-len volontairement conservateur (mémoire unifiée GB10 → risque OOM
 # si on laisse la fenêtre native du modèle).
-DEFAULT_VLLM_ARGS = "--dtype bfloat16 --max-model-len 32768 --gpu-memory-utilization 0.7 --max-num-seqs 4"
+# Tool-calling activé par défaut (parser qwen3_coder = flotte Qwen). Pour un modèle
+# non-Qwen, ajuster --tool-call-parser (ex. hermes) depuis l'admin avant de lancer.
+DEFAULT_VLLM_ARGS = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 32768 --gpu-memory-utilization 0.7 --max-num-seqs 4"
 
 def _model_slug(hf_id):
     base = (hf_id or '').split('/')[-1]

@@ -704,7 +704,7 @@ def keys():
         mm = re.search(r'--max-model-len\s+(\d+)', row['vllm_args'] or '')
         if mm:
             ctx = int(mm.group(1))
-            model_limits[row['name']] = {'context': ctx, 'output': min(ctx // 4, 65536)}
+            model_limits[row['name']] = {'context': ctx, 'output': min(ctx // 2, 262144)}
     return render_template('keys.html', user_keys=user_keys, new_key_alias=new_key_alias,
                            budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
                            budget_duration=get_setting('default_key_duration', KEY_DURATION),
@@ -1046,7 +1046,9 @@ def add_model_cfg():
         db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
                    (name, hf_id, args, datetime.now().isoformat()))
         db.commit()
-        flash(f"Modèle {name} ajouté.", "success")
+        ok = _register_litellm_model(name, args)
+        flash(f"Modèle {name} ajouté et routé par LiteLLM." if ok
+              else f"Modèle {name} ajouté (⚠ enregistrement LiteLLM échoué).", "success" if ok else "warning")
     except sqlite3.IntegrityError:
         flash("Un modèle avec ce nom existe déjà.", "danger")
     return redirect(url_for('admin'))
@@ -1058,16 +1060,22 @@ def edit_model_cfg(mid):
     db = get_db()
     db.execute("UPDATE model_configs SET vllm_args=? WHERE id=?", (args, mid))
     db.commit()
-    flash("Args du modèle mis à jour.", "success")
+    row = db.execute("SELECT name FROM model_configs WHERE id=?", (mid,)).fetchone()
+    if row:
+        _register_litellm_model(row['name'], args)
+    flash("Args du modèle mis à jour (routage LiteLLM rafraîchi).", "success")
     return redirect(url_for('admin'))
 
 @app.route('/admin/model/delete/<int:mid>', methods=['POST'])
 @admin_required
 def delete_model_cfg(mid):
     db = get_db()
+    row = db.execute("SELECT name FROM model_configs WHERE id=?", (mid,)).fetchone()
     db.execute("DELETE FROM model_configs WHERE id=?", (mid,))
     db.commit()
-    flash("Modèle supprimé.", "success")
+    if row:
+        _unregister_litellm_model(row['name'])
+    flash("Modèle supprimé (retiré de LiteLLM).", "success")
     return redirect(url_for('admin'))
 
 @app.route('/admin/settings', methods=['POST'])
@@ -1175,6 +1183,64 @@ def _model_slug(hf_id):
     base = (hf_id or '').split('/')[-1]
     return (re.sub(r'[^a-zA-Z0-9_-]', '-', base).strip('-').lower()[:40]) or 'modele'
 
+VLLM_API_BASE = os.environ.get('VLLM_API_BASE', 'http://host.docker.internal:8000/v1')
+
+def _litellm_model_id(name):
+    """Id LiteLLM du modèle portant ce model_name, ou None."""
+    try:
+        r = requests.get(f"{LITELLM_URL}/model/info", headers=litellm_headers(), timeout=5)
+        for m in r.json().get('data', []):
+            if m.get('model_name') == name:
+                return m.get('model_info', {}).get('id')
+    except Exception:
+        pass
+    return None
+
+def _register_litellm_model(name, vllm_args):
+    """Enregistre (ou rafraîchit) le modèle dans LiteLLM à chaud. La sortie et le
+    contexte sont déduits de --max-model-len, comme les snippets d'intégration."""
+    if not LITELLM_KEY:
+        return False
+    mm = re.search(r'--max-model-len\s+(\d+)', vllm_args or '')
+    ctx = int(mm.group(1)) if mm else 32768
+    body = {
+        "model_name": name,
+        "litellm_params": {
+            "model": f"openai/{name}",
+            "api_base": VLLM_API_BASE,
+            "api_key": "dummy",
+            "input_cost_per_token": 0.1,
+            "output_cost_per_token": 1,
+        },
+        "model_info": {
+            "mode": "chat",
+            "supports_function_calling": True,
+            "max_input_tokens": ctx,
+            "max_output_tokens": min(ctx // 2, 262144),
+        },
+    }
+    try:
+        existing = _litellm_model_id(name)
+        if existing:
+            requests.post(f"{LITELLM_URL}/model/delete", headers=litellm_headers(),
+                          json={"id": existing}, timeout=5)
+        r = requests.post(f"{LITELLM_URL}/model/new", headers=litellm_headers(),
+                          json=body, timeout=8)
+        return r.status_code < 300
+    except Exception:
+        return False
+
+def _unregister_litellm_model(name):
+    if not LITELLM_KEY:
+        return
+    mid = _litellm_model_id(name)
+    if mid:
+        try:
+            requests.post(f"{LITELLM_URL}/model/delete", headers=litellm_headers(),
+                          json={"id": mid}, timeout=5)
+        except Exception:
+            pass
+
 def _add_model_to_catalog(db, hf_id):
     """Ajoute un modèle validé au catalogue lançable (nom unique). Retourne
     (nom, déjà_présent)."""
@@ -1205,10 +1271,13 @@ def update_request(req_id):
         req = db.execute("SELECT model_id FROM model_requests WHERE id=?", (req_id,)).fetchone()
         if req and req['model_id']:
             name, existed = _add_model_to_catalog(db, req['model_id'])
+            cfg = db.execute("SELECT vllm_args FROM model_configs WHERE name=?", (name,)).fetchone()
+            ok = _register_litellm_model(name, cfg['vllm_args'] if cfg else DEFAULT_VLLM_ARGS)
+            routed = "" if ok else " (⚠ enregistrement LiteLLM échoué — à vérifier)"
             if existed:
-                flash(f"Modèle déjà dans le catalogue sous « {name} ».", "info")
+                flash(f"Modèle déjà dans le catalogue sous « {name} ».{routed}", "info")
             else:
-                flash(f"Modèle « {name} » ajouté au catalogue — vérifie ses args vLLM puis lance-le.", "success")
+                flash(f"Modèle « {name} » ajouté au catalogue et routé par LiteLLM — vérifie ses args vLLM puis lance-le.{routed}", "success")
     db.commit()
     return redirect(url_for('admin'))
 

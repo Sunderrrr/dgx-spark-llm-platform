@@ -55,10 +55,16 @@
         <div class="card h-100">
           <div class="card-body pb-2">
             <div class="fw-semibold text-white mb-1">{{ cfg.name }}</div>
-            <div class="text-secondary" style="font-size:.75rem;word-break:break-all">{{ cfg.hf_model_id }}</div>
-            {% if cfg.vllm_args %}
-            <div class="text-info mt-1" style="font-size:.72rem"><code>{{ cfg.vllm_args }}</code></div>
-            {% endif %}
+            <div class="text-secondary mb-2" style="font-size:.75rem;word-break:break-all">{{ cfg.hf_model_id }}</div>
+            <form method="POST" action="/admin/model/edit/{{ cfg.id }}">
+              <label class="form-label text-secondary mb-1" style="font-size:.68rem">Args vLLM</label>
+              <div class="input-group input-group-sm">
+                <input type="text" name="vllm_args" value="{{ cfg.vllm_args }}"
+                       class="form-control form-control-sm bg-dark text-white border-secondary"
+                       style="font-size:.68rem;font-family:monospace" placeholder="--dtype bfloat16 …">
+                <button class="btn btn-outline-secondary" title="Enregistrer les args"><i class="bi bi-check-lg"></i></button>
+              </div>
+            </form>
           </div>
           <div class="card-footer border-0 bg-transparent pt-0 d-flex gap-2">
             <form method="POST" action="/admin/model/launch" class="flex-grow-1">

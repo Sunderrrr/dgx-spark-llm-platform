@@ -232,6 +232,9 @@ def _start_process(hf_id, name, extra_tokens):
         start_new_session=True,   # nouveau process group → killpg fonctionne
     )
     threading.Thread(target=_reader, args=(_proc,), daemon=True).start()
+    # Persiste systématiquement l'état (manuel, reprise au boot, watchdog) pour
+    # que last_model.json reste toujours présent tant que le modèle doit tourner.
+    _save_last_launch(hf_id, name, extra_tokens)
     return _proc
 
 
@@ -255,7 +258,6 @@ def launch():
         proc = _start_process(hf_id, name, extra_tokens)
         _auto_retries = 0
 
-    _save_last_launch(hf_id, name, extra_tokens)
     return jsonify({"status": "starting", "model": name, "pid": proc.pid})
 
 

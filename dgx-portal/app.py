@@ -1051,6 +1051,16 @@ def add_model_cfg():
         flash("Un modèle avec ce nom existe déjà.", "danger")
     return redirect(url_for('admin'))
 
+@app.route('/admin/model/edit/<int:mid>', methods=['POST'])
+@admin_required
+def edit_model_cfg(mid):
+    args = request.form.get('vllm_args', '').strip()
+    db = get_db()
+    db.execute("UPDATE model_configs SET vllm_args=? WHERE id=?", (args, mid))
+    db.commit()
+    flash("Args du modèle mis à jour.", "success")
+    return redirect(url_for('admin'))
+
 @app.route('/admin/model/delete/<int:mid>', methods=['POST'])
 @admin_required
 def delete_model_cfg(mid):
@@ -1156,6 +1166,30 @@ def admin_runner_stream():
     headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     return Response(stream_with_context(generate()), mimetype="text/event-stream", headers=headers)
 
+# Args vLLM prudents par défaut pour un modèle validé (à ajuster ensuite).
+# max-model-len volontairement conservateur (mémoire unifiée GB10 → risque OOM
+# si on laisse la fenêtre native du modèle).
+DEFAULT_VLLM_ARGS = "--dtype bfloat16 --max-model-len 32768 --gpu-memory-utilization 0.7 --max-num-seqs 4"
+
+def _model_slug(hf_id):
+    base = (hf_id or '').split('/')[-1]
+    return (re.sub(r'[^a-zA-Z0-9_-]', '-', base).strip('-').lower()[:40]) or 'modele'
+
+def _add_model_to_catalog(db, hf_id):
+    """Ajoute un modèle validé au catalogue lançable (nom unique). Retourne
+    (nom, déjà_présent)."""
+    row = db.execute("SELECT name FROM model_configs WHERE hf_model_id=?", (hf_id,)).fetchone()
+    if row:
+        return row['name'], True
+    base = _model_slug(hf_id)
+    name = base
+    n = 2
+    while db.execute("SELECT 1 FROM model_configs WHERE name=?", (name,)).fetchone():
+        name = f"{base}-{n}"; n += 1
+    db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
+               (name, hf_id, DEFAULT_VLLM_ARGS, datetime.now().isoformat()))
+    return name, False
+
 @app.route('/admin/update/<int:req_id>', methods=['POST'])
 @admin_required
 def update_request(req_id):
@@ -1166,8 +1200,16 @@ def update_request(req_id):
     db = get_db()
     db.execute("UPDATE model_requests SET status=?, updated_at=? WHERE id=?",
                (status, datetime.now().isoformat(), req_id))
+    # Valider une demande = l'ajouter au catalogue lançable (comme les modèles seedés).
+    if status == 'done':
+        req = db.execute("SELECT model_id FROM model_requests WHERE id=?", (req_id,)).fetchone()
+        if req and req['model_id']:
+            name, existed = _add_model_to_catalog(db, req['model_id'])
+            if existed:
+                flash(f"Modèle déjà dans le catalogue sous « {name} ».", "info")
+            else:
+                flash(f"Modèle « {name} » ajouté au catalogue — vérifie ses args vLLM puis lance-le.", "success")
     db.commit()
-    flash("Statut mis à jour.", "success")
     return redirect(url_for('admin'))
 
 with app.app_context():

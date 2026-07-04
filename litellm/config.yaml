@@ -26,6 +26,8 @@ model_list:
       # --max-model-len 32768 (32K) côté vLLM
       max_input_tokens: 32768
       max_output_tokens: 8192
+  # Les modèles ajoutés depuis le portail (validation d'une demande ou ajout manuel)
+  # sont enregistrés à chaud dans la DB via /model/new — pas besoin de les lister ici.
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

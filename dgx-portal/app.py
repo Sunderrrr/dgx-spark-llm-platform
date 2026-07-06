@@ -1,4 +1,4 @@
-import os, sqlite3, smtplib, requests, time, re, threading
+import os, sqlite3, smtplib, requests, time, re, threading, json
 from flask import Flask, render_template, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
 from ldap3.utils.conv import escape_filter_chars
@@ -813,31 +813,47 @@ def keys():
 
 
 # ── Support (assistant IA) ───────────────────────────────────────────────────
+SUPPORT_FAQ = (
+    "FAQ plateforme Cronos :\n"
+    "- Plateforme IA interne et GRATUITE (pas de facturation, pas de plan payant).\n"
+    "- API compatible OpenAI. Endpoint public : configuré dans « Mes clés API ».\n"
+    "- Budget PAR COMPTE, partagé par toutes les clés d'un même utilisateur, "
+    "réinitialisé chaque jour. Pondération : 1 token de prompt = 0,1 ; 1 token généré = 1.\n"
+    "- Obtenir plus de budget : demande envoyée à un admin (bouton « Demander plus de "
+    "tokens » ou via toi, Cronos). Un admin valide.\n"
+    "- Demander un nouveau modèle : via la page « Demander un modèle » (identifiant "
+    "Hugging Face) ou via toi ; un admin le valide puis le lance.\n"
+    "- Intégrations : OpenCode, Hermes Agent, Codex, Aider, Cursor, Continue, "
+    "Python/cURL — snippets prêts sur « Mes clés API ».\n"
+    "- Un seul modèle tourne à la fois sur le GPU (mémoire unifiée du DGX Spark)."
+)
+
 SUPPORT_SYSTEM = (
     "Tu es Cronos, l'assistant IA de la plateforme Cronos (NVIDIA DGX Spark, "
     "auto-hébergée). Tu aides les utilisateurs en français, de façon concise et "
-    "concrète.\n"
-    "Sujets : clés API (création, révocation, budget/quota), endpoint compatible "
-    "OpenAI, intégrations (OpenCode, Hermes Agent, Codex, Aider, Cursor, "
-    "Python/cURL), accès aux modèles, contexte, tool calls, et dépannage "
-    "(« mon modèle ne répond pas », « ma clé est bloquée », erreurs 400/401/429).\n"
-    "Règles :\n"
-    "- Appuie-toi sur le CONTEXTE fourni (clés de l'utilisateur, budget, état du "
-    "modèle, logs). N'invente pas d'informations qui n'y sont pas.\n"
-    "- Les clés te sont fournies MASQUÉES : ne tente jamais de reconstituer ou "
-    "d'afficher une clé complète.\n"
-    "- Le budget est PAR COMPTE (partagé entre toutes les clés d'un utilisateur) ; "
-    "les tokens du prompt comptent 10× moins que ceux générés. Il se réinitialise "
-    "chaque jour. Pour en obtenir plus, l'utilisateur clique sur « Demander plus de "
-    "tokens » sur la page « Mes clés API » ; un admin valide. Il n'y a AUCUN plan "
-    "payant ni facturation — la plateforme est interne et gratuite ; n'invente pas "
-    "de « plan supérieur » ni de page de facturation.\n"
-    "- Les intégrations se configurent depuis « Mes clés API » (onglets OpenCode, "
-    "Hermes Agent, etc.). L'endpoint est compatible OpenAI.\n"
-    "- Si tu ne peux pas résoudre, dis-le clairement et invite à contacter un admin.\n"
-    "- IMPORTANT : réponds DIRECTEMENT avec la réponse finale, en français, sans "
-    "montrer ton raisonnement, sans préambule interne (pas de « thinking process », "
-    "pas de liste d'analyse). Va droit au but."
+    "concrète, sur les clés API, le budget/quota, les intégrations, l'accès aux "
+    "modèles et le dépannage.\n"
+    "Tu peux AGIR pour l'utilisateur via des outils (tools) — toujours au nom du "
+    "compte connecté, jamais pour quelqu'un d'autre :\n"
+    "- create_api_key : créer une clé API.\n"
+    "- revoke_api_key : supprimer une de ses clés (DESTRUCTIF).\n"
+    "- request_budget : déposer une demande d'augmentation de budget.\n"
+    "- request_model : demander l'ajout d'un modèle (identifiant Hugging Face).\n"
+    "- launch_model / stop_model : (admin uniquement) piloter le modèle du GPU.\n"
+    "Règles d'usage des outils :\n"
+    "- Confirme TOUJOURS avec l'utilisateur avant une action destructive ou "
+    "impactante (revoke_api_key, stop_model, launch_model qui coupe le modèle "
+    "actif) : demande « tu confirmes ? » et n'appelle l'outil qu'après un oui.\n"
+    "- create_api_key et request_* peuvent être faits directement si la demande est "
+    "claire.\n"
+    "- Quand tu crées une clé, AFFICHE la clé complète une seule fois à l'utilisateur "
+    "(c'est sa nouvelle clé) et rappelle-lui de la copier.\n"
+    "Règles générales :\n"
+    "- Appuie-toi sur le CONTEXTE et la FAQ fournis. N'invente rien (ni plan payant, "
+    "ni page de facturation, ni fonctionnalité inexistante).\n"
+    "- Les clés du CONTEXTE sont MASQUÉES : ne tente jamais d'en reconstituer une.\n"
+    "- IMPORTANT : réponds DIRECTEMENT, en français, sans montrer ton raisonnement "
+    "ni de préambule interne. Va droit au but."
 )
 
 _THINK_RE = re.compile(r'<think>.*?</think>|<reasoning>.*?</reasoning>', re.S | re.I)
@@ -861,7 +877,10 @@ def _mask_key(k):
 
 def _support_context(username, is_admin):
     """Contexte injecté au bot, STRICTEMENT limité à l'utilisateur connecté."""
+    db = get_db()
     lines = [f"Utilisateur connecté : {username}" + (" (admin)" if is_admin else "")]
+
+    # ── Budget + clés du compte ──
     acct = _litellm_user_info(username)
     if is_admin:
         lines.append("Budget du compte : illimité (admin).")
@@ -872,22 +891,183 @@ def _support_context(username, is_admin):
                      + (f" (reset {acct['budget_reset_at'][:10]})" if acct['budget_reset_at'] else ""))
     keys = get_user_keys(username)
     if keys:
-        lines.append("Clés de l'utilisateur (masquées) :")
+        lines.append("Clés de l'utilisateur (masquées, alias = identifiant pour les actions) :")
         for k in keys:
             lines.append("  - {} : {}, dépensé {:,.0f}".format(
                 k.get('key_alias', '—'), _mask_key(k.get('key', '')),
                 k.get('spend', 0) or 0).replace(',', ' '))
     else:
         lines.append("L'utilisateur n'a aucune clé API pour l'instant.")
-    running = get_running_models()
+
+    # ── Conso du jour ──
+    try:
+        u = user_hourly(username)
+        if u and u.get('has_data'):
+            lines.append("Conso aujourd'hui : {:,.0f} tokens pondérés (pic vers {}h)."
+                         .format(u['total'], u['peak_hour']).replace(',', ' '))
+    except Exception:
+        pass
+
+    # ── Catalogue des modèles lançables ──
+    running = set(get_running_models())
+    cat = []
+    for row in db.execute("SELECT name, vllm_args FROM model_configs ORDER BY name"):
+        mm = re.search(r'--max-model-len\s+(\d+)', row['vllm_args'] or '')
+        ctx = int(mm.group(1)) if mm else None
+        has_tools = '--tool-call-parser' in (row['vllm_args'] or '')
+        flag = " [ACTIF]" if row['name'] in running else ""
+        cat.append("  - {}{} : contexte {}, tool-calling {}".format(
+            row['name'], flag,
+            f"{ctx:,}".replace(',', ' ') if ctx else "?",
+            "oui" if has_tools else "non"))
+    if cat:
+        lines.append("Catalogue des modèles (le [ACTIF] est celui chargé sur le GPU) :\n"
+                     + "\n".join(cat))
     st = runner_status()
-    lines.append("Modèle(s) actif(s) : "
-                 + (", ".join(running) if running else "aucun")
-                 + f" (runner : {st.get('status', '?')}).")
+    lines.append("Runner vLLM : " + st.get('status', '?')
+                 + (" — aucun modèle chargé" if not running else ""))
+
+    # ── Demandes en cours de l'utilisateur ──
+    mreqs = db.execute("SELECT model_id, status FROM model_requests WHERE username=? "
+                       "ORDER BY created_at DESC LIMIT 5", (username,)).fetchall()
+    if mreqs:
+        lines.append("Demandes de modèle de l'utilisateur : "
+                     + ", ".join(f"{r['model_id']} ({r['status']})" for r in mreqs))
+    breqs = db.execute("SELECT status FROM budget_requests WHERE username=? "
+                       "ORDER BY created_at DESC LIMIT 3", (username,)).fetchall()
+    if breqs:
+        lines.append("Demandes de budget de l'utilisateur : "
+                     + ", ".join(r['status'] for r in breqs))
+
+    # ── Logs serveur (dépannage) ──
     logs = runner_logs(n=30)
     if logs:
         lines.append("Derniers logs du serveur de modèle :\n" + "\n".join(logs[-22:]))
-    return "\n".join(lines)
+
+    return SUPPORT_FAQ + "\n\n" + "\n".join(lines)
+
+
+def _support_tools(is_admin):
+    """Schémas des outils self-service exposés au modèle (format function-calling)."""
+    t = [
+        {"type": "function", "function": {
+            "name": "create_api_key",
+            "description": "Crée une nouvelle clé API pour l'utilisateur connecté et la retourne.",
+            "parameters": {"type": "object", "properties": {
+                "alias": {"type": "string", "description": "Nom court de la clé (ex: mon-laptop). Optionnel."}}}}},
+        {"type": "function", "function": {
+            "name": "revoke_api_key",
+            "description": "Révoque (supprime) une clé de l'utilisateur, par son alias. Destructif : confirmer avant.",
+            "parameters": {"type": "object", "properties": {
+                "alias": {"type": "string", "description": "Alias exact de la clé à révoquer."}},
+                "required": ["alias"]}}},
+        {"type": "function", "function": {
+            "name": "request_budget",
+            "description": "Dépose une demande d'augmentation de budget pour l'utilisateur (envoyée à un admin).",
+            "parameters": {"type": "object", "properties": {
+                "reason": {"type": "string", "description": "Raison (optionnel)."}}}}},
+        {"type": "function", "function": {
+            "name": "request_model",
+            "description": "Demande l'ajout d'un modèle par son identifiant Hugging Face (envoyée à un admin).",
+            "parameters": {"type": "object", "properties": {
+                "hf_model_id": {"type": "string", "description": "Ex: Qwen/Qwen3-Coder-30B-A3B-Instruct."},
+                "reason": {"type": "string", "description": "Pourquoi ce modèle (optionnel)."}},
+                "required": ["hf_model_id"]}}},
+    ]
+    if is_admin:
+        t += [
+            {"type": "function", "function": {
+                "name": "launch_model",
+                "description": "(Admin) Lance un modèle du catalogue par son nom. Remplace le modèle actif — confirmer avant.",
+                "parameters": {"type": "object", "properties": {
+                    "name": {"type": "string", "description": "Nom du modèle dans le catalogue."}},
+                    "required": ["name"]}}},
+            {"type": "function", "function": {
+                "name": "stop_model",
+                "description": "(Admin) Arrête le modèle actuellement chargé. Confirmer avant.",
+                "parameters": {"type": "object", "properties": {}}}},
+        ]
+    return t
+
+
+def _exec_support_tool(name, args, username, fullname, is_admin):
+    """Exécute une action self-service, TOUJOURS au nom de l'utilisateur de session
+    (le modèle ne choisit jamais « pour qui »). Retourne un texte de résultat."""
+    db = get_db()
+    try:
+        if name == 'create_api_key':
+            raw = (args.get('alias') or '').strip()
+            alias = re.sub(r'[^a-zA-Z0-9_-]', '-', raw)[:40] if raw else f"{username}-{int(time.time())}"
+            newkey = create_litellm_key(alias, username, is_admin=is_admin)
+            if not newkey:
+                return "Échec de la création (alias déjà pris ou LiteLLM injoignable)."
+            db.execute("INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) "
+                       "VALUES (?,?,?,?)", (username, alias, newkey, datetime.now().isoformat()))
+            db.commit()
+            return f"Clé créée (alias={alias}). CLÉ COMPLÈTE à montrer une fois : {newkey}"
+
+        if name == 'revoke_api_key':
+            alias = (args.get('alias') or '').strip()
+            row = db.execute("SELECT key_value FROM api_keys WHERE username=? AND key_alias=?",
+                             (username, alias)).fetchone()
+            if not row:
+                return f"Aucune clé « {alias} » pour cet utilisateur."
+            if revoke_litellm_key(row['key_value']):
+                db.execute("DELETE FROM api_keys WHERE username=? AND key_alias=?", (username, alias))
+                db.commit()
+                return f"Clé « {alias} » révoquée."
+            return "Échec de la révocation côté LiteLLM."
+
+        if name == 'request_budget':
+            reason = (args.get('reason') or '').strip()
+            if db.execute("SELECT 1 FROM budget_requests WHERE username=? AND status='pending'",
+                          (username,)).fetchone():
+                return "Une demande de budget est déjà en attente."
+            current = _litellm_user_info(username).get('max_budget')
+            db.execute("INSERT INTO budget_requests (username, fullname, key_alias, current_budget, "
+                       "reason, status, created_at) VALUES (?,?,?,?,?,?,?)",
+                       (username, fullname, '(compte)', current, reason, 'pending',
+                        datetime.now().isoformat()))
+            db.commit()
+            notify_budget_discord(username, fullname, '(compte)', current, reason)
+            notify_budget_email(username, fullname, '(compte)', current, reason)
+            return "Demande de budget envoyée à un admin."
+
+        if name == 'request_model':
+            hf = (args.get('hf_model_id') or '').strip()
+            if not hf:
+                return "Identifiant de modèle manquant."
+            reason = (args.get('reason') or '').strip()
+            if db.execute("SELECT 1 FROM model_requests WHERE username=? AND model_id=? AND status='pending'",
+                          (username, hf)).fetchone():
+                return f"Une demande pour « {hf} » est déjà en attente."
+            db.execute("INSERT INTO model_requests (username, fullname, model_id, reason, status, created_at) "
+                       "VALUES (?,?,?,?,?,?)",
+                       (username, fullname, hf, reason, 'pending', datetime.now().isoformat()))
+            db.commit()
+            notify_discord(hf, username, fullname, reason)
+            notify_email(hf, username, fullname, reason)
+            return f"Demande d'ajout du modèle « {hf} » envoyée à un admin."
+
+        if name == 'launch_model':
+            if not is_admin:
+                return "Action réservée aux admins."
+            mname = (args.get('name') or '').strip()
+            cfg = db.execute("SELECT hf_model_id, name, vllm_args FROM model_configs WHERE name=?",
+                             (mname,)).fetchone()
+            if not cfg:
+                return f"Modèle « {mname} » introuvable dans le catalogue."
+            ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '')
+            return f"Lancement de « {mname} » demandé (démarrage en cours)." if ok else "Runner injoignable."
+
+        if name == 'stop_model':
+            if not is_admin:
+                return "Action réservée aux admins."
+            return "Modèle arrêté." if runner_stop() else "Runner injoignable."
+
+        return f"Outil inconnu : {name}"
+    except Exception as e:
+        return f"Erreur lors de l'exécution de l'action ({type(e).__name__})."
 
 
 @app.route('/support')
@@ -913,19 +1093,47 @@ def support_chat():
                                  "je ne peux pas répondre. Préviens un admin ou réessaie une "
                                  "fois un modèle lancé."})
     model = running[0]
-    ctx = _support_context(session['username'], session.get('is_admin', False))
+    username = session['username']
+    fullname = session.get('fullname', username)
+    is_admin = session.get('is_admin', False)
+    ctx = _support_context(username, is_admin)
     msgs = [{'role': 'system', 'content': SUPPORT_SYSTEM + "\n\n### CONTEXTE\n" + ctx}] + history
+    tools = _support_tools(is_admin)
+
+    def _chat(with_tools):
+        body = {'model': model, 'messages': msgs, 'temperature': 0.3, 'max_tokens': 900,
+                'chat_template_kwargs': {'enable_thinking': False}}
+        if with_tools:
+            body['tools'] = tools
+            body['tool_choice'] = 'auto'
+        return requests.post(f"{LITELLM_URL}/v1/chat/completions", headers=litellm_headers(),
+                             json=body, timeout=120)
+
     try:
-        r = requests.post(f"{LITELLM_URL}/v1/chat/completions", headers=litellm_headers(),
-                          json={'model': model, 'messages': msgs,
-                                'temperature': 0.3, 'max_tokens': 900,
-                                # coupe le raisonnement visible des modèles Qwen/reasoning
-                                'chat_template_kwargs': {'enable_thinking': False}},
-                          timeout=120)
-        if r.ok:
-            reply = _clean_reply(r.json()['choices'][0]['message'].get('content') or '')
-            return jsonify({'reply': reply or "(réponse vide)", 'model': model})
-        return jsonify({'reply': f"Le modèle a renvoyé une erreur ({r.status_code}). Réessaie."})
+        use_tools = True
+        for _ in range(4):  # boucle : le modèle peut enchaîner des appels d'outils
+            r = _chat(use_tools)
+            if not r.ok and use_tools:
+                use_tools = False   # modèle sans support tools → réessai sans
+                continue
+            if not r.ok:
+                return jsonify({'reply': f"Le modèle a renvoyé une erreur ({r.status_code}). Réessaie."})
+            m = r.json()['choices'][0]['message']
+            tcs = m.get('tool_calls')
+            if not tcs:
+                reply = _clean_reply(m.get('content') or '')
+                return jsonify({'reply': reply or "(réponse vide)", 'model': model})
+            # Le modèle appelle des outils → on les exécute côté serveur puis on reboucle.
+            msgs.append({'role': 'assistant', 'content': m.get('content') or '', 'tool_calls': tcs})
+            for tc in tcs:
+                fn = tc.get('function', {})
+                try:
+                    a = json.loads(fn.get('arguments') or '{}')
+                except Exception:
+                    a = {}
+                res = _exec_support_tool(fn.get('name', ''), a, username, fullname, is_admin)
+                msgs.append({'role': 'tool', 'tool_call_id': tc.get('id'), 'content': res})
+        return jsonify({'reply': "Action trop longue à traiter, reformule en une étape.", 'model': model})
     except Exception:
         return jsonify({'reply': "Le modèle n'a pas répondu à temps. Réessaie dans un instant."})
 

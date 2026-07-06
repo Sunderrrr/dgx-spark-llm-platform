@@ -19,11 +19,13 @@
 
         <div class="border-top p-2">
           <div class="d-flex flex-wrap gap-1 mb-2" id="suggestions">
+            <button class="btn btn-outline-success btn-sm py-0" data-q="Crée-moi une clé API pour mon laptop">＋ Créer une clé</button>
+            <button class="btn btn-outline-success btn-sm py-0" data-q="Demande plus de budget pour mon compte">＋ Demander du budget</button>
+            <button class="btn btn-outline-success btn-sm py-0" data-q="Quels modèles je peux utiliser et quel est leur contexte ?">Modèles dispo</button>
             <button class="btn btn-outline-secondary btn-sm py-0" data-q="Ma clé API renvoie une erreur 401, pourquoi ?">Erreur 401</button>
             <button class="btn btn-outline-secondary btn-sm py-0" data-q="J'ai une erreur 429 / quota dépassé, que faire ?">Quota 429</button>
             <button class="btn btn-outline-secondary btn-sm py-0" data-q="Le modèle ne répond pas ou renvoie une erreur, peux-tu regarder ?">Modèle KO</button>
             <button class="btn btn-outline-secondary btn-sm py-0" data-q="Comment configurer OpenCode avec ma clé ?">Config OpenCode</button>
-            <button class="btn btn-outline-secondary btn-sm py-0" data-q="Combien de budget me reste-t-il et comment en demander plus ?">Mon budget</button>
           </div>
           <form id="chat-form" class="d-flex align-items-end gap-2">
             <textarea id="chat-input" class="form-control bg-dark text-white border-secondary" rows="1"
@@ -135,7 +137,7 @@ document.querySelectorAll('#suggestions [data-q]').forEach(b =>
 // HTML rendue par white-space:pre-wrap).
 const USER = {{ (session.get('username') or '')|tojson }};
 const hi = USER ? `Bonjour ${USER} 👋` : "Bonjour 👋";
-addMsg('bot', `${hi} Je suis **Cronos**, l'assistant de la plateforme. Décris ton problème (clé API qui ne marche pas, quota atteint, modèle qui ne répond pas, intégration OpenCode / Hermes…) et je regarde ça avec les infos de ton compte.`);
+addMsg('bot', `${hi} Je suis **Cronos**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.`);
 
 input.focus();
 </script>

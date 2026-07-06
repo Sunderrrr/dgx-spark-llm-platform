@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Support — DGX Portal{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-12">
+    <div class="page-head">
+      <div>
+        <h1 class="page-head-title">Support</h1>
+        <p class="page-head-sub">Un assistant IA connecté à la plateforme : il voit tes clés (masquées), ton budget et l'état du serveur pour t'aider en cas de pépin.</p>
+      </div>
+      <span class="text-secondary small">
+        {% if running_models %}<i class="bi bi-circle-fill text-success" style="font-size:.6rem"></i> {{ running_models[0] }}{% else %}<i class="bi bi-circle-fill text-danger" style="font-size:.6rem"></i> aucun modèle actif{% endif %}
+      </span>
+    </div>
+
+    <div class="card">
+      <div class="card-body p-0 d-flex flex-column" style="height:min(66vh,620px)">
+        <div id="chat" class="flex-grow-1 p-3" style="overflow-y:auto">
+          <div class="support-msg bot">
+            <div class="bubble">
+              Bonjour 👋 Je suis <strong>Cronos</strong>, l'assistant de la plateforme. Décris ton problème
+              (clé API qui ne marche pas, quota atteint, modèle qui ne répond pas, intégration
+              OpenCode / Hermes…) et je regarde ça avec les infos de ton compte.
+            </div>
+          </div>
+        </div>
+
+        <div class="border-top p-2">
+          <div class="d-flex flex-wrap gap-1 mb-2" id="suggestions">
+            <button class="btn btn-outline-secondary btn-sm py-0" data-q="Ma clé API renvoie une erreur 401, pourquoi ?">Erreur 401</button>
+            <button class="btn btn-outline-secondary btn-sm py-0" data-q="J'ai une erreur 429 / quota dépassé, que faire ?">Quota 429</button>
+            <button class="btn btn-outline-secondary btn-sm py-0" data-q="Le modèle ne répond pas ou renvoie une erreur, peux-tu regarder ?">Modèle KO</button>
+            <button class="btn btn-outline-secondary btn-sm py-0" data-q="Comment configurer OpenCode avec ma clé ?">Config OpenCode</button>
+            <button class="btn btn-outline-secondary btn-sm py-0" data-q="Combien de budget me reste-t-il et comment en demander plus ?">Mon budget</button>
+          </div>
+          <form id="chat-form" class="d-flex align-items-end gap-2">
+            <textarea id="chat-input" class="form-control bg-dark text-white border-secondary" rows="1"
+                      placeholder="Écris ton message…  (Entrée pour envoyer, Maj+Entrée pour un saut de ligne)"
+                      style="resize:none;max-height:140px"></textarea>
+            <button class="btn btn-success text-nowrap" id="chat-send" type="submit">
+              <i class="bi bi-send"></i>
+            </button>
+          </form>
+          <div class="text-secondary mt-1" style="font-size:.72rem">
+            <i class="bi bi-shield-lock"></i> L'assistant ne voit que <strong>tes</strong> données (clés masquées). Ne colle jamais une clé complète ici.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .support-msg { display:flex; margin-bottom:.6rem; }
+  .support-msg.user { justify-content:flex-end; }
+  .support-msg .bubble {
+    max-width:min(80%,640px); padding:.55rem .8rem; border-radius:.8rem;
+    font-size:.9rem; line-height:1.45; white-space:pre-wrap; word-break:break-word;
+  }
+  .support-msg.bot .bubble  { background:var(--surface-hover,#22262e); color:var(--text,#e6e6e6); border-bottom-left-radius:.2rem; }
+  .support-msg.user .bubble { background:var(--accent-soft,#1e3a2a); color:var(--text,#e6e6e6); border-bottom-right-radius:.2rem; }
+  .support-msg .bubble code { color:var(--accent,#5cc98a); }
+  .typing span { display:inline-block; width:6px; height:6px; margin:0 1px; border-radius:50%; background:var(--text-muted,#889); animation:blink 1.2s infinite both; }
+  .typing span:nth-child(2){ animation-delay:.2s } .typing span:nth-child(3){ animation-delay:.4s }
+  @keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+</style>
+
+<script>
+const chat = document.getElementById('chat');
+const input = document.getElementById('chat-input');
+const form = document.getElementById('chat-form');
+const sendBtn = document.getElementById('chat-send');
+const history = [];  // {role, content}
+
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// mini-rendu : `code` inline + **gras**
+function render(text){
+  let h = escapeHtml(text);
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  return h;
+}
+
+function addMsg(role, text){
+  const wrap = document.createElement('div');
+  wrap.className = 'support-msg ' + (role === 'user' ? 'user' : 'bot');
+  const b = document.createElement('div');
+  b.className = 'bubble';
+  b.innerHTML = render(text);
+  wrap.appendChild(b);
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+  return b;
+}
+
+function addTyping(){
+  const wrap = document.createElement('div');
+  wrap.className = 'support-msg bot';
+  wrap.id = 'typing';
+  wrap.innerHTML = '<div class="bubble typing"><span></span><span></span><span></span></div>';
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+}
+function removeTyping(){ document.getElementById('typing')?.remove(); }
+
+async function send(text){
+  text = text.trim();
+  if (!text) return;
+  addMsg('user', text);
+  history.push({role:'user', content:text});
+  input.value = ''; autoGrow();
+  sendBtn.disabled = true; input.disabled = true;
+  addTyping();
+  try {
+    const r = await fetch('/support/chat', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({messages: history})
+    });
+    const data = await r.json();
+    removeTyping();
+    const reply = data.reply || "Pas de réponse.";
+    addMsg('bot', reply);
+    history.push({role:'assistant', content:reply});
+  } catch(e){
+    removeTyping();
+    addMsg('bot', "Erreur réseau — réessaie.");
+  } finally {
+    sendBtn.disabled = false; input.disabled = false; input.focus();
+  }
+}
+
+form.addEventListener('submit', e => { e.preventDefault(); send(input.value); });
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(input.value); }
+});
+function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,140)+'px'; }
+input.addEventListener('input', autoGrow);
+document.querySelectorAll('#suggestions [data-q]').forEach(b =>
+  b.addEventListener('click', () => send(b.dataset.q)));
+input.focus();
+</script>
+{% endblock %}

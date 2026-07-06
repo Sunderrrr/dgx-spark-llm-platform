@@ -772,6 +772,124 @@ def keys():
                            model_limits=model_limits,
                            running_models=running, public_api_url=PUBLIC_API_URL)
 
+
+# ── Support (assistant IA) ───────────────────────────────────────────────────
+SUPPORT_SYSTEM = (
+    "Tu es Cronos, l'assistant IA de la plateforme Cronos (NVIDIA DGX Spark, "
+    "auto-hébergée). Tu aides les utilisateurs en français, de façon concise et "
+    "concrète.\n"
+    "Sujets : clés API (création, révocation, budget/quota), endpoint compatible "
+    "OpenAI, intégrations (OpenCode, Hermes Agent, Codex, Aider, Cursor, "
+    "Python/cURL), accès aux modèles, contexte, tool calls, et dépannage "
+    "(« mon modèle ne répond pas », « ma clé est bloquée », erreurs 400/401/429).\n"
+    "Règles :\n"
+    "- Appuie-toi sur le CONTEXTE fourni (clés de l'utilisateur, budget, état du "
+    "modèle, logs). N'invente pas d'informations qui n'y sont pas.\n"
+    "- Les clés te sont fournies MASQUÉES : ne tente jamais de reconstituer ou "
+    "d'afficher une clé complète.\n"
+    "- Le budget est PAR COMPTE (partagé entre toutes les clés d'un utilisateur) ; "
+    "les tokens du prompt comptent 10× moins que ceux générés. Il se réinitialise "
+    "chaque jour. Pour en obtenir plus, l'utilisateur clique sur « Demander plus de "
+    "tokens » sur la page « Mes clés API » ; un admin valide. Il n'y a AUCUN plan "
+    "payant ni facturation — la plateforme est interne et gratuite ; n'invente pas "
+    "de « plan supérieur » ni de page de facturation.\n"
+    "- Les intégrations se configurent depuis « Mes clés API » (onglets OpenCode, "
+    "Hermes Agent, etc.). L'endpoint est compatible OpenAI.\n"
+    "- Si tu ne peux pas résoudre, dis-le clairement et invite à contacter un admin.\n"
+    "- IMPORTANT : réponds DIRECTEMENT avec la réponse finale, en français, sans "
+    "montrer ton raisonnement, sans préambule interne (pas de « thinking process », "
+    "pas de liste d'analyse). Va droit au but."
+)
+
+_THINK_RE = re.compile(r'<think>.*?</think>|<reasoning>.*?</reasoning>', re.S | re.I)
+
+
+def _clean_reply(text):
+    """Retire les blocs de raisonnement éventuels laissés dans la réponse."""
+    text = _THINK_RE.sub('', text or '')
+    # Certains modèles émettent un CoT en clair puis la réponse finale : si on
+    # détecte un marqueur de réponse finale, on garde ce qui suit.
+    for marker in ('### Réponse', 'Réponse finale :', 'Final answer:', 'Voici ma réponse'):
+        idx = text.rfind(marker)
+        if idx != -1:
+            text = text[idx + len(marker):]
+    return text.strip().lstrip(':').strip()
+
+
+def _mask_key(k):
+    return (k[:6] + '…' + k[-4:]) if k and len(k) > 12 else '—'
+
+
+def _support_context(username, is_admin):
+    """Contexte injecté au bot, STRICTEMENT limité à l'utilisateur connecté."""
+    lines = [f"Utilisateur connecté : {username}" + (" (admin)" if is_admin else "")]
+    acct = _litellm_user_info(username)
+    if is_admin:
+        lines.append("Budget du compte : illimité (admin).")
+    elif acct['exists'] and acct['max_budget'] is not None:
+        s, b = acct['spend'] or 0, acct['max_budget']
+        lines.append(("Budget du compte : {:,.0f} / {:,.0f} tokens pondérés utilisés"
+                      .format(s, b)).replace(',', ' ')
+                     + (f" (reset {acct['budget_reset_at'][:10]})" if acct['budget_reset_at'] else ""))
+    keys = get_user_keys(username)
+    if keys:
+        lines.append("Clés de l'utilisateur (masquées) :")
+        for k in keys:
+            lines.append("  - {} : {}, dépensé {:,.0f}".format(
+                k.get('key_alias', '—'), _mask_key(k.get('key', '')),
+                k.get('spend', 0) or 0).replace(',', ' '))
+    else:
+        lines.append("L'utilisateur n'a aucune clé API pour l'instant.")
+    running = get_running_models()
+    st = runner_status()
+    lines.append("Modèle(s) actif(s) : "
+                 + (", ".join(running) if running else "aucun")
+                 + f" (runner : {st.get('status', '?')}).")
+    logs = runner_logs(n=30)
+    if logs:
+        lines.append("Derniers logs du serveur de modèle :\n" + "\n".join(logs[-22:]))
+    return "\n".join(lines)
+
+
+@app.route('/support')
+@login_required
+def support():
+    return render_template('support.html',
+                           running_models=get_running_models(),
+                           public_api_url=PUBLIC_API_URL)
+
+
+@app.route('/support/chat', methods=['POST'])
+@login_required
+def support_chat():
+    data = request.get_json(silent=True) or {}
+    history = data.get('messages', [])
+    if not isinstance(history, list) or not history:
+        return jsonify({'reply': "Message vide."}), 400
+    history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:4000]}
+               for m in history if m.get('role') in ('user', 'assistant')][-12:]
+    running = get_running_models()
+    if not running:
+        return jsonify({'reply': "Aucun modèle n'est actif sur le serveur pour l'instant : "
+                                 "je ne peux pas répondre. Préviens un admin ou réessaie une "
+                                 "fois un modèle lancé."})
+    model = running[0]
+    ctx = _support_context(session['username'], session.get('is_admin', False))
+    msgs = [{'role': 'system', 'content': SUPPORT_SYSTEM + "\n\n### CONTEXTE\n" + ctx}] + history
+    try:
+        r = requests.post(f"{LITELLM_URL}/v1/chat/completions", headers=litellm_headers(),
+                          json={'model': model, 'messages': msgs,
+                                'temperature': 0.3, 'max_tokens': 900,
+                                # coupe le raisonnement visible des modèles Qwen/reasoning
+                                'chat_template_kwargs': {'enable_thinking': False}},
+                          timeout=120)
+        if r.ok:
+            reply = _clean_reply(r.json()['choices'][0]['message'].get('content') or '')
+            return jsonify({'reply': reply or "(réponse vide)", 'model': model})
+        return jsonify({'reply': f"Le modèle a renvoyé une erreur ({r.status_code}). Réessaie."})
+    except Exception:
+        return jsonify({'reply': "Le modèle n'a pas répondu à temps. Réessaie dans un instant."})
+
 @app.route('/search')
 @login_required
 def search():

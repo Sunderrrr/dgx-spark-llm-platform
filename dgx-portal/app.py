@@ -1,4 +1,4 @@
-import os, sqlite3, smtplib, requests, time, re
+import os, sqlite3, smtplib, requests, time, re, threading
 from flask import Flask, render_template, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
 from ldap3.utils.conv import escape_filter_chars
@@ -547,6 +547,37 @@ def admin_required(f):
 
 # ── Routes ──────────────────────────────────────────────────────────────────
 
+# ── Anti-brute-force du login (in-memory, best-effort) ──────────────────────
+_login_lock = threading.Lock()
+_login_attempts = {}          # clé -> {'fails': int, 'first': ts, 'until': ts}
+LOGIN_MAX_FAILS = 6           # tentatives avant verrouillage
+LOGIN_WINDOW    = 900         # fenêtre glissante (15 min)
+LOGIN_LOCK      = 900         # durée du verrouillage (15 min)
+
+def _login_locked(key):
+    """Retourne le nb de secondes de verrouillage restant, ou 0."""
+    now = time.time()
+    with _login_lock:
+        e = _login_attempts.get(key)
+        if e and e['until'] > now:
+            return int(e['until'] - now)
+    return 0
+
+def _login_fail(key):
+    now = time.time()
+    with _login_lock:
+        e = _login_attempts.get(key)
+        if not e or now - e['first'] > LOGIN_WINDOW:
+            e = {'fails': 0, 'first': now, 'until': 0}
+        e['fails'] += 1
+        if e['fails'] >= LOGIN_MAX_FAILS:
+            e['until'] = now + LOGIN_LOCK
+        _login_attempts[key] = e
+
+def _login_reset(key):
+    with _login_lock:
+        _login_attempts.pop(key, None)
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if 'username' in session:
@@ -554,10 +585,18 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip().lower()
         password = request.form.get('password', '')
+        ip  = request.remote_addr or 'unknown'          # vraie IP via ProxyFix
+        key = f"{ip}|{username}"
+        wait = _login_locked(key) or _login_locked(ip)
+        if wait:
+            flash(f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min.", "danger")
+            return render_template('login.html', oidc_enabled=OIDC_ENABLED)
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
+            _login_reset(key); _login_reset(ip)
             _apply_session(username, fullname, is_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
+        _login_fail(key); _login_fail(ip)
         flash("Identifiants incorrects.", "danger")
     return render_template('login.html', oidc_enabled=OIDC_ENABLED)
 

@@ -283,14 +283,67 @@ def get_user_keys(username):
         result.append(info)
     return result
 
+def _ensure_litellm_user(username, max_budget, budget_duration):
+    """Crée/maj l'utilisateur LiteLLM avec un budget de COMPTE, partagé par toutes
+    ses clés (user_id). Ne réécrase pas le budget si l'utilisateur existe déjà —
+    seul le montant peut avoir été ajusté par un admin."""
+    body = {"user_id": username, "metadata": {"created_by": "dgx-portal"}}
+    try:
+        # /user/info existe déjà ? sinon on le crée avec le budget par défaut.
+        info = _litellm_user_info(username)
+        if info.get('exists'):
+            return True
+        body["max_budget"] = float(max_budget)
+        body["budget_duration"] = budget_duration
+        r = requests.post(f"{LITELLM_URL}/user/new", headers=litellm_headers(),
+                          json=body, timeout=8)
+        return r.status_code < 300
+    except Exception:
+        return False
+
+
+def _litellm_user_info(username):
+    """Budget/spend au niveau COMPTE (objet user LiteLLM)."""
+    out = {'spend': 0, 'max_budget': None, 'budget_reset_at': '', 'exists': False}
+    try:
+        r = requests.get(f"{LITELLM_URL}/user/info", headers=litellm_headers(),
+                         params={'user_id': username}, timeout=5)
+        if r.ok:
+            d = r.json()
+            ui = d.get('user_info') or d
+            if ui:
+                out['exists'] = True
+                out['spend'] = ui.get('spend', 0) or 0
+                out['max_budget'] = ui.get('max_budget')
+                out['budget_reset_at'] = ui.get('budget_reset_at', '') or ''
+    except Exception:
+        pass
+    return out
+
+
+def litellm_update_user_budget(username, new_max_budget):
+    try:
+        r = requests.post(f"{LITELLM_URL}/user/update", headers=litellm_headers(),
+                          json={'user_id': username, 'max_budget': float(new_max_budget)},
+                          timeout=5)
+        return r.ok
+    except Exception:
+        return False
+
+
 def create_litellm_key(alias, username, is_admin=False):
     payload = {
         "key_alias": alias,
         "metadata": {"user": username, "created_by": "dgx-portal"},
     }
     if not is_admin:
-        payload["max_budget"] = float(get_setting('default_key_budget', KEY_BUDGET))
-        payload["budget_duration"] = get_setting('default_key_duration', KEY_DURATION)
+        # Budget au niveau COMPTE (partagé par toutes les clés du compte), pas au
+        # niveau clé : la clé porte user_id et LiteLLM plafonne la somme des dépenses
+        # de l'utilisateur sur l'ensemble de ses clés.
+        _ensure_litellm_user(username,
+                             float(get_setting('default_key_budget', KEY_BUDGET)),
+                             get_setting('default_key_duration', KEY_DURATION))
+        payload["user_id"] = username
     r = requests.post(f"{LITELLM_URL}/key/generate",
                       headers=litellm_headers(), json=payload, timeout=10)
     if r.ok:
@@ -671,32 +724,39 @@ def keys():
             else:
                 flash("Erreur lors de la révocation.", "danger")
         elif action == 'request_budget':
-            key_alias = request.form.get('key_alias', '').strip()
-            reason    = request.form.get('reason', '').strip()
-            current   = next((k['max_budget'] for k in user_keys if k['key_alias'] == key_alias), None)
-            if not key_alias:
-                flash("Clé invalide.", "warning")
-                return redirect(url_for('keys'))
+            reason  = request.form.get('reason', '').strip()
+            current = _litellm_user_info(session['username']).get('max_budget')
             db = get_db()
             existing = db.execute(
-                "SELECT id FROM budget_requests WHERE username=? AND key_alias=? AND status='pending'",
-                (session['username'], key_alias)
+                "SELECT id FROM budget_requests WHERE username=? AND status='pending'",
+                (session['username'],)
             ).fetchone()
             if existing:
-                flash("Tu as déjà une demande en attente pour cette clé.", "warning")
+                flash("Tu as déjà une demande en attente.", "warning")
                 return redirect(url_for('keys'))
             db.execute(
                 "INSERT INTO budget_requests (username, fullname, key_alias, current_budget, reason, status, created_at) "
                 "VALUES (?,?,?,?,?,?,?)",
-                (session['username'], session['fullname'], key_alias, current, reason, 'pending',
+                (session['username'], session['fullname'], '(compte)', current, reason, 'pending',
                  datetime.now().isoformat())
             )
             db.commit()
-            notify_budget_discord(session['username'], session['fullname'], key_alias, current, reason)
-            notify_budget_email(session['username'], session['fullname'], key_alias, current, reason)
+            notify_budget_discord(session['username'], session['fullname'], '(compte)', current, reason)
+            notify_budget_email(session['username'], session['fullname'], '(compte)', current, reason)
             flash("Demande de tokens envoyée !", "success")
     running = get_running_models()
     default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
+    # Budget au niveau COMPTE (partagé par toutes les clés). Admin = illimité.
+    acct = _litellm_user_info(session['username'])
+    account = {
+        'spend': acct['spend'],
+        'max_budget': acct['max_budget'] if acct['exists'] else default_budget,
+        'budget_reset_at': acct['budget_reset_at'],
+        'unlimited': session.get('is_admin', False),
+        'has_pending': bool(get_db().execute(
+            "SELECT 1 FROM budget_requests WHERE username=? AND status='pending'",
+            (session['username'],)).fetchone()),
+    }
     # Limites de contexte par modèle (déduites de --max-model-len), pour les snippets
     # d'intégration qui déclarent la fenêtre côté client (OpenCode/OpenChamber).
     model_limits = {}
@@ -708,6 +768,7 @@ def keys():
     return render_template('keys.html', user_keys=user_keys, new_key_alias=new_key_alias,
                            budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
                            budget_duration=get_setting('default_key_duration', KEY_DURATION),
+                           account=account,
                            model_limits=model_limits,
                            running_models=running, public_api_url=PUBLIC_API_URL)
 
@@ -793,7 +854,8 @@ def admin_get_all_keys_spend():
     return result
 
 def admin_get_user_consumption():
-    """Agrège spend/budget par utilisateur (somme sur toutes ses clés)."""
+    """Agrège la conso par utilisateur. Le budget est au niveau COMPTE (objet user
+    LiteLLM), pas la somme des clés."""
     per_key = admin_get_all_keys_spend()
     users = {}
     for k in per_key:
@@ -801,10 +863,14 @@ def admin_get_user_consumption():
                                                'max_budget': 0, 'unlimited': False, 'key_count': 0})
         u['spend'] += k['spend'] or 0
         u['key_count'] += 1
-        if k['max_budget'] is None:
-            u['unlimited'] = True
+    for uname, u in users.items():
+        info = _litellm_user_info(uname)
+        if info['exists'] and info['max_budget'] is not None:
+            u['max_budget'] = info['max_budget']
+            if info['spend']:
+                u['spend'] = info['spend']
         else:
-            u['max_budget'] += k['max_budget']
+            u['unlimited'] = True
     return sorted(users.values(), key=lambda u: u['spend'], reverse=True)
 
 
@@ -1114,17 +1180,11 @@ def approve_budget(req_id):
     except ValueError:
         flash("Le montant à ajouter doit être un nombre positif.", "warning")
         return redirect(url_for('admin'))
-    key_row = db.execute(
-        "SELECT key_value FROM api_keys WHERE username=? AND key_alias=?",
-        (breq['username'], breq['key_alias'])
-    ).fetchone()
-    if not key_row:
-        flash("Clé introuvable (peut-être révoquée depuis).", "danger")
-        return redirect(url_for('admin'))
-    info = litellm_key_info(key_row['key_value'])
+    # Budget au niveau COMPTE : on incrémente l'enveloppe de l'utilisateur LiteLLM.
+    info = _litellm_user_info(breq['username'])
     current_budget = info.get('max_budget') or 0
     new_budget = current_budget + amount_val
-    if not litellm_update_key_budget(key_row['key_value'], new_budget):
+    if not litellm_update_user_budget(breq['username'], new_budget):
         flash("Erreur lors de la mise à jour du budget sur LiteLLM.", "danger")
         return redirect(url_for('admin'))
     db.execute(

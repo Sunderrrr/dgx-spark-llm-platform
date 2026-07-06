@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}DGX Portal{% endblock %}</title>
+  <title>{% block title %}Cronos{% endblock %}</title>
   <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzgzYzAwMCIvPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDYgNi41KSBzY2FsZSgxLjI1KSIgZmlsbD0iIzBjMTUwMCI+PHBhdGggZD0iTTQgOGExLjUgMS41IDAgMSAxIDMgMCAxLjUgMS41IDAgMCAxLTMgMG03LjUtMS41YTEuNSAxLjUgMCAxIDAgMCAzIDEuNSAxLjUgMCAwIDAgMC0zIi8+PHBhdGggZD0iTTAgMS41QS41LjUgMCAwIDEgLjUgMWgxYS41LjUgMCAwIDEgLjUuNVY0aDEzLjVhLjUuNSAwIDAgMSAuNS41djdhLjUuNSAwIDAgMS0uNS41SDJ2Mi41YS41LjUgMCAwIDEtMSAwVjJILjVhLjUuNSAwIDAgMS0uNS0uNW01LjUgNGEyLjUgMi41IDAgMSAwIDAgNSAyLjUgMi41IDAgMCAwIDAtNU05IDhhMi41IDIuNSAwIDEgMCA1IDAgMi41IDIuNSAwIDAgMC01IDAiLz48cGF0aCBkPSJNMyAxMi41aDMuNXYxYS41LjUgMCAwIDEtLjUuNUgzLjVhLjUuNSAwIDAgMS0uNS0uNXptNCAxdi0xaDR2MWEuNS41IDAgMCAxLS41LjVoLTNhLjUuNSAwIDAgMS0uNS0uNSIvPjwvZz48L3N2Zz4=">
   <!-- Applique le thème avant le premier rendu (pas de flash) -->
   <script>
@@ -103,10 +103,13 @@
       background: var(--surface); border-bottom: 1px solid var(--border);
       position: sticky; top: 0; z-index: 1030; padding-top: .55rem; padding-bottom: .55rem;
     }
-    .navbar-brand { font-weight: 700; color: var(--text) !important; display: flex; align-items: center; gap: .55rem; }
+    .navbar-brand { font-weight: 700; color: var(--text) !important; display: flex; align-items: center; gap: .6rem; }
+    .brand-word { font-weight: 700; letter-spacing: -.02em; font-size: 1.12rem; }
+    .brand-word .dot { color: var(--accent); }
     .brand-mark {
-      width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
-      background: var(--accent); color: var(--accent-fg); font-size: 1rem;
+      width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+      background: linear-gradient(150deg, var(--accent-hover), var(--accent));
+      color: var(--accent-fg); font-size: 1rem; box-shadow: 0 2px 8px -2px var(--accent-soft);
     }
     .navbar .nav-link {
       color: var(--text-muted); font-weight: 500; font-size: .92rem; border-radius: 7px;
@@ -315,7 +318,7 @@
 <body>
 <nav class="navbar navbar-expand-lg">
   <div class="container-fluid px-4">
-    <a class="navbar-brand" href="/"><span class="brand-mark"><i class="bi bi-gpu-card"></i></span> DGX Portal</a>
+    <a class="navbar-brand" href="/"><span class="brand-mark"><i class="bi bi-gpu-card"></i></span> <span class="brand-word">Cronos</span></a>
     <button class="navbar-toggler border-0 p-1" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
       <span class="navbar-toggler-icon"></span>
     </button>

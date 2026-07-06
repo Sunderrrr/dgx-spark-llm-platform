@@ -46,13 +46,14 @@ def _check_auth():
 _BOOL_FLAGS = {
     "--enable-auto-tool-choice", "--enforce-eager",
     "--disable-log-requests", "--disable-log-stats",
+    "--skip-mm-profiling",
 }
 _VALUE_FLAGS = {
     "--tool-call-parser", "--dtype", "--max-model-len",
     "--gpu-memory-utilization", "--max-num-seqs", "--kv-cache-dtype",
     "--max-num-batched-tokens", "--block-size", "--swap-space",
     "--quantization", "--tensor-parallel-size", "--pipeline-parallel-size",
-    "--reasoning-parser",
+    "--reasoning-parser", "--limit-mm-per-prompt",
 }
 
 
@@ -218,6 +219,10 @@ def _start_process(hf_id, name, extra_tokens):
         "HOME": os.environ.get("HOME", "/root"),
         "HF_HOME": HF_HOME,
         "PYTHONUNBUFFERED": "1",
+        # DeepGEMM E8M0 casse le FP8 MoE sur Blackwell/GB10 ("Unknown SF
+        # transformation") et dégrade la précision (vLLM l'auto-désactive
+        # partiellement) → on le coupe complètement, fallback CUTLASS.
+        "VLLM_USE_DEEP_GEMM": "0",
     }
     if os.environ.get("HF_TOKEN"):
         env["HF_TOKEN"] = os.environ["HF_TOKEN"]

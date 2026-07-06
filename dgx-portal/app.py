@@ -875,8 +875,14 @@ def _mask_key(k):
     return (k[:6] + '…' + k[-4:]) if k and len(k) > 12 else '—'
 
 
-def _support_context(username, is_admin):
-    """Contexte injecté au bot, STRICTEMENT limité à l'utilisateur connecté."""
+_LOG_HINT_RE = re.compile(
+    r'log|erreur|error|marche pas|répond|repond|crash|plante|lent|500|502|503|bug|'
+    r'démarr|demarr|charge|timeout|down|hs|ko', re.I)
+
+def _support_context(username, is_admin, user_msg=''):
+    """Contexte injecté au bot, STRICTEMENT limité à l'utilisateur connecté.
+    Les logs serveur (gros) ne sont inclus que si la question porte sur un souci
+    technique → prompt bien plus léger pour les questions courantes."""
     db = get_db()
     lines = [f"Utilisateur connecté : {username}" + (" (admin)" if is_admin else "")]
 
@@ -939,10 +945,12 @@ def _support_context(username, is_admin):
         lines.append("Demandes de budget de l'utilisateur : "
                      + ", ".join(r['status'] for r in breqs))
 
-    # ── Logs serveur (dépannage) ──
-    logs = runner_logs(n=30)
-    if logs:
-        lines.append("Derniers logs du serveur de modèle :\n" + "\n".join(logs[-22:]))
+    # ── Logs serveur (uniquement pour les questions de dépannage) ──
+    if _LOG_HINT_RE.search(user_msg or ''):
+        logs = runner_logs(n=20)
+        if logs:
+            tail = [l[:200] for l in logs[-12:]]
+            lines.append("Derniers logs du serveur de modèle :\n" + "\n".join(tail))
 
     return SUPPORT_FAQ + "\n\n" + "\n".join(lines)
 
@@ -1096,12 +1104,13 @@ def support_chat():
     username = session['username']
     fullname = session.get('fullname', username)
     is_admin = session.get('is_admin', False)
-    ctx = _support_context(username, is_admin)
+    last_user = next((m['content'] for m in reversed(history) if m['role'] == 'user'), '')
+    ctx = _support_context(username, is_admin, user_msg=last_user)
     msgs = [{'role': 'system', 'content': SUPPORT_SYSTEM + "\n\n### CONTEXTE\n" + ctx}] + history
     tools = _support_tools(is_admin)
 
     def _chat(with_tools):
-        body = {'model': model, 'messages': msgs, 'temperature': 0.3, 'max_tokens': 900,
+        body = {'model': model, 'messages': msgs, 'temperature': 0.3, 'max_tokens': 600,
                 'chat_template_kwargs': {'enable_thinking': False}}
         if with_tools:
             body['tools'] = tools

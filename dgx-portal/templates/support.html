@@ -15,15 +15,7 @@
 
     <div class="card">
       <div class="card-body p-0 d-flex flex-column" style="height:min(66vh,620px)">
-        <div id="chat" class="flex-grow-1 p-3" style="overflow-y:auto">
-          <div class="support-msg bot">
-            <div class="bubble">
-              Bonjour 👋 Je suis <strong>Cronos</strong>, l'assistant de la plateforme. Décris ton problème
-              (clé API qui ne marche pas, quota atteint, modèle qui ne répond pas, intégration
-              OpenCode / Hermes…) et je regarde ça avec les infos de ton compte.
-            </div>
-          </div>
-        </div>
+        <div id="chat" class="flex-grow-1 p-3" style="overflow-y:auto"></div>
 
         <div class="border-top p-2">
           <div class="d-flex flex-wrap gap-1 mb-2" id="suggestions">
@@ -138,6 +130,13 @@ function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(inpu
 input.addEventListener('input', autoGrow);
 document.querySelectorAll('#suggestions [data-q]').forEach(b =>
   b.addEventListener('click', () => send(b.dataset.q)));
+
+// Message d'accueil personnalisé (généré côté client → texte propre, pas d'indentation
+// HTML rendue par white-space:pre-wrap).
+const USER = {{ (session.get('username') or '')|tojson }};
+const hi = USER ? `Bonjour ${USER} 👋` : "Bonjour 👋";
+addMsg('bot', `${hi} Je suis **Cronos**, l'assistant de la plateforme. Décris ton problème (clé API qui ne marche pas, quota atteint, modèle qui ne répond pas, intégration OpenCode / Hermes…) et je regarde ça avec les infos de ton compte.`);
+
 input.focus();
 </script>
 {% endblock %}

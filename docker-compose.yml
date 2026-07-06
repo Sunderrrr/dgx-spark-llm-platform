@@ -20,7 +20,10 @@ services:
 
   # ─── LiteLLM — API gateway + gestion des clés ─────────────────────────────
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
+    # Épinglé au digest (repro + anti supply-chain). Tag d'origine : main-latest.
+    # Pour mettre à jour : docker pull ghcr.io/berriai/litellm:main-latest puis
+    # remplacer le sha ci-dessous par le nouveau digest.
+    image: ghcr.io/berriai/litellm@sha256:80ea654c506da9083503d00c1b323b2fecddf17af6add9bf01b2603938e17bd2
     container_name: litellm
     restart: unless-stopped
     ports:
@@ -50,6 +53,10 @@ services:
     build: ./dgx-portal
     container_name: dgx-portal
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "5000:5000"
     environment:

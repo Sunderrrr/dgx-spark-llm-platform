@@ -315,27 +315,37 @@ const logBox     = document.getElementById('log-box');
 const logStatus  = document.getElementById('log-status');
 const autoScroll = document.getElementById('autoscroll');
 
+// Le DOM du terminal est plafonné : le runner peut rejouer jusqu'à ~2000 lignes
+// (souvent énormes) à la connexion. On garde seulement les dernières.
+const MAX_LOG_LINES = 600;
+
 // Initialisation depuis le pré-rendu serveur
-let lineCount = logBox.textContent.split('\n').filter(l => l).length;
+let lineCount = logBox.textContent ? logBox.textContent.split('\n').filter(l => l).length : 0;
 if (lineCount > 0) {
   logBox.scrollTop = logBox.scrollHeight;
   logStatus.textContent = lineCount + ' lignes';
   logStatus.className = 'badge bg-success';
 }
 
+// Append en O(1) (noeud texte) + plafond du DOM → plus de gel sur gros flux.
 function appendLine(line) {
-  if (logBox.textContent) logBox.textContent += '\n';
-  logBox.textContent += line;
+  const stick = autoScroll.checked;
+  logBox.appendChild(document.createTextNode(line + '\n'));
   lineCount++;
+  while (logBox.childNodes.length > MAX_LOG_LINES) logBox.removeChild(logBox.firstChild);
   logStatus.textContent = lineCount + ' lignes';
   logStatus.className = 'badge bg-success';
-  if (autoScroll.checked) logBox.scrollTop = logBox.scrollHeight;
+  if (stick) logBox.scrollTop = logBox.scrollHeight;
 }
 
 // SSE → relayé par dgx-portal (même origine), qui parle au runner en interne
 const es = new EventSource('/admin/runner/stream');
 
 es.onopen = function() {
+  // Le flux rejoue le backlog : on vide le pré-rendu pour éviter les doublons
+  // et repartir sur des noeuds ligne-par-ligne (plafond DOM efficace).
+  logBox.textContent = '';
+  lineCount = 0;
   logStatus.className = 'badge bg-success';
 };
 
@@ -410,6 +420,6 @@ function refreshConsumption() {
     .finally(() => { consInFlight = false; });
 }
 
-setInterval(refreshConsumption, 3000);
+setInterval(refreshConsumption, 8000);
 </script>
 {% endblock %}

@@ -941,54 +941,38 @@ def request_model():
         return redirect(url_for('index'))
     return render_template('request_form.html', prefill=prefill)
 
-def admin_get_all_keys_spend():
-    """Récupère toutes les clés (DB locale) + info spend/budget depuis LiteLLM."""
+def admin_get_user_consumption():
+    """Conso par COMPTE : nb de clés (DB locale) + spend/budget au niveau user
+    LiteLLM, récupérés en UN seul appel /user/list (au lieu d'un appel par clé et
+    par user — ce qui bloquait le rendu de la page admin)."""
+    counts = {}
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
-        local_keys = conn.execute(
-            "SELECT username, key_alias, key_value FROM api_keys ORDER BY created_at DESC"
-        ).fetchall()
+        for r in conn.execute("SELECT username, COUNT(*) c FROM api_keys GROUP BY username"):
+            counts[r['username']] = r['c']
         conn.close()
     except Exception:
-        return []
-    result = []
-    for k in local_keys:
-        info = {'username': k['username'], 'key_alias': k['key_alias'],
-                'spend': 0, 'max_budget': None, 'budget_duration': None, 'budget_reset_at': None}
-        try:
-            r = requests.get(f"{LITELLM_URL}/key/info",
-                             headers=litellm_headers(),
-                             params={"key": k['key_value']}, timeout=3)
-            if r.ok:
-                d = r.json().get('info', {})
-                info['spend']          = d.get('spend', 0)
-                info['max_budget']     = d.get('max_budget')
-                info['budget_duration'] = d.get('budget_duration')
-                info['budget_reset_at'] = d.get('budget_reset_at', '')
-        except Exception:
-            pass
-        result.append(info)
-    return result
-
-def admin_get_user_consumption():
-    """Agrège la conso par utilisateur. Le budget est au niveau COMPTE (objet user
-    LiteLLM), pas la somme des clés."""
-    per_key = admin_get_all_keys_spend()
+        pass
     users = {}
-    for k in per_key:
-        u = users.setdefault(k['username'], {'username': k['username'], 'spend': 0,
-                                               'max_budget': 0, 'unlimited': False, 'key_count': 0})
-        u['spend'] += k['spend'] or 0
-        u['key_count'] += 1
-    for uname, u in users.items():
-        info = _litellm_user_info(uname)
-        if info['exists'] and info['max_budget'] is not None:
-            u['max_budget'] = info['max_budget']
-            if info['spend']:
-                u['spend'] = info['spend']
-        else:
-            u['unlimited'] = True
+    try:
+        r = requests.get(f"{LITELLM_URL}/user/list", headers=litellm_headers(),
+                         params={"page_size": 100}, timeout=6)
+        if r.ok:
+            for u in r.json().get('users', []):
+                uid = u.get('user_id')
+                if uid not in counts:
+                    continue  # on n'affiche que les comptes ayant des clés ici
+                mb = u.get('max_budget')
+                users[uid] = {'username': uid, 'spend': u.get('spend') or 0,
+                              'max_budget': mb if mb is not None else 0,
+                              'unlimited': mb is None, 'key_count': counts[uid]}
+    except Exception:
+        pass
+    # Comptes avec des clés mais sans objet user LiteLLM → affichés quand même.
+    for uname, c in counts.items():
+        users.setdefault(uname, {'username': uname, 'spend': 0, 'max_budget': 0,
+                                 'unlimited': False, 'key_count': c})
     return sorted(users.values(), key=lambda u: u['spend'], reverse=True)
 
 
@@ -1181,7 +1165,7 @@ def admin():
     budget_reqs = db.execute("SELECT * FROM budget_requests ORDER BY created_at DESC").fetchall()
     running     = get_running_models()
     v_status    = runner_status()
-    init_logs   = runner_logs(300)
+    init_logs   = runner_logs(120)
     spend_data  = admin_get_user_consumption()
     stats = {
         'pending':  sum(1 for r in all_reqs if r['status'] == 'pending'),

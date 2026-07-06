@@ -19,15 +19,53 @@
     </div>
 
     <div class="card mb-3">
-      <div class="card-body text-secondary small">
-        <i class="bi bi-info-circle text-info"></i>
-        {% if session.get('is_admin') %}
-        Limite : <strong class="text-warning">Illimitée (admin)</strong>.
+      <div class="card-body">
+        <div class="text-secondary small mb-2">
+          <i class="bi bi-info-circle text-info"></i>
+          Endpoint : <code class="text-info">{{ public_api_url }}</code> — compatible OpenAI.
+        </div>
+        {% if account.unlimited %}
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge bg-warning text-dark">Budget illimité (admin)</span>
+          <span class="text-secondary small">partagé par toutes tes clés</span>
+        </div>
         {% else %}
-        Limite : <strong class="text-white">{{ budget_tokens }} tokens générés / {{ budget_duration }}</strong>
-        <span class="text-secondary">(les tokens envoyés dans le prompt comptent 10x moins)</span>.
+        {% set spent = account.spend or 0 %}
+        {% set budget = account.max_budget or 0 %}
+        {% set pct = (spent / budget * 100) if budget else 0 %}
+        <div class="d-flex align-items-center justify-content-between mb-1">
+          <div class="small"><i class="bi bi-wallet2 text-success"></i>
+            Budget du <strong class="text-white">compte</strong> — partagé par toutes tes clés
+            <span class="text-secondary">/ {{ budget_duration }} (les tokens du prompt comptent 10× moins)</span>
+          </div>
+          <div class="small text-secondary">
+            {{ "{:,.0f}".format(spent).replace(',', ' ') }} / {{ "{:,.0f}".format(budget).replace(',', ' ') }} tokens
+          </div>
+        </div>
+        <div class="progress mb-2" style="height:7px">
+          <div class="progress-bar {{ 'bg-danger' if pct >= 90 else ('bg-warning' if pct >= 70 else 'bg-success') }}"
+               style="width:{{ [pct, 100]|min }}%"></div>
+        </div>
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <span class="text-secondary small">{{ "{:,.0f}".format([budget - spent, 0]|max).replace(',', ' ') }} tokens restants
+            {% if account.budget_reset_at %}· reset {{ account.budget_reset_at[:10] }}{% endif %}
+          </span>
+          {% if account.has_pending %}
+          <span class="badge bg-secondary">Demande en attente</span>
+          {% else %}
+          <button class="btn btn-outline-warning btn-sm py-0" type="button"
+                  onclick="document.getElementById('acct-req').classList.toggle('d-none')">
+            <i class="bi bi-plus-circle"></i> Demander plus de tokens
+          </button>
+          {% endif %}
+        </div>
+        <form method="POST" id="acct-req" class="d-none d-flex align-items-center gap-2 mt-2">
+          <input type="hidden" name="action" value="request_budget">
+          <input type="text" name="reason" class="form-control form-control-sm bg-dark text-white border-secondary"
+                 placeholder="Raison (optionnel)" style="max-width:320px">
+          <button class="btn btn-warning btn-sm text-nowrap"><i class="bi bi-send"></i> Envoyer la demande</button>
+        </form>
         {% endif %}
-        Endpoint : <code class="text-info">{{ public_api_url }}</code> — compatible OpenAI.
       </div>
     </div>
 
@@ -36,7 +74,7 @@
       <div class="table-responsive">
         <table class="table table-dark table-hover mb-0 align-middle">
           <thead><tr>
-            <th>Alias</th><th>Clé</th><th>Budget</th><th>Reset</th><th></th>
+            <th>Alias</th><th>Clé</th><th>Dépensé</th><th></th>
           </tr></thead>
           <tbody>
           {% for k in user_keys %}
@@ -53,49 +91,15 @@
                 </button>
               </div>
             </td>
+            <td class="text-secondary small">{{ "{:,.0f}".format(k.get('spend', 0) or 0).replace(',', ' ') }} tokens</td>
             <td>
-              {% set spent = k.get('spend', 0) %}
-              {% set budget = k.get('max_budget') %}
-              {% if budget %}
-                {% set pct = (spent / budget * 100) %}
-                <div class="progress mb-1" style="height:5px;width:90px">
-                  <div class="progress-bar bg-success" style="width:{{ [100 - pct, 0]|max }}%"></div>
-                </div>
-                <small class="text-secondary">{{ "{:,.0f}".format([budget - spent, 0]|max).replace(',', ' ') }} tokens restants</small>
-              {% else %}
-                <span class="badge bg-warning text-dark">Illimité</span>
-              {% endif %}
-            </td>
-            <td class="text-secondary small">{{ k.get('budget_reset_at','—')[:10] if k.get('budget_reset_at') else '—' }}</td>
-            <td>
-              <div class="d-flex gap-1">
-                {% if k.get('max_budget') %}
-                <button class="btn btn-outline-warning btn-sm" type="button" title="Demander plus de tokens"
-                        onclick="toggleReqForm('{{ loop.index }}')">
-                  <i class="bi bi-plus-circle"></i>
-                </button>
-                {% endif %}
-                <form method="POST" onsubmit="return confirm('Révoquer cette clé ?')">
-                  <input type="hidden" name="action" value="revoke">
-                  <input type="hidden" name="key" value="{{ k.get('key','') }}">
-                  <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
-                </form>
-              </div>
-            </td>
-          </tr>
-          {% if k.get('max_budget') %}
-          <tr id="reqform-{{ loop.index }}" class="d-none">
-            <td colspan="5">
-              <form method="POST" class="d-flex align-items-center gap-2">
-                <input type="hidden" name="action" value="request_budget">
-                <input type="hidden" name="key_alias" value="{{ k.get('key_alias','') }}">
-                <input type="text" name="reason" class="form-control form-control-sm bg-dark text-white border-secondary"
-                       placeholder="Raison (optionnel)" style="max-width:320px">
-                <button class="btn btn-warning btn-sm text-nowrap"><i class="bi bi-send"></i> Envoyer la demande</button>
+              <form method="POST" onsubmit="return confirm('Révoquer cette clé ?')">
+                <input type="hidden" name="action" value="revoke">
+                <input type="hidden" name="key" value="{{ k.get('key','') }}">
+                <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
               </form>
             </td>
           </tr>
-          {% endif %}
           {% endfor %}
           </tbody>
         </table>
@@ -147,6 +151,7 @@
 
         <div class="d-flex flex-wrap gap-1 mb-3" id="int-tabs">
           <a class="btn btn-sm btn-warning active" href="#" data-tool="opencode">OpenCode</a>
+          <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="hermes">Hermes Agent</a>
           <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="codex">Codex CLI</a>
           <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="aider">Aider</a>
           <a class="btn btn-sm btn-outline-secondary" href="#" data-tool="continue">Continue.dev</a>
@@ -227,6 +232,30 @@ const tpls = {
     }
   }
 }`;
+  },
+
+  hermes: (k, m) => {
+    const lim = MODEL_LIMITS[m];
+    // LiteLLM expose /v1/models → Hermes auto-détecte le contexte, mais on le fixe
+    // explicitement pour être robuste si le proxy change.
+    const limits = lim ? `\n  context_length: ${lim.context}\n  max_tokens: ${lim.output}` : '';
+    return `# Hermes Agent (Nous Research) — https://hermes-agent.nousresearch.com
+# Install : npm install -g @nousresearch/hermes-agent
+
+# ── Option A — assistant interactif ───────────────────────────────
+hermes model
+#   → choisir « Custom endpoint (self-hosted / vLLM / etc.) »
+#   → API base URL : ${BASE}
+#   → API key      : ${dispKey(k)}
+#   → Model name   : ${m}
+
+# ── Option B — éditer ~/.hermes/config.yaml ───────────────────────
+model:
+  default: "${m}"
+  provider: "custom"          # alias : vllm
+  base_url: "${BASE}"
+  api_key: "${dispKey(k)}"${limits}
+# (ou mettre la clé dans ~/.hermes/.env : OPENAI_API_KEY=...)`;
   },
 
   codex: (k, m) =>

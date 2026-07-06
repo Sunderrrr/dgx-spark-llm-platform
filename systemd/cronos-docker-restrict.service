@@ -1,5 +1,5 @@
 [Unit]
-Description=Restrict LiteLLM (4001) and dgx-portal (5000) published ports to Traefik + docker bridge + localhost only
+Description=Restrict LiteLLM (4001) and dgx-portal (5000) published ports by source
 After=network.target docker.service
 Requires=docker.service
 
@@ -7,23 +7,23 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 # Ports publiés par Docker → filtrés dans la chaîne DOCKER-USER (pas INPUT).
-# Sources autorisées : Traefik (172.16.2.7), bridge ai-platform (172.19.0.0/16),
-# localhost (127.0.0.1). Tout le reste du LAN est bloqué.
-# On insère le DROP puis les ACCEPT (qui passent au-dessus) → ACCEPT prioritaire.
+#   4001 (API LiteLLM) : LAN 172.16.0.0/16 + VPN Netbird 100.73.0.0/16
+#                        + bridge docker 172.19.0.0/16 + localhost.
+#   5000 (portail web) : Traefik 172.16.2.7 uniquement (+ bridge + localhost) —
+#                        l'accès direct doit rester derrière Traefik/HTTPS.
+# add(): DROP par défaut (append, en bas) + ACCEPT des sources (insert, au-dessus).
 ExecStart=/bin/sh -c '\
-for PORT in 4001 5000; do \
-  iptables -C DOCKER-USER -p tcp --dport $PORT -j DROP 2>/dev/null || iptables -I DOCKER-USER -p tcp --dport $PORT -j DROP; \
-  for SRC in 172.16.2.7 172.19.0.0/16 127.0.0.1; do \
-    iptables -C DOCKER-USER -p tcp --dport $PORT -s $SRC -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -p tcp --dport $PORT -s $SRC -j ACCEPT; \
-  done; \
-done'
+add() { P=$1; shift; \
+  iptables -C DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || iptables -A DOCKER-USER -p tcp --dport $P -j DROP; \
+  for S in "$@"; do iptables -C DOCKER-USER -p tcp --dport $P -s $S -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -p tcp --dport $P -s $S -j ACCEPT; done; }; \
+add 4001 172.16.0.0/16 100.73.0.0/16 172.19.0.0/16 127.0.0.1; \
+add 5000 172.16.2.7 172.19.0.0/16 127.0.0.1'
 ExecStop=/bin/sh -c '\
-for PORT in 4001 5000; do \
-  iptables -D DOCKER-USER -p tcp --dport $PORT -j DROP 2>/dev/null || true; \
-  for SRC in 172.16.2.7 172.19.0.0/16 127.0.0.1; do \
-    iptables -D DOCKER-USER -p tcp --dport $PORT -s $SRC -j ACCEPT 2>/dev/null || true; \
-  done; \
-done'
+del() { P=$1; shift; \
+  iptables -D DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || true; \
+  for S in "$@"; do iptables -D DOCKER-USER -p tcp --dport $P -s $S -j ACCEPT 2>/dev/null || true; done; }; \
+del 4001 172.16.0.0/16 100.73.0.0/16 172.19.0.0/16 127.0.0.1; \
+del 5000 172.16.2.7 172.19.0.0/16 127.0.0.1'
 
 [Install]
 WantedBy=multi-user.target

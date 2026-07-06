@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DGX Portal — Connexion</title>
+  <title>Cronos — Connexion</title>
   <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzgzYzAwMCIvPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDYgNi41KSBzY2FsZSgxLjI1KSIgZmlsbD0iIzBjMTUwMCI+PHBhdGggZD0iTTQgOGExLjUgMS41IDAgMSAxIDMgMCAxLjUgMS41IDAgMCAxLTMgMG03LjUtMS41YTEuNSAxLjUgMCAxIDAgMCAzIDEuNSAxLjUgMCAwIDAgMC0zIi8+PHBhdGggZD0iTTAgMS41QS41LjUgMCAwIDEgLjUgMWgxYS41LjUgMCAwIDEgLjUuNVY0aDEzLjVhLjUuNSAwIDAgMSAuNS41djdhLjUuNSAwIDAgMS0uNS41SDJ2Mi41YS41LjUgMCAwIDEtMSAwVjJILjVhLjUuNSAwIDAgMS0uNS0uNW01LjUgNGEyLjUgMi41IDAgMSAwIDAgNSAyLjUgMi41IDAgMCAwIDAtNU05IDhhMi41IDIuNSAwIDEgMCA1IDAgMi41IDIuNSAwIDAgMC01IDAiLz48cGF0aCBkPSJNMyAxMi41aDMuNXYxYS41LjUgMCAwIDEtLjUuNUgzLjVhLjUuNSAwIDAgMS0uNS0uNXptNCAxdi0xaDR2MWEuNS41IDAgMCAxLS41LjVoLTNhLjUuNSAwIDAgMS0uNS0uNSIvPjwvZz48L3N2Zz4=">
   <script>
     (function () {
@@ -35,6 +35,7 @@
       display: flex; align-items: center; justify-content: center; padding: 1rem;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       -webkit-font-smoothing: antialiased; letter-spacing: -0.01em;
+      background-image: radial-gradient(60% 55% at 50% 0%, var(--accent-soft), transparent 70%);
     }
     .theme-toggle {
       position: fixed; top: 1rem; right: 1rem; width: 36px; height: 36px; border-radius: 9px;
@@ -47,11 +48,12 @@
       border: 1px solid var(--border); border-radius: 16px; padding: 2.4rem 2.1rem; box-shadow: var(--shadow);
     }
     .brand-mark {
-      width: 52px; height: 52px; margin: 0 auto .9rem; border-radius: 13px; display: grid; place-items: center;
-      background: var(--accent); color: var(--accent-fg); font-size: 1.6rem;
+      width: 54px; height: 54px; margin: 0 auto .9rem; border-radius: 14px; display: grid; place-items: center;
+      background: linear-gradient(150deg, var(--accent-hover), var(--accent));
+      color: var(--accent-fg); font-size: 1.6rem; box-shadow: 0 8px 22px -8px var(--accent-soft);
     }
-    .brand { font-size: 1.35rem; font-weight: 700; text-align: center; letter-spacing: -0.02em; }
-    .subtitle { color: var(--text-muted); font-size: .82rem; text-align: center; margin-top: .2rem; }
+    .brand { font-size: 1.5rem; font-weight: 700; text-align: center; letter-spacing: -0.02em; }
+    .subtitle { color: var(--text-muted); font-size: .82rem; text-align: center; margin-top: .25rem; }
     .form-label { color: var(--text-muted); font-size: .82rem; font-weight: 500; }
     .form-control {
       background: var(--surface) !important; border-color: var(--border) !important; color: var(--text) !important;
@@ -87,8 +89,8 @@
 <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Basculer le thème"><i class="bi"></i></button>
 <div class="login-card">
   <div class="brand-mark"><i class="bi bi-gpu-card"></i></div>
-  <div class="brand">DGX Portal</div>
-  <p class="subtitle">NVIDIA DGX Spark · Cronos</p>
+  <div class="brand">Cronos</div>
+  <p class="subtitle">Plateforme IA privée · NVIDIA DGX Spark</p>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in messages %}

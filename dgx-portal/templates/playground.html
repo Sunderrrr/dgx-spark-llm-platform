@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Playground — Cronos{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-12">
+    <div class="page-head">
+      <div>
+        <h1 class="page-head-title">Playground</h1>
+        <p class="page-head-sub">Teste le modèle directement dans le navigateur, sans configurer de client. Réponses en direct.</p>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <select class="form-select form-select-sm bg-dark text-white border-secondary" id="pg-model" style="width:auto">
+          {% if running_models %}{% for m in running_models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+          {% else %}<option value="">aucun modèle actif</option>{% endif %}
+        </select>
+        <button class="btn btn-outline-secondary btn-sm" id="pg-clear" type="button" title="Nouvelle conversation"><i class="bi bi-arrow-counterclockwise"></i></button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body p-0 d-flex flex-column" style="height:min(70vh,680px)">
+        <div id="pg-chat" class="flex-grow-1 p-3" style="overflow-y:auto"></div>
+        <div class="border-top p-2">
+          <form id="pg-form" class="d-flex align-items-end gap-2">
+            <textarea id="pg-input" class="form-control bg-dark text-white border-secondary" rows="1"
+                      placeholder="Écris ton message…  (Entrée pour envoyer, Maj+Entrée = saut de ligne)"
+                      style="resize:none;max-height:160px"></textarea>
+            <button class="btn btn-success text-nowrap" id="pg-send" type="submit"><i class="bi bi-send"></i></button>
+          </form>
+          <div class="text-secondary mt-1" style="font-size:.72rem">
+            <i class="bi bi-info-circle"></i> Bac à sable gratuit. Un seul modèle tourne à la fois — bascule via l'admin si besoin.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .pg-msg { display:flex; margin-bottom:.6rem; }
+  .pg-msg.user { justify-content:flex-end; }
+  .pg-msg .bubble { max-width:min(82%,720px); padding:.55rem .8rem; border-radius:.8rem;
+    font-size:.9rem; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+  .pg-msg.assistant .bubble { background:var(--surface-hover,#22262e); color:var(--text); border-bottom-left-radius:.2rem; }
+  .pg-msg.user .bubble { background:var(--accent-soft); color:var(--text); border-bottom-right-radius:.2rem; }
+  .pg-msg .bubble code { color:var(--accent); }
+  .pg-cursor::after { content:'▋'; opacity:.5; animation:pgblink 1s steps(2) infinite; }
+  @keyframes pgblink { 50% { opacity:0; } }
+</style>
+
+<script>
+const chat = document.getElementById('pg-chat');
+const input = document.getElementById('pg-input');
+const form = document.getElementById('pg-form');
+const sendBtn = document.getElementById('pg-send');
+const modelSel = document.getElementById('pg-model');
+const history = [];
+let streaming = false;
+
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function render(t){ return esc(t).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); }
+
+function bubble(role){
+  const w=document.createElement('div'); w.className='pg-msg '+role;
+  const b=document.createElement('div'); b.className='bubble';
+  w.appendChild(b); chat.appendChild(w); chat.scrollTop=chat.scrollHeight; return b;
+}
+
+async function send(text){
+  text=text.trim(); if(!text||streaming) return;
+  const model=modelSel.value; if(!model){ bubble('assistant').textContent="Aucun modèle actif."; return; }
+  bubble('user').innerHTML=render(text);
+  history.push({role:'user',content:text});
+  input.value=''; autoGrow();
+  streaming=true; sendBtn.disabled=true;
+  const b=bubble('assistant'); b.classList.add('pg-cursor');
+  let acc='';
+  try {
+    const r=await fetch('/playground/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:model,messages:history})});
+    const reader=r.body.getReader(); const dec=new TextDecoder(); let buf='';
+    while(true){
+      const {value,done}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      const parts=buf.split('\n\n'); buf=parts.pop();
+      for(const p of parts){
+        const line=p.split('\n').find(l=>l.startsWith('data:')); if(!line) continue;
+        const payload=line.slice(5).trim();
+        if(payload==='[DONE]') continue;
+        try{ const j=JSON.parse(payload); const d=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;
+          if(d){ acc+=d; b.innerHTML=render(acc); chat.scrollTop=chat.scrollHeight; } }catch(e){}
+      }
+    }
+  } catch(e){ acc=acc||"Erreur réseau."; b.textContent=acc; }
+  b.classList.remove('pg-cursor');
+  if(acc) history.push({role:'assistant',content:acc});
+  streaming=false; sendBtn.disabled=false; input.focus();
+}
+
+form.addEventListener('submit',e=>{e.preventDefault(); send(input.value);});
+input.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); send(input.value);} });
+function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,160)+'px'; }
+input.addEventListener('input',autoGrow);
+document.getElementById('pg-clear').addEventListener('click',()=>{ history.length=0; chat.innerHTML=''; input.focus(); });
+input.focus();
+</script>
+{% endblock %}

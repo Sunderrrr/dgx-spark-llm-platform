@@ -987,6 +987,10 @@ SUPPORT_SYSTEM = (
     "- request_model : demander l'ajout d'un modèle (identifiant Hugging Face).\n"
     "- launch_model / stop_model : (admin uniquement) piloter le modèle du GPU.\n"
     "Règles d'usage des outils :\n"
+    "- N'appelle un outil QUE pour une action explicitement demandée (créer/"
+    "révoquer une clé, demander du budget/un modèle, lancer/arrêter). Pour toute "
+    "question de dépannage, d'information ou d'explication, réponds DIRECTEMENT en "
+    "texte, SANS appeler d'outil (tu as déjà les logs et l'état dans le contexte).\n"
     "- Confirme TOUJOURS avec l'utilisateur avant une action destructive ou "
     "impactante (revoke_api_key, stop_model, launch_model qui coupe le modèle "
     "actif) : demande « tu confirmes ? » et n'appelle l'outil qu'après un oui.\n"
@@ -1288,7 +1292,13 @@ def support_chat():
                     a = {}
                 res = _exec_support_tool(fn.get('name', ''), a, username, fullname, is_admin)
                 msgs.append({'role': 'tool', 'tool_call_id': tc.get('id'), 'content': res})
-        return jsonify({'reply': "Action trop longue à traiter, reformule en une étape.", 'model': model})
+        # Trop d'allers-retours d'outils → on force une réponse finale SANS outils
+        # (sinon le modèle peut boucler sur des appels et ne jamais conclure).
+        rf = _chat(False)
+        if rf.ok:
+            reply = _clean_reply(rf.json()['choices'][0]['message'].get('content') or '')
+            return jsonify({'reply': reply or "Peux-tu reformuler ta demande ?", 'model': model})
+        return jsonify({'reply': "Le modèle est occupé, réessaie dans un instant.", 'model': model})
     except Exception:
         return jsonify({'reply': "Le modèle n'a pas répondu à temps. Réessaie dans un instant."})
 

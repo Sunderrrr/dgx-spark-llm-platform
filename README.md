@@ -168,6 +168,14 @@ env vars — key and endpoint pre-filled.
   catalog models, set the default budget, approve token/model requests, per-user
   consumption.
 
+### Screenshots
+
+| Playground — in-browser streaming chat | Support — the Cronos assistant taking actions |
+|---|---|
+| ![Playground](assets/playground.png) | ![Support](assets/support.png) |
+
+![My API keys — budget, keys and integration snippets](assets/keys.png)
+
 ---
 
 ## Operations

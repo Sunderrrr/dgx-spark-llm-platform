@@ -453,11 +453,19 @@ def runner_stop():
     except Exception:
         return False
 
+# Lignes d'accès de routine (polls santé/statut) → bruit qui noie les logs utiles.
+_LOG_NOISE_RE = re.compile(r'"GET /(?:v1/models|metrics|health\S*|version|ping)\b')
+
+def _drop_log_noise(lines):
+    return [l for l in lines if not _LOG_NOISE_RE.search(l)]
+
 def runner_logs(n=150):
     try:
-        r = requests.get(f"{RUNNER_URL}/logs", headers=_runner_headers(), params={'n': n}, timeout=3)
+        # on demande large puis on filtre le bruit pour renvoyer n lignes utiles.
+        r = requests.get(f"{RUNNER_URL}/logs", headers=_runner_headers(),
+                         params={'n': min(n * 5, 2000)}, timeout=3)
         if r.ok:
-            return r.json().get('logs', [])
+            return _drop_log_noise(r.json().get('logs', []))[-n:]
     except Exception:
         pass
     return []
@@ -1839,10 +1847,18 @@ def admin_runner_stream():
                             stream=True, timeout=(5, None))
 
     def generate():
+        buf = ''
         try:
-            for chunk in upstream.iter_content(chunk_size=None):
-                if chunk:
-                    yield chunk
+            for chunk in upstream.iter_content(chunk_size=None, decode_unicode=True):
+                if not chunk:
+                    continue
+                buf += chunk
+                while '\n\n' in buf:
+                    evt, buf = buf.split('\n\n', 1)
+                    data_line = next((l for l in evt.split('\n') if l.startswith('data:')), '')
+                    if _LOG_NOISE_RE.search(data_line):
+                        continue                 # ligne d'accès de routine → on n'affiche pas
+                    yield evt + '\n\n'
         finally:
             upstream.close()
 

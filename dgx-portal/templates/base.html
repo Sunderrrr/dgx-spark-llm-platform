@@ -327,6 +327,7 @@
       <ul class="navbar-nav me-auto">
         <li class="nav-item"><a class="nav-link {% if path == '/' %}active{% endif %}" href="/"><i class="bi bi-house-door"></i> Accueil</a></li>
         <li class="nav-item"><a class="nav-link {% if path.startswith('/keys') %}active{% endif %}" href="/keys"><i class="bi bi-key"></i> Mes clés API</a></li>
+        <li class="nav-item"><a class="nav-link {% if path.startswith('/playground') %}active{% endif %}" href="/playground"><i class="bi bi-chat-dots"></i> Playground</a></li>
         <li class="nav-item"><a class="nav-link {% if path.startswith('/search') %}active{% endif %}" href="/search"><i class="bi bi-search"></i> Chercher un modèle</a></li>
         <li class="nav-item"><a class="nav-link {% if path.startswith('/request') %}active{% endif %}" href="/request"><i class="bi bi-send"></i> Demander un modèle</a></li>
         <li class="nav-item"><a class="nav-link {% if path.startswith('/ranking') %}active{% endif %}" href="/ranking"><i class="bi bi-trophy"></i> Classement</a></li>
@@ -347,6 +348,15 @@
 </nav>
 
 <div class="container-fluid px-4 mt-4">
+  {% if budget_alert %}
+  <div class="alert alert-warning alert-dismissible fade show d-flex align-items-center gap-2" role="alert">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <div>Ton budget est utilisé à <strong>{{ budget_alert.pct }} %</strong> — il te reste
+      {{ "{:,.0f}".format(budget_alert.remaining).replace(',', ' ') }} tokens.
+      <a href="/keys" class="alert-link">Demander plus</a> ou attends le reset quotidien.</div>
+    <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+  </div>
+  {% endif %}
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in messages %}
     <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">

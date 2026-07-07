@@ -421,6 +421,48 @@ def runner_metrics():
         pass
     return None
 
+_VLLM_METRICS_URL = VLLM_API.rsplit('/v1', 1)[0] + '/metrics'
+_vllm_tps = {'t': 0.0, 'gen': 0.0}
+
+def _prom_sum(text, metric):
+    """Somme des échantillons d'une métrique Prometheus (nom exact, labels ignorés)."""
+    tot, found = 0.0, False
+    for line in text.splitlines():
+        if line.startswith(metric) and len(line) > len(metric) and line[len(metric)] in ' {':
+            try:
+                tot += float(line.rsplit(' ', 1)[1]); found = True
+            except (ValueError, IndexError):
+                pass
+    return tot if found else None
+
+def vllm_health():
+    """Santé du modèle actif (débit tok/s, requêtes en cours/file, TTFT moyen)."""
+    running = get_running_models()
+    if not running:
+        return {'up': False, 'model': None}
+    try:
+        text = requests.get(_VLLM_METRICS_URL, timeout=4).text
+    except Exception:
+        return {'up': True, 'model': running[0], 'metrics': False}
+    gen = _prom_sum(text, 'vllm:generation_tokens_total') or 0.0
+    now = time.time()
+    tps = None
+    if _vllm_tps['t'] and now > _vllm_tps['t'] and gen >= _vllm_tps['gen']:
+        tps = (gen - _vllm_tps['gen']) / (now - _vllm_tps['t'])
+    _vllm_tps.update(t=now, gen=gen)
+    ttft_sum = _prom_sum(text, 'vllm:time_to_first_token_seconds_sum') or 0.0
+    ttft_cnt = _prom_sum(text, 'vllm:time_to_first_token_seconds_count') or 0.0
+    return {
+        'up': True,
+        'model': running[0],
+        'metrics': True,
+        'running': int(_prom_sum(text, 'vllm:num_requests_running') or 0),
+        'waiting': int(_prom_sum(text, 'vllm:num_requests_waiting') or 0),
+        'tps': round(tps, 1) if tps is not None else None,
+        'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else None,
+        'requests': int(_prom_sum(text, 'vllm:request_success_total') or 0),
+    }
+
 def search_hf_models(query, task='text-generation'):
     try:
         r = requests.get(
@@ -642,6 +684,65 @@ def ldap_lookup_admin(username):
         return False
 
 
+def ldap_lookup_email(username):
+    """Email de l'utilisateur via le compte de service LDAP (pour le notifier)."""
+    if not (LDAP_BIND_DN and LDAP_BIND_PW) or not USERNAME_RE.match(username or ''):
+        return None
+    try:
+        conn = Connection(Server(LDAP_URI, get_info=ALL), user=LDAP_BIND_DN,
+                          password=LDAP_BIND_PW, authentication=SIMPLE, auto_bind=True)
+        conn.search(search_base=f"ou=people,{LDAP_BASE}",
+                    search_filter=f"(uid={escape_filter_chars(username)})", attributes=['mail'])
+        email = None
+        if conn.entries and hasattr(conn.entries[0], 'mail') and conn.entries[0].mail:
+            email = str(conn.entries[0].mail)
+        conn.unbind()
+        return email or None
+    except Exception:
+        return None
+
+
+def send_user_email(to_email, subject, body):
+    """Envoie un email simple à un utilisateur (notifications)."""
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]) or not to_email:
+        return False
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = SMTP_FROM or SMTP_USER
+    msg['To'] = to_email
+    msg.attach(MIMEText(body, 'plain'))
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(msg['From'], [to_email], msg.as_string())
+        return True
+    except Exception as e:
+        print(f"[email user] erreur : {e}")
+        return False
+
+
+@app.context_processor
+def inject_budget_alert():
+    """Bannière in-app quand le budget du compte dépasse 85 % (non-admins)."""
+    if 'username' not in session or session.get('is_admin'):
+        return {}
+    if hasattr(g, '_budget_alert'):
+        return {'budget_alert': g._budget_alert}
+    alert = None
+    try:
+        info = _litellm_user_info(session['username'])
+        if info['exists'] and info['max_budget']:
+            pct = (info['spend'] or 0) / info['max_budget'] * 100
+            if pct >= 85:
+                alert = {'pct': round(pct),
+                         'remaining': max(info['max_budget'] - (info['spend'] or 0), 0)}
+    except Exception:
+        pass
+    g._budget_alert = alert
+    return {'budget_alert': alert}
+
+
 @app.route('/login/sso')
 def login_sso():
     if not OIDC_ENABLED:
@@ -713,6 +814,7 @@ def index():
     return render_template('index.html', running_models=running, my_requests=my_requests,
                            public_api_url=PUBLIC_API_URL, usage=user_hourly(session['username']),
                            sysmetrics=runner_metrics(),
+                           modelhealth=vllm_health(),
                            budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
                            budget_duration=get_setting('default_key_duration', KEY_DURATION))
 
@@ -1146,6 +1248,52 @@ def support_chat():
     except Exception:
         return jsonify({'reply': "Le modèle n'a pas répondu à temps. Réessaie dans un instant."})
 
+
+# ── Playground : chat direct avec le modèle, en streaming ────────────────────
+@app.route('/playground')
+@login_required
+def playground():
+    return render_template('playground.html', running_models=get_running_models())
+
+
+@app.route('/playground/chat', methods=['POST'])
+@login_required
+def playground_chat():
+    data = request.get_json(silent=True) or {}
+    history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:8000]}
+               for m in data.get('messages', []) if m.get('role') in ('user', 'assistant', 'system')][-20:]
+    if not history:
+        return Response("data: {\"error\": \"vide\"}\n\n", mimetype='text/event-stream')
+    running = get_running_models()
+    if not running:
+        return Response('data: {"choices":[{"delta":{"content":"Aucun mod\\u00e8le actif."}}]}\n\ndata: [DONE]\n\n',
+                        mimetype='text/event-stream')
+    model = data.get('model')
+    if model not in running:            # anti-injection : uniquement un modèle réellement chargé
+        model = running[0]
+
+    def gen():
+        try:
+            with requests.post(f"{LITELLM_URL}/v1/chat/completions", headers=litellm_headers(),
+                               json={'model': model, 'messages': history, 'stream': True,
+                                     'temperature': 0.7, 'max_tokens': 2048,
+                                     'chat_template_kwargs': {'enable_thinking': False}},
+                               stream=True, timeout=(10, None)) as r:
+                if not r.ok:
+                    yield f'data: {{"choices":[{{"delta":{{"content":"Erreur mod\\u00e8le ({r.status_code})."}}}}]}}\n\n'
+                    yield 'data: [DONE]\n\n'
+                    return
+                for line in r.iter_lines():
+                    if line:
+                        yield line.decode('utf-8', 'replace') + "\n\n"
+        except Exception:
+            yield 'data: {"choices":[{"delta":{"content":"\\u26a0 interruption du flux."}}]}\n\n'
+            yield 'data: [DONE]\n\n'
+
+    return Response(stream_with_context(gen()), mimetype='text/event-stream',
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.route('/search')
 @login_required
 def search():
@@ -1405,7 +1553,9 @@ def usage_hourly():
 @app.route('/system/stats')
 @login_required
 def system_stats():
-    return jsonify(runner_metrics() or {})
+    data = runner_metrics() or {}
+    data['model'] = vllm_health()
+    return jsonify(data)
 
 @app.route('/admin/consumption')
 @admin_required
@@ -1688,8 +1838,16 @@ def update_request(req_id):
                (status, datetime.now().isoformat(), req_id))
     # Valider une demande = l'ajouter au catalogue lançable (comme les modèles seedés).
     if status == 'done':
-        req = db.execute("SELECT model_id FROM model_requests WHERE id=?", (req_id,)).fetchone()
+        req = db.execute("SELECT username, model_id FROM model_requests WHERE id=?", (req_id,)).fetchone()
         if req and req['model_id']:
+            # Prévient le demandeur par email que son modèle est dispo.
+            email = ldap_lookup_email(req['username'])
+            if email:
+                send_user_email(email, "[Cronos] Ton modèle est disponible",
+                                f"Bonne nouvelle — le modèle que tu as demandé est validé et "
+                                f"disponible sur la plateforme Cronos :\n\n  {req['model_id']}\n\n"
+                                f"Tu peux l'utiliser via l'API / le Playground une fois lancé.\n"
+                                f"https://dgx.cronos.website/\n")
             name, existed = _add_model_to_catalog(db, req['model_id'])
             cfg = db.execute("SELECT vllm_args FROM model_configs WHERE name=?", (name,)).fetchone()
             ok = _register_litellm_model(name, cfg['vllm_args'] if cfg else DEFAULT_VLLM_ARGS)

@@ -1300,39 +1300,65 @@ def playground():
     return render_template('playground.html', running_models=get_running_models())
 
 
+def _sse_msg(text):
+    """Un message SSE 'content' + fin de flux (échappement JSON sûr)."""
+    payload = json.dumps({'choices': [{'delta': {'content': text}}]})
+    return f"data: {payload}\n\ndata: [DONE]\n\n"
+
+
 @app.route('/playground/chat', methods=['POST'])
 @login_required
 def playground_chat():
     data = request.get_json(silent=True) or {}
     history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:8000]}
-               for m in data.get('messages', []) if m.get('role') in ('user', 'assistant', 'system')][-20:]
+               for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')][-20:]
     if not history:
-        return Response("data: {\"error\": \"vide\"}\n\n", mimetype='text/event-stream')
+        return Response(_sse_msg("Message vide."), mimetype='text/event-stream')
     running = get_running_models()
     if not running:
-        return Response('data: {"choices":[{"delta":{"content":"Aucun mod\\u00e8le actif."}}]}\n\ndata: [DONE]\n\n',
+        return Response(_sse_msg("Aucun modèle actif."), mimetype='text/event-stream')
+    model = data.get('model') if data.get('model') in running else running[0]
+
+    # Réglages (bornés).
+    system = str(data.get('system', '')).strip()[:4000]
+    def _num(v, lo, hi, default, cast):
+        try:
+            return min(max(cast(v), lo), hi)
+        except (TypeError, ValueError):
+            return default
+    temperature = _num(data.get('temperature'), 0.0, 2.0, 0.7, float)
+    max_tokens  = _num(data.get('max_tokens'), 1, 8192, 1024, int)
+    top_p       = _num(data.get('top_p'), 0.0, 1.0, 1.0, float)
+
+    # Le playground consomme le BUDGET de l'utilisateur → on utilise SA clé
+    # (partagée par le compte). LiteLLM applique donc le quota (429 si dépassé).
+    keys = get_user_keys(session['username'])
+    if not keys:
+        return Response(_sse_msg("Crée d'abord une clé API (page « Mes clés API ») — "
+                                 "le playground utilise ton budget de compte."),
                         mimetype='text/event-stream')
-    model = data.get('model')
-    if model not in running:            # anti-injection : uniquement un modèle réellement chargé
-        model = running[0]
+    user_key = keys[0]['key']
+    msgs = ([{'role': 'system', 'content': system}] if system else []) + history
 
     def gen():
         try:
-            with requests.post(f"{LITELLM_URL}/v1/chat/completions", headers=litellm_headers(),
-                               json={'model': model, 'messages': history, 'stream': True,
-                                     'temperature': 0.7, 'max_tokens': 2048,
+            with requests.post(f"{LITELLM_URL}/v1/chat/completions",
+                               headers={'Authorization': f'Bearer {user_key}'},
+                               json={'model': model, 'messages': msgs, 'stream': True,
+                                     'temperature': temperature, 'max_tokens': max_tokens, 'top_p': top_p,
+                                     'stream_options': {'include_usage': True},
                                      'chat_template_kwargs': {'enable_thinking': False}},
                                stream=True, timeout=(10, None)) as r:
                 if not r.ok:
-                    yield f'data: {{"choices":[{{"delta":{{"content":"Erreur mod\\u00e8le ({r.status_code})."}}}}]}}\n\n'
-                    yield 'data: [DONE]\n\n'
+                    msg = ("Budget de compte dépassé — attends le reset quotidien ou demande plus de tokens."
+                           if r.status_code == 429 else f"Erreur modèle ({r.status_code}).")
+                    yield _sse_msg(msg)
                     return
                 for line in r.iter_lines():
                     if line:
                         yield line.decode('utf-8', 'replace') + "\n\n"
         except Exception:
-            yield 'data: {"choices":[{"delta":{"content":"\\u26a0 interruption du flux."}}]}\n\n'
-            yield 'data: [DONE]\n\n'
+            yield _sse_msg("⚠ flux interrompu.")
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

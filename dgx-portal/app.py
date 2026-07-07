@@ -1297,7 +1297,14 @@ def support_chat():
 @app.route('/playground')
 @login_required
 def playground():
-    return render_template('playground.html', running_models=get_running_models())
+    # Fenêtre de contexte par modèle (déduite de --max-model-len) → anneau d'usage.
+    model_limits = {}
+    for row in get_db().execute("SELECT name, vllm_args FROM model_configs"):
+        mm = re.search(r'--max-model-len\s+(\d+)', row['vllm_args'] or '')
+        if mm:
+            model_limits[row['name']] = int(mm.group(1))
+    return render_template('playground.html', running_models=get_running_models(),
+                           model_limits=model_limits)
 
 
 def _sse_msg(text):

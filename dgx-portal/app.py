@@ -19,6 +19,28 @@ app.secret_key = os.environ['SECRET_KEY']
 # schéma (https) et l'hôte externe (dgx.cronos.website).
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
+# ── i18n ─────────────────────────────────────────────────────────────────────
+# Les templates sont en français. PORTAL_LANG=fr → servis tels quels (instance de
+# prod, aucune transformation). Sinon (défaut 'en') → le HTML rendu est traduit à
+# la volée vers l'anglais via un catalogue FR→EN, avec des limites de mots pour ne
+# jamais corrompre le HTML/JS (pas de remplacement à l'intérieur d'un mot).
+import translations as _tr
+PORTAL_LANG = os.environ.get('PORTAL_LANG', 'en').lower()
+if PORTAL_LANG != 'fr' and _tr.FR_TO_EN:
+    _TR_RE = re.compile('|'.join(
+        '(?<!\\w)' + re.escape(k) + '(?!\\w)'
+        for k in sorted(_tr.FR_TO_EN, key=len, reverse=True)))
+
+    @app.after_request
+    def _translate_html(resp):
+        try:
+            if (resp.content_type or '').startswith('text/html') and not resp.direct_passthrough:
+                html = _TR_RE.sub(lambda m: _tr.FR_TO_EN[m.group(0)], resp.get_data(as_text=True))
+                resp.set_data(html)
+        except Exception:
+            pass
+        return resp
+
 # ── Durcissement des sessions ────────────────────────────────────────────────
 # HttpOnly : le cookie de session n'est pas lisible en JS (anti-vol via XSS).
 # SameSite=Lax : le cookie n'est pas envoyé sur les requêtes cross-site de type

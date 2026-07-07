@@ -358,7 +358,7 @@
   }
   setInterval(function () {
     fetch('/system/stats').then(function (r) { return r.ok ? r.json() : null; }).then(apply).catch(function () {});
-  }, 4000);
+  }, 8000);
 })();
 </script>
 {% endif %}

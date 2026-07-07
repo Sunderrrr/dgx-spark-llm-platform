@@ -79,6 +79,32 @@
           </div>
           {% endif %}
         </div>
+        {% if modelhealth %}
+        <hr style="border-color:var(--border);margin:1rem 0 .9rem">
+        <div class="d-flex flex-wrap gap-4 align-items-start" id="model-health">
+          <div>
+            <div class="metric-label"><i class="bi bi-robot"></i> Modèle actif</div>
+            <div class="fw-semibold mt-1"><span id="mh-model">{{ modelhealth.model or 'aucun' }}</span>
+              <span class="badge {{ 'bg-success' if modelhealth.up else 'bg-secondary' }}" id="mh-up">{{ 'en ligne' if modelhealth.up else 'arrêté' }}</span></div>
+          </div>
+          <div>
+            <div class="metric-label">Débit</div>
+            <div class="metric-value" style="font-size:16px"><span id="mh-tps">{{ modelhealth.tps if modelhealth.tps is not none else '—' }}</span> <span class="unit">tok/s</span></div>
+          </div>
+          <div>
+            <div class="metric-label">En cours / file</div>
+            <div class="metric-value" style="font-size:16px"><span id="mh-load">{{ modelhealth.running or 0 }} / {{ modelhealth.waiting or 0 }}</span></div>
+          </div>
+          <div>
+            <div class="metric-label">TTFT</div>
+            <div class="metric-value" style="font-size:16px"><span id="mh-ttft">{{ modelhealth.ttft if modelhealth.ttft is not none else '—' }}</span> <span class="unit">s</span></div>
+          </div>
+          <div>
+            <div class="metric-label">Requêtes servies</div>
+            <div class="metric-value" style="font-size:16px"><span id="mh-req">{{ modelhealth.requests or 0 }}</span></div>
+          </div>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -318,6 +344,17 @@
     if (d.ram) setMeter('m-ram', d.ram.pct, d.ram.used_gb + ' <small>/ ' + d.ram.total_gb + ' Go</small>');
     if (d.gpu) setMeter('m-gpu', d.gpu.util || 0,
       Math.round(d.gpu.util || 0) + ' % <small>· ' + Math.round(d.gpu.power || 0) + ' W · ' + Math.round(d.gpu.temp || 0) + ' °C</small>');
+    var mh = d.model;
+    if (mh) {
+      function set(id, v) { var e = document.getElementById(id); if (e) e.textContent = v; }
+      set('mh-model', mh.model || 'aucun');
+      set('mh-tps', mh.tps != null ? mh.tps : '—');
+      set('mh-load', (mh.running || 0) + ' / ' + (mh.waiting || 0));
+      set('mh-ttft', mh.ttft != null ? mh.ttft : '—');
+      set('mh-req', mh.requests || 0);
+      var up = document.getElementById('mh-up');
+      if (up) { up.textContent = mh.up ? 'en ligne' : 'arrêté'; up.className = 'badge ' + (mh.up ? 'bg-success' : 'bg-secondary'); }
+    }
   }
   setInterval(function () {
     fetch('/system/stats').then(function (r) { return r.ok ? r.json() : null; }).then(apply).catch(function () {});

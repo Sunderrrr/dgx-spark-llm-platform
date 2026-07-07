@@ -76,7 +76,9 @@ async function send(text){
   const b=bubble('assistant'); b.classList.add('pg-cursor');
   let acc='';
   try {
-    const r=await fetch('/playground/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch('/playground/chat',{method:'POST',
+      headers:{'Content-Type':'application/json',
+               'X-CSRFToken':(document.querySelector('meta[name="csrf-token"]')||{}).content||''},
       body:JSON.stringify({model:model,messages:history})});
     const reader=r.body.getReader(); const dec=new TextDecoder(); let buf='';
     while(true){

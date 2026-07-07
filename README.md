@@ -1,10 +1,20 @@
-# DGX AI Platform
+# Cronos — Self-Hosted LLM Platform
 
-Plateforme d'inférence LLM auto-hébergée sur un **NVIDIA DGX Spark** (GB10 Grace Blackwell, 128 Go de mémoire unifiée, aarch64). Elle fournit :
+A self-hosted LLM inference platform running on a single **NVIDIA DGX Spark**
+(GB10 Grace Blackwell, 128 GB unified memory, aarch64). It turns one GPU box into
+a small multi-user AI service with an OpenAI-compatible API, per-user keys and
+budgets, a self-service web portal, and an AI support assistant that can act on
+your behalf.
 
-- une **API compatible OpenAI** protégée par clés par utilisateur avec quotas de tokens (LiteLLM) ;
-- un **portail self-service** où chaque utilisateur (authentifié LDAP ou SSO) crée ses clés, demande des modèles et suit sa consommation ;
-- un **runner** qui lance/arrête à la demande un modèle vLLM sur le GPU et le relance tout seul après un crash ou un reboot.
+It provides:
+
+- an **OpenAI-compatible API** (LiteLLM) protected by per-user keys with token budgets;
+- a **self-service portal** where each user (LDAP or SSO) creates keys, tries models
+  in an in-browser **playground**, requests models, and tracks consumption;
+- **Cronos**, an AI support assistant that answers questions *and* performs
+  self-service actions (create a key, request budget, request a model…);
+- a **runner** that launches/stops one vLLM model on the GPU on demand and
+  auto-resumes it after a crash or reboot.
 
 ---
 
@@ -12,148 +22,157 @@ Plateforme d'inférence LLM auto-hébergée sur un **NVIDIA DGX Spark** (GB10 Gr
 
 ```mermaid
 flowchart LR
-  U[Utilisateurs] -->|https://dgx.cronos.website| CF[Cloudflare + Traefik]
+  U[Users] -->|https://dgx.cronos.website| CF[Cloudflare + Traefik]
   U -->|https://api.cronos.website/v1| CF
   CF -->|:5000| P[dgx-portal]
   CF -->|:4001| L[LiteLLM]
-  P -->|auth LDAP / OIDC| IDP[LLDAP · Authentik]
-  P -->|émet clés + budgets| L
+  P -->|LDAP / OIDC auth| IDP[LLDAP · Authentik]
+  P -->|issues keys + budgets| L
   P -->|:8001 · Bearer token| R[vllm-runner]
-  R -->|lance / arrête| V[vLLM · :8000]
+  R -->|launch / stop| V[vLLM · :8000]
   L -->|:8000| V
   L --> PG[(Postgres)]
 ```
 
-### Composants
+### Components
 
-| Composant | Rôle | Port | Exécution |
+| Component | Role | Port | Runs as |
 |---|---|---|---|
-| **litellm** | Passerelle API compatible OpenAI : clés par utilisateur, budgets, comptage tokens | `4001` | conteneur Docker |
-| **litellm-postgres** | Base de données de LiteLLM (clés, dépenses) | `5432` (interne) | conteneur Docker |
-| **dgx-portal** | Portail web self-service (Flask) : login, clés, demandes, admin | `5000` | conteneur Docker |
-| **vllm-runner** | Daemon qui pilote **un** process vLLM (start/stop/logs), avec reprise auto | `8001` | service systemd sur l'hôte |
-| **vLLM** | Serveur d'inférence OpenAI-compatible (le vrai moteur GPU) | `8000` | process lancé par le runner |
+| **litellm** | OpenAI-compatible gateway: per-user keys, budgets, token accounting | `4001` | Docker container |
+| **litellm-postgres** | LiteLLM database (keys, spend logs) | `5432` (internal) | Docker container |
+| **dgx-portal** | Self-service web portal (Flask): login, keys, playground, support, admin | `5000` | Docker container (non-root) |
+| **vllm-runner** | Daemon driving **one** vLLM process (start/stop/logs) with auto-resume | `8001` | systemd service on the host |
+| **vLLM** | OpenAI-compatible inference server (the actual GPU engine) | `8000` | process spawned by the runner |
 
-> Un seul modèle tourne à la fois sur le GPU. Le runner remplace le modèle courant quand on en lance un autre.
+> Only one model runs on the GPU at a time. Launching another replaces the current one.
 
 ---
 
-## Démarrage rapide
+## Quick start
 
-Prérequis : Docker + Docker Compose, un serveur LLDAP joignable, vLLM installé sur l'hôte (pour le runner), Python 3.
+Prerequisites: a DGX Spark (or any CUDA host), a reachable LLDAP server, and outbound
+internet for pulling images and model weights.
 
 ```bash
-# 1. Générer le .env (secrets aléatoires)
-./setup.sh
-#   → remplir ensuite dans .env : LLDAP_ADMIN_PASSWORD, OIDC_*, SMTP_*, DISCORD_WEBHOOK_URL…
-
-# 2. Lancer la stack (portail + gateway + db)
-docker compose up -d
-
-# 3. Installer le runner vLLM sur l'hôte (hors Docker)
-sudo cp systemd/vllm-runner.service     /etc/systemd/system/
-sudo cp systemd/vllm-restrict.service   /etc/systemd/system/
-sudo cp systemd/99-vllm-runner-needrestart.conf /etc/needrestart/conf.d/
-sudo systemctl daemon-reload
-sudo systemctl enable --now vllm-runner.service vllm-restrict.service
+# One-shot bootstrap: installs Docker, Python/pipx, vLLM, clones the repo,
+# generates .env, installs the systemd units and brings the stack up.
+curl -fsSL https://raw.githubusercontent.com/Sunderrrr/ai-platform/master/install.sh | sudo bash
 ```
 
-Puis se connecter au portail (`http://<hôte>:5000`), aller dans **Admin**, et lancer un modèle du catalogue.
+Or manually:
+
+```bash
+git clone https://github.com/Sunderrrr/ai-platform.git
+cd ai-platform
+sudo ./install.sh          # installs packages + systemd units, generates .env
+#   → then fill the remaining secrets in .env (LDAP/OIDC/SMTP/Discord)
+docker compose up -d       # portal + gateway + database
+```
+
+Then open the portal (`http://<host>:5000`, or your HTTPS domain behind Traefik),
+go to **Admin**, and launch a model from the catalog.
 
 ---
 
 ## Configuration (`.env`)
 
-Le `docker-compose.yml` injecte ces variables dans `dgx-portal`. Secrets générés par `setup.sh` ; le reste est à remplir. Voir `.env.example`.
+`docker-compose.yml` injects these into `dgx-portal` / `litellm`. `install.sh`
+(via `setup.sh`) generates the random secrets; fill in the rest. See `.env.example`.
 
-| Variable | Rôle |
+| Variable | Purpose |
 |---|---|
-| `SECRET_KEY` (`WEBUI_SECRET_KEY`) | Clé de signature des sessions Flask |
-| `LITELLM_MASTER_KEY` | Clé maître LiteLLM (admin de la gateway) |
-| `POSTGRES_PASSWORD` | Mot de passe de la base LiteLLM |
-| `LLDAP_ADMIN_PASSWORD` | Bind LDAP (lookup users/groupes) |
-| `RUNNER_TOKEN` | Bearer token entre `dgx-portal` et `vllm-runner` |
-| `PUBLIC_API_URL` | URL publique affichée aux utilisateurs (défaut `https://api.cronos.website/v1`) |
-| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | App OIDC Authentik `dgx-spark` |
-| `OIDC_METADATA_URL` / `OIDC_REDIRECT_URI` / `OIDC_LOGOUT_URL` | Endpoints OIDC |
-| `OIDC_ADMIN_GROUP` | Groupe donnant le rôle admin (défaut `adm_cronos`) |
-| `SESSION_COOKIE_SECURE` | `1` derrière un proxy HTTPS (Traefik), `0` en HTTP LAN |
-| `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Budget par défaut des nouvelles clés |
-| `DISCORD_WEBHOOK_URL`, `SMTP_*`, `ADMIN_EMAIL` | Notifications des demandes |
+| `WEBUI_SECRET_KEY` | Flask session signing key |
+| `LITELLM_MASTER_KEY` | LiteLLM master key (gateway admin) |
+| `POSTGRES_PASSWORD` | LiteLLM database password |
+| `LLDAP_ADMIN_PASSWORD` | LDAP bind (user/group lookup, notification emails) |
+| `RUNNER_TOKEN` | Bearer token between `dgx-portal` and `vllm-runner` |
+| `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.cronos.website/v1`) |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Authentik `dgx-spark` OIDC app |
+| `OIDC_METADATA_URL` / `OIDC_REDIRECT_URI` / `OIDC_LOGOUT_URL` | OIDC endpoints |
+| `OIDC_ADMIN_GROUP` | Group granting the admin role (default `adm_cronos`) |
+| `SESSION_COOKIE_SECURE` | `1` behind an HTTPS proxy (Traefik), `0` for plain-HTTP LAN |
+| `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Default per-account budget |
+| `DISCORD_WEBHOOK_URL`, `SMTP_*`, `ADMIN_EMAIL` | Request notifications |
 
-> `.env` est **gitignored** : aucun secret n'est commité. `.env.example` ne contient que des placeholders.
-
----
-
-## Authentification
-
-Deux méthodes, gérées par `dgx-portal` :
-
-- **SSO OIDC (Authentik)** — méthode principale. Bouton « Se connecter avec le SSO Cronos ». Flux : `/login/sso` → Authentik → `/api/oauth2-redirect`. Le rôle admin vient du claim `groups` (`adm_cronos`), avec repli sur un lookup LDAP par identifiant si le claim est absent.
-- **LDAP (LLDAP)** — repli par identifiant/mot de passe. Bind direct, échappement anti-injection, rejet des mots de passe vides.
-
-Durcissement des sessions : cookie `HttpOnly` + `SameSite=Lax` (compatible retour OIDC, protège du CSRF sur les POST) + `Secure` derrière TLS. `ProxyFix` fait confiance aux en-têtes `X-Forwarded-*` de Traefik.
+> `.env` is **gitignored** — no secret is committed. `.env.example` holds only placeholders.
 
 ---
 
-## Modèle de tokens & tarification
+## Authentication
 
-Le « budget » d'une clé est exprimé en **tokens générés**. Réglé dans `litellm/config.yaml` :
+Two methods, handled by `dgx-portal`:
 
-- `output_cost_per_token: 1` → 1 token généré = 1 unité de budget ;
-- `input_cost_per_token: 0.1` → les tokens du prompt comptent **10× moins**.
+- **OIDC SSO (Authentik)** — primary. "Sign in with Cronos SSO". Flow:
+  `/login/sso` → Authentik → `/api/oauth2-redirect`. Admin comes from the `groups`
+  claim (`adm_cronos`), falling back to an LDAP lookup by username if absent.
+- **LDAP (LLDAP)** — username/password fallback: direct bind, injection-escaped,
+  empty-password binds rejected, with in-memory brute-force lockout (6 fails / 15 min).
 
-Budget par défaut : **2 000 000 tokens / jour** par clé (modifiable dans **Admin → Limite de tokens**, sans redémarrage). Dépassement → HTTP `429 budget_exceeded`. Les métadonnées de fenêtre de contexte (`max_input_tokens` / `max_output_tokens`) sont déclarées dans `model_info` pour que les clients (OpenChamber, etc.) les affichent.
+Session hardening: `HttpOnly` + `SameSite=Lax` cookies + `Secure` behind TLS.
+`ProxyFix` trusts Traefik's `X-Forwarded-*` headers.
 
 ---
 
-## Utiliser l'API
+## Token budget model
 
-Endpoint (compatible OpenAI) : **`https://api.cronos.website/v1`**. Chaque appel nécessite une clé émise depuis le portail (`Authorization: Bearer sk-…`).
+Budgets are enforced **per account** (a LiteLLM *user*), shared across all of that
+user's keys — creating extra keys does not raise the cap. Weighted in
+`litellm/config.yaml`:
+
+- `output_cost_per_token: 1` → 1 generated token = 1 budget unit;
+- `input_cost_per_token: 0.1` → prompt tokens count **10× less**.
+
+Default: **60,000,000 weighted tokens/day** per account (editable in
+**Admin → token limit**, no restart). Admins are uncapped. Over budget → HTTP
+`429 budget_exceeded`. The portal shows a banner once an account passes 85%.
+
+---
+
+## Using the API
+
+OpenAI-compatible endpoint: **`https://api.cronos.website/v1`**. Every call needs a
+key issued from the portal (`Authorization: Bearer sk-…`).
 
 ```bash
 curl https://api.cronos.website/v1/chat/completions \
-  -H "Authorization: Bearer sk-votre-cle" \
+  -H "Authorization: Bearer sk-your-key" \
   -H "Content-Type: application/json" \
-  -d '{"model":"ornith-35b-fp8","messages":[{"role":"user","content":"Bonjour !"}]}'
+  -d '{"model":"ornith-35b-fp8","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
-La page **Mes clés API** du portail génère des snippets prêts à coller pour OpenCode, Codex CLI, Aider, Continue.dev, Cursor, LangChain, le SDK Python, cURL et les variables d'env — avec la clé et l'endpoint pré-remplis.
+The **My API keys** page generates ready-to-paste snippets for OpenCode, Hermes
+Agent, Codex CLI, Aider, Continue.dev, Cursor, LangChain, the Python SDK, cURL and
+env vars — key and endpoint pre-filled.
 
-> Pour **OpenCode**, la config utilise un provider dédié `dgx-cronos` (et non `openai`) pour ne pas entrer en conflit avec un compte OpenAI officiel connecté via `/connect`.
-
----
-
-## Panneau d'administration
-
-Réservé aux membres du groupe `adm_cronos`. Permet de :
-
-- **lancer / arrêter** un modèle du catalogue, voir les **logs vLLM en direct** (SSE relayé par le portail) ;
-- **ajouter / supprimer** des modèles du catalogue (id Hugging Face + args vLLM) ;
-- régler la **limite de tokens par défaut** des nouvelles clés ;
-- traiter les **demandes de tokens** (approuver avec un montant → `POST /key/update` LiteLLM) et les **demandes de modèles** ;
-- suivre la **consommation par utilisateur** (rafraîchie toutes les 3 s) ;
-- voir le **graphe de consommation par heure** (aujourd'hui), empilé par utilisateur, avec le pic mis en évidence.
+> For **OpenCode**, the config uses a dedicated `dgx-cronos` provider (not `openai`)
+> so it won't clash with an official OpenAI account.
 
 ---
 
-## Classement (leaderboard)
+## Portal features
 
-Page **`/ranking`** visible par tous les utilisateurs connectés : classe les utilisateurs par **coût pondéré** consommé (input × 0,1 + output × 1), avec vue **Jour / Semaine / Mois**.
-
-Source des données : la base **Postgres de LiteLLM** (`LiteLLM_SpendLogs`, une ligne horodatée par requête). Le portail relie chaque clé à son utilisateur via les métadonnées LiteLLM (`metadata.user`), gère le fuseau (`TZ_DISPLAY`, défaut `Europe/Paris`) et exclut la clé maître. Palette de couleurs catégorielle validée pour le daltonisme, cohérente en clair et sombre.
-
-Chaque utilisateur voit aussi, sur sa **page d'accueil**, sa propre consommation du jour : 3 cartes (total 24 h, pic horaire, clés actives) et un **area chart horaire** (courbe lissée, dégradé ambre, tooltip au survol) rafraîchi en direct toutes les 20 s.
-
-> Nécessite `LITELLM_DATABASE_URL` (fournie par `docker-compose.yml`) pour que le portail lise les logs de consommation.
+- **My API keys** — create/revoke keys, see per-key spend and the shared account
+  budget, request more tokens; integration snippets per tool.
+- **Playground** — in-browser streaming chat with the active model; no client setup.
+- **Support (Cronos)** — an AI assistant that sees your keys (masked), budget, the
+  model catalog and server status, and can **act for you**: create a key, revoke one,
+  request budget, request a model (admins also get launch/stop). Actions are always
+  scoped server-side to the logged-in user; impactful ones require in-chat confirmation.
+- **Leaderboard** (`/ranking`) — ranks users by weighted spend (day/week/month),
+  colorblind-safe palette, from LiteLLM's Postgres spend logs.
+- **Home** — live server stats (CPU/RAM/GPU), active-model health (tok/s, queue,
+  TTFT, requests served), and your own hourly usage chart.
+- **Admin** (`adm_cronos` only) — launch/stop models, live vLLM logs, add/edit/remove
+  catalog models, set the default budget, approve token/model requests, per-user
+  consumption.
 
 ---
 
-## Exploitation
+## Operations
 
-### Lancer un modèle
+### Launch a model
 
-Via le portail (**Admin → Lancer**) ou directement l'API du runner :
+Via the portal (**Admin → Launch**) or the runner API directly:
 
 ```bash
 curl -H "Authorization: Bearer $RUNNER_TOKEN" -H "Content-Type: application/json" \
@@ -162,50 +181,66 @@ curl -H "Authorization: Bearer $RUNNER_TOKEN" -H "Content-Type: application/json
   http://127.0.0.1:8001/launch
 ```
 
-### Reprise automatique
+### Auto-resume
 
-Le runner persiste le dernier lancement réussi (`/var/lib/vllm-runner/last_model.json`) et le **relance tout seul** après un crash du process, un redémarrage du service ou un reboot. Un `/stop` volontaire efface cet état (pas de reprise). Plafonné à 3 tentatives consécutives pour éviter le crash-loop.
+The runner persists the last successful launch (`/var/lib/vllm-runner/last_model.json`)
+and **relaunches it** after a process crash, a service restart or a reboot. A manual
+`/stop` clears that state (no resume). Capped at 3 consecutive attempts.
 
-### Services systemd
+### systemd services
 
-| Unité | Rôle |
+| Unit | Role |
 |---|---|
-| `vllm-runner.service` | Le daemon runner (utilisateur non-root `vllmrunner`) |
-| `vllm-restrict.service` | Règles iptables : ports **8000** et **8001** restreints à `localhost` + bridge Docker |
-| `99-vllm-runner-needrestart.conf` | Empêche `needrestart` de tuer le modèle lors des mises à jour système |
+| `vllm-runner.service` | The runner daemon (non-root `vllmrunner` user) |
+| `vllm-restrict.service` | iptables: host ports **8000**/**8001** limited to localhost + Docker bridge |
+| `cronos-docker-restrict.service` | DOCKER-USER rules: **4001** to LAN+VPN, **5000** to Traefik only |
 
 ---
 
-## Sécurité
+## Security
 
-- **API LiteLLM (4001)** : aucune requête sans clé valide (`401`), budgets appliqués (`429`). C'est la seule surface destinée à être publique.
-- **vLLM (8000) et runner (8001)** : pare-feutés à `localhost` + bridge Docker (`DROP` ailleurs). Le runner exige en plus un **Bearer token** et **whiteliste** les `vllm_args` (bloque `--trust-remote-code` et l'écrasement des flags critiques). Il tourne en utilisateur **non-root**.
-- **hawser (2376)** : accès Docker root-équivalent, restreint à une seule IP de confiance.
-- **Portail** : auth LDAP/SSO, cookies durcis, en-têtes de sécurité (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`), intégrité SRI sur les assets CDN, protection anti-IDOR / open-redirect / injection LDAP.
+- **LiteLLM API (4001)**: no request without a valid key (`401`), budgets enforced
+  (`429`). Restricted by firewall to the LAN + VPN; the intended public surface is
+  via Traefik.
+- **vLLM (8000) and runner (8001)**: firewalled to localhost + Docker bridge. The
+  runner also requires a **Bearer token** and **allowlists** `vllm_args` (blocks
+  `--trust-remote-code` and overriding critical flags), and runs **non-root**.
+- **Portal**: LDAP/SSO auth, hardened cookies, security headers, SRI on CDN assets,
+  non-root container with dropped capabilities, IDOR / open-redirect / LDAP-injection
+  guards, login brute-force lockout.
+- **Published ports** are filtered in `DOCKER-USER`: `4001` (API) reachable from the
+  LAN and the Netbird VPN, `5000` (portal) from Traefik only (HTTPS).
 
-### Exposer l'API sur Internet
+### Exposing the API publicly
 
-Chemin : `api.cronos.website` (**Cloudflare, proxy activé**) → **Traefik** → `http://dgx.cronos.lan:4001` (LiteLLM, HTTP interne — TLS terminé au proxy). Ne router **que** vers `4001`, jamais `8000`/`8001`/`2376`.
-
-Avant d'ouvrir au public, il reste recommandé d'ajouter un **rate-limit par clé** (rpm/tpm) côté LiteLLM et une règle de rate-limiting Cloudflare — le budget plafonne les tokens/jour mais pas le débit sur un GPU unique.
+Path: `api.cronos.website` (**Cloudflare, proxied**) → **Traefik** →
+`http://dgx.cronos.lan:4001` (LiteLLM, internal HTTP — TLS terminated at the proxy).
+Only route to `4001`, never `8000`/`8001`. Consider a per-key rate limit (rpm/tpm) in
+LiteLLM and a Cloudflare rate rule before opening to the internet — budgets cap
+tokens/day, not request rate on a single GPU.
 
 ---
 
-## Structure du dépôt
+## Repository layout
 
 ```
 .
+├── install.sh                # one-shot host bootstrap (packages + systemd + .env)
+├── setup.sh                  # generates .env with random secrets
 ├── docker-compose.yml        # postgres + litellm + dgx-portal
-├── setup.sh                  # génère .env avec des secrets aléatoires
-├── .env.example              # placeholders (aucun secret réel)
+├── .env.example              # placeholders (no real secrets)
 ├── litellm/
-│   └── config.yaml           # modèles, tarification tokens, model_info
-├── dgx-portal/               # portail Flask
-│   ├── app.py                # routes, auth LDAP+OIDC, budgets, admin
+│   └── config.yaml           # models, token pricing, model_info
+├── dgx-portal/               # Flask portal
+│   ├── app.py                # routes, LDAP+OIDC auth, budgets, support, admin
 │   ├── requirements.txt
-│   ├── Dockerfile
-│   └── templates/            # UI bi-thème (clair/sombre)
+│   ├── Dockerfile            # non-root image
+│   └── templates/            # bi-theme UI (light/dark)
 ├── vllm-runner/
-│   └── runner.py             # daemon start/stop/logs + reprise auto
-└── systemd/                  # unités hôte (runner, pare-feu, needrestart)
+│   └── runner.py             # start/stop/logs daemon + auto-resume
+└── systemd/                  # host units (runner, firewalls)
 ```
+
+## License
+
+MIT.

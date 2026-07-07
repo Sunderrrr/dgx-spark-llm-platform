@@ -16,6 +16,8 @@ It provides:
 - a **runner** that launches/stops one vLLM model on the GPU on demand and
   auto-resumes it after a crash or reboot.
 
+![Cronos portal — home dashboard](assets/dashboard.png)
+
 ---
 
 ## Architecture

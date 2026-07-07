@@ -104,6 +104,7 @@
   <details class="ldap">
     <summary><span class="btn-alt"><i class="bi bi-person"></i> Connexion par identifiant</span></summary>
     <form method="POST" class="mt-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
         <label class="form-label">Identifiant LLDAP</label>
         <input type="text" name="username" class="form-control" required autocomplete="username">
@@ -117,6 +118,7 @@
   </details>
   {% else %}
   <form method="POST" class="mt-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="mb-3">
       <label class="form-label">Identifiant LLDAP</label>
       <input type="text" name="username" class="form-control" autofocus required autocomplete="username">

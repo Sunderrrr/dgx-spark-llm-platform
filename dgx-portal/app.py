@@ -324,20 +324,6 @@ def get_user_keys(username):
         result.append(info)
     return result
 
-# Rate-limit au niveau COMPTE (rpm/tpm), partagé par toutes les clés d'un user —
-# pas au niveau clé. 0 = illimité. Le budget plafonne les tokens/jour ; le rpm est
-# l'anti-flood sur le GPU unique. À ajuster si des agents (OpenCode…) sont bridés.
-USER_RPM_LIMIT = int(os.environ.get('USER_RPM_LIMIT', '300') or 0)
-USER_TPM_LIMIT = int(os.environ.get('USER_TPM_LIMIT', '0') or 0)
-
-def _user_rate_limits():
-    rl = {}
-    if USER_RPM_LIMIT > 0:
-        rl['rpm_limit'] = USER_RPM_LIMIT
-    if USER_TPM_LIMIT > 0:
-        rl['tpm_limit'] = USER_TPM_LIMIT
-    return rl
-
 def _ensure_litellm_user(username, max_budget, budget_duration):
     """Crée/maj l'utilisateur LiteLLM avec un budget de COMPTE, partagé par toutes
     ses clés (user_id). Ne réécrase pas le budget si l'utilisateur existe déjà —
@@ -350,7 +336,6 @@ def _ensure_litellm_user(username, max_budget, budget_duration):
             return True
         body["max_budget"] = float(max_budget)
         body["budget_duration"] = budget_duration
-        body.update(_user_rate_limits())   # rpm/tpm au niveau compte
         r = requests.post(f"{LITELLM_URL}/user/new", headers=litellm_headers(),
                           json=body, timeout=8)
         return r.status_code < 300

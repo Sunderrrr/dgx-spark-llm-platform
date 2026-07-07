@@ -277,14 +277,23 @@ def ldap_authenticate(username, password):
 def litellm_headers():
     return {'Authorization': f'Bearer {LITELLM_KEY}', 'Content-Type': 'application/json'}
 
+_rm_cache = {'t': 0.0, 'v': []}
+
 def get_running_models():
+    """Modèle(s) servi(s) par vLLM. Mis en cache ~5 s pour éviter de marteler
+    /v1/models à chaque rendu de page et à chaque poll (logs vLLM lisibles)."""
+    now = time.time()
+    if now - _rm_cache['t'] < 5:
+        return _rm_cache['v']
+    v = []
     try:
         r = requests.get(f"{VLLM_API}/models", timeout=3)
         if r.ok:
-            return [m['id'] for m in r.json().get('data', [])]
+            v = [m['id'] for m in r.json().get('data', [])]
     except Exception:
         pass
-    return []
+    _rm_cache.update(t=now, v=v)
+    return v
 
 def get_user_keys(username):
     try:
@@ -476,8 +485,19 @@ def _prom_sum(text, metric):
                 pass
     return tot if found else None
 
+_vllm_health_cache = {'t': 0.0, 'v': None}
+
 def vllm_health():
-    """Santé du modèle actif (débit tok/s, requêtes en cours/file, TTFT moyen)."""
+    """Santé du modèle actif (débit tok/s, requêtes en cours/file, TTFT moyen).
+    Mis en cache ~4 s → un seul scrape /metrics même avec plusieurs polls."""
+    now = time.time()
+    if _vllm_health_cache['v'] is not None and now - _vllm_health_cache['t'] < 4:
+        return _vllm_health_cache['v']
+    out = _vllm_health_uncached()
+    _vllm_health_cache.update(t=now, v=out)
+    return out
+
+def _vllm_health_uncached():
     running = get_running_models()
     if not running:
         return {'up': False, 'model': None}

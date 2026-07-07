@@ -108,7 +108,9 @@ async function send(text){
   addTyping();
   try {
     const r = await fetch('/support/chat', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST',
+      headers:{'Content-Type':'application/json',
+               'X-CSRFToken': (document.querySelector('meta[name="csrf-token"]')||{}).content || ''},
       body: JSON.stringify({messages: history})
     });
     const data = await r.json();

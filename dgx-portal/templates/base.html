@@ -4,6 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Cronos{% endblock %}</title>
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <script>
+    // Injecte le jeton CSRF dans chaque formulaire POST (défense en profondeur).
+    document.addEventListener('DOMContentLoaded', function () {
+      var tok = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+      document.querySelectorAll('form').forEach(function (f) {
+        if ((f.method || '').toLowerCase() === 'post' && !f.querySelector('input[name="csrf_token"]')) {
+          var i = document.createElement('input');
+          i.type = 'hidden'; i.name = 'csrf_token'; i.value = tok;
+          f.appendChild(i);
+        }
+      });
+    });
+  </script>
   <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzgzYzAwMCIvPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDYgNi41KSBzY2FsZSgxLjI1KSIgZmlsbD0iIzBjMTUwMCI+PHBhdGggZD0iTTQgOGExLjUgMS41IDAgMSAxIDMgMCAxLjUgMS41IDAgMCAxLTMgMG03LjUtMS41YTEuNSAxLjUgMCAxIDAgMCAzIDEuNSAxLjUgMCAwIDAgMC0zIi8+PHBhdGggZD0iTTAgMS41QS41LjUgMCAwIDEgLjUgMWgxYS41LjUgMCAwIDEgLjUuNVY0aDEzLjVhLjUuNSAwIDAgMSAuNS41djdhLjUuNSAwIDAgMS0uNS41SDJ2Mi41YS41LjUgMCAwIDEtMSAwVjJILjVhLjUuNSAwIDAgMS0uNS0uNW01LjUgNGEyLjUgMi41IDAgMSAwIDAgNSAyLjUgMi41IDAgMCAwIDAtNU05IDhhMi41IDIuNSAwIDEgMCA1IDAgMi41IDIuNSAwIDAgMC01IDAiLz48cGF0aCBkPSJNMyAxMi41aDMuNXYxYS41LjUgMCAwIDEtLjUuNUgzLjVhLjUuNSAwIDAgMS0uNS0uNXptNCAxdi0xaDR2MWEuNS41IDAgMCAxLS41LjVoLTNhLjUuNSAwIDAgMS0uNS0uNSIvPjwvZz48L3N2Zz4=">
   <!-- Applique le thème avant le premier rendu (pas de flash) -->
   <script>

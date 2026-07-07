@@ -1,5 +1,5 @@
-import os, sqlite3, smtplib, requests, time, re, threading, json
-from flask import Flask, render_template, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context
+import os, sqlite3, smtplib, requests, time, re, threading, json, secrets, hmac
+from flask import Flask, render_template, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
@@ -66,6 +66,25 @@ def _security_headers(resp):
     resp.headers.setdefault('X-Frame-Options', 'DENY')
     resp.headers.setdefault('Referrer-Policy', 'same-origin')
     return resp
+
+
+# ── Protection CSRF (jeton par session) ──────────────────────────────────────
+# Chaque session porte un jeton ; toute requête non sûre (POST/PUT/PATCH/DELETE)
+# doit le renvoyer via le champ caché `csrf_token` (formulaires) ou l'en-tête
+# X-CSRFToken (appels fetch/JSON). Défense en profondeur en plus de SameSite=Lax.
+@app.before_request
+def _csrf_protect():
+    if 'csrf' not in session:
+        session['csrf'] = secrets.token_urlsafe(32)
+    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        sent = request.form.get('csrf_token') or request.headers.get('X-CSRFToken', '')
+        if not hmac.compare_digest(str(session['csrf']), str(sent)):
+            abort(400, description='CSRF token manquant ou invalide.')
+
+
+@app.context_processor
+def _inject_csrf():
+    return {'csrf_token': lambda: session.get('csrf', '')}
 
 LDAP_URI      = os.environ.get('LDAP_URI', 'ldap://lldap.cronos.lan:3890')
 LDAP_BASE     = os.environ.get('LDAP_BASE', 'dc=cronos,dc=website')
@@ -305,6 +324,20 @@ def get_user_keys(username):
         result.append(info)
     return result
 
+# Rate-limit au niveau COMPTE (rpm/tpm), partagé par toutes les clés d'un user —
+# pas au niveau clé. 0 = illimité. Le budget plafonne les tokens/jour ; le rpm est
+# l'anti-flood sur le GPU unique. À ajuster si des agents (OpenCode…) sont bridés.
+USER_RPM_LIMIT = int(os.environ.get('USER_RPM_LIMIT', '300') or 0)
+USER_TPM_LIMIT = int(os.environ.get('USER_TPM_LIMIT', '0') or 0)
+
+def _user_rate_limits():
+    rl = {}
+    if USER_RPM_LIMIT > 0:
+        rl['rpm_limit'] = USER_RPM_LIMIT
+    if USER_TPM_LIMIT > 0:
+        rl['tpm_limit'] = USER_TPM_LIMIT
+    return rl
+
 def _ensure_litellm_user(username, max_budget, budget_duration):
     """Crée/maj l'utilisateur LiteLLM avec un budget de COMPTE, partagé par toutes
     ses clés (user_id). Ne réécrase pas le budget si l'utilisateur existe déjà —
@@ -317,6 +350,7 @@ def _ensure_litellm_user(username, max_budget, budget_duration):
             return True
         body["max_budget"] = float(max_budget)
         body["budget_duration"] = budget_duration
+        body.update(_user_rate_limits())   # rpm/tpm au niveau compte
         r = requests.post(f"{LITELLM_URL}/user/new", headers=litellm_headers(),
                           json=body, timeout=8)
         return r.status_code < 300
@@ -667,11 +701,14 @@ def login():
 
 def _safe_next(target):
     """N'autorise que les redirections vers un chemin local relatif — bloque
-    l'open redirect (?next=https://evil.com ou //evil.com)."""
-    if not target:
+    l'open redirect (?next=https://evil.com, //evil.com, ou /\\evil.com que les
+    navigateurs normalisent en //evil.com)."""
+    if not target or '\\' in target or '\t' in target or '\n' in target:
         return url_for('index')
     parsed = urlparse(target)
-    if parsed.scheme or parsed.netloc or not target.startswith('/') or target.startswith('//'):
+    # target[:2] in ('//','/\\') : bloque protocole-relatif et backslash après /
+    if (parsed.scheme or parsed.netloc or not target.startswith('/')
+            or target[:2] in ('//', '/\\')):
         return url_for('index')
     return target
 

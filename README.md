@@ -94,6 +94,7 @@ go to **Admin**, and launch a model from the catalog.
 | `OIDC_ADMIN_GROUP` | Group granting the admin role (default `adm_cronos`) |
 | `SESSION_COOKIE_SECURE` | `1` behind an HTTPS proxy (Traefik), `0` for plain-HTTP LAN |
 | `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Default per-account budget |
+| `PORTAL_LANG` | UI language: `en` (default) or `fr` |
 | `DISCORD_WEBHOOK_URL`, `SMTP_*`, `ADMIN_EMAIL` | Request notifications |
 
 > `.env` is **gitignored** — no secret is committed. `.env.example` holds only placeholders.

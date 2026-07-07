@@ -10,7 +10,7 @@
 #
 set -euo pipefail
 
-REPO_URL="${CRONOS_REPO:-https://github.com/Sunderrrr/ai-platform.git}"
+REPO_URL="${CRONOS_REPO:-https://github.com/Sunderrrr/dgx-spark-llm-platform.git}"
 DEFAULT_DIR="/root/ai-platform"        # systemd units reference this path
 RUNNER_USER="vllmrunner"
 RUNNER_HOME="/var/lib/vllm-runner"

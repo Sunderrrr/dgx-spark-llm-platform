@@ -56,14 +56,14 @@ internet for pulling images and model weights.
 ```bash
 # One-shot bootstrap: installs Docker, Python/pipx, vLLM, clones the repo,
 # generates .env, installs the systemd units and brings the stack up.
-curl -fsSL https://raw.githubusercontent.com/Sunderrrr/ai-platform/master/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Sunderrrr/dgx-spark-llm-platform/master/install.sh | sudo bash
 ```
 
 Or manually:
 
 ```bash
-git clone https://github.com/Sunderrrr/ai-platform.git
-cd ai-platform
+git clone https://github.com/Sunderrrr/dgx-spark-llm-platform.git
+cd dgx-spark-llm-platform
 sudo ./install.sh          # installs packages + systemd units, generates .env
 #   → then fill the remaining secrets in .env (LDAP/OIDC/SMTP/Discord)
 docker compose up -d       # portal + gateway + database

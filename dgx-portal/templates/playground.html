@@ -9,13 +9,15 @@
         <p class="page-head-sub">Teste le modèle dans le navigateur, règle les paramètres, réponses en direct.
           <span class="text-secondary">— consomme ton budget de compte.</span></p>
       </div>
-      <div class="d-flex align-items-center gap-2">
+      <div class="d-flex align-items-center gap-2 position-relative">
         <select class="form-select form-select-sm bg-dark text-white border-secondary" id="pg-model" style="width:auto">
           {% if running_models %}{% for m in running_models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
           {% else %}<option value="">aucun modèle actif</option>{% endif %}
         </select>
+        <button class="btn btn-outline-secondary btn-sm" id="pg-history-btn" type="button" title="Historique (10 dernières)"><i class="bi bi-clock-history"></i></button>
         <button class="btn btn-outline-secondary btn-sm" id="pg-settings-btn" type="button" title="Réglages"><i class="bi bi-sliders"></i></button>
         <button class="btn btn-outline-secondary btn-sm" id="pg-clear" type="button" title="Nouvelle conversation"><i class="bi bi-arrow-counterclockwise"></i></button>
+        <div id="pg-history" class="pg-history d-none"></div>
       </div>
     </div>
 
@@ -46,6 +48,19 @@
 
     <div class="card">
       <div class="card-body p-0 d-flex flex-column" style="height:min(68vh,660px)">
+        <div class="pg-topbar">
+          <div class="pg-ctx" id="pg-ctx" title="Utilisation de la fenêtre de contexte">
+            <svg viewBox="0 0 36 36" class="pg-ring">
+              <circle class="pg-ring-bg" cx="18" cy="18" r="15.5"></circle>
+              <circle class="pg-ring-fg" id="pg-ring-fg" cx="18" cy="18" r="15.5"></circle>
+            </svg>
+            <span class="pg-ctx-pct" id="pg-ctx-pct">0%</span>
+          </div>
+          <div class="pg-ctx-lbl">
+            <div><span id="pg-ctx-txt" class="num text-white">0 / 0</span> <span class="text-secondary">tokens de contexte</span></div>
+            <div class="text-secondary" id="pg-ctx-note" style="font-size:.7rem">&nbsp;</div>
+          </div>
+        </div>
         <div id="pg-chat" class="flex-grow-1 p-3" style="overflow-y:auto"></div>
         <div class="border-top p-2">
           <div class="d-flex flex-wrap gap-1 mb-2" id="pg-presets">
@@ -96,6 +111,30 @@
   .pg-meta button:hover { color:var(--text); }
   .pg-cursor .bubble::after { content:'▋'; opacity:.5; animation:pgblink 1s steps(2) infinite; }
   @keyframes pgblink { 50% { opacity:0; } }
+
+  /* ── barre haut : anneau de contexte ── */
+  .pg-topbar { display:flex; align-items:center; gap:.6rem; padding:.5rem .9rem; border-bottom:1px solid var(--border); }
+  .pg-ctx { position:relative; width:40px; height:40px; flex-shrink:0; }
+  .pg-ring { width:40px; height:40px; transform:rotate(-90deg); }
+  .pg-ring circle { fill:none; stroke-width:3.4; }
+  .pg-ring-bg { stroke:var(--surface-hover); }
+  .pg-ring-fg { stroke:var(--accent); stroke-linecap:round; transition:stroke-dashoffset .35s ease, stroke .35s; }
+  .pg-ring-fg.warn { stroke:var(--warn); } .pg-ring-fg.crit { stroke:var(--danger); }
+  .pg-ctx-pct { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:.62rem; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text); }
+  .pg-ctx-lbl { line-height:1.25; font-size:.8rem; }
+
+  /* ── menu historique ── */
+  .pg-history { position:absolute; top:110%; right:0; z-index:20; width:300px; max-height:340px; overflow-y:auto;
+    background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow); padding:.35rem; }
+  .pg-hi { display:flex; align-items:center; gap:.5rem; padding:.45rem .55rem; border-radius:7px; cursor:pointer; }
+  .pg-hi:hover { background:var(--surface-hover); }
+  .pg-hi-main { min-width:0; flex:1; }
+  .pg-hi-title { font-size:.82rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pg-hi-sub { font-size:.68rem; color:var(--text-muted); }
+  .pg-hi-del { border:none; background:none; color:var(--text-muted); cursor:pointer; padding:.1rem .3rem; }
+  .pg-hi-del:hover { color:var(--danger); }
+  .pg-history-empty { text-align:center; color:var(--text-muted); font-size:.8rem; padding:1rem; }
 </style>
 
 <script>
@@ -120,6 +159,77 @@ document.getElementById('pg-settings-btn').addEventListener('click',()=>document
   const rr=document.getElementById(r), vv=document.getElementById(v);
   rr.addEventListener('input',()=>vv.textContent=d?parseFloat(rr.value).toFixed(d):rr.value);
 });
+
+// ── Anneau de contexte ──
+const MODEL_LIMITS = {{ model_limits|tojson }};
+let ctxUsed = 0;                         // tokens connus (dernier usage renvoyé)
+const CIRC = 2 * Math.PI * 15.5;
+document.getElementById('pg-ring-fg').style.strokeDasharray = CIRC;
+function ctxMax(){ return MODEL_LIMITS[modelSel.value] || 32768; }
+function estCurrent(){                    // estimation ~ chars/4
+  let c = S.sys().length + input.value.length;
+  for(const m of history) c += (m.content||'').length;
+  return Math.round(c/4);
+}
+function fmtK(n){ return n>=1000 ? (n/1000).toFixed(n>=100000?0:1).replace(/\.0$/,'')+'k' : ''+n; }
+function updateCtx(){
+  const max=ctxMax(), used=Math.max(ctxUsed, estCurrent()), pct=Math.min(used/max*100,100);
+  const fg=document.getElementById('pg-ring-fg');
+  fg.style.strokeDashoffset = CIRC*(1-pct/100);
+  fg.className = 'pg-ring-fg'+(pct>=95?' crit':(pct>=80?' warn':''));
+  document.getElementById('pg-ctx-pct').textContent = Math.round(pct)+'%';
+  document.getElementById('pg-ctx-txt').textContent = fmtK(used)+' / '+fmtK(max);
+  const note=document.getElementById('pg-ctx-note');
+  note.textContent = pct>=100 ? '⚠ contexte plein — démarre une nouvelle conversation'
+                   : pct>=80 ? 'contexte presque plein' : ' ';
+  note.style.color = pct>=95?'var(--danger)':(pct>=80?'var(--warn)':'');
+}
+
+// ── Historique des conversations (localStorage, max 10) ──
+const HKEY='pg_convs';
+function loadConvs(){ try{ return JSON.parse(localStorage.getItem(HKEY)||'[]'); }catch(e){ return []; } }
+function saveConvs(a){ try{ localStorage.setItem(HKEY, JSON.stringify(a.slice(0,10))); }catch(e){} }
+function snapshot(){
+  if(!history.length) return;
+  const convs=loadConvs();
+  const item={ id:Date.now(), title:((history.find(m=>m.role==='user')||{}).content||'Conversation').slice(0,80),
+               ts:Date.now(), model:modelSel.value, messages:history.slice() };
+  if(convs.length && JSON.stringify(convs[0].messages)===JSON.stringify(item.messages)) return;
+  convs.unshift(item); saveConvs(convs);
+}
+function relTime(ts){ const s=(Date.now()-ts)/1000;
+  if(s<60)return "à l'instant"; if(s<3600)return Math.floor(s/60)+' min'; if(s<86400)return Math.floor(s/3600)+' h'; return Math.floor(s/86400)+' j'; }
+function renderHistory(){
+  const box=document.getElementById('pg-history'), convs=loadConvs();
+  if(!convs.length){ box.innerHTML='<div class="pg-history-empty">Aucune conversation enregistrée</div>'; return; }
+  box.innerHTML='';
+  convs.forEach(cv=>{
+    const row=document.createElement('div'); row.className='pg-hi';
+    row.innerHTML='<div class="pg-hi-main"><div class="pg-hi-title"></div><div class="pg-hi-sub">'+(cv.model||'')+' · '+relTime(cv.ts)+'</div></div><button class="pg-hi-del" title="Supprimer"><i class="bi bi-x-lg"></i></button>';
+    row.querySelector('.pg-hi-title').textContent=cv.title;
+    row.querySelector('.pg-hi-main').addEventListener('click',()=>loadConv(cv));
+    row.querySelector('.pg-hi-del').addEventListener('click',e=>{ e.stopPropagation(); saveConvs(loadConvs().filter(x=>x.id!==cv.id)); renderHistory(); });
+    box.appendChild(row);
+  });
+}
+function loadConv(cv){
+  snapshot();
+  history.length=0; chat.innerHTML='';
+  if(cv.model && [...modelSel.options].some(o=>o.value===cv.model)) modelSel.value=cv.model;
+  for(const m of cv.messages){ const o=bubble(m.role);
+    if(m.role==='user') o.b.textContent=m.content; else o.b.innerHTML=md(m.content);
+    history.push({role:m.role, content:m.content}); }
+  ctxUsed=0; updateCtx(); regenBtn.classList.remove('d-none');
+  document.getElementById('pg-history').classList.add('d-none');
+}
+document.getElementById('pg-history-btn').addEventListener('click',()=>{
+  const box=document.getElementById('pg-history');
+  if(box.classList.contains('d-none')) renderHistory();
+  box.classList.toggle('d-none');
+});
+document.addEventListener('click',e=>{ if(!e.target.closest('#pg-history')&&!e.target.closest('#pg-history-btn')) document.getElementById('pg-history').classList.add('d-none'); });
+window.addEventListener('beforeunload', snapshot);
+modelSel.addEventListener('change', updateCtx);
 
 // ── markdown ──
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -184,6 +294,8 @@ async function stream(){
   if(acc){ o.b.innerHTML=md(acc); history.push({role:'assistant',content:acc});
     meta(o.b, acc, usage, t0, tf, performance.now()); regenBtn.classList.remove('d-none'); }
   else o.w.remove();
+  if(usage && usage.total_tokens) ctxUsed = usage.total_tokens;   // contexte réel connu
+  updateCtx();
   toggle(false); controller=null; input.focus();
 }
 
@@ -219,10 +331,10 @@ regenBtn.addEventListener('click',()=>{ if(streaming)return;
   if(history.length && history[history.length-1].role==='assistant'){ history.pop();
     const msgs=chat.querySelectorAll('.pg-msg.assistant'); if(msgs.length)msgs[msgs.length-1].remove(); }
   if(history.length && history[history.length-1].role==='user') stream(); });
-document.getElementById('pg-clear').addEventListener('click',()=>{ history.length=0; chat.innerHTML=''; regenBtn.classList.add('d-none'); input.focus(); });
+document.getElementById('pg-clear').addEventListener('click',()=>{ snapshot(); history.length=0; chat.innerHTML=''; ctxUsed=0; updateCtx(); regenBtn.classList.add('d-none'); input.focus(); });
 document.querySelectorAll('#pg-presets [data-p]').forEach(b=>b.addEventListener('click',()=>{ input.value=b.dataset.p; input.focus(); autoGrow(); }));
-function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,160)+'px'; }
+function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,160)+'px'; updateCtx(); }
 input.addEventListener('input',autoGrow);
-input.focus();
+updateCtx(); input.focus();
 </script>
 {% endblock %}

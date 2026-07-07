@@ -93,6 +93,8 @@ services:
       OIDC_ADMIN_GROUP: adm_cronos
       # App servie en HTTPS derrière Traefik → cookie de session Secure
       SESSION_COOKIE_SECURE: "1"
+      # Langue de l'UI : "en" par défaut, "fr" pour le français (voir .env).
+      PORTAL_LANG: ${PORTAL_LANG:-en}
     volumes:
       - portal_data:/app/data
     extra_hosts:

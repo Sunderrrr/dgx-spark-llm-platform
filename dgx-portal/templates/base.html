@@ -337,6 +337,17 @@
                background:var(--accent-soft); color:var(--accent); font-size:1.05rem; }
     .ann-title { font-weight:600; font-size:.95rem; margin-bottom:.1rem; }
     .ann-text { color:var(--text-muted); font-size:.88rem; }
+    /* Annonce « changement de modèle » — mise en avant */
+    .ann-highlight { background:var(--accent-soft); border:1px solid var(--accent); border-radius:12px;
+                     padding:.85rem 1rem; margin:.35rem 0; }
+    .ann-highlight .ann-ico { background:var(--accent); color:var(--accent-fg); }
+    .ann-highlight .ann-title { color:var(--text); font-size:1rem; }
+    .ann-note { color:var(--text-muted); font-size:.82rem; margin:.15rem 0 .5rem; }
+    .ann-current { font-size:.9rem; color:var(--text); display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; }
+    .ann-model { font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-weight:700; font-size:1.02rem;
+                 color:var(--accent); background:var(--surface); border:1px solid var(--accent);
+                 border-radius:7px; padding:.12rem .55rem; word-break:break-all; }
+    .ann-sub { color:var(--text-faint); font-size:.8rem; margin-top:.4rem; }
   </style>
 </head>
 <body>
@@ -434,10 +445,11 @@
   // Carré « Nouveautés » : phrases FR (traduites en anglais par le post-traitement i18n).
   var ANN_I18N = {
     title_model_add:    "Nouveau modèle",
-    title_model_launch: "Modèle mis à jour",
+    title_model_launch: "Changement de modèle",
     body_model_add:     "Un nouveau modèle est disponible",
-    replaces:           "remplace",
-    now_active:         "est maintenant le modèle actif",
+    one_at_a_time:      "Le serveur ne peut faire tourner qu'un seul modèle à la fois.",
+    current_model:      "Modèle actif :",
+    replaced:           "Il remplace",
   };
   (function () {
     var el = document.getElementById('annModal');
@@ -447,12 +459,14 @@
     function icon(k){ return k==='model_launch'?'bi-arrow-repeat':(k==='site'?'bi-megaphone':'bi-box-seam'); }
     function render(items){
       return items.map(function(it){
-        var t, body;
+        var cls = 'ann-item', t, body;
         if (it.kind === 'model_launch') {
+          cls += ' ann-highlight';
           t = ANN_I18N.title_model_launch;
-          body = it.b
-            ? '« ' + esc(it.a) + ' » ' + ANN_I18N.replaces + ' « ' + esc(it.b) + ' ».'
-            : '« ' + esc(it.a) + ' » ' + ANN_I18N.now_active + '.';
+          body = '<div class="ann-note">' + ANN_I18N.one_at_a_time + '</div>'
+               + '<div class="ann-current">' + ANN_I18N.current_model
+               + ' <span class="ann-model">' + esc(it.a) + '</span></div>'
+               + (it.b ? '<div class="ann-sub">' + ANN_I18N.replaced + ' « ' + esc(it.b) + ' »</div>' : '');
         } else if (it.kind === 'site') {
           t = esc(it.a);
           body = esc(it.b);
@@ -460,9 +474,9 @@
           t = ANN_I18N.title_model_add;
           body = ANN_I18N.body_model_add + ' : « ' + esc(it.a) + ' ».';
         }
-        return '<div class="ann-item d-flex gap-3 align-items-start">'
+        return '<div class="' + cls + ' d-flex gap-3 align-items-start">'
           + '<span class="ann-ico"><i class="bi ' + icon(it.kind) + '"></i></span>'
-          + '<div><div class="ann-title">' + t + '</div>'
+          + '<div class="flex-grow-1"><div class="ann-title">' + t + '</div>'
           + '<div class="ann-text">' + body + '</div></div></div>';
       }).join('');
     }

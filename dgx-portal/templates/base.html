@@ -327,6 +327,16 @@
                  white-space:nowrap; z-index:5; transform:translate(-50%, -115%); }
     .usage-tip .t-h { color:var(--text-muted); font-size:.68rem; font-family:"SF Mono",ui-monospace,monospace; }
     .usage-tip .t-v { color:var(--chart); font-weight:700; font-size:.9rem; font-variant-numeric:tabular-nums; }
+
+    /* ── Modale « Nouveautés » ──────────────────────────────── */
+    .modal-content { background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); color:var(--text); }
+    .modal-header, .modal-footer { border-color:var(--border); }
+    .ann-item { padding:.7rem 0; border-bottom:1px solid var(--border); }
+    .ann-item:last-child { border-bottom:none; }
+    .ann-ico { width:34px; height:34px; flex:0 0 34px; border-radius:9px; display:grid; place-items:center;
+               background:var(--accent-soft); color:var(--accent); font-size:1.05rem; }
+    .ann-title { font-weight:600; font-size:.95rem; margin-bottom:.1rem; }
+    .ann-text { color:var(--text-muted); font-size:.88rem; }
   </style>
 </head>
 <body>
@@ -382,6 +392,24 @@
   {% block content %}{% endblock %}
 </div>
 
+<!-- Carré « Nouveautés » affiché à l'ouverture du site -->
+<div class="modal fade" id="annModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title d-flex align-items-center gap-2">
+          <i class="bi bi-stars" style="color:var(--accent)"></i> Nouveautés
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body" id="annBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-success btn-sm" data-bs-dismiss="modal">Compris</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
         integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 <script>
@@ -400,6 +428,56 @@
       localStorage.setItem('theme', next);
       sync();
     });
+  })();
+</script>
+<script>
+  // Carré « Nouveautés » : phrases FR (traduites en anglais par le post-traitement i18n).
+  var ANN_I18N = {
+    title_model_add:    "Nouveau modèle",
+    title_model_launch: "Modèle mis à jour",
+    body_model_add:     "Un nouveau modèle est disponible",
+    replaces:           "remplace",
+    now_active:         "est maintenant le modèle actif",
+  };
+  (function () {
+    var el = document.getElementById('annModal');
+    if (!el || !window.bootstrap) return;
+    var tok = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+    function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
+    function icon(k){ return k==='model_launch'?'bi-arrow-repeat':(k==='site'?'bi-megaphone':'bi-box-seam'); }
+    function render(items){
+      return items.map(function(it){
+        var t, body;
+        if (it.kind === 'model_launch') {
+          t = ANN_I18N.title_model_launch;
+          body = it.b
+            ? '« ' + esc(it.a) + ' » ' + ANN_I18N.replaces + ' « ' + esc(it.b) + ' ».'
+            : '« ' + esc(it.a) + ' » ' + ANN_I18N.now_active + '.';
+        } else if (it.kind === 'site') {
+          t = esc(it.a);
+          body = esc(it.b);
+        } else {
+          t = ANN_I18N.title_model_add;
+          body = ANN_I18N.body_model_add + ' : « ' + esc(it.a) + ' ».';
+        }
+        return '<div class="ann-item d-flex gap-3 align-items-start">'
+          + '<span class="ann-ico"><i class="bi ' + icon(it.kind) + '"></i></span>'
+          + '<div><div class="ann-title">' + t + '</div>'
+          + '<div class="ann-text">' + body + '</div></div></div>';
+      }).join('');
+    }
+    fetch('/api/announcements', {headers:{'Accept':'application/json'}})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if (!d || !d.items || !d.items.length) return;
+        document.getElementById('annBody').innerHTML = render(d.items);
+        new bootstrap.Modal(el).show();
+        el.addEventListener('hidden.bs.modal', function markSeen(){
+          el.removeEventListener('hidden.bs.modal', markSeen);
+          fetch('/api/announcements/seen', {method:'POST', headers:{'X-CSRFToken': tok}});
+        });
+      })
+      .catch(function(){});
   })();
 </script>
 {% block scripts %}{% endblock %}

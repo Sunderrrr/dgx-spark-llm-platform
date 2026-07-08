@@ -213,6 +213,17 @@ def init_db():
             created_at      TEXT NOT NULL,
             updated_at      TEXT
         );
+        CREATE TABLE IF NOT EXISTS announcements (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind       TEXT NOT NULL,
+            a          TEXT DEFAULT '',
+            b          TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS announcement_state (
+            username     TEXT PRIMARY KEY,
+            last_seen_id INTEGER NOT NULL DEFAULT 0
+        );
     ''')
     # Migration : api_keys de key_alias unique GLOBAL → unique par (username, alias)
     # (évite qu'un utilisateur écrase la ligne d'un autre via un alias identique).
@@ -321,6 +332,28 @@ def get_running_models():
         pass
     _rm_cache.update(t=now, v=v)
     return v
+
+def add_announcement(kind, a='', b=''):
+    """Publie une annonce (carré affiché à l'ouverture du site). kind ∈
+    {'site', 'model_add', 'model_launch'}. `a`/`b` sont des champs libres
+    (ex. nom du modèle / ancien modèle) rendus côté client."""
+    try:
+        db = get_db()
+        db.execute(
+            "INSERT INTO announcements (kind, a, b, created_at) VALUES (?,?,?,?)",
+            (kind, a or '', b or '', datetime.now().isoformat()))
+        db.commit()
+    except Exception:
+        pass
+
+def _announce_launch(new_name):
+    """Annonce le passage à un nouveau modèle actif (remplace l'ancien)."""
+    old = ''
+    for cur in get_running_models():
+        if cur != new_name:
+            old = cur
+            break
+    add_announcement('model_launch', new_name, old)
 
 def get_user_keys(username):
     try:
@@ -1271,6 +1304,8 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
             if not cfg:
                 return f"Modèle « {mname} » introuvable dans le catalogue."
             ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '')
+            if ok:
+                _announce_launch(cfg['name'])
             return f"Lancement de « {mname} » demandé (démarrage en cours)." if ok else "Runner injoignable."
 
         if name == 'stop_model':
@@ -1739,7 +1774,45 @@ def launch_model():
         flash("Modèle introuvable.", "danger")
         return redirect(url_for('admin'))
     ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '')
+    if ok:
+        _announce_launch(cfg['name'])
     flash(f"Lancement de {name} en cours…" if ok else "Runner vLLM inaccessible.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/api/announcements')
+@login_required
+def api_announcements():
+    db = get_db()
+    row = db.execute("SELECT last_seen_id FROM announcement_state WHERE username=?",
+                     (session['username'],)).fetchone()
+    seen = row['last_seen_id'] if row else 0
+    rows = db.execute(
+        "SELECT id, kind, a, b, created_at FROM announcements WHERE id > ? "
+        "ORDER BY id DESC LIMIT 6", (seen,)).fetchall()
+    return {'items': [dict(r) for r in rows]}
+
+@app.route('/api/announcements/seen', methods=['POST'])
+@login_required
+def api_announcements_seen():
+    db = get_db()
+    mx = db.execute("SELECT COALESCE(MAX(id), 0) AS m FROM announcements").fetchone()['m']
+    db.execute(
+        "INSERT INTO announcement_state (username, last_seen_id) VALUES (?, ?) "
+        "ON CONFLICT(username) DO UPDATE SET last_seen_id=excluded.last_seen_id",
+        (session['username'], mx))
+    db.commit()
+    return {'ok': True}
+
+@app.route('/admin/announce', methods=['POST'])
+@admin_required
+def admin_announce():
+    title = request.form.get('title', '').strip()[:120]
+    body  = request.form.get('body', '').strip()[:600]
+    if not title:
+        flash("Titre requis pour l'annonce.", "warning")
+        return redirect(url_for('admin'))
+    add_announcement('site', title, body)
+    flash("Annonce publiée — elle s'affichera à l'ouverture du site.", "success")
     return redirect(url_for('admin'))
 
 @app.route('/admin/model/stop', methods=['POST'])
@@ -1763,6 +1836,7 @@ def add_model_cfg():
         db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
                    (name, hf_id, args, datetime.now().isoformat()))
         db.commit()
+        add_announcement('model_add', name)
         ok = _register_litellm_model(name, args)
         flash(f"Modèle {name} ajouté et routé par LiteLLM." if ok
               else f"Modèle {name} ajouté (⚠ enregistrement LiteLLM échoué).", "success" if ok else "warning")
@@ -2006,6 +2080,7 @@ def update_request(req_id):
             if existed:
                 flash(f"Modèle déjà dans le catalogue sous « {name} ».{routed}", "info")
             else:
+                add_announcement('model_add', name)
                 flash(f"Modèle « {name} » ajouté au catalogue et routé par LiteLLM — vérifie ses args vLLM puis lance-le.{routed}", "success")
     db.commit()
     return redirect(url_for('admin'))

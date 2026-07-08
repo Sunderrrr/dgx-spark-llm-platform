@@ -12,7 +12,7 @@
   <div class="pg-main">
     <div class="page-head">
       <div class="d-flex align-items-center gap-2">
-        <button class="btn btn-outline-secondary btn-sm d-lg-none" id="pg-sidebar-toggle" type="button" title="Historique"><i class="bi bi-list"></i></button>
+        <button class="btn btn-outline-secondary btn-sm" id="pg-sidebar-toggle" type="button" title="Afficher / masquer l'historique"><i class="bi bi-layout-sidebar"></i></button>
         <div>
           <h1 class="page-head-title mb-0">Playground</h1>
           <p class="page-head-sub mb-0">Règle les paramètres, joins des fichiers, réponses en direct. <span class="text-secondary">— consomme ton budget.</span></p>
@@ -241,7 +241,14 @@ function loadConv(cv){ persist(); history.length=0; chat.innerHTML=''; currentId
   if(window.innerWidth<992) document.getElementById('pg-sidebar').classList.add('d-none'); }
 function newConv(){ persist(); history.length=0; chat.innerHTML=''; currentId=null; ctxUsed=0; updateCtx(); regenBtn.classList.add('d-none'); editBtn.classList.add('d-none'); renderSidebar(); input.focus(); }
 document.getElementById('pg-new').addEventListener('click', newConv);
-document.getElementById('pg-sidebar-toggle').addEventListener('click',()=>document.getElementById('pg-sidebar').classList.toggle('d-none'));
+// Sidebar repliable (état mémorisé). Par défaut masquée sur mobile.
+const _sidebar = document.getElementById('pg-sidebar');
+const _pref = localStorage.getItem('pg_sidebar_hidden');
+if (_pref === '1' || (_pref === null && window.innerWidth < 992)) _sidebar.classList.add('d-none');
+document.getElementById('pg-sidebar-toggle').addEventListener('click',()=>{
+  _sidebar.classList.toggle('d-none');
+  localStorage.setItem('pg_sidebar_hidden', _sidebar.classList.contains('d-none') ? '1' : '0');
+});
 
 // ── Fichiers texte ──
 document.getElementById('pg-attach').addEventListener('click',()=>document.getElementById('pg-file-input').click());

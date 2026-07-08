@@ -17,10 +17,12 @@
   <div class="col-12">
     <div class="section-label"><i class="bi bi-gpu-card"></i> Modèles vLLM</div>
 
-    <!-- Statut courant -->
+    <!-- Statut courant (rafraîchi en direct par JS, cf. bas de page) -->
     {% set st = v_status.status %}
     <div class="card mb-3">
-      <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-3">
+      <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-3"
+           id="runner-status"
+           data-status="{{ st }}" data-model="{{ v_status.model or '' }}" data-pid="{{ v_status.pid or '' }}">
         <div>
           {% if st == 'running' %}
             <span class="badge bg-success fs-6 me-2">● En ligne</span>
@@ -441,5 +443,43 @@ function refreshConsumption() {
 }
 
 setInterval(refreshConsumption, 8000);
+
+// ── Statut du modèle vLLM — rafraîchi en direct (plus besoin de recharger) ───
+(function () {
+  var box = document.getElementById('runner-status');
+  if (!box) return;
+  var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+  function esc(s){ var e=document.createElement('div'); e.textContent=s==null?'':s; return e.innerHTML; }
+  function badge(st, model, pid) {
+    if (st === 'running')
+      return '<span class="badge bg-success fs-6 me-2">● En ligne</span> <strong class="text-white">' + esc(model) + '</strong>'
+           + (pid ? ' <span class="text-secondary small ms-2">(PID ' + esc(pid) + ')</span>' : '');
+    if (st === 'starting')
+      return '<span class="badge bg-warning text-dark fs-6 me-2">⟳ Démarrage…</span> <strong class="text-white">' + esc(model) + '</strong>';
+    if (st === 'error')
+      return '<span class="badge bg-danger fs-6 me-2">✗ Erreur</span> <span class="text-secondary">Le processus s\'est arrêté anormalement</span>';
+    if (st === 'unreachable')
+      return '<span class="badge bg-secondary fs-6 me-2">? Runner</span> <span class="text-secondary small">vllm-runner inaccessible sur :8001</span>';
+    return '<span class="badge bg-secondary fs-6 me-2">○ Arrêté</span> <span class="text-secondary">Aucun modèle actif</span>';
+  }
+  function render(st, model, pid) {
+    var stopForm = (st === 'running' || st === 'starting')
+      ? '<form method="POST" action="/admin/model/stop" onsubmit="return confirm(\'Arrêter le modèle ?\')">'
+        + '<input type="hidden" name="csrf_token" value="' + esc(csrf) + '">'
+        + '<button class="btn btn-danger btn-sm"><i class="bi bi-stop-circle"></i> Arrêter</button></form>'
+      : '';
+    box.innerHTML = '<div>' + badge(st, model, pid) + '</div>' + stopForm;
+  }
+  function poll() {
+    fetch('/system/stats').then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+      if (!d || !d.runner) return;
+      var st = d.runner.status, model = d.runner.model || '', pid = d.runner.pid || '';
+      if (st === box.dataset.status && model === box.dataset.model && String(pid) === box.dataset.pid) return;
+      box.dataset.status = st; box.dataset.model = model; box.dataset.pid = String(pid);
+      render(st, model, pid);
+    }).catch(function(){});
+  }
+  setInterval(poll, 8000);
+})();
 </script>
 {% endblock %}

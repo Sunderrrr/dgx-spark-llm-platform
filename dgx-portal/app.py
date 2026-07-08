@@ -491,7 +491,14 @@ def runner_status():
     try:
         r = requests.get(f"{RUNNER_URL}/status", headers=_runner_headers(), timeout=3)
         if r.ok:
-            return r.json()
+            st = r.json()
+            # Le runner ne bascule en "running" que sur la ligne de log
+            # « Application startup complete », masquée par --uvicorn-log-level
+            # warning. On fiabilise l'état en vérifiant que vLLM sert réellement
+            # le modèle → plus de « Démarrage… » qui reste collé.
+            if st.get('status') == 'starting' and st.get('model') in get_running_models():
+                st['status'] = 'running'
+            return st
     except Exception:
         pass
     return {'status': 'unreachable', 'model': None, 'pid': None}
@@ -1733,6 +1740,9 @@ def usage_hourly():
 def system_stats():
     data = runner_metrics() or {}
     data['model'] = vllm_health()
+    data['running'] = get_running_models()
+    if session.get('is_admin'):
+        data['runner'] = runner_status()
     return jsonify(data)
 
 @app.route('/admin/consumption')

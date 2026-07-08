@@ -16,7 +16,9 @@
 
   <!-- Modèles actifs -->
   <div class="col-12">
-    <div class="section-label"><i class="bi bi-activity"></i> Modèles disponibles maintenant</div>
+    <div class="section-label"><i class="bi bi-activity"></i> Modèles disponibles maintenant
+      <span class="count"><span class="live-dot"></span> live</span></div>
+    <div id="models-live" data-api="{{ public_api_url }}">
     {% if running_models %}
     <div class="row g-3">
       {% for model in running_models %}
@@ -46,6 +48,7 @@
       </div>
     </div>
     {% endif %}
+    </div>
   </div>
 
   <!-- État du serveur (visible par tous) -->
@@ -338,8 +341,35 @@
     var fill = document.getElementById(id); if (fill) { fill.style.width = Math.max(0, Math.min(100, pct)) + '%'; fill.className = 'meter-fill ' + cls(pct); }
     var v = document.getElementById(id + '-val'); if (v && valText != null) v.innerHTML = valText;
   }
+  var mlEl = document.getElementById('models-live');
+  var mlApi = mlEl ? mlEl.getAttribute('data-api') : '';
+  var mlPrev = null;
+  function esc(s){ var e=document.createElement('div'); e.textContent=s==null?'':s; return e.innerHTML; }
+  function modelCard(name){
+    return '<div class="col-md-4 col-lg-3"><div class="card model-card h-100"><div class="card-body">'
+      + '<div class="d-flex align-items-start justify-content-between"><span class="badge bg-success mb-2">En ligne</span></div>'
+      + '<p class="card-text small text-white fw-semibold mb-1" style="word-break:break-all">' + esc(name) + '</p>'
+      + '<p class="text-secondary small mb-0">API : <code class="text-info">' + esc(mlApi) + '</code></p>'
+      + '</div><div class="card-footer border-0 bg-transparent pt-0">'
+      + '<a href="/keys" class="btn btn-outline-success btn-sm w-100"><i class="bi bi-key"></i> Créer une clé API</a>'
+      + '</div></div></div>';
+  }
+  function renderModels(list){
+    if (!mlEl) return;
+    var key = (list || []).join('|');
+    if (key === mlPrev) return;          // pas de changement → on ne touche pas au DOM
+    mlPrev = key;
+    if (list && list.length) {
+      mlEl.innerHTML = '<div class="row g-3">' + list.map(modelCard).join('') + '</div>';
+    } else {
+      mlEl.innerHTML = '<div class="card"><div class="card-body text-center py-4 text-secondary">'
+        + '<i class="bi bi-moon-stars fs-2 d-block mb-2"></i> Aucun modèle actif — '
+        + '<a href="/request" class="text-success">demander le lancement d\'un modèle</a></div></div>';
+    }
+  }
   function apply(d) {
     if (!d) return;
+    if (d.running) renderModels(d.running);
     if (d.cpu_pct != null) setMeter('m-cpu', d.cpu_pct, Math.round(d.cpu_pct) + ' %');
     if (d.ram) setMeter('m-ram', d.ram.pct, d.ram.used_gb + ' <small>/ ' + d.ram.total_gb + ' Go</small>');
     if (d.gpu) setMeter('m-gpu', d.gpu.util || 0,

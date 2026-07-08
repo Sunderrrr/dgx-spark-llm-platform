@@ -347,13 +347,17 @@ def add_announcement(kind, a='', b=''):
         pass
 
 def _announce_launch(new_name):
-    """Annonce le passage à un nouveau modèle actif (remplace l'ancien)."""
-    old = ''
-    for cur in get_running_models():
-        if cur != new_name:
-            old = cur
-            break
-    add_announcement('model_launch', new_name, old)
+    """Annonce le passage à un nouveau modèle actif. Ne publie rien si ce modèle
+    est déjà le dernier annoncé (relance / même modèle) → pas de doublon. Le
+    « remplace X » vient de la dernière annonce, plus fiable que get_running_models()
+    au moment du lancement (l'ancien est en train d'être tué, le nouveau pas encore up)."""
+    last = get_db().execute(
+        "SELECT a FROM announcements WHERE kind='model_launch' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    prev = last['a'] if last else ''
+    if prev == new_name:
+        return
+    add_announcement('model_launch', new_name, prev)
 
 def get_user_keys(username):
     try:

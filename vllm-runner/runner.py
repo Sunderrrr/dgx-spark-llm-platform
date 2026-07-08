@@ -2,7 +2,7 @@
 vLLM Runner — daemon HTTP local sur le port 8001.
 Gère un seul processus vLLM à la fois (avec ses enfants).
 """
-import hmac, json, os, shutil, signal, subprocess, threading, time
+import hmac, json, os, shutil, signal, subprocess, threading, time, urllib.request
 from flask import Flask, jsonify, request, Response
 
 VLLM_BIN     = os.environ.get("VLLM_BIN", "/root/.local/bin/vllm")
@@ -146,6 +146,24 @@ def _reader(proc):
         _append(f"[runner] Processus terminé (code {proc.returncode})")
 
 
+def _health_watch(proc):
+    """Bascule le statut en 'running' dès que vLLM répond réellement, sans dépendre
+    des logs : --uvicorn-log-level warning masque « Application startup complete »,
+    ce qui laissait le statut coincé sur 'starting' alors que le modèle servait."""
+    global _status, _auto_retries
+    url = "http://127.0.0.1:8000/v1/models"
+    while proc is _proc and proc.poll() is None:
+        try:
+            with urllib.request.urlopen(url, timeout=2) as r:
+                if r.status == 200 and proc is _proc:
+                    _status = "running"
+                    _auto_retries = 0
+                    return
+        except Exception:
+            pass
+        time.sleep(3)
+
+
 @app.route("/status")
 def status():
     return jsonify({"status": _status, "model": _model, "pid": _proc.pid if _proc else None})
@@ -238,6 +256,7 @@ def _start_process(hf_id, name, extra_tokens):
         start_new_session=True,   # nouveau process group → killpg fonctionne
     )
     threading.Thread(target=_reader, args=(_proc,), daemon=True).start()
+    threading.Thread(target=_health_watch, args=(_proc,), daemon=True).start()
     # Persiste systématiquement l'état (manuel, reprise au boot, watchdog) pour
     # que last_model.json reste toujours présent tant que le modèle doit tourner.
     _save_last_launch(hf_id, name, extra_tokens)

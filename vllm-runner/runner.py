@@ -54,6 +54,7 @@ _VALUE_FLAGS = {
     "--max-num-batched-tokens", "--block-size", "--swap-space",
     "--quantization", "--tensor-parallel-size", "--pipeline-parallel-size",
     "--reasoning-parser", "--limit-mm-per-prompt",
+    "--uvicorn-log-level",
 }
 
 

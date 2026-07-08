@@ -1,46 +1,57 @@
 {% extends "base.html" %}
 {% block title %}Playground — Cronos{% endblock %}
 {% block content %}
-<div class="row g-4">
-  <div class="col-12">
+<div class="pg-layout">
+  <!-- ── Sidebar historique (façon ChatGPT) ── -->
+  <aside class="pg-sidebar" id="pg-sidebar">
+    <button class="btn btn-success btn-sm w-100 mb-2" id="pg-new"><i class="bi bi-plus-lg"></i> Nouvelle conversation</button>
+    <div class="pg-sidebar-title">Historique <span class="text-secondary">(10 max)</span></div>
+    <div id="pg-convlist"></div>
+  </aside>
+
+  <div class="pg-main">
     <div class="page-head">
-      <div>
-        <h1 class="page-head-title">Playground</h1>
-        <p class="page-head-sub">Teste le modèle dans le navigateur, règle les paramètres, réponses en direct.
-          <span class="text-secondary">— consomme ton budget de compte.</span></p>
+      <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-outline-secondary btn-sm d-lg-none" id="pg-sidebar-toggle" type="button" title="Historique"><i class="bi bi-list"></i></button>
+        <div>
+          <h1 class="page-head-title mb-0">Playground</h1>
+          <p class="page-head-sub mb-0">Règle les paramètres, joins des fichiers, réponses en direct. <span class="text-secondary">— consomme ton budget.</span></p>
+        </div>
       </div>
-      <div class="d-flex align-items-center gap-2 position-relative">
+      <div class="d-flex align-items-center gap-2">
         <select class="form-select form-select-sm bg-dark text-white border-secondary" id="pg-model" style="width:auto">
           {% if running_models %}{% for m in running_models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
           {% else %}<option value="">aucun modèle actif</option>{% endif %}
         </select>
-        <button class="btn btn-outline-secondary btn-sm" id="pg-history-btn" type="button" title="Historique (10 dernières)"><i class="bi bi-clock-history"></i></button>
+        <button class="btn btn-outline-secondary btn-sm" id="pg-export" type="button" title="Exporter (Markdown)"><i class="bi bi-download"></i></button>
         <button class="btn btn-outline-secondary btn-sm" id="pg-settings-btn" type="button" title="Réglages"><i class="bi bi-sliders"></i></button>
-        <button class="btn btn-outline-secondary btn-sm" id="pg-clear" type="button" title="Nouvelle conversation"><i class="bi bi-arrow-counterclockwise"></i></button>
-        <div id="pg-history" class="pg-history d-none"></div>
       </div>
     </div>
 
-    <!-- Réglages -->
     <div class="card mb-3 d-none" id="pg-settings">
       <div class="card-body">
         <div class="row g-3 align-items-end">
           <div class="col-12">
             <label class="form-label text-secondary small mb-1">System prompt <span class="text-secondary">(optionnel)</span></label>
-            <textarea id="pg-system" rows="2" class="form-control form-control-sm bg-dark text-white border-secondary"
-                      placeholder="Ex : Tu es un assistant concis et technique."></textarea>
+            <textarea id="pg-system" rows="2" class="form-control form-control-sm bg-dark text-white border-secondary" placeholder="Ex : Tu es un assistant concis et technique."></textarea>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label text-secondary small mb-1">Température · <span id="pg-temp-v" class="num text-white">0.7</span></label>
             <input type="range" class="form-range" id="pg-temp" min="0" max="2" step="0.05" value="0.7">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label text-secondary small mb-1">Max tokens · <span id="pg-max-v" class="num text-white">1024</span></label>
             <input type="range" class="form-range" id="pg-max" min="64" max="8192" step="64" value="1024">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label text-secondary small mb-1">Top-p · <span id="pg-topp-v" class="num text-white">1.00</span></label>
             <input type="range" class="form-range" id="pg-topp" min="0" max="1" step="0.05" value="1">
+          </div>
+          <div class="col-md-3">
+            <div class="form-check form-switch mt-3">
+              <input class="form-check-input" type="checkbox" id="pg-reason">
+              <label class="form-check-label text-secondary small" for="pg-reason">Afficher le raisonnement</label>
+            </div>
           </div>
         </div>
       </div>
@@ -50,10 +61,7 @@
       <div class="card-body p-0 d-flex flex-column" style="height:min(68vh,660px)">
         <div class="pg-topbar">
           <div class="pg-ctx" id="pg-ctx" title="Utilisation de la fenêtre de contexte">
-            <svg viewBox="0 0 36 36" class="pg-ring">
-              <circle class="pg-ring-bg" cx="18" cy="18" r="15.5"></circle>
-              <circle class="pg-ring-fg" id="pg-ring-fg" cx="18" cy="18" r="15.5"></circle>
-            </svg>
+            <svg viewBox="0 0 36 36" class="pg-ring"><circle class="pg-ring-bg" cx="18" cy="18" r="15.5"></circle><circle class="pg-ring-fg" id="pg-ring-fg" cx="18" cy="18" r="15.5"></circle></svg>
             <span class="pg-ctx-pct" id="pg-ctx-pct">0%</span>
           </div>
           <div class="pg-ctx-lbl">
@@ -66,20 +74,23 @@
           <div class="d-flex flex-wrap gap-1 mb-2" id="pg-presets">
             <button class="btn btn-outline-secondary btn-sm py-0" data-p="Écris une fonction Python qui vérifie si un nombre est premier.">Code Python</button>
             <button class="btn btn-outline-secondary btn-sm py-0" data-p="Explique la mémoire unifiée du DGX Spark en termes simples.">Expliquer</button>
+            <button class="btn btn-outline-secondary btn-sm py-0" data-p="Analyse ces logs et trouve la cause de l'erreur : ">Analyser des logs</button>
             <button class="btn btn-outline-secondary btn-sm py-0" data-p="Résume ce texte en 3 points : ">Résumer</button>
-            <button class="btn btn-outline-secondary btn-sm py-0" data-p="Traduis en anglais : ">Traduire</button>
-            <button class="btn btn-outline-secondary btn-sm py-0" data-p="Écris un test unitaire pour cette fonction : ">Tests</button>
           </div>
+          <div id="pg-files" class="d-flex flex-wrap gap-1 mb-2"></div>
           <form id="pg-form" class="d-flex align-items-end gap-2">
-            <textarea id="pg-input" class="form-control bg-dark text-white border-secondary" rows="1"
-                      placeholder="Écris ton message…  (Entrée pour envoyer, Maj+Entrée = saut de ligne)"
-                      style="resize:none;max-height:160px"></textarea>
+            <input type="file" id="pg-file-input" class="d-none" multiple accept=".md,.markdown,.txt,.text,.log,.logs,.err,.error,.out,.json,.jsonl,.csv,.tsv,.yaml,.yml,.toml,.ini,.conf,.cfg,.env,.py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.sh,.bash,.sql,.html,.css,.xml,.diff,.patch">
+            <button class="btn btn-outline-secondary text-nowrap" id="pg-attach" type="button" title="Joindre un fichier texte (md, txt, log, json, code…)"><i class="bi bi-paperclip"></i></button>
+            <textarea id="pg-input" class="form-control bg-dark text-white border-secondary" rows="1" placeholder="Écris ton message…  (Entrée pour envoyer, Maj+Entrée = saut de ligne)" style="resize:none;max-height:160px"></textarea>
             <button class="btn btn-success text-nowrap" id="pg-send" type="submit"><i class="bi bi-send"></i></button>
             <button class="btn btn-danger text-nowrap d-none" id="pg-stop" type="button"><i class="bi bi-stop-fill"></i></button>
           </form>
           <div class="d-flex align-items-center justify-content-between mt-1">
-            <span class="text-secondary" style="font-size:.72rem"><i class="bi bi-wallet2"></i> Bac à sable — les tokens comptent sur ton budget.</span>
-            <button class="btn btn-outline-secondary btn-sm py-0 d-none" id="pg-regen"><i class="bi bi-arrow-repeat"></i> Régénérer</button>
+            <span class="text-secondary" style="font-size:.72rem"><i class="bi bi-wallet2"></i> Fichiers texte uniquement (pas de PDF/DOCX). Les tokens comptent sur ton budget.</span>
+            <span class="d-flex gap-2">
+              <button class="btn btn-outline-secondary btn-sm py-0 d-none" id="pg-edit"><i class="bi bi-pencil"></i> Éditer</button>
+              <button class="btn btn-outline-secondary btn-sm py-0 d-none" id="pg-regen"><i class="bi bi-arrow-repeat"></i> Régénérer</button>
+            </span>
           </div>
         </div>
       </div>
@@ -88,31 +99,44 @@
 </div>
 
 <style>
+  .pg-layout { display:flex; gap:1rem; align-items:stretch; }
+  .pg-sidebar { width:250px; flex-shrink:0; display:flex; flex-direction:column; }
+  .pg-sidebar-title { font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:var(--text-muted); margin:.3rem .2rem; }
+  #pg-convlist { overflow-y:auto; }
+  .pg-conv { display:flex; align-items:center; gap:.4rem; padding:.45rem .55rem; border-radius:8px; cursor:pointer; margin-bottom:2px; }
+  .pg-conv:hover { background:var(--surface-hover); }
+  .pg-conv.active { background:var(--accent-soft); }
+  .pg-conv-t { flex:1; min-width:0; font-size:.82rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pg-conv-x { border:none; background:none; color:var(--text-muted); cursor:pointer; padding:0 .2rem; opacity:0; }
+  .pg-conv:hover .pg-conv-x { opacity:1; } .pg-conv-x:hover { color:var(--danger); }
+  .pg-main { flex:1; min-width:0; }
+  @media (max-width: 991px){ .pg-sidebar { position:fixed; z-index:40; top:64px; left:0; bottom:0; width:270px;
+    background:var(--surface); border-right:1px solid var(--border); padding:.7rem; box-shadow:var(--shadow); }
+    .pg-sidebar.d-none { display:none !important; } }
+
   .pg-msg { display:flex; margin-bottom:.7rem; }
   .pg-msg.user { justify-content:flex-end; }
-  .pg-msg .bubble { max-width:min(86%,760px); padding:.55rem .8rem; border-radius:.8rem;
-    font-size:.9rem; line-height:1.55; word-break:break-word; }
+  .pg-msg .bubble { max-width:min(86%,760px); padding:.55rem .8rem; border-radius:.8rem; font-size:.9rem; line-height:1.55; word-break:break-word; }
   .pg-msg.assistant .bubble { background:var(--surface-hover,#22262e); color:var(--text); border-bottom-left-radius:.2rem; }
   .pg-msg.user .bubble { background:var(--accent-soft); color:var(--text); border-bottom-right-radius:.2rem; white-space:pre-wrap; }
   .pg-msg .bubble > div { margin:.1rem 0; }
   .pg-msg .bubble h3,.pg-msg .bubble h4,.pg-msg .bubble h5 { margin:.5rem 0 .3rem; font-weight:700; }
   .pg-msg .bubble ul,.pg-msg .bubble ol { margin:.3rem 0 .3rem 1.1rem; }
   .pg-msg .bubble :not(pre) > code { color:var(--accent); background:var(--code-bg,#101315); padding:.05em .35em; border-radius:4px; font-size:.85em; }
+  .pg-reason { margin:.2rem 0 .5rem; font-size:.85rem; }
+  .pg-reason summary { cursor:pointer; color:var(--text-muted); }
+  .pg-reason > div { color:var(--text-muted); border-left:2px solid var(--border-strong); padding-left:.6rem; margin-top:.3rem; }
   .pg-code { position:relative; margin:.5rem 0; }
-  .pg-code pre { background:var(--code-bg,#101315); color:var(--code-text,#c6ccd2); border:1px solid var(--border);
-    border-radius:8px; padding:.7rem .8rem; overflow-x:auto; margin:0; font-size:.82rem;
-    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; }
-  .pg-copy-code { position:absolute; top:.35rem; right:.35rem; border:1px solid var(--border); background:var(--surface);
-    color:var(--text-muted); border-radius:6px; width:26px; height:26px; cursor:pointer; opacity:.7; font-size:.8rem; }
+  .pg-code pre { background:var(--code-bg,#101315); color:var(--code-text,#c6ccd2); border:1px solid var(--border); border-radius:8px; padding:.7rem .8rem; overflow-x:auto; margin:0; font-size:.82rem; font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; }
+  .pg-copy-code { position:absolute; top:.35rem; right:.35rem; border:1px solid var(--border); background:var(--surface); color:var(--text-muted); border-radius:6px; width:26px; height:26px; cursor:pointer; opacity:.7; font-size:.8rem; }
   .pg-copy-code:hover { opacity:1; color:var(--text); }
-  .pg-meta { display:flex; align-items:center; gap:.6rem; margin-top:.25rem; font-size:.7rem; color:var(--text-muted);
-    font-family:"SF Mono",ui-monospace,monospace; }
+  .pg-meta { display:flex; align-items:center; gap:.6rem; margin-top:.25rem; font-size:.7rem; color:var(--text-muted); font-family:"SF Mono",ui-monospace,monospace; }
   .pg-meta button { border:none; background:none; color:var(--text-muted); cursor:pointer; padding:0; font-size:.72rem; }
   .pg-meta button:hover { color:var(--text); }
+  .pg-filechip { display:inline-flex; align-items:center; gap:.35rem; background:var(--surface-2); border:1px solid var(--border); border-radius:20px; padding:.15rem .55rem; font-size:.75rem; }
+  .pg-filechip button { border:none; background:none; color:var(--text-muted); cursor:pointer; padding:0; }
   .pg-cursor .bubble::after { content:'▋'; opacity:.5; animation:pgblink 1s steps(2) infinite; }
   @keyframes pgblink { 50% { opacity:0; } }
-
-  /* ── barre haut : anneau de contexte ── */
   .pg-topbar { display:flex; align-items:center; gap:.6rem; padding:.5rem .9rem; border-bottom:1px solid var(--border); }
   .pg-ctx { position:relative; width:40px; height:40px; flex-shrink:0; }
   .pg-ring { width:40px; height:40px; transform:rotate(-90deg); }
@@ -120,21 +144,8 @@
   .pg-ring-bg { stroke:var(--surface-hover); }
   .pg-ring-fg { stroke:var(--accent); stroke-linecap:round; transition:stroke-dashoffset .35s ease, stroke .35s; }
   .pg-ring-fg.warn { stroke:var(--warn); } .pg-ring-fg.crit { stroke:var(--danger); }
-  .pg-ctx-pct { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    font-size:.62rem; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text); }
+  .pg-ctx-pct { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:.62rem; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text); }
   .pg-ctx-lbl { line-height:1.25; font-size:.8rem; }
-
-  /* ── menu historique ── */
-  .pg-history { position:absolute; top:110%; right:0; z-index:20; width:300px; max-height:340px; overflow-y:auto;
-    background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow); padding:.35rem; }
-  .pg-hi { display:flex; align-items:center; gap:.5rem; padding:.45rem .55rem; border-radius:7px; cursor:pointer; }
-  .pg-hi:hover { background:var(--surface-hover); }
-  .pg-hi-main { min-width:0; flex:1; }
-  .pg-hi-title { font-size:.82rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .pg-hi-sub { font-size:.68rem; color:var(--text-muted); }
-  .pg-hi-del { border:none; background:none; color:var(--text-muted); cursor:pointer; padding:.1rem .3rem; }
-  .pg-hi-del:hover { color:var(--danger); }
-  .pg-history-empty { text-align:center; color:var(--text-muted); font-size:.8rem; padding:1rem; }
 </style>
 
 <script>
@@ -145,108 +156,31 @@ const form = document.getElementById('pg-form');
 const sendBtn = document.getElementById('pg-send');
 const stopBtn = document.getElementById('pg-stop');
 const regenBtn = document.getElementById('pg-regen');
+const editBtn = document.getElementById('pg-edit');
 const modelSel = document.getElementById('pg-model');
 const history = [];
-let streaming = false, controller = null;
+let streaming = false, controller = null, currentId = null, attachments = [];
 
-// ── réglages ──
 const S = { sys:()=>document.getElementById('pg-system').value.trim(),
             temp:()=>parseFloat(document.getElementById('pg-temp').value),
             max:()=>parseInt(document.getElementById('pg-max').value),
-            topp:()=>parseFloat(document.getElementById('pg-topp').value) };
+            topp:()=>parseFloat(document.getElementById('pg-topp').value),
+            reason:()=>document.getElementById('pg-reason').checked };
 document.getElementById('pg-settings-btn').addEventListener('click',()=>document.getElementById('pg-settings').classList.toggle('d-none'));
 [['pg-temp','pg-temp-v',2],['pg-max','pg-max-v',0],['pg-topp','pg-topp-v',2]].forEach(([r,v,d])=>{
   const rr=document.getElementById(r), vv=document.getElementById(v);
   rr.addEventListener('input',()=>vv.textContent=d?parseFloat(rr.value).toFixed(d):rr.value);
 });
 
-// ── Anneau de contexte ──
-const MODEL_LIMITS = {{ model_limits|tojson }};
-let ctxUsed = 0;                         // tokens connus (dernier usage renvoyé)
-const CIRC = 2 * Math.PI * 15.5;
-document.getElementById('pg-ring-fg').style.strokeDasharray = CIRC;
-function ctxMax(){ return MODEL_LIMITS[modelSel.value] || 32768; }
-function estCurrent(){                    // estimation ~ chars/4
-  let c = S.sys().length + input.value.length;
-  for(const m of history) c += (m.content||'').length;
-  return Math.round(c/4);
-}
-function fmtK(n){ return n>=1000 ? (n/1000).toFixed(n>=100000?0:1).replace(/\.0$/,'')+'k' : ''+n; }
-function updateCtx(){
-  const max=ctxMax(), used=Math.max(ctxUsed, estCurrent()), pct=Math.min(used/max*100,100);
-  const fg=document.getElementById('pg-ring-fg');
-  fg.style.strokeDashoffset = CIRC*(1-pct/100);
-  fg.className = 'pg-ring-fg'+(pct>=95?' crit':(pct>=80?' warn':''));
-  document.getElementById('pg-ctx-pct').textContent = Math.round(pct)+'%';
-  document.getElementById('pg-ctx-txt').textContent = fmtK(used)+' / '+fmtK(max);
-  const note=document.getElementById('pg-ctx-note');
-  note.textContent = pct>=100 ? '⚠ contexte plein — démarre une nouvelle conversation'
-                   : pct>=80 ? 'contexte presque plein' : ' ';
-  note.style.color = pct>=95?'var(--danger)':(pct>=80?'var(--warn)':'');
-}
-
-// ── Historique des conversations (localStorage, max 10) ──
-const HKEY='pg_convs';
-function loadConvs(){ try{ return JSON.parse(localStorage.getItem(HKEY)||'[]'); }catch(e){ return []; } }
-function saveConvs(a){ try{ localStorage.setItem(HKEY, JSON.stringify(a.slice(0,10))); }catch(e){} }
-function snapshot(){
-  if(!history.length) return;
-  const convs=loadConvs();
-  const item={ id:Date.now(), title:((history.find(m=>m.role==='user')||{}).content||'Conversation').slice(0,80),
-               ts:Date.now(), model:modelSel.value, messages:history.slice() };
-  if(convs.length && JSON.stringify(convs[0].messages)===JSON.stringify(item.messages)) return;
-  convs.unshift(item); saveConvs(convs);
-}
-function relTime(ts){ const s=(Date.now()-ts)/1000;
-  if(s<60)return "à l'instant"; if(s<3600)return Math.floor(s/60)+' min'; if(s<86400)return Math.floor(s/3600)+' h'; return Math.floor(s/86400)+' j'; }
-function renderHistory(){
-  const box=document.getElementById('pg-history'), convs=loadConvs();
-  if(!convs.length){ box.innerHTML='<div class="pg-history-empty">Aucune conversation enregistrée</div>'; return; }
-  box.innerHTML='';
-  convs.forEach(cv=>{
-    const row=document.createElement('div'); row.className='pg-hi';
-    row.innerHTML='<div class="pg-hi-main"><div class="pg-hi-title"></div><div class="pg-hi-sub">'+(cv.model||'')+' · '+relTime(cv.ts)+'</div></div><button class="pg-hi-del" title="Supprimer"><i class="bi bi-x-lg"></i></button>';
-    row.querySelector('.pg-hi-title').textContent=cv.title;
-    row.querySelector('.pg-hi-main').addEventListener('click',()=>loadConv(cv));
-    row.querySelector('.pg-hi-del').addEventListener('click',e=>{ e.stopPropagation(); saveConvs(loadConvs().filter(x=>x.id!==cv.id)); renderHistory(); });
-    box.appendChild(row);
-  });
-}
-function loadConv(cv){
-  snapshot();
-  history.length=0; chat.innerHTML='';
-  if(cv.model && [...modelSel.options].some(o=>o.value===cv.model)) modelSel.value=cv.model;
-  for(const m of cv.messages){ const o=bubble(m.role);
-    if(m.role==='user') o.b.textContent=m.content; else o.b.innerHTML=md(m.content);
-    history.push({role:m.role, content:m.content}); }
-  ctxUsed=0; updateCtx(); regenBtn.classList.remove('d-none');
-  document.getElementById('pg-history').classList.add('d-none');
-}
-document.getElementById('pg-history-btn').addEventListener('click',()=>{
-  const box=document.getElementById('pg-history');
-  if(box.classList.contains('d-none')) renderHistory();
-  box.classList.toggle('d-none');
-});
-document.addEventListener('click',e=>{ if(!e.target.closest('#pg-history')&&!e.target.closest('#pg-history-btn')) document.getElementById('pg-history').classList.add('d-none'); });
-window.addEventListener('beforeunload', snapshot);
-modelSel.addEventListener('change', updateCtx);
-
-// ── markdown ──
+// ── Markdown ──
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
-function inl(s){return s
-  .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
-  .replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<em>$2</em>')
-  .replace(/`([^`]+)`/g,'<code>$1</code>')
-  .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');}
+function inl(s){return s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<em>$2</em>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');}
 function md(text){
-  const parts=text.split('```'); let html='';
+  const parts=(text||'').split('```'); let html='';
   for(let i=0;i<parts.length;i++){
-    if(i%2===1){
-      const blk=parts[i], nl=blk.indexOf('\n');
-      const code=nl>=0?blk.slice(nl+1):blk;
-      html+='<div class="pg-code"><button class="pg-copy-code" title="Copier"><i class="bi bi-clipboard"></i></button><pre><code>'+esc(code.replace(/\n$/,''))+'</code></pre></div>';
-    } else {
-      let ul=false, ol=false;
+    if(i%2===1){ const blk=parts[i], nl=blk.indexOf('\n'); const code=nl>=0?blk.slice(nl+1):blk;
+      html+='<div class="pg-code"><button class="pg-copy-code" title="Copier"><i class="bi bi-clipboard"></i></button><pre><code>'+esc(code.replace(/\n$/,''))+'</code></pre></div>'; }
+    else { let ul=false,ol=false;
       for(const line of parts[i].split('\n')){
         const h=line.match(/^(#{1,3})\s+(.*)/), u=line.match(/^\s*[-*]\s+(.*)/), o=line.match(/^\s*\d+\.\s+(.*)/);
         if(h){ if(ul){html+='</ul>';ul=false} if(ol){html+='</ol>';ol=false} html+='<h'+(h[1].length+2)+'>'+inl(esc(h[2]))+'</h'+(h[1].length+2)+'>'; }
@@ -259,82 +193,136 @@ function md(text){
   }
   return html;
 }
-
 function scroll(){ chat.scrollTop=chat.scrollHeight; }
-function bubble(role){
-  const w=document.createElement('div'); w.className='pg-msg '+role;
-  const b=document.createElement('div'); b.className='bubble';
-  w.appendChild(b); chat.appendChild(w); scroll(); return {w:w,b:b};
-}
+function bubble(role){ const w=document.createElement('div'); w.className='pg-msg '+role; const b=document.createElement('div'); b.className='bubble'; w.appendChild(b); chat.appendChild(w); scroll(); return {w:w,b:b}; }
+function showUser(text){ const o=bubble('user'); o.b.innerHTML= text.includes('```')? md(text) : esc(text); return o; }
+function showAssistant(reason, content){ const o=bubble('assistant'); paintAssistant(o.b, reason, content); return o; }
+function paintAssistant(b, reason, content){ let h=''; if(reason&&reason.trim()) h+='<details class="pg-reason"><summary>Raisonnement</summary><div>'+md(reason)+'</div></details>'; h+=md(content); b.innerHTML=h; }
 function toggle(on){ streaming=on; sendBtn.classList.toggle('d-none',on); stopBtn.classList.toggle('d-none',!on); input.disabled=on; }
 
+// ── Contexte ──
+const MODEL_LIMITS = {{ model_limits|tojson }};
+let ctxUsed = 0; const CIRC = 2*Math.PI*15.5;
+document.getElementById('pg-ring-fg').style.strokeDasharray = CIRC;
+function ctxMax(){ return MODEL_LIMITS[modelSel.value] || 32768; }
+function estCurrent(){ let c=S.sys().length+input.value.length; for(const m of history) c+=(m.content||'').length; for(const f of attachments) c+=f.content.length; return Math.round(c/4); }
+function fmtK(n){ return n>=1000 ? (n/1000).toFixed(n>=100000?0:1).replace(/\.0$/,'')+'k' : ''+n; }
+function updateCtx(){ const max=ctxMax(), used=Math.max(ctxUsed,estCurrent()), pct=Math.min(used/max*100,100);
+  const fg=document.getElementById('pg-ring-fg'); fg.style.strokeDashoffset=CIRC*(1-pct/100); fg.className='pg-ring-fg'+(pct>=95?' crit':(pct>=80?' warn':''));
+  document.getElementById('pg-ctx-pct').textContent=Math.round(pct)+'%'; document.getElementById('pg-ctx-txt').textContent=fmtK(used)+' / '+fmtK(max);
+  const note=document.getElementById('pg-ctx-note'); note.textContent= pct>=100?'⚠ contexte plein — nouvelle conversation':pct>=80?'contexte presque plein':' '; note.style.color=pct>=95?'var(--danger)':(pct>=80?'var(--warn)':''); }
+modelSel.addEventListener('change', updateCtx);
+
+// ── Historique (localStorage, max 10, sidebar live) ──
+const HKEY='pg_convs';
+function loadConvs(){ try{ return JSON.parse(localStorage.getItem(HKEY)||'[]'); }catch(e){ return []; } }
+function saveConvs(a){ try{ localStorage.setItem(HKEY, JSON.stringify(a.slice(0,10))); }catch(e){} }
+function relTime(ts){ const s=(Date.now()-ts)/1000; if(s<60)return "à l'instant"; if(s<3600)return Math.floor(s/60)+' min'; if(s<86400)return Math.floor(s/3600)+' h'; return Math.floor(s/86400)+' j'; }
+function persist(){ if(!history.length) return; const convs=loadConvs();
+  const title=((history.find(m=>m.role==='user')||{}).content||'Conversation').slice(0,80);
+  const item={id:currentId||Date.now(), title, ts:Date.now(), model:modelSel.value, messages:history.slice()};
+  if(currentId==null){ currentId=item.id; convs.unshift(item); }
+  else { const i=convs.findIndex(c=>c.id===currentId); if(i>=0) convs[i]=item; else convs.unshift(item); }
+  saveConvs(convs); renderSidebar(); }
+function renderSidebar(){ const box=document.getElementById('pg-convlist'); const convs=loadConvs();
+  if(!convs.length){ box.innerHTML='<div class="text-secondary small px-1">Aucune conversation.</div>'; return; }
+  box.innerHTML='';
+  convs.forEach(cv=>{ const row=document.createElement('div'); row.className='pg-conv'+(cv.id===currentId?' active':'');
+    row.innerHTML='<i class="bi bi-chat-left-text text-secondary" style="font-size:.75rem"></i><div class="pg-conv-t"></div><button class="pg-conv-x" title="Supprimer"><i class="bi bi-x-lg"></i></button>';
+    row.querySelector('.pg-conv-t').textContent=cv.title; row.querySelector('.pg-conv-t').title=cv.title;
+    row.querySelector('.pg-conv-t').addEventListener('click',()=>loadConv(cv)); row.firstChild.addEventListener('click',()=>loadConv(cv));
+    row.querySelector('.pg-conv-x').addEventListener('click',e=>{ e.stopPropagation(); saveConvs(loadConvs().filter(x=>x.id!==cv.id)); if(cv.id===currentId){ currentId=null; } renderSidebar(); });
+    box.appendChild(row); });
+}
+function loadConv(cv){ persist(); history.length=0; chat.innerHTML=''; currentId=cv.id;
+  if(cv.model && [...modelSel.options].some(o=>o.value===cv.model)) modelSel.value=cv.model;
+  for(const m of cv.messages){ if(m.role==='user') showUser(m.content); else showAssistant('', m.content); history.push({role:m.role,content:m.content}); }
+  ctxUsed=0; updateCtx(); regenBtn.classList.toggle('d-none', !(history.length&&history[history.length-1].role==='user')); editBtn.classList.toggle('d-none', !history.length); renderSidebar();
+  if(window.innerWidth<992) document.getElementById('pg-sidebar').classList.add('d-none'); }
+function newConv(){ persist(); history.length=0; chat.innerHTML=''; currentId=null; ctxUsed=0; updateCtx(); regenBtn.classList.add('d-none'); editBtn.classList.add('d-none'); renderSidebar(); input.focus(); }
+document.getElementById('pg-new').addEventListener('click', newConv);
+document.getElementById('pg-sidebar-toggle').addEventListener('click',()=>document.getElementById('pg-sidebar').classList.toggle('d-none'));
+
+// ── Fichiers texte ──
+document.getElementById('pg-attach').addEventListener('click',()=>document.getElementById('pg-file-input').click());
+document.getElementById('pg-file-input').addEventListener('change',e=>{
+  for(const f of e.target.files){
+    if(f.size>96*1024){ alert('« '+f.name+' » dépasse 96 Ko — trop gros pour le contexte.'); continue; }
+    const rd=new FileReader();
+    rd.onload=()=>{ attachments.push({name:f.name, content:String(rd.result)}); renderFiles(); updateCtx(); };
+    rd.readAsText(f);
+  }
+  e.target.value='';
+});
+function renderFiles(){ const box=document.getElementById('pg-files'); box.innerHTML='';
+  attachments.forEach((f,i)=>{ const c=document.createElement('span'); c.className='pg-filechip';
+    c.innerHTML='<i class="bi bi-file-earmark-text"></i><span></span><button title="Retirer"><i class="bi bi-x"></i></button>';
+    c.querySelector('span').textContent=f.name+' ('+Math.ceil(f.content.length/1024)+' Ko)';
+    c.querySelector('button').addEventListener('click',()=>{ attachments.splice(i,1); renderFiles(); updateCtx(); });
+    box.appendChild(c); });
+}
+
+// ── Stream ──
 async function stream(){
   const model=modelSel.value; if(!model){ bubble('assistant').b.textContent='Aucun modèle actif.'; return; }
   toggle(true); regenBtn.classList.add('d-none');
   const o=bubble('assistant'); o.w.classList.add('pg-cursor');
-  let acc='', t0=performance.now(), tf=null, usage=null;
-  controller=new AbortController();
+  let acc='', reason='', t0=performance.now(), tf=null, usage=null; controller=new AbortController();
   try{
-    const r=await fetch('/playground/chat',{method:'POST',
-      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
-      body:JSON.stringify({model:model,messages:history,system:S.sys(),temperature:S.temp(),max_tokens:S.max(),top_p:S.topp()}),
-      signal:controller.signal});
+    const r=await fetch('/playground/chat',{method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body:JSON.stringify({model:model,messages:history,system:S.sys(),temperature:S.temp(),max_tokens:S.max(),top_p:S.topp(),reasoning:S.reason()}), signal:controller.signal});
     const rd=r.body.getReader(), dec=new TextDecoder(); let buf='';
-    while(true){ const {value,done}=await rd.read(); if(done)break;
-      buf+=dec.decode(value,{stream:true}); const ps=buf.split('\n\n'); buf=ps.pop();
-      for(const p of ps){ const ln=p.split('\n').find(l=>l.startsWith('data:')); if(!ln)continue;
-        const pl=ln.slice(5).trim(); if(pl==='[DONE]')continue;
-        try{ const j=JSON.parse(pl); if(j.usage)usage=j.usage;
-          const d=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;
-          if(d){ if(tf===null)tf=performance.now(); acc+=d; o.b.innerHTML=md(acc); scroll(); } }catch(e){}
+    while(true){ const {value,done}=await rd.read(); if(done)break; buf+=dec.decode(value,{stream:true}); const ps=buf.split('\n\n'); buf=ps.pop();
+      for(const p of ps){ const ln=p.split('\n').find(l=>l.startsWith('data:')); if(!ln)continue; const pl=ln.slice(5).trim(); if(pl==='[DONE]')continue;
+        try{ const j=JSON.parse(pl); if(j.usage)usage=j.usage; const dl=j.choices&&j.choices[0]&&j.choices[0].delta;
+          if(dl){ if(dl.reasoning_content){ if(tf===null)tf=performance.now(); reason+=dl.reasoning_content; paintAssistant(o.b,reason,acc); scroll(); }
+                  if(dl.content){ if(tf===null)tf=performance.now(); acc+=dl.content; paintAssistant(o.b,reason,acc); scroll(); } } }catch(e){}
       }
     }
   }catch(e){ if(e.name!=='AbortError' && !acc) acc='Erreur réseau.'; }
   o.w.classList.remove('pg-cursor');
-  if(acc){ o.b.innerHTML=md(acc); history.push({role:'assistant',content:acc});
+  if(acc||reason){ paintAssistant(o.b,reason,acc); history.push({role:'assistant',content:acc||reason});
     meta(o.b, acc, usage, t0, tf, performance.now()); regenBtn.classList.remove('d-none'); }
   else o.w.remove();
-  if(usage && usage.total_tokens) ctxUsed = usage.total_tokens;   // contexte réel connu
-  updateCtx();
-  toggle(false); controller=null; input.focus();
+  if(usage && usage.total_tokens) ctxUsed=usage.total_tokens;
+  updateCtx(); persist(); toggle(false); controller=null; input.focus();
 }
-
-function meta(b, text, usage, t0, tf, te){
-  const el=document.createElement('div'); el.className='pg-meta';
-  const toks = usage&&usage.completion_tokens ? usage.completion_tokens : null;
-  const gen = tf? (te-tf)/1000 : 0;
-  const tps = toks&&gen>0 ? (toks/gen).toFixed(1) : null;
-  const ttft = tf? ((tf-t0)/1000).toFixed(2) : null;
-  let s=''; if(toks) s+=toks+' tokens'; if(tps) s+=' · '+tps+' tok/s'; if(ttft) s+=' · TTFT '+ttft+'s';
-  el.innerHTML='<span>'+(s||'')+'</span>';
+function meta(b, text, usage, t0, tf, te){ const el=document.createElement('div'); el.className='pg-meta';
+  const toks=usage&&usage.completion_tokens?usage.completion_tokens:null; const gen=tf?(te-tf)/1000:0;
+  const tps=toks&&gen>0?(toks/gen).toFixed(1):null; const ttft=tf?((tf-t0)/1000).toFixed(2):null;
+  let s=''; if(toks)s+=toks+' tokens'; if(tps)s+=' · '+tps+' tok/s'; if(ttft)s+=' · TTFT '+ttft+'s'; el.innerHTML='<span>'+(s||'')+'</span>';
   const cp=document.createElement('button'); cp.innerHTML='<i class="bi bi-clipboard"></i> copier';
   cp.addEventListener('click',()=>{copyText(text); cp.innerHTML='<i class="bi bi-check"></i> copié'; setTimeout(()=>cp.innerHTML='<i class="bi bi-clipboard"></i> copier',1500);});
-  el.appendChild(cp); b.appendChild(el);
-}
+  el.appendChild(cp); b.appendChild(el); }
+function copyText(t){ if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t);} else {const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;left:-9999px';document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();} }
+chat.addEventListener('click',e=>{ const btn=e.target.closest('.pg-copy-code'); if(!btn)return; const code=btn.parentElement.querySelector('code'); if(code){ copyText(code.textContent); btn.innerHTML='<i class="bi bi-check"></i>'; setTimeout(()=>btn.innerHTML='<i class="bi bi-clipboard"></i>',1500); } });
 
-function copyText(t){ if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t);}
-  else {const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;left:-9999px';document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();} }
-
-// copie des blocs de code (délégation)
-chat.addEventListener('click',e=>{ const btn=e.target.closest('.pg-copy-code'); if(!btn)return;
-  const code=btn.parentElement.querySelector('code'); if(code){ copyText(code.textContent);
-    btn.innerHTML='<i class="bi bi-check"></i>'; setTimeout(()=>btn.innerHTML='<i class="bi bi-clipboard"></i>',1500); } });
-
-function send(text){ text=text.trim(); if(!text||streaming)return;
-  bubble('user').b.textContent=text; history.push({role:'user',content:text});
-  input.value=''; autoGrow(); stream(); }
-
-form.addEventListener('submit',e=>{e.preventDefault(); send(input.value);});
-input.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); send(input.value);} });
+// ── Envoi ──
+function send(){ if(streaming) return; let text=input.value.trim();
+  if(!text && !attachments.length) return;
+  let full=text;
+  if(attachments.length){ full=(text?text+'\n\n':'')+attachments.map(f=>'```'+f.name+'\n'+f.content+'\n```').join('\n\n'); }
+  showUser(full); history.push({role:'user',content:full});
+  input.value=''; attachments=[]; renderFiles(); autoGrow(); editBtn.classList.remove('d-none'); stream(); }
+form.addEventListener('submit',e=>{e.preventDefault(); send();});
+input.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); send();} });
 stopBtn.addEventListener('click',()=>{ if(controller)controller.abort(); });
 regenBtn.addEventListener('click',()=>{ if(streaming)return;
-  if(history.length && history[history.length-1].role==='assistant'){ history.pop();
-    const msgs=chat.querySelectorAll('.pg-msg.assistant'); if(msgs.length)msgs[msgs.length-1].remove(); }
+  if(history.length && history[history.length-1].role==='assistant'){ history.pop(); const m=chat.querySelectorAll('.pg-msg.assistant'); if(m.length)m[m.length-1].remove(); }
   if(history.length && history[history.length-1].role==='user') stream(); });
-document.getElementById('pg-clear').addEventListener('click',()=>{ snapshot(); history.length=0; chat.innerHTML=''; ctxUsed=0; updateCtx(); regenBtn.classList.add('d-none'); input.focus(); });
+editBtn.addEventListener('click',()=>{ if(streaming)return;
+  if(history.length && history[history.length-1].role==='assistant'){ history.pop(); const m=chat.querySelectorAll('.pg-msg.assistant'); if(m.length)m[m.length-1].remove(); }
+  if(history.length && history[history.length-1].role==='user'){ input.value=history.pop().content; const m=chat.querySelectorAll('.pg-msg.user'); if(m.length)m[m.length-1].remove(); autoGrow(); input.focus(); }
+  regenBtn.classList.add('d-none'); editBtn.classList.toggle('d-none', !history.length); updateCtx(); persist(); });
 document.querySelectorAll('#pg-presets [data-p]').forEach(b=>b.addEventListener('click',()=>{ input.value=b.dataset.p; input.focus(); autoGrow(); }));
+
+// ── Export ──
+document.getElementById('pg-export').addEventListener('click',()=>{ if(!history.length){ alert('Rien à exporter.'); return; }
+  let out='# Conversation Cronos\n\n'; for(const m of history){ out+=(m.role==='user'?'## Vous':'## '+(modelSel.value||'Modèle'))+'\n\n'+m.content+'\n\n'; }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([out],{type:'text/markdown'})); a.download='cronos-conversation.md'; a.click(); URL.revokeObjectURL(a.href); });
+
 function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,160)+'px'; updateCtx(); }
 input.addEventListener('input',autoGrow);
-updateCtx(); input.focus();
+renderSidebar(); updateCtx(); input.focus();
 </script>
 {% endblock %}

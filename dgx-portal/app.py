@@ -60,11 +60,21 @@ app.config.update(
 USERNAME_RE = re.compile(r'^[a-zA-Z0-9._-]{1,64}$')
 
 
+_CSP = ("default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "font-src 'self' https://cdn.jsdelivr.net; "
+        "img-src 'self' data:; connect-src 'self'; "
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+
 @app.after_request
 def _security_headers(resp):
     resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
     resp.headers.setdefault('X-Frame-Options', 'DENY')
     resp.headers.setdefault('Referrer-Policy', 'same-origin')
+    resp.headers.setdefault('Content-Security-Policy', _CSP)
+    # HSTS : ignoré en HTTP, appliqué derrière le TLS de Traefik.
+    resp.headers.setdefault('Strict-Transport-Security', 'max-age=63072000; includeSubDomains')
     return resp
 
 
@@ -175,9 +185,10 @@ def init_db():
         CREATE TABLE IF NOT EXISTS api_keys (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             username   TEXT NOT NULL,
-            key_alias  TEXT NOT NULL UNIQUE,
+            key_alias  TEXT NOT NULL,
             key_value  TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            UNIQUE(username, key_alias)
         );
         CREATE TABLE IF NOT EXISTS model_configs (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -203,6 +214,22 @@ def init_db():
             updated_at      TEXT
         );
     ''')
+    # Migration : api_keys de key_alias unique GLOBAL → unique par (username, alias)
+    # (évite qu'un utilisateur écrase la ligne d'un autre via un alias identique).
+    sql = (db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='api_keys'")
+             .fetchone() or [''])[0] or ''
+    if 'UNIQUE(username' not in sql.replace(' ', ''):
+        db.executescript('''
+            CREATE TABLE api_keys_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL,
+                key_alias TEXT NOT NULL, key_value TEXT NOT NULL, created_at TEXT NOT NULL,
+                UNIQUE(username, key_alias)
+            );
+            INSERT INTO api_keys_new (id, username, key_alias, key_value, created_at)
+                SELECT id, username, key_alias, key_value, created_at FROM api_keys;
+            DROP TABLE api_keys;
+            ALTER TABLE api_keys_new RENAME TO api_keys;
+        ''')
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
         ('default_key_budget', str(KEY_BUDGET))

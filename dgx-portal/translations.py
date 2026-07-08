@@ -23,6 +23,20 @@ FR_TO_EN = {
     "Demander plus": "Request more",
     "ou attends le reset quotidien.": "or wait for the daily reset.",
 
+    # ── Carré « Nouveautés » (base.html) ──────────────────────────────────
+    "Nouveautés": "What's new",
+    "Compris": "Got it",
+    "Nouveau modèle": "New model",
+    "Modèle mis à jour": "Model updated",
+    "Un nouveau modèle est disponible": "A new model is available",
+    "est maintenant le modèle actif": "is now the active model",
+    "remplace": "replaces",
+    "Publier une annonce (affichée à l'ouverture du site)": "Publish an announcement (shown when the site opens)",
+    "Titre (ex: Nouvelle fonctionnalité)": "Title (e.g. New feature)",
+    "Détails (optionnel)": "Details (optional)",
+    "Publier": "Publish",
+    "Annonce publiée — elle s'affichera à l'ouverture du site.": "Announcement published — it will show when the site opens.",
+
     # ── Login (login.html) ────────────────────────────────────────────────
     "Plateforme IA privée · NVIDIA DGX Spark": "Private AI platform · NVIDIA DGX Spark",
     "Se connecter avec le SSO Cronos": "Sign in with Cronos SSO",

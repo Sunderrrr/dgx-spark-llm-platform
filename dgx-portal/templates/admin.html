@@ -102,6 +102,26 @@
       </div>
     </div>
 
+    <!-- Publier une annonce -->
+    <div class="card">
+      <div class="card-body">
+        <div class="text-secondary small mb-2"><i class="bi bi-megaphone text-success"></i> Publier une annonce (affichée à l'ouverture du site)</div>
+        <form method="POST" action="/admin/announce" class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <input type="text" name="title" class="form-control form-control-sm bg-dark text-white border-secondary"
+                   placeholder="Titre (ex: Nouvelle fonctionnalité)" maxlength="120" required>
+          </div>
+          <div class="col-md-6">
+            <input type="text" name="body" class="form-control form-control-sm bg-dark text-white border-secondary"
+                   placeholder="Détails (optionnel)" maxlength="600">
+          </div>
+          <div class="col-md-2">
+            <button class="btn btn-outline-success btn-sm w-100"><i class="bi bi-send"></i> Publier</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Logs vLLM -->
     <div class="card">
       <div class="card-header d-flex align-items-center justify-content-between text-secondary small">

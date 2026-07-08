@@ -1374,6 +1374,7 @@ def playground_chat():
     temperature = _num(data.get('temperature'), 0.0, 2.0, 0.7, float)
     max_tokens  = _num(data.get('max_tokens'), 1, 8192, 1024, int)
     top_p       = _num(data.get('top_p'), 0.0, 1.0, 1.0, float)
+    reasoning   = bool(data.get('reasoning'))     # afficher le raisonnement du modèle
 
     # Le playground consomme le BUDGET de l'utilisateur → on utilise SA clé
     # (partagée par le compte). LiteLLM applique donc le quota (429 si dépassé).
@@ -1392,7 +1393,7 @@ def playground_chat():
                                json={'model': model, 'messages': msgs, 'stream': True,
                                      'temperature': temperature, 'max_tokens': max_tokens, 'top_p': top_p,
                                      'stream_options': {'include_usage': True},
-                                     'chat_template_kwargs': {'enable_thinking': False}},
+                                     'chat_template_kwargs': {'enable_thinking': reasoning}},
                                stream=True, timeout=(10, None)) as r:
                 if not r.ok:
                     msg = ("Budget de compte dépassé — attends le reset quotidien ou demande plus de tokens."

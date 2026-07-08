@@ -106,6 +106,28 @@ FR_TO_EN = {
         "Free sandbox. Only one model runs at a time — switch via admin if needed.",
     "Aucun modèle actif.": "No active model.",
     "Erreur réseau.": "Network error.",
+    "Règle les paramètres, joins des fichiers, réponses en direct.":
+        "Tune the settings, attach files, live responses.",
+    "— consomme ton budget.": "— uses your budget.",
+    "Nouvelle conversation": "New conversation",
+    "Historique": "History",
+    "Aucune conversation.": "No conversation.",
+    "Afficher le raisonnement": "Show reasoning",
+    "Raisonnement": "Reasoning",
+    "Analyser des logs": "Analyze logs",
+    "Fichiers texte uniquement (pas de PDF/DOCX). Les tokens comptent sur ton budget.":
+        "Text files only (no PDF/DOCX). Tokens count toward your budget.",
+    "Éditer": "Edit",
+    "Régénérer": "Regenerate",
+    "Expliquer": "Explain",
+    "Résumer": "Summarize",
+    "Traduire": "Translate",
+    "copier": "copy",
+    "copié": "copied",
+    "Rien à exporter.": "Nothing to export.",
+    "tokens de contexte": "context tokens",
+    "contexte presque plein": "context almost full",
+    "⚠ contexte plein — nouvelle conversation": "⚠ context full — new conversation",
 
     # ── Support (support.html + app.py) ───────────────────────────────────
     "Un assistant IA connecté à la plateforme : il voit tes clés (masquées), ton budget et l'état du serveur pour t'aider en cas de pépin.":

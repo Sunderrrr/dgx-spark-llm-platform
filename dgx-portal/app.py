@@ -1158,7 +1158,7 @@ def _support_context(username, is_admin, user_msg=''):
     try:
         u = user_hourly(username)
         if u and u.get('has_data'):
-            lines.append("Conso aujourd'hui : {:,.0f} tokens pondérés (pic vers {}h)."
+            lines.append("Conso aujourd'hui : {:,.0f} tokens réels (pic vers {}h)."
                          .format(u['total'], u['peak_hour']).replace(',', ' '))
     except Exception:
         pass
@@ -1647,8 +1647,9 @@ def _spark_points(spark, w=88, h=24):
         f"{(j/(n-1)*w):.1f},{(h - 1 - (v/mx)*(h-2)):.1f}" for j, v in enumerate(spark))
 
 def ranking_full(period='day', me=None):
-    """Classement enrichi : total pondéré, delta vs période précédente,
-    répartition prompt/généré, et sparkline de tendance, par utilisateur."""
+    """Classement enrichi : vrais tokens consommés (prompt + généré), delta vs
+    période précédente, répartition prompt/généré, et sparkline de tendance, par
+    utilisateur."""
     conn = _spend_conn()
     empty = {'period': period, 'rows': [], 'active_count': 0}
     if not conn:
@@ -1679,43 +1680,45 @@ def ranking_full(period='day', me=None):
         bexpr = ("EXTRACT(HOUR FROM ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::int"
                  if bucket_kind == 'hour'
                  else "((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s)::date")
-        # Période courante : par bucket + clé (spend + répartition tokens)
+        # Période courante : par bucket + clé (vrais tokens + répartition prompt/généré)
         cur.execute(
-            f'SELECT {bexpr} AS b, api_key, SUM(spend), SUM(prompt_tokens), SUM(completion_tokens) '
+            f'SELECT {bexpr} AS b, api_key, SUM(prompt_tokens), SUM(completion_tokens) '
             'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s GROUP BY b, api_key',
             (LOCAL_TZ, cur_start_utc))
         agg = {}
-        for b, api_key, spend, prompt, comp in cur.fetchall():
+        for b, api_key, prompt, comp in cur.fetchall():
             if api_key in _NON_USER_KEYS:
                 continue
             u = umap.get(api_key, 'inconnu')
-            a = agg.setdefault(u, {'spend': 0, 'prompt': 0, 'completion': 0, 'spark': {}})
-            a['spend'] += spend or 0; a['prompt'] += prompt or 0; a['completion'] += comp or 0
-            if spend:
-                a['spark'][b] = a['spark'].get(b, 0) + spend
-        # Période précédente : total par clé (pour le delta)
-        cur.execute('SELECT api_key, SUM(spend) FROM "LiteLLM_SpendLogs" '
+            a = agg.setdefault(u, {'tokens': 0, 'prompt': 0, 'completion': 0, 'spark': {}})
+            tok = (prompt or 0) + (comp or 0)
+            a['tokens'] += tok; a['prompt'] += prompt or 0; a['completion'] += comp or 0
+            if tok:
+                a['spark'][b] = a['spark'].get(b, 0) + tok
+        # Période précédente : total par clé (pour le delta) — vrais tokens
+        cur.execute('SELECT api_key, SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
+                    'FROM "LiteLLM_SpendLogs" '
                     'WHERE "startTime" >= %s AND "startTime" < %s GROUP BY api_key',
                     (prev_start_utc, cur_start_utc))
         prev = {}
-        for api_key, spend in cur.fetchall():
+        for api_key, toks in cur.fetchall():
             if api_key in _NON_USER_KEYS:
                 continue
             u = umap.get(api_key, 'inconnu')
-            prev[u] = prev.get(u, 0) + (spend or 0)
-        items = sorted([(u, a) for u, a in agg.items() if a['spend'] > 0],
-                       key=lambda x: x[1]['spend'], reverse=True)
+            prev[u] = prev.get(u, 0) + (toks or 0)
+        items = sorted([(u, a) for u, a in agg.items() if a['tokens'] > 0],
+                       key=lambda x: x[1]['tokens'], reverse=True)
         series = _series_for([u for u, _ in items])
-        top = items[0][1]['spend'] if items else 0
+        top = items[0][1]['tokens'] if items else 0
         rows = []
         for i, (u, a) in enumerate(items):
             pv = prev.get(u, 0)
-            delta = ((a['spend'] - pv) / pv * 100) if pv > 0 else None
+            delta = ((a['tokens'] - pv) / pv * 100) if pv > 0 else None
             spark = [a['spark'].get(b, 0) for b in buckets]
             rows.append({
                 'rank': i + 1, 'username': u, 'series': series[u], 'is_me': u == me,
-                'spend': a['spend'], 'prompt': int(a['prompt']), 'completion': int(a['completion']),
-                'delta': delta, 'bar_pct': (a['spend'] / top * 100) if top else 0,
+                'tokens': a['tokens'], 'prompt': int(a['prompt']), 'completion': int(a['completion']),
+                'delta': delta, 'bar_pct': (a['tokens'] / top * 100) if top else 0,
                 'spark_pts': _spark_points(spark),
             })
         return {'period': period, 'rows': rows, 'active_count': len(rows)}

@@ -272,15 +272,15 @@ FR_TO_EN = {
     "Demander": "Request",
 
     # ── Ranking (ranking.html) ────────────────────────────────────────────
-    "Qui consomme le plus, en coût pondéré (les tokens du prompt comptent 10× moins que ceux générés).":
-        "Who consumes the most, by weighted cost (prompt tokens count 10× less than generated ones).",
+    "Qui consomme le plus, en tokens réellement consommés (prompt + généré).":
+        "Who consumes the most, by tokens actually consumed (prompt + generated).",
     "comptes actifs": "active accounts",
     "compte actif": "active account",
     "Survole une ligne pour le détail prompt / généré.": "Hover a row for the prompt / generated breakdown.",
-    "Coût pondéré = input × 0,1 + output × 1.": "Weighted cost = input × 0.1 + output × 1.",
+    "Total = tokens prompt + générés.": "Total = prompt + generated tokens.",
     "Delta vs": "Delta vs",
+    "tokens au total": "tokens total",
     "tokens prompt": "prompt tokens",
-    "générés → coût pondéré": "generated → weighted cost",
     "générés": "generated",
     "généré": "generated",
     "coût pondéré": "weighted cost",

@@ -1566,7 +1566,11 @@ def admin_get_user_consumption():
     for uname, c in counts.items():
         users.setdefault(uname, {'username': uname, 'spend': 0, 'max_budget': 0,
                                  'unlimited': False, 'key_count': c})
-    return sorted(users.values(), key=lambda u: u['spend'], reverse=True)
+    # Vrais tokens consommés (prompt + généré) par compte, depuis SpendLogs.
+    toks = _real_tokens_by_user()
+    for uid, u in users.items():
+        u['tokens'] = toks.get(uid, 0)
+    return sorted(users.values(), key=lambda u: u['tokens'], reverse=True)
 
 
 # ── Statistiques de consommation (base LiteLLM Postgres) ─────────────────────
@@ -1586,6 +1590,30 @@ def _spend_conn():
         return conn
     except Exception:
         return None
+
+def _real_tokens_by_user():
+    """Vrais tokens cumulés (prompt + généré) par utilisateur, depuis SpendLogs —
+    à l'opposé de la colonne `spend` qui applique la pondération input×0,1."""
+    conn = _spend_conn()
+    if not conn:
+        return {}
+    try:
+        umap = _key_user_map(conn)
+        cur = conn.cursor()
+        cur.execute('SELECT api_key, SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
+                    'FROM "LiteLLM_SpendLogs" GROUP BY api_key')
+        out = {}
+        for api_key, toks in cur.fetchall():
+            if api_key in _NON_USER_KEYS:
+                continue
+            u = umap.get(api_key)
+            if u:
+                out[u] = out.get(u, 0) + int(toks or 0)
+        return out
+    except Exception:
+        return {}
+    finally:
+        conn.close()
 
 def _key_user_map(conn):
     """token(hash) -> username, depuis les métadonnées des clés (actives + supprimées)."""
@@ -1697,8 +1725,10 @@ def ranking_full(period='day', me=None):
         conn.close()
 
 def user_hourly(username):
-    """24 points horaires (coût pondéré) d'aujourd'hui pour l'utilisateur, + total,
-    pic horaire et nombre de clés actives dans la journée."""
+    """24 points horaires (vrais tokens consommés = prompt + généré) d'aujourd'hui
+    pour l'utilisateur, + total, pic horaire et nombre de clés actives dans la
+    journée. On affiche les tokens réels, pas le coût pondéré (input×0,1) qui
+    sous-estime la conso d'un facteur ~10 sur les charges à gros prompt."""
     conn = _spend_conn()
     if not conn:
         return None
@@ -1712,16 +1742,17 @@ def user_hourly(username):
         cur = conn.cursor()
         cur.execute(
             'SELECT EXTRACT(HOUR FROM (("startTime" AT TIME ZONE \'UTC\') AT TIME ZONE %s))::int AS h, '
-            'api_key, SUM(spend) FROM "LiteLLM_SpendLogs" '
+            'api_key, SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
+            'FROM "LiteLLM_SpendLogs" '
             'WHERE api_key = ANY(%s) '
             '  AND (("startTime" AT TIME ZONE \'UTC\') AT TIME ZONE %s)::date '
             '      = (now() AT TIME ZONE %s)::date '
             'GROUP BY h, api_key', (LOCAL_TZ, list(my_keys), LOCAL_TZ, LOCAL_TZ))
         by_hour = {h: 0 for h in range(24)}
         active = set()
-        for h, api_key, spend in cur.fetchall():
-            by_hour[h] += (spend or 0)
-            if spend:
+        for h, api_key, toks in cur.fetchall():
+            by_hour[h] += (toks or 0)
+            if toks:
                 active.add(api_key)
         peak_hour = max(range(24), key=lambda h: by_hour[h])
         total = sum(by_hour.values())

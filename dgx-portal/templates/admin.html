@@ -264,7 +264,7 @@
           {% for u in spend_data %}
           <tr>
             <td class="text-white">{{ u.username or '—' }}</td>
-            <td>{{ "{:,.0f}".format(u.spend or 0).replace(',', ' ') }}</td>
+            <td>{{ "{:,.0f}".format(u.tokens or 0).replace(',', ' ') }}</td>
             <td>{% if u.unlimited %}<span class="badge bg-warning text-dark">∞</span>{% else %}<span class="text-warning">{{ "{:,.0f}".format(u.max_budget or 0).replace(',', ' ') }}</span>{% endif %}</td>
             <td class="text-secondary">{{ u.key_count }}</td>
           </tr>
@@ -408,7 +408,7 @@ function renderConsumption(users) {
     tdUser.textContent = u.username || '—';
 
     const tdSpend = document.createElement('td');
-    tdSpend.textContent = fmt(u.spend);
+    tdSpend.textContent = fmt(u.tokens);
 
     const tdBudget = document.createElement('td');
     if (u.unlimited) {

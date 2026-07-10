@@ -6,7 +6,7 @@
     <div class="page-head">
       <div>
         <h1 class="page-head-title">Classement</h1>
-        <p class="page-head-sub">Qui consomme le plus, en coût pondéré (les tokens du prompt comptent 10× moins que ceux générés).</p>
+        <p class="page-head-sub">Qui consomme le plus, en tokens réellement consommés (prompt + généré).</p>
       </div>
       <div class="btn-group" role="group">
         <a href="/ranking?period=day"   class="btn btn-sm {{ 'btn-success' if period=='day'   else 'btn-outline-secondary' }}">Jour</a>
@@ -30,7 +30,7 @@
         {% if rows %}
           {% for r in rows %}
           <div class="rank-row {% if r.is_me %}me{% endif %}"
-               title="{{ '{:,.0f}'.format(r.prompt).replace(',', ' ') }} tokens prompt · {{ '{:,.0f}'.format(r.completion).replace(',', ' ') }} générés → coût pondéré {{ '{:,.0f}'.format(r.spend).replace(',', ' ') }}">
+               title="{{ '{:,.0f}'.format(r.prompt).replace(',', ' ') }} tokens prompt · {{ '{:,.0f}'.format(r.completion).replace(',', ' ') }} générés = {{ '{:,.0f}'.format(r.tokens).replace(',', ' ') }} tokens au total">
             <div class="rank-num">
               {% if r.rank == 1 %}🥇{% elif r.rank == 2 %}🥈{% elif r.rank == 3 %}🥉{% else %}{{ r.rank }}{% endif %}
             </div>
@@ -48,7 +48,7 @@
             </svg>
             {% else %}<span></span>{% endif %}
             <div class="rank-right">
-              <div class="rank-val">{{ "{:,.0f}".format(r.spend).replace(',', ' ') }}</div>
+              <div class="rank-val">{{ "{:,.0f}".format(r.tokens).replace(',', ' ') }}</div>
               <div class="rank-delta {{ 'up' if r.delta is not none and r.delta >= 0 else ('down' if r.delta is not none else '') }}">
                 {% if r.delta is none %}<span class="text-secondary">nouveau</span>
                 {% else %}{{ "{:+.0f}".format(r.delta) }}%{% endif %}
@@ -57,7 +57,7 @@
           </div>
           {% endfor %}
           <div class="text-secondary small mt-3">
-            <i class="bi bi-info-circle"></i> Delta vs {{ prev_label }}. Survole une ligne pour le détail prompt / généré. Coût pondéré = input × 0,1 + output × 1.
+            <i class="bi bi-info-circle"></i> Delta vs {{ prev_label }}. Survole une ligne pour le détail prompt / généré. Total = tokens prompt + générés.
           </div>
         {% else %}
           <div class="empty-state">

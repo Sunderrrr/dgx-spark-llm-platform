@@ -1063,7 +1063,7 @@ SUPPORT_FAQ = (
     "- Plateforme IA interne et GRATUITE (pas de facturation, pas de plan payant).\n"
     "- API compatible OpenAI. Endpoint public : configuré dans « Mes clés API ».\n"
     "- Budget PAR COMPTE, partagé par toutes les clés d'un même utilisateur, "
-    "réinitialisé chaque jour. Pondération : 1 token de prompt = 0,1 ; 1 token généré = 1.\n"
+    "réinitialisé chaque jour. Le quota compte les vrais tokens : 1 token de prompt = 1, 1 token généré = 1.\n"
     "- Obtenir plus de budget : demande envoyée à un admin (bouton « Demander plus de "
     "tokens » ou via toi, Cronos). Un admin valide.\n"
     "- Demander un nouveau modèle : via la page « Demander un modèle » (identifiant "
@@ -1141,7 +1141,7 @@ def _support_context(username, is_admin, user_msg=''):
         lines.append("Budget du compte : illimité (admin).")
     elif acct['exists'] and acct['max_budget'] is not None:
         s, b = acct['spend'] or 0, acct['max_budget']
-        lines.append(("Budget du compte : {:,.0f} / {:,.0f} tokens pondérés utilisés"
+        lines.append(("Budget du compte : {:,.0f} / {:,.0f} tokens utilisés"
                       .format(s, b)).replace(',', ' ')
                      + (f" (reset {acct['budget_reset_at'][:10]})" if acct['budget_reset_at'] else ""))
     keys = get_user_keys(username)
@@ -1574,8 +1574,9 @@ def admin_get_user_consumption():
 
 
 # ── Statistiques de consommation (base LiteLLM Postgres) ─────────────────────
-# La colonne SpendLogs.spend applique déjà la pondération input×0.1 + output×1
-# (= "coût pondéré" / budget). startTime est en UTC → converti en LOCAL_TZ.
+# Le tarif est désormais 1:1 (input=1, output=1) → SpendLogs.spend ≈ vrais tokens
+# pour les requêtes récentes. On somme malgré tout prompt_tokens+completion_tokens
+# directement : exact même pour l'historique tarifé à input×0,1. startTime UTC → LOCAL_TZ.
 
 # Pseudo-clés qui ne correspondent pas à un utilisateur (appels admin/health).
 _NON_USER_KEYS = {'litellm_proxy_master_key', 'None', ''}
@@ -2052,7 +2053,7 @@ def _register_litellm_model(name, vllm_args):
             "model": f"openai/{name}",
             "api_base": VLLM_API_BASE,
             "api_key": "dummy",
-            "input_cost_per_token": 0.1,
+            "input_cost_per_token": 1,
             "output_cost_per_token": 1,
         },
         "model_info": {

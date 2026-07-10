@@ -36,7 +36,7 @@
         <div class="d-flex align-items-center justify-content-between mb-1">
           <div class="small"><i class="bi bi-wallet2 text-success"></i>
             Budget du <strong class="text-white">compte</strong> — partagé par toutes tes clés
-            <span class="text-secondary">/ {{ budget_duration }} (les tokens du prompt comptent 10× moins)</span>
+            <span class="text-secondary">/ {{ budget_duration }} (vrais tokens : prompt + généré)</span>
           </div>
           <div class="small text-secondary">
             {{ "{:,.0f}".format(spent).replace(',', ' ') }} / {{ "{:,.0f}".format(budget).replace(',', ' ') }} tokens

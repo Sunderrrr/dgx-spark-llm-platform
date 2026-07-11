@@ -1566,8 +1566,13 @@ def admin_get_user_consumption():
     for uname, c in counts.items():
         users.setdefault(uname, {'username': uname, 'spend': 0, 'max_budget': 0,
                                  'unlimited': False, 'key_count': c})
-    # Vrais tokens consommés (prompt + généré) par compte, depuis SpendLogs.
-    toks = _real_tokens_by_user()
+    # Vrais tokens consommés (prompt + généré) sur la période du budget en cours.
+    # Le budget est journalier et se réinitialise à 00:00 UTC → on ne compte que
+    # depuis le début de la journée UTC, pour que « consommé » soit comparable au
+    # « budget / jour » (sinon on affichait le cumul depuis toujours > budget).
+    day_start = (datetime.now(ZoneInfo('UTC'))
+                 .replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None))
+    toks = _real_tokens_by_user(day_start)
     for uid, u in users.items():
         u['tokens'] = toks.get(uid, 0)
     return sorted(users.values(), key=lambda u: u['tokens'], reverse=True)
@@ -1592,17 +1597,24 @@ def _spend_conn():
     except Exception:
         return None
 
-def _real_tokens_by_user():
-    """Vrais tokens cumulés (prompt + généré) par utilisateur, depuis SpendLogs —
-    à l'opposé de la colonne `spend` qui applique la pondération input×0,1."""
+def _real_tokens_by_user(since_utc=None):
+    """Vrais tokens (prompt + généré) par utilisateur, depuis SpendLogs. Si
+    `since_utc` (datetime UTC naïf) est fourni, ne compte que depuis cet instant —
+    utilisé pour aligner la conso affichée sur la période du budget (journalier)."""
     conn = _spend_conn()
     if not conn:
         return {}
     try:
         umap = _key_user_map(conn)
         cur = conn.cursor()
-        cur.execute('SELECT api_key, SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
-                    'FROM "LiteLLM_SpendLogs" GROUP BY api_key')
+        q = ('SELECT api_key, SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
+             'FROM "LiteLLM_SpendLogs"')
+        params = []
+        if since_utc is not None:
+            q += ' WHERE "startTime" >= %s'
+            params.append(since_utc)
+        q += ' GROUP BY api_key'
+        cur.execute(q, params)
         out = {}
         for api_key, toks in cur.fetchall():
             if api_key in _NON_USER_KEYS:

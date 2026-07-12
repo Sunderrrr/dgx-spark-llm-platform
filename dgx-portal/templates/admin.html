@@ -465,10 +465,14 @@ setInterval(refreshConsumption, 8000);
   function render(st, model, pid) {
     var stopForm = (st === 'running' || st === 'starting')
       ? '<form method="POST" action="/admin/model/stop" onsubmit="return confirm(\'Arrêter le modèle ?\')">'
-        + '<input type="hidden" name="csrf_token" value="' + esc(csrf) + '">'
+        + '<input type="hidden" name="csrf_token">'
         + '<button class="btn btn-danger btn-sm"><i class="bi bi-stop-circle"></i> Arrêter</button></form>'
       : '';
     box.innerHTML = '<div>' + badge(st, model, pid) + '</div>' + stopForm;
+    // Le token CSRF est posé via le DOM (jamais concaténé dans une chaîne
+    // d'attribut) → aucun risque d'échappement d'attribut.
+    var tokInput = box.querySelector('input[name="csrf_token"]');
+    if (tokInput) tokInput.value = csrf;
   }
   function poll() {
     fetch('/system/stats').then(function(r){ return r.ok ? r.json() : null; }).then(function(d){

@@ -95,6 +95,13 @@
             <div class="metric-value" style="font-size:16px"><span id="mh-tps">{{ modelhealth.tps if modelhealth.tps is not none else '—' }}</span> <span class="unit">tok/s</span></div>
           </div>
           <div>
+            <div class="metric-label"><i class="bi bi-people-fill"></i> Sessions occupées</div>
+            <div class="d-flex align-items-center gap-2 mt-1">
+              <div class="metric-value" style="font-size:16px"><span id="mh-sess">{{ modelhealth.running or 0 }}</span> / <span id="mh-sess-max">{{ modelhealth.max_seqs if modelhealth.max_seqs is not none else '—' }}</span></div>
+              <span class="slot-dots" id="mh-slots" data-run="{{ modelhealth.running or 0 }}" data-max="{{ modelhealth.max_seqs or 0 }}"></span>
+            </div>
+          </div>
+          <div>
             <div class="metric-label">En cours / file</div>
             <div class="metric-value" style="font-size:16px"><span id="mh-load">{{ modelhealth.running or 0 }} / {{ modelhealth.waiting or 0 }}</span></div>
           </div>
@@ -382,10 +389,26 @@
       set('mh-load', (mh.running || 0) + ' / ' + (mh.waiting || 0));
       set('mh-ttft', mh.ttft != null ? mh.ttft : '—');
       set('mh-req', mh.requests || 0);
+      set('mh-sess', mh.running || 0);
+      set('mh-sess-max', mh.max_seqs != null ? mh.max_seqs : '—');
+      renderSlots(mh.running || 0, mh.max_seqs || 0);
       var up = document.getElementById('mh-up');
       if (up) { up.textContent = mh.up ? 'en ligne' : 'arrêté'; up.className = 'badge ' + (mh.up ? 'bg-success' : 'bg-secondary'); }
     }
   }
+  function renderSlots(run, max) {
+    var el = document.getElementById('mh-slots');
+    if (!el) return;
+    if (!max) { el.innerHTML = ''; return; }
+    run = Math.max(0, Math.min(run, max));
+    var html = '';
+    for (var i = 0; i < max; i++) html += '<span class="slot-dot' + (i < run ? ' on' : '') + '"></span>';
+    el.innerHTML = html;
+  }
+  (function () {
+    var el = document.getElementById('mh-slots');
+    if (el) renderSlots(parseInt(el.dataset.run || 0, 10), parseInt(el.dataset.max || 0, 10));
+  })();
   setInterval(function () {
     fetch('/system/stats').then(function (r) { return r.ok ? r.json() : null; }).then(apply).catch(function () {});
   }, 8000);

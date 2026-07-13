@@ -114,6 +114,20 @@
             <div class="metric-value" style="font-size:16px"><span id="mh-req">{{ modelhealth.requests or 0 }}</span></div>
           </div>
         </div>
+        {% if session.is_admin %}
+        <hr style="border-color:var(--border);margin:1rem 0 .8rem">
+        <div class="metric-label"><i class="bi bi-person-lines-fill"></i> Qui utilise le modèle
+          <span class="text-secondary" style="text-transform:none;letter-spacing:0">· 2 dernières min · visible admin uniquement</span></div>
+        <div id="active-users" class="d-flex flex-wrap gap-2 mt-2">
+          {% if active_users %}
+            {% for u in active_users %}
+            <span class="user-chip">{{ u.username }} <span class="uc-meta">{{ u.requests }} req · {{ "{:,.0f}".format(u.tokens).replace(',', ' ') }} tok</span></span>
+            {% endfor %}
+          {% else %}
+            <span class="text-secondary small">Personne n'utilise le modèle en ce moment.</span>
+          {% endif %}
+        </div>
+        {% endif %}
         {% endif %}
       </div>
     </div>
@@ -395,6 +409,20 @@
       var up = document.getElementById('mh-up');
       if (up) { up.textContent = mh.up ? 'en ligne' : 'arrêté'; up.className = 'badge ' + (mh.up ? 'bg-success' : 'bg-secondary'); }
     }
+    if (d.active_users !== undefined) renderActiveUsers(d.active_users);
+  }
+  function fmtTok(n){ return Math.round(n||0).toLocaleString('fr-FR').replace(/ /g,' '); }
+  function renderActiveUsers(list) {
+    var el = document.getElementById('active-users');
+    if (!el) return;
+    if (!list || !list.length) {
+      el.innerHTML = '<span class="text-secondary small">Personne n\'utilise le modèle en ce moment.</span>';
+      return;
+    }
+    el.innerHTML = list.map(function (u) {
+      return '<span class="user-chip">' + esc(u.username)
+        + ' <span class="uc-meta">' + (u.requests || 0) + ' req · ' + fmtTok(u.tokens) + ' tok</span></span>';
+    }).join('');
   }
   function renderSlots(run, max) {
     var el = document.getElementById('mh-slots');

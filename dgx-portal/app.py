@@ -971,6 +971,7 @@ def index():
                            public_api_url=PUBLIC_API_URL, usage=user_hourly(session['username']),
                            sysmetrics=runner_metrics(),
                            modelhealth=vllm_health(),
+                           active_users=_active_users() if session.get('is_admin') else None,
                            budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
                            budget_duration=get_setting('default_key_duration', KEY_DURATION))
 
@@ -1641,6 +1642,37 @@ def _real_tokens_by_user(since_utc=None):
     finally:
         conn.close()
 
+def _active_users(window_s=120):
+    """Utilisateurs ayant sollicité le modèle dans les `window_s` dernières secondes
+    (depuis SpendLogs). Sert le panneau admin « qui utilise le modèle » sur l'accueil.
+    NB : SpendLogs n'écrit qu'à la fin d'une requête → c'est l'activité récente, pas
+    strictement les requêtes en vol."""
+    conn = _spend_conn()
+    if not conn:
+        return []
+    try:
+        umap = _key_user_map(conn)
+        cur = conn.cursor()
+        since = datetime.now(ZoneInfo('UTC')).replace(tzinfo=None) - timedelta(seconds=window_s)
+        cur.execute('SELECT api_key, COUNT(*), '
+                    'SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
+                    'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s GROUP BY api_key', (since,))
+        agg = {}
+        for api_key, cnt, toks in cur.fetchall():
+            if api_key in _NON_USER_KEYS:
+                continue
+            u = umap.get(api_key)
+            if not u:
+                continue
+            a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0})
+            a['requests'] += int(cnt or 0)
+            a['tokens'] += int(toks or 0)
+        return sorted(agg.values(), key=lambda x: x['requests'], reverse=True)
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
 def _key_user_map(conn):
     """token(hash) -> username, depuis les métadonnées des clés (actives + supprimées)."""
     mapping = {}
@@ -1807,6 +1839,7 @@ def system_stats():
     data['running'] = get_running_models()
     if session.get('is_admin'):
         data['runner'] = runner_status()
+        data['active_users'] = _active_users()
     return jsonify(data)
 
 @app.route('/admin/consumption')

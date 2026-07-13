@@ -348,6 +348,11 @@
                  color:var(--accent); background:var(--surface); border:1px solid var(--accent);
                  border-radius:7px; padding:.12rem .55rem; word-break:break-all; }
     .ann-sub { color:var(--text-faint); font-size:.8rem; margin-top:.4rem; }
+    /* Slots de sessions concurrentes (accueil) */
+    .slot-dots { display:inline-flex; gap:3px; flex-wrap:wrap; max-width:130px; }
+    .slot-dot { width:9px; height:9px; border-radius:50%; background:var(--surface-hover);
+                border:1px solid var(--border); transition:background .3s, border-color .3s; }
+    .slot-dot.on { background:var(--accent); border-color:var(--accent); }
   </style>
 </head>
 <body>

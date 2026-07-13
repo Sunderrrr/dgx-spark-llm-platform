@@ -60,6 +60,7 @@ FR_TO_EN = {
     "État du serveur": "Server status",
     "Modèle actif": "Active model",
     "Débit": "Throughput",
+    "Sessions occupées": "Sessions in use",
     "En cours / file": "Running / queued",
     "Requêtes servies": "Requests served",
     "Mon utilisation": "My usage",

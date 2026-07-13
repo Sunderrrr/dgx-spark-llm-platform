@@ -592,12 +592,25 @@ def _vllm_health_uncached():
     _vllm_tps.update(t=now, gen=gen)
     ttft_sum = _prom_sum(text, 'vllm:time_to_first_token_seconds_sum') or 0.0
     ttft_cnt = _prom_sum(text, 'vllm:time_to_first_token_seconds_count') or 0.0
+    # Nombre de slots de génération concurrents du modèle actif (--max-num-seqs) →
+    # « X / N sessions occupées » sur l'accueil.
+    max_seqs = None
+    try:
+        row = get_db().execute("SELECT vllm_args FROM model_configs WHERE name=?",
+                               (running[0],)).fetchone()
+        if row:
+            ms = re.search(r'--max-num-seqs\s+(\d+)', row['vllm_args'] or '')
+            if ms:
+                max_seqs = int(ms.group(1))
+    except Exception:
+        pass
     return {
         'up': True,
         'model': running[0],
         'metrics': True,
         'running': int(_prom_sum(text, 'vllm:num_requests_running') or 0),
         'waiting': int(_prom_sum(text, 'vllm:num_requests_waiting') or 0),
+        'max_seqs': max_seqs,
         'tps': round(tps, 1) if tps is not None else None,
         'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else None,
         'requests': int(_prom_sum(text, 'vllm:request_success_total') or 0),

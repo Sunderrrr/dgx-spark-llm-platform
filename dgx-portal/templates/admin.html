@@ -138,10 +138,16 @@
       </div>
     </div>
 
-    <!-- Logs vLLM -->
+    <!-- Logs du modèle actif (le runner ne garde que ceux du process en cours) -->
     <div class="card">
       <div class="card-header d-flex align-items-center justify-content-between text-secondary small">
-        <span><i class="bi bi-terminal text-success"></i> Logs vLLM</span>
+        <span><i class="bi bi-terminal text-success"></i> Logs —
+          <span id="log-model" class="text-white">{{ v_status.model or 'aucun modèle' }}</span>
+          {% if v_status.engine == 'llamacpp' %}<span id="log-engine" class="badge" style="background:rgba(74,158,255,.16);color:var(--info);font-size:.62rem">llama.cpp</span>
+          {% elif v_status.engine == 'ds4' %}<span id="log-engine" class="badge" style="background:rgba(232,161,58,.16);color:var(--warn);font-size:.62rem">ds4</span>
+          {% elif v_status.engine %}<span id="log-engine" class="badge" style="background:var(--accent-soft);color:var(--accent);font-size:.62rem">vLLM</span>
+          {% else %}<span id="log-engine"></span>{% endif %}
+        </span>
         <div class="d-flex align-items-center gap-2">
           <div class="form-check form-switch mb-0 me-1">
             <input class="form-check-input" type="checkbox" id="autoscroll" checked>
@@ -488,13 +494,30 @@ setInterval(refreshConsumption, 8000);
     var tokInput = box.querySelector('input[name="csrf_token"]');
     if (tokInput) tokInput.value = csrf;
   }
+  var ENGINE_BADGE = {
+    llamacpp: ['llama.cpp', 'rgba(74,158,255,.16)', 'var(--info)'],
+    ds4:      ['ds4', 'rgba(232,161,58,.16)', 'var(--warn)'],
+    vllm:     ['vLLM', 'var(--accent-soft)', 'var(--accent)'],
+  };
+  function setLogHeader(model, engine) {
+    var lm = document.getElementById('log-model');
+    if (lm) lm.textContent = model || 'aucun modèle';
+    var le = document.getElementById('log-engine');
+    if (le) {
+      var b = ENGINE_BADGE[engine];
+      if (b) { le.className = 'badge'; le.style.cssText = 'background:'+b[1]+';color:'+b[2]+';font-size:.62rem'; le.textContent = b[0]; }
+      else { le.className = ''; le.textContent = ''; }
+    }
+  }
   function poll() {
     fetch('/system/stats').then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
       if (!d || !d.runner) return;
-      var st = d.runner.status, model = d.runner.model || '', pid = d.runner.pid || '';
+      var st = d.runner.status, model = d.runner.model || '', pid = d.runner.pid || '',
+          engine = d.runner.engine || (d.model && d.model.engine) || '';
       if (st === box.dataset.status && model === box.dataset.model && String(pid) === box.dataset.pid) return;
       box.dataset.status = st; box.dataset.model = model; box.dataset.pid = String(pid);
       render(st, model, pid);
+      setLogHeader(model, engine);
     }).catch(function(){});
   }
   setInterval(poll, 8000);

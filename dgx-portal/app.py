@@ -614,16 +614,35 @@ def _vllm_health_uncached():
         'requests': int(_prom_sum(text, 'vllm:request_success_total') or 0),
     }
 
-def search_hf_models(query, task='text-generation'):
+# Tag HF porté par les modèles réellement testés sur DGX Spark / GB10.
+GB10_TAG = 'gb10'
+
+def guess_engine(model):
+    """Moteur nécessaire pour servir ce modèle, déduit de ses tags HF.
+    GGUF → llama.cpp ; poids safetensors (NVFP4/FP8/BF16) → vLLM."""
+    tags = {t.lower() for t in (model.get('tags') or [])}
+    if 'gguf' in tags:
+        return 'llamacpp'
+    return 'vllm'
+
+def search_hf_models(query, task='text-generation', gb10_only=True):
+    """Recherche HF. Par défaut, restreinte aux modèles tagués `gb10` — c'est-à-dire
+    ceux réellement testés sur DGX Spark. Plusieurs `filter` = ET côté API HF."""
+    filters = [task] if task else []
+    if gb10_only:
+        filters.append(GB10_TAG)
     try:
         r = requests.get(
             'https://huggingface.co/api/models',
-            params={'search': query, 'filter': task, 'limit': 24,
+            params={'search': query, 'filter': filters, 'limit': 24,
                     'sort': 'downloads', 'direction': -1},
             timeout=8
         )
         if r.ok:
-            return r.json()
+            out = r.json()
+            for m in out:
+                m['engine'] = guess_engine(m)
+            return out
     except Exception:
         pass
     return []
@@ -1500,8 +1519,12 @@ def playground_chat():
 def search():
     query = request.args.get('q', '').strip()
     task  = request.args.get('task', 'text-generation')
-    results = search_hf_models(query, task) if query else []
-    return render_template('search.html', results=results, query=query, task=task)
+    # Filtre GB10 actif par défaut (décoché = on élargit à tout HF).
+    gb10 = request.args.get('all') != '1'
+    # Avec le filtre GB10 le vivier est petit : on affiche le top même sans requête.
+    results = search_hf_models(query, task, gb10_only=gb10) if (query or gb10) else []
+    return render_template('search.html', results=results, query=query, task=task,
+                           gb10_only=gb10)
 
 @app.route('/ranking')
 @login_required

@@ -275,6 +275,17 @@ FR_TO_EN = {
     "Aucun résultat pour": "No result for",
     "Demander": "Request",
 
+    # ── Search (search.html) ──────────────────────────────────────────────
+    "Tout Hugging Face": "All of Hugging Face",
+    "Seuls les modèles": "Only models",
+    "testés sur DGX Spark / GB10": "tested on DGX Spark / GB10",
+    "sont affichés.": "are shown.",
+    "Décoche pour élargir à tout Hugging Face.": "Uncheck to widen to all of Hugging Face.",
+    "Recherche élargie à tout Hugging Face —": "Search widened to all of Hugging Face —",
+    "ces modèles ne sont": "these models are",
+    "pas garantis": "not guaranteed",
+    "de tourner sur le GB10.": "to run on the GB10.",
+
     # ── Ranking (ranking.html) ────────────────────────────────────────────
     "Qui consomme le plus, en tokens réellement consommés (prompt + généré).":
         "Who consumes the most, by tokens actually consumed (prompt + generated).",

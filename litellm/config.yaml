@@ -13,19 +13,6 @@ model_list:
       max_input_tokens: 262144
       max_output_tokens: 65536
 
-  - model_name: qwen3-coder-30b
-    litellm_params:
-      model: openai/qwen3-coder-30b
-      api_base: http://host.docker.internal:8000/v1
-      api_key: dummy
-      input_cost_per_token: 1
-      output_cost_per_token: 1
-    model_info:
-      mode: chat
-      supports_function_calling: true
-      # --max-model-len 32768 (32K) côté vLLM
-      max_input_tokens: 32768
-      max_output_tokens: 8192
   # Les modèles ajoutés depuis le portail (validation d'une demande ou ajout manuel)
   # sont enregistrés à chaud dans la DB via /model/new — pas besoin de les lister ici.
 

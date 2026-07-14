@@ -502,11 +502,15 @@ def runner_status():
     return {'status': 'unreachable', 'model': None, 'pid': None}
 
 def runner_launch(hf_model_id, model_name, vllm_args=''):
+    # Timeout long : quand un modèle tourne déjà, le runner attend que le driver
+    # rende la mémoire unifiée avant de spawner le nouveau (anti-OOM). /launch peut
+    # donc mettre ~10-60 s à répondre — un timeout court ferait croire à un échec
+    # alors que le lancement est bien parti.
     try:
         r = requests.post(f"{RUNNER_URL}/launch",
                           headers=_runner_headers(),
                           json={'hf_model_id': hf_model_id, 'model_name': model_name, 'vllm_args': vllm_args},
-                          timeout=5)
+                          timeout=90)
         return r.ok
     except Exception:
         return False

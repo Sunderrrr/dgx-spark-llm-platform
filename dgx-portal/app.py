@@ -680,6 +680,21 @@ def max_seqs_of(args, engine='vllm'):
         return 1
     return _arg_int(args, _SEQS_FLAG.get(engine or 'vllm', 'max-num-seqs'))
 
+def effective_ctx(args, engine='vllm'):
+    """Contexte réel utilisable PAR REQUÊTE (c'est ce qu'on annonce au client :
+    LiteLLM, OpenCode, anneau du Playground).
+
+    Attention llama.cpp : --ctx-size est le contexte TOTAL réparti entre les slots,
+    donc une requête ne dispose que de ctx-size ÷ --parallel. vLLM/ds4 : --max-model-len
+    / --ctx sont déjà par requête."""
+    ctx = ctx_of(args, engine)
+    if ctx is None:
+        return None
+    if engine == 'llamacpp':
+        par = _arg_int(args, 'parallel', 1) or 1
+        return ctx // par
+    return ctx
+
 def search_hf_models(query, task='text-generation', gb10_only=True):
     """Recherche HF. Par défaut, restreinte aux modèles tagués `gb10` — c'est-à-dire
     ceux réellement testés sur DGX Spark. Plusieurs `filter` = ET côté API HF."""
@@ -1127,13 +1142,12 @@ def keys():
             "SELECT 1 FROM budget_requests WHERE username=? AND status='pending'",
             (session['username'],)).fetchone()),
     }
-    # Limites de contexte par modèle (déduites de --max-model-len), pour les snippets
+    # Limites de contexte par requête (selon le moteur), pour les snippets
     # d'intégration qui déclarent la fenêtre côté client (OpenCode/OpenChamber).
     model_limits = {}
-    for row in get_db().execute("SELECT name, vllm_args FROM model_configs"):
-        mm = re.search(r'--max-model-len\s+(\d+)', row['vllm_args'] or '')
-        if mm:
-            ctx = int(mm.group(1))
+    for row in get_db().execute("SELECT name, vllm_args, engine FROM model_configs"):
+        ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
+        if ctx:
             model_limits[row['name']] = {'context': ctx, 'output': min(ctx // 2, 262144)}
     return render_template('keys.html', user_keys=user_keys, new_key_alias=new_key_alias,
                            budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
@@ -1252,10 +1266,9 @@ def _support_context(username, is_admin, user_msg=''):
     # ── Catalogue des modèles lançables ──
     running = set(get_running_models())
     cat = []
-    for row in db.execute("SELECT name, vllm_args FROM model_configs ORDER BY name"):
-        mm = re.search(r'--max-model-len\s+(\d+)', row['vllm_args'] or '')
-        ctx = int(mm.group(1)) if mm else None
-        has_tools = '--tool-call-parser' in (row['vllm_args'] or '')
+    for row in db.execute("SELECT name, vllm_args, engine FROM model_configs ORDER BY name"):
+        ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
+        has_tools = '--tool-call-parser' in (row['vllm_args'] or '') or '--jinja' in (row['vllm_args'] or '')
         flag = " [ACTIF]" if row['name'] in running else ""
         cat.append("  - {}{} : contexte {}, tool-calling {}".format(
             row['name'], flag,
@@ -1495,12 +1508,12 @@ def support_chat():
 @app.route('/playground')
 @login_required
 def playground():
-    # Fenêtre de contexte par modèle (déduite de --max-model-len) → anneau d'usage.
+    # Fenêtre de contexte par requête (selon le moteur) → anneau d'usage.
     model_limits = {}
-    for row in get_db().execute("SELECT name, vllm_args FROM model_configs"):
-        mm = re.search(r'--max-model-len\s+(\d+)', row['vllm_args'] or '')
-        if mm:
-            model_limits[row['name']] = int(mm.group(1))
+    for row in get_db().execute("SELECT name, vllm_args, engine FROM model_configs"):
+        ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
+        if ctx:
+            model_limits[row['name']] = ctx
     return render_template('playground.html', running_models=get_running_models(),
                            model_limits=model_limits)
 
@@ -2190,7 +2203,7 @@ def _register_litellm_model(name, vllm_args, engine='vllm'):
     Les deux servent une API OpenAI sur :8000 → mêmes litellm_params."""
     if not LITELLM_KEY:
         return False
-    ctx = ctx_of(vllm_args, engine) or 32768
+    ctx = effective_ctx(vllm_args, engine) or 32768
     # ds4 part en mode « thinking » par défaut : il IGNORE alors max_tokens
     # (« client sampling knobs are ignored like the official API ») et génère des
     # milliers de tokens à ~10 tok/s. Comme le moteur est mono-slot, une seule

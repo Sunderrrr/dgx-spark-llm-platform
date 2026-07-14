@@ -138,7 +138,7 @@ def _mem_available_gib():
     return None
 
 
-def _wait_mem_release(timeout=120, settle=4.0):
+def _wait_mem_release(timeout=60, settle=4.0):
     """Attend que la mémoire du modèle précédent soit réellement rendue.
 
     Le driver ne récupère pas la mémoire unifiée instantanément à la mort du

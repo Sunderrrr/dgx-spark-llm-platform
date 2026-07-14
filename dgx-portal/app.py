@@ -195,6 +195,7 @@ def init_db():
             name        TEXT NOT NULL UNIQUE,
             hf_model_id TEXT NOT NULL,
             vllm_args   TEXT DEFAULT '',
+            engine      TEXT NOT NULL DEFAULT 'vllm',   -- 'vllm' | 'llamacpp'
             added_at    TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS settings (
@@ -241,6 +242,10 @@ def init_db():
             DROP TABLE api_keys;
             ALTER TABLE api_keys_new RENAME TO api_keys;
         ''')
+    # Migration : ajout du moteur d'inférence (vLLM historique, llama.cpp pour les GGUF)
+    cols = {r[1] for r in db.execute("PRAGMA table_info(model_configs)")}
+    if 'engine' not in cols:
+        db.execute("ALTER TABLE model_configs ADD COLUMN engine TEXT NOT NULL DEFAULT 'vllm'")
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
         ('default_key_budget', str(KEY_BUDGET))
@@ -501,7 +506,7 @@ def runner_status():
         pass
     return {'status': 'unreachable', 'model': None, 'pid': None}
 
-def runner_launch(hf_model_id, model_name, vllm_args=''):
+def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
     # Timeout long : quand un modèle tourne déjà, le runner attend que le driver
     # rende la mémoire unifiée avant de spawner le nouveau (anti-OOM). /launch peut
     # donc mettre ~10-60 s à répondre — un timeout court ferait croire à un échec
@@ -509,7 +514,8 @@ def runner_launch(hf_model_id, model_name, vllm_args=''):
     try:
         r = requests.post(f"{RUNNER_URL}/launch",
                           headers=_runner_headers(),
-                          json={'hf_model_id': hf_model_id, 'model_name': model_name, 'vllm_args': vllm_args},
+                          json={'hf_model_id': hf_model_id, 'model_name': model_name,
+                                'vllm_args': vllm_args, 'engine': engine or 'vllm'},
                           timeout=90)
         return r.ok
     except Exception:
@@ -574,44 +580,73 @@ def vllm_health():
     _vllm_health_cache.update(t=now, v=out)
     return out
 
+# Les deux moteurs exposent /metrics au format Prometheus, mais avec des noms
+# différents. On mappe les deux vers le même dictionnaire de santé.
+_METRIC_NAMES = {
+    'vllm': {
+        'gen':      'vllm:generation_tokens_total',
+        'running':  'vllm:num_requests_running',
+        'waiting':  'vllm:num_requests_waiting',
+        'requests': 'vllm:request_success_total',
+        'ttft_sum': 'vllm:time_to_first_token_seconds_sum',
+        'ttft_cnt': 'vllm:time_to_first_token_seconds_count',
+    },
+    'llamacpp': {
+        'gen':      'llamacpp:tokens_predicted_total',
+        'running':  'llamacpp:requests_processing',
+        'waiting':  'llamacpp:requests_deferred',
+        'requests': 'llamacpp:n_decode_total',
+        'ttft_sum': 'llamacpp:prompt_seconds_total',
+        'ttft_cnt': 'llamacpp:n_prompt_tokens_processed_total',
+    },
+}
+
 def _vllm_health_uncached():
     running = get_running_models()
     if not running:
         return {'up': False, 'model': None}
+    engine = 'vllm'
+    try:
+        row = get_db().execute("SELECT engine FROM model_configs WHERE name=?",
+                               (running[0],)).fetchone()
+        if row and row['engine']:
+            engine = row['engine']
+    except Exception:
+        pass
     try:
         text = requests.get(_VLLM_METRICS_URL, timeout=4).text
     except Exception:
-        return {'up': True, 'model': running[0], 'metrics': False}
-    gen = _prom_sum(text, 'vllm:generation_tokens_total') or 0.0
+        return {'up': True, 'model': running[0], 'engine': engine, 'metrics': False}
+    M = _METRIC_NAMES.get(engine, _METRIC_NAMES['vllm'])
+    gen = _prom_sum(text, M['gen']) or 0.0
     now = time.time()
     tps = None
     if _vllm_tps['t'] and now > _vllm_tps['t'] and gen >= _vllm_tps['gen']:
         tps = (gen - _vllm_tps['gen']) / (now - _vllm_tps['t'])
     _vllm_tps.update(t=now, gen=gen)
-    ttft_sum = _prom_sum(text, 'vllm:time_to_first_token_seconds_sum') or 0.0
-    ttft_cnt = _prom_sum(text, 'vllm:time_to_first_token_seconds_count') or 0.0
-    # Nombre de slots de génération concurrents du modèle actif (--max-num-seqs) →
-    # « X / N sessions occupées » sur l'accueil.
+    ttft_sum = _prom_sum(text, M['ttft_sum']) or 0.0
+    ttft_cnt = _prom_sum(text, M['ttft_cnt']) or 0.0
+    # Slots de génération concurrents du modèle actif (--max-num-seqs / --parallel)
+    # → « X / N sessions occupées » sur l'accueil.
     max_seqs = None
     try:
         row = get_db().execute("SELECT vllm_args FROM model_configs WHERE name=?",
                                (running[0],)).fetchone()
         if row:
-            ms = re.search(r'--max-num-seqs\s+(\d+)', row['vllm_args'] or '')
-            if ms:
-                max_seqs = int(ms.group(1))
+            max_seqs = max_seqs_of(row['vllm_args'], engine)
     except Exception:
         pass
     return {
         'up': True,
         'model': running[0],
+        'engine': engine,
         'metrics': True,
-        'running': int(_prom_sum(text, 'vllm:num_requests_running') or 0),
-        'waiting': int(_prom_sum(text, 'vllm:num_requests_waiting') or 0),
+        'running': int(_prom_sum(text, M['running']) or 0),
+        'waiting': int(_prom_sum(text, M['waiting']) or 0),
         'max_seqs': max_seqs,
         'tps': round(tps, 1) if tps is not None else None,
         'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else None,
-        'requests': int(_prom_sum(text, 'vllm:request_success_total') or 0),
+        'requests': int(_prom_sum(text, M['requests']) or 0),
     }
 
 # Tag HF porté par les modèles réellement testés sur DGX Spark / GB10.
@@ -624,6 +659,22 @@ def guess_engine(model):
     if 'gguf' in tags:
         return 'llamacpp'
     return 'vllm'
+
+# Les deux moteurs expriment contexte et concurrence avec des flags différents.
+_CTX_FLAG  = {'vllm': 'max-model-len', 'llamacpp': 'ctx-size'}
+_SEQS_FLAG = {'vllm': 'max-num-seqs',  'llamacpp': 'parallel'}
+
+def _arg_int(args, flag, default=None):
+    m = re.search(r'--' + re.escape(flag) + r'\s+(\d+)', args or '')
+    return int(m.group(1)) if m else default
+
+def ctx_of(args, engine='vllm'):
+    """Fenêtre de contexte configurée (--max-model-len ou --ctx-size)."""
+    return _arg_int(args, _CTX_FLAG.get(engine or 'vllm', 'max-model-len'))
+
+def max_seqs_of(args, engine='vllm'):
+    """Sessions concurrentes configurées (--max-num-seqs ou --parallel)."""
+    return _arg_int(args, _SEQS_FLAG.get(engine or 'vllm', 'max-num-seqs'))
 
 def search_hf_models(query, task='text-generation', gb10_only=True):
     """Recherche HF. Par défaut, restreinte aux modèles tagués `gb10` — c'est-à-dire
@@ -1341,11 +1392,12 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
             if not is_admin:
                 return "Action réservée aux admins."
             mname = (args.get('name') or '').strip()
-            cfg = db.execute("SELECT hf_model_id, name, vllm_args FROM model_configs WHERE name=?",
+            cfg = db.execute("SELECT hf_model_id, name, vllm_args, engine FROM model_configs WHERE name=?",
                              (mname,)).fetchone()
             if not cfg:
                 return f"Modèle « {mname} » introuvable dans le catalogue."
-            ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '')
+            ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
+                               cfg['engine'] or 'vllm')
             if ok:
                 _announce_launch(cfg['name'])
             return f"Lancement de « {mname} » demandé (démarrage en cours)." if ok else "Runner injoignable."
@@ -1901,10 +1953,12 @@ def launch_model():
     if not cfg:
         flash("Modèle introuvable.", "danger")
         return redirect(url_for('admin'))
-    ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '')
+    ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
+                       cfg['engine'] or 'vllm')
     if ok:
         _announce_launch(cfg['name'])
-    flash(f"Lancement de {name} en cours…" if ok else "Runner vLLM inaccessible.", "success" if ok else "danger")
+    flash(f"Lancement de {name} en cours…" if ok else "Runner inaccessible (ou moteur indisponible).",
+          "success" if ok else "danger")
     return redirect(url_for('admin'))
 
 @app.route('/api/announcements')
@@ -1953,20 +2007,24 @@ def stop_model():
 @app.route('/admin/model/add', methods=['POST'])
 @admin_required
 def add_model_cfg():
-    name  = re.sub(r'[^a-zA-Z0-9_-]', '-', request.form.get('name', '').strip())[:40]
-    hf_id = request.form.get('hf_model_id', '').strip()
-    args  = request.form.get('vllm_args', '').strip()
+    name   = re.sub(r'[^a-zA-Z0-9_-]', '-', request.form.get('name', '').strip())[:40]
+    hf_id  = request.form.get('hf_model_id', '').strip()
+    args   = request.form.get('vllm_args', '').strip()
+    engine = request.form.get('engine', 'vllm').strip().lower()
+    if engine not in ('vllm', 'llamacpp'):
+        engine = 'vllm'
     if not name or not hf_id:
         flash("Nom et HF model ID requis.", "warning")
         return redirect(url_for('admin'))
     db = get_db()
     try:
-        db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
-                   (name, hf_id, args, datetime.now().isoformat()))
+        db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, engine, added_at) "
+                   "VALUES (?,?,?,?,?)",
+                   (name, hf_id, args, engine, datetime.now().isoformat()))
         db.commit()
         add_announcement('model_add', name)
-        ok = _register_litellm_model(name, args)
-        flash(f"Modèle {name} ajouté et routé par LiteLLM." if ok
+        ok = _register_litellm_model(name, args, engine)
+        flash(f"Modèle {name} ajouté ({engine}) et routé par LiteLLM." if ok
               else f"Modèle {name} ajouté (⚠ enregistrement LiteLLM échoué).", "success" if ok else "warning")
     except sqlite3.IntegrityError:
         flash("Un modèle avec ce nom existe déjà.", "danger")
@@ -1979,9 +2037,9 @@ def edit_model_cfg(mid):
     db = get_db()
     db.execute("UPDATE model_configs SET vllm_args=? WHERE id=?", (args, mid))
     db.commit()
-    row = db.execute("SELECT name FROM model_configs WHERE id=?", (mid,)).fetchone()
+    row = db.execute("SELECT name, engine FROM model_configs WHERE id=?", (mid,)).fetchone()
     if row:
-        _register_litellm_model(row['name'], args)
+        _register_litellm_model(row['name'], args, row['engine'] or 'vllm')
     flash("Args du modèle mis à jour (routage LiteLLM rafraîchi).", "success")
     return redirect(url_for('admin'))
 
@@ -2101,6 +2159,9 @@ def admin_runner_stream():
 # Tool-calling activé par défaut (parser qwen3_coder = flotte Qwen). Pour un modèle
 # non-Qwen, ajuster --tool-call-parser (ex. hermes) depuis l'admin avant de lancer.
 DEFAULT_VLLM_ARGS = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 32768 --gpu-memory-utilization 0.7 --max-num-seqs 4"
+# llama.cpp : -ngl 999 = tout le modèle sur le GPU ; --jinja active les templates
+# de chat et le tool-calling ; --parallel = sessions concurrentes (équiv. max-num-seqs).
+DEFAULT_LLAMA_ARGS = "--ctx-size 32768 --n-gpu-layers 999 --parallel 4 --flash-attn --jinja"
 
 def _model_slug(hf_id):
     base = (hf_id or '').split('/')[-1]
@@ -2119,13 +2180,13 @@ def _litellm_model_id(name):
         pass
     return None
 
-def _register_litellm_model(name, vllm_args):
-    """Enregistre (ou rafraîchit) le modèle dans LiteLLM à chaud. La sortie et le
-    contexte sont déduits de --max-model-len, comme les snippets d'intégration."""
+def _register_litellm_model(name, vllm_args, engine='vllm'):
+    """Enregistre (ou rafraîchit) le modèle dans LiteLLM à chaud. Le contexte est
+    déduit des args du moteur (--max-model-len pour vLLM, --ctx-size pour llama.cpp).
+    Les deux servent une API OpenAI sur :8000 → mêmes litellm_params."""
     if not LITELLM_KEY:
         return False
-    mm = re.search(r'--max-model-len\s+(\d+)', vllm_args or '')
-    ctx = int(mm.group(1)) if mm else 32768
+    ctx = ctx_of(vllm_args, engine) or 32768
     body = {
         "model_name": name,
         "litellm_params": {
@@ -2164,9 +2225,20 @@ def _unregister_litellm_model(name):
         except Exception:
             pass
 
+def hf_engine_for(hf_id):
+    """Interroge le Hub pour savoir si le modèle est en GGUF (→ llama.cpp) ou en
+    safetensors (→ vLLM). En cas d'échec réseau, on retombe sur vLLM."""
+    try:
+        r = requests.get(f'https://huggingface.co/api/models/{hf_id}', timeout=6)
+        if r.ok:
+            return guess_engine(r.json())
+    except Exception:
+        pass
+    return 'vllm'
+
 def _add_model_to_catalog(db, hf_id):
     """Ajoute un modèle validé au catalogue lançable (nom unique). Retourne
-    (nom, déjà_présent)."""
+    (nom, déjà_présent). Le moteur est déduit des tags HF."""
     row = db.execute("SELECT name FROM model_configs WHERE hf_model_id=?", (hf_id,)).fetchone()
     if row:
         return row['name'], True
@@ -2175,8 +2247,11 @@ def _add_model_to_catalog(db, hf_id):
     n = 2
     while db.execute("SELECT 1 FROM model_configs WHERE name=?", (name,)).fetchone():
         name = f"{base}-{n}"; n += 1
-    db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
-               (name, hf_id, DEFAULT_VLLM_ARGS, datetime.now().isoformat()))
+    engine = hf_engine_for(hf_id)
+    args = DEFAULT_LLAMA_ARGS if engine == 'llamacpp' else DEFAULT_VLLM_ARGS
+    db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, engine, added_at) "
+               "VALUES (?,?,?,?,?)",
+               (name, hf_id, args, engine, datetime.now().isoformat()))
     return name, False
 
 @app.route('/admin/update/<int:req_id>', methods=['POST'])
@@ -2202,8 +2277,9 @@ def update_request(req_id):
                                 f"Tu peux l'utiliser via l'API / le Playground une fois lancé.\n"
                                 f"https://dgx.cronos.website/\n")
             name, existed = _add_model_to_catalog(db, req['model_id'])
-            cfg = db.execute("SELECT vllm_args FROM model_configs WHERE name=?", (name,)).fetchone()
-            ok = _register_litellm_model(name, cfg['vllm_args'] if cfg else DEFAULT_VLLM_ARGS)
+            cfg = db.execute("SELECT vllm_args, engine FROM model_configs WHERE name=?", (name,)).fetchone()
+            ok = _register_litellm_model(name, cfg['vllm_args'] if cfg else DEFAULT_VLLM_ARGS,
+                                         (cfg['engine'] if cfg else 'vllm') or 'vllm')
             routed = "" if ok else " (⚠ enregistrement LiteLLM échoué — à vérifier)"
             if existed:
                 flash(f"Modèle déjà dans le catalogue sous « {name} ».{routed}", "info")

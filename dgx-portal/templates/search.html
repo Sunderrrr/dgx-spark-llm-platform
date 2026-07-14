@@ -9,9 +9,9 @@
         <p class="page-head-sub">Explore le catalogue Hugging Face et demande le lancement d'un modèle sur le DGX.</p>
       </div>
     </div>
-    <form method="GET" class="d-flex gap-2 mb-4">
+    <form method="GET" class="d-flex gap-2 mb-2 flex-wrap">
       <input type="text" name="q" value="{{ query }}" class="form-control bg-dark border-secondary"
-             placeholder="Nom de modèle, ex: Qwen, Llama, Mistral..." autofocus>
+             style="min-width:220px;flex:1" placeholder="Nom de modèle, ex: Qwen, Llama, Mistral..." autofocus>
       <select name="task" class="form-select bg-dark border-secondary" style="max-width:220px">
         <option value="text-generation" {% if task=='text-generation' %}selected{% endif %}>Text Generation</option>
         <option value="text2text-generation" {% if task=='text2text-generation' %}selected{% endif %}>Text2Text</option>
@@ -19,9 +19,23 @@
         <option value="feature-extraction" {% if task=='feature-extraction' %}selected{% endif %}>Embeddings</option>
       </select>
       <button class="btn btn-info px-4"><i class="bi bi-search"></i> Chercher</button>
+      <div class="form-check form-switch d-flex align-items-center gap-2 ms-1">
+        <input class="form-check-input mt-0" type="checkbox" id="allhf" name="all" value="1"
+               {% if not gb10_only %}checked{% endif %} onchange="this.form.submit()">
+        <label class="form-check-label text-secondary small" for="allhf">Tout Hugging Face</label>
+      </div>
     </form>
+    <p class="text-secondary small mb-4">
+      {% if gb10_only %}
+        <i class="bi bi-cpu text-success"></i> Seuls les modèles <strong>testés sur DGX Spark / GB10</strong> sont affichés.
+        Décoche pour élargir à tout Hugging Face.
+      {% else %}
+        <i class="bi bi-exclamation-triangle text-warning"></i> Recherche élargie à tout Hugging Face —
+        ces modèles ne sont <strong>pas garantis</strong> de tourner sur le GB10.
+      {% endif %}
+    </p>
 
-    {% if not query %}
+    {% if not query and not gb10_only %}
     <div class="empty-state">
       <i class="bi bi-search"></i>
       Tape un nom de modèle (Qwen, Llama, Mistral…) pour explorer Hugging Face.
@@ -38,7 +52,16 @@
         <div class="card model-card h-100">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-start mb-2">
-              <span class="badge bg-secondary small">{{ model.get('pipeline_tag','—') }}</span>
+              <div class="d-flex gap-1 flex-wrap">
+                <span class="badge bg-secondary small">{{ model.get('pipeline_tag','—') }}</span>
+                {% if model.get('engine') == 'llamacpp' %}
+                <span class="badge small" style="background:rgba(74,158,255,.16);color:var(--info)">
+                  <i class="bi bi-cpu"></i> llama.cpp</span>
+                {% else %}
+                <span class="badge small" style="background:var(--accent-soft);color:var(--accent)">
+                  <i class="bi bi-lightning-charge"></i> vLLM</span>
+                {% endif %}
+              </div>
               <span class="text-secondary small"><i class="bi bi-download"></i> {{ "{:,}".format(model.get('downloads',0)) }}</span>
             </div>
             <h6 class="card-title text-white mb-1" style="word-break:break-all;font-size:.9rem">

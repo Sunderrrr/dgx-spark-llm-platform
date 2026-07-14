@@ -10,10 +10,14 @@ from flask import Flask, jsonify, request, Response
 
 VLLM_BIN     = os.environ.get("VLLM_BIN", "/root/.local/bin/vllm")
 LLAMA_BIN    = os.environ.get("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-server")
+# Moteur ds4 : GGUF NVFP4 « multi-tenseurs » spécifique DGX Spark (DeepSeek-V4-Flash).
+# Ni vLLM ni llama.cpp standard ne savent charger ce format.
+DS4_BIN      = os.environ.get("DS4_BIN", "/root/ds4-nvfp4-spark/ds4-server")
 HF_HOME      = os.environ.get("HF_HOME", "/root/.cache/huggingface")
 RUNNER_TOKEN = os.environ["RUNNER_TOKEN"]  # requis — pas de défaut, le service doit échouer au démarrage si absent
 
-ENGINES = ("vllm", "llamacpp")
+ENGINES = ("vllm", "llamacpp", "ds4")
+_ENGINE_BIN = {"vllm": VLLM_BIN, "llamacpp": LLAMA_BIN, "ds4": DS4_BIN}
 
 # Persiste le dernier lancement réussi pour pouvoir le reprendre automatiquement
 # après un redémarrage du service (mise à jour système, reboot, crash) — sauf
@@ -75,7 +79,7 @@ _VALUE_FLAGS = {
 # --chat-template-file & --grammar-file & --lora (lecture de fichier arbitraire),
 # --chat-template (accepte un template Jinja complet → surface d'injection).
 _LLAMA_BOOL_FLAGS = {
-    "--flash-attn", "--no-mmap", "--mlock", "--jinja", "--cont-batching",
+    "--no-mmap", "--mlock", "--jinja", "--cont-batching",
     "--no-kv-offload", "--metrics", "--no-warmup",
 }
 _LLAMA_VALUE_FLAGS = {
@@ -84,13 +88,57 @@ _LLAMA_VALUE_FLAGS = {
     "--n-predict", "--rope-scaling", "--rope-freq-base", "--rope-freq-scale",
     "--split-mode", "--main-gpu", "--seed", "--defrag-thold", "--log-verbosity",
     "--reasoning-format", "--chat-template-kwargs",
+    # Attention : --flash-attn prend une VALEUR (on|off|auto) dans llama.cpp
+    # récent — le traiter comme un booléen lui fait avaler le flag suivant.
+    "--flash-attn",
+}
+
+
+# ── Whitelist des flags ds4 (ds4-server) ───────────────────────────────────
+# -m / --host / --port sont fixés par le runner. Pas de flag prenant un chemin
+# (--kv-disk-dir, --dir-steering-file) → aucune lecture/écriture arbitraire.
+_DS4_BOOL_FLAGS = {
+    "--cuda", "--cpu", "--kv-cache-reject-different-quant",
+    "--disable-exact-dsml-tool-replay",
+}
+_DS4_VALUE_FLAGS = {
+    "--ctx", "--backend", "--kv-cache-min-tokens", "--kv-cache-cold-max-tokens",
+    "--kv-cache-boundary-align-tokens", "--kv-cache-boundary-trim-tokens",
+    "--kv-cache-continued-interval-tokens", "--kv-disk-space-mb",
 }
 
 
 def _flags_for(engine):
     if engine == "llamacpp":
         return _LLAMA_BOOL_FLAGS, _LLAMA_VALUE_FLAGS
+    if engine == "ds4":
+        return _DS4_BOOL_FLAGS, _DS4_VALUE_FLAGS
     return _BOOL_FLAGS, _VALUE_FLAGS
+
+
+def _resolve_gguf(hf_id):
+    """ds4-server veut un fichier GGUF local (-m), pas un repo HF. On le résout
+    depuis le cache HF (le modèle doit avoir été téléchargé au préalable) plutôt
+    que d'accepter un chemin arbitraire venant de l'API — pas de lecture de fichier
+    hors du cache. Retourne le plus gros .gguf du snapshot (ou son 1er shard)."""
+    repo_dir = os.path.join(HF_HOME, "hub", "models--" + hf_id.replace("/", "--"))
+    snaps = os.path.join(repo_dir, "snapshots")
+    if not os.path.isdir(snaps):
+        raise FileNotFoundError(f"modèle {hf_id} absent du cache HF — télécharge-le d'abord")
+    candidates = []
+    for root, _dirs, files in os.walk(snaps):
+        for f in files:
+            if f.endswith(".gguf") and "mmproj" not in f and "imatrix" not in f:
+                p = os.path.join(root, f)
+                candidates.append((os.path.getsize(os.path.realpath(p)), f, p))
+    if not candidates:
+        raise FileNotFoundError(f"aucun .gguf trouvé pour {hf_id}")
+    # Modèle éclaté en shards → toujours pointer le premier (00001-of-000NN),
+    # le moteur charge les suivants tout seul.
+    shards = sorted(p for _s, f, p in candidates if "-00001-of-" in f)
+    if shards:
+        return shards[0]
+    return max(candidates)[2]
 
 
 def _validate_vllm_args(extra, engine="vllm"):
@@ -251,7 +299,8 @@ def _health_watch(proc):
 def status():
     return jsonify({"status": _status, "model": _model, "engine": _engine,
                     "pid": _proc.pid if _proc else None,
-                    "llamacpp_available": os.path.exists(LLAMA_BIN)})
+                    "engines_available": {e: (e == "vllm" or os.path.exists(b))
+                                          for e, b in _ENGINE_BIN.items()}})
 
 
 @app.route("/logs")
@@ -298,8 +347,15 @@ def stream():
 
 
 def _build_cmd(hf_id, name, extra_tokens, engine):
-    """Ligne de commande du moteur. Les deux servent une API OpenAI sur :8000,
+    """Ligne de commande du moteur. Tous servent une API OpenAI sur :8000,
     donc rien ne change en aval (LiteLLM, portail, playground)."""
+    if engine == "ds4":
+        # ds4-server prend un GGUF local ; --cuda est requis pour le GPU.
+        cmd = [DS4_BIN, "-m", _resolve_gguf(hf_id),
+               "--host", "0.0.0.0", "--port", "8000"] + extra_tokens
+        if "--cpu" not in extra_tokens and "--cuda" not in extra_tokens:
+            cmd.insert(1, "--cuda")
+        return cmd
     if engine == "llamacpp":
         # -hf accepte "user/repo" ou "user/repo:QUANT" (ex. :Q4_K_M) → llama.cpp
         # télécharge le bon fichier GGUF tout seul depuis le Hub.
@@ -349,6 +405,9 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     }
     if os.environ.get("HF_TOKEN"):
         env["HF_TOKEN"] = os.environ["HF_TOKEN"]
+    if engine == "ds4":
+        # KV cache packé en FP8 → ~7 GiB économisés à 1M de contexte (cf. carte du modèle).
+        env["DS4_KV_TURBO"] = "1"
 
     _proc = subprocess.Popen(
         cmd,
@@ -380,8 +439,8 @@ def launch():
         return jsonify({"error": "hf_model_id requis"}), 400
     if engine not in ENGINES:
         return jsonify({"error": f"moteur inconnu : {engine}"}), 400
-    if engine == "llamacpp" and not os.path.exists(LLAMA_BIN):
-        return jsonify({"error": "llama.cpp n'est pas installé sur cette machine"}), 400
+    if engine != "vllm" and not os.path.exists(_ENGINE_BIN[engine]):
+        return jsonify({"error": f"moteur {engine} non installé sur cette machine"}), 400
 
     ok, result = _validate_vllm_args(extra, engine)
     if not ok:

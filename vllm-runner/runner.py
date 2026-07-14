@@ -5,7 +5,7 @@ Gère un seul processus d'inférence à la fois (avec ses enfants), au choix :
   - llama.cpp : poids GGUF (llama-server, API OpenAI-compatible sur le même port)
 Dans les deux cas le modèle est servi sur :8000 → le routage LiteLLM est identique.
 """
-import hmac, json, os, shutil, signal, subprocess, threading, time, urllib.request
+import hmac, json, os, re, shutil, signal, subprocess, threading, time, urllib.request
 from flask import Flask, jsonify, request, Response
 
 VLLM_BIN     = os.environ.get("VLLM_BIN", "/root/.local/bin/vllm")
@@ -14,6 +14,10 @@ LLAMA_BIN    = os.environ.get("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-serv
 # Ni vLLM ni llama.cpp standard ne savent charger ce format.
 DS4_BIN      = os.environ.get("DS4_BIN", "/root/ds4-nvfp4-spark/ds4-server")
 HF_HOME      = os.environ.get("HF_HOME", "/root/.cache/huggingface")
+# Répertoire de poids téléchargés hors du Hub (ex. HF throttle les gros GGUF en
+# non-authentifié). Un modèle y est référencé par « local:<nom> » — le nom est
+# assaini, donc pas de chemin arbitraire ni de traversée de répertoire.
+MODELS_DIR   = os.environ.get("MODELS_DIR", "/root/models")
 RUNNER_TOKEN = os.environ["RUNNER_TOKEN"]  # requis — pas de défaut, le service doit échouer au démarrage si absent
 
 ENGINES = ("vllm", "llamacpp", "ds4")
@@ -117,14 +121,24 @@ def _flags_for(engine):
 
 
 def _resolve_gguf(hf_id):
-    """ds4-server veut un fichier GGUF local (-m), pas un repo HF. On le résout
-    depuis le cache HF (le modèle doit avoir été téléchargé au préalable) plutôt
-    que d'accepter un chemin arbitraire venant de l'API — pas de lecture de fichier
-    hors du cache. Retourne le plus gros .gguf du snapshot (ou son 1er shard)."""
-    repo_dir = os.path.join(HF_HOME, "hub", "models--" + hf_id.replace("/", "--"))
-    snaps = os.path.join(repo_dir, "snapshots")
-    if not os.path.isdir(snaps):
-        raise FileNotFoundError(f"modèle {hf_id} absent du cache HF — télécharge-le d'abord")
+    """Résout un GGUF local (les moteurs ds4/llama.cpp veulent un fichier via -m).
+
+    Deux sources, toutes deux SOUS UN RÉPERTOIRE CONTRÔLÉ — jamais un chemin
+    arbitraire venant de l'API :
+      - "local:<nom>"  → MODELS_DIR/<nom>/  (nom assaini)
+      - "user/repo"    → cache HF du repo
+    Retourne le 1er shard s'il est éclaté, sinon le plus gros .gguf.
+    """
+    if hf_id.startswith("local:"):
+        slug = re.sub(r'[^A-Za-z0-9._-]', '', hf_id[len("local:"):])
+        snaps = os.path.join(MODELS_DIR, slug)
+        if not slug or not os.path.isdir(snaps):
+            raise FileNotFoundError(f"modèle local « {slug} » introuvable dans {MODELS_DIR}")
+    else:
+        snaps = os.path.join(HF_HOME, "hub",
+                             "models--" + hf_id.replace("/", "--"), "snapshots")
+        if not os.path.isdir(snaps):
+            raise FileNotFoundError(f"modèle {hf_id} absent du cache HF — télécharge-le d'abord")
     candidates = []
     for root, _dirs, files in os.walk(snaps):
         for f in files:
@@ -357,10 +371,11 @@ def _build_cmd(hf_id, name, extra_tokens, engine):
             cmd.insert(1, "--cuda")
         return cmd
     if engine == "llamacpp":
-        # -hf accepte "user/repo" ou "user/repo:QUANT" (ex. :Q4_K_M) → llama.cpp
-        # télécharge le bon fichier GGUF tout seul depuis le Hub.
+        # "local:<nom>" → poids déjà sur disque, on pointe le fichier (-m).
+        # Sinon -hf accepte "user/repo[:QUANT]" et llama.cpp télécharge lui-même.
         # --metrics expose /metrics (Prometheus) comme vLLM, pour le panneau santé.
-        return [LLAMA_BIN, "-hf", hf_id,
+        src = ["-m", _resolve_gguf(hf_id)] if hf_id.startswith("local:") else ["-hf", hf_id]
+        return [LLAMA_BIN] + src + [
                 "--host", "0.0.0.0", "--port", "8000",
                 "--alias", name,
                 "--metrics"] + extra_tokens

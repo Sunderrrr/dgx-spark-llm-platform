@@ -673,7 +673,11 @@ def ctx_of(args, engine='vllm'):
     return _arg_int(args, _CTX_FLAG.get(engine or 'vllm', 'max-model-len'))
 
 def max_seqs_of(args, engine='vllm'):
-    """Sessions concurrentes configurées (--max-num-seqs ou --parallel)."""
+    """Sessions concurrentes configurées (--max-num-seqs ou --parallel).
+    ds4 n'a aucun réglage de parallélisme : il alloue un seul KV cache géant (1M)
+    et sérialise les requêtes → 1 session, mesuré (2 requêtes = 2× la latence solo)."""
+    if engine == 'ds4':
+        return 1
     return _arg_int(args, _SEQS_FLAG.get(engine or 'vllm', 'max-num-seqs'))
 
 def search_hf_models(query, task='text-generation', gb10_only=True):

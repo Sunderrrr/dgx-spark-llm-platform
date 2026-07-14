@@ -124,6 +124,52 @@ def _kill(proc):
         proc.wait(timeout=5)
 
 
+def _mem_available_gib():
+    """Mémoire disponible (GiB). Sur GB10 la mémoire est UNIFIÉE (GPU + CPU) :
+    /proc/meminfo est donc le bon indicateur — nvidia-smi ne rapporte pas la
+    mémoire sur cette carte intégrée."""
+    try:
+        with open('/proc/meminfo') as f:
+            for line in f:
+                if line.startswith('MemAvailable:'):
+                    return int(line.split()[1]) / 1024 / 1024
+    except Exception:
+        pass
+    return None
+
+
+def _wait_mem_release(timeout=120, settle=4.0):
+    """Attend que la mémoire du modèle précédent soit réellement rendue.
+
+    Le driver ne récupère pas la mémoire unifiée instantanément à la mort du
+    process : spawner le nouveau vLLM trop tôt le fait échouer sur un OOM GPU
+    (NVRM: NV_ERR_NO_MEMORY) — le modèle crashe puis part en auto-retry. On
+    attend donc que MemAvailable cesse de remonter (plateau) avant de relancer.
+    """
+    start = time.time()
+    prev = _mem_available_gib()
+    if prev is None:
+        time.sleep(settle)
+        return
+    stable = 0
+    while time.time() - start < timeout:
+        time.sleep(1.5)
+        cur = _mem_available_gib()
+        if cur is None:
+            break
+        if cur - prev < 0.5:      # plus de libération notable
+            stable += 1
+            if stable >= 2:
+                break
+        else:
+            stable = 0            # ça libère encore, on continue d'attendre
+        prev = cur
+    free = _mem_available_gib()
+    _append(f"[runner] Mémoire rendue : {free:.1f} GiB dispo "
+            f"(attente {time.time() - start:.0f}s) — relance du modèle")
+    time.sleep(settle)            # petite marge pour le driver
+
+
 def _reader(proc):
     global _status, _proc, _model, _auto_retries
     try:
@@ -216,13 +262,19 @@ def _start_process(hf_id, name, extra_tokens):
     """Lance vLLM. Doit être appelé avec _lock déjà tenu."""
     global _proc, _model, _status
 
-    if _proc and _proc.poll() is None:
+    killed = bool(_proc and _proc.poll() is None)
+    if killed:
         _append("[runner] Arrêt du modèle précédent…")
         _kill(_proc)
 
     _logs.clear()
     _model  = name
     _status = "starting"
+
+    # Le modèle précédent vient d'être tué : on attend que le driver rende la
+    # mémoire unifiée, sinon le nouveau vLLM OOM au démarrage.
+    if killed:
+        _wait_mem_release()
 
     cmd = [VLLM_BIN, "serve", hf_id,
            "--port", "8000", "--host", "0.0.0.0",

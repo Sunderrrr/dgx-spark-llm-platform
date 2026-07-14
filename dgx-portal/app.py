@@ -661,7 +661,7 @@ def guess_engine(model):
     return 'vllm'
 
 # Les deux moteurs expriment contexte et concurrence avec des flags différents.
-_CTX_FLAG  = {'vllm': 'max-model-len', 'llamacpp': 'ctx-size'}
+_CTX_FLAG  = {'vllm': 'max-model-len', 'llamacpp': 'ctx-size', 'ds4': 'ctx'}
 _SEQS_FLAG = {'vllm': 'max-num-seqs',  'llamacpp': 'parallel'}
 
 def _arg_int(args, flag, default=None):
@@ -2011,7 +2011,7 @@ def add_model_cfg():
     hf_id  = request.form.get('hf_model_id', '').strip()
     args   = request.form.get('vllm_args', '').strip()
     engine = request.form.get('engine', 'vllm').strip().lower()
-    if engine not in ('vllm', 'llamacpp'):
+    if engine not in ('vllm', 'llamacpp', 'ds4'):
         engine = 'vllm'
     if not name or not hf_id:
         flash("Nom et HF model ID requis.", "warning")

@@ -1,13 +1,19 @@
 """
-vLLM Runner — daemon HTTP local sur le port 8001.
-Gère un seul processus vLLM à la fois (avec ses enfants).
+Model Runner — daemon HTTP local sur le port 8001.
+Gère un seul processus d'inférence à la fois (avec ses enfants), au choix :
+  - vLLM      : poids safetensors (NVFP4 / FP8 / BF16)
+  - llama.cpp : poids GGUF (llama-server, API OpenAI-compatible sur le même port)
+Dans les deux cas le modèle est servi sur :8000 → le routage LiteLLM est identique.
 """
 import hmac, json, os, shutil, signal, subprocess, threading, time, urllib.request
 from flask import Flask, jsonify, request, Response
 
 VLLM_BIN     = os.environ.get("VLLM_BIN", "/root/.local/bin/vllm")
+LLAMA_BIN    = os.environ.get("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-server")
 HF_HOME      = os.environ.get("HF_HOME", "/root/.cache/huggingface")
 RUNNER_TOKEN = os.environ["RUNNER_TOKEN"]  # requis — pas de défaut, le service doit échouer au démarrage si absent
+
+ENGINES = ("vllm", "llamacpp")
 
 # Persiste le dernier lancement réussi pour pouvoir le reprendre automatiquement
 # après un redémarrage du service (mise à jour système, reboot, crash) — sauf
@@ -20,6 +26,7 @@ app = Flask(__name__)
 _lock   = threading.Lock()
 _proc   = None
 _model  = None
+_engine = None        # moteur du modèle courant : 'vllm' | 'llamacpp'
 _logs   = []
 _status = "stopped"   # stopped | starting | running | error
 _auto_retries = 0     # tentatives de relance automatique consécutives échouées
@@ -55,18 +62,47 @@ _VALUE_FLAGS = {
     "--quantization", "--tensor-parallel-size", "--pipeline-parallel-size",
     "--reasoning-parser", "--limit-mm-per-prompt",
     "--uvicorn-log-level",
+    # Valeur énumérée (auto|slow|mistral|custom), jamais un chemin → sans risque.
+    # Nécessaire pour les modèles Mistral (tekken) : l'auto-détection de vLLM 0.24
+    # tombe sur un backend cassé ("CachedMistralCommonBackend has no attribute
+    # is_fast"), alors que --tokenizer-mode mistral fonctionne.
+    "--tokenizer-mode",
+}
+
+# ── Whitelist des flags llama.cpp (llama-server) ───────────────────────────
+# Même principe : allowlist stricte. Volontairement absents :
+# --model / --hf-repo / --host / --port / --alias (fixés par le runner),
+# --chat-template-file & --grammar-file & --lora (lecture de fichier arbitraire),
+# --chat-template (accepte un template Jinja complet → surface d'injection).
+_LLAMA_BOOL_FLAGS = {
+    "--flash-attn", "--no-mmap", "--mlock", "--jinja", "--cont-batching",
+    "--no-kv-offload", "--metrics", "--no-warmup",
+}
+_LLAMA_VALUE_FLAGS = {
+    "--ctx-size", "--n-gpu-layers", "--parallel", "--threads", "--threads-batch",
+    "--batch-size", "--ubatch-size", "--cache-type-k", "--cache-type-v",
+    "--n-predict", "--rope-scaling", "--rope-freq-base", "--rope-freq-scale",
+    "--split-mode", "--main-gpu", "--seed", "--defrag-thold", "--log-verbosity",
+    "--reasoning-format", "--chat-template-kwargs",
 }
 
 
-def _validate_vllm_args(extra):
-    """Retourne (ok, tokens_ou_message_erreur)."""
+def _flags_for(engine):
+    if engine == "llamacpp":
+        return _LLAMA_BOOL_FLAGS, _LLAMA_VALUE_FLAGS
+    return _BOOL_FLAGS, _VALUE_FLAGS
+
+
+def _validate_vllm_args(extra, engine="vllm"):
+    """Retourne (ok, tokens_ou_message_erreur). L'allowlist dépend du moteur."""
+    bool_flags, value_flags = _flags_for(engine)
     tokens = extra.split()
     i = 0
     while i < len(tokens):
         tok = tokens[i]
-        if tok in _BOOL_FLAGS:
+        if tok in bool_flags:
             i += 1
-        elif tok in _VALUE_FLAGS:
+        elif tok in value_flags:
             if i + 1 >= len(tokens) or tokens[i + 1].startswith("--"):
                 return False, f"le flag {tok} nécessite une valeur"
             i += 2
@@ -81,10 +117,11 @@ def _append(line):
         del _logs[:500]
 
 
-def _save_last_launch(hf_id, name, extra_tokens):
+def _save_last_launch(hf_id, name, extra_tokens, engine="vllm"):
     try:
         with open(STATE_FILE, "w") as f:
-            json.dump({"hf_model_id": hf_id, "model_name": name, "vllm_args": " ".join(extra_tokens)}, f)
+            json.dump({"hf_model_id": hf_id, "model_name": name,
+                       "vllm_args": " ".join(extra_tokens), "engine": engine}, f)
     except OSError as e:
         _append(f"[runner] impossible d'enregistrer l'état pour la reprise auto : {e}")
 
@@ -212,7 +249,9 @@ def _health_watch(proc):
 
 @app.route("/status")
 def status():
-    return jsonify({"status": _status, "model": _model, "pid": _proc.pid if _proc else None})
+    return jsonify({"status": _status, "model": _model, "engine": _engine,
+                    "pid": _proc.pid if _proc else None,
+                    "llamacpp_available": os.path.exists(LLAMA_BIN)})
 
 
 @app.route("/logs")
@@ -258,9 +297,25 @@ def stream():
     return Response(generate(), mimetype="text/event-stream", headers=headers)
 
 
-def _start_process(hf_id, name, extra_tokens):
-    """Lance vLLM. Doit être appelé avec _lock déjà tenu."""
-    global _proc, _model, _status
+def _build_cmd(hf_id, name, extra_tokens, engine):
+    """Ligne de commande du moteur. Les deux servent une API OpenAI sur :8000,
+    donc rien ne change en aval (LiteLLM, portail, playground)."""
+    if engine == "llamacpp":
+        # -hf accepte "user/repo" ou "user/repo:QUANT" (ex. :Q4_K_M) → llama.cpp
+        # télécharge le bon fichier GGUF tout seul depuis le Hub.
+        # --metrics expose /metrics (Prometheus) comme vLLM, pour le panneau santé.
+        return [LLAMA_BIN, "-hf", hf_id,
+                "--host", "0.0.0.0", "--port", "8000",
+                "--alias", name,
+                "--metrics"] + extra_tokens
+    return [VLLM_BIN, "serve", hf_id,
+            "--port", "8000", "--host", "0.0.0.0",
+            "--served-model-name", name] + extra_tokens
+
+
+def _start_process(hf_id, name, extra_tokens, engine="vllm"):
+    """Lance le moteur d'inférence. Doit être appelé avec _lock déjà tenu."""
+    global _proc, _model, _status, _engine
 
     killed = bool(_proc and _proc.poll() is None)
     if killed:
@@ -269,19 +324,16 @@ def _start_process(hf_id, name, extra_tokens):
 
     _logs.clear()
     _model  = name
+    _engine = engine
     _status = "starting"
 
     # Le modèle précédent vient d'être tué : on attend que le driver rende la
-    # mémoire unifiée, sinon le nouveau vLLM OOM au démarrage.
+    # mémoire unifiée, sinon le nouveau process OOM au démarrage.
     if killed:
         _wait_mem_release()
 
-    cmd = [VLLM_BIN, "serve", hf_id,
-           "--port", "8000", "--host", "0.0.0.0",
-           "--served-model-name", name,
-           ] + extra_tokens
-
-    _append(f"[runner] $ {' '.join(cmd)}")
+    cmd = _build_cmd(hf_id, name, extra_tokens, engine)
+    _append(f"[runner] ({engine}) $ {' '.join(cmd)}")
 
     # Env minimal explicite plutôt que **os.environ — évite de faire fuiter
     # l'environnement root complet (secrets divers) dans /logs et /stream.
@@ -311,7 +363,7 @@ def _start_process(hf_id, name, extra_tokens):
     threading.Thread(target=_health_watch, args=(_proc,), daemon=True).start()
     # Persiste systématiquement l'état (manuel, reprise au boot, watchdog) pour
     # que last_model.json reste toujours présent tant que le modèle doit tourner.
-    _save_last_launch(hf_id, name, extra_tokens)
+    _save_last_launch(hf_id, name, extra_tokens, engine)
     return _proc
 
 
@@ -322,20 +374,25 @@ def launch():
     hf_id    = data.get("hf_model_id", "").strip()
     name     = data.get("model_name", hf_id).strip()
     extra    = data.get("vllm_args", "").strip()
+    engine   = (data.get("engine") or "vllm").strip().lower()
 
     if not hf_id:
         return jsonify({"error": "hf_model_id requis"}), 400
+    if engine not in ENGINES:
+        return jsonify({"error": f"moteur inconnu : {engine}"}), 400
+    if engine == "llamacpp" and not os.path.exists(LLAMA_BIN):
+        return jsonify({"error": "llama.cpp n'est pas installé sur cette machine"}), 400
 
-    ok, result = _validate_vllm_args(extra)
+    ok, result = _validate_vllm_args(extra, engine)
     if not ok:
         return jsonify({"error": result}), 400
     extra_tokens = result
 
     with _lock:
-        proc = _start_process(hf_id, name, extra_tokens)
+        proc = _start_process(hf_id, name, extra_tokens, engine)
         _auto_retries = 0
 
-    return jsonify({"status": "starting", "model": name, "pid": proc.pid})
+    return jsonify({"status": "starting", "model": name, "engine": engine, "pid": proc.pid})
 
 
 @app.route("/stop", methods=["POST"])
@@ -417,14 +474,15 @@ def _watchdog():
                 continue
             if _auto_retries >= MAX_AUTO_RETRIES:
                 continue
-            ok, extra_tokens = _validate_vllm_args(last.get("vllm_args", ""))
+            eng = last.get("engine", "vllm")
+            ok, extra_tokens = _validate_vllm_args(last.get("vllm_args", ""), eng)
             if not ok:
                 _append(f"[runner] reprise auto impossible, args invalides : {extra_tokens}")
                 _auto_retries = MAX_AUTO_RETRIES
                 continue
             _auto_retries += 1
             attempt_msg = f"[runner] modèle arrêté de façon inattendue — reprise automatique (tentative {_auto_retries}/{MAX_AUTO_RETRIES})…"
-            _start_process(last["hf_model_id"], last["model_name"], extra_tokens)
+            _start_process(last["hf_model_id"], last["model_name"], extra_tokens, eng)
             _append(attempt_msg)  # après _start_process (qui vide _logs) pour qu'il survive
 
 
@@ -433,10 +491,11 @@ if __name__ == "__main__":
 
     _resume = _load_last_launch()
     if _resume:
-        ok, extra_tokens = _validate_vllm_args(_resume.get("vllm_args", ""))
+        _eng = _resume.get("engine", "vllm")
+        ok, extra_tokens = _validate_vllm_args(_resume.get("vllm_args", ""), _eng)
         if ok:
             with _lock:
                 _append("[runner] reprise du dernier modèle au démarrage du service…")
-                _start_process(_resume["hf_model_id"], _resume["model_name"], extra_tokens)
+                _start_process(_resume["hf_model_id"], _resume["model_name"], extra_tokens, _eng)
 
     app.run(host="0.0.0.0", port=8001, debug=False, threaded=True)

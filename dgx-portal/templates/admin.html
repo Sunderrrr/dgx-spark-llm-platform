@@ -60,6 +60,8 @@
               <span class="fw-semibold text-white">{{ cfg.name }}</span>
               {% if cfg.engine == 'llamacpp' %}
               <span class="badge" style="background:rgba(74,158,255,.16);color:var(--info);font-size:.65rem">llama.cpp</span>
+              {% elif cfg.engine == 'ds4' %}
+              <span class="badge" style="background:rgba(232,161,58,.16);color:var(--warn);font-size:.65rem">ds4</span>
               {% else %}
               <span class="badge" style="background:var(--accent-soft);color:var(--accent);font-size:.65rem">vLLM</span>
               {% endif %}
@@ -105,6 +107,7 @@
               <select name="engine" class="form-select form-select-sm bg-dark text-white border-secondary mb-2">
                 <option value="vllm">Moteur : vLLM (safetensors, NVFP4/FP8)</option>
                 <option value="llamacpp">Moteur : llama.cpp (GGUF)</option>
+                <option value="ds4">Moteur : ds4 (GGUF NVFP4 DeepSeek-V4)</option>
               </select>
               <input type="text" name="vllm_args" class="form-control form-control-sm bg-dark text-white border-secondary mb-2"
                      placeholder="Args du moteur (vLLM : --max-model-len … / llama.cpp : --ctx-size …)">

@@ -56,10 +56,17 @@
       <div class="col-md-4 col-lg-3">
         <div class="card h-100">
           <div class="card-body pb-2">
-            <div class="fw-semibold text-white mb-1">{{ cfg.name }}</div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <span class="fw-semibold text-white">{{ cfg.name }}</span>
+              {% if cfg.engine == 'llamacpp' %}
+              <span class="badge" style="background:rgba(74,158,255,.16);color:var(--info);font-size:.65rem">llama.cpp</span>
+              {% else %}
+              <span class="badge" style="background:var(--accent-soft);color:var(--accent);font-size:.65rem">vLLM</span>
+              {% endif %}
+            </div>
             <div class="text-secondary mb-2" style="font-size:.75rem;word-break:break-all">{{ cfg.hf_model_id }}</div>
             <form method="POST" action="/admin/model/edit/{{ cfg.id }}">
-              <label class="form-label text-secondary mb-1" style="font-size:.68rem">Args vLLM</label>
+              <label class="form-label text-secondary mb-1" style="font-size:.68rem">Args du moteur</label>
               <div class="input-group input-group-sm">
                 <input type="text" name="vllm_args" value="{{ cfg.vllm_args }}"
                        class="form-control form-control-sm bg-dark text-white border-secondary"
@@ -95,8 +102,12 @@
                      placeholder="Nom (ex: llama-3-8b)" required>
               <input type="text" name="hf_model_id" class="form-control form-control-sm bg-dark text-white border-secondary mb-2"
                      placeholder="HF ID (ex: meta-llama/Llama-3-8B)" required>
+              <select name="engine" class="form-select form-select-sm bg-dark text-white border-secondary mb-2">
+                <option value="vllm">Moteur : vLLM (safetensors, NVFP4/FP8)</option>
+                <option value="llamacpp">Moteur : llama.cpp (GGUF)</option>
+              </select>
               <input type="text" name="vllm_args" class="form-control form-control-sm bg-dark text-white border-secondary mb-2"
-                     placeholder="Args vLLM (ex: --dtype fp8)">
+                     placeholder="Args du moteur (vLLM : --max-model-len … / llama.cpp : --ctx-size …)">
               <button class="btn btn-outline-success btn-sm w-100"><i class="bi bi-plus"></i> Ajouter</button>
             </form>
           </div>

@@ -250,20 +250,14 @@ def init_db():
         ('default_key_duration', KEY_DURATION)
     )
     ORNITH_ARGS = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 262144 --gpu-memory-utilization 0.7 --max-num-seqs 8"
-    QWEN_ARGS   = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 32768 --gpu-memory-utilization 0.8 --max-num-seqs 8"
     now = datetime.now().isoformat()
-    db.executemany(
+    db.execute(
         "INSERT OR IGNORE INTO model_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
-        [
-            ("ornith-35b-fp8",  "deepreinforce-ai/Ornith-1.0-35B-FP8",  ORNITH_ARGS, now),
-            ("qwen3-coder-30b", "Qwen/Qwen3-Coder-30B-A3B-Instruct",     QWEN_ARGS,   now),
-        ]
+        ("ornith-35b-fp8", "deepreinforce-ai/Ornith-1.0-35B-FP8", ORNITH_ARGS, now)
     )
-    # Toujours mettre à jour les args des modèles pré-configurés
+    # Toujours mettre à jour les args du modèle pré-configuré
     db.execute("UPDATE model_configs SET hf_model_id=?, vllm_args=? WHERE name=?",
                ("deepreinforce-ai/Ornith-1.0-35B-FP8", ORNITH_ARGS, "ornith-35b-fp8"))
-    db.execute("UPDATE model_configs SET hf_model_id=?, vllm_args=? WHERE name=?",
-               ("Qwen/Qwen3-Coder-30B-A3B-Instruct", QWEN_ARGS, "qwen3-coder-30b"))
     db.commit()
     db.close()
 

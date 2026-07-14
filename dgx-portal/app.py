@@ -2191,10 +2191,16 @@ def _register_litellm_model(name, vllm_args, engine='vllm'):
     if not LITELLM_KEY:
         return False
     ctx = ctx_of(vllm_args, engine) or 32768
+    # ds4 part en mode « thinking » par défaut : il IGNORE alors max_tokens
+    # (« client sampling knobs are ignored like the official API ») et génère des
+    # milliers de tokens à ~10 tok/s. Comme le moteur est mono-slot, une seule
+    # requête bloque toute la plateforme. On route donc vers le nom réservé
+    # `deepseek-chat`, qui sélectionne le mode NON-thinking (cf. --help de ds4).
+    upstream = 'deepseek-chat' if engine == 'ds4' else name
     body = {
         "model_name": name,
         "litellm_params": {
-            "model": f"openai/{name}",
+            "model": f"openai/{upstream}",
             "api_base": VLLM_API_BASE,
             "api_key": "dummy",
             "input_cost_per_token": 1,

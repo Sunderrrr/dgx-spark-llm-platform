@@ -85,6 +85,9 @@ _VALUE_FLAGS = {
 _LLAMA_BOOL_FLAGS = {
     "--no-mmap", "--mlock", "--jinja", "--cont-batching",
     "--no-kv-offload", "--metrics", "--no-warmup",
+    # Tronque les vieux tokens quand un slot est plein au lieu d'ERREUR (sinon un
+    # client comme OpenCode réessaie la même requête trop longue → crash).
+    "--context-shift", "--no-context-shift",
 }
 _LLAMA_VALUE_FLAGS = {
     "--ctx-size", "--n-gpu-layers", "--parallel", "--threads", "--threads-batch",

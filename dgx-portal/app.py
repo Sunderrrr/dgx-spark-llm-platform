@@ -2203,7 +2203,16 @@ def _register_litellm_model(name, vllm_args, engine='vllm'):
     Les deux servent une API OpenAI sur :8000 → mêmes litellm_params."""
     if not LITELLM_KEY:
         return False
-    ctx = effective_ctx(vllm_args, engine) or 32768
+    slot = effective_ctx(vllm_args, engine) or 32768
+    # llama.cpp / ds4 : le slot est partagé entre le prompt ET la génération. Si on
+    # annonce tout le slot comme entrée, il ne reste rien pour répondre → le client
+    # remplit le contexte et ça casse. On réserve une marge de sortie. vLLM sépare
+    # déjà entrée/sortie via --max-model-len, on garde le comportement historique.
+    if engine in ('llamacpp', 'ds4'):
+        out_reserve = min(131072, slot // 3)
+        max_input, max_output = max(slot - out_reserve, 1024), out_reserve
+    else:
+        max_input, max_output = slot, min(slot // 2, 262144)
     # ds4 part en mode « thinking » par défaut : il IGNORE alors max_tokens
     # (« client sampling knobs are ignored like the official API ») et génère des
     # milliers de tokens à ~10 tok/s. Comme le moteur est mono-slot, une seule
@@ -2222,8 +2231,8 @@ def _register_litellm_model(name, vllm_args, engine='vllm'):
         "model_info": {
             "mode": "chat",
             "supports_function_calling": True,
-            "max_input_tokens": ctx,
-            "max_output_tokens": min(ctx // 2, 262144),
+            "max_input_tokens": max_input,
+            "max_output_tokens": max_output,
         },
     }
     try:

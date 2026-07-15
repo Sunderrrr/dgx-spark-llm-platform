@@ -18,6 +18,10 @@ HF_HOME      = os.environ.get("HF_HOME", "/root/.cache/huggingface")
 # non-authentifié). Un modèle y est référencé par « local:<nom> » — le nom est
 # assaini, donc pas de chemin arbitraire ni de traversée de répertoire.
 MODELS_DIR   = os.environ.get("MODELS_DIR", "/root/models")
+# Templates de chat corrigés (ex. neutraliser l'alternance stricte des modèles
+# Mistral qui casse en usage agentique). Référencés par nom seul → pas de chemin
+# arbitraire.
+TEMPLATES_DIR = os.environ.get("TEMPLATES_DIR", "/root/models/templates")
 RUNNER_TOKEN = os.environ["RUNNER_TOKEN"]  # requis — pas de défaut, le service doit échouer au démarrage si absent
 
 ENGINES = ("vllm", "llamacpp", "ds4")
@@ -98,6 +102,9 @@ _LLAMA_VALUE_FLAGS = {
     # Attention : --flash-attn prend une VALEUR (on|off|auto) dans llama.cpp
     # récent — le traiter comme un booléen lui fait avaler le flag suivant.
     "--flash-attn",
+    # Valeur = nom de fichier seul, résolu sous TEMPLATES_DIR (pas de chemin
+    # arbitraire, cf. _resolve_template) → sert à corriger un template embarqué.
+    "--chat-template-file",
 }
 
 
@@ -363,6 +370,23 @@ def stream():
     return Response(generate(), mimetype="text/event-stream", headers=headers)
 
 
+def _resolve_template_tokens(tokens):
+    """Remplace la valeur de --chat-template-file (nom de fichier seul) par le
+    chemin absolu sous TEMPLATES_DIR. Rejette tout ce qui contient un séparateur
+    ou « .. » → impossible de lire un fichier hors du répertoire contrôlé."""
+    out = list(tokens)
+    for i, t in enumerate(out):
+        if t == "--chat-template-file" and i + 1 < len(out):
+            raw = out[i + 1]
+            if "/" in raw or "\\" in raw or ".." in raw:
+                raise ValueError("nom de template invalide")
+            path = os.path.join(TEMPLATES_DIR, raw)
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"template « {raw} » introuvable dans {TEMPLATES_DIR}")
+            out[i + 1] = path
+    return out
+
+
 def _build_cmd(hf_id, name, extra_tokens, engine):
     """Ligne de commande du moteur. Tous servent une API OpenAI sur :8000,
     donc rien ne change en aval (LiteLLM, portail, playground)."""
@@ -378,6 +402,7 @@ def _build_cmd(hf_id, name, extra_tokens, engine):
         # Sinon -hf accepte "user/repo[:QUANT]" et llama.cpp télécharge lui-même.
         # --metrics expose /metrics (Prometheus) comme vLLM, pour le panneau santé.
         src = ["-m", _resolve_gguf(hf_id)] if hf_id.startswith("local:") else ["-hf", hf_id]
+        extra_tokens = _resolve_template_tokens(extra_tokens)
         return [LLAMA_BIN] + src + [
                 "--host", "0.0.0.0", "--port", "8000",
                 "--alias", name,

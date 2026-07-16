@@ -54,6 +54,11 @@
       --code-text:     #c6ccd2;
       --shadow-sm:     0 1px 2px rgba(0,0,0,.35);
       --shadow:        0 2px 6px rgba(0,0,0,.30), 0 8px 24px -14px rgba(0,0,0,.6);
+      /* Matériau translucide (navbar / modale) : surface semi-transparente
+         révélée par le flou de fond — cf. Apple materials & depth. */
+      --glass:         rgba(21,24,27,0.72);
+      --glass-edge:    rgba(255,255,255,0.06);
+      --shadow-float:  0 10px 40px -12px rgba(0,0,0,.65), 0 2px 8px rgba(0,0,0,.4);
     }
     /* ── Thème clair ───────────────────────────────────────── */
     [data-bs-theme="light"] {
@@ -77,6 +82,9 @@
       --code-text:     #c6ccd2;
       --shadow-sm:     0 1px 2px rgba(16,24,32,.06);
       --shadow:        0 1px 3px rgba(16,24,32,.08), 0 8px 24px -16px rgba(16,24,32,.20);
+      --glass:         rgba(255,255,255,0.72);
+      --glass-edge:    rgba(255,255,255,0.7);
+      --shadow-float:  0 12px 40px -14px rgba(16,24,32,.22), 0 2px 8px rgba(16,24,32,.08);
     }
 
     * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
@@ -90,9 +98,12 @@
       min-height: 100vh;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       -webkit-font-smoothing: antialiased; letter-spacing: -0.01em;
+      font-optical-sizing: auto;   /* le tracé s'adapte à la taille (Apple §15) */
       transition: background-color .2s ease, color .2s ease;
     }
-    h1,h2,h3,h4,h5,h6 { letter-spacing: -0.02em; }
+    /* Tracking spécifique à la taille : plus le texte est grand, plus on resserre. */
+    h1,h2,h3,h4,h5,h6 { letter-spacing: -0.02em; text-wrap: balance; }
+    .page-head-title, .stat-number, .brand-word { letter-spacing: -0.03em; }
     code, .font-mono { font-family: "SF Mono","JetBrains Mono","Fira Code",ui-monospace,Menlo,Consolas,monospace; }
     code { color: var(--accent); background: var(--accent-soft); padding: .1em .4em; border-radius: 5px; font-size: .86em; }
 
@@ -112,10 +123,24 @@
       --bs-table-hover-color: var(--text);
     }
 
-    /* ── Navbar ─────────────────────────────────────────────── */
+    /* ── Springs partagés (Apple : critically damped par défaut, léger
+          overshoot réservé aux interactions à momentum) ──────────── */
+    :root {
+      --spring:      cubic-bezier(0.32, 0.72, 0, 1);      /* réponse nette, sans rebond */
+      --spring-pop:  cubic-bezier(0.34, 1.4, 0.5, 1);     /* léger overshoot pour l'apparition */
+    }
+
+    /* ── Navbar ── matériau translucide, le contenu défile dessous ── */
     .navbar {
-      background: var(--surface); border-bottom: 1px solid var(--border);
+      background: var(--glass);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      backdrop-filter: saturate(180%) blur(20px);
+      border-bottom: 1px solid var(--border);
+      box-shadow: inset 0 1px 0 var(--glass-edge);   /* arête lumineuse = la lumière accroche le matériau */
       position: sticky; top: 0; z-index: 1030; padding-top: .55rem; padding-bottom: .55rem;
+    }
+    @media (prefers-reduced-transparency: reduce) {
+      .navbar { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
     }
     .navbar-brand { font-weight: 700; color: var(--text) !important; display: flex; align-items: center; gap: .6rem; }
     .brand-word { font-weight: 700; letter-spacing: -.02em; font-size: 1.12rem; }
@@ -127,10 +152,12 @@
     }
     .navbar .nav-link {
       color: var(--text-muted); font-weight: 500; font-size: .92rem; border-radius: 7px;
-      padding: .4rem .75rem !important; margin: 0 .05rem; transition: color .15s, background .15s;
+      padding: .4rem .75rem !important; margin: 0 .05rem;
+      transition: color .18s var(--spring), background .18s var(--spring), transform .12s var(--spring);
       display: inline-flex; align-items: center; gap: .4rem;
     }
     .navbar .nav-link:hover { color: var(--text); background: var(--surface-hover); }
+    .navbar .nav-link:active { transform: scale(0.96); }   /* feedback sur l'appui, instantané */
     .navbar .nav-link.active { color: var(--text); background: var(--accent-soft); }
     .navbar .nav-link.active i { color: var(--accent); }
     .navbar .nav-link.admin-link.active { color: var(--warn); background: rgba(180,120,10,0.1); }
@@ -138,21 +165,32 @@
     .icon-btn {
       width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border);
       background: var(--surface); color: var(--text-muted); display: grid; place-items: center;
-      cursor: pointer; transition: all .15s; padding: 0;
+      cursor: pointer; transition: color .16s var(--spring), border-color .16s var(--spring),
+      background .16s var(--spring), transform .12s var(--spring); padding: 0;
     }
     .icon-btn:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-hover); }
+    .icon-btn:active { transform: scale(0.92); }
 
     /* ── Cartes ─────────────────────────────────────────────── */
     .card {
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-      box-shadow: var(--shadow-sm); transition: border-color .15s, box-shadow .15s, transform .15s;
+      box-shadow: var(--shadow-sm);
+      transition: border-color .25s var(--spring), box-shadow .25s var(--spring), transform .25s var(--spring);
     }
     .card-header { background: transparent; border-bottom: 1px solid var(--border); font-weight: 600; }
-    .model-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow); transform: translateY(-2px); }
+    .model-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow); transform: translateY(-3px); }
+    .model-card:active { transform: translateY(-1px) scale(0.995); transition-duration: .1s; }
     .border-dashed { border-style: dashed !important; border-color: var(--border-strong) !important; box-shadow: none; }
 
     /* ── Boutons ────────────────────────────────────────────── */
-    .btn { font-weight: 600; border-radius: 8px; font-size: .9rem; transition: all .14s; }
+    .btn {
+      font-weight: 600; border-radius: 8px; font-size: .9rem;
+      transition: background-color .16s var(--spring), border-color .16s var(--spring),
+                  color .16s var(--spring), filter .16s var(--spring),
+                  box-shadow .16s var(--spring), transform .1s var(--spring);
+    }
+    /* Feedback à l'appui, instantané (Apple §1) — la pression s'enfonce puis rebondit */
+    .btn:not(:disabled):active { transform: scale(0.97); }
     .btn-success {
       --bs-btn-bg: var(--accent); --bs-btn-border-color: var(--accent);
       --bs-btn-hover-bg: var(--accent-hover); --bs-btn-hover-border-color: var(--accent-hover);
@@ -329,8 +367,26 @@
     .usage-tip .t-v { color:var(--chart); font-weight:700; font-size:.9rem; font-variant-numeric:tabular-nums; }
 
     /* ── Modale « Nouveautés » ──────────────────────────────── */
-    .modal-content { background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); color:var(--text); }
+    .modal-content {
+      background:var(--surface); border:1px solid var(--border); border-radius:16px;
+      box-shadow:var(--shadow-float); color:var(--text);
+    }
     .modal-header, .modal-footer { border-color:var(--border); }
+    /* Matérialisation : la surface arrive (scale + léger overshoot), pas un simple
+       fondu ; le fond est assombri ET flouté pour concentrer l'attention (Apple §12). */
+    .modal.fade .modal-dialog {
+      transition: transform .38s var(--spring-pop), opacity .28s ease;
+      transform: scale(.94) translateY(10px); opacity: 0;
+    }
+    .modal.show .modal-dialog { transform: none; opacity: 1; }
+    .modal-backdrop { background: rgba(8,10,12,.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+    .modal-backdrop.show { opacity: 1; }
+    @media (prefers-reduced-motion: reduce) {
+      .modal.fade .modal-dialog { transition: opacity .2s ease; transform: none; }
+    }
+    @media (prefers-reduced-transparency: reduce) {
+      .modal-backdrop { background: rgba(8,10,12,.6); backdrop-filter: none; -webkit-backdrop-filter: none; }
+    }
     .ann-item { padding:.7rem 0; border-bottom:1px solid var(--border); }
     .ann-item:last-child { border-bottom:none; }
     .ann-ico { width:34px; height:34px; flex:0 0 34px; border-radius:9px; display:grid; place-items:center;

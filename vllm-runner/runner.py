@@ -445,6 +445,13 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
         # transformation") et dégrade la précision (vLLM l'auto-désactive
         # partiellement) → on le coupe complètement, fallback CUTLASS.
         "VLLM_USE_DEEP_GEMM": "0",
+        # FlashInfer compile ses kernels NVFP4 en JIT au démarrage. Sans MAX_JOBS
+        # il ne passe pas de -j à ninja, qui lance ~nproc+2 compilateurs `cicc` de
+        # ~3 Go chacun — par-dessus les poids déjà chargés, ça déclenche l'OOM
+        # killer et le modèle meurt à l'init (constaté sur Leanstral et Nemotron).
+        # 4 jobs ≈ 12 Go de pic : compilation un peu plus lente, mais une seule
+        # fois (les kernels sont ensuite mis en cache).
+        "MAX_JOBS": os.environ.get("MAX_JOBS", "4"),
     }
     if os.environ.get("HF_TOKEN"):
         env["HF_TOKEN"] = os.environ["HF_TOKEN"]

@@ -9,6 +9,12 @@ import hmac, json, os, re, shutil, signal, subprocess, threading, time, urllib.r
 from flask import Flask, jsonify, request, Response
 
 VLLM_BIN     = os.environ.get("VLLM_BIN", "/root/.local/bin/vllm")
+# Venv séparé (vLLM 0.25.1 + FlashInfer nightly) pour les modèles qui exigent
+# une version de vLLM plus récente que celle installée globalement — évite de
+# faire une montée de version majeure qui casserait les modèles existants
+# (nemotron/minimax/ornith tournent sur VLLM_BIN, testés et stables dessus).
+# Activé par le pseudo-flag --vllm-025 dans vllm_args (voir _BIN_FLAGS).
+VLLM_BIN_025 = os.environ.get("VLLM_BIN_025", "/root/venvs/vllm025/bin/vllm")
 LLAMA_BIN    = os.environ.get("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-server")
 # Moteur ds4 : GGUF NVFP4 « multi-tenseurs » spécifique DGX Spark (DeepSeek-V4-Flash).
 # Ni vLLM ni llama.cpp standard ne savent charger ce format.
@@ -67,6 +73,29 @@ _BOOL_FLAGS = {
     "--disable-log-requests", "--disable-log-stats",
     "--skip-mm-profiling",
 }
+
+# Pseudo-flags : ne sont PAS passés au moteur, ils positionnent une variable
+# d'environnement pour CE modèle uniquement. Allowlist fermée → pas d'injection
+# d'env arbitraire. Utile quand un modèle exige un chemin kernel particulier
+# qu'on ne veut surtout pas imposer globalement aux autres modèles.
+_ENV_FLAGS = {
+    # MiniMax-M2 (quant mixte NVFP4+FP8) : vLLM ne trouve pas de kernel FP8
+    # ScaledMM sur GB10 et demande explicitement ce fallback Marlin.
+    "--force-fp8-marlin": ("VLLM_TEST_FORCE_FP8_MARLIN", "1"),
+    # Laguna S 2.1 (NVFP4 natif via FlashInfer) : chaîne d'architecture requise
+    # par le JIT des kernels FP4 sur GB10 (recette officielle poolside).
+    "--cute-dsl-arch-sm121a": ("CUTE_DSL_ARCH", "sm_121a"),
+}
+_BOOL_FLAGS |= set(_ENV_FLAGS)
+
+# Pseudo-flag séparé (pas un simple env var) : bascule le binaire vLLM utilisé
+# pour CE lancement uniquement, sans toucher à VLLM_BIN (donc sans risque pour
+# les autres modèles vllm). Retiré de extra_tokens dans _start_process, comme
+# les entrées de _ENV_FLAGS.
+_BIN_FLAGS = {
+    "--vllm-025": VLLM_BIN_025,
+}
+_BOOL_FLAGS |= set(_BIN_FLAGS)
 _VALUE_FLAGS = {
     "--tool-call-parser", "--dtype", "--max-model-len",
     "--gpu-memory-utilization", "--max-num-seqs", "--kv-cache-dtype",
@@ -387,7 +416,7 @@ def _resolve_template_tokens(tokens):
     return out
 
 
-def _build_cmd(hf_id, name, extra_tokens, engine):
+def _build_cmd(hf_id, name, extra_tokens, engine, vllm_bin=None):
     """Ligne de commande du moteur. Tous servent une API OpenAI sur :8000,
     donc rien ne change en aval (LiteLLM, portail, playground)."""
     if engine == "ds4":
@@ -407,7 +436,7 @@ def _build_cmd(hf_id, name, extra_tokens, engine):
                 "--host", "0.0.0.0", "--port", "8000",
                 "--alias", name,
                 "--metrics"] + extra_tokens
-    return [VLLM_BIN, "serve", hf_id,
+    return [vllm_bin or VLLM_BIN, "serve", hf_id,
             "--port", "8000", "--host", "0.0.0.0",
             "--served-model-name", name] + extra_tokens
 
@@ -431,8 +460,26 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     if killed:
         _wait_mem_release()
 
-    cmd = _build_cmd(hf_id, name, extra_tokens, engine)
+    # Les pseudo-flags deviennent des variables d'env propres à ce modèle et
+    # sont retirés de l'argv (le moteur ne les connaît pas).
+    model_env = {}
+    for flag, (var, val) in _ENV_FLAGS.items():
+        if flag in extra_tokens:
+            extra_tokens = [t for t in extra_tokens if t != flag]
+            model_env[var] = val
+
+    # --vllm-025 (voir _BIN_FLAGS) : bascule sur le venv vLLM 0.25.1 séparé
+    # pour ce lancement, sans toucher au binaire par défaut des autres modèles.
+    vllm_bin = None
+    for flag, bin_path in _BIN_FLAGS.items():
+        if flag in extra_tokens:
+            extra_tokens = [t for t in extra_tokens if t != flag]
+            vllm_bin = bin_path
+
+    cmd = _build_cmd(hf_id, name, extra_tokens, engine, vllm_bin=vllm_bin)
     _append(f"[runner] ({engine}) $ {' '.join(cmd)}")
+    if model_env:
+        _append(f"[runner] env spécifique au modèle : {model_env}")
 
     # Env minimal explicite plutôt que **os.environ — évite de faire fuiter
     # l'environnement root complet (secrets divers) dans /logs et /stream.
@@ -453,6 +500,7 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
         # fois (les kernels sont ensuite mis en cache).
         "MAX_JOBS": os.environ.get("MAX_JOBS", "4"),
     }
+    env.update(model_env)
     if os.environ.get("HF_TOKEN"):
         env["HF_TOKEN"] = os.environ["HF_TOKEN"]
     if engine == "ds4":

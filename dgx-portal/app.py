@@ -1,5 +1,5 @@
 import os, sqlite3, smtplib, requests, time, re, threading, json, secrets, hmac
-from flask import Flask, render_template, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort
+from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
@@ -18,28 +18,6 @@ app.secret_key = os.environ['SECRET_KEY']
 # fait confiance aux en-têtes X-Forwarded-* pour que Flask connaisse le vrai
 # schéma (https) et l'hôte externe (dgx.cronos.website).
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-
-# ── i18n ─────────────────────────────────────────────────────────────────────
-# Les templates sont en français. PORTAL_LANG=fr → servis tels quels (instance de
-# prod, aucune transformation). Sinon (défaut 'en') → le HTML rendu est traduit à
-# la volée vers l'anglais via un catalogue FR→EN, avec des limites de mots pour ne
-# jamais corrompre le HTML/JS (pas de remplacement à l'intérieur d'un mot).
-import translations as _tr
-PORTAL_LANG = os.environ.get('PORTAL_LANG', 'en').lower()
-if PORTAL_LANG != 'fr' and _tr.FR_TO_EN:
-    _TR_RE = re.compile('|'.join(
-        '(?<!\\w)' + re.escape(k) + '(?!\\w)'
-        for k in sorted(_tr.FR_TO_EN, key=len, reverse=True)))
-
-    @app.after_request
-    def _translate_html(resp):
-        try:
-            if (resp.content_type or '').startswith('text/html') and not resp.direct_passthrough:
-                html = _TR_RE.sub(lambda m: _tr.FR_TO_EN[m.group(0)], resp.get_data(as_text=True))
-                resp.set_data(html)
-        except Exception:
-            pass
-        return resp
 
 # ── Durcissement des sessions ────────────────────────────────────────────────
 # HttpOnly : le cookie de session n'est pas lisible en JS (anti-vol via XSS).
@@ -808,10 +786,22 @@ def notify_budget_email(username, fullname, key_alias, current_budget, reason):
 
 # ── Décorateurs ─────────────────────────────────────────────────────────────
 
+_API_FETCH_PATHS = ('/playground/chat', '/support/chat', '/admin/runner/stream')
+
+
+def _is_api_request():
+    # Distingue les appels fetch/JSON (pilote Next.js) de la navigation classique :
+    # fetch() suit les redirections 302 automatiquement et renverrait le HTML de
+    # /login avec un code 200, masquant l'expiration de session au frontend.
+    return request.path.startswith('/api/') or request.path in _API_FETCH_PATHS
+
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'username' not in session:
+            if _is_api_request():
+                abort(401)
             return redirect(url_for('login', next=request.path))
         return f(*args, **kwargs)
     return decorated
@@ -820,8 +810,12 @@ def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'username' not in session:
+            if _is_api_request():
+                abort(401)
             return redirect(url_for('login'))
         if not session.get('is_admin'):
+            if _is_api_request():
+                abort(403)
             flash("Accès réservé aux administrateurs.", "danger")
             return redirect(url_for('index'))
         return f(*args, **kwargs)
@@ -860,6 +854,11 @@ def _login_reset(key):
     with _login_lock:
         _login_attempts.pop(key, None)
 
+@app.route('/api/config')
+def api_config():
+    return jsonify({'oidc_enabled': OIDC_ENABLED})
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if 'username' in session:
@@ -872,7 +871,7 @@ def login():
         wait = _login_locked(key) or _login_locked(ip)
         if wait:
             flash(f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min.", "danger")
-            return render_template('login.html', oidc_enabled=OIDC_ENABLED)
+            return ('', 401)
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
             _login_reset(key); _login_reset(ip)
@@ -880,7 +879,10 @@ def login():
             return redirect(_safe_next(request.args.get('next')))
         _login_fail(key); _login_fail(ip)
         flash("Identifiants incorrects.", "danger")
-    return render_template('login.html', oidc_enabled=OIDC_ENABLED)
+        return ('', 401)
+    # GET /login : la page elle-même est rendue par le frontend Next.js
+    # (app/login/page.tsx) — cette branche n'est plus atteinte en usage normal.
+    return ('', 204)
 
 
 def _safe_next(target):
@@ -1044,9 +1046,7 @@ def logout():
         return redirect(OIDC_LOGOUT_URL)
     return redirect(url_for('login'))
 
-@app.route('/')
-@login_required
-def index():
+def _index_data():
     running = get_running_models()
     db = get_db()
     my_requests = db.execute(
@@ -1054,84 +1054,111 @@ def index():
         (session['username'],)
     ).fetchall()
     default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
-    return render_template('index.html', running_models=running, my_requests=my_requests,
-                           public_api_url=PUBLIC_API_URL, usage=user_hourly(session['username']),
-                           sysmetrics=runner_metrics(),
-                           modelhealth=vllm_health(),
-                           active_users=_active_users() if session.get('is_admin') else None,
-                           budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
-                           budget_duration=get_setting('default_key_duration', KEY_DURATION))
+    return dict(running_models=running, my_requests=my_requests,
+                public_api_url=PUBLIC_API_URL, usage=user_hourly(session['username']),
+                sysmetrics=runner_metrics(),
+                modelhealth=vllm_health(),
+                active_users=_active_users() if session.get('is_admin') else None,
+                budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
+                budget_duration=get_setting('default_key_duration', KEY_DURATION))
+
+
+@app.route('/')
+@login_required
+def index():
+    # The page itself is rendered by the Next.js frontend (data via /api/home)
+    # — this endpoint only stays registered because url_for('index') is used
+    # throughout as a redirect target (login, request_model, admin_required).
+    return ('', 204)
+
+
+@app.route('/api/whoami')
+@login_required
+def api_whoami():
+    return jsonify({'username': session.get('username'), 'fullname': session.get('fullname'),
+                     'is_admin': bool(session.get('is_admin'))})
+
+
+@app.route('/api/home')
+@login_required
+def api_home():
+    data = _index_data()
+    data['my_requests'] = [dict(r) for r in data['my_requests']]
+    return jsonify(data)
 
 @app.route('/keys', methods=['GET', 'POST'])
 @login_required
 def keys():
-    user_keys = get_user_keys(session['username'])
-    new_key_alias = None
-    if request.method == 'POST':
-        action = request.form.get('action')
-        if action == 'create':
-            raw_name = request.form.get('key_name', '').strip()
-            if raw_name:
-                alias = re.sub(r'[^a-zA-Z0-9_-]', '-', raw_name)[:40]
-            else:
-                alias = f"{session['username']}-{int(time.time())}"
-            new_key = create_litellm_key(alias, session['username'], is_admin=session.get('is_admin', False))
-            if new_key:
-                db = get_db()
-                db.execute(
-                    "INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) VALUES (?,?,?,?)",
-                    (session['username'], alias, new_key, datetime.now().isoformat())
-                )
-                db.commit()
-                new_key_alias = alias
-                flash("Clé créée !", "success")
-                user_keys = get_user_keys(session['username'])
-            else:
-                flash("Erreur lors de la création de la clé.", "danger")
-        elif action == 'revoke':
-            k = request.form.get('key')
+    # GET /keys : la page elle-même est rendue par le frontend Next.js
+    # (données via /api/keys) — seules les actions POST ci-dessous restent
+    # utilisées (postForm("/keys", ...) depuis app/(app)/keys/page.tsx).
+    if request.method != 'POST':
+        return ('', 204)
+    action = request.form.get('action')
+    if action == 'create':
+        raw_name = request.form.get('key_name', '').strip()
+        if raw_name:
+            alias = re.sub(r'[^a-zA-Z0-9_-]', '-', raw_name)[:40]
+        else:
+            alias = f"{session['username']}-{int(time.time())}"
+        new_key = create_litellm_key(alias, session['username'], is_admin=session.get('is_admin', False))
+        if new_key:
             db = get_db()
-            # Vérifie que la clé appartient bien à l'utilisateur connecté AVANT de
-            # la révoquer côté LiteLLM (anti-IDOR : sinon n'importe quel user pourrait
-            # révoquer la clé d'un autre en soumettant sa valeur).
-            owns = db.execute(
-                "SELECT 1 FROM api_keys WHERE key_value=? AND username=?",
-                (k, session['username'])
-            ).fetchone()
-            if not owns:
-                flash("Clé introuvable.", "danger")
-            elif revoke_litellm_key(k):
-                db.execute("DELETE FROM api_keys WHERE key_value=? AND username=?",
-                           (k, session['username']))
-                db.commit()
-                flash("Clé révoquée.", "success")
-                user_keys = get_user_keys(session['username'])
-            else:
-                flash("Erreur lors de la révocation.", "danger")
-        elif action == 'request_budget':
-            reason  = request.form.get('reason', '').strip()
-            current = _litellm_user_info(session['username']).get('max_budget')
-            db = get_db()
-            existing = db.execute(
-                "SELECT id FROM budget_requests WHERE username=? AND status='pending'",
-                (session['username'],)
-            ).fetchone()
-            if existing:
-                flash("Tu as déjà une demande en attente.", "warning")
-                return redirect(url_for('keys'))
             db.execute(
-                "INSERT INTO budget_requests (username, fullname, key_alias, current_budget, reason, status, created_at) "
-                "VALUES (?,?,?,?,?,?,?)",
-                (session['username'], session['fullname'], '(compte)', current, reason, 'pending',
-                 datetime.now().isoformat())
+                "INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) VALUES (?,?,?,?)",
+                (session['username'], alias, new_key, datetime.now().isoformat())
             )
             db.commit()
-            notify_budget_discord(session['username'], session['fullname'], '(compte)', current, reason)
-            notify_budget_email(session['username'], session['fullname'], '(compte)', current, reason)
-            flash("Demande de tokens envoyée !", "success")
-    running = get_running_models()
+            flash("Clé créée !", "success")
+        else:
+            flash("Erreur lors de la création de la clé.", "danger")
+    elif action == 'revoke':
+        k = request.form.get('key')
+        db = get_db()
+        # Vérifie que la clé appartient bien à l'utilisateur connecté AVANT de
+        # la révoquer côté LiteLLM (anti-IDOR : sinon n'importe quel user pourrait
+        # révoquer la clé d'un autre en soumettant sa valeur).
+        owns = db.execute(
+            "SELECT 1 FROM api_keys WHERE key_value=? AND username=?",
+            (k, session['username'])
+        ).fetchone()
+        if not owns:
+            flash("Clé introuvable.", "danger")
+        elif revoke_litellm_key(k):
+            db.execute("DELETE FROM api_keys WHERE key_value=? AND username=?",
+                       (k, session['username']))
+            db.commit()
+            flash("Clé révoquée.", "success")
+        else:
+            flash("Erreur lors de la révocation.", "danger")
+    elif action == 'request_budget':
+        reason  = request.form.get('reason', '').strip()
+        current = _litellm_user_info(session['username']).get('max_budget')
+        db = get_db()
+        existing = db.execute(
+            "SELECT id FROM budget_requests WHERE username=? AND status='pending'",
+            (session['username'],)
+        ).fetchone()
+        if existing:
+            flash("Tu as déjà une demande en attente.", "warning")
+            return ('', 204)
+        db.execute(
+            "INSERT INTO budget_requests (username, fullname, key_alias, current_budget, reason, status, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (session['username'], session['fullname'], '(compte)', current, reason, 'pending',
+             datetime.now().isoformat())
+        )
+        db.commit()
+        notify_budget_discord(session['username'], session['fullname'], '(compte)', current, reason)
+        notify_budget_email(session['username'], session['fullname'], '(compte)', current, reason)
+        flash("Demande de tokens envoyée !", "success")
+    return ('', 204)
+
+
+@app.route('/api/keys')
+@login_required
+def api_keys():
     default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
-    # Budget au niveau COMPTE (partagé par toutes les clés). Admin = illimité.
     acct = _litellm_user_info(session['username'])
     account = {
         'spend': acct['spend'],
@@ -1142,19 +1169,20 @@ def keys():
             "SELECT 1 FROM budget_requests WHERE username=? AND status='pending'",
             (session['username'],)).fetchone()),
     }
-    # Limites de contexte par requête (selon le moteur), pour les snippets
-    # d'intégration qui déclarent la fenêtre côté client (OpenCode/OpenChamber).
     model_limits = {}
     for row in get_db().execute("SELECT name, vllm_args, engine FROM model_configs"):
         ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
         if ctx:
             model_limits[row['name']] = {'context': ctx, 'output': min(ctx // 2, 262144)}
-    return render_template('keys.html', user_keys=user_keys, new_key_alias=new_key_alias,
-                           budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
-                           budget_duration=get_setting('default_key_duration', KEY_DURATION),
-                           account=account,
-                           model_limits=model_limits,
-                           running_models=running, public_api_url=PUBLIC_API_URL)
+    return jsonify({
+        'user_keys': get_user_keys(session['username']),
+        'budget_tokens': f"{default_budget:,.0f}".replace(',', ' '),
+        'budget_duration': get_setting('default_key_duration', KEY_DURATION),
+        'account': account,
+        'model_limits': model_limits,
+        'running_models': get_running_models(),
+        'public_api_url': PUBLIC_API_URL,
+    })
 
 
 # ── Support (assistant IA) ───────────────────────────────────────────────────
@@ -1429,12 +1457,20 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
         return f"Erreur lors de l'exécution de l'action ({type(e).__name__})."
 
 
-@app.route('/support')
-@login_required
-def support():
-    return render_template('support.html',
-                           running_models=get_running_models(),
-                           public_api_url=PUBLIC_API_URL)
+
+def _sse_chunks(text):
+    """Découpe un texte déjà généré en petits paquets SSE envoyés à un rythme
+    proche d'un vrai streaming. /support/chat n'est pas lui-même en streaming
+    de bout en bout : la boucle d'appels d'outils a besoin de la réponse
+    complète de chaque tour pour décider d'exécuter un outil. Une fois la
+    réponse finale connue, on simule donc le rythme de frappe au lieu de
+    l'envoyer d'un bloc."""
+    chunk_chars, delay = 4, 0.02
+    for i in range(0, len(text), chunk_chars):
+        payload = json.dumps({'choices': [{'delta': {'content': text[i:i + chunk_chars]}}]})
+        yield f"data: {payload}\n\n"
+        time.sleep(delay)
+    yield "data: [DONE]\n\n"
 
 
 @app.route('/support/chat', methods=['POST'])
@@ -1443,14 +1479,14 @@ def support_chat():
     data = request.get_json(silent=True) or {}
     history = data.get('messages', [])
     if not isinstance(history, list) or not history:
-        return jsonify({'reply': "Message vide."}), 400
+        return Response(_sse_msg("Message vide."), mimetype='text/event-stream'), 400
     history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:4000]}
                for m in history if m.get('role') in ('user', 'assistant')][-12:]
     running = get_running_models()
     if not running:
-        return jsonify({'reply': "Aucun modèle n'est actif sur le serveur pour l'instant : "
+        return Response(_sse_msg("Aucun modèle n'est actif sur le serveur pour l'instant : "
                                  "je ne peux pas répondre. Préviens un admin ou réessaie une "
-                                 "fois un modèle lancé."})
+                                 "fois un modèle lancé."), mimetype='text/event-stream')
     model = running[0]
     username = session['username']
     fullname = session.get('fullname', username)
@@ -1461,7 +1497,7 @@ def support_chat():
     tools = _support_tools(is_admin)
 
     def _chat(with_tools):
-        body = {'model': model, 'messages': msgs, 'temperature': 0.3, 'max_tokens': 600,
+        body = {'model': model, 'messages': msgs, 'temperature': 0.3, 'max_tokens': 4096,
                 'chat_template_kwargs': {'enable_thinking': False}}
         if with_tools:
             body['tools'] = tools
@@ -1469,53 +1505,71 @@ def support_chat():
         return requests.post(f"{LITELLM_URL}/v1/chat/completions", headers=litellm_headers(),
                              json=body, timeout=120)
 
-    try:
-        use_tools = True
-        for _ in range(4):  # boucle : le modèle peut enchaîner des appels d'outils
-            r = _chat(use_tools)
-            if not r.ok and use_tools:
-                use_tools = False   # modèle sans support tools → réessai sans
-                continue
-            if not r.ok:
-                return jsonify({'reply': f"Le modèle a renvoyé une erreur ({r.status_code}). Réessaie."})
-            m = r.json()['choices'][0]['message']
-            tcs = m.get('tool_calls')
-            if not tcs:
-                reply = _clean_reply(m.get('content') or '')
-                return jsonify({'reply': reply or "(réponse vide)", 'model': model})
-            # Le modèle appelle des outils → on les exécute côté serveur puis on reboucle.
-            msgs.append({'role': 'assistant', 'content': m.get('content') or '', 'tool_calls': tcs})
-            for tc in tcs:
-                fn = tc.get('function', {})
-                try:
-                    a = json.loads(fn.get('arguments') or '{}')
-                except Exception:
-                    a = {}
-                res = _exec_support_tool(fn.get('name', ''), a, username, fullname, is_admin)
-                msgs.append({'role': 'tool', 'tool_call_id': tc.get('id'), 'content': res})
-        # Trop d'allers-retours d'outils → on force une réponse finale SANS outils
-        # (sinon le modèle peut boucler sur des appels et ne jamais conclure).
-        rf = _chat(False)
-        if rf.ok:
-            reply = _clean_reply(rf.json()['choices'][0]['message'].get('content') or '')
-            return jsonify({'reply': reply or "Peux-tu reformuler ta demande ?", 'model': model})
-        return jsonify({'reply': "Le modèle est occupé, réessaie dans un instant.", 'model': model})
-    except Exception:
-        return jsonify({'reply': "Le modèle n'a pas répondu à temps. Réessaie dans un instant."})
+    def gen():
+        try:
+            use_tools = True
+            for _ in range(4):  # boucle : le modèle peut enchaîner des appels d'outils
+                r = _chat(use_tools)
+                if not r.ok and use_tools:
+                    use_tools = False   # modèle sans support tools → réessai sans
+                    continue
+                if not r.ok:
+                    yield from _sse_chunks(f"Le modèle a renvoyé une erreur ({r.status_code}). Réessaie.")
+                    return
+                m = r.json()['choices'][0]['message']
+                tcs = m.get('tool_calls')
+                if not tcs:
+                    reply = _clean_reply(m.get('content') or '')
+                    yield from _sse_chunks(reply or "(réponse vide)")
+                    return
+                # Le modèle appelle des outils → on les exécute côté serveur puis on reboucle.
+                msgs.append({'role': 'assistant', 'content': m.get('content') or '', 'tool_calls': tcs})
+                for tc in tcs:
+                    fn = tc.get('function', {})
+                    try:
+                        a = json.loads(fn.get('arguments') or '{}')
+                    except Exception:
+                        a = {}
+                    res = _exec_support_tool(fn.get('name', ''), a, username, fullname, is_admin)
+                    msgs.append({'role': 'tool', 'tool_call_id': tc.get('id'), 'content': res})
+            # Trop d'allers-retours d'outils → on force une réponse finale SANS outils
+            # (sinon le modèle peut boucler sur des appels et ne jamais conclure).
+            rf = _chat(False)
+            if rf.ok:
+                reply = _clean_reply(rf.json()['choices'][0]['message'].get('content') or '')
+                yield from _sse_chunks(reply or "Peux-tu reformuler ta demande ?")
+            else:
+                yield from _sse_chunks("Le modèle est occupé, réessaie dans un instant.")
+        except Exception:
+            yield from _sse_chunks("Le modèle n'a pas répondu à temps. Réessaie dans un instant.")
+
+    return Response(stream_with_context(gen()), mimetype='text/event-stream',
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ── Playground : chat direct avec le modèle, en streaming ────────────────────
-@app.route('/playground')
-@login_required
-def playground():
-    # Fenêtre de contexte par requête (selon le moteur) → anneau d'usage.
+def _playground_model_limits():
     model_limits = {}
     for row in get_db().execute("SELECT name, vllm_args, engine FROM model_configs"):
         ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
         if ctx:
             model_limits[row['name']] = ctx
-    return render_template('playground.html', running_models=get_running_models(),
-                           model_limits=model_limits)
+    return model_limits
+
+
+# ── API JSON pour le pilote frontend Next.js/Astryx (même origine, via Traefik) ──
+@app.route('/api/csrf')
+def api_csrf():
+    # Pas de login_required : la page de connexion (non authentifiée) a elle
+    # aussi besoin de son propre jeton CSRF, exactement comme le <meta> serveur.
+    return jsonify({'token': session.get('csrf', '')})
+
+
+@app.route('/api/playground/data')
+@login_required
+def api_playground_data():
+    return jsonify({'running_models': get_running_models(),
+                     'model_limits': _playground_model_limits()})
 
 
 def _sse_msg(text):
@@ -1545,7 +1599,7 @@ def playground_chat():
         except (TypeError, ValueError):
             return default
     temperature = _num(data.get('temperature'), 0.0, 2.0, 0.7, float)
-    max_tokens  = _num(data.get('max_tokens'), 1, 8192, 1024, int)
+    max_tokens  = _num(data.get('max_tokens'), 1, 131072, 4096, int)
     top_p       = _num(data.get('top_p'), 0.0, 1.0, 1.0, float)
     reasoning   = bool(data.get('reasoning'))     # afficher le raisonnement du modèle
 
@@ -1583,60 +1637,62 @@ def playground_chat():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.route('/search')
+@app.route('/api/search')
 @login_required
-def search():
+def api_search():
     query = request.args.get('q', '').strip()
     task  = request.args.get('task', 'text-generation')
-    # Filtre GB10 actif par défaut (décoché = on élargit à tout HF).
-    gb10 = request.args.get('all') != '1'
-    # Avec le filtre GB10 le vivier est petit : on affiche le top même sans requête.
+    gb10  = request.args.get('all') != '1'
     results = search_hf_models(query, task, gb10_only=gb10) if (query or gb10) else []
-    return render_template('search.html', results=results, query=query, task=task,
-                           gb10_only=gb10)
+    return jsonify({'results': results, 'query': query, 'task': task, 'gb10_only': gb10})
 
-@app.route('/ranking')
+
+RANKING_LABELS = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours'}
+RANKING_PREV_LABELS = {'day': 'hier', 'week': 'la semaine précédente', 'month': 'les 30 jours précédents'}
+
+
+
+@app.route('/api/ranking')
 @login_required
-def ranking():
+def api_ranking():
     period = request.args.get('period', 'day')
     if period not in ('day', 'week', 'month'):
         period = 'day'
     data = ranking_full(period, me=session['username'])
-    labels = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours'}
-    prev_labels = {'day': 'hier', 'week': 'la semaine précédente', 'month': 'les 30 jours précédents'}
-    return render_template('ranking.html', rows=data['rows'], active_count=data['active_count'],
-                           period=period, period_label=labels[period], prev_label=prev_labels[period])
+    return jsonify({'rows': data['rows'], 'active_count': data['active_count'], 'period': period,
+                     'period_label': RANKING_LABELS[period], 'prev_label': RANKING_PREV_LABELS[period]})
 
 @app.route('/request', methods=['GET', 'POST'])
 @login_required
 def request_model():
-    prefill = request.args.get('model', '')
-    if request.method == 'POST':
-        model_id = request.form['model_id'].strip()
-        reason   = request.form.get('reason', '').strip()
-        if not model_id:
-            flash("L'identifiant du modèle est requis.", "warning")
-            return render_template('request_form.html', prefill=prefill)
-        db = get_db()
-        existing = db.execute(
-            "SELECT id FROM model_requests WHERE username=? AND model_id=? AND status='pending'",
-            (session['username'], model_id)
-        ).fetchone()
-        if existing:
-            flash("Tu as déjà une demande en attente pour ce modèle.", "warning")
-            return redirect(url_for('index'))
-        db.execute(
-            "INSERT INTO model_requests (username, fullname, model_id, reason, status, created_at) "
-            "VALUES (?,?,?,?,?,?)",
-            (session['username'], session['fullname'], model_id, reason, 'pending',
-             datetime.now().isoformat())
-        )
-        db.commit()
-        notify_discord(model_id, session['username'], session['fullname'], reason)
-        notify_email(model_id, session['username'], session['fullname'], reason)
-        flash(f"Demande envoyée pour « {model_id} » !", "success")
-        return redirect(url_for('index'))
-    return render_template('request_form.html', prefill=prefill)
+    # GET /request : la page est rendue par le frontend Next.js — seule
+    # l'action POST ci-dessous reste utilisée (postForm depuis request/page.tsx).
+    if request.method != 'POST':
+        return ('', 204)
+    model_id = request.form['model_id'].strip()
+    reason   = request.form.get('reason', '').strip()
+    if not model_id:
+        flash("L'identifiant du modèle est requis.", "warning")
+        return ('', 204)
+    db = get_db()
+    existing = db.execute(
+        "SELECT id FROM model_requests WHERE username=? AND model_id=? AND status='pending'",
+        (session['username'], model_id)
+    ).fetchone()
+    if existing:
+        flash("Tu as déjà une demande en attente pour ce modèle.", "warning")
+        return ('', 204)
+    db.execute(
+        "INSERT INTO model_requests (username, fullname, model_id, reason, status, created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (session['username'], session['fullname'], model_id, reason, 'pending',
+         datetime.now().isoformat())
+    )
+    db.commit()
+    notify_discord(model_id, session['username'], session['fullname'], reason)
+    notify_email(model_id, session['username'], session['fullname'], reason)
+    flash(f"Demande envoyée pour « {model_id} » !", "success")
+    return ('', 204)
 
 def admin_get_user_consumption():
     """Conso par COMPTE : nb de clés (DB locale) + spend/budget au niveau user
@@ -1940,26 +1996,39 @@ def admin_consumption():
 @app.route('/admin')
 @admin_required
 def admin():
+    # The page itself is rendered by the Next.js frontend (data via
+    # /api/admin) — this endpoint only stays registered because url_for
+    # ('admin') is used throughout admin/*.py action routes as a redirect
+    # target after a POST (approve/reject/launch/etc.).
+    return ('', 204)
+
+
+@app.route('/api/admin')
+@admin_required
+def api_admin():
     db = get_db()
     all_reqs    = db.execute("SELECT * FROM model_requests ORDER BY created_at DESC").fetchall()
     model_cfgs  = db.execute("SELECT * FROM model_configs ORDER BY name").fetchall()
     budget_reqs = db.execute("SELECT * FROM budget_requests ORDER BY created_at DESC").fetchall()
-    running     = get_running_models()
-    v_status    = runner_status()
-    init_logs   = runner_logs(120)
-    spend_data  = admin_get_user_consumption()
     stats = {
         'pending':  sum(1 for r in all_reqs if r['status'] == 'pending'),
         'done':     sum(1 for r in all_reqs if r['status'] == 'done'),
         'rejected': sum(1 for r in all_reqs if r['status'] == 'rejected'),
         'budget_pending': sum(1 for r in budget_reqs if r['status'] == 'pending'),
     }
-    return render_template('admin.html', requests=all_reqs, running_models=running,
-                           stats=stats, spend_data=spend_data,
-                           model_cfgs=model_cfgs, v_status=v_status,
-                           init_logs=init_logs, budget_reqs=budget_reqs,
-                           default_key_budget=get_setting('default_key_budget', KEY_BUDGET),
-                           default_key_duration=get_setting('default_key_duration', KEY_DURATION))
+    return jsonify({
+        'requests': [dict(r) for r in all_reqs],
+        'running_models': get_running_models(),
+        'stats': stats,
+        'spend_data': admin_get_user_consumption(),
+        'model_cfgs': [dict(r) for r in model_cfgs],
+        'v_status': runner_status(),
+        'init_logs': runner_logs(120),
+        'budget_reqs': [dict(r) for r in budget_reqs],
+        'default_key_budget': get_setting('default_key_budget', KEY_BUDGET),
+        'default_key_duration': get_setting('default_key_duration', KEY_DURATION),
+    })
+
 
 @app.route('/admin/model/launch', methods=['POST'])
 @admin_required

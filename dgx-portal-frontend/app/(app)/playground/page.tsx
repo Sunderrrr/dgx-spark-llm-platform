@@ -1,0 +1,595 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
+import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Text } from "@astryxdesign/core/Text";
+import { Button } from "@astryxdesign/core/Button";
+import { Selector } from "@astryxdesign/core/Selector";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Markdown } from "@astryxdesign/core/Markdown";
+import { Token } from "@astryxdesign/core/Token";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import type { DropdownMenuOption } from "@astryxdesign/core/DropdownMenu";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
+import { Grid } from "@astryxdesign/core/Grid";
+import {
+  ChatLayout,
+  ChatMessageList,
+  ChatMessage,
+  ChatMessageBubble,
+  ChatMessageMetadata,
+  ChatComposer,
+  ChatComposerDrawer,
+  ChatComposerInput,
+} from "@astryxdesign/core/Chat";
+import {
+  PaperClipIcon,
+  Cog6ToothIcon,
+  ArrowDownTrayIcon,
+  ClipboardDocumentIcon,
+  ArrowPathIcon,
+  PencilIcon,
+  PlusIcon,
+  ClockIcon,
+  TrashIcon,
+  SparklesIcon,
+  CodeBracketIcon,
+  LightBulbIcon,
+  DocumentMagnifyingGlassIcon,
+  DocumentTextIcon,
+} from "@heroicons/react/24/outline";
+
+import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
+import { fetchCsrfToken, fetchPlaygroundData, streamChat } from "@/lib/api";
+import { loadConversations, saveConversations } from "@/lib/conversations";
+import { ContextMeter } from "./_components/ContextMeter";
+import { SettingsPanel } from "./_components/SettingsPanel";
+
+const DEFAULT_SETTINGS: Settings = {
+  system: "",
+  temperature: 0.7,
+  maxTokens: 4096,
+  topP: 1,
+  reasoning: false,
+};
+
+const ATTACH_ACCEPT =
+  ".md,.markdown,.txt,.text,.log,.logs,.err,.error,.out,.json,.jsonl,.csv,.tsv,.yaml,.yml,.toml,.ini,.conf,.cfg,.env,.py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.sh,.bash,.sql,.html,.css,.xml,.diff,.patch";
+
+const PRESETS = [
+  {
+    heading: "Code Python",
+    body: "Génère une fonction, un script ou un test",
+    prompt: "Écris une fonction Python qui vérifie si un nombre est premier.",
+    icon: CodeBracketIcon,
+  },
+  {
+    heading: "Expliquer",
+    body: "Décompose un sujet technique simplement",
+    prompt: "Explique la mémoire unifiée du DGX Spark en termes simples.",
+    icon: LightBulbIcon,
+  },
+  {
+    heading: "Analyser des logs",
+    body: "Trouve la cause d'une erreur dans un extrait de logs",
+    prompt: "Analyse ces logs et trouve la cause de l'erreur : ",
+    icon: DocumentMagnifyingGlassIcon,
+  },
+  {
+    heading: "Résumer",
+    body: "Condense un texte en points clés",
+    prompt: "Résume ce texte en 3 points : ",
+    icon: DocumentTextIcon,
+  },
+];
+const MAX_ATTACHMENT_BYTES = 96 * 1024;
+
+function estimateTokens(
+  settings: Settings,
+  input: string,
+  messages: ChatMsg[],
+  attachments: Attachment[],
+): number {
+  let chars = settings.system.length + input.length;
+  for (const m of messages) chars += m.content.length;
+  for (const a of attachments) chars += a.content.length;
+  return Math.round(chars / 4);
+}
+
+export default function PlaygroundPage() {
+  const [csrf, setCsrf] = useState("");
+  const [runningModels, setRunningModels] = useState<string[]>([]);
+  const [modelLimits, setModelLimits] = useState<Record<string, number>>({});
+  const [model, setModel] = useState("");
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [currentId, setCurrentId] = useState<number | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
+  const [ctxUsed, setCtxUsed] = useState(0);
+  const [firstName, setFirstName] = useState("");
+
+  const abortRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    fetchCsrfToken().then(setCsrf).catch(() => {});
+    fetchPlaygroundData()
+      .then((data) => {
+        setRunningModels(data.running_models);
+        setModelLimits(data.model_limits);
+        if (data.running_models.length) setModel(data.running_models[0]);
+      })
+      .catch(() => {});
+    fetch("/api/whoami", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setFirstName(d?.fullname?.split(" ")[0] || ""))
+      .catch(() => {});
+  }, []);
+
+  // persist()/runStream() only ever run from event handlers (send/regenerate/edit),
+  // never during render, so Date.now()/performance.now() here are safe despite the
+  // purity lint rule's conservative render-reachability analysis.
+  function persist(msgs: ChatMsg[], convId: number | null, activeModel: string) {
+    if (!msgs.length) return convId;
+    const title = (msgs.find((m) => m.role === "user")?.content || "Conversation").slice(0, 80);
+    const item: Conversation = {
+      // eslint-disable-next-line react-hooks/purity
+      id: convId ?? Date.now(),
+      title,
+      // eslint-disable-next-line react-hooks/purity
+      ts: Date.now(),
+      model: activeModel,
+      messages: msgs.map((m) => ({ role: m.role, content: m.content })),
+    };
+    const convs = loadConversations();
+    const i = convs.findIndex((c) => c.id === item.id);
+    if (i >= 0) convs[i] = item;
+    else convs.unshift(item);
+    saveConversations(convs);
+    setConversations(convs);
+    return item.id;
+  }
+
+  function newConversation() {
+    persist(messages, currentId, model);
+    setMessages([]);
+    setCurrentId(null);
+    setCtxUsed(0);
+  }
+
+  function selectConversation(conv: Conversation) {
+    persist(messages, currentId, model);
+    setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content })));
+    setCurrentId(conv.id);
+    if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
+    setCtxUsed(0);
+  }
+
+  function deleteConversation(id: number) {
+    const convs = loadConversations().filter((c) => c.id !== id);
+    saveConversations(convs);
+    setConversations(convs);
+    if (id === currentId) setCurrentId(null);
+  }
+
+  function handleFiles(files: FileList | null) {
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        window.alert(`« ${file.name} » dépasse 96 Ko — trop gros pour le contexte.`);
+        continue;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        setAttachments((prev) => [...prev, { name: file.name, content: String(reader.result) }]);
+      };
+      reader.readAsText(file);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function runStream(nextMessages: ChatMsg[]) {
+    if (!model) {
+      setMessages([...nextMessages, { role: "assistant", content: "Aucun modèle actif." }]);
+      return;
+    }
+    setStreaming(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const withPlaceholder = [...nextMessages, { role: "assistant", content: "" } as ChatMsg];
+    setMessages(withPlaceholder);
+
+    // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
+    const t0 = performance.now();
+    let tf: number | null = null;
+    let acc = "";
+    let reason = "";
+    let usage: { total_tokens?: number; completion_tokens?: number } | undefined;
+
+    const updateLast = () => {
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: reason };
+        return copy;
+      });
+    };
+
+    try {
+      await streamChat(
+        csrf,
+        model,
+        nextMessages.map((m) => ({ role: m.role, content: m.content })),
+        settings,
+        controller.signal,
+        (delta) => {
+          if (delta.usage) usage = delta.usage;
+          if (delta.reasoningChunk) {
+            if (tf === null) tf = performance.now();
+            reason += delta.reasoningChunk;
+            updateLast();
+          }
+          if (delta.contentChunk) {
+            if (tf === null) tf = performance.now();
+            acc += delta.contentChunk;
+            updateLast();
+          }
+        },
+      );
+    } catch (e) {
+      if ((e as Error)?.name !== "AbortError" && !acc) acc = "Erreur réseau.";
+    }
+
+    // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
+    const te = performance.now();
+    const finalMessages = [...nextMessages];
+    if (acc || reason) {
+      const gen = tf ? (te - tf) / 1000 : 0;
+      const tokens = usage?.completion_tokens;
+      finalMessages.push({
+        role: "assistant",
+        content: acc,
+        reasoning: reason,
+        tokens,
+        tokensPerSec: tokens && gen > 0 ? Number((tokens / gen).toFixed(1)) : undefined,
+        ttft: tf ? Number(((tf - t0) / 1000).toFixed(2)) : undefined,
+      });
+    }
+    setMessages(finalMessages);
+    if (usage?.total_tokens) setCtxUsed(usage.total_tokens);
+    const savedId = persist(finalMessages, currentId, model);
+    setCurrentId(savedId ?? null);
+    setStreaming(false);
+    abortRef.current = null;
+  }
+
+  function send(value: string) {
+    if (streaming) return;
+    const text = value.trim();
+    if (!text && !attachments.length) return;
+    let full = text;
+    if (attachments.length) {
+      full =
+        (text ? text + "\n\n" : "") +
+        attachments.map((f) => "```" + f.name + "\n" + f.content + "\n```").join("\n\n");
+    }
+    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: full }];
+    setMessages(nextMessages);
+    setInput("");
+    setAttachments([]);
+    void runStream(nextMessages);
+  }
+
+  function stop() {
+    abortRef.current?.abort();
+  }
+
+  function regenerate() {
+    if (streaming || !messages.length) return;
+    const last = messages[messages.length - 1];
+    const base = last.role === "assistant" ? messages.slice(0, -1) : messages;
+    if (base.length && base[base.length - 1].role === "user") void runStream(base);
+  }
+
+  function editLast() {
+    if (streaming || !messages.length) return;
+    let base = messages;
+    if (base[base.length - 1]?.role === "assistant") base = base.slice(0, -1);
+    const last = base[base.length - 1];
+    if (last?.role === "user") {
+      setInput(last.content);
+      setMessages(base.slice(0, -1));
+    }
+  }
+
+  function exportMarkdown() {
+    if (!messages.length) {
+      window.alert("Rien à exporter.");
+      return;
+    }
+    let out = "# Conversation Cronos\n\n";
+    for (const m of messages) {
+      out += (m.role === "user" ? "## Vous" : `## ${model || "Modèle"}`) + "\n\n" + m.content + "\n\n";
+    }
+    const blob = new Blob([out], { type: "text/markdown" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "cronos-conversation.md";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  const max = modelLimits[model] || 32768;
+  const used = Math.max(ctxUsed, estimateTokens(settings, input, messages, attachments));
+  const lastMsg = messages[messages.length - 1];
+  const canRegenerate = !streaming && lastMsg && (lastMsg.role === "assistant" || lastMsg.role === "user");
+  const canEdit = !streaming && messages.some((m) => m.role === "user");
+
+  const historyItems: DropdownMenuOption[] =
+    conversations.length === 0
+      ? [{ label: "Aucune conversation", isDisabled: true }]
+      : conversations.map((conv) => ({
+          label: conv.title || "Conversation",
+          onClick: () => selectConversation(conv),
+        }));
+
+  return (
+    <Layout
+      height="fill"
+      padding={6}
+      header={
+        <LayoutHeader hasDivider>
+          <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
+            <VStack gap={0}>
+              <Heading level={2}>Playground</Heading>
+              <Text type="supporting" color="secondary">
+                Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.
+              </Text>
+            </VStack>
+            <HStack gap={2}>
+              <Button
+                label="Nouvelle conversation"
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={PlusIcon} size="sm" />}
+                isIconOnly
+                onClick={newConversation}
+              />
+              <DropdownMenu
+                button={{ label: "Historique", variant: "secondary", size: "sm", icon: <Icon icon={ClockIcon} size="sm" /> }}
+                items={historyItems}
+                menuWidth={260}
+              />
+              {currentId != null && (
+                <Button
+                  label="Supprimer cette conversation"
+                  variant="secondary"
+                  size="sm"
+                  icon={<Icon icon={TrashIcon} size="sm" />}
+                  isIconOnly
+                  onClick={() => deleteConversation(currentId)}
+                />
+              )}
+              <Button
+                label="Exporter en Markdown"
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                isIconOnly
+                onClick={exportMarkdown}
+              />
+              <Button
+                label="Réglages"
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={Cog6ToothIcon} size="sm" />}
+                isIconOnly
+                onClick={() => setIsSettingsOpen((v) => !v)}
+              />
+            </HStack>
+          </HStack>
+        </LayoutHeader>
+      }
+      content={
+        <LayoutContent padding={0} isScrollable={false}>
+          {isSettingsOpen && (
+            <VStack padding={4}>
+              <SettingsPanel settings={settings} onChange={setSettings} />
+            </VStack>
+          )}
+          {/* VStack (flex column) gives ChatLayout the flex parent its own flex:1
+              needs to fill the remaining height — LayoutContent renders display:block,
+              so without this wrapper ChatLayout's flex:1 is a no-op.
+              No scrollRef → ChatLayout is self-scrolling: its OWN root becomes the
+              overflow:auto container and its dock uses position:sticky. Sticky is
+              what actually keeps the composer pinned to the bottom during scroll —
+              fixed-via-transform (tried earlier) turns out to behave like absolute
+              positioning for descendants inside the same scrolling flow, so it drifts
+              upward as the container scrolls (confirmed by instrumenting the DOM
+              mid-stream). Since ChatLayout's own root is now full width (no
+              `contentWidth` on the outer Layout — that's what narrowed it before and
+              pushed the scrollbar to the middle of the page), its native scrollbar
+              lands at the true right edge; density="spacious" narrows just the
+              message column and composer to a shared 800px reading width. */}
+          <VStack height="100%">
+          <ChatLayout
+            density="spacious"
+            composer={
+              <VStack gap={2} padding={4}>
+                <ChatComposer
+                  value={input}
+                  onChange={setInput}
+                  onSubmit={send}
+                  isStopShown={streaming}
+                  onStop={stop}
+                  placeholder="Écris ton message… (Entrée pour envoyer, Maj+Entrée = saut de ligne)"
+                  input={<ChatComposerInput value={input} onChange={setInput} onSubmit={send} />}
+                  headerActions={
+                    <Button
+                      label="Joindre un fichier"
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={PaperClipIcon} size="sm" />}
+                      onClick={() => fileInputRef.current?.click()}
+                    />
+                  }
+                  headerContext={<ContextMeter used={used} max={max} />}
+                  drawer={
+                    attachments.length ? (
+                      <ChatComposerDrawer count={attachments.length} label="Fichiers joints">
+                        {attachments.map((f, i) => (
+                          <Token
+                            key={f.name + i}
+                            label={`${f.name} (${Math.ceil(f.content.length / 1024)} Ko)`}
+                            onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                          />
+                        ))}
+                      </ChatComposerDrawer>
+                    ) : undefined
+                  }
+                  footerActions={
+                    <Selector
+                      label="Modèle"
+                      isLabelHidden
+                      size="sm"
+                      placeholder="Aucun modèle actif"
+                      options={runningModels}
+                      value={model}
+                      onChange={(v) => setModel(v ?? "")}
+                    />
+                  }
+                />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={ATTACH_ACCEPT}
+                  style={{ display: "none" }}
+                  onChange={(e) => handleFiles(e.target.files)}
+                />
+                <HStack hAlign="between" gap={2}>
+                  <Text type="supporting" color="secondary">
+                    Fichiers texte uniquement. Les tokens comptent sur ton budget.
+                  </Text>
+                  <HStack gap={2}>
+                    {canEdit && (
+                      <Button
+                        label="Éditer"
+                        variant="ghost"
+                        size="sm"
+                        icon={<Icon icon={PencilIcon} size="sm" />}
+                        onClick={editLast}
+                      />
+                    )}
+                    {canRegenerate && (
+                      <Button
+                        label="Régénérer"
+                        variant="ghost"
+                        size="sm"
+                        icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                        onClick={regenerate}
+                      />
+                    )}
+                  </HStack>
+                </HStack>
+              </VStack>
+            }>
+            <ChatMessageList
+              emptyState={
+                <VStack gap={6} hAlign="center">
+                  <VStack gap={1} hAlign="center">
+                    <HStack gap={2} vAlign="center">
+                      <Icon icon={SparklesIcon} size="md" color="accent" />
+                      <Text type="large" as="h2">
+                        {firstName ? `Bonjour, ${firstName}` : "Bonjour"}
+                      </Text>
+                    </HStack>
+                    <Text type="display-2" as="h1">
+                      Sur quoi veux-tu travailler ?
+                    </Text>
+                  </VStack>
+                  <Grid columns={{ minWidth: 220, max: 2 }} gap={3} width="100%">
+                    {PRESETS.map((preset) => (
+                      <ClickableCard
+                        key={preset.heading}
+                        label={preset.heading}
+                        variant="muted"
+                        onClick={() => setInput(preset.prompt)}>
+                        <VStack gap={1}>
+                          <HStack gap={2} vAlign="center">
+                            <Icon icon={preset.icon} size="sm" color="secondary" />
+                            <Text weight="semibold">{preset.heading}</Text>
+                          </HStack>
+                          <Text type="supporting" color="secondary">
+                            {preset.body}
+                          </Text>
+                        </VStack>
+                      </ClickableCard>
+                    ))}
+                  </Grid>
+                </VStack>
+              }>
+                {messages.map((m, i) => (
+                  <ChatMessage key={i} sender={m.role}>
+                    <ChatMessageBubble
+                      metadata={
+                        m.role === "assistant" && (m.tokens || m.tokensPerSec) ? (
+                          <ChatMessageMetadata
+                            footer={
+                              <HStack gap={1} vAlign="center">
+                                <Text type="supporting" color="secondary">
+                                  {[
+                                    m.tokens ? `${m.tokens} tokens` : null,
+                                    m.tokensPerSec ? `${m.tokensPerSec} tok/s` : null,
+                                    m.ttft ? `TTFT ${m.ttft}s` : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </Text>
+                                <Button
+                                  label="Copier"
+                                  variant="ghost"
+                                  size="sm"
+                                  isIconOnly
+                                  icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                                  onClick={() => navigator.clipboard?.writeText(m.content)}
+                                />
+                              </HStack>
+                            }
+                          />
+                        ) : undefined
+                      }>
+                      {m.reasoning ? (
+                        <VStack gap={2}>
+                          <Collapsible trigger="Raisonnement" defaultIsOpen={false}>
+                            <Markdown isStreaming={streaming && i === messages.length - 1}>
+                              {m.reasoning}
+                            </Markdown>
+                          </Collapsible>
+                          <Markdown isStreaming={streaming && i === messages.length - 1}>
+                            {m.content || " "}
+                          </Markdown>
+                        </VStack>
+                      ) : (
+                        <Markdown isStreaming={streaming && i === messages.length - 1}>
+                          {m.content || " "}
+                        </Markdown>
+                      )}
+                    </ChatMessageBubble>
+                  </ChatMessage>
+                ))}
+            </ChatMessageList>
+          </ChatLayout>
+          </VStack>
+        </LayoutContent>
+      }
+    />
+  );
+}

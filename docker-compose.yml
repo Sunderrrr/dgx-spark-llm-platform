@@ -48,7 +48,13 @@ services:
       postgres:
         condition: service_healthy
 
-  # ─── DGX Portal — self-service clés API + catalogue modèles ───────────────
+  # ─── DGX Portal — backend Flask (API + auth LDAP/OIDC) ─────────────────────
+  # Plus de port publié sur l'hôte : l'ancienne interface Jinja est "down" (les
+  # fichiers restent intacts, tout marche encore) mais n'est plus atteignable
+  # depuis l'extérieur. dgx-portal reste joignable en interne via le réseau
+  # docker-compose (dgx-portal:5000) : c'est ce que dgx-portal-frontend proxy.
+  # → Pour revenir à l'ancienne interface : remettre `ports: ["5000:5000"]`
+  #   ici ET redonner à dgx-portal-frontend son port 3002 ci-dessous.
   dgx-portal:
     build: ./dgx-portal
     container_name: dgx-portal
@@ -57,8 +63,6 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    ports:
-      - "5000:5000"
     environment:
       SECRET_KEY: ${WEBUI_SECRET_KEY}
       LDAP_URI: ldap://lldap.cronos.lan:3890
@@ -93,14 +97,29 @@ services:
       OIDC_ADMIN_GROUP: adm_cronos
       # App servie en HTTPS derrière Traefik → cookie de session Secure
       SESSION_COOKIE_SECURE: "1"
-      # Langue de l'UI : "en" par défaut, "fr" pour le français (voir .env).
-      PORTAL_LANG: ${PORTAL_LANG:-en}
     volumes:
       - portal_data:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       - litellm
+
+  # ─── DGX Portal Frontend — Next.js + Astryx, nouvelle interface complète ──
+  # Reprend le port 5000 (celui que filtre déjà cronos-docker-restrict.service
+  # et vers lequel Traefik route) : rien à changer côté pare-feu/Traefik, ils
+  # continuent de cibler ":5000", qui sert maintenant ce conteneur. Tout ce qui
+  # n'est pas une page Next connue est transmis en interne à dgx-portal:5000
+  # (voir next.config.ts → rewrites().fallback).
+  dgx-portal-frontend:
+    build: ./dgx-portal-frontend
+    container_name: dgx-portal-frontend
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "5000:3000"
 
 volumes:
   postgres_data:

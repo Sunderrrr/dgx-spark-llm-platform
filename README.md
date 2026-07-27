@@ -26,8 +26,9 @@ It provides:
 flowchart LR
   U[Users] -->|https://dgx.cronos.website| CF[Cloudflare + Traefik]
   U -->|https://api.cronos.website/v1| CF
-  CF -->|:5000| P[dgx-portal]
+  CF -->|:5000| F[dgx-portal-frontend]
   CF -->|:4001| L[LiteLLM]
+  F -->|internal docker network| P[dgx-portal]
   P -->|LDAP / OIDC auth| IDP[LLDAP · Authentik]
   P -->|issues keys + budgets| L
   P -->|:8001 · Bearer token| R[vllm-runner]
@@ -42,11 +43,21 @@ flowchart LR
 |---|---|---|---|
 | **litellm** | OpenAI-compatible gateway: per-user keys, budgets, token accounting | `4001` | Docker container |
 | **litellm-postgres** | LiteLLM database (keys, spend logs) | `5432` (internal) | Docker container |
-| **dgx-portal** | Self-service web portal (Flask): login, keys, playground, support, admin | `5000` | Docker container (non-root) |
+| **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, keys, playground, support, admin | `5000` | Docker container (non-root) |
+| **dgx-portal** | Backend (Flask): LDAP/OIDC auth, sessions, JSON API, business logic | internal only | Docker container (non-root) |
 | **vllm-runner** | Daemon driving **one** vLLM process (start/stop/logs) with auto-resume | `8001` | systemd service on the host |
 | **vLLM** | OpenAI-compatible inference server (the actual GPU engine) | `8000` | process spawned by the runner |
 
 > Only one model runs on the GPU at a time. Launching another replaces the current one.
+
+The UI used to be server-rendered Jinja templates served directly by Flask on
+`:5000`. It's now a separate Next.js/Astryx frontend that owns `:5000` and
+talks to Flask over the internal docker network for everything — auth, data,
+and even the streaming chat endpoints (proxied through dedicated Next.js
+Route Handlers so token-by-token streaming isn't buffered). Flask itself no
+longer has a published port. The old templates are gone; reverting would mean
+restoring them from git history and swapping the two services' ports back in
+`docker-compose.yml`.
 
 ---
 
@@ -68,7 +79,7 @@ git clone https://github.com/Sunderrrr/dgx-spark-llm-platform.git
 cd dgx-spark-llm-platform
 sudo ./install.sh          # installs packages + systemd units, generates .env
 #   → then fill the remaining secrets in .env (LDAP/OIDC/SMTP/Discord)
-docker compose up -d       # portal + gateway + database
+docker compose up -d       # frontend + backend + gateway + database
 ```
 
 Then open the portal (`http://<host>:5000`, or your HTTPS domain behind Traefik),
@@ -94,10 +105,14 @@ go to **Admin**, and launch a model from the catalog.
 | `OIDC_ADMIN_GROUP` | Group granting the admin role (default `adm_cronos`) |
 | `SESSION_COOKIE_SECURE` | `1` behind an HTTPS proxy (Traefik), `0` for plain-HTTP LAN |
 | `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Default per-account budget |
-| `PORTAL_LANG` | UI language: `en` (default) or `fr` |
 | `DISCORD_WEBHOOK_URL`, `SMTP_*`, `ADMIN_EMAIL` | Request notifications |
 
 > `.env` is **gitignored** — no secret is committed. `.env.example` holds only placeholders.
+>
+> The UI itself (`dgx-portal-frontend`) is **French-only** — there's no
+> language toggle. `docker-compose.yml` reads `BACKEND_URL` to reach Flask
+> internally; the default (`http://dgx-portal:5000`) matches the compose
+> service name and rarely needs changing.
 
 ---
 
@@ -216,11 +231,15 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
 - **vLLM (8000) and runner (8001)**: firewalled to localhost + Docker bridge. The
   runner also requires a **Bearer token** and **allowlists** `vllm_args` (blocks
   `--trust-remote-code` and overriding critical flags), and runs **non-root**.
-- **Portal**: LDAP/SSO auth, hardened cookies, security headers, SRI on CDN assets,
-  non-root container with dropped capabilities, IDOR / open-redirect / LDAP-injection
-  guards, login brute-force lockout.
+- **Portal**: LDAP/SSO auth, hardened cookies, per-request nonce CSP on
+  `script-src` (`dgx-portal-frontend/proxy.ts`), security headers, non-root
+  containers with dropped capabilities on both `dgx-portal` and
+  `dgx-portal-frontend`, IDOR / open-redirect / LDAP-injection guards, login
+  brute-force lockout. `dgx-portal` itself has no published port — only
+  `dgx-portal-frontend` is reachable from outside the docker network, and it
+  only ever talks to Flask over that internal network.
 - **Published ports** are filtered in `DOCKER-USER`: `4001` (API) reachable from the
-  LAN and the Netbird VPN, `5000` (portal) from Traefik only (HTTPS).
+  LAN and the Netbird VPN, `5000` (frontend) from Traefik only (HTTPS).
 
 ### Exposing the API publicly
 
@@ -238,18 +257,25 @@ tokens/day, not request rate on a single GPU.
 .
 ├── install.sh                # one-shot host bootstrap (packages + systemd + .env)
 ├── setup.sh                  # generates .env with random secrets
-├── docker-compose.yml        # postgres + litellm + dgx-portal
+├── docker-compose.yml        # postgres + litellm + dgx-portal + dgx-portal-frontend
 ├── .env.example              # placeholders (no real secrets)
 ├── litellm/
 │   └── config.yaml           # models, token pricing, model_info
-├── dgx-portal/               # Flask portal
-│   ├── app.py                # routes, LDAP+OIDC auth, budgets, support, admin
+├── dgx-portal/                # Flask backend: auth + JSON API + business logic
+│   ├── app.py                 # LDAP+OIDC auth, /api/*, budgets, support, admin
 │   ├── requirements.txt
-│   ├── Dockerfile            # non-root image
-│   └── templates/            # bi-theme UI (light/dark)
+│   └── Dockerfile             # non-root image, no published port
+├── dgx-portal-frontend/       # Next.js + Astryx UI (owns the public port 5000)
+│   ├── app/                   # pages (home, playground, keys, support, admin, ...)
+│   │   ├── playground/chat/route.ts   # streaming proxy to Flask (SSE, unbuffered)
+│   │   └── support/chat/route.ts      # same, for the support assistant
+│   ├── lib/                   # api.ts (auth/CSRF/SSE helpers), types, conversations
+│   ├── proxy.ts                # Next.js 16 proxy: nonce CSP + method-based routing
+│   ├── next.config.ts          # CSP headers, fallback rewrite to Flask
+│   └── Dockerfile
 ├── vllm-runner/
-│   └── runner.py             # start/stop/logs daemon + auto-resume
-└── systemd/                  # host units (runner, firewalls)
+│   └── runner.py              # start/stop/logs daemon + auto-resume
+└── systemd/                   # host units (runner, firewalls)
 ```
 
 ## License

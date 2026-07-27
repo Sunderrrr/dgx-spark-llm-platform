@@ -918,6 +918,17 @@ def _safe_next(target):
 
 def _apply_session(username, fullname, is_admin, via_sso=False):
     session.clear()
+    # session.clear() efface aussi 'csrf' (mis en place par _csrf_protect en
+    # before_request, avant que la vue n'appelle _apply_session). Sans le
+    # regénérer ici, la session part sans jeton CSRF : la première requête
+    # suivante le régénère via _csrf_protect, mais si plusieurs requêtes
+    # partent en parallèle juste après la connexion (cas réel : la page
+    # d'accueil du frontend déclenche plusieurs fetch au montage), chacune
+    # peut regénérer indépendamment un jeton différent — la dernière réponse
+    # à poser son cookie « gagne », et un jeton récupéré par une requête
+    # perdante ne correspond plus au cookie réellement stocké → 400 CSRF
+    # invalide. Le fixer ici élimine la fenêtre de course.
+    session['csrf'] = secrets.token_urlsafe(32)
     session['username'] = username
     session['fullname'] = fullname
     session['is_admin'] = is_admin

@@ -8,6 +8,8 @@ export type ChatMsg = {
   tokensPerSec?: number;
   ttft?: number;
   ts?: number;
+  isError?: boolean;
+  attachmentCount?: number;
 };
 
 export type Attachment = {

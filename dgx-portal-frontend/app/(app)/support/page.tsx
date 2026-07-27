@@ -12,7 +12,7 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Button } from "@astryxdesign/core/Button";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { ClipboardDocumentIcon } from "@heroicons/react/24/outline";
+import { ClipboardDocumentIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
 import {
   KeyIcon,
   BanknotesIcon,
@@ -32,7 +32,7 @@ import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, streamSupportChat } from "@/lib/api";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 
-type ChatMsg = { role: "user" | "assistant"; content: string; ts?: number };
+type ChatMsg = { role: "user" | "assistant"; content: string; ts?: number; isError?: boolean };
 
 const SUGGESTIONS = [
   {
@@ -80,20 +80,17 @@ export default function SupportPage() {
     );
   }, []);
 
-  async function send(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed || !csrf) return;
-    // eslint-disable-next-line react-hooks/purity -- send only runs from event handlers
-    const now = Date.now();
-    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: trimmed, ts: now }];
-    setMessages([...nextMessages, { role: "assistant", content: "", ts: now }]);
-    setInput("");
+  async function runStream(nextMessages: ChatMsg[]) {
+    if (!csrf) return;
+    // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
+    const startTs = Date.now();
+    setMessages([...nextMessages, { role: "assistant", content: "", ts: startTs }]);
     setIsSending(true);
     let acc = "";
-    const updateLast = (content: string) => {
+    const updateLast = (content: string, isError?: boolean) => {
       setMessages((prev) => {
         const copy = [...prev];
-        copy[copy.length - 1] = { role: "assistant", content, ts: copy[copy.length - 1]?.ts };
+        copy[copy.length - 1] = { role: "assistant", content, ts: copy[copy.length - 1]?.ts, isError };
         return copy;
       });
     };
@@ -102,12 +99,28 @@ export default function SupportPage() {
         acc += chunk;
         updateLast(acc);
       });
-      if (!acc) updateLast("Pas de réponse.");
+      if (!acc) updateLast("Pas de réponse.", true);
     } catch {
-      updateLast("Erreur réseau — réessaie.");
+      updateLast("Erreur réseau — réessaie.", true);
     } finally {
       setIsSending(false);
     }
+  }
+
+  function send(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || isSending) return;
+    // eslint-disable-next-line react-hooks/purity -- send only runs from event handlers
+    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: trimmed, ts: Date.now() }];
+    setInput("");
+    void runStream(nextMessages);
+  }
+
+  function regenerate() {
+    if (isSending || !messages.length) return;
+    const last = messages[messages.length - 1];
+    const base = last.role === "assistant" ? messages.slice(0, -1) : messages;
+    if (base.length && base[base.length - 1].role === "user") void runStream(base);
   }
 
   return (
@@ -177,6 +190,7 @@ export default function SupportPage() {
               {messages.map((m, i) => {
                 const isLast = i === messages.length - 1;
                 const isThinking = isSending && isLast && m.role === "assistant" && !m.content;
+                const canRegenerateThis = m.role === "assistant" && isLast && !isSending && i > 0;
                 return (
                 <ChatMessage key={i} sender={m.role}>
                   <ChatMessageBubble
@@ -184,16 +198,31 @@ export default function SupportPage() {
                       !isThinking && m.ts ? (
                         <ChatMessageMetadata
                           timestamp={<Timestamp value={m.ts} format="time" />}
+                          status={m.isError ? "error" : undefined}
                           footer={
-                            m.role === "assistant" && m.content ? (
-                              <Button
-                                label="Copier"
-                                variant="ghost"
-                                size="sm"
-                                isIconOnly
-                                icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                onClick={() => navigator.clipboard?.writeText(m.content)}
-                              />
+                            m.role === "assistant" && (m.content || canRegenerateThis) ? (
+                              <HStack gap={1} vAlign="center">
+                                {m.content && (
+                                  <Button
+                                    label="Copier"
+                                    variant="ghost"
+                                    size="sm"
+                                    isIconOnly
+                                    icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                                    onClick={() => navigator.clipboard?.writeText(m.content)}
+                                  />
+                                )}
+                                {canRegenerateThis && (
+                                  <Button
+                                    label="Régénérer"
+                                    variant="ghost"
+                                    size="sm"
+                                    isIconOnly
+                                    icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                                    onClick={regenerate}
+                                  />
+                                )}
+                              </HStack>
                             ) : undefined
                           }
                         />

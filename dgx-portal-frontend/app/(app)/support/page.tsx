@@ -27,12 +27,30 @@ import {
   ChatMessageMetadata,
   ChatComposer,
   ChatComposerInput,
+  ChatToolCalls,
 } from "@astryxdesign/core/Chat";
+import type { ChatToolCallItem } from "@astryxdesign/core/Chat";
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, streamSupportChat } from "@/lib/api";
+import type { ToolCallEvent } from "@/lib/api";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 
-type ChatMsg = { role: "user" | "assistant"; content: string; ts?: number; isError?: boolean };
+type ChatMsg = {
+  role: "user" | "assistant";
+  content: string;
+  ts?: number;
+  isError?: boolean;
+  toolCalls?: ChatToolCallItem[];
+};
+
+const TOOL_LABELS: Record<string, string> = {
+  create_api_key: "Créer une clé API",
+  revoke_api_key: "Révoquer une clé API",
+  request_budget: "Demander du budget",
+  request_model: "Demander un modèle",
+  launch_model: "Lancer un modèle",
+  stop_model: "Arrêter le modèle",
+};
 
 const SUGGESTIONS = [
   {
@@ -87,18 +105,45 @@ export default function SupportPage() {
     setMessages([...nextMessages, { role: "assistant", content: "", ts: startTs }]);
     setIsSending(true);
     let acc = "";
+    const toolCalls: ChatToolCallItem[] = [];
     const updateLast = (content: string, isError?: boolean) => {
       setMessages((prev) => {
         const copy = [...prev];
-        copy[copy.length - 1] = { role: "assistant", content, ts: copy[copy.length - 1]?.ts, isError };
+        copy[copy.length - 1] = {
+          role: "assistant",
+          content,
+          ts: copy[copy.length - 1]?.ts,
+          isError,
+          toolCalls: toolCalls.length ? [...toolCalls] : undefined,
+        };
         return copy;
       });
     };
+    const onToolCall = (event: ToolCallEvent) => {
+      const item: ChatToolCallItem = {
+        key: event.id,
+        name: TOOL_LABELS[event.name] || event.name,
+        target: event.target,
+        status: event.status,
+        duration: event.duration_ms != null ? `${(event.duration_ms / 1000).toFixed(1)}s` : undefined,
+        errorMessage: event.error,
+      };
+      const i = toolCalls.findIndex((c) => c.key === event.id);
+      if (i >= 0) toolCalls[i] = item;
+      else toolCalls.push(item);
+      updateLast(acc);
+    };
     try {
-      await streamSupportChat(csrf, nextMessages, new AbortController().signal, (chunk) => {
-        acc += chunk;
-        updateLast(acc);
-      });
+      await streamSupportChat(
+        csrf,
+        nextMessages,
+        new AbortController().signal,
+        (chunk) => {
+          acc += chunk;
+          updateLast(acc);
+        },
+        onToolCall,
+      );
       if (!acc) updateLast("Pas de réponse.", true);
     } catch {
       updateLast("Erreur réseau — réessaie.", true);
@@ -189,7 +234,7 @@ export default function SupportPage() {
             <ChatMessageList>
               {messages.map((m, i) => {
                 const isLast = i === messages.length - 1;
-                const isThinking = isSending && isLast && m.role === "assistant" && !m.content;
+                const isThinking = isSending && isLast && m.role === "assistant" && !m.content && !m.toolCalls?.length;
                 const canRegenerateThis = m.role === "assistant" && isLast && !isSending && i > 0;
                 return (
                 <ChatMessage key={i} sender={m.role}>
@@ -228,7 +273,16 @@ export default function SupportPage() {
                         />
                       ) : undefined
                     }>
-                    {isThinking ? <ThinkingIndicator /> : <Markdown>{m.content}</Markdown>}
+                    {isThinking ? (
+                      <ThinkingIndicator />
+                    ) : m.toolCalls?.length ? (
+                      <VStack gap={2}>
+                        <ChatToolCalls calls={m.toolCalls} />
+                        {m.content && <Markdown>{m.content}</Markdown>}
+                      </VStack>
+                    ) : (
+                      <Markdown>{m.content}</Markdown>
+                    )}
                   </ChatMessageBubble>
                 </ChatMessage>
                 );

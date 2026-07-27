@@ -192,6 +192,10 @@ env vars — key and endpoint pre-filled.
 
 ![My API keys — budget, keys and integration snippets](assets/keys.png)
 
+| Find a model — Hugging Face catalog search | Admin — models, quotas and requests |
+|---|---|
+| ![Find a model](assets/search.png) | ![Admin](assets/admin.png) |
+
 ---
 
 ## Operations

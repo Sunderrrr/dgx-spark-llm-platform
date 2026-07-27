@@ -70,9 +70,19 @@ export type StreamDelta = {
   usage?: { total_tokens?: number; completion_tokens?: number };
 };
 
+export type ToolCallEvent = {
+  id: string;
+  name: string;
+  status: "running" | "complete" | "error";
+  target?: string;
+  duration_ms?: number;
+  error?: string;
+};
+
 type SSEPayload = {
   usage?: { total_tokens?: number; completion_tokens?: number };
   choices?: { delta?: { content?: string; reasoning_content?: string } }[];
+  tool_call?: ToolCallEvent;
 };
 
 /** Lit un flux SSE (paquets `data: {...}\n\n`) et invoque onEvent par paquet reçu. */
@@ -132,12 +142,13 @@ export async function streamChat(
   });
 }
 
-/** Lit le flux SSE de /support/chat et invoque onChunk pour chaque bout de texte reçu. */
+/** Lit le flux SSE de /support/chat : texte et invocations d'outils (ChatToolCalls). */
 export async function streamSupportChat(
   csrf: string,
   messages: { role: string; content: string }[],
   signal: AbortSignal,
   onChunk: (content: string) => void,
+  onToolCall?: (event: ToolCallEvent) => void,
 ): Promise<void> {
   const res = await authFetch("/support/chat", {
     method: "POST",
@@ -148,5 +159,6 @@ export async function streamSupportChat(
   await readSSE(res, (json) => {
     const content = json.choices?.[0]?.delta?.content;
     if (content) onChunk(content);
+    if (json.tool_call) onToolCall?.(json.tool_call);
   });
 }

@@ -10,6 +10,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Markdown } from "@astryxdesign/core/Markdown";
+import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import type { DropdownMenuOption } from "@astryxdesign/core/DropdownMenu";
@@ -47,6 +48,7 @@ import { fetchCsrfToken, fetchPlaygroundData, streamChat } from "@/lib/api";
 import { loadConversations, saveConversations } from "@/lib/conversations";
 import { ContextMeter } from "./_components/ContextMeter";
 import { SettingsPanel } from "./_components/SettingsPanel";
+import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 
 const DEFAULT_SETTINGS: Settings = {
   system: "",
@@ -203,7 +205,9 @@ export default function PlaygroundPage() {
     setStreaming(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    const withPlaceholder = [...nextMessages, { role: "assistant", content: "" } as ChatMsg];
+    // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
+    const startTs = Date.now();
+    const withPlaceholder = [...nextMessages, { role: "assistant", content: "", ts: startTs } as ChatMsg];
     setMessages(withPlaceholder);
 
     // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
@@ -216,7 +220,7 @@ export default function PlaygroundPage() {
     const updateLast = () => {
       setMessages((prev) => {
         const copy = [...prev];
-        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: reason };
+        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: reason, ts: copy[copy.length - 1]?.ts };
         return copy;
       });
     };
@@ -259,6 +263,7 @@ export default function PlaygroundPage() {
         tokens,
         tokensPerSec: tokens && gen > 0 ? Number((tokens / gen).toFixed(1)) : undefined,
         ttft: tf ? Number(((tf - t0) / 1000).toFixed(2)) : undefined,
+        ts: startTs,
       });
     }
     setMessages(finalMessages);
@@ -279,7 +284,7 @@ export default function PlaygroundPage() {
         (text ? text + "\n\n" : "") +
         attachments.map((f) => "```" + f.name + "\n" + f.content + "\n```").join("\n\n");
     }
-    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: full }];
+    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: full, ts: Date.now() }];
     setMessages(nextMessages);
     setInput("");
     setAttachments([]);
@@ -536,55 +541,64 @@ export default function PlaygroundPage() {
                   </Grid>
                 </VStack>
               }>
-                {messages.map((m, i) => (
+                {messages.map((m, i) => {
+                  const isLast = i === messages.length - 1;
+                  const isThinking = streaming && isLast && m.role === "assistant" && !m.content && !m.reasoning;
+                  return (
                   <ChatMessage key={i} sender={m.role}>
                     <ChatMessageBubble
                       metadata={
-                        m.role === "assistant" && (m.tokens || m.tokensPerSec) ? (
+                        !isThinking && m.ts ? (
                           <ChatMessageMetadata
+                            timestamp={<Timestamp value={m.ts} format="time" />}
                             footer={
-                              <HStack gap={1} vAlign="center">
-                                <Text type="supporting" color="secondary">
-                                  {[
-                                    m.tokens ? `${m.tokens} tokens` : null,
-                                    m.tokensPerSec ? `${m.tokensPerSec} tok/s` : null,
-                                    m.ttft ? `TTFT ${m.ttft}s` : null,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                </Text>
-                                <Button
-                                  label="Copier"
-                                  variant="ghost"
-                                  size="sm"
-                                  isIconOnly
-                                  icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                  onClick={() => navigator.clipboard?.writeText(m.content)}
-                                />
-                              </HStack>
+                              m.role === "assistant" && (m.tokens || m.tokensPerSec) ? (
+                                <HStack gap={1} vAlign="center">
+                                  <Text type="supporting" color="secondary">
+                                    {[
+                                      m.tokens ? `${m.tokens} tokens` : null,
+                                      m.tokensPerSec ? `${m.tokensPerSec} tok/s` : null,
+                                      m.ttft ? `TTFT ${m.ttft}s` : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </Text>
+                                  <Button
+                                    label="Copier"
+                                    variant="ghost"
+                                    size="sm"
+                                    isIconOnly
+                                    icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                                    onClick={() => navigator.clipboard?.writeText(m.content)}
+                                  />
+                                </HStack>
+                              ) : undefined
                             }
                           />
                         ) : undefined
                       }>
-                      {m.reasoning ? (
+                      {isThinking ? (
+                        <ThinkingIndicator />
+                      ) : m.reasoning ? (
                         <VStack gap={2}>
                           <Collapsible trigger="Raisonnement" defaultIsOpen={false}>
-                            <Markdown isStreaming={streaming && i === messages.length - 1}>
+                            <Markdown isStreaming={streaming && isLast}>
                               {m.reasoning}
                             </Markdown>
                           </Collapsible>
-                          <Markdown isStreaming={streaming && i === messages.length - 1}>
+                          <Markdown isStreaming={streaming && isLast}>
                             {m.content || " "}
                           </Markdown>
                         </VStack>
                       ) : (
-                        <Markdown isStreaming={streaming && i === messages.length - 1}>
+                        <Markdown isStreaming={streaming && isLast}>
                           {m.content || " "}
                         </Markdown>
                       )}
                     </ChatMessageBubble>
                   </ChatMessage>
-                ))}
+                  );
+                })}
             </ChatMessageList>
           </ChatLayout>
           </VStack>

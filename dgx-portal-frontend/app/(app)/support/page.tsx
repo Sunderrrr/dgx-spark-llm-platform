@@ -10,6 +10,9 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Icon } from "@astryxdesign/core/Icon";
+import { Button } from "@astryxdesign/core/Button";
+import { Timestamp } from "@astryxdesign/core/Timestamp";
+import { ClipboardDocumentIcon } from "@heroicons/react/24/outline";
 import {
   KeyIcon,
   BanknotesIcon,
@@ -21,13 +24,15 @@ import {
   ChatMessageList,
   ChatMessage,
   ChatMessageBubble,
+  ChatMessageMetadata,
   ChatComposer,
   ChatComposerInput,
 } from "@astryxdesign/core/Chat";
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, streamSupportChat } from "@/lib/api";
+import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 
-type ChatMsg = { role: "user" | "assistant"; content: string };
+type ChatMsg = { role: "user" | "assistant"; content: string; ts?: number };
 
 const SUGGESTIONS = [
   {
@@ -78,15 +83,17 @@ export default function SupportPage() {
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || !csrf) return;
-    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: trimmed }];
-    setMessages([...nextMessages, { role: "assistant", content: "" }]);
+    // eslint-disable-next-line react-hooks/purity -- send only runs from event handlers
+    const now = Date.now();
+    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: trimmed, ts: now }];
+    setMessages([...nextMessages, { role: "assistant", content: "", ts: now }]);
     setInput("");
     setIsSending(true);
     let acc = "";
     const updateLast = (content: string) => {
       setMessages((prev) => {
         const copy = [...prev];
-        copy[copy.length - 1] = { role: "assistant", content };
+        copy[copy.length - 1] = { role: "assistant", content, ts: copy[copy.length - 1]?.ts };
         return copy;
       });
     };
@@ -167,13 +174,36 @@ export default function SupportPage() {
               </VStack>
             }>
             <ChatMessageList>
-              {messages.map((m, i) => (
+              {messages.map((m, i) => {
+                const isLast = i === messages.length - 1;
+                const isThinking = isSending && isLast && m.role === "assistant" && !m.content;
+                return (
                 <ChatMessage key={i} sender={m.role}>
-                  <ChatMessageBubble>
-                    <Markdown>{m.content}</Markdown>
+                  <ChatMessageBubble
+                    metadata={
+                      !isThinking && m.ts ? (
+                        <ChatMessageMetadata
+                          timestamp={<Timestamp value={m.ts} format="time" />}
+                          footer={
+                            m.role === "assistant" && m.content ? (
+                              <Button
+                                label="Copier"
+                                variant="ghost"
+                                size="sm"
+                                isIconOnly
+                                icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                                onClick={() => navigator.clipboard?.writeText(m.content)}
+                              />
+                            ) : undefined
+                          }
+                        />
+                      ) : undefined
+                    }>
+                    {isThinking ? <ThinkingIndicator /> : <Markdown>{m.content}</Markdown>}
                   </ChatMessageBubble>
                 </ChatMessage>
-              ))}
+                );
+              })}
             </ChatMessageList>
           </ChatLayout>
           </VStack>

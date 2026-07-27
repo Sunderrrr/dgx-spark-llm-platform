@@ -52,7 +52,7 @@ body {
   height: 4px;
   border-radius: 50%;
   background: var(--color-text-secondary);
-  animation: thinking-dot-wave var(--duration-slow, 975ms) infinite;
+  animation: thinking-dot-wave 1.8s infinite;
   animation-timing-function: var(--ease-standard, ease-in-out);
 }
 @media (prefers-reduced-motion: reduce) {

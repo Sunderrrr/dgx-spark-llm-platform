@@ -43,15 +43,6 @@ type ChatMsg = {
   toolCalls?: ChatToolCallItem[];
 };
 
-const TOOL_LABELS: Record<string, string> = {
-  create_api_key: "Créer une clé API",
-  revoke_api_key: "Révoquer une clé API",
-  request_budget: "Demander du budget",
-  request_model: "Demander un modèle",
-  launch_model: "Lancer un modèle",
-  stop_model: "Arrêter le modèle",
-};
-
 const SUGGESTIONS = [
   {
     heading: "Créer une clé",
@@ -122,7 +113,7 @@ export default function SupportPage() {
     const onToolCall = (event: ToolCallEvent) => {
       const item: ChatToolCallItem = {
         key: event.id,
-        name: TOOL_LABELS[event.name] || event.name,
+        name: event.name,
         target: event.target,
         status: event.status,
         duration: event.duration_ms != null ? `${(event.duration_ms / 1000).toFixed(1)}s` : undefined,

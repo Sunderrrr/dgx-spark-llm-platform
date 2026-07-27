@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from functools import wraps
 from urllib.parse import urlparse
 from werkzeug.middleware.proxy_fix import ProxyFix
+from mcp_client import validate_mcp_url, list_tools_cached, MCPClient, MCPError
 
 app = Flask(__name__)
 app.secret_key = os.environ['SECRET_KEY']
@@ -209,6 +210,28 @@ def init_db():
         CREATE TABLE IF NOT EXISTS announcement_state (
             username     TEXT PRIMARY KEY,
             last_seen_id INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS mcp_servers (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            username    TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            url         TEXT NOT NULL,
+            auth_header TEXT,
+            created_at  TEXT NOT NULL,
+            UNIQUE(username, name)
+        );
+        CREATE TABLE IF NOT EXISTS skills (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            username     TEXT NOT NULL,
+            name         TEXT NOT NULL,
+            description  TEXT NOT NULL,
+            instructions TEXT NOT NULL,
+            created_at   TEXT NOT NULL,
+            UNIQUE(username, name)
+        );
+        CREATE TABLE IF NOT EXISTS user_prefs (
+            username  TEXT PRIMARY KEY,
+            avatar_id TEXT
         );
     ''')
     # Migration : api_keys de key_alias unique GLOBAL → unique par (username, alias)
@@ -1103,8 +1126,11 @@ def index():
 @app.route('/api/whoami')
 @login_required
 def api_whoami():
+    pref = get_db().execute("SELECT avatar_id FROM user_prefs WHERE username=?",
+                            (session.get('username'),)).fetchone()
     return jsonify({'username': session.get('username'), 'fullname': session.get('fullname'),
-                     'is_admin': bool(session.get('is_admin'))})
+                     'is_admin': bool(session.get('is_admin')),
+                     'avatar_id': pref['avatar_id'] if pref else None})
 
 
 @app.route('/api/home')
@@ -1211,6 +1237,114 @@ def api_keys():
         'running_models': get_running_models(),
         'public_api_url': PUBLIC_API_URL,
     })
+
+
+# ── Settings : MCP, Skills, Personnalisation ─────────────────────────────────
+AVATAR_IDS = {f"avatar-{i:02d}" for i in range(1, 11)}
+
+
+@app.route('/api/settings')
+@login_required
+def api_settings():
+    db = get_db()
+    username = session['username']
+    servers = [dict(r) for r in db.execute(
+        "SELECT id, name, url, (auth_header IS NOT NULL) AS has_auth, created_at "
+        "FROM mcp_servers WHERE username=? ORDER BY created_at DESC", (username,))]
+    skills = [dict(r) for r in db.execute(
+        "SELECT id, name, description, created_at FROM skills WHERE username=? "
+        "ORDER BY created_at DESC", (username,))]
+    pref = db.execute("SELECT avatar_id FROM user_prefs WHERE username=?", (username,)).fetchone()
+    return jsonify({
+        'mcp_servers': servers,
+        'skills': skills,
+        'avatar_id': pref['avatar_id'] if pref else None,
+        'avatar_ids': sorted(AVATAR_IDS),
+    })
+
+
+@app.route('/mcp', methods=['POST'])
+@login_required
+def mcp_servers_route():
+    username = session['username']
+    db = get_db()
+    action = request.form.get('action')
+    if action == 'create':
+        name = request.form.get('name', '').strip()[:60]
+        url = request.form.get('url', '').strip()
+        auth_header = request.form.get('auth_header', '').strip() or None
+        if not name or not url:
+            return jsonify({'ok': False, 'error': "Nom et URL requis."})
+        ok, err = validate_mcp_url(url)
+        if not ok:
+            return jsonify({'ok': False, 'error': err})
+        try:
+            client = MCPClient(url, auth_header)
+            client.initialize()
+            discovered = client.list_tools()
+        except MCPError as e:
+            return jsonify({'ok': False, 'error': f"Connexion au serveur MCP impossible : {e}"})
+        except Exception:
+            return jsonify({'ok': False, 'error': "Connexion au serveur MCP impossible."})
+        try:
+            db.execute(
+                "INSERT INTO mcp_servers (username, name, url, auth_header, created_at) VALUES (?,?,?,?,?)",
+                (username, name, url, auth_header, datetime.now().isoformat()))
+            db.commit()
+        except sqlite3.IntegrityError:
+            return jsonify({'ok': False, 'error': "Tu as déjà un serveur MCP avec ce nom."})
+        return jsonify({'ok': True, 'tool_count': len(discovered)})
+    elif action == 'delete':
+        server_id = request.form.get('id', '')
+        db.execute("DELETE FROM mcp_servers WHERE id=? AND username=?", (server_id, username))
+        db.commit()
+        flash("Serveur MCP supprimé.", "success")
+    return ('', 204)
+
+
+@app.route('/skills', methods=['POST'])
+@login_required
+def skills_route():
+    username = session['username']
+    db = get_db()
+    action = request.form.get('action')
+    if action == 'create':
+        name = request.form.get('name', '').strip()[:60]
+        description = request.form.get('description', '').strip()[:300]
+        instructions = request.form.get('instructions', '').strip()[:20000]
+        if not name or not description or not instructions:
+            return jsonify({'ok': False, 'error': "Nom, description et instructions requis."})
+        try:
+            db.execute(
+                "INSERT INTO skills (username, name, description, instructions, created_at) "
+                "VALUES (?,?,?,?,?)",
+                (username, name, description, instructions, datetime.now().isoformat()))
+            db.commit()
+        except sqlite3.IntegrityError:
+            return jsonify({'ok': False, 'error': "Tu as déjà une compétence avec ce nom."})
+        return jsonify({'ok': True})
+    elif action == 'delete':
+        skill_id = request.form.get('id', '')
+        db.execute("DELETE FROM skills WHERE id=? AND username=?", (skill_id, username))
+        db.commit()
+        flash("Compétence supprimée.", "success")
+    return ('', 204)
+
+
+@app.route('/settings/avatar', methods=['POST'])
+@login_required
+def settings_avatar():
+    avatar_id = request.form.get('avatar_id', '')
+    if avatar_id not in AVATAR_IDS:
+        flash("Avatar invalide.", "danger")
+        return ('', 204)
+    db = get_db()
+    db.execute(
+        "INSERT INTO user_prefs (username, avatar_id) VALUES (?,?) "
+        "ON CONFLICT(username) DO UPDATE SET avatar_id=excluded.avatar_id",
+        (session['username'], avatar_id))
+    db.commit()
+    return ('', 204)
 
 
 # ── Support (assistant IA) ───────────────────────────────────────────────────
@@ -1498,6 +1632,86 @@ def _support_tool_target(name, args):
     return None
 
 
+TOOL_LABELS = {
+    'create_api_key': "Créer une clé API",
+    'revoke_api_key': "Révoquer une clé API",
+    'request_budget': "Demander du budget",
+    'request_model': "Demander un modèle",
+    'launch_model': "Lancer un modèle",
+    'stop_model': "Arrêter le modèle",
+}
+
+
+def _mcp_tool_name(server_id, original_name):
+    safe = re.sub(r'[^a-zA-Z0-9_-]', '_', original_name)[:60]
+    return f"mcp_{server_id}_{safe}"
+
+
+def _user_extra_tools(username):
+    """Outils dynamiques d'un utilisateur : ses serveurs MCP (outils découverts
+    en direct, avec cache court) + un outil use_skill s'il a des skills.
+    Retourne (schémas_outils, table_de_routage) où la table de routage mappe
+    le nom d'outil préfixé vers comment l'exécuter et l'afficher."""
+    db = get_db()
+    tools = []
+    routing = {}
+    for row in db.execute("SELECT id, name, url, auth_header FROM mcp_servers WHERE username=?", (username,)):
+        try:
+            discovered = list_tools_cached(row['id'], row['url'], row['auth_header'])
+        except Exception:
+            discovered = []
+        for t in discovered:
+            prefixed = _mcp_tool_name(row['id'], t.get('name', ''))
+            tools.append({"type": "function", "function": {
+                "name": prefixed,
+                "description": f"[Serveur MCP « {row['name']} »] {t.get('description', '') or t.get('name', '')}",
+                "parameters": t.get('inputSchema') or {"type": "object", "properties": {}},
+            }})
+            routing[prefixed] = {
+                'kind': 'mcp', 'server_id': row['id'], 'server_name': row['name'],
+                'tool_name': t.get('name', ''),
+            }
+    skill_rows = list(db.execute("SELECT name, description FROM skills WHERE username=?", (username,)))
+    if skill_rows:
+        tools.append({"type": "function", "function": {
+            "name": "use_skill",
+            "description": "Charge les instructions détaillées d'une compétence (skill) définie "
+                           "par l'utilisateur pour t'aider sur sa tâche.",
+            "parameters": {"type": "object", "properties": {
+                "name": {"type": "string", "enum": [r['name'] for r in skill_rows],
+                          "description": "Nom exact de la compétence à charger."}},
+                "required": ["name"]}}})
+        routing['use_skill'] = {'kind': 'skill'}
+    return tools, routing
+
+
+def _exec_mcp_tool(server_id, tool_name, args, username):
+    """Exécute un outil d'un serveur MCP enregistré par l'utilisateur (jamais
+    celui d'un autre — la ligne est toujours scopée à username)."""
+    db = get_db()
+    row = db.execute("SELECT url, auth_header FROM mcp_servers WHERE id=? AND username=?",
+                      (server_id, username)).fetchone()
+    if not row:
+        return "Serveur MCP introuvable.", False
+    try:
+        client = MCPClient(row['url'], row['auth_header'])
+        client.initialize()
+        return client.call_tool(tool_name, args)
+    except MCPError as e:
+        return str(e), False
+    except Exception as e:
+        return f"Erreur MCP ({type(e).__name__}).", False
+
+
+def _exec_skill(name, username):
+    db = get_db()
+    row = db.execute("SELECT instructions FROM skills WHERE username=? AND name=?",
+                      (username, name)).fetchone()
+    if not row:
+        return f"Compétence « {name} » introuvable.", False
+    return row['instructions'], True
+
+
 
 def _sse_tool_event(tc_id, name, target, status, duration_ms=None, error=None):
     """Événement SSE pour une invocation d'outil côté Support (affiché par le
@@ -1549,7 +1763,8 @@ def support_chat():
     last_user = next((m['content'] for m in reversed(history) if m['role'] == 'user'), '')
     ctx = _support_context(username, is_admin, user_msg=last_user)
     msgs = [{'role': 'system', 'content': SUPPORT_SYSTEM + "\n\n### CONTEXTE\n" + ctx}] + history
-    tools = _support_tools(is_admin)
+    extra_tools, extra_routing = _user_extra_tools(username)
+    tools = _support_tools(is_admin) + extra_tools
 
     def _chat(with_tools):
         body = {'model': model, 'messages': msgs, 'temperature': 0.3, 'max_tokens': 4096,
@@ -1587,12 +1802,25 @@ def support_chat():
                         a = json.loads(fn.get('arguments') or '{}')
                     except Exception:
                         a = {}
-                    target = _support_tool_target(fname, a)
-                    yield _sse_tool_event(tc_id, fname, target, 'running')
+                    route = extra_routing.get(fname)
+                    if route and route['kind'] == 'mcp':
+                        label = f"MCP · {route['server_name']} · {route['tool_name']}"
+                        target = None
+                        exec_fn = lambda: _exec_mcp_tool(route['server_id'], route['tool_name'], a, username)
+                    elif route and route['kind'] == 'skill':
+                        skill_name = (a.get('name') or '').strip()
+                        label = f"Compétence · {skill_name}"
+                        target = None
+                        exec_fn = lambda sn=skill_name: _exec_skill(sn, username)
+                    else:
+                        label = TOOL_LABELS.get(fname, fname)
+                        target = _support_tool_target(fname, a)
+                        exec_fn = lambda: _exec_support_tool(fname, a, username, fullname, is_admin)
+                    yield _sse_tool_event(tc_id, label, target, 'running')
                     t_start = time.monotonic()
-                    res, ok = _exec_support_tool(fname, a, username, fullname, is_admin)
+                    res, ok = exec_fn()
                     duration_ms = round((time.monotonic() - t_start) * 1000)
-                    yield _sse_tool_event(tc_id, fname, target, 'complete' if ok else 'error',
+                    yield _sse_tool_event(tc_id, label, target, 'complete' if ok else 'error',
                                           duration_ms=duration_ms, error=None if ok else res)
                     msgs.append({'role': 'tool', 'tool_call_id': tc.get('id'), 'content': res})
             # Trop d'allers-retours d'outils → on force une réponse finale SANS outils

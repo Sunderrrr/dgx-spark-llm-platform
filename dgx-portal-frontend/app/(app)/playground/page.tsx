@@ -225,6 +225,8 @@ export default function PlaygroundPage() {
       });
     };
 
+    let isError = false;
+    let wasAborted = false;
     try {
       await streamChat(
         csrf,
@@ -247,7 +249,16 @@ export default function PlaygroundPage() {
         },
       );
     } catch (e) {
-      if ((e as Error)?.name !== "AbortError" && !acc) acc = "Erreur réseau.";
+      if ((e as Error)?.name === "AbortError") {
+        wasAborted = true; // Arrêt volontaire (bouton Stop) : pas une erreur.
+      } else {
+        isError = true;
+        if (!acc) acc = "Erreur réseau.";
+      }
+    }
+    if (!isError && !wasAborted && !acc && !reason) {
+      isError = true;
+      acc = "Le modèle n'a renvoyé aucune réponse.";
     }
 
     // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
@@ -264,6 +275,7 @@ export default function PlaygroundPage() {
         tokensPerSec: tokens && gen > 0 ? Number((tokens / gen).toFixed(1)) : undefined,
         ttft: tf ? Number(((tf - t0) / 1000).toFixed(2)) : undefined,
         ts: startTs,
+        isError,
       });
     }
     setMessages(finalMessages);
@@ -284,7 +296,10 @@ export default function PlaygroundPage() {
         (text ? text + "\n\n" : "") +
         attachments.map((f) => "```" + f.name + "\n" + f.content + "\n```").join("\n\n");
     }
-    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: full, ts: Date.now() }];
+    const nextMessages: ChatMsg[] = [
+      ...messages,
+      { role: "user", content: full, ts: Date.now(), attachmentCount: attachments.length || undefined },
+    ];
     setMessages(nextMessages);
     setInput("");
     setAttachments([]);
@@ -544,6 +559,8 @@ export default function PlaygroundPage() {
                 {messages.map((m, i) => {
                   const isLast = i === messages.length - 1;
                   const isThinking = streaming && isLast && m.role === "assistant" && !m.content && !m.reasoning;
+                  const prevAttachments = messages[i - 1]?.attachmentCount;
+                  const canRegenerateThis = m.role === "assistant" && isLast && !streaming;
                   return (
                   <ChatMessage key={i} sender={m.role}>
                     <ChatMessageBubble
@@ -551,8 +568,9 @@ export default function PlaygroundPage() {
                         !isThinking && m.ts ? (
                           <ChatMessageMetadata
                             timestamp={<Timestamp value={m.ts} format="time" />}
+                            status={m.isError ? "error" : undefined}
                             footer={
-                              m.role === "assistant" && (m.tokens || m.tokensPerSec) ? (
+                              m.role === "assistant" && (m.tokens || m.tokensPerSec || canRegenerateThis) ? (
                                 <HStack gap={1} vAlign="center">
                                   <Text type="supporting" color="secondary">
                                     {[
@@ -571,6 +589,16 @@ export default function PlaygroundPage() {
                                     icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
                                     onClick={() => navigator.clipboard?.writeText(m.content)}
                                   />
+                                  {canRegenerateThis && (
+                                    <Button
+                                      label="Régénérer"
+                                      variant="ghost"
+                                      size="sm"
+                                      isIconOnly
+                                      icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                                      onClick={regenerate}
+                                    />
+                                  )}
                                 </HStack>
                               ) : undefined
                             }
@@ -578,7 +606,7 @@ export default function PlaygroundPage() {
                         ) : undefined
                       }>
                       {isThinking ? (
-                        <ThinkingIndicator />
+                        <ThinkingIndicator fixedLabel={prevAttachments ? "Lecture du fichier…" : undefined} />
                       ) : m.reasoning ? (
                         <VStack gap={2}>
                           <Collapsible trigger="Raisonnement" defaultIsOpen={false}>

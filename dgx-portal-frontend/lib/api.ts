@@ -51,6 +51,26 @@ export async function postForm(url: string, csrf: string, data: Record<string, s
   });
 }
 
+/**
+ * Comme postForm, mais pour les routes qui renvoient un vrai corps JSON
+ * {ok, error?} plutôt qu'un 204 — utilisé quand l'action peut échouer pour
+ * une raison que l'utilisateur doit connaître (ex: serveur MCP injoignable),
+ * contrairement aux actions "quasi toujours réussies" (créer une clé) qui se
+ * contentent d'un toast optimiste après postForm().
+ */
+export async function postFormJSON<T = { ok: boolean; error?: string }>(
+  url: string,
+  csrf: string,
+  data: Record<string, string>,
+): Promise<T> {
+  const res = await authFetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
+    body: new URLSearchParams(data).toString(),
+  });
+  return res.json();
+}
+
 export async function fetchCsrfToken(): Promise<string> {
   const res = await authFetch("/api/csrf");
   if (!res.ok) throw new Error("Impossible de récupérer le jeton CSRF.");

@@ -14,6 +14,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { Avatar } from "@astryxdesign/core/Avatar";
 import {
   SparklesIcon,
   HomeIcon,
@@ -27,10 +28,11 @@ import {
   SunIcon,
   MoonIcon,
   ArrowRightOnRectangleIcon,
+  Cog6ToothIcon,
 } from "@heroicons/react/24/outline";
 import { useThemeMode } from "../theme-provider";
 
-type Whoami = { username: string; fullname: string; is_admin: boolean };
+type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id: string | null };
 
 const NAV_ITEMS = [
   { href: "/", label: "Accueil", icon: HomeIcon },
@@ -75,10 +77,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           }
           footer={
             <HStack padding={2} gap={2} vAlign="center" hAlign="between">
-              <Text type="supporting" color="secondary" maxLines={1}>
-                {who?.fullname || ""}
-              </Text>
+              <HStack gap={2} vAlign="center">
+                {who?.avatar_id && <Avatar src={`/avatars/${who.avatar_id}.svg`} name={who.fullname} size="sm" />}
+                <Text type="supporting" color="secondary" maxLines={1}>
+                  {who?.fullname || ""}
+                </Text>
+              </HStack>
               <HStack gap={1}>
+                <Button
+                  label="Réglages"
+                  variant="ghost"
+                  size="sm"
+                  isIconOnly
+                  icon={<Icon icon={Cog6ToothIcon} size="sm" />}
+                  onClick={() => {
+                    window.location.href = "/settings";
+                  }}
+                />
                 <Button
                   label="Basculer le thème"
                   variant="ghost"

@@ -78,6 +78,13 @@ LDAP_URI      = os.environ.get('LDAP_URI', 'ldap://lldap.cronos.lan:3890')
 LDAP_BASE     = os.environ.get('LDAP_BASE', 'dc=cronos,dc=website')
 LDAP_BIND_DN  = os.environ.get('LDAP_BIND_DN', '')
 LDAP_BIND_PW  = os.environ.get('LDAP_BIND_PW', '')
+# Compte de secours local, utilisable quand LDAP est injoignable. Inerte par
+# défaut : il ne fait quoi que ce soit que si /app/data/DEBUG_LOGIN_ENABLED
+# existe (bascule à la main via `docker exec dgx-portal touch|rm ...`, sans
+# redémarrage) ET que DEBUG_LOGIN_PASSWORD est défini dans .env.
+DEBUG_LOGIN_USERNAME = os.environ.get('DEBUG_LOGIN_USERNAME', 'debug-admin')
+DEBUG_LOGIN_PASSWORD = os.environ.get('DEBUG_LOGIN_PASSWORD', '')
+DEBUG_LOGIN_FLAG      = '/app/data/DEBUG_LOGIN_ENABLED'
 LITELLM_URL   = os.environ.get('LITELLM_URL', 'http://litellm:4000')
 LITELLM_KEY   = os.environ.get('LITELLM_MASTER_KEY', '')
 VLLM_API      = os.environ.get('VLLM_API_URL', 'http://host.docker.internal:8000/v1')
@@ -872,6 +879,16 @@ def login():
         if wait:
             flash(f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min.", "danger")
             return ('', 401)
+        # Les deux compare_digest sont évalués inconditionnellement (pas de
+        # court-circuit `and`) pour ne pas laisser un attaquant distinguer,
+        # via le temps de réponse, un username faux d'un mot de passe faux.
+        debug_user_ok = hmac.compare_digest(username, DEBUG_LOGIN_USERNAME)
+        debug_pass_ok = hmac.compare_digest(password, DEBUG_LOGIN_PASSWORD)
+        if DEBUG_LOGIN_PASSWORD and os.path.exists(DEBUG_LOGIN_FLAG) and debug_user_ok and debug_pass_ok:
+            _login_reset(key); _login_reset(ip)
+            app.logger.warning('Connexion via le compte de secours DEBUG_LOGIN depuis %s', ip)
+            _apply_session(DEBUG_LOGIN_USERNAME, 'Secours (LDAP indisponible)', True, via_sso=False)
+            return redirect(_safe_next(request.args.get('next')))
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
             _login_reset(key); _login_reset(ip)

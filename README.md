@@ -280,4 +280,4 @@ tokens/day, not request rate on a single GPU.
 
 ## License
 
-MIT.
+Licensed under MIT.

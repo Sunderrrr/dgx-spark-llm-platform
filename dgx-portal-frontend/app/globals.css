@@ -30,3 +30,33 @@ body {
   background: var(--color-text-disabled);
   background-clip: padding-box;
 }
+
+/* Wave dots for ThinkingIndicator — plain CSS since this app has no StyleX
+   compiler wired up (Astryx ships pre-compiled; app code can't call
+   stylex.create()/keyframes() at runtime, see AGENTS.md). */
+@keyframes thinking-dot-wave {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+.thinking-dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+  animation: thinking-dot-wave var(--duration-slow, 975ms) infinite;
+  animation-timing-function: var(--ease-standard, ease-in-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dot {
+    animation-duration: 3s;
+  }
+}

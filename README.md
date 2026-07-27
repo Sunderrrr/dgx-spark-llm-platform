@@ -18,7 +18,7 @@ It provides:
 
 ![DGX portal — home dashboard](assets/dashboard.png)
 
----
+--- 
 
 ## Architecture
 

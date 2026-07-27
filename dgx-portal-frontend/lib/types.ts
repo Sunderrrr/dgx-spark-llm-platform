@@ -7,6 +7,7 @@ export type ChatMsg = {
   tokens?: number;
   tokensPerSec?: number;
   ttft?: number;
+  ts?: number;
 };
 
 export type Attachment = {

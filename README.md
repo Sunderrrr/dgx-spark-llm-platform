@@ -18,7 +18,7 @@ It provides:
 
 ![Cronos portal — home dashboard](assets/dashboard.png)
 
----
+--- 
 
 ## Architecture
 

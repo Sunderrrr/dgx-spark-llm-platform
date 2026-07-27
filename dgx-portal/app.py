@@ -1404,7 +1404,7 @@ def _support_tools(is_admin):
 
 def _exec_support_tool(name, args, username, fullname, is_admin):
     """Exécute une action self-service, TOUJOURS au nom de l'utilisateur de session
-    (le modèle ne choisit jamais « pour qui »). Retourne un texte de résultat."""
+    (le modèle ne choisit jamais « pour qui »). Retourne (texte_résultat, ok)."""
     db = get_db()
     try:
         if name == 'create_api_key':
@@ -1412,29 +1412,29 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
             alias = re.sub(r'[^a-zA-Z0-9_-]', '-', raw)[:40] if raw else f"{username}-{int(time.time())}"
             newkey = create_litellm_key(alias, username, is_admin=is_admin)
             if not newkey:
-                return "Échec de la création (alias déjà pris ou LiteLLM injoignable)."
+                return "Échec de la création (alias déjà pris ou LiteLLM injoignable).", False
             db.execute("INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) "
                        "VALUES (?,?,?,?)", (username, alias, newkey, datetime.now().isoformat()))
             db.commit()
-            return f"Clé créée (alias={alias}). CLÉ COMPLÈTE à montrer une fois : {newkey}"
+            return f"Clé créée (alias={alias}). CLÉ COMPLÈTE à montrer une fois : {newkey}", True
 
         if name == 'revoke_api_key':
             alias = (args.get('alias') or '').strip()
             row = db.execute("SELECT key_value FROM api_keys WHERE username=? AND key_alias=?",
                              (username, alias)).fetchone()
             if not row:
-                return f"Aucune clé « {alias} » pour cet utilisateur."
+                return f"Aucune clé « {alias} » pour cet utilisateur.", False
             if revoke_litellm_key(row['key_value']):
                 db.execute("DELETE FROM api_keys WHERE username=? AND key_alias=?", (username, alias))
                 db.commit()
-                return f"Clé « {alias} » révoquée."
-            return "Échec de la révocation côté LiteLLM."
+                return f"Clé « {alias} » révoquée.", True
+            return "Échec de la révocation côté LiteLLM.", False
 
         if name == 'request_budget':
             reason = (args.get('reason') or '').strip()
             if db.execute("SELECT 1 FROM budget_requests WHERE username=? AND status='pending'",
                           (username,)).fetchone():
-                return "Une demande de budget est déjà en attente."
+                return "Une demande de budget est déjà en attente.", True
             current = _litellm_user_info(username).get('max_budget')
             db.execute("INSERT INTO budget_requests (username, fullname, key_alias, current_budget, "
                        "reason, status, created_at) VALUES (?,?,?,?,?,?,?)",
@@ -1443,47 +1443,74 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
             db.commit()
             notify_budget_discord(username, fullname, '(compte)', current, reason)
             notify_budget_email(username, fullname, '(compte)', current, reason)
-            return "Demande de budget envoyée à un admin."
+            return "Demande de budget envoyée à un admin.", True
 
         if name == 'request_model':
             hf = (args.get('hf_model_id') or '').strip()
             if not hf:
-                return "Identifiant de modèle manquant."
+                return "Identifiant de modèle manquant.", False
             reason = (args.get('reason') or '').strip()
             if db.execute("SELECT 1 FROM model_requests WHERE username=? AND model_id=? AND status='pending'",
                           (username, hf)).fetchone():
-                return f"Une demande pour « {hf} » est déjà en attente."
+                return f"Une demande pour « {hf} » est déjà en attente.", True
             db.execute("INSERT INTO model_requests (username, fullname, model_id, reason, status, created_at) "
                        "VALUES (?,?,?,?,?,?)",
                        (username, fullname, hf, reason, 'pending', datetime.now().isoformat()))
             db.commit()
             notify_discord(hf, username, fullname, reason)
             notify_email(hf, username, fullname, reason)
-            return f"Demande d'ajout du modèle « {hf} » envoyée à un admin."
+            return f"Demande d'ajout du modèle « {hf} » envoyée à un admin.", True
 
         if name == 'launch_model':
             if not is_admin:
-                return "Action réservée aux admins."
+                return "Action réservée aux admins.", False
             mname = (args.get('name') or '').strip()
             cfg = db.execute("SELECT hf_model_id, name, vllm_args, engine FROM model_configs WHERE name=?",
                              (mname,)).fetchone()
             if not cfg:
-                return f"Modèle « {mname} » introuvable dans le catalogue."
+                return f"Modèle « {mname} » introuvable dans le catalogue.", False
             ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
                                cfg['engine'] or 'vllm')
             if ok:
                 _announce_launch(cfg['name'])
-            return f"Lancement de « {mname} » demandé (démarrage en cours)." if ok else "Runner injoignable."
+            return (f"Lancement de « {mname} » demandé (démarrage en cours)." if ok
+                    else "Runner injoignable."), ok
 
         if name == 'stop_model':
             if not is_admin:
-                return "Action réservée aux admins."
-            return "Modèle arrêté." if runner_stop() else "Runner injoignable."
+                return "Action réservée aux admins.", False
+            ok = runner_stop()
+            return ("Modèle arrêté." if ok else "Runner injoignable."), ok
 
-        return f"Outil inconnu : {name}"
+        return f"Outil inconnu : {name}", False
     except Exception as e:
-        return f"Erreur lors de l'exécution de l'action ({type(e).__name__})."
+        return f"Erreur lors de l'exécution de l'action ({type(e).__name__}).", False
 
+
+def _support_tool_target(name, args):
+    """Libellé court de la cible d'un appel d'outil, pour l'affichage ChatToolCalls."""
+    if name in ('create_api_key', 'revoke_api_key'):
+        return (args.get('alias') or '').strip() or None
+    if name == 'request_model':
+        return (args.get('hf_model_id') or '').strip() or None
+    if name == 'launch_model':
+        return (args.get('name') or '').strip() or None
+    return None
+
+
+
+def _sse_tool_event(tc_id, name, target, status, duration_ms=None, error=None):
+    """Événement SSE pour une invocation d'outil côté Support (affiché par le
+    frontend via le composant Astryx ChatToolCalls), distinct des deltas de
+    texte de _sse_chunks."""
+    payload = {'tool_call': {'id': tc_id, 'name': name, 'status': status}}
+    if target:
+        payload['tool_call']['target'] = target
+    if duration_ms is not None:
+        payload['tool_call']['duration_ms'] = duration_ms
+    if error:
+        payload['tool_call']['error'] = error
+    return f"data: {json.dumps(payload)}\n\n"
 
 
 def _sse_chunks(text):
@@ -1554,11 +1581,19 @@ def support_chat():
                 msgs.append({'role': 'assistant', 'content': m.get('content') or '', 'tool_calls': tcs})
                 for tc in tcs:
                     fn = tc.get('function', {})
+                    fname = fn.get('name', '')
+                    tc_id = tc.get('id') or f"tc-{time.time_ns()}"
                     try:
                         a = json.loads(fn.get('arguments') or '{}')
                     except Exception:
                         a = {}
-                    res = _exec_support_tool(fn.get('name', ''), a, username, fullname, is_admin)
+                    target = _support_tool_target(fname, a)
+                    yield _sse_tool_event(tc_id, fname, target, 'running')
+                    t_start = time.monotonic()
+                    res, ok = _exec_support_tool(fname, a, username, fullname, is_admin)
+                    duration_ms = round((time.monotonic() - t_start) * 1000)
+                    yield _sse_tool_event(tc_id, fname, target, 'complete' if ok else 'error',
+                                          duration_ms=duration_ms, error=None if ok else res)
                     msgs.append({'role': 'tool', 'tool_call_id': tc.get('id'), 'content': res})
             # Trop d'allers-retours d'outils → on force une réponse finale SANS outils
             # (sinon le modèle peut boucler sur des appels et ne jamais conclure).

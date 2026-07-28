@@ -1,0 +1,110 @@
+{
+  "@astryx.chat.composer.placeholder": {
+    "defaultMessage": "Écris un message…"
+  },
+  "@astryx.chat.composerDrawer.label": {
+    "defaultMessage": "Éléments"
+  },
+  "@astryx.chat.composerInput.label": {
+    "defaultMessage": "Saisie du message"
+  },
+  "@astryx.chat.messageAriaLabel": {
+    "defaultMessage": "Message {status}"
+  },
+  "@astryx.chat.pastedText.expand": {
+    "defaultMessage": "Déplier"
+  },
+  "@astryx.chat.speechRecognition.noSpeechDetected": {
+    "defaultMessage": "Aucune parole détectée."
+  },
+  "@astryx.chat.status.delivered": {
+    "defaultMessage": "Distribué"
+  },
+  "@astryx.chat.status.failed": {
+    "defaultMessage": "Échec"
+  },
+  "@astryx.chat.status.read": {
+    "defaultMessage": "Lu"
+  },
+  "@astryx.chat.status.sending": {
+    "defaultMessage": "Envoi…"
+  },
+  "@astryx.chat.status.sent": {
+    "defaultMessage": "Envoyé"
+  },
+  "@astryx.dialog.close": {
+    "defaultMessage": "Fermer"
+  },
+  "@astryx.markdown.table": {
+    "defaultMessage": "Tableau"
+  },
+  "@astryx.markdown.taskList": {
+    "defaultMessage": "Liste de tâches"
+  },
+  "@astryx.selector.clearLabel": {
+    "defaultMessage": "Effacer {label}"
+  },
+  "@astryx.selector.placeholder": {
+    "defaultMessage": "Sélectionner…"
+  },
+  "@astryx.selector.searchOptions": {
+    "defaultMessage": "Rechercher parmi les options"
+  },
+  "@astryx.selector.searchPlaceholder": {
+    "defaultMessage": "Rechercher…"
+  },
+  "@astryx.tabList.label": {
+    "defaultMessage": "Onglets"
+  },
+  "@astryx.table.filter.allPlaceholder": {
+    "defaultMessage": "Tout"
+  },
+  "@astryx.table.filter.apply": {
+    "defaultMessage": "Appliquer"
+  },
+  "@astryx.table.filter.reset": {
+    "defaultMessage": "Réinitialiser"
+  },
+  "@astryx.table.label": {
+    "defaultMessage": "Tableau"
+  },
+  "@astryx.table.noData": {
+    "defaultMessage": "Aucune donnée"
+  },
+  "@astryx.table.pagination.label": {
+    "defaultMessage": "Pagination du tableau"
+  },
+  "@astryx.table.selection.selectAllRows": {
+    "defaultMessage": "Sélectionner toutes les lignes"
+  },
+  "@astryx.table.selection.selectRow": {
+    "defaultMessage": "Sélectionner la ligne"
+  },
+  "@astryx.table.sort.ascending": {
+    "defaultMessage": "Trier par ordre croissant"
+  },
+  "@astryx.table.sort.clear": {
+    "defaultMessage": "Annuler le tri"
+  },
+  "@astryx.table.sort.descending": {
+    "defaultMessage": "Trier par ordre décroissant"
+  },
+  "@astryx.table.sort.direction.ascending": {
+    "defaultMessage": "croissant"
+  },
+  "@astryx.table.sort.direction.descending": {
+    "defaultMessage": "décroissant"
+  },
+  "@astryx.table.sort.sortBy": {
+    "defaultMessage": "Trier par {label}"
+  },
+  "@astryx.table.sort.sortedBy": {
+    "defaultMessage": "Trier par {label}, trié {direction}"
+  },
+  "@astryx.toast.dismiss": {
+    "defaultMessage": "Fermer la notification"
+  },
+  "@astryx.toast.viewport": {
+    "defaultMessage": "Notifications"
+  }
+}

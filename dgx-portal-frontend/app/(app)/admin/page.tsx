@@ -183,7 +183,7 @@ export default function AdminPage() {
                 icon={<Icon icon={ShieldExclamationIcon} size="lg" color="secondary" />}
                 title={t("Accès réservé aux administrateurs")}
                 description={t("Ton compte n'a pas les droits nécessaires pour voir cette page.")}
-                actions={<Button label={t("Retour à l'accueil")} variant="primary" onClick={() => (window.location.href = "/")} />}
+                actions={<Button label={t("Retour à l'accueil")} variant="primary" href="/" />}
               />
             </Center>
           </LayoutContent>

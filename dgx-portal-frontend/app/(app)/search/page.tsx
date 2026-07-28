@@ -164,9 +164,7 @@ export default function SearchPage() {
                           variant="secondary"
                           size="sm"
                           icon={<Icon icon={PaperAirplaneIcon} size="sm" />}
-                          onClick={() =>
-                            (window.location.href = `/request?model=${encodeURIComponent(model.modelId || "")}`)
-                          }
+                          href={`/request?model=${encodeURIComponent(model.modelId || "")}`}
                         />
                       </HStack>
                     </VStack>

@@ -2,6 +2,8 @@ import type { PlaygroundData, Settings } from "./types";
 
 function redirectToLogin(): never {
   if (typeof window !== "undefined") {
+    // Rechargement complet volontaire (pas next/link) : la session vient
+    // d'expirer côté serveur, tout l'état client en mémoire est périmé.
     window.location.href = "/login";
   }
   throw new Error("Non authentifié");

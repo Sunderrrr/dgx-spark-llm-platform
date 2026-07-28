@@ -75,6 +75,8 @@ export default function LoginPage() {
       // cookie de session valide est ce qu'on vérifie, pas le corps de la réponse.
       const who = await fetch("/api/whoami", { credentials: "include" });
       if (who.ok) {
+        // Rechargement complet volontaire : on vient d'obtenir un cookie de
+        // session, et le rendu serveur doit repartir avec.
         window.location.href = "/";
       } else if (res.status === 400) {
         setError("Session expirée — recharge la page et réessaie.");
@@ -133,6 +135,8 @@ export default function LoginPage() {
                 variant="secondary"
                 size="lg"
                 icon={<Icon icon={ShieldCheckIcon} size="sm" />}
+                // /login/sso est une route Flask qui redirige vers Authentik :
+                // une navigation next/link ne saurait pas en sortir.
                 onClick={() => (window.location.href = "/login/sso")}
               />
             </>

@@ -1,13 +1,29 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
+import NextLink from "next/link";
 import { Theme } from "@astryxdesign/core/theme";
+import { LinkProvider } from "@astryxdesign/core/Link";
 import { InternationalizationProvider } from "@astryxdesign/core";
 import { themeById, type ThemeId } from "@/lib/themes";
 import { I18nProvider, type Lang } from "@/lib/i18n";
 import astryxFr from "@/lib/astryx-fr.json";
 
 type Mode = "light" | "dark" | "system";
+
+// Astryx rend un <a> natif par défaut : chaque clic dans la barre latérale
+// rechargeait donc l'application entière au lieu de naviguer côté client.
+// LinkProvider redirige TOUS les composants porteurs d'un href (SideNavItem,
+// Button, Link, Breadcrumb…) vers next/link d'un seul coup.
+//
+// L'adaptateur n'est pas décoratif : useLinkComponent duplique href dans une
+// prop `to` pour les routeurs qui l'attendent (React Router, TanStack). Next
+// ne la connaît pas et la laisserait filer jusqu'au <a>, où React se plaint
+// d'un attribut DOM inconnu. On l'absorbe ici.
+function NextLinkAdapter({ to, ...props }: React.ComponentProps<typeof NextLink> & { to?: string }) {
+  void to;
+  return <NextLink {...props} />;
+}
 
 const ThemeModeContext = createContext<{
   mode: Mode;
@@ -84,9 +100,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
             tri des tableaux, fermeture de dialogue…) : sans catalogue ils
             resteraient en anglais au milieu d'une interface française. */}
         <InternationalizationProvider locale={lang} messages={{ fr: astryxFr }}>
-          <Theme theme={themeById(themeId).theme} mode={mode}>
-            {children}
-          </Theme>
+          <LinkProvider component={NextLinkAdapter}>
+            <Theme theme={themeById(themeId).theme} mode={mode}>
+              {children}
+            </Theme>
+          </LinkProvider>
         </InternationalizationProvider>
       </I18nProvider>
     </ThemeModeContext.Provider>

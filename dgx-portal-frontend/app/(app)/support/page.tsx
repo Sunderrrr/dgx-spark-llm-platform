@@ -34,6 +34,7 @@ import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, streamSupportChat } from "@/lib/api";
 import type { ToolCallEvent } from "@/lib/api";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
+import { useT } from "@/lib/i18n";
 
 type ChatMsg = {
   role: "user" | "assistant";
@@ -77,6 +78,7 @@ const WELCOME_MESSAGE: ChatMsg = {
 };
 
 export default function SupportPage() {
+  const t = useT();
   const csrf = useCsrf();
   const [messages, setMessages] = useState<ChatMsg[]>([WELCOME_MESSAGE]);
   const [input, setInput] = useState("");
@@ -135,9 +137,9 @@ export default function SupportPage() {
         },
         onToolCall,
       );
-      if (!acc) updateLast("Pas de réponse.", true);
+      if (!acc) updateLast(t("Pas de réponse."), true);
     } catch {
-      updateLast("Erreur réseau — réessaie.", true);
+      updateLast(t("Erreur réseau — réessaie."), true);
     } finally {
       setIsSending(false);
     }
@@ -167,13 +169,10 @@ export default function SupportPage() {
         <LayoutHeader hasDivider>
           <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
             <VStack gap={0}>
-              <Heading level={2}>Support</Heading>
-              <Text type="supporting" color="secondary">
-                Un assistant IA connecté à la plateforme : il voit tes clés (masquées), ton budget et l&apos;état du
-                serveur pour t&apos;aider en cas de pépin.
-              </Text>
+              <Heading level={2}>{t("Support")}</Heading>
+              <Text type="supporting" color="secondary">{t("Un assistant IA connecté à la plateforme : il voit tes clés (masquées), ton budget et l'état du serveur pour t'aider en cas de pépin.")}</Text>
             </VStack>
-            <StatusDot variant={runningModel ? "success" : "error"} label={runningModel || "aucun modèle actif"} />
+            <StatusDot variant={runningModel ? "success" : "error"} label={runningModel || t("aucun modèle actif")} />
           </HStack>
         </LayoutHeader>
       }
@@ -195,14 +194,14 @@ export default function SupportPage() {
                 {messages.length === 1 && (
                   <Grid columns={{ minWidth: 220, max: 2 }} gap={3} width="100%">
                     {SUGGESTIONS.map((s) => (
-                      <ClickableCard key={s.heading} label={s.heading} variant="muted" onClick={() => send(s.prompt)}>
+                      <ClickableCard key={s.heading} label={t(s.heading)} variant="muted" onClick={() => send(t(s.prompt))}>
                         <VStack gap={1}>
                           <HStack gap={2} vAlign="center">
                             <Icon icon={s.icon} size="sm" color="secondary" />
-                            <Text weight="semibold">{s.heading}</Text>
+                            <Text weight="semibold">{t(s.heading)}</Text>
                           </HStack>
                           <Text type="supporting" color="secondary">
-                            {s.body}
+                            {t(s.body)}
                           </Text>
                         </VStack>
                       </ClickableCard>
@@ -214,12 +213,10 @@ export default function SupportPage() {
                   onChange={setInput}
                   onSubmit={send}
                   isDisabled={isSending}
-                  placeholder="Écris ton message…  (Entrée pour envoyer, Maj+Entrée pour un saut de ligne)"
+                  placeholder={t("Écris ton message…  (Entrée pour envoyer, Maj+Entrée pour un saut de ligne)")}
                   input={<ChatComposerInput value={input} onChange={setInput} onSubmit={send} isDisabled={isSending} />}
                 />
-                <Text type="supporting" color="secondary">
-                  L&apos;assistant ne voit que tes données (clés masquées). Ne colle jamais une clé complète ici.
-                </Text>
+                <Text type="supporting" color="secondary">{t("L'assistant ne voit que tes données (clés masquées). Ne colle jamais une clé complète ici.")}</Text>
               </VStack>
             }>
             <ChatMessageList>
@@ -240,7 +237,7 @@ export default function SupportPage() {
                               <HStack gap={1} vAlign="center">
                                 {m.content && (
                                   <Button
-                                    label="Copier"
+                                    label={t("Copier")}
                                     variant="ghost"
                                     size="sm"
                                     isIconOnly
@@ -250,7 +247,7 @@ export default function SupportPage() {
                                 )}
                                 {canRegenerateThis && (
                                   <Button
-                                    label="Régénérer"
+                                    label={t("Régénérer")}
                                     variant="ghost"
                                     size="sm"
                                     isIconOnly

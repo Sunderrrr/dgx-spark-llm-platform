@@ -31,6 +31,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useThemeMode } from "../theme-provider";
 import { SettingsDialog } from "./_components/SettingsDialog";
+import { useT } from "@/lib/i18n";
 
 type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id: string | null };
 
@@ -52,6 +53,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { mode, setMode } = useThemeMode();
   const [who, setWho] = useState<Whoami | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const t = useT();
 
   const navItems = who?.is_admin
     ? [...NAV_ITEMS, { href: "/admin", label: "Admin", icon: ShieldCheckIcon }]
@@ -89,7 +91,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </HStack>
               <HStack gap={1}>
                 <Button
-                  label="Réglages"
+                  label={t("Réglages")}
                   variant="ghost"
                   size="sm"
                   isIconOnly
@@ -97,7 +99,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   onClick={() => setIsSettingsOpen(true)}
                 />
                 <Button
-                  label="Basculer le thème"
+                  label={t("Basculer le thème")}
                   variant="ghost"
                   size="sm"
                   isIconOnly
@@ -105,7 +107,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   onClick={() => setMode(isDark ? "light" : "dark")}
                 />
                 <Button
-                  label="Déconnexion"
+                  label={t("Déconnexion")}
                   variant="ghost"
                   size="sm"
                   isIconOnly
@@ -121,7 +123,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             {navItems.map((item) => (
               <SideNavItem
                 key={item.href}
-                label={item.label}
+                label={t(item.label)}
                 icon={item.icon}
                 href={item.href}
                 isSelected={item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)}

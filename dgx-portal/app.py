@@ -269,7 +269,9 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS user_prefs (
             username  TEXT PRIMARY KEY,
-            avatar_id TEXT
+            avatar_id TEXT,
+            theme_id  TEXT,
+            lang      TEXT
         );
         CREATE TABLE IF NOT EXISTS conversations (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -290,6 +292,10 @@ def init_db():
     ''')
     # Migration : colonnes ajoutées à mcp_servers après sa création initiale
     # (description, filtre d'outils, activation) — ALTER additif, sans perte.
+    pref_cols = {r[1] for r in db.execute("PRAGMA table_info(user_prefs)")}
+    for col in ('theme_id', 'lang'):
+        if col not in pref_cols:
+            db.execute(f"ALTER TABLE user_prefs ADD COLUMN {col} TEXT")
     mcp_cols = {r[1] for r in db.execute("PRAGMA table_info(mcp_servers)")}
     for col, ddl in (('description', "TEXT DEFAULT ''"),
                      ('allowed_tools', "TEXT DEFAULT ''"),
@@ -1198,11 +1204,13 @@ def index():
 @app.route('/api/whoami')
 @login_required
 def api_whoami():
-    pref = get_db().execute("SELECT avatar_id FROM user_prefs WHERE username=?",
+    pref = get_db().execute("SELECT avatar_id, theme_id, lang FROM user_prefs WHERE username=?",
                             (session.get('username'),)).fetchone()
     return jsonify({'username': session.get('username'), 'fullname': session.get('fullname'),
                      'is_admin': bool(session.get('is_admin')),
-                     'avatar_id': pref['avatar_id'] if pref else None})
+                     'avatar_id': pref['avatar_id'] if pref else None,
+                     'theme_id': (pref['theme_id'] if pref else None) or 'neutral',
+                     'lang': (pref['lang'] if pref else None) or 'fr'})
 
 
 @app.route('/api/home')
@@ -1320,6 +1328,13 @@ AVATAR_IDS = [
     'deepseek', 'qwen', 'meta', 'ollama', 'huggingface', 'perplexity',
     'nvidia', 'langchain',
 ]
+# Palettes proposées : chacune correspond à un thème Astryx construit côté
+# frontend via defineTheme({extends: neutralTheme, color: {accent}}) — la voie
+# officielle du design system. On ne surcharge jamais --color-* dans :root.
+THEME_IDS = ['neutral', 'indigo', 'violet', 'rose', 'ambre', 'emeraude',
+             'cyan', 'ardoise', 'brique', 'prune']
+LANGS = ['fr', 'en']
+
 AVATAR_LABELS = {
     'claude': 'Claude', 'anthropic': 'Anthropic', 'openai': 'ChatGPT',
     'copilot': 'GitHub Copilot', 'gemini': 'Gemini', 'grok': 'Grok',
@@ -1341,12 +1356,17 @@ def api_settings():
     skills = [dict(r) for r in db.execute(
         "SELECT id, name, description, instructions, created_at FROM skills WHERE username=? "
         "ORDER BY created_at DESC", (username,))]
-    pref = db.execute("SELECT avatar_id FROM user_prefs WHERE username=?", (username,)).fetchone()
+    pref = db.execute("SELECT avatar_id, theme_id, lang FROM user_prefs WHERE username=?",
+                       (username,)).fetchone()
     acct = _litellm_user_info(username)
     return jsonify({
         'mcp_servers': servers,
         'skills': skills,
         'avatar_id': pref['avatar_id'] if pref else None,
+        'theme_id': (pref['theme_id'] if pref else None) or 'neutral',
+        'lang': (pref['lang'] if pref else None) or 'fr',
+        'theme_ids': THEME_IDS,
+        'langs': LANGS,
         'avatars': [{'id': a, 'label': AVATAR_LABELS.get(a, a)} for a in AVATAR_IDS],
         'account': {
             'username': username,
@@ -1623,6 +1643,31 @@ def conversations_route():
                    (username, request.form.get('id', '')))
         db.commit()
     return ('', 204)
+
+
+@app.route('/settings/appearance', methods=['POST'])
+@login_required
+def settings_appearance():
+    """Thème et langue. Chaque valeur est validée contre sa liste blanche :
+    elles finissent dans un sélecteur de thème et un catalogue de traduction,
+    pas question d'accepter du texte libre."""
+    theme_id = request.form.get('theme_id')
+    lang = request.form.get('lang')
+    db = get_db()
+    if theme_id is not None:
+        if theme_id not in THEME_IDS:
+            return jsonify({'ok': False, 'error': 'Thème inconnu.'})
+        db.execute("INSERT INTO user_prefs (username, theme_id) VALUES (?,?) "
+                   "ON CONFLICT(username) DO UPDATE SET theme_id=excluded.theme_id",
+                   (session['username'], theme_id))
+    if lang is not None:
+        if lang not in LANGS:
+            return jsonify({'ok': False, 'error': 'Langue inconnue.'})
+        db.execute("INSERT INTO user_prefs (username, lang) VALUES (?,?) "
+                   "ON CONFLICT(username) DO UPDATE SET lang=excluded.lang",
+                   (session['username'], lang))
+    db.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/settings/avatar', methods=['POST'])

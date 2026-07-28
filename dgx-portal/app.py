@@ -1361,7 +1361,61 @@ def api_settings():
             'skill_count': len(skills),
         },
         'activity': _account_activity(username),
+        'limits': _account_limits(username, acct, servers, skills),
     })
+
+
+def _rate_used(username, bucket):
+    """Nb de requêtes déjà consommées dans la fenêtre courante (0 si expirée)."""
+    row = get_db().execute("SELECT fails, first_at FROM login_attempts WHERE key=?",
+                            (f"{bucket}|{username}",)).fetchone()
+    if not row or time.time() - row['first_at'] > CHAT_RATE_WINDOW:
+        return 0
+    return row['fails']
+
+
+def _account_limits(username, acct, servers, skills):
+    """Quotas réels du compte. Chaque entrée décrit une limite effectivement
+    appliquée par la plateforme — rien d'informatif-décoratif."""
+    db = get_db()
+    is_admin = bool(session.get('is_admin'))
+    default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
+    max_budget = acct.get('max_budget') if acct.get('exists') else default_budget
+    n_conv = db.execute("SELECT COUNT(*) c FROM conversations WHERE username=?",
+                        (username,)).fetchone()['c']
+    running = get_running_models()
+    ctx = None
+    if running:
+        row = db.execute("SELECT vllm_args, engine FROM model_configs WHERE name=?",
+                          (running[0],)).fetchone()
+        if row:
+            ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
+    return [
+        {'key': 'budget', 'label': "Budget de tokens",
+         'desc': "Quota quotidien partagé par toutes tes clés API.",
+         'used': round(acct.get('spend') or 0), 'max': None if is_admin else round(max_budget or 0),
+         'unit': 'tokens', 'unlimited': is_admin},
+        {'key': 'rate-support', 'label': "Messages Support",
+         'desc': f"Maximum {CHAT_RATE_MAX} messages par minute.",
+         'used': _rate_used(username, 'rl-support'), 'max': CHAT_RATE_MAX,
+         'unit': 'messages / min', 'unlimited': False},
+        {'key': 'rate-playground', 'label': "Messages Playground",
+         'desc': f"Maximum {CHAT_RATE_MAX} messages par minute.",
+         'used': _rate_used(username, 'rl-playground'), 'max': CHAT_RATE_MAX,
+         'unit': 'messages / min', 'unlimited': False},
+        {'key': 'conversations', 'label': "Conversations enregistrées",
+         'desc': "Au-delà, les plus anciennes sont supprimées automatiquement.",
+         'used': n_conv, 'max': CONVERSATIONS_MAX, 'unit': 'conversations', 'unlimited': False},
+        {'key': 'mcp', 'label': "Serveurs MCP connectés",
+         'desc': "Serveurs distants dont l'assistant peut utiliser les outils.",
+         'used': len(servers), 'max': None, 'unit': 'serveurs', 'unlimited': True},
+        {'key': 'skills', 'label': "Compétences définies",
+         'desc': "Instructions réutilisables chargées à la demande.",
+         'used': len(skills), 'max': None, 'unit': 'compétences', 'unlimited': True},
+        {'key': 'context', 'label': "Fenêtre de contexte du modèle",
+         'desc': running[0] if running else "Aucun modèle actif.",
+         'used': None, 'max': ctx, 'unit': 'tokens', 'unlimited': False},
+    ]
 
 
 @app.route('/mcp', methods=['POST'])

@@ -22,6 +22,7 @@ import {
   BoltIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 type HfModel = {
   modelId?: string;
@@ -39,6 +40,7 @@ const TASKS = [
 ];
 
 export default function SearchPage() {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [task, setTask] = useState("text-generation");
   const [gb10Only, setGb10Only] = useState(true);
@@ -73,23 +75,21 @@ export default function SearchPage() {
         <LayoutContent padding={6} isScrollable>
           <VStack gap={5}>
             <VStack gap={1}>
-              <Heading level={1}>Chercher un modèle</Heading>
-              <Text type="supporting" color="secondary">
-                Explore le catalogue Hugging Face et demande le lancement d&apos;un modèle sur le DGX.
-              </Text>
+              <Heading level={1}>{t("Chercher un modèle")}</Heading>
+              <Text type="supporting" color="secondary">{t("Explore le catalogue Hugging Face et demande le lancement d'un modèle sur le DGX.")}</Text>
             </VStack>
 
             <HStack gap={2} wrap="wrap" vAlign="end">
               <TextInput
-                label="Recherche"
+                label={t("Recherche")}
                 isLabelHidden
                 value={query}
                 onChange={setQuery}
-                placeholder="Nom de modèle, ex: Qwen, Llama, Mistral..."
+                placeholder={t("Nom de modèle, ex: Qwen, Llama, Mistral...")}
                 startIcon={MagnifyingGlassIcon}
               />
               <Selector
-                label="Tâche"
+                label={t("Tâche")}
                 isLabelHidden
                 value={task}
                 onChange={(v) => {
@@ -100,13 +100,13 @@ export default function SearchPage() {
                 options={TASKS}
               />
               <Button
-                label="Chercher"
+                label={t("Chercher")}
                 variant="primary"
                 icon={<Icon icon={MagnifyingGlassIcon} size="sm" />}
                 onClick={() => runSearch(query, task, gb10Only)}
               />
               <Switch
-                label="Tout Hugging Face"
+                label={t("Tout Hugging Face")}
                 value={!gb10Only}
                 onChange={(checked) => setGb10Only(!checked)}
               />
@@ -114,14 +114,14 @@ export default function SearchPage() {
 
             <Text type="supporting" color="secondary">
               {gb10Only
-                ? "Seuls les modèles testés sur DGX Spark / GB10 sont affichés. Décoche pour élargir à tout Hugging Face."
-                : "Recherche élargie à tout Hugging Face — ces modèles ne sont pas garantis de tourner sur le GB10."}
+                ? t("Seuls les modèles testés sur DGX Spark / GB10 sont affichés. Décoche pour élargir à tout Hugging Face.")
+                : t("Recherche élargie à tout Hugging Face — ces modèles ne sont pas garantis de tourner sur le GB10.")}
             </Text>
 
             {!results || (results.length === 0 && !isLoading) ? (
               <EmptyState
                 icon={<Icon icon={MagnifyingGlassIcon} size="lg" />}
-                title={query ? `Aucun résultat pour « ${query} ».` : "Tape un nom de modèle pour explorer Hugging Face."}
+                title={query ? `${t("Aucun résultat pour")} « ${query} ».` : t("Tape un nom de modèle pour explorer Hugging Face.")}
               />
             ) : (
               <Grid columns={{ minWidth: 280, max: 3 }} gap={3}>
@@ -160,7 +160,7 @@ export default function SearchPage() {
                           onClick={() => window.open(`https://huggingface.co/${model.modelId}`, "_blank")}
                         />
                         <Button
-                          label="Demander"
+                          label={t("Demander")}
                           variant="secondary"
                           size="sm"
                           icon={<Icon icon={PaperAirplaneIcon} size="sm" />}

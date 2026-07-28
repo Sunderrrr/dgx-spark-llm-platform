@@ -222,6 +222,192 @@ const EN: Record<string, string> = {
   "Lancé": "Launched",
   "Refusé": "Rejected",
 
+  // — Accueil (suite) —
+  "CPU": "CPU",
+  "RAM": "RAM",
+  "GPU": "GPU",
+  "TTFT": "TTFT",
+  "Go": "GB",
+  "API :": "API:",
+
+  // — Clés API —
+  "Des clés personnelles pour appeler les modèles via l'API compatible OpenAI.":
+    "Personal keys to call the models through the OpenAI-compatible API.",
+  "Nouvelle clé": "New key",
+  "Nom (ex: mon-laptop)": "Name (e.g. my-laptop)",
+  "Endpoint :": "Endpoint:",
+  "— compatible OpenAI.": "— OpenAI-compatible.",
+  "Budget du compte — partagé par toutes tes clés /": "Account budget — shared across all your keys /",
+  "tokens restants": "tokens remaining",
+  "Demande en attente": "Request pending",
+  "Demander plus de tokens": "Request more tokens",
+  "Raison (optionnel)": "Reason (optional)",
+  "Aucune clé pour l'instant.": "No keys yet.",
+  "Utilise « Nouvelle clé » en haut à droite pour en générer une.":
+    "Use “New key” at the top right to generate one.",
+  "Alias": "Alias",
+  "Clé": "Key",
+  "Afficher": "Show",
+  "Dépensé": "Spent",
+  "tokens": "tokens",
+  "Révoquer": "Revoke",
+  "Intégrations": "Integrations",
+  "Masquer la clé": "Hide key",
+  "Révéler la clé": "Reveal key",
+  "Clé créée !": "Key created!",
+  "Clé révoquée.": "Key revoked.",
+  "Demande de tokens envoyée !": "Token request sent!",
+
+  // — Playground —
+  "Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.":
+    "Chat live with an active model — advanced settings, attachments, streaming replies, on your account budget.",
+  "Rien à exporter.": "Nothing to export.",
+  "Erreur réseau.": "Network error.",
+  "Le modèle n'a renvoyé aucune réponse.": "The model returned no response.",
+  "Écris ton message… (Entrée pour envoyer, Maj+Entrée = saut de ligne)":
+    "Write your message… (Enter to send, Shift+Enter for a new line)",
+  "Utilisation du contexte": "Context usage",
+  "System prompt (optionnel)": "System prompt (optional)",
+  "Ex : Tu es un assistant concis et technique.": "E.g. You are a concise, technical assistant.",
+  "Température": "Temperature",
+  "Max tokens": "Max tokens",
+  "Top-p": "Top-p",
+  "Afficher le raisonnement": "Show reasoning",
+  "Code Python": "Python code",
+  "Génère une fonction, un script ou un test": "Generate a function, a script or a test",
+  "Écris une fonction Python qui vérifie si un nombre est premier.":
+    "Write a Python function that checks whether a number is prime.",
+  "Expliquer": "Explain",
+  "Décompose un sujet technique simplement": "Break down a technical topic simply",
+  "Explique la mémoire unifiée du DGX Spark en termes simples.":
+    "Explain the DGX Spark's unified memory in simple terms.",
+  "Analyser des logs": "Analyse logs",
+  "Trouve la cause d'une erreur dans un extrait de logs":
+    "Find the cause of an error in a log excerpt",
+  "Analyse ces logs et trouve la cause de l'erreur : ":
+    "Analyse these logs and find the cause of the error: ",
+  "Résumer": "Summarise",
+  "Condense un texte en points clés": "Condense a text into key points",
+  "Résume ce texte en 3 points : ": "Summarise this text in 3 points: ",
+
+  // — Support —
+  "Un assistant IA connecté à la plateforme : il voit tes clés (masquées), ton budget et l'état du serveur pour t'aider en cas de pépin.":
+    "An AI assistant wired into the platform: it sees your keys (masked), your budget and the server status to help when something goes wrong.",
+  "aucun modèle actif": "no active model",
+  "Pas de réponse.": "No response.",
+  "Erreur réseau — réessaie.": "Network error — try again.",
+  "Écris ton message…  (Entrée pour envoyer, Maj+Entrée pour un saut de ligne)":
+    "Write your message…  (Enter to send, Shift+Enter for a new line)",
+  "L'assistant ne voit que tes données (clés masquées). Ne colle jamais une clé complète ici.":
+    "The assistant only sees your data (masked keys). Never paste a full key here.",
+  "Créer une clé": "Create a key",
+  "Génère une nouvelle clé API pour tes intégrations": "Generate a new API key for your integrations",
+  "Crée-moi une clé API pour mon laptop": "Create an API key for my laptop",
+  "Demander du budget": "Request budget",
+  "Augmente ton quota de tokens mensuel": "Raise your monthly token quota",
+  "Demande plus de budget pour mon compte": "Request more budget for my account",
+  "Modèles disponibles": "Available models",
+  "Liste les modèles actifs et leur fenêtre de contexte": "List active models and their context window",
+  "Quels modèles je peux utiliser et quel est leur contexte ?":
+    "Which models can I use and what is their context?",
+  "Erreur 401": "401 error",
+  "Diagnostique un problème d'authentification": "Diagnose an authentication problem",
+  "Ma clé API renvoie une erreur 401, pourquoi ?": "My API key returns a 401 error, why?",
+
+  // — Chercher un modèle —
+  "Explore le catalogue Hugging Face et demande le lancement d'un modèle sur le DGX.":
+    "Browse the Hugging Face catalog and request that a model be launched on the DGX.",
+  "Recherche": "Search",
+  "Nom de modèle, ex: Qwen, Llama, Mistral...": "Model name, e.g. Qwen, Llama, Mistral...",
+  "Tâche": "Task",
+  "Chercher": "Search",
+  "Tout Hugging Face": "All of Hugging Face",
+  "Seuls les modèles testés sur DGX Spark / GB10 sont affichés. Décoche pour élargir à tout Hugging Face.":
+    "Only models tested on DGX Spark / GB10 are shown. Uncheck to widen to all of Hugging Face.",
+  "Recherche élargie à tout Hugging Face — ces modèles ne sont pas garantis de tourner sur le GB10.":
+    "Search widened to all of Hugging Face — these models are not guaranteed to run on the GB10.",
+  "Tape un nom de modèle pour explorer Hugging Face.": "Type a model name to explore Hugging Face.",
+  "Demander": "Request",
+
+  // — Demander un modèle —
+  "Identifiant HuggingFace *": "HuggingFace identifier *",
+  "Format : organisation/nom-du-modèle": "Format: organisation/model-name",
+  "Pourquoi ce modèle ? (optionnel)": "Why this model? (optional)",
+  "Ex : tester les capacités de raisonnement, comparer avec Ornith...":
+    "E.g. test reasoning capabilities, compare with Ornith...",
+  "Envoyer la demande": "Send request",
+  "Demande envoyée !": "Request sent!",
+  "L'admin est notifié par Discord et email. Le statut apparaît sur ta page d'accueil.":
+    "The admin is notified by Discord and email. The status appears on your home page.",
+  "Tu ne connais pas l'ID exact ? ": "Don't know the exact ID? ",
+  "Cherche sur HuggingFace →": "Search on HuggingFace →",
+
+  // — Classement —
+  "Qui consomme le plus, en tokens réellement consommés (prompt + généré).":
+    "Who consumes the most, in real tokens used (prompt + generated).",
+  "Période": "Period",
+  "Consommation": "Consumption",
+  "Aucune consommation sur cette période.": "No consumption over this period.",
+
+  // — Admin —
+  "Administration": "Administration",
+  "Pilotage des modèles, quotas de tokens et demandes des utilisateurs.":
+    "Model control, token quotas and user requests.",
+  "Accès réservé aux administrateurs": "Administrators only",
+  "Ton compte n'a pas les droits nécessaires pour voir cette page.":
+    "Your account does not have the rights to view this page.",
+  "Retour à l'accueil": "Back to home",
+  "Action effectuée.": "Action completed.",
+  "Modèles vLLM": "vLLM models",
+  "Démarrage…": "Starting…",
+  "Erreur": "Error",
+  "Runner inaccessible": "Runner unreachable",
+  "Arrêté": "Stopped",
+  "Arrêter": "Stop",
+  "Lancer": "Launch",
+  "Ajouter un modèle": "Add a model",
+  "Nom (ex: llama-3-8b)": "Name (e.g. llama-3-8b)",
+  "HF ID": "HF ID",
+  "Moteur": "Engine",
+  "Args": "Args",
+  "Args du moteur": "Engine args",
+  "Publier une annonce": "Publish an announcement",
+  "Titre": "Title",
+  "Détails": "Details",
+  "Détails (optionnel)": "Details (optional)",
+  "Publier": "Publish",
+  "Logs —": "Logs —",
+  "aucun modèle": "no model",
+  "Demandes en attente": "Pending requests",
+  "Lancées": "Launched",
+  "Refusées": "Rejected",
+  "Limite de tokens par défaut (nouvelles clés)": "Default token limit (new keys)",
+  "Tokens générés": "Generated tokens",
+  "Durée (ex: 1d, 7d, 12h)": "Duration (e.g. 1d, 7d, 12h)",
+  "Appliquer": "Apply",
+  "Demandes de tokens": "Token requests",
+  "Consommation par utilisateur": "Consumption per user",
+  "Demandes de modèles": "Model requests",
+  "Utilisateur": "User",
+  "Budget actuel": "Current budget",
+  "Budget / jour": "Budget / day",
+  "Clés": "Keys",
+  "Action": "Action",
+  "Approuver": "Approve",
+  "Refuser": "Reject",
+  "Lancé ✓": "Launched ✓",
+  "en attente": "pending",
+
+  "Aucun résultat pour": "No results for",
+
+  // — Connexion —
+  "Plateforme IA privée · NVIDIA DGX Spark": "Private AI platform · NVIDIA DGX Spark",
+  "Identifiant LLDAP": "LLDAP username",
+  "Mot de passe": "Password",
+  "Se connecter": "Sign in",
+  "Ou": "Or",
+  "Se connecter avec le SSO Cronos": "Sign in with Cronos SSO",
+
   // — Playground / Support —
   "Réflexion": "Thinking",
   "Lecture du fichier…": "Reading the file…",

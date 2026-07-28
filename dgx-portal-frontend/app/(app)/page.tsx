@@ -25,6 +25,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
 import { UsageChart } from "./_components/UsageChart";
+import { useT } from "@/lib/i18n";
 
 type SysMetrics = {
   cpu_pct: number;
@@ -71,18 +72,19 @@ const STATUS_VARIANT: Record<string, "warning" | "success" | "error"> = {
 };
 const STATUS_LABEL: Record<string, string> = { pending: "En attente", done: "Lancé", rejected: "Refusé" };
 
-const requestColumns: TableColumn<ModelRequest>[] = [
+const buildRequestColumns = (t: (s: string) => string): TableColumn<ModelRequest>[] => [
   { key: "model_id", header: "Modèle" },
   { key: "reason", header: "Raison", renderCell: (row) => row.reason || "—" },
   {
     key: "status",
     header: "Statut",
-    renderCell: (row) => <Badge label={STATUS_LABEL[row.status] || row.status} variant={STATUS_VARIANT[row.status] || "neutral"} />,
+    renderCell: (row) => <Badge label={t(STATUS_LABEL[row.status] || row.status)} variant={STATUS_VARIANT[row.status] || "neutral"} />,
   },
   { key: "created_at", header: "Date", renderCell: (row) => row.created_at.slice(0, 16).replace("T", " ") },
 ];
 
 export default function HomePage() {
+  const t = useT();
   const [data, setData] = useState<HomeData | null>(null);
   const [who, setWho] = useState<Whoami | null>(null);
 
@@ -108,13 +110,11 @@ export default function HomePage() {
           <VStack gap={6}>
             <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
               <VStack gap={1}>
-                <Heading level={1}>Bonjour{firstName ? `, ${firstName}` : ""}</Heading>
-                <Text type="supporting" color="secondary">
-                  Ton accès self-service à l&apos;inférence LLM sur DGX Spark.
-                </Text>
+                <Heading level={1}>{t("Bonjour")}{firstName ? `, ${firstName}` : ""}</Heading>
+                <Text type="supporting" color="secondary">{t("Ton accès self-service à l'inférence LLM sur DGX Spark.")}</Text>
               </VStack>
               <Button
-                label="Mes clés API"
+                label={t("Mes clés API")}
                 variant="primary"
                 icon={<Icon icon={KeyIcon} size="sm" />}
                 onClick={() => (window.location.href = "/keys")}
@@ -122,13 +122,13 @@ export default function HomePage() {
             </HStack>
 
             <VStack gap={2}>
-              <Text weight="semibold">Modèles disponibles maintenant</Text>
+              <Text weight="semibold">{t("Modèles disponibles maintenant")}</Text>
               {data && data.running_models.length === 0 && (
                 <EmptyState
                   icon={<Icon icon={MoonIcon} size="lg" />}
-                  title="Aucun modèle actif"
-                  description="Demande le lancement d'un modèle."
-                  actions={<Button label="Demander un modèle" variant="secondary" onClick={() => (window.location.href = "/request")} />}
+                  title={t("Aucun modèle actif")}
+                  description={t("Demande le lancement d'un modèle.")}
+                  actions={<Button label={t("Demander un modèle")} variant="secondary" onClick={() => (window.location.href = "/request")} />}
                   isCompact
                 />
               )}
@@ -137,15 +137,15 @@ export default function HomePage() {
                   {data.running_models.map((m) => (
                     <Card key={m}>
                       <VStack gap={2}>
-                        <Badge label="En ligne" variant="success" />
+                        <Badge label={t("En ligne")} variant="success" />
                         <Text weight="semibold" wordBreak="break-all">
                           {m}
                         </Text>
                         <Text type="supporting" color="secondary">
-                          API : {data.public_api_url}
+                          {t("API :")} {data.public_api_url}
                         </Text>
                         <Button
-                          label="Créer une clé API"
+                          label={t("Créer une clé API")}
                           variant="secondary"
                           size="sm"
                           onClick={() => (window.location.href = "/keys")}
@@ -159,7 +159,7 @@ export default function HomePage() {
 
             {data?.sysmetrics && (
               <VStack gap={2}>
-                <Text weight="semibold">État du serveur</Text>
+                <Text weight="semibold">{t("État du serveur")}</Text>
                 <Card>
                   <VStack gap={4}>
                     <Grid columns={{ minWidth: 220, max: 3 }} gap={4}>
@@ -167,37 +167,37 @@ export default function HomePage() {
                         <HStack hAlign="between">
                           <HStack gap={1} vAlign="center">
                             <Icon icon={CpuChipIcon} size="sm" />
-                            <Text type="supporting" color="secondary">CPU</Text>
+                            <Text type="supporting" color="secondary">{t("CPU")}</Text>
                           </HStack>
                           <Text hasTabularNumbers>{data.sysmetrics.cpu_pct} %</Text>
                         </HStack>
-                        <ProgressBar label="CPU" isLabelHidden value={data.sysmetrics.cpu_pct} />
+                        <ProgressBar label={t("CPU")} isLabelHidden value={data.sysmetrics.cpu_pct} />
                       </VStack>
                       <VStack gap={1}>
                         <HStack hAlign="between">
                           <HStack gap={1} vAlign="center">
                             <Icon icon={CircleStackIcon} size="sm" />
-                            <Text type="supporting" color="secondary">RAM</Text>
+                            <Text type="supporting" color="secondary">{t("RAM")}</Text>
                           </HStack>
                           <Text hasTabularNumbers>
-                            {data.sysmetrics.ram.used_gb} / {data.sysmetrics.ram.total_gb} Go
+                            {data.sysmetrics.ram.used_gb} / {data.sysmetrics.ram.total_gb} {t("Go")}
                           </Text>
                         </HStack>
-                        <ProgressBar label="RAM" isLabelHidden value={data.sysmetrics.ram.pct} />
+                        <ProgressBar label={t("RAM")} isLabelHidden value={data.sysmetrics.ram.pct} />
                       </VStack>
                       {data.sysmetrics.gpu && (
                         <VStack gap={1}>
                           <HStack hAlign="between">
                             <HStack gap={1} vAlign="center">
                               <Icon icon={BoltIcon} size="sm" />
-                              <Text type="supporting" color="secondary">GPU</Text>
+                              <Text type="supporting" color="secondary">{t("GPU")}</Text>
                             </HStack>
                             <Text hasTabularNumbers>
                               {Math.round(data.sysmetrics.gpu.util)} % · {Math.round(data.sysmetrics.gpu.power)} W ·{" "}
                               {Math.round(data.sysmetrics.gpu.temp)} °C
                             </Text>
                           </HStack>
-                          <ProgressBar label="GPU" isLabelHidden value={data.sysmetrics.gpu.util} />
+                          <ProgressBar label={t("GPU")} isLabelHidden value={data.sysmetrics.gpu.util} />
                         </VStack>
                       )}
                     </Grid>
@@ -205,28 +205,28 @@ export default function HomePage() {
                     {data.modelhealth && (
                       <HStack gap={5} wrap="wrap">
                         <VStack gap={0}>
-                          <Text type="supporting" color="secondary">Modèle actif</Text>
+                          <Text type="supporting" color="secondary">{t("Modèle actif")}</Text>
                           <HStack gap={2} vAlign="center">
-                            <Text weight="semibold">{data.modelhealth.model || "aucun"}</Text>
-                            <Badge label={data.modelhealth.up ? "en ligne" : "arrêté"} variant={data.modelhealth.up ? "success" : "neutral"} />
+                            <Text weight="semibold">{data.modelhealth.model || t("aucun")}</Text>
+                            <Badge label={data.modelhealth.up ? t("en ligne") : t("arrêté")} variant={data.modelhealth.up ? "success" : "neutral"} />
                           </HStack>
                         </VStack>
                         <VStack gap={0}>
-                          <Text type="supporting" color="secondary">Débit</Text>
+                          <Text type="supporting" color="secondary">{t("Débit")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{data.modelhealth.tps ?? "—"} tok/s</Text>
                         </VStack>
                         <VStack gap={0}>
-                          <Text type="supporting" color="secondary">Sessions</Text>
+                          <Text type="supporting" color="secondary">{t("Sessions")}</Text>
                           <Text weight="semibold" hasTabularNumbers>
                             {data.modelhealth.running} / {data.modelhealth.max_seqs ?? "—"}
                           </Text>
                         </VStack>
                         <VStack gap={0}>
-                          <Text type="supporting" color="secondary">TTFT</Text>
+                          <Text type="supporting" color="secondary">{t("TTFT")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{data.modelhealth.ttft ?? "—"} s</Text>
                         </VStack>
                         <VStack gap={0}>
-                          <Text type="supporting" color="secondary">Requêtes servies</Text>
+                          <Text type="supporting" color="secondary">{t("Requêtes servies")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{data.modelhealth.requests}</Text>
                         </VStack>
                       </HStack>
@@ -234,11 +234,9 @@ export default function HomePage() {
 
                     {who?.is_admin && data.active_users && (
                       <VStack gap={2}>
-                        <Text type="supporting" color="secondary">
-                          Qui utilise le modèle · 2 dernières min · visible admin uniquement
-                        </Text>
+                        <Text type="supporting" color="secondary">{t("Qui utilise le modèle · 2 dernières min · visible admin uniquement")}</Text>
                         {data.active_users.length === 0 ? (
-                          <Text type="supporting" color="secondary">Personne n&apos;utilise le modèle en ce moment.</Text>
+                          <Text type="supporting" color="secondary">{t("Personne n'utilise le modèle en ce moment.")}</Text>
                         ) : (
                           <HStack gap={2} wrap="wrap">
                             {data.active_users.map((u) => (
@@ -259,18 +257,18 @@ export default function HomePage() {
 
             {data?.usage?.has_data && (
               <VStack gap={2}>
-                <Text weight="semibold">Mon utilisation — aujourd&apos;hui</Text>
+                <Text weight="semibold">{t("Mon utilisation — aujourd'hui")}</Text>
                 <Card>
                   <VStack gap={3}>
                     <Grid columns={3} gap={2}>
                       <VStack gap={0}>
-                        <Text type="supporting" color="secondary">Tokens · 24 h</Text>
+                        <Text type="supporting" color="secondary">{t("Tokens · 24 h")}</Text>
                         <Text size="xl" weight="bold" hasTabularNumbers>
                           {Math.round(data.usage.total).toLocaleString("fr-FR")}
                         </Text>
                       </VStack>
                       <VStack gap={0}>
-                        <Text type="supporting" color="secondary">Clés actives</Text>
+                        <Text type="supporting" color="secondary">{t("Clés actives")}</Text>
                         <Text size="xl" weight="bold" hasTabularNumbers>
                           {data.usage.active_keys}
                         </Text>
@@ -287,48 +285,42 @@ export default function HomePage() {
                 <VStack gap={2}>
                   <HStack gap={2} vAlign="center">
                     <Icon icon={KeyIcon} size="sm" />
-                    <Text weight="semibold">Mes clés API</Text>
+                    <Text weight="semibold">{t("Mes clés API")}</Text>
                   </HStack>
-                  <Text type="supporting" color="secondary">
-                    Crée des clés personnelles pour accéder aux modèles via l&apos;API OpenAI-compatible.
-                  </Text>
+                  <Text type="supporting" color="secondary">{t("Crée des clés personnelles pour accéder aux modèles via l'API OpenAI-compatible.")}</Text>
                   <Text type="supporting" color="secondary">
                     Limite : {who?.is_admin ? "Illimitée (admin)" : `${data?.budget_tokens ?? "—"} tokens / ${data?.budget_duration ?? "—"}`}
                   </Text>
-                  <Button label="Gérer mes clés" variant="secondary" onClick={() => (window.location.href = "/keys")} />
+                  <Button label={t("Gérer mes clés")} variant="secondary" onClick={() => (window.location.href = "/keys")} />
                 </VStack>
               </Card>
               <Card>
                 <VStack gap={2}>
                   <HStack gap={2} vAlign="center">
                     <Icon icon={MagnifyingGlassIcon} size="sm" />
-                    <Text weight="semibold">Catalogue HuggingFace</Text>
+                    <Text weight="semibold">{t("Catalogue HuggingFace")}</Text>
                   </HStack>
-                  <Text type="supporting" color="secondary">
-                    Parcours les modèles disponibles et demande le lancement de celui qui t&apos;intéresse.
-                  </Text>
-                  <Button label="Explorer les modèles" variant="secondary" onClick={() => (window.location.href = "/search")} />
+                  <Text type="supporting" color="secondary">{t("Parcours les modèles disponibles et demande le lancement de celui qui t'intéresse.")}</Text>
+                  <Button label={t("Explorer les modèles")} variant="secondary" onClick={() => (window.location.href = "/search")} />
                 </VStack>
               </Card>
               <Card>
                 <VStack gap={2}>
                   <HStack gap={2} vAlign="center">
                     <Icon icon={PaperAirplaneIcon} size="sm" />
-                    <Text weight="semibold">Demander un modèle</Text>
+                    <Text weight="semibold">{t("Demander un modèle")}</Text>
                   </HStack>
-                  <Text type="supporting" color="secondary">
-                    Tu connais un modèle que tu veux tester ? Envoie une demande à l&apos;admin.
-                  </Text>
-                  <Button label="Faire une demande" variant="secondary" onClick={() => (window.location.href = "/request")} />
+                  <Text type="supporting" color="secondary">{t("Tu connais un modèle que tu veux tester ? Envoie une demande à l'admin.")}</Text>
+                  <Button label={t("Faire une demande")} variant="secondary" onClick={() => (window.location.href = "/request")} />
                 </VStack>
               </Card>
             </Grid>
 
             {data && data.my_requests.length > 0 && (
               <VStack gap={2}>
-                <Text weight="semibold">Mes dernières demandes</Text>
+                <Text weight="semibold">{t("Mes dernières demandes")}</Text>
                 <Card padding={0}>
-                  <Table<ModelRequest> data={data.my_requests} columns={requestColumns} idKey="model_id" density="balanced" dividers="rows" />
+                  <Table<ModelRequest> data={data.my_requests} columns={buildRequestColumns(t)} idKey="model_id" density="balanced" dividers="rows" />
                 </Card>
               </VStack>
             )}

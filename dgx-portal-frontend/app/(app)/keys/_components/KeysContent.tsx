@@ -27,6 +27,7 @@ import {
   type IntegrationTool,
   type ModelLimit,
 } from "@/lib/integrationSnippets";
+import { useT } from "@/lib/i18n";
 
 type ApiKey = { key_alias: string; key: string; created_at: string; spend: number };
 type Account = { spend: number; max_budget: number; budget_reset_at: string | null; unlimited: boolean; has_pending: boolean };
@@ -41,6 +42,7 @@ type KeysData = {
 };
 
 export function KeysContent() {
+  const t = useT();
   const csrf = useCsrf();
   const showToast = useToast();
   const [data, setData] = useState<KeysData | null>(null);
@@ -68,14 +70,14 @@ export function KeysContent() {
     if (!csrf) return;
     await postForm("/keys", csrf, { action: "create", key_name: keyName });
     setKeyName("");
-    showToast({ body: "Clé créée !", type: "info" });
+    showToast({ body: t("Clé créée !"), type: "info" });
     refresh();
   }
 
   async function revokeKey(key: string) {
     if (!csrf) return;
     await postForm("/keys", csrf, { action: "revoke", key });
-    showToast({ body: "Clé révoquée.", type: "info" });
+    showToast({ body: t("Clé révoquée."), type: "info" });
     refresh();
   }
 
@@ -84,7 +86,7 @@ export function KeysContent() {
     await postForm("/keys", csrf, { action: "request_budget", reason: budgetReason });
     setBudgetReason("");
     setShowBudgetForm(false);
-    showToast({ body: "Demande de tokens envoyée !", type: "info" });
+    showToast({ body: t("Demande de tokens envoyée !"), type: "info" });
     refresh();
   }
 
@@ -99,7 +101,7 @@ export function KeysContent() {
             {revealed.has(row.key) ? row.key : `${row.key.slice(0, 10)}…${row.key.slice(-4)}`}
           </Text>
           <Button
-            label="Afficher"
+            label={t("Afficher")}
             variant="ghost"
             size="sm"
             isIconOnly
@@ -116,12 +118,12 @@ export function KeysContent() {
         </HStack>
       ),
     },
-    { key: "spend", header: "Dépensé", renderCell: (row) => `${Math.round(row.spend || 0).toLocaleString("fr-FR")} tokens` },
+    { key: "spend", header: t("Dépensé"), renderCell: (row) => `${Math.round(row.spend || 0).toLocaleString("fr-FR")} tokens` },
     {
       key: "actions" as keyof ApiKey,
       header: "",
       renderCell: (row) => (
-        <Button label="Révoquer" variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => revokeKey(row.key)} />
+        <Button label={t("Révoquer")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => revokeKey(row.key)} />
       ),
     },
   ];
@@ -132,21 +134,19 @@ export function KeysContent() {
     <VStack gap={5} maxWidth={980}>
       <HStack hAlign="between" vAlign="start" wrap="wrap" gap={3}>
         <VStack gap={1}>
-          <Heading level={1}>Mes clés API</Heading>
-          <Text type="supporting" color="secondary">
-            Des clés personnelles pour appeler les modèles via l&apos;API compatible OpenAI.
-          </Text>
+          <Heading level={1}>{t("Mes clés API")}</Heading>
+          <Text type="supporting" color="secondary">{t("Des clés personnelles pour appeler les modèles via l'API compatible OpenAI.")}</Text>
         </VStack>
         <HStack gap={2} vAlign="end">
           <TextInput
-            label="Nom"
+            label={t("Nom")}
             isLabelHidden
             value={keyName}
             onChange={setKeyName}
-            placeholder="Nom (ex: mon-laptop)"
+            placeholder={t("Nom (ex: mon-laptop)")}
             size="sm"
           />
-          <Button label="Nouvelle clé" variant="primary" size="sm" icon={<Icon icon={PlusIcon} size="sm" />} onClick={createKey} />
+          <Button label={t("Nouvelle clé")} variant="primary" size="sm" icon={<Icon icon={PlusIcon} size="sm" />} onClick={createKey} />
         </HStack>
       </HStack>
 
@@ -158,7 +158,7 @@ export function KeysContent() {
             </Text>
             {data.account.unlimited ? (
               <HStack>
-                <Badge label="Budget illimité (admin)" variant="warning" />
+                <Badge label={t("Budget illimité (admin)")} variant="warning" />
               </HStack>
             ) : (
               <VStack gap={1}>
@@ -171,7 +171,7 @@ export function KeysContent() {
                   </Text>
                 </HStack>
                 <ProgressBar
-                  label="Budget"
+                  label={t("Budget")}
                   isLabelHidden
                   value={Math.min(pct, 100)}
                   variant={pct >= 90 ? "error" : pct >= 70 ? "warning" : "success"}
@@ -181,10 +181,10 @@ export function KeysContent() {
                     {Math.max(Math.round(data.account.max_budget - data.account.spend), 0).toLocaleString("fr-FR")} tokens restants
                   </Text>
                   {data.account.has_pending ? (
-                    <Badge label="Demande en attente" variant="neutral" />
+                    <Badge label={t("Demande en attente")} variant="neutral" />
                   ) : (
                     <Button
-                      label="Demander plus de tokens"
+                      label={t("Demander plus de tokens")}
                       variant="secondary"
                       size="sm"
                       onClick={() => setShowBudgetForm((v) => !v)}
@@ -193,8 +193,8 @@ export function KeysContent() {
                 </HStack>
                 {showBudgetForm && (
                   <HStack gap={2}>
-                    <TextInput label="Raison" isLabelHidden value={budgetReason} onChange={setBudgetReason} placeholder="Raison (optionnel)" size="sm" />
-                    <Button label="Envoyer" variant="secondary" size="sm" onClick={requestBudget} />
+                    <TextInput label={t("Raison")} isLabelHidden value={budgetReason} onChange={setBudgetReason} placeholder={t("Raison (optionnel)")} size="sm" />
+                    <Button label={t("Envoyer")} variant="secondary" size="sm" onClick={requestBudget} />
                   </HStack>
                 )}
               </VStack>
@@ -206,8 +206,8 @@ export function KeysContent() {
       {data && data.user_keys.length === 0 && (
         <EmptyState
           icon={<Icon icon={KeyIcon} size="lg" />}
-          title="Aucune clé pour l'instant."
-          description="Utilise « Nouvelle clé » en haut à droite pour en générer une."
+          title={t("Aucune clé pour l'instant.")}
+          description={t("Utilise « Nouvelle clé » en haut à droite pour en générer une.")}
         />
       )}
 
@@ -220,10 +220,10 @@ export function KeysContent() {
       {data && data.user_keys.length > 0 && (
         <Card>
           <VStack gap={3}>
-            <Text weight="semibold">Intégrations</Text>
+            <Text weight="semibold">{t("Intégrations")}</Text>
             <HStack gap={3} wrap="wrap">
-              <Selector label="Clé" value={selectedKey} onChange={(v) => setSelectedKey(v ?? "")} options={data.user_keys.map((k) => ({ value: k.key, label: k.key_alias }))} />
-              <Selector label="Modèle" value={selectedModel} onChange={(v) => setSelectedModel(v ?? "")} options={data.running_models} />
+              <Selector label={t("Clé")} value={selectedKey} onChange={(v) => setSelectedKey(v ?? "")} options={data.user_keys.map((k) => ({ value: k.key, label: k.key_alias }))} />
+              <Selector label={t("Modèle")} value={selectedModel} onChange={(v) => setSelectedModel(v ?? "")} options={data.running_models} />
             </HStack>
             <TabList value={tool} onChange={(v) => setTool(v as IntegrationTool)}>
               {INTEGRATION_TOOLS.map((t) => (
@@ -231,7 +231,7 @@ export function KeysContent() {
               ))}
             </TabList>
             <Button
-              label={revealKeyInSnippet ? "Masquer la clé" : "Révéler la clé"}
+              label={revealKeyInSnippet ? t("Masquer la clé") : t("Révéler la clé")}
               variant="secondary"
               size="sm"
               icon={<Icon icon={revealKeyInSnippet ? EyeSlashIcon : EyeIcon} size="sm" />}

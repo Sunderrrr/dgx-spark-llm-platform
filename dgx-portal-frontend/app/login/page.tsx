@@ -12,12 +12,14 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Divider } from "@astryxdesign/core/Divider";
 import { ShieldCheckIcon, ArrowRightOnRectangleIcon, CpuChipIcon } from "@heroicons/react/24/outline";
 import { fetchCsrfToken } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 // Auto-hébergées (public/login-bg*.jpg) pour respecter la CSP img-src 'self' —
 // pas de dépendance à un CDN externe. Photos : forêts enneigées, paysages nordiques (Unsplash).
 const BACKGROUNDS = ["/login-bg.jpg", "/login-bg-2.jpg", "/login-bg-3.jpg"];
 
 export default function LoginPage() {
+  const t = useT();
   const [csrf, setCsrf] = useState("");
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [username, setUsername] = useState("");
@@ -81,17 +83,15 @@ export default function LoginPage() {
             <Text type="display-1" as="h1">
               Cronos
             </Text>
-            <Text type="body" color="secondary" size="sm">
-              Plateforme IA privée · NVIDIA DGX Spark
-            </Text>
+            <Text type="body" color="secondary" size="sm">{t("Plateforme IA privée · NVIDIA DGX Spark")}</Text>
           </VStack>
 
           {error && <Banner status="error" title={error} />}
 
           <VStack gap={3}>
-            <TextInput label="Identifiant LLDAP" value={username} onChange={setUsername} size="lg" hasAutoFocus />
+            <TextInput label={t("Identifiant LLDAP")} value={username} onChange={setUsername} size="lg" hasAutoFocus />
             <TextInput
-              label="Mot de passe"
+              label={t("Mot de passe")}
               type="password"
               value={password}
               onChange={setPassword}
@@ -101,7 +101,7 @@ export default function LoginPage() {
               }}
             />
             <Button
-              label="Se connecter"
+              label={t("Se connecter")}
               variant="primary"
               size="lg"
               icon={<Icon icon={ArrowRightOnRectangleIcon} size="sm" />}
@@ -113,9 +113,9 @@ export default function LoginPage() {
 
           {oidcEnabled && (
             <>
-              <Divider label="Ou" />
+              <Divider label={t("Ou")} />
               <Button
-                label="Se connecter avec le SSO Cronos"
+                label={t("Se connecter avec le SSO Cronos")}
                 variant="secondary"
                 size="lg"
                 icon={<Icon icon={ShieldCheckIcon} size="sm" />}

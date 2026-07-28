@@ -45,7 +45,12 @@ import {
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
 import { fetchCsrfToken, fetchPlaygroundData, streamChat } from "@/lib/api";
-import { loadConversations, saveConversations } from "@/lib/conversations";
+import {
+  fetchConversations,
+  persistConversation,
+  removeConversation,
+  migrateLegacyConversations,
+} from "@/lib/conversations";
 import { ContextMeter } from "./_components/ContextMeter";
 import { SettingsPanel } from "./_components/SettingsPanel";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
@@ -113,12 +118,25 @@ export default function PlaygroundPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [currentId, setCurrentId] = useState<number | null>(null);
-  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
   const [firstName, setFirstName] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!csrf) return;
+    let annule = false;
+    (async () => {
+      await migrateLegacyConversations(csrf);
+      const convs = await fetchConversations();
+      if (!annule) setConversations(convs);
+    })();
+    return () => {
+      annule = true;
+    };
+  }, [csrf]);
 
   useEffect(() => {
     fetchCsrfToken().then(setCsrf).catch(() => {});
@@ -150,12 +168,13 @@ export default function PlaygroundPage() {
       model: activeModel,
       messages: msgs.map((m) => ({ role: m.role, content: m.content })),
     };
-    const convs = loadConversations();
-    const i = convs.findIndex((c) => c.id === item.id);
-    if (i >= 0) convs[i] = item;
-    else convs.unshift(item);
-    saveConversations(convs);
-    setConversations(convs);
+    // Optimiste côté UI, puis enregistrement serveur en arrière-plan : la
+    // liste ne doit pas attendre l'aller-retour réseau pour se mettre à jour.
+    setConversations((prev) => {
+      const rest = prev.filter((c) => c.id !== item.id);
+      return [item, ...rest];
+    });
+    if (csrf) void persistConversation(csrf, item);
     return item.id;
   }
 
@@ -175,9 +194,8 @@ export default function PlaygroundPage() {
   }
 
   function deleteConversation(id: number) {
-    const convs = loadConversations().filter((c) => c.id !== id);
-    saveConversations(convs);
-    setConversations(convs);
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    if (csrf) void removeConversation(csrf, id);
     if (id === currentId) setCurrentId(null);
   }
 

@@ -104,3 +104,47 @@ class RedirectTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class NegativeCacheTest(unittest.TestCase):
+    """Un serveur injoignable doit être mémorisé comme tel. Sans ça, chaque
+    message de chat repayait ses timeouts (jusqu'à 10 s), et quelques serveurs
+    morts suffisaient à monopoliser les threads gunicorn."""
+
+    def setUp(self):
+        mcp_client._tools_cache.clear()
+
+    def tearDown(self):
+        mcp_client._tools_cache.clear()
+
+    def test_l_echec_est_mis_en_cache(self):
+        appels = []
+
+        class ClientCasse:
+            def __init__(self, *a, **kw):
+                appels.append(1)
+
+            def initialize(self):
+                raise mcp_client.MCPError("injoignable")
+
+            def list_tools(self):
+                return []
+
+        with mock.patch.object(mcp_client, 'MCPClient', ClientCasse):
+            self.assertEqual(mcp_client.list_tools_cached(42, 'https://x.test/', None), [])
+            self.assertEqual(mcp_client.list_tools_cached(42, 'https://x.test/', None), [])
+        self.assertEqual(len(appels), 1, "le second appel aurait dû être servi par le cache")
+
+    def test_invalidation_reessaie(self):
+        class ClientCasse:
+            def initialize(self):
+                raise mcp_client.MCPError("injoignable")
+
+            def list_tools(self):
+                return []
+
+        with mock.patch.object(mcp_client, 'MCPClient', lambda *a, **kw: ClientCasse()):
+            mcp_client.list_tools_cached(7, 'https://x.test/', None)
+        self.assertIn(7, mcp_client._tools_cache)
+        mcp_client.invalidate_tools(7)
+        self.assertNotIn(7, mcp_client._tools_cache)

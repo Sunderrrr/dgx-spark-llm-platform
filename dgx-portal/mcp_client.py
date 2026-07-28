@@ -196,6 +196,11 @@ def list_tools_cached(server_id, url, auth_header):
         client.initialize()
         tools = client.list_tools()
     except Exception:
+        # On met AUSSI l'échec en cache. Sans ça, un serveur injoignable
+        # refacturait ses deux timeouts (jusqu'à 10 s) à chaque message de
+        # chat, puisque seul le succès était mémorisé : quelques serveurs
+        # morts suffisaient à bloquer un thread gunicorn pendant des minutes.
+        _tools_cache[server_id] = (now, [])
         return []
     _tools_cache[server_id] = (now, tools)
     return tools

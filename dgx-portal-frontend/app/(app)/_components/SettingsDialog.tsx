@@ -25,6 +25,7 @@ import {
   KeyIcon,
   PlusIcon,
   TrashIcon,
+  PencilSquareIcon,
   ServerStackIcon,
   SparklesIcon,
   UserCircleIcon,
@@ -35,6 +36,7 @@ import {
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, postForm, postFormJSON } from "@/lib/api";
 import { KeysContent } from "../keys/_components/KeysContent";
+import { ActivityHeatmap, type ActivityDay } from "./ActivityHeatmap";
 
 type McpServer = {
   id: number;
@@ -59,7 +61,18 @@ type Account = {
   mcp_count: number;
   skill_count: number;
 };
+type Activity = {
+  days: ActivityDay[];
+  total: number;
+  prompt: number;
+  completion: number;
+  peak: number;
+  peak_day: string | null;
+  active_days: number;
+  avg: number;
+};
 type SettingsData = {
+  activity: Activity;
   mcp_servers: McpServer[];
   skills: Skill[];
   avatar_id: string | null;
@@ -102,6 +115,19 @@ function fmt(n: number) {
   return Math.round(n).toLocaleString("fr-FR");
 }
 
+/** 12 400 → « 12 k » : les tuiles du haut doivent rester lisibles. */
+function compact(n: number) {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1).replace(/\.0$/, "")} G`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1).replace(/\.0$/, "")} M`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)} k`;
+  return String(Math.round(n));
+}
+
+const EMPTY_ACTIVITY: Activity = {
+  days: [], total: 0, prompt: 0, completion: 0,
+  peak: 0, peak_day: null, active_days: 0, avg: 0,
+};
+
 export function SettingsDialog({
   isOpen,
   onOpenChange,
@@ -119,6 +145,9 @@ export function SettingsDialog({
   // la liste laisse place à un formulaire plein cadre avec flèche retour).
   const [isAddingMcp, setIsAddingMcp] = useState(false);
   const [isAddingSkill, setIsAddingSkill] = useState(false);
+  // id de l'entrée éditée, ou null quand le formulaire sert à en créer une.
+  const [editingMcpId, setEditingMcpId] = useState<number | null>(null);
+  const [editingSkillId, setEditingSkillId] = useState<number | null>(null);
 
   const [mcpForm, setMcpForm] = useState({ name: "", url: "", description: "", allowedTools: "", auth: "" });
   const [skillForm, setSkillForm] = useState({ name: "", description: "", instructions: "" });
@@ -134,9 +163,15 @@ export function SettingsDialog({
     if (isOpen) refresh();
   }, [isOpen, refresh]);
 
-  function closeAll() {
+  function leaveForm() {
     setIsAddingMcp(false);
     setIsAddingSkill(false);
+    setEditingMcpId(null);
+    setEditingSkillId(null);
+  }
+
+  function closeAll() {
+    leaveForm();
     onOpenChange(false);
   }
 
@@ -145,7 +180,8 @@ export function SettingsDialog({
     setIsSaving(true);
     try {
       const result = await postFormJSON<{ ok: boolean; error?: string; tool_count?: number }>("/mcp", csrf, {
-        action: "create",
+        action: editingMcpId ? "update" : "create",
+        ...(editingMcpId ? { id: String(editingMcpId) } : {}),
         name: mcpForm.name,
         url: mcpForm.url,
         description: mcpForm.description,
@@ -153,9 +189,16 @@ export function SettingsDialog({
         auth_header: mcpForm.auth,
       });
       if (result.ok) {
+        const wasEdit = editingMcpId !== null;
         setMcpForm({ name: "", url: "", description: "", allowedTools: "", auth: "" });
         setIsAddingMcp(false);
-        showToast({ body: `Serveur MCP connecté (${result.tool_count ?? 0} outil(s) trouvé(s)).`, type: "info" });
+        setEditingMcpId(null);
+        showToast({
+          body: wasEdit
+            ? `Serveur MCP mis à jour (${result.tool_count ?? 0} outil(s) trouvé(s)).`
+            : `Serveur MCP connecté (${result.tool_count ?? 0} outil(s) trouvé(s)).`,
+          type: "info",
+        });
         refresh();
       } else {
         showToast({ body: result.error || "Échec de la connexion au serveur MCP.", type: "error" });
@@ -187,7 +230,8 @@ export function SettingsDialog({
     setIsSaving(true);
     try {
       const result = await postFormJSON("/skills", csrf, {
-        action: "create",
+        action: editingSkillId ? "update" : "create",
+        ...(editingSkillId ? { id: String(editingSkillId) } : {}),
         name: skillForm.name,
         description: skillForm.description,
         instructions: skillForm.instructions,
@@ -196,9 +240,11 @@ export function SettingsDialog({
         showToast({ body: result.error || "Échec de l'enregistrement.", type: "error" });
         return;
       }
+      const wasEdit = editingSkillId !== null;
       setSkillForm({ name: "", description: "", instructions: "" });
       setIsAddingSkill(false);
-      showToast({ body: "Compétence enregistrée.", type: "info" });
+      setEditingSkillId(null);
+      showToast({ body: wasEdit ? "Compétence mise à jour." : "Compétence enregistrée.", type: "info" });
       refresh();
     } finally {
       setIsSaving(false);
@@ -220,6 +266,7 @@ export function SettingsDialog({
   }
 
   const acct = data?.account;
+  const act = data?.activity ?? EMPTY_ACTIVITY;
   const pct = acct && !acct.unlimited && acct.max_budget ? (acct.spend / acct.max_budget) * 100 : 0;
 
   // Titre du volet droit : nom de la section, ou celui de la sous-page ouverte.
@@ -306,10 +353,7 @@ export function SettingsDialog({
                       size="sm"
                       isIconOnly
                       icon={<Icon icon={ArrowLeftIcon} size="sm" />}
-                      onClick={() => {
-                        setIsAddingMcp(false);
-                        setIsAddingSkill(false);
-                      }}
+                      onClick={leaveForm}
                     />
                   )}
                   <Heading level={3}>{paneTitle}</Heading>
@@ -330,7 +374,7 @@ export function SettingsDialog({
               {/* ── Mon compte ─────────────────────────────────────────── */}
               {section === "account" && acct && (
                 <VStack gap={5}>
-                  <VStack gap={2} hAlign="center" padding={2}>
+                  <VStack gap={2} hAlign="center">
                     {data?.avatar_id ? (
                       <Avatar src={`/avatars/${data.avatar_id}.svg`} name={acct.fullname} size="xl" />
                     ) : (
@@ -345,15 +389,15 @@ export function SettingsDialog({
                     </HStack>
                   </VStack>
 
-                  <Grid columns={4} gap={3}>
-                    {[
-                      { v: fmt(acct.spend), l: "Tokens consommés" },
-                      { v: String(acct.key_count), l: "Clés API" },
-                      { v: String(acct.mcp_count), l: "Serveurs MCP" },
-                      { v: String(acct.skill_count), l: "Compétences" },
-                    ].map((s) => (
-                      <Card key={s.l}>
-                        <VStack gap={0} hAlign="center">
+                  <Card padding={0}>
+                    <Grid columns={4}>
+                      {[
+                        { v: compact(act.total), l: "Tokens totaux" },
+                        { v: compact(act.peak), l: "Pic journalier" },
+                        { v: String(act.active_days), l: "Jours actifs" },
+                        { v: compact(act.avg), l: "Moyenne / jour" },
+                      ].map((s) => (
+                        <VStack key={s.l} gap={0} hAlign="center" padding={4}>
                           <Text size="xl" weight="bold" hasTabularNumbers>
                             {s.v}
                           </Text>
@@ -361,8 +405,55 @@ export function SettingsDialog({
                             {s.l}
                           </Text>
                         </VStack>
-                      </Card>
-                    ))}
+                      ))}
+                    </Grid>
+                  </Card>
+
+                  <VStack gap={2}>
+                    <HStack hAlign="between" vAlign="center">
+                      <Text type="supporting" color="secondary">
+                        ACTIVITÉ TOKENS
+                      </Text>
+                      <Text type="supporting" color="secondary">
+                        6 derniers mois
+                      </Text>
+                    </HStack>
+                    <Card>
+                      <ActivityHeatmap days={act.days} />
+                    </Card>
+                  </VStack>
+
+                  <Grid columns={2} gap={4}>
+                    <VStack gap={2}>
+                      <Text weight="semibold">Insights d&apos;activité</Text>
+                      <VStack gap={1}>
+                        {[
+                          ["Total période", fmt(act.total)],
+                          ["Pic journalier", act.peak_day ? `${new Date(act.peak_day + "T00:00:00").toLocaleDateString("fr-FR")} — ${fmt(act.peak)}` : "—"],
+                          ["Jours actifs", String(act.active_days)],
+                        ].map(([l, v]) => (
+                          <HStack key={l} hAlign="between" gap={3}>
+                            <Text type="supporting" color="secondary">{l}</Text>
+                            <Text type="supporting" hasTabularNumbers>{v}</Text>
+                          </HStack>
+                        ))}
+                      </VStack>
+                    </VStack>
+                    <VStack gap={2}>
+                      <Text weight="semibold">Répartition tokens</Text>
+                      <VStack gap={1}>
+                        {[
+                          ["Entrée (prompt)", fmt(act.prompt)],
+                          ["Sortie (généré)", fmt(act.completion)],
+                          ["Clés API actives", String(acct.key_count)],
+                        ].map(([l, v]) => (
+                          <HStack key={l} hAlign="between" gap={3}>
+                            <Text type="supporting" color="secondary">{l}</Text>
+                            <Text type="supporting" hasTabularNumbers>{v}</Text>
+                          </HStack>
+                        ))}
+                      </VStack>
+                    </VStack>
                   </Grid>
 
                   <VStack gap={2}>
@@ -394,7 +485,6 @@ export function SettingsDialog({
                   </VStack>
                 </VStack>
               )}
-
               {/* ── Clés API ───────────────────────────────────────────── */}
               {section === "keys" && <KeysContent />}
 
@@ -437,7 +527,11 @@ export function SettingsDialog({
                       variant="primary"
                       size="sm"
                       icon={<Icon icon={PlusIcon} size="sm" />}
-                      onClick={() => setIsAddingMcp(true)}
+                      onClick={() => {
+                        setEditingMcpId(null);
+                        setMcpForm({ name: "", url: "", description: "", allowedTools: "", auth: "" });
+                        setIsAddingMcp(true);
+                      }}
                     />
                   </HStack>
                   {data && data.mcp_servers.length === 0 ? (
@@ -467,6 +561,24 @@ export function SettingsDialog({
                                   isLabelHidden
                                   value={!!s.enabled}
                                   onChange={(v) => toggleMcp(s.id, v)}
+                                />
+                                <Button
+                                  label="Modifier"
+                                  variant="ghost"
+                                  size="sm"
+                                  isIconOnly
+                                  icon={<Icon icon={PencilSquareIcon} size="sm" />}
+                                  onClick={() => {
+                                    setEditingMcpId(s.id);
+                                    setMcpForm({
+                                      name: s.name,
+                                      url: s.url,
+                                      description: s.description || "",
+                                      allowedTools: s.allowed_tools || "",
+                                      auth: "",
+                                    });
+                                    setIsAddingMcp(true);
+                                  }}
                                 />
                                 <Button
                                   label="Supprimer"
@@ -500,7 +612,7 @@ export function SettingsDialog({
               {section === "mcp" && isAddingMcp && (
                 <VStack gap={4}>
                   <VStack gap={0}>
-                    <Text weight="semibold">Connecter un MCP personnalisé</Text>
+                    <Text weight="semibold">{editingMcpId ? "Modifier le serveur MCP" : "Connecter un MCP personnalisé"}</Text>
                     <Text type="supporting" color="secondary">
                       Configurez la connexion et la façon dont ses outils peuvent être utilisés.
                     </Text>
@@ -542,7 +654,11 @@ export function SettingsDialog({
                           value={mcpForm.auth}
                           onChange={(v) => setMcpForm((f) => ({ ...f, auth: v }))}
                           placeholder="Bearer token ou secret"
-                          description="Envoyé en en-tête Authorization."
+                          description={
+                            editingMcpId
+                              ? "Laisser vide pour conserver le secret actuel ; « - » pour le retirer."
+                              : "Envoyé en en-tête Authorization."
+                          }
                         />
                       </Grid>
                     </VStack>
@@ -563,7 +679,11 @@ export function SettingsDialog({
                       variant="primary"
                       size="sm"
                       icon={<Icon icon={PlusIcon} size="sm" />}
-                      onClick={() => setIsAddingSkill(true)}
+                      onClick={() => {
+                        setEditingSkillId(null);
+                        setSkillForm({ name: "", description: "", instructions: "" });
+                        setIsAddingSkill(true);
+                      }}
                     />
                   </HStack>
                   {data && data.skills.length === 0 ? (
@@ -583,14 +703,32 @@ export function SettingsDialog({
                                 {s.description}
                               </Text>
                             </VStack>
-                            <Button
-                              label="Supprimer"
-                              variant="ghost"
-                              size="sm"
-                              isIconOnly
-                              icon={<Icon icon={TrashIcon} size="sm" />}
-                              onClick={() => deleteSkill(s.id)}
-                            />
+                            <HStack gap={1}>
+                              <Button
+                                label="Modifier"
+                                variant="ghost"
+                                size="sm"
+                                isIconOnly
+                                icon={<Icon icon={PencilSquareIcon} size="sm" />}
+                                onClick={() => {
+                                  setEditingSkillId(s.id);
+                                  setSkillForm({
+                                    name: s.name,
+                                    description: s.description,
+                                    instructions: s.instructions || "",
+                                  });
+                                  setIsAddingSkill(true);
+                                }}
+                              />
+                              <Button
+                                label="Supprimer"
+                                variant="ghost"
+                                size="sm"
+                                isIconOnly
+                                icon={<Icon icon={TrashIcon} size="sm" />}
+                                onClick={() => deleteSkill(s.id)}
+                              />
+                            </HStack>
                           </HStack>
                         </Card>
                       ))}
@@ -603,7 +741,7 @@ export function SettingsDialog({
               {section === "skills" && isAddingSkill && (
                 <VStack gap={4}>
                   <VStack gap={0}>
-                    <Text weight="semibold">Créer une compétence</Text>
+                    <Text weight="semibold">{editingSkillId ? "Modifier la compétence" : "Créer une compétence"}</Text>
                     <Text type="supporting" color="secondary">
                       L&apos;assistant chargera ces instructions en contexte quand la compétence s&apos;applique.
                     </Text>
@@ -644,13 +782,12 @@ export function SettingsDialog({
                   <Button
                     label="Annuler"
                     variant="secondary"
-                    onClick={() => {
-                      setIsAddingMcp(false);
-                      setIsAddingSkill(false);
-                    }}
+                    onClick={leaveForm}
                   />
                   <Button
-                    label={isAddingMcp ? "Enregistrer le serveur" : "Enregistrer la compétence"}
+                    label={isAddingMcp
+                      ? editingMcpId ? "Mettre à jour le serveur" : "Enregistrer le serveur"
+                      : editingSkillId ? "Mettre à jour la compétence" : "Enregistrer la compétence"}
                     variant="primary"
                     isLoading={isSaving}
                     onClick={isAddingMcp ? saveMcp : saveSkill}

@@ -246,12 +246,15 @@ def init_db():
             last_seen_id INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS mcp_servers (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            username    TEXT NOT NULL,
-            name        TEXT NOT NULL,
-            url         TEXT NOT NULL,
-            auth_header TEXT,
-            created_at  TEXT NOT NULL,
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT NOT NULL,
+            name          TEXT NOT NULL,
+            url           TEXT NOT NULL,
+            auth_header   TEXT,
+            description   TEXT DEFAULT '',
+            allowed_tools TEXT DEFAULT '',
+            enabled       INTEGER NOT NULL DEFAULT 1,
+            created_at    TEXT NOT NULL,
             UNIQUE(username, name)
         );
         CREATE TABLE IF NOT EXISTS skills (
@@ -268,6 +271,14 @@ def init_db():
             avatar_id TEXT
         );
     ''')
+    # Migration : colonnes ajoutées à mcp_servers après sa création initiale
+    # (description, filtre d'outils, activation) — ALTER additif, sans perte.
+    mcp_cols = {r[1] for r in db.execute("PRAGMA table_info(mcp_servers)")}
+    for col, ddl in (('description', "TEXT DEFAULT ''"),
+                     ('allowed_tools', "TEXT DEFAULT ''"),
+                     ('enabled', "INTEGER NOT NULL DEFAULT 1")):
+        if col not in mcp_cols:
+            db.execute(f"ALTER TABLE mcp_servers ADD COLUMN {col} {ddl}")
     # Migration : api_keys de key_alias unique GLOBAL → unique par (username, alias)
     # (évite qu'un utilisateur écrase la ligne d'un autre via un alias identique).
     sql = (db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='api_keys'")
@@ -1301,17 +1312,31 @@ def api_settings():
     db = get_db()
     username = session['username']
     servers = [dict(r) for r in db.execute(
-        "SELECT id, name, url, (auth_header IS NOT NULL) AS has_auth, created_at "
+        "SELECT id, name, url, description, allowed_tools, enabled, "
+        "(auth_header IS NOT NULL) AS has_auth, created_at "
         "FROM mcp_servers WHERE username=? ORDER BY created_at DESC", (username,))]
     skills = [dict(r) for r in db.execute(
-        "SELECT id, name, description, created_at FROM skills WHERE username=? "
+        "SELECT id, name, description, instructions, created_at FROM skills WHERE username=? "
         "ORDER BY created_at DESC", (username,))]
     pref = db.execute("SELECT avatar_id FROM user_prefs WHERE username=?", (username,)).fetchone()
+    acct = _litellm_user_info(username)
     return jsonify({
         'mcp_servers': servers,
         'skills': skills,
         'avatar_id': pref['avatar_id'] if pref else None,
         'avatars': [{'id': a, 'label': AVATAR_LABELS.get(a, a)} for a in AVATAR_IDS],
+        'account': {
+            'username': username,
+            'fullname': session.get('fullname', username),
+            'is_admin': bool(session.get('is_admin')),
+            'spend': acct.get('spend') or 0,
+            'max_budget': acct.get('max_budget'),
+            'unlimited': bool(session.get('is_admin')),
+            'key_count': db.execute("SELECT COUNT(*) c FROM api_keys WHERE username=?",
+                                     (username,)).fetchone()['c'],
+            'mcp_count': len(servers),
+            'skill_count': len(skills),
+        },
     })
 
 
@@ -1325,8 +1350,12 @@ def mcp_servers_route():
         name = request.form.get('name', '').strip()[:60]
         url = request.form.get('url', '').strip()
         auth_header = request.form.get('auth_header', '').strip() or None
+        description = request.form.get('description', '').strip()[:300]
+        allowed_tools = request.form.get('allowed_tools', '').strip()[:500]
         if not name or not url:
             return jsonify({'ok': False, 'error': "Nom et URL requis."})
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,60}', name):
+            return jsonify({'ok': False, 'error': "Lettres, chiffres, underscores et tirets uniquement."})
         ok, err = validate_mcp_url(url)
         if not ok:
             return jsonify({'ok': False, 'error': err})
@@ -1340,17 +1369,25 @@ def mcp_servers_route():
             return jsonify({'ok': False, 'error': "Connexion au serveur MCP impossible."})
         try:
             db.execute(
-                "INSERT INTO mcp_servers (username, name, url, auth_header, created_at) VALUES (?,?,?,?,?)",
-                (username, name, url, auth_header, datetime.now().isoformat()))
+                "INSERT INTO mcp_servers (username, name, url, auth_header, description, "
+                "allowed_tools, enabled, created_at) VALUES (?,?,?,?,?,?,1,?)",
+                (username, name, url, auth_header, description, allowed_tools,
+                 datetime.now().isoformat()))
             db.commit()
         except sqlite3.IntegrityError:
             return jsonify({'ok': False, 'error': "Tu as déjà un serveur MCP avec ce nom."})
         return jsonify({'ok': True, 'tool_count': len(discovered)})
+    elif action == 'toggle':
+        server_id = request.form.get('id', '')
+        enabled = 1 if request.form.get('enabled') == '1' else 0
+        db.execute("UPDATE mcp_servers SET enabled=? WHERE id=? AND username=?",
+                   (enabled, server_id, username))
+        db.commit()
+        return jsonify({'ok': True})
     elif action == 'delete':
         server_id = request.form.get('id', '')
         db.execute("DELETE FROM mcp_servers WHERE id=? AND username=?", (server_id, username))
         db.commit()
-        flash("Serveur MCP supprimé.", "success")
     return ('', 204)
 
 
@@ -1707,11 +1744,17 @@ def _user_extra_tools(username):
     db = get_db()
     tools = []
     routing = {}
-    for row in db.execute("SELECT id, name, url, auth_header FROM mcp_servers WHERE username=?", (username,)):
+    for row in db.execute("SELECT id, name, url, auth_header, allowed_tools FROM mcp_servers "
+                          "WHERE username=? AND enabled=1", (username,)):
         try:
             discovered = list_tools_cached(row['id'], row['url'], row['auth_header'])
         except Exception:
             discovered = []
+        # Filtre optionnel : liste blanche d'outils saisie par l'utilisateur
+        # (vide = tous les outils du serveur sont exposés au modèle).
+        allowed = {t.strip() for t in (row['allowed_tools'] or '').split(',') if t.strip()}
+        if allowed:
+            discovered = [t for t in discovered if t.get('name') in allowed]
         for t in discovered:
             prefixed = _mcp_tool_name(row['id'], t.get('name', ''))
             tools.append({"type": "function", "function": {
@@ -1741,7 +1784,8 @@ def _exec_mcp_tool(server_id, tool_name, args, username):
     """Exécute un outil d'un serveur MCP enregistré par l'utilisateur (jamais
     celui d'un autre — la ligne est toujours scopée à username)."""
     db = get_db()
-    row = db.execute("SELECT url, auth_header FROM mcp_servers WHERE id=? AND username=?",
+    row = db.execute("SELECT url, auth_header FROM mcp_servers "
+                      "WHERE id=? AND username=? AND enabled=1",
                       (server_id, username)).fetchone()
     if not row:
         return "Serveur MCP introuvable.", False

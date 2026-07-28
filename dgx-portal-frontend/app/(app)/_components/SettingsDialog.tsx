@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
-import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { Dialog } from "@astryxdesign/core/Dialog";
+import { Layout, LayoutContent, LayoutPanel, LayoutHeader, LayoutFooter } from "@astryxdesign/core/Layout";
+import { List, ListItem } from "@astryxdesign/core/List";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
 import { TextInput } from "@astryxdesign/core/TextInput";
@@ -11,13 +13,13 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Table } from "@astryxdesign/core/Table";
-import type { TableColumn } from "@astryxdesign/core/Table";
-import { TabList, Tab } from "@astryxdesign/core/TabList";
+import { Switch } from "@astryxdesign/core/Switch";
+import { Divider } from "@astryxdesign/core/Divider";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { SelectableCard } from "@astryxdesign/core/SelectableCard";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Avatar } from "@astryxdesign/core/Avatar";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { useToast } from "@astryxdesign/core/Toast";
 import {
   KeyIcon,
@@ -26,22 +28,76 @@ import {
   ServerStackIcon,
   SparklesIcon,
   UserCircleIcon,
+  UserIcon,
+  ArrowLeftIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, postForm, postFormJSON } from "@/lib/api";
 import { KeysContent } from "../keys/_components/KeysContent";
 
-type McpServer = { id: number; name: string; url: string; has_auth: number; created_at: string };
-type Skill = { id: number; name: string; description: string; created_at: string };
+type McpServer = {
+  id: number;
+  name: string;
+  url: string;
+  description: string;
+  allowed_tools: string;
+  enabled: number;
+  has_auth: number;
+  created_at: string;
+};
+type Skill = { id: number; name: string; description: string; instructions: string; created_at: string };
 type AvatarChoice = { id: string; label: string };
+type Account = {
+  username: string;
+  fullname: string;
+  is_admin: boolean;
+  spend: number;
+  max_budget: number | null;
+  unlimited: boolean;
+  key_count: number;
+  mcp_count: number;
+  skill_count: number;
+};
 type SettingsData = {
   mcp_servers: McpServer[];
   skills: Skill[];
   avatar_id: string | null;
   avatars: AvatarChoice[];
+  account: Account;
 };
 
-type SettingsTab = "keys" | "mcp" | "skills" | "avatar";
+type Section = "account" | "keys" | "avatar" | "mcp" | "skills";
+
+const SECTIONS: { group: string; items: { id: Section; label: string; icon: typeof UserIcon }[] }[] = [
+  {
+    group: "Réglages du compte",
+    items: [
+      { id: "account", label: "Mon compte", icon: UserIcon },
+      { id: "keys", label: "Clés API", icon: KeyIcon },
+    ],
+  },
+  {
+    group: "Réglages de l'app",
+    items: [
+      { id: "avatar", label: "Personnalisation", icon: UserCircleIcon },
+      { id: "mcp", label: "MCP", icon: ServerStackIcon },
+      { id: "skills", label: "Compétences", icon: SparklesIcon },
+    ],
+  },
+];
+
+const SECTION_TITLES: Record<Section, string> = {
+  account: "Mon compte",
+  keys: "Clés API",
+  avatar: "Personnalisation",
+  mcp: "MCP",
+  skills: "Compétences",
+};
+
+function fmt(n: number) {
+  return Math.round(n).toLocaleString("fr-FR");
+}
 
 export function SettingsDialog({
   isOpen,
@@ -54,14 +110,16 @@ export function SettingsDialog({
 }) {
   const csrf = useCsrf();
   const showToast = useToast();
-  const [tab, setTab] = useState<SettingsTab>("keys");
+  const [section, setSection] = useState<Section>("account");
   const [data, setData] = useState<SettingsData | null>(null);
-  const [mcpName, setMcpName] = useState("");
-  const [mcpUrl, setMcpUrl] = useState("");
-  const [mcpAuth, setMcpAuth] = useState("");
-  const [skillName, setSkillName] = useState("");
-  const [skillDescription, setSkillDescription] = useState("");
-  const [skillInstructions, setSkillInstructions] = useState("");
+  // Sous-page « formulaire » d'une section (motif du design de référence :
+  // la liste laisse place à un formulaire plein cadre avec flèche retour).
+  const [isAddingMcp, setIsAddingMcp] = useState(false);
+  const [isAddingSkill, setIsAddingSkill] = useState(false);
+
+  const [mcpForm, setMcpForm] = useState({ name: "", url: "", description: "", allowedTools: "", auth: "" });
+  const [skillForm, setSkillForm] = useState({ name: "", description: "", instructions: "" });
+  const [isSaving, setIsSaving] = useState(false);
 
   const refresh = useCallback(() => {
     getJSON<SettingsData>("/api/settings").then(setData).catch(() => {});
@@ -73,48 +131,75 @@ export function SettingsDialog({
     if (isOpen) refresh();
   }, [isOpen, refresh]);
 
-  async function addMcpServer() {
-    if (!csrf || !mcpName.trim() || !mcpUrl.trim()) return;
-    const result = await postFormJSON<{ ok: boolean; error?: string; tool_count?: number }>(
-      "/mcp",
-      csrf,
-      { action: "create", name: mcpName, url: mcpUrl, auth_header: mcpAuth },
-    );
-    if (result.ok) {
-      setMcpName("");
-      setMcpUrl("");
-      setMcpAuth("");
-      showToast({ body: `Serveur MCP connecté (${result.tool_count ?? 0} outil(s) trouvé(s)).`, type: "info" });
-      refresh();
-    } else {
-      showToast({ body: result.error || "Échec de la connexion au serveur MCP.", type: "error" });
+  function closeAll() {
+    setIsAddingMcp(false);
+    setIsAddingSkill(false);
+    onOpenChange(false);
+  }
+
+  async function saveMcp() {
+    if (!csrf || !mcpForm.name.trim() || !mcpForm.url.trim()) return;
+    setIsSaving(true);
+    try {
+      const result = await postFormJSON<{ ok: boolean; error?: string; tool_count?: number }>("/mcp", csrf, {
+        action: "create",
+        name: mcpForm.name,
+        url: mcpForm.url,
+        description: mcpForm.description,
+        allowed_tools: mcpForm.allowedTools,
+        auth_header: mcpForm.auth,
+      });
+      if (result.ok) {
+        setMcpForm({ name: "", url: "", description: "", allowedTools: "", auth: "" });
+        setIsAddingMcp(false);
+        showToast({ body: `Serveur MCP connecté (${result.tool_count ?? 0} outil(s) trouvé(s)).`, type: "info" });
+        refresh();
+      } else {
+        showToast({ body: result.error || "Échec de la connexion au serveur MCP.", type: "error" });
+      }
+    } finally {
+      setIsSaving(false);
     }
   }
 
-  async function deleteMcpServer(id: number) {
+  async function toggleMcp(id: number, enabled: boolean) {
+    if (!csrf) return;
+    setData((prev) =>
+      prev
+        ? { ...prev, mcp_servers: prev.mcp_servers.map((s) => (s.id === id ? { ...s, enabled: enabled ? 1 : 0 } : s)) }
+        : prev,
+    );
+    await postFormJSON("/mcp", csrf, { action: "toggle", id: String(id), enabled: enabled ? "1" : "0" });
+  }
+
+  async function deleteMcp(id: number) {
     if (!csrf) return;
     await postForm("/mcp", csrf, { action: "delete", id: String(id) });
     showToast({ body: "Serveur MCP supprimé.", type: "info" });
     refresh();
   }
 
-  async function addSkill() {
-    if (!csrf || !skillName.trim() || !skillDescription.trim() || !skillInstructions.trim()) return;
-    const result = await postFormJSON("/skills", csrf, {
-      action: "create",
-      name: skillName,
-      description: skillDescription,
-      instructions: skillInstructions,
-    });
-    if (!result.ok) {
-      showToast({ body: result.error || "Échec de l'enregistrement.", type: "error" });
-      return;
+  async function saveSkill() {
+    if (!csrf || !skillForm.name.trim() || !skillForm.description.trim() || !skillForm.instructions.trim()) return;
+    setIsSaving(true);
+    try {
+      const result = await postFormJSON("/skills", csrf, {
+        action: "create",
+        name: skillForm.name,
+        description: skillForm.description,
+        instructions: skillForm.instructions,
+      });
+      if (!result.ok) {
+        showToast({ body: result.error || "Échec de l'enregistrement.", type: "error" });
+        return;
+      }
+      setSkillForm({ name: "", description: "", instructions: "" });
+      setIsAddingSkill(false);
+      showToast({ body: "Compétence enregistrée.", type: "info" });
+      refresh();
+    } finally {
+      setIsSaving(false);
     }
-    setSkillName("");
-    setSkillDescription("");
-    setSkillInstructions("");
-    showToast({ body: "Compétence enregistrée.", type: "info" });
-    refresh();
   }
 
   async function deleteSkill(id: number) {
@@ -131,155 +216,436 @@ export function SettingsDialog({
     onAvatarChange?.(avatarId);
   }
 
-  const mcpColumns: TableColumn<McpServer & Record<string, unknown>>[] = [
-    { key: "name", header: "Nom" },
-    { key: "url", header: "URL", renderCell: (r) => <Text type="code">{r.url}</Text> },
-    {
-      key: "has_auth",
-      header: "Auth",
-      renderCell: (r) => (r.has_auth ? <Badge label="Configurée" variant="success" /> : <Badge label="Aucune" variant="neutral" />),
-    },
-    {
-      key: "id" as keyof McpServer,
-      header: "",
-      renderCell: (r) => (
-        <Button label="Supprimer" variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => deleteMcpServer(r.id)} />
-      ),
-    },
-  ];
+  const acct = data?.account;
+  const pct = acct && !acct.unlimited && acct.max_budget ? (acct.spend / acct.max_budget) * 100 : 0;
 
-  const skillColumns: TableColumn<Skill & Record<string, unknown>>[] = [
-    { key: "name", header: "Nom" },
-    { key: "description", header: "Description" },
-    {
-      key: "id" as keyof Skill,
-      header: "",
-      renderCell: (r) => (
-        <Button label="Supprimer" variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => deleteSkill(r.id)} />
-      ),
-    },
-  ];
+  // Titre du volet droit : nom de la section, ou celui de la sous-page ouverte.
+  const paneTitle = isAddingMcp ? "MCP" : isAddingSkill ? "Compétences" : SECTION_TITLES[section];
 
   return (
-    <Dialog isOpen={isOpen} onOpenChange={onOpenChange} purpose="form" width={820} maxHeight="82vh">
+    <Dialog isOpen={isOpen} onOpenChange={onOpenChange} purpose="form" width={980} maxHeight="86vh">
       <Layout
-        header={
-          <DialogHeader
-            title="Réglages"
-            subtitle="Clés API, serveurs MCP, compétences et personnalisation."
-            onOpenChange={() => onOpenChange(false)}
-          />
+        height="fill"
+        padding={0}
+        start={
+          <LayoutPanel width={232} hasDivider role="navigation">
+            <VStack height="100%" hAlign="stretch">
+              <HStack padding={4} gap={2} vAlign="center">
+                <Icon icon={SparklesIcon} size="sm" color="accent" />
+                <Text weight="bold">Cronos</Text>
+              </HStack>
+              <VStack gap={4} paddingInline={2} height="100%">
+                {SECTIONS.map((grp) => (
+                  <VStack key={grp.group} gap={1}>
+                    <HStack paddingInline={2}>
+                      <Text type="supporting" color="secondary">{grp.group}</Text>
+                    </HStack>
+                    <List>
+                      {grp.items.map((it) => (
+                        <ListItem
+                          key={it.id}
+                          label={it.label}
+                          startContent={<Icon icon={it.icon} size="sm" color="secondary" />}
+                          isSelected={section === it.id && !isAddingMcp && !isAddingSkill}
+                          onClick={() => {
+                            setSection(it.id);
+                            setIsAddingMcp(false);
+                            setIsAddingSkill(false);
+                          }}
+                        />
+                      ))}
+                    </List>
+                  </VStack>
+                ))}
+              </VStack>
+              <Divider />
+              <HStack padding={3} gap={2} vAlign="center">
+                {data?.avatar_id ? (
+                  <Avatar src={`/avatars/${data.avatar_id}.svg`} name={acct?.fullname || ""} size="sm" />
+                ) : (
+                  <Avatar name={acct?.fullname || ""} size="sm" />
+                )}
+                <VStack gap={0}>
+                  <Text type="supporting" weight="semibold" maxLines={1}>
+                    {acct?.fullname || ""}
+                  </Text>
+                  <Text type="supporting" color="secondary" maxLines={1}>
+                    {acct?.username || ""}
+                  </Text>
+                </VStack>
+              </HStack>
+            </VStack>
+          </LayoutPanel>
         }
         content={
-          <LayoutContent>
-        <VStack gap={4}>
-          <TabList value={tab} onChange={(v) => setTab((v as SettingsTab) ?? "keys")}>
-            <Tab value="keys" label="Clés API" icon={<Icon icon={KeyIcon} size="sm" />} />
-            <Tab value="mcp" label="MCP" icon={<Icon icon={ServerStackIcon} size="sm" />} />
-            <Tab value="skills" label="Compétences" icon={<Icon icon={SparklesIcon} size="sm" />} />
-            <Tab value="avatar" label="Personnalisation" icon={<Icon icon={UserCircleIcon} size="sm" />} />
-          </TabList>
-
-          {tab === "keys" && <KeysContent />}
-
-          {tab === "mcp" && (
-            <VStack gap={4}>
-              <Text type="supporting" color="secondary">
-                Connecte un serveur MCP (Model Context Protocol) distant en HTTPS : ses outils deviennent
-                utilisables par l&apos;assistant Support, visibles pendant la conversation.
-              </Text>
-              <Card>
-                <VStack gap={3}>
-                  <Text weight="semibold">Ajouter un serveur</Text>
-                  <HStack gap={2} wrap="wrap">
-                    <TextInput label="Nom" isLabelHidden value={mcpName} onChange={setMcpName} placeholder="Nom (ex: mon-serveur)" size="sm" />
-                    <TextInput label="URL" isLabelHidden value={mcpUrl} onChange={setMcpUrl} placeholder="https://exemple.com/mcp" size="sm" />
-                    <TextInput label="Authorization (optionnel)" isLabelHidden value={mcpAuth} onChange={setMcpAuth} placeholder="Bearer sk-..." size="sm" />
-                    <Button label="Ajouter" variant="primary" size="sm" icon={<Icon icon={PlusIcon} size="sm" />} onClick={addMcpServer} />
-                  </HStack>
-                </VStack>
-              </Card>
-              {data && data.mcp_servers.length === 0 ? (
-                <EmptyState
-                  icon={<Icon icon={ServerStackIcon} size="lg" />}
-                  title="Aucun serveur MCP connecté."
-                  description="Ajoute une URL de serveur MCP distant ci-dessus."
+          <LayoutContent padding={0} isScrollable={false}>
+            <Layout
+              height="fill"
+              header={
+            <LayoutHeader hasDivider>
+              <HStack hAlign="between" vAlign="center" gap={3}>
+                <HStack gap={2} vAlign="center">
+                  {(isAddingMcp || isAddingSkill) && (
+                    <Button
+                      label="Retour"
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={ArrowLeftIcon} size="sm" />}
+                      onClick={() => {
+                        setIsAddingMcp(false);
+                        setIsAddingSkill(false);
+                      }}
+                    />
+                  )}
+                  <Heading level={3}>{paneTitle}</Heading>
+                </HStack>
+                <Button
+                  label="Fermer"
+                  variant="ghost"
+                  size="sm"
+                  isIconOnly
+                  icon={<Icon icon={XMarkIcon} size="sm" />}
+                  onClick={closeAll}
                 />
-              ) : (
-                data && (
-                  <Card padding={0}>
-                    <Table<McpServer & Record<string, unknown>> data={data.mcp_servers} columns={mcpColumns} idKey="id" density="balanced" dividers="rows" />
-                  </Card>
-                )
-              )}
-            </VStack>
-          )}
-
-          {tab === "skills" && (
-            <VStack gap={4}>
-              <Text type="supporting" color="secondary">
-                Une compétence est un ensemble d&apos;instructions réutilisables que tu écris toi-même ;
-                l&apos;assistant peut la charger en cours de conversation quand elle est utile à ta demande.
-              </Text>
-              <Card>
-                <VStack gap={3}>
-                  <Text weight="semibold">Ajouter une compétence</Text>
-                  <HStack gap={2} wrap="wrap">
-                    <TextInput label="Nom" isLabelHidden value={skillName} onChange={setSkillName} placeholder="Nom" size="sm" />
-                    <TextInput label="Description" isLabelHidden value={skillDescription} onChange={setSkillDescription} placeholder="Description courte" size="sm" />
-                  </HStack>
-                  <TextArea
-                    label="Instructions"
-                    isLabelHidden
-                    value={skillInstructions}
-                    onChange={setSkillInstructions}
-                    placeholder="Instructions détaillées que l'assistant chargera en contexte..."
-                    rows={6}
-                  />
-                  <Button label="Enregistrer" variant="primary" size="sm" icon={<Icon icon={PlusIcon} size="sm" />} onClick={addSkill} />
-                </VStack>
-              </Card>
-              {data && data.skills.length === 0 ? (
-                <EmptyState
-                  icon={<Icon icon={SparklesIcon} size="lg" />}
-                  title="Aucune compétence pour l'instant."
-                  description="Ajoute-en une ci-dessus."
-                />
-              ) : (
-                data && (
-                  <Card padding={0}>
-                    <Table<Skill & Record<string, unknown>> data={data.skills} columns={skillColumns} idKey="id" density="balanced" dividers="rows" />
-                  </Card>
-                )
-              )}
-            </VStack>
-          )}
-
-          {tab === "avatar" && (
-            <VStack gap={3}>
-              <Text type="supporting" color="secondary">
-                Choisis un avatar parmi les logos proposés — pas d&apos;import d&apos;image personnelle.
-              </Text>
-              <Grid columns={{ minWidth: 110, max: 5 }} gap={3}>
-                {data?.avatars.map((a) => (
-                  <SelectableCard
-                    key={a.id}
-                    label={a.label}
-                    isSelected={data.avatar_id === a.id}
-                    onChange={() => selectAvatar(a.id)}
-                    padding={3}>
-                    <VStack gap={2} hAlign="center">
-                      <Avatar src={`/avatars/${a.id}.svg`} name={a.label} size="lg" />
+              </HStack>
+            </LayoutHeader>
+              }
+              content={
+            <LayoutContent padding={5} isScrollable>
+              {/* ── Mon compte ─────────────────────────────────────────── */}
+              {section === "account" && acct && (
+                <VStack gap={5}>
+                  <VStack gap={2} hAlign="center" padding={2}>
+                    {data?.avatar_id ? (
+                      <Avatar src={`/avatars/${data.avatar_id}.svg`} name={acct.fullname} size="xl" />
+                    ) : (
+                      <Avatar name={acct.fullname} size="xl" />
+                    )}
+                    <Heading level={2}>{acct.fullname}</Heading>
+                    <HStack gap={2} vAlign="center">
                       <Text type="supporting" color="secondary">
-                        {a.label}
+                        {acct.username}
                       </Text>
+                      {acct.is_admin && <Badge label="Admin" variant="warning" />}
+                    </HStack>
+                  </VStack>
+
+                  <Grid columns={4} gap={3}>
+                    {[
+                      { v: fmt(acct.spend), l: "Tokens consommés" },
+                      { v: String(acct.key_count), l: "Clés API" },
+                      { v: String(acct.mcp_count), l: "Serveurs MCP" },
+                      { v: String(acct.skill_count), l: "Compétences" },
+                    ].map((s) => (
+                      <Card key={s.l}>
+                        <VStack gap={0} hAlign="center">
+                          <Text size="xl" weight="bold" hasTabularNumbers>
+                            {s.v}
+                          </Text>
+                          <Text type="supporting" color="secondary">
+                            {s.l}
+                          </Text>
+                        </VStack>
+                      </Card>
+                    ))}
+                  </Grid>
+
+                  <VStack gap={2}>
+                    <Text weight="semibold">Budget</Text>
+                    <Card>
+                      {acct.unlimited ? (
+                        <HStack>
+                          <Badge label="Budget illimité (admin)" variant="warning" />
+                        </HStack>
+                      ) : (
+                        <VStack gap={2}>
+                          <HStack hAlign="between">
+                            <Text type="supporting" color="secondary">
+                              Consommé aujourd&apos;hui
+                            </Text>
+                            <Text type="supporting" color="secondary" hasTabularNumbers>
+                              {fmt(acct.spend)} / {fmt(acct.max_budget || 0)} tokens
+                            </Text>
+                          </HStack>
+                          <ProgressBar
+                            label="Budget"
+                            isLabelHidden
+                            value={Math.min(pct, 100)}
+                            variant={pct >= 90 ? "error" : pct >= 70 ? "warning" : "success"}
+                          />
+                        </VStack>
+                      )}
+                    </Card>
+                  </VStack>
+                </VStack>
+              )}
+
+              {/* ── Clés API ───────────────────────────────────────────── */}
+              {section === "keys" && <KeysContent />}
+
+              {/* ── Personnalisation ───────────────────────────────────── */}
+              {section === "avatar" && (
+                <VStack gap={3}>
+                  <Text type="supporting" color="secondary">
+                    Choisis un avatar parmi les logos proposés — pas d&apos;import d&apos;image personnelle.
+                  </Text>
+                  <Grid columns={{ minWidth: 110, max: 5 }} gap={3}>
+                    {data?.avatars.map((a) => (
+                      <SelectableCard
+                        key={a.id}
+                        label={a.label}
+                        isSelected={data.avatar_id === a.id}
+                        onChange={() => selectAvatar(a.id)}
+                        padding={3}>
+                        <VStack gap={2} hAlign="center">
+                          <Avatar src={`/avatars/${a.id}.svg`} name={a.label} size="lg" />
+                          <Text type="supporting" color="secondary">
+                            {a.label}
+                          </Text>
+                        </VStack>
+                      </SelectableCard>
+                    ))}
+                  </Grid>
+                </VStack>
+              )}
+
+              {/* ── MCP : liste ────────────────────────────────────────── */}
+              {section === "mcp" && !isAddingMcp && (
+                <VStack gap={4}>
+                  <HStack hAlign="between" vAlign="center" gap={3}>
+                    <Text type="supporting" color="secondary">
+                      Connecte un serveur MCP distant en HTTPS : ses outils deviennent utilisables par
+                      l&apos;assistant Support.
+                    </Text>
+                    <Button
+                      label="Connecter un MCP"
+                      variant="primary"
+                      size="sm"
+                      icon={<Icon icon={PlusIcon} size="sm" />}
+                      onClick={() => setIsAddingMcp(true)}
+                    />
+                  </HStack>
+                  {data && data.mcp_servers.length === 0 ? (
+                    <EmptyState
+                      icon={<Icon icon={ServerStackIcon} size="lg" />}
+                      title="Aucun serveur MCP connecté."
+                      description="Connecte un serveur pour étendre les capacités de l'assistant."
+                    />
+                  ) : (
+                    <VStack gap={3}>
+                      {data?.mcp_servers.map((s) => (
+                        <Card key={s.id}>
+                          <VStack gap={2}>
+                            <HStack hAlign="between" vAlign="start" gap={3}>
+                              <VStack gap={0}>
+                                <HStack gap={2} vAlign="center">
+                                  <Text weight="semibold">{s.name}</Text>
+                                  {s.has_auth ? <Badge label="Auth" variant="success" /> : null}
+                                </HStack>
+                                <Text type="supporting" color="secondary" wordBreak="break-all">
+                                  {s.url}
+                                </Text>
+                              </VStack>
+                              <HStack gap={2} vAlign="center">
+                                <Switch
+                                  label="Serveur activé"
+                                  isLabelHidden
+                                  value={!!s.enabled}
+                                  onChange={(v) => toggleMcp(s.id, v)}
+                                />
+                                <Button
+                                  label="Supprimer"
+                                  variant="ghost"
+                                  size="sm"
+                                  isIconOnly
+                                  icon={<Icon icon={TrashIcon} size="sm" />}
+                                  onClick={() => deleteMcp(s.id)}
+                                />
+                              </HStack>
+                            </HStack>
+                            {s.description && (
+                              <Text type="supporting" color="secondary">
+                                {s.description}
+                              </Text>
+                            )}
+                            {s.allowed_tools && (
+                              <Text type="supporting" color="secondary">
+                                Outils autorisés : {s.allowed_tools}
+                              </Text>
+                            )}
+                          </VStack>
+                        </Card>
+                      ))}
                     </VStack>
-                  </SelectableCard>
-                ))}
-              </Grid>
-            </VStack>
-          )}
-        </VStack>
+                  )}
+                </VStack>
+              )}
+
+              {/* ── MCP : formulaire ───────────────────────────────────── */}
+              {section === "mcp" && isAddingMcp && (
+                <VStack gap={4}>
+                  <VStack gap={0}>
+                    <Text weight="semibold">Connecter un MCP personnalisé</Text>
+                    <Text type="supporting" color="secondary">
+                      Configurez la connexion et la façon dont ses outils peuvent être utilisés.
+                    </Text>
+                  </VStack>
+                  <Card>
+                    <VStack gap={4}>
+                      <Grid columns={2} gap={4}>
+                        <TextInput
+                          label="Nom"
+                          value={mcpForm.name}
+                          onChange={(v) => setMcpForm((f) => ({ ...f, name: v }))}
+                          placeholder="Exemple : notion_workspace"
+                          description="Lettres, chiffres, underscores et tirets uniquement."
+                        />
+                        <TextInput
+                          label="URL du serveur"
+                          value={mcpForm.url}
+                          onChange={(v) => setMcpForm((f) => ({ ...f, url: v }))}
+                          placeholder="https://mcp.example.com/sse"
+                        />
+                      </Grid>
+                      <TextArea
+                        label="Description (optionnel)"
+                        value={mcpForm.description}
+                        onChange={(v) => setMcpForm((f) => ({ ...f, description: v }))}
+                        placeholder="Ce que fournit ce serveur"
+                        rows={2}
+                      />
+                      <Grid columns={2} gap={4}>
+                        <TextInput
+                          label="Outils autorisés (optionnel)"
+                          value={mcpForm.allowedTools}
+                          onChange={(v) => setMcpForm((f) => ({ ...f, allowedTools: v }))}
+                          placeholder="search, create_page, …"
+                          description="Séparez par des virgules. Vide = tous les outils."
+                        />
+                        <TextInput
+                          label="Autorisation (optionnel)"
+                          value={mcpForm.auth}
+                          onChange={(v) => setMcpForm((f) => ({ ...f, auth: v }))}
+                          placeholder="Bearer token ou secret"
+                          description="Envoyé en en-tête Authorization."
+                        />
+                      </Grid>
+                    </VStack>
+                  </Card>
+                </VStack>
+              )}
+
+              {/* ── Compétences : liste ────────────────────────────────── */}
+              {section === "skills" && !isAddingSkill && (
+                <VStack gap={4}>
+                  <HStack hAlign="between" vAlign="center" gap={3}>
+                    <Text type="supporting" color="secondary">
+                      Des instructions réutilisables que tu écris toi-même ; l&apos;assistant les charge quand
+                      elles sont utiles à ta demande.
+                    </Text>
+                    <Button
+                      label="Nouvelle compétence"
+                      variant="primary"
+                      size="sm"
+                      icon={<Icon icon={PlusIcon} size="sm" />}
+                      onClick={() => setIsAddingSkill(true)}
+                    />
+                  </HStack>
+                  {data && data.skills.length === 0 ? (
+                    <EmptyState
+                      icon={<Icon icon={SparklesIcon} size="lg" />}
+                      title="Aucune compétence pour l'instant."
+                      description="Crée une compétence pour guider l'assistant sur une tâche récurrente."
+                    />
+                  ) : (
+                    <VStack gap={3}>
+                      {data?.skills.map((s) => (
+                        <Card key={s.id}>
+                          <HStack hAlign="between" vAlign="start" gap={3}>
+                            <VStack gap={0}>
+                              <Text weight="semibold">{s.name}</Text>
+                              <Text type="supporting" color="secondary">
+                                {s.description}
+                              </Text>
+                            </VStack>
+                            <Button
+                              label="Supprimer"
+                              variant="ghost"
+                              size="sm"
+                              isIconOnly
+                              icon={<Icon icon={TrashIcon} size="sm" />}
+                              onClick={() => deleteSkill(s.id)}
+                            />
+                          </HStack>
+                        </Card>
+                      ))}
+                    </VStack>
+                  )}
+                </VStack>
+              )}
+
+              {/* ── Compétences : formulaire ───────────────────────────── */}
+              {section === "skills" && isAddingSkill && (
+                <VStack gap={4}>
+                  <VStack gap={0}>
+                    <Text weight="semibold">Créer une compétence</Text>
+                    <Text type="supporting" color="secondary">
+                      L&apos;assistant chargera ces instructions en contexte quand la compétence s&apos;applique.
+                    </Text>
+                  </VStack>
+                  <Card>
+                    <VStack gap={4}>
+                      <Grid columns={2} gap={4}>
+                        <TextInput
+                          label="Nom"
+                          value={skillForm.name}
+                          onChange={(v) => setSkillForm((f) => ({ ...f, name: v }))}
+                          placeholder="Exemple : analyse-de-logs"
+                        />
+                        <TextInput
+                          label="Description"
+                          value={skillForm.description}
+                          onChange={(v) => setSkillForm((f) => ({ ...f, description: v }))}
+                          placeholder="Quand l'utiliser, en une phrase"
+                        />
+                      </Grid>
+                      <TextArea
+                        label="Instructions"
+                        value={skillForm.instructions}
+                        onChange={(v) => setSkillForm((f) => ({ ...f, instructions: v }))}
+                        placeholder="Instructions détaillées que l'assistant chargera en contexte…"
+                        rows={10}
+                      />
+                    </VStack>
+                  </Card>
+                </VStack>
+              )}
+            </LayoutContent>
+              }
+              footer={
+            isAddingMcp || isAddingSkill ? (
+              <LayoutFooter hasDivider>
+                <HStack gap={2} hAlign="end">
+                  <Button
+                    label="Annuler"
+                    variant="secondary"
+                    onClick={() => {
+                      setIsAddingMcp(false);
+                      setIsAddingSkill(false);
+                    }}
+                  />
+                  <Button
+                    label={isAddingMcp ? "Enregistrer le serveur" : "Enregistrer la compétence"}
+                    variant="primary"
+                    isLoading={isSaving}
+                    onClick={isAddingMcp ? saveMcp : saveSkill}
+                  />
+                </HStack>
+              </LayoutFooter>
+            ) : undefined
+              }
+            />
           </LayoutContent>
         }
       />

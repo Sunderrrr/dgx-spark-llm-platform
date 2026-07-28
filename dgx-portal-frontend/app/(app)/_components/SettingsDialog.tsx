@@ -381,7 +381,10 @@ export function SettingsDialog({
               height="fill"
               header={
             <LayoutHeader hasDivider>
-              <HStack hAlign="between" vAlign="center" gap={3}>
+              {/* paddingInline aligné sur le padding={5} du contenu en dessous :
+                  sinon le titre du panneau (« Mon compte »…) était collé au
+                  bord gauche alors que tout le contenu était en retrait. */}
+              <HStack hAlign="between" vAlign="center" gap={3} paddingInline={5} paddingBlock={3}>
                 <HStack gap={2} vAlign="center">
                   {(isAddingMcp || isAddingSkill) && (
                     <Button

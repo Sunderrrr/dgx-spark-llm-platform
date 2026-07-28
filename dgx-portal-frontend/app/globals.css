@@ -31,6 +31,22 @@ body {
   background-clip: padding-box;
 }
 
+/* Arrière-plan flouté derrière les dialogues (Réglages). Astryx rend un
+   <dialog> natif : ::backdrop est donc la bonne cible, et c'est du CSS simple
+   plutôt qu'un composant (aucun composant du design system n'expose ce
+   réglage). Respecte prefers-reduced-transparency pour les utilisateurs qui
+   désactivent les effets translucides. */
+dialog::backdrop {
+  backdrop-filter: blur(6px);
+  background: rgb(0 0 0 / 0.35);
+}
+@media (prefers-reduced-transparency: reduce) {
+  dialog::backdrop {
+    backdrop-filter: none;
+    background: rgb(0 0 0 / 0.6);
+  }
+}
+
 /* Wave dots for ThinkingIndicator — plain CSS since this app has no StyleX
    compiler wired up (Astryx ships pre-compiled; app code can't call
    stylex.create()/keyframes() at runtime, see AGENTS.md). */

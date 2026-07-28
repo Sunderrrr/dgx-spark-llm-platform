@@ -1278,7 +1278,21 @@ def api_keys():
 
 
 # ── Settings : MCP, Skills, Personnalisation ─────────────────────────────────
-AVATAR_IDS = {f"avatar-{i:02d}" for i in range(1, 11)}
+# Logos d'IA servis depuis dgx-portal-frontend/public/avatars/<id>.svg.
+# Liste blanche stricte : /settings/avatar refuse tout id hors de cet ensemble
+# (l'id atterrit dans un src d'<img>, on ne veut pas d'entrée libre).
+AVATAR_IDS = [
+    'claude', 'anthropic', 'openai', 'copilot', 'gemini', 'grok', 'mistral',
+    'deepseek', 'qwen', 'meta', 'ollama', 'huggingface', 'perplexity',
+    'nvidia', 'langchain',
+]
+AVATAR_LABELS = {
+    'claude': 'Claude', 'anthropic': 'Anthropic', 'openai': 'ChatGPT',
+    'copilot': 'GitHub Copilot', 'gemini': 'Gemini', 'grok': 'Grok',
+    'mistral': 'Mistral', 'deepseek': 'DeepSeek', 'qwen': 'Qwen',
+    'meta': 'Llama (Meta)', 'ollama': 'Ollama', 'huggingface': 'Hugging Face',
+    'perplexity': 'Perplexity', 'nvidia': 'NVIDIA', 'langchain': 'LangChain',
+}
 
 
 @app.route('/api/settings')
@@ -1297,7 +1311,7 @@ def api_settings():
         'mcp_servers': servers,
         'skills': skills,
         'avatar_id': pref['avatar_id'] if pref else None,
-        'avatar_ids': sorted(AVATAR_IDS),
+        'avatars': [{'id': a, 'label': AVATAR_LABELS.get(a, a)} for a in AVATAR_IDS],
     })
 
 
@@ -1813,11 +1827,46 @@ def support_chat():
         return requests.post(f"{LITELLM_URL}/v1/chat/completions", headers=litellm_headers(),
                              json=body, timeout=120)
 
+    def _chat_keepalive(with_tools):
+        """Comme _chat(), mais exécuté dans un thread pendant que le générateur
+        émet un ping SSE toutes les 5s. Un tour de modèle avec outils prend
+        ~25-30s sans produire un seul octet : sans ces pings, le proxy Next.js
+        couperait le flux sur inactivité. Renvoie la réponse via `return` (donc
+        récupérable avec `yield from`)."""
+        box = {}
+
+        def run():
+            try:
+                box['r'] = _chat(with_tools)
+            except Exception as e:  # noqa: BLE001 — relayé au générateur appelant
+                box['e'] = e
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        while t.is_alive():
+            t.join(timeout=5)
+            if t.is_alive():
+                yield ": ping\n\n"
+        if 'e' in box:
+            raise box['e']
+        return box['r']
+
     def gen():
+        # Commentaire SSE émis AVANT tout travail : il force l'écriture des
+        # en-têtes de la réponse immédiatement. Sans ça, /support/chat ne
+        # produit son premier octet qu'une fois la réponse complète du modèle
+        # obtenue (la boucle d'outils a besoin du message entier pour décider),
+        # soit ~25-30s avec les outils attachés — au-delà du timeout de
+        # connexion de 15s du proxy Next.js (lib/sseProxy.ts), qui coupait donc
+        # la requête avant même que le modèle ait répondu. Une fois les en-têtes
+        # partis, c'est le timeout d'INACTIVITÉ (60s) qui gouverne, et les pings
+        # ci-dessous le tiennent au large. Les lignes ':' sont ignorées par le
+        # parseur SSE côté client (il ne lit que les lignes 'data:').
+        yield ": open\n\n"
         try:
             use_tools = True
             for _ in range(4):  # boucle : le modèle peut enchaîner des appels d'outils
-                r = _chat(use_tools)
+                r = yield from _chat_keepalive(use_tools)
                 if not r.ok and use_tools:
                     use_tools = False   # modèle sans support tools → réessai sans
                     continue
@@ -1863,7 +1912,7 @@ def support_chat():
                     msgs.append({'role': 'tool', 'tool_call_id': tc.get('id'), 'content': res})
             # Trop d'allers-retours d'outils → on force une réponse finale SANS outils
             # (sinon le modèle peut boucler sur des appels et ne jamais conclure).
-            rf = _chat(False)
+            rf = yield from _chat_keepalive(False)
             if rf.ok:
                 reply = _clean_reply(rf.json()['choices'][0]['message'].get('content') or '')
                 yield from _sse_chunks(reply or "Peux-tu reformuler ta demande ?")
@@ -2721,6 +2770,14 @@ def update_request(req_id):
 
 with app.app_context():
     init_db()
+    # Le jeu d'avatars est passé de formes génériques (« avatar-01 »…) à des
+    # logos d'IA : on efface les préférences pointant vers un id disparu,
+    # sinon l'<img> tomberait sur un 404 pour ces comptes.
+    _db = get_db()
+    _db.execute(
+        "UPDATE user_prefs SET avatar_id=NULL WHERE avatar_id IS NOT NULL "
+        f"AND avatar_id NOT IN ({','.join('?' * len(AVATAR_IDS))})", AVATAR_IDS)
+    _db.commit()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)

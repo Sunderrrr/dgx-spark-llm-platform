@@ -9,4 +9,13 @@ RUN mkdir -p /app/data \
  && chown -R portal:portal /app
 USER portal
 EXPOSE 5000
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "-w", "2", "--worker-class", "gthread", "--threads", "4", "--timeout", "60", "app:app"]
+# 2 workers × 16 threads = 32 requêtes simultanées (contre 8 auparavant).
+# Ce n'est pas du confort : chaque flux SSE monopolise un thread tant qu'il est
+# ouvert — la page Admin garde un EventSource permanent vers /admin/runner/stream,
+# et chaque Playground/Support en cours en tient un autre. Avec 8 créneaux,
+# quelques onglets ouverts suffisaient à saturer le pool : les requêtes
+# suivantes étaient réinitialisées côté frontend (« socket hang up » sur
+# /api/home), et la page semblait ne pas s'afficher tant qu'on ne rechargeait pas.
+# --timeout 120 : une génération longue mais bien vivante ne doit pas être
+# prise pour un worker bloqué.
+CMD ["gunicorn", "-b", "0.0.0.0:5000", "-w", "2", "--worker-class", "gthread", "--threads", "16", "--timeout", "120", "app:app"]

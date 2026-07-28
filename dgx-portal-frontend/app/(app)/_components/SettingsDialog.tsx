@@ -43,6 +43,8 @@ import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, postForm, postFormJSON } from "@/lib/api";
 import { KeysContent } from "../keys/_components/KeysContent";
 import { useThemeMode } from "../../theme-provider";
+import { THEMES, type ThemeId } from "@/lib/themes";
+import { useLang, useT, type Lang } from "@/lib/i18n";
 import { ActivityHeatmap, type ActivityDay } from "./ActivityHeatmap";
 
 type McpServer = {
@@ -160,7 +162,9 @@ export function SettingsDialog({
 }) {
   const csrf = useCsrf();
   const showToast = useToast();
-  const { mode, setMode } = useThemeMode();
+  const { mode, setMode, themeId, setThemeId } = useThemeMode();
+  const { lang, setLang } = useLang();
+  const t = useT();
   const [section, setSection] = useState<Section>("account");
   const [data, setData] = useState<SettingsData | null>(null);
   // Sous-page « formulaire » d'une section (motif du design de référence :
@@ -280,6 +284,16 @@ export function SettingsDialog({
     refresh();
   }
 
+  async function selectTheme(id: ThemeId) {
+    setThemeId(id);            // application immédiate, sans attendre le réseau
+    if (csrf) void postForm("/settings/appearance", csrf, { theme_id: id });
+  }
+
+  async function selectLang(l: Lang) {
+    setLang(l);
+    if (csrf) void postForm("/settings/appearance", csrf, { lang: l });
+  }
+
   async function selectAvatar(avatarId: string) {
     if (!csrf) return;
     await postForm("/settings/avatar", csrf, { avatar_id: avatarId });
@@ -322,13 +336,13 @@ export function SettingsDialog({
                 {SECTIONS.map((grp) => (
                   <VStack key={grp.group} gap={1}>
                     <HStack paddingInline={2}>
-                      <Text type="supporting" color="secondary">{grp.group}</Text>
+                      <Text type="supporting" color="secondary">{t(grp.group)}</Text>
                     </HStack>
                     <List>
                       {grp.items.map((it) => (
                         <ListItem
                           key={it.id}
-                          label={it.label}
+                          label={t(it.label)}
                           startContent={<Icon icon={it.icon} size="sm" color="secondary" />}
                           isSelected={section === it.id && !isAddingMcp && !isAddingSkill}
                           onClick={() => {
@@ -371,7 +385,7 @@ export function SettingsDialog({
                 <HStack gap={2} vAlign="center">
                   {(isAddingMcp || isAddingSkill) && (
                     <Button
-                      label="Retour"
+                      label={t("Retour")}
                       variant="ghost"
                       size="sm"
                       isIconOnly
@@ -379,10 +393,10 @@ export function SettingsDialog({
                       onClick={leaveForm}
                     />
                   )}
-                  <Heading level={3}>{paneTitle}</Heading>
+                  <Heading level={3}>{t(paneTitle)}</Heading>
                 </HStack>
                 <Button
-                  label="Fermer"
+                  label={t("Fermer")}
                   variant="ghost"
                   size="sm"
                   isIconOnly
@@ -434,12 +448,8 @@ export function SettingsDialog({
 
                   <VStack gap={2}>
                     <HStack hAlign="between" vAlign="center">
-                      <Text type="supporting" color="secondary">
-                        ACTIVITÉ TOKENS
-                      </Text>
-                      <Text type="supporting" color="secondary">
-                        6 derniers mois
-                      </Text>
+                      <Text type="supporting" color="secondary">{t("ACTIVITÉ TOKENS")}</Text>
+                      <Text type="supporting" color="secondary">{t("6 derniers mois")}</Text>
                     </HStack>
                     <Card>
                       <ActivityHeatmap days={act.days} />
@@ -448,7 +458,7 @@ export function SettingsDialog({
 
                   <Grid columns={2} gap={4}>
                     <VStack gap={2}>
-                      <Text weight="semibold">Insights d&apos;activité</Text>
+                      <Text weight="semibold">{t("Insights d'activité")}</Text>
                       <VStack gap={1}>
                         {[
                           ["Total période", fmt(act.total)],
@@ -463,7 +473,7 @@ export function SettingsDialog({
                       </VStack>
                     </VStack>
                     <VStack gap={2}>
-                      <Text weight="semibold">Répartition tokens</Text>
+                      <Text weight="semibold">{t("Répartition tokens")}</Text>
                       <VStack gap={1}>
                         {[
                           ["Entrée (prompt)", fmt(act.prompt)],
@@ -480,24 +490,24 @@ export function SettingsDialog({
                   </Grid>
 
                   <VStack gap={2}>
-                    <Text weight="semibold">Budget</Text>
+                    <Text weight="semibold">{t("Budget")}</Text>
                     <Card>
                       {acct.unlimited ? (
                         <HStack>
-                          <Badge label="Budget illimité (admin)" variant="warning" />
+                          <Badge label={t("Budget illimité (admin)")} variant="warning" />
                         </HStack>
                       ) : (
                         <VStack gap={2}>
                           <HStack hAlign="between">
                             <Text type="supporting" color="secondary">
-                              Consommé aujourd&apos;hui
+                              {t("Consommé aujourd'hui")}
                             </Text>
                             <Text type="supporting" color="secondary" hasTabularNumbers>
                               {fmt(acct.spend)} / {fmt(acct.max_budget || 0)} tokens
                             </Text>
                           </HStack>
                           <ProgressBar
-                            label="Budget"
+                            label={t("Budget")}
                             isLabelHidden
                             value={Math.min(pct, 100)}
                             variant={pct >= 90 ? "error" : pct >= 70 ? "warning" : "success"}
@@ -514,13 +524,11 @@ export function SettingsDialog({
                 <VStack gap={4}>
                   <HStack hAlign="between" vAlign="start" gap={3}>
                     <VStack gap={0}>
-                      <Text weight="semibold">Vos limites d&apos;utilisation</Text>
-                      <Text type="supporting" color="secondary">
-                        Suivez la consommation de votre compte sur chaque quota disponible.
-                      </Text>
+                      <Text weight="semibold">{t("Vos limites d'utilisation")}</Text>
+                      <Text type="supporting" color="secondary">{t("Suivez la consommation de votre compte sur chaque quota disponible.")}</Text>
                     </VStack>
                     <Button
-                      label="Rafraîchir"
+                      label={t("Rafraîchir")}
                       variant="ghost"
                       size="sm"
                       isIconOnly
@@ -568,8 +576,7 @@ export function SettingsDialog({
                   </VStack>
                   <Divider />
                   <Text type="supporting" color="secondary">
-                    Besoin d&apos;augmenter tes limites ? Demande plus de tokens depuis l&apos;onglet
-                    « Clés API », ou passe par l&apos;assistant Support.
+                    {t("Besoin d'augmenter tes limites ? Demande plus de tokens depuis l'onglet « Clés API », ou passe par l'assistant Support.")}
                   </Text>
                 </VStack>
               )}
@@ -578,27 +585,25 @@ export function SettingsDialog({
               {section === "appearance" && (
                 <VStack gap={5}>
                   <VStack gap={2}>
+                    <Text type="supporting" color="secondary">{t("THÈME")}</Text>
                     <Text type="supporting" color="secondary">
-                      THÈME
-                    </Text>
-                    <Text type="supporting" color="secondary">
-                      Ajuste l&apos;apparence de l&apos;interface.
+                      {t("Ajuste l'apparence de l'interface.")}
                     </Text>
                     <Grid columns={3} gap={3}>
                       {[
                         { id: "light", label: "Clair", icon: SunIcon },
                         { id: "dark", label: "Sombre", icon: MoonIcon },
                         { id: "system", label: "Système", icon: ComputerDesktopIcon },
-                      ].map((t) => (
+                      ].map((opt) => (
                         <SelectableCard
-                          key={t.id}
-                          label={t.label}
-                          isSelected={mode === t.id}
-                          onChange={() => setMode(t.id as "light" | "dark" | "system")}
+                          key={opt.id}
+                          label={t(opt.label)}
+                          isSelected={mode === opt.id}
+                          onChange={() => setMode(opt.id as "light" | "dark" | "system")}
                           padding={3}>
                           <VStack gap={2} hAlign="center">
-                            <Icon icon={t.icon} size="md" color="secondary" />
-                            <Text weight="semibold">{t.label}</Text>
+                            <Icon icon={opt.icon} size="md" color="secondary" />
+                            <Text weight="semibold">{t(opt.label)}</Text>
                           </VStack>
                         </SelectableCard>
                       ))}
@@ -606,21 +611,67 @@ export function SettingsDialog({
                   </VStack>
                   <VStack gap={2}>
                     <Text type="supporting" color="secondary">
-                      LANGUE
+                      {t("COULEUR D'ACCENT")}
                     </Text>
-                    <Card>
-                      <VStack gap={1}>
-                        <HStack gap={2} vAlign="center">
-                          <Text weight="semibold">Français</Text>
-                          <Badge label="Seule langue disponible" variant="neutral" />
-                        </HStack>
-                        <Text type="supporting" color="secondary">
-                          L&apos;interface n&apos;est pas encore traduite : tous les libellés sont écrits
-                          en français dans le code. Un sélecteur de langue arrivera avec la
-                          traduction.
-                        </Text>
-                      </VStack>
-                    </Card>
+                    <Text type="supporting" color="secondary">
+                      {t("Change la couleur principale de l'interface.")}
+                    </Text>
+                    <Grid columns={{ minWidth: 92, max: 5 }} gap={3}>
+                      {THEMES.map((th) => (
+                        <SelectableCard
+                          key={th.id}
+                          label={t(th.label)}
+                          isSelected={themeId === th.id}
+                          onChange={() => selectTheme(th.id)}
+                          padding={3}>
+                          <VStack gap={2} hAlign="center">
+                            {/* Pastille de prévisualisation : seul endroit où une
+                                couleur brute est légitime — c'est l'échantillon
+                                lui-même, pas un élément d'interface thémé. */}
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: "50%",
+                                background: th.swatch,
+                                border: "1px solid var(--color-border)",
+                              }}
+                            />
+                            <Text type="supporting" color="secondary">
+                              {t(th.label)}
+                            </Text>
+                          </VStack>
+                        </SelectableCard>
+                      ))}
+                    </Grid>
+                  </VStack>
+
+                  <VStack gap={2}>
+                    <Text type="supporting" color="secondary">
+                      {t("LANGUE")}
+                    </Text>
+                    <Text type="supporting" color="secondary">
+                      {t("Choisis la langue de l'interface.")}
+                    </Text>
+                    <Grid columns={2} gap={3}>
+                      {([
+                        { id: "fr", label: t("Français"), drapeau: "🇫🇷" },
+                        { id: "en", label: t("Anglais"), drapeau: "🇬🇧" },
+                      ] as const).map((l) => (
+                        <SelectableCard
+                          key={l.id}
+                          label={l.label}
+                          isSelected={lang === l.id}
+                          onChange={() => selectLang(l.id)}
+                          padding={3}>
+                          <HStack gap={2} vAlign="center">
+                            <Text>{l.drapeau}</Text>
+                            <Text weight="semibold">{l.label}</Text>
+                          </HStack>
+                        </SelectableCard>
+                      ))}
+                    </Grid>
                   </VStack>
                 </VStack>
               )}
@@ -632,7 +683,7 @@ export function SettingsDialog({
               {section === "avatar" && (
                 <VStack gap={3}>
                   <Text type="supporting" color="secondary">
-                    Choisis un avatar parmi les logos proposés — pas d&apos;import d&apos;image personnelle.
+                    {t("Choisis un avatar parmi les logos proposés — pas d'import d'image personnelle.")}
                   </Text>
                   <Grid columns={{ minWidth: 110, max: 5 }} gap={3}>
                     {data?.avatars.map((a) => (
@@ -659,11 +710,10 @@ export function SettingsDialog({
                 <VStack gap={4}>
                   <HStack hAlign="between" vAlign="center" gap={3}>
                     <Text type="supporting" color="secondary">
-                      Connecte un serveur MCP distant en HTTPS : ses outils deviennent utilisables par
-                      l&apos;assistant Support.
+                      {t("Connecte un serveur MCP distant en HTTPS : ses outils deviennent utilisables par l'assistant Support.")}
                     </Text>
                     <Button
-                      label="Connecter un MCP"
+                      label={t("Connecter un MCP")}
                       variant="primary"
                       size="sm"
                       icon={<Icon icon={PlusIcon} size="sm" />}
@@ -677,7 +727,7 @@ export function SettingsDialog({
                   {data && data.mcp_servers.length === 0 ? (
                     <EmptyState
                       icon={<Icon icon={ServerStackIcon} size="lg" />}
-                      title="Aucun serveur MCP connecté."
+                      title={t("Aucun serveur MCP connecté.")}
                       description="Connecte un serveur pour étendre les capacités de l'assistant."
                     />
                   ) : (
@@ -754,7 +804,7 @@ export function SettingsDialog({
                   <VStack gap={0}>
                     <Text weight="semibold">{editingMcpId ? "Modifier le serveur MCP" : "Connecter un MCP personnalisé"}</Text>
                     <Text type="supporting" color="secondary">
-                      Configurez la connexion et la façon dont ses outils peuvent être utilisés.
+                      {t("Configurez la connexion et la façon dont ses outils peuvent être utilisés.")}
                     </Text>
                   </VStack>
                   <Card>
@@ -811,11 +861,10 @@ export function SettingsDialog({
                 <VStack gap={4}>
                   <HStack hAlign="between" vAlign="center" gap={3}>
                     <Text type="supporting" color="secondary">
-                      Des instructions réutilisables que tu écris toi-même ; l&apos;assistant les charge quand
-                      elles sont utiles à ta demande.
+                      {t("Des instructions réutilisables que tu écris toi-même ; l'assistant les charge quand elles sont utiles à ta demande.")}
                     </Text>
                     <Button
-                      label="Nouvelle compétence"
+                      label={t("Nouvelle compétence")}
                       variant="primary"
                       size="sm"
                       icon={<Icon icon={PlusIcon} size="sm" />}
@@ -829,7 +878,7 @@ export function SettingsDialog({
                   {data && data.skills.length === 0 ? (
                     <EmptyState
                       icon={<Icon icon={SparklesIcon} size="lg" />}
-                      title="Aucune compétence pour l'instant."
+                      title={t("Aucune compétence pour l'instant.")}
                       description="Crée une compétence pour guider l'assistant sur une tâche récurrente."
                     />
                   ) : (
@@ -883,7 +932,7 @@ export function SettingsDialog({
                   <VStack gap={0}>
                     <Text weight="semibold">{editingSkillId ? "Modifier la compétence" : "Créer une compétence"}</Text>
                     <Text type="supporting" color="secondary">
-                      L&apos;assistant chargera ces instructions en contexte quand la compétence s&apos;applique.
+                      {t("L'assistant chargera ces instructions en contexte quand la compétence s'applique.")}
                     </Text>
                   </VStack>
                   <Card>
@@ -920,7 +969,7 @@ export function SettingsDialog({
               <LayoutFooter hasDivider>
                 <HStack gap={2} hAlign="end">
                   <Button
-                    label="Annuler"
+                    label={t("Annuler")}
                     variant="secondary"
                     onClick={leaveForm}
                   />

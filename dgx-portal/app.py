@@ -1002,6 +1002,30 @@ def api_config():
     return jsonify({'oidc_enabled': OIDC_ENABLED})
 
 
+def _client_ip():
+    """IP réelle du visiteur, pas celle du dernier proxy.
+
+    ProxyFix(x_for=1) ne remonte que d'UN saut, or la chaîne est
+    client → Cloudflare → Traefik → Next.js → Flask : request.remote_addr
+    valait donc toujours l'IP du conteneur frontend (172.19.0.x), identique
+    pour tout le monde. Conséquence : le verrou anti-force-brute global
+    _login_locked(ip) se déclenchait sur la SOMME des échecs de tous les
+    utilisateurs et bloquait la connexion du portail entier pendant 15 min.
+
+    Cf-Connecting-Ip est posé par Cloudflare et normalisé par le plugin
+    cloudflarewarp de Traefik ; le port 5000 n'est joignable que depuis
+    Traefik et le bridge docker (voir cronos-docker-restrict.service), donc
+    l'en-tête n'est pas falsifiable depuis l'extérieur.
+    """
+    cf = (request.headers.get('Cf-Connecting-Ip') or '').strip()
+    if cf:
+        return cf
+    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')
+    if fwd and fwd[0].strip():
+        return fwd[0].strip()
+    return request.remote_addr or 'unknown'
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if 'username' in session:
@@ -1009,7 +1033,7 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip().lower()
         password = request.form.get('password', '')
-        ip  = request.remote_addr or 'unknown'          # vraie IP via ProxyFix
+        ip  = _client_ip()
         key = f"{ip}|{username}"
         wait = _login_locked(key) or _login_locked(ip)
         if wait:

@@ -117,7 +117,7 @@ export default function HomePage() {
                 label={t("Mes clés API")}
                 variant="primary"
                 icon={<Icon icon={KeyIcon} size="sm" />}
-                onClick={() => (window.location.href = "/keys")}
+                href="/keys"
               />
             </HStack>
 
@@ -128,7 +128,7 @@ export default function HomePage() {
                   icon={<Icon icon={MoonIcon} size="lg" />}
                   title={t("Aucun modèle actif")}
                   description={t("Demande le lancement d'un modèle.")}
-                  actions={<Button label={t("Demander un modèle")} variant="secondary" onClick={() => (window.location.href = "/request")} />}
+                  actions={<Button label={t("Demander un modèle")} variant="secondary" href="/request" />}
                   isCompact
                 />
               )}
@@ -148,7 +148,7 @@ export default function HomePage() {
                           label={t("Créer une clé API")}
                           variant="secondary"
                           size="sm"
-                          onClick={() => (window.location.href = "/keys")}
+                          href="/keys"
                         />
                       </VStack>
                     </Card>
@@ -291,7 +291,7 @@ export default function HomePage() {
                   <Text type="supporting" color="secondary">
                     Limite : {who?.is_admin ? "Illimitée (admin)" : `${data?.budget_tokens ?? "—"} tokens / ${data?.budget_duration ?? "—"}`}
                   </Text>
-                  <Button label={t("Gérer mes clés")} variant="secondary" onClick={() => (window.location.href = "/keys")} />
+                  <Button label={t("Gérer mes clés")} variant="secondary" href="/keys" />
                 </VStack>
               </Card>
               <Card>
@@ -301,7 +301,7 @@ export default function HomePage() {
                     <Text weight="semibold">{t("Catalogue HuggingFace")}</Text>
                   </HStack>
                   <Text type="supporting" color="secondary">{t("Parcours les modèles disponibles et demande le lancement de celui qui t'intéresse.")}</Text>
-                  <Button label={t("Explorer les modèles")} variant="secondary" onClick={() => (window.location.href = "/search")} />
+                  <Button label={t("Explorer les modèles")} variant="secondary" href="/search" />
                 </VStack>
               </Card>
               <Card>
@@ -311,7 +311,7 @@ export default function HomePage() {
                     <Text weight="semibold">{t("Demander un modèle")}</Text>
                   </HStack>
                   <Text type="supporting" color="secondary">{t("Tu connais un modèle que tu veux tester ? Envoie une demande à l'admin.")}</Text>
-                  <Button label={t("Faire une demande")} variant="secondary" onClick={() => (window.location.href = "/request")} />
+                  <Button label={t("Faire une demande")} variant="secondary" href="/request" />
                 </VStack>
               </Card>
             </Grid>

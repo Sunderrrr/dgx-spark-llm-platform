@@ -18,7 +18,6 @@ import { Avatar } from "@astryxdesign/core/Avatar";
 import {
   SparklesIcon,
   HomeIcon,
-  KeyIcon,
   ChatBubbleLeftRightIcon,
   MagnifyingGlassIcon,
   PaperAirplaneIcon,
@@ -31,12 +30,16 @@ import {
   Cog6ToothIcon,
 } from "@heroicons/react/24/outline";
 import { useThemeMode } from "../theme-provider";
+import { SettingsDialog } from "./_components/SettingsDialog";
 
 type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id: string | null };
 
+// « Mes clés API » n'est volontairement plus ici : sa configuration vit
+// désormais dans le dialogue Réglages (onglet « Clés API »), ouvert par
+// l'engrenage du pied de la barre latérale. La route /keys reste servie —
+// les boutons de la page d'accueil y renvoient toujours.
 const NAV_ITEMS = [
   { href: "/", label: "Accueil", icon: HomeIcon },
-  { href: "/keys", label: "Mes clés API", icon: KeyIcon },
   { href: "/playground", label: "Playground", icon: ChatBubbleLeftRightIcon },
   { href: "/search", label: "Chercher un modèle", icon: MagnifyingGlassIcon },
   { href: "/request", label: "Demander un modèle", icon: PaperAirplaneIcon },
@@ -48,6 +51,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { mode, setMode } = useThemeMode();
   const [who, setWho] = useState<Whoami | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const navItems = who?.is_admin
     ? [...NAV_ITEMS, { href: "/admin", label: "Admin", icon: ShieldCheckIcon }]
@@ -90,9 +94,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   size="sm"
                   isIconOnly
                   icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-                  onClick={() => {
-                    window.location.href = "/settings";
-                  }}
+                  onClick={() => setIsSettingsOpen(true)}
                 />
                 <Button
                   label="Basculer le thème"
@@ -129,6 +131,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </SideNav>
       }>
       {children}
+      <SettingsDialog
+        isOpen={isSettingsOpen}
+        onOpenChange={setIsSettingsOpen}
+        onAvatarChange={(avatarId) => setWho((prev) => (prev ? { ...prev, avatar_id: avatarId } : prev))}
+      />
     </AppShell>
   );
 }

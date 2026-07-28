@@ -30,12 +30,19 @@ import {
   SparklesIcon,
   UserCircleIcon,
   UserIcon,
+  ChartBarIcon,
+  SwatchIcon,
+  ArrowPathIcon,
+  SunIcon,
+  MoonIcon,
+  ComputerDesktopIcon,
   ArrowLeftIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, postForm, postFormJSON } from "@/lib/api";
 import { KeysContent } from "../keys/_components/KeysContent";
+import { useThemeMode } from "../../theme-provider";
 import { ActivityHeatmap, type ActivityDay } from "./ActivityHeatmap";
 
 type McpServer = {
@@ -71,8 +78,18 @@ type Activity = {
   active_days: number;
   avg: number;
 };
+type Limit = {
+  key: string;
+  label: string;
+  desc: string;
+  used: number | null;
+  max: number | null;
+  unit: string;
+  unlimited: boolean;
+};
 type SettingsData = {
   activity: Activity;
+  limits: Limit[];
   mcp_servers: McpServer[];
   skills: Skill[];
   avatar_id: string | null;
@@ -80,13 +97,14 @@ type SettingsData = {
   account: Account;
 };
 
-type Section = "account" | "keys" | "avatar" | "mcp" | "skills";
+type Section = "account" | "usage" | "keys" | "avatar" | "appearance" | "mcp" | "skills";
 
 const SECTIONS: { group: string; items: { id: Section; label: string; icon: typeof UserIcon }[] }[] = [
   {
     group: "Réglages du compte",
     items: [
       { id: "account", label: "Mon compte", icon: UserIcon },
+      { id: "usage", label: "Usage", icon: ChartBarIcon },
       { id: "keys", label: "Clés API", icon: KeyIcon },
     ],
   },
@@ -94,6 +112,7 @@ const SECTIONS: { group: string; items: { id: Section; label: string; icon: type
     group: "Réglages de l'app",
     items: [
       { id: "avatar", label: "Personnalisation", icon: UserCircleIcon },
+      { id: "appearance", label: "Apparence", icon: SwatchIcon },
       { id: "mcp", label: "MCP", icon: ServerStackIcon },
       { id: "skills", label: "Compétences", icon: SparklesIcon },
     ],
@@ -102,8 +121,10 @@ const SECTIONS: { group: string; items: { id: Section; label: string; icon: type
 
 const SECTION_TITLES: Record<Section, string> = {
   account: "Mon compte",
+  usage: "Usage",
   keys: "Clés API",
   avatar: "Personnalisation",
+  appearance: "Apparence",
   mcp: "MCP",
   skills: "Compétences",
 };
@@ -139,6 +160,7 @@ export function SettingsDialog({
 }) {
   const csrf = useCsrf();
   const showToast = useToast();
+  const { mode, setMode } = useThemeMode();
   const [section, setSection] = useState<Section>("account");
   const [data, setData] = useState<SettingsData | null>(null);
   // Sous-page « formulaire » d'une section (motif du design de référence :
@@ -267,6 +289,7 @@ export function SettingsDialog({
 
   const acct = data?.account;
   const act = data?.activity ?? EMPTY_ACTIVITY;
+  const limits = data?.limits ?? [];
   const pct = acct && !acct.unlimited && acct.max_budget ? (acct.spend / acct.max_budget) * 100 : 0;
 
   // Titre du volet droit : nom de la section, ou celui de la sous-page ouverte.
@@ -485,6 +508,123 @@ export function SettingsDialog({
                   </VStack>
                 </VStack>
               )}
+
+              {/* ── Usage ──────────────────────────────────────────────── */}
+              {section === "usage" && (
+                <VStack gap={4}>
+                  <HStack hAlign="between" vAlign="start" gap={3}>
+                    <VStack gap={0}>
+                      <Text weight="semibold">Vos limites d&apos;utilisation</Text>
+                      <Text type="supporting" color="secondary">
+                        Suivez la consommation de votre compte sur chaque quota disponible.
+                      </Text>
+                    </VStack>
+                    <Button
+                      label="Rafraîchir"
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                      onClick={refresh}
+                    />
+                  </HStack>
+                  <VStack gap={4}>
+                    {limits.map((l) => {
+                      const pourcent =
+                        l.unlimited || !l.max || l.used === null
+                          ? null
+                          : Math.min(100, Math.round((l.used / l.max) * 100));
+                      return (
+                        <HStack key={l.key} gap={4} vAlign="center" hAlign="between">
+                          <VStack gap={0} width="45%">
+                            <Text weight="semibold">{l.label}</Text>
+                            <Text type="supporting" color="secondary">
+                              {l.desc}
+                            </Text>
+                          </VStack>
+                          <HStack gap={3} vAlign="center" width="50%">
+                            {pourcent === null ? (
+                              <Badge
+                                label={l.unlimited ? "Illimité" : `${fmt(l.max ?? 0)} ${l.unit}`}
+                                variant={l.unlimited ? "warning" : "neutral"}
+                              />
+                            ) : (
+                              <>
+                                <ProgressBar
+                                  label={l.label}
+                                  isLabelHidden
+                                  value={pourcent}
+                                  variant={pourcent >= 90 ? "error" : pourcent >= 70 ? "warning" : "success"}
+                                />
+                                <Text type="supporting" color="secondary" hasTabularNumbers>
+                                  {pourcent} % utilisé
+                                </Text>
+                              </>
+                            )}
+                          </HStack>
+                        </HStack>
+                      );
+                    })}
+                  </VStack>
+                  <Divider />
+                  <Text type="supporting" color="secondary">
+                    Besoin d&apos;augmenter tes limites ? Demande plus de tokens depuis l&apos;onglet
+                    « Clés API », ou passe par l&apos;assistant Support.
+                  </Text>
+                </VStack>
+              )}
+
+              {/* ── Apparence ──────────────────────────────────────────── */}
+              {section === "appearance" && (
+                <VStack gap={5}>
+                  <VStack gap={2}>
+                    <Text type="supporting" color="secondary">
+                      THÈME
+                    </Text>
+                    <Text type="supporting" color="secondary">
+                      Ajuste l&apos;apparence de l&apos;interface.
+                    </Text>
+                    <Grid columns={3} gap={3}>
+                      {[
+                        { id: "light", label: "Clair", icon: SunIcon },
+                        { id: "dark", label: "Sombre", icon: MoonIcon },
+                        { id: "system", label: "Système", icon: ComputerDesktopIcon },
+                      ].map((t) => (
+                        <SelectableCard
+                          key={t.id}
+                          label={t.label}
+                          isSelected={mode === t.id}
+                          onChange={() => setMode(t.id as "light" | "dark" | "system")}
+                          padding={3}>
+                          <VStack gap={2} hAlign="center">
+                            <Icon icon={t.icon} size="md" color="secondary" />
+                            <Text weight="semibold">{t.label}</Text>
+                          </VStack>
+                        </SelectableCard>
+                      ))}
+                    </Grid>
+                  </VStack>
+                  <VStack gap={2}>
+                    <Text type="supporting" color="secondary">
+                      LANGUE
+                    </Text>
+                    <Card>
+                      <VStack gap={1}>
+                        <HStack gap={2} vAlign="center">
+                          <Text weight="semibold">Français</Text>
+                          <Badge label="Seule langue disponible" variant="neutral" />
+                        </HStack>
+                        <Text type="supporting" color="secondary">
+                          L&apos;interface n&apos;est pas encore traduite : tous les libellés sont écrits
+                          en français dans le code. Un sélecteur de langue arrivera avec la
+                          traduction.
+                        </Text>
+                      </VStack>
+                    </Card>
+                  </VStack>
+                </VStack>
+              )}
+
               {/* ── Clés API ───────────────────────────────────────────── */}
               {section === "keys" && <KeysContent />}
 

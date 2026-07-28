@@ -95,6 +95,9 @@ const SECTION_TITLES: Record<Section, string> = {
   skills: "Compétences",
 };
 
+// Taille constante du dialogue, quelle que soit la section affichée.
+const DIALOG_HEIGHT = "min(86vh, 700px)";
+
 function fmt(n: number) {
   return Math.round(n).toLocaleString("fr-FR");
 }
@@ -223,7 +226,18 @@ export function SettingsDialog({
   const paneTitle = isAddingMcp ? "MCP" : isAddingSkill ? "Compétences" : SECTION_TITLES[section];
 
   return (
-    <Dialog isOpen={isOpen} onOpenChange={onOpenChange} purpose="form" width={980} maxHeight="86vh">
+    <Dialog
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      purpose="form"
+      width={980}
+      maxHeight={DIALOG_HEIGHT}
+      // Hauteur FIXE (et pas seulement maxHeight) : sans ça le dialogue se
+      // redimensionne à chaque changement de section — « Mon compte » est haut,
+      // une liste de compétences vide est courte — et la fenêtre saute sous le
+      // curseur. Dialog n'expose pas de prop `height`, d'où le style inline ;
+      // min() garde la fenêtre entière sur les écrans courts.
+      style={{ height: DIALOG_HEIGHT }}>
       <Layout
         height="fill"
         padding={0}

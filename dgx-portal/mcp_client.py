@@ -179,6 +179,13 @@ _tools_cache = {}
 _TOOLS_TTL = 120
 
 
+def invalidate_tools(server_id):
+    """Oublie les outils mis en cache d'un serveur — à appeler dès que son URL,
+    son auth ou son filtre changent, sinon on continuerait à exposer au modèle
+    les outils de l'ancienne configuration jusqu'à l'expiration du TTL."""
+    _tools_cache.pop(server_id, None)
+
+
 def list_tools_cached(server_id, url, auth_header):
     now = time.monotonic()
     cached = _tools_cache.get(server_id)

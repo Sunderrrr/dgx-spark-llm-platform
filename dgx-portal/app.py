@@ -10,7 +10,8 @@ from zoneinfo import ZoneInfo
 from functools import wraps
 from urllib.parse import urlparse
 from werkzeug.middleware.proxy_fix import ProxyFix
-from mcp_client import validate_mcp_url, list_tools_cached, MCPClient, MCPError
+from mcp_client import (validate_mcp_url, list_tools_cached, invalidate_tools as _invalidate_mcp_tools,
+                        MCPClient, MCPError)
 
 app = Flask(__name__)
 app.secret_key = os.environ['SECRET_KEY']
@@ -269,6 +270,22 @@ def init_db():
         CREATE TABLE IF NOT EXISTS user_prefs (
             username  TEXT PRIMARY KEY,
             avatar_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS conversations (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            username   TEXT NOT NULL,
+            client_id  TEXT NOT NULL,       -- id généré côté client (idempotence)
+            title      TEXT NOT NULL,
+            model      TEXT DEFAULT '',
+            messages   TEXT NOT NULL,       -- JSON [{role, content}]
+            updated_at TEXT NOT NULL,
+            UNIQUE(username, client_id)
+        );
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            key          TEXT PRIMARY KEY,   -- "ip|user" ou "ip"
+            fails        INTEGER NOT NULL DEFAULT 0,
+            first_at     REAL NOT NULL,
+            locked_until REAL NOT NULL DEFAULT 0
         );
     ''')
     # Migration : colonnes ajoutées à mcp_servers après sa création initiale
@@ -898,36 +915,42 @@ def admin_required(f):
 
 # ── Routes ──────────────────────────────────────────────────────────────────
 
-# ── Anti-brute-force du login (in-memory, best-effort) ──────────────────────
-_login_lock = threading.Lock()
-_login_attempts = {}          # clé -> {'fails': int, 'first': ts, 'until': ts}
+# ── Anti-brute-force du login (persisté en base) ────────────────────────────
+# Stocké en SQLite et non en mémoire de process : avec gunicorn -w 2, un
+# compteur en RAM est local à chaque worker (donc 2× les tentatives permises,
+# selon le worker qui reçoit la requête) et repart à zéro à chaque
+# redéploiement — deux façons triviales de contourner le verrouillage.
 LOGIN_MAX_FAILS = 6           # tentatives avant verrouillage
 LOGIN_WINDOW    = 900         # fenêtre glissante (15 min)
 LOGIN_LOCK      = 900         # durée du verrouillage (15 min)
 
 def _login_locked(key):
     """Retourne le nb de secondes de verrouillage restant, ou 0."""
-    now = time.time()
-    with _login_lock:
-        e = _login_attempts.get(key)
-        if e and e['until'] > now:
-            return int(e['until'] - now)
-    return 0
+    row = get_db().execute("SELECT locked_until FROM login_attempts WHERE key=?", (key,)).fetchone()
+    if not row or not row['locked_until']:
+        return 0
+    return max(0, int(row['locked_until'] - time.time()))
 
 def _login_fail(key):
     now = time.time()
-    with _login_lock:
-        e = _login_attempts.get(key)
-        if not e or now - e['first'] > LOGIN_WINDOW:
-            e = {'fails': 0, 'first': now, 'until': 0}
-        e['fails'] += 1
-        if e['fails'] >= LOGIN_MAX_FAILS:
-            e['until'] = now + LOGIN_LOCK
-        _login_attempts[key] = e
+    db = get_db()
+    row = db.execute("SELECT fails, first_at FROM login_attempts WHERE key=?", (key,)).fetchone()
+    if not row or now - row['first_at'] > LOGIN_WINDOW:
+        fails, first_at = 1, now
+    else:
+        fails, first_at = row['fails'] + 1, row['first_at']
+    locked_until = now + LOGIN_LOCK if fails >= LOGIN_MAX_FAILS else 0
+    db.execute(
+        "INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,?,?,?) "
+        "ON CONFLICT(key) DO UPDATE SET fails=excluded.fails, first_at=excluded.first_at, "
+        "locked_until=excluded.locked_until",
+        (key, fails, first_at, locked_until))
+    db.commit()
 
 def _login_reset(key):
-    with _login_lock:
-        _login_attempts.pop(key, None)
+    db = get_db()
+    db.execute("DELETE FROM login_attempts WHERE key=?", (key,))
+    db.commit()
 
 @app.route('/api/config')
 def api_config():
@@ -1337,6 +1360,7 @@ def api_settings():
             'mcp_count': len(servers),
             'skill_count': len(skills),
         },
+        'activity': _account_activity(username),
     })
 
 
@@ -1377,6 +1401,48 @@ def mcp_servers_route():
         except sqlite3.IntegrityError:
             return jsonify({'ok': False, 'error': "Tu as déjà un serveur MCP avec ce nom."})
         return jsonify({'ok': True, 'tool_count': len(discovered)})
+    elif action == 'update':
+        server_id = request.form.get('id', '')
+        row = db.execute("SELECT auth_header FROM mcp_servers WHERE id=? AND username=?",
+                          (server_id, username)).fetchone()
+        if not row:
+            return jsonify({'ok': False, 'error': "Serveur introuvable."})
+        name = request.form.get('name', '').strip()[:60]
+        url = request.form.get('url', '').strip()
+        description = request.form.get('description', '').strip()[:300]
+        allowed_tools = request.form.get('allowed_tools', '').strip()[:500]
+        # Champ d'autorisation laissé vide au réaffichage = « ne pas changer »
+        # (on ne renvoie jamais le secret au client, donc on ne peut pas le
+        # distinguer d'une suppression volontaire ; l'effacer se fait via le
+        # marqueur explicite ci-dessous).
+        raw_auth = request.form.get('auth_header', '')
+        auth_header = row['auth_header'] if raw_auth == '' else (raw_auth.strip() or None)
+        if raw_auth.strip() == '-':
+            auth_header = None
+        if not name or not url:
+            return jsonify({'ok': False, 'error': "Nom et URL requis."})
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,60}', name):
+            return jsonify({'ok': False, 'error': "Lettres, chiffres, underscores et tirets uniquement."})
+        ok, err = validate_mcp_url(url)
+        if not ok:
+            return jsonify({'ok': False, 'error': err})
+        try:
+            client = MCPClient(url, auth_header)
+            client.initialize()
+            discovered = client.list_tools()
+        except MCPError as e:
+            return jsonify({'ok': False, 'error': f"Connexion au serveur MCP impossible : {e}"})
+        except Exception:
+            return jsonify({'ok': False, 'error': "Connexion au serveur MCP impossible."})
+        try:
+            db.execute("UPDATE mcp_servers SET name=?, url=?, auth_header=?, description=?, "
+                       "allowed_tools=? WHERE id=? AND username=?",
+                       (name, url, auth_header, description, allowed_tools, server_id, username))
+            db.commit()
+        except sqlite3.IntegrityError:
+            return jsonify({'ok': False, 'error': "Tu as déjà un serveur MCP avec ce nom."})
+        _invalidate_mcp_tools(int(server_id))
+        return jsonify({'ok': True, 'tool_count': len(discovered)})
     elif action == 'toggle':
         server_id = request.form.get('id', '')
         enabled = 1 if request.form.get('enabled') == '1' else 0
@@ -1388,6 +1454,7 @@ def mcp_servers_route():
         server_id = request.form.get('id', '')
         db.execute("DELETE FROM mcp_servers WHERE id=? AND username=?", (server_id, username))
         db.commit()
+        _invalidate_mcp_tools(int(server_id) if str(server_id).isdigit() else server_id)
     return ('', 204)
 
 
@@ -1412,11 +1479,95 @@ def skills_route():
         except sqlite3.IntegrityError:
             return jsonify({'ok': False, 'error': "Tu as déjà une compétence avec ce nom."})
         return jsonify({'ok': True})
+    elif action == 'update':
+        skill_id = request.form.get('id', '')
+        name = request.form.get('name', '').strip()[:60]
+        description = request.form.get('description', '').strip()[:300]
+        instructions = request.form.get('instructions', '').strip()[:20000]
+        if not name or not description or not instructions:
+            return jsonify({'ok': False, 'error': "Nom, description et instructions requis."})
+        try:
+            cur = db.execute(
+                "UPDATE skills SET name=?, description=?, instructions=? WHERE id=? AND username=?",
+                (name, description, instructions, skill_id, username))
+            db.commit()
+        except sqlite3.IntegrityError:
+            return jsonify({'ok': False, 'error': "Tu as déjà une compétence avec ce nom."})
+        if not cur.rowcount:
+            return jsonify({'ok': False, 'error': "Compétence introuvable."})
+        return jsonify({'ok': True})
     elif action == 'delete':
         skill_id = request.form.get('id', '')
         db.execute("DELETE FROM skills WHERE id=? AND username=?", (skill_id, username))
         db.commit()
-        flash("Compétence supprimée.", "success")
+    return ('', 204)
+
+
+# ── Historique des conversations du Playground ──────────────────────────────
+# Stocké côté serveur et non plus dans le localStorage du navigateur : sinon
+# l'historique est perdu en changeant de machine, de navigateur, ou en vidant
+# le cache. On garde un `client_id` généré par le client pour que la même
+# conversation reste la même ligne au fil des enregistrements.
+CONVERSATIONS_MAX = 30           # par utilisateur — au-delà, on purge les plus vieilles
+
+
+@app.route('/api/conversations')
+@login_required
+def api_conversations():
+    rows = get_db().execute(
+        "SELECT client_id, title, model, messages, updated_at FROM conversations "
+        "WHERE username=? ORDER BY updated_at DESC", (session['username'],))
+    out = []
+    for r in rows:
+        try:
+            messages = json.loads(r['messages'])
+        except Exception:
+            continue
+        out.append({'id': r['client_id'], 'title': r['title'], 'model': r['model'],
+                    'ts': r['updated_at'], 'messages': messages})
+    return jsonify({'conversations': out})
+
+
+@app.route('/conversations', methods=['POST'])
+@login_required
+def conversations_route():
+    username = session['username']
+    db = get_db()
+    action = request.form.get('action')
+    if action == 'save':
+        client_id = request.form.get('id', '').strip()[:64]
+        title = request.form.get('title', '').strip()[:120] or 'Conversation'
+        model = request.form.get('model', '').strip()[:80]
+        raw = request.form.get('messages', '[]')
+        if not client_id:
+            return jsonify({'ok': False, 'error': 'id manquant'})
+        try:
+            messages = json.loads(raw)
+            assert isinstance(messages, list)
+        except Exception:
+            return jsonify({'ok': False, 'error': 'messages invalides'})
+        # Borne la taille stockée : une conversation très longue ne doit pas
+        # faire gonfler la base indéfiniment.
+        messages = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:20000]}
+                    for m in messages if m.get('role') in ('user', 'assistant')][-60:]
+        db.execute(
+            "INSERT INTO conversations (username, client_id, title, model, messages, updated_at) "
+            "VALUES (?,?,?,?,?,?) ON CONFLICT(username, client_id) DO UPDATE SET "
+            "title=excluded.title, model=excluded.model, messages=excluded.messages, "
+            "updated_at=excluded.updated_at",
+            (username, client_id, title, model, json.dumps(messages, ensure_ascii=False),
+             datetime.now().isoformat()))
+        db.execute(
+            "DELETE FROM conversations WHERE username=? AND client_id NOT IN ("
+            "  SELECT client_id FROM conversations WHERE username=? "
+            "  ORDER BY updated_at DESC LIMIT ?)",
+            (username, username, CONVERSATIONS_MAX))
+        db.commit()
+        return jsonify({'ok': True})
+    if action == 'delete':
+        db.execute("DELETE FROM conversations WHERE username=? AND client_id=?",
+                   (username, request.form.get('id', '')))
+        db.commit()
     return ('', 204)
 
 
@@ -1823,19 +1974,52 @@ def _sse_tool_event(tc_id, name, target, status, duration_ms=None, error=None):
     return f"data: {json.dumps(payload)}\n\n"
 
 
-def _sse_chunks(text):
-    """Découpe un texte déjà généré en petits paquets SSE envoyés à un rythme
-    proche d'un vrai streaming. /support/chat n'est pas lui-même en streaming
-    de bout en bout : la boucle d'appels d'outils a besoin de la réponse
-    complète de chaque tour pour décider d'exécuter un outil. Une fois la
-    réponse finale connue, on simule donc le rythme de frappe au lieu de
-    l'envoyer d'un bloc."""
-    chunk_chars, delay = 4, 0.02
+# ── Limite de débit des endpoints de chat ───────────────────────────────────
+# Le budget LiteLLM plafonne les tokens, pas le NOMBRE d'appels : un client qui
+# boucle peut monopoliser les threads gunicorn (chaque flux SSE en occupe un)
+# et saturer le GPU sans jamais dépasser son quota. Fenêtre glissante simple,
+# en base pour être partagée entre les workers, comme le verrou de login.
+CHAT_RATE_MAX    = 20    # requêtes autorisées…
+CHAT_RATE_WINDOW = 60    # …par fenêtre de 60 s et par utilisateur
+
+
+def _chat_rate_limited(username, bucket):
+    """Retourne le nb de secondes à attendre, ou 0 si la requête peut passer."""
+    now = time.time()
+    key = f"{bucket}|{username}"
+    db = get_db()
+    row = db.execute("SELECT fails, first_at FROM login_attempts WHERE key=?", (key,)).fetchone()
+    if not row or now - row['first_at'] > CHAT_RATE_WINDOW:
+        db.execute("INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,1,?,0) "
+                   "ON CONFLICT(key) DO UPDATE SET fails=1, first_at=excluded.first_at",
+                   (key, now))
+        db.commit()
+        return 0
+    if row['fails'] >= CHAT_RATE_MAX:
+        return max(1, int(CHAT_RATE_WINDOW - (now - row['first_at'])))
+    db.execute("UPDATE login_attempts SET fails=fails+1 WHERE key=?", (key,))
+    db.commit()
+    return 0
+
+
+def _sse_text(text):
+    """Une trame SSE contenant un fragment de texte, telle quelle."""
+    return f"data: {json.dumps({'choices': [{'delta': {'content': text}}]})}\n\n"
+
+
+def _sse_chunks(text, done=True):
+    """Envoie un texte DÉJÀ connu, en quelques trames. Sert aux messages
+    d'erreur et au repli « bloc de raisonnement » : le cas courant passe
+    maintenant par _run_turn(), qui relaie le vrai flux du modèle.
+
+    Pas de temporisation ici : elle n'imitait qu'un faux effet de frappe et
+    ajoutait ~5,5s sur une réponse de 1 100 caractères déjà entièrement
+    générée."""
+    chunk_chars = 96
     for i in range(0, len(text), chunk_chars):
-        payload = json.dumps({'choices': [{'delta': {'content': text[i:i + chunk_chars]}}]})
-        yield f"data: {payload}\n\n"
-        time.sleep(delay)
-    yield "data: [DONE]\n\n"
+        yield _sse_text(text[i:i + chunk_chars])
+    if done:
+        yield "data: [DONE]\n\n"
 
 
 @app.route('/support/chat', methods=['POST'])
@@ -1847,6 +2031,10 @@ def support_chat():
         return Response(_sse_msg("Message vide."), mimetype='text/event-stream'), 400
     history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:4000]}
                for m in history if m.get('role') in ('user', 'assistant')][-12:]
+    wait = _chat_rate_limited(session['username'], 'rl-support')
+    if wait:
+        return Response(_sse_msg(f"Trop de messages d'affilée — réessaie dans {wait}s."),
+                        mimetype='text/event-stream')
     running = get_running_models()
     if not running:
         return Response(_sse_msg("Aucun modèle n'est actif sur le serveur pour l'instant : "
@@ -1862,38 +2050,107 @@ def support_chat():
     extra_tools, extra_routing = _user_extra_tools(username)
     tools = _support_tools(is_admin) + extra_tools
 
-    def _chat(with_tools):
+    def _chat(with_tools, stream):
         body = {'model': model, 'messages': msgs, 'temperature': 0.3, 'max_tokens': 4096,
                 'chat_template_kwargs': {'enable_thinking': False}}
         if with_tools:
             body['tools'] = tools
             body['tool_choice'] = 'auto'
+        if stream:
+            body['stream'] = True
         return requests.post(f"{LITELLM_URL}/v1/chat/completions", headers=litellm_headers(),
-                             json=body, timeout=120)
+                             json=body, timeout=180, stream=stream)
 
-    def _chat_keepalive(with_tools):
-        """Comme _chat(), mais exécuté dans un thread pendant que le générateur
-        émet un ping SSE toutes les 5s. Un tour de modèle avec outils prend
-        ~25-30s sans produire un seul octet : sans ces pings, le proxy Next.js
-        couperait le flux sur inactivité. Renvoie la réponse via `return` (donc
-        récupérable avec `yield from`)."""
-        box = {}
+    def _run_turn(with_tools):
+        """Joue un tour de modèle EN STREAMING et renvoie (contenu, tool_calls,
+        status) via `return` (donc récupérable avec `yield from`).
 
-        def run():
-            try:
-                box['r'] = _chat(with_tools)
-            except Exception as e:  # noqa: BLE001 — relayé au générateur appelant
-                box['e'] = e
+        Le texte est relayé au client au fil de l'eau : c'est ce qui fait
+        tomber le temps avant premier token de ~26s à ~1s. Les `tool_calls`,
+        eux, arrivent aussi en deltas — on les accumule sans rien émettre, et
+        c'est l'appelant qui les exécute puis reboucle.
 
-        t = threading.Thread(target=run, daemon=True)
-        t.start()
-        while t.is_alive():
-            t.join(timeout=5)
-            if t.is_alive():
-                yield ": ping\n\n"
-        if 'e' in box:
-            raise box['e']
-        return box['r']
+        Un bloc de raisonnement (<think>…) ne peut pas être retiré après coup
+        une fois streamé : on retient donc les tout premiers caractères le
+        temps de savoir si le tour en ouvre un. Si oui, on bascule en mode
+        bufferisé et on applique _clean_reply() à la fin comme avant."""
+        try:
+            r = _chat(with_tools, stream=True)
+        except Exception:
+            return '', [], 0
+        if not r.ok:
+            status = r.status_code
+            r.close()
+            return '', [], status
+
+        parts, tool_acc = [], {}
+        decided = thinking = False
+        pending = ''
+        last_emit = time.monotonic()
+        try:
+            for line in r.iter_lines(decode_unicode=True):
+                # Rien reçu depuis longtemps (prefill d'un gros contexte, tour
+                # d'outils qui n'émet aucun texte) : on tient le flux éveillé.
+                if time.monotonic() - last_emit > 10:
+                    last_emit = time.monotonic()
+                    yield ": ping\n\n"
+                if not line or not line.startswith('data:'):
+                    continue
+                payload = line[5:].strip()
+                if payload == '[DONE]':
+                    break
+                try:
+                    choice = (json.loads(payload).get('choices') or [{}])[0]
+                except Exception:
+                    continue
+                delta = choice.get('delta') or {}
+                for tc in delta.get('tool_calls') or []:
+                    slot = tool_acc.setdefault(tc.get('index', 0),
+                                               {'id': None, 'name': '', 'args': ''})
+                    if tc.get('id'):
+                        slot['id'] = tc['id']
+                    fn = tc.get('function') or {}
+                    if fn.get('name'):
+                        slot['name'] = fn['name']
+                    if fn.get('arguments'):
+                        slot['args'] += fn['arguments']
+                chunk = delta.get('content')
+                if not chunk:
+                    continue
+                parts.append(chunk)
+                if thinking:
+                    continue
+                if decided:
+                    last_emit = time.monotonic()
+                    yield _sse_text(chunk)
+                    continue
+                pending += chunk
+                head = pending.lstrip()
+                if head.lower().startswith('<think'):
+                    thinking, decided = True, True
+                elif len(head) >= 12 or not '<think'.startswith(head[:6].lower()):
+                    decided = True
+                    last_emit = time.monotonic()
+                    # Premier fragment nettoyé de son entête parasite (espaces,
+                    # ':' résiduel) — c'est ce que faisait _clean_reply() sur la
+                    # réponse complète, impossible à rattraper une fois streamé.
+                    yield _sse_text(head.lstrip(':').lstrip())
+                    pending = ''
+        finally:
+            r.close()
+
+        content = ''.join(parts)
+        if thinking:
+            yield from _sse_chunks(_clean_reply(content), done=False)
+        elif pending:
+            yield _sse_text(pending)
+        # 'type': 'function' est obligatoire quand on renvoie ces tool_calls au
+        # modèle dans le message assistant du tour suivant — sans lui, LiteLLM
+        # rejette la requête avec un 400.
+        calls = [{'id': s['id'] or f"tc-{time.time_ns()}", 'type': 'function',
+                  'function': {'name': s['name'], 'arguments': s['args'] or '{}'}}
+                 for s in tool_acc.values() if s['name']]
+        return content, calls, 200
 
     def gen():
         # Commentaire SSE émis AVANT tout travail : il force l'écriture des
@@ -1909,22 +2166,25 @@ def support_chat():
         yield ": open\n\n"
         try:
             use_tools = True
+            streamed_any = False
             for _ in range(4):  # boucle : le modèle peut enchaîner des appels d'outils
-                r = yield from _chat_keepalive(use_tools)
-                if not r.ok and use_tools:
+                content, tcs, status = yield from _run_turn(use_tools)
+                if status != 200 and use_tools:
                     use_tools = False   # modèle sans support tools → réessai sans
                     continue
-                if not r.ok:
-                    yield from _sse_chunks(f"Le modèle a renvoyé une erreur ({r.status_code}). Réessaie.")
+                if status != 200:
+                    yield from _sse_chunks(f"Le modèle a renvoyé une erreur ({status}). Réessaie.",
+                                           done=False)
+                    yield "data: [DONE]\n\n"
                     return
-                m = r.json()['choices'][0]['message']
-                tcs = m.get('tool_calls')
+                streamed_any = streamed_any or bool(content.strip())
                 if not tcs:
-                    reply = _clean_reply(m.get('content') or '')
-                    yield from _sse_chunks(reply or "(réponse vide)")
+                    if not streamed_any:
+                        yield from _sse_chunks("(réponse vide)", done=False)
+                    yield "data: [DONE]\n\n"
                     return
                 # Le modèle appelle des outils → on les exécute côté serveur puis on reboucle.
-                msgs.append({'role': 'assistant', 'content': m.get('content') or '', 'tool_calls': tcs})
+                msgs.append({'role': 'assistant', 'content': content, 'tool_calls': tcs})
                 for tc in tcs:
                     fn = tc.get('function', {})
                     fname = fn.get('name', '')
@@ -1956,14 +2216,16 @@ def support_chat():
                     msgs.append({'role': 'tool', 'tool_call_id': tc.get('id'), 'content': res})
             # Trop d'allers-retours d'outils → on force une réponse finale SANS outils
             # (sinon le modèle peut boucler sur des appels et ne jamais conclure).
-            rf = yield from _chat_keepalive(False)
-            if rf.ok:
-                reply = _clean_reply(rf.json()['choices'][0]['message'].get('content') or '')
-                yield from _sse_chunks(reply or "Peux-tu reformuler ta demande ?")
-            else:
-                yield from _sse_chunks("Le modèle est occupé, réessaie dans un instant.")
+            content, _, status = yield from _run_turn(False)
+            if status != 200:
+                yield from _sse_chunks("Le modèle est occupé, réessaie dans un instant.", done=False)
+            elif not content.strip():
+                yield from _sse_chunks("Peux-tu reformuler ta demande ?", done=False)
+            yield "data: [DONE]\n\n"
         except Exception:
-            yield from _sse_chunks("Le modèle n'a pas répondu à temps. Réessaie dans un instant.")
+            yield from _sse_chunks("Le modèle n'a pas répondu à temps. Réessaie dans un instant.",
+                                   done=False)
+            yield "data: [DONE]\n\n"
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -2008,6 +2270,10 @@ def playground_chat():
                for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')][-20:]
     if not history:
         return Response(_sse_msg("Message vide."), mimetype='text/event-stream')
+    wait = _chat_rate_limited(session['username'], 'rl-playground')
+    if wait:
+        return Response(_sse_msg(f"Trop de messages d'affilée — réessaie dans {wait}s."),
+                        mimetype='text/event-stream')
     running = get_running_models()
     if not running:
         return Response(_sse_msg("Aucun modèle actif."), mimetype='text/event-stream')
@@ -2241,6 +2507,59 @@ def _active_users(window_s=120):
     finally:
         conn.close()
 
+def _account_activity(username, days=182):
+    """Série journalière (tokens prompt/générés) d'un utilisateur sur `days`
+    jours, pour la heatmap et les statistiques de « Mon compte »."""
+    empty = {'days': [], 'total': 0, 'prompt': 0, 'completion': 0,
+             'peak': 0, 'peak_day': None, 'active_days': 0, 'avg': 0}
+    conn = _spend_conn()
+    if not conn:
+        return empty
+    try:
+        since_local = (datetime.now(ZoneInfo(LOCAL_TZ)) - timedelta(days=days - 1)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        since_utc = since_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        umap = _key_user_map(conn)
+        mine = {k for k, u in umap.items() if u == username}
+        if not mine:
+            return empty
+        cur = conn.cursor()
+        cur.execute(
+            'SELECT (("startTime" AT TIME ZONE \'UTC\') AT TIME ZONE %s)::date AS d, '
+            'SUM(COALESCE(prompt_tokens,0)), SUM(COALESCE(completion_tokens,0)) '
+            'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s AND api_key = ANY(%s) '
+            'GROUP BY d ORDER BY d',
+            (LOCAL_TZ, since_utc, list(mine)))
+        rows = cur.fetchall()
+    except Exception:
+        return empty
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    by_day = {str(d): {'prompt': int(p or 0), 'completion': int(c or 0),
+                       'tokens': int((p or 0) + (c or 0))} for d, p, c in rows}
+    today = datetime.now(ZoneInfo(LOCAL_TZ)).date()
+    series = []
+    for i in range(days):
+        d = str(today - timedelta(days=days - 1 - i))
+        series.append({'date': d, 'tokens': by_day.get(d, {}).get('tokens', 0)})
+    total = sum(v['tokens'] for v in by_day.values())
+    active = [v for v in by_day.values() if v['tokens'] > 0]
+    peak_day = max(by_day.items(), key=lambda kv: kv[1]['tokens'], default=(None, {'tokens': 0}))
+    return {
+        'days': series,
+        'total': total,
+        'prompt': sum(v['prompt'] for v in by_day.values()),
+        'completion': sum(v['completion'] for v in by_day.values()),
+        'peak': peak_day[1]['tokens'],
+        'peak_day': peak_day[0],
+        'active_days': len(active),
+        'avg': round(total / len(active)) if active else 0,
+    }
+
+
 def _key_user_map(conn):
     """token(hash) -> username, depuis les métadonnées des clés (actives + supprimées)."""
     mapping = {}
@@ -2299,8 +2618,8 @@ def ranking_full(period='day', me=None):
             prev_start = cur_start - timedelta(days=1)
             buckets = list(range(24))
             bucket_kind = 'hour'
-        cur_start_utc = cur_start.astimezone(UTC).replace(tzinfo=None)
-        prev_start_utc = prev_start.astimezone(UTC).replace(tzinfo=None)
+        cur_start_utc = cur_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        prev_start_utc = prev_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         umap = _key_user_map(conn)
         cur = conn.cursor()
         bexpr = ("EXTRACT(HOUR FROM ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::int"
@@ -2821,6 +3140,10 @@ with app.app_context():
     _db.execute(
         "UPDATE user_prefs SET avatar_id=NULL WHERE avatar_id IS NOT NULL "
         f"AND avatar_id NOT IN ({','.join('?' * len(AVATAR_IDS))})", AVATAR_IDS)
+    # Purge des compteurs anti-brute-force périmés (fenêtre écoulée et plus
+    # verrouillés) — sinon la table grossit indéfiniment.
+    _db.execute("DELETE FROM login_attempts WHERE locked_until < ? AND first_at < ?",
+                (time.time(), time.time() - LOGIN_WINDOW))
     _db.commit()
 
 if __name__ == '__main__':

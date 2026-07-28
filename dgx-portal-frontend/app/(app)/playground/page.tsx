@@ -42,6 +42,7 @@ import {
   DocumentMagnifyingGlassIcon,
   DocumentTextIcon,
 } from "@heroicons/react/24/outline";
+import { useT } from "@/lib/i18n";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
 import { fetchCsrfToken, fetchPlaygroundData, streamChat } from "@/lib/api";
@@ -107,6 +108,7 @@ function estimateTokens(
 }
 
 export default function PlaygroundPage() {
+  const t = useT();
   const [csrf, setCsrf] = useState("");
   const [runningModels, setRunningModels] = useState<string[]>([]);
   const [modelLimits, setModelLimits] = useState<Record<string, number>>({});
@@ -217,7 +219,7 @@ export default function PlaygroundPage() {
 
   async function runStream(nextMessages: ChatMsg[]) {
     if (!model) {
-      setMessages([...nextMessages, { role: "assistant", content: "Aucun modèle actif." }]);
+      setMessages([...nextMessages, { role: "assistant", content: t("Aucun modèle actif.") }]);
       return;
     }
     setStreaming(true);
@@ -271,12 +273,12 @@ export default function PlaygroundPage() {
         wasAborted = true; // Arrêt volontaire (bouton Stop) : pas une erreur.
       } else {
         isError = true;
-        if (!acc) acc = "Erreur réseau.";
+        if (!acc) acc = t("Erreur réseau.");
       }
     }
     if (!isError && !wasAborted && !acc && !reason) {
       isError = true;
-      acc = "Le modèle n'a renvoyé aucune réponse.";
+      acc = t("Le modèle n'a renvoyé aucune réponse.");
     }
 
     // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
@@ -385,14 +387,12 @@ export default function PlaygroundPage() {
         <LayoutHeader hasDivider>
           <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
             <VStack gap={0}>
-              <Heading level={2}>Playground</Heading>
-              <Text type="supporting" color="secondary">
-                Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.
-              </Text>
+              <Heading level={2}>{t("Playground")}</Heading>
+              <Text type="supporting" color="secondary">{t("Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.")}</Text>
             </VStack>
             <HStack gap={2}>
               <Button
-                label="Nouvelle conversation"
+                label={t("Nouvelle conversation")}
                 variant="secondary"
                 size="sm"
                 icon={<Icon icon={PlusIcon} size="sm" />}
@@ -406,7 +406,7 @@ export default function PlaygroundPage() {
               />
               {currentId != null && (
                 <Button
-                  label="Supprimer cette conversation"
+                  label={t("Supprimer cette conversation")}
                   variant="secondary"
                   size="sm"
                   icon={<Icon icon={TrashIcon} size="sm" />}
@@ -415,7 +415,7 @@ export default function PlaygroundPage() {
                 />
               )}
               <Button
-                label="Exporter en Markdown"
+                label={t("Exporter en Markdown")}
                 variant="secondary"
                 size="sm"
                 icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
@@ -423,7 +423,7 @@ export default function PlaygroundPage() {
                 onClick={exportMarkdown}
               />
               <Button
-                label="Réglages"
+                label={t("Réglages")}
                 variant="secondary"
                 size="sm"
                 icon={<Icon icon={Cog6ToothIcon} size="sm" />}
@@ -466,11 +466,11 @@ export default function PlaygroundPage() {
                   onSubmit={send}
                   isStopShown={streaming}
                   onStop={stop}
-                  placeholder="Écris ton message… (Entrée pour envoyer, Maj+Entrée = saut de ligne)"
+                  placeholder={t("Écris ton message… (Entrée pour envoyer, Maj+Entrée = saut de ligne)")}
                   input={<ChatComposerInput value={input} onChange={setInput} onSubmit={send} />}
                   headerActions={
                     <Button
-                      label="Joindre un fichier"
+                      label={t("Joindre un fichier")}
                       variant="ghost"
                       size="sm"
                       isIconOnly
@@ -481,7 +481,7 @@ export default function PlaygroundPage() {
                   headerContext={<ContextMeter used={used} max={max} />}
                   drawer={
                     attachments.length ? (
-                      <ChatComposerDrawer count={attachments.length} label="Fichiers joints">
+                      <ChatComposerDrawer count={attachments.length} label={t("Fichiers joints")}>
                         {attachments.map((f, i) => (
                           <Token
                             key={f.name + i}
@@ -494,10 +494,10 @@ export default function PlaygroundPage() {
                   }
                   footerActions={
                     <Selector
-                      label="Modèle"
+                      label={t("Modèle")}
                       isLabelHidden
                       size="sm"
-                      placeholder="Aucun modèle actif"
+                      placeholder={t("Aucun modèle actif")}
                       options={runningModels}
                       value={model}
                       onChange={(v) => setModel(v ?? "")}
@@ -513,13 +513,11 @@ export default function PlaygroundPage() {
                   onChange={(e) => handleFiles(e.target.files)}
                 />
                 <HStack hAlign="between" gap={2}>
-                  <Text type="supporting" color="secondary">
-                    Fichiers texte uniquement. Les tokens comptent sur ton budget.
-                  </Text>
+                  <Text type="supporting" color="secondary">{t("Fichiers texte uniquement. Les tokens comptent sur ton budget.")}</Text>
                   <HStack gap={2}>
                     {canEdit && (
                       <Button
-                        label="Éditer"
+                        label={t("Éditer")}
                         variant="ghost"
                         size="sm"
                         icon={<Icon icon={PencilIcon} size="sm" />}
@@ -528,7 +526,7 @@ export default function PlaygroundPage() {
                     )}
                     {canRegenerate && (
                       <Button
-                        label="Régénérer"
+                        label={t("Régénérer")}
                         variant="ghost"
                         size="sm"
                         icon={<Icon icon={ArrowPathIcon} size="sm" />}
@@ -546,12 +544,10 @@ export default function PlaygroundPage() {
                     <HStack gap={2} vAlign="center">
                       <Icon icon={SparklesIcon} size="md" color="accent" />
                       <Text type="large" as="h2">
-                        {firstName ? `Bonjour, ${firstName}` : "Bonjour"}
+                        {firstName ? `${t("Bonjour")}, ${firstName}` : t("Bonjour")}
                       </Text>
                     </HStack>
-                    <Text type="display-2" as="h1">
-                      Sur quoi veux-tu travailler ?
-                    </Text>
+                    <Text type="display-2" as="h1">{t("Sur quoi veux-tu travailler ?")}</Text>
                   </VStack>
                   <Grid columns={{ minWidth: 220, max: 2 }} gap={3} width="100%">
                     {PRESETS.map((preset) => (
@@ -600,7 +596,7 @@ export default function PlaygroundPage() {
                                       .join(" · ")}
                                   </Text>
                                   <Button
-                                    label="Copier"
+                                    label={t("Copier")}
                                     variant="ghost"
                                     size="sm"
                                     isIconOnly
@@ -609,7 +605,7 @@ export default function PlaygroundPage() {
                                   />
                                   {canRegenerateThis && (
                                     <Button
-                                      label="Régénérer"
+                                      label={t("Régénérer")}
                                       variant="ghost"
                                       size="sm"
                                       isIconOnly
@@ -627,7 +623,7 @@ export default function PlaygroundPage() {
                         <ThinkingIndicator fixedLabel={prevAttachments ? "Lecture du fichier…" : undefined} />
                       ) : m.reasoning ? (
                         <VStack gap={2}>
-                          <Collapsible trigger="Raisonnement" defaultIsOpen={false}>
+                          <Collapsible trigger={t("Raisonnement")} defaultIsOpen={false}>
                             <Markdown isStreaming={streaming && isLast}>
                               {m.reasoning}
                             </Markdown>

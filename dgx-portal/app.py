@@ -2294,8 +2294,13 @@ def support_chat():
 
         Un bloc de raisonnement (<think>…) ne peut pas être retiré après coup
         une fois streamé : on retient donc les tout premiers caractères le
-        temps de savoir si le tour en ouvre un. Si oui, on bascule en mode
-        bufferisé et on applique _clean_reply() à la fin comme avant."""
+        temps de savoir si le tour en ouvre un. Si oui, on masque UNIQUEMENT le
+        raisonnement, jusqu'à sa balise de fermeture </think> ; dès qu'elle
+        arrive on reprend le streaming token par token de la vraie réponse.
+        (Avant, tout le tour restait bufferisé et la réponse d'un modèle qui
+        raisonne — le cas par défaut sur laguna — arrivait d'un seul bloc à la
+        fin.) Le repli bufferisé ne sert plus que si le modèle ne referme
+        jamais sa balise (raisonnement tronqué)."""
         try:
             r = _chat(with_tools, stream=True)
         except Exception:
@@ -2308,6 +2313,7 @@ def support_chat():
         parts, tool_acc = [], {}
         decided = thinking = False
         pending = ''
+        think_buf = ''      # accumule le raisonnement en attendant </think>
         last_emit = time.monotonic()
         try:
             for line in r.iter_lines(decode_unicode=True):
@@ -2341,6 +2347,18 @@ def support_chat():
                     continue
                 parts.append(chunk)
                 if thinking:
+                    # On masque le raisonnement, mais on guette sa fermeture :
+                    # dès que </think> apparaît, tout ce qui suit est la vraie
+                    # réponse et repart en streaming immédiat, token par token.
+                    think_buf += chunk
+                    idx = think_buf.find('</think>')
+                    if idx != -1:
+                        thinking = False
+                        rest = think_buf[idx + len('</think>'):].lstrip()
+                        think_buf = ''
+                        if rest:
+                            last_emit = time.monotonic()
+                            yield _sse_text(rest)
                     continue
                 if decided:
                     last_emit = time.monotonic()
@@ -2350,6 +2368,8 @@ def support_chat():
                 head = pending.lstrip()
                 if head.lower().startswith('<think'):
                     thinking, decided = True, True
+                    think_buf = pending   # garde l'ouverture pour retrouver </think>
+                    pending = ''          # sinon '<think' ressortait via le repli final
                 elif len(head) >= 12 or not '<think'.startswith(head[:6].lower()):
                     decided = True
                     last_emit = time.monotonic()

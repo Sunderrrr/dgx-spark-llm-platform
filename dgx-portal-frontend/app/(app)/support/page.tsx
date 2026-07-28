@@ -223,6 +223,12 @@ export default function SupportPage() {
               {messages.map((m, i) => {
                 const isLast = i === messages.length - 1;
                 const isThinking = isSending && isLast && m.role === "assistant" && !m.content && !m.toolCalls?.length;
+                // isStreaming : sans lui, Markdown reparse tout le texte à
+                // chaque token et ne réaffiche que des blocs complets — d'où
+                // une réponse qui apparaît par paquets au lieu de couler au
+                // fil des tokens comme dans le Playground. Le mode streaming
+                // fait du parsing incrémental avec fondu par fragment.
+                const isStreamingThis = isSending && isLast && m.role === "assistant";
                 const canRegenerateThis = m.role === "assistant" && isLast && !isSending && i > 0;
                 return (
                 <ChatMessage key={i} sender={m.role}>
@@ -266,10 +272,10 @@ export default function SupportPage() {
                     ) : m.toolCalls?.length ? (
                       <VStack gap={2}>
                         <ChatToolCalls calls={m.toolCalls} />
-                        {m.content && <Markdown>{m.content}</Markdown>}
+                        {m.content && <Markdown isStreaming={isStreamingThis}>{m.content}</Markdown>}
                       </VStack>
                     ) : (
-                      <Markdown>{m.content}</Markdown>
+                      <Markdown isStreaming={isStreamingThis}>{m.content}</Markdown>
                     )}
                   </ChatMessageBubble>
                 </ChatMessage>

@@ -263,3 +263,32 @@ class CsrfLazyTest(unittest.TestCase):
     def test_post_sans_session_refuse(self):
         client = portal.app.test_client()
         self.assertEqual(client.post('/logout', data={'csrf_token': 'inventé'}).status_code, 400)
+
+
+class ClientIpTest(unittest.TestCase):
+    """La chaîne est client → Cloudflare → Traefik → Next.js → Flask :
+    request.remote_addr valait toujours l'IP du conteneur frontend, la même
+    pour tout le monde. Le verrou global _login_locked(ip) additionnait donc
+    les échecs de TOUS les utilisateurs et bloquait le portail entier."""
+
+    def _ip(self, headers):
+        with portal.app.test_request_context(headers=headers,
+                                             environ_base={'REMOTE_ADDR': '172.19.0.5'}):
+            return portal._client_ip()
+
+    def test_prefere_cf_connecting_ip(self):
+        self.assertEqual(self._ip({'Cf-Connecting-Ip': '82.64.177.61',
+                                   'X-Forwarded-For': '10.0.0.1, 172.19.0.5'}),
+                         '82.64.177.61')
+
+    def test_retombe_sur_le_premier_x_forwarded_for(self):
+        self.assertEqual(self._ip({'X-Forwarded-For': '82.64.177.61, 172.19.0.5'}),
+                         '82.64.177.61')
+
+    def test_retombe_sur_remote_addr(self):
+        self.assertEqual(self._ip({}), '172.19.0.5')
+
+    def test_deux_visiteurs_ne_partagent_pas_le_meme_verrou(self):
+        a = self._ip({'Cf-Connecting-Ip': '82.64.177.61'})
+        b = self._ip({'Cf-Connecting-Ip': '82.67.54.181'})
+        self.assertNotEqual(a, b)

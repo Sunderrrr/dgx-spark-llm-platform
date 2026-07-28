@@ -14,6 +14,7 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { ChartBarIcon } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 type RankRow = {
   rank: number;
@@ -43,6 +44,7 @@ const PERIODS = [
 const MEDALS: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 
 export default function RankingPage() {
+  const t = useT();
   const [period, setPeriod] = useState("day");
   const [data, setData] = useState<RankingData | null>(null);
 
@@ -58,12 +60,10 @@ export default function RankingPage() {
           <VStack gap={5} maxWidth={860}>
             <HStack hAlign="between" vAlign="start" wrap="wrap" gap={3}>
               <VStack gap={1}>
-                <Heading level={1}>Classement</Heading>
-                <Text type="supporting" color="secondary">
-                  Qui consomme le plus, en tokens réellement consommés (prompt + généré).
-                </Text>
+                <Heading level={1}>{t("Classement")}</Heading>
+                <Text type="supporting" color="secondary">{t("Qui consomme le plus, en tokens réellement consommés (prompt + généré).")}</Text>
               </VStack>
-              <SegmentedControl label="Période" value={period} onChange={setPeriod}>
+              <SegmentedControl label={t("Période")} value={period} onChange={setPeriod}>
                 {PERIODS.map((p) => (
                   <SegmentedControlItem key={p.value} value={p.value} label={p.label} />
                 ))}
@@ -85,7 +85,7 @@ export default function RankingPage() {
                 {data && data.rows.length === 0 && (
                   <EmptyState
                     icon={<Icon icon={ChartBarIcon} size="lg" />}
-                    title="Aucune consommation sur cette période."
+                    title={t("Aucune consommation sur cette période.")}
                   />
                 )}
 
@@ -95,7 +95,7 @@ export default function RankingPage() {
                       <ListItem
                         key={r.username}
                         label={`${MEDALS[r.rank] ?? r.rank}  ${r.username}`}
-                        description={<ProgressBar label="Consommation" isLabelHidden value={r.bar_pct} />}
+                        description={<ProgressBar label={t("Consommation")} isLabelHidden value={r.bar_pct} />}
                         endContent={
                           <VStack gap={0} align="end">
                             <Text weight="bold" hasTabularNumbers>

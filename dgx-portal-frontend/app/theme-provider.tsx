@@ -31,11 +31,19 @@ function readLocal<T extends string>(key: string, fallback: T): T {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setModeState] = useState<Mode>(() => readLocal("dgx_theme_mode", "system"));
-  const [themeId, setThemeIdState] = useState<ThemeId>(() =>
-    readLocal<ThemeId>("dgx_theme_id", "neutral"),
-  );
-  const [lang, setLangState] = useState<Lang>(() => readLocal<Lang>("dgx_lang", "fr"));
+  // L'état initial doit être IDENTIQUE au rendu serveur : lire localStorage
+  // dans l'initialiseur ferait diverger le premier rendu client du HTML SSR
+  // (erreur d'hydratation React #418, texte remplacé silencieusement). On
+  // applique donc les préférences locales juste après le montage.
+  const [mode, setModeState] = useState<Mode>("system");
+  const [themeId, setThemeIdState] = useState<ThemeId>("neutral");
+  const [lang, setLangState] = useState<Lang>("fr");
+
+  useEffect(() => {
+    setModeState(readLocal<Mode>("dgx_theme_mode", "system"));
+    setThemeIdState(readLocal<ThemeId>("dgx_theme_id", "neutral"));
+    setLangState(readLocal<Lang>("dgx_lang", "fr"));
+  }, []);
 
   useEffect(() => {
     fetch("/api/whoami", { credentials: "include" })

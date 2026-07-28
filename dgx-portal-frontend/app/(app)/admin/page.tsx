@@ -31,6 +31,7 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, postForm, ForbiddenError } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 type ModelCfg = { id: number; name: string; hf_model_id: string; engine: string; vllm_args: string };
 type ModelRequest = { id: number; fullname: string; username: string; model_id: string; reason: string | null; status: string; created_at: string };
@@ -66,6 +67,7 @@ const REQ_STATUS_VARIANT: Record<string, "warning" | "success" | "error"> = { pe
 const REQ_STATUS_LABEL: Record<string, string> = { pending: "En attente", done: "Lancé ✓", rejected: "Refusé" };
 
 export default function AdminPage() {
+  const t = useT();
   const csrf = useCsrf();
   const showToast = useToast();
   const [data, setData] = useState<AdminData | null>(null);
@@ -108,7 +110,7 @@ export default function AdminPage() {
   async function act(url: string, params: Record<string, string> = {}) {
     if (!csrf) return;
     await postForm(url, csrf, params);
-    showToast({ body: "Action effectuée.", type: "info" });
+    showToast({ body: t("Action effectuée."), type: "info" });
     refresh();
   }
 
@@ -116,7 +118,7 @@ export default function AdminPage() {
 
   const budgetColumns: TableColumn<BudgetRequest & Record<string, unknown>>[] = [
     { key: "fullname", header: "Utilisateur", renderCell: (r) => `${r.fullname} (${r.username})` },
-    { key: "key_alias", header: "Clé" },
+    { key: "key_alias", header: t("Clé") },
     { key: "current_budget", header: "Budget actuel", renderCell: (r) => (r.current_budget ? Math.round(r.current_budget).toLocaleString("fr-FR") : "—") },
     { key: "reason", header: "Raison", renderCell: (r) => r.reason || "—" },
     { key: "created_at", header: "Date", renderCell: (r) => r.created_at.slice(0, 16).replace("T", " ") },
@@ -125,11 +127,11 @@ export default function AdminPage() {
       header: "Statut",
       renderCell: (r) =>
         r.status === "pending" ? (
-          <Badge label="En attente" variant="warning" />
+          <Badge label={t("En attente")} variant="warning" />
         ) : r.status === "approved" ? (
           <Badge label={`+${Math.round(r.granted_amount || 0).toLocaleString("fr-FR")} ✓`} variant="success" />
         ) : (
-          <Badge label="Refusé" variant="error" />
+          <Badge label={t("Refusé")} variant="error" />
         ),
     },
     {
@@ -139,7 +141,7 @@ export default function AdminPage() {
         r.status === "pending" ? (
           <HStack gap={1}>
             <BudgetApproveForm onApprove={(amount) => act(`/admin/budget/approve/${r.id}`, { amount })} />
-            <Button label="Refuser" variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => act(`/admin/budget/reject/${r.id}`)} />
+            <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => act(`/admin/budget/reject/${r.id}`)} />
           </HStack>
         ) : null,
     },
@@ -147,7 +149,7 @@ export default function AdminPage() {
 
   const consumptionColumns: TableColumn<SpendRow & Record<string, unknown>>[] = [
     { key: "username", header: "Utilisateur" },
-    { key: "tokens", header: "Consommé aujourd'hui", renderCell: (r) => Math.round(r.tokens || 0).toLocaleString("fr-FR") },
+    { key: "tokens", header: t("Consommé aujourd'hui"), renderCell: (r) => Math.round(r.tokens || 0).toLocaleString("fr-FR") },
     { key: "max_budget", header: "Budget / jour", renderCell: (r) => (r.unlimited ? <Badge label="∞" variant="warning" /> : Math.round(r.max_budget || 0).toLocaleString("fr-FR")) },
     { key: "key_count", header: "Clés" },
   ];
@@ -157,14 +159,14 @@ export default function AdminPage() {
     { key: "model_id", header: "Modèle" },
     { key: "reason", header: "Raison", renderCell: (r) => r.reason || "—" },
     { key: "created_at", header: "Date", renderCell: (r) => r.created_at.slice(0, 16).replace("T", " ") },
-    { key: "status", header: "Statut", renderCell: (r) => <Badge label={REQ_STATUS_LABEL[r.status] || r.status} variant={REQ_STATUS_VARIANT[r.status] || "neutral"} /> },
+    { key: "status", header: "Statut", renderCell: (r) => <Badge label={t(REQ_STATUS_LABEL[r.status] || r.status)} variant={REQ_STATUS_VARIANT[r.status] || "neutral"} /> },
     {
       key: "id" as keyof ModelRequest,
       header: "Action",
       renderCell: (r) => (
         <HStack gap={1}>
-          {r.status !== "done" && <Button label="Lancé" variant="ghost" size="sm" isIconOnly icon={<Icon icon={CheckIcon} size="sm" />} onClick={() => act(`/admin/update/${r.id}`, { status: "done" })} />}
-          {r.status !== "rejected" && <Button label="Refuser" variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => act(`/admin/update/${r.id}`, { status: "rejected" })} />}
+          {r.status !== "done" && <Button label={t("Lancé")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={CheckIcon} size="sm" />} onClick={() => act(`/admin/update/${r.id}`, { status: "done" })} />}
+          {r.status !== "rejected" && <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => act(`/admin/update/${r.id}`, { status: "rejected" })} />}
         </HStack>
       ),
     },
@@ -179,9 +181,9 @@ export default function AdminPage() {
             <Center axis="both" height="100%">
               <EmptyState
                 icon={<Icon icon={ShieldExclamationIcon} size="lg" color="secondary" />}
-                title="Accès réservé aux administrateurs"
-                description="Ton compte n'a pas les droits nécessaires pour voir cette page."
-                actions={<Button label="Retour à l'accueil" variant="primary" onClick={() => (window.location.href = "/")} />}
+                title={t("Accès réservé aux administrateurs")}
+                description={t("Ton compte n'a pas les droits nécessaires pour voir cette page.")}
+                actions={<Button label={t("Retour à l'accueil")} variant="primary" onClick={() => (window.location.href = "/")} />}
               />
             </Center>
           </LayoutContent>
@@ -197,26 +199,24 @@ export default function AdminPage() {
         <LayoutContent padding={6} isScrollable>
           <VStack gap={6}>
             <VStack gap={1}>
-              <Heading level={1}>Administration</Heading>
-              <Text type="supporting" color="secondary">
-                Pilotage des modèles, quotas de tokens et demandes des utilisateurs.
-              </Text>
+              <Heading level={1}>{t("Administration")}</Heading>
+              <Text type="supporting" color="secondary">{t("Pilotage des modèles, quotas de tokens et demandes des utilisateurs.")}</Text>
             </VStack>
 
             <VStack gap={3}>
-              <Text weight="semibold">Modèles vLLM</Text>
+              <Text weight="semibold">{t("Modèles vLLM")}</Text>
               {data && (
                 <Card>
                   <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
                     <HStack gap={2} vAlign="center">
                       <StatusDot
                         variant={st === "running" ? "success" : st === "starting" ? "warning" : st === "error" ? "error" : "neutral"}
-                        label={st === "running" ? "En ligne" : st === "starting" ? "Démarrage…" : st === "error" ? "Erreur" : st === "unreachable" ? "Runner inaccessible" : "Arrêté"}
+                        label={st === "running" ? t("En ligne") : st === "starting" ? t("Démarrage…") : st === "error" ? t("Erreur") : st === "unreachable" ? t("Runner inaccessible") : t("Arrêté")}
                       />
                       {data.v_status.model && <Text weight="semibold">{data.v_status.model}</Text>}
                     </HStack>
                     {(st === "running" || st === "starting") && (
-                      <Button label="Arrêter" variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/model/stop")} />
+                      <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/model/stop")} />
                     )}
                   </HStack>
                 </Card>
@@ -235,21 +235,19 @@ export default function AdminPage() {
                           {cfg.hf_model_id}
                         </Text>
                         <HStack gap={2}>
-                          <Button label="Lancer" variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/model/launch", { model_name: cfg.name })} />
-                          <Button label="Supprimer" variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => act(`/admin/model/delete/${cfg.id}`)} />
+                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/model/launch", { model_name: cfg.name })} />
+                          <Button label={t("Supprimer")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => act(`/admin/model/delete/${cfg.id}`)} />
                         </HStack>
                       </VStack>
                     </Card>
                   ))}
                   <Card>
                     <VStack gap={2}>
-                      <Text type="supporting" color="secondary">
-                        Ajouter un modèle
-                      </Text>
-                      <TextInput label="Nom" isLabelHidden value={newModel.name} onChange={(v) => setNewModel((s) => ({ ...s, name: v }))} placeholder="Nom (ex: llama-3-8b)" size="sm" />
-                      <TextInput label="HF ID" isLabelHidden value={newModel.hf_model_id} onChange={(v) => setNewModel((s) => ({ ...s, hf_model_id: v }))} placeholder="HF ID" size="sm" />
+                      <Text type="supporting" color="secondary">{t("Ajouter un modèle")}</Text>
+                      <TextInput label={t("Nom")} isLabelHidden value={newModel.name} onChange={(v) => setNewModel((s) => ({ ...s, name: v }))} placeholder={t("Nom (ex: llama-3-8b)")} size="sm" />
+                      <TextInput label={t("HF ID")} isLabelHidden value={newModel.hf_model_id} onChange={(v) => setNewModel((s) => ({ ...s, hf_model_id: v }))} placeholder={t("HF ID")} size="sm" />
                       <Selector
-                        label="Moteur"
+                        label={t("Moteur")}
                         isLabelHidden
                         value={newModel.engine}
                         onChange={(v) => setNewModel((s) => ({ ...s, engine: v ?? "vllm" }))}
@@ -259,9 +257,9 @@ export default function AdminPage() {
                           { value: "ds4", label: "ds4 (GGUF NVFP4)" },
                         ]}
                       />
-                      <TextInput label="Args" isLabelHidden value={newModel.vllm_args} onChange={(v) => setNewModel((s) => ({ ...s, vllm_args: v }))} placeholder="Args du moteur" size="sm" />
+                      <TextInput label={t("Args")} isLabelHidden value={newModel.vllm_args} onChange={(v) => setNewModel((s) => ({ ...s, vllm_args: v }))} placeholder={t("Args du moteur")} size="sm" />
                       <Button
-                        label="Ajouter"
+                        label={t("Ajouter")}
                         variant="secondary"
                         size="sm"
                         icon={<Icon icon={PlusIcon} size="sm" />}
@@ -277,14 +275,12 @@ export default function AdminPage() {
 
               <Card>
                 <VStack gap={2}>
-                  <Text type="supporting" color="secondary">
-                    Publier une annonce
-                  </Text>
+                  <Text type="supporting" color="secondary">{t("Publier une annonce")}</Text>
                   <HStack gap={2} wrap="wrap">
-                    <TextInput label="Titre" isLabelHidden value={announce.title} onChange={(v) => setAnnounce((s) => ({ ...s, title: v }))} placeholder="Titre" size="sm" />
-                    <TextInput label="Détails" isLabelHidden value={announce.body} onChange={(v) => setAnnounce((s) => ({ ...s, body: v }))} placeholder="Détails (optionnel)" size="sm" />
+                    <TextInput label={t("Titre")} isLabelHidden value={announce.title} onChange={(v) => setAnnounce((s) => ({ ...s, title: v }))} placeholder={t("Titre")} size="sm" />
+                    <TextInput label={t("Détails")} isLabelHidden value={announce.body} onChange={(v) => setAnnounce((s) => ({ ...s, body: v }))} placeholder={t("Détails (optionnel)")} size="sm" />
                     <Button
-                      label="Publier"
+                      label={t("Publier")}
                       variant="secondary"
                       size="sm"
                       icon={<Icon icon={MegaphoneIcon} size="sm" />}
@@ -299,7 +295,7 @@ export default function AdminPage() {
 
               <Card>
                 <VStack gap={2}>
-                  <Text weight="semibold">Logs — {data?.v_status.model || "aucun modèle"}</Text>
+                  <Text weight="semibold">Logs — {data?.v_status.model || t("aucun modèle")}</Text>
                   <CodeBlock code={logs.join("\n")} language="plaintext" hasCopyButton width="100%" maxHeight={280} />
                 </VStack>
               </Card>
@@ -310,32 +306,32 @@ export default function AdminPage() {
                 <Card>
                   <VStack gap={0} align="center">
                     <Text size="2xl" weight="bold">{data.stats.pending}</Text>
-                    <Text type="supporting" color="secondary">Demandes en attente</Text>
+                    <Text type="supporting" color="secondary">{t("Demandes en attente")}</Text>
                   </VStack>
                 </Card>
                 <Card>
                   <VStack gap={0} align="center">
                     <Text size="2xl" weight="bold" color="accent">{data.stats.done}</Text>
-                    <Text type="supporting" color="secondary">Lancées</Text>
+                    <Text type="supporting" color="secondary">{t("Lancées")}</Text>
                   </VStack>
                 </Card>
                 <Card>
                   <VStack gap={0} align="center">
                     <Text size="2xl" weight="bold">{data.stats.rejected}</Text>
-                    <Text type="supporting" color="secondary">Refusées</Text>
+                    <Text type="supporting" color="secondary">{t("Refusées")}</Text>
                   </VStack>
                 </Card>
               </Grid>
             )}
 
             <VStack gap={2}>
-              <Text weight="semibold">Limite de tokens par défaut (nouvelles clés)</Text>
+              <Text weight="semibold">{t("Limite de tokens par défaut (nouvelles clés)")}</Text>
               <Card>
                 <HStack gap={2} vAlign="end" wrap="wrap">
-                  <TextInput label="Tokens générés" value={settings.budget} onChange={(v) => setSettings((s) => ({ ...s, budget: v }))} size="sm" />
-                  <TextInput label="Durée (ex: 1d, 7d, 12h)" value={settings.duration} onChange={(v) => setSettings((s) => ({ ...s, duration: v }))} size="sm" />
+                  <TextInput label={t("Tokens générés")} value={settings.budget} onChange={(v) => setSettings((s) => ({ ...s, budget: v }))} size="sm" />
+                  <TextInput label={t("Durée (ex: 1d, 7d, 12h)")} value={settings.duration} onChange={(v) => setSettings((s) => ({ ...s, duration: v }))} size="sm" />
                   <Button
-                    label="Appliquer"
+                    label={t("Appliquer")}
                     variant="secondary"
                     size="sm"
                     icon={<Icon icon={CheckIcon} size="sm" />}
@@ -347,7 +343,7 @@ export default function AdminPage() {
 
             <VStack gap={2}>
               <HStack gap={2} vAlign="center">
-                <Text weight="semibold">Demandes de tokens</Text>
+                <Text weight="semibold">{t("Demandes de tokens")}</Text>
                 {data && data.stats.budget_pending > 0 && <Badge label={`${data.stats.budget_pending} en attente`} variant="warning" />}
               </HStack>
               <Card padding={0}>
@@ -356,14 +352,14 @@ export default function AdminPage() {
             </VStack>
 
             <VStack gap={2}>
-              <Text weight="semibold">Consommation par utilisateur</Text>
+              <Text weight="semibold">{t("Consommation par utilisateur")}</Text>
               <Card padding={0}>
                 <Table<SpendRow & Record<string, unknown>> data={data?.spend_data ?? []} columns={consumptionColumns} idKey="username" density="balanced" dividers="rows" />
               </Card>
             </VStack>
 
             <VStack gap={2}>
-              <Text weight="semibold">Demandes de modèles</Text>
+              <Text weight="semibold">{t("Demandes de modèles")}</Text>
               <Card padding={0}>
                 <Table<ModelRequest & Record<string, unknown>> data={data?.requests ?? []} columns={requestColumns} idKey="id" density="balanced" dividers="rows" />
               </Card>
@@ -376,12 +372,13 @@ export default function AdminPage() {
 }
 
 function BudgetApproveForm({ onApprove }: { onApprove: (amount: string) => void }) {
+  const t = useT();
   const [amount, setAmount] = useState("");
   return (
     <HStack gap={1}>
-      <TextInput label="Tokens" isLabelHidden value={amount} onChange={setAmount} placeholder="tokens" size="sm" />
+      <TextInput label="Tokens" isLabelHidden value={amount} onChange={setAmount} placeholder={t("tokens")} size="sm" />
       <Button
-        label="Approuver"
+        label={t("Approuver")}
         variant="ghost"
         size="sm"
         isIconOnly

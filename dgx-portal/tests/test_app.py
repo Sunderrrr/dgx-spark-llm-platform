@@ -171,3 +171,95 @@ class AvatarTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SessionLifetimeTest(unittest.TestCase):
+    """Une session ne doit pas être éternelle : le cookie signé porte
+    `is_admin`, un vol de cookie donnait sinon un accès permanent."""
+
+    def test_session_fraiche_valide(self):
+        with portal.app.test_request_context():
+            from flask import session
+            session['username'] = 'bob'
+            session['auth_at'] = time.time()
+            self.assertFalse(portal._session_expired())
+
+    def test_session_perimee(self):
+        with portal.app.test_request_context():
+            from flask import session
+            session['username'] = 'bob'
+            session['auth_at'] = time.time() - portal.SESSION_MAX_AGE - 1
+            self.assertTrue(portal._session_expired())
+
+    def test_session_sans_horodatage_est_perimee(self):
+        # Sessions émises avant l'ajout d'auth_at : on préfère forcer une
+        # reconnexion plutôt que de les traiter comme éternelles.
+        with portal.app.test_request_context():
+            from flask import session
+            session['username'] = 'bob'
+            self.assertTrue(portal._session_expired())
+
+    def test_anonyme_non_concerne(self):
+        with portal.app.test_request_context():
+            self.assertFalse(portal._session_expired())
+
+
+class GuardedToolsTest(unittest.TestCase):
+    """Le résultat d'un outil MCP/compétence est du texte tiers réinjecté dans
+    le contexte du modèle : les actions irréversibles doivent être hors de
+    portée d'une injection de prompt."""
+
+    def test_les_actions_destructives_sont_gardees(self):
+        for nom in ('revoke_api_key', 'launch_model', 'stop_model'):
+            self.assertIn(nom, portal.GUARDED_TOOLS)
+
+    def test_les_actions_inoffensives_ne_le_sont_pas(self):
+        for nom in ('request_budget', 'request_model', 'list_models'):
+            self.assertNotIn(nom, portal.GUARDED_TOOLS)
+
+
+class OidcUsernameTest(unittest.TestCase):
+    """preferred_username/nickname/email sont modifiables par l'utilisateur
+    dans beaucoup d'IdP, et cette valeur devient la clé de propriété de toutes
+    les données : elle doit passer le même filtre que le chemin LDAP."""
+
+    def test_accepte_un_identifiant_normal(self):
+        for nom in ('mboitel', 'jean.dupont', 'a-b_c', 'x' * 64):
+            self.assertTrue(portal.USERNAME_RE.match(nom), nom)
+
+    def test_rejette_les_identifiants_forges(self):
+        for nom in ('', 'a' * 65, '../admin', 'bob@evil.com', 'bob bob',
+                    'bob\nadmin', "bob'--", 'bob/../root'):
+            self.assertIsNone(portal.USERNAME_RE.match(nom), nom)
+
+
+class CsrfLazyTest(unittest.TestCase):
+    """Régression : le jeton était créé dans before_request, donc CHAQUE
+    réponse posait un Set-Cookie. Sur /login, /api/csrf et /api/whoami partent
+    en parallèle sans cookie : chacune créait une session neuve avec un jeton
+    différent, le dernier Set-Cookie écrasait l'autre, et le POST /login
+    partait avec un jeton orphelin → 400, affiché « Identifiants incorrects »."""
+
+    def test_une_requete_anonyme_ne_cree_pas_de_session(self):
+        client = portal.app.test_client()
+        reponse = client.get('/api/whoami')
+        self.assertEqual(reponse.status_code, 401)
+        self.assertNotIn('Set-Cookie', reponse.headers)
+
+    def test_api_csrf_cree_le_jeton_et_le_rend(self):
+        client = portal.app.test_client()
+        reponse = client.get('/api/csrf')
+        self.assertEqual(reponse.status_code, 200)
+        self.assertTrue(reponse.get_json()['token'])
+        self.assertIn('Set-Cookie', reponse.headers)
+
+    def test_le_jeton_est_stable_entre_deux_appels(self):
+        client = portal.app.test_client()
+        premier = client.get('/api/csrf').get_json()['token']
+        # Une requête intercalée ne doit pas faire tourner le jeton.
+        client.get('/api/whoami')
+        self.assertEqual(client.get('/api/csrf').get_json()['token'], premier)
+
+    def test_post_sans_session_refuse(self):
+        client = portal.app.test_client()
+        self.assertEqual(client.post('/logout', data={'csrf_token': 'inventé'}).status_code, 400)

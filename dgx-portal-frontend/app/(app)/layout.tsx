@@ -30,6 +30,7 @@ import {
   Cog6ToothIcon,
 } from "@heroicons/react/24/outline";
 import { useThemeMode } from "../theme-provider";
+import { useCsrf } from "@/lib/useCsrf";
 import { SettingsDialog } from "./_components/SettingsDialog";
 import { useT } from "@/lib/i18n";
 
@@ -54,6 +55,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [who, setWho] = useState<Whoami | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const t = useT();
+  const csrf = useCsrf();
+
+  // /logout est en POST (protégé CSRF) : un simple lien GET permettait à
+  // n'importe quel site tiers de nous déconnecter. On soumet donc un vrai
+  // formulaire plutôt qu'un fetch, pour que le navigateur NAVIGUE et suive la
+  // redirection finale — y compris vers l'end-session Authentik en SSO, qu'un
+  // fetch avalerait silencieusement.
+  function logout() {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/logout";
+    const field = document.createElement("input");
+    field.type = "hidden";
+    field.name = "csrf_token";
+    field.value = csrf;
+    form.appendChild(field);
+    document.body.appendChild(form);
+    form.submit();
+  }
 
   const navItems = who?.is_admin
     ? [...NAV_ITEMS, { href: "/admin", label: "Admin", icon: ShieldCheckIcon }]
@@ -112,9 +132,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   size="sm"
                   isIconOnly
                   icon={<Icon icon={ArrowRightOnRectangleIcon} size="sm" />}
-                  onClick={() => {
-                    window.location.href = "/logout";
-                  }}
+                  onClick={logout}
                 />
               </HStack>
             </HStack>

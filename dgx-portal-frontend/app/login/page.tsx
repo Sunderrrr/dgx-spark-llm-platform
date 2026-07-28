@@ -52,21 +52,35 @@ export default function LoginPage() {
     setIsSubmitting(true);
     setError("");
     try {
-      const res = await fetch("/login", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
-        body: new URLSearchParams({ username, password }).toString(),
-      });
+      const post = (token: string) =>
+        fetch("/login", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": token },
+          body: new URLSearchParams({ username, password }).toString(),
+        });
+      let res = await post(csrf);
+      // Un 400 ici, c'est le jeton CSRF, pas le mot de passe : le cookie de
+      // session a pu être remplacé entre le chargement de la page et l'envoi.
+      // On récupère le jeton courant et on retente une fois, plutôt que
+      // d'accuser l'utilisateur d'avoir mal tapé ses identifiants.
+      if (res.status === 400) {
+        const fresh = await fetchCsrfToken().catch(() => "");
+        if (fresh && fresh !== csrf) {
+          setCsrf(fresh);
+          res = await post(fresh);
+        }
+      }
       // Le formulaire réussi redirige vers /, dont fetch suit — la présence d'un
       // cookie de session valide est ce qu'on vérifie, pas le corps de la réponse.
       const who = await fetch("/api/whoami", { credentials: "include" });
       if (who.ok) {
         window.location.href = "/";
+      } else if (res.status === 400) {
+        setError("Session expirée — recharge la page et réessaie.");
       } else {
         setError("Identifiants incorrects.");
       }
-      void res;
     } catch {
       setError("Erreur réseau — réessaie.");
     } finally {

@@ -115,14 +115,16 @@ dialog::backdrop {
   width: 100%;
 }
 /* scaleY et non height : une animation de hauteur relayoute à chaque frame,
-   une transformation reste sur le compositeur. */
+   une transformation reste sur le compositeur.
+   L'amplitude vient de --amp, propre à chaque barre : sans ça toutes les
+   barres montent à la même hauteur et l'onde fait « peigne ». */
 @keyframes voice-wave-bar {
   0%,
   100% {
-    transform: scaleY(0.2);
+    transform: scaleY(0.16);
   }
   50% {
-    transform: scaleY(1);
+    transform: scaleY(var(--amp, 1));
   }
 }
 .voice-wave-bar {
@@ -133,14 +135,13 @@ dialog::backdrop {
   border-radius: var(--radius-sm, 2px);
   background: var(--color-text-secondary);
   opacity: 0.45;
-  transform: scaleY(0.2);
+  transform: scaleY(0.16);
   transform-origin: center;
-  animation: voice-wave-bar 1.5s ease-in-out infinite;
-  /* Délai NÉGATIF : chaque barre démarre déjà avancée dans son cycle, donc
-     l'onde est en mouvement dès la première frame au lieu de partir d'un
-     bloc plat. animation-delay ne s'applique qu'à la première itération, ce
-     décalage est donc permanent. */
-  animation-delay: calc(var(--i) * -0.07s);
+  /* Durée ET délai propres à chaque barre (cf. WAVE_BARS côté page) : des
+     durées différentes font dériver les barres en continu, donc le motif ne
+     se répète jamais. Le délai négatif les fait démarrer déjà en mouvement. */
+  animation: voice-wave-bar var(--dur, 1.5s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
 }
 @media (prefers-reduced-motion: reduce) {
   /* Barres figées à mi-hauteur : la carte garde sa forme et son sens

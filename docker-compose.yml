@@ -87,6 +87,11 @@ services:
       KEY_BUDGET_DURATION: "1d"
       VLLM_RUNNER_URL: http://host.docker.internal:8001
       RUNNER_TOKEN: ${RUNNER_TOKEN}
+      # ComfyUI (vidéo MiniMax H3) : process host, 127.0.0.1 only, jamais exposé.
+      COMFYUI_URL: http://host.docker.internal:8188
+      # OCR (baidu/Unlimited-OCR) : conteneur sur ocr_net (réseau dédié, pas
+      # `default` avec litellm/postgres) — dgx-portal est multi-homé pour l'atteindre.
+      OCR_URL: http://ocr:8000/v1
       # URL publique de l'API compatible OpenAI affichée aux utilisateurs
       PUBLIC_API_URL: https://api.cronos.website/v1
       # Base LiteLLM pour les stats de consommation (ranking + graphe horaire)
@@ -107,6 +112,9 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       - litellm
+    networks:
+      - default
+      - ocr_net
 
   # ─── DGX Portal Frontend — Next.js + Astryx, nouvelle interface complète ──
   # Reprend le port 5000 (celui que filtre déjà cronos-docker-restrict.service
@@ -128,6 +136,16 @@ services:
 volumes:
   postgres_data:
   portal_data:
+
+networks:
+  default:
+  # Réseau dédié OCR : le conteneur OCR (image vllm-openai, admin peut le
+  # relancer avec --trust-remote-code sur un autre modèle HF, cf. README
+  # « Security ») n'est PLUS sur `default` avec litellm/postgres/traefik —
+  # seul dgx-portal (qui lui parle en HTTP, cf. OCR_URL) est multi-homé sur
+  # les deux réseaux. Un code arbitraire exécuté dans ce conteneur (repo HF
+  # malveillant) n'a donc plus de route L3 directe vers litellm/postgres.
+  ocr_net:
 
 # ─── OpenWebUI ────────────────────────────────────────────────────────────────
 # OpenWebUI tourne sur ton autre serveur (vor.cronos.website).

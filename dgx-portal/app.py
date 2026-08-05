@@ -1,4 +1,4 @@
-import os, sqlite3, smtplib, requests, time, re, threading, json, secrets, hmac
+import os, sqlite3, smtplib, requests, time, re, threading, json, secrets, hmac, base64
 from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
 from ldap3.utils.conv import escape_filter_chars
@@ -146,6 +146,12 @@ LITELLM_KEY   = os.environ.get('LITELLM_MASTER_KEY', '')
 VLLM_API      = os.environ.get('VLLM_API_URL', 'http://host.docker.internal:8000/v1')
 RUNNER_URL    = os.environ.get('VLLM_RUNNER_URL', 'http://host.docker.internal:8001')
 RUNNER_TOKEN  = os.environ.get('RUNNER_TOKEN', '')
+# ComfyUI (génération vidéo MiniMax H3) — process host, jamais exposé (127.0.0.1
+# only côté host, atteint via host.docker.internal comme le runner vLLM).
+COMFYUI_URL   = os.environ.get('COMFYUI_URL', 'http://host.docker.internal:8188')
+# OCR (baidu/Unlimited-OCR) — conteneur sur le réseau docker interne, jamais
+# de port publié sur l'hôte.
+OCR_URL       = os.environ.get('OCR_URL', 'http://ocr:8000/v1')
 DISCORD_WH    = os.environ.get('DISCORD_WEBHOOK_URL', '')
 SMTP_HOST     = os.environ.get('SMTP_HOST', '')
 SMTP_PORT     = int(os.environ.get('SMTP_PORT', '587'))
@@ -209,6 +215,38 @@ def set_setting(key, value):
     )
     db.commit()
 
+def maintenance_active():
+    return get_setting('maintenance_mode', '0') == '1'
+
+_admin_username_cache = {}
+
+def is_admin_username(username):
+    """Statut admin d'un compte, sans session active (utilisé par
+    /internal/authcheck, appelé par Traefik pour CHAQUE requête API externe
+    en mode maintenance — d'où le cache, pour ne pas taper le LDAP à chaque
+    fois)."""
+    now = time.time()
+    cached = _admin_username_cache.get(username)
+    if cached and now - cached[0] < 60:
+        return cached[1]
+    is_admin = username in DEBUG_ADMIN_USERNAMES or ldap_lookup_admin(username)
+    _admin_username_cache[username] = (now, is_admin)
+    return is_admin
+
+def maintenance_block_sse():
+    """À utiliser dans les routes de chat (SSE) : même mécanisme que les
+    messages d'erreur déjà affichés côté client (« Aucun modèle actif », etc.)."""
+    if not maintenance_active() or session.get('is_admin'):
+        return None
+    return Response(_sse_msg("Mode maintenance en cours — l'accès aux modèles est "
+                             "temporairement suspendu, réessaie plus tard."),
+                    mimetype='text/event-stream')
+
+def maintenance_block_json():
+    if not maintenance_active() or session.get('is_admin'):
+        return None
+    return jsonify({'error': "Mode maintenance en cours — réessaie plus tard."}), 503
+
 def init_db():
     os.makedirs('/app/data', exist_ok=True)
     db = sqlite3.connect(DB_PATH)
@@ -237,6 +275,13 @@ def init_db():
             hf_model_id TEXT NOT NULL,
             vllm_args   TEXT DEFAULT '',
             engine      TEXT NOT NULL DEFAULT 'vllm',   -- 'vllm' | 'llamacpp'
+            added_at    TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ocr_configs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL UNIQUE,
+            hf_model_id TEXT NOT NULL,
+            vllm_args   TEXT DEFAULT '',
             added_at    TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS settings (
@@ -308,6 +353,23 @@ def init_db():
             fails        INTEGER NOT NULL DEFAULT 0,
             first_at     REAL NOT NULL,
             locked_until REAL NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS video_jobs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            username        TEXT NOT NULL,
+            prompt_id       TEXT NOT NULL,
+            prompt          TEXT NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            video_path      TEXT,
+            video_subfolder TEXT,
+            video_type      TEXT,
+            created_at      TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ocr_jobs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            username   TEXT NOT NULL,
+            text       TEXT NOT NULL,
+            created_at TEXT NOT NULL
         );
     ''')
     # Migration : colonnes ajoutées à mcp_servers après sa création initiale
@@ -426,6 +488,44 @@ def get_running_models():
     except Exception:
         pass
     _rm_cache.update(t=now, v=v)
+    return v
+
+_ocr_model_cache = {'t': 0.0, 'v': None}
+
+def get_ocr_model():
+    """Modèle servi par le conteneur OCR (baidu/Unlimited-OCR), un vLLM séparé
+    avec son propre /v1/models — jamais mélangé à get_running_models() dont
+    d'autres routes (arrêt/relance depuis l'admin) dépendent pour ne cibler
+    que le modèle de chat principal."""
+    now = time.time()
+    if now - _ocr_model_cache['t'] < 5:
+        return _ocr_model_cache['v']
+    v = None
+    try:
+        r = requests.get(f"{OCR_URL}/models", timeout=3)
+        if r.ok:
+            data = r.json().get('data', [])
+            if data:
+                v = data[0]['id']
+    except Exception:
+        pass
+    _ocr_model_cache.update(t=now, v=v)
+    return v
+
+_comfyui_up_cache = {'t': 0.0, 'v': False}
+
+def comfyui_is_up():
+    """ComfyUI (MiniMax-H3, génération vidéo) sert un unique workflow fixe et
+    n'a pas de /v1/models — on sonde juste sa disponibilité."""
+    now = time.time()
+    if now - _comfyui_up_cache['t'] < 5:
+        return _comfyui_up_cache['v']
+    v = False
+    try:
+        v = requests.get(f"{COMFYUI_URL}/system_stats", timeout=3).ok
+    except Exception:
+        pass
+    _comfyui_up_cache.update(t=now, v=v)
     return v
 
 def add_announcement(kind, a='', b=''):
@@ -624,6 +724,41 @@ def runner_stop():
     except Exception:
         return False
 
+def _sidecar_status(kind):
+    """kind ∈ {'ocr', 'video'} — le conteneur docker OCR et le service systemd
+    ComfyUI, contrôlés à distance par vllm-runner (privilèges sudo scoped côté
+    host, voir /etc/sudoers.d/vllmrunner-services) : dgx-portal n'a lui-même
+    aucun accès docker/systemd, ni ici ni ailleurs."""
+    try:
+        r = requests.get(f"{RUNNER_URL}/{kind}/status", headers=_runner_headers(), timeout=5)
+        if r.ok:
+            return r.json().get('status', 'unknown')
+    except Exception:
+        pass
+    return 'unreachable'
+
+def _sidecar_action(kind, action):
+    try:
+        r = requests.post(f"{RUNNER_URL}/{kind}/{action}", headers=_runner_headers(), timeout=30)
+        return r.ok
+    except Exception:
+        return False
+
+def _ocr_launch(hf_id, args):
+    """Recrée le conteneur OCR avec un autre modèle (runner.py valide les flags
+    contre l'allowlist OCR avant tout appel sudo, voir _OCR_*_FLAGS)."""
+    try:
+        r = requests.post(f"{RUNNER_URL}/ocr/launch", headers=_runner_headers(),
+                          json={'hf_model_id': hf_id, 'vllm_args': args or ''}, timeout=90)
+        detail = ''
+        try:
+            detail = r.json().get('detail', '')
+        except Exception:
+            pass
+        return r.ok, detail
+    except Exception as e:
+        return False, str(e)
+
 # Lignes d'accès de routine (polls santé/statut) → bruit qui noie les logs utiles.
 _LOG_NOISE_RE = re.compile(r'"GET /(?:v1/models|metrics|health\S*|version|ping)\b')
 
@@ -649,6 +784,152 @@ def runner_metrics():
     except Exception:
         pass
     return None
+
+# ── ComfyUI (génération vidéo MiniMax H3) ───────────────────────────────────
+# Jamais exposé (ComfyUI écoute 127.0.0.1 côté host) : seul ce backend lui
+# parle, en passant par host.docker.internal comme le runner vLLM.
+_H3_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'workflows', 'h3_r2v_template.json')
+
+def _comfyui_upload_image(image_bytes, filename):
+    try:
+        r = requests.post(f"{COMFYUI_URL}/upload/image",
+                          files={'image': (filename, image_bytes)},
+                          data={'type': 'input'}, timeout=30)
+        if r.ok:
+            return r.json().get('name')
+    except Exception:
+        pass
+    return None
+
+def comfyui_generate(image_bytes, prompt_text, duration_seconds=5):
+    """Soumet une génération vidéo H3 à ComfyUI. Retourne prompt_id ou None.
+
+    Le graphe est chargé depuis workflows/h3_r2v_template.json (dérivé du
+    workflow officiel Comfy-Org, validé manuellement) et seulement 4 champs
+    sont substitués : image de référence, prompt, durée, seed aléatoire."""
+    uploaded_name = _comfyui_upload_image(image_bytes, 'ref.png')
+    if not uploaded_name:
+        return None
+    try:
+        with open(_H3_TEMPLATE_PATH) as f:
+            graph = json.load(f)
+        graph['137']['inputs']['image'] = uploaded_name
+        graph['138']['inputs']['value'] = prompt_text[:2000]
+        graph['132']['inputs']['value'] = max(2, min(15, float(duration_seconds)))
+        graph['129']['inputs']['noise_seed'] = secrets.randbelow(2**32)
+        r = requests.post(f"{COMFYUI_URL}/prompt", json={'prompt': graph}, timeout=15)
+        if r.ok:
+            return r.json().get('prompt_id')
+    except Exception:
+        pass
+    return None
+
+def comfyui_status(prompt_id):
+    """Retourne {'status': 'pending'|'running'|'done'|'error', 'video_path': str|None}.
+
+    Format réel d'une entrée /history/<id> (vérifié sur une génération complète) :
+      {"status": {"status_str": "success"|"error", "completed": bool, "messages": [...]},
+       "outputs": {"92": {"images": [{"filename", "subfolder", "type"}], "animated": [true]}}}
+    Le nœud SaveVideo range son fichier sous la clé historique "images"."""
+    try:
+        r = requests.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=5)
+        if r.ok:
+            hist = r.json()
+            if prompt_id in hist:
+                entry = hist[prompt_id]
+                if entry.get('status', {}).get('status_str') == 'error':
+                    return {'status': 'error', 'video_path': None}
+                videos = entry.get('outputs', {}).get('92', {}).get('images') or []
+                if videos:
+                    v = videos[0]
+                    return {'status': 'done',
+                            'video_path': v.get('filename'),
+                            'video_subfolder': v.get('subfolder', ''),
+                            'video_type': v.get('type', 'output')}
+                return {'status': 'error', 'video_path': None}
+        # pas encore dans l'historique → en cours ou en attente dans la queue
+        rq = requests.get(f"{COMFYUI_URL}/queue", timeout=5)
+        if rq.ok:
+            q = rq.json()
+            running_ids = [item[1] for item in q.get('queue_running', [])]
+            pending_ids = [item[1] for item in q.get('queue_pending', [])]
+            if prompt_id in running_ids:
+                return {'status': 'running', 'video_path': None}
+            if prompt_id in pending_ids:
+                return {'status': 'pending', 'video_path': None}
+    except Exception:
+        pass
+    return {'status': 'error', 'video_path': None}
+
+def comfyui_fetch_video(filename, subfolder='', ftype='output'):
+    try:
+        r = requests.get(f"{COMFYUI_URL}/view",
+                         params={'filename': filename, 'subfolder': subfolder, 'type': ftype},
+                         timeout=30, stream=True)
+        if r.ok:
+            return r
+    except Exception:
+        pass
+    return None
+
+# ── OCR (baidu/Unlimited-OCR) ────────────────────────────────────────────────
+# Conteneur interne (réseau docker ai-platform_default), jamais de port publié.
+def ocr_extract_stream(image_bytes, mime, instruction, on_done):
+    """Générateur SSE : relaie au fil de l'eau la réponse du conteneur OCR
+    (même format que playground_chat). Le modèle interrogé est celui
+    RÉELLEMENT servi (get_ocr_model(), sondé en direct) plutôt qu'un nom
+    figé — indispensable depuis que l'admin peut recréer ce conteneur avec un
+    autre modèle (catalogue OCR, cf. _ocr_launch / /admin/ocr/catalog/*).
+    on_done(full_text) est appelé une fois le flux terminé (texte vide si
+    erreur), pour laisser l'appelant persister l'historique."""
+    model = get_ocr_model() or 'baidu/Unlimited-OCR'
+    b64 = base64.b64encode(image_bytes).decode()
+    full = []
+    try:
+        with requests.post(f"{OCR_URL}/chat/completions",
+                           json={
+                               'model': model,
+                               'messages': [{
+                                   'role': 'user',
+                                   'content': [
+                                       {'type': 'text', 'text': f'<image>{instruction}'},
+                                       {'type': 'image_url',
+                                        'image_url': {'url': f'data:{mime};base64,{b64}'}},
+                                   ],
+                               }],
+                               'max_tokens': 4096,
+                               'temperature': 0.0,
+                               'stream': True,
+                               'extra_body': {
+                                   'skip_special_tokens': False,
+                                   'vllm_xargs': {'ngram_size': 35, 'window_size': 128},
+                               },
+                           # Marge large : sous contention GPU (vidéo H3 en cours en
+                           # même temps), une requête OCR normalement <1s peut monter
+                           # à ~100s — vu en prod le 04/08. Reste sous le timeout
+                           # worker gunicorn (200s) pour ne jamais couper le process.
+                           }, stream=True, timeout=(10, 180)) as r:
+            if not r.ok:
+                yield _sse_msg("OCR inaccessible.")
+                return
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                decoded = line.decode('utf-8', 'replace')
+                yield decoded + "\n\n"
+                if decoded.startswith('data: '):
+                    payload = decoded[len('data: '):].strip()
+                    if payload and payload != '[DONE]':
+                        try:
+                            piece = json.loads(payload)['choices'][0]['delta'].get('content')
+                            if piece:
+                                full.append(piece)
+                        except Exception:
+                            pass
+    except Exception:
+        yield _sse_msg("⚠ flux OCR interrompu.")
+    finally:
+        on_done(''.join(full))
 
 _VLLM_METRICS_URL = VLLM_API.rsplit('/v1', 1)[0] + '/metrics'
 _vllm_tps = {'t': 0.0, 'gen': 0.0}
@@ -1258,7 +1539,12 @@ def logout():
     return redirect(url_for('login'))
 
 def _index_data():
-    running = get_running_models()
+    running = [{'name': m, 'kind': 'chat', 'exposed': True} for m in get_running_models()]
+    ocr_model = get_ocr_model()
+    if ocr_model:
+        running.append({'name': ocr_model, 'kind': 'ocr', 'exposed': False})
+    if comfyui_is_up():
+        running.append({'name': 'MiniMax-H3', 'kind': 'video', 'exposed': False})
     db = get_db()
     my_requests = db.execute(
         "SELECT * FROM model_requests WHERE username=? ORDER BY created_at DESC LIMIT 5",
@@ -1292,7 +1578,8 @@ def api_whoami():
                      'is_admin': bool(session.get('is_admin')),
                      'avatar_id': pref['avatar_id'] if pref else None,
                      'theme_id': (pref['theme_id'] if pref else None) or 'neutral',
-                     'lang': (pref['lang'] if pref else None) or 'fr'})
+                     'lang': (pref['lang'] if pref else None) or 'fr',
+                     'maintenance_mode': maintenance_active()})
 
 
 @app.route('/api/home')
@@ -2251,6 +2538,9 @@ def support_chat():
     history = data.get('messages', [])
     if not isinstance(history, list) or not history:
         return Response(_sse_msg("Message vide."), mimetype='text/event-stream'), 400
+    blocked = maintenance_block_sse()
+    if blocked:
+        return blocked
     history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:4000]}
                for m in history if m.get('role') in ('user', 'assistant')][-12:]
     wait = _chat_rate_limited(session['username'], 'rl-support')
@@ -2534,6 +2824,9 @@ def playground_chat():
                for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')][-20:]
     if not history:
         return Response(_sse_msg("Message vide."), mimetype='text/event-stream')
+    blocked = maintenance_block_sse()
+    if blocked:
+        return blocked
     wait = _chat_rate_limited(session['username'], 'rl-playground')
     if wait:
         return Response(_sse_msg(f"Trop de messages d'affilée — réessaie dans {wait}s."),
@@ -2688,6 +2981,24 @@ def admin_get_user_consumption():
     for uid, u in users.items():
         u['tokens'] = toks.get(uid, 0)
     return sorted(users.values(), key=lambda u: u['tokens'], reverse=True)
+
+def admin_get_ocr_usage():
+    """OCR et vidéo ne passent jamais par une clé API LiteLLM (backend interne,
+    non exposé — cf. get_ocr_model()/comfyui_is_up()) : LiteLLM_SpendLogs n'en
+    sait donc rien. Seules les tables locales ocr_jobs/video_jobs savent qui
+    les utilise."""
+    rows = get_db().execute(
+        "SELECT username, COUNT(*) AS c, MAX(created_at) AS last "
+        "FROM ocr_jobs GROUP BY username ORDER BY c DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+def admin_get_video_usage():
+    rows = get_db().execute(
+        "SELECT username, COUNT(*) AS c, MAX(created_at) AS last "
+        "FROM video_jobs GROUP BY username ORDER BY c DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ── Statistiques de consommation (base LiteLLM Postgres) ─────────────────────
@@ -3014,6 +3325,7 @@ def api_admin():
     db = get_db()
     all_reqs    = db.execute("SELECT * FROM model_requests ORDER BY created_at DESC").fetchall()
     model_cfgs  = db.execute("SELECT * FROM model_configs ORDER BY name").fetchall()
+    ocr_cfgs    = db.execute("SELECT * FROM ocr_configs ORDER BY name").fetchall()
     budget_reqs = db.execute("SELECT * FROM budget_requests ORDER BY created_at DESC").fetchall()
     stats = {
         'pending':  sum(1 for r in all_reqs if r['status'] == 'pending'),
@@ -3026,7 +3338,13 @@ def api_admin():
         'running_models': get_running_models(),
         'stats': stats,
         'spend_data': admin_get_user_consumption(),
+        'ocr_usage': admin_get_ocr_usage(),
+        'video_usage': admin_get_video_usage(),
+        'maintenance_mode': maintenance_active(),
+        'ocr_status': _sidecar_status('ocr'),
+        'video_status': _sidecar_status('video'),
         'model_cfgs': [dict(r) for r in model_cfgs],
+        'ocr_cfgs': [dict(r) for r in ocr_cfgs],
         'v_status': runner_status(),
         'init_logs': runner_logs(120),
         'budget_reqs': [dict(r) for r in budget_reqs],
@@ -3093,6 +3411,75 @@ def admin_announce():
 def stop_model():
     ok = runner_stop()
     flash("Modèle arrêté." if ok else "Runner vLLM inaccessible.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/ocr/start', methods=['POST'])
+@admin_required
+def start_ocr():
+    ok = _sidecar_action('ocr', 'start')
+    flash("OCR démarré." if ok else "Échec du démarrage OCR.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/ocr/stop', methods=['POST'])
+@admin_required
+def stop_ocr():
+    ok = _sidecar_action('ocr', 'stop')
+    flash("OCR arrêté." if ok else "Échec de l'arrêt OCR.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/video/start', methods=['POST'])
+@admin_required
+def start_video():
+    ok = _sidecar_action('video', 'start')
+    flash("Vidéo démarrée." if ok else "Échec du démarrage vidéo.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/video/stop', methods=['POST'])
+@admin_required
+def stop_video():
+    ok = _sidecar_action('video', 'stop')
+    flash("Vidéo arrêtée." if ok else "Échec de l'arrêt vidéo.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/ocr/catalog/add', methods=['POST'])
+@admin_required
+def add_ocr_cfg():
+    name  = re.sub(r'[^a-zA-Z0-9_-]', '-', request.form.get('name', '').strip())[:40]
+    hf_id = request.form.get('hf_model_id', '').strip()
+    args  = request.form.get('vllm_args', '').strip()
+    if not name or not hf_id:
+        flash("Nom et HF model ID requis.", "warning")
+        return redirect(url_for('admin'))
+    db = get_db()
+    try:
+        db.execute("INSERT INTO ocr_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
+                   (name, hf_id, args, datetime.now().isoformat()))
+        db.commit()
+        flash(f"Modèle OCR {name} ajouté au catalogue.", "success")
+    except sqlite3.IntegrityError:
+        flash("Un modèle OCR avec ce nom existe déjà.", "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/ocr/catalog/delete/<int:cid>', methods=['POST'])
+@admin_required
+def delete_ocr_cfg(cid):
+    db = get_db()
+    db.execute("DELETE FROM ocr_configs WHERE id=?", (cid,))
+    db.commit()
+    flash("Modèle OCR supprimé du catalogue.", "success")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/ocr/catalog/launch', methods=['POST'])
+@admin_required
+def launch_ocr_cfg():
+    name = request.form.get('ocr_name', '').strip()
+    cfg = get_db().execute("SELECT * FROM ocr_configs WHERE name=?", (name,)).fetchone()
+    if not cfg:
+        flash("Modèle OCR introuvable.", "danger")
+        return redirect(url_for('admin'))
+    ok, detail = _ocr_launch(cfg['hf_model_id'], cfg['vllm_args'] or '')
+    flash(f"Relance OCR avec {name} en cours…" if ok else f"Échec de la relance OCR : {detail}",
+          "success" if ok else "danger")
     return redirect(url_for('admin'))
 
 @app.route('/admin/model/add', methods=['POST'])
@@ -3165,6 +3552,37 @@ def update_settings():
     set_setting('default_key_duration', duration)
     flash(f"Limite globale mise à jour : {budget_val:,.0f} tokens / {duration}.".replace(',', ' '), "success")
     return redirect(url_for('admin'))
+
+@app.route('/admin/maintenance/toggle', methods=['POST'])
+@admin_required
+def toggle_maintenance():
+    """Bascule le mode maintenance. Ne touche à AUCUN modèle (vLLM/ComfyUI/OCR
+    restent up) : bloque seulement (1) les endpoints de chat/OCR/vidéo du
+    portail pour les non-admins (maintenance_block_sse/json ci-dessus) et (2)
+    l'API publique externe via Traefik forwardAuth → /internal/authcheck."""
+    now_on = not maintenance_active()
+    set_setting('maintenance_mode', '1' if now_on else '0')
+    add_announcement('maintenance', 'on' if now_on else 'off')
+    flash("Mode maintenance activé." if now_on else "Mode maintenance désactivé.", "success")
+    return redirect(url_for('admin'))
+
+@app.route('/internal/authcheck')
+def internal_authcheck():
+    """Appelé par Traefik (middleware forwardAuth sur le routeur `api`
+    public), jamais par le navigateur : décide si une requête externe vers
+    api.cronos.website passe ou reçoit le message de maintenance. Hors mode
+    maintenance, toujours 200 sans aucune vérification (pas de coût ajouté au
+    chemin normal)."""
+    if not maintenance_active():
+        return ('', 200)
+    auth = request.headers.get('Authorization', '')
+    token = auth[7:] if auth.lower().startswith('bearer ') else ''
+    row = get_db().execute("SELECT username FROM api_keys WHERE key_value=?", (token,)).fetchone() if token else None
+    if row and is_admin_username(row['username']):
+        return ('', 200)
+    return jsonify({'error': {'message': "Mode maintenance en cours — l'API est "
+                              "temporairement indisponible, réessaie plus tard.",
+                              'type': 'maintenance_mode'}}), 503
 
 @app.route('/admin/budget/approve/<int:req_id>', methods=['POST'])
 @admin_required
@@ -3394,6 +3812,154 @@ def update_request(req_id):
                 flash(f"Modèle « {name} » ajouté au catalogue et routé par LiteLLM — vérifie ses args vLLM puis lance-le.{routed}", "success")
     db.commit()
     return redirect(url_for('admin'))
+
+# ── Vidéo (MiniMax H3 via ComfyUI) ──────────────────────────────────────────
+_MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 Mo, image de référence
+VIDEO_HISTORY_LIMIT = 3
+OCR_HISTORY_LIMIT = 20
+_ALLOWED_IMAGE_TYPES = {'image/png', 'image/jpeg', 'image/webp'}
+
+def _read_uploaded_image(field='image'):
+    """Lit et valide un fichier image du formulaire. Retourne (bytes, mime) ou
+    (None, message_erreur)."""
+    f = request.files.get(field)
+    if not f or not f.filename:
+        return None, "Aucune image fournie."
+    if f.mimetype not in _ALLOWED_IMAGE_TYPES:
+        return None, "Format d'image non supporté (PNG/JPEG/WebP uniquement)."
+    data = f.read(_MAX_UPLOAD_BYTES + 1)
+    if len(data) > _MAX_UPLOAD_BYTES:
+        return None, "Image trop volumineuse (15 Mo max)."
+    return data, f.mimetype
+
+@app.route('/api/video/generate', methods=['POST'])
+@login_required
+def api_video_generate():
+    blocked = maintenance_block_json()
+    if blocked:
+        return blocked
+    data, err_or_mime = _read_uploaded_image()
+    if data is None:
+        return jsonify({'error': err_or_mime}), 400
+    prompt_text = request.form.get('prompt', '').strip()
+    if not prompt_text:
+        return jsonify({'error': "Un prompt texte est requis."}), 400
+    try:
+        duration = float(request.form.get('duration', 5))
+    except ValueError:
+        duration = 5
+    prompt_id = comfyui_generate(data, prompt_text, duration)
+    if not prompt_id:
+        return jsonify({'error': "ComfyUI inaccessible ou requête refusée."}), 502
+    db = get_db()
+    db.execute("INSERT INTO video_jobs (username, prompt_id, prompt, created_at) VALUES (?,?,?,?)",
+               (session['username'], prompt_id, prompt_text, datetime.now().isoformat()))
+    # Ne garde que les VIDEO_HISTORY_LIMIT plus récents par utilisateur.
+    db.execute("""DELETE FROM video_jobs WHERE username=? AND id NOT IN (
+                     SELECT id FROM video_jobs WHERE username=?
+                     ORDER BY id DESC LIMIT ?)""",
+               (session['username'], session['username'], VIDEO_HISTORY_LIMIT))
+    db.commit()
+    return jsonify({'prompt_id': prompt_id})
+
+@app.route('/api/video/history')
+@login_required
+def api_video_history():
+    rows = get_db().execute(
+        "SELECT prompt_id, prompt, status, created_at FROM video_jobs WHERE username=? ORDER BY id DESC",
+        (session['username'],)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/video/status/<prompt_id>')
+@login_required
+def api_video_status(prompt_id):
+    # IDOR guard : prompt_id est un identifiant ComfyUI opaque mais non secret
+    # (visible dans le DOM/l'URL) — sans cette vérification, n'importe quel
+    # utilisateur connecté pouvait interroger le statut/la vidéo d'un autre
+    # simplement en connaissant son prompt_id.
+    owned = get_db().execute(
+        "SELECT 1 FROM video_jobs WHERE prompt_id=? AND username=?",
+        (prompt_id, session['username'])).fetchone()
+    if not owned:
+        abort(404)
+    st = comfyui_status(prompt_id)
+    # Persiste le résultat dès qu'il est connu : l'historique en mémoire de
+    # ComfyUI est volatile (vidé à chaque redémarrage du service), alors que
+    # /view lit directement le fichier sur disque — en gardant le chemin ici,
+    # l'historique reste consultable même après un redémarrage de ComfyUI.
+    if st['status'] in ('done', 'error'):
+        get_db().execute(
+            "UPDATE video_jobs SET status=?, video_path=?, video_subfolder=?, video_type=? "
+            "WHERE prompt_id=? AND username=?",
+            (st['status'], st.get('video_path'), st.get('video_subfolder'), st.get('video_type'),
+             prompt_id, session['username']))
+        get_db().commit()
+    return jsonify(st)
+
+@app.route('/video/file/<prompt_id>')
+@login_required
+def video_file(prompt_id):
+    # Même garde IDOR que api_video_status : il faut d'abord une ligne
+    # appartenant à CE compte pour ce prompt_id, même quand video_path n'est
+    # pas encore renseigné (job pas encore marqué "done" en base) — avant, le
+    # repli sur comfyui_status(prompt_id) ci-dessous n'était pas scopé par
+    # utilisateur et servait la vidéo de n'importe quel job connu de ComfyUI.
+    owned = get_db().execute(
+        "SELECT video_path, video_subfolder, video_type FROM video_jobs "
+        "WHERE prompt_id=? AND username=?",
+        (prompt_id, session['username'])).fetchone()
+    if not owned:
+        abort(404)
+    if owned['video_path']:
+        st = {'video_path': owned['video_path'], 'video_subfolder': owned['video_subfolder'],
+              'video_type': owned['video_type']}
+    else:
+        st = comfyui_status(prompt_id)
+        if st['status'] != 'done' or not st['video_path']:
+            abort(404)
+    upstream = comfyui_fetch_video(st['video_path'], st.get('video_subfolder', ''),
+                                   st.get('video_type', 'output'))
+    if upstream is None:
+        abort(502)
+    return Response(upstream.iter_content(chunk_size=65536), mimetype='video/mp4',
+                    headers={'Content-Disposition': f'inline; filename="{st["video_path"]}"'})
+
+# ── OCR (baidu/Unlimited-OCR) ────────────────────────────────────────────────
+@app.route('/api/ocr/extract', methods=['POST'])
+@login_required
+def api_ocr_extract():
+    blocked = maintenance_block_sse()
+    if blocked:
+        return blocked
+    data, err_or_mime = _read_uploaded_image()
+    if data is None:
+        return Response(_sse_msg(err_or_mime), mimetype='text/event-stream'), 400
+    instruction = request.form.get('instruction', 'document parsing.').strip()[:500]
+    username = session['username']
+
+    def _persist(text):
+        if not text:
+            return
+        db = get_db()
+        db.execute("INSERT INTO ocr_jobs (username, text, created_at) VALUES (?,?,?)",
+                   (username, text, datetime.now().isoformat()))
+        db.execute("""DELETE FROM ocr_jobs WHERE username=? AND id NOT IN (
+                         SELECT id FROM ocr_jobs WHERE username=?
+                         ORDER BY id DESC LIMIT ?)""",
+                   (username, username, OCR_HISTORY_LIMIT))
+        db.commit()
+
+    return Response(stream_with_context(ocr_extract_stream(data, err_or_mime, instruction, _persist)),
+                    mimetype='text/event-stream',
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+@app.route('/api/ocr/history')
+@login_required
+def api_ocr_history():
+    rows = get_db().execute(
+        "SELECT id, text, created_at FROM ocr_jobs WHERE username=? ORDER BY id DESC",
+        (session['username'],)).fetchall()
+    return jsonify([dict(r) for r in rows])
 
 with app.app_context():
     init_db()

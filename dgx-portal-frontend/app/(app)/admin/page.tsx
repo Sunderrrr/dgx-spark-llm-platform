@@ -17,6 +17,7 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Table } from "@astryxdesign/core/Table";
 import type { TableColumn } from "@astryxdesign/core/Table";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
+import { Banner } from "@astryxdesign/core/Banner";
 import { useToast } from "@astryxdesign/core/Toast";
 import {
   PlayIcon,
@@ -34,6 +35,7 @@ import { getJSON, postForm, ForbiddenError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 type ModelCfg = { id: number; name: string; hf_model_id: string; engine: string; vllm_args: string };
+type OcrCfg = { id: number; name: string; hf_model_id: string; vllm_args: string };
 type ModelRequest = { id: number; fullname: string; username: string; model_id: string; reason: string | null; status: string; created_at: string };
 type BudgetRequest = {
   id: number;
@@ -47,18 +49,25 @@ type BudgetRequest = {
   granted_amount: number | null;
 };
 type SpendRow = { username: string; tokens: number; max_budget: number | null; unlimited: boolean; key_count: number };
+type UsageRow = { username: string; c: number; last: string };
 type VStatus = { status: string; model: string | null; pid: number | null; engine?: string };
 type AdminData = {
   requests: ModelRequest[];
   running_models: string[];
   stats: { pending: number; done: number; rejected: number; budget_pending: number };
   spend_data: SpendRow[];
+  ocr_usage: UsageRow[];
+  video_usage: UsageRow[];
   model_cfgs: ModelCfg[];
   v_status: VStatus;
   init_logs: string[];
   budget_reqs: BudgetRequest[];
   default_key_budget: number;
   default_key_duration: string;
+  maintenance_mode: boolean;
+  ocr_status: string;
+  video_status: string;
+  ocr_cfgs: OcrCfg[];
 };
 
 const MAX_LOG_LINES = 600;
@@ -74,6 +83,7 @@ export default function AdminPage() {
   const [forbidden, setForbidden] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [newModel, setNewModel] = useState({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
+  const [newOcr, setNewOcr] = useState({ name: "", hf_model_id: "", vllm_args: "" });
   const [announce, setAnnounce] = useState({ title: "", body: "" });
   const [settings, setSettings] = useState({ budget: "", duration: "" });
 
@@ -154,6 +164,12 @@ export default function AdminPage() {
     { key: "key_count", header: "Clés" },
   ];
 
+  const usageColumns = (countLabel: string): TableColumn<UsageRow & Record<string, unknown>>[] => [
+    { key: "username", header: "Utilisateur" },
+    { key: "c", header: countLabel },
+    { key: "last", header: t("Dernière utilisation"), renderCell: (r) => r.last.slice(0, 16).replace("T", " ") },
+  ];
+
   const requestColumns: TableColumn<ModelRequest & Record<string, unknown>>[] = [
     { key: "fullname", header: "Utilisateur", renderCell: (r) => `${r.fullname} (${r.username})` },
     { key: "model_id", header: "Modèle" },
@@ -202,6 +218,24 @@ export default function AdminPage() {
               <Heading level={1}>{t("Administration")}</Heading>
               <Text type="supporting" color="secondary">{t("Pilotage des modèles, quotas de tokens et demandes des utilisateurs.")}</Text>
             </VStack>
+
+            {data && (
+              <Banner
+                status={data.maintenance_mode ? "warning" : "info"}
+                title={data.maintenance_mode ? t("Mode maintenance actif") : t("Mode maintenance")}
+                description={t(
+                  "Bloque l'accès à l'API et au chat/OCR/vidéo pour les non-admins, sans arrêter les modèles. Les admins gardent l'accès.",
+                )}
+                endContent={
+                  <Button
+                    label={data.maintenance_mode ? t("Désactiver") : t("Activer")}
+                    variant={data.maintenance_mode ? "secondary" : "primary"}
+                    size="sm"
+                    onClick={() => act("/admin/maintenance/toggle")}
+                  />
+                }
+              />
+            )}
 
             <VStack gap={3}>
               <Text weight="semibold">{t("Modèles vLLM")}</Text>
@@ -266,6 +300,86 @@ export default function AdminPage() {
                         onClick={async () => {
                           await act("/admin/model/add", newModel);
                           setNewModel({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
+                        }}
+                      />
+                    </VStack>
+                  </Card>
+                </Grid>
+              )}
+
+              <Text weight="semibold">{t("OCR & Vidéo")}</Text>
+              {data && (
+                <Grid columns={{ minWidth: 240, max: 2 }} gap={3}>
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center">
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={data.ocr_status === "running" ? "success" : data.ocr_status === "stopped" ? "neutral" : "error"}
+                            label={data.ocr_status === "running" ? t("En ligne") : data.ocr_status === "stopped" ? t("Arrêté") : t("Injoignable")}
+                          />
+                          <Text weight="semibold">OCR — Unlimited-OCR</Text>
+                        </HStack>
+                        {data.ocr_status === "running" ? (
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/ocr/stop")} />
+                        ) : (
+                          <Button label={t("Démarrer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/ocr/start")} />
+                        )}
+                      </HStack>
+                    </VStack>
+                  </Card>
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center">
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={data.video_status === "running" ? "success" : data.video_status === "stopped" ? "neutral" : "error"}
+                            label={data.video_status === "running" ? t("En ligne") : data.video_status === "stopped" ? t("Arrêté") : t("Injoignable")}
+                          />
+                          <Text weight="semibold">Vidéo — MiniMax H3</Text>
+                        </HStack>
+                        {data.video_status === "running" ? (
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/video/stop")} />
+                        ) : (
+                          <Button label={t("Démarrer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/video/start")} />
+                        )}
+                      </HStack>
+                    </VStack>
+                  </Card>
+                </Grid>
+              )}
+
+              <Text type="supporting" color="secondary">{t("Catalogue OCR")}</Text>
+              {data && (
+                <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+                  {data.ocr_cfgs.map((cfg) => (
+                    <Card key={cfg.id}>
+                      <VStack gap={2}>
+                        <Text weight="semibold">{cfg.name}</Text>
+                        <Text type="supporting" color="secondary" wordBreak="break-all">
+                          {cfg.hf_model_id}
+                        </Text>
+                        <HStack gap={2}>
+                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/ocr/catalog/launch", { ocr_name: cfg.name })} />
+                          <Button label={t("Supprimer")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => act(`/admin/ocr/catalog/delete/${cfg.id}`)} />
+                        </HStack>
+                      </VStack>
+                    </Card>
+                  ))}
+                  <Card>
+                    <VStack gap={2}>
+                      <Text type="supporting" color="secondary">{t("Ajouter un modèle OCR")}</Text>
+                      <TextInput label={t("Nom")} isLabelHidden value={newOcr.name} onChange={(v) => setNewOcr((s) => ({ ...s, name: v }))} placeholder={t("Nom (ex: unlimited-ocr)")} size="sm" />
+                      <TextInput label={t("HF ID")} isLabelHidden value={newOcr.hf_model_id} onChange={(v) => setNewOcr((s) => ({ ...s, hf_model_id: v }))} placeholder={t("HF ID")} size="sm" />
+                      <TextInput label={t("Args")} isLabelHidden value={newOcr.vllm_args} onChange={(v) => setNewOcr((s) => ({ ...s, vllm_args: v }))} placeholder={t("Args du moteur")} size="sm" />
+                      <Button
+                        label={t("Ajouter")}
+                        variant="secondary"
+                        size="sm"
+                        icon={<Icon icon={PlusIcon} size="sm" />}
+                        onClick={async () => {
+                          await act("/admin/ocr/catalog/add", newOcr);
+                          setNewOcr({ name: "", hf_model_id: "", vllm_args: "" });
                         }}
                       />
                     </VStack>
@@ -355,6 +469,35 @@ export default function AdminPage() {
               <Text weight="semibold">{t("Consommation par utilisateur")}</Text>
               <Card padding={0}>
                 <Table<SpendRow & Record<string, unknown>> data={data?.spend_data ?? []} columns={consumptionColumns} idKey="username" density="balanced" dividers="rows" />
+              </Card>
+            </VStack>
+
+            <VStack gap={2}>
+              <Text weight="semibold">{t("Utilisation OCR par utilisateur")}</Text>
+              <Text type="supporting" color="secondary">
+                {t("Ne passe pas par une clé API — jamais visible dans la conso LiteLLM ci-dessus.")}
+              </Text>
+              <Card padding={0}>
+                <Table<UsageRow & Record<string, unknown>>
+                  data={data?.ocr_usage ?? []}
+                  columns={usageColumns(t("Extractions"))}
+                  idKey="username"
+                  density="balanced"
+                  dividers="rows"
+                />
+              </Card>
+            </VStack>
+
+            <VStack gap={2}>
+              <Text weight="semibold">{t("Utilisation vidéo par utilisateur")}</Text>
+              <Card padding={0}>
+                <Table<UsageRow & Record<string, unknown>>
+                  data={data?.video_usage ?? []}
+                  columns={usageColumns(t("Générations"))}
+                  idKey="username"
+                  density="balanced"
+                  dividers="rows"
+                />
               </Card>
             </VStack>
 

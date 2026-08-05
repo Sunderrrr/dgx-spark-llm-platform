@@ -72,6 +72,11 @@ _BOOL_FLAGS = {
     "--enable-auto-tool-choice", "--enforce-eager",
     "--disable-log-requests", "--disable-log-stats",
     "--skip-mm-profiling",
+    # KAT-Coder-V2.5 (et autres releases Qwen3.5-MoE "text-only") : sans ce
+    # flag vLLM résout un config multimodal (Qwen3_5MoeConfig) au lieu du
+    # config texte (Qwen3_5MoeTextConfig) que ce poids attend réellement →
+    # TypeError au chargement. Obligatoire d'après la carte du modèle.
+    "--language-model-only",
 }
 
 # Pseudo-flags : ne sont PAS passés au moteur, ils positionnent une variable
@@ -109,6 +114,17 @@ _VALUE_FLAGS = {
     # is_fast"), alors que --tokenizer-mode mistral fonctionne.
     "--tokenizer-mode",
 }
+
+# ── Whitelist OCR (conteneur docker dédié, PAS le process hôte principal) ──
+# Plus permissive que _BOOL_FLAGS/_VALUE_FLAGS : --trust-remote-code et
+# --logits_processors sont nécessaires à Unlimited-OCR (processeur de logits
+# custom du repo) et probablement à d'autres VLM OCR. Risque RCE réel si
+# l'admin pointe vers un repo HF malveillant — accepté ici : (1) admin-only,
+# même niveau de confiance que le catalogue de chat principal, qui contrôle
+# déjà entièrement ce qui tourne côté hôte ; (2) ce conteneur est isolé
+# (réseau docker dédié, pas de docker.sock, pas d'accès aux autres services).
+_OCR_BOOL_FLAGS = _BOOL_FLAGS | {"--trust-remote-code", "--no-enable-prefix-caching"}
+_OCR_VALUE_FLAGS = _VALUE_FLAGS | {"--logits_processors", "--mm-processor-cache-gb"}
 
 # ── Whitelist des flags llama.cpp (llama-server) ───────────────────────────
 # Même principe : allowlist stricte. Volontairement absents :
@@ -156,6 +172,8 @@ def _flags_for(engine):
         return _LLAMA_BOOL_FLAGS, _LLAMA_VALUE_FLAGS
     if engine == "ds4":
         return _DS4_BOOL_FLAGS, _DS4_VALUE_FLAGS
+    if engine == "ocr":
+        return _OCR_BOOL_FLAGS, _OCR_VALUE_FLAGS
     return _BOOL_FLAGS, _VALUE_FLAGS
 
 
@@ -460,6 +478,12 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     if killed:
         _wait_mem_release()
 
+    # Conservés pour la persistance (reprise auto) : les pseudo-flags (ex.
+    # --vllm-025) sont retirés d'extra_tokens juste en dessous pour l'exécution,
+    # mais une reprise auto qui les perdrait relancerait sur le mauvais binaire/
+    # sans le contournement nécessaire — donc on sauvegarde la liste complète.
+    original_tokens = list(extra_tokens)
+
     # Les pseudo-flags deviennent des variables d'env propres à ce modèle et
     # sont retirés de l'argv (le moteur ne les connaît pas).
     model_env = {}
@@ -520,7 +544,7 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     threading.Thread(target=_health_watch, args=(_proc,), daemon=True).start()
     # Persiste systématiquement l'état (manuel, reprise au boot, watchdog) pour
     # que last_model.json reste toujours présent tant que le modèle doit tourner.
-    _save_last_launch(hf_id, name, extra_tokens, engine)
+    _save_last_launch(hf_id, name, original_tokens, engine)
     return _proc
 
 
@@ -564,6 +588,82 @@ def stop():
             _model  = None
             return jsonify({"status": "stopped"})
     return jsonify({"status": "already_stopped"})
+
+
+# ── OCR (conteneur docker) / Vidéo (service systemd ComfyUI) ────────────────
+# Deux services annexes, toujours actifs à côté du modèle de chat principal
+# (pas de start/stop de la RAM/VRAM partagée en jeu ici, juste start/stop du
+# service lui-même). Commandes fixes, sans aucun argument piloté par
+# l'appelant → autorisées via sudoers NOPASSWD scoped (voir
+# /etc/sudoers.d/vllmrunner-services), pas de docker.sock ni d'accès systemd
+# général.
+def _sudo(*cmd, timeout=20):
+    try:
+        r = subprocess.run(["sudo", "-n", *cmd], capture_output=True, text=True, timeout=timeout)
+        return r.returncode == 0, (r.stdout or r.stderr).strip()
+    except Exception as e:
+        return False, str(e)
+
+
+@app.route("/ocr/status")
+def ocr_status():
+    ok, out = _sudo("/usr/bin/docker", "inspect", "ocr")
+    if not ok:
+        return jsonify({"status": "unknown", "detail": out})
+    try:
+        state = json.loads(out)[0]["State"]
+        running = bool(state.get("Running"))
+        return jsonify({"status": "running" if running else "stopped"})
+    except Exception as e:
+        return jsonify({"status": "unknown", "detail": str(e)})
+
+
+@app.route("/ocr/start", methods=["POST"])
+def ocr_start():
+    ok, out = _sudo("/usr/bin/docker", "start", "ocr", timeout=60)
+    return jsonify({"ok": ok, "detail": out})
+
+
+@app.route("/ocr/stop", methods=["POST"])
+def ocr_stop():
+    ok, out = _sudo("/usr/bin/docker", "stop", "ocr", timeout=30)
+    return jsonify({"ok": ok, "detail": out})
+
+
+@app.route("/ocr/launch", methods=["POST"])
+def ocr_launch():
+    """Recrée le conteneur OCR avec un autre modèle HF. hf_model_id est
+    utilisé tel quel (comme _build_cmd pour le modèle principal — argv de
+    liste, jamais interprété par un shell, donc pas d'injection possible même
+    si la valeur est malformée) ; vllm_args passe par la même allowlist que
+    les autres moteurs (voir _OCR_BOOL_FLAGS/_OCR_VALUE_FLAGS)."""
+    data = request.get_json(silent=True) or {}
+    hf_id = (data.get("hf_model_id") or "").strip()
+    if not hf_id:
+        return jsonify({"ok": False, "detail": "hf_model_id manquant"}), 400
+    ok, tokens_or_err = _validate_vllm_args(data.get("vllm_args", "") or "", engine="ocr")
+    if not ok:
+        return jsonify({"ok": False, "detail": tokens_or_err}), 400
+    ok, out = _sudo("/usr/local/sbin/ocr-recreate.sh", hf_id, *tokens_or_err, timeout=120)
+    return jsonify({"ok": ok, "detail": out})
+
+
+@app.route("/video/status")
+def video_status():
+    ok, out = _sudo("/usr/bin/systemctl", "is-active", "comfyui.service")
+    return jsonify({"status": "running" if (ok and out.strip() == "active") else "stopped"})
+
+
+@app.route("/video/start", methods=["POST"])
+def video_start():
+    ok, out = _sudo("/usr/bin/systemctl", "start", "comfyui.service", timeout=30)
+    return jsonify({"ok": ok, "detail": out})
+
+
+@app.route("/video/stop", methods=["POST"])
+def video_stop():
+    ok, out = _sudo("/usr/bin/systemctl", "stop", "comfyui.service", timeout=30)
+    return jsonify({"ok": ok, "detail": out})
 
 
 # ── Métriques système (hôte) ─────────────────────────────────────────────────

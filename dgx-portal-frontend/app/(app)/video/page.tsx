@@ -20,6 +20,7 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { FilmIcon, MoonIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 type JobStatus = "idle" | "pending" | "running" | "done" | "error";
 type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string };
@@ -28,6 +29,7 @@ type RunningModel = { name: string; kind: "chat" | "ocr" | "video"; exposed: boo
 const DURATIONS = ["3", "5", "8", "10", "15"];
 
 export default function VideoPage() {
+  const t = useT();
   const csrf = useCsrf();
   const showToast = useToast();
   const [image, setImage] = useState<File | null>(null);
@@ -78,7 +80,7 @@ export default function VideoPage() {
         payload,
       );
       if (!res.prompt_id) {
-        showToast({ body: res.error || "Échec de la génération.", type: "error" });
+        showToast({ body: res.error || t("Échec de la génération."), type: "error" });
         setStatus("error");
         return;
       }
@@ -91,14 +93,14 @@ export default function VideoPage() {
           stopPolling();
           setStatus(st.status);
           loadHistory();
-          if (st.status === "error") showToast({ body: "La génération a échoué.", type: "error" });
+          if (st.status === "error") showToast({ body: t("La génération a échoué."), type: "error" });
         } else {
           setStatus(st.status);
         }
       }, 5000);
     } catch {
       setStatus("error");
-      showToast({ body: "ComfyUI injoignable.", type: "error" });
+      showToast({ body: t("ComfyUI injoignable."), type: "error" });
     }
   }
 
@@ -118,49 +120,48 @@ export default function VideoPage() {
           {available === false ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
-              title="Aucun modèle vidéo n'est disponible"
-              description="Demande à un admin de démarrer un modèle vidéo pour utiliser cette page."
+              title={t("Aucun modèle vidéo n'est disponible")}
+              description={t("Demande à un admin de démarrer un modèle vidéo pour utiliser cette page.")}
             />
           ) : (
           <VStack gap={5} maxWidth={720}>
             <VStack gap={1}>
-              <Heading level={1}>Génération vidéo — MiniMax H3</Heading>
+              <Heading level={1}>{t("Génération vidéo — MiniMax H3")}</Heading>
               <Text type="supporting" color="secondary">
-                Une description, avec ou sans image de référence, → une courte vidéo avec audio
-                synchronisé. Génère localement sur le GPU, compte 5 à 10 minutes selon la charge.
+                {t("Une description, avec ou sans image de référence, → une courte vidéo avec audio synchronisé. Génère localement sur le GPU, compte 5 à 10 minutes selon la charge.")}
               </Text>
             </VStack>
 
             <Card>
               <VStack gap={4}>
                 <FileInput
-                  label="Image de référence (optionnel)"
+                  label={t("Image de référence (optionnel)")}
                   value={image}
                   onChange={(f) => setImage(f as File | null)}
                   accept="image/png,image/jpeg,image/webp"
                   maxSize={15 * 1024 * 1024}
                   mode="dropzone"
-                  description="PNG, JPEG ou WebP — 15 Mo max. Sans image, génère depuis le texte seul."
+                  description={t("PNG, JPEG ou WebP — 15 Mo max. Sans image, génère depuis le texte seul.")}
                   isDisabled={isBusy}
                 />
                 <TextArea
-                  label="Décris la scène"
+                  label={t("Décris la scène")}
                   value={prompt}
                   onChange={setPrompt}
-                  placeholder="Ex : un ballon rouge qui rebondit sur un sol blanc, caméra fixe."
+                  placeholder={t("Ex : un ballon rouge qui rebondit sur un sol blanc, caméra fixe.")}
                   maxLength={2000}
                   isDisabled={isBusy}
                   isRequired
                 />
                 <Selector
-                  label="Durée"
+                  label={t("Durée")}
                   value={duration}
                   onChange={setDuration}
                   options={DURATIONS.map((d) => ({ label: `${d}s`, value: d }))}
                   isDisabled={isBusy}
                 />
                 <Button
-                  label="Générer"
+                  label={t("Générer")}
                   variant="primary"
                   onClick={generate}
                   isDisabled={!prompt.trim() || isBusy}
@@ -178,13 +179,13 @@ export default function VideoPage() {
                       label={status}
                     />
                     <Text>
-                      {status === "pending" && "En file d'attente…"}
-                      {status === "running" && "Génération en cours…"}
-                      {status === "done" && "Vidéo prête."}
-                      {status === "error" && "Échec de la génération."}
+                      {status === "pending" && t("En file d'attente…")}
+                      {status === "running" && t("Génération en cours…")}
+                      {status === "done" && t("Vidéo prête.")}
+                      {status === "error" && t("Échec de la génération.")}
                     </Text>
                   </HStack>
-                  {isBusy && <ProgressBar label="Progression" isIndeterminate variant="accent" />}
+                  {isBusy && <ProgressBar label={t("Progression")} isIndeterminate variant="accent" />}
                   {status === "done" && promptId && (
                     <AspectRatio ratio={16 / 9} fit="contain">
                       <video src={`/video/file/${promptId}`} controls autoPlay loop />
@@ -197,7 +198,7 @@ export default function VideoPage() {
             {history.length > 0 && (
               <VStack gap={2}>
                 <Text type="supporting" color="secondary">
-                  Historique (3 dernières)
+                  {t("Historique (3 dernières)")}
                 </Text>
                 <VStack gap={0}>
                   {history.map((h) => (

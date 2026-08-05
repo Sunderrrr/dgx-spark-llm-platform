@@ -65,7 +65,7 @@ export default function RankingPage() {
               </VStack>
               <SegmentedControl label={t("Période")} value={period} onChange={setPeriod}>
                 {PERIODS.map((p) => (
-                  <SegmentedControlItem key={p.value} value={p.value} label={p.label} />
+                  <SegmentedControlItem key={p.value} value={p.value} label={t(p.label)} />
                 ))}
               </SegmentedControl>
             </HStack>
@@ -73,11 +73,10 @@ export default function RankingPage() {
             <Card>
               <VStack gap={3}>
                 <HStack hAlign="between" vAlign="center">
-                  <Text weight="semibold">{data?.period_label ?? ""}</Text>
+                  <Text weight="semibold">{data ? t(data.period_label) : ""}</Text>
                   {data && data.rows.length > 0 && (
                     <Text type="supporting" color="secondary">
-                      {data.active_count} compte{data.active_count > 1 ? "s" : ""} actif
-                      {data.active_count > 1 ? "s" : ""}
+                      {data.active_count} {t(data.active_count > 1 ? "comptes actifs" : "compte actif")}
                     </Text>
                   )}
                 </HStack>
@@ -103,7 +102,7 @@ export default function RankingPage() {
                             </Text>
                             {r.delta == null ? (
                               <Text type="supporting" color="secondary">
-                                nouveau
+                                {t("nouveau")}
                               </Text>
                             ) : (
                               <Text type="supporting" color={r.delta >= 0 ? "accent" : "secondary"}>
@@ -112,7 +111,7 @@ export default function RankingPage() {
                             )}
                           </VStack>
                         }
-                        startContent={r.is_me ? <Badge label="toi" variant="neutral" /> : undefined}
+                        startContent={r.is_me ? <Badge label={t("toi")} variant="neutral" /> : undefined}
                       />
                     ))}
                   </List>
@@ -120,7 +119,7 @@ export default function RankingPage() {
 
                 {data && data.rows.length > 0 && (
                   <Text type="supporting" color="secondary">
-                    Delta vs {data.prev_label}. Total = tokens prompt + générés.
+                    {t("Delta vs")} {t(data.prev_label)}. {t("Total = tokens prompt + générés.")}
                   </Text>
                 )}
               </VStack>

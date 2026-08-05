@@ -67,7 +67,7 @@ flowchart LR
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
 | **OCR container** | vLLM serving an OCR-capable VLM (datalab-to/chandra-ocr-2 by default; baidu/Unlimited-OCR also in the catalog), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
 | **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports; 12.5 GB per UNET instead of 21 GB for the INT8 build) | `8188`, host-restricted | systemd service on the host |
-| **Voice container** | Chatterbox TTS server (zero-shot voice cloning; Turbo / Original / Multilingual variants, swappable via an admin catalog) | internal only | Docker container, own network + GPU slice |
+| **Voice container** | Zero-shot voice cloning. Two interchangeable engines, swappable from the admin catalog: **Qwen3-TTS** (default, Apache 2.0, 10 languages, 3s cloning) or **Chatterbox** (MIT, Turbo/Original are English-only, Multilingual covers 23 languages) | internal only | Docker container, own network + GPU slice |
 
 > Only one **chat** model runs on the GPU at a time (launching another replaces the current
 > one) — OCR, video and voice are separate, always-addressable backends that run alongside
@@ -210,14 +210,16 @@ env vars — key and endpoint pre-filled.
   your last 3 results.
 - **Voice** — **record a sample straight from your microphone** (1 minute max,
   auto-stops, with playback before you commit) or upload one (WAV/MP3), give it
-  any text, and get that text read back in that voice (Chatterbox, zero-shot —
-  no fine-tuning, a few seconds per generation); keeps your last 20 results with
-  in-page playback. Browser recordings are converted to 24 kHz mono WAV
-  client-side (`lib/audioRecorder.ts`) because `MediaRecorder` only emits
-  WebM/Opus, which the model won't accept. The sample must be **longer than
-  5 s** (a hard model requirement) and the voice container's own ceiling is set
-  to 90 s in `voice-recreate.sh` — deliberately above the 1-minute UI cap, since
-  upstream's 30 s default silently rejected recordings the UI had just invited.
+  any text, and get that text read back in that voice — zero-shot, no
+  fine-tuning, a few seconds per generation; keeps your last 20 results with
+  in-page playback. The page adapts to whichever engine is loaded: it only
+  shows the language selector when the engine speaks more than one, and only
+  offers the optional **reference transcript** (which noticeably improves
+  likeness) on Qwen3-TTS, which is the only one that uses it. Browser
+  recordings are converted to 24 kHz mono WAV client-side
+  (`lib/audioRecorder.ts`) because `MediaRecorder` only emits WebM/Opus, which
+  neither model accepts. Samples shorter than ~6 s are rejected client-side —
+  both engines need a few seconds of speech, Chatterbox strictly more than 5.
   OCR, video and voice all show a clear empty state if no backend is currently
   running, instead of letting you submit into a dead end.
 - **Support (Cronos)** — an AI assistant that sees your keys (masked), budget, the
@@ -368,10 +370,15 @@ tokens/day, not request rate on a single GPU.
 │   ├── proxy.ts                # Next.js 16 proxy: nonce CSP + method-based routing
 │   ├── next.config.ts          # CSP headers, fallback rewrite to Flask
 │   └── Dockerfile
-├── voice/                     # Chatterbox TTS sidecar (voice cloning)
+├── voice/                     # Chatterbox voice-cloning sidecar (fallback engine)
 │   ├── Dockerfile             # pinned upstream release, CUDA 13.0 / sm_121 (GB10)
 │   ├── entrypoint.sh          # server + periodic purge of uploaded reference clips
 │   └── voice-recreate.sh      # source of /usr/local/sbin/voice-recreate.sh (installed on the host)
+├── voice-qwen/                # Qwen3-TTS voice-cloning sidecar (default engine)
+│   ├── Dockerfile             # same CUDA 13.0 / sm_121 base; no flash-attn on aarch64
+│   ├── server.py              # minimal HTTP wrapper — upstream ships no server
+│   │                          #   (vLLM-Omni is offline-inference only so far)
+│   └── voice-qwen-recreate.sh # source of /usr/local/sbin/voice-qwen-recreate.sh
 ├── vllm-runner/
 │   └── runner.py              # start/stop/logs daemon + auto-resume;
 │                               #   scoped sudo control of the OCR + voice containers and video service

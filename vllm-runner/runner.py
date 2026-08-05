@@ -653,6 +653,10 @@ def ocr_launch():
 # _validate_vllm_args : voice-recreate.sh fait à nouveau confiance à cette
 # validation amont mais revalide aussi lui-même (défense en profondeur).
 _VOICE_REPO_IDS = {"chatterbox", "chatterbox-turbo", "chatterbox-multilingual"}
+# Second moteur voix (Qwen3-TTS, Apache 2.0). Même conteneur « voice » et même
+# port : un seul backend voix à la fois, la mémoire unifiée du GB10 étant déjà
+# partagée avec le chat, l'OCR et la vidéo. Liste blanche fermée là aussi.
+_VOICE_QWEN_IDS = {"Qwen3-TTS-12Hz-1.7B-Base", "Qwen3-TTS-12Hz-0.6B-Base"}
 
 
 @app.route("/voice/status")
@@ -688,9 +692,13 @@ def voice_launch():
     appartenance à _VOICE_REPO_IDS."""
     data = request.get_json(silent=True) or {}
     repo_id = (data.get("repo_id") or "").strip()
-    if repo_id not in _VOICE_REPO_IDS:
+    if repo_id in _VOICE_REPO_IDS:
+        script = "/usr/local/sbin/voice-recreate.sh"
+    elif repo_id in _VOICE_QWEN_IDS:
+        script = "/usr/local/sbin/voice-qwen-recreate.sh"
+    else:
         return jsonify({"ok": False, "detail": "repo_id invalide"}), 400
-    ok, out = _sudo("/usr/local/sbin/voice-recreate.sh", repo_id, timeout=120)
+    ok, out = _sudo(script, repo_id, timeout=120)
     return jsonify({"ok": ok, "detail": out})
 
 

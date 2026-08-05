@@ -34,6 +34,11 @@ naive one-size-fits-all proxy doesn't work here:
   even though Flask streams token-by-token correctly. These manually pipe
   `upstream.body` through a `Response`, which Next.js genuinely streams. See
   `lib/sseProxy.ts` for the shared connect-timeout / idle-timeout logic.
+  The OCR page (`app/(app)/ocr/`) uses the same SSE-over-POST pattern for
+  its multipart upload (`lib/api.ts`'s `streamOcr`) — it's a `fetch()` with a
+  `FormData` body read manually via `readSSE`, not `EventSource` (which can't
+  send a body), rendered live with `@astryxdesign/core/Markdown`'s
+  `isStreaming` mode.
 
 `BACKEND_URL` (env var, default `http://dgx-portal:5000`) is the only place
 Flask's address is configured — it's the docker-compose service name

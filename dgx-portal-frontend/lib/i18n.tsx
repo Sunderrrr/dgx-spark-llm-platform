@@ -524,6 +524,13 @@ const EN: Record<string, string> = {
   "Service voix injoignable.": "Voice service unreachable.",
   "Ouvrir le clonage de voix": "Open voice cloning",
   "Catalogue voix": "Voice catalog",
+  "Backends": "Backends",
+  "Catalogue": "Catalog",
+  "Type de modèle": "Model type",
+  "LLM": "LLM",
+  "Nom (ex: qwen3-tts)": "Name (e.g. qwen3-tts)",
+  "La vidéo n'a pas de catalogue : un seul workflow ComfyUI figé, démarré et arrêté depuis la ligne « Backends » ci-dessus.":
+    "Video has no catalog: a single fixed ComfyUI workflow, started and stopped from the “Backends” row above.",
   "Ajouter un modèle voix": "Add a voice model",
   "Nom (ex: chatterbox-turbo)": "Name (e.g. chatterbox-turbo)",
   "Variante": "Variant",

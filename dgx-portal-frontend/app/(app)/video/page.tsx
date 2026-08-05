@@ -10,7 +10,6 @@ import { FileInput } from "@astryxdesign/core/FileInput";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Button } from "@astryxdesign/core/Button";
-import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { AspectRatio } from "@astryxdesign/core/AspectRatio";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Item } from "@astryxdesign/core/Item";
@@ -185,7 +184,27 @@ export default function VideoPage() {
                       {status === "error" && t("Échec de la génération.")}
                     </Text>
                   </HStack>
-                  {isBusy && <ProgressBar label={t("Progression")} isIndeterminate variant="accent" />}
+                  {/* Pendant la génération, on occupe déjà la place exacte de
+                      la vidéo à venir (même 16/9) avec un shimmer : la barre
+                      de progression indéterminée ne disait rien de plus et
+                      faisait sauter la mise en page à l'arrivée du résultat. */}
+                  {isBusy && (
+                    <AspectRatio ratio={16 / 9} fit="contain">
+                      <VStack
+                        className="video-generating"
+                        height="100%"
+                        width="100%"
+                        hAlign="center"
+                        vAlign="center"
+                        gap={2}
+                      >
+                        <Icon icon={FilmIcon} size="lg" color="secondary" />
+                        <Text type="supporting" color="secondary">
+                          {status === "pending" ? t("En file d'attente…") : t("Génération en cours…")}
+                        </Text>
+                      </VStack>
+                    </AspectRatio>
+                  )}
                   {status === "done" && promptId && (
                     <AspectRatio ratio={16 / 9} fit="contain">
                       <video src={`/video/file/${promptId}`} controls autoPlay loop />

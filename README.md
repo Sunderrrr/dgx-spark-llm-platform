@@ -16,7 +16,8 @@ It provides:
 - a **runner** that launches/stops one vLLM model on the GPU on demand and
   auto-resumes it after a crash or reboot;
 - always-on **OCR** (datalab-to/chandra-ocr-2 by default, swappable via an admin
-  catalog) and **video generation** (MiniMax H3, text-to-video and reference-image-to-video)
+  catalog), **video generation** (MiniMax H3, text-to-video and reference-image-to-video)
+  and **voice cloning** (Chatterbox, zero-shot from a short reference sample)
   served from dedicated backends alongside the main chat model, streamed into
   the portal with a live bounding-box visualization of detected regions —
   never exposed as separate public UIs;
@@ -46,10 +47,12 @@ flowchart LR
   R -->|launch / stop| V[vLLM · :8000]
   R -->|sudo, scoped: docker start/stop/recreate| O[OCR container · vLLM]
   R -->|sudo, scoped: systemctl start/stop| CU[ComfyUI · MiniMax H3]
+  R -->|sudo, scoped: docker start/stop/recreate| VC[Voice container · Chatterbox]
   L -->|:8000| V
   L --> PG[(Postgres)]
   P -->|chat/completions, streamed| O
   P -->|/prompt, /history, /view| CU
+  P -->|/upload_reference, /tts| VC
 ```
 
 ### Components
@@ -64,10 +67,13 @@ flowchart LR
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
 | **OCR container** | vLLM serving an OCR-capable VLM (datalab-to/chandra-ocr-2 by default; baidu/Unlimited-OCR also in the catalog), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
 | **ComfyUI** | Video generation graph engine (MiniMax H3, text-to-video and reference-image-to-video) | `8188`, host-restricted | systemd service on the host |
+| **Voice container** | Chatterbox TTS server (zero-shot voice cloning; Turbo / Original / Multilingual variants, swappable via an admin catalog) | internal only | Docker container, own network + GPU slice |
 
 > Only one **chat** model runs on the GPU at a time (launching another replaces the current
-> one) — OCR and video are separate, always-addressable backends that run alongside it,
-> each with their own GPU memory budget.
+> one) — OCR, video and voice are separate, always-addressable backends that run alongside
+> it, each with their own GPU memory budget. On a single 128 GB unified-memory box that
+> budget is genuinely shared: if a launch fails with an out-of-memory error, stop one of
+> the sidecars from **Admin** rather than shrinking the chat model.
 
 The UI used to be server-rendered Jinja templates served directly by Flask on
 `:5000`. It's now a separate Next.js/Astryx frontend that owns `:5000` and
@@ -119,6 +125,7 @@ go to **Admin**, and launch a model from the catalog.
 | `LLDAP_ADMIN_PASSWORD` | LDAP bind (user/group lookup, notification emails) |
 | `RUNNER_TOKEN` | Bearer token between `dgx-portal` and `vllm-runner` (also used for the OCR/video sidecar control routes) |
 | `OCR_URL` | Internal URL of the OCR vLLM container (default `http://ocr:8000/v1`) |
+| `VOICE_URL` | Internal URL of the Chatterbox voice container (default `http://voice:8004`) |
 | `COMFYUI_URL` | Internal URL of the ComfyUI video backend (default `http://host.docker.internal:8188`) |
 | `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.cronos.website/v1`) |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Authentik `dgx-spark` OIDC app |
@@ -201,8 +208,18 @@ env vars — key and endpoint pre-filled.
 - **Video** — turn a text description, with or without a reference image, into
   a short video with synced audio (MiniMax H3), polled to completion; keeps
   your last 3 results.
-  Both OCR and video show a clear empty state if no backend is currently running,
-  instead of letting you submit into a dead end.
+- **Voice** — **record a sample straight from your microphone** (1 minute max,
+  auto-stops, with playback before you commit) or upload one (WAV/MP3), give it
+  any text, and get that text read back in that voice (Chatterbox, zero-shot —
+  no fine-tuning, a few seconds per generation); keeps your last 20 results with
+  in-page playback. Browser recordings are converted to 24 kHz mono WAV
+  client-side (`lib/audioRecorder.ts`) because `MediaRecorder` only emits
+  WebM/Opus, which the model won't accept. The sample must be **longer than
+  5 s** (a hard model requirement) and the voice container's own ceiling is set
+  to 90 s in `voice-recreate.sh` — deliberately above the 1-minute UI cap, since
+  upstream's 30 s default silently rejected recordings the UI had just invited.
+  OCR, video and voice all show a clear empty state if no backend is currently
+  running, instead of letting you submit into a dead end.
 - **Support (Cronos)** — an AI assistant that sees your keys (masked), budget, the
   model catalog and server status, and can **act for you**: create a key, revoke one,
   request budget, request a model (admins also get launch/stop). Actions are always
@@ -215,14 +232,15 @@ env vars — key and endpoint pre-filled.
   colorblind-safe palette, from LiteLLM's Postgres spend logs.
 - **Home** — live server stats (CPU/RAM/GPU), active-model health (tok/s, queue,
   TTFT, requests served), your own hourly usage chart, and every currently-running
-  backend (chat, OCR, video) — OCR/video are clearly marked "not exposed by the API".
+  backend (chat, OCR, video, voice) — the sidecars are clearly marked "not exposed
+  by the API".
 - **Admin** (`adm_cronos` only) — launch/stop models, live vLLM logs, add/edit/remove
-  catalog models (chat **and** OCR), start/stop the OCR container and the video
-  service independently of the chat model, set the default budget, approve
-  token/model requests, per-user consumption **and** per-user OCR/video usage
-  (untracked by LiteLLM since neither goes through a public API key), and a
-  **maintenance mode** toggle that blocks non-admin traffic everywhere (portal
-  chat/OCR/video *and* the public API) without stopping any backend.
+  catalog models (chat, OCR **and** voice), start/stop the OCR container, the video
+  service and the voice container independently of the chat model, set the default
+  budget, approve token/model requests, per-user consumption **and** per-user
+  OCR/video/voice usage (untracked by LiteLLM since none of them go through a public
+  API key), and a **maintenance mode** toggle that blocks non-admin traffic everywhere
+  (portal chat/OCR/video/voice *and* the public API) without stopping any backend.
 
 ### Screenshots
 
@@ -288,7 +306,7 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
   only ever talks to Flask over that internal network.
 - **Published ports** are filtered in `DOCKER-USER`: `4001` (API) reachable from the
   LAN and the Netbird VPN, `5000` (frontend) from Traefik only (HTTPS).
-- **OCR / video control**: no `docker.sock` is mounted anywhere — `vllm-runner`
+- **OCR / video / voice control**: no `docker.sock` is mounted anywhere — `vllm-runner`
   (already a trusted, HMAC-token-gated host daemon) gets narrowly scoped `sudo`
   rights (`/etc/sudoers.d/vllmrunner-services`) to `systemctl start/stop` the
   video service and `docker start/stop/inspect` the OCR container, plus one
@@ -302,8 +320,14 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
   (`ocr_net`, shared only with `dgx-portal`) rather than the shared
   `ai-platform_default` network — arbitrary code from a malicious HF repo run
   there has no L3 route to `litellm`, `litellm-postgres`, or `traefik`.
-- **Maintenance mode**: a DB flag, enforced twice. Inside the portal, chat/OCR/video
-  routes check it directly and let admins through. For the public API
+  The **voice** container follows the same pattern: its own `voice_net`, its own
+  `docker start/stop/inspect` sudo rules, and a root-owned
+  `/usr/local/sbin/voice-recreate.sh` wrapper. Its one variable argument
+  (`repo_id`) is checked against a **closed allowlist** of the three Chatterbox
+  variants in both `runner.py` and the script itself — there is no free-form
+  argv here at all, unlike the OCR container.
+- **Maintenance mode**: a DB flag, enforced twice. Inside the portal,
+  chat/OCR/video/voice routes check it directly and let admins through. For the public API
   (`api.cronos.website`), a Traefik `forwardAuth` middleware calls an internal,
   unauthenticated `/internal/authcheck` route on every request; it's a cheap no-op
   (immediate 200, no lookup) whenever maintenance mode is off, and when it's on it
@@ -344,15 +368,21 @@ tokens/day, not request rate on a single GPU.
 │   ├── proxy.ts                # Next.js 16 proxy: nonce CSP + method-based routing
 │   ├── next.config.ts          # CSP headers, fallback rewrite to Flask
 │   └── Dockerfile
+├── voice/                     # Chatterbox TTS sidecar (voice cloning)
+│   ├── Dockerfile             # pinned upstream release, CUDA 13.0 / sm_121 (GB10)
+│   ├── entrypoint.sh          # server + periodic purge of uploaded reference clips
+│   └── voice-recreate.sh      # source of /usr/local/sbin/voice-recreate.sh (installed on the host)
 ├── vllm-runner/
 │   └── runner.py              # start/stop/logs daemon + auto-resume;
-│                               #   scoped sudo control of the OCR container + video service
+│                               #   scoped sudo control of the OCR + voice containers and video service
 └── systemd/                   # host units (runner, firewalls, comfyui)
 ```
 
-> `/usr/local/sbin/ocr-recreate.sh` and `/etc/sudoers.d/vllmrunner-services` live
-> outside this repo (host-level, root-owned) — see the OCR/video control note under
-> **Security** above.
+> `/usr/local/sbin/ocr-recreate.sh`, `/usr/local/sbin/voice-recreate.sh` and
+> `/etc/sudoers.d/vllmrunner-services` live outside this repo (host-level,
+> root-owned) — see the OCR/video/voice control note under **Security** above.
+> `voice/voice-recreate.sh` is the tracked copy; install it with
+> `install -o root -g root -m 0755 voice/voice-recreate.sh /usr/local/sbin/`.
 
 ## License
 

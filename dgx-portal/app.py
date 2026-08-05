@@ -3429,6 +3429,7 @@ def api_admin():
         'video_usage': admin_get_video_usage(),
         'maintenance_mode': maintenance_active(),
         'ocr_status': _sidecar_status('ocr'),
+        'ocr_model_name': get_ocr_model(),
         'video_status': _sidecar_status('video'),
         'model_cfgs': [dict(r) for r in model_cfgs],
         'ocr_cfgs': [dict(r) for r in ocr_cfgs],

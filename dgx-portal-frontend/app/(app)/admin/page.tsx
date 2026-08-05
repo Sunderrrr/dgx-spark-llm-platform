@@ -348,7 +348,7 @@ export default function AdminPage() {
                             variant={SIDECAR_VARIANT[data.video_status] ?? "error"}
                             label={t(SIDECAR_LABEL[data.video_status] ?? "Injoignable")}
                           />
-                          <Text weight="semibold">Vidéo — MiniMax H3</Text>
+                          <Text weight="semibold">{t("Vidéo")} — MiniMax H3</Text>
                         </HStack>
                         {data.video_status === "running" || data.video_status === "starting" ? (
                           <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/video/stop")} />

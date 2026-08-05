@@ -228,7 +228,9 @@ export default function VideoPage() {
             {history.length > 0 && (
               <VStack gap={2}>
                 <Text type="supporting" color="secondary">
-                  {t("Historique (3 dernières)")}
+                  {/* Compteur réel plutôt qu'un nombre écrit en dur, qui
+                      redevient faux au moindre changement de limite. */}
+                  {t("Historique")} ({history.length})
                 </Text>
                 <VStack gap={0}>
                   {history.map((h) => (

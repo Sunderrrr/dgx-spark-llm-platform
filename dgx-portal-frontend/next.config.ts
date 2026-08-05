@@ -24,6 +24,16 @@ const nextConfig: NextConfig = {
     // affichée : 15 Mo). Relevé pour matcher + marge. Vu en prod le 04/08 :
     // un screenshot de ~11 Mo faisait planter le proxy en ECONNRESET.
     proxyClientMaxBodySize: "20mb",
+    // Next coupe TOUTE requête proxifiée à 30 s par défaut
+    // (server/lib/router-utils/proxy-request.ts : `proxyTimeout || 30_000`) et
+    // répond alors « 500 Internal Server Error » — côté client c'est
+    // indiscernable d'une panne. Le clonage vocal d'un texte long dépasse
+    // largement 30 s (~45 s pour 1 500 caractères) : la génération aboutissait
+    // et était bien enregistrée, mais l'utilisateur voyait une erreur et
+    // relançait, empilant les générations. Vu en prod le 05/08.
+    // Ordre voulu des délais : proxy 300 s > gunicorn 200 s > appel /tts 120 s,
+    // pour que le timeout le plus INTERNE gagne et renvoie un vrai message.
+    proxyTimeout: 300_000,
   },
   async rewrites() {
     // Le navigateur ne parle qu'à ce serveur Next.js (même origine, pas de CORS

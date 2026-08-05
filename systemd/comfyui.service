@@ -1,0 +1,17 @@
+[Unit]
+Description=ComfyUI — moteur de génération vidéo MiniMax H3 (backend interne, non exposé)
+After=network.target
+
+[Service]
+Type=simple
+User=vllmrunner
+Group=vllmrunner
+WorkingDirectory=/root/ComfyUI
+ExecStart=/root/venvs/comfyui/bin/python3 main.py --listen 0.0.0.0 --port 8188
+Restart=always
+RestartSec=5
+Environment=HOME=/var/lib/vllm-runner
+Environment=HF_HOME=/root/.cache/huggingface
+
+[Install]
+WantedBy=multi-user.target

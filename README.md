@@ -14,7 +14,12 @@ It provides:
 - **Cronos**, an AI support assistant that answers questions *and* performs
   self-service actions (create a key, request budget, request a model…);
 - a **runner** that launches/stops one vLLM model on the GPU on demand and
-  auto-resumes it after a crash or reboot.
+  auto-resumes it after a crash or reboot;
+- always-on **OCR** (baidu/Unlimited-OCR) and **video generation** (MiniMax H3,
+  reference-image-to-video) served from dedicated backends alongside the main
+  chat model, streamed into the portal — never exposed as separate public UIs;
+- an admin **maintenance mode** that blocks non-admin API/portal traffic without
+  stopping any model, enforced both in the portal and at the edge (Traefik).
 
 ![Cronos portal — home dashboard](assets/dashboard.png)
 
@@ -26,6 +31,8 @@ It provides:
 flowchart LR
   U[Users] -->|https://dgx.cronos.website| CF[Cloudflare + Traefik]
   U -->|https://api.cronos.website/v1| CF
+  CF -->|forwardAuth: maintenance gate| AC[/internal/authcheck/]
+  AC -->|checked against| P
   CF -->|:5000| F[dgx-portal-frontend]
   CF -->|:4001| L[LiteLLM]
   F -->|internal docker network| P[dgx-portal]
@@ -33,8 +40,12 @@ flowchart LR
   P -->|issues keys + budgets| L
   P -->|:8001 · Bearer token| R[vllm-runner]
   R -->|launch / stop| V[vLLM · :8000]
+  R -->|sudo, scoped: docker start/stop/recreate| O[OCR container · vLLM]
+  R -->|sudo, scoped: systemctl start/stop| CU[ComfyUI · MiniMax H3]
   L -->|:8000| V
   L --> PG[(Postgres)]
+  P -->|chat/completions, streamed| O
+  P -->|/prompt, /history, /view| CU
 ```
 
 ### Components
@@ -43,12 +54,16 @@ flowchart LR
 |---|---|---|---|
 | **litellm** | OpenAI-compatible gateway: per-user keys, budgets, token accounting | `4001` | Docker container |
 | **litellm-postgres** | LiteLLM database (keys, spend logs) | `5432` (internal) | Docker container |
-| **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, keys, playground, support, admin | `5000` | Docker container (non-root) |
+| **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, keys, playground, OCR, video, support, admin | `5000` | Docker container (non-root) |
 | **dgx-portal** | Backend (Flask): LDAP/OIDC auth, sessions, JSON API, business logic | internal only | Docker container (non-root) |
-| **vllm-runner** | Daemon driving **one** vLLM process (start/stop/logs) with auto-resume | `8001` | systemd service on the host |
-| **vLLM** | OpenAI-compatible inference server (the actual GPU engine) | `8000` | process spawned by the runner |
+| **vllm-runner** | Daemon driving **one** vLLM process (start/stop/logs) with auto-resume, plus scoped start/stop/recreate of the OCR container and video service | `8001` | systemd service on the host |
+| **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
+| **OCR container** | vLLM serving an OCR-capable VLM (baidu/Unlimited-OCR by default), swappable via an admin catalog | internal only | Docker container, own GPU slice |
+| **ComfyUI** | Video generation graph engine (MiniMax H3, reference-image-to-video) | `8188`, host-restricted | systemd service on the host |
 
-> Only one model runs on the GPU at a time. Launching another replaces the current one.
+> Only one **chat** model runs on the GPU at a time (launching another replaces the current
+> one) — OCR and video are separate, always-addressable backends that run alongside it,
+> each with their own GPU memory budget.
 
 The UI used to be server-rendered Jinja templates served directly by Flask on
 `:5000`. It's now a separate Next.js/Astryx frontend that owns `:5000` and
@@ -98,7 +113,9 @@ go to **Admin**, and launch a model from the catalog.
 | `LITELLM_MASTER_KEY` | LiteLLM master key (gateway admin) |
 | `POSTGRES_PASSWORD` | LiteLLM database password |
 | `LLDAP_ADMIN_PASSWORD` | LDAP bind (user/group lookup, notification emails) |
-| `RUNNER_TOKEN` | Bearer token between `dgx-portal` and `vllm-runner` |
+| `RUNNER_TOKEN` | Bearer token between `dgx-portal` and `vllm-runner` (also used for the OCR/video sidecar control routes) |
+| `OCR_URL` | Internal URL of the OCR vLLM container (default `http://ocr:8000/v1`) |
+| `COMFYUI_URL` | Internal URL of the ComfyUI video backend (default `http://host.docker.internal:8188`) |
 | `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.cronos.website/v1`) |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Authentik `dgx-spark` OIDC app |
 | `OIDC_METADATA_URL` / `OIDC_REDIRECT_URI` / `OIDC_LOGOUT_URL` | OIDC endpoints |
@@ -172,6 +189,12 @@ env vars — key and endpoint pre-filled.
 - **My API keys** — create/revoke keys, see per-key spend and the shared account
   budget, request more tokens; integration snippets per tool.
 - **Playground** — in-browser streaming chat with the active model; no client setup.
+- **OCR** — extract text from an image/scan, streamed token-by-token into a
+  formatted panel (same pattern as the Playground); keeps your last 20 results.
+- **Vidéo** — turn a reference image + a text description into a short video
+  with synced audio (MiniMax H3), polled to completion; keeps your last 3 results.
+  Both OCR and video show a clear empty state if no backend is currently running,
+  instead of letting you submit into a dead end.
 - **Support (Cronos)** — an AI assistant that sees your keys (masked), budget, the
   model catalog and server status, and can **act for you**: create a key, revoke one,
   request budget, request a model (admins also get launch/stop). Actions are always
@@ -179,10 +202,15 @@ env vars — key and endpoint pre-filled.
 - **Leaderboard** (`/ranking`) — ranks users by weighted spend (day/week/month),
   colorblind-safe palette, from LiteLLM's Postgres spend logs.
 - **Home** — live server stats (CPU/RAM/GPU), active-model health (tok/s, queue,
-  TTFT, requests served), and your own hourly usage chart.
+  TTFT, requests served), your own hourly usage chart, and every currently-running
+  backend (chat, OCR, video) — OCR/video are clearly marked "not exposed by the API".
 - **Admin** (`adm_cronos` only) — launch/stop models, live vLLM logs, add/edit/remove
-  catalog models, set the default budget, approve token/model requests, per-user
-  consumption.
+  catalog models (chat **and** OCR), start/stop the OCR container and the video
+  service independently of the chat model, set the default budget, approve
+  token/model requests, per-user consumption **and** per-user OCR/video usage
+  (untracked by LiteLLM since neither goes through a public API key), and a
+  **maintenance mode** toggle that blocks non-admin traffic everywhere (portal
+  chat/OCR/video *and* the public API) without stopping any backend.
 
 ### Screenshots
 
@@ -244,6 +272,27 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
   only ever talks to Flask over that internal network.
 - **Published ports** are filtered in `DOCKER-USER`: `4001` (API) reachable from the
   LAN and the Netbird VPN, `5000` (frontend) from Traefik only (HTTPS).
+- **OCR / video control**: no `docker.sock` is mounted anywhere — `vllm-runner`
+  (already a trusted, HMAC-token-gated host daemon) gets narrowly scoped `sudo`
+  rights (`/etc/sudoers.d/vllmrunner-services`) to `systemctl start/stop` the
+  video service and `docker start/stop/inspect` the OCR container, plus one
+  wildcard-argument rule limited to a single root-owned wrapper script
+  (`/usr/local/sbin/ocr-recreate.sh`) that recreates the OCR container from a
+  fixed image/network/mount template — the admin only controls the trailing
+  vLLM argv, allowlisted the same way as the main model catalog (with
+  `--trust-remote-code` deliberately allowed for this one container, since the
+  OCR models that need it require it — an admin-only tradeoff, not available
+  anywhere else). The OCR container lives on its own docker network
+  (`ocr_net`, shared only with `dgx-portal`) rather than the shared
+  `ai-platform_default` network — arbitrary code from a malicious HF repo run
+  there has no L3 route to `litellm`, `litellm-postgres`, or `traefik`.
+- **Maintenance mode**: a DB flag, enforced twice. Inside the portal, chat/OCR/video
+  routes check it directly and let admins through. For the public API
+  (`api.cronos.website`), a Traefik `forwardAuth` middleware calls an internal,
+  unauthenticated `/internal/authcheck` route on every request; it's a cheap no-op
+  (immediate 200, no lookup) whenever maintenance mode is off, and when it's on it
+  resolves the caller's API key to an account and only lets admin accounts through
+  — everyone else gets Traefik's relayed 503 before the request ever reaches LiteLLM.
 
 ### Exposing the API publicly
 
@@ -266,11 +315,13 @@ tokens/day, not request rate on a single GPU.
 ├── litellm/
 │   └── config.yaml           # models, token pricing, model_info
 ├── dgx-portal/                # Flask backend: auth + JSON API + business logic
-│   ├── app.py                 # LDAP+OIDC auth, /api/*, budgets, support, admin
+│   ├── app.py                 # LDAP+OIDC auth, /api/*, budgets, support, admin,
+│   │                          #   OCR/video proxying, maintenance mode
+│   ├── workflows/              # ComfyUI API-format workflow templates (video)
 │   ├── requirements.txt
 │   └── Dockerfile             # non-root image, no published port
 ├── dgx-portal-frontend/       # Next.js + Astryx UI (owns the public port 5000)
-│   ├── app/                   # pages (home, playground, keys, support, admin, ...)
+│   ├── app/                   # pages (home, playground, ocr, video, keys, support, admin, ...)
 │   │   ├── playground/chat/route.ts   # streaming proxy to Flask (SSE, unbuffered)
 │   │   └── support/chat/route.ts      # same, for the support assistant
 │   ├── lib/                   # api.ts (auth/CSRF/SSE helpers), types, conversations
@@ -278,9 +329,14 @@ tokens/day, not request rate on a single GPU.
 │   ├── next.config.ts          # CSP headers, fallback rewrite to Flask
 │   └── Dockerfile
 ├── vllm-runner/
-│   └── runner.py              # start/stop/logs daemon + auto-resume
-└── systemd/                   # host units (runner, firewalls)
+│   └── runner.py              # start/stop/logs daemon + auto-resume;
+│                               #   scoped sudo control of the OCR container + video service
+└── systemd/                   # host units (runner, firewalls, comfyui)
 ```
+
+> `/usr/local/sbin/ocr-recreate.sh` and `/etc/sudoers.d/vllmrunner-services` live
+> outside this repo (host-level, root-owned) — see the OCR/video control note under
+> **Security** above.
 
 ## License
 

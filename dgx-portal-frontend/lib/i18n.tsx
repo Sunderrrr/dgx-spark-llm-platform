@@ -324,6 +324,7 @@ const EN: Record<string, string> = {
   "Nom de modèle, ex: Qwen, Llama, Mistral...": "Model name, e.g. Qwen, Llama, Mistral...",
   "Tâche": "Task",
   "Chercher": "Search",
+  "Charger plus": "Load more",
   "Tout Hugging Face": "All of Hugging Face",
   "Seuls les modèles testés sur DGX Spark / GB10 sont affichés. Décoche pour élargir à tout Hugging Face.":
     "Only models tested on DGX Spark / GB10 are shown. Uncheck to widen to all of Hugging Face.",

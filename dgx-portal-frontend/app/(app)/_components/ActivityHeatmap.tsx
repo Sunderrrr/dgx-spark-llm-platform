@@ -1,6 +1,7 @@
 "use client";
 
 import { Text } from "@astryxdesign/core/Text";
+import { useT } from "@/lib/i18n";
 
 export type ActivityDay = { date: string; tokens: number };
 
@@ -9,6 +10,7 @@ export type ActivityDay = { date: string; tokens: number };
  *  n'a pas de primitive pour ça. Couleurs prises aux tokens de thème pour
  *  suivre le mode clair/sombre. */
 export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
+  const translate = useT();
   if (!days.length) return null;
 
   const CELL = 11;
@@ -39,7 +41,7 @@ export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
       style={{ width: "100%", height: "auto", display: "block" }}
       preserveAspectRatio="xMinYMid meet"
       role="img"
-      aria-label="Activité de tokens par jour">
+      aria-label={translate("Activité de tokens par jour")}>
       {cells.map((d, i) => {
         if (!d) return null;
         const lvl = level(d.tokens);
@@ -67,9 +69,10 @@ export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
 }
 
 export function HeatmapLegend() {
+  const t = useT();
   return (
     <Text type="supporting" color="secondary">
-      Moins → Plus
+      {t("Moins → Plus")}
     </Text>
   );
 }

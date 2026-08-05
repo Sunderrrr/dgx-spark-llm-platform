@@ -28,6 +28,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { streamOcr } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 type HistoryItem = { id: number; text: string; created_at: string; has_image: boolean };
 type RunningModel = { name: string; kind: "chat" | "ocr" | "video"; exposed: boolean };
@@ -119,6 +120,7 @@ const LABEL_COLOR: Record<string, string> = {
 };
 
 export default function OcrPage() {
+  const t = useT();
   const csrf = useCsrf();
   const showToast = useToast();
   const [image, setImage] = useState<File | null>(null);
@@ -187,14 +189,14 @@ export default function OcrPage() {
       });
       loadHistory();
     } catch {
-      showToast({ body: "OCR injoignable.", type: "error" });
+      showToast({ body: t("OCR injoignable."), type: "error" });
     } finally {
       setIsLoading(false);
     }
   }
 
   function copyResult() {
-    navigator.clipboard.writeText(text).then(() => showToast({ body: "Copié.", type: "info" }));
+    navigator.clipboard.writeText(text).then(() => showToast({ body: t("Copié."), type: "info" }));
   }
 
   return (
@@ -205,8 +207,8 @@ export default function OcrPage() {
           {available === false ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
-              title="Aucun modèle OCR n'est disponible"
-              description="Demande à un admin de démarrer un modèle OCR pour utiliser cette page."
+              title={t("Aucun modèle OCR n'est disponible")}
+              description={t("Demande à un admin de démarrer un modèle OCR pour utiliser cette page.")}
             />
           ) : (
             <HStack gap={5} height="100%">
@@ -215,7 +217,7 @@ export default function OcrPage() {
                   <VStack gap={1}>
                     <Heading level={1}>OCR</Heading>
                     <Text type="supporting" color="secondary">
-                      Extrait le texte d&apos;une image ou d&apos;un document scanné.
+                      {t("Extrait le texte d'une image ou d'un document scanné.")}
                     </Text>
                   </VStack>
 
@@ -225,10 +227,10 @@ export default function OcrPage() {
                         <VStack gap={2}>
                           <AspectRatio ratio={4 / 3} fit="cover">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={previewUrl} alt="Aperçu du document" />
+                            <img src={previewUrl} alt={t("Aperçu du document")} />
                           </AspectRatio>
                           <Button
-                            label="Changer d'image"
+                            label={t("Changer d'image")}
                             variant="ghost"
                             size="sm"
                             icon={<Icon icon={XMarkIcon} size="sm" />}
@@ -238,20 +240,20 @@ export default function OcrPage() {
                         </VStack>
                       ) : (
                         <FileInput
-                          label="Image ou scan"
+                          label={t("Image ou scan")}
                           value={image}
                           onChange={(f) => setImage(f as File | null)}
                           accept="image/png,image/jpeg,image/webp"
                           maxSize={15 * 1024 * 1024}
                           mode="dropzone"
-                          description="PNG, JPEG ou WebP — 15 Mo max."
+                          description={t("PNG, JPEG ou WebP — 15 Mo max.")}
                           isDisabled={isLoading}
                           isRequired
                         />
                       )}
                       {!isChandra && (
                         <TextInput
-                          label="Instruction (optionnel)"
+                          label={t("Instruction (optionnel)")}
                           value={instruction}
                           onChange={setInstruction}
                           placeholder="document parsing."
@@ -259,7 +261,7 @@ export default function OcrPage() {
                         />
                       )}
                       <Button
-                        label="Extraire le texte"
+                        label={t("Extraire le texte")}
                         variant="primary"
                         onClick={extract}
                         isDisabled={!image || isLoading}
@@ -271,13 +273,13 @@ export default function OcrPage() {
                   {history.length > 0 && (
                     <VStack gap={2}>
                       <Text type="supporting" color="secondary">
-                        Historique ({history.length} dernier{history.length > 1 ? "s" : ""})
+                        {t("Historique")} ({history.length} {history.length > 1 ? t("derniers") : t("dernier")})
                       </Text>
                       <VStack gap={0}>
                         {history.map((h) => (
                           <Item
                             key={h.id}
-                            label={ocrPreviewText(h.text) || "(vide)"}
+                            label={ocrPreviewText(h.text) || t("(vide)")}
                             labelLines={1}
                             description={new Date(h.created_at).toLocaleString("fr-FR")}
                             startContent={
@@ -314,17 +316,17 @@ export default function OcrPage() {
                       <HStack hAlign="between" vAlign="center">
                         <StatusDot
                           variant={isLoading ? "accent" : "success"}
-                          label={isLoading ? "Extraction en cours…" : "Terminé"}
+                          label={isLoading ? t("Extraction en cours…") : t("Terminé")}
                         />
                         <HStack gap={2} vAlign="center">
                           {resultImageUrl && boxedBlocks.length > 0 && (
-                            <SegmentedControl label="Vue du résultat" value={resultView} onChange={(v) => setResultView(v as "text" | "boxes")}>
-                              <SegmentedControlItem value="text" label="Texte" icon={<Icon icon={DocumentTextIcon} size="sm" />} />
-                              <SegmentedControlItem value="boxes" label="Zones détectées" icon={<Icon icon={ViewfinderCircleIcon} size="sm" />} />
+                            <SegmentedControl label={t("Vue du résultat")} value={resultView} onChange={(v) => setResultView(v as "text" | "boxes")}>
+                              <SegmentedControlItem value="text" label={t("Texte")} icon={<Icon icon={DocumentTextIcon} size="sm" />} />
+                              <SegmentedControlItem value="boxes" label={t("Zones détectées")} icon={<Icon icon={ViewfinderCircleIcon} size="sm" />} />
                             </SegmentedControl>
                           )}
                           <Button
-                            label="Copier"
+                            label={t("Copier")}
                             variant="ghost"
                             size="sm"
                             icon={<Icon icon={ClipboardIcon} size="sm" />}
@@ -336,7 +338,7 @@ export default function OcrPage() {
                       {resultView === "boxes" && resultImageUrl && boxedBlocks.length > 0 ? (
                         <div style={{ position: "relative", width: "100%", lineHeight: 0 }}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={resultImageUrl} alt="Zones détectées" style={{ width: "100%", height: "auto", display: "block", borderRadius: "var(--radius-md)" }} />
+                          <img src={resultImageUrl} alt={t("Zones détectées")} style={{ width: "100%", height: "auto", display: "block", borderRadius: "var(--radius-md)" }} />
                           {boxedBlocks.map((b, i) => {
                             const [x1, y1, x2, y2] = b.coords!;
                             const color = LABEL_COLOR[b.label] ?? "#64748b";
@@ -365,7 +367,7 @@ export default function OcrPage() {
                               <HStack key={i} gap={2} vAlign="center">
                                 <Icon icon={PhotoIcon} size="sm" />
                                 <Text type="supporting" color="secondary">
-                                  {b.label ? `${b.label} détecté(e)` : "Élément détecté"}
+                                  {b.label ? `${b.label} ${t("détecté(e)")}` : t("Élément détecté")}
                                 </Text>
                               </HStack>
                             ) : b.label ? (
@@ -386,8 +388,8 @@ export default function OcrPage() {
                 ) : (
                   <EmptyState
                     icon={<Icon icon={DocumentMagnifyingGlassIcon} size="lg" />}
-                    title="Le résultat s'affichera ici"
-                    description="Choisis une image à gauche puis lance l'extraction."
+                    title={t("Le résultat s'affichera ici")}
+                    description={t("Choisis une image à gauche puis lance l'extraction.")}
                     isCompact
                   />
                 )}

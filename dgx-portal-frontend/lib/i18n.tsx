@@ -16,6 +16,7 @@ const EN: Record<string, string> = {
   // — Navigation et coque —
   "Accueil": "Home",
   "Playground": "Playground",
+  "Vidéo": "Video",
   "Chercher un modèle": "Find a model",
   "Demander un modèle": "Request a model",
   "Classement": "Leaderboard",
@@ -448,6 +449,119 @@ const EN: Record<string, string> = {
     "Text files only. Tokens count against your budget.",
   "Raisonnement": "Reasoning",
   "Sur quoi veux-tu travailler ?": "What do you want to work on?",
+
+  // — OCR —
+  "OCR injoignable.": "OCR unreachable.",
+  "Copié.": "Copied.",
+  "Aucun modèle OCR n'est disponible": "No OCR model is available",
+  "Demande à un admin de démarrer un modèle OCR pour utiliser cette page.":
+    "Ask an admin to start an OCR model to use this page.",
+  "Extrait le texte d'une image ou d'un document scanné.":
+    "Extracts text from an image or a scanned document.",
+  "Aperçu du document": "Document preview",
+  "Changer d'image": "Change image",
+  "Image ou scan": "Image or scan",
+  "PNG, JPEG ou WebP — 15 Mo max.": "PNG, JPEG or WebP — 15 MB max.",
+  "Instruction (optionnel)": "Instruction (optional)",
+  "Extraire le texte": "Extract text",
+  "dernier": "recent",
+  "derniers": "recent",
+  "(vide)": "(empty)",
+  "Extraction en cours…": "Extracting…",
+  "Terminé": "Done",
+  "Vue du résultat": "Result view",
+  "Texte": "Text",
+  "Zones détectées": "Detected zones",
+  "détecté(e)": "detected",
+  "Élément détecté": "Element detected",
+  "Le résultat s'affichera ici": "The result will appear here",
+  "Choisis une image à gauche puis lance l'extraction.":
+    "Pick an image on the left, then start the extraction.",
+
+  // — Vidéo —
+  "Aucun modèle vidéo n'est disponible": "No video model is available",
+  "Demande à un admin de démarrer un modèle vidéo pour utiliser cette page.":
+    "Ask an admin to start a video model to use this page.",
+  "Génération vidéo — MiniMax H3": "Video generation — MiniMax H3",
+  "Une description, avec ou sans image de référence, → une courte vidéo avec audio synchronisé. Génère localement sur le GPU, compte 5 à 10 minutes selon la charge.":
+    "A description, with or without a reference image, → a short video with synced audio. Generates locally on the GPU, allow 5 to 10 minutes depending on load.",
+  "Image de référence (optionnel)": "Reference image (optional)",
+  "PNG, JPEG ou WebP — 15 Mo max. Sans image, génère depuis le texte seul.":
+    "PNG, JPEG or WebP — 15 MB max. Without an image, generates from text alone.",
+  "Décris la scène": "Describe the scene",
+  "Ex : un ballon rouge qui rebondit sur un sol blanc, caméra fixe.":
+    "E.g. a red ball bouncing on a white floor, static camera.",
+  "Durée": "Duration",
+  "Générer": "Generate",
+  "En file d'attente…": "Queued…",
+  "Génération en cours…": "Generating…",
+  "Vidéo prête.": "Video ready.",
+  "Échec de la génération.": "Generation failed.",
+  "Progression": "Progress",
+  "Historique (3 dernières)": "History (3 most recent)",
+  "ComfyUI injoignable.": "ComfyUI unreachable.",
+
+  // — Connexion (suite) —
+  "Session expirée — recharge la page et réessaie.": "Session expired — reload the page and try again.",
+  "Identifiants incorrects.": "Incorrect credentials.",
+
+  // — Réglages : MCP / Compétences (suite) —
+  "Serveur MCP mis à jour": "MCP server updated",
+  "Serveur MCP connecté": "MCP server connected",
+  "outil(s) trouvé(s)": "tool(s) found",
+  "Serveur activé": "Server enabled",
+  "Exemple : notion_workspace": "Example: notion_workspace",
+  "Exemple : analyse-de-logs": "Example: log-analysis",
+
+  // — Playground (suite) —
+  "Vous": "You",
+
+  // — Classement (suite) —
+  "toi": "you",
+
+  // — Accueil / activité (suite) —
+  "Moins → Plus": "Less → More",
+
+  // — Réglages : Usage (suite) —
+  "Maximum 20 messages par minute.": "Maximum 20 messages per minute.",
+  "% utilisé": "% used",
+
+  // — Support (suite) —
+  "Bonjour 👋 Je suis **Cronos**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.":
+    "Hi 👋 I'm **Cronos**, the platform's assistant. I can help you troubleshoot (keys, quota, models, OpenCode/Hermes integration…) but I can also **act on your behalf**: create a key, request budget, request a model. Tell me what you need.",
+
+  // — Étiquettes d'appels d'outils (assistant Support) —
+  "Révoquer une clé API": "Revoke an API key",
+  "Lancer un modèle": "Launch a model",
+  "Arrêter le modèle": "Stop the model",
+  "Action bloquée après lecture d'un contenu externe.": "Action blocked after reading external content.",
+
+  // — Classement (suite 2) —
+  "Jour": "Day",
+  "Semaine": "Week",
+  "Mois": "Month",
+  "compte actif": "active account",
+  "comptes actifs": "active accounts",
+  "nouveau": "new",
+  "Delta vs": "Delta vs",
+  "Total = tokens prompt + générés.": "Total = prompt + generated tokens.",
+  "Aujourd'hui": "Today",
+  "7 derniers jours": "Last 7 days",
+  "30 derniers jours": "Last 30 days",
+  "hier": "yesterday",
+  "la semaine précédente": "the previous week",
+  "les 30 jours précédents": "the previous 30 days",
+
+  // — Indicateur de réflexion —
+  "Cogitation": "Cogitating",
+  "Rumination": "Ruminating",
+  "Gamberge": "Pondering",
+  "Mijotage": "Simmering",
+  "Élucubration": "Musing",
+  "Ébullition": "Percolating",
+  "Méditation": "Meditating",
+  "Tergiversation": "Waffling",
+  "Concoction": "Concocting",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

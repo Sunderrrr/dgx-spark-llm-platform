@@ -79,12 +79,12 @@ export default function LoginPage() {
         // session, et le rendu serveur doit repartir avec.
         window.location.href = "/";
       } else if (res.status === 400) {
-        setError("Session expirée — recharge la page et réessaie.");
+        setError(t("Session expirée — recharge la page et réessaie."));
       } else {
-        setError("Identifiants incorrects.");
+        setError(t("Identifiants incorrects."));
       }
     } catch {
-      setError("Erreur réseau — réessaie.");
+      setError(t("Erreur réseau — réessaie."));
     } finally {
       setIsSubmitting(false);
     }

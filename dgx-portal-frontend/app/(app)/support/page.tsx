@@ -71,16 +71,21 @@ const SUGGESTIONS = [
   },
 ];
 
-const WELCOME_MESSAGE: ChatMsg = {
-  role: "assistant",
-  content:
-    "Bonjour 👋 Je suis **Cronos**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.",
-};
+const WELCOME_MESSAGE_FR =
+  "Bonjour 👋 Je suis **Cronos**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.";
 
 export default function SupportPage() {
   const t = useT();
   const csrf = useCsrf();
-  const [messages, setMessages] = useState<ChatMsg[]>([WELCOME_MESSAGE]);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+
+  // Le message d'accueil dépend de la langue, connue seulement après le
+  // premier rendu (lue depuis localStorage puis /api/whoami) — impossible de
+  // la figer dans l'état initial. On la calcule donc à chaque rendu tant
+  // qu'aucun message n'a été envoyé, plutôt que de la stocker : elle reste
+  // ainsi toujours à jour si la langue change avant le premier envoi, sans
+  // jamais écraser une conversation en cours.
+  const displayMessages = messages.length ? messages : [{ role: "assistant" as const, content: t(WELCOME_MESSAGE_FR) }];
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [runningModel, setRunningModel] = useState<string | null>(null);
@@ -115,11 +120,11 @@ export default function SupportPage() {
     const onToolCall = (event: ToolCallEvent) => {
       const item: ChatToolCallItem = {
         key: event.id,
-        name: event.name,
+        name: t(event.name),
         target: event.target,
         status: event.status,
         duration: event.duration_ms != null ? `${(event.duration_ms / 1000).toFixed(1)}s` : undefined,
-        errorMessage: event.error,
+        errorMessage: event.error ? t(event.error) : event.error,
       };
       const i = toolCalls.findIndex((c) => c.key === event.id);
       if (i >= 0) toolCalls[i] = item;
@@ -149,7 +154,7 @@ export default function SupportPage() {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
     // eslint-disable-next-line react-hooks/purity -- send only runs from event handlers
-    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: trimmed, ts: Date.now() }];
+    const nextMessages: ChatMsg[] = [...displayMessages, { role: "user", content: trimmed, ts: Date.now() }];
     setInput("");
     void runStream(nextMessages);
   }
@@ -191,7 +196,7 @@ export default function SupportPage() {
             density="spacious"
             composer={
               <VStack gap={2} padding={4}>
-                {messages.length === 1 && (
+                {messages.length === 0 && (
                   <Grid columns={{ minWidth: 220, max: 2 }} gap={3} width="100%">
                     {SUGGESTIONS.map((s) => (
                       <ClickableCard key={s.heading} label={t(s.heading)} variant="muted" onClick={() => send(t(s.prompt))}>
@@ -220,8 +225,8 @@ export default function SupportPage() {
               </VStack>
             }>
             <ChatMessageList>
-              {messages.map((m, i) => {
-                const isLast = i === messages.length - 1;
+              {displayMessages.map((m, i) => {
+                const isLast = i === displayMessages.length - 1;
                 const isThinking = isSending && isLast && m.role === "assistant" && !m.content && !m.toolCalls?.length;
                 // isStreaming : sans lui, Markdown reparse tout le texte à
                 // chaque token et ne réaffiche que des blocs complets — d'où

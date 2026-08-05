@@ -91,10 +91,10 @@ export function KeysContent() {
   }
 
   const columns: TableColumn<ApiKey & Record<string, unknown>>[] = [
-    { key: "key_alias", header: "Alias" },
+    { key: "key_alias", header: t("Alias") },
     {
       key: "key",
-      header: "Clé",
+      header: t("Clé"),
       renderCell: (row) => (
         <HStack gap={2} vAlign="center">
           <Text type="code" hasTabularNumbers>
@@ -164,7 +164,7 @@ export function KeysContent() {
               <VStack gap={1}>
                 <HStack hAlign="between">
                   <Text type="supporting" color="secondary">
-                    Budget du compte — partagé par toutes tes clés / {data.budget_duration}
+                    {t("Budget du compte — partagé par toutes tes clés /")} {data.budget_duration}
                   </Text>
                   <Text type="supporting" color="secondary">
                     {Math.round(data.account.spend).toLocaleString("fr-FR")} / {Math.round(data.account.max_budget).toLocaleString("fr-FR")} tokens

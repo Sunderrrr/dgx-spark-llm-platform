@@ -357,7 +357,19 @@ export default function VoicePage() {
                 <Card>
                   <VStack gap={2}>
                     <Text>{t("Génération en cours…")}</Text>
-                    <ProgressBar label={t("Progression")} isIndeterminate variant="accent" />
+                    {/* Forme d'onde occupant exactement la hauteur du lecteur
+                        audio qui la remplacera : rien ne saute à l'arrivée du
+                        résultat. Décorative au sens ARIA (le texte au-dessus
+                        porte déjà l'information), d'où aria-hidden. */}
+                    <HStack className="voice-wave" gap={1} vAlign="center" hAlign="center" aria-hidden>
+                      {Array.from({ length: 40 }, (_, i) => (
+                        <span
+                          key={i}
+                          className="voice-wave-bar"
+                          style={{ "--i": i } as React.CSSProperties}
+                        />
+                      ))}
+                    </HStack>
                   </VStack>
                 </Card>
               )}

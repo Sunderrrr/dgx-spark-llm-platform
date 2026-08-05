@@ -76,3 +76,33 @@ dialog::backdrop {
     animation-duration: 3s;
   }
 }
+
+/* Placeholder de génération vidéo : occupe la place exacte de la vidéo à
+   venir pendant le rendu. Même raison que ci-dessus pour le CSS brut. */
+@keyframes video-generating-sweep {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.video-generating {
+  border-radius: var(--radius-md);
+  background-color: var(--color-background-muted);
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    var(--color-background-subtle, rgba(127, 127, 127, 0.18)) 50%,
+    transparent 80%
+  );
+  background-size: 200% 100%;
+  animation: video-generating-sweep 2.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Le balayage devient une simple respiration : plus de mouvement latéral. */
+  .video-generating {
+    background-image: none;
+    animation: none;
+  }
+}

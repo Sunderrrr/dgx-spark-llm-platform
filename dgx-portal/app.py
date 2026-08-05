@@ -535,6 +535,32 @@ def get_ocr_model():
 
 _voice_langs_cache = {'t': 0.0, 'v': {}}
 
+# Variantes voix lançables. Doit rester aligné sur les listes blanches de
+# runner.py (_VOICE_REPO_IDS / _VOICE_QWEN_IDS), qui revalident de leur côté.
+VOICE_REPO_IDS = (
+    'Qwen3-TTS-12Hz-1.7B-Base', 'Qwen3-TTS-12Hz-0.6B-Base',
+    'chatterbox-multilingual', 'chatterbox-turbo', 'chatterbox',
+)
+
+_voice_engine_cache = {'t': 0.0, 'v': 'chatterbox'}
+
+def get_voice_engine():
+    """Moteur voix actuellement servi : 'chatterbox' ou 'qwen3-tts'. Les deux
+    partagent le nom de conteneur et le port ; seul ce champ, annoncé par
+    /api/model-info, dit lequel répond — et donc quel protocole parler."""
+    now = time.time()
+    if now - _voice_engine_cache['t'] < 30:
+        return _voice_engine_cache['v']
+    v = 'chatterbox'
+    try:
+        r = requests.get(f"{VOICE_URL}/api/model-info", timeout=3)
+        if r.ok:
+            v = r.json().get('engine') or 'chatterbox'
+    except Exception:
+        pass
+    _voice_engine_cache.update(t=now, v=v)
+    return v
+
 def get_voice_languages():
     """Langues réellement acceptées par la variante Chatterbox chargée.
     Turbo et Original ne parlent QUE l'anglais ; seule la variante
@@ -3693,7 +3719,7 @@ def stop_voice():
 def add_voice_cfg():
     name    = re.sub(r'[^a-zA-Z0-9_-]', '-', request.form.get('name', '').strip())[:40]
     repo_id = request.form.get('repo_id', '').strip()
-    if not name or repo_id not in ('chatterbox', 'chatterbox-turbo', 'chatterbox-multilingual'):
+    if not name or repo_id not in VOICE_REPO_IDS:
         flash("Nom et variante requis.", "warning")
         return redirect(url_for('admin'))
     db = get_db()
@@ -4281,15 +4307,40 @@ def _read_uploaded_audio(field='reference'):
         return None, "Échantillon audio trop volumineux (15 Mo max)."
     return data, f.mimetype
 
-def voice_clone(reference_bytes, reference_mime, text, language='en'):
+def voice_clone(reference_bytes, reference_mime, text, language='en', ref_text=''):
     """Envoie l'échantillon de référence au conteneur voix puis génère le
     clonage. Retourne (audio_bytes, None) ou (None, message_erreur).
+
+    Deux protocoles selon le moteur chargé (cf. get_voice_engine()) :
+    Qwen3-TTS expose un unique POST multipart, Chatterbox impose d'abord un
+    upload puis une génération référencée par nom de fichier.
 
     Le nom de fichier de référence est toujours aléatoire (jamais dérivé du
     nom envoyé par le client) : Chatterbox réutilise silencieusement un
     fichier existant en cas de collision de nom (comportement de son
     /upload_reference), ce qui pourrait sinon faire cloner à un utilisateur
     la voix laissée par un autre sur un nom de fichier deviné/commun."""
+    if get_voice_engine() == 'qwen3-tts':
+        try:
+            r = requests.post(
+                f"{VOICE_URL}/clone",
+                files={'reference': (f"ref.{_VOICE_AUDIO_EXT.get(reference_mime, 'wav')}",
+                                     reference_bytes, reference_mime)},
+                data={'text': text, 'language': language, 'ref_text': ref_text or ''},
+                timeout=180)
+            if not r.ok:
+                detail = ''
+                try:
+                    detail = r.json().get('detail', '')
+                except Exception:
+                    pass
+                return None, detail or "Échec de la génération vocale."
+            return r.content, None
+        except requests.exceptions.Timeout:
+            return None, "Le service voix a mis trop de temps à répondre."
+        except Exception:
+            return None, "Service voix injoignable."
+
     ref_ext = _VOICE_AUDIO_EXT.get(reference_mime, 'wav')
     ref_filename = f"{secrets.token_hex(16)}.{ref_ext}"
     try:
@@ -4359,7 +4410,8 @@ def api_voice_generate():
     language = request.form.get('language', '').strip()[:10]
     if language not in langs:
         language = 'en' if 'en' in langs or not langs else next(iter(langs))
-    audio_bytes, err = voice_clone(ref_bytes, err_or_mime, text, language)
+    ref_text = request.form.get('ref_text', '').strip()[:2000]
+    audio_bytes, err = voice_clone(ref_bytes, err_or_mime, text, language, ref_text)
     if audio_bytes is None:
         return jsonify({'error': err}), 502
     username = session['username']
@@ -4398,12 +4450,18 @@ def api_voice_history():
         (session['username'],)).fetchall()
     return jsonify([dict(r) for r in rows])
 
-@app.route('/api/voice/languages')
+@app.route('/api/voice/info')
 @login_required
-def api_voice_languages():
-    """Langues de la variante chargée — la page voix construit son sélecteur
-    avec, et n'affiche rien quand il n'y en a qu'une (variantes anglophones)."""
-    return jsonify(get_voice_languages())
+def api_voice_info():
+    """Capacités du backend voix chargé. La page s'y adapte : sélecteur de
+    langue seulement s'il y en a plusieurs, champ de transcription seulement
+    pour Qwen (Chatterbox n'exploite pas la transcription du clip)."""
+    engine = get_voice_engine()
+    return jsonify({
+        'engine': engine,
+        'languages': get_voice_languages(),
+        'supports_ref_text': engine == 'qwen3-tts',
+    })
 
 @app.route('/voice/audio/<int:job_id>')
 @login_required

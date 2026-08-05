@@ -32,6 +32,15 @@ function pickMimeType(): string | undefined {
 export type Recorder = {
   /** Arrête l'enregistrement et rend le WAV converti. */
   stop: () => Promise<File>;
+  /**
+   * WAV de tout ce qui a été capté DEPUIS LE DÉBUT, sans interrompre
+   * l'enregistrement — pour la dictée en direct. On repart toujours du début
+   * plutôt que du dernier morceau : les fragments intermédiaires d'un flux
+   * WebM ne sont pas décodables seuls (seul le premier porte l'en-tête), et
+   * retranscrire tout donne un meilleur texte, le modèle disposant de plus de
+   * contexte. Rend null tant que rien n'a été capté.
+   */
+  snapshot: () => Promise<File | null>;
   /** Arrête tout et libère le micro sans produire de fichier (annulation). */
   cancel: () => void;
 };
@@ -46,11 +55,24 @@ export async function startRecording(): Promise<Recorder> {
   recorder.ondataavailable = (e) => {
     if (e.data.size > 0) chunks.push(e.data);
   };
-  recorder.start();
+  // Découpage périodique : sans argument, MediaRecorder ne livre les données
+  // qu'à l'arrêt, et snapshot() n'aurait jamais rien à transcrire.
+  recorder.start(500);
 
   const releaseMic = () => stream.getTracks().forEach((t) => t.stop());
 
   return {
+    snapshot: async () => {
+      if (!chunks.length) return null;
+      const raw = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+      try {
+        return await blobToWavFile(raw);
+      } catch {
+        // Un flux tronqué au mauvais endroit peut être indécodable : on
+        // ignore ce tour, le suivant repartira d'un tampon plus complet.
+        return null;
+      }
+    },
     stop: () =>
       new Promise<File>((resolve, reject) => {
         recorder.onstop = async () => {

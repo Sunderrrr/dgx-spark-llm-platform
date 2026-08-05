@@ -648,6 +648,52 @@ def ocr_launch():
     return jsonify({"ok": ok, "detail": out})
 
 
+# Chatterbox n'a que ces trois variantes possibles (cf. model.repo_id dans
+# leur config.yaml) — liste blanche fermée, pas un pattern de flags comme
+# _validate_vllm_args : voice-recreate.sh fait à nouveau confiance à cette
+# validation amont mais revalide aussi lui-même (défense en profondeur).
+_VOICE_REPO_IDS = {"chatterbox", "chatterbox-turbo", "chatterbox-multilingual"}
+
+
+@app.route("/voice/status")
+def voice_status():
+    ok, out = _sudo("/usr/bin/docker", "inspect", "voice")
+    if not ok:
+        return jsonify({"status": "unknown", "detail": out})
+    try:
+        state = json.loads(out)[0]["State"]
+        running = bool(state.get("Running"))
+        return jsonify({"status": "running" if running else "stopped"})
+    except Exception as e:
+        return jsonify({"status": "unknown", "detail": str(e)})
+
+
+@app.route("/voice/start", methods=["POST"])
+def voice_start():
+    ok, out = _sudo("/usr/bin/docker", "start", "voice", timeout=60)
+    return jsonify({"ok": ok, "detail": out})
+
+
+@app.route("/voice/stop", methods=["POST"])
+def voice_stop():
+    ok, out = _sudo("/usr/bin/docker", "stop", "voice", timeout=30)
+    return jsonify({"ok": ok, "detail": out})
+
+
+@app.route("/voice/launch", methods=["POST"])
+def voice_launch():
+    """Recrée le conteneur voix avec une des trois variantes Chatterbox.
+    repo_id vient d'une liste blanche fermée (pas d'argv libre comme pour
+    OCR/vLLM) : aucune construction de commande à valider ici, juste une
+    appartenance à _VOICE_REPO_IDS."""
+    data = request.get_json(silent=True) or {}
+    repo_id = (data.get("repo_id") or "").strip()
+    if repo_id not in _VOICE_REPO_IDS:
+        return jsonify({"ok": False, "detail": "repo_id invalide"}), 400
+    ok, out = _sudo("/usr/local/sbin/voice-recreate.sh", repo_id, timeout=120)
+    return jsonify({"ok": ok, "detail": out})
+
+
 @app.route("/video/status")
 def video_status():
     ok, out = _sudo("/usr/bin/systemctl", "is-active", "comfyui.service")

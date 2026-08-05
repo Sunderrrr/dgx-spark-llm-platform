@@ -152,6 +152,8 @@ COMFYUI_URL   = os.environ.get('COMFYUI_URL', 'http://host.docker.internal:8188'
 # OCR (baidu/Unlimited-OCR) — conteneur sur le réseau docker interne, jamais
 # de port publié sur l'hôte.
 OCR_URL       = os.environ.get('OCR_URL', 'http://ocr:8000/v1')
+# Voix (Chatterbox, clonage) — même raisonnement que OCR, réseau dédié.
+VOICE_URL     = os.environ.get('VOICE_URL', 'http://voice:8004')
 DISCORD_WH    = os.environ.get('DISCORD_WEBHOOK_URL', '')
 SMTP_HOST     = os.environ.get('SMTP_HOST', '')
 SMTP_PORT     = int(os.environ.get('SMTP_PORT', '587'))
@@ -284,6 +286,12 @@ def init_db():
             vllm_args   TEXT DEFAULT '',
             added_at    TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS voice_configs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL UNIQUE,
+            repo_id     TEXT NOT NULL,   -- chatterbox | chatterbox-turbo | chatterbox-multilingual
+            added_at    TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS settings (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -370,6 +378,13 @@ def init_db():
             username   TEXT NOT NULL,
             text       TEXT NOT NULL,
             created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS voice_jobs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            username    TEXT NOT NULL,
+            text        TEXT NOT NULL,
+            audio_path  TEXT NOT NULL,
+            created_at  TEXT NOT NULL
         );
     ''')
     # Migration : colonnes ajoutées à mcp_servers après sa création initiale
@@ -516,6 +531,29 @@ def get_ocr_model():
     except Exception:
         pass
     _ocr_model_cache.update(t=now, v=v)
+    return v
+
+_voice_model_cache = {'t': 0.0, 'v': None}
+
+def get_voice_model():
+    """Variante Chatterbox actuellement chargée par le conteneur voix, sondée
+    en direct via /api/model-info (jamais figée : l'admin peut recréer ce
+    conteneur avec une autre variante, cf. catalogue voix /admin/voice/*).
+    Retourne le type ('original'|'turbo'|'multilingual') seulement une fois
+    le modèle réellement chargé (champ 'loaded'), pas juste le process up."""
+    now = time.time()
+    if now - _voice_model_cache['t'] < 5:
+        return _voice_model_cache['v']
+    v = None
+    try:
+        r = requests.get(f"{VOICE_URL}/api/model-info", timeout=3)
+        if r.ok:
+            data = r.json()
+            if data.get('loaded'):
+                v = data.get('type')
+    except Exception:
+        pass
+    _voice_model_cache.update(t=now, v=v)
     return v
 
 _comfyui_up_cache = {'t': 0.0, 'v': False}
@@ -731,7 +769,7 @@ def runner_stop():
         return False
 
 def _sidecar_proc_status(kind):
-    """kind ∈ {'ocr', 'video'} — état PROCESS/CONTENEUR brut (docker inspect /
+    """kind ∈ {'ocr', 'video', 'voice'} — état PROCESS/CONTENEUR brut (docker inspect /
     systemctl is-active), via vllm-runner (privilèges sudo scoped côté host,
     voir /etc/sudoers.d/vllmrunner-services) : dgx-portal n'a lui-même aucun
     accès docker/systemd, ni ici ni ailleurs. Ne dit PAS si le service répond
@@ -755,7 +793,10 @@ def _sidecar_status(kind):
     encore). On vérifie donc en plus, en direct, que le service répond :
     get_ocr_model()/comfyui_is_up() tapent respectivement /v1/models et
     /system_stats, qui ne répondent qu'une fois le chargement terminé."""
-    ready = get_ocr_model() is not None if kind == 'ocr' else comfyui_is_up() if kind == 'video' else False
+    ready = (get_ocr_model() is not None if kind == 'ocr'
+             else comfyui_is_up() if kind == 'video'
+             else get_voice_model() is not None if kind == 'voice'
+             else False)
     if ready:
         return 'running'
     proc = _sidecar_proc_status(kind)
@@ -774,6 +815,22 @@ def _ocr_launch(hf_id, args):
     try:
         r = requests.post(f"{RUNNER_URL}/ocr/launch", headers=_runner_headers(),
                           json={'hf_model_id': hf_id, 'vllm_args': args or ''}, timeout=90)
+        detail = ''
+        try:
+            detail = r.json().get('detail', '')
+        except Exception:
+            pass
+        return r.ok, detail
+    except Exception as e:
+        return False, str(e)
+
+def _voice_launch(repo_id):
+    """Recrée le conteneur voix avec une autre variante Chatterbox (runner.py
+    revalide repo_id contre sa propre liste blanche avant tout appel sudo,
+    voir _VOICE_REPO_IDS)."""
+    try:
+        r = requests.post(f"{RUNNER_URL}/voice/launch", headers=_runner_headers(),
+                          json={'repo_id': repo_id}, timeout=90)
         detail = ''
         try:
             detail = r.json().get('detail', '')
@@ -1638,6 +1695,9 @@ def _index_data():
         running.append({'name': ocr_model, 'kind': 'ocr', 'exposed': False})
     if comfyui_is_up():
         running.append({'name': 'MiniMax-H3', 'kind': 'video', 'exposed': False})
+    voice_model = get_voice_model()
+    if voice_model:
+        running.append({'name': f'Chatterbox ({voice_model})', 'kind': 'voice', 'exposed': False})
     db = get_db()
     my_requests = db.execute(
         "SELECT * FROM model_requests WHERE username=? ORDER BY created_at DESC LIMIT 5",
@@ -3098,6 +3158,13 @@ def admin_get_video_usage():
     ).fetchall()
     return [dict(r) for r in rows]
 
+def admin_get_voice_usage():
+    rows = get_db().execute(
+        "SELECT username, COUNT(*) AS c, MAX(created_at) AS last "
+        "FROM voice_jobs GROUP BY username ORDER BY c DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
 
 # ── Statistiques de consommation (base LiteLLM Postgres) ─────────────────────
 # Le tarif est désormais 1:1 (input=1, output=1) → SpendLogs.spend ≈ vrais tokens
@@ -3424,6 +3491,7 @@ def api_admin():
     all_reqs    = db.execute("SELECT * FROM model_requests ORDER BY created_at DESC").fetchall()
     model_cfgs  = db.execute("SELECT * FROM model_configs ORDER BY name").fetchall()
     ocr_cfgs    = db.execute("SELECT * FROM ocr_configs ORDER BY name").fetchall()
+    voice_cfgs  = db.execute("SELECT * FROM voice_configs ORDER BY name").fetchall()
     budget_reqs = db.execute("SELECT * FROM budget_requests ORDER BY created_at DESC").fetchall()
     stats = {
         'pending':  sum(1 for r in all_reqs if r['status'] == 'pending'),
@@ -3438,12 +3506,16 @@ def api_admin():
         'spend_data': admin_get_user_consumption(),
         'ocr_usage': admin_get_ocr_usage(),
         'video_usage': admin_get_video_usage(),
+        'voice_usage': admin_get_voice_usage(),
         'maintenance_mode': maintenance_active(),
         'ocr_status': _sidecar_status('ocr'),
         'ocr_model_name': get_ocr_model(),
         'video_status': _sidecar_status('video'),
+        'voice_status': _sidecar_status('voice'),
+        'voice_model_name': get_voice_model(),
         'model_cfgs': [dict(r) for r in model_cfgs],
         'ocr_cfgs': [dict(r) for r in ocr_cfgs],
+        'voice_cfgs': [dict(r) for r in voice_cfgs],
         'v_status': runner_status(),
         'init_logs': runner_logs(120),
         'budget_reqs': [dict(r) for r in budget_reqs],
@@ -3578,6 +3650,60 @@ def launch_ocr_cfg():
         return redirect(url_for('admin'))
     ok, detail = _ocr_launch(cfg['hf_model_id'], cfg['vllm_args'] or '')
     flash(f"Relance OCR avec {name} en cours…" if ok else f"Échec de la relance OCR : {detail}",
+          "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/voice/start', methods=['POST'])
+@admin_required
+def start_voice():
+    ok = _sidecar_action('voice', 'start')
+    flash("Voix démarrée." if ok else "Échec du démarrage voix.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/voice/stop', methods=['POST'])
+@admin_required
+def stop_voice():
+    ok = _sidecar_action('voice', 'stop')
+    flash("Voix arrêtée." if ok else "Échec de l'arrêt voix.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/voice/catalog/add', methods=['POST'])
+@admin_required
+def add_voice_cfg():
+    name    = re.sub(r'[^a-zA-Z0-9_-]', '-', request.form.get('name', '').strip())[:40]
+    repo_id = request.form.get('repo_id', '').strip()
+    if not name or repo_id not in ('chatterbox', 'chatterbox-turbo', 'chatterbox-multilingual'):
+        flash("Nom et variante requis.", "warning")
+        return redirect(url_for('admin'))
+    db = get_db()
+    try:
+        db.execute("INSERT INTO voice_configs (name, repo_id, added_at) VALUES (?,?,?)",
+                   (name, repo_id, datetime.now().isoformat()))
+        db.commit()
+        flash(f"Modèle voix {name} ajouté au catalogue.", "success")
+    except sqlite3.IntegrityError:
+        flash("Un modèle voix avec ce nom existe déjà.", "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/voice/catalog/delete/<int:cid>', methods=['POST'])
+@admin_required
+def delete_voice_cfg(cid):
+    db = get_db()
+    db.execute("DELETE FROM voice_configs WHERE id=?", (cid,))
+    db.commit()
+    flash("Modèle voix supprimé du catalogue.", "success")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/voice/catalog/launch', methods=['POST'])
+@admin_required
+def launch_voice_cfg():
+    name = request.form.get('voice_name', '').strip()
+    cfg = get_db().execute("SELECT * FROM voice_configs WHERE name=?", (name,)).fetchone()
+    if not cfg:
+        flash("Modèle voix introuvable.", "danger")
+        return redirect(url_for('admin'))
+    ok, detail = _voice_launch(cfg['repo_id'])
+    flash(f"Relance voix avec {name} en cours…" if ok else f"Échec de la relance voix : {detail}",
           "success" if ok else "danger")
     return redirect(url_for('admin'))
 
@@ -4108,6 +4234,158 @@ def ocr_image(job_id):
     if not os.path.isfile(path):
         abort(404)
     return send_file(path)
+
+# ── Voix (Chatterbox, clonage) ───────────────────────────────────────────────
+# Conteneur interne (réseau voice_net dédié, cf. README « Security »), jamais
+# de port publié. Contrairement à OCR/vidéo, la génération est SYNCHRONE côté
+# Chatterbox (pas de file d'attente à interroger) : /api/voice/generate
+# renvoie directement le job créé, prêt à lire.
+VOICE_AUDIO_DIR = '/app/data/voice_audio'
+VOICE_HISTORY_LIMIT = 20
+_MAX_VOICE_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 Mo, échantillon de référence
+_ALLOWED_AUDIO_TYPES = {'audio/wav', 'audio/x-wav', 'audio/mpeg', 'audio/mp3'}
+_VOICE_AUDIO_EXT = {'audio/wav': 'wav', 'audio/x-wav': 'wav',
+                    'audio/mpeg': 'mp3', 'audio/mp3': 'mp3'}
+
+def _read_uploaded_audio(field='reference'):
+    """Lit et valide l'échantillon vocal de référence. Retourne (bytes, mime)
+    ou (None, message_erreur)."""
+    f = request.files.get(field)
+    if not f or not f.filename:
+        return None, "Aucun échantillon audio fourni."
+    if f.mimetype not in _ALLOWED_AUDIO_TYPES:
+        return None, "Format audio non supporté (WAV/MP3 uniquement)."
+    data = f.read(_MAX_VOICE_UPLOAD_BYTES + 1)
+    if len(data) > _MAX_VOICE_UPLOAD_BYTES:
+        return None, "Échantillon audio trop volumineux (15 Mo max)."
+    return data, f.mimetype
+
+def voice_clone(reference_bytes, reference_mime, text, language='en'):
+    """Envoie l'échantillon de référence au conteneur voix puis génère le
+    clonage. Retourne (audio_bytes, None) ou (None, message_erreur).
+
+    Le nom de fichier de référence est toujours aléatoire (jamais dérivé du
+    nom envoyé par le client) : Chatterbox réutilise silencieusement un
+    fichier existant en cas de collision de nom (comportement de son
+    /upload_reference), ce qui pourrait sinon faire cloner à un utilisateur
+    la voix laissée par un autre sur un nom de fichier deviné/commun."""
+    ref_ext = _VOICE_AUDIO_EXT.get(reference_mime, 'wav')
+    ref_filename = f"{secrets.token_hex(16)}.{ref_ext}"
+    try:
+        r = requests.post(f"{VOICE_URL}/upload_reference",
+                          files={'files': (ref_filename, reference_bytes, reference_mime)},
+                          timeout=30)
+        # Le motif d'un refus (durée hors bornes, audio illisible…) n'est JAMAIS
+        # dans le code HTTP, toujours dans le corps : /upload_reference répond
+        # 400 si le seul fichier envoyé est rejeté, mais 200 dès qu'un fichier
+        # passe — avec les échecs listés dans `errors`. On lit donc le corps
+        # dans les deux cas, sinon l'utilisateur reçoit un message générique au
+        # lieu de la vraie raison (vu en prod : échantillon de 47 s refusé par
+        # le plafond de durée, affiché « service injoignable »).
+        try:
+            upload_errors = (r.json() or {}).get('errors') or []
+        except ValueError:
+            upload_errors = []
+        if upload_errors:
+            reason = (upload_errors[0] or {}).get('error') or ''
+            return None, (f"Échantillon audio refusé : {reason}" if reason
+                          else "Échantillon audio refusé par le service voix.")
+        if not r.ok:
+            return None, "Échec de l'envoi de l'échantillon audio."
+        r = requests.post(f"{VOICE_URL}/tts", json={
+            'text': text,
+            'voice_mode': 'clone',
+            'reference_audio_filename': ref_filename,
+            'output_format': 'mp3',
+            'language': language,
+        }, timeout=120)
+        if not r.ok:
+            detail = ''
+            try:
+                detail = r.json().get('detail', '')
+            except Exception:
+                pass
+            # Chatterbox refuse tout échantillon de 5 s ou moins avec une simple
+            # assertion interne, remontée ici en « failed to synthesize » sans
+            # aucun indice exploitable. C'est de loin la cause la plus fréquente
+            # d'échec à cette étape (l'UI borne les enregistrements micro, mais
+            # pas les fichiers importés) : on ajoute donc la piste utile.
+            if 'failed to synthesize' in detail.lower():
+                return None, ("Échec de la génération — l'échantillon doit contenir "
+                              "plus de 5 secondes de voix.")
+            return None, detail or "Échec de la génération vocale."
+        return r.content, None
+    except requests.exceptions.Timeout:
+        return None, "Le service voix a mis trop de temps à répondre."
+    except Exception:
+        return None, "Service voix injoignable."
+
+@app.route('/api/voice/generate', methods=['POST'])
+@login_required
+def api_voice_generate():
+    blocked = maintenance_block_json()
+    if blocked:
+        return blocked
+    ref_bytes, err_or_mime = _read_uploaded_audio()
+    if ref_bytes is None:
+        return jsonify({'error': err_or_mime}), 400
+    text = request.form.get('text', '').strip()[:2000]
+    if not text:
+        return jsonify({'error': "Un texte est requis."}), 400
+    language = request.form.get('language', 'en').strip()[:10] or 'en'
+    audio_bytes, err = voice_clone(ref_bytes, err_or_mime, text, language)
+    if audio_bytes is None:
+        return jsonify({'error': err}), 502
+    username = session['username']
+    os.makedirs(VOICE_AUDIO_DIR, exist_ok=True)
+    audio_filename = f"{secrets.token_hex(16)}.mp3"
+    with open(os.path.join(VOICE_AUDIO_DIR, audio_filename), 'wb') as f:
+        f.write(audio_bytes)
+    db = get_db()
+    db.execute("INSERT INTO voice_jobs (username, text, audio_path, created_at) VALUES (?,?,?,?)",
+               (username, text, audio_filename, datetime.now().isoformat()))
+    # Ne garde que les VOICE_HISTORY_LIMIT plus récents par utilisateur — purge
+    # aussi les fichiers audio correspondants, sinon VOICE_AUDIO_DIR grossit
+    # indéfiniment (même raisonnement que OCR_IMAGES_DIR).
+    stale = db.execute(
+        "SELECT audio_path FROM voice_jobs WHERE username=? AND id NOT IN ("
+        "  SELECT id FROM voice_jobs WHERE username=? ORDER BY id DESC LIMIT ?)",
+        (username, username, VOICE_HISTORY_LIMIT)).fetchall()
+    for row in stale:
+        try:
+            os.remove(os.path.join(VOICE_AUDIO_DIR, row['audio_path']))
+        except OSError:
+            pass
+    db.execute("""DELETE FROM voice_jobs WHERE username=? AND id NOT IN (
+                     SELECT id FROM voice_jobs WHERE username=?
+                     ORDER BY id DESC LIMIT ?)""",
+               (username, username, VOICE_HISTORY_LIMIT))
+    db.commit()
+    job_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()['id']
+    return jsonify({'id': job_id})
+
+@app.route('/api/voice/history')
+@login_required
+def api_voice_history():
+    rows = get_db().execute(
+        "SELECT id, text, created_at FROM voice_jobs WHERE username=? ORDER BY id DESC",
+        (session['username'],)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/voice/audio/<int:job_id>')
+@login_required
+def voice_audio(job_id):
+    # Scopé (id, username) en une seule requête — même garde IDOR que
+    # /ocr/image/<job_id> et /video/file/<prompt_id>.
+    row = get_db().execute(
+        "SELECT audio_path FROM voice_jobs WHERE id=? AND username=?",
+        (job_id, session['username'])).fetchone()
+    if not row:
+        abort(404)
+    path = os.path.join(VOICE_AUDIO_DIR, row['audio_path'])
+    if not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype='audio/mpeg')
 
 with app.app_context():
     init_db()

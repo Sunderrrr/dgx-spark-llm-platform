@@ -17,6 +17,7 @@ const EN: Record<string, string> = {
   "Accueil": "Home",
   "Playground": "Playground",
   "Vidéo": "Video",
+  "Voix": "Voice",
   "Chercher un modèle": "Find a model",
   "Demander un modèle": "Request a model",
   "Classement": "Leaderboard",
@@ -500,6 +501,57 @@ const EN: Record<string, string> = {
   "Progression": "Progress",
   "Historique (3 dernières)": "History (3 most recent)",
   "ComfyUI injoignable.": "ComfyUI unreachable.",
+
+  // — Voix (clonage) —
+  "Aucun modèle vocal n'est disponible": "No voice model is available",
+  "Demande à un admin de démarrer un modèle vocal pour utiliser cette page.":
+    "Ask an admin to start a voice model to use this page.",
+  "Clonage de voix — Chatterbox": "Voice cloning — Chatterbox",
+  "Un échantillon vocal de plus de 5 secondes, un texte, → le texte lu avec cette voix. Génère localement sur le GPU, quelques secondes suffisent.":
+    "A voice sample longer than 5 seconds, some text, → that text read in that voice. Generates locally on the GPU, a few seconds is enough.",
+  "Échantillon vocal de référence": "Reference voice sample",
+  "WAV ou MP3 — 15 Mo max, plus de 5 secondes de voix claire.":
+    "WAV or MP3 — 15 MB max, more than 5 seconds of clear speech.",
+  "Texte à lire": "Text to read",
+  "Ex : Bonjour, ceci est un test de clonage vocal.":
+    "E.g. Hello, this is a voice cloning test.",
+  "Générer la voix": "Generate voice",
+  "Voix prête.": "Voice ready.",
+  "Service voix injoignable.": "Voice service unreachable.",
+  "Ouvrir le clonage de voix": "Open voice cloning",
+  "Catalogue voix": "Voice catalog",
+  "Ajouter un modèle voix": "Add a voice model",
+  "Nom (ex: chatterbox-turbo)": "Name (e.g. chatterbox-turbo)",
+  "Variante": "Variant",
+  "Utilisation voix par utilisateur": "Voice usage per user",
+  // « Enregistrer » seul est déjà pris par le sens « Save » (Réglages) — le
+  // texte français servant de clé, il faut un libellé distinct ici.
+  "Source de la voix": "Voice source",
+  "Enregistrer au micro": "Record from mic",
+  "Importer un fichier": "Upload a file",
+  "Parle pendant 10 à 30 secondes pour un bon résultat — 1 minute maximum, l'enregistrement s'arrête tout seul.":
+    "Speak for 10 to 30 seconds for a good result — 1 minute maximum, recording stops on its own.",
+  "Démarrer l'enregistrement": "Start recording",
+  "Arrêter l'enregistrement": "Stop recording",
+  "Enregistrement en cours": "Recording",
+  "Enregistrement": "Recording",
+  "Réenregistrer": "Record again",
+  "Trop court : le modèle exige plus de 5 secondes de voix.":
+    "Too short: the model requires more than 5 seconds of speech.",
+  "Micro inaccessible — autorise l'accès au microphone dans ton navigateur.":
+    "Microphone unavailable — allow microphone access in your browser.",
+  "Impossible de convertir l'enregistrement.": "Could not convert the recording.",
+  // Messages renvoyés par /api/voice/generate (le backend reste francophone,
+  // la page les affiche tels quels via t()).
+  "Échec de la génération — l'échantillon doit contenir plus de 5 secondes de voix.":
+    "Generation failed — the sample must contain more than 5 seconds of speech.",
+  "Échantillon audio refusé par le service voix.": "Audio sample rejected by the voice service.",
+  "Échec de l'envoi de l'échantillon audio.": "Failed to upload the audio sample.",
+  "Le service voix a mis trop de temps à répondre.": "The voice service took too long to respond.",
+  "Un texte est requis.": "Some text is required.",
+  "Aucun échantillon audio fourni.": "No audio sample provided.",
+  "Format audio non supporté (WAV/MP3 uniquement).": "Unsupported audio format (WAV/MP3 only).",
+  "Échantillon audio trop volumineux (15 Mo max).": "Audio sample too large (15 MB max).",
 
   // — Connexion (suite) —
   "Session expirée — recharge la page et réessaie.": "Session expired — reload the page and try again.",

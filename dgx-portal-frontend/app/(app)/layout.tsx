@@ -31,6 +31,7 @@ import {
   Cog6ToothIcon,
   FilmIcon,
   DocumentMagnifyingGlassIcon,
+  SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
 import { useThemeMode } from "../theme-provider";
 import { useCsrf } from "@/lib/useCsrf";
@@ -48,6 +49,7 @@ const NAV_ITEMS = [
   { href: "/playground", label: "Playground", icon: ChatBubbleLeftRightIcon },
   { href: "/video", label: "Vidéo", icon: FilmIcon },
   { href: "/ocr", label: "OCR", icon: DocumentMagnifyingGlassIcon },
+  { href: "/voice", label: "Voix", icon: SpeakerWaveIcon },
   { href: "/search", label: "Chercher un modèle", icon: MagnifyingGlassIcon },
   { href: "/request", label: "Demander un modèle", icon: PaperAirplaneIcon },
   { href: "/ranking", label: "Classement", icon: TrophyIcon },

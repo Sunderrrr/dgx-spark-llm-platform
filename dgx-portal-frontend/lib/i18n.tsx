@@ -499,7 +499,6 @@ const EN: Record<string, string> = {
   "Vidéo prête.": "Video ready.",
   "Échec de la génération.": "Generation failed.",
   "Progression": "Progress",
-  "Historique (3 dernières)": "History (3 most recent)",
   "En cours": "In progress",
   "ComfyUI injoignable.": "ComfyUI unreachable.",
 

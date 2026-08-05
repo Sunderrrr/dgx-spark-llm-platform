@@ -9,6 +9,9 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Retire l'en-tête X-Powered-By: Next.js — aucun intérêt fonctionnel,
+  // juste du fingerprinting gratuit offert à un attaquant.
+  poweredByHeader: false,
   // /root/package-lock.json (bac à sable Astryx, hors de ce projet) fait sinon
   // dériver Next vers la mauvaise racine de workspace.
   turbopack: {

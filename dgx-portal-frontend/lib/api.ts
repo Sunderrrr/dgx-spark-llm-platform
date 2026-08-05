@@ -73,6 +73,26 @@ export async function postFormJSON<T = { ok: boolean; error?: string }>(
   return res.json();
 }
 
+/**
+ * Comme postFormJSON, mais pour les routes qui reçoivent un fichier (upload
+ * image) — multipart/form-data, pas d'en-tête Content-Type manuel (le
+ * navigateur doit fixer la boundary lui-même).
+ */
+export async function postFormData<T = { error?: string }>(
+  url: string,
+  csrf: string,
+  data: Record<string, string | File>,
+): Promise<T> {
+  const body = new FormData();
+  for (const [k, v] of Object.entries(data)) body.append(k, v);
+  const res = await authFetch(url, {
+    method: "POST",
+    headers: { "X-CSRFToken": csrf },
+    body,
+  });
+  return res.json();
+}
+
 export async function fetchCsrfToken(): Promise<string> {
   const res = await authFetch("/api/csrf");
   if (!res.ok) throw new Error("Impossible de récupérer le jeton CSRF.");
@@ -161,6 +181,27 @@ export async function streamChat(
     const delta = json.choices?.[0]?.delta;
     if (delta?.reasoning_content) onDelta({ reasoningChunk: delta.reasoning_content });
     if (delta?.content) onDelta({ contentChunk: delta.content });
+  });
+}
+
+/** Lit le flux SSE de /api/ocr/extract (upload multipart, réponse streamée comme le playground). */
+export async function streamOcr(
+  csrf: string,
+  data: Record<string, string | File>,
+  signal: AbortSignal,
+  onChunk: (content: string) => void,
+): Promise<void> {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(data)) form.append(k, v);
+  const res = await authFetch("/api/ocr/extract", {
+    method: "POST",
+    headers: { "X-CSRFToken": csrf },
+    body: form,
+    signal,
+  });
+  await readSSE(res, (json) => {
+    const content = json.choices?.[0]?.delta?.content;
+    if (content) onChunk(content);
   });
 }
 

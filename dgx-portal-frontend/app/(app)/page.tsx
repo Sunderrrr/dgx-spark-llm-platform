@@ -22,6 +22,8 @@ import {
   CpuChipIcon,
   CircleStackIcon,
   BoltIcon,
+  DocumentMagnifyingGlassIcon,
+  FilmIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
 import { UsageChart } from "./_components/UsageChart";
@@ -51,8 +53,10 @@ interface ModelRequest extends Record<string, unknown> {
   created_at: string;
 }
 
+type RunningModel = { name: string; kind: "chat" | "ocr" | "video"; exposed: boolean };
+
 type HomeData = {
-  running_models: string[];
+  running_models: RunningModel[];
   public_api_url: string;
   sysmetrics: SysMetrics;
   modelhealth: ModelHealth;
@@ -135,21 +139,41 @@ export default function HomePage() {
               {data && data.running_models.length > 0 && (
                 <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
                   {data.running_models.map((m) => (
-                    <Card key={m}>
+                    <Card key={m.name}>
                       <VStack gap={2}>
-                        <Badge label={t("En ligne")} variant="success" />
+                        <HStack hAlign="between" vAlign="center">
+                          <Badge label={t("En ligne")} variant="success" />
+                          {m.kind === "ocr" && <Icon icon={DocumentMagnifyingGlassIcon} size="sm" />}
+                          {m.kind === "video" && <Icon icon={FilmIcon} size="sm" />}
+                        </HStack>
                         <Text weight="semibold" wordBreak="break-all">
-                          {m}
+                          {m.name}
                         </Text>
-                        <Text type="supporting" color="secondary">
-                          {t("API :")} {data.public_api_url}
-                        </Text>
-                        <Button
-                          label={t("Créer une clé API")}
-                          variant="secondary"
-                          size="sm"
-                          href="/keys"
-                        />
+                        {m.exposed ? (
+                          <>
+                            <Text type="supporting" color="secondary">
+                              {t("API :")} {data.public_api_url}
+                            </Text>
+                            <Button
+                              label={t("Créer une clé API")}
+                              variant="secondary"
+                              size="sm"
+                              href="/keys"
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <Text type="supporting" color="secondary">
+                              {t("Disponible depuis l'application, non exposé par l'API.")}
+                            </Text>
+                            <Button
+                              label={m.kind === "ocr" ? t("Ouvrir l'OCR") : t("Ouvrir la génération vidéo")}
+                              variant="secondary"
+                              size="sm"
+                              href={m.kind === "ocr" ? "/ocr" : "/video"}
+                            />
+                          </>
+                        )}
                       </VStack>
                     </Card>
                   ))}

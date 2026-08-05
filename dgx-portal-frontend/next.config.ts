@@ -14,6 +14,14 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  experimental: {
+    // Le proxy.ts middleware (route TOUT le non-GET/HEAD vers Flask) tronque
+    // silencieusement le corps des requêtes au-delà de 10 Mo par défaut — cassait
+    // les uploads image de /api/video/generate et /api/ocr/extract (limite
+    // affichée : 15 Mo). Relevé pour matcher + marge. Vu en prod le 04/08 :
+    // un screenshot de ~11 Mo faisait planter le proxy en ECONNRESET.
+    proxyClientMaxBodySize: "20mb",
+  },
   async rewrites() {
     // Le navigateur ne parle qu'à ce serveur Next.js (même origine, pas de CORS
     // à gérer côté cookies/CSRF). Tout ce qui n'est pas une page Next connue

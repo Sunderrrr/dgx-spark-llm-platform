@@ -15,9 +15,11 @@ It provides:
   self-service actions (create a key, request budget, request a model…);
 - a **runner** that launches/stops one vLLM model on the GPU on demand and
   auto-resumes it after a crash or reboot;
-- always-on **OCR** (baidu/Unlimited-OCR) and **video generation** (MiniMax H3,
-  reference-image-to-video) served from dedicated backends alongside the main
-  chat model, streamed into the portal — never exposed as separate public UIs;
+- always-on **OCR** (datalab-to/chandra-ocr-2 by default, swappable via an admin
+  catalog) and **video generation** (MiniMax H3, text-to-video and reference-image-to-video)
+  served from dedicated backends alongside the main chat model, streamed into
+  the portal with a live bounding-box visualization of detected regions —
+  never exposed as separate public UIs;
 - an admin **maintenance mode** that blocks non-admin API/portal traffic without
   stopping any model, enforced both in the portal and at the edge (Traefik).
 
@@ -58,8 +60,8 @@ flowchart LR
 | **dgx-portal** | Backend (Flask): LDAP/OIDC auth, sessions, JSON API, business logic | internal only | Docker container (non-root) |
 | **vllm-runner** | Daemon driving **one** vLLM process (start/stop/logs) with auto-resume, plus scoped start/stop/recreate of the OCR container and video service | `8001` | systemd service on the host |
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
-| **OCR container** | vLLM serving an OCR-capable VLM (baidu/Unlimited-OCR by default), swappable via an admin catalog | internal only | Docker container, own GPU slice |
-| **ComfyUI** | Video generation graph engine (MiniMax H3, reference-image-to-video) | `8188`, host-restricted | systemd service on the host |
+| **OCR container** | vLLM serving an OCR-capable VLM (datalab-to/chandra-ocr-2 by default; baidu/Unlimited-OCR also in the catalog), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
+| **ComfyUI** | Video generation graph engine (MiniMax H3, text-to-video and reference-image-to-video) | `8188`, host-restricted | systemd service on the host |
 
 > Only one **chat** model runs on the GPU at a time (launching another replaces the current
 > one) — OCR and video are separate, always-addressable backends that run alongside it,
@@ -190,9 +192,12 @@ env vars — key and endpoint pre-filled.
   budget, request more tokens; integration snippets per tool.
 - **Playground** — in-browser streaming chat with the active model; no client setup.
 - **OCR** — extract text from an image/scan, streamed token-by-token into a
-  formatted panel (same pattern as the Playground); keeps your last 20 results.
-- **Vidéo** — turn a reference image + a text description into a short video
-  with synced audio (MiniMax H3), polled to completion; keeps your last 3 results.
+  formatted panel (same pattern as the Playground), with a toggle to visualize
+  every detected region as bounding boxes over the source image; keeps your
+  last 20 results, including the analyzed image itself.
+- **Vidéo** — turn a text description, with or without a reference image, into
+  a short video with synced audio (MiniMax H3), polled to completion; keeps
+  your last 3 results.
   Both OCR and video show a clear empty state if no backend is currently running,
   instead of letting you submit into a dead end.
 - **Support (Cronos)** — an AI assistant that sees your keys (masked), budget, the

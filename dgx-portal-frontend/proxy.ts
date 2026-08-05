@@ -6,7 +6,12 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
 // Paths with their own Route Handler (app/**/route.ts) — proxy must NOT
 // rewrite these itself, or it would bypass their streaming-safe logic (see
 // those files: a plain rewrite here was confirmed to buffer SSE responses).
-const OWN_ROUTE_HANDLERS = new Set(["/playground/chat", "/support/chat", "/admin/runner/stream"]);
+const OWN_ROUTE_HANDLERS = new Set([
+  "/playground/chat",
+  "/support/chat",
+  "/admin/runner/stream",
+  "/api/ocr/extract",
+]);
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -36,7 +41,7 @@ export function proxy(request: NextRequest) {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
-    "img-src 'self' data:",
+    "img-src 'self' data: blob:",
     "connect-src 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",

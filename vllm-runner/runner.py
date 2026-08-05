@@ -702,6 +702,47 @@ def voice_launch():
     return jsonify({"ok": ok, "detail": out})
 
 
+# Transcription (dictée). Même liste blanche fermée que la voix.
+_ASR_MODEL_IDS = {
+    "openai/whisper-large-v3-turbo", "openai/whisper-large-v3",
+    "openai/whisper-medium", "openai/whisper-small",
+}
+
+
+@app.route("/asr/status")
+def asr_status():
+    ok, out = _sudo("/usr/bin/docker", "inspect", "asr")
+    if not ok:
+        return jsonify({"status": "unknown", "detail": out})
+    try:
+        state = json.loads(out)[0]["State"]
+        return jsonify({"status": "running" if bool(state.get("Running")) else "stopped"})
+    except Exception as e:
+        return jsonify({"status": "unknown", "detail": str(e)})
+
+
+@app.route("/asr/start", methods=["POST"])
+def asr_start():
+    ok, out = _sudo("/usr/bin/docker", "start", "asr", timeout=60)
+    return jsonify({"ok": ok, "detail": out})
+
+
+@app.route("/asr/stop", methods=["POST"])
+def asr_stop():
+    ok, out = _sudo("/usr/bin/docker", "stop", "asr", timeout=30)
+    return jsonify({"ok": ok, "detail": out})
+
+
+@app.route("/asr/launch", methods=["POST"])
+def asr_launch():
+    data = request.get_json(silent=True) or {}
+    model = (data.get("model_id") or "").strip()
+    if model not in _ASR_MODEL_IDS:
+        return jsonify({"ok": False, "detail": "model_id invalide"}), 400
+    ok, out = _sudo("/usr/local/sbin/asr-recreate.sh", model, timeout=120)
+    return jsonify({"ok": ok, "detail": out})
+
+
 @app.route("/video/status")
 def video_status():
     ok, out = _sudo("/usr/bin/systemctl", "is-active", "comfyui.service")

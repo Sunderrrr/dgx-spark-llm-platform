@@ -18,6 +18,7 @@ const EN: Record<string, string> = {
   "Playground": "Playground",
   "Vidéo": "Video",
   "Voix": "Voice",
+  "Dictée": "Dictation",
   "Chercher un modèle": "Find a model",
   "Demander un modèle": "Request a model",
   "Classement": "Leaderboard",
@@ -450,6 +451,11 @@ const EN: Record<string, string> = {
     "Text files only. Tokens count against your budget.",
   "Raisonnement": "Reasoning",
   "Sur quoi veux-tu travailler ?": "What do you want to work on?",
+  "Dicter": "Dictate",
+  "Arrêter la dictée": "Stop dictation",
+  "Transcription…": "Transcribing…",
+  "Aucune parole détectée.": "No speech detected.",
+  "Échec de la transcription.": "Transcription failed.",
 
   // — OCR —
   "OCR injoignable.": "OCR unreachable.",

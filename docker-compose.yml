@@ -95,6 +95,8 @@ services:
       # Voix (Chatterbox, clonage) : même raisonnement que OCR — conteneur sur
       # voice_net dédié, jamais sur `default`.
       VOICE_URL: http://voice:8004
+      # Transcription (dictée du Playground) : idem, réseau asr_net dédié.
+      ASR_URL: http://asr:8006
       # URL publique de l'API compatible OpenAI affichée aux utilisateurs
       PUBLIC_API_URL: https://api.cronos.website/v1
       # Base LiteLLM pour les stats de consommation (ranking + graphe horaire)
@@ -119,6 +121,7 @@ services:
       - default
       - ocr_net
       - voice_net
+      - asr_net
 
   # ─── DGX Portal Frontend — Next.js + Astryx, nouvelle interface complète ──
   # Reprend le port 5000 (celui que filtre déjà cronos-docker-restrict.service
@@ -154,6 +157,9 @@ networks:
   # lui aussi de l'audio/texte fourni par l'utilisateur vers du code de
   # modèle tiers, même surface de risque que OCR.
   voice_net:
+  # Idem pour la transcription : de l'audio utilisateur passe dans du code de
+  # modèle tiers, il n'a rien à faire sur le réseau de litellm/postgres.
+  asr_net:
 
 # ─── OpenWebUI ────────────────────────────────────────────────────────────────
 # OpenWebUI tourne sur ton autre serveur (vor.cronos.website).

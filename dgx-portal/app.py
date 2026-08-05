@@ -154,6 +154,8 @@ COMFYUI_URL   = os.environ.get('COMFYUI_URL', 'http://host.docker.internal:8188'
 OCR_URL       = os.environ.get('OCR_URL', 'http://ocr:8000/v1')
 # Voix (Chatterbox, clonage) — même raisonnement que OCR, réseau dédié.
 VOICE_URL     = os.environ.get('VOICE_URL', 'http://voice:8004')
+# Transcription (dictée) — idem.
+ASR_URL       = os.environ.get('ASR_URL', 'http://asr:8006')
 DISCORD_WH    = os.environ.get('DISCORD_WEBHOOK_URL', '')
 SMTP_HOST     = os.environ.get('SMTP_HOST', '')
 SMTP_PORT     = int(os.environ.get('SMTP_PORT', '587'))
@@ -843,6 +845,7 @@ def _sidecar_status(kind):
     ready = (get_ocr_model() is not None if kind == 'ocr'
              else comfyui_is_up() if kind == 'video'
              else get_voice_model() is not None if kind == 'voice'
+             else asr_is_up() if kind == 'asr'
              else False)
     if ready:
         return 'running'
@@ -3560,6 +3563,7 @@ def api_admin():
         'video_status': _sidecar_status('video'),
         'voice_status': _sidecar_status('voice'),
         'voice_model_name': get_voice_model(),
+        'asr_status': _sidecar_status('asr'),
         'model_cfgs': [dict(r) for r in model_cfgs],
         'ocr_cfgs': [dict(r) for r in ocr_cfgs],
         'voice_cfgs': [dict(r) for r in voice_cfgs],
@@ -3712,6 +3716,20 @@ def start_voice():
 def stop_voice():
     ok = _sidecar_action('voice', 'stop')
     flash("Voix arrêtée." if ok else "Échec de l'arrêt voix.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/asr/start', methods=['POST'])
+@admin_required
+def start_asr():
+    ok = _sidecar_action('asr', 'start')
+    flash("Dictée démarrée." if ok else "Échec du démarrage de la dictée.", "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/asr/stop', methods=['POST'])
+@admin_required
+def stop_asr():
+    ok = _sidecar_action('asr', 'stop')
+    flash("Dictée arrêtée." if ok else "Échec de l'arrêt de la dictée.", "success" if ok else "danger")
     return redirect(url_for('admin'))
 
 @app.route('/admin/voice/catalog/add', methods=['POST'])
@@ -4449,6 +4467,59 @@ def api_voice_history():
         "SELECT id, text, created_at FROM voice_jobs WHERE username=? ORDER BY id DESC",
         (session['username'],)).fetchall()
     return jsonify([dict(r) for r in rows])
+
+_asr_up_cache = {'t': 0.0, 'v': False}
+
+def asr_is_up():
+    now = time.time()
+    if now - _asr_up_cache['t'] < 10:
+        return _asr_up_cache['v']
+    v = False
+    try:
+        r = requests.get(f"{ASR_URL}/api/model-info", timeout=3)
+        v = bool(r.ok and r.json().get('loaded'))
+    except Exception:
+        pass
+    _asr_up_cache.update(t=now, v=v)
+    return v
+
+@app.route('/api/transcribe', methods=['POST'])
+@login_required
+def api_transcribe():
+    """Dictée : audio du micro → texte. Volontairement auto-hébergé — l'API
+    SpeechRecognition du navigateur enverrait la voix chez Google, ce qui
+    contredirait tout l'intérêt de la plateforme."""
+    blocked = maintenance_block_json()
+    if blocked:
+        return blocked
+    f = request.files.get('audio')
+    if not f or not f.filename:
+        return jsonify({'error': "Aucun audio fourni."}), 400
+    data = f.read(_MAX_VOICE_UPLOAD_BYTES + 1)
+    if len(data) > _MAX_VOICE_UPLOAD_BYTES:
+        return jsonify({'error': "Enregistrement trop volumineux (15 Mo max)."}), 400
+    language = request.form.get('language', '').strip()[:10]
+    try:
+        r = requests.post(f"{ASR_URL}/transcribe",
+                          files={'audio': ('rec.wav', data, 'audio/wav')},
+                          data={'language': language}, timeout=180)
+        if not r.ok:
+            detail = ''
+            try:
+                detail = r.json().get('detail', '')
+            except Exception:
+                pass
+            return jsonify({'error': detail or "Échec de la transcription."}), 502
+        return jsonify({'text': r.json().get('text', '')})
+    except requests.exceptions.Timeout:
+        return jsonify({'error': "La transcription a mis trop de temps."}), 504
+    except Exception:
+        return jsonify({'error': "Service de transcription injoignable."}), 502
+
+@app.route('/api/transcribe/available')
+@login_required
+def api_transcribe_available():
+    return jsonify({'available': asr_is_up()})
 
 @app.route('/api/voice/info')
 @login_required

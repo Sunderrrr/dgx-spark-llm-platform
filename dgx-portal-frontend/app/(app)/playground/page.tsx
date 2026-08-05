@@ -41,8 +41,11 @@ import {
   LightBulbIcon,
   DocumentMagnifyingGlassIcon,
   DocumentTextIcon,
+  MicrophoneIcon,
+  StopIcon,
 } from "@heroicons/react/24/outline";
-import { useT } from "@/lib/i18n";
+import { useT, useLang } from "@/lib/i18n";
+import { startRecording, type Recorder } from "@/lib/audioRecorder";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
 import { fetchCsrfToken, fetchPlaygroundData, streamChat } from "@/lib/api";
@@ -109,6 +112,7 @@ function estimateTokens(
 
 export default function PlaygroundPage() {
   const t = useT();
+  const { lang: uiLang } = useLang();
   const [csrf, setCsrf] = useState("");
   const [runningModels, setRunningModels] = useState<string[]>([]);
   const [modelLimits, setModelLimits] = useState<Record<string, number>>({});
@@ -123,6 +127,10 @@ export default function PlaygroundPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
   const [firstName, setFirstName] = useState("");
+  const [dictationAvailable, setDictationAvailable] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const recorderRef = useRef<Recorder | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -318,6 +326,7 @@ export default function PlaygroundPage() {
     }
     const nextMessages: ChatMsg[] = [
       ...messages,
+      // eslint-disable-next-line react-hooks/purity -- send() ne tourne que depuis un handler
       { role: "user", content: full, ts: Date.now(), attachmentCount: attachments.length || undefined },
     ];
     setMessages(nextMessages);
@@ -345,6 +354,58 @@ export default function PlaygroundPage() {
     if (last?.role === "user") {
       setInput(last.content);
       setMessages(base.slice(0, -1));
+    }
+  }
+
+  // Le bouton micro n'apparaît que si le backend de transcription tourne.
+  useEffect(() => {
+    fetch("/api/transcribe/available", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setDictationAvailable(!!d?.available))
+      .catch(() => {});
+  }, []);
+
+  // Relâche le micro si on quitte la page en pleine dictée.
+  useEffect(() => () => recorderRef.current?.cancel(), []);
+
+  async function toggleDictation() {
+    if (isRecording) {
+      const rec = recorderRef.current;
+      recorderRef.current = null;
+      setIsRecording(false);
+      if (!rec) return;
+      setIsTranscribing(true);
+      try {
+        const file = await rec.stop();
+        const body = new FormData();
+        body.append("audio", file);
+        body.append("language", uiLang);
+        const res = await fetch("/api/transcribe", {
+          method: "POST",
+          credentials: "include",
+          headers: { "X-CSRFToken": csrf },
+          body,
+        });
+        const data = await res.json();
+        if (!res.ok || !data.text) {
+          window.alert(data.error || t("Aucune parole détectée."));
+          return;
+        }
+        // On complète le champ au lieu de l'écraser : on peut dicter à la
+        // suite de ce qu'on a déjà tapé, ou dicter en plusieurs fois.
+        setInput((prev) => (prev ? `${prev.trimEnd()} ${data.text}` : data.text));
+      } catch {
+        window.alert(t("Échec de la transcription."));
+      } finally {
+        setIsTranscribing(false);
+      }
+      return;
+    }
+    try {
+      recorderRef.current = await startRecording();
+      setIsRecording(true);
+    } catch {
+      window.alert(t("Micro inaccessible — autorise l'accès au microphone dans ton navigateur."));
     }
   }
 
@@ -469,14 +530,35 @@ export default function PlaygroundPage() {
                   placeholder={t("Écris ton message… (Entrée pour envoyer, Maj+Entrée = saut de ligne)")}
                   input={<ChatComposerInput value={input} onChange={setInput} onSubmit={send} />}
                   headerActions={
-                    <Button
-                      label={t("Joindre un fichier")}
-                      variant="ghost"
-                      size="sm"
-                      isIconOnly
-                      icon={<Icon icon={PaperClipIcon} size="sm" />}
-                      onClick={() => fileInputRef.current?.click()}
-                    />
+                    <>
+                      <Button
+                        label={t("Joindre un fichier")}
+                        variant="ghost"
+                        size="sm"
+                        isIconOnly
+                        icon={<Icon icon={PaperClipIcon} size="sm" />}
+                        onClick={() => fileInputRef.current?.click()}
+                      />
+                      {/* Bouton absent tant que le backend de transcription
+                          n'est pas lancé : mieux vaut ne rien proposer qu'un
+                          bouton qui échoue. */}
+                      {dictationAvailable && (
+                        <Button
+                          label={
+                            isRecording ? t("Arrêter la dictée")
+                            : isTranscribing ? t("Transcription…")
+                            : t("Dicter")
+                          }
+                          variant={isRecording ? "primary" : "ghost"}
+                          size="sm"
+                          isIconOnly
+                          isLoading={isTranscribing}
+                          isDisabled={streaming}
+                          icon={<Icon icon={isRecording ? StopIcon : MicrophoneIcon} size="sm" />}
+                          onClick={toggleDictation}
+                        />
+                      )}
+                    </>
                   }
                   headerContext={<ContextMeter used={used} max={max} />}
                   drawer={

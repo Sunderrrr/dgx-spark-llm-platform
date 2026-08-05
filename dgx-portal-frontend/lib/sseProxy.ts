@@ -50,7 +50,11 @@ function withIdleTimeout(body: ReadableStream<Uint8Array>): ReadableStream<Uint8
  * sous 15s) puis par un timeout d'inactivité une fois le flux démarré.
  */
 export async function proxySSE(request: Request, path: string): Promise<Response> {
-  const body = await request.text();
+  // arrayBuffer(), pas text() : /api/ocr/extract poste un multipart/form-data
+  // binaire (l'image) — .text() décoderait ces octets en UTF-8 et corromprait
+  // l'upload. Un ArrayBuffer transite intact quel que soit le contenu (JSON
+  // texte comme pour playground/support, ou binaire ici).
+  const body = await request.arrayBuffer();
   const connectController = new AbortController();
   const connectTimer = setTimeout(() => connectController.abort(), CONNECT_TIMEOUT_MS);
 

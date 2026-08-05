@@ -119,4 +119,12 @@ async def transcribe(
         log.exception("Transcription failed")
         raise HTTPException(status_code=500, detail=f"Échec de la transcription : {exc}")
 
-    return JSONResponse({"text": (out.get("text") or "").strip()})
+    text = (out.get("text") or "").strip()
+    # Sur du non-parlé (silence, souffle, bruit continu), Whisper part en
+    # boucle et rend des chaînes du type « . . . . . » ou « Beep! Beep! ».
+    # C'est très visible en dictée en direct, où le premier tour tombe souvent
+    # avant le premier mot. Un texte sans la moindre lettre ni chiffre n'est
+    # pas de la parole : on renvoie vide plutôt que de polluer le champ.
+    if not any(c.isalnum() for c in text):
+        text = ""
+    return JSONResponse({"text": text})

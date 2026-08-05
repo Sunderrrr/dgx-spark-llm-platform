@@ -21,7 +21,9 @@ It provides:
   the portal with a live bounding-box visualization of detected regions —
   never exposed as separate public UIs;
 - an admin **maintenance mode** that blocks non-admin API/portal traffic without
-  stopping any model, enforced both in the portal and at the edge (Traefik).
+  stopping any model, enforced both in the portal and at the edge (Traefik);
+- a UI available in **English and French**, switchable per account from Settings
+  → Appearance (English by default).
 
 ![Cronos portal — home dashboard](assets/dashboard.png)
 
@@ -128,10 +130,11 @@ go to **Admin**, and launch a model from the catalog.
 
 > `.env` is **gitignored** — no secret is committed. `.env.example` holds only placeholders.
 >
-> The UI itself (`dgx-portal-frontend`) is **French-only** — there's no
-> language toggle. `docker-compose.yml` reads `BACKEND_URL` to reach Flask
-> internally; the default (`http://dgx-portal:5000`) matches the compose
-> service name and rarely needs changing.
+> The UI (`dgx-portal-frontend`) supports **English and French**, toggled
+> from Settings → Appearance; English is the default. `docker-compose.yml`
+> reads `BACKEND_URL` to reach Flask internally; the default
+> (`http://dgx-portal:5000`) matches the compose service name and rarely
+> needs changing.
 
 ---
 
@@ -195,7 +198,7 @@ env vars — key and endpoint pre-filled.
   formatted panel (same pattern as the Playground), with a toggle to visualize
   every detected region as bounding boxes over the source image; keeps your
   last 20 results, including the analyzed image itself.
-- **Vidéo** — turn a text description, with or without a reference image, into
+- **Video** — turn a text description, with or without a reference image, into
   a short video with synced audio (MiniMax H3), polled to completion; keeps
   your last 3 results.
   Both OCR and video show a clear empty state if no backend is currently running,
@@ -204,6 +207,10 @@ env vars — key and endpoint pre-filled.
   model catalog and server status, and can **act for you**: create a key, revoke one,
   request budget, request a model (admins also get launch/stop). Actions are always
   scoped server-side to the logged-in user; impactful ones require in-chat confirmation.
+- **Find a model** (`/search`) — live search over the Hugging Face Hub (no local
+  cache), filterable by task including text/image/video generation, defaulting
+  to models tagged as tested on GB10; paginated ("Load more") rather than
+  capped at the first page.
 - **Leaderboard** (`/ranking`) — ranks users by weighted spend (day/week/month),
   colorblind-safe palette, from LiteLLM's Postgres spend logs.
 - **Home** — live server stats (CPU/RAM/GPU), active-model health (tok/s, queue,
@@ -222,6 +229,10 @@ env vars — key and endpoint pre-filled.
 | Playground — in-browser streaming chat | Support — the Cronos assistant taking actions |
 |---|---|
 | ![Playground](assets/playground.png) | ![Support](assets/support.png) |
+
+| OCR — detected zones, drawn from the actual model output | Video generation — text- or image-driven, MiniMax H3 |
+|---|---|
+| ![OCR](assets/ocr.png) | ![Video](assets/video.png) |
 
 ![My API keys — budget, keys and integration snippets](assets/keys.png)
 

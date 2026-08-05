@@ -3,7 +3,7 @@
 The web UI for **Cronos**, the DGX Spark self-service LLM platform. Built with
 **Next.js 16** (App Router) and Meta's **Astryx** design system (React +
 StyleX). It owns the platform's public port (`:5000`) and covers every page:
-home, playground, keys, search, ranking, request, support, admin, login.
+home, playground, OCR, video, keys, search, ranking, request, support, admin, login.
 
 Flask (`../dgx-portal/`) remains the authority for everything that matters —
 LDAP/OIDC auth, sessions, CSRF, the database, budgets, model launching. This
@@ -88,29 +88,42 @@ entirely from Astryx components (`AppShell`, `SideNav`, `Layout`, `Stack`,
 build "<idea>"` finds the closest existing template/block instead of
 hand-rolling it. Full conventions are in `AGENTS.md` / `CLAUDE.md`.
 
-The UI text is **French-only** — there's no language toggle (the old Flask
-app's FR/EN translation hook was removed along with the Jinja templates it
-only ever applied to).
+The UI supports **English and French**, toggled from Settings → Appearance
+(persisted to `localStorage` and synced to the account's saved preference via
+`/api/whoami` / `/settings/appearance`). English is the default for any
+account with no saved preference. Translation is deliberately low-tech:
+`lib/i18n.tsx`'s `useT()` hook takes the French string used in the JSX as its
+own dictionary key (`t("Chercher un modèle")`), and looks it up in a flat
+`EN` dictionary; a key with no English entry silently falls back to the
+French original instead of showing a broken key name. A handful of dynamic,
+backend-generated strings with a small fixed set of possible values (ranking
+period labels, usage-limit labels) are translated the same way — the backend
+stays French-only and the frontend maps the known literal values it can send.
 
 ## Structure
 
 ```
 app/
 ├── layout.tsx                    # root layout; force-dynamic (required for CSP nonces)
-├── theme-provider.tsx             # light/dark, follows the browser by default
+├── theme-provider.tsx             # light/dark + language, follows the browser/localStorage by default
 ├── login/page.tsx                 # LDAP + SSO, both shown directly (no toggle)
 ├── (app)/                         # authenticated pages, shared AppShell + SideNav
 │   ├── layout.tsx                 # nav, theme toggle, logout
 │   ├── page.tsx                   # home: server stats, active model, usage chart
 │   ├── playground/                # streaming chat against the active model
+│   ├── ocr/                       # OCR: upload/extract, streamed, bounding-box zone view
+│   ├── video/                     # video generation (MiniMax H3, text- or image-driven)
 │   ├── support/                   # streaming chat with the Cronos assistant (tool-calling)
 │   ├── keys/, search/, ranking/, request/, admin/
+│   └── _components/SettingsDialog.tsx   # account/usage/keys/appearance/MCP/skills, incl. the language toggle
+├── api/ocr/extract/route.ts       # SSE proxy for the OCR multipart upload (see above)
 ├── playground/chat/route.ts       # SSE proxy (see above)
 ├── support/chat/route.ts          # SSE proxy
 └── admin/runner/stream/route.ts   # SSE proxy (live vLLM launch logs)
 lib/
-├── api.ts        # authFetch, getJSON, postForm, streamChat, streamSupportChat
+├── api.ts        # authFetch, getJSON, postForm, streamChat, streamSupportChat, streamOcr
 ├── sseProxy.ts   # shared proxySSE/proxySSEGet used by the route handlers above
+├── i18n.tsx      # useT()/useLang() — see "UI conventions" above
 ├── useCsrf.ts
 ├── conversations.ts   # localStorage-backed Playground chat history
 └── types.ts

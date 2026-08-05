@@ -24,9 +24,10 @@ import {
   ArrowUpTrayIcon,
   ArrowPathIcon,
 } from "@heroicons/react/24/outline";
+import { Selector } from "@astryxdesign/core/Selector";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, useLang } from "@/lib/i18n";
 import { startRecording, type Recorder } from "@/lib/audioRecorder";
 
 type HistoryItem = { id: number; text: string; created_at: string };
@@ -42,6 +43,7 @@ function formatSeconds(s: number) {
 
 export default function VoicePage() {
   const t = useT();
+  const { lang: uiLang } = useLang();
   const csrf = useCsrf();
   const showToast = useToast();
   const [mode, setMode] = useState<"upload" | "record">("record");
@@ -51,6 +53,8 @@ export default function VoicePage() {
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [languages, setLanguages] = useState<Record<string, string>>({});
+  const [language, setLanguage] = useState<string>(uiLang);
   const [isRecording, setIsRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
@@ -136,6 +140,19 @@ export default function VoicePage() {
       .catch(() => setAvailable(null));
   }, []);
 
+  // Les langues dépendent de la variante chargée (turbo/original = anglais
+  // seul, multilingual = 23) : on part de la langue de l'interface si le
+  // modèle la connaît, sinon de l'anglais.
+  useEffect(() => {
+    fetch("/api/voice/languages", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((d: Record<string, string>) => {
+        setLanguages(d);
+        setLanguage((cur) => (d[cur] ? cur : d[uiLang] ? uiLang : "en"));
+      })
+      .catch(() => {});
+  }, [uiLang]);
+
   async function generate() {
     if (!reference || !text.trim() || !csrf) return;
     setIsLoading(true);
@@ -144,6 +161,7 @@ export default function VoicePage() {
       const res = await postFormData<{ id?: number; error?: string }>("/api/voice/generate", csrf, {
         reference,
         text,
+        language,
       });
       if (!res.id) {
         // Les messages d'erreur viennent de Flask, en français : t() les traduit
@@ -269,6 +287,17 @@ export default function VoicePage() {
                         />
                       )}
                     </VStack>
+                  )}
+                  {Object.keys(languages).length > 1 && (
+                    <Selector
+                      label={t("Langue du texte")}
+                      value={language}
+                      onChange={(v) => setLanguage(v ?? "en")}
+                      options={Object.entries(languages)
+                        .map(([code, name]) => ({ value: code, label: name }))
+                        .sort((a, b) => a.label.localeCompare(b.label))}
+                      isDisabled={isLoading}
+                    />
                   )}
                   <TextArea
                     label={t("Texte à lire")}

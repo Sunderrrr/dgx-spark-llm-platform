@@ -10,6 +10,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Badge } from "@astryxdesign/core/Badge";
@@ -76,6 +77,8 @@ type AdminData = {
   voice_cfgs: VoiceCfg[];
 };
 
+type CatalogKind = "llm" | "ocr" | "voice" | "video";
+
 const MAX_LOG_LINES = 600;
 
 const SIDECAR_VARIANT: Record<string, "success" | "warning" | "neutral" | "error"> = {
@@ -102,6 +105,7 @@ export default function AdminPage() {
   const [newModel, setNewModel] = useState({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
   const [newOcr, setNewOcr] = useState({ name: "", hf_model_id: "", vllm_args: "" });
   const [newVoice, setNewVoice] = useState({ name: "", repo_id: "Qwen3-TTS-12Hz-1.7B-Base" });
+  const [catalogKind, setCatalogKind] = useState<CatalogKind>("llm");
   const [announce, setAnnounce] = useState({ title: "", body: "" });
   const [settings, setSettings] = useState({ budget: "", duration: "" });
 
@@ -256,25 +260,109 @@ export default function AdminPage() {
             )}
 
             <VStack gap={3}>
-              <Text weight="semibold">{t("Modèles vLLM")}</Text>
+              {/* Une seule ligne pour les quatre backends : leur état et leur
+                  démarrage/arrêt étaient auparavant éclatés entre une carte
+                  vLLM isolée et une grille OCR/vidéo/voix. */}
+              <Text weight="semibold">{t("Backends")}</Text>
               {data && (
-                <Card>
-                  <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
-                    <HStack gap={2} vAlign="center">
-                      <StatusDot
-                        variant={st === "running" ? "success" : st === "starting" ? "warning" : st === "error" ? "error" : "neutral"}
-                        label={st === "running" ? t("En ligne") : st === "starting" ? t("Démarrage…") : st === "error" ? t("Erreur") : st === "unreachable" ? t("Runner inaccessible") : t("Arrêté")}
-                      />
-                      {data.v_status.model && <Text weight="semibold">{data.v_status.model}</Text>}
-                    </HStack>
-                    {(st === "running" || st === "starting") && (
-                      <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/model/stop")} />
-                    )}
-                  </HStack>
-                </Card>
+                <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={st === "running" ? "success" : st === "starting" ? "warning" : st === "error" ? "error" : "neutral"}
+                            label={st === "running" ? t("En ligne") : st === "starting" ? t("Démarrage…") : st === "error" ? t("Erreur") : st === "unreachable" ? t("Runner inaccessible") : t("Arrêté")}
+                          />
+                          <Text weight="semibold">{t("LLM")}</Text>
+                        </HStack>
+                        {(st === "running" || st === "starting") && (
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/model/stop")} />
+                        )}
+                      </HStack>
+                      <Text type="supporting" color="secondary" wordBreak="break-all">
+                        {data.v_status.model || t("aucun modèle")}
+                      </Text>
+                    </VStack>
+                  </Card>
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={SIDECAR_VARIANT[data.ocr_status] ?? "error"}
+                            label={t(SIDECAR_LABEL[data.ocr_status] ?? "Injoignable")}
+                          />
+                          <Text weight="semibold">OCR</Text>
+                        </HStack>
+                        {data.ocr_status === "running" || data.ocr_status === "starting" ? (
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/ocr/stop")} />
+                        ) : (
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/ocr/start")} />
+                        )}
+                      </HStack>
+                      <Text type="supporting" color="secondary" wordBreak="break-all">
+                        {data.ocr_model_name || t("aucun modèle")}
+                      </Text>
+                    </VStack>
+                  </Card>
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={SIDECAR_VARIANT[data.video_status] ?? "error"}
+                            label={t(SIDECAR_LABEL[data.video_status] ?? "Injoignable")}
+                          />
+                          <Text weight="semibold">{t("Vidéo")}</Text>
+                        </HStack>
+                        {data.video_status === "running" || data.video_status === "starting" ? (
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/video/stop")} />
+                        ) : (
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/video/start")} />
+                        )}
+                      </HStack>
+                      <Text type="supporting" color="secondary" wordBreak="break-all">MiniMax H3</Text>
+                    </VStack>
+                  </Card>
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={SIDECAR_VARIANT[data.voice_status] ?? "error"}
+                            label={t(SIDECAR_LABEL[data.voice_status] ?? "Injoignable")}
+                          />
+                          <Text weight="semibold">{t("Voix")}</Text>
+                        </HStack>
+                        {data.voice_status === "running" || data.voice_status === "starting" ? (
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/voice/stop")} />
+                        ) : (
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/voice/start")} />
+                        )}
+                      </HStack>
+                      <Text type="supporting" color="secondary" wordBreak="break-all">
+                        {data.voice_model_name || t("aucun modèle")}
+                      </Text>
+                    </VStack>
+                  </Card>
+                </Grid>
               )}
 
-              {data && (
+              {/* Catalogue unique : le type choisi pilote à la fois la liste
+                  affichée et les champs du formulaire d'ajout, au lieu des
+                  trois sections séparées (vLLM / OCR / voix) d'avant. */}
+              <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
+                <Text weight="semibold">{t("Catalogue")}</Text>
+                <SegmentedControl label={t("Type de modèle")} value={catalogKind} onChange={(v) => setCatalogKind(v as CatalogKind)}>
+                  <SegmentedControlItem value="llm" label={t("LLM")} />
+                  <SegmentedControlItem value="ocr" label="OCR" />
+                  <SegmentedControlItem value="voice" label={t("Voix")} />
+                  <SegmentedControlItem value="video" label={t("Vidéo")} />
+                </SegmentedControl>
+              </HStack>
+
+              {data && catalogKind === "llm" && (
                 <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
                   {data.model_cfgs.map((cfg) => (
                     <Card key={cfg.id}>
@@ -325,68 +413,7 @@ export default function AdminPage() {
                 </Grid>
               )}
 
-              <Text weight="semibold">{t("OCR & Vidéo")}</Text>
-              {data && (
-                <Grid columns={{ minWidth: 240, max: 2 }} gap={3}>
-                  <Card>
-                    <VStack gap={2}>
-                      <HStack hAlign="between" vAlign="center">
-                        <HStack gap={2} vAlign="center">
-                          <StatusDot
-                            variant={SIDECAR_VARIANT[data.ocr_status] ?? "error"}
-                            label={t(SIDECAR_LABEL[data.ocr_status] ?? "Injoignable")}
-                          />
-                          <Text weight="semibold">OCR{data.ocr_model_name ? ` — ${data.ocr_model_name}` : ""}</Text>
-                        </HStack>
-                        {data.ocr_status === "running" || data.ocr_status === "starting" ? (
-                          <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/ocr/stop")} />
-                        ) : (
-                          <Button label={t("Démarrer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/ocr/start")} />
-                        )}
-                      </HStack>
-                    </VStack>
-                  </Card>
-                  <Card>
-                    <VStack gap={2}>
-                      <HStack hAlign="between" vAlign="center">
-                        <HStack gap={2} vAlign="center">
-                          <StatusDot
-                            variant={SIDECAR_VARIANT[data.video_status] ?? "error"}
-                            label={t(SIDECAR_LABEL[data.video_status] ?? "Injoignable")}
-                          />
-                          <Text weight="semibold">{t("Vidéo")} — MiniMax H3</Text>
-                        </HStack>
-                        {data.video_status === "running" || data.video_status === "starting" ? (
-                          <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/video/stop")} />
-                        ) : (
-                          <Button label={t("Démarrer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/video/start")} />
-                        )}
-                      </HStack>
-                    </VStack>
-                  </Card>
-                  <Card>
-                    <VStack gap={2}>
-                      <HStack hAlign="between" vAlign="center">
-                        <HStack gap={2} vAlign="center">
-                          <StatusDot
-                            variant={SIDECAR_VARIANT[data.voice_status] ?? "error"}
-                            label={t(SIDECAR_LABEL[data.voice_status] ?? "Injoignable")}
-                          />
-                          <Text weight="semibold">{t("Voix")}{data.voice_model_name ? ` — Chatterbox ${data.voice_model_name}` : ""}</Text>
-                        </HStack>
-                        {data.voice_status === "running" || data.voice_status === "starting" ? (
-                          <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/voice/stop")} />
-                        ) : (
-                          <Button label={t("Démarrer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/voice/start")} />
-                        )}
-                      </HStack>
-                    </VStack>
-                  </Card>
-                </Grid>
-              )}
-
-              <Text type="supporting" color="secondary">{t("Catalogue OCR")}</Text>
-              {data && (
+              {data && catalogKind === "ocr" && (
                 <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
                   {data.ocr_cfgs.map((cfg) => (
                     <Card key={cfg.id}>
@@ -423,8 +450,7 @@ export default function AdminPage() {
                 </Grid>
               )}
 
-              <Text type="supporting" color="secondary">{t("Catalogue voix")}</Text>
-              {data && (
+              {data && catalogKind === "voice" && (
                 <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
                   {data.voice_cfgs.map((cfg) => (
                     <Card key={cfg.id}>
@@ -443,7 +469,7 @@ export default function AdminPage() {
                   <Card>
                     <VStack gap={2}>
                       <Text type="supporting" color="secondary">{t("Ajouter un modèle voix")}</Text>
-                      <TextInput label={t("Nom")} isLabelHidden value={newVoice.name} onChange={(v) => setNewVoice((s) => ({ ...s, name: v }))} placeholder={t("Nom (ex: chatterbox-turbo)")} size="sm" />
+                      <TextInput label={t("Nom")} isLabelHidden value={newVoice.name} onChange={(v) => setNewVoice((s) => ({ ...s, name: v }))} placeholder={t("Nom (ex: qwen3-tts)")} size="sm" />
                       <Selector
                         label={t("Variante")}
                         isLabelHidden
@@ -471,6 +497,17 @@ export default function AdminPage() {
                     </VStack>
                   </Card>
                 </Grid>
+              )}
+
+              {data && catalogKind === "video" && (
+                <Card>
+                  <VStack gap={1}>
+                    <Text weight="semibold">MiniMax H3</Text>
+                    <Text type="supporting" color="secondary">
+                      {t("La vidéo n'a pas de catalogue : un seul workflow ComfyUI figé, démarré et arrêté depuis la ligne « Backends » ci-dessus.")}
+                    </Text>
+                  </VStack>
+                </Card>
               )}
 
               <Card>

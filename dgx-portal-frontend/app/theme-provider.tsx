@@ -53,12 +53,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // applique donc les préférences locales juste après le montage.
   const [mode, setModeState] = useState<Mode>("system");
   const [themeId, setThemeIdState] = useState<ThemeId>("neutral");
-  const [lang, setLangState] = useState<Lang>("fr");
+  const [lang, setLangState] = useState<Lang>("en");
 
   useEffect(() => {
     setModeState(readLocal<Mode>("cronos_theme_mode", "system"));
     setThemeIdState(readLocal<ThemeId>("cronos_theme_id", "neutral"));
-    setLangState(readLocal<Lang>("cronos_lang", "fr"));
+    setLangState(readLocal<Lang>("cronos_lang", "en"));
   }, []);
 
   useEffect(() => {

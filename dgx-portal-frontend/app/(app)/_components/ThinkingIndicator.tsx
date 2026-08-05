@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { useT } from "@/lib/i18n";
 
 // Rotates through the same kind of whimsical status verbs Claude Code shows
 // while it works, so an empty streaming bubble doesn't read as broken.
@@ -25,6 +26,7 @@ const MIN_WORD_MS = 10000;
 const MAX_WORD_MS = 15000;
 
 export function ThinkingIndicator({ fixedLabel }: { fixedLabel?: string }) {
+  const t = useT();
   const [verb, setVerb] = useState(() => VERBS[Math.floor(Math.random() * VERBS.length)]);
 
   useEffect(() => {
@@ -43,7 +45,7 @@ export function ThinkingIndicator({ fixedLabel }: { fixedLabel?: string }) {
     return () => clearTimeout(id);
   }, [fixedLabel]);
 
-  const label = fixedLabel ?? verb;
+  const label = fixedLabel ?? t(verb);
 
   return (
     <HStack gap={1} vAlign="center" role="status" aria-label={`${label}…`}>

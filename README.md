@@ -67,6 +67,7 @@ flowchart LR
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
 | **OCR container** | vLLM serving an OCR-capable VLM (datalab-to/chandra-ocr-2 by default; baidu/Unlimited-OCR also in the catalog), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
 | **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports; 12.5 GB per UNET instead of 21 GB for the INT8 build) | `8188`, host-restricted | systemd service on the host |
+| **ASR container** | Whisper (`large-v3-turbo` by default) for Playground dictation | internal only | Docker container, own network + GPU slice |
 | **Voice container** | Zero-shot voice cloning. Two interchangeable engines, swappable from the admin catalog: **Qwen3-TTS** (default, Apache 2.0, 10 languages, 3s cloning) or **Chatterbox** (MIT, Turbo/Original are English-only, Multilingual covers 23 languages) | internal only | Docker container, own network + GPU slice |
 
 > Only one **chat** model runs on the GPU at a time (launching another replaces the current
@@ -126,6 +127,7 @@ go to **Admin**, and launch a model from the catalog.
 | `RUNNER_TOKEN` | Bearer token between `dgx-portal` and `vllm-runner` (also used for the OCR/video sidecar control routes) |
 | `OCR_URL` | Internal URL of the OCR vLLM container (default `http://ocr:8000/v1`) |
 | `VOICE_URL` | Internal URL of the Chatterbox voice container (default `http://voice:8004`) |
+| `ASR_URL` | Internal URL of the Whisper transcription container (default `http://asr:8006`) |
 | `COMFYUI_URL` | Internal URL of the ComfyUI video backend (default `http://host.docker.internal:8188`) |
 | `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.cronos.website/v1`) |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Authentik `dgx-spark` OIDC app |
@@ -201,6 +203,11 @@ env vars — key and endpoint pre-filled.
 - **My API keys** — create/revoke keys, see per-key spend and the shared account
   budget, request more tokens; integration snippets per tool.
 - **Playground** — in-browser streaming chat with the active model; no client setup.
+  Includes **dictation**: a mic button transcribes what you say into the composer.
+  Deliberately self-hosted (Whisper on the GPU) rather than the browser's
+  `SpeechRecognition` API, which in Chrome ships the audio to Google's servers —
+  the opposite of the point of this platform. The button only appears when the
+  transcription backend is running.
 - **OCR** — extract text from an image/scan, streamed token-by-token into a
   formatted panel (same pattern as the Playground), with a toggle to visualize
   every detected region as bounding boxes over the source image; keeps your
@@ -374,6 +381,10 @@ tokens/day, not request rate on a single GPU.
 │   ├── Dockerfile             # pinned upstream release, CUDA 13.0 / sm_121 (GB10)
 │   ├── entrypoint.sh          # server + periodic purge of uploaded reference clips
 │   └── voice-recreate.sh      # source of /usr/local/sbin/voice-recreate.sh (installed on the host)
+├── asr/                       # Whisper transcription sidecar (Playground dictation)
+│   ├── Dockerfile             # same CUDA 13.0 / sm_121 base as the voice sidecars
+│   ├── server.py              # minimal HTTP wrapper (transformers pipeline)
+│   └── asr-recreate.sh        # source of /usr/local/sbin/asr-recreate.sh
 ├── voice-qwen/                # Qwen3-TTS voice-cloning sidecar (default engine)
 │   ├── Dockerfile             # same CUDA 13.0 / sm_121 base; no flash-attn on aarch64
 │   ├── server.py              # minimal HTTP wrapper — upstream ships no server

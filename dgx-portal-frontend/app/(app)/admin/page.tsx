@@ -73,6 +73,7 @@ type AdminData = {
   video_status: string;
   voice_status: string;
   voice_model_name: string | null;
+  asr_status: string;
   ocr_cfgs: OcrCfg[];
   voice_cfgs: VoiceCfg[];
 };
@@ -265,7 +266,7 @@ export default function AdminPage() {
                   vLLM isolée et une grille OCR/vidéo/voix. */}
               <Text weight="semibold">{t("Backends")}</Text>
               {data && (
-                <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+                <Grid columns={{ minWidth: 200, max: 5 }} gap={3}>
                   <Card>
                     <VStack gap={2}>
                       <HStack hAlign="between" vAlign="center" gap={2}>
@@ -344,6 +345,25 @@ export default function AdminPage() {
                       <Text type="supporting" color="secondary" wordBreak="break-all">
                         {data.voice_model_name || t("aucun modèle")}
                       </Text>
+                    </VStack>
+                  </Card>
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={SIDECAR_VARIANT[data.asr_status] ?? "error"}
+                            label={t(SIDECAR_LABEL[data.asr_status] ?? "Injoignable")}
+                          />
+                          <Text weight="semibold">{t("Dictée")}</Text>
+                        </HStack>
+                        {data.asr_status === "running" || data.asr_status === "starting" ? (
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/asr/stop")} />
+                        ) : (
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/asr/start")} />
+                        )}
+                      </HStack>
+                      <Text type="supporting" color="secondary" wordBreak="break-all">whisper-large-v3-turbo</Text>
                     </VStack>
                   </Card>
                 </Grid>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
-import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { VStack } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
@@ -26,6 +26,21 @@ type HistoryItem = { prompt_id: string; prompt: string; status: string; created_
 type RunningModel = { name: string; kind: "chat" | "ocr" | "video"; exposed: boolean };
 
 const DURATIONS = ["3", "5", "8", "10", "15"];
+
+// Statuts renvoyés par ComfyUI. Ils s'affichaient tels quels ("running"),
+// non traduits, dans la pastille de statut et dans l'historique.
+const STATUS_LABEL: Record<string, string> = {
+  pending: "En file d'attente…",
+  running: "Génération en cours…",
+  done: "Vidéo prête.",
+  error: "Échec de la génération.",
+};
+const STATUS_SHORT: Record<string, string> = {
+  pending: "En attente",
+  running: "En cours",
+  done: "Terminé",
+  error: "Erreur",
+};
 
 export default function VideoPage() {
   const t = useT();
@@ -123,7 +138,10 @@ export default function VideoPage() {
               description={t("Demande à un admin de démarrer un modèle vidéo pour utiliser cette page.")}
             />
           ) : (
-          <VStack gap={5} maxWidth={720}>
+          // Colonne centrée : à gauche d'un écran large, la page paraissait
+          // décentrée alors que tout le reste de l'app est équilibré.
+          <VStack hAlign="center" width="100%">
+          <VStack gap={5} maxWidth={720} width="100%">
             <VStack gap={1}>
               <Heading level={1}>{t("Génération vidéo — MiniMax H3")}</Heading>
               <Text type="supporting" color="secondary">
@@ -172,18 +190,14 @@ export default function VideoPage() {
             {status !== "idle" && (
               <Card>
                 <VStack gap={4}>
-                  <HStack gap={2} align="center">
-                    <StatusDot
-                      variant={status === "done" ? "success" : status === "error" ? "error" : "accent"}
-                      label={status}
-                    />
-                    <Text>
-                      {status === "pending" && t("En file d'attente…")}
-                      {status === "running" && t("Génération en cours…")}
-                      {status === "done" && t("Vidéo prête.")}
-                      {status === "error" && t("Échec de la génération.")}
-                    </Text>
-                  </HStack>
+                  {/* Un seul porteur du statut : la pastille affichait le
+                      libellé BRUT ("running") juste à côté du même statut
+                      traduit, et le placeholder le répétait une troisième
+                      fois. */}
+                  <StatusDot
+                    variant={status === "done" ? "success" : status === "error" ? "error" : "accent"}
+                    label={t(STATUS_LABEL[status] ?? status)}
+                  />
                   {/* Pendant la génération, on occupe déjà la place exacte de
                       la vidéo à venir (même 16/9) avec un shimmer : la barre
                       de progression indéterminée ne disait rien de plus et
@@ -199,9 +213,6 @@ export default function VideoPage() {
                         gap={2}
                       >
                         <Icon icon={FilmIcon} size="lg" color="secondary" />
-                        <Text type="supporting" color="secondary">
-                          {status === "pending" ? t("En file d'attente…") : t("Génération en cours…")}
-                        </Text>
                       </VStack>
                     </AspectRatio>
                   )}
@@ -232,7 +243,7 @@ export default function VideoPage() {
                           variant={
                             h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"
                           }
-                          label={h.status}
+                          label={t(STATUS_SHORT[h.status] ?? h.status)}
                         />
                       }
                       onClick={() => viewHistoryItem(h)}
@@ -242,6 +253,7 @@ export default function VideoPage() {
                 </VStack>
               </VStack>
             )}
+          </VStack>
           </VStack>
           )}
         </LayoutContent>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { AppShell } from "@astryxdesign/core/AppShell";
+import { Banner } from "@astryxdesign/core/Banner";
 import {
   SideNav,
   SideNavHeading,
@@ -28,13 +29,15 @@ import {
   MoonIcon,
   ArrowRightOnRectangleIcon,
   Cog6ToothIcon,
+  FilmIcon,
+  DocumentMagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
 import { useThemeMode } from "../theme-provider";
 import { useCsrf } from "@/lib/useCsrf";
 import { SettingsDialog } from "./_components/SettingsDialog";
 import { useT } from "@/lib/i18n";
 
-type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id: string | null };
+type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id: string | null; maintenance_mode: boolean };
 
 // « Mes clés API » n'est volontairement plus ici : sa configuration vit
 // désormais dans le dialogue Réglages (onglet « Clés API »), ouvert par
@@ -43,6 +46,8 @@ type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id
 const NAV_ITEMS = [
   { href: "/", label: "Accueil", icon: HomeIcon },
   { href: "/playground", label: "Playground", icon: ChatBubbleLeftRightIcon },
+  { href: "/video", label: "Vidéo", icon: FilmIcon },
+  { href: "/ocr", label: "OCR", icon: DocumentMagnifyingGlassIcon },
   { href: "/search", label: "Chercher un modèle", icon: MagnifyingGlassIcon },
   { href: "/request", label: "Demander un modèle", icon: PaperAirplaneIcon },
   { href: "/ranking", label: "Classement", icon: TrophyIcon },
@@ -150,6 +155,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </SideNavSection>
         </SideNav>
       }>
+      {who?.maintenance_mode && !who.is_admin && (
+        <Banner
+          status="warning"
+          container="section"
+          title={t("Mode maintenance en cours")}
+          description={t(
+            "L'accès à l'API et aux fonctionnalités du site est temporairement suspendu. Réessaie plus tard.",
+          )}
+        />
+      )}
       {children}
       <SettingsDialog
         isOpen={isSettingsOpen}

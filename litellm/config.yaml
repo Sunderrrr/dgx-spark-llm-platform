@@ -1,7 +1,24 @@
 model_list:
-  - model_name: ornith-35b-fp8
+  # Ornith arrêté (2026-08-04) pour libérer la mémoire unifiée au profit de
+  # kat-coder-v2.5 — le runner ne sert qu'un seul modèle à la fois sur :8000.
+  # Pour le remettre : relancer via vllm-runner (~/start_ornith.sh ou API
+  # /launch) puis décommenter ce bloc.
+  # - model_name: ornith-35b-fp8
+  #   litellm_params:
+  #     model: openai/ornith-35b-fp8
+  #     api_base: http://host.docker.internal:8000/v1
+  #     api_key: dummy
+  #     input_cost_per_token: 1
+  #     output_cost_per_token: 1
+  #   model_info:
+  #     mode: chat
+  #     supports_function_calling: true
+  #     max_input_tokens: 262144
+  #     max_output_tokens: 65536
+
+  - model_name: kat-coder-v2.5
     litellm_params:
-      model: openai/ornith-35b-fp8
+      model: openai/kat-coder-v2.5
       api_base: http://host.docker.internal:8000/v1
       api_key: dummy
       input_cost_per_token: 1
@@ -9,7 +26,7 @@ model_list:
     model_info:
       mode: chat
       supports_function_calling: true
-      # --max-model-len 262144 (256K) côté vLLM
+      # --max-model-len 262144 (256K) côté vLLM ; --reasoning-parser qwen3
       max_input_tokens: 262144
       max_output_tokens: 65536
 

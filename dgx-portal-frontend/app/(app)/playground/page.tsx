@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
@@ -131,6 +131,13 @@ export default function PlaygroundPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const recorderRef = useRef<Recorder | null>(null);
+  // Texte présent avant le début de la dictée : chaque transcription
+  // intermédiaire remplace la précédente, mais ne doit jamais effacer ce que
+  // l'utilisateur avait déjà tapé.
+  const dictationBaseRef = useRef("");
+  // Empêche deux transcriptions simultanées : on ne relance que lorsque la
+  // précédente est revenue, ce qui régule naturellement la charge GPU.
+  const dictationBusyRef = useRef(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -368,6 +375,55 @@ export default function PlaygroundPage() {
   // Relâche le micro si on quitte la page en pleine dictée.
   useEffect(() => () => recorderRef.current?.cancel(), []);
 
+  /** Transcrit l'audio capté jusqu'ici et réécrit la partie dictée du champ. */
+  const runTranscription = useCallback(
+    async (file: File): Promise<boolean> => {
+      const body = new FormData();
+      body.append("audio", file);
+      body.append("language", uiLang);
+      const res = await fetch("/api/transcribe", {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRFToken": csrf },
+        body,
+      });
+      const data = await res.json();
+      if (!res.ok || typeof data.text !== "string") return false;
+      const spoken = data.text.trim();
+      const base = dictationBaseRef.current;
+      setInput(spoken ? (base ? `${base.trimEnd()} ${spoken}` : spoken) : base);
+      return true;
+    },
+    [csrf, uiLang],
+  );
+
+  // Dictée en direct : tant qu'on enregistre, on retranscrit périodiquement
+  // tout l'audio capté depuis le début. Whisper met ~0,2 s quelle que soit la
+  // longueur (jusqu'à 30 s), donc le texte se met à jour au fil de la parole
+  // et s'affine à mesure que le modèle a plus de contexte.
+  useEffect(() => {
+    if (!isRecording) return;
+    let cancelled = false;
+    const id = setInterval(async () => {
+      if (cancelled || dictationBusyRef.current) return;
+      const rec = recorderRef.current;
+      if (!rec) return;
+      dictationBusyRef.current = true;
+      try {
+        const partial = await rec.snapshot();
+        if (partial && !cancelled) await runTranscription(partial);
+      } catch {
+        // Un tour raté n'interrompt pas la dictée : le suivant reprendra.
+      } finally {
+        dictationBusyRef.current = false;
+      }
+    }, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isRecording, runTranscription]);
+
   async function toggleDictation() {
     if (isRecording) {
       const rec = recorderRef.current;
@@ -376,24 +432,12 @@ export default function PlaygroundPage() {
       if (!rec) return;
       setIsTranscribing(true);
       try {
+        // Passe finale sur l'enregistrement complet : elle fait autorité sur
+        // les transcriptions intermédiaires, plus courtes en contexte.
         const file = await rec.stop();
-        const body = new FormData();
-        body.append("audio", file);
-        body.append("language", uiLang);
-        const res = await fetch("/api/transcribe", {
-          method: "POST",
-          credentials: "include",
-          headers: { "X-CSRFToken": csrf },
-          body,
-        });
-        const data = await res.json();
-        if (!res.ok || !data.text) {
-          window.alert(data.error || t("Aucune parole détectée."));
-          return;
+        if (!(await runTranscription(file))) {
+          window.alert(t("Aucune parole détectée."));
         }
-        // On complète le champ au lieu de l'écraser : on peut dicter à la
-        // suite de ce qu'on a déjà tapé, ou dicter en plusieurs fois.
-        setInput((prev) => (prev ? `${prev.trimEnd()} ${data.text}` : data.text));
       } catch {
         window.alert(t("Échec de la transcription."));
       } finally {
@@ -403,6 +447,8 @@ export default function PlaygroundPage() {
     }
     try {
       recorderRef.current = await startRecording();
+      // Figé au démarrage : tout ce qui suit remplace la seule partie dictée.
+      dictationBaseRef.current = input;
       setIsRecording(true);
     } catch {
       window.alert(t("Micro inaccessible — autorise l'accès au microphone dans ton navigateur."));

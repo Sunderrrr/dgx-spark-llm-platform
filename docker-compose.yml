@@ -75,7 +75,15 @@ services:
       DEBUG_ADMIN_USERNAMES: ${DEBUG_ADMIN_USERNAMES:-mboitel}
       LITELLM_URL: http://litellm:4001
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      VLLM_API_URL: http://host.docker.internal:8000/v1
+      # Passerelle du réseau `default` plutôt que host.docker.internal : ce
+      # dernier pointe la bridge docker0 (172.17.0.1), que ce conteneur
+      # n'atteint QUE par sa route par défaut. Or dgx-portal est multi-homé et
+      # Docker place cette route sur la dernière interface connectée (asr_net,
+      # 172.22.x) — adresse source que vllm-restrict.service met en DROP, d'où
+      # 3 s de timeout par sonde. En visant 172.19.0.1 le paquet part par eth0
+      # avec une source 172.19.x, que le pare-feu autorise. Mesuré : 4,01 s →
+      # 0,00 s. Le sous-réseau est épinglé plus bas pour que l'IP soit stable.
+      VLLM_API_URL: http://172.19.0.1:8000/v1
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}
@@ -85,10 +93,10 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       KEY_MAX_BUDGET: "0.002"
       KEY_BUDGET_DURATION: "1d"
-      VLLM_RUNNER_URL: http://host.docker.internal:8001
+      VLLM_RUNNER_URL: http://172.19.0.1:8001
       RUNNER_TOKEN: ${RUNNER_TOKEN}
       # ComfyUI (vidéo MiniMax H3) : process host, 127.0.0.1 only, jamais exposé.
-      COMFYUI_URL: http://host.docker.internal:8188
+      COMFYUI_URL: http://172.19.0.1:8188
       # OCR (baidu/Unlimited-OCR) : conteneur sur ocr_net (réseau dédié, pas
       # `default` avec litellm/postgres) — dgx-portal est multi-homé pour l'atteindre.
       OCR_URL: http://ocr:8000/v1
@@ -118,6 +126,16 @@ services:
     depends_on:
       - litellm
     networks:
+      # `priority` fixe l'interface qui porte la route par défaut, donc l'IP
+      # SOURCE des appels sortants vers host.docker.internal (vLLM :8000,
+      # runner :8001, ComfyUI :8188). Sans ça Docker choisit par ordre
+      # alphabétique : l'ajout de `asr_net` l'a fait passer devant `default`,
+      # les paquets sont partis en 172.22.x, et vllm-restrict.service — qui
+      # n'autorise que 172.19.0.0/16 — les a mis en DROP. Résultat : chaque
+      # sonde attendait son timeout de 3 s, ~14 s pour afficher l'accueil.
+      # On garde volontairement la règle pare-feu étroite plutôt que d'ouvrir
+      # les autres sous-réseaux : les conteneurs OCR/voix/dictée n'ont aucune
+      # raison d'atteindre le runner.
       - default
       - ocr_net
       - voice_net
@@ -145,6 +163,10 @@ volumes:
   portal_data:
 
 networks:
+  # NB : sous-réseau NON épinglé ici — le faire force Docker à recréer le
+  # réseau, ce qu'il refuse car traefik (hors de ce compose) y est attaché.
+  # 172.19.0.0/16 est l'attribution stable constatée ; vllm-restrict.service
+  # l'autorise et les URL ci-dessus visent sa passerelle 172.19.0.1.
   default:
   # Réseau dédié OCR : le conteneur OCR (image vllm-openai, admin peut le
   # relancer avec --trust-remote-code sur un autre modèle HF, cf. README

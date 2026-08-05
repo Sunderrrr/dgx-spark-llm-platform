@@ -1,4 +1,5 @@
 import os, sqlite3, smtplib, requests, time, re, threading, json, secrets, hmac, base64
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort, send_file
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
 from ldap3.utils.conv import escape_filter_chars
@@ -817,19 +818,33 @@ def runner_stop():
     except Exception:
         return False
 
+_sidecar_proc_cache = {}
+
 def _sidecar_proc_status(kind):
-    """kind ∈ {'ocr', 'video', 'voice'} — état PROCESS/CONTENEUR brut (docker inspect /
+    """kind ∈ {'ocr', 'video', 'voice', 'asr'} — état PROCESS/CONTENEUR brut (docker inspect /
     systemctl is-active), via vllm-runner (privilèges sudo scoped côté host,
     voir /etc/sudoers.d/vllmrunner-services) : dgx-portal n'a lui-même aucun
     accès docker/systemd, ni ici ni ailleurs. Ne dit PAS si le service répond
-    déjà aux requêtes — cf. _sidecar_status()."""
+    déjà aux requêtes — cf. _sidecar_status().
+
+    Résultat mis en cache 5 s : chaque appel déclenche côté runner un `sudo`
+    puis un `docker inspect`/`systemctl is-active`, et le `systemctl` seul
+    coûtait 1,5 s sur cette machine. L'admin sonde les quatre sidecars et se
+    rafraîchit toutes les 8 s, donc sans cache la page passait l'essentiel de
+    son temps là-dedans."""
+    now = time.time()
+    hit = _sidecar_proc_cache.get(kind)
+    if hit and now - hit[0] < 5:
+        return hit[1]
+    v = 'unreachable'
     try:
         r = requests.get(f"{RUNNER_URL}/{kind}/status", headers=_runner_headers(), timeout=5)
         if r.ok:
-            return r.json().get('status', 'unknown')
+            v = r.json().get('status', 'unknown')
     except Exception:
         pass
-    return 'unreachable'
+    _sidecar_proc_cache[kind] = (now, v)
+    return v
 
 def _sidecar_status(kind):
     """Statut affiché à l'admin. Un conteneur/service qui vient de démarrer
@@ -3549,29 +3564,40 @@ def api_admin():
         'rejected': sum(1 for r in all_reqs if r['status'] == 'rejected'),
         'budget_pending': sum(1 for r in budget_reqs if r['status'] == 'pending'),
     }
+    # Ces sondes sont toutes des allers-retours réseau indépendants (runner,
+    # sidecars, base LiteLLM). En série, la page attendait leur SOMME ; en
+    # parallèle elle n'attend plus que la plus lente. Le worker gunicorn est en
+    # gthread, ces threads-là ne coûtent donc rien de particulier.
+    probes = {
+        'running_models': get_running_models,
+        'spend_data': admin_get_user_consumption,
+        'ocr_status': lambda: _sidecar_status('ocr'),
+        'ocr_model_name': get_ocr_model,
+        'video_status': lambda: _sidecar_status('video'),
+        'voice_status': lambda: _sidecar_status('voice'),
+        'voice_model_name': get_voice_model,
+        'asr_status': lambda: _sidecar_status('asr'),
+        'v_status': runner_status,
+        'init_logs': lambda: runner_logs(120),
+    }
+    with ThreadPoolExecutor(max_workers=len(probes)) as pool:
+        futures = {k: pool.submit(fn) for k, fn in probes.items()}
+        probed = {k: f.result() for k, f in futures.items()}
+
     return jsonify({
         'requests': [dict(r) for r in all_reqs],
-        'running_models': get_running_models(),
         'stats': stats,
-        'spend_data': admin_get_user_consumption(),
         'ocr_usage': admin_get_ocr_usage(),
         'video_usage': admin_get_video_usage(),
         'voice_usage': admin_get_voice_usage(),
         'maintenance_mode': maintenance_active(),
-        'ocr_status': _sidecar_status('ocr'),
-        'ocr_model_name': get_ocr_model(),
-        'video_status': _sidecar_status('video'),
-        'voice_status': _sidecar_status('voice'),
-        'voice_model_name': get_voice_model(),
-        'asr_status': _sidecar_status('asr'),
         'model_cfgs': [dict(r) for r in model_cfgs],
         'ocr_cfgs': [dict(r) for r in ocr_cfgs],
         'voice_cfgs': [dict(r) for r in voice_cfgs],
-        'v_status': runner_status(),
-        'init_logs': runner_logs(120),
         'budget_reqs': [dict(r) for r in budget_reqs],
         'default_key_budget': get_setting('default_key_budget', KEY_BUDGET),
         'default_key_duration': get_setting('default_key_duration', KEY_DURATION),
+        **probed,
     })
 
 

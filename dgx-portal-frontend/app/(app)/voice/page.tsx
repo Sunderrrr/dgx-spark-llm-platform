@@ -41,6 +41,26 @@ function formatSeconds(s: number) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/* Bruit déterministe (hash classique à base de sinus) : il FAUT que serveur et
+ * client tirent exactement les mêmes valeurs, sinon l'hydratation React
+ * diverge — d'où ceci plutôt que Math.random(), qui casserait aussi la règle
+ * de pureté du rendu. */
+function noise(i: number, seed: number) {
+  const x = Math.sin(i * 12.9898 + seed) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/* Chaque barre a sa propre amplitude ET sa propre durée. C'est la durée qui
+ * fait tout le travail : à durées différentes les barres dérivent en
+ * permanence les unes par rapport aux autres, donc le motif ne se répète
+ * jamais. Avec une durée unique et un simple décalage de phase, on obtient
+ * une belle sinusoïde qui défile — régulière et mécanique. */
+const WAVE_BARS = Array.from({ length: 40 }, (_, i) => ({
+  amp: 0.3 + noise(i, 1) * 0.7,
+  dur: 0.85 + noise(i, 2) * 1.1,
+  delay: -noise(i, 3) * 2,
+}));
+
 export default function VoicePage() {
   const t = useT();
   const { lang: uiLang } = useLang();
@@ -200,7 +220,9 @@ export default function VoicePage() {
               description={t("Demande à un admin de démarrer un modèle vocal pour utiliser cette page.")}
             />
           ) : (
-            <VStack gap={5} maxWidth={720}>
+            // Colonne centrée, comme sur la page vidéo.
+            <VStack hAlign="center" width="100%">
+            <VStack gap={5} maxWidth={720} width="100%">
               <VStack gap={1}>
                 <Heading level={1}>
                   {t("Clonage de voix")}
@@ -362,11 +384,15 @@ export default function VoicePage() {
                         résultat. Décorative au sens ARIA (le texte au-dessus
                         porte déjà l'information), d'où aria-hidden. */}
                     <HStack className="voice-wave" gap={1} vAlign="center" hAlign="center" aria-hidden>
-                      {Array.from({ length: 40 }, (_, i) => (
+                      {WAVE_BARS.map((b, i) => (
                         <span
                           key={i}
                           className="voice-wave-bar"
-                          style={{ "--i": i } as React.CSSProperties}
+                          style={{
+                            "--amp": b.amp,
+                            "--dur": `${b.dur}s`,
+                            "--delay": `${b.delay}s`,
+                          } as React.CSSProperties}
                         />
                       ))}
                     </HStack>
@@ -403,6 +429,7 @@ export default function VoicePage() {
                   </VStack>
                 </VStack>
               )}
+            </VStack>
             </VStack>
           )}
         </LayoutContent>

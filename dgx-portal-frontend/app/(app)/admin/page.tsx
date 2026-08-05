@@ -66,6 +66,7 @@ type AdminData = {
   default_key_duration: string;
   maintenance_mode: boolean;
   ocr_status: string;
+  ocr_model_name: string | null;
   video_status: string;
   ocr_cfgs: OcrCfg[];
 };
@@ -329,7 +330,7 @@ export default function AdminPage() {
                             variant={SIDECAR_VARIANT[data.ocr_status] ?? "error"}
                             label={t(SIDECAR_LABEL[data.ocr_status] ?? "Injoignable")}
                           />
-                          <Text weight="semibold">OCR — Unlimited-OCR</Text>
+                          <Text weight="semibold">OCR{data.ocr_model_name ? ` — ${data.ocr_model_name}` : ""}</Text>
                         </HStack>
                         {data.ocr_status === "running" || data.ocr_status === "starting" ? (
                           <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/ocr/stop")} />

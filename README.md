@@ -66,7 +66,7 @@ flowchart LR
 | **vllm-runner** | Daemon driving **one** vLLM process (start/stop/logs) with auto-resume, plus scoped start/stop/recreate of the OCR container and video service | `8001` | systemd service on the host |
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
 | **OCR container** | vLLM serving an OCR-capable VLM (datalab-to/chandra-ocr-2 by default; baidu/Unlimited-OCR also in the catalog), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
-| **ComfyUI** | Video generation graph engine (MiniMax H3, text-to-video and reference-image-to-video) | `8188`, host-restricted | systemd service on the host |
+| **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports; 12.5 GB per UNET instead of 21 GB for the INT8 build) | `8188`, host-restricted | systemd service on the host |
 | **Voice container** | Chatterbox TTS server (zero-shot voice cloning; Turbo / Original / Multilingual variants, swappable via an admin catalog) | internal only | Docker container, own network + GPU slice |
 
 > Only one **chat** model runs on the GPU at a time (launching another replaces the current

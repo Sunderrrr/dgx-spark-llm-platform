@@ -125,7 +125,8 @@ lib/
 ├── sseProxy.ts   # shared proxySSE/proxySSEGet used by the route handlers above
 ├── i18n.tsx      # useT()/useLang() — see "UI conventions" above
 ├── useCsrf.ts
-├── conversations.ts   # localStorage-backed Playground chat history
+├── conversations.ts   # server-persisted Playground chat history (Flask /api/conversations,
+│                       #   /conversations); one-time migration from the old localStorage version
 └── types.ts
 proxy.ts           # method-based routing to Flask + nonce CSP (see above)
 next.config.ts      # CSP base policy, fallback rewrite, output: standalone

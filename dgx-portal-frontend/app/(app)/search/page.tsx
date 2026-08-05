@@ -37,6 +37,9 @@ const TASKS = [
   { value: "text2text-generation", label: "Text2Text" },
   { value: "conversational", label: "Conversational" },
   { value: "feature-extraction", label: "Embeddings" },
+  { value: "text-to-image", label: "Text to Image" },
+  { value: "text-to-video", label: "Text to Video" },
+  { value: "image-to-text", label: "Image to Text" },
 ];
 
 export default function SearchPage() {
@@ -46,27 +49,39 @@ export default function SearchPage() {
   const [gb10Only, setGb10Only] = useState(true);
   const [results, setResults] = useState<HfModel[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // Une page pleine (== page_size renvoyé par le backend) ne PROUVE pas qu'il
+  // en reste, mais son absence prouve qu'il n'en reste pas — heuristique
+  // suffisante pour afficher/masquer "Charger plus" sans un second aller-retour.
+  const [hasMore, setHasMore] = useState(false);
 
-  const runSearch = useCallback(async (q: string, t: string, gb10: boolean) => {
+  const runSearch = useCallback(async (q: string, tk: string, gb10: boolean, skip = 0) => {
     if (!q && !gb10) {
       setResults([]);
+      setHasMore(false);
       return;
     }
-    setIsLoading(true);
+    const setBusy = skip > 0 ? setIsLoadingMore : setIsLoading;
+    setBusy(true);
     try {
-      const params = new URLSearchParams({ q, task: t, all: gb10 ? "" : "1" });
-      const data = await getJSON<{ results: HfModel[] }>(`/api/search?${params}`);
-      setResults(data.results);
+      const params = new URLSearchParams({ q, task: tk, all: gb10 ? "" : "1", skip: String(skip) });
+      const data = await getJSON<{ results: HfModel[]; page_size: number }>(`/api/search?${params}`);
+      setResults((prev) => (skip > 0 ? [...(prev ?? []), ...data.results] : data.results));
+      setHasMore(data.results.length >= data.page_size);
     } finally {
-      setIsLoading(false);
+      setBusy(false);
     }
   }, []);
 
+  // Recherche automatiquement dès que la requête, la tâche ou le filtre gb10
+  // changent — débounce de 400ms sur la frappe pour ne pas marteler l'API HF
+  // à chaque caractère. Avant ce correctif, seul un clic explicite sur
+  // "Chercher" déclenchait une nouvelle recherche : taper du texte n'avait
+  // aucun effet visible, donnant l'impression de résultats figés/erronés.
   useEffect(() => {
-    const id = setTimeout(() => runSearch(query, task, gb10Only), 0);
+    const id = setTimeout(() => runSearch(query, task, gb10Only, 0), 400);
     return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gb10Only]);
+  }, [query, task, gb10Only, runSearch]);
 
   return (
     <Layout
@@ -92,11 +107,7 @@ export default function SearchPage() {
                 label={t("Tâche")}
                 isLabelHidden
                 value={task}
-                onChange={(v) => {
-                  const next = v ?? "text-generation";
-                  setTask(next);
-                  runSearch(query, next, gb10Only);
-                }}
+                onChange={(v) => setTask(v ?? "text-generation")}
                 options={TASKS}
               />
               <Button
@@ -171,6 +182,16 @@ export default function SearchPage() {
                   </Card>
                 ))}
               </Grid>
+            )}
+
+            {hasMore && (
+              <Button
+                label={t("Charger plus")}
+                variant="secondary"
+                icon={<Icon icon={MagnifyingGlassIcon} size="sm" />}
+                isLoading={isLoadingMore}
+                onClick={() => runSearch(query, task, gb10Only, results?.length ?? 0)}
+              />
             )}
           </VStack>
         </LayoutContent>

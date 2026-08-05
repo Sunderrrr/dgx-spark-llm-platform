@@ -1159,17 +1159,23 @@ def effective_ctx(args, engine='vllm'):
         return ctx // par
     return ctx
 
-def search_hf_models(query, task='text-generation', gb10_only=True):
+_SEARCH_PAGE_SIZE = 48
+
+def search_hf_models(query, task='text-generation', gb10_only=True, skip=0):
     """Recherche HF. Par défaut, restreinte aux modèles tagués `gb10` — c'est-à-dire
-    ceux réellement testés sur DGX Spark. Plusieurs `filter` = ET côté API HF."""
+    ceux réellement testés sur DGX Spark. Plusieurs `filter` = ET côté API HF.
+
+    Paginé (skip, page de _SEARCH_PAGE_SIZE) : le tag gb10 seul remonte déjà
+    80+ modèles pour text-generation, invisibles au-delà de l'ancienne limite
+    fixe de 24 sans aucun moyen d'aller plus loin — signalé en usage réel."""
     filters = [task] if task else []
     if gb10_only:
         filters.append(GB10_TAG)
     try:
         r = requests.get(
             'https://huggingface.co/api/models',
-            params={'search': query, 'filter': filters, 'limit': 24,
-                    'sort': 'downloads', 'direction': -1},
+            params={'search': query, 'filter': filters, 'limit': _SEARCH_PAGE_SIZE,
+                    'skip': max(0, int(skip)), 'sort': 'downloads', 'direction': -1},
             timeout=8
         )
         if r.ok:
@@ -2975,8 +2981,13 @@ def api_search():
     query = request.args.get('q', '').strip()
     task  = request.args.get('task', 'text-generation')
     gb10  = request.args.get('all') != '1'
-    results = search_hf_models(query, task, gb10_only=gb10) if (query or gb10) else []
-    return jsonify({'results': results, 'query': query, 'task': task, 'gb10_only': gb10})
+    try:
+        skip = max(0, int(request.args.get('skip', 0)))
+    except ValueError:
+        skip = 0
+    results = search_hf_models(query, task, gb10_only=gb10, skip=skip) if (query or gb10) else []
+    return jsonify({'results': results, 'query': query, 'task': task, 'gb10_only': gb10,
+                    'skip': skip, 'page_size': _SEARCH_PAGE_SIZE})
 
 
 RANKING_LABELS = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours'}

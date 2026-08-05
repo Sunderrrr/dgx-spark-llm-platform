@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
-import { VStack } from "@astryxdesign/core/Stack";
+import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
@@ -20,6 +20,8 @@ import { FilmIcon, MoonIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { useDictation } from "@/lib/useDictation";
+import { DictateButton } from "../_components/DictateButton";
 
 type JobStatus = "idle" | "pending" | "running" | "done" | "error";
 type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string };
@@ -53,6 +55,7 @@ export default function VideoPage() {
   const [promptId, setPromptId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const dictation = useDictation({ value: prompt, onChange: setPrompt, csrf });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function stopPolling() {
@@ -161,8 +164,13 @@ export default function VideoPage() {
                   description={t("PNG, JPEG ou WebP — 15 Mo max. Sans image, génère depuis le texte seul.")}
                   isDisabled={isBusy}
                 />
+                <HStack hAlign="between" vAlign="center" gap={2}>
+                  <Text type="supporting" color="secondary">{t("Décris la scène")}</Text>
+                  <DictateButton dictation={dictation} isDisabled={isBusy} />
+                </HStack>
                 <TextArea
                   label={t("Décris la scène")}
+                  isLabelHidden
                   value={prompt}
                   onChange={setPrompt}
                   placeholder={t("Ex : un ballon rouge qui rebondit sur un sol blanc, caméra fixe.")}

@@ -28,6 +28,8 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
 import { useT, useLang } from "@/lib/i18n";
+import { useDictation } from "@/lib/useDictation";
+import { DictateButton } from "../_components/DictateButton";
 import { startRecording, type Recorder } from "@/lib/audioRecorder";
 
 type HistoryItem = { id: number; text: string; created_at: string };
@@ -78,6 +80,7 @@ export default function VoicePage() {
   const [supportsRefText, setSupportsRefText] = useState(false);
   const [refText, setRefText] = useState("");
   const [engine, setEngine] = useState<string>("");
+  const dictation = useDictation({ value: text, onChange: setText, csrf });
   const [isRecording, setIsRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
@@ -350,8 +353,13 @@ export default function VoicePage() {
                       isDisabled={isLoading}
                     />
                   )}
+                  <HStack hAlign="between" vAlign="center" gap={2}>
+                    <Text type="supporting" color="secondary">{t("Texte à lire")}</Text>
+                    <DictateButton dictation={dictation} isDisabled={isLoading} />
+                  </HStack>
                   <TextArea
                     label={t("Texte à lire")}
+                    isLabelHidden
                     value={text}
                     onChange={setText}
                     placeholder={t("Ex : Bonjour, ceci est un test de clonage vocal.")}

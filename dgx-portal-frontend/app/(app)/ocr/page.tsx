@@ -212,7 +212,10 @@ export default function OcrPage() {
             />
           ) : (
             <HStack gap={5} height="100%">
-              <StackItem>
+              {/* isScrollable : la colonne de gauche contient l'historique
+                  (jusqu'à 20 entrées) et débordait sans jamais pouvoir
+                  défiler — seul le panneau de droite l'était. */}
+              <StackItem isScrollable>
                 <VStack gap={5} width={360}>
                   <VStack gap={1}>
                     <Heading level={1}>OCR</Heading>

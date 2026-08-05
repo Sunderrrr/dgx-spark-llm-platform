@@ -4087,7 +4087,7 @@ def update_request(req_id):
 
 # ── Vidéo (MiniMax H3 via ComfyUI) ──────────────────────────────────────────
 _MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 Mo, image de référence
-VIDEO_HISTORY_LIMIT = 3
+VIDEO_HISTORY_LIMIT = 10
 OCR_HISTORY_LIMIT = 20
 _ALLOWED_IMAGE_TYPES = {'image/png', 'image/jpeg', 'image/webp'}
 

@@ -13,7 +13,9 @@ import asyncio
 import io
 import logging
 import os
+import re
 
+import numpy as np
 import soundfile as sf
 import torch
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -92,6 +94,43 @@ _ISO = {
 }
 
 
+# Un texte long envoyé d'un bloc est généré en une seule séquence
+# autorégressive, dont le coût croît bien plus vite que linéairement : mesuré
+# ici, ~330 caractères prennent 17 s alors qu'un discours de ~1400 dépassait
+# 6 minutes et faisait expirer la requête côté portail. On découpe donc comme
+# le fait le serveur Chatterbox, en respectant les fins de phrase.
+_CHUNK_TARGET = 250
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?…:;])\s+|\n+")
+
+
+def _chunk_text(text: str) -> list[str]:
+    pieces, cur = [], ""
+    for part in (p.strip() for p in _SENTENCE_SPLIT.split(text) if p and p.strip()):
+        # Une phrase seule plus longue que la cible n'est pas coupée au milieu
+        # d'un mot : mieux vaut un morceau un peu long qu'une élocution hachée.
+        if cur and len(cur) + 1 + len(part) > _CHUNK_TARGET:
+            pieces.append(cur)
+            cur = part
+        else:
+            cur = f"{cur} {part}".strip()
+    if cur:
+        pieces.append(cur)
+    return pieces or [text]
+
+
+def _join(wavs: list, sr: int):
+    """Concatène les morceaux avec une courte pause, comme entre deux phrases."""
+    if len(wavs) == 1:
+        return np.asarray(wavs[0], dtype=np.float32)
+    gap = np.zeros(int(0.18 * sr), dtype=np.float32)
+    out = []
+    for i, w in enumerate(wavs):
+        out.append(np.asarray(w, dtype=np.float32).squeeze())
+        if i < len(wavs) - 1:
+            out.append(gap)
+    return np.concatenate(out)
+
+
 @app.get("/api/model-info")
 def model_info() -> JSONResponse:
     return JSONResponse({
@@ -140,13 +179,21 @@ async def clone(
     # inconnue générait sinon du français lu avec une phonétique anglaise.
     lang_name = _languages.get(language) or _languages.get("auto") or _languages.get("en")
     transcript = ref_text.strip()
+    chunks = _chunk_text(text)
+
     def _run():
-        return _model.generate_voice_clone(
-            text=text,
-            language=lang_name,
+        # On construit le prompt de référence UNE fois puis on génère tous les
+        # morceaux d'un coup : Qwen ne réextrait pas les features de la voix à
+        # chaque appel, et surtout aucune séquence n'est très longue.
+        prompt = _model.create_voice_clone_prompt(
             ref_audio=(audio, sr),
             ref_text=transcript or None,
             x_vector_only_mode=not transcript,
+        )
+        return _model.generate_voice_clone(
+            text=chunks,
+            language=[lang_name] * len(chunks),
+            voice_clone_prompt=prompt,
         )
 
     try:
@@ -161,6 +208,7 @@ async def clone(
         log.exception("Generation failed")
         raise HTTPException(status_code=500, detail=f"Échec de la génération : {exc}")
 
+    audio_out = _join(list(wavs), out_sr)
     buf = io.BytesIO()
-    sf.write(buf, wavs[0], out_sr, format="WAV", subtype="PCM_16")
+    sf.write(buf, audio_out, out_sr, format="WAV", subtype="PCM_16")
     return Response(content=buf.getvalue(), media_type="audio/wav")

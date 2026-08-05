@@ -139,14 +139,14 @@ export default function AdminPage() {
   const st = data?.v_status.status;
 
   const budgetColumns: TableColumn<BudgetRequest & Record<string, unknown>>[] = [
-    { key: "fullname", header: "Utilisateur", renderCell: (r) => `${r.fullname} (${r.username})` },
+    { key: "fullname", header: t("Utilisateur"), renderCell: (r) => `${r.fullname} (${r.username})` },
     { key: "key_alias", header: t("Clé") },
-    { key: "current_budget", header: "Budget actuel", renderCell: (r) => (r.current_budget ? Math.round(r.current_budget).toLocaleString("fr-FR") : "—") },
-    { key: "reason", header: "Raison", renderCell: (r) => r.reason || "—" },
-    { key: "created_at", header: "Date", renderCell: (r) => r.created_at.slice(0, 16).replace("T", " ") },
+    { key: "current_budget", header: t("Budget actuel"), renderCell: (r) => (r.current_budget ? Math.round(r.current_budget).toLocaleString("fr-FR") : "—") },
+    { key: "reason", header: t("Raison"), renderCell: (r) => r.reason || "—" },
+    { key: "created_at", header: t("Date"), renderCell: (r) => r.created_at.slice(0, 16).replace("T", " ") },
     {
       key: "status",
-      header: "Statut",
+      header: t("Statut"),
       renderCell: (r) =>
         r.status === "pending" ? (
           <Badge label={t("En attente")} variant="warning" />
@@ -158,7 +158,7 @@ export default function AdminPage() {
     },
     {
       key: "id" as keyof BudgetRequest,
-      header: "Action",
+      header: t("Action"),
       renderCell: (r) =>
         r.status === "pending" ? (
           <HStack gap={1}>
@@ -170,27 +170,27 @@ export default function AdminPage() {
   ];
 
   const consumptionColumns: TableColumn<SpendRow & Record<string, unknown>>[] = [
-    { key: "username", header: "Utilisateur" },
+    { key: "username", header: t("Utilisateur") },
     { key: "tokens", header: t("Consommé aujourd'hui"), renderCell: (r) => Math.round(r.tokens || 0).toLocaleString("fr-FR") },
-    { key: "max_budget", header: "Budget / jour", renderCell: (r) => (r.unlimited ? <Badge label="∞" variant="warning" /> : Math.round(r.max_budget || 0).toLocaleString("fr-FR")) },
-    { key: "key_count", header: "Clés" },
+    { key: "max_budget", header: t("Budget / jour"), renderCell: (r) => (r.unlimited ? <Badge label="∞" variant="warning" /> : Math.round(r.max_budget || 0).toLocaleString("fr-FR")) },
+    { key: "key_count", header: t("Clés") },
   ];
 
   const usageColumns = (countLabel: string): TableColumn<UsageRow & Record<string, unknown>>[] => [
-    { key: "username", header: "Utilisateur" },
+    { key: "username", header: t("Utilisateur") },
     { key: "c", header: countLabel },
     { key: "last", header: t("Dernière utilisation"), renderCell: (r) => r.last.slice(0, 16).replace("T", " ") },
   ];
 
   const requestColumns: TableColumn<ModelRequest & Record<string, unknown>>[] = [
-    { key: "fullname", header: "Utilisateur", renderCell: (r) => `${r.fullname} (${r.username})` },
-    { key: "model_id", header: "Modèle" },
-    { key: "reason", header: "Raison", renderCell: (r) => r.reason || "—" },
-    { key: "created_at", header: "Date", renderCell: (r) => r.created_at.slice(0, 16).replace("T", " ") },
-    { key: "status", header: "Statut", renderCell: (r) => <Badge label={t(REQ_STATUS_LABEL[r.status] || r.status)} variant={REQ_STATUS_VARIANT[r.status] || "neutral"} /> },
+    { key: "fullname", header: t("Utilisateur"), renderCell: (r) => `${r.fullname} (${r.username})` },
+    { key: "model_id", header: t("Modèle") },
+    { key: "reason", header: t("Raison"), renderCell: (r) => r.reason || "—" },
+    { key: "created_at", header: t("Date"), renderCell: (r) => r.created_at.slice(0, 16).replace("T", " ") },
+    { key: "status", header: t("Statut"), renderCell: (r) => <Badge label={t(REQ_STATUS_LABEL[r.status] || r.status)} variant={REQ_STATUS_VARIANT[r.status] || "neutral"} /> },
     {
       key: "id" as keyof ModelRequest,
-      header: "Action",
+      header: t("Action"),
       renderCell: (r) => (
         <HStack gap={1}>
           {r.status !== "done" && <Button label={t("Lancé")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={CheckIcon} size="sm" />} onClick={() => act(`/admin/update/${r.id}`, { status: "done" })} />}

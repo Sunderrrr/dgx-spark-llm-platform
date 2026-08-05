@@ -221,13 +221,13 @@ export function SettingsDialog({
         setEditingMcpId(null);
         showToast({
           body: wasEdit
-            ? `Serveur MCP mis à jour (${result.tool_count ?? 0} outil(s) trouvé(s)).`
-            : `Serveur MCP connecté (${result.tool_count ?? 0} outil(s) trouvé(s)).`,
+            ? `${t("Serveur MCP mis à jour")} (${result.tool_count ?? 0} ${t("outil(s) trouvé(s)")}).`
+            : `${t("Serveur MCP connecté")} (${result.tool_count ?? 0} ${t("outil(s) trouvé(s)")}).`,
           type: "info",
         });
         refresh();
       } else {
-        showToast({ body: result.error || "Échec de la connexion au serveur MCP.", type: "error" });
+        showToast({ body: result.error || t("Échec de la connexion au serveur MCP."), type: "error" });
       }
     } finally {
       setIsSaving(false);
@@ -247,7 +247,7 @@ export function SettingsDialog({
   async function deleteMcp(id: number) {
     if (!csrf) return;
     await postForm("/mcp", csrf, { action: "delete", id: String(id) });
-    showToast({ body: "Serveur MCP supprimé.", type: "info" });
+    showToast({ body: t("Serveur MCP supprimé."), type: "info" });
     refresh();
   }
 
@@ -263,14 +263,14 @@ export function SettingsDialog({
         instructions: skillForm.instructions,
       });
       if (!result.ok) {
-        showToast({ body: result.error || "Échec de l'enregistrement.", type: "error" });
+        showToast({ body: result.error || t("Échec de l'enregistrement."), type: "error" });
         return;
       }
       const wasEdit = editingSkillId !== null;
       setSkillForm({ name: "", description: "", instructions: "" });
       setIsAddingSkill(false);
       setEditingSkillId(null);
-      showToast({ body: wasEdit ? "Compétence mise à jour." : "Compétence enregistrée.", type: "info" });
+      showToast({ body: wasEdit ? t("Compétence mise à jour.") : t("Compétence enregistrée."), type: "info" });
       refresh();
     } finally {
       setIsSaving(false);
@@ -280,7 +280,7 @@ export function SettingsDialog({
   async function deleteSkill(id: number) {
     if (!csrf) return;
     await postForm("/skills", csrf, { action: "delete", id: String(id) });
-    showToast({ body: "Compétence supprimée.", type: "info" });
+    showToast({ body: t("Compétence supprimée."), type: "info" });
     refresh();
   }
 
@@ -442,7 +442,7 @@ export function SettingsDialog({
                             {s.v}
                           </Text>
                           <Text type="supporting" color="secondary">
-                            {s.l}
+                            {t(s.l)}
                           </Text>
                         </VStack>
                       ))}
@@ -469,7 +469,7 @@ export function SettingsDialog({
                           ["Jours actifs", String(act.active_days)],
                         ].map(([l, v]) => (
                           <HStack key={l} hAlign="between" gap={3}>
-                            <Text type="supporting" color="secondary">{l}</Text>
+                            <Text type="supporting" color="secondary">{t(l)}</Text>
                             <Text type="supporting" hasTabularNumbers>{v}</Text>
                           </HStack>
                         ))}
@@ -484,7 +484,7 @@ export function SettingsDialog({
                           ["Clés API actives", String(acct.key_count)],
                         ].map(([l, v]) => (
                           <HStack key={l} hAlign="between" gap={3}>
-                            <Text type="supporting" color="secondary">{l}</Text>
+                            <Text type="supporting" color="secondary">{t(l)}</Text>
                             <Text type="supporting" hasTabularNumbers>{v}</Text>
                           </HStack>
                         ))}
@@ -548,27 +548,27 @@ export function SettingsDialog({
                       return (
                         <HStack key={l.key} gap={4} vAlign="center" hAlign="between">
                           <VStack gap={0} width="45%">
-                            <Text weight="semibold">{l.label}</Text>
+                            <Text weight="semibold">{t(l.label)}</Text>
                             <Text type="supporting" color="secondary">
-                              {l.desc}
+                              {t(l.desc)}
                             </Text>
                           </VStack>
                           <HStack gap={3} vAlign="center" width="50%">
                             {pourcent === null ? (
                               <Badge
-                                label={l.unlimited ? "Illimité" : `${fmt(l.max ?? 0)} ${l.unit}`}
+                                label={l.unlimited ? t("Illimité") : `${fmt(l.max ?? 0)} ${l.unit}`}
                                 variant={l.unlimited ? "warning" : "neutral"}
                               />
                             ) : (
                               <>
                                 <ProgressBar
-                                  label={l.label}
+                                  label={t(l.label)}
                                   isLabelHidden
                                   value={pourcent}
                                   variant={pourcent >= 90 ? "error" : pourcent >= 70 ? "warning" : "success"}
                                 />
                                 <Text type="supporting" color="secondary" hasTabularNumbers>
-                                  {pourcent} % utilisé
+                                  {pourcent} {t("% utilisé")}
                                 </Text>
                               </>
                             )}
@@ -731,7 +731,7 @@ export function SettingsDialog({
                     <EmptyState
                       icon={<Icon icon={ServerStackIcon} size="lg" />}
                       title={t("Aucun serveur MCP connecté.")}
-                      description="Connecte un serveur pour étendre les capacités de l'assistant."
+                      description={t("Connecte un serveur pour étendre les capacités de l'assistant.")}
                     />
                   ) : (
                     <VStack gap={3}>
@@ -742,7 +742,7 @@ export function SettingsDialog({
                               <VStack gap={0}>
                                 <HStack gap={2} vAlign="center">
                                   <Text weight="semibold">{s.name}</Text>
-                                  {s.has_auth ? <Badge label="Auth" variant="success" /> : null}
+                                  {s.has_auth ? <Badge label={t("Auth")} variant="success" /> : null}
                                 </HStack>
                                 <Text type="supporting" color="secondary" wordBreak="break-all">
                                   {s.url}
@@ -750,13 +750,13 @@ export function SettingsDialog({
                               </VStack>
                               <HStack gap={2} vAlign="center">
                                 <Switch
-                                  label="Serveur activé"
+                                  label={t("Serveur activé")}
                                   isLabelHidden
                                   value={!!s.enabled}
                                   onChange={(v) => toggleMcp(s.id, v)}
                                 />
                                 <Button
-                                  label="Modifier"
+                                  label={t("Modifier")}
                                   variant="ghost"
                                   size="sm"
                                   isIconOnly
@@ -774,7 +774,7 @@ export function SettingsDialog({
                                   }}
                                 />
                                 <Button
-                                  label="Supprimer"
+                                  label={t("Supprimer")}
                                   variant="ghost"
                                   size="sm"
                                   isIconOnly
@@ -790,7 +790,7 @@ export function SettingsDialog({
                             )}
                             {s.allowed_tools && (
                               <Text type="supporting" color="secondary">
-                                Outils autorisés : {s.allowed_tools}
+                                {t("Outils autorisés :")} {s.allowed_tools}
                               </Text>
                             )}
                           </VStack>
@@ -805,7 +805,7 @@ export function SettingsDialog({
               {section === "mcp" && isAddingMcp && (
                 <VStack gap={4}>
                   <VStack gap={0}>
-                    <Text weight="semibold">{editingMcpId ? "Modifier le serveur MCP" : "Connecter un MCP personnalisé"}</Text>
+                    <Text weight="semibold">{editingMcpId ? t("Modifier le serveur MCP") : t("Connecter un MCP personnalisé")}</Text>
                     <Text type="supporting" color="secondary">
                       {t("Configurez la connexion et la façon dont ses outils peuvent être utilisés.")}
                     </Text>
@@ -814,43 +814,43 @@ export function SettingsDialog({
                     <VStack gap={4}>
                       <Grid columns={2} gap={4}>
                         <TextInput
-                          label="Nom"
+                          label={t("Nom")}
                           value={mcpForm.name}
                           onChange={(v) => setMcpForm((f) => ({ ...f, name: v }))}
-                          placeholder="Exemple : notion_workspace"
-                          description="Lettres, chiffres, underscores et tirets uniquement."
+                          placeholder={t("Exemple : notion_workspace")}
+                          description={t("Lettres, chiffres, underscores et tirets uniquement.")}
                         />
                         <TextInput
-                          label="URL du serveur"
+                          label={t("URL du serveur")}
                           value={mcpForm.url}
                           onChange={(v) => setMcpForm((f) => ({ ...f, url: v }))}
                           placeholder="https://mcp.example.com/sse"
                         />
                       </Grid>
                       <TextArea
-                        label="Description (optionnel)"
+                        label={t("Description (optionnel)")}
                         value={mcpForm.description}
                         onChange={(v) => setMcpForm((f) => ({ ...f, description: v }))}
-                        placeholder="Ce que fournit ce serveur"
+                        placeholder={t("Ce que fournit ce serveur")}
                         rows={2}
                       />
                       <Grid columns={2} gap={4}>
                         <TextInput
-                          label="Outils autorisés (optionnel)"
+                          label={t("Outils autorisés (optionnel)")}
                           value={mcpForm.allowedTools}
                           onChange={(v) => setMcpForm((f) => ({ ...f, allowedTools: v }))}
                           placeholder="search, create_page, …"
-                          description="Séparez par des virgules. Vide = tous les outils."
+                          description={t("Séparez par des virgules. Vide = tous les outils.")}
                         />
                         <TextInput
-                          label="Autorisation (optionnel)"
+                          label={t("Autorisation (optionnel)")}
                           value={mcpForm.auth}
                           onChange={(v) => setMcpForm((f) => ({ ...f, auth: v }))}
-                          placeholder="Bearer token ou secret"
+                          placeholder={t("Bearer token ou secret")}
                           description={
                             editingMcpId
-                              ? "Laisser vide pour conserver le secret actuel ; « - » pour le retirer."
-                              : "Envoyé en en-tête Authorization."
+                              ? t("Laisser vide pour conserver le secret actuel ; « - » pour le retirer.")
+                              : t("Envoyé en en-tête Authorization.")
                           }
                         />
                       </Grid>
@@ -882,7 +882,7 @@ export function SettingsDialog({
                     <EmptyState
                       icon={<Icon icon={SparklesIcon} size="lg" />}
                       title={t("Aucune compétence pour l'instant.")}
-                      description="Crée une compétence pour guider l'assistant sur une tâche récurrente."
+                      description={t("Crée une compétence pour guider l'assistant sur une tâche récurrente.")}
                     />
                   ) : (
                     <VStack gap={3}>
@@ -897,7 +897,7 @@ export function SettingsDialog({
                             </VStack>
                             <HStack gap={1}>
                               <Button
-                                label="Modifier"
+                                label={t("Modifier")}
                                 variant="ghost"
                                 size="sm"
                                 isIconOnly
@@ -913,7 +913,7 @@ export function SettingsDialog({
                                 }}
                               />
                               <Button
-                                label="Supprimer"
+                                label={t("Supprimer")}
                                 variant="ghost"
                                 size="sm"
                                 isIconOnly
@@ -933,7 +933,7 @@ export function SettingsDialog({
               {section === "skills" && isAddingSkill && (
                 <VStack gap={4}>
                   <VStack gap={0}>
-                    <Text weight="semibold">{editingSkillId ? "Modifier la compétence" : "Créer une compétence"}</Text>
+                    <Text weight="semibold">{editingSkillId ? t("Modifier la compétence") : t("Créer une compétence")}</Text>
                     <Text type="supporting" color="secondary">
                       {t("L'assistant chargera ces instructions en contexte quand la compétence s'applique.")}
                     </Text>
@@ -942,23 +942,23 @@ export function SettingsDialog({
                     <VStack gap={4}>
                       <Grid columns={2} gap={4}>
                         <TextInput
-                          label="Nom"
+                          label={t("Nom")}
                           value={skillForm.name}
                           onChange={(v) => setSkillForm((f) => ({ ...f, name: v }))}
-                          placeholder="Exemple : analyse-de-logs"
+                          placeholder={t("Exemple : analyse-de-logs")}
                         />
                         <TextInput
-                          label="Description"
+                          label={t("Description")}
                           value={skillForm.description}
                           onChange={(v) => setSkillForm((f) => ({ ...f, description: v }))}
-                          placeholder="Quand l'utiliser, en une phrase"
+                          placeholder={t("Quand l'utiliser, en une phrase")}
                         />
                       </Grid>
                       <TextArea
-                        label="Instructions"
+                        label={t("Instructions")}
                         value={skillForm.instructions}
                         onChange={(v) => setSkillForm((f) => ({ ...f, instructions: v }))}
-                        placeholder="Instructions détaillées que l'assistant chargera en contexte…"
+                        placeholder={t("Instructions détaillées que l'assistant chargera en contexte…")}
                         rows={10}
                       />
                     </VStack>
@@ -978,8 +978,8 @@ export function SettingsDialog({
                   />
                   <Button
                     label={isAddingMcp
-                      ? editingMcpId ? "Mettre à jour le serveur" : "Enregistrer le serveur"
-                      : editingSkillId ? "Mettre à jour la compétence" : "Enregistrer la compétence"}
+                      ? editingMcpId ? t("Mettre à jour le serveur") : t("Enregistrer le serveur")
+                      : editingSkillId ? t("Mettre à jour la compétence") : t("Enregistrer la compétence")}
                     variant="primary"
                     isLoading={isSaving}
                     onClick={isAddingMcp ? saveMcp : saveSkill}

@@ -1671,7 +1671,7 @@ def api_whoami():
                      'is_admin': bool(session.get('is_admin')),
                      'avatar_id': pref['avatar_id'] if pref else None,
                      'theme_id': (pref['theme_id'] if pref else None) or 'neutral',
-                     'lang': (pref['lang'] if pref else None) or 'fr',
+                     'lang': (pref['lang'] if pref else None) or 'en',
                      'maintenance_mode': maintenance_active()})
 
 
@@ -1826,7 +1826,7 @@ def api_settings():
         'skills': skills,
         'avatar_id': pref['avatar_id'] if pref else None,
         'theme_id': (pref['theme_id'] if pref else None) or 'neutral',
-        'lang': (pref['lang'] if pref else None) or 'fr',
+        'lang': (pref['lang'] if pref else None) or 'en',
         'theme_ids': THEME_IDS,
         'langs': LANGS,
         'avatars': [{'id': a, 'label': AVATAR_LABELS.get(a, a)} for a in AVATAR_IDS],

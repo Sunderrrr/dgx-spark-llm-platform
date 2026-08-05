@@ -36,7 +36,7 @@ function RequestForm() {
       showToast({ body: t("Demande envoyée !"), type: "info" });
       router.push("/");
     } catch {
-      showToast({ body: "Erreur lors de l'envoi de la demande.", type: "error" });
+      showToast({ body: t("Erreur lors de l'envoi de la demande."), type: "error" });
     } finally {
       setIsSubmitting(false);
     }

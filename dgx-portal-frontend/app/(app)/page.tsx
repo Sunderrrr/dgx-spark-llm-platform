@@ -77,14 +77,14 @@ const STATUS_VARIANT: Record<string, "warning" | "success" | "error"> = {
 const STATUS_LABEL: Record<string, string> = { pending: "En attente", done: "Lancé", rejected: "Refusé" };
 
 const buildRequestColumns = (t: (s: string) => string): TableColumn<ModelRequest>[] => [
-  { key: "model_id", header: "Modèle" },
-  { key: "reason", header: "Raison", renderCell: (row) => row.reason || "—" },
+  { key: "model_id", header: t("Modèle") },
+  { key: "reason", header: t("Raison"), renderCell: (row) => row.reason || "—" },
   {
     key: "status",
-    header: "Statut",
+    header: t("Statut"),
     renderCell: (row) => <Badge label={t(STATUS_LABEL[row.status] || row.status)} variant={STATUS_VARIANT[row.status] || "neutral"} />,
   },
-  { key: "created_at", header: "Date", renderCell: (row) => row.created_at.slice(0, 16).replace("T", " ") },
+  { key: "created_at", header: t("Date"), renderCell: (row) => row.created_at.slice(0, 16).replace("T", " ") },
 ];
 
 export default function HomePage() {
@@ -313,7 +313,7 @@ export default function HomePage() {
                   </HStack>
                   <Text type="supporting" color="secondary">{t("Crée des clés personnelles pour accéder aux modèles via l'API OpenAI-compatible.")}</Text>
                   <Text type="supporting" color="secondary">
-                    Limite : {who?.is_admin ? "Illimitée (admin)" : `${data?.budget_tokens ?? "—"} tokens / ${data?.budget_duration ?? "—"}`}
+                    {t("Limite :")} {who?.is_admin ? t("Illimitée (admin)") : `${data?.budget_tokens ?? "—"} tokens / ${data?.budget_duration ?? "—"}`}
                   </Text>
                   <Button label={t("Gérer mes clés")} variant="secondary" href="/keys" />
                 </VStack>

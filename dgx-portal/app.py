@@ -533,6 +533,27 @@ def get_ocr_model():
     _ocr_model_cache.update(t=now, v=v)
     return v
 
+_voice_langs_cache = {'t': 0.0, 'v': {}}
+
+def get_voice_languages():
+    """Langues réellement acceptées par la variante Chatterbox chargée.
+    Turbo et Original ne parlent QUE l'anglais ; seule la variante
+    multilingual en gère 23. La liste vient donc du modèle en direct plutôt
+    que d'une constante — sinon la page proposerait des langues que le
+    backend refuserait (ou, pire, générerait en anglais silencieusement)."""
+    now = time.time()
+    if now - _voice_langs_cache['t'] < 30:
+        return _voice_langs_cache['v']
+    v = {}
+    try:
+        r = requests.get(f"{VOICE_URL}/api/model-info", timeout=3)
+        if r.ok:
+            v = r.json().get('supported_languages') or {}
+    except Exception:
+        pass
+    _voice_langs_cache.update(t=now, v=v)
+    return v
+
 _voice_model_cache = {'t': 0.0, 'v': None}
 
 def get_voice_model():
@@ -4332,7 +4353,12 @@ def api_voice_generate():
     text = request.form.get('text', '').strip()[:2000]
     if not text:
         return jsonify({'error': "Un texte est requis."}), 400
-    language = request.form.get('language', 'en').strip()[:10] or 'en'
+    # Validé contre les langues réellement chargées : une variante anglophone
+    # (turbo/original) recevant 'fr' générerait de l'anglais sans le dire.
+    langs = get_voice_languages()
+    language = request.form.get('language', '').strip()[:10]
+    if language not in langs:
+        language = 'en' if 'en' in langs or not langs else next(iter(langs))
     audio_bytes, err = voice_clone(ref_bytes, err_or_mime, text, language)
     if audio_bytes is None:
         return jsonify({'error': err}), 502
@@ -4371,6 +4397,13 @@ def api_voice_history():
         "SELECT id, text, created_at FROM voice_jobs WHERE username=? ORDER BY id DESC",
         (session['username'],)).fetchall()
     return jsonify([dict(r) for r in rows])
+
+@app.route('/api/voice/languages')
+@login_required
+def api_voice_languages():
+    """Langues de la variante chargée — la page voix construit son sélecteur
+    avec, et n'affiche rien quand il n'y en a qu'une (variantes anglophones)."""
+    return jsonify(get_voice_languages())
 
 @app.route('/voice/audio/<int:job_id>')
 @login_required

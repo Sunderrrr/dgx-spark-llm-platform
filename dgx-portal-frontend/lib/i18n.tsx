@@ -526,6 +526,7 @@ const EN: Record<string, string> = {
   "Utilisation voix par utilisateur": "Voice usage per user",
   // « Enregistrer » seul est déjà pris par le sens « Save » (Réglages) — le
   // texte français servant de clé, il faut un libellé distinct ici.
+  "Langue du texte": "Text language",
   "Source de la voix": "Voice source",
   "Enregistrer au micro": "Record from mic",
   "Importer un fichier": "Upload a file",

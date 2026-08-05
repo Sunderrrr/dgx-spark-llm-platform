@@ -66,14 +66,16 @@ export default function VideoPage() {
   }, []);
 
   async function generate() {
-    if (!image || !prompt.trim()) return;
+    if (!prompt.trim()) return;
     setStatus("pending");
     setPromptId(null);
     try {
+      const payload: Record<string, string | File> = { prompt, duration };
+      if (image) payload.image = image;
       const res = await postFormData<{ prompt_id?: string; error?: string }>(
         "/api/video/generate",
         csrf,
-        { image, prompt, duration },
+        payload,
       );
       if (!res.prompt_id) {
         showToast({ body: res.error || "Échec de la génération.", type: "error" });
@@ -124,29 +126,28 @@ export default function VideoPage() {
             <VStack gap={1}>
               <Heading level={1}>Génération vidéo — MiniMax H3</Heading>
               <Text type="supporting" color="secondary">
-                Une image de référence + une description → une courte vidéo avec audio synchronisé.
-                Génère localement sur le GPU, compte 5 à 10 minutes selon la charge.
+                Une description, avec ou sans image de référence, → une courte vidéo avec audio
+                synchronisé. Génère localement sur le GPU, compte 5 à 10 minutes selon la charge.
               </Text>
             </VStack>
 
             <Card>
               <VStack gap={4}>
                 <FileInput
-                  label="Image de référence"
+                  label="Image de référence (optionnel)"
                   value={image}
                   onChange={(f) => setImage(f as File | null)}
                   accept="image/png,image/jpeg,image/webp"
                   maxSize={15 * 1024 * 1024}
                   mode="dropzone"
-                  description="PNG, JPEG ou WebP — 15 Mo max."
+                  description="PNG, JPEG ou WebP — 15 Mo max. Sans image, génère depuis le texte seul."
                   isDisabled={isBusy}
-                  isRequired
                 />
                 <TextArea
                   label="Décris la scène"
                   value={prompt}
                   onChange={setPrompt}
-                  placeholder="Ex : la personne sur la photo lève la main et sourit, caméra fixe."
+                  placeholder="Ex : un ballon rouge qui rebondit sur un sol blanc, caméra fixe."
                   maxLength={2000}
                   isDisabled={isBusy}
                   isRequired
@@ -162,7 +163,7 @@ export default function VideoPage() {
                   label="Générer"
                   variant="primary"
                   onClick={generate}
-                  isDisabled={!image || !prompt.trim() || isBusy}
+                  isDisabled={!prompt.trim() || isBusy}
                   isLoading={isBusy}
                 />
               </VStack>

@@ -72,6 +72,17 @@ type AdminData = {
 
 const MAX_LOG_LINES = 600;
 
+const SIDECAR_VARIANT: Record<string, "success" | "warning" | "neutral" | "error"> = {
+  running: "success",
+  starting: "warning",
+  stopped: "neutral",
+};
+const SIDECAR_LABEL: Record<string, string> = {
+  running: "En ligne",
+  starting: "Démarrage…",
+  stopped: "Arrêté",
+};
+
 const REQ_STATUS_VARIANT: Record<string, "warning" | "success" | "error"> = { pending: "warning", done: "success", rejected: "error" };
 const REQ_STATUS_LABEL: Record<string, string> = { pending: "En attente", done: "Lancé ✓", rejected: "Refusé" };
 
@@ -315,12 +326,12 @@ export default function AdminPage() {
                       <HStack hAlign="between" vAlign="center">
                         <HStack gap={2} vAlign="center">
                           <StatusDot
-                            variant={data.ocr_status === "running" ? "success" : data.ocr_status === "stopped" ? "neutral" : "error"}
-                            label={data.ocr_status === "running" ? t("En ligne") : data.ocr_status === "stopped" ? t("Arrêté") : t("Injoignable")}
+                            variant={SIDECAR_VARIANT[data.ocr_status] ?? "error"}
+                            label={t(SIDECAR_LABEL[data.ocr_status] ?? "Injoignable")}
                           />
                           <Text weight="semibold">OCR — Unlimited-OCR</Text>
                         </HStack>
-                        {data.ocr_status === "running" ? (
+                        {data.ocr_status === "running" || data.ocr_status === "starting" ? (
                           <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/ocr/stop")} />
                         ) : (
                           <Button label={t("Démarrer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/ocr/start")} />
@@ -333,12 +344,12 @@ export default function AdminPage() {
                       <HStack hAlign="between" vAlign="center">
                         <HStack gap={2} vAlign="center">
                           <StatusDot
-                            variant={data.video_status === "running" ? "success" : data.video_status === "stopped" ? "neutral" : "error"}
-                            label={data.video_status === "running" ? t("En ligne") : data.video_status === "stopped" ? t("Arrêté") : t("Injoignable")}
+                            variant={SIDECAR_VARIANT[data.video_status] ?? "error"}
+                            label={t(SIDECAR_LABEL[data.video_status] ?? "Injoignable")}
                           />
                           <Text weight="semibold">Vidéo — MiniMax H3</Text>
                         </HStack>
-                        {data.video_status === "running" ? (
+                        {data.video_status === "running" || data.video_status === "starting" ? (
                           <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/video/stop")} />
                         ) : (
                           <Button label={t("Démarrer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/video/start")} />

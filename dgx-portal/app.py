@@ -1,5 +1,5 @@
 import os, sqlite3, smtplib, requests, time, re, threading, json, secrets, hmac, base64
-from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort
+from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort, send_file
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
@@ -404,6 +404,12 @@ def init_db():
     cols = {r[1] for r in db.execute("PRAGMA table_info(model_configs)")}
     if 'engine' not in cols:
         db.execute("ALTER TABLE model_configs ADD COLUMN engine TEXT NOT NULL DEFAULT 'vllm'")
+    # Migration : image analysée conservée par job OCR (affichage de l'historique
+    # avec la vue "zones détectées", pas seulement le texte). NULL pour les
+    # lignes déjà existantes avant cet ajout.
+    ocr_cols = {r[1] for r in db.execute("PRAGMA table_info(ocr_jobs)")}
+    if 'image_path' not in ocr_cols:
+        db.execute("ALTER TABLE ocr_jobs ADD COLUMN image_path TEXT")
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
         ('default_key_budget', str(KEY_BUDGET))
@@ -724,11 +730,12 @@ def runner_stop():
     except Exception:
         return False
 
-def _sidecar_status(kind):
-    """kind ∈ {'ocr', 'video'} — le conteneur docker OCR et le service systemd
-    ComfyUI, contrôlés à distance par vllm-runner (privilèges sudo scoped côté
-    host, voir /etc/sudoers.d/vllmrunner-services) : dgx-portal n'a lui-même
-    aucun accès docker/systemd, ni ici ni ailleurs."""
+def _sidecar_proc_status(kind):
+    """kind ∈ {'ocr', 'video'} — état PROCESS/CONTENEUR brut (docker inspect /
+    systemctl is-active), via vllm-runner (privilèges sudo scoped côté host,
+    voir /etc/sudoers.d/vllmrunner-services) : dgx-portal n'a lui-même aucun
+    accès docker/systemd, ni ici ni ailleurs. Ne dit PAS si le service répond
+    déjà aux requêtes — cf. _sidecar_status()."""
     try:
         r = requests.get(f"{RUNNER_URL}/{kind}/status", headers=_runner_headers(), timeout=5)
         if r.ok:
@@ -736,6 +743,23 @@ def _sidecar_status(kind):
     except Exception:
         pass
     return 'unreachable'
+
+def _sidecar_status(kind):
+    """Statut affiché à l'admin. Un conteneur/service qui vient de démarrer
+    reste plusieurs dizaines de secondes (voire minutes, gros checkpoint) à
+    charger le modèle avant de répondre — pendant ce temps, docker/systemd le
+    voient déjà comme « running », mais toute génération échouerait. Avant ce
+    correctif, la carte admin affichait « En ligne » dès le lancement du
+    process, pas quand le backend est réellement utilisable (signalé : le
+    statut disait que la vidéo tournait alors qu'elle ne répondait pas
+    encore). On vérifie donc en plus, en direct, que le service répond :
+    get_ocr_model()/comfyui_is_up() tapent respectivement /v1/models et
+    /system_stats, qui ne répondent qu'une fois le chargement terminé."""
+    ready = get_ocr_model() is not None if kind == 'ocr' else comfyui_is_up() if kind == 'video' else False
+    if ready:
+        return 'running'
+    proc = _sidecar_proc_status(kind)
+    return 'starting' if proc == 'running' else proc
 
 def _sidecar_action(kind, action):
     try:
@@ -788,7 +812,12 @@ def runner_metrics():
 # ── ComfyUI (génération vidéo MiniMax H3) ───────────────────────────────────
 # Jamais exposé (ComfyUI écoute 127.0.0.1 côté host) : seul ce backend lui
 # parle, en passant par host.docker.internal comme le runner vLLM.
-_H3_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'workflows', 'h3_r2v_template.json')
+_H3_R2V_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'workflows', 'h3_r2v_template.json')
+# T2V (texte seul, pas d'image de référence) : même CLIP/VAE que R2V, seul le
+# checkpoint UNET diffère (minimax_h3_fl2va_* au lieu de *_ref2va_*) — dérivé
+# du template officiel Comfy-Org (MiniMaxH3ImageToVideo, first_frame/last_frame
+# laissés non connectés), validé manuellement le 05/08.
+_H3_T2V_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'workflows', 'h3_t2v_template.json')
 
 def _comfyui_upload_image(image_bytes, filename):
     try:
@@ -804,16 +833,21 @@ def _comfyui_upload_image(image_bytes, filename):
 def comfyui_generate(image_bytes, prompt_text, duration_seconds=5):
     """Soumet une génération vidéo H3 à ComfyUI. Retourne prompt_id ou None.
 
-    Le graphe est chargé depuis workflows/h3_r2v_template.json (dérivé du
-    workflow officiel Comfy-Org, validé manuellement) et seulement 4 champs
-    sont substitués : image de référence, prompt, durée, seed aléatoire."""
-    uploaded_name = _comfyui_upload_image(image_bytes, 'ref.png')
-    if not uploaded_name:
-        return None
+    image_bytes est optionnel : None → texte seul (T2V, workflows/h3_t2v_template.json),
+    fourni → image de référence (R2V, workflows/h3_r2v_template.json). Les deux
+    graphes sont dérivés du workflow officiel Comfy-Org (validés manuellement) ;
+    seuls quelques champs sont substitués (image, prompt, durée, seed)."""
+    is_t2v = image_bytes is None
+    template_path = _H3_T2V_TEMPLATE_PATH if is_t2v else _H3_R2V_TEMPLATE_PATH
+    if not is_t2v:
+        uploaded_name = _comfyui_upload_image(image_bytes, 'ref.png')
+        if not uploaded_name:
+            return None
     try:
-        with open(_H3_TEMPLATE_PATH) as f:
+        with open(template_path) as f:
             graph = json.load(f)
-        graph['137']['inputs']['image'] = uploaded_name
+        if not is_t2v:
+            graph['137']['inputs']['image'] = uploaded_name
         graph['138']['inputs']['value'] = prompt_text[:2000]
         graph['132']['inputs']['value'] = max(2, min(15, float(duration_seconds)))
         graph['129']['inputs']['noise_seed'] = secrets.randbelow(2**32)
@@ -872,8 +906,55 @@ def comfyui_fetch_video(filename, subfolder='', ftype='output'):
         pass
     return None
 
-# ── OCR (baidu/Unlimited-OCR) ────────────────────────────────────────────────
-# Conteneur interne (réseau docker ai-platform_default), jamais de port publié.
+# ── OCR (baidu/Unlimited-OCR par défaut ; chandra-ocr-2 aussi supporté) ─────
+# Conteneur interne (réseau ocr_net dédié, cf. README « Security »), jamais de
+# port publié.
+#
+# chandra-ocr-2 (datalab-to) a un contrat entrée/sortie complètement différent
+# d'Unlimited-OCR : au lieu d'un prompt libre + lignes "label [x,y,x,y]texte",
+# il attend un prompt STRUCTURÉ fixe et répond en HTML avec des attributs
+# data-label/data-bbox (bbox en "x0 y0 x1 y1" espacés, toujours 0-1000). Texte
+# copié verbatim depuis chandra/prompts.py (OCR_LAYOUT_PROMPT côté modèle) —
+# la reformuler casserait le format de sortie attendu par le parseur front.
+_CHANDRA_OCR_LAYOUT_PROMPT = """
+OCR this image to HTML, arranged as layout blocks.  Each layout block should be a div with the data-bbox attribute representing the bounding box of the block in x0 y0 x1 y1 format.  Bboxes are normalized 0-1000. The data-label attribute is the label for the block.
+
+Use the following labels:
+- Caption
+- Footnote
+- Equation-Block
+- List-Group
+- Page-Header
+- Page-Footer
+- Image
+- Section-Header
+- Table
+- Text
+- Complex-Block
+- Code-Block
+- Form
+- Table-Of-Contents
+- Figure
+- Chemical-Block
+- Diagram
+- Bibliography
+- Blank-Page
+
+Only use these tags ['math', 'br', 'i', 'b', 'u', 'del', 'sup', 'sub', 'table', 'tr', 'td', 'p', 'th', 'div', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'ul', 'ol', 'li', 'input', 'a', 'span', 'img', 'hr', 'tbody', 'small', 'caption', 'strong', 'thead', 'big', 'code', 'chem'], and these attributes ['class', 'colspan', 'rowspan', 'display', 'checked', 'type', 'border', 'value', 'style', 'href', 'alt', 'align', 'data-bbox', 'data-label'].
+
+Guidelines:
+* Inline math: Surround math with <math>...</math> tags. Math expressions should be rendered in KaTeX-compatible LaTeX. Use display for block math.
+* Tables: Use colspan and rowspan attributes to match table structure.
+* Formatting: Maintain consistent formatting with the image, including spacing, indentation, subscripts/superscripts, and special characters.
+* Images: Include a description of any images in the alt attribute of an <img> tag. Do not fill out the src property. Describe in detail inside the div tag. Also convert charts to high fidelity data, and convert diagrams to mermaid.
+* Forms: Mark checkboxes and radio buttons properly.
+* Text: join lines together properly into paragraphs using <p>...</p> tags.  Use <br> tags for line breaks within paragraphs, but only when absolutely necessary to maintain meaning.
+* Chemistry: Use <chem>...</chem> tags for chemical formulas with reactive SMILES.
+* Lists: Preserve indents and proper list markers.
+* Use the simplest possible HTML structure that accurately represents the content of the block.
+* Make sure the text is accurate and easy for a human to read and interpret.  Reading order should be correct and natural.
+""".strip()
+
 def ocr_extract_stream(image_bytes, mime, instruction, on_done):
     """Générateur SSE : relaie au fil de l'eau la réponse du conteneur OCR
     (même format que playground_chat). Le modèle interrogé est celui
@@ -883,32 +964,38 @@ def ocr_extract_stream(image_bytes, mime, instruction, on_done):
     on_done(full_text) est appelé une fois le flux terminé (texte vide si
     erreur), pour laisser l'appelant persister l'historique."""
     model = get_ocr_model() or 'baidu/Unlimited-OCR'
+    is_chandra = 'chandra' in model.lower()
+    prompt_text = _CHANDRA_OCR_LAYOUT_PROMPT if is_chandra else f'<image>{instruction}'
     b64 = base64.b64encode(image_bytes).decode()
     full = []
+    body = {
+        'model': model,
+        'messages': [{
+            'role': 'user',
+            'content': [
+                {'type': 'text', 'text': prompt_text},
+                {'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{b64}'}},
+            ],
+        }],
+        'max_tokens': 8192 if is_chandra else 4096,
+        'temperature': 0.0,
+        'stream': True,
+    }
+    if not is_chandra:
+        # vllm_xargs : paramètres du logits processor custom d'Unlimited-OCR
+        # (--logits_processors, cf. _OCR_VALUE_FLAGS côté runner) — n'existe
+        # que pour ce modèle, absent du corps envoyé aux autres.
+        body['extra_body'] = {
+            'skip_special_tokens': False,
+            'vllm_xargs': {'ngram_size': 35, 'window_size': 128},
+        }
     try:
+        # Marge large : sous contention GPU (vidéo H3 en cours en même temps),
+        # une requête OCR normalement <1s peut monter à ~100s — vu en prod le
+        # 04/08. Reste sous le timeout worker gunicorn (200s) pour ne jamais
+        # couper le process.
         with requests.post(f"{OCR_URL}/chat/completions",
-                           json={
-                               'model': model,
-                               'messages': [{
-                                   'role': 'user',
-                                   'content': [
-                                       {'type': 'text', 'text': f'<image>{instruction}'},
-                                       {'type': 'image_url',
-                                        'image_url': {'url': f'data:{mime};base64,{b64}'}},
-                                   ],
-                               }],
-                               'max_tokens': 4096,
-                               'temperature': 0.0,
-                               'stream': True,
-                               'extra_body': {
-                                   'skip_special_tokens': False,
-                                   'vllm_xargs': {'ngram_size': 35, 'window_size': 128},
-                               },
-                           # Marge large : sous contention GPU (vidéo H3 en cours en
-                           # même temps), une requête OCR normalement <1s peut monter
-                           # à ~100s — vu en prod le 04/08. Reste sous le timeout
-                           # worker gunicorn (200s) pour ne jamais couper le process.
-                           }, stream=True, timeout=(10, 180)) as r:
+                           json=body, stream=True, timeout=(10, 180)) as r:
             if not r.ok:
                 yield _sse_msg("OCR inaccessible.")
                 return
@@ -3838,9 +3925,14 @@ def api_video_generate():
     blocked = maintenance_block_json()
     if blocked:
         return blocked
-    data, err_or_mime = _read_uploaded_image()
-    if data is None:
-        return jsonify({'error': err_or_mime}), 400
+    # Image optionnelle : absente → génération texte seul (T2V). Fournie mais
+    # invalide (mauvais format/trop lourde) → toujours une erreur 400, comme
+    # avant — seule l'ABSENCE totale du champ bascule en T2V.
+    data = None
+    if request.files.get('image') and request.files['image'].filename:
+        data, err_or_mime = _read_uploaded_image()
+        if data is None:
+            return jsonify({'error': err_or_mime}), 400
     prompt_text = request.form.get('prompt', '').strip()
     if not prompt_text:
         return jsonify({'error': "Un prompt texte est requis."}), 400
@@ -3925,6 +4017,9 @@ def video_file(prompt_id):
                     headers={'Content-Disposition': f'inline; filename="{st["video_path"]}"'})
 
 # ── OCR (baidu/Unlimited-OCR) ────────────────────────────────────────────────
+OCR_IMAGES_DIR = '/app/data/ocr_images'
+_OCR_IMAGE_EXT = {'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp'}
+
 @app.route('/api/ocr/extract', methods=['POST'])
 @login_required
 def api_ocr_extract():
@@ -3937,12 +4032,36 @@ def api_ocr_extract():
     instruction = request.form.get('instruction', 'document parsing.').strip()[:500]
     username = session['username']
 
+    # Image sauvegardée AVANT le streaming (nom aléatoire, jamais dérivé du nom
+    # de fichier envoyé par le client) : l'historique doit pouvoir réafficher
+    # l'image analysée avec la vue « zones détectées », pas seulement le texte.
+    os.makedirs(OCR_IMAGES_DIR, exist_ok=True)
+    image_filename = f"{secrets.token_hex(16)}.{_OCR_IMAGE_EXT.get(err_or_mime, 'png')}"
+    with open(os.path.join(OCR_IMAGES_DIR, image_filename), 'wb') as f:
+        f.write(data)
+
     def _persist(text):
         if not text:
+            try:
+                os.remove(os.path.join(OCR_IMAGES_DIR, image_filename))
+            except OSError:
+                pass
             return
         db = get_db()
-        db.execute("INSERT INTO ocr_jobs (username, text, created_at) VALUES (?,?,?)",
-                   (username, text, datetime.now().isoformat()))
+        db.execute("INSERT INTO ocr_jobs (username, text, image_path, created_at) VALUES (?,?,?,?)",
+                   (username, text, image_filename, datetime.now().isoformat()))
+        # Purge les images des lignes qui sortent de la fenêtre d'historique,
+        # sinon OCR_IMAGES_DIR grossit indéfiniment (aucune autre référence
+        # à ces fichiers une fois la ligne supprimée).
+        stale = db.execute(
+            """SELECT image_path FROM ocr_jobs WHERE username=? AND image_path IS NOT NULL
+               AND id NOT IN (SELECT id FROM ocr_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
+            (username, username, OCR_HISTORY_LIMIT)).fetchall()
+        for row in stale:
+            try:
+                os.remove(os.path.join(OCR_IMAGES_DIR, row['image_path']))
+            except OSError:
+                pass
         db.execute("""DELETE FROM ocr_jobs WHERE username=? AND id NOT IN (
                          SELECT id FROM ocr_jobs WHERE username=?
                          ORDER BY id DESC LIMIT ?)""",
@@ -3957,9 +4076,26 @@ def api_ocr_extract():
 @login_required
 def api_ocr_history():
     rows = get_db().execute(
-        "SELECT id, text, created_at FROM ocr_jobs WHERE username=? ORDER BY id DESC",
+        "SELECT id, text, created_at, image_path IS NOT NULL AS has_image "
+        "FROM ocr_jobs WHERE username=? ORDER BY id DESC",
         (session['username'],)).fetchall()
     return jsonify([dict(r) for r in rows])
+
+@app.route('/ocr/image/<int:job_id>')
+@login_required
+def ocr_image(job_id):
+    # Scopé (id, username) en une seule requête — cf. l'IDOR corrigé sur
+    # /video/file/<prompt_id> plus tôt : ne jamais séparer la recherche de la
+    # vérification d'appartenance en deux étapes.
+    row = get_db().execute(
+        "SELECT image_path FROM ocr_jobs WHERE id=? AND username=?",
+        (job_id, session['username'])).fetchone()
+    if not row or not row['image_path']:
+        abort(404)
+    path = os.path.join(OCR_IMAGES_DIR, row['image_path'])
+    if not os.path.isfile(path):
+        abort(404)
+    return send_file(path)
 
 with app.app_context():
     init_db()

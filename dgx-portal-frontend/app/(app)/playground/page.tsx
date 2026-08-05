@@ -160,7 +160,7 @@ export default function PlaygroundPage() {
   // purity lint rule's conservative render-reachability analysis.
   function persist(msgs: ChatMsg[], convId: number | null, activeModel: string) {
     if (!msgs.length) return convId;
-    const title = (msgs.find((m) => m.role === "user")?.content || "Conversation").slice(0, 80);
+    const title = (msgs.find((m) => m.role === "user")?.content || t("Conversation")).slice(0, 80);
     const item: Conversation = {
       // eslint-disable-next-line react-hooks/purity
       id: convId ?? Date.now(),
@@ -350,12 +350,12 @@ export default function PlaygroundPage() {
 
   function exportMarkdown() {
     if (!messages.length) {
-      window.alert("Rien à exporter.");
+      window.alert(t("Rien à exporter."));
       return;
     }
     let out = "# Conversation Cronos\n\n";
     for (const m of messages) {
-      out += (m.role === "user" ? "## Vous" : `## ${model || "Modèle"}`) + "\n\n" + m.content + "\n\n";
+      out += (m.role === "user" ? `## ${t("Vous")}` : `## ${model || t("Modèle")}`) + "\n\n" + m.content + "\n\n";
     }
     const blob = new Blob([out], { type: "text/markdown" });
     const a = document.createElement("a");
@@ -373,9 +373,9 @@ export default function PlaygroundPage() {
 
   const historyItems: DropdownMenuOption[] =
     conversations.length === 0
-      ? [{ label: "Aucune conversation", isDisabled: true }]
+      ? [{ label: t("Aucune conversation"), isDisabled: true }]
       : conversations.map((conv) => ({
-          label: conv.title || "Conversation",
+          label: conv.title || t("Conversation"),
           onClick: () => selectConversation(conv),
         }));
 
@@ -400,7 +400,7 @@ export default function PlaygroundPage() {
                 onClick={newConversation}
               />
               <DropdownMenu
-                button={{ label: "Historique", variant: "secondary", size: "sm", icon: <Icon icon={ClockIcon} size="sm" /> }}
+                button={{ label: t("Historique"), variant: "secondary", size: "sm", icon: <Icon icon={ClockIcon} size="sm" /> }}
                 items={historyItems}
                 menuWidth={260}
               />
@@ -553,16 +553,16 @@ export default function PlaygroundPage() {
                     {PRESETS.map((preset) => (
                       <ClickableCard
                         key={preset.heading}
-                        label={preset.heading}
+                        label={t(preset.heading)}
                         variant="muted"
-                        onClick={() => setInput(preset.prompt)}>
+                        onClick={() => setInput(t(preset.prompt))}>
                         <VStack gap={1}>
                           <HStack gap={2} vAlign="center">
                             <Icon icon={preset.icon} size="sm" color="secondary" />
-                            <Text weight="semibold">{preset.heading}</Text>
+                            <Text weight="semibold">{t(preset.heading)}</Text>
                           </HStack>
                           <Text type="supporting" color="secondary">
-                            {preset.body}
+                            {t(preset.body)}
                           </Text>
                         </VStack>
                       </ClickableCard>
@@ -620,7 +620,7 @@ export default function PlaygroundPage() {
                         ) : undefined
                       }>
                       {isThinking ? (
-                        <ThinkingIndicator fixedLabel={prevAttachments ? "Lecture du fichier…" : undefined} />
+                        <ThinkingIndicator fixedLabel={prevAttachments ? t("Lecture du fichier…") : undefined} />
                       ) : m.reasoning ? (
                         <VStack gap={2}>
                           <Collapsible trigger={t("Raisonnement")} defaultIsOpen={false}>

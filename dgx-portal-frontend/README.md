@@ -3,7 +3,7 @@
 The web UI for **Cronos**, the DGX Spark self-service LLM platform. Built with
 **Next.js 16** (App Router) and Meta's **Astryx** design system (React +
 StyleX). It owns the platform's public port (`:5000`) and covers every page:
-home, playground, OCR, video, keys, search, ranking, request, support, admin, login.
+home, playground, OCR, video, voice, keys, search, ranking, request, support, admin, login.
 
 Flask (`../dgx-portal/`) remains the authority for everything that matters —
 LDAP/OIDC auth, sessions, CSRF, the database, budgets, model launching. This
@@ -113,6 +113,8 @@ app/
 │   ├── playground/                # streaming chat against the active model
 │   ├── ocr/                       # OCR: upload/extract, streamed, bounding-box zone view
 │   ├── video/                     # video generation (MiniMax H3, text- or image-driven)
+│   ├── voice/                     # voice cloning (Chatterbox); mic recording or file upload,
+│   │                              #   audio served by Flask at /voice/audio/<job id>
 │   ├── support/                   # streaming chat with the Cronos assistant (tool-calling)
 │   ├── keys/, search/, ranking/, request/, admin/
 │   └── _components/SettingsDialog.tsx   # account/usage/keys/appearance/MCP/skills, incl. the language toggle
@@ -124,6 +126,9 @@ lib/
 ├── api.ts        # authFetch, getJSON, postForm, streamChat, streamSupportChat, streamOcr
 ├── sseProxy.ts   # shared proxySSE/proxySSEGet used by the route handlers above
 ├── i18n.tsx      # useT()/useLang() — see "UI conventions" above
+├── audioRecorder.ts   # mic capture for the Voice page: MediaRecorder emits WebM/Opus,
+│                      #   which Chatterbox rejects, so it decodes and re-encodes a
+│                      #   24 kHz mono WAV in-browser (no added dependency)
 ├── useCsrf.ts
 ├── conversations.ts   # server-persisted Playground chat history (Flask /api/conversations,
 │                       #   /conversations); one-time migration from the old localStorage version

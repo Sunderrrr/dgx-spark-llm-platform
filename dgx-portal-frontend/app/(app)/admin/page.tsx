@@ -36,6 +36,7 @@ import { useT } from "@/lib/i18n";
 
 type ModelCfg = { id: number; name: string; hf_model_id: string; engine: string; vllm_args: string };
 type OcrCfg = { id: number; name: string; hf_model_id: string; vllm_args: string };
+type VoiceCfg = { id: number; name: string; repo_id: string };
 type ModelRequest = { id: number; fullname: string; username: string; model_id: string; reason: string | null; status: string; created_at: string };
 type BudgetRequest = {
   id: number;
@@ -58,6 +59,7 @@ type AdminData = {
   spend_data: SpendRow[];
   ocr_usage: UsageRow[];
   video_usage: UsageRow[];
+  voice_usage: UsageRow[];
   model_cfgs: ModelCfg[];
   v_status: VStatus;
   init_logs: string[];
@@ -68,7 +70,10 @@ type AdminData = {
   ocr_status: string;
   ocr_model_name: string | null;
   video_status: string;
+  voice_status: string;
+  voice_model_name: string | null;
   ocr_cfgs: OcrCfg[];
+  voice_cfgs: VoiceCfg[];
 };
 
 const MAX_LOG_LINES = 600;
@@ -96,6 +101,7 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [newModel, setNewModel] = useState({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
   const [newOcr, setNewOcr] = useState({ name: "", hf_model_id: "", vllm_args: "" });
+  const [newVoice, setNewVoice] = useState({ name: "", repo_id: "chatterbox-turbo" });
   const [announce, setAnnounce] = useState({ title: "", body: "" });
   const [settings, setSettings] = useState({ budget: "", duration: "" });
 
@@ -358,6 +364,24 @@ export default function AdminPage() {
                       </HStack>
                     </VStack>
                   </Card>
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center">
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={SIDECAR_VARIANT[data.voice_status] ?? "error"}
+                            label={t(SIDECAR_LABEL[data.voice_status] ?? "Injoignable")}
+                          />
+                          <Text weight="semibold">{t("Voix")}{data.voice_model_name ? ` — Chatterbox ${data.voice_model_name}` : ""}</Text>
+                        </HStack>
+                        {data.voice_status === "running" || data.voice_status === "starting" ? (
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/voice/stop")} />
+                        ) : (
+                          <Button label={t("Démarrer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/voice/start")} />
+                        )}
+                      </HStack>
+                    </VStack>
+                  </Card>
                 </Grid>
               )}
 
@@ -392,6 +416,54 @@ export default function AdminPage() {
                         onClick={async () => {
                           await act("/admin/ocr/catalog/add", newOcr);
                           setNewOcr({ name: "", hf_model_id: "", vllm_args: "" });
+                        }}
+                      />
+                    </VStack>
+                  </Card>
+                </Grid>
+              )}
+
+              <Text type="supporting" color="secondary">{t("Catalogue voix")}</Text>
+              {data && (
+                <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+                  {data.voice_cfgs.map((cfg) => (
+                    <Card key={cfg.id}>
+                      <VStack gap={2}>
+                        <Text weight="semibold">{cfg.name}</Text>
+                        <Text type="supporting" color="secondary" wordBreak="break-all">
+                          {cfg.repo_id}
+                        </Text>
+                        <HStack gap={2}>
+                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/voice/catalog/launch", { voice_name: cfg.name })} />
+                          <Button label={t("Supprimer")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => act(`/admin/voice/catalog/delete/${cfg.id}`)} />
+                        </HStack>
+                      </VStack>
+                    </Card>
+                  ))}
+                  <Card>
+                    <VStack gap={2}>
+                      <Text type="supporting" color="secondary">{t("Ajouter un modèle voix")}</Text>
+                      <TextInput label={t("Nom")} isLabelHidden value={newVoice.name} onChange={(v) => setNewVoice((s) => ({ ...s, name: v }))} placeholder={t("Nom (ex: chatterbox-turbo)")} size="sm" />
+                      <Selector
+                        label={t("Variante")}
+                        isLabelHidden
+                        value={newVoice.repo_id}
+                        onChange={(v) => setNewVoice((s) => ({ ...s, repo_id: v ?? "chatterbox-turbo" }))}
+                        options={[
+                          { value: "chatterbox-turbo", label: "Turbo (350M)" },
+                          { value: "chatterbox", label: "Original (0.5B)" },
+                          { value: "chatterbox-multilingual", label: "Multilingual (0.5B)" },
+                        ]}
+                        size="sm"
+                      />
+                      <Button
+                        label={t("Ajouter")}
+                        variant="secondary"
+                        size="sm"
+                        icon={<Icon icon={PlusIcon} size="sm" />}
+                        onClick={async () => {
+                          await act("/admin/voice/catalog/add", newVoice);
+                          setNewVoice({ name: "", repo_id: "chatterbox-turbo" });
                         }}
                       />
                     </VStack>
@@ -505,6 +577,19 @@ export default function AdminPage() {
               <Card padding={0}>
                 <Table<UsageRow & Record<string, unknown>>
                   data={data?.video_usage ?? []}
+                  columns={usageColumns(t("Générations"))}
+                  idKey="username"
+                  density="balanced"
+                  dividers="rows"
+                />
+              </Card>
+            </VStack>
+
+            <VStack gap={2}>
+              <Text weight="semibold">{t("Utilisation voix par utilisateur")}</Text>
+              <Card padding={0}>
+                <Table<UsageRow & Record<string, unknown>>
+                  data={data?.voice_usage ?? []}
                   columns={usageColumns(t("Générations"))}
                   idKey="username"
                   density="balanced"

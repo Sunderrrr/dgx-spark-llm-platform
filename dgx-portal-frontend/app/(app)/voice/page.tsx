@@ -55,6 +55,9 @@ export default function VoicePage() {
   const [available, setAvailable] = useState<boolean | null>(null);
   const [languages, setLanguages] = useState<Record<string, string>>({});
   const [language, setLanguage] = useState<string>(uiLang);
+  const [supportsRefText, setSupportsRefText] = useState(false);
+  const [refText, setRefText] = useState("");
+  const [engine, setEngine] = useState<string>("");
   const [isRecording, setIsRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
@@ -144,11 +147,16 @@ export default function VoicePage() {
   // seul, multilingual = 23) : on part de la langue de l'interface si le
   // modèle la connaît, sinon de l'anglais.
   useEffect(() => {
-    fetch("/api/voice/languages", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : {}))
-      .then((d: Record<string, string>) => {
-        setLanguages(d);
-        setLanguage((cur) => (d[cur] ? cur : d[uiLang] ? uiLang : "en"));
+    fetch("/api/voice/info", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { engine: string; languages: Record<string, string>; supports_ref_text: boolean } | null) => {
+        if (!d) return;
+        setEngine(d.engine || "");
+        setLanguages(d.languages || {});
+        setSupportsRefText(!!d.supports_ref_text);
+        setLanguage((cur) =>
+          d.languages?.[cur] ? cur : d.languages?.[uiLang] ? uiLang : d.languages?.auto ? "auto" : "en",
+        );
       })
       .catch(() => {});
   }, [uiLang]);
@@ -162,6 +170,7 @@ export default function VoicePage() {
         reference,
         text,
         language,
+        ref_text: refText,
       });
       if (!res.id) {
         // Les messages d'erreur viennent de Flask, en français : t() les traduit
@@ -193,9 +202,12 @@ export default function VoicePage() {
           ) : (
             <VStack gap={5} maxWidth={720}>
               <VStack gap={1}>
-                <Heading level={1}>{t("Clonage de voix — Chatterbox")}</Heading>
+                <Heading level={1}>
+                  {t("Clonage de voix")}
+                  {engine ? ` — ${engine === "qwen3-tts" ? "Qwen3-TTS" : "Chatterbox"}` : ""}
+                </Heading>
                 <Text type="supporting" color="secondary">
-                  {t("Un échantillon vocal de plus de 5 secondes, un texte, → le texte lu avec cette voix. Génère localement sur le GPU, quelques secondes suffisent.")}
+                  {t("Un échantillon de ta voix, un texte, → le texte lu avec cette voix. Génère localement sur le GPU, quelques secondes suffisent.")}
                 </Text>
               </VStack>
 
@@ -226,7 +238,7 @@ export default function VoicePage() {
                       accept="audio/wav,audio/x-wav,audio/mpeg,audio/mp3"
                       maxSize={15 * 1024 * 1024}
                       mode="dropzone"
-                      description={t("WAV ou MP3 — 15 Mo max, plus de 5 secondes de voix claire.")}
+                      description={t("WAV ou MP3 — 15 Mo max, au moins quelques secondes de voix claire.")}
                       isDisabled={isLoading}
                       isRequired
                     />
@@ -264,7 +276,7 @@ export default function VoicePage() {
                           {elapsed < MIN_SECONDS && (
                             <HStack>
                               <Badge
-                                label={t("Trop court : le modèle exige plus de 5 secondes de voix.")}
+                                label={t("Trop court : enregistre au moins 6 secondes de voix.")}
                                 variant="warning"
                               />
                             </HStack>
@@ -288,13 +300,30 @@ export default function VoicePage() {
                       )}
                     </VStack>
                   )}
+                  {supportsRefText && (
+                    <TextArea
+                      label={t("Transcription de l'échantillon (optionnel)")}
+                      value={refText}
+                      onChange={setRefText}
+                      placeholder={t("Recopie ici exactement ce que tu as dit dans l'enregistrement.")}
+                      description={t("Améliore nettement la ressemblance. Sans elle, seule l'empreinte vocale est utilisée.")}
+                      maxLength={2000}
+                      rows={2}
+                      isDisabled={isLoading}
+                    />
+                  )}
                   {Object.keys(languages).length > 1 && (
                     <Selector
                       label={t("Langue du texte")}
                       value={language}
                       onChange={(v) => setLanguage(v ?? "en")}
+                      // Qwen renvoie les noms en minuscules ("french") : on
+                      // remet une capitale pour l'affichage.
                       options={Object.entries(languages)
-                        .map(([code, name]) => ({ value: code, label: name }))
+                        .map(([code, name]) => ({
+                          value: code,
+                          label: name.charAt(0).toUpperCase() + name.slice(1),
+                        }))
                         .sort((a, b) => a.label.localeCompare(b.label))}
                       isDisabled={isLoading}
                     />

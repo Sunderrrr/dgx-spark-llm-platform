@@ -506,9 +506,13 @@ const EN: Record<string, string> = {
   "Aucun modèle vocal n'est disponible": "No voice model is available",
   "Demande à un admin de démarrer un modèle vocal pour utiliser cette page.":
     "Ask an admin to start a voice model to use this page.",
-  "Clonage de voix — Chatterbox": "Voice cloning — Chatterbox",
-  "Un échantillon vocal de plus de 5 secondes, un texte, → le texte lu avec cette voix. Génère localement sur le GPU, quelques secondes suffisent.":
-    "A voice sample longer than 5 seconds, some text, → that text read in that voice. Generates locally on the GPU, a few seconds is enough.",
+  "Clonage de voix": "Voice cloning",
+  "Un échantillon de ta voix, un texte, → le texte lu avec cette voix. Génère localement sur le GPU, quelques secondes suffisent.":
+    "A sample of your voice, some text, → that text read in that voice. Generates locally on the GPU, a few seconds is enough.",
+  "WAV ou MP3 — 15 Mo max, au moins quelques secondes de voix claire.":
+    "WAV or MP3 — 15 MB max, at least a few seconds of clear speech.",
+  "Trop court : enregistre au moins 6 secondes de voix.":
+    "Too short: record at least 6 seconds of speech.",
   "Échantillon vocal de référence": "Reference voice sample",
   "WAV ou MP3 — 15 Mo max, plus de 5 secondes de voix claire.":
     "WAV or MP3 — 15 MB max, more than 5 seconds of clear speech.",
@@ -527,6 +531,11 @@ const EN: Record<string, string> = {
   // « Enregistrer » seul est déjà pris par le sens « Save » (Réglages) — le
   // texte français servant de clé, il faut un libellé distinct ici.
   "Langue du texte": "Text language",
+  "Transcription de l'échantillon (optionnel)": "Sample transcript (optional)",
+  "Recopie ici exactement ce que tu as dit dans l'enregistrement.":
+    "Type here exactly what you said in the recording.",
+  "Améliore nettement la ressemblance. Sans elle, seule l'empreinte vocale est utilisée.":
+    "Noticeably improves likeness. Without it, only the voice fingerprint is used.",
   "Source de la voix": "Voice source",
   "Enregistrer au micro": "Record from mic",
   "Importer un fichier": "Upload a file",

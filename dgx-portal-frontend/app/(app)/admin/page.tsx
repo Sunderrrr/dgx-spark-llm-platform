@@ -101,7 +101,7 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [newModel, setNewModel] = useState({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
   const [newOcr, setNewOcr] = useState({ name: "", hf_model_id: "", vllm_args: "" });
-  const [newVoice, setNewVoice] = useState({ name: "", repo_id: "chatterbox-turbo" });
+  const [newVoice, setNewVoice] = useState({ name: "", repo_id: "Qwen3-TTS-12Hz-1.7B-Base" });
   const [announce, setAnnounce] = useState({ title: "", body: "" });
   const [settings, setSettings] = useState({ budget: "", duration: "" });
 
@@ -448,11 +448,13 @@ export default function AdminPage() {
                         label={t("Variante")}
                         isLabelHidden
                         value={newVoice.repo_id}
-                        onChange={(v) => setNewVoice((s) => ({ ...s, repo_id: v ?? "chatterbox-turbo" }))}
+                        onChange={(v) => setNewVoice((s) => ({ ...s, repo_id: v ?? "Qwen3-TTS-12Hz-1.7B-Base" }))}
                         options={[
-                          { value: "chatterbox-turbo", label: "Turbo (350M)" },
-                          { value: "chatterbox", label: "Original (0.5B)" },
-                          { value: "chatterbox-multilingual", label: "Multilingual (0.5B)" },
+                          { value: "Qwen3-TTS-12Hz-1.7B-Base", label: "Qwen3-TTS 1.7B (10 langues)" },
+                          { value: "Qwen3-TTS-12Hz-0.6B-Base", label: "Qwen3-TTS 0.6B (10 langues)" },
+                          { value: "chatterbox-multilingual", label: "Chatterbox Multilingual (0.5B)" },
+                          { value: "chatterbox-turbo", label: "Chatterbox Turbo (350M, EN)" },
+                          { value: "chatterbox", label: "Chatterbox Original (0.5B, EN)" },
                         ]}
                         size="sm"
                       />
@@ -463,7 +465,7 @@ export default function AdminPage() {
                         icon={<Icon icon={PlusIcon} size="sm" />}
                         onClick={async () => {
                           await act("/admin/voice/catalog/add", newVoice);
-                          setNewVoice({ name: "", repo_id: "chatterbox-turbo" });
+                          setNewVoice({ name: "", repo_id: "Qwen3-TTS-12Hz-1.7B-Base" });
                         }}
                       />
                     </VStack>

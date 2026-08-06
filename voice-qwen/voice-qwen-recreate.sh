@@ -30,8 +30,13 @@ docker rm -f voice >/dev/null 2>&1 || true
 # Le port est forcé à 8004, celui qu'écoute Chatterbox, pour que VOICE_URL
 # reste identique quel que soit le moteur : côté portail, seul le champ
 # `engine` de /api/model-info distingue les deux.
+# Durcissement : voir asr-recreate.sh. Ce conteneur décode lui aussi un fichier
+# audio fourni par l'utilisateur ; mêmes garde-fous (contrôle d'en-tête dans le
+# code). PAS de --memory : mémoire unifiée GB10, cf. asr-recreate.sh.
 exec docker run -d --name voice --restart unless-stopped \
   --network ai-platform_voice_net --gpus all --shm-size=4g \
+  --pids-limit 512 \
+  --security-opt no-new-privileges --cap-drop ALL \
   -v /root/.cache/huggingface:/app/hf_cache \
   -e HF_HOME=/app/hf_cache \
   -e QWEN_TTS_MODEL="Qwen/$MODEL" \

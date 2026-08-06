@@ -1,5 +1,39 @@
+# Secrets & environment
 .env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
 *.pyc
+
+# Data volumes
 portal_data/
 postgres_data/
+
+# Databases & dumps
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+
+# Local backups / editor cruft
+*.bak
+*.orig
+*~
+.DS_Store
+
+# Secrets material (never commit)
+*.pem
+*.key
+*.crt
+*.p12
+id_rsa*
+DEBUG_USERS.txt
+
+# Logs
+*.log
+
+# Screenshots that contain real user data (leaderboard is per-user by name)
+assets/ranking.png

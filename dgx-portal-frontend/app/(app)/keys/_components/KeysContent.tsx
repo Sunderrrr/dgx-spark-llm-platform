@@ -27,7 +27,7 @@ import {
   type IntegrationTool,
   type ModelLimit,
 } from "@/lib/integrationSnippets";
-import { useT } from "@/lib/i18n";
+import { useT, useLang } from "@/lib/i18n";
 
 type ApiKey = { key_alias: string; key: string; created_at: string; spend: number };
 type Account = { spend: number; max_budget: number; budget_reset_at: string | null; unlimited: boolean; has_pending: boolean };
@@ -43,6 +43,10 @@ type KeysData = {
 
 export function KeysContent() {
   const t = useT();
+  const { lang } = useLang();
+  // Le séparateur de milliers suit la langue de l'UI (espace en français,
+  // virgule en anglais) au lieu d'être figé en fr-FR.
+  const numLocale = lang === "fr" ? "fr-FR" : "en-US";
   const csrf = useCsrf();
   const showToast = useToast();
   const [data, setData] = useState<KeysData | null>(null);
@@ -167,7 +171,7 @@ export function KeysContent() {
                     {t("Budget du compte — partagé par toutes tes clés /")} {data.budget_duration}
                   </Text>
                   <Text type="supporting" color="secondary">
-                    {Math.round(data.account.spend).toLocaleString("fr-FR")} / {Math.round(data.account.max_budget).toLocaleString("fr-FR")} tokens
+                    {Math.round(data.account.spend).toLocaleString(numLocale)} / {Math.round(data.account.max_budget).toLocaleString(numLocale)} tokens
                   </Text>
                 </HStack>
                 <ProgressBar
@@ -178,7 +182,7 @@ export function KeysContent() {
                 />
                 <HStack gap={3} vAlign="center">
                   <Text type="supporting" color="secondary">
-                    {Math.max(Math.round(data.account.max_budget - data.account.spend), 0).toLocaleString("fr-FR")} tokens restants
+                    {Math.max(Math.round(data.account.max_budget - data.account.spend), 0).toLocaleString(numLocale)} {t("tokens restants")}
                   </Text>
                   {data.account.has_pending ? (
                     <Badge label={t("Demande en attente")} variant="neutral" />

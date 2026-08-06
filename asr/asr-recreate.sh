@@ -20,8 +20,23 @@ esac
 
 docker rm -f asr >/dev/null 2>&1 || true
 
+# --memory : un décodage audio piégé (bombe de décompression) est ainsi tué
+#   dans le conteneur au lieu de déclencher l'OOM killer de l'hôte, qui viserait
+#   le plus gros consommateur (le modèle de chat).
+# --security-opt/--cap-drop : aligne ce conteneur, qui reçoit des octets
+#   utilisateur bruts, sur le durcissement du reste de la plateforme.
+# PAS de --memory ici : sur le GB10 la mémoire GPU est UNIFIÉE avec la RAM et
+#   est comptée dans le cgroup mémoire du conteneur ; une limite --memory
+#   plafonne donc aussi les allocations CUDA et fait échouer le chargement du
+#   modèle (CUDA out of memory au démarrage). La protection anti-bombe de
+#   décompression est assurée dans le code (contrôle d'en-tête avant décodage,
+#   server.py) et par le plafond d'octets, pas par le cgroup.
+# Le cache HF reste en écriture pour permettre le téléchargement à froid du
+#   modèle au premier démarrage (déploiement sans étape manuelle).
 exec docker run -d --name asr --restart unless-stopped \
   --network ai-platform_asr_net --gpus all --shm-size=2g \
+  --pids-limit 512 \
+  --security-opt no-new-privileges --cap-drop ALL \
   -v /root/.cache/huggingface:/app/hf_cache \
   -e HF_HOME=/app/hf_cache \
   -e ASR_MODEL="$MODEL" \

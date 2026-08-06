@@ -277,18 +277,18 @@ class ClientIpTest(unittest.TestCase):
             return portal._client_ip()
 
     def test_prefere_cf_connecting_ip(self):
-        self.assertEqual(self._ip({'Cf-Connecting-Ip': '82.64.177.61',
+        self.assertEqual(self._ip({'Cf-Connecting-Ip': '203.0.113.10',
                                    'X-Forwarded-For': '10.0.0.1, 172.19.0.5'}),
-                         '82.64.177.61')
+                         '203.0.113.10')
 
     def test_retombe_sur_le_premier_x_forwarded_for(self):
-        self.assertEqual(self._ip({'X-Forwarded-For': '82.64.177.61, 172.19.0.5'}),
-                         '82.64.177.61')
+        self.assertEqual(self._ip({'X-Forwarded-For': '203.0.113.10, 172.19.0.5'}),
+                         '203.0.113.10')
 
     def test_retombe_sur_remote_addr(self):
         self.assertEqual(self._ip({}), '172.19.0.5')
 
     def test_deux_visiteurs_ne_partagent_pas_le_meme_verrou(self):
-        a = self._ip({'Cf-Connecting-Ip': '82.64.177.61'})
-        b = self._ip({'Cf-Connecting-Ip': '82.67.54.181'})
+        a = self._ip({'Cf-Connecting-Ip': '203.0.113.10'})
+        b = self._ip({'Cf-Connecting-Ip': '203.0.113.20'})
         self.assertNotEqual(a, b)

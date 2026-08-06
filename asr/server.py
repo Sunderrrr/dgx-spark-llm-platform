@@ -10,6 +10,7 @@ pour tous les navigateurs.
 On reste sur transformers + torch cu130, la seule pile validée sur ce GB10
 (aarch64, sm_121) — faster-whisper/CTranslate2 n'y a pas de roue.
 """
+import asyncio
 import io
 import logging
 import os
@@ -30,11 +31,25 @@ log = logging.getLogger("asr")
 MODEL_ID = os.environ.get("ASR_MODEL", "openai/whisper-large-v3-turbo")
 TARGET_SR = 16000  # Whisper travaille en 16 kHz
 MAX_SECONDS = float(os.environ.get("ASR_MAX_SECONDS", "300"))
+# Plafonds anti-bombe de décompression : un FLAC de quelques Ko peut se décoder
+# en dizaines de Go en float32 (ratio > 1000x) et déclencher l'OOM killer sur
+# une machine à mémoire unifiée. On borne l'octet ET on lit l'en-tête (durée,
+# fréquence, canaux) AVANT de décoder — soundfile lit l'en-tête sans allouer.
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_SR = 48000
+MAX_CH = 2
 
-app = FastAPI(title="Cronos ASR")
+# docs/openapi fermés : ce service n'est joignable que par dgx-portal sur un
+# réseau docker dédié, aucune raison d'exposer un schéma explorable.
+app = FastAPI(title="Cronos ASR", docs_url=None, redoc_url=None, openapi_url=None)
 
 _pipe = None
 _load_error: str | None = None
+# Le threadpool anyio accepte 40 tâches : sans borne, 40 transcriptions
+# pourraient frapper le même pipeline transformers (non thread-safe) et 40
+# inférences Whisper le même GPU à mémoire unifiée. Un sémaphore à 2 garde un
+# peu de débit pour la dictée tout en plafonnant la charge GPU.
+_gpu_sem = asyncio.Semaphore(2)
 
 
 @app.on_event("startup")
@@ -82,29 +97,43 @@ async def transcribe(
         raise HTTPException(status_code=503, detail=_load_error or "Modèle non chargé.")
 
     raw = await audio.read()
-    try:
-        data, sr = sf.read(io.BytesIO(raw), dtype="float32", always_2d=True)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Audio illisible.")
-    data = data.mean(axis=1)  # mono
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Fichier audio trop volumineux.")
 
-    seconds = len(data) / float(sr)
-    if seconds < 0.3:
-        raise HTTPException(status_code=400, detail="Enregistrement trop court.")
-    if seconds > MAX_SECONDS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Enregistrement trop long ({seconds:.0f}s, maximum {MAX_SECONDS:.0f}s).")
+    def _decode():
+        # En-tête d'abord : rejette durée/fréquence/canaux hors bornes SANS
+        # décoder les échantillons, ce qui coupe court à la bombe de
+        # décompression. Puis décodage + rééchantillonnage, le tout hors de la
+        # boucle d'évènements (bloquant sur un gros fichier).
+        bio = io.BytesIO(raw)
+        try:
+            info = sf.info(bio)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Audio illisible.")
+        if info.samplerate > MAX_SR or info.channels > MAX_CH:
+            raise HTTPException(status_code=400, detail="Format audio non supporté.")
+        dur = info.frames / float(info.samplerate or 1)
+        if dur < 0.3:
+            raise HTTPException(status_code=400, detail="Enregistrement trop court.")
+        if dur > MAX_SECONDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Enregistrement trop long ({dur:.0f}s, maximum {MAX_SECONDS:.0f}s).")
+        bio.seek(0)
+        d, sr = sf.read(bio, dtype="float32", always_2d=True)
+        d = d.mean(axis=1)  # mono
+        if sr != TARGET_SR:
+            # Rééchantillonnage linéaire : suffisant pour de la parole, et évite
+            # une dépendance de plus (librosa/resampy) dans cette image.
+            n = int(round(len(d) * TARGET_SR / sr))
+            d = np.interp(
+                np.linspace(0, len(d) - 1, n, dtype=np.float64),
+                np.arange(len(d), dtype=np.float64),
+                d.astype(np.float64),
+            ).astype(np.float32)
+        return d
 
-    if sr != TARGET_SR:
-        # Rééchantillonnage linéaire : suffisant pour de la parole, et évite
-        # une dépendance de plus (librosa/resampy) dans cette image.
-        n = int(round(len(data) * TARGET_SR / sr))
-        data = np.interp(
-            np.linspace(0, len(data) - 1, n, dtype=np.float64),
-            np.arange(len(data), dtype=np.float64),
-            data.astype(np.float64),
-        ).astype(np.float32)
+    data = await run_in_threadpool(_decode)
 
     kwargs = {}
     if language:
@@ -114,10 +143,13 @@ async def transcribe(
         # Appel bloquant (GPU) : le sortir de la boucle d'évènements, sinon
         # /api/model-info ne répond plus pendant une transcription et le
         # portail conclut que le backend est hors ligne.
-        out = await run_in_threadpool(lambda: _pipe({"raw": data, "sampling_rate": TARGET_SR}, **kwargs))
-    except Exception as exc:
+        async with _gpu_sem:
+            out = await run_in_threadpool(lambda: _pipe({"raw": data, "sampling_rate": TARGET_SR}, **kwargs))
+    except Exception:
+        # Le détail de l'exception (chemins du conteneur, cache HF, shapes de
+        # tenseurs) est journalisé côté serveur mais jamais renvoyé à l'appelant.
         log.exception("Transcription failed")
-        raise HTTPException(status_code=500, detail=f"Échec de la transcription : {exc}")
+        raise HTTPException(status_code=500, detail="Échec de la transcription.")
 
     text = (out.get("text") or "").strip()
     # Sur du non-parlé (silence, souffle, bruit continu), Whisper part en

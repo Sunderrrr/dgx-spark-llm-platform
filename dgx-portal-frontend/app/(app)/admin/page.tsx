@@ -601,7 +601,7 @@ export default function AdminPage() {
             <VStack gap={2}>
               <HStack gap={2} vAlign="center">
                 <Text weight="semibold">{t("Demandes de tokens")}</Text>
-                {data && data.stats.budget_pending > 0 && <Badge label={`${data.stats.budget_pending} en attente`} variant="warning" />}
+                {data && data.stats.budget_pending > 0 && <Badge label={`${data.stats.budget_pending} ${t("en attente")}`} variant="warning" />}
               </HStack>
               <Card padding={0}>
                 <Table<BudgetRequest & Record<string, unknown>> data={data?.budget_reqs ?? []} columns={budgetColumns} idKey="id" density="balanced" dividers="rows" />

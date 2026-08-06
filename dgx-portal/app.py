@@ -1,4 +1,4 @@
-import os, sqlite3, smtplib, requests, time, re, threading, json, secrets, hmac, base64
+import os, sqlite3, smtplib, requests, time, re, threading, json, secrets, hmac, base64, ipaddress
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort, send_file
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
@@ -34,6 +34,12 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
     SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE', '0') == '1',
+    # Werkzeug parse le multipart AVANT nos gardes applicatifs (le garde CSRF lit
+    # request.form sur chaque POST). Sans plafond, un POST non authentifié à
+    # plusieurs Go écrit sur disque avant toute vérification. 16 Mo couvre les
+    # plus gros uploads légitimes (image OCR/vidéo 15 Mo) ; au-delà Werkzeug
+    # renvoie 413 sans rien parser.
+    MAX_CONTENT_LENGTH=16 * 1024 * 1024,
 )
 
 # Regex de validation des identifiants LDAP (défense en profondeur contre
@@ -41,10 +47,15 @@ app.config.update(
 USERNAME_RE = re.compile(r'^[a-zA-Z0-9._-]{1,64}$')
 
 
+# Flask ne sert plus aucun document HTML (les templates Jinja sont supprimés,
+# `grep render_template` est vide) : uniquement du JSON, des redirections et des
+# fichiers. Le 'unsafe-inline' et cdn.jsdelivr.net de l'ancienne UI serveur ne
+# servent donc plus à rien et n'ont pas à autoriser de script inline sur les
+# réponses relayées à travers le proxy Next (qui, lui, pose une CSP à nonce).
 _CSP = ("default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-        "font-src 'self' https://cdn.jsdelivr.net; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self'; "
         "img-src 'self' data:; connect-src 'self'; "
         "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 
@@ -110,7 +121,7 @@ LDAP_BIND_PW  = os.environ.get('LDAP_BIND_PW', '')
 # connexion : ajouter/retirer un utilisateur ne nécessite pas de redéploiement.
 DEBUG_LOGIN_FLAG  = '/app/data/DEBUG_LOGIN_ENABLED'
 DEBUG_USERS_FILE  = '/app/data/DEBUG_USERS.txt'
-DEBUG_ADMIN_USERNAMES = {u.strip() for u in os.environ.get('DEBUG_ADMIN_USERNAMES', 'mboitel').split(',') if u.strip()}
+DEBUG_ADMIN_USERNAMES = {u.strip() for u in os.environ.get('DEBUG_ADMIN_USERNAMES', '').split(',') if u.strip()}
 
 
 def _load_debug_users():
@@ -243,8 +254,8 @@ def maintenance_block_sse():
     messages d'erreur déjà affichés côté client (« Aucun modèle actif », etc.)."""
     if not maintenance_active() or session.get('is_admin'):
         return None
-    return Response(_sse_msg("Mode maintenance en cours — l'accès aux modèles est "
-                             "temporairement suspendu, réessaie plus tard."),
+    return Response(_sse_msg("Maintenance in progress — model access is temporarily "
+                             "suspended, please try again later."),
                     mimetype='text/event-stream')
 
 def maintenance_block_json():
@@ -1119,7 +1130,7 @@ def ocr_extract_stream(image_bytes, mime, instruction, on_done):
         with requests.post(f"{OCR_URL}/chat/completions",
                            json=body, stream=True, timeout=(10, 180)) as r:
             if not r.ok:
-                yield _sse_msg("OCR inaccessible.")
+                yield _sse_msg("OCR service unreachable.")
                 return
             for line in r.iter_lines():
                 if not line:
@@ -1136,7 +1147,7 @@ def ocr_extract_stream(image_bytes, mime, instruction, on_done):
                         except Exception:
                             pass
     except Exception:
-        yield _sse_msg("⚠ flux OCR interrompu.")
+        yield _sse_msg("⚠ OCR stream interrupted.")
     finally:
         on_done(''.join(full))
 
@@ -1513,12 +1524,24 @@ def _client_ip():
     Traefik et le bridge docker (voir cronos-docker-restrict.service), donc
     l'en-tête n'est pas falsifiable depuis l'extérieur.
     """
-    cf = (request.headers.get('Cf-Connecting-Ip') or '').strip()
+    # On ne fait confiance à l'en-tête que si sa valeur est une IP valide : sinon
+    # un client atteignant Traefik hors du chemin Cloudflare (LAN) pourrait poser
+    # un Cf-Connecting-Ip arbitraire (voire non-IP) à chaque tentative et repartir
+    # à zéro sur une clé de verrouillage différente, ou empoisonner les seaux de
+    # quota chat qui partagent la table login_attempts. Une valeur invalide est
+    # ignorée et on retombe sur l'adresse réelle de la connexion.
+    def _valid_ip(v):
+        try:
+            ipaddress.ip_address(v)
+            return v
+        except ValueError:
+            return None
+    cf = _valid_ip((request.headers.get('Cf-Connecting-Ip') or '').strip())
     if cf:
         return cf
-    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')
-    if fwd and fwd[0].strip():
-        return fwd[0].strip()
+    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+    if _valid_ip(fwd):
+        return fwd
     return request.remote_addr or 'unknown'
 
 
@@ -2413,13 +2436,13 @@ def _support_context(username, is_admin, user_msg=''):
     for row in db.execute("SELECT name, vllm_args, engine FROM model_configs ORDER BY name"):
         ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
         has_tools = '--tool-call-parser' in (row['vllm_args'] or '') or '--jinja' in (row['vllm_args'] or '')
-        flag = " [ACTIF]" if row['name'] in running else ""
+        flag = " [ACTIVE]" if row['name'] in running else ""
         cat.append("  - {}{} : contexte {}, tool-calling {}".format(
             row['name'], flag,
             f"{ctx:,}".replace(',', ' ') if ctx else "?",
             "oui" if has_tools else "non"))
     if cat:
-        lines.append("Catalogue des modèles (le [ACTIF] est celui chargé sur le GPU) :\n"
+        lines.append("Catalogue des modèles (le [ACTIVE] est celui chargé sur le GPU) :\n"
                      + "\n".join(cat))
     st = runner_status()
     lines.append("Runner vLLM : " + st.get('status', '?')
@@ -2729,6 +2752,18 @@ def _chat_rate_limited(username, bucket):
     return 0
 
 
+def media_rate_block():
+    """Garde de débit pour les endpoints GPU coûteux (vidéo/OCR/voix/dictée).
+    Aucun ne passe par une clé LiteLLM : le budget en tokens ne les plafonne
+    donc pas, et chacun retient un thread gunicorn jusqu'à 180 s tout en
+    saturant le GPU partagé. On borne le nombre d'appels par utilisateur, comme
+    pour le chat, via le même seau glissant."""
+    wait = _chat_rate_limited(session['username'], 'rl-media')
+    if wait:
+        return jsonify({'error': f"Trop de requêtes. Réessaie dans {wait} s."}), 429
+    return None
+
+
 def _sse_text(text):
     """Une trame SSE contenant un fragment de texte, telle quelle."""
     return f"data: {json.dumps({'choices': [{'delta': {'content': text}}]})}\n\n"
@@ -2755,7 +2790,7 @@ def support_chat():
     data = request.get_json(silent=True) or {}
     history = data.get('messages', [])
     if not isinstance(history, list) or not history:
-        return Response(_sse_msg("Message vide."), mimetype='text/event-stream'), 400
+        return Response(_sse_msg("Empty message."), mimetype='text/event-stream'), 400
     blocked = maintenance_block_sse()
     if blocked:
         return blocked
@@ -2767,9 +2802,9 @@ def support_chat():
                         mimetype='text/event-stream')
     running = get_running_models()
     if not running:
-        return Response(_sse_msg("Aucun modèle n'est actif sur le serveur pour l'instant : "
-                                 "je ne peux pas répondre. Préviens un admin ou réessaie une "
-                                 "fois un modèle lancé."), mimetype='text/event-stream')
+        return Response(_sse_msg("No model is running on the server right now, so I can't "
+                                 "answer. Ask an admin to start one, then try again."),
+                        mimetype='text/event-stream')
     model = running[0]
     username = session['username']
     fullname = session.get('fullname', username)
@@ -3041,7 +3076,7 @@ def playground_chat():
     history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:8000]}
                for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')][-20:]
     if not history:
-        return Response(_sse_msg("Message vide."), mimetype='text/event-stream')
+        return Response(_sse_msg("Empty message."), mimetype='text/event-stream')
     blocked = maintenance_block_sse()
     if blocked:
         return blocked
@@ -3051,7 +3086,7 @@ def playground_chat():
                         mimetype='text/event-stream')
     running = get_running_models()
     if not running:
-        return Response(_sse_msg("Aucun modèle actif."), mimetype='text/event-stream')
+        return Response(_sse_msg("No model is currently running."), mimetype='text/event-stream')
     model = data.get('model') if data.get('model') in running else running[0]
 
     # Réglages (bornés).
@@ -3070,8 +3105,8 @@ def playground_chat():
     # (partagée par le compte). LiteLLM applique donc le quota (429 si dépassé).
     keys = get_user_keys(session['username'])
     if not keys:
-        return Response(_sse_msg("Crée d'abord une clé API (page « Mes clés API ») — "
-                                 "le playground utilise ton budget de compte."),
+        return Response(_sse_msg("Create an API key first (My API keys page) — the "
+                                 "playground runs on your account budget."),
                         mimetype='text/event-stream')
     user_key = keys[0]['key']
     msgs = ([{'role': 'system', 'content': system}] if system else []) + history
@@ -3094,7 +3129,7 @@ def playground_chat():
                     if line:
                         yield line.decode('utf-8', 'replace') + "\n\n"
         except Exception:
-            yield _sse_msg("⚠ flux interrompu.")
+            yield _sse_msg("⚠ stream interrupted.")
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -4068,6 +4103,11 @@ def _unregister_litellm_model(name):
 def hf_engine_for(hf_id):
     """Interroge le Hub pour savoir si le modèle est en GGUF (→ llama.cpp) ou en
     safetensors (→ vLLM). En cas d'échec réseau, on retombe sur vLLM."""
+    # hf_id est interpolé dans l'URL : on le borne à la forme « org/nom » du Hub
+    # pour qu'aucune valeur ne puisse remonter le chemin (../) ni détourner la
+    # requête ailleurs dans l'API HF.
+    if not re.fullmatch(r'[\w.-]+/[\w.-]+', hf_id or ''):
+        return 'vllm'
     try:
         r = requests.get(f'https://huggingface.co/api/models/{hf_id}', timeout=6)
         if r.ok:
@@ -4154,6 +4194,9 @@ def api_video_generate():
     blocked = maintenance_block_json()
     if blocked:
         return blocked
+    limited = media_rate_block()
+    if limited:
+        return limited
     # Image optionnelle : absente → génération texte seul (T2V). Fournie mais
     # invalide (mauvais format/trop lourde) → toujours une erreur 400, comme
     # avant — seule l'ABSENCE totale du champ bascule en T2V.
@@ -4255,6 +4298,10 @@ def api_ocr_extract():
     blocked = maintenance_block_sse()
     if blocked:
         return blocked
+    wait = _chat_rate_limited(session['username'], 'rl-media')
+    if wait:
+        return Response(_sse_msg(f"Trop de requêtes. Réessaie dans {wait} s."),
+                        mimetype='text/event-stream'), 429
     data, err_or_mime = _read_uploaded_image()
     if data is None:
         return Response(_sse_msg(err_or_mime), mimetype='text/event-stream'), 400
@@ -4442,6 +4489,9 @@ def api_voice_generate():
     blocked = maintenance_block_json()
     if blocked:
         return blocked
+    limited = media_rate_block()
+    if limited:
+        return limited
     ref_bytes, err_or_mime = _read_uploaded_audio()
     if ref_bytes is None:
         return jsonify({'error': err_or_mime}), 400

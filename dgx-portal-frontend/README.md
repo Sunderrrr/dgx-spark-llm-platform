@@ -113,11 +113,15 @@ app/
 │   ├── playground/                # streaming chat against the active model
 │   ├── ocr/                       # OCR: upload/extract, streamed, bounding-box zone view
 │   ├── video/                     # video generation (MiniMax H3, text- or image-driven)
-│   ├── voice/                     # voice cloning (Chatterbox); mic recording or file upload,
-│   │                              #   audio served by Flask at /voice/audio/<job id>
+│   ├── voice/                     # voice cloning (Qwen3-TTS default, Chatterbox fallback);
+│   │                              #   mic recording or file upload; page adapts to the loaded
+│   │                              #   engine; audio served by Flask at /voice/audio/<job id>
 │   ├── support/                   # streaming chat with the Cronos assistant (tool-calling)
 │   ├── keys/, search/, ranking/, request/, admin/
-│   └── _components/SettingsDialog.tsx   # account/usage/keys/appearance/MCP/skills, incl. the language toggle
+│   └── _components/
+│       ├── SettingsDialog.tsx     # account/usage/keys/appearance/MCP/skills, incl. the language toggle
+│       └── DictateButton.tsx      # mic → transcription button, shown on Playground/Voice/Video
+├── api/transcribe/...            # (via Flask) speech-to-text for dictation, served by the ASR sidecar
 ├── api/ocr/extract/route.ts       # SSE proxy for the OCR multipart upload (see above)
 ├── playground/chat/route.ts       # SSE proxy (see above)
 ├── support/chat/route.ts          # SSE proxy
@@ -126,9 +130,11 @@ lib/
 ├── api.ts        # authFetch, getJSON, postForm, streamChat, streamSupportChat, streamOcr
 ├── sseProxy.ts   # shared proxySSE/proxySSEGet used by the route handlers above
 ├── i18n.tsx      # useT()/useLang() — see "UI conventions" above
-├── audioRecorder.ts   # mic capture for the Voice page: MediaRecorder emits WebM/Opus,
-│                      #   which Chatterbox rejects, so it decodes and re-encodes a
+├── audioRecorder.ts   # mic capture: MediaRecorder emits WebM/Opus, which neither the
+│                      #   voice models nor Whisper accept, so it decodes and re-encodes a
 │                      #   24 kHz mono WAV in-browser (no added dependency)
+├── useDictation.ts    # shared live-dictation hook (Playground/Voice/Video): polls the ASR
+│                      #   sidecar, re-transcribes the whole buffer, cancellable on send
 ├── useCsrf.ts
 ├── conversations.ts   # server-persisted Playground chat history (Flask /api/conversations,
 │                       #   /conversations); one-time migration from the old localStorage version

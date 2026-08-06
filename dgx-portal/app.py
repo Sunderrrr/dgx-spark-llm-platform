@@ -536,14 +536,19 @@ def get_ocr_model():
     if now - _ocr_model_cache['t'] < 5:
         return _ocr_model_cache['v']
     v = None
-    try:
-        r = requests.get(f"{OCR_URL}/models", timeout=3)
-        if r.ok:
-            data = r.json().get('data', [])
-            if data:
-                v = data[0]['id']
-    except Exception:
-        pass
+    # Ne PAS tenter l'appel HTTP si le conteneur ne tourne pas : le réseau
+    # sidecar DROP silencieusement les paquets vers un service absent, donc
+    # requests attendrait le timeout plein (~3 s) — c'est ce qui plombait la
+    # page admin quand OCR était arrêté. L'état process est mis en cache 5 s.
+    if _sidecar_proc_status('ocr') == 'running':
+        try:
+            r = requests.get(f"{OCR_URL}/models", timeout=3)
+            if r.ok:
+                data = r.json().get('data', [])
+                if data:
+                    v = data[0]['id']
+        except Exception:
+            pass
     _ocr_model_cache.update(t=now, v=v)
     return v
 
@@ -606,14 +611,17 @@ def get_voice_model():
     if now - _voice_model_cache['t'] < 5:
         return _voice_model_cache['v']
     v = None
-    try:
-        r = requests.get(f"{VOICE_URL}/api/model-info", timeout=3)
-        if r.ok:
-            data = r.json()
-            if data.get('loaded'):
-                v = data.get('type')
-    except Exception:
-        pass
+    # Même garde que get_ocr_model : pas d'appel HTTP si le conteneur voix est
+    # arrêté (sinon timeout plein de ~3 s, réseau sidecar en DROP).
+    if _sidecar_proc_status('voice') == 'running':
+        try:
+            r = requests.get(f"{VOICE_URL}/api/model-info", timeout=3)
+            if r.ok:
+                data = r.json()
+                if data.get('loaded'):
+                    v = data.get('type')
+        except Exception:
+            pass
     _voice_model_cache.update(t=now, v=v)
     return v
 
@@ -1230,13 +1238,20 @@ def _vllm_health_uncached():
     M = _METRIC_NAMES.get(engine, _METRIC_NAMES['vllm'])
     gen = _prom_sum(text, M['gen']) or 0.0
     now = time.time()
+    running_now = int(_prom_sum(text, M['running']) or 0)
     tps = None
     # Si le moteur publie sa propre vitesse (llama.cpp), on la prend directement.
     speed_metric = M.get('speed')
     if speed_metric:
-        v = _prom_sum(text, speed_metric)
-        # 0 = aucun slot en génération à l'instant du scrape → on affiche 0.
-        tps = round(v, 1) if v is not None else None
+        if running_now > 0:
+            # predicted_tokens_seconds est un GAUGE qui CONSERVE la vitesse de la
+            # dernière génération : au repos il resterait figé (« bloqué à 8 »).
+            # On ne l'affiche donc que s'il y a réellement une génération en cours,
+            # sinon 0 — c'est le débit instantané attendu sur l'accueil.
+            v = _prom_sum(text, speed_metric)
+            tps = round(v, 1) if v else 0.0
+        else:
+            tps = 0.0
     else:
         # vLLM : pas de métrique de vitesse instantanée → delta cumulé/temps.
         if _vllm_tps['t'] and now > _vllm_tps['t'] and gen >= _vllm_tps['gen']:

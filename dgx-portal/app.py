@@ -867,16 +867,22 @@ def _sidecar_status(kind):
     statut disait que la vidéo tournait alors qu'elle ne répondait pas
     encore). On vérifie donc en plus, en direct, que le service répond :
     get_ocr_model()/comfyui_is_up() tapent respectivement /v1/models et
-    /system_stats, qui ne répondent qu'une fois le chargement terminé."""
+    /system_stats, qui ne répondent qu'une fois le chargement terminé.
+
+    On teste l'état du CONTENEUR d'abord (rapide, mis en cache 5 s). S'il ne
+    tourne pas, inutile de sonder le service HTTP : le check partirait dans le
+    vide et attendrait son timeout (~3 s), ce qui plombait toute la page admin
+    quand un sidecar était arrêté. Le probe HTTP « répond-il déjà ? » n'a de
+    sens que si le conteneur est up, pour distinguer « starting » de « running »."""
+    proc = _sidecar_proc_status(kind)
+    if proc != 'running':
+        return proc
     ready = (get_ocr_model() is not None if kind == 'ocr'
              else comfyui_is_up() if kind == 'video'
              else get_voice_model() is not None if kind == 'voice'
              else asr_is_up() if kind == 'asr'
              else False)
-    if ready:
-        return 'running'
-    proc = _sidecar_proc_status(kind)
-    return 'starting' if proc == 'running' else proc
+    return 'running' if ready else 'starting'
 
 def _sidecar_action(kind, action):
     try:
@@ -1193,8 +1199,15 @@ _METRIC_NAMES = {
         'running':  'llamacpp:requests_processing',
         'waiting':  'llamacpp:requests_deferred',
         'requests': 'llamacpp:n_decode_total',
-        'ttft_sum': 'llamacpp:prompt_seconds_total',
-        'ttft_cnt': 'llamacpp:n_prompt_tokens_processed_total',
+        # llama.cpp expose directement sa vitesse de génération ; on l'utilise
+        # telle quelle au lieu d'un delta tokens/temps-horloge, qui surestime
+        # fortement (il divise un paquet de tokens par un court intervalle de
+        # scrape → « 57 tok/s » là où le moteur en fait 8,5).
+        'speed':    'llamacpp:predicted_tokens_seconds',
+        # Pas de vraie métrique TTFT côté llama.cpp → on laisse le champ vide
+        # (« — ») plutôt que d'afficher un nombre inventé.
+        'ttft_sum': None,
+        'ttft_cnt': None,
     },
 }
 
@@ -1218,11 +1231,21 @@ def _vllm_health_uncached():
     gen = _prom_sum(text, M['gen']) or 0.0
     now = time.time()
     tps = None
-    if _vllm_tps['t'] and now > _vllm_tps['t'] and gen >= _vllm_tps['gen']:
-        tps = (gen - _vllm_tps['gen']) / (now - _vllm_tps['t'])
+    # Si le moteur publie sa propre vitesse (llama.cpp), on la prend directement.
+    speed_metric = M.get('speed')
+    if speed_metric:
+        v = _prom_sum(text, speed_metric)
+        # 0 = aucun slot en génération à l'instant du scrape → on affiche 0.
+        tps = round(v, 1) if v is not None else None
+    else:
+        # vLLM : pas de métrique de vitesse instantanée → delta cumulé/temps.
+        if _vllm_tps['t'] and now > _vllm_tps['t'] and gen >= _vllm_tps['gen']:
+            tps = round((gen - _vllm_tps['gen']) / (now - _vllm_tps['t']), 1)
     _vllm_tps.update(t=now, gen=gen)
-    ttft_sum = _prom_sum(text, M['ttft_sum']) or 0.0
-    ttft_cnt = _prom_sum(text, M['ttft_cnt']) or 0.0
+    ttft_sum = _prom_sum(text, M['ttft_sum']) if M.get('ttft_sum') else 0.0
+    ttft_cnt = _prom_sum(text, M['ttft_cnt']) if M.get('ttft_cnt') else 0.0
+    ttft_sum = ttft_sum or 0.0
+    ttft_cnt = ttft_cnt or 0.0
     # Slots de génération concurrents du modèle actif (--max-num-seqs / --parallel)
     # → « X / N sessions occupées » sur l'accueil.
     max_seqs = None

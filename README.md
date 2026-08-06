@@ -253,19 +253,21 @@ env vars — key and endpoint pre-filled.
 
 ### Screenshots
 
-| Playground — in-browser streaming chat | Support — the Cronos assistant taking actions |
+| Playground — in-browser streaming chat (with dictation) | Support — the Cronos assistant, budget- and status-aware |
 |---|---|
 | ![Playground](assets/playground.png) | ![Support](assets/support.png) |
 
-| OCR — detected zones, drawn from the actual model output | Video generation — text- or image-driven, MiniMax H3 |
+| OCR — text extracted live from a scanned document | Voice cloning — zero-shot from a short sample (Qwen3-TTS) |
 |---|---|
-| ![OCR](assets/ocr.png) | ![Video](assets/video.png) |
+| ![OCR](assets/ocr.png) | ![Voice](assets/voice.png) |
+
+| Video generation — text- or image-driven, MiniMax H3 | Find a model — Hugging Face catalog search |
+|---|---|
+| ![Video](assets/video.png) | ![Find a model](assets/search.png) |
 
 ![My API keys — budget, keys and integration snippets](assets/keys.png)
 
-| Find a model — Hugging Face catalog search | Admin — models, quotas and requests |
-|---|---|
-| ![Find a model](assets/search.png) | ![Admin](assets/admin.png) |
+![Admin — one unified backend row (chat, OCR, video, voice, dictation), a type-filtered catalog, and live vLLM logs](assets/admin.png)
 
 ---
 
@@ -342,6 +344,21 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
   (immediate 200, no lookup) whenever maintenance mode is off, and when it's on it
   resolves the caller's API key to an account and only lets admin accounts through
   — everyone else gets Traefik's relayed 503 before the request ever reaches LiteLLM.
+- **Abuse & resource limits** (hardened after a multi-agent security review):
+  - GPU-heavy media routes (`/api/video/generate`, `/api/ocr/extract`,
+    `/api/voice/generate`) are rate-limited per account — none go through a
+    LiteLLM key, so token budgets don't cap them; a per-user sliding window does.
+  - Flask enforces `MAX_CONTENT_LENGTH` (16 MB) so an unauthenticated POST can't
+    stream gigabytes onto disk before the CSRF/auth checks run.
+  - The voice/ASR sidecars read the **audio header before decoding** (rejecting
+    out-of-range duration / sample-rate / channel counts) so a tiny crafted FLAC
+    can't decompress into tens of GB and trip the OOM killer on the shared
+    unified-memory pool; decoding and resampling run off the event loop, TTS text
+    and chunk length are hard-bounded, and generation runs under a GPU lock with
+    a wall-clock timeout.
+  - `Cf-Connecting-Ip` / `X-Forwarded-For` are validated as real IPs before being
+    trusted as a login-lockout key, and the Flask CSP served on proxied responses
+    was tightened to `script-src 'self'` (the old Jinja UI it loosened for is gone).
 
 ### Exposing the API publicly
 

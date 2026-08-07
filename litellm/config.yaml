@@ -38,7 +38,25 @@ general_settings:
   database_url: os.environ/DATABASE_URL
   store_model_in_db: true
 
+# Le proxy route via le Router LiteLLM : c'est ICI (pas dans litellm_settings)
+# que se règlent les retries et le timeout du routeur. num_retries: 0 évite
+# qu'une requête lente/coincée soit rejouée et saisisse des slots supplémentaires
+# sur le backend mono-instance (llama.cpp, 4 slots) jusqu'à tout bloquer.
+router_settings:
+  num_retries: 0
+  timeout: 300
+  allowed_fails: 100
+  cooldown_time: 5
+
 litellm_settings:
   drop_params: true
   default_max_budget: 2000000
   default_budget_duration: "1d"
+  # Anti « slots bloqués » : par défaut LiteLLM RÉESSAIE une requête qui
+  # échoue/pend — sur un modèle mono-backend lent (llama.cpp, 4 slots), chaque
+  # retry saisit un slot de plus, et quelques échecs suffisent à tout bloquer.
+  # On coupe les retries, et on borne la durée d'une requête (filet de sécurité :
+  # une requête vraiment coincée est abandonnée, ce qui ferme la connexion vers
+  # llama.cpp et libère le slot).
+  num_retries: 0
+  request_timeout: 300

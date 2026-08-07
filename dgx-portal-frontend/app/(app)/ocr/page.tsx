@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
+import { Markdown } from "@astryxdesign/core/Markdown";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
 import { FileInput } from "@astryxdesign/core/FileInput";
@@ -14,7 +15,6 @@ import { Item } from "@astryxdesign/core/Item";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { Badge } from "@astryxdesign/core/Badge";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { useToast } from "@astryxdesign/core/Toast";
 import {
@@ -86,6 +86,73 @@ function parseOcrBlocks(raw: string): OcrBlock[] {
   return raw.includes("data-bbox=") ? parseChandraBlocks(raw) : parseUnlimitedOcrBlocks(raw);
 }
 
+// ── HTML de chandra → Markdown ───────────────────────────────────────────────
+// chandra-ocr sort TOUJOURS du HTML (même quand on lui demande du Markdown : il
+// est fine-tuné pour ce format). Ce HTML est propre et limité à un jeu de tags
+// connu (h1-h5, table, ul/ol, p, b/i, math…), qu'on convertit ici en Markdown
+// GFM — les vrais tableaux inclus — pour un affichage lisible via <Markdown>.
+// On ne rend JAMAIS le HTML du modèle directement (une image piégée pourrait
+// contenir du <script>…) : on ne lit que tagName/textContent, jamais innerHTML.
+function tableToMarkdown(table: Element): string {
+  const rows = Array.from(table.querySelectorAll("tr"));
+  if (!rows.length) return "";
+  const cellsOf = (tr: Element) =>
+    Array.from(tr.children)
+      .filter((c) => c.tagName === "TD" || c.tagName === "TH")
+      .map((c) => (c.textContent || "").trim().replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " "));
+  const nCols = Math.max(...rows.map((r) => cellsOf(r).length), 1);
+  const pad = (arr: string[]) => { const a = [...arr]; while (a.length < nCols) a.push(""); return a; };
+  const lines = [
+    "| " + pad(cellsOf(rows[0])).join(" | ") + " |",
+    "| " + Array(nCols).fill("---").join(" | ") + " |",
+    ...rows.slice(1).map((r) => "| " + pad(cellsOf(r)).join(" | ") + " |"),
+  ];
+  return lines.join("\n");
+}
+
+function nodeToMarkdown(node: Node): string {
+  if (node.nodeType === 3 /* text */) return node.textContent || "";
+  if (node.nodeType !== 1 /* element */) return "";
+  const el = node as Element;
+  const inner = () => Array.from(el.childNodes).map(nodeToMarkdown).join("");
+  switch (el.tagName.toLowerCase()) {
+    case "h1": return `\n\n# ${inner().trim()}\n\n`;
+    case "h2": return `\n\n## ${inner().trim()}\n\n`;
+    case "h3": return `\n\n### ${inner().trim()}\n\n`;
+    case "h4": return `\n\n#### ${inner().trim()}\n\n`;
+    case "h5": case "h6": return `\n\n##### ${inner().trim()}\n\n`;
+    case "p": case "div": return `\n\n${inner().trim()}\n\n`;
+    case "br": return "  \n";
+    case "hr": return "\n\n---\n\n";
+    case "b": case "strong": return `**${inner().trim()}**`;
+    case "i": case "em": return `*${inner().trim()}*`;
+    case "del": return `~~${inner().trim()}~~`;
+    case "sup": return `^${inner().trim()}`;
+    case "sub": return `~${inner().trim()}`;
+    case "code": return `\`${el.textContent || ""}\``;
+    case "pre": return `\n\n\`\`\`\n${el.textContent || ""}\n\`\`\`\n\n`;
+    case "math": return `$${(el.textContent || "").trim()}$`;
+    case "chem": return `\`${(el.textContent || "").trim()}\``;
+    case "a": { const href = el.getAttribute("href"); return href ? `[${inner().trim()}](${href})` : inner(); }
+    case "img": { const alt = (el.getAttribute("alt") || el.textContent || "").trim(); return alt ? `\n\n*[Image : ${alt}]*\n\n` : ""; }
+    case "ul": return "\n\n" + Array.from(el.children).filter((c) => c.tagName === "LI").map((li) => `- ${nodeToMarkdown(li).trim()}`).join("\n") + "\n\n";
+    case "ol": return "\n\n" + Array.from(el.children).filter((c) => c.tagName === "LI").map((li, i) => `${i + 1}. ${nodeToMarkdown(li).trim()}`).join("\n") + "\n\n";
+    case "table": return `\n\n${tableToMarkdown(el)}\n\n`;
+    default: return inner();
+  }
+}
+
+/** Rend le résultat OCR en Markdown : HTML chandra converti (tableaux compris),
+ *  ou simple texte pour les modèles ligne-à-ligne (Unlimited-OCR). */
+function ocrToMarkdown(raw: string, blocks: OcrBlock[]): string {
+  if (!raw) return "";
+  if (raw.includes("data-bbox=")) {
+    const doc = new DOMParser().parseFromString(raw, "text/html");
+    return Array.from(doc.body.childNodes).map(nodeToMarkdown).join("").replace(/\n{3,}/g, "\n\n").trim();
+  }
+  return blocks.map((b) => b.text).filter(Boolean).join("\n\n");
+}
+
 /** Aperçu court pour l'historique : texte lisible, jamais le HTML/les coordonnées brutes. */
 function ocrPreviewText(raw: string): string {
   return parseOcrBlocks(raw)
@@ -95,17 +162,6 @@ function ocrPreviewText(raw: string): string {
     .slice(0, 80);
 }
 
-const LABEL_BADGE: Record<string, "purple" | "blue" | "teal" | "orange" | undefined> = {
-  title: "purple",
-  "section-header": "purple",
-  header: "blue",
-  "page-header": "blue",
-  table: "teal",
-  "table-of-contents": "teal",
-  image: "orange",
-  figure: "orange",
-  diagram: "orange",
-};
 const LABEL_COLOR: Record<string, string> = {
   title: "#a855f7",
   "section-header": "#a855f7",
@@ -153,6 +209,7 @@ export default function OcrPage() {
 
   const blocks = useMemo(() => parseOcrBlocks(text), [text]);
   const boxedBlocks = useMemo(() => blocks.filter((b) => b.coords), [blocks]);
+  const markdown = useMemo(() => ocrToMarkdown(text, blocks), [text, blocks]);
 
   function loadHistory() {
     fetch("/api/ocr/history", { credentials: "include" })
@@ -196,7 +253,8 @@ export default function OcrPage() {
   }
 
   function copyResult() {
-    navigator.clipboard.writeText(text).then(() => showToast({ body: t("Copié."), type: "info" }));
+    // On copie le Markdown (lisible, tableaux inclus), pas le HTML brut du modèle.
+    navigator.clipboard.writeText(markdown || text).then(() => showToast({ body: t("Copié."), type: "info" }));
   }
 
   return (
@@ -363,28 +421,16 @@ export default function OcrPage() {
                             );
                           })}
                         </div>
+                      ) : markdown ? (
+                        // Résultat rendu en Markdown : titres, listes et surtout
+                        // les TABLEAUX détectés (convertis en tableaux GFM). Le
+                        // composant gère aussi le flux partiel pendant l'extraction.
+                        <Markdown isStreaming={isLoading}>{markdown}</Markdown>
                       ) : (
-                        <VStack gap={3}>
-                          {blocks.map((b, i) =>
-                            !b.text ? (
-                              <HStack key={i} gap={2} vAlign="center">
-                                <Icon icon={PhotoIcon} size="sm" />
-                                <Text type="supporting" color="secondary">
-                                  {b.label ? `${b.label} ${t("détecté(e)")}` : t("Élément détecté")}
-                                </Text>
-                              </HStack>
-                            ) : b.label ? (
-                              <VStack key={i} gap={1}>
-                                {LABEL_BADGE[b.label] ? (
-                                  <Badge label={b.label} variant={LABEL_BADGE[b.label]} />
-                                ) : null}
-                                <Text>{b.text}</Text>
-                              </VStack>
-                            ) : (
-                              <Text key={i}>{b.text}</Text>
-                            ),
-                          )}
-                        </VStack>
+                        <HStack gap={2} vAlign="center">
+                          <Icon icon={PhotoIcon} size="sm" />
+                          <Text type="supporting" color="secondary">{t("Élément détecté")}</Text>
+                        </HStack>
                       )}
                     </VStack>
                   </Card>

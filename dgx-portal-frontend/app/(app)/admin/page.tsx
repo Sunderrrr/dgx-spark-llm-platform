@@ -32,7 +32,7 @@ import {
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { getJSON, postForm, ForbiddenError } from "@/lib/api";
+import { getJSON, postFormJSON, ForbiddenError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 type ModelCfg = { id: number; name: string; hf_model_id: string; engine: string; vllm_args: string };
@@ -142,8 +142,18 @@ export default function AdminPage() {
 
   async function act(url: string, params: Record<string, string> = {}) {
     if (!csrf) return;
-    await postForm(url, csrf, params);
-    showToast({ body: t("Action effectuée."), type: "info" });
+    // Certaines routes (démarrage des sidecars) renvoient { ok, error } avec un
+    // statut non-2xx en cas de refus (mémoire insuffisante, etc.). On lit ce
+    // résultat au lieu d'afficher « fait » systématiquement — le vrai bug qui
+    // faisait croire qu'un lancement OCR/vidéo avait réussi alors qu'il OOMait.
+    let errMsg: string | null = null;
+    try {
+      const res = await postFormJSON<{ ok?: boolean; error?: string }>(url, csrf, params);
+      if (res && res.ok === false) errMsg = res.error || t("Échec de l'action.");
+    } catch {
+      // Réponse non-JSON (anciennes routes en redirect) → considéré comme OK.
+    }
+    showToast(errMsg ? { body: errMsg, type: "error" } : { body: t("Action effectuée."), type: "info" });
     refresh();
   }
 

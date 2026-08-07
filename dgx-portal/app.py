@@ -892,6 +892,50 @@ def _sidecar_status(kind):
              else False)
     return 'running' if ready else 'starting'
 
+def _mem_available_gb():
+    """Mémoire réellement allouable (MemAvailable de /proc/meminfo), en Go.
+    Sur le GB10 la mémoire est unifiée : c'est aussi la marge disponible pour
+    charger un modèle sur le GPU."""
+    try:
+        with open('/proc/meminfo') as f:
+            for line in f:
+                if line.startswith('MemAvailable:'):
+                    return int(line.split()[1]) / 1024 / 1024
+    except Exception:
+        pass
+    return None
+
+# Mémoire approximative (Go, marge incluse) qu'un sidecar doit pouvoir allouer
+# pour charger son modèle. Sur mémoire unifiée, un sidecar qui déborde ne se
+# contente pas d'échouer : l'OOM killer tue le plus gros process — le modèle de
+# chat — et toute la plateforme tombe. D'où ce garde-fou AVANT de démarrer.
+# OCR/voix/dictée chargent un modèle puis restent stables → seuil = poids + petite
+# marge. La vidéo (ComfyUI) fait en plus des PICS mémoire pendant la génération →
+# seuil plus élevé pour garder un vrai coussin. La mémoire du modèle de chat est,
+# elle, figée à son lancement (KV pré-alloué), donc une fois un sidecar chargé
+# l'ensemble est stable — c'est ce qui rend ces seuils fiables.
+_SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5}
+
+def _mem_guard(kind):
+    """Retourne un message d'erreur si démarrer `kind` risque un OOM, sinon None."""
+    need = _SIDECAR_MEM_NEED_GB.get(kind)
+    if not need:
+        return None
+    avail = _mem_available_gb()
+    if avail is not None and avail < need:
+        return (f"Mémoire insuffisante pour démarrer {kind} : {avail:.0f} Go libres, "
+                f"~{need} Go requis. Arrête un autre backend, ou réduis le contexte du "
+                f"modèle de chat, puis réessaie.")
+    return None
+
+def _sidecar_start_json(kind):
+    """Démarre un sidecar avec garde-fou mémoire, réponse JSON pour le frontend."""
+    err = _mem_guard(kind)
+    if err:
+        return jsonify({'ok': False, 'error': err}), 507
+    ok = _sidecar_action(kind, 'start')
+    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec du démarrage {kind}."}), (200 if ok else 502)
+
 def _sidecar_action(kind, action):
     try:
         r = requests.post(f"{RUNNER_URL}/{kind}/{action}", headers=_runner_headers(), timeout=30)
@@ -3737,9 +3781,7 @@ def stop_model():
 @app.route('/admin/ocr/start', methods=['POST'])
 @admin_required
 def start_ocr():
-    ok = _sidecar_action('ocr', 'start')
-    flash("OCR démarré." if ok else "Échec du démarrage OCR.", "success" if ok else "danger")
-    return redirect(url_for('admin'))
+    return _sidecar_start_json('ocr')
 
 @app.route('/admin/ocr/stop', methods=['POST'])
 @admin_required
@@ -3751,9 +3793,7 @@ def stop_ocr():
 @app.route('/admin/video/start', methods=['POST'])
 @admin_required
 def start_video():
-    ok = _sidecar_action('video', 'start')
-    flash("Vidéo démarrée." if ok else "Échec du démarrage vidéo.", "success" if ok else "danger")
-    return redirect(url_for('admin'))
+    return _sidecar_start_json('video')
 
 @app.route('/admin/video/stop', methods=['POST'])
 @admin_required
@@ -3796,19 +3836,19 @@ def launch_ocr_cfg():
     name = request.form.get('ocr_name', '').strip()
     cfg = get_db().execute("SELECT * FROM ocr_configs WHERE name=?", (name,)).fetchone()
     if not cfg:
-        flash("Modèle OCR introuvable.", "danger")
-        return redirect(url_for('admin'))
+        return jsonify({'ok': False, 'error': "Modèle OCR introuvable."}), 404
+    # Même garde-fou mémoire que le démarrage simple : recréer le conteneur OCR
+    # avec un modèle alloue autant de mémoire, et un OOM tuerait le chat.
+    err = _mem_guard('ocr')
+    if err:
+        return jsonify({'ok': False, 'error': err}), 507
     ok, detail = _ocr_launch(cfg['hf_model_id'], cfg['vllm_args'] or '')
-    flash(f"Relance OCR avec {name} en cours…" if ok else f"Échec de la relance OCR : {detail}",
-          "success" if ok else "danger")
-    return redirect(url_for('admin'))
+    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance OCR : {detail}"}), (200 if ok else 502)
 
 @app.route('/admin/voice/start', methods=['POST'])
 @admin_required
 def start_voice():
-    ok = _sidecar_action('voice', 'start')
-    flash("Voix démarrée." if ok else "Échec du démarrage voix.", "success" if ok else "danger")
-    return redirect(url_for('admin'))
+    return _sidecar_start_json('voice')
 
 @app.route('/admin/voice/stop', methods=['POST'])
 @admin_required
@@ -3820,9 +3860,7 @@ def stop_voice():
 @app.route('/admin/asr/start', methods=['POST'])
 @admin_required
 def start_asr():
-    ok = _sidecar_action('asr', 'start')
-    flash("Dictée démarrée." if ok else "Échec du démarrage de la dictée.", "success" if ok else "danger")
-    return redirect(url_for('admin'))
+    return _sidecar_start_json('asr')
 
 @app.route('/admin/asr/stop', methods=['POST'])
 @admin_required

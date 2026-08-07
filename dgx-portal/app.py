@@ -3195,13 +3195,19 @@ def playground_chat():
 
     def gen():
         try:
+            # timeout de LECTURE (2e valeur) = anti-slot-bloqué : si aucun octet
+            # n'arrive pendant 120 s (requête coincée en file derrière des slots
+            # saturés, ou modèle bloqué), on lève une exception, le `with` ferme
+            # la connexion, LiteLLM ferme la sienne vers llama.cpp, et le slot est
+            # libéré. Une génération NORMALE envoie des tokens en continu (bien
+            # plus souvent que toutes les 120 s), elle n'est donc jamais coupée.
             with requests.post(f"{LITELLM_URL}/v1/chat/completions",
                                headers={'Authorization': f'Bearer {user_key}'},
                                json={'model': model, 'messages': msgs, 'stream': True,
                                      'temperature': temperature, 'max_tokens': max_tokens, 'top_p': top_p,
                                      'stream_options': {'include_usage': True},
                                      'chat_template_kwargs': {'enable_thinking': reasoning}},
-                               stream=True, timeout=(10, None)) as r:
+                               stream=True, timeout=(10, 120)) as r:
                 if not r.ok:
                     msg = ("Budget de compte dépassé — attends le reset quotidien ou demande plus de tokens."
                            if r.status_code == 429 else f"Erreur modèle ({r.status_code}).")

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { Card } from "@astryxdesign/core/Card";
 import { Text } from "@astryxdesign/core/Text";
-import { Heading } from "@astryxdesign/core/Heading";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Button } from "@astryxdesign/core/Button";
@@ -117,12 +116,9 @@ export function UsersSection({ csrf }: { csrf: string }) {
 
   return (
     <VStack gap={4}>
-      <VStack gap={1}>
-        <Heading level={2}>{t("Utilisateurs")}</Heading>
-        <Text type="supporting" color="secondary">
-          {t("Comptes locaux gérés ici (mots de passe hachés). Le quota vient de la surcharge de l'utilisateur, sinon du groupe, sinon du défaut global.")}
-        </Text>
-      </VStack>
+      <Text type="supporting" color="secondary">
+        {t("Comptes locaux gérés ici (mots de passe hachés). Le quota vient de la surcharge de l'utilisateur, sinon du groupe, sinon du défaut global.")}
+      </Text>
 
       <Card>
         <VStack gap={3}>

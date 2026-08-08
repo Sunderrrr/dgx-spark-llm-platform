@@ -15,18 +15,32 @@ import { getJSON, postFormJSON } from "@/lib/api";
 import { useT, useLang } from "@/lib/i18n";
 
 type LocalUser = {
-  id: number;
   username: string;
   fullname: string | null;
-  is_admin: number;
+  sources: string[];
+  managed: boolean;
+  id: number | null;
   group_name: string | null;
-  max_budget: number | null;
   enabled: number;
-  effective_budget: number;
-  effective_admin: boolean;
+  is_admin: number | null;
+  effective_admin: boolean | null;
+  effective_budget: number | null;
+  unlimited: boolean;
+  spend: number;
+  key_count: number;
+  last_seen: string | null;
 };
 type Group = { name: string; max_budget: number | null; is_admin: number };
 type UsersData = { users: LocalUser[]; groups: Group[]; default_budget: number };
+
+// Tags de catégorie (source d'auth) → variants couleur non-sémantiques.
+const SOURCE_META: Record<string, { label: string; variant: "green" | "orange" | "blue" | "purple" | "neutral" }> = {
+  local: { label: "Local", variant: "green" },
+  debug: { label: "Debug", variant: "orange" },
+  ldap: { label: "LDAP", variant: "blue" },
+  sso: { label: "SSO", variant: "purple" },
+  externe: { label: "Externe", variant: "neutral" },
+};
 
 const BOOL_OPTS = (t: (s: string) => string) => [
   { label: t("Non"), value: "0" },
@@ -89,16 +103,27 @@ export function UsersSection({ csrf }: { csrf: string }) {
           {u.fullname ? <Text type="supporting" color="secondary">{u.fullname}</Text> : null}
         </VStack>
       ) },
-    { key: "group_name", header: t("Groupe"), renderCell: (u) => u.group_name || "—" },
-    { key: "effective_budget", header: t("Quota / j"), renderCell: (u) => (
-        <Text hasTabularNumbers>{fmtBudget(u.effective_budget)}{u.max_budget == null ? ` (${t("hérité")})` : ""}</Text>
+    { key: "sources", header: t("Source"), renderCell: (u) => (
+        <HStack gap={1} wrap="wrap">
+          {(u.sources.length ? u.sources : ["externe"]).map((s) => {
+            const m = SOURCE_META[s] ?? { label: s, variant: "neutral" as const };
+            return <Badge key={s} label={t(m.label)} variant={m.variant} />;
+          })}
+        </HStack>
       ) },
+    { key: "group_name", header: t("Groupe"), renderCell: (u) => u.group_name || "—" },
+    { key: "effective_budget", header: t("Quota / j"), renderCell: (u) =>
+        u.unlimited ? <Text color="secondary">{t("Illimité")}</Text>
+        : u.effective_budget != null ? <Text hasTabularNumbers>{fmtBudget(u.effective_budget)}</Text>
+        : <Text color="secondary">—</Text> },
     { key: "effective_admin", header: t("Admin"), renderCell: (u) =>
         u.effective_admin ? <Badge label={t("Admin")} variant="warning" /> : <Text color="secondary">—</Text> },
     { key: "enabled", header: t("Statut"), renderCell: (u) =>
-        u.enabled ? <Badge label={t("Actif")} variant="success" /> : <Badge label={t("Désactivé")} variant="neutral" /> },
-    { key: "id", header: t("Actions"), renderCell: (u) => (
-        <HStack gap={1}>
+        !u.managed ? <Text color="secondary">—</Text>
+        : u.enabled ? <Badge label={t("Actif")} variant="success" /> : <Badge label={t("Désactivé")} variant="neutral" /> },
+    { key: "id", header: t("Actions"), renderCell: (u) =>
+        !u.managed ? <Text type="supporting" color="secondary">{t("Géré à l'extérieur")}</Text> : (
+        <HStack gap={1} wrap="wrap">
           <Button label={u.enabled ? t("Désactiver") : t("Activer")} variant="ghost" size="sm"
             onClick={() => act(`/admin/users/update/${u.id}`, { enabled: u.enabled ? "0" : "1" })} />
           <Button label={u.is_admin ? t("Retirer admin") : t("Rendre admin")} variant="ghost" size="sm"

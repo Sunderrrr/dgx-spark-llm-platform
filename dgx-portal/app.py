@@ -445,6 +445,14 @@ def init_db():
         _jc = {r[1] for r in db.execute(f"PRAGMA table_info({_tbl})")}
         if 'duration_ms' not in _jc:
             db.execute(f"ALTER TABLE {_tbl} ADD COLUMN duration_ms INTEGER")
+    # Métriques enrichies : durée de l'audio produit (facteur temps réel voix)
+    # et durée demandée de la vidéo (secondes générées, facteur temps réel vidéo).
+    _vj = {r[1] for r in db.execute("PRAGMA table_info(voice_jobs)")}
+    if 'audio_ms' not in _vj:
+        db.execute("ALTER TABLE voice_jobs ADD COLUMN audio_ms INTEGER")
+    _vd = {r[1] for r in db.execute("PRAGMA table_info(video_jobs)")}
+    if 'req_duration_s' not in _vd:
+        db.execute("ALTER TABLE video_jobs ADD COLUMN req_duration_s INTEGER")
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
         ('default_key_budget', str(KEY_BUDGET))
@@ -1877,14 +1885,42 @@ def _sidecar_metrics(kind):
     today = datetime.now().strftime('%Y-%m-%d')
     count_today = db.execute(f"SELECT COUNT(*) FROM {tbl} WHERE created_at >= ?", (today,)).fetchone()[0]
     total = db.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
-    avg_ms = db.execute(
-        f"SELECT AVG(duration_ms) FROM (SELECT duration_ms FROM {tbl} "
-        "WHERE duration_ms IS NOT NULL ORDER BY id DESC LIMIT 20)").fetchone()[0]
-    last = db.execute(
-        f"SELECT duration_ms FROM {tbl} WHERE duration_ms IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
-    return {'count_today': count_today, 'total': total,
-            'avg_ms': round(avg_ms) if avg_ms else None,
-            'last_ms': last['duration_ms'] if last else None}
+    # 20 derniers jobs qui portent une durée : base des moyennes (temps, débits).
+    recent = db.execute(
+        f"SELECT * FROM {tbl} WHERE duration_ms IS NOT NULL ORDER BY id DESC LIMIT 20").fetchall()
+    durs = [r['duration_ms'] for r in recent if r['duration_ms']]
+    m = {'count_today': count_today, 'total': total,
+         'avg_ms': round(sum(durs) / len(durs)) if durs else None,
+         'last_ms': durs[0] if durs else None}
+
+    def _avg(vals):
+        vals = [v for v in vals if v is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    if kind in ('ocr', 'voice'):
+        cps = _avg([len(r['text']) * 1000.0 / r['duration_ms']
+                    for r in recent if r['duration_ms'] and r['text']])
+        m['chars_per_s'] = round(cps) if cps else None
+    if kind == 'ocr':
+        m['chars_avg'] = round(sum(len(r['text']) for r in recent) / len(recent)) if recent else None
+    if kind == 'voice':
+        # Facteur temps réel : secondes d'audio produites / secondes de calcul.
+        rtf = _avg([r['audio_ms'] * 1.0 / r['duration_ms']
+                    for r in recent if r['audio_ms'] and r['duration_ms']])
+        m['rtf'] = round(rtf, 1) if rtf else None
+    if kind == 'video':
+        fin = {r['status']: r['c'] for r in db.execute(
+            f"SELECT status, COUNT(*) c FROM {tbl} WHERE status IN ('done','error') GROUP BY status")}
+        finished = fin.get('done', 0) + fin.get('error', 0)
+        m['success_rate'] = round(100 * fin.get('done', 0) / finished) if finished else None
+        m['video_secs_today'] = db.execute(
+            f"SELECT SUM(req_duration_s) FROM {tbl} WHERE created_at >= ? AND req_duration_s IS NOT NULL",
+            (today,)).fetchone()[0]
+        # Secondes de calcul par seconde de vidéo produite (facteur temps réel).
+        gpv = _avg([(r['duration_ms'] / 1000.0) / r['req_duration_s']
+                    for r in recent if r['req_duration_s'] and r['duration_ms']])
+        m['gen_per_vsec'] = round(gpv, 1) if gpv else None
+    return m
 
 
 def _index_data():
@@ -4333,8 +4369,8 @@ def api_video_generate():
     if not prompt_id:
         return jsonify({'error': "ComfyUI inaccessible ou requête refusée."}), 502
     db = get_db()
-    db.execute("INSERT INTO video_jobs (username, prompt_id, prompt, created_at) VALUES (?,?,?,?)",
-               (session['username'], prompt_id, prompt_text, datetime.now().isoformat()))
+    db.execute("INSERT INTO video_jobs (username, prompt_id, prompt, created_at, req_duration_s) VALUES (?,?,?,?,?)",
+               (session['username'], prompt_id, prompt_text, datetime.now().isoformat(), int(duration)))
     # Ne garde que les VIDEO_HISTORY_LIMIT plus récents par utilisateur.
     db.execute("""DELETE FROM video_jobs WHERE username=? AND id NOT IN (
                      SELECT id FROM video_jobs WHERE username=?
@@ -4520,6 +4556,22 @@ _ALLOWED_AUDIO_TYPES = {'audio/wav', 'audio/x-wav', 'audio/mpeg', 'audio/mp3'}
 _VOICE_AUDIO_EXT = {'audio/wav': 'wav', 'audio/x-wav': 'wav',
                     'audio/mpeg': 'mp3', 'audio/mp3': 'mp3'}
 
+def _wav_duration_ms(audio_bytes):
+    """Durée (ms) d'un buffer audio WAV — le moteur voix renvoie du WAV. Sert au
+    facteur temps réel (audio produit / temps de génération). None si illisible
+    (moteur renvoyant un autre format), auquel cas le facteur est simplement omis."""
+    import io as _io
+    import wave as _wave
+    try:
+        with _wave.open(_io.BytesIO(audio_bytes), 'rb') as w:
+            frames, rate = w.getnframes(), w.getframerate()
+            if rate:
+                return int(frames * 1000 / rate)
+    except Exception:
+        pass
+    return None
+
+
 def _read_uploaded_audio(field='reference'):
     """Lit et valide l'échantillon vocal de référence. Retourne (bytes, mime)
     ou (None, message_erreur)."""
@@ -4645,14 +4697,15 @@ def api_voice_generate():
     if audio_bytes is None:
         return jsonify({'error': err}), 502
     duration_ms = int((time.time() - _t0) * 1000)  # temps de génération réel
+    audio_ms = _wav_duration_ms(audio_bytes)        # durée de l'audio produit (WAV)
     username = session['username']
     os.makedirs(VOICE_AUDIO_DIR, exist_ok=True)
     audio_filename = f"{secrets.token_hex(16)}.mp3"
     with open(os.path.join(VOICE_AUDIO_DIR, audio_filename), 'wb') as f:
         f.write(audio_bytes)
     db = get_db()
-    db.execute("INSERT INTO voice_jobs (username, text, audio_path, created_at, duration_ms) VALUES (?,?,?,?,?)",
-               (username, text, audio_filename, datetime.now().isoformat(), duration_ms))
+    db.execute("INSERT INTO voice_jobs (username, text, audio_path, created_at, duration_ms, audio_ms) VALUES (?,?,?,?,?,?)",
+               (username, text, audio_filename, datetime.now().isoformat(), duration_ms, audio_ms))
     # Ne garde que les VOICE_HISTORY_LIMIT plus récents par utilisateur — purge
     # aussi les fichiers audio correspondants, sinon VOICE_AUDIO_DIR grossit
     # indéfiniment (même raisonnement que OCR_IMAGES_DIR).

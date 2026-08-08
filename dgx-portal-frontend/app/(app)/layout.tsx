@@ -25,6 +25,7 @@ import {
   TrophyIcon,
   LifebuoyIcon,
   ShieldCheckIcon,
+  UsersIcon,
   SunIcon,
   MoonIcon,
   ArrowRightOnRectangleIcon,
@@ -83,7 +84,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const navItems = who?.is_admin
-    ? [...NAV_ITEMS, { href: "/admin", label: "Admin", icon: ShieldCheckIcon }]
+    ? [...NAV_ITEMS,
+       { href: "/users", label: "Utilisateurs", icon: UsersIcon },
+       { href: "/admin", label: "Admin", icon: ShieldCheckIcon }]
     : NAV_ITEMS;
 
   useEffect(() => {

@@ -56,7 +56,18 @@ interface ModelRequest extends Record<string, unknown> {
 
 type RunningModel = { name: string; kind: "chat" | "ocr" | "video" | "voice"; exposed: boolean };
 
-type SidecarMetric = { count_today: number; total: number; avg_ms: number | null; last_ms: number | null };
+type SidecarMetric = {
+  count_today: number;
+  total: number;
+  avg_ms: number | null;
+  last_ms: number | null;
+  chars_per_s?: number | null;   // ocr + voice : débit de caractères
+  chars_avg?: number | null;      // ocr : densité (caractères / document)
+  rtf?: number | null;            // voice : facteur temps réel (×N)
+  success_rate?: number | null;   // video : % de réussite
+  video_secs_today?: number | null; // video : secondes de vidéo générées aujourd'hui
+  gen_per_vsec?: number | null;   // video : s de calcul par s de vidéo
+};
 
 // ms → durée lisible : « 850 ms », « 4.2 s », « 3 min 12 s ».
 function fmtDur(ms: number): string {
@@ -65,6 +76,32 @@ function fmtDur(ms: number): string {
   if (s < 60) return `${s.toFixed(1)} s`;
   const m = Math.floor(s / 60);
   return `${m} min ${Math.round(s % 60).toString().padStart(2, "0")} s`;
+}
+
+// Lignes de métriques [label, valeur] d'un backend média, dans l'ordre d'intérêt.
+function sidecarLines(
+  kind: "ocr" | "video" | "voice",
+  sm: SidecarMetric,
+  t: (s: string) => string,
+): [string, string][] {
+  const num = (n: number) => n.toLocaleString();
+  const lines: [string, string][] = [[t("Aujourd'hui"), num(sm.count_today)]];
+  if (kind === "ocr") {
+    if (sm.chars_per_s != null) lines.push([t("Débit"), `≈ ${num(sm.chars_per_s)} c/s`]);
+    if (sm.chars_avg != null) lines.push([t("Caractères/doc"), num(sm.chars_avg)]);
+    if (sm.avg_ms != null) lines.push([t("Extraction moy."), fmtDur(sm.avg_ms)]);
+  } else if (kind === "voice") {
+    if (sm.rtf != null) lines.push([t("Facteur temps réel"), `×${sm.rtf}`]);
+    if (sm.chars_per_s != null) lines.push([t("Vitesse de synthèse"), `≈ ${num(sm.chars_per_s)} c/s`]);
+    if (sm.avg_ms != null) lines.push([t("Génération moy."), fmtDur(sm.avg_ms)]);
+  } else {
+    if (sm.success_rate != null) lines.push([t("Taux de réussite"), `${sm.success_rate} %`]);
+    if (sm.video_secs_today != null) lines.push([t("Vidéo générée auj."), `${num(sm.video_secs_today)} s`]);
+    if (sm.gen_per_vsec != null) lines.push([t("Calcul / s de vidéo"), `${sm.gen_per_vsec}×`]);
+    if (sm.avg_ms != null) lines.push([t("Génération moy."), fmtDur(sm.avg_ms)]);
+  }
+  if (sm.last_ms != null) lines.push([t("Dernière"), fmtDur(sm.last_ms)]);
+  return lines;
 }
 
 type HomeData = {
@@ -182,32 +219,12 @@ export default function HomePage() {
                             </Text>
                             {m.kind !== "chat" && data.sidecar_metrics?.[m.kind] && (
                               <VStack gap={1}>
-                                <HStack hAlign="between" vAlign="center">
-                                  <Text type="supporting" color="secondary">{t("Aujourd'hui")}</Text>
-                                  <Text type="supporting" weight="semibold" hasTabularNumbers>
-                                    {data.sidecar_metrics[m.kind]!.count_today}
-                                  </Text>
-                                </HStack>
-                                {data.sidecar_metrics[m.kind]!.avg_ms != null && (
-                                  <HStack hAlign="between" vAlign="center">
-                                    <Text type="supporting" color="secondary">
-                                      {m.kind === "video" ? t("Génération moy.")
-                                        : m.kind === "ocr" ? t("Extraction moy.")
-                                        : t("Génération moy.")}
-                                    </Text>
-                                    <Text type="supporting" weight="semibold" hasTabularNumbers>
-                                      {fmtDur(data.sidecar_metrics[m.kind]!.avg_ms!)}
-                                    </Text>
+                                {sidecarLines(m.kind, data.sidecar_metrics[m.kind]!, t).map(([label, value]) => (
+                                  <HStack key={label} hAlign="between" vAlign="center">
+                                    <Text type="supporting" color="secondary">{label}</Text>
+                                    <Text type="supporting" weight="semibold" hasTabularNumbers>{value}</Text>
                                   </HStack>
-                                )}
-                                {data.sidecar_metrics[m.kind]!.last_ms != null && (
-                                  <HStack hAlign="between" vAlign="center">
-                                    <Text type="supporting" color="secondary">{t("Dernière")}</Text>
-                                    <Text type="supporting" weight="semibold" hasTabularNumbers>
-                                      {fmtDur(data.sidecar_metrics[m.kind]!.last_ms!)}
-                                    </Text>
-                                  </HStack>
-                                )}
+                                ))}
                               </VStack>
                             )}
                             <Button

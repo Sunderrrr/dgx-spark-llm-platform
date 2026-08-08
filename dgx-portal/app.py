@@ -476,6 +476,16 @@ def init_db():
             enabled       INTEGER NOT NULL DEFAULT 1,
             created_at    TEXT NOT NULL
         );
+        -- Source(s) d'authentification observées par utilisateur (local/debug/
+        -- ldap/sso), enregistrées à chaque login. Permet de savoir COMMENT chaque
+        -- compte se connecte, y compris les cumuls (ex. LDAP + SSO).
+        CREATE TABLE IF NOT EXISTS user_sources (
+            username   TEXT PRIMARY KEY,
+            sources    TEXT NOT NULL DEFAULT '',
+            fullname   TEXT,
+            last_source TEXT,
+            last_seen  TEXT
+        );
     ''')
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
@@ -1703,6 +1713,27 @@ def _sync_local_user_budget(username, row):
     except Exception:
         pass
 
+def _record_user_source(username, source, fullname=None):
+    """Mémorise qu'un utilisateur s'est connecté via `source` (local/debug/ldap/
+    sso). Cumulatif : un compte présent en LDAP ET en SSO finit avec les deux.
+    Alimente la vue admin « Utilisateurs » (colonne Source)."""
+    try:
+        db = get_db()
+        row = db.execute("SELECT sources FROM user_sources WHERE username=?", (username,)).fetchone()
+        srcs = set((row['sources'] or '').split(',')) if row else set()
+        srcs.discard('')
+        srcs.add(source)
+        now = datetime.now().isoformat()
+        db.execute(
+            "INSERT INTO user_sources (username, sources, fullname, last_source, last_seen) "
+            "VALUES (?,?,?,?,?) ON CONFLICT(username) DO UPDATE SET "
+            "sources=excluded.sources, fullname=COALESCE(excluded.fullname, user_sources.fullname), "
+            "last_source=excluded.last_source, last_seen=excluded.last_seen",
+            (username, ','.join(sorted(srcs)), fullname, source, now))
+        db.commit()
+    except Exception:
+        pass
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -1734,6 +1765,7 @@ def login():
                 fullname = _debug_user_fullname(username)
                 app.logger.warning('Connexion de secours (LDAP indisponible) : %s depuis %s (admin=%s)',
                                    username, ip, is_admin)
+                _record_user_source(username, 'debug', fullname)
                 _apply_session(username, fullname, is_admin, via_sso=False)
                 return redirect(_safe_next(request.args.get('next')))
         # Comptes locaux gérés par l'admin (table local_users, hachés) — vérifiés
@@ -1741,11 +1773,13 @@ def login():
         l_ok, l_admin, l_name = _local_user_auth(username, password)
         if l_ok:
             _login_reset(key); _login_reset(ip)
+            _record_user_source(username, 'local', l_name)
             _apply_session(username, l_name, l_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
             _login_reset(key); _login_reset(ip)
+            _record_user_source(username, 'ldap', fullname)
             _apply_session(username, fullname, is_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
         _login_fail(key); _login_fail(ip)
@@ -1925,6 +1959,7 @@ def oauth_callback():
         is_admin = ldap_lookup_admin(username)
 
     nxt = session.pop('sso_next', None)
+    _record_user_source(username, 'sso', fullname)
     _apply_session(username, fullname, is_admin, via_sso=True)
     return redirect(_safe_next(nxt))
 
@@ -4144,18 +4179,53 @@ def _parse_budget(raw):
 @app.route('/api/admin/users')
 @admin_required
 def api_admin_users():
+    """Vue UNIFIÉE de tous les comptes connus, avec leur(s) source(s) :
+      - local  : compte géré ici (table local_users, actions d'édition)
+      - debug  : présent dans DEBUG_USERS.txt (bypass local en clair)
+      - ldap   : s'est déjà connecté via LDAP
+      - sso    : s'est déjà connecté via SSO/Authentik
+    Un même compte peut cumuler plusieurs sources (ex. ldap + sso). Les comptes
+    qui ont utilisé la plateforme (clés/budget LiteLLM) mais dont on n'a pas
+    encore observé la connexion depuis cet ajout apparaissent en « externe »."""
     db = get_db()
-    users = db.execute(
-        "SELECT id, username, fullname, is_admin, group_name, max_budget, enabled, created_at "
-        "FROM local_users ORDER BY username").fetchall()
-    groups = db.execute(
-        "SELECT name, max_budget, is_admin FROM user_groups ORDER BY name").fetchall()
+    managed = {u['username']: u for u in db.execute("SELECT * FROM local_users").fetchall()}
+    debug_users = set(_load_debug_users().keys()) if os.path.exists(DEBUG_LOGIN_FLAG) else set()
+    recorded = {r['username']: r for r in db.execute("SELECT * FROM user_sources").fetchall()}
+    spend = {s['username']: s for s in (admin_get_user_consumption() or [])}
+
+    names = set(managed) | set(debug_users) | set(recorded) | set(spend)
     out = []
-    for u in users:
-        d = dict(u)
-        d['effective_budget'] = _local_user_effective_budget(u)
-        d['effective_admin'] = _local_user_is_admin(u)
-        out.append(d)
+    for name in sorted(names):
+        srcs = set()
+        if name in managed:
+            srcs.add('local')
+        if name in debug_users:
+            srcs.add('debug')
+        if name in recorded:
+            srcs |= {s for s in (recorded[name]['sources'] or '').split(',') if s}
+        # A utilisé la plateforme mais aucune source observée → externe (LDAP/SSO).
+        if not srcs and name in spend:
+            srcs.add('externe')
+        mu = managed.get(name)
+        fullname = (mu['fullname'] if mu else None) or (recorded[name]['fullname'] if name in recorded else None)
+        sp = spend.get(name)
+        out.append({
+            'username': name,
+            'fullname': fullname,
+            'sources': sorted(srcs),
+            'managed': bool(mu),
+            'id': mu['id'] if mu else None,
+            'group_name': mu['group_name'] if mu else None,
+            'enabled': mu['enabled'] if mu else 1,
+            'is_admin': mu['is_admin'] if mu else None,
+            'effective_admin': _local_user_is_admin(mu) if mu else None,
+            'effective_budget': _local_user_effective_budget(mu) if mu else (sp['max_budget'] if sp else None),
+            'unlimited': (sp['unlimited'] if sp else False),
+            'spend': (sp['spend'] if sp else 0),
+            'key_count': (sp['key_count'] if sp else 0),
+            'last_seen': recorded[name]['last_seen'] if name in recorded else None,
+        })
+    groups = db.execute("SELECT name, max_budget, is_admin FROM user_groups ORDER BY name").fetchall()
     return jsonify({'users': out, 'groups': [dict(g) for g in groups],
                     'default_budget': float(get_setting('default_key_budget', KEY_BUDGET))})
 

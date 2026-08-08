@@ -56,10 +56,22 @@ interface ModelRequest extends Record<string, unknown> {
 
 type RunningModel = { name: string; kind: "chat" | "ocr" | "video" | "voice"; exposed: boolean };
 
+type SidecarMetric = { count_today: number; total: number; avg_ms: number | null; last_ms: number | null };
+
+// ms → durée lisible : « 850 ms », « 4.2 s », « 3 min 12 s ».
+function fmtDur(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)} s`;
+  const m = Math.floor(s / 60);
+  return `${m} min ${Math.round(s % 60).toString().padStart(2, "0")} s`;
+}
+
 type HomeData = {
   running_models: RunningModel[];
   public_api_url: string;
   sysmetrics: SysMetrics;
+  sidecar_metrics: Partial<Record<"ocr" | "video" | "voice", SidecarMetric>>;
   modelhealth: ModelHealth;
   active_users: { username: string; requests: number; tokens: number }[] | null;
   usage: { has_data: boolean; total: number; active_keys: number; points: { hour: number; tokens: number }[] } | null;
@@ -168,6 +180,36 @@ export default function HomePage() {
                             <Text type="supporting" color="secondary">
                               {t("Disponible depuis l'application, non exposé par l'API.")}
                             </Text>
+                            {m.kind !== "chat" && data.sidecar_metrics?.[m.kind] && (
+                              <VStack gap={1}>
+                                <HStack hAlign="between" vAlign="center">
+                                  <Text type="supporting" color="secondary">{t("Aujourd'hui")}</Text>
+                                  <Text type="supporting" weight="semibold" hasTabularNumbers>
+                                    {data.sidecar_metrics[m.kind]!.count_today}
+                                  </Text>
+                                </HStack>
+                                {data.sidecar_metrics[m.kind]!.avg_ms != null && (
+                                  <HStack hAlign="between" vAlign="center">
+                                    <Text type="supporting" color="secondary">
+                                      {m.kind === "video" ? t("Génération moy.")
+                                        : m.kind === "ocr" ? t("Extraction moy.")
+                                        : t("Génération moy.")}
+                                    </Text>
+                                    <Text type="supporting" weight="semibold" hasTabularNumbers>
+                                      {fmtDur(data.sidecar_metrics[m.kind]!.avg_ms!)}
+                                    </Text>
+                                  </HStack>
+                                )}
+                                {data.sidecar_metrics[m.kind]!.last_ms != null && (
+                                  <HStack hAlign="between" vAlign="center">
+                                    <Text type="supporting" color="secondary">{t("Dernière")}</Text>
+                                    <Text type="supporting" weight="semibold" hasTabularNumbers>
+                                      {fmtDur(data.sidecar_metrics[m.kind]!.last_ms!)}
+                                    </Text>
+                                  </HStack>
+                                )}
+                              </VStack>
+                            )}
                             <Button
                               label={
                                 m.kind === "ocr" ? t("Ouvrir l'OCR")

@@ -439,6 +439,12 @@ def init_db():
     ocr_cols = {r[1] for r in db.execute("PRAGMA table_info(ocr_jobs)")}
     if 'image_path' not in ocr_cols:
         db.execute("ALTER TABLE ocr_jobs ADD COLUMN image_path TEXT")
+    # Migration : durée de génération (ms) par job → métriques d'accueil (temps
+    # moyen OCR / vidéo / voix). NULL pour les jobs antérieurs à cet ajout.
+    for _tbl in ('ocr_jobs', 'video_jobs', 'voice_jobs'):
+        _jc = {r[1] for r in db.execute(f"PRAGMA table_info({_tbl})")}
+        if 'duration_ms' not in _jc:
+            db.execute(f"ALTER TABLE {_tbl} ADD COLUMN duration_ms INTEGER")
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
         ('default_key_budget', str(KEY_BUDGET))
@@ -1858,16 +1864,44 @@ def logout():
         return redirect(OIDC_LOGOUT_URL)
     return redirect(url_for('login'))
 
+def _sidecar_metrics(kind):
+    """Métriques d'accueil d'un backend média (OCR/vidéo/voix) : générations du
+    jour, total, et temps de génération moyen/dernier mesuré sur les 20 derniers
+    jobs qui portent une durée (les jobs antérieurs à la mesure ont duration_ms
+    NULL et sont donc ignorés). Global (activité plateforme), non scopé par
+    utilisateur : ce sont des compteurs et des temps, rien de confidentiel."""
+    tbl = {'ocr': 'ocr_jobs', 'video': 'video_jobs', 'voice': 'voice_jobs'}.get(kind)
+    if not tbl:
+        return None
+    db = get_db()
+    today = datetime.now().strftime('%Y-%m-%d')
+    count_today = db.execute(f"SELECT COUNT(*) FROM {tbl} WHERE created_at >= ?", (today,)).fetchone()[0]
+    total = db.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+    avg_ms = db.execute(
+        f"SELECT AVG(duration_ms) FROM (SELECT duration_ms FROM {tbl} "
+        "WHERE duration_ms IS NOT NULL ORDER BY id DESC LIMIT 20)").fetchone()[0]
+    last = db.execute(
+        f"SELECT duration_ms FROM {tbl} WHERE duration_ms IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+    return {'count_today': count_today, 'total': total,
+            'avg_ms': round(avg_ms) if avg_ms else None,
+            'last_ms': last['duration_ms'] if last else None}
+
+
 def _index_data():
     running = [{'name': m, 'kind': 'chat', 'exposed': True} for m in get_running_models()]
+    metrics = {}
     ocr_model = get_ocr_model()
     if ocr_model:
         running.append({'name': ocr_model, 'kind': 'ocr', 'exposed': False})
+        metrics['ocr'] = _sidecar_metrics('ocr')
     if comfyui_is_up():
         running.append({'name': 'MiniMax-H3', 'kind': 'video', 'exposed': False})
+        metrics['video'] = _sidecar_metrics('video')
     voice_model = get_voice_model()
     if voice_model:
-        running.append({'name': f'Chatterbox ({voice_model})', 'kind': 'voice', 'exposed': False})
+        _vlabel = 'Qwen3-TTS' if get_voice_engine() == 'qwen3-tts' else 'Chatterbox'
+        running.append({'name': f'{_vlabel} ({voice_model})', 'kind': 'voice', 'exposed': False})
+        metrics['voice'] = _sidecar_metrics('voice')
     db = get_db()
     my_requests = db.execute(
         "SELECT * FROM model_requests WHERE username=? ORDER BY created_at DESC LIMIT 5",
@@ -1877,6 +1911,7 @@ def _index_data():
     return dict(running_models=running, my_requests=my_requests,
                 public_api_url=PUBLIC_API_URL, usage=user_hourly(session['username']),
                 sysmetrics=runner_metrics(),
+                sidecar_metrics=metrics,
                 modelhealth=vllm_health(),
                 active_users=_active_users() if session.get('is_admin') else None,
                 budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
@@ -4339,6 +4374,22 @@ def api_video_status(prompt_id):
             "WHERE prompt_id=? AND username=?",
             (st['status'], st.get('video_path'), st.get('video_subfolder'), st.get('video_type'),
              prompt_id, session['username']))
+        # Durée de génération = temps écoulé depuis la création, fixée UNE fois
+        # (au premier "done"). Approx. à la période de polling près (~5 s), ce
+        # qui est négligeable sur une génération de plusieurs minutes.
+        if st['status'] == 'done':
+            row = get_db().execute(
+                "SELECT created_at, duration_ms FROM video_jobs WHERE prompt_id=? AND username=?",
+                (prompt_id, session['username'])).fetchone()
+            if row and row['duration_ms'] is None and row['created_at']:
+                try:
+                    dur = int((datetime.now() - datetime.fromisoformat(row['created_at'])).total_seconds() * 1000)
+                    if 0 < dur < 3600000:  # borne de sûreté (< 1 h)
+                        get_db().execute(
+                            "UPDATE video_jobs SET duration_ms=? WHERE prompt_id=? AND username=? AND duration_ms IS NULL",
+                            (dur, prompt_id, session['username']))
+                except Exception:
+                    pass
         get_db().commit()
     return jsonify(st)
 
@@ -4389,6 +4440,7 @@ def api_ocr_extract():
         return Response(_sse_msg(err_or_mime), mimetype='text/event-stream'), 400
     instruction = request.form.get('instruction', 'document parsing.').strip()[:500]
     username = session['username']
+    _t0 = time.time()  # départ pour la durée d'extraction (jusqu'à _persist)
 
     # Image sauvegardée AVANT le streaming (nom aléatoire, jamais dérivé du nom
     # de fichier envoyé par le client) : l'historique doit pouvoir réafficher
@@ -4406,8 +4458,9 @@ def api_ocr_extract():
                 pass
             return
         db = get_db()
-        db.execute("INSERT INTO ocr_jobs (username, text, image_path, created_at) VALUES (?,?,?,?)",
-                   (username, text, image_filename, datetime.now().isoformat()))
+        duration_ms = int((time.time() - _t0) * 1000)  # temps d'extraction réel
+        db.execute("INSERT INTO ocr_jobs (username, text, image_path, created_at, duration_ms) VALUES (?,?,?,?,?)",
+                   (username, text, image_filename, datetime.now().isoformat(), duration_ms))
         # Purge les images des lignes qui sortent de la fenêtre d'historique,
         # sinon OCR_IMAGES_DIR grossit indéfiniment (aucune autre référence
         # à ces fichiers une fois la ligne supprimée).
@@ -4587,17 +4640,19 @@ def api_voice_generate():
     if language not in langs:
         language = 'en' if 'en' in langs or not langs else next(iter(langs))
     ref_text = request.form.get('ref_text', '').strip()[:2000]
+    _t0 = time.time()
     audio_bytes, err = voice_clone(ref_bytes, err_or_mime, text, language, ref_text)
     if audio_bytes is None:
         return jsonify({'error': err}), 502
+    duration_ms = int((time.time() - _t0) * 1000)  # temps de génération réel
     username = session['username']
     os.makedirs(VOICE_AUDIO_DIR, exist_ok=True)
     audio_filename = f"{secrets.token_hex(16)}.mp3"
     with open(os.path.join(VOICE_AUDIO_DIR, audio_filename), 'wb') as f:
         f.write(audio_bytes)
     db = get_db()
-    db.execute("INSERT INTO voice_jobs (username, text, audio_path, created_at) VALUES (?,?,?,?)",
-               (username, text, audio_filename, datetime.now().isoformat()))
+    db.execute("INSERT INTO voice_jobs (username, text, audio_path, created_at, duration_ms) VALUES (?,?,?,?,?)",
+               (username, text, audio_filename, datetime.now().isoformat(), duration_ms))
     # Ne garde que les VOICE_HISTORY_LIMIT plus récents par utilisateur — purge
     # aussi les fichiers audio correspondants, sinon VOICE_AUDIO_DIR grossit
     # indéfiniment (même raisonnement que OCR_IMAGES_DIR).

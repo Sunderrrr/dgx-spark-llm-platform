@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from functools import wraps
 from urllib.parse import urlparse
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import generate_password_hash, check_password_hash
 from mcp_client import (validate_mcp_url, list_tools_cached, invalidate_tools as _invalidate_mcp_tools,
                         MCPClient, MCPError)
 
@@ -453,6 +454,29 @@ def init_db():
     _vd = {r[1] for r in db.execute("PRAGMA table_info(video_jobs)")}
     if 'req_duration_s' not in _vd:
         db.execute("ALTER TABLE video_jobs ADD COLUMN req_duration_s INTEGER")
+    # Gestion locale des utilisateurs par l'admin (comptes créés depuis l'UI,
+    # mots de passe HACHÉS — contrairement au fichier DEBUG_USERS.txt en clair).
+    # Un groupe porte un quota et un droit admin par défaut ; un utilisateur peut
+    # surcharger le quota. Le login vérifie cette table en plus de LDAP/SSO.
+    db.executescript('''
+        CREATE TABLE IF NOT EXISTS user_groups (
+            name       TEXT PRIMARY KEY,
+            max_budget INTEGER,
+            is_admin   INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS local_users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            fullname      TEXT,
+            is_admin      INTEGER NOT NULL DEFAULT 0,
+            group_name    TEXT,
+            max_budget    INTEGER,
+            enabled       INTEGER NOT NULL DEFAULT 1,
+            created_at    TEXT NOT NULL
+        );
+    ''')
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
         ('default_key_budget', str(KEY_BUDGET))
@@ -1641,6 +1665,45 @@ def _client_ip():
     return request.remote_addr or 'unknown'
 
 
+# ── Utilisateurs locaux gérés par l'admin (table local_users) ────────────────
+def _local_group(name):
+    if not name:
+        return None
+    return get_db().execute("SELECT * FROM user_groups WHERE name=?", (name,)).fetchone()
+
+def _local_user_effective_budget(row):
+    """Quota effectif : surcharge de l'utilisateur → quota du groupe → défaut global."""
+    if row['max_budget'] is not None:
+        return row['max_budget']
+    g = _local_group(row['group_name'])
+    if g and g['max_budget'] is not None:
+        return g['max_budget']
+    return float(get_setting('default_key_budget', KEY_BUDGET))
+
+def _local_user_is_admin(row):
+    g = _local_group(row['group_name'])
+    return bool(row['is_admin']) or bool(g['is_admin'] if g else 0)
+
+def _local_user_auth(username, password):
+    """(ok, is_admin, fullname) contre local_users, mot de passe HACHÉ (werkzeug).
+    Indépendant du drapeau DEBUG_LOGIN : c'est un système de comptes géré, pas
+    le bypass de secours en clair."""
+    row = get_db().execute(
+        "SELECT * FROM local_users WHERE username=? AND enabled=1", (username,)).fetchone()
+    if not row or not check_password_hash(row['password_hash'], password):
+        return False, False, None
+    return True, _local_user_is_admin(row), (row['fullname'] or username)
+
+def _sync_local_user_budget(username, row):
+    """Propage le quota effectif du compte local vers LiteLLM (création + maj)."""
+    try:
+        eff = _local_user_effective_budget(row)
+        _ensure_litellm_user(username, eff, get_setting('default_key_duration', KEY_DURATION))
+        litellm_update_user_budget(username, eff)
+    except Exception:
+        pass
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if 'username' in session:
@@ -1673,6 +1736,13 @@ def login():
                                    username, ip, is_admin)
                 _apply_session(username, fullname, is_admin, via_sso=False)
                 return redirect(_safe_next(request.args.get('next')))
+        # Comptes locaux gérés par l'admin (table local_users, hachés) — vérifiés
+        # avant LDAP pour ne pas dépendre de sa disponibilité.
+        l_ok, l_admin, l_name = _local_user_auth(username, password)
+        if l_ok:
+            _login_reset(key); _login_reset(ip)
+            _apply_session(username, l_name, l_admin, via_sso=False)
+            return redirect(_safe_next(request.args.get('next')))
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
             _login_reset(key); _login_reset(ip)
@@ -4056,6 +4126,141 @@ def update_settings():
     set_setting('default_key_duration', duration)
     flash(f"Limite globale mise à jour : {budget_val:,.0f} tokens / {duration}.".replace(',', ' '), "success")
     return redirect(url_for('admin'))
+
+# ── Gestion des utilisateurs locaux (admin) ─────────────────────────────────
+def _parse_budget(raw):
+    """'' → None (héritera du groupe/défaut) ; sinon entier positif ou erreur."""
+    raw = (raw or '').strip().replace(' ', '')
+    if not raw:
+        return None, None
+    try:
+        v = int(float(raw))
+        if v <= 0:
+            return None, "Le quota doit être un entier positif."
+        return v, None
+    except ValueError:
+        return None, "Quota invalide."
+
+@app.route('/api/admin/users')
+@admin_required
+def api_admin_users():
+    db = get_db()
+    users = db.execute(
+        "SELECT id, username, fullname, is_admin, group_name, max_budget, enabled, created_at "
+        "FROM local_users ORDER BY username").fetchall()
+    groups = db.execute(
+        "SELECT name, max_budget, is_admin FROM user_groups ORDER BY name").fetchall()
+    out = []
+    for u in users:
+        d = dict(u)
+        d['effective_budget'] = _local_user_effective_budget(u)
+        d['effective_admin'] = _local_user_is_admin(u)
+        out.append(d)
+    return jsonify({'users': out, 'groups': [dict(g) for g in groups],
+                    'default_budget': float(get_setting('default_key_budget', KEY_BUDGET))})
+
+@app.route('/admin/users/create', methods=['POST'])
+@admin_required
+def admin_users_create():
+    username = request.form.get('username', '').strip().lower()
+    password = request.form.get('password', '')
+    if not USERNAME_RE.match(username):
+        return jsonify({'ok': False, 'error': "Identifiant invalide (a-z, 0-9, . _ - , max 64)."}), 400
+    if len(password) < 8:
+        return jsonify({'ok': False, 'error': "Mot de passe : 8 caractères minimum."}), 400
+    db = get_db()
+    if db.execute("SELECT 1 FROM local_users WHERE username=?", (username,)).fetchone():
+        return jsonify({'ok': False, 'error': "Cet utilisateur existe déjà."}), 409
+    group = (request.form.get('group', '').strip() or None)
+    if group and not _local_group(group):
+        return jsonify({'ok': False, 'error': "Groupe inconnu."}), 400
+    budget, err = _parse_budget(request.form.get('max_budget'))
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+    is_admin = request.form.get('is_admin') in ('1', 'true', 'on')
+    fullname = request.form.get('fullname', '').strip()[:120] or None
+    db.execute(
+        "INSERT INTO local_users (username, password_hash, fullname, is_admin, group_name, max_budget, enabled, created_at) "
+        "VALUES (?,?,?,?,?,?,1,?)",
+        (username, generate_password_hash(password), fullname, int(is_admin), group, budget,
+         datetime.now().isoformat()))
+    db.commit()
+    row = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
+    _sync_local_user_budget(username, row)
+    return jsonify({'ok': True})
+
+@app.route('/admin/users/update/<int:uid>', methods=['POST'])
+@admin_required
+def admin_users_update(uid):
+    db = get_db()
+    row = db.execute("SELECT * FROM local_users WHERE id=?", (uid,)).fetchone()
+    if not row:
+        return jsonify({'ok': False, 'error': "Utilisateur introuvable."}), 404
+    sets, vals = [], []
+    password = request.form.get('password', '')
+    if password:
+        if len(password) < 8:
+            return jsonify({'ok': False, 'error': "Mot de passe : 8 caractères minimum."}), 400
+        sets.append("password_hash=?"); vals.append(generate_password_hash(password))
+    if 'group' in request.form:
+        group = request.form.get('group', '').strip() or None
+        if group and not _local_group(group):
+            return jsonify({'ok': False, 'error': "Groupe inconnu."}), 400
+        sets.append("group_name=?"); vals.append(group)
+    if 'max_budget' in request.form:
+        budget, err = _parse_budget(request.form.get('max_budget'))
+        if err:
+            return jsonify({'ok': False, 'error': err}), 400
+        sets.append("max_budget=?"); vals.append(budget)
+    if 'is_admin' in request.form:
+        sets.append("is_admin=?"); vals.append(int(request.form.get('is_admin') in ('1', 'true', 'on')))
+    if 'enabled' in request.form:
+        sets.append("enabled=?"); vals.append(int(request.form.get('enabled') in ('1', 'true', 'on')))
+    if 'fullname' in request.form:
+        sets.append("fullname=?"); vals.append(request.form.get('fullname', '').strip()[:120] or None)
+    if sets:
+        db.execute(f"UPDATE local_users SET {', '.join(sets)} WHERE id=?", (*vals, uid))
+        db.commit()
+    updated = db.execute("SELECT * FROM local_users WHERE id=?", (uid,)).fetchone()
+    _sync_local_user_budget(updated['username'], updated)
+    return jsonify({'ok': True})
+
+@app.route('/admin/users/delete/<int:uid>', methods=['POST'])
+@admin_required
+def admin_users_delete(uid):
+    db = get_db()
+    db.execute("DELETE FROM local_users WHERE id=?", (uid,))
+    db.commit()
+    return jsonify({'ok': True})
+
+@app.route('/admin/groups/create', methods=['POST'])
+@admin_required
+def admin_groups_create():
+    name = request.form.get('name', '').strip()
+    if not re.match(r'^[\w .-]{1,40}$', name):
+        return jsonify({'ok': False, 'error': "Nom de groupe invalide (max 40)."}), 400
+    budget, err = _parse_budget(request.form.get('max_budget'))
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+    is_admin = request.form.get('is_admin') in ('1', 'true', 'on')
+    db = get_db()
+    db.execute("INSERT INTO user_groups (name, max_budget, is_admin, created_at) VALUES (?,?,?,?) "
+               "ON CONFLICT(name) DO UPDATE SET max_budget=excluded.max_budget, is_admin=excluded.is_admin",
+               (name, budget, int(is_admin), datetime.now().isoformat()))
+    db.commit()
+    # Répercute le nouveau quota du groupe sur ses membres (qui n'ont pas de surcharge).
+    for u in db.execute("SELECT * FROM local_users WHERE group_name=? AND max_budget IS NULL", (name,)):
+        _sync_local_user_budget(u['username'], u)
+    return jsonify({'ok': True})
+
+@app.route('/admin/groups/delete/<name>', methods=['POST'])
+@admin_required
+def admin_groups_delete(name):
+    db = get_db()
+    db.execute("UPDATE local_users SET group_name=NULL WHERE group_name=?", (name,))
+    db.execute("DELETE FROM user_groups WHERE name=?", (name,))
+    db.commit()
+    return jsonify({'ok': True})
 
 @app.route('/admin/maintenance/toggle', methods=['POST'])
 @admin_required

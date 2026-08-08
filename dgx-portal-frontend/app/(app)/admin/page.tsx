@@ -34,6 +34,7 @@ import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, postFormJSON, ForbiddenError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { UsersSection } from "./_components/UsersSection";
 
 type ModelCfg = { id: number; name: string; hf_model_id: string; engine: string; vllm_args: string };
 type OcrCfg = { id: number; name: string; hf_model_id: string; vllm_args: string };
@@ -673,6 +674,8 @@ export default function AdminPage() {
                 <Table<ModelRequest & Record<string, unknown>> data={data?.requests ?? []} columns={requestColumns} idKey="id" density="balanced" dividers="rows" />
               </Card>
             </VStack>
+
+            <UsersSection csrf={csrf} />
           </VStack>
         </LayoutContent>
       }

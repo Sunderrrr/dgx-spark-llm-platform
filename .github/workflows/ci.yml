@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests (unittest, in Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # run-tests.sh builds the portal image via compose and runs the suite in a
+      # throwaway container with a fresh SQLite DB — same deps as production.
+      # Pin the compose project name so the built image is `ai-platform-dgx-portal`
+      # (the name the script runs), independent of the checkout directory name.
+      - name: Run test suite
+        env:
+          COMPOSE_PROJECT_NAME: ai-platform
+        run: ./dgx-portal/run-tests.sh
+
+  frontend:
+    name: Frontend (types + lint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dgx-portal-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dgx-portal-frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npx eslint .

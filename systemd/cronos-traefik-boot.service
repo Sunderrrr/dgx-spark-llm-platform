@@ -1,0 +1,26 @@
+[Unit]
+# Traefik tourne dans un conteneur `restart: unless-stopped` (hors de ce dépôt,
+# sous /opt/traefik) lancé par dockerd — qui peut démarrer AVANT que le DNS soit
+# prêt. Au boot, Traefik échoue alors à récupérer ses plugins (GitHub) et le
+# challenge ACME Cloudflare n'aboutit pas : routage cassé, 404 sur le site. Ce
+# service attend une vraie résolution DNS puis redémarre Traefik UNE fois, pour
+# que ces récupérations réseau réussissent. C'est l'automatisation du
+# « docker restart traefik » manuel qui corrigeait le symptôme.
+#
+# Volontairement dans systemd et non dans /opt/traefik : les fichiers de config
+# Traefik (docker-compose.yml, dynamic/routes.yml) sont réécrits par le
+# traefik-manager-agent et seraient écrasés. Ce garde-fou de boot lui survit.
+Description=Redémarre Traefik une fois au boot, quand le DNS est prêt (corrige la course plugins/ACME)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Attend jusqu'à 120 s que les hôtes dont Traefik a besoin résolvent, puis
+# redémarre le conteneur. `|| true` : sans conteneur `traefik` (autre machine),
+# le service reste un no-op inoffensif.
+ExecStart=/bin/sh -c 'for i in $(seq 1 60); do if getent hosts github.com >/dev/null 2>&1 && getent hosts api.cloudflare.com >/dev/null 2>&1; then break; fi; sleep 2; done; /usr/bin/docker restart traefik >/dev/null 2>&1 || true'
+
+[Install]
+WantedBy=multi-user.target

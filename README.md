@@ -297,6 +297,7 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
 | `vllm-runner.service` | The runner daemon (non-root `vllmrunner` user) |
 | `vllm-restrict.service` | iptables: host ports **8000**/**8001** limited to localhost + Docker bridge |
 | `cronos-docker-restrict.service` | DOCKER-USER rules: **4001** to LAN+VPN, **5000** to Traefik only |
+| `cronos-traefik-boot.service` | One-shot at boot: waits for DNS, then restarts Traefik once (avoids the plugin/ACME-fetch race that 404s the site after a reboot) |
 
 ---
 

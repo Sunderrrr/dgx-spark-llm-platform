@@ -70,13 +70,16 @@ id "$RUNNER_USER" >/dev/null 2>&1 || {
 
 # ── 7. systemd units (paths patched to the real repo dir) ───────────────────
 log "Installing systemd units"
-for unit in vllm-runner.service vllm-restrict.service cronos-docker-restrict.service; do
+for unit in vllm-runner.service vllm-restrict.service cronos-docker-restrict.service cronos-traefik-boot.service; do
   [ -f "systemd/$unit" ] || continue
   sed "s#/root/ai-platform#${REPO_DIR}#g" "systemd/$unit" > "/etc/systemd/system/$unit"
 done
 systemctl daemon-reload
 systemctl enable --now vllm-restrict.service cronos-docker-restrict.service 2>/dev/null || true
 systemctl enable --now vllm-runner.service 2>/dev/null || true
+# Garde-fou de boot Traefik : activé pour le prochain démarrage, pas lancé
+# maintenant (inutile de redémarrer un Traefik déjà sain à l'install).
+systemctl enable cronos-traefik-boot.service 2>/dev/null || true
 
 # ── Done ────────────────────────────────────────────────────────────────────
 cat <<EOF

@@ -407,6 +407,11 @@ const EN: Record<string, string> = {
   "Utilisation vidéo par utilisateur": "Video usage per user",
   "Générations": "Generations",
   "Dernière utilisation": "Last used",
+  "Chat & complétions — API OpenAI-compatible": "Chat & completions — OpenAI-compatible API",
+  "Extraction de texte et de tableaux depuis images et PDF": "Text and table extraction from images and PDFs",
+  "Génération de vidéos courtes (texte ou image → vidéo)": "Short video generation (text or image → video)",
+  "Clonage de voix zéro-shot à partir d'un court échantillon": "Zero-shot voice cloning from a short sample",
+  "Services média": "Media services",
   "Recherche par utilisateur": "Search by user",
   "Cherche un utilisateur pour voir ses quotas et son utilisation (LiteLLM, OCR, vidéo, voix). Réservé aux admins.":
     "Search a user to see their quota and usage (LiteLLM, OCR, video, voice). Admins only.",

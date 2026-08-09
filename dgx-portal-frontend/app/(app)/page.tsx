@@ -104,6 +104,16 @@ function sidecarLines(
   return lines;
 }
 
+// Ce que fait chaque capacité, en une ligne (affiché sur chaque carte modèle).
+const KIND_DESC: Record<RunningModel["kind"], string> = {
+  chat: "Chat & complétions — API OpenAI-compatible",
+  ocr: "Extraction de texte et de tableaux depuis images et PDF",
+  video: "Génération de vidéos courtes (texte ou image → vidéo)",
+  voice: "Clonage de voix zéro-shot à partir d'un court échantillon",
+};
+// Nom court des backends média (pour le bloc « Services média »).
+const KIND_NAME: Record<"ocr" | "video" | "voice", string> = { ocr: "OCR", video: "Vidéo", voice: "Voix" };
+
 type HomeData = {
   running_models: RunningModel[];
   public_api_url: string;
@@ -200,6 +210,7 @@ export default function HomePage() {
                         <Text weight="semibold" wordBreak="break-all">
                           {m.name}
                         </Text>
+                        <Text type="supporting" color="secondary">{t(KIND_DESC[m.kind])}</Text>
                         {m.exposed ? (
                           <>
                             <Text type="supporting" color="secondary">
@@ -217,16 +228,6 @@ export default function HomePage() {
                             <Text type="supporting" color="secondary">
                               {t("Disponible depuis l'application, non exposé par l'API.")}
                             </Text>
-                            {m.kind !== "chat" && data.sidecar_metrics?.[m.kind] && (
-                              <VStack gap={1}>
-                                {sidecarLines(m.kind, data.sidecar_metrics[m.kind]!, t).map(([label, value]) => (
-                                  <HStack key={label} hAlign="between" vAlign="center">
-                                    <Text type="supporting" color="secondary">{label}</Text>
-                                    <Text type="supporting" weight="semibold" hasTabularNumbers>{value}</Text>
-                                  </HStack>
-                                ))}
-                              </VStack>
-                            )}
                             <Button
                               label={
                                 m.kind === "ocr" ? t("Ouvrir l'OCR")
@@ -319,6 +320,30 @@ export default function HomePage() {
                           <Text weight="semibold" hasTabularNumbers>{data.modelhealth.requests}</Text>
                         </VStack>
                       </HStack>
+                    )}
+
+                    {data.sidecar_metrics && (["ocr", "video", "voice"] as const).some((k) => data.sidecar_metrics[k]) && (
+                      <VStack gap={2}>
+                        <Text type="supporting" color="secondary">{t("Services média")}</Text>
+                        <Grid columns={{ minWidth: 220, max: 3 }} gap={4}>
+                          {(["ocr", "video", "voice"] as const)
+                            .filter((k) => data.sidecar_metrics[k])
+                            .map((k) => (
+                              <VStack key={k} gap={1}>
+                                <HStack gap={1} vAlign="center">
+                                  <Icon icon={k === "ocr" ? DocumentMagnifyingGlassIcon : k === "video" ? FilmIcon : SpeakerWaveIcon} size="sm" />
+                                  <Text weight="semibold">{t(KIND_NAME[k])}</Text>
+                                </HStack>
+                                {sidecarLines(k, data.sidecar_metrics[k]!, t).map(([label, value]) => (
+                                  <HStack key={label} hAlign="between" vAlign="center">
+                                    <Text type="supporting" color="secondary">{label}</Text>
+                                    <Text type="supporting" weight="semibold" hasTabularNumbers>{value}</Text>
+                                  </HStack>
+                                ))}
+                              </VStack>
+                            ))}
+                        </Grid>
+                      </VStack>
                     )}
 
                     {who?.is_admin && data.active_users && (

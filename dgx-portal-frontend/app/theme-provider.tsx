@@ -56,9 +56,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>("en");
 
   useEffect(() => {
+    // Hydratation unique depuis localStorage, juste après le montage : c'est
+    // l'usage légitime « synchroniser depuis un système externe » (le lint
+    // react-hooks/set-state-in-effect vise les cascades de rendus, pas ce cas —
+    // lire localStorage dans l'initialiseur ferait diverger le rendu SSR, cf.
+    // commentaire ci-dessus). On désactive donc la règle sur ces trois lignes.
+    /* eslint-disable react-hooks/set-state-in-effect */
     setModeState(readLocal<Mode>("cronos_theme_mode", "system"));
     setThemeIdState(readLocal<ThemeId>("cronos_theme_id", "neutral"));
     setLangState(readLocal<Lang>("cronos_lang", "en"));
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   useEffect(() => {

@@ -34,6 +34,7 @@ import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, postFormJSON, ForbiddenError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { UserLookup } from "./_components/UserLookup";
 
 type ModelCfg = { id: number; name: string; hf_model_id: string; engine: string; vllm_args: string };
 type OcrCfg = { id: number; name: string; hf_model_id: string; vllm_args: string };
@@ -188,19 +189,6 @@ export default function AdminPage() {
           </HStack>
         ) : null,
     },
-  ];
-
-  const consumptionColumns: TableColumn<SpendRow & Record<string, unknown>>[] = [
-    { key: "username", header: t("Utilisateur") },
-    { key: "tokens", header: t("Consommé aujourd'hui"), renderCell: (r) => Math.round(r.tokens || 0).toLocaleString("fr-FR") },
-    { key: "max_budget", header: t("Budget / jour"), renderCell: (r) => (r.unlimited ? <Badge label="∞" variant="warning" /> : Math.round(r.max_budget || 0).toLocaleString("fr-FR")) },
-    { key: "key_count", header: t("Clés") },
-  ];
-
-  const usageColumns = (countLabel: string): TableColumn<UsageRow & Record<string, unknown>>[] => [
-    { key: "username", header: t("Utilisateur") },
-    { key: "c", header: countLabel },
-    { key: "last", header: t("Dernière utilisation"), renderCell: (r) => r.last.slice(0, 16).replace("T", " ") },
   ];
 
   const requestColumns: TableColumn<ModelRequest & Record<string, unknown>>[] = [
@@ -618,54 +606,13 @@ export default function AdminPage() {
               </Card>
             </VStack>
 
-            <VStack gap={2}>
-              <Text weight="semibold">{t("Consommation par utilisateur")}</Text>
-              <Card padding={0}>
-                <Table<SpendRow & Record<string, unknown>> data={data?.spend_data ?? []} columns={consumptionColumns} idKey="username" density="balanced" dividers="rows" />
-              </Card>
-            </VStack>
-
-            <VStack gap={2}>
-              <Text weight="semibold">{t("Utilisation OCR par utilisateur")}</Text>
-              <Text type="supporting" color="secondary">
-                {t("Ne passe pas par une clé API — jamais visible dans la conso LiteLLM ci-dessus.")}
-              </Text>
-              <Card padding={0}>
-                <Table<UsageRow & Record<string, unknown>>
-                  data={data?.ocr_usage ?? []}
-                  columns={usageColumns(t("Extractions"))}
-                  idKey="username"
-                  density="balanced"
-                  dividers="rows"
-                />
-              </Card>
-            </VStack>
-
-            <VStack gap={2}>
-              <Text weight="semibold">{t("Utilisation vidéo par utilisateur")}</Text>
-              <Card padding={0}>
-                <Table<UsageRow & Record<string, unknown>>
-                  data={data?.video_usage ?? []}
-                  columns={usageColumns(t("Générations"))}
-                  idKey="username"
-                  density="balanced"
-                  dividers="rows"
-                />
-              </Card>
-            </VStack>
-
-            <VStack gap={2}>
-              <Text weight="semibold">{t("Utilisation voix par utilisateur")}</Text>
-              <Card padding={0}>
-                <Table<UsageRow & Record<string, unknown>>
-                  data={data?.voice_usage ?? []}
-                  columns={usageColumns(t("Générations"))}
-                  idKey="username"
-                  density="balanced"
-                  dividers="rows"
-                />
-              </Card>
-            </VStack>
+            <UserLookup
+              spend={data?.spend_data ?? []}
+              ocr={data?.ocr_usage ?? []}
+              video={data?.video_usage ?? []}
+              voice={data?.voice_usage ?? []}
+              requests={data?.requests ?? []}
+            />
 
             <VStack gap={2}>
               <Text weight="semibold">{t("Demandes de modèles")}</Text>

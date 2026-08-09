@@ -92,7 +92,6 @@ function RequestForm() {
 }
 
 export default function RequestPage() {
-  const t = useT();
   return (
     <Suspense>
       <RequestForm />

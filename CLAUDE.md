@@ -129,9 +129,13 @@ Login order (`login()` in `dgx-portal/app.py`):
 Auto-resume exists (`runner.py` persists `last_model.json` and relaunches on boot,
 capped at 3 tries). Two things still bite after a reboot:
 
-1. **The 404 / down-model symptom** usually means **Traefik's plugin download
-   raced DNS** at boot (network not up yet). Fix: `docker restart traefik` once
-   DNS is up. (Boot hardening for this is tracked separately.)
+1. **The 404 / down-model symptom** usually means **Traefik raced DNS** at boot
+   (plugin fetch from GitHub + Cloudflare DNS-challenge ACME both need DNS, but
+   `dockerd` starts the `unless-stopped` container before DNS is up). This is now
+   auto-handled by `cronos-traefik-boot.service` (waits for DNS, restarts Traefik
+   once). If it still 404s, the manual fix is `docker restart traefik` once DNS
+   resolves. The Traefik config under `/opt/traefik` is rewritten by the
+   traefik-manager-agent — don't edit it; fixes belong in systemd.
 2. **`last_model.json` empty** → nothing to resume (e.g. the model had been
    `/stop`ped before reboot). Relaunch the intended model via Admin → Launch.
 

@@ -4477,10 +4477,12 @@ def _register_litellm_model(name, vllm_args, engine='vllm'):
     slot = effective_ctx(vllm_args, engine) or 32768
     # llama.cpp / ds4 : le slot est partagé entre le prompt ET la génération. Si on
     # annonce tout le slot comme entrée, il ne reste rien pour répondre → le client
-    # remplit le contexte et ça casse. On réserve une marge de sortie. vLLM sépare
-    # déjà entrée/sortie via --max-model-len, on garde le comportement historique.
+    # remplit le contexte et ça casse. On réserve une marge de sortie — plafonnée à
+    # 64k : confortable pour de longues réponses, tout en gardant une entrée annoncée
+    # proche du slot réel (ex. slot 256k → ~192k d'entrée au lieu de 176k). vLLM
+    # sépare déjà entrée/sortie via --max-model-len, on garde le comportement historique.
     if engine in ('llamacpp', 'ds4'):
-        out_reserve = min(131072, slot // 3)
+        out_reserve = min(65536, slot // 3)
         max_input, max_output = max(slot - out_reserve, 1024), out_reserve
     else:
         max_input, max_output = slot, min(slot // 2, 262144)

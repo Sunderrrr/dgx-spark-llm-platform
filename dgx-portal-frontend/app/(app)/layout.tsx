@@ -42,11 +42,11 @@ import { SettingsDialogContext, type SettingsSection } from "@/lib/settings-dial
 
 type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id: string | null; maintenance_mode: boolean };
 
-// « Mes clés API » n'est volontairement plus ici : sa configuration vit
-// désormais dans le dialogue Réglages (onglet « Clés API »), ouvert par
-// l'engrenage du pied de la barre latérale. Il n'y a plus de page /keys : les
-// boutons « clés API » de l'accueil ouvrent ce dialogue sur l'onglet « keys »
-// via le contexte SettingsDialogContext (voir openSettings ci-dessous).
+// "My API keys" is deliberately no longer here: its configuration now lives
+// in the Settings dialog ("API keys" tab), opened by the gear at the bottom
+// of the sidebar. There is no more /keys page: the home page's "API keys"
+// buttons open this dialog on the "keys" tab via the SettingsDialogContext
+// (see openSettings below).
 const NAV_ITEMS = [
   { href: "/", label: "Accueil", icon: HomeIcon },
   { href: "/playground", label: "Playground", icon: ChatBubbleLeftRightIcon },
@@ -68,18 +68,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const t = useT();
   const csrf = useCsrf();
 
-  // Ouvre le dialogue Réglages, éventuellement sur un onglet précis. Utilisé par
-  // l'engrenage (sans argument) et par les boutons « clés API » de l'accueil.
+  // Opens the Settings dialog, optionally on a specific tab. Used by the gear
+  // (no argument) and by the home page's "API keys" buttons.
   const openSettings = (section?: SettingsSection) => {
     setSettingsSection(section);
     setIsSettingsOpen(true);
   };
 
-  // /logout est en POST (protégé CSRF) : un simple lien GET permettait à
-  // n'importe quel site tiers de nous déconnecter. On soumet donc un vrai
-  // formulaire plutôt qu'un fetch, pour que le navigateur NAVIGUE et suive la
-  // redirection finale — y compris vers l'end-session Authentik en SSO, qu'un
-  // fetch avalerait silencieusement.
+  // /logout is POST (CSRF-protected): a plain GET link let any third-party
+  // site log us out. So we submit a real form rather than a fetch, so the
+  // browser NAVIGATES and follows the final redirect — including to
+  // Authentik's end-session under SSO, which a fetch would silently swallow.
   function logout() {
     const form = document.createElement("form");
     form.method = "POST";

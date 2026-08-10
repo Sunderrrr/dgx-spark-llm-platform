@@ -11,15 +11,15 @@ import astryxFr from "@/lib/astryx-fr.json";
 
 type Mode = "light" | "dark" | "system";
 
-// Astryx rend un <a> natif par défaut : chaque clic dans la barre latérale
-// rechargeait donc l'application entière au lieu de naviguer côté client.
-// LinkProvider redirige TOUS les composants porteurs d'un href (SideNavItem,
-// Button, Link, Breadcrumb…) vers next/link d'un seul coup.
+// Astryx renders a native <a> by default: every click in the sidebar would
+// therefore reload the whole app instead of navigating client-side.
+// LinkProvider redirects EVERY href-bearing component (SideNavItem,
+// Button, Link, Breadcrumb…) to next/link in one shot.
 //
-// L'adaptateur n'est pas décoratif : useLinkComponent duplique href dans une
-// prop `to` pour les routeurs qui l'attendent (React Router, TanStack). Next
-// ne la connaît pas et la laisserait filer jusqu'au <a>, où React se plaint
-// d'un attribut DOM inconnu. On l'absorbe ici.
+// The adapter isn't decorative: useLinkComponent duplicates href into a
+// `to` prop for routers that expect it (React Router, TanStack). Next
+// doesn't know it and would let it through to the <a>, where React complains
+// about an unknown DOM attribute. We absorb it here.
 function NextLinkAdapter({ to, ...props }: React.ComponentProps<typeof NextLink> & { to?: string }) {
   void to;
   return <NextLink {...props} />;
@@ -36,31 +36,31 @@ export function useThemeMode() {
   return useContext(ThemeModeContext);
 }
 
-// Le mode clair/sombre reste purement local : c'est un basculement fréquent,
-// pas la peine d'un aller-retour serveur. La palette et la langue sont des
-// préférences de compte — lues d'abord depuis localStorage pour éviter un
-// flash au premier rendu, puis recalées sur /api/whoami, qui fait autorité
-// d'un navigateur ou d'une machine à l'autre.
+// Light/dark mode stays purely local: it's a frequent toggle, no need for a
+// server round-trip. The palette and language are account preferences —
+// read first from localStorage to avoid a flash on first render, then
+// reconciled against /api/whoami, which is authoritative from one browser
+// or machine to another.
 function readLocal<T extends string>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   return (window.localStorage.getItem(key) as T | null) || fallback;
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  // L'état initial doit être IDENTIQUE au rendu serveur : lire localStorage
-  // dans l'initialiseur ferait diverger le premier rendu client du HTML SSR
-  // (erreur d'hydratation React #418, texte remplacé silencieusement). On
-  // applique donc les préférences locales juste après le montage.
+  // The initial state must be IDENTICAL to the server render: reading
+  // localStorage in the initializer would make the first client render
+  // diverge from the SSR HTML (React hydration error #418, text silently
+  // replaced). So we apply the local preferences just after mount.
   const [mode, setModeState] = useState<Mode>("system");
   const [themeId, setThemeIdState] = useState<ThemeId>("neutral");
   const [lang, setLangState] = useState<Lang>("en");
 
   useEffect(() => {
-    // Hydratation unique depuis localStorage, juste après le montage : c'est
-    // l'usage légitime « synchroniser depuis un système externe » (le lint
-    // react-hooks/set-state-in-effect vise les cascades de rendus, pas ce cas —
-    // lire localStorage dans l'initialiseur ferait diverger le rendu SSR, cf.
-    // commentaire ci-dessus). On désactive donc la règle sur ces trois lignes.
+    // One-time hydration from localStorage, just after mount: this is the
+    // legitimate "sync from an external system" case (the
+    // react-hooks/set-state-in-effect lint targets render cascades, not this —
+    // reading localStorage in the initializer would make the SSR render
+    // diverge, cf. comment above). So we disable the rule on these three lines.
     /* eslint-disable react-hooks/set-state-in-effect */
     setModeState(readLocal<Mode>("cronos_theme_mode", "system"));
     setThemeIdState(readLocal<ThemeId>("cronos_theme_id", "neutral"));
@@ -103,9 +103,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
     <ThemeModeContext.Provider value={{ mode, setMode, themeId, setThemeId }}>
       <I18nProvider lang={lang} setLang={setLang}>
-        {/* Traduit aussi les libellés internes d'Astryx (statuts de message,
-            tri des tableaux, fermeture de dialogue…) : sans catalogue ils
-            resteraient en anglais au milieu d'une interface française. */}
+        {/* Also translates Astryx's internal labels (message statuses,
+            table sorting, dialog close…): without a catalog they would
+            stay in English in the middle of a French interface. */}
         <InternationalizationProvider locale={lang} messages={{ fr: astryxFr }}>
           <LinkProvider component={NextLinkAdapter}>
             <Theme theme={themeById(themeId).theme} mode={mode}>

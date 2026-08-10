@@ -2,18 +2,18 @@
 
 import { createContext, useCallback, useContext } from "react";
 
-/** Langues proposées dans Réglages → Apparence. */
+/** Languages offered in Settings → Appearance. */
 export type Lang = "fr" | "en";
 
-/* Le texte FRANÇAIS sert de clé de traduction (comme un msgid gettext).
- * L'application a été écrite en français : garder les littéraux français
- * dans le code évite d'inventer des centaines d'identifiants opaques, laisse
- * les fichiers lisibles, et rend le mode français strictement identité — donc
- * impossible à casser par une clé oubliée. Seul l'anglais a besoin d'un
- * dictionnaire ; une entrée manquante retombe sur le français plutôt que
- * d'afficher un nom de clé. */
+/* The FRENCH text serves as the translation key (like a gettext msgid).
+ * The app was written in French: keeping the French literals
+ * in the code avoids inventing hundreds of opaque identifiers, keeps
+ * the files readable, and makes French mode strictly the identity — so
+ * impossible to break with a forgotten key. Only English needs a
+ * dictionary; a missing entry falls back to French rather than
+ * showing a key name. */
 const EN: Record<string, string> = {
-  // — Navigation et coque —
+  // — Navigation and shell —
   "Accueil": "Home",
   "Playground": "Playground",
   "Vidéo": "Video",
@@ -39,7 +39,7 @@ const EN: Record<string, string> = {
   "Régénérer": "Regenerate",
   "Éditer": "Edit",
 
-  // — Réglages : rail —
+  // — Settings: rail —
   "Réglages du compte": "Account settings",
   "Réglages de l'app": "App settings",
   "Mon compte": "My account",
@@ -52,7 +52,7 @@ const EN: Record<string, string> = {
   "Clés API, serveurs MCP, compétences et personnalisation.":
     "API keys, MCP servers, skills and personalisation.",
 
-  // — Mon compte —
+  // — My account —
   "Tokens totaux": "Total tokens",
   "Pic journalier": "Daily peak",
   "Jours actifs": "Active days",
@@ -96,7 +96,7 @@ const EN: Record<string, string> = {
   "Besoin d'augmenter tes limites ? Demande plus de tokens depuis l'onglet « Clés API », ou passe par l'assistant Support.":
     "Need higher limits? Request more tokens from the “API keys” tab, or ask the Support assistant.",
 
-  // — Apparence —
+  // — Appearance —
   "THÈME": "THEME",
   "Ajuste l'apparence de l'interface.": "Adjust the appearance of the interface.",
   "Clair": "Light",
@@ -120,7 +120,7 @@ const EN: Record<string, string> = {
   "Brique": "Brick",
   "Prune": "Plum",
 
-  // — Personnalisation —
+  // — Personalization —
   "Choisis un avatar parmi les logos proposés — pas d'import d'image personnelle.":
     "Pick an avatar from the logos below — no personal image upload.",
 
@@ -155,7 +155,7 @@ const EN: Record<string, string> = {
   "Outils autorisés :": "Allowed tools:",
   "Auth": "Auth",
 
-  // — Compétences —
+  // — Skills —
   "Des instructions réutilisables que tu écris toi-même ; l'assistant les charge quand elles sont utiles à ta demande.":
     "Reusable instructions you write yourself; the assistant loads them when relevant to your request.",
   "Nouvelle compétence": "New skill",
@@ -179,7 +179,7 @@ const EN: Record<string, string> = {
   "Échec de l'enregistrement.": "Failed to save.",
   "Échec de la connexion au serveur MCP.": "Failed to connect to the MCP server.",
 
-  // — Accueil —
+  // — Home —
   "Bonjour": "Hello",
   "Ton accès self-service à l'inférence LLM sur DGX Spark.":
     "Your self-service access to LLM inference on the DGX Spark.",
@@ -228,7 +228,7 @@ const EN: Record<string, string> = {
   "Lancé": "Launched",
   "Refusé": "Rejected",
 
-  // — Accueil (suite) —
+  // — Home (continued) —
   "CPU": "CPU",
   "RAM": "RAM",
   "GPU": "GPU",
@@ -236,7 +236,7 @@ const EN: Record<string, string> = {
   "Go": "GB",
   "API :": "API:",
 
-  // — Clés API —
+  // — API keys —
   "Des clés personnelles pour appeler les modèles via l'API compatible OpenAI.":
     "Personal keys to call the models through the OpenAI-compatible API.",
   "Nouvelle clé": "New key",
@@ -320,7 +320,7 @@ const EN: Record<string, string> = {
   "Diagnostique un problème d'authentification": "Diagnose an authentication problem",
   "Ma clé API renvoie une erreur 401, pourquoi ?": "My API key returns a 401 error, why?",
 
-  // — Chercher un modèle —
+  // — Search for a model —
   "Explore le catalogue Hugging Face et demande le lancement d'un modèle sur le DGX.":
     "Browse the Hugging Face catalog and request that a model be launched on the DGX.",
   "Recherche": "Search",
@@ -336,7 +336,7 @@ const EN: Record<string, string> = {
   "Tape un nom de modèle pour explorer Hugging Face.": "Type a model name to explore Hugging Face.",
   "Demander": "Request",
 
-  // — Demander un modèle —
+  // — Request a model —
   "Identifiant HuggingFace *": "HuggingFace identifier *",
   "Format : organisation/nom-du-modèle": "Format: organisation/model-name",
   "Pourquoi ce modèle ? (optionnel)": "Why this model? (optional)",
@@ -349,7 +349,7 @@ const EN: Record<string, string> = {
   "Tu ne connais pas l'ID exact ? ": "Don't know the exact ID? ",
   "Cherche sur HuggingFace →": "Search on HuggingFace →",
 
-  // — Classement —
+  // — Leaderboard —
   "Qui consomme le plus, en tokens réellement consommés (prompt + généré).":
     "Who consumes the most, in real tokens used (prompt + generated).",
   "Période": "Period",
@@ -457,7 +457,7 @@ const EN: Record<string, string> = {
 
   "Aucun résultat pour": "No results for",
 
-  // — Connexion —
+  // — Login —
   "Plateforme IA privée · NVIDIA DGX Spark": "Private AI platform · NVIDIA DGX Spark",
   "Identifiant LLDAP": "LLDAP username",
   "Mot de passe": "Password",
@@ -513,7 +513,7 @@ const EN: Record<string, string> = {
   "Choisis une image à gauche puis lance l'extraction.":
     "Pick an image on the left, then start the extraction.",
 
-  // — Vidéo —
+  // — Video —
   "Aucun modèle vidéo n'est disponible": "No video model is available",
   "Demande à un admin de démarrer un modèle vidéo pour utiliser cette page.":
     "Ask an admin to start a video model to use this page.",
@@ -536,7 +536,7 @@ const EN: Record<string, string> = {
   "En cours": "In progress",
   "ComfyUI injoignable.": "ComfyUI unreachable.",
 
-  // — Voix (clonage) —
+  // — Voice (cloning) —
   "Aucun modèle vocal n'est disponible": "No voice model is available",
   "Demande à un admin de démarrer un modèle vocal pour utiliser cette page.":
     "Ask an admin to start a voice model to use this page.",
@@ -569,8 +569,8 @@ const EN: Record<string, string> = {
   "Nom (ex: chatterbox-turbo)": "Name (e.g. chatterbox-turbo)",
   "Variante": "Variant",
   "Utilisation voix par utilisateur": "Voice usage per user",
-  // « Enregistrer » seul est déjà pris par le sens « Save » (Réglages) — le
-  // texte français servant de clé, il faut un libellé distinct ici.
+  // "Enregistrer" alone is already taken by the "Save" meaning (Settings) — the
+  // French text serving as the key, we need a distinct label here.
   "Langue du texte": "Text language",
   "Transcription de l'échantillon (optionnel)": "Sample transcript (optional)",
   "Recopie ici exactement ce que tu as dit dans l'enregistrement.":
@@ -592,8 +592,8 @@ const EN: Record<string, string> = {
   "Micro inaccessible — autorise l'accès au microphone dans ton navigateur.":
     "Microphone unavailable — allow microphone access in your browser.",
   "Impossible de convertir l'enregistrement.": "Could not convert the recording.",
-  // Messages renvoyés par /api/voice/generate (le backend reste francophone,
-  // la page les affiche tels quels via t()).
+  // Messages returned by /api/voice/generate (the backend stays French-speaking,
+  // the page displays them as-is via t()).
   "Échec de la génération — l'échantillon doit contenir plus de 5 secondes de voix.":
     "Generation failed — the sample must contain more than 5 seconds of speech.",
   "Échantillon audio refusé par le service voix.": "Audio sample rejected by the voice service.",
@@ -604,11 +604,11 @@ const EN: Record<string, string> = {
   "Format audio non supporté (WAV/MP3 uniquement).": "Unsupported audio format (WAV/MP3 only).",
   "Échantillon audio trop volumineux (15 Mo max).": "Audio sample too large (15 MB max).",
 
-  // — Connexion (suite) —
+  // — Login (continued) —
   "Session expirée — recharge la page et réessaie.": "Session expired — reload the page and try again.",
   "Identifiants incorrects.": "Incorrect credentials.",
 
-  // — Réglages : MCP / Compétences (suite) —
+  // — Settings: MCP / Skills (continued) —
   "Serveur MCP mis à jour": "MCP server updated",
   "Serveur MCP connecté": "MCP server connected",
   "outil(s) trouvé(s)": "tool(s) found",
@@ -616,30 +616,30 @@ const EN: Record<string, string> = {
   "Exemple : notion_workspace": "Example: notion_workspace",
   "Exemple : analyse-de-logs": "Example: log-analysis",
 
-  // — Playground (suite) —
+  // — Playground (continued) —
   "Vous": "You",
 
-  // — Classement (suite) —
+  // — Leaderboard (continued) —
   "toi": "you",
 
-  // — Accueil / activité (suite) —
+  // — Home / activity (continued) —
   "Moins → Plus": "Less → More",
 
-  // — Réglages : Usage (suite) —
+  // — Settings: Usage (continued) —
   "Maximum 20 messages par minute.": "Maximum 20 messages per minute.",
   "% utilisé": "% used",
 
-  // — Support (suite) —
+  // — Support (continued) —
   "Bonjour 👋 Je suis **Cronos**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.":
     "Hi 👋 I'm **Cronos**, the platform's assistant. I can help you troubleshoot (keys, quota, models, OpenCode/Hermes integration…) but I can also **act on your behalf**: create a key, request budget, request a model. Tell me what you need.",
 
-  // — Étiquettes d'appels d'outils (assistant Support) —
+  // — Tool-call labels (Support assistant) —
   "Révoquer une clé API": "Revoke an API key",
   "Lancer un modèle": "Launch a model",
   "Arrêter le modèle": "Stop the model",
   "Action bloquée après lecture d'un contenu externe.": "Action blocked after reading external content.",
 
-  // — Classement (suite 2) —
+  // — Leaderboard (continued 2) —
   "Jour": "Day",
   "Semaine": "Week",
   "Mois": "Month",
@@ -701,7 +701,7 @@ const EN: Record<string, string> = {
   "la semaine précédente": "the previous week",
   "les 30 jours précédents": "the previous 30 days",
 
-  // — Indicateur de réflexion —
+  // — Thinking indicator —
   "Cogitation": "Cogitating",
   "Rumination": "Ruminating",
   "Gamberge": "Pondering",
@@ -734,7 +734,7 @@ export function useLang() {
   return useContext(I18nContext);
 }
 
-/** t("texte français") — identité en FR, traduction en EN. */
+/** t("texte français") — identity in FR, translation in EN. */
 export function useT() {
   const { lang } = useContext(I18nContext);
   return useCallback((fr: string) => (lang === "en" ? EN[fr] ?? fr : fr), [lang]);

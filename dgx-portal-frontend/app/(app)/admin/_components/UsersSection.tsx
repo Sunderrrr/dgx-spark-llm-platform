@@ -33,7 +33,7 @@ type LocalUser = {
 type Group = { name: string; max_budget: number | null; is_admin: number };
 type UsersData = { users: LocalUser[]; groups: Group[]; default_budget: number };
 
-// Tags de catégorie (source d'auth) → variants couleur non-sémantiques.
+// Category tags (auth source) → non-semantic color variants.
 const SOURCE_META: Record<string, { label: string; variant: "green" | "orange" | "blue" | "purple" | "neutral" }> = {
   local: { label: "Local", variant: "green" },
   debug: { label: "Debug", variant: "orange" },

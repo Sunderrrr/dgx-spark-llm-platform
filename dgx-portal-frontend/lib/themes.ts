@@ -1,17 +1,17 @@
 import { defineTheme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral";
 
-/** Palettes proposées dans Réglages → Apparence.
+/** Palettes offered in Settings → Appearance.
  *
- *  Chaque variante étend le thème neutre et ne change que la couleur d'accent :
- *  defineTheme regénère alors toute la famille de tokens dérivés (accent-muted,
- *  bordures, états de survol…) de façon cohérente en clair comme en sombre.
- *  C'est la voie officielle du design system — on ne surcharge jamais
- *  --color-* dans :root, ce que les conventions Astryx interdisent
- *  explicitement (voir AGENTS.md).
+ *  Each variant extends the neutral theme and changes only the accent color:
+ *  defineTheme then regenerates the whole family of derived tokens (accent-muted,
+ *  borders, hover states…) consistently in light as in dark mode.
+ *  It's the design system's official path — we never override
+ *  --color-* in :root, which the Astryx conventions explicitly
+ *  forbid (see AGENTS.md).
  *
- *  `swatch` sert uniquement à peindre la pastille de sélection : la vraie
- *  couleur appliquée vient du thème lui-même.
+ *  `swatch` only serves to paint the selection dot: the real
+ *  applied color comes from the theme itself.
  */
 export type ThemeId =
   | "neutral" | "indigo" | "violet" | "rose" | "ambre"
@@ -34,8 +34,8 @@ export const THEMES = ACCENTS.map((t) => ({
   id: t.id,
   label: t.label,
   swatch: t.accent,
-  // Le thème neutre est utilisé tel quel : le redériver changerait
-  // subtilement ses gris par rapport au thème d'origine.
+  // The neutral theme is used as-is: re-deriving it would subtly
+  // change its grays compared to the original theme.
   theme:
     t.id === "neutral"
       ? neutralTheme

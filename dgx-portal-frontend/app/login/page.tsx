@@ -14,8 +14,8 @@ import { ShieldCheckIcon, ArrowRightOnRectangleIcon, CpuChipIcon } from "@heroic
 import { fetchCsrfToken } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
-// Auto-hébergées (public/login-bg*.jpg) pour respecter la CSP img-src 'self' —
-// pas de dépendance à un CDN externe. Photos : forêts enneigées, paysages nordiques (Unsplash).
+// Self-hosted (public/login-bg*.jpg) to respect the CSP img-src 'self' —
+// no dependency on an external CDN. Photos: snowy forests, Nordic landscapes (Unsplash).
 const BACKGROUNDS = ["/login-bg.jpg", "/login-bg-2.jpg", "/login-bg-3.jpg"];
 
 export default function LoginPage() {
@@ -29,8 +29,8 @@ export default function LoginPage() {
   const [bg, setBg] = useState(BACKGROUNDS[0]);
 
   useEffect(() => {
-    // Choisi côté client après le montage (pas dans le rendu SSR) pour éviter
-    // un mismatch d'hydratation — un tirage aléatoire différerait entre serveur et client.
+    // Chosen client-side after mount (not in the SSR render) to avoid
+    // a hydration mismatch — a random draw would differ between server and client.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBg(BACKGROUNDS[Math.floor(Math.random() * BACKGROUNDS.length)]);
     fetchCsrfToken().then(setCsrf).catch(() => {});
@@ -60,10 +60,10 @@ export default function LoginPage() {
           body: new URLSearchParams({ username, password }).toString(),
         });
       let res = await post(csrf);
-      // Un 400 ici, c'est le jeton CSRF, pas le mot de passe : le cookie de
-      // session a pu être remplacé entre le chargement de la page et l'envoi.
-      // On récupère le jeton courant et on retente une fois, plutôt que
-      // d'accuser l'utilisateur d'avoir mal tapé ses identifiants.
+      // A 400 here is the CSRF token, not the password: the session cookie
+      // may have been replaced between the page load and the submission.
+      // We fetch the current token and retry once, rather than
+      // accusing the user of mistyping their credentials.
       if (res.status === 400) {
         const fresh = await fetchCsrfToken().catch(() => "");
         if (fresh && fresh !== csrf) {
@@ -71,12 +71,12 @@ export default function LoginPage() {
           res = await post(fresh);
         }
       }
-      // Le formulaire réussi redirige vers /, dont fetch suit — la présence d'un
-      // cookie de session valide est ce qu'on vérifie, pas le corps de la réponse.
+      // A successful form redirects to /, which fetch follows — the presence of a
+      // valid session cookie is what we check, not the response body.
       const who = await fetch("/api/whoami", { credentials: "include" });
       if (who.ok) {
-        // Rechargement complet volontaire : on vient d'obtenir un cookie de
-        // session, et le rendu serveur doit repartir avec.
+        // Deliberate full reload: we just obtained a session cookie,
+        // and the server render must start over with it.
         window.location.href = "/";
       } else if (res.status === 400) {
         setError(t("Session expirée — recharge la page et réessaie."));
@@ -135,8 +135,8 @@ export default function LoginPage() {
                 variant="secondary"
                 size="lg"
                 icon={<Icon icon={ShieldCheckIcon} size="sm" />}
-                // /login/sso est une route Flask qui redirige vers Authentik :
-                // une navigation next/link ne saurait pas en sortir.
+                // /login/sso is a Flask route that redirects to Authentik:
+                // a next/link navigation couldn't get out of it.
                 onClick={() => (window.location.href = "/login/sso")}
               />
             </>

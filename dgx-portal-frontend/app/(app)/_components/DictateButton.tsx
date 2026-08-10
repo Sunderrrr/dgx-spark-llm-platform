@@ -9,15 +9,15 @@ import { useT } from "@/lib/i18n";
 import type { Dictation } from "@/lib/useDictation";
 
 /**
- * Bouton de dictée à poser à côté d'un champ texte.
+ * Dictation button to place next to a text field.
  *
- * L'appelant fournit l'objet renvoyé par useDictation() plutôt que le bouton
- * de l'instancier lui-même : la page en a besoin de son côté pour couper le
- * micro (à l'envoi d'un message, par exemple), et un hook ne peut pas être
- * appelé conditionnellement.
+ * The caller provides the object returned by useDictation() rather than the
+ * button instantiating it itself: the page needs it on its side to cut the
+ * mic (on sending a message, for example), and a hook cannot be called
+ * conditionally.
  *
- * Rien ne s'affiche tant que le backend de transcription est arrêté — mieux
- * vaut pas de bouton qu'un bouton qui échoue.
+ * Nothing is shown as long as the transcription backend is stopped — better
+ * no button than a button that fails.
  */
 export function DictateButton({
   dictation,
@@ -60,10 +60,10 @@ export function DictateButton({
       isLoading={isTranscribing}
       isDisabled={isDisabled}
       icon={<Icon icon={isRecording ? StopIcon : MicrophoneIcon} size="sm" />}
-      // Le bouton ne prend pas le focus à la souris : sans ça, cliquer sur le
-      // micro le retire du champ, et l'Entrée qui suit ré-actionne le bouton
-      // au lieu d'envoyer le message. preventDefault sur mousedown ne touche
-      // ni au clic ni au parcours clavier (Tab donne toujours le focus).
+      // The button doesn't take focus on mouse click: without this, clicking
+      // the mic removes focus from the field, and the following Enter re-triggers
+      // the button instead of sending the message. preventDefault on mousedown
+      // touches neither the click nor keyboard navigation (Tab still gives focus).
       onMouseDown={(e) => e.preventDefault()}
       onClick={toggle}
     />

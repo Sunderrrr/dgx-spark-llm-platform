@@ -29,8 +29,8 @@ type RunningModel = { name: string; kind: "chat" | "ocr" | "video"; exposed: boo
 
 const DURATIONS = ["3", "5", "8", "10", "15"];
 
-// Statuts renvoyés par ComfyUI. Ils s'affichaient tels quels ("running"),
-// non traduits, dans la pastille de statut et dans l'historique.
+// Statuses returned by ComfyUI. They used to show as-is ("running"),
+// untranslated, in the status dot and in the history.
 const STATUS_LABEL: Record<string, string> = {
   pending: "En file d'attente…",
   running: "Génération en cours…",
@@ -141,8 +141,8 @@ export default function VideoPage() {
               description={t("Demande à un admin de démarrer un modèle vidéo pour utiliser cette page.")}
             />
           ) : (
-          // Colonne centrée : à gauche d'un écran large, la page paraissait
-          // décentrée alors que tout le reste de l'app est équilibré.
+          // Centered column: on the left of a wide screen the page looked
+          // off-center while the rest of the app is balanced.
           <VStack hAlign="center" width="100%">
           <VStack gap={5} maxWidth={720} width="100%">
             <VStack gap={1}>
@@ -198,18 +198,17 @@ export default function VideoPage() {
             {status !== "idle" && (
               <Card>
                 <VStack gap={4}>
-                  {/* Un seul porteur du statut : la pastille affichait le
-                      libellé BRUT ("running") juste à côté du même statut
-                      traduit, et le placeholder le répétait une troisième
-                      fois. */}
+                  {/* A single status carrier: the dot showed the RAW label
+                      ("running") right next to the same translated status,
+                      and the placeholder repeated it a third time. */}
                   <StatusDot
                     variant={status === "done" ? "success" : status === "error" ? "error" : "accent"}
                     label={t(STATUS_LABEL[status] ?? status)}
                   />
-                  {/* Pendant la génération, on occupe déjà la place exacte de
-                      la vidéo à venir (même 16/9) avec un shimmer : la barre
-                      de progression indéterminée ne disait rien de plus et
-                      faisait sauter la mise en page à l'arrivée du résultat. */}
+                  {/* During generation we already occupy the exact spot of
+                      the upcoming video (same 16/9) with a shimmer: the
+                      indeterminate progress bar said nothing more and made
+                      the layout jump when the result arrived. */}
                   {isBusy && (
                     <AspectRatio ratio={16 / 9} fit="contain">
                       <VStack
@@ -236,8 +235,8 @@ export default function VideoPage() {
             {history.length > 0 && (
               <VStack gap={2}>
                 <Text type="supporting" color="secondary">
-                  {/* Compteur réel plutôt qu'un nombre écrit en dur, qui
-                      redevient faux au moindre changement de limite. */}
+                  {/* Real counter rather than a hardcoded number, which
+                      becomes wrong at the slightest change of limit. */}
                   {t("Historique")} ({history.length})
                 </Text>
                 <VStack gap={0}>

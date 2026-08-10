@@ -124,6 +124,8 @@ export default function AdminPage() {
   }
 
   useEffect(refresh, []);
+  // Re-poll admin data every 8s; stops once access is known forbidden to
+  // avoid hammering a 403.
   useEffect(() => {
     if (forbidden) return;
     const id = setInterval(refresh, 8000);
@@ -131,8 +133,8 @@ export default function AdminPage() {
   }, [forbidden]);
 
   useEffect(() => {
-    // Ne se rouvre pas une fois qu'on sait que l'accès est refusé — sinon
-    // EventSource retente indéfiniment un flux réservé aux admins.
+    // Doesn't reopen once we know access is forbidden — otherwise
+    // EventSource would retry indefinitely an admin-only stream.
     if (forbidden) return;
     const es = new EventSource("/admin/runner/stream");
     es.onopen = () => setLogs([]);
@@ -143,16 +145,16 @@ export default function AdminPage() {
 
   async function act(url: string, params: Record<string, string> = {}) {
     if (!csrf) return;
-    // Certaines routes (démarrage des sidecars) renvoient { ok, error } avec un
-    // statut non-2xx en cas de refus (mémoire insuffisante, etc.). On lit ce
-    // résultat au lieu d'afficher « fait » systématiquement — le vrai bug qui
-    // faisait croire qu'un lancement OCR/vidéo avait réussi alors qu'il OOMait.
+    // Some routes (sidecar startup) return { ok, error } with a non-2xx
+    // status on refusal (insufficient memory, etc.). We read that result
+    // instead of always showing "done" — the real bug that made an OCR/video
+    // launch look successful while it was actually OOMing.
     let errMsg: string | null = null;
     try {
       const res = await postFormJSON<{ ok?: boolean; error?: string }>(url, csrf, params);
       if (res && res.ok === false) errMsg = res.error || t("Échec de l'action.");
     } catch {
-      // Réponse non-JSON (anciennes routes en redirect) → considéré comme OK.
+      // Non-JSON response (older redirect routes) → treated as OK.
     }
     showToast(errMsg ? { body: errMsg, type: "error" } : { body: t("Action effectuée."), type: "info" });
     refresh();
@@ -259,9 +261,9 @@ export default function AdminPage() {
             )}
 
             <VStack gap={3}>
-              {/* Une seule ligne pour les quatre backends : leur état et leur
-                  démarrage/arrêt étaient auparavant éclatés entre une carte
-                  vLLM isolée et une grille OCR/vidéo/voix. */}
+              {/* A single row for the four backends: their status and
+                  start/stop were previously split between an isolated vLLM
+                  card and an OCR/video/voice grid. */}
               <Text weight="semibold">{t("Backends")}</Text>
               {data && (
                 <Grid columns={{ minWidth: 200, max: 5 }} gap={3}>
@@ -367,9 +369,9 @@ export default function AdminPage() {
                 </Grid>
               )}
 
-              {/* Catalogue unique : le type choisi pilote à la fois la liste
-                  affichée et les champs du formulaire d'ajout, au lieu des
-                  trois sections séparées (vLLM / OCR / voix) d'avant. */}
+              {/* Single catalog: the chosen type drives both the displayed
+                  list and the add-form fields, instead of the three separate
+                  sections (vLLM / OCR / voice) from before. */}
               <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
                 <Text weight="semibold">{t("Catalogue")}</Text>
                 <SegmentedControl label={t("Type de modèle")} value={catalogKind} onChange={(v) => setCatalogKind(v as CatalogKind)}>

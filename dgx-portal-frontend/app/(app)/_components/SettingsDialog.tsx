@@ -155,10 +155,12 @@ export function SettingsDialog({
   isOpen,
   onOpenChange,
   onAvatarChange,
+  initialSection,
 }: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   onAvatarChange?: (avatarId: string) => void;
+  initialSection?: Section;
 }) {
   const csrf = useCsrf();
   const showToast = useToast();
@@ -166,6 +168,15 @@ export function SettingsDialog({
   const { lang, setLang } = useLang();
   const t = useT();
   const [section, setSection] = useState<Section>("account");
+  // À l'ouverture avec une section demandée (ex. « keys » depuis l'accueil),
+  // on se place directement sur cet onglet. L'engrenage ouvre sans section →
+  // on garde le dernier onglet consulté.
+  useEffect(() => {
+    // Sync ponctuel à l'ouverture (pas une cascade de rendus) : on place
+    // l'onglet demandé. Usage légitime « synchroniser depuis une prop ».
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (isOpen && initialSection) setSection(initialSection);
+  }, [isOpen, initialSection]);
   const [data, setData] = useState<SettingsData | null>(null);
   // Sous-page « formulaire » d'une section (motif du design de référence :
   // la liste laisse place à un formulaire plein cadre avec flèche retour).

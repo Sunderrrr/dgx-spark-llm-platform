@@ -1,41 +1,39 @@
 """
-Model Runner — daemon HTTP local sur le port 8001.
-Gère un seul processus d'inférence à la fois (avec ses enfants), au choix :
-  - vLLM      : poids safetensors (NVFP4 / FP8 / BF16)
-  - llama.cpp : poids GGUF (llama-server, API OpenAI-compatible sur le même port)
-Dans les deux cas le modèle est servi sur :8000 → le routage LiteLLM est identique.
+Model Runner — local HTTP daemon on port 8001.
+Manages a single inference process at a time (with its children), one of:
+  - vLLM      : safetensors weights (NVFP4 / FP8 / BF16)
+  - llama.cpp : GGUF weights (llama-server, OpenAI-compatible API on the same port)
+In both cases the model is served on :8000 → LiteLLM routing is identical.
 """
 import hmac, json, os, re, shutil, signal, subprocess, threading, time, urllib.request
 from flask import Flask, jsonify, request, Response
 
 VLLM_BIN     = os.environ.get("VLLM_BIN", "/root/.local/bin/vllm")
-# Venv séparé (vLLM 0.25.1 + FlashInfer nightly) pour les modèles qui exigent
-# une version de vLLM plus récente que celle installée globalement — évite de
-# faire une montée de version majeure qui casserait les modèles existants
-# (nemotron/minimax/ornith tournent sur VLLM_BIN, testés et stables dessus).
-# Activé par le pseudo-flag --vllm-025 dans vllm_args (voir _BIN_FLAGS).
+# Separate venv (vLLM 0.25.1 + FlashInfer nightly) for models that require a
+# newer vLLM than the globally installed one — avoids a major version bump that
+# would break existing models (nemotron/minimax/ornith run on VLLM_BIN, tested
+# and stable there). Enabled by the pseudo-flag --vllm-025 in vllm_args (see _BIN_FLAGS).
 VLLM_BIN_025 = os.environ.get("VLLM_BIN_025", "/root/venvs/vllm025/bin/vllm")
 LLAMA_BIN    = os.environ.get("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-server")
-# Moteur ds4 : GGUF NVFP4 « multi-tenseurs » spécifique DGX Spark (DeepSeek-V4-Flash).
-# Ni vLLM ni llama.cpp standard ne savent charger ce format.
+# ds4 engine: DGX Spark-specific "multi-tensor" NVFP4 GGUF (DeepSeek-V4-Flash).
+# Neither vLLM nor stock llama.cpp can load this format.
 DS4_BIN      = os.environ.get("DS4_BIN", "/root/ds4-nvfp4-spark/ds4-server")
 HF_HOME      = os.environ.get("HF_HOME", "/root/.cache/huggingface")
-# Répertoire de poids téléchargés hors du Hub (ex. HF throttle les gros GGUF en
-# non-authentifié). Un modèle y est référencé par « local:<nom> » — le nom est
-# assaini, donc pas de chemin arbitraire ni de traversée de répertoire.
+# Directory of weights downloaded outside the Hub (e.g. HF throttles large GGUFs
+# when unauthenticated). A model is referenced there by "local:<name>" — the name
+# is sanitized, so no arbitrary path or directory traversal.
 MODELS_DIR   = os.environ.get("MODELS_DIR", "/root/models")
-# Templates de chat corrigés (ex. neutraliser l'alternance stricte des modèles
-# Mistral qui casse en usage agentique). Référencés par nom seul → pas de chemin
-# arbitraire.
+# Fixed-up chat templates (e.g. neutralize the strict alternation of Mistral
+# models that breaks in agentic use). Referenced by name only → no arbitrary path.
 TEMPLATES_DIR = os.environ.get("TEMPLATES_DIR", "/root/models/templates")
-RUNNER_TOKEN = os.environ["RUNNER_TOKEN"]  # requis — pas de défaut, le service doit échouer au démarrage si absent
+RUNNER_TOKEN = os.environ["RUNNER_TOKEN"]  # required — no default, the service must fail at startup if absent
 
 ENGINES = ("vllm", "llamacpp", "ds4")
 _ENGINE_BIN = {"vllm": VLLM_BIN, "llamacpp": LLAMA_BIN, "ds4": DS4_BIN}
 
-# Persiste le dernier lancement réussi pour pouvoir le reprendre automatiquement
-# après un redémarrage du service (mise à jour système, reboot, crash) — sauf
-# arrêt volontaire via /stop, qui efface ce fichier.
+# Persist the last successful launch so it can be resumed automatically after a
+# service restart (system update, reboot, crash) — except on a deliberate /stop,
+# which clears this file.
 STATE_FILE = os.path.join(os.environ.get("HOME", "/var/lib/vllm-runner"), "last_model.json")
 MAX_AUTO_RETRIES = 3
 
@@ -44,15 +42,15 @@ app = Flask(__name__)
 _lock   = threading.Lock()
 _proc   = None
 _model  = None
-_engine = None        # moteur du modèle courant : 'vllm' | 'llamacpp'
+_engine = None        # engine of the current model: 'vllm' | 'llamacpp'
 _logs   = []
 _status = "stopped"   # stopped | starting | running | error
-_auto_retries = 0     # tentatives de relance automatique consécutives échouées
+_auto_retries = 0     # consecutive failed automatic relaunch attempts
 
 # ── Auth ─────────────────────────────────────────────────────────────────
-# Toutes les routes nécessitent "Authorization: Bearer <RUNNER_TOKEN>".
-# Cette API pilote un process root et lance des modèles arbitraires : elle ne doit
-# jamais être appelable sans preuve que l'appelant est bien dgx-portal.
+# Every route requires "Authorization: Bearer <RUNNER_TOKEN>".
+# This API drives a root process and launches arbitrary models: it must never
+# be callable without proof that the caller really is dgx-portal.
 @app.before_request
 def _check_auth():
     header = request.headers.get("Authorization", "")
@@ -62,41 +60,40 @@ def _check_auth():
         return jsonify({"error": "unauthorized"}), 401
 
 
-# ── Whitelist des flags vLLM autorisés dans vllm_args ──────────────────────
-# Allowlist stricte (pas denylist) : tout flag non listé est refusé.
-# Volontairement absents : --trust-remote-code (RCE via code du repo HF),
-# --download-dir / --chat-template / --tokenizer (lecture fichier arbitraire /
-# SSTI Jinja2), --model / --host / --port / --served-model-name / --api-key
-# (déjà fixés par le runner, ne doivent pas être écrasables).
+# ── Whitelist of vLLM flags allowed in vllm_args ───────────────────────────
+# Strict allowlist (not a denylist): any unlisted flag is refused.
+# Deliberately absent: --trust-remote-code (RCE via HF repo code),
+# --download-dir / --chat-template / --tokenizer (arbitrary file read /
+# Jinja2 SSTI), --model / --host / --port / --served-model-name / --api-key
+# (already set by the runner, must not be overridable).
 _BOOL_FLAGS = {
     "--enable-auto-tool-choice", "--enforce-eager",
     "--disable-log-requests", "--disable-log-stats",
     "--skip-mm-profiling",
-    # KAT-Coder-V2.5 (et autres releases Qwen3.5-MoE "text-only") : sans ce
-    # flag vLLM résout un config multimodal (Qwen3_5MoeConfig) au lieu du
-    # config texte (Qwen3_5MoeTextConfig) que ce poids attend réellement →
-    # TypeError au chargement. Obligatoire d'après la carte du modèle.
+    # KAT-Coder-V2.5 (and other text-only Qwen3.5-MoE releases): without this
+    # flag vLLM resolves a multimodal config (Qwen3_5MoeConfig) instead of the
+    # text config (Qwen3_5MoeTextConfig) that this weight actually expects →
+    # TypeError at load. Required per the model card.
     "--language-model-only",
 }
 
-# Pseudo-flags : ne sont PAS passés au moteur, ils positionnent une variable
-# d'environnement pour CE modèle uniquement. Allowlist fermée → pas d'injection
-# d'env arbitraire. Utile quand un modèle exige un chemin kernel particulier
-# qu'on ne veut surtout pas imposer globalement aux autres modèles.
+# Pseudo-flags: NOT passed to the engine, they set an environment variable for
+# THIS model only. Closed allowlist → no arbitrary env injection. Useful when a
+# model requires a particular kernel path that we specifically don't want to
+# impose globally on the other models.
 _ENV_FLAGS = {
-    # MiniMax-M2 (quant mixte NVFP4+FP8) : vLLM ne trouve pas de kernel FP8
-    # ScaledMM sur GB10 et demande explicitement ce fallback Marlin.
+    # MiniMax-M2 (mixed NVFP4+FP8 quant): vLLM finds no FP8 ScaledMM kernel on
+    # GB10 and explicitly requests this Marlin fallback.
     "--force-fp8-marlin": ("VLLM_TEST_FORCE_FP8_MARLIN", "1"),
-    # Laguna S 2.1 (NVFP4 natif via FlashInfer) : chaîne d'architecture requise
-    # par le JIT des kernels FP4 sur GB10 (recette officielle poolside).
+    # Laguna S 2.1 (native NVFP4 via FlashInfer): architecture string required
+    # by the FP4 kernels' JIT on GB10 (official poolside recipe).
     "--cute-dsl-arch-sm121a": ("CUTE_DSL_ARCH", "sm_121a"),
 }
 _BOOL_FLAGS |= set(_ENV_FLAGS)
 
-# Pseudo-flag séparé (pas un simple env var) : bascule le binaire vLLM utilisé
-# pour CE lancement uniquement, sans toucher à VLLM_BIN (donc sans risque pour
-# les autres modèles vllm). Retiré de extra_tokens dans _start_process, comme
-# les entrées de _ENV_FLAGS.
+# Separate pseudo-flag (not just an env var): switches the vLLM binary used for
+# THIS launch only, without touching VLLM_BIN (so no risk for the other vllm
+# models). Removed from extra_tokens in _start_process, like _ENV_FLAGS entries.
 _BIN_FLAGS = {
     "--vllm-025": VLLM_BIN_025,
 }
@@ -108,34 +105,34 @@ _VALUE_FLAGS = {
     "--quantization", "--tensor-parallel-size", "--pipeline-parallel-size",
     "--reasoning-parser", "--limit-mm-per-prompt",
     "--uvicorn-log-level",
-    # Valeur énumérée (auto|slow|mistral|custom), jamais un chemin → sans risque.
-    # Nécessaire pour les modèles Mistral (tekken) : l'auto-détection de vLLM 0.24
-    # tombe sur un backend cassé ("CachedMistralCommonBackend has no attribute
-    # is_fast"), alors que --tokenizer-mode mistral fonctionne.
+    # Enumerated value (auto|slow|mistral|custom), never a path → safe.
+    # Needed for Mistral models (tekken): vLLM 0.24 auto-detection falls onto a
+    # broken backend ("CachedMistralCommonBackend has no attribute is_fast"),
+    # whereas --tokenizer-mode mistral works.
     "--tokenizer-mode",
 }
 
-# ── Whitelist OCR (conteneur docker dédié, PAS le process hôte principal) ──
-# Plus permissive que _BOOL_FLAGS/_VALUE_FLAGS : --trust-remote-code et
-# --logits_processors sont nécessaires à Unlimited-OCR (processeur de logits
-# custom du repo) et probablement à d'autres VLM OCR. Risque RCE réel si
-# l'admin pointe vers un repo HF malveillant — accepté ici : (1) admin-only,
-# même niveau de confiance que le catalogue de chat principal, qui contrôle
-# déjà entièrement ce qui tourne côté hôte ; (2) ce conteneur est isolé
-# (réseau docker dédié, pas de docker.sock, pas d'accès aux autres services).
+# ── OCR whitelist (dedicated docker container, NOT the main host process) ──
+# More permissive than _BOOL_FLAGS/_VALUE_FLAGS: --trust-remote-code and
+# --logits_processors are needed by Unlimited-OCR (custom logits processor from
+# the repo) and probably by other OCR VLMs. Real RCE risk if the admin points
+# at a malicious HF repo — accepted here: (1) admin-only, same trust level as
+# the main chat catalog, which already fully controls what runs on the host;
+# (2) this container is isolated (dedicated docker network, no docker.sock, no
+# access to the other services).
 _OCR_BOOL_FLAGS = _BOOL_FLAGS | {"--trust-remote-code", "--no-enable-prefix-caching"}
 _OCR_VALUE_FLAGS = _VALUE_FLAGS | {"--logits_processors", "--mm-processor-cache-gb"}
 
-# ── Whitelist des flags llama.cpp (llama-server) ───────────────────────────
-# Même principe : allowlist stricte. Volontairement absents :
-# --model / --hf-repo / --host / --port / --alias (fixés par le runner),
-# --chat-template-file & --grammar-file & --lora (lecture de fichier arbitraire),
-# --chat-template (accepte un template Jinja complet → surface d'injection).
+# ── Whitelist of llama.cpp flags (llama-server) ────────────────────────────
+# Same principle: strict allowlist. Deliberately absent:
+# --model / --hf-repo / --host / --port / --alias (set by the runner),
+# --chat-template-file & --grammar-file & --lora (arbitrary file read),
+# --chat-template (accepts a full Jinja template → injection surface).
 _LLAMA_BOOL_FLAGS = {
     "--no-mmap", "--mlock", "--jinja", "--cont-batching",
     "--no-kv-offload", "--metrics", "--no-warmup",
-    # Tronque les vieux tokens quand un slot est plein au lieu d'ERREUR (sinon un
-    # client comme OpenCode réessaie la même requête trop longue → crash).
+    # Truncates old tokens when a slot is full instead of ERRORing (otherwise a
+    # client like OpenCode retries the same over-long request → crash).
     "--context-shift", "--no-context-shift",
 }
 _LLAMA_VALUE_FLAGS = {
@@ -144,18 +141,18 @@ _LLAMA_VALUE_FLAGS = {
     "--n-predict", "--rope-scaling", "--rope-freq-base", "--rope-freq-scale",
     "--split-mode", "--main-gpu", "--seed", "--defrag-thold", "--log-verbosity",
     "--reasoning-format", "--chat-template-kwargs",
-    # Attention : --flash-attn prend une VALEUR (on|off|auto) dans llama.cpp
-    # récent — le traiter comme un booléen lui fait avaler le flag suivant.
+    # Careful: --flash-attn takes a VALUE (on|off|auto) in recent llama.cpp —
+    # treating it as a boolean makes it swallow the next flag.
     "--flash-attn",
-    # Valeur = nom de fichier seul, résolu sous TEMPLATES_DIR (pas de chemin
-    # arbitraire, cf. _resolve_template) → sert à corriger un template embarqué.
+    # Value = file name only, resolved under TEMPLATES_DIR (no arbitrary path,
+    # see _resolve_template) → used to fix up an embedded template.
     "--chat-template-file",
 }
 
 
-# ── Whitelist des flags ds4 (ds4-server) ───────────────────────────────────
-# -m / --host / --port sont fixés par le runner. Pas de flag prenant un chemin
-# (--kv-disk-dir, --dir-steering-file) → aucune lecture/écriture arbitraire.
+# ── Whitelist of ds4 flags (ds4-server) ────────────────────────────────────
+# -m / --host / --port are set by the runner. No flag taking a path
+# (--kv-disk-dir, --dir-steering-file) → no arbitrary read/write.
 _DS4_BOOL_FLAGS = {
     "--cuda", "--cpu", "--kv-cache-reject-different-quant",
     "--disable-exact-dsml-tool-replay",
@@ -178,24 +175,24 @@ def _flags_for(engine):
 
 
 def _resolve_gguf(hf_id):
-    """Résout un GGUF local (les moteurs ds4/llama.cpp veulent un fichier via -m).
+    """Resolve a local GGUF (the ds4/llama.cpp engines want a file via -m).
 
-    Deux sources, toutes deux SOUS UN RÉPERTOIRE CONTRÔLÉ — jamais un chemin
-    arbitraire venant de l'API :
-      - "local:<nom>"  → MODELS_DIR/<nom>/  (nom assaini)
-      - "user/repo"    → cache HF du repo
-    Retourne le 1er shard s'il est éclaté, sinon le plus gros .gguf.
+    Two sources, both UNDER A CONTROLLED DIRECTORY — never an arbitrary path
+    coming from the API:
+      - "local:<name>"  → MODELS_DIR/<name>/  (sanitized name)
+      - "user/repo"     → HF cache of the repo
+    Returns the 1st shard if it is split, otherwise the largest .gguf.
     """
     if hf_id.startswith("local:"):
         slug = re.sub(r'[^A-Za-z0-9._-]', '', hf_id[len("local:"):])
         snaps = os.path.join(MODELS_DIR, slug)
         if not slug or not os.path.isdir(snaps):
-            raise FileNotFoundError(f"modèle local « {slug} » introuvable dans {MODELS_DIR}")
+            raise FileNotFoundError(f"local model \"{slug}\" not found in {MODELS_DIR}")
     else:
         snaps = os.path.join(HF_HOME, "hub",
                              "models--" + hf_id.replace("/", "--"), "snapshots")
         if not os.path.isdir(snaps):
-            raise FileNotFoundError(f"modèle {hf_id} absent du cache HF — télécharge-le d'abord")
+            raise FileNotFoundError(f"model {hf_id} not in HF cache — download it first")
     candidates = []
     for root, _dirs, files in os.walk(snaps):
         for f in files:
@@ -203,9 +200,9 @@ def _resolve_gguf(hf_id):
                 p = os.path.join(root, f)
                 candidates.append((os.path.getsize(os.path.realpath(p)), f, p))
     if not candidates:
-        raise FileNotFoundError(f"aucun .gguf trouvé pour {hf_id}")
-    # Modèle éclaté en shards → toujours pointer le premier (00001-of-000NN),
-    # le moteur charge les suivants tout seul.
+        raise FileNotFoundError(f"no .gguf found for {hf_id}")
+    # Model split into shards → always point at the first (00001-of-000NN),
+    # the engine loads the rest on its own.
     shards = sorted(p for _s, f, p in candidates if "-00001-of-" in f)
     if shards:
         return shards[0]
@@ -213,7 +210,7 @@ def _resolve_gguf(hf_id):
 
 
 def _validate_vllm_args(extra, engine="vllm"):
-    """Retourne (ok, tokens_ou_message_erreur). L'allowlist dépend du moteur."""
+    """Return (ok, tokens_or_error_message). The allowlist depends on the engine."""
     bool_flags, value_flags = _flags_for(engine)
     tokens = extra.split()
     i = 0
@@ -223,10 +220,10 @@ def _validate_vllm_args(extra, engine="vllm"):
             i += 1
         elif tok in value_flags:
             if i + 1 >= len(tokens) or tokens[i + 1].startswith("--"):
-                return False, f"le flag {tok} nécessite une valeur"
+                return False, f"flag {tok} requires a value"
             i += 2
         else:
-            return False, f"flag non autorisé : {tok}"
+            return False, f"flag not allowed: {tok}"
     return True, tokens
 
 
@@ -242,7 +239,7 @@ def _save_last_launch(hf_id, name, extra_tokens, engine="vllm"):
             json.dump({"hf_model_id": hf_id, "model_name": name,
                        "vllm_args": " ".join(extra_tokens), "engine": engine}, f)
     except OSError as e:
-        _append(f"[runner] impossible d'enregistrer l'état pour la reprise auto : {e}")
+        _append(f"[runner] could not save state for auto-resume: {e}")
 
 
 def _load_last_launch():
@@ -259,11 +256,11 @@ def _clear_last_launch():
     except FileNotFoundError:
         pass
     except OSError as e:
-        _append(f"[runner] impossible d'effacer l'état de reprise auto : {e}")
+        _append(f"[runner] could not clear auto-resume state: {e}")
 
 
 def _kill(proc):
-    """Tue le process ET tous ses enfants (process group)."""
+    """Kill the process AND all its children (process group)."""
     try:
         pgid = os.getpgid(proc.pid)
         os.killpg(pgid, signal.SIGTERM)
@@ -281,9 +278,9 @@ def _kill(proc):
 
 
 def _mem_available_gib():
-    """Mémoire disponible (GiB). Sur GB10 la mémoire est UNIFIÉE (GPU + CPU) :
-    /proc/meminfo est donc le bon indicateur — nvidia-smi ne rapporte pas la
-    mémoire sur cette carte intégrée."""
+    """Available memory (GiB). On GB10 memory is UNIFIED (GPU + CPU):
+    /proc/meminfo is therefore the right indicator — nvidia-smi does not report
+    memory on this integrated card."""
     try:
         with open('/proc/meminfo') as f:
             for line in f:
@@ -295,12 +292,12 @@ def _mem_available_gib():
 
 
 def _wait_mem_release(timeout=60, settle=4.0):
-    """Attend que la mémoire du modèle précédent soit réellement rendue.
+    """Wait until the previous model's memory is actually released.
 
-    Le driver ne récupère pas la mémoire unifiée instantanément à la mort du
-    process : spawner le nouveau vLLM trop tôt le fait échouer sur un OOM GPU
-    (NVRM: NV_ERR_NO_MEMORY) — le modèle crashe puis part en auto-retry. On
-    attend donc que MemAvailable cesse de remonter (plateau) avant de relancer.
+    The driver does not reclaim unified memory instantly when the process dies:
+    spawning the new vLLM too early makes it fail on a GPU OOM
+    (NVRM: NV_ERR_NO_MEMORY) — the model crashes then goes into auto-retry. So we
+    wait for MemAvailable to stop rising (plateau) before relaunching.
     """
     start = time.time()
     prev = _mem_available_gib()
@@ -313,17 +310,17 @@ def _wait_mem_release(timeout=60, settle=4.0):
         cur = _mem_available_gib()
         if cur is None:
             break
-        if cur - prev < 0.5:      # plus de libération notable
+        if cur - prev < 0.5:      # no more notable release
             stable += 1
             if stable >= 2:
                 break
         else:
-            stable = 0            # ça libère encore, on continue d'attendre
+            stable = 0            # still releasing, keep waiting
         prev = cur
     free = _mem_available_gib()
-    _append(f"[runner] Mémoire rendue : {free:.1f} GiB dispo "
-            f"(attente {time.time() - start:.0f}s) — relance du modèle")
-    time.sleep(settle)            # petite marge pour le driver
+    _append(f"[runner] Memory released: {free:.1f} GiB free "
+            f"(waited {time.time() - start:.0f}s) — relaunching the model")
+    time.sleep(settle)            # small margin for the driver
 
 
 def _reader(proc):
@@ -332,26 +329,26 @@ def _reader(proc):
         for raw in proc.stdout:
             line = raw.rstrip()
             _append(line)
-            # vLLM est prêt quand il imprime "Application startup complete"
-            # (ne touche au statut global que si ce process est toujours le process actif —
-            # sinon un ancien reader thread, encore en train de drainer un process tué par
-            # /launch, peut écraser le statut du NOUVEAU process en cours de démarrage)
+            # vLLM is ready when it prints "Application startup complete"
+            # (only touch the global status if this process is still the active one —
+            # otherwise an old reader thread, still draining a process killed by
+            # /launch, could overwrite the status of the NEW process that is starting)
             if "Application startup complete" in line and proc is _proc:
                 _status = "running"
-                _auto_retries = 0  # ce lancement a fonctionné, on repart avec un budget de retry frais
+                _auto_retries = 0  # this launch worked, restart with a fresh retry budget
     except Exception as e:
-        _append(f"[runner] lecture interrompue : {e}")
+        _append(f"[runner] read interrupted: {e}")
     proc.wait()
     with _lock:
         if proc is _proc and _status != "stopped":
             _status = "error" if proc.returncode not in (0, -15, -9) else "stopped"
-        _append(f"[runner] Processus terminé (code {proc.returncode})")
+        _append(f"[runner] Process exited (code {proc.returncode})")
 
 
 def _health_watch(proc):
-    """Bascule le statut en 'running' dès que vLLM répond réellement, sans dépendre
-    des logs : --uvicorn-log-level warning masque « Application startup complete »,
-    ce qui laissait le statut coincé sur 'starting' alors que le modèle servait."""
+    """Flip the status to 'running' as soon as vLLM actually responds, without
+    relying on logs: --uvicorn-log-level warning hides "Application startup
+    complete", which left the status stuck on 'starting' while the model served."""
     global _status, _auto_retries
     url = "http://127.0.0.1:8000/v1/models"
     while proc is _proc and proc.poll() is None:
@@ -382,9 +379,9 @@ def logs():
 
 @app.route("/stream")
 def stream():
-    """SSE — pousse les nouvelles lignes de log en temps réel."""
+    """SSE — push new log lines in real time."""
     def generate():
-        # Envoie tous les logs existants d'un coup
+        # Send all existing logs at once
         with _lock:
             snapshot = list(_logs)
         last = len(snapshot)
@@ -392,11 +389,11 @@ def stream():
             yield f"data: {line}\n\n"
 
         while True:
-            time.sleep(0.05)   # 50 ms → quasi temps réel
+            time.sleep(0.05)   # 50 ms → near real time
             with _lock:
                 current_len = len(_logs)
                 if current_len < last:
-                    # _logs.clear() appelé par /launch → nouveau démarrage
+                    # _logs.clear() called by /launch → new startup
                     yield "event: clear\ndata: \n\n"
                     new_lines = list(_logs)
                     last = current_len
@@ -408,7 +405,7 @@ def stream():
                     for line in new_lines:
                         yield f"data: {line}\n\n"
                 else:
-                    yield ": ping\n\n"   # keep-alive (toutes les 50 ms)
+                    yield ": ping\n\n"   # keep-alive (every 50 ms)
 
     headers = {
         "Cache-Control": "no-cache",
@@ -418,36 +415,36 @@ def stream():
 
 
 def _resolve_template_tokens(tokens):
-    """Remplace la valeur de --chat-template-file (nom de fichier seul) par le
-    chemin absolu sous TEMPLATES_DIR. Rejette tout ce qui contient un séparateur
-    ou « .. » → impossible de lire un fichier hors du répertoire contrôlé."""
+    """Replace the value of --chat-template-file (file name only) with the
+    absolute path under TEMPLATES_DIR. Reject anything containing a separator or
+    ".." → impossible to read a file outside the controlled directory."""
     out = list(tokens)
     for i, t in enumerate(out):
         if t == "--chat-template-file" and i + 1 < len(out):
             raw = out[i + 1]
             if "/" in raw or "\\" in raw or ".." in raw:
-                raise ValueError("nom de template invalide")
+                raise ValueError("invalid template name")
             path = os.path.join(TEMPLATES_DIR, raw)
             if not os.path.isfile(path):
-                raise FileNotFoundError(f"template « {raw} » introuvable dans {TEMPLATES_DIR}")
+                raise FileNotFoundError(f"template \"{raw}\" not found in {TEMPLATES_DIR}")
             out[i + 1] = path
     return out
 
 
 def _build_cmd(hf_id, name, extra_tokens, engine, vllm_bin=None):
-    """Ligne de commande du moteur. Tous servent une API OpenAI sur :8000,
-    donc rien ne change en aval (LiteLLM, portail, playground)."""
+    """Engine command line. They all serve an OpenAI API on :8000, so nothing
+    downstream changes (LiteLLM, portal, playground)."""
     if engine == "ds4":
-        # ds4-server prend un GGUF local ; --cuda est requis pour le GPU.
+        # ds4-server takes a local GGUF; --cuda is required for the GPU.
         cmd = [DS4_BIN, "-m", _resolve_gguf(hf_id),
                "--host", "0.0.0.0", "--port", "8000"] + extra_tokens
         if "--cpu" not in extra_tokens and "--cuda" not in extra_tokens:
             cmd.insert(1, "--cuda")
         return cmd
     if engine == "llamacpp":
-        # "local:<nom>" → poids déjà sur disque, on pointe le fichier (-m).
-        # Sinon -hf accepte "user/repo[:QUANT]" et llama.cpp télécharge lui-même.
-        # --metrics expose /metrics (Prometheus) comme vLLM, pour le panneau santé.
+        # "local:<name>" → weights already on disk, point at the file (-m).
+        # Otherwise -hf accepts "user/repo[:QUANT]" and llama.cpp downloads it itself.
+        # --metrics exposes /metrics (Prometheus) like vLLM, for the health panel.
         src = ["-m", _resolve_gguf(hf_id)] if hf_id.startswith("local:") else ["-hf", hf_id]
         extra_tokens = _resolve_template_tokens(extra_tokens)
         return [LLAMA_BIN] + src + [
@@ -460,12 +457,12 @@ def _build_cmd(hf_id, name, extra_tokens, engine, vllm_bin=None):
 
 
 def _start_process(hf_id, name, extra_tokens, engine="vllm"):
-    """Lance le moteur d'inférence. Doit être appelé avec _lock déjà tenu."""
+    """Launch the inference engine. Must be called with _lock already held."""
     global _proc, _model, _status, _engine
 
     killed = bool(_proc and _proc.poll() is None)
     if killed:
-        _append("[runner] Arrêt du modèle précédent…")
+        _append("[runner] Stopping previous model…")
         _kill(_proc)
 
     _logs.clear()
@@ -473,27 +470,27 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     _engine = engine
     _status = "starting"
 
-    # Le modèle précédent vient d'être tué : on attend que le driver rende la
-    # mémoire unifiée, sinon le nouveau process OOM au démarrage.
+    # The previous model was just killed: wait for the driver to release the
+    # unified memory, otherwise the new process OOMs at startup.
     if killed:
         _wait_mem_release()
 
-    # Conservés pour la persistance (reprise auto) : les pseudo-flags (ex.
-    # --vllm-025) sont retirés d'extra_tokens juste en dessous pour l'exécution,
-    # mais une reprise auto qui les perdrait relancerait sur le mauvais binaire/
-    # sans le contournement nécessaire — donc on sauvegarde la liste complète.
+    # Kept for persistence (auto-resume): the pseudo-flags (e.g. --vllm-025) are
+    # stripped from extra_tokens just below for execution, but an auto-resume
+    # that lost them would relaunch on the wrong binary / without the necessary
+    # workaround — so we save the full list.
     original_tokens = list(extra_tokens)
 
-    # Les pseudo-flags deviennent des variables d'env propres à ce modèle et
-    # sont retirés de l'argv (le moteur ne les connaît pas).
+    # Pseudo-flags become env vars specific to this model and are removed from
+    # argv (the engine doesn't know them).
     model_env = {}
     for flag, (var, val) in _ENV_FLAGS.items():
         if flag in extra_tokens:
             extra_tokens = [t for t in extra_tokens if t != flag]
             model_env[var] = val
 
-    # --vllm-025 (voir _BIN_FLAGS) : bascule sur le venv vLLM 0.25.1 séparé
-    # pour ce lancement, sans toucher au binaire par défaut des autres modèles.
+    # --vllm-025 (see _BIN_FLAGS): switch to the separate vLLM 0.25.1 venv for
+    # this launch, without touching the default binary of the other models.
     vllm_bin = None
     for flag, bin_path in _BIN_FLAGS.items():
         if flag in extra_tokens:
@@ -503,32 +500,32 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     cmd = _build_cmd(hf_id, name, extra_tokens, engine, vllm_bin=vllm_bin)
     _append(f"[runner] ({engine}) $ {' '.join(cmd)}")
     if model_env:
-        _append(f"[runner] env spécifique au modèle : {model_env}")
+        _append(f"[runner] model-specific env: {model_env}")
 
-    # Env minimal explicite plutôt que **os.environ — évite de faire fuiter
-    # l'environnement root complet (secrets divers) dans /logs et /stream.
+    # Explicit minimal env rather than **os.environ — avoids leaking the full
+    # root environment (assorted secrets) into /logs and /stream.
     env = {
         "PATH": os.environ.get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
         "HOME": os.environ.get("HOME", "/root"),
         "HF_HOME": HF_HOME,
         "PYTHONUNBUFFERED": "1",
-        # DeepGEMM E8M0 casse le FP8 MoE sur Blackwell/GB10 ("Unknown SF
-        # transformation") et dégrade la précision (vLLM l'auto-désactive
-        # partiellement) → on le coupe complètement, fallback CUTLASS.
+        # DeepGEMM E8M0 breaks FP8 MoE on Blackwell/GB10 ("Unknown SF
+        # transformation") and degrades accuracy (vLLM partially auto-disables
+        # it) → we turn it off entirely, CUTLASS fallback.
         "VLLM_USE_DEEP_GEMM": "0",
-        # FlashInfer compile ses kernels NVFP4 en JIT au démarrage. Sans MAX_JOBS
-        # il ne passe pas de -j à ninja, qui lance ~nproc+2 compilateurs `cicc` de
-        # ~3 Go chacun — par-dessus les poids déjà chargés, ça déclenche l'OOM
-        # killer et le modèle meurt à l'init (constaté sur Leanstral et Nemotron).
-        # 4 jobs ≈ 12 Go de pic : compilation un peu plus lente, mais une seule
-        # fois (les kernels sont ensuite mis en cache).
+        # FlashInfer JIT-compiles its NVFP4 kernels at startup. Without MAX_JOBS
+        # it passes no -j to ninja, which spawns ~nproc+2 `cicc` compilers of
+        # ~3 GB each — on top of the already-loaded weights, that triggers the
+        # OOM killer and the model dies at init (seen on Leanstral and Nemotron).
+        # 4 jobs ≈ 12 GB peak: compilation a bit slower, but only once (kernels
+        # are then cached).
         "MAX_JOBS": os.environ.get("MAX_JOBS", "4"),
     }
     env.update(model_env)
     if os.environ.get("HF_TOKEN"):
         env["HF_TOKEN"] = os.environ["HF_TOKEN"]
     if engine == "ds4":
-        # KV cache packé en FP8 → ~7 GiB économisés à 1M de contexte (cf. carte du modèle).
+        # KV cache packed in FP8 → ~7 GiB saved at 1M context (see model card).
         env["DS4_KV_TURBO"] = "1"
 
     _proc = subprocess.Popen(
@@ -538,12 +535,12 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
         text=True,
         bufsize=1,
         env=env,
-        start_new_session=True,   # nouveau process group → killpg fonctionne
+        start_new_session=True,   # new process group → killpg works
     )
     threading.Thread(target=_reader, args=(_proc,), daemon=True).start()
     threading.Thread(target=_health_watch, args=(_proc,), daemon=True).start()
-    # Persiste systématiquement l'état (manuel, reprise au boot, watchdog) pour
-    # que last_model.json reste toujours présent tant que le modèle doit tourner.
+    # Always persist the state (manual, boot resume, watchdog) so last_model.json
+    # stays present as long as the model is meant to run.
     _save_last_launch(hf_id, name, original_tokens, engine)
     return _proc
 
@@ -558,11 +555,11 @@ def launch():
     engine   = (data.get("engine") or "vllm").strip().lower()
 
     if not hf_id:
-        return jsonify({"error": "hf_model_id requis"}), 400
+        return jsonify({"error": "hf_model_id required"}), 400
     if engine not in ENGINES:
-        return jsonify({"error": f"moteur inconnu : {engine}"}), 400
+        return jsonify({"error": f"unknown engine: {engine}"}), 400
     if engine != "vllm" and not os.path.exists(_ENGINE_BIN[engine]):
-        return jsonify({"error": f"moteur {engine} non installé sur cette machine"}), 400
+        return jsonify({"error": f"engine {engine} not installed on this machine"}), 400
 
     ok, result = _validate_vllm_args(extra, engine)
     if not ok:
@@ -579,10 +576,10 @@ def launch():
 @app.route("/stop", methods=["POST"])
 def stop():
     global _proc, _model, _status
-    _clear_last_launch()  # arrêt volontaire : ne pas reprendre tout seul
+    _clear_last_launch()  # deliberate stop: do not resume on its own
     with _lock:
         if _proc and _proc.poll() is None:
-            _append("[runner] Arrêt demandé.")
+            _append("[runner] Stop requested.")
             _kill(_proc)
             _status = "stopped"
             _model  = None
@@ -590,13 +587,12 @@ def stop():
     return jsonify({"status": "already_stopped"})
 
 
-# ── OCR (conteneur docker) / Vidéo (service systemd ComfyUI) ────────────────
-# Deux services annexes, toujours actifs à côté du modèle de chat principal
-# (pas de start/stop de la RAM/VRAM partagée en jeu ici, juste start/stop du
-# service lui-même). Commandes fixes, sans aucun argument piloté par
-# l'appelant → autorisées via sudoers NOPASSWD scoped (voir
-# /etc/sudoers.d/vllmrunner-services), pas de docker.sock ni d'accès systemd
-# général.
+# ── OCR (docker container) / Video (ComfyUI systemd service) ────────────────
+# Two side services, always active alongside the main chat model (no start/stop
+# of the shared RAM/VRAM at play here, just start/stop of the service itself).
+# Fixed commands, without any caller-driven argument → allowed via scoped
+# NOPASSWD sudoers (see /etc/sudoers.d/vllmrunner-services), no docker.sock and
+# no general systemd access.
 def _sudo(*cmd, timeout=20):
     try:
         r = subprocess.run(["sudo", "-n", *cmd], capture_output=True, text=True, timeout=timeout)
@@ -632,15 +628,15 @@ def ocr_stop():
 
 @app.route("/ocr/launch", methods=["POST"])
 def ocr_launch():
-    """Recrée le conteneur OCR avec un autre modèle HF. hf_model_id est
-    utilisé tel quel (comme _build_cmd pour le modèle principal — argv de
-    liste, jamais interprété par un shell, donc pas d'injection possible même
-    si la valeur est malformée) ; vllm_args passe par la même allowlist que
-    les autres moteurs (voir _OCR_BOOL_FLAGS/_OCR_VALUE_FLAGS)."""
+    """Recreate the OCR container with a different HF model. hf_model_id is used
+    as-is (like _build_cmd for the main model — list argv, never interpreted by a
+    shell, so no injection possible even if the value is malformed); vllm_args
+    goes through the same allowlist as the other engines (see
+    _OCR_BOOL_FLAGS/_OCR_VALUE_FLAGS)."""
     data = request.get_json(silent=True) or {}
     hf_id = (data.get("hf_model_id") or "").strip()
     if not hf_id:
-        return jsonify({"ok": False, "detail": "hf_model_id manquant"}), 400
+        return jsonify({"ok": False, "detail": "hf_model_id missing"}), 400
     ok, tokens_or_err = _validate_vllm_args(data.get("vllm_args", "") or "", engine="ocr")
     if not ok:
         return jsonify({"ok": False, "detail": tokens_or_err}), 400
@@ -648,14 +644,14 @@ def ocr_launch():
     return jsonify({"ok": ok, "detail": out})
 
 
-# Chatterbox n'a que ces trois variantes possibles (cf. model.repo_id dans
-# leur config.yaml) — liste blanche fermée, pas un pattern de flags comme
-# _validate_vllm_args : voice-recreate.sh fait à nouveau confiance à cette
-# validation amont mais revalide aussi lui-même (défense en profondeur).
+# Chatterbox only has these three possible variants (cf. model.repo_id in their
+# config.yaml) — closed allowlist, not a flag pattern like _validate_vllm_args:
+# voice-recreate.sh trusts this upstream validation again but also re-validates
+# itself (defense in depth).
 _VOICE_REPO_IDS = {"chatterbox", "chatterbox-turbo", "chatterbox-multilingual"}
-# Second moteur voix (Qwen3-TTS, Apache 2.0). Même conteneur « voice » et même
-# port : un seul backend voix à la fois, la mémoire unifiée du GB10 étant déjà
-# partagée avec le chat, l'OCR et la vidéo. Liste blanche fermée là aussi.
+# Second voice engine (Qwen3-TTS, Apache 2.0). Same "voice" container and same
+# port: a single voice backend at a time, the GB10's unified memory already being
+# shared with chat, OCR and video. Closed allowlist here too.
 _VOICE_QWEN_IDS = {"Qwen3-TTS-12Hz-1.7B-Base", "Qwen3-TTS-12Hz-0.6B-Base"}
 
 
@@ -686,10 +682,9 @@ def voice_stop():
 
 @app.route("/voice/launch", methods=["POST"])
 def voice_launch():
-    """Recrée le conteneur voix avec une des trois variantes Chatterbox.
-    repo_id vient d'une liste blanche fermée (pas d'argv libre comme pour
-    OCR/vLLM) : aucune construction de commande à valider ici, juste une
-    appartenance à _VOICE_REPO_IDS."""
+    """Recreate the voice container with one of the three Chatterbox variants.
+    repo_id comes from a closed allowlist (no free argv like for OCR/vLLM): no
+    command construction to validate here, just membership in _VOICE_REPO_IDS."""
     data = request.get_json(silent=True) or {}
     repo_id = (data.get("repo_id") or "").strip()
     if repo_id in _VOICE_REPO_IDS:
@@ -697,12 +692,12 @@ def voice_launch():
     elif repo_id in _VOICE_QWEN_IDS:
         script = "/usr/local/sbin/voice-qwen-recreate.sh"
     else:
-        return jsonify({"ok": False, "detail": "repo_id invalide"}), 400
+        return jsonify({"ok": False, "detail": "invalid repo_id"}), 400
     ok, out = _sudo(script, repo_id, timeout=120)
     return jsonify({"ok": ok, "detail": out})
 
 
-# Transcription (dictée). Même liste blanche fermée que la voix.
+# Transcription (dictation). Same closed allowlist as voice.
 _ASR_MODEL_IDS = {
     "openai/whisper-large-v3-turbo", "openai/whisper-large-v3",
     "openai/whisper-medium", "openai/whisper-small",
@@ -738,7 +733,7 @@ def asr_launch():
     data = request.get_json(silent=True) or {}
     model = (data.get("model_id") or "").strip()
     if model not in _ASR_MODEL_IDS:
-        return jsonify({"ok": False, "detail": "model_id invalide"}), 400
+        return jsonify({"ok": False, "detail": "invalid model_id"}), 400
     ok, out = _sudo("/usr/local/sbin/asr-recreate.sh", model, timeout=120)
     return jsonify({"ok": ok, "detail": out})
 
@@ -761,7 +756,7 @@ def video_stop():
     return jsonify({"ok": ok, "detail": out})
 
 
-# ── Métriques système (hôte) ─────────────────────────────────────────────────
+# ── System metrics (host) ─────────────────────────────────────────────────────
 def _cpu_pct():
     def snap():
         with open('/proc/stat') as f:
@@ -809,10 +804,10 @@ def metrics():
 
 
 def _watchdog():
-    """Reprend automatiquement le dernier modèle lancé s'il s'arrête de façon
-    inattendue (crash, update système, reboot) — pas après un /stop volontaire,
-    qui efface l'état persisté. Limité à MAX_AUTO_RETRIES tentatives consécutives
-    pour ne pas boucler indéfiniment sur une config cassée."""
+    """Automatically resume the last launched model if it stops unexpectedly
+    (crash, system update, reboot) — not after a deliberate /stop, which clears
+    the persisted state. Capped at MAX_AUTO_RETRIES consecutive attempts so it
+    doesn't loop forever on a broken config."""
     global _auto_retries
     while True:
         time.sleep(10)
@@ -829,13 +824,13 @@ def _watchdog():
             eng = last.get("engine", "vllm")
             ok, extra_tokens = _validate_vllm_args(last.get("vllm_args", ""), eng)
             if not ok:
-                _append(f"[runner] reprise auto impossible, args invalides : {extra_tokens}")
+                _append(f"[runner] auto-resume impossible, invalid args: {extra_tokens}")
                 _auto_retries = MAX_AUTO_RETRIES
                 continue
             _auto_retries += 1
-            attempt_msg = f"[runner] modèle arrêté de façon inattendue — reprise automatique (tentative {_auto_retries}/{MAX_AUTO_RETRIES})…"
+            attempt_msg = f"[runner] model stopped unexpectedly — auto-resume (attempt {_auto_retries}/{MAX_AUTO_RETRIES})…"
             _start_process(last["hf_model_id"], last["model_name"], extra_tokens, eng)
-            _append(attempt_msg)  # après _start_process (qui vide _logs) pour qu'il survive
+            _append(attempt_msg)  # after _start_process (which clears _logs) so it survives
 
 
 if __name__ == "__main__":
@@ -847,7 +842,7 @@ if __name__ == "__main__":
         ok, extra_tokens = _validate_vllm_args(_resume.get("vllm_args", ""), _eng)
         if ok:
             with _lock:
-                _append("[runner] reprise du dernier modèle au démarrage du service…")
+                _append("[runner] resuming the last model at service startup…")
                 _start_process(_resume["hf_model_id"], _resume["model_name"], extra_tokens, _eng)
 
     app.run(host="0.0.0.0", port=8001, debug=False, threaded=True)

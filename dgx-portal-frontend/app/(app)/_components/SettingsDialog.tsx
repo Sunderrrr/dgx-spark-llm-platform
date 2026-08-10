@@ -238,7 +238,7 @@ export function SettingsDialog({
         });
         refresh();
       } else {
-        showToast({ body: result.error || t("Échec de la connexion au serveur MCP."), type: "error" });
+        showToast({ body: result.error ? t(result.error) : t("Échec de la connexion au serveur MCP."), type: "error" });
       }
     } finally {
       setIsSaving(false);
@@ -274,7 +274,7 @@ export function SettingsDialog({
         instructions: skillForm.instructions,
       });
       if (!result.ok) {
-        showToast({ body: result.error || t("Échec de l'enregistrement."), type: "error" });
+        showToast({ body: result.error ? t(result.error) : t("Échec de l'enregistrement."), type: "error" });
         return;
       }
       const wasEdit = editingSkillId !== null;

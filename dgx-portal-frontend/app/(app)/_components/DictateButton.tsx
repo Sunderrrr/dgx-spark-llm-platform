@@ -40,7 +40,7 @@ export function DictateButton({
       body:
         error === "mic"
           ? t("Micro inaccessible — autorise l'accès au microphone dans ton navigateur.")
-          : error || t("Échec de la transcription."),
+          : error ? t(error) : t("Échec de la transcription."),
       type: "error",
     });
   }, [error, showToast, t]);

@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 
 export function UsageChart({ points }: { points: { hour: number; tokens: number }[] }) {
   const svgRef = useRef<SVGSVGElement>(null);
-  // Mesuré en direct : le viewBox doit matcher la largeur réelle du conteneur
-  // pour que le tracé remplisse toute la carte — sinon le SVG (ratio fixe,
-  // "meet" par défaut) se retrouve en letterbox avec du vide de chaque côté.
+  // Measured live: the viewBox must match the container's real width
+  // so the plot fills the whole card — otherwise the SVG (fixed ratio,
+  // "meet" by default) ends up letterboxed with empty space on each side.
   const [W, setW] = useState(760);
 
   useEffect(() => {
@@ -20,7 +20,7 @@ export function UsageChart({ points }: { points: { hour: number; tokens: number 
     return () => ro.disconnect();
   }, []);
 
-  const H = 228; // 340 * 0.67 — 33% plus bas qu'avant
+  const H = 228; // 340 * 0.67 — 33% shorter than before
   const padL = 44;
   const padR = 14;
   const padT = 12;
@@ -33,7 +33,7 @@ export function UsageChart({ points }: { points: { hour: number; tokens: number 
   const y = (v: number) => padT + plotH * (1 - v / max);
   const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(p.tokens)}`).join(" ");
   const area = `${line} L${x(points.length - 1)},${padT + plotH} L${x(0)},${padT + plotH} Z`;
-  // Un repère toutes les 3h (0h, 3h, ..., 21h) pour rester lisible sur 24 points.
+  // One tick every 3h (0h, 3h, ..., 21h) to stay readable across 24 points.
   const hourTicks = points.filter((p) => p.hour % 3 === 0);
 
   return (

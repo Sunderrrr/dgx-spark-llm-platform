@@ -64,22 +64,22 @@ type SidecarMetric = {
   total: number;
   avg_ms: number | null;
   last_ms: number | null;
-  chars_per_s?: number | null;   // ocr + voice : débit de caractères
-  chars_avg?: number | null;      // ocr : densité (caractères / document)
-  rtf?: number | null;            // voice : facteur temps réel (×N)
-  success_rate?: number | null;   // video : % de réussite
-  video_secs_today?: number | null; // video : secondes de vidéo générées aujourd'hui
-  gen_per_vsec?: number | null;   // video : s de calcul par s de vidéo
+  chars_per_s?: number | null;   // ocr + voice: character throughput
+  chars_avg?: number | null;      // ocr: density (characters / document)
+  rtf?: number | null;            // voice: real-time factor (×N)
+  success_rate?: number | null;   // video: success rate %
+  video_secs_today?: number | null; // video: seconds of video generated today
+  gen_per_vsec?: number | null;   // video: compute seconds per second of video
 };
 
-// Nombre de tokens → format compact « 192k », « 256k » (base 1024, comme les
-// tailles de contexte usuelles). En dessous de 1024, on affiche le nombre brut.
+// Token count → compact format "192k", "256k" (base 1024, like the usual
+// context sizes). Below 1024, we show the raw number.
 function fmtCtx(n: number | null): string {
   if (n == null) return "—";
   return n >= 1024 ? `${Math.round(n / 1024)}k` : `${n}`;
 }
 
-// ms → durée lisible : « 850 ms », « 4.2 s », « 3 min 12 s ».
+// ms → readable duration: "850 ms", "4.2 s", "3 min 12 s".
 function fmtDur(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)} ms`;
   const s = ms / 1000;
@@ -88,7 +88,7 @@ function fmtDur(ms: number): string {
   return `${m} min ${Math.round(s % 60).toString().padStart(2, "0")} s`;
 }
 
-// Lignes de métriques [label, valeur] d'un backend média, dans l'ordre d'intérêt.
+// Metric rows [label, value] for a media backend, in order of interest.
 function sidecarLines(
   kind: "ocr" | "video" | "voice",
   sm: SidecarMetric,
@@ -114,14 +114,14 @@ function sidecarLines(
   return lines;
 }
 
-// Ce que fait chaque capacité, en une ligne (affiché sur chaque carte modèle).
+// What each capability does, in one line (shown on each model card).
 const KIND_DESC: Record<RunningModel["kind"], string> = {
   chat: "Chat & complétions — API OpenAI-compatible",
   ocr: "Extraction de texte et de tableaux depuis images et PDF",
   video: "Génération de vidéos courtes (texte ou image → vidéo)",
   voice: "Clonage de voix zéro-shot à partir d'un court échantillon",
 };
-// Nom court des backends média (pour le bloc « Services média »).
+// Short name of the media backends (for the "Media services" block).
 const KIND_NAME: Record<"ocr" | "video" | "voice", string> = { ocr: "OCR", video: "Vidéo", voice: "Voix" };
 
 type HomeData = {
@@ -169,6 +169,8 @@ export default function HomePage() {
     getJSON<Whoami>("/api/whoami").then(setWho);
   }, []);
 
+  // Poll the dashboard every 8s so server load, running models and active
+  // users stay live without a manual refresh.
   useEffect(() => {
     const id = setInterval(() => {
       getJSON<HomeData>("/api/home").then(setData).catch(() => {});

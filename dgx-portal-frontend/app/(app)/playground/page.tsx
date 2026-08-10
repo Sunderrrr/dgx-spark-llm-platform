@@ -128,7 +128,7 @@ export default function PlaygroundPage() {
 
   const abortRef = useRef<AbortController | null>(null);
 
-  // Dictée : même hook que les pages Voix et Vidéo.
+  // Dictation: same hook as the Voice and Video pages.
   const dictation = useDictation({ value: input, onChange: setInput, csrf });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -175,8 +175,8 @@ export default function PlaygroundPage() {
       model: activeModel,
       messages: msgs.map((m) => ({ role: m.role, content: m.content })),
     };
-    // Optimiste côté UI, puis enregistrement serveur en arrière-plan : la
-    // liste ne doit pas attendre l'aller-retour réseau pour se mettre à jour.
+    // Optimistic on the UI side, then server save in the background: the
+    // list must not wait for the network round-trip to update.
     setConversations((prev) => {
       const rest = prev.filter((c) => c.id !== item.id);
       return [item, ...rest];
@@ -275,7 +275,7 @@ export default function PlaygroundPage() {
       );
     } catch (e) {
       if ((e as Error)?.name === "AbortError") {
-        wasAborted = true; // Arrêt volontaire (bouton Stop) : pas une erreur.
+        wasAborted = true; // Deliberate stop (Stop button): not an error.
       } else {
         isError = true;
         if (!acc) acc = t("Erreur réseau.");
@@ -315,9 +315,9 @@ export default function PlaygroundPage() {
     if (streaming) return;
     const text = value.trim();
     if (!text && !attachments.length) return;
-    // Envoyer met fin à la dictée : le message part avec ce qui a été
-    // transcrit jusqu'ici, et aucune passe encore en vol ne viendra réécrire
-    // le champ une fois celui-ci vidé.
+    // Sending ends dictation: the message goes out with what has been
+    // transcribed so far, and no still-in-flight pass will rewrite the
+    // field once it's been cleared.
     dictation.cancel();
     let full = text;
     if (attachments.length) {
@@ -327,7 +327,7 @@ export default function PlaygroundPage() {
     }
     const nextMessages: ChatMsg[] = [
       ...messages,
-      // eslint-disable-next-line react-hooks/purity -- send() ne tourne que depuis un handler
+      // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
       { role: "user", content: full, ts: Date.now(), attachmentCount: attachments.length || undefined },
     ];
     setMessages(nextMessages);

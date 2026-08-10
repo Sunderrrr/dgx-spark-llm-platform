@@ -34,18 +34,18 @@ type HistoryItem = { id: number; text: string; created_at: string; has_image: bo
 type RunningModel = { name: string; kind: "chat" | "ocr" | "video"; exposed: boolean };
 type OcrBlock = { label: string; coords: [number, number, number, number] | null; text: string };
 
-// Deux modèles, deux formats de sortie totalement différents pour les zones
-// détectées — le format est auto-détecté sur le texte reçu (le modèle
-// réellement actif peut changer via le catalogue OCR admin) :
+// Two models, two totally different output formats for the detected zones —
+// the format is auto-detected from the received text (the actually-running
+// model can change via the admin OCR catalog):
 //
-// - baidu/Unlimited-OCR : lignes "<label> [x1, y1, x2, y2]texte", virgules,
-//   coordonnées normalisées 0-1000.
-// - datalab-to/chandra-ocr-2 : HTML avec des blocs
-//   <div data-label="..." data-bbox="x0 y0 x1 y1">...</div>, bbox séparée par
-//   des ESPACES (pas des virgules), même normalisation 0-1000. On extrait le
-//   textContent (jamais innerHTML) : le résultat n'est donc jamais injecté
-//   comme HTML dans la page, juste du texte, même si le modèle produit du
-//   HTML malformé ou volontairement piégé (image contenant du texte "<script>…").
+// - baidu/Unlimited-OCR: lines "<label> [x1, y1, x2, y2]text", commas,
+//   coordinates normalized 0-1000.
+// - datalab-to/chandra-ocr-2: HTML with blocks
+//   <div data-label="..." data-bbox="x0 y0 x1 y1">...</div>, bbox separated by
+//   SPACES (not commas), same 0-1000 normalization. We extract the
+//   textContent (never innerHTML): the result is therefore never injected
+//   as HTML into the page, just text, even if the model produces
+//   malformed or deliberately booby-trapped HTML (image containing "<script>…" text).
 const UNLIMITED_OCR_LINE_RE = /^(\S+)\s*\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\](.*)$/;
 
 function parseUnlimitedOcrBlocks(raw: string): OcrBlock[] {
@@ -86,13 +86,13 @@ function parseOcrBlocks(raw: string): OcrBlock[] {
   return raw.includes("data-bbox=") ? parseChandraBlocks(raw) : parseUnlimitedOcrBlocks(raw);
 }
 
-// ── HTML de chandra → Markdown ───────────────────────────────────────────────
-// chandra-ocr sort TOUJOURS du HTML (même quand on lui demande du Markdown : il
-// est fine-tuné pour ce format). Ce HTML est propre et limité à un jeu de tags
-// connu (h1-h5, table, ul/ol, p, b/i, math…), qu'on convertit ici en Markdown
-// GFM — les vrais tableaux inclus — pour un affichage lisible via <Markdown>.
-// On ne rend JAMAIS le HTML du modèle directement (une image piégée pourrait
-// contenir du <script>…) : on ne lit que tagName/textContent, jamais innerHTML.
+// ── chandra HTML → Markdown ───────────────────────────────────────────────
+// chandra-ocr ALWAYS outputs HTML (even when asked for Markdown: it's
+// fine-tuned for this format). This HTML is clean and limited to a known set
+// of tags (h1-h5, table, ul/ol, p, b/i, math…), which we convert here to GFM
+// Markdown — real tables included — for readable display via <Markdown>.
+// We NEVER render the model's HTML directly (a booby-trapped image could
+// contain <script>…): we only read tagName/textContent, never innerHTML.
 function tableToMarkdown(table: Element): string {
   const rows = Array.from(table.querySelectorAll("tr"));
   if (!rows.length) return "";
@@ -142,8 +142,8 @@ function nodeToMarkdown(node: Node): string {
   }
 }
 
-/** Rend le résultat OCR en Markdown : HTML chandra converti (tableaux compris),
- *  ou simple texte pour les modèles ligne-à-ligne (Unlimited-OCR). */
+/** Renders the OCR result as Markdown: converted chandra HTML (tables included),
+ *  or plain text for line-by-line models (Unlimited-OCR). */
 function ocrToMarkdown(raw: string, blocks: OcrBlock[]): string {
   if (!raw) return "";
   if (raw.includes("data-bbox=")) {
@@ -153,7 +153,7 @@ function ocrToMarkdown(raw: string, blocks: OcrBlock[]): string {
   return blocks.map((b) => b.text).filter(Boolean).join("\n\n");
 }
 
-/** Aperçu court pour l'historique : texte lisible, jamais le HTML/les coordonnées brutes. */
+/** Short preview for the history: readable text, never the raw HTML/coordinates. */
 function ocrPreviewText(raw: string): string {
   return parseOcrBlocks(raw)
     .map((b) => b.text)
@@ -193,10 +193,10 @@ export default function OcrPage() {
 
   const previewUrl = useMemo(() => (image ? URL.createObjectURL(image) : null), [image]);
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
-  // resultImageUrl (montré dans le panneau de droite) est volontairement
-  // indépendant de previewUrl (widget d'upload à gauche) : sinon choisir une
-  // nouvelle image pendant qu'un ancien résultat est affiché révoquerait le
-  // blob dont la vue « zones détectées » a encore besoin.
+  // resultImageUrl (shown in the right panel) is deliberately independent of
+  // previewUrl (upload widget on the left): otherwise picking a new image
+  // while an old result is displayed would revoke the blob that the "detected
+  // zones" view still needs.
   useEffect(() => () => {
     if (resultImageBlobRef.current) URL.revokeObjectURL(resultImageBlobRef.current);
   }, []);
@@ -253,7 +253,7 @@ export default function OcrPage() {
   }
 
   function copyResult() {
-    // On copie le Markdown (lisible, tableaux inclus), pas le HTML brut du modèle.
+    // We copy the Markdown (readable, tables included), not the model's raw HTML.
     navigator.clipboard.writeText(markdown || text).then(() => showToast({ body: t("Copié."), type: "info" }));
   }
 
@@ -270,9 +270,9 @@ export default function OcrPage() {
             />
           ) : (
             <HStack gap={5} height="100%">
-              {/* isScrollable : la colonne de gauche contient l'historique
-                  (jusqu'à 20 entrées) et débordait sans jamais pouvoir
-                  défiler — seul le panneau de droite l'était. */}
+              {/* isScrollable: the left column holds the history
+                  (up to 20 entries) and overflowed without ever being able
+                  to scroll — only the right panel was scrollable. */}
               <StackItem isScrollable>
                 <VStack gap={5} width={360}>
                   <VStack gap={1}>
@@ -422,9 +422,9 @@ export default function OcrPage() {
                           })}
                         </div>
                       ) : markdown ? (
-                        // Résultat rendu en Markdown : titres, listes et surtout
-                        // les TABLEAUX détectés (convertis en tableaux GFM). Le
-                        // composant gère aussi le flux partiel pendant l'extraction.
+                        // Result rendered as Markdown: headings, lists and above
+                        // all the detected TABLES (converted to GFM tables). The
+                        // component also handles the partial stream during extraction.
                         <Markdown isStreaming={isLoading}>{markdown}</Markdown>
                       ) : (
                         <HStack gap={2} vAlign="center">

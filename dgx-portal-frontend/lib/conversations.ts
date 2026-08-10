@@ -1,9 +1,9 @@
 import type { Conversation } from "./types";
 import { getJSON, postForm } from "./api";
 
-// L'historique vit maintenant côté serveur (table `conversations`) : il suit
-// l'utilisateur d'une machine ou d'un navigateur à l'autre. Le localStorage ne
-// sert plus qu'à récupérer une fois l'historique laissé par l'ancienne version.
+// The history now lives server-side (`conversations` table): it follows
+// the user from one machine or browser to another. localStorage now
+// only serves to recover once the history left by the old version.
 const LEGACY_KEY = "pg_convs";
 
 type ApiConversation = {
@@ -39,7 +39,7 @@ export async function persistConversation(csrf: string, conv: Conversation): Pro
       messages: JSON.stringify(conv.messages),
     });
   } catch {
-    // L'échec d'enregistrement ne doit jamais interrompre la conversation.
+    // A save failure must never interrupt the conversation.
   }
 }
 
@@ -47,12 +47,12 @@ export async function removeConversation(csrf: string, id: number): Promise<void
   try {
     await postForm("/conversations", csrf, { action: "delete", id: String(id) });
   } catch {
-    // idem
+    // same
   }
 }
 
-/** Remonte une seule fois l'historique de l'ancienne version (localStorage)
- *  vers le serveur, puis efface la clé locale. */
+/** Migrates the old version's history (localStorage) to the server once,
+ *  then clears the local key. */
 export async function migrateLegacyConversations(csrf: string): Promise<boolean> {
   if (typeof window === "undefined") return false;
   let legacy: Conversation[] = [];

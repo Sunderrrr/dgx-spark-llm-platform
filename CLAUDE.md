@@ -101,6 +101,13 @@ Key facts and gotchas:
   `--chat-template-kwargs '{"enable_thinking":false}'`.
 - **Thinking models**: always disable thinking in the chat template unless the
   user wants visible reasoning.
+- **`auto-model` alias**: a virtual LiteLLM model (`AUTO_MODEL_NAME`, default
+  `auto-model`) that always routes to the **currently-running** chat model, so
+  clients wire it once and never rename on a model switch. Re-pointed on every
+  successful launch via `_point_auto_model()` (called from `runner_launch`); the
+  real model names stay registered and keep working in parallel. It follows only
+  *launches*, not catalog adds. Persisted in the LiteLLM DB, so it survives
+  restarts/reboots (resume relaunches the same model).
 
 ---
 

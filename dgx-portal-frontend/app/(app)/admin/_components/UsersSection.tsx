@@ -1,16 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
+import { Grid } from "@astryxdesign/core/Grid";
 import { Card } from "@astryxdesign/core/Card";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
+import { Avatar } from "@astryxdesign/core/Avatar";
+import { Icon } from "@astryxdesign/core/Icon";
 import { Table } from "@astryxdesign/core/Table";
 import type { TableColumn } from "@astryxdesign/core/Table";
+import { MoreMenu } from "@astryxdesign/core/MoreMenu";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { useToast } from "@astryxdesign/core/Toast";
+import {
+  PlusIcon,
+  UserPlusIcon,
+  KeyIcon,
+  TrashIcon,
+  ShieldCheckIcon,
+  NoSymbolIcon,
+  CheckCircleIcon,
+  UsersIcon,
+} from "@heroicons/react/24/outline";
 import { getJSON, postFormJSON } from "@/lib/api";
 import { useT, useLang } from "@/lib/i18n";
 
@@ -47,12 +64,39 @@ const BOOL_OPTS = (t: (s: string) => string) => [
   { label: t("Oui"), value: "1" },
 ];
 
+// Compact stat tile used in the overview row (module-level so it isn't
+// recreated on every render).
+function Tile({ icon, value, label, locale }: { icon: typeof UsersIcon; value: number; label: string; locale: string }) {
+  return (
+    <Card>
+      <HStack gap={3} vAlign="center">
+        <Icon icon={icon} size="md" color="secondary" />
+        <VStack gap={0}>
+          <Text size="xl" weight="bold" hasTabularNumbers>{value.toLocaleString(locale)}</Text>
+          <Text type="supporting" color="secondary">{label}</Text>
+        </VStack>
+      </HStack>
+    </Card>
+  );
+}
+
 export function UsersSection({ csrf }: { csrf: string }) {
   const t = useT();
   const { lang } = useLang();
   const showToast = useToast();
   const numLocale = lang === "fr" ? "fr-FR" : "en-US";
   const [data, setData] = useState<UsersData | null>(null);
+
+  // Toolbar state: free-text search + auth-source filter.
+  const [query, setQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
+
+  // Dialog state — create forms and the (masked) password reset live in modals
+  // instead of always-open forms / window.prompt.
+  const [userDialog, setUserDialog] = useState(false);
+  const [groupDialog, setGroupDialog] = useState(false);
+  const [pwUser, setPwUser] = useState<LocalUser | null>(null);
+  const [pw, setPw] = useState("");
   const [nu, setNu] = useState({ username: "", password: "", fullname: "", group: "", max_budget: "", is_admin: "0" });
   const [ng, setNg] = useState({ name: "", max_budget: "", is_admin: "0" });
 
@@ -67,7 +111,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
       try {
         const res = await postFormJSON<{ ok?: boolean; error?: string }>(url, csrf, params);
         if (res && res.ok === false) {
-          showToast({ body: res.error || t("Échec de l'action."), type: "error" });
+          showToast({ body: res.error ? t(res.error) : t("Échec de l'action."), type: "error" });
           return false;
         }
       } catch {
@@ -81,27 +125,72 @@ export function UsersSection({ csrf }: { csrf: string }) {
     [csrf, refresh, showToast, t],
   );
 
+  const fmtBudget = (n: number) => `${Math.round(n).toLocaleString(numLocale)}`;
+
+  const users = useMemo(() => data?.users ?? [], [data]);
+  const groups = data?.groups ?? [];
+
+  // Overview counters for the stat tiles.
+  const stats = useMemo(() => ({
+    total: users.length,
+    local: users.filter((u) => u.managed).length,
+    ldap: users.filter((u) => u.sources.includes("ldap")).length,
+    sso: users.filter((u) => u.sources.includes("sso")).length,
+    admins: users.filter((u) => u.effective_admin).length,
+  }), [users]);
+
+  // Apply search + source filter.
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return users.filter((u) => {
+      const matchesQ = !q || u.username.toLowerCase().includes(q) || !!u.fullname?.toLowerCase().includes(q);
+      const srcs = u.sources.length ? u.sources : ["externe"];
+      const matchesSrc = sourceFilter === "all" || srcs.includes(sourceFilter);
+      return matchesQ && matchesSrc;
+    });
+  }, [users, query, sourceFilter]);
+
   const groupOptions = [
     { label: t("Aucun groupe"), value: "" },
-    ...(data?.groups ?? []).map((g) => ({ label: g.name, value: g.name })),
+    ...groups.map((g) => ({ label: g.name, value: g.name })),
+  ];
+  const sourceOptions = [
+    { label: t("Toutes les sources"), value: "all" },
+    { label: t("Local"), value: "local" },
+    { label: t("Debug"), value: "debug" },
+    { label: "LDAP", value: "ldap" },
+    { label: "SSO", value: "sso" },
+    { label: t("Externe"), value: "externe" },
   ];
 
   async function createUser() {
-    if (await act("/admin/users/create", { ...nu }))
+    if (await act("/admin/users/create", { ...nu })) {
       setNu({ username: "", password: "", fullname: "", group: "", max_budget: "", is_admin: "0" });
+      setUserDialog(false);
+    }
   }
   async function createGroup() {
-    if (await act("/admin/groups/create", { ...ng })) setNg({ name: "", max_budget: "", is_admin: "0" });
+    if (await act("/admin/groups/create", { ...ng })) {
+      setNg({ name: "", max_budget: "", is_admin: "0" });
+      setGroupDialog(false);
+    }
+  }
+  async function submitPassword() {
+    if (pwUser && pw.length >= 8 && (await act(`/admin/users/update/${pwUser.id}`, { password: pw }))) {
+      setPwUser(null);
+      setPw("");
+    }
   }
 
-  const fmtBudget = (n: number) => `${Math.round(n).toLocaleString(numLocale)}`;
-
   const columns: TableColumn<LocalUser & Record<string, unknown>>[] = [
-    { key: "username", header: t("Identifiant"), renderCell: (u) => (
-        <VStack gap={0}>
-          <Text weight="semibold">{u.username}</Text>
-          {u.fullname ? <Text type="supporting" color="secondary">{u.fullname}</Text> : null}
-        </VStack>
+    { key: "username", header: t("Utilisateur"), renderCell: (u) => (
+        <HStack gap={2} vAlign="center">
+          <Avatar name={u.fullname || u.username} size="sm" />
+          <VStack gap={0}>
+            <Text weight="semibold">{u.username}</Text>
+            {u.fullname ? <Text type="supporting" color="secondary">{u.fullname}</Text> : null}
+          </VStack>
+        </HStack>
       ) },
     { key: "sources", header: t("Source"), renderCell: (u) => (
         <HStack gap={1} wrap="wrap">
@@ -116,62 +205,81 @@ export function UsersSection({ csrf }: { csrf: string }) {
         u.unlimited ? <Text color="secondary">{t("Illimité")}</Text>
         : u.effective_budget != null ? <Text hasTabularNumbers>{fmtBudget(u.effective_budget)}</Text>
         : <Text color="secondary">—</Text> },
-    { key: "effective_admin", header: t("Admin"), renderCell: (u) =>
-        u.effective_admin ? <Badge label={t("Admin")} variant="warning" /> : <Text color="secondary">—</Text> },
+    { key: "effective_admin", header: t("Rôle"), renderCell: (u) =>
+        u.effective_admin ? <Badge label={t("Admin")} variant="warning" /> : <Text color="secondary">{t("Utilisateur")}</Text> },
     { key: "enabled", header: t("Statut"), renderCell: (u) =>
-        !u.managed ? <Text color="secondary">—</Text>
-        : u.enabled ? <Badge label={t("Actif")} variant="success" /> : <Badge label={t("Désactivé")} variant="neutral" /> },
-    { key: "id", header: t("Actions"), renderCell: (u) =>
+        !u.managed ? <Badge label={t("Externe")} variant="neutral" />
+        : u.enabled ? <Badge label={t("Actif")} variant="success" /> : <Badge label={t("Désactivé")} variant="error" /> },
+    { key: "id", header: "", renderCell: (u) =>
         !u.managed ? <Text type="supporting" color="secondary">{t("Géré à l'extérieur")}</Text> : (
-        <HStack gap={1} wrap="wrap">
-          <Button label={u.enabled ? t("Désactiver") : t("Activer")} variant="ghost" size="sm"
-            onClick={() => act(`/admin/users/update/${u.id}`, { enabled: u.enabled ? "0" : "1" })} />
-          <Button label={u.is_admin ? t("Retirer admin") : t("Rendre admin")} variant="ghost" size="sm"
-            onClick={() => act(`/admin/users/update/${u.id}`, { is_admin: u.is_admin ? "0" : "1" })} />
-          <Button label={t("Nouveau mot de passe")} variant="ghost" size="sm"
-            onClick={() => {
-              const p = window.prompt(t("Nouveau mot de passe (8 caractères min.) :"));
-              if (p) act(`/admin/users/update/${u.id}`, { password: p });
-            }} />
-          <Button label={t("Supprimer")} variant="ghost" size="sm"
-            onClick={() => { if (window.confirm(t("Supprimer cet utilisateur ?"))) act(`/admin/users/delete/${u.id}`, {}); }} />
-        </HStack>
+        <MoreMenu
+          label={t("Actions")}
+          size="sm"
+          items={[
+            { label: u.enabled ? t("Désactiver") : t("Activer"), icon: u.enabled ? NoSymbolIcon : CheckCircleIcon,
+              onClick: () => act(`/admin/users/update/${u.id}`, { enabled: u.enabled ? "0" : "1" }) },
+            { label: u.is_admin ? t("Retirer admin") : t("Rendre admin"), icon: ShieldCheckIcon,
+              onClick: () => act(`/admin/users/update/${u.id}`, { is_admin: u.is_admin ? "0" : "1" }) },
+            { label: t("Réinitialiser le mot de passe"), icon: KeyIcon, onClick: () => { setPwUser(u); setPw(""); } },
+            { type: "divider" as const },
+            { label: t("Supprimer"), icon: TrashIcon,
+              onClick: () => { if (window.confirm(t("Supprimer cet utilisateur ?"))) act(`/admin/users/delete/${u.id}`, {}); } },
+          ]}
+        />
       ) },
   ];
 
   return (
     <VStack gap={4}>
-      <Text type="supporting" color="secondary">
-        {t("Comptes locaux gérés ici (mots de passe hachés). Le quota vient de la surcharge de l'utilisateur, sinon du groupe, sinon du défaut global.")}
-      </Text>
+      <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
+        <Text type="supporting" color="secondary">
+          {t("Comptes locaux gérés ici (mots de passe hachés). Le quota vient de la surcharge de l'utilisateur, sinon du groupe, sinon du défaut global.")}
+        </Text>
+        <HStack gap={2}>
+          <Button label={t("Nouveau groupe")} variant="secondary" size="sm"
+            icon={<Icon icon={PlusIcon} size="sm" />} onClick={() => setGroupDialog(true)} />
+          <Button label={t("Nouvel utilisateur")} variant="primary" size="sm"
+            icon={<Icon icon={UserPlusIcon} size="sm" />} onClick={() => setUserDialog(true)} />
+        </HStack>
+      </HStack>
 
-      <Card>
-        <VStack gap={3}>
-          <Text weight="semibold">{t("Créer un utilisateur")}</Text>
-          <HStack gap={2} wrap="wrap">
-            <TextInput label={t("Identifiant")} value={nu.username} onChange={(v) => setNu({ ...nu, username: v })} placeholder="jdupont" />
-            <TextInput label={t("Nom complet")} value={nu.fullname} onChange={(v) => setNu({ ...nu, fullname: v })} placeholder="Jean Dupont" />
-            <TextInput label={t("Mot de passe")} type="password" value={nu.password} onChange={(v) => setNu({ ...nu, password: v })} />
-          </HStack>
-          <HStack gap={2} wrap="wrap" vAlign="end">
-            <Selector label={t("Groupe")} value={nu.group} onChange={(v) => setNu({ ...nu, group: v })} options={groupOptions} />
-            <TextInput label={t("Quota (vide = groupe/défaut)")} value={nu.max_budget} onChange={(v) => setNu({ ...nu, max_budget: v })} placeholder={data ? fmtBudget(data.default_budget) : ""} />
-            <Selector label={t("Admin")} value={nu.is_admin} onChange={(v) => setNu({ ...nu, is_admin: v })} options={BOOL_OPTS(t)} />
-            <Button label={t("Créer")} variant="primary" onClick={createUser} isDisabled={!nu.username || !nu.password} />
-          </HStack>
-        </VStack>
-      </Card>
+      {/* Overview */}
+      <Grid columns={{ minWidth: 150, max: 5 }} gap={3}>
+        <Tile icon={UsersIcon} value={stats.total} label={t("Comptes connus")} locale={numLocale} />
+        <Tile icon={CheckCircleIcon} value={stats.local} label={t("Comptes locaux")} locale={numLocale} />
+        <Tile icon={UsersIcon} value={stats.ldap} label="LDAP" locale={numLocale} />
+        <Tile icon={UsersIcon} value={stats.sso} label="SSO" locale={numLocale} />
+        <Tile icon={ShieldCheckIcon} value={stats.admins} label={t("Administrateurs")} locale={numLocale} />
+      </Grid>
 
+      {/* Toolbar */}
+      <HStack gap={2} wrap="wrap" vAlign="end">
+        <StackItem size="fill">
+          <TextInput label={t("Rechercher")} value={query} onChange={setQuery}
+            placeholder={t("Identifiant ou nom…")} />
+        </StackItem>
+        <Selector label={t("Source")} value={sourceFilter} onChange={(v) => setSourceFilter(v ?? "all")} options={sourceOptions} />
+      </HStack>
+
+      {/* Users table */}
       <Card padding={0}>
-        <Table<LocalUser & Record<string, unknown>> data={(data?.users ?? []) as (LocalUser & Record<string, unknown>)[]} columns={columns} idKey="id" density="balanced" dividers="rows" />
+        {filtered.length === 0 ? (
+          <EmptyState icon={<Icon icon={UsersIcon} size="lg" />} title={t("Aucun utilisateur")}
+            description={t("Aucun compte ne correspond à la recherche.")} isCompact />
+        ) : (
+          <Table<LocalUser & Record<string, unknown>>
+            data={filtered as (LocalUser & Record<string, unknown>)[]}
+            columns={columns} idKey="id" density="balanced" dividers="rows" />
+        )}
       </Card>
 
+      {/* Groups */}
       <Card>
         <VStack gap={3}>
           <Text weight="semibold">{t("Groupes")}</Text>
-          {(data?.groups ?? []).length > 0 && (
+          {groups.length > 0 ? (
             <VStack gap={1}>
-              {(data?.groups ?? []).map((g) => (
+              {groups.map((g) => (
                 <HStack key={g.name} hAlign="between" vAlign="center">
                   <HStack gap={2} vAlign="center">
                     <Text weight="semibold">{g.name}</Text>
@@ -180,20 +288,88 @@ export function UsersSection({ csrf }: { csrf: string }) {
                       {g.is_admin ? ` · ${t("admin")}` : ""}
                     </Text>
                   </HStack>
-                  <Button label={t("Supprimer")} variant="ghost" size="sm"
+                  <Button label={t("Supprimer")} variant="ghost" size="sm" isIconOnly
+                    icon={<Icon icon={TrashIcon} size="sm" />}
                     onClick={() => { if (window.confirm(t("Supprimer ce groupe ?"))) act(`/admin/groups/delete/${encodeURIComponent(g.name)}`, {}); }} />
                 </HStack>
               ))}
             </VStack>
+          ) : (
+            <Text type="supporting" color="secondary">{t("Aucun groupe pour l'instant.")}</Text>
           )}
-          <HStack gap={2} wrap="wrap" vAlign="end">
-            <TextInput label={t("Nom du groupe")} value={ng.name} onChange={(v) => setNg({ ...ng, name: v })} placeholder="équipe-data" />
-            <TextInput label={t("Quota / j (optionnel)")} value={ng.max_budget} onChange={(v) => setNg({ ...ng, max_budget: v })} />
-            <Selector label={t("Admin par défaut")} value={ng.is_admin} onChange={(v) => setNg({ ...ng, is_admin: v })} options={BOOL_OPTS(t)} />
-            <Button label={t("Ajouter le groupe")} variant="secondary" onClick={createGroup} isDisabled={!ng.name} />
-          </HStack>
         </VStack>
       </Card>
+
+      {/* New user dialog */}
+      <Dialog isOpen={userDialog} onOpenChange={setUserDialog} purpose="form" width={520}>
+        <Layout
+          header={<DialogHeader title={t("Nouvel utilisateur")} hasDivider onOpenChange={setUserDialog} />}
+          content={
+            <LayoutContent padding={4} isScrollable>
+              <VStack gap={3}>
+                <TextInput label={t("Identifiant")} value={nu.username} onChange={(v) => setNu({ ...nu, username: v })} placeholder="jdupont" />
+                <TextInput label={t("Nom complet")} value={nu.fullname} onChange={(v) => setNu({ ...nu, fullname: v })} placeholder="Jean Dupont" />
+                <TextInput label={t("Mot de passe")} type="password" value={nu.password} onChange={(v) => setNu({ ...nu, password: v })} />
+                <Selector label={t("Groupe")} value={nu.group} onChange={(v) => setNu({ ...nu, group: v ?? "" })} options={groupOptions} />
+                <TextInput label={t("Quota (vide = groupe/défaut)")} value={nu.max_budget} onChange={(v) => setNu({ ...nu, max_budget: v })} placeholder={data ? fmtBudget(data.default_budget) : ""} />
+                <Selector label={t("Admin")} value={nu.is_admin} onChange={(v) => setNu({ ...nu, is_admin: v ?? "0" })} options={BOOL_OPTS(t)} />
+              </VStack>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button label={t("Annuler")} variant="ghost" onClick={() => setUserDialog(false)} />
+                <Button label={t("Créer")} variant="primary" onClick={createUser} isDisabled={!nu.username || nu.password.length < 8} />
+              </HStack>
+            </LayoutFooter>
+          }
+        />
+      </Dialog>
+
+      {/* New group dialog */}
+      <Dialog isOpen={groupDialog} onOpenChange={setGroupDialog} purpose="form" width={480}>
+        <Layout
+          header={<DialogHeader title={t("Nouveau groupe")} hasDivider onOpenChange={setGroupDialog} />}
+          content={
+            <LayoutContent padding={4} isScrollable>
+              <VStack gap={3}>
+                <TextInput label={t("Nom du groupe")} value={ng.name} onChange={(v) => setNg({ ...ng, name: v })} placeholder="équipe-data" />
+                <TextInput label={t("Quota / j (optionnel)")} value={ng.max_budget} onChange={(v) => setNg({ ...ng, max_budget: v })} />
+                <Selector label={t("Admin par défaut")} value={ng.is_admin} onChange={(v) => setNg({ ...ng, is_admin: v ?? "0" })} options={BOOL_OPTS(t)} />
+              </VStack>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button label={t("Annuler")} variant="ghost" onClick={() => setGroupDialog(false)} />
+                <Button label={t("Ajouter le groupe")} variant="primary" onClick={createGroup} isDisabled={!ng.name} />
+              </HStack>
+            </LayoutFooter>
+          }
+        />
+      </Dialog>
+
+      {/* Reset password dialog */}
+      <Dialog isOpen={pwUser != null} onOpenChange={(o) => { if (!o) setPwUser(null); }} purpose="form" width={440}>
+        <Layout
+          header={<DialogHeader title={t("Réinitialiser le mot de passe")} subtitle={pwUser?.username} hasDivider onOpenChange={(o) => { if (!o) setPwUser(null); }} />}
+          content={
+            <LayoutContent padding={4}>
+              <TextInput label={t("Nouveau mot de passe (8 caractères min.)")} type="password" value={pw} onChange={setPw} />
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button label={t("Annuler")} variant="ghost" onClick={() => setPwUser(null)} />
+                <Button label={t("Enregistrer")} variant="primary" onClick={submitPassword} isDisabled={pw.length < 8} />
+              </HStack>
+            </LayoutFooter>
+          }
+        />
+      </Dialog>
     </VStack>
   );
 }

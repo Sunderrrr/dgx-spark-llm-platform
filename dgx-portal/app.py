@@ -2197,13 +2197,19 @@ def api_keys():
         ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
         if ctx:
             model_limits[row['name']] = {'context': ctx, 'output': min(ctx // 2, 262144)}
+    # `auto-model` hérite des limites du modèle réellement en cours (défaut prudent
+    # s'il n'y a rien de lancé), pour que les snippets d'intégration soient exacts.
+    running = get_running_models()
+    model_limits[AUTO_MODEL_NAME] = (model_limits.get(running[0]) if running else None) \
+        or {'context': 262144, 'output': 131072}
     return jsonify({
         'user_keys': get_user_keys(session['username']),
         'budget_tokens': f"{default_budget:,.0f}".replace(',', ' '),
         'budget_duration': get_setting('default_key_duration', KEY_DURATION),
         'account': account,
         'model_limits': model_limits,
-        'running_models': get_running_models(),
+        'running_models': running,
+        'auto_model': AUTO_MODEL_NAME,
         'public_api_url': PUBLIC_API_URL,
     })
 

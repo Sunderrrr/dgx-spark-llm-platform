@@ -38,6 +38,7 @@ type KeysData = {
   account: Account;
   model_limits: Record<string, ModelLimit>;
   running_models: string[];
+  auto_model: string;
   public_api_url: string;
 };
 
@@ -63,7 +64,8 @@ export function KeysContent() {
     getJSON<KeysData>("/api/keys").then((d) => {
       setData(d);
       if (!selectedKey && d.user_keys.length) setSelectedKey(d.user_keys[0].key);
-      if (!selectedModel && d.running_models.length) setSelectedModel(d.running_models[0]);
+      // Par défaut : le modèle virtuel « auto-model » (suit le modèle en cours).
+      if (!selectedModel) setSelectedModel(d.auto_model || d.running_models[0] || "");
     });
   }
 
@@ -227,8 +229,21 @@ export function KeysContent() {
             <Text weight="semibold">{t("Intégrations")}</Text>
             <HStack gap={3} wrap="wrap">
               <Selector label={t("Clé")} value={selectedKey} onChange={(v) => setSelectedKey(v ?? "")} options={data.user_keys.map((k) => ({ value: k.key, label: k.key_alias }))} />
-              <Selector label={t("Modèle")} value={selectedModel} onChange={(v) => setSelectedModel(v ?? "")} options={data.running_models} />
+              <Selector
+                label={t("Modèle")}
+                value={selectedModel}
+                onChange={(v) => setSelectedModel(v ?? "")}
+                options={[
+                  ...(data.auto_model ? [{ value: data.auto_model, label: `${data.auto_model} — ${t("recommandé")}` }] : []),
+                  ...data.running_models.filter((m) => m !== data.auto_model).map((m) => ({ value: m, label: m })),
+                ]}
+              />
             </HStack>
+            {selectedModel === data.auto_model && (
+              <Text type="supporting" color="secondary">
+                {t("Modèle virtuel : route toujours vers le modèle chat actuellement chargé — ton code n'a rien à changer quand l'admin bascule de modèle. Choisis un modèle nommé pour t'épingler à celui-là.")}
+              </Text>
+            )}
             <TabList value={tool} onChange={(v) => setTool(v as IntegrationTool)}>
               {INTEGRATION_TOOLS.map((t) => (
                 <Tab key={t.value} value={t.value} label={t.label} />

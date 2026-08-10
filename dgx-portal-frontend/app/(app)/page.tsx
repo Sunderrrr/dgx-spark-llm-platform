@@ -304,14 +304,6 @@ export default function HomePage() {
                     {data.modelhealth && (
                       <HStack gap={5} wrap="wrap">
                         <VStack gap={0}>
-                          <Text type="supporting" color="secondary">{t("Contexte entrée")}</Text>
-                          <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_in)}</Text>
-                        </VStack>
-                        <VStack gap={0}>
-                          <Text type="supporting" color="secondary">{t("Contexte sortie")}</Text>
-                          <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_out)}</Text>
-                        </VStack>
-                        <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Modèle actif")}</Text>
                           <HStack gap={2} vAlign="center">
                             <Text weight="semibold">{data.modelhealth.model || t("aucun")}</Text>
@@ -335,6 +327,14 @@ export default function HomePage() {
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Requêtes servies")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{data.modelhealth.requests}</Text>
+                        </VStack>
+                        <VStack gap={0}>
+                          <Text type="supporting" color="secondary">{t("Contexte entrée")}</Text>
+                          <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_in)}</Text>
+                        </VStack>
+                        <VStack gap={0}>
+                          <Text type="supporting" color="secondary">{t("Contexte sortie")}</Text>
+                          <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_out)}</Text>
                         </VStack>
                       </HStack>
                     )}

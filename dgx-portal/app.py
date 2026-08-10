@@ -2692,8 +2692,15 @@ def _support_context(username, is_admin, user_msg=''):
     running = set(get_running_models())
     cat = []
     for row in db.execute("SELECT name, vllm_args, engine FROM model_configs ORDER BY name"):
-        ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
-        has_tools = '--tool-call-parser' in (row['vllm_args'] or '') or '--jinja' in (row['vllm_args'] or '')
+        eng = row['engine'] or 'vllm'
+        ctx = effective_ctx(row['vllm_args'], eng)
+        args = row['vllm_args'] or ''
+        # vLLM exige un parser explicite (--tool-call-parser / --enable-auto-tool-choice) ;
+        # llama.cpp et ds4 font le tool-calling NATIVEMENT via le template de chat du
+        # modèle (vérifié en direct sur Ling — pas besoin de --jinja sur les builds récents).
+        has_tools = (eng in ('llamacpp', 'ds4')
+                     or '--tool-call-parser' in args or '--enable-auto-tool-choice' in args
+                     or '--jinja' in args)
         flag = " [ACTIVE]" if row['name'] in running else ""
         cat.append("  - {}{} : contexte {}, tool-calling {}".format(
             row['name'], flag,

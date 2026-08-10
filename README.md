@@ -228,7 +228,11 @@ default** (and a note explaining it) while every named model stays selectable.
   "My API keys" / "Create an API key" buttons (which open Settings directly on this
   tab — there is no standalone `/keys` page).
 - **Playground** — in-browser streaming chat with the active model; no client setup.
-  Includes **dictation**: a mic button transcribes what you say into the composer.
+  Streamed Markdown, a collapsible reasoning trace for thinking models, attachments,
+  a live context meter, per-message copy/regenerate, and a resizable **document
+  panel**: long answers get an "Open as document" button that pops the content into
+  a wide, side-by-side reading pane (handy for generated docs and code). Includes
+  **dictation**: a mic button transcribes what you say into the composer.
   Deliberately self-hosted (Whisper on the GPU) rather than the browser's
   `SpeechRecognition` API, which in Chrome ships the audio to Google's servers —
   the opposite of the point of this platform. The button only appears when the

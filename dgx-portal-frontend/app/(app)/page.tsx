@@ -323,26 +323,26 @@ export default function HomePage() {
                     )}
 
                     {data.sidecar_metrics && (["ocr", "video", "voice"] as const).some((k) => data.sidecar_metrics[k]) && (
-                      <VStack gap={2}>
+                      <VStack gap={3}>
                         <Text type="supporting" color="secondary">{t("Services média")}</Text>
-                        <Grid columns={{ minWidth: 220, max: 3 }} gap={4}>
-                          {(["ocr", "video", "voice"] as const)
-                            .filter((k) => data.sidecar_metrics[k])
-                            .map((k) => (
-                              <VStack key={k} gap={1}>
-                                <HStack gap={1} vAlign="center">
-                                  <Icon icon={k === "ocr" ? DocumentMagnifyingGlassIcon : k === "video" ? FilmIcon : SpeakerWaveIcon} size="sm" />
-                                  <Text weight="semibold">{t(KIND_NAME[k])}</Text>
-                                </HStack>
+                        {(["ocr", "video", "voice"] as const)
+                          .filter((k) => data.sidecar_metrics[k])
+                          .map((k) => (
+                            <VStack key={k} gap={2}>
+                              <HStack gap={1} vAlign="center">
+                                <Icon icon={k === "ocr" ? DocumentMagnifyingGlassIcon : k === "video" ? FilmIcon : SpeakerWaveIcon} size="sm" />
+                                <Text weight="semibold">{t(KIND_NAME[k])}</Text>
+                              </HStack>
+                              <HStack gap={5} wrap="wrap">
                                 {sidecarLines(k, data.sidecar_metrics[k]!, t).map(([label, value]) => (
-                                  <HStack key={label} hAlign="between" vAlign="center">
+                                  <VStack key={label} gap={0}>
                                     <Text type="supporting" color="secondary">{label}</Text>
-                                    <Text type="supporting" weight="semibold" hasTabularNumbers>{value}</Text>
-                                  </HStack>
+                                    <Text weight="semibold" hasTabularNumbers>{value}</Text>
+                                  </VStack>
                                 ))}
-                              </VStack>
-                            ))}
-                        </Grid>
+                              </HStack>
+                            </VStack>
+                          ))}
                       </VStack>
                     )}
 

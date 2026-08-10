@@ -412,6 +412,8 @@ const EN: Record<string, string> = {
   "Génération de vidéos courtes (texte ou image → vidéo)": "Short video generation (text or image → video)",
   "Clonage de voix zéro-shot à partir d'un court échantillon": "Zero-shot voice cloning from a short sample",
   "Services média": "Media services",
+  "Erreur lors de l'envoi de la demande.": "Error while sending the request.",
+  "La génération a échoué.": "Generation failed.",
   "Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.":
     "Tip: use “{model}” as the model name to always target the current model — no code change when it switches.",
   "recommandé": "recommended",

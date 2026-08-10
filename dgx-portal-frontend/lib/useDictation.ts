@@ -5,19 +5,19 @@ import { startRecording, type Recorder } from "./audioRecorder";
 import { useLang } from "./i18n";
 
 /**
- * Dictée vocale réutilisable (Playground, Voix, Vidéo).
+ * Reusable voice dictation (Playground, Voice, Video).
  *
- * Le texte s'écrit AU FIL de la parole : toutes les 1,5 s on retranscrit tout
- * l'audio capté depuis le début et on réécrit la partie dictée du champ.
- * Whisper répond en ~0,2 s quelle que soit la longueur (jusqu'à 30 s), et lui
- * redonner tout le contexte lui permet de se corriger en cours de route.
+ * The text is written AS speech flows: every 1.5 s we re-transcribe all
+ * the audio captured since the start and rewrite the dictated part of the field.
+ * Whisper responds in ~0.2 s whatever the length (up to 30 s), and giving
+ * it the whole context lets it correct itself along the way.
  */
 const POLL_MS = 1500;
 
 type Options = {
-  /** Valeur actuelle du champ ciblé. */
+  /** Current value of the target field. */
   value: string;
-  /** Applique la nouvelle valeur (texte de départ + ce qui a été dicté). */
+  /** Applies the new value (starting text + what has been dictated). */
   onChange: (next: string) => void;
   csrf: string;
 };
@@ -30,22 +30,22 @@ export function useDictation({ value, onChange, csrf }: Options) {
   const [error, setError] = useState<string | null>(null);
 
   const recorderRef = useRef<Recorder | null>(null);
-  // Texte présent avant le début de la dictée : chaque passe remplace la
-  // précédente sans jamais effacer ce que l'utilisateur avait tapé.
+  // Text present before dictation started: each pass replaces the
+  // previous one without ever erasing what the user had typed.
   const baseRef = useRef("");
-  // Une seule transcription en vol : la suivante n'part qu'au retour de la
-  // précédente, ce qui régule la charge GPU sans réglage.
+  // A single transcription in flight: the next one only leaves on the return
+  // of the previous, which regulates GPU load without any tuning.
   const busyRef = useRef(false);
-  // Incrémenté à chaque arrêt : une réponse arrivée trop tard appartient à une
-  // dictée révolue et ne doit plus écrire dans le champ (typiquement quand on
-  // envoie le message pendant que la transcription est encore en route).
+  // Incremented on each stop: a response arriving too late belongs to a
+  // bygone dictation and must no longer write into the field (typically when
+  // the message is sent while the transcription is still under way).
   const runRef = useRef(0);
-  // onChange/value changent à chaque frappe : on les lit par ref pour ne pas
-  // relancer la boucle de sondage à chaque caractère.
+  // onChange/value change on every keystroke: we read them by ref so as not
+  // to restart the polling loop on every character.
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
-  // Mis à jour APRÈS le rendu, jamais pendant : écrire dans une ref en plein
-  // rendu casse les garanties de React (et la règle react-hooks/refs).
+  // Updated AFTER render, never during: writing to a ref mid-render
+  // breaks React's guarantees (and the react-hooks/refs rule).
   useEffect(() => {
     onChangeRef.current = onChange;
     valueRef.current = value;
@@ -58,7 +58,7 @@ export function useDictation({ value, onChange, csrf }: Options) {
       .catch(() => {});
   }, []);
 
-  // Relâche le micro si le composant disparaît en pleine dictée.
+  // Releases the mic if the component disappears mid-dictation.
   useEffect(() => () => recorderRef.current?.cancel(), []);
 
   const transcribe = useCallback(
@@ -73,7 +73,7 @@ export function useDictation({ value, onChange, csrf }: Options) {
         body,
       });
       const data = await res.json();
-      if (run !== runRef.current) return true; // dictée abandonnée entre-temps
+      if (run !== runRef.current) return true; // dictation abandoned in the meantime
       if (!res.ok || typeof data.text !== "string") {
         setError(data?.error || null);
         return false;
@@ -98,7 +98,7 @@ export function useDictation({ value, onChange, csrf }: Options) {
         const partial = await rec.snapshot();
         if (partial) await transcribe(partial, run);
       } catch {
-        // Un tour raté n'interrompt pas la dictée, le suivant reprendra.
+        // A failed round doesn't interrupt dictation, the next one will resume.
       } finally {
         busyRef.current = false;
       }
@@ -106,7 +106,7 @@ export function useDictation({ value, onChange, csrf }: Options) {
     return () => clearInterval(id);
   }, [isRecording, transcribe]);
 
-  /** Coupe le micro et abandonne : rien de plus ne sera écrit dans le champ. */
+  /** Cuts the mic and aborts: nothing more will be written into the field. */
   const cancel = useCallback(() => {
     runRef.current += 1;
     recorderRef.current?.cancel();
@@ -125,8 +125,8 @@ export function useDictation({ value, onChange, csrf }: Options) {
       const run = runRef.current;
       setIsTranscribing(true);
       try {
-        // Passe finale sur l'enregistrement complet : elle fait autorité sur
-        // les transcriptions intermédiaires, plus pauvres en contexte.
+        // Final pass on the complete recording: it is authoritative over
+        // the intermediate transcriptions, poorer in context.
         const file = await rec.stop();
         await transcribe(file, run);
       } catch {

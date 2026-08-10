@@ -5,10 +5,10 @@ import { useT } from "@/lib/i18n";
 
 export type ActivityDay = { date: string; tokens: number };
 
-/** Grille type « contributions » : une colonne par semaine, 7 lignes (lun→dim).
- *  SVG plutôt qu'une grille de composants : ~180 cellules, et le design system
- *  n'a pas de primitive pour ça. Couleurs prises aux tokens de thème pour
- *  suivre le mode clair/sombre. */
+/** "Contributions"-style grid: one column per week, 7 rows (Mon→Sun).
+ *  SVG rather than a grid of components: ~180 cells, and the design system
+ *  has no primitive for this. Colors taken from theme tokens to follow
+ *  light/dark mode. */
 export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
   const translate = useT();
   if (!days.length) return null;
@@ -17,14 +17,14 @@ export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
   const GAP = 3;
   const step = CELL + GAP;
 
-  // Aligne la première colonne sur un lundi pour que les lignes soient des
-  // jours de semaine cohérents.
+  // Aligns the first column on a Monday so the rows are consistent
+  // weekdays.
   const firstDow = (new Date(days[0].date + "T00:00:00").getDay() + 6) % 7;
   const cells = [...Array(firstDow).fill(null), ...days];
   const weeks = Math.ceil(cells.length / 7);
 
   const max = Math.max(...days.map((d) => d.tokens), 1);
-  // Échelle logarithmique : sans elle un pic écrase tous les autres jours.
+  // Logarithmic scale: without it a spike crushes all the other days.
   const level = (t: number) => (t <= 0 ? 0 : Math.min(4, 1 + Math.floor((Math.log10(t) / Math.log10(max)) * 3.99)));
   const fill = [
     "var(--color-background-muted)",
@@ -46,9 +46,9 @@ export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
         if (!d) return null;
         const lvl = level(d.tokens);
         return (
-          // <title> natif SVG et non le composant Tooltip : celui-ci insère
-          // du HTML, invalide à l'intérieur d'un <svg> — le navigateur le
-          // supprimait, et la grille apparaissait vide.
+          // Native SVG <title> and not the Tooltip component: the latter
+          // inserts HTML, invalid inside an <svg> — the browser stripped
+          // it, and the grid appeared empty.
           <rect
             key={d.date}
             x={Math.floor(i / 7) * step}

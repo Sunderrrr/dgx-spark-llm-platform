@@ -18,10 +18,10 @@ import { UsersSection } from "../admin/_components/UsersSection";
 export default function UsersPage() {
   const t = useT();
   const csrf = useCsrf();
-  // Réservé aux admins, exactement comme /admin. La nav ne montre l'onglet
-  // qu'aux admins, mais on vérifie aussi ici (accès direct par URL) : l'API
-  // /api/admin/users renvoie 403 → on affiche l'état « accès refusé » plutôt
-  // qu'une page vide.
+  // Admin-only, exactly like /admin. The nav shows the tab only to admins,
+  // but we also check here (direct URL access): the /api/admin/users API
+  // returns 403 → we show the "access denied" state rather than an empty
+  // page.
   const [status, setStatus] = useState<"loading" | "ok" | "forbidden">("loading");
 
   useEffect(() => {

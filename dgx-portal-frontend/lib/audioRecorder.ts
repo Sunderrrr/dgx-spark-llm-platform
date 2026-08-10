@@ -1,22 +1,22 @@
 "use client";
 
 /**
- * Enregistrement micro → fichier WAV.
+ * Mic recording → WAV file.
  *
- * MediaRecorder ne produit PAS de WAV : selon le navigateur c'est du WebM/Opus,
- * de l'OGG/Opus ou du MP4/AAC. Or Chatterbox (et donc /api/voice/generate)
- * n'accepte que du WAV ou du MP3. On décode donc l'enregistrement en PCM avec
- * l'AudioContext (qui sait lire tous ces conteneurs) puis on ré-encode un WAV
- * nous-mêmes — aucune dépendance ajoutée, et le backend reste inchangé.
+ * MediaRecorder does NOT produce WAV: depending on the browser it's WebM/Opus,
+ * OGG/Opus or MP4/AAC. But Chatterbox (and thus /api/voice/generate)
+ * only accepts WAV or MP3. So we decode the recording to PCM with
+ * the AudioContext (which can read all these containers) then re-encode a WAV
+ * ourselves — no added dependency, and the backend stays unchanged.
  *
- * Le rendu est ramené à 24 kHz mono, la fréquence native du modèle : ça divise
- * la taille du fichier par ~4 face au 48 kHz stéréo brut du micro, sans perte
- * utile puisque le modèle rééchantillonne de toute façon.
+ * The render is brought down to 24 kHz mono, the model's native rate: this
+ * divides the file size by ~4 compared to the mic's raw 48 kHz stereo, with no
+ * useful loss since the model resamples anyway.
  */
 
 export const VOICE_TARGET_SAMPLE_RATE = 24000;
 
-/** Conteneurs testés dans l'ordre : le premier supporté par le navigateur gagne. */
+/** Containers tried in order: the first one supported by the browser wins. */
 const PREFERRED_MIME_TYPES = [
   "audio/webm;codecs=opus",
   "audio/webm",
@@ -30,18 +30,18 @@ function pickMimeType(): string | undefined {
 }
 
 export type Recorder = {
-  /** Arrête l'enregistrement et rend le WAV converti. */
+  /** Stops the recording and returns the converted WAV. */
   stop: () => Promise<File>;
   /**
-   * WAV de tout ce qui a été capté DEPUIS LE DÉBUT, sans interrompre
-   * l'enregistrement — pour la dictée en direct. On repart toujours du début
-   * plutôt que du dernier morceau : les fragments intermédiaires d'un flux
-   * WebM ne sont pas décodables seuls (seul le premier porte l'en-tête), et
-   * retranscrire tout donne un meilleur texte, le modèle disposant de plus de
-   * contexte. Rend null tant que rien n'a été capté.
+   * WAV of everything captured SINCE THE START, without interrupting
+   * the recording — for live dictation. We always restart from the beginning
+   * rather than the last chunk: the intermediate fragments of a WebM
+   * stream aren't decodable on their own (only the first carries the header), and
+   * re-transcribing everything gives better text, the model having more
+   * context. Returns null as long as nothing has been captured.
    */
   snapshot: () => Promise<File | null>;
-  /** Arrête tout et libère le micro sans produire de fichier (annulation). */
+  /** Stops everything and releases the mic without producing a file (cancellation). */
   cancel: () => void;
 };
 
@@ -55,8 +55,8 @@ export async function startRecording(): Promise<Recorder> {
   recorder.ondataavailable = (e) => {
     if (e.data.size > 0) chunks.push(e.data);
   };
-  // Découpage périodique : sans argument, MediaRecorder ne livre les données
-  // qu'à l'arrêt, et snapshot() n'aurait jamais rien à transcrire.
+  // Periodic chunking: without an argument, MediaRecorder only delivers the
+  // data on stop, and snapshot() would never have anything to transcribe.
   recorder.start(500);
 
   const releaseMic = () => stream.getTracks().forEach((t) => t.stop());
@@ -68,8 +68,8 @@ export async function startRecording(): Promise<Recorder> {
       try {
         return await blobToWavFile(raw);
       } catch {
-        // Un flux tronqué au mauvais endroit peut être indécodable : on
-        // ignore ce tour, le suivant repartira d'un tampon plus complet.
+        // A stream truncated at the wrong place can be undecodable: we
+        // skip this round, the next one will restart from a more complete buffer.
         return null;
       }
     },
@@ -84,8 +84,8 @@ export async function startRecording(): Promise<Recorder> {
             reject(e);
           }
         };
-        // Un recorder déjà arrêté ne réémettra jamais onstop : on garde la
-        // promesse résolvable dans ce cas plutôt que de la laisser pendante.
+        // An already-stopped recorder will never re-emit onstop: we keep the
+        // promise resolvable in that case rather than leaving it pending.
         if (recorder.state === "inactive") recorder.onstop?.(new Event("stop"));
         else recorder.stop();
       }),
@@ -96,7 +96,7 @@ export async function startRecording(): Promise<Recorder> {
   };
 }
 
-/** Décode n'importe quel conteneur audio lisible par le navigateur → WAV 24 kHz mono. */
+/** Decodes any audio container readable by the browser → 24 kHz mono WAV. */
 async function blobToWavFile(blob: Blob): Promise<File> {
   const arrayBuffer = await blob.arrayBuffer();
   const decodeCtx = new AudioContext();
@@ -107,7 +107,7 @@ async function blobToWavFile(blob: Blob): Promise<File> {
     void decodeCtx.close();
   }
 
-  // OfflineAudioContext fait le rééchantillonnage ET le downmix mono d'un coup.
+  // OfflineAudioContext does the resampling AND the mono downmix in one go.
   const frameCount = Math.max(1, Math.ceil(decoded.duration * VOICE_TARGET_SAMPLE_RATE));
   const offline = new OfflineAudioContext(1, frameCount, VOICE_TARGET_SAMPLE_RATE);
   const source = offline.createBufferSource();
@@ -120,7 +120,7 @@ async function blobToWavFile(blob: Blob): Promise<File> {
   return new File([wav], "recording.wav", { type: "audio/wav" });
 }
 
-/** PCM float32 [-1,1] → WAV 16 bits mono (en-tête RIFF de 44 octets). */
+/** PCM float32 [-1,1] → 16-bit mono WAV (44-byte RIFF header). */
 function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
   const buffer = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(buffer);
@@ -132,13 +132,13 @@ function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
   view.setUint32(4, 36 + samples.length * 2, true);
   writeString(8, "WAVE");
   writeString(12, "fmt ");
-  view.setUint32(16, 16, true); // taille du bloc fmt
-  view.setUint16(20, 1, true); // PCM entier
+  view.setUint32(16, 16, true); // fmt block size
+  view.setUint16(20, 1, true); // integer PCM
   view.setUint16(22, 1, true); // mono
   view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // octets/seconde
-  view.setUint16(32, 2, true); // alignement de bloc
-  view.setUint16(34, 16, true); // bits par échantillon
+  view.setUint32(28, sampleRate * 2, true); // bytes/second
+  view.setUint16(32, 2, true); // block alignment
+  view.setUint16(34, 16, true); // bits per sample
   writeString(36, "data");
   view.setUint32(40, samples.length * 2, true);
 

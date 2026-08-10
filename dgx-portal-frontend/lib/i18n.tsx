@@ -428,6 +428,8 @@ const EN: Record<string, string> = {
   "Aucun groupe pour l'instant.": "No groups yet.",
   "Réinitialiser le mot de passe": "Reset password",
   "Nouveau mot de passe (8 caractères min.)": "New password (8 characters min.)",
+  "Ouvrir en document": "Open as document",
+  "Redimensionner le document": "Resize the document",
   "Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.":
     "Tip: use “{model}” as the model name to always target the current model — no code change when it switches.",
   "recommandé": "recommended",

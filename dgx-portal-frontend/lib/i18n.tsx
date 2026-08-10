@@ -412,6 +412,8 @@ const EN: Record<string, string> = {
   "Génération de vidéos courtes (texte ou image → vidéo)": "Short video generation (text or image → video)",
   "Clonage de voix zéro-shot à partir d'un court échantillon": "Zero-shot voice cloning from a short sample",
   "Services média": "Media services",
+  "Contexte entrée": "Input context",
+  "Contexte sortie": "Output context",
   "Recherche par utilisateur": "Search by user",
   "Cherche un utilisateur pour voir ses quotas et son utilisation (LiteLLM, OCR, vidéo, voix). Réservé aux admins.":
     "Search a user to see their quota and usage (LiteLLM, OCR, video, voice). Admins only.",

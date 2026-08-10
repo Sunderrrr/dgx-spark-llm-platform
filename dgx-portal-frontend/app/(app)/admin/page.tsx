@@ -152,7 +152,7 @@ export default function AdminPage() {
     let errMsg: string | null = null;
     try {
       const res = await postFormJSON<{ ok?: boolean; error?: string }>(url, csrf, params);
-      if (res && res.ok === false) errMsg = res.error || t("Échec de l'action.");
+      if (res && res.ok === false) errMsg = res.error ? t(res.error) : t("Échec de l'action.");
     } catch {
       // Non-JSON response (older redirect routes) → treated as OK.
     }

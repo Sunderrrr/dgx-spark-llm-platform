@@ -97,7 +97,7 @@ export default function VideoPage() {
         payload,
       );
       if (!res.prompt_id) {
-        showToast({ body: res.error || t("Échec de la génération."), type: "error" });
+        showToast({ body: res.error ? t(res.error) : t("Échec de la génération."), type: "error" });
         setStatus("error");
         return;
       }

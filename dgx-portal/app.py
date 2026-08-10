@@ -2194,9 +2194,13 @@ def api_keys():
     }
     model_limits = {}
     for row in get_db().execute("SELECT name, vllm_args, engine FROM model_configs"):
-        ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
-        if ctx:
-            model_limits[row['name']] = {'context': ctx, 'output': min(ctx // 2, 262144)}
+        # Même source que LiteLLM (ctx_split) : sur llama.cpp/ds4 le slot est
+        # partagé, donc le contexte annoncé aux clients est l'entrée réelle
+        # (slot − marge de sortie), pas le slot brut. Évite un snippet qui
+        # promet 256k/128k alors que le vrai budget est 192k/64k.
+        max_in, max_out = ctx_split(row['vllm_args'], row['engine'] or 'vllm')
+        if max_in:
+            model_limits[row['name']] = {'context': max_in, 'output': max_out}
     # `auto-model` hérite des limites du modèle réellement en cours (défaut prudent
     # s'il n'y a rien de lancé), pour que les snippets d'intégration soient exacts.
     running = get_running_models()

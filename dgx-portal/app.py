@@ -874,6 +874,9 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
                           json={'hf_model_id': hf_model_id, 'model_name': model_name,
                                 'vllm_args': vllm_args, 'engine': engine or 'vllm'},
                           timeout=90)
+        # Lancement accepté → l'alias `auto-model` suit le nouveau modèle.
+        if r.ok:
+            _point_auto_model(model_name, vllm_args, engine or 'vllm')
         return r.ok
     except Exception:
         return False
@@ -2067,7 +2070,8 @@ def _index_data():
     ).fetchall()
     default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
     return dict(running_models=running, my_requests=my_requests,
-                public_api_url=PUBLIC_API_URL, usage=user_hourly(session['username']),
+                public_api_url=PUBLIC_API_URL, auto_model=AUTO_MODEL_NAME,
+                usage=user_hourly(session['username']),
                 sysmetrics=runner_metrics(),
                 sidecar_metrics=metrics,
                 modelhealth=vllm_health(),
@@ -4480,6 +4484,10 @@ def _model_slug(hf_id):
     return (re.sub(r'[^a-zA-Z0-9_-]', '-', base).strip('-').lower()[:40]) or 'modele'
 
 VLLM_API_BASE = os.environ.get('VLLM_API_BASE', 'http://host.docker.internal:8000/v1')
+# Nom du modèle virtuel qui route toujours vers le modèle chat en cours (re-pointé
+# à chaque lancement). Les clients le câblent une fois et n'ont plus à changer le
+# nom du modèle à chaque bascule.
+AUTO_MODEL_NAME = os.environ.get('AUTO_MODEL_NAME', 'auto-model')
 
 def _litellm_model_id(name):
     """Id LiteLLM du modèle portant ce model_name, ou None."""
@@ -4492,24 +4500,23 @@ def _litellm_model_id(name):
         pass
     return None
 
-def _register_litellm_model(name, vllm_args, engine='vllm'):
-    """Enregistre (ou rafraîchit) le modèle dans LiteLLM à chaud. Le contexte est
-    déduit des args du moteur (--max-model-len pour vLLM, --ctx-size pour llama.cpp).
-    Les deux servent une API OpenAI sur :8000 → mêmes litellm_params."""
+def _model_upstream(name, engine):
+    """Nom réellement attendu par le backend sur :8000 pour ce modèle.
+
+    ds4 part en mode « thinking » par défaut : il IGNORE alors max_tokens
+    (« client sampling knobs are ignored like the official API ») et génère des
+    milliers de tokens à ~10 tok/s. Comme le moteur est mono-slot, une seule
+    requête bloque toute la plateforme. On route donc vers le nom réservé
+    `deepseek-chat`, qui sélectionne le mode NON-thinking (cf. --help de ds4)."""
+    return 'deepseek-chat' if engine == 'ds4' else name
+
+def _litellm_upsert(public_name, upstream, max_input, max_output):
+    """Crée (ou rafraîchit) une entrée LiteLLM `public_name` routant vers le
+    modèle `upstream` servi sur :8000. Renvoie True si LiteLLM a accepté."""
     if not LITELLM_KEY:
         return False
-    # Répartition entrée/sortie : voir ctx_split (source unique, partagée avec
-    # l'accueil). llama.cpp/ds4 réservent une marge de sortie (64k) sur le slot
-    # partagé ; vLLM sépare déjà via --max-model-len.
-    max_input, max_output = ctx_split(vllm_args, engine)
-    # ds4 part en mode « thinking » par défaut : il IGNORE alors max_tokens
-    # (« client sampling knobs are ignored like the official API ») et génère des
-    # milliers de tokens à ~10 tok/s. Comme le moteur est mono-slot, une seule
-    # requête bloque toute la plateforme. On route donc vers le nom réservé
-    # `deepseek-chat`, qui sélectionne le mode NON-thinking (cf. --help de ds4).
-    upstream = 'deepseek-chat' if engine == 'ds4' else name
     body = {
-        "model_name": name,
+        "model_name": public_name,
         "litellm_params": {
             "model": f"openai/{upstream}",
             "api_base": VLLM_API_BASE,
@@ -4525,7 +4532,7 @@ def _register_litellm_model(name, vllm_args, engine='vllm'):
         },
     }
     try:
-        existing = _litellm_model_id(name)
+        existing = _litellm_model_id(public_name)
         if existing:
             requests.post(f"{LITELLM_URL}/model/delete", headers=litellm_headers(),
                           json={"id": existing}, timeout=5)
@@ -4534,6 +4541,26 @@ def _register_litellm_model(name, vllm_args, engine='vllm'):
         return r.status_code < 300
     except Exception:
         return False
+
+def _register_litellm_model(name, vllm_args, engine='vllm'):
+    """Enregistre (ou rafraîchit) le modèle dans LiteLLM à chaud. Le contexte est
+    déduit des args du moteur (--max-model-len pour vLLM, --ctx-size pour llama.cpp).
+    Les deux servent une API OpenAI sur :8000 → mêmes litellm_params.
+
+    NB : enregistrer un modèle au CATALOGUE ne le fait pas tourner. L'alias
+    `auto-model` ne suit donc PAS cet appel — il ne suit que les lancements réels
+    (voir _point_auto_model, appelé depuis runner_launch)."""
+    max_input, max_output = ctx_split(vllm_args, engine)
+    return _litellm_upsert(name, _model_upstream(name, engine), max_input, max_output)
+
+def _point_auto_model(name, vllm_args, engine='vllm'):
+    """Re-route le modèle virtuel `auto-model` vers le modèle chat qui vient
+    d'être lancé, pour que les clients câblent ce nom UNE fois et suivent
+    automatiquement le modèle en cours, sans toucher à leur code à chaque
+    bascule. Les vrais noms restent enregistrés en parallèle et fonctionnent
+    toujours. Appelé sur chaque lancement réussi (runner_launch)."""
+    max_input, max_output = ctx_split(vllm_args, engine)
+    return _litellm_upsert(AUTO_MODEL_NAME, _model_upstream(name, engine), max_input, max_output)
 
 def _unregister_litellm_model(name):
     if not LITELLM_KEY:

@@ -212,7 +212,7 @@ export default function HomePage() {
                 <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
                   {data.running_models.map((m) => (
                     <Card key={m.name}>
-                      <VStack gap={2}>
+                      <VStack gap={2} height="100%">
                         <HStack hAlign="between" vAlign="center">
                           <Badge label={t("En ligne")} variant="success" />
                           {m.kind === "ocr" && <Icon icon={DocumentMagnifyingGlassIcon} size="sm" />}
@@ -233,6 +233,7 @@ export default function HomePage() {
                                 {t("Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.").replace("{model}", data.auto_model)}
                               </Text>
                             )}
+                            <StackItem size="fill" />
                             <Button
                               label={t("Créer une clé API")}
                               variant="secondary"
@@ -245,6 +246,7 @@ export default function HomePage() {
                             <Text type="supporting" color="secondary">
                               {t("Disponible depuis l'application, non exposé par l'API.")}
                             </Text>
+                            <StackItem size="fill" />
                             <Button
                               label={
                                 m.kind === "ocr" ? t("Ouvrir l'OCR")

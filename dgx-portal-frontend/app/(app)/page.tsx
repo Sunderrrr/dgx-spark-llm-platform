@@ -29,6 +29,7 @@ import {
 import { getJSON } from "@/lib/api";
 import { UsageChart } from "./_components/UsageChart";
 import { useT } from "@/lib/i18n";
+import { useSettingsDialog } from "@/lib/settings-dialog";
 
 type SysMetrics = {
   cpu_pct: number;
@@ -159,6 +160,7 @@ const buildRequestColumns = (t: (s: string) => string): TableColumn<ModelRequest
 
 export default function HomePage() {
   const t = useT();
+  const { open: openSettings } = useSettingsDialog();
   const [data, setData] = useState<HomeData | null>(null);
   const [who, setWho] = useState<Whoami | null>(null);
 
@@ -191,7 +193,7 @@ export default function HomePage() {
                 label={t("Mes clés API")}
                 variant="primary"
                 icon={<Icon icon={KeyIcon} size="sm" />}
-                href="/keys"
+                onClick={() => openSettings("keys")}
               />
             </HStack>
 
@@ -235,7 +237,7 @@ export default function HomePage() {
                               label={t("Créer une clé API")}
                               variant="secondary"
                               size="sm"
-                              href="/keys"
+                              onClick={() => openSettings("keys")}
                             />
                           </>
                         ) : (
@@ -429,7 +431,7 @@ export default function HomePage() {
                     {t("Limite :")} {who?.is_admin ? t("Illimitée (admin)") : `${data?.budget_tokens ?? "—"} tokens / ${data?.budget_duration ?? "—"}`}
                   </Text>
                   <StackItem size="fill" />
-                  <Button label={t("Gérer mes clés")} variant="secondary" href="/keys" />
+                  <Button label={t("Gérer mes clés")} variant="secondary" onClick={() => openSettings("keys")} />
                 </VStack>
               </Card>
               <Card>

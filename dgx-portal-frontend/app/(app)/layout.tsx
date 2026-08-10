@@ -38,13 +38,15 @@ import { useThemeMode } from "../theme-provider";
 import { useCsrf } from "@/lib/useCsrf";
 import { SettingsDialog } from "./_components/SettingsDialog";
 import { useT } from "@/lib/i18n";
+import { SettingsDialogContext, type SettingsSection } from "@/lib/settings-dialog";
 
 type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id: string | null; maintenance_mode: boolean };
 
 // « Mes clés API » n'est volontairement plus ici : sa configuration vit
 // désormais dans le dialogue Réglages (onglet « Clés API »), ouvert par
-// l'engrenage du pied de la barre latérale. La route /keys reste servie —
-// les boutons de la page d'accueil y renvoient toujours.
+// l'engrenage du pied de la barre latérale. Il n'y a plus de page /keys : les
+// boutons « clés API » de l'accueil ouvrent ce dialogue sur l'onglet « keys »
+// via le contexte SettingsDialogContext (voir openSettings ci-dessous).
 const NAV_ITEMS = [
   { href: "/", label: "Accueil", icon: HomeIcon },
   { href: "/playground", label: "Playground", icon: ChatBubbleLeftRightIcon },
@@ -62,8 +64,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { mode, setMode } = useThemeMode();
   const [who, setWho] = useState<Whoami | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined);
   const t = useT();
   const csrf = useCsrf();
+
+  // Ouvre le dialogue Réglages, éventuellement sur un onglet précis. Utilisé par
+  // l'engrenage (sans argument) et par les boutons « clés API » de l'accueil.
+  const openSettings = (section?: SettingsSection) => {
+    setSettingsSection(section);
+    setIsSettingsOpen(true);
+  };
 
   // /logout est en POST (protégé CSRF) : un simple lien GET permettait à
   // n'importe quel site tiers de nous déconnecter. On soumet donc un vrai
@@ -99,6 +109,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isDark = mode === "dark" || (mode === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
   return (
+    <SettingsDialogContext.Provider value={{ open: openSettings }}>
     <AppShell
       contentPadding={0}
       sideNav={
@@ -126,7 +137,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   size="sm"
                   isIconOnly
                   icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-                  onClick={() => setIsSettingsOpen(true)}
+                  onClick={() => openSettings()}
                 />
                 <Button
                   label={t("Basculer le thème")}
@@ -174,8 +185,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <SettingsDialog
         isOpen={isSettingsOpen}
         onOpenChange={setIsSettingsOpen}
+        initialSection={settingsSection}
         onAvatarChange={(avatarId) => setWho((prev) => (prev ? { ...prev, avatar_id: avatarId } : prev))}
       />
     </AppShell>
+    </SettingsDialogContext.Provider>
   );
 }

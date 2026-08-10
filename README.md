@@ -8,9 +8,14 @@ your behalf.
 
 It provides:
 
-- an **OpenAI-compatible API** (LiteLLM) protected by per-user keys with token budgets;
+- an **OpenAI-compatible API** (LiteLLM) protected by per-user keys with token budgets,
+  including a virtual **`auto-model`** that always routes to whatever chat model is
+  currently loaded, so clients never need editing when the admin swaps models;
 - a **self-service portal** where each user (LDAP or SSO) creates keys, tries models
   in an in-browser **playground**, requests models, and tracks consumption;
+- **admin user management** — a dedicated page to create local accounts, group them,
+  and set per-group / per-user quotas and rights, with each account's auth source
+  (local / debug / LDAP / SSO) shown at a glance;
 - **Cronos**, an AI support assistant that answers questions *and* performs
   self-service actions (create a key, request budget, request a model…);
 - a **runner** that launches/stops one vLLM model on the GPU on demand and
@@ -61,7 +66,7 @@ flowchart LR
 |---|---|---|---|
 | **litellm** | OpenAI-compatible gateway: per-user keys, budgets, token accounting | `4001` | Docker container |
 | **litellm-postgres** | LiteLLM database (keys, spend logs) | `5432` (internal) | Docker container |
-| **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, keys, playground, OCR, video, support, admin | `5000` | Docker container (non-root) |
+| **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, playground, OCR, video, voice, support, find-a-model, leaderboard, admin, users (keys live in Settings) | `5000` | Docker container (non-root) |
 | **dgx-portal** | Backend (Flask): LDAP/OIDC auth, sessions, JSON API, business logic | internal only | Docker container (non-root) |
 | **vllm-runner** | Daemon driving **one** vLLM process (start/stop/logs) with auto-resume, plus scoped start/stop/recreate of the OCR container and video service | `8001` | systemd service on the host |
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
@@ -189,9 +194,26 @@ curl https://api.cronos.website/v1/chat/completions \
   -d '{"model":"ornith-35b-fp8","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
-The **My API keys** page generates ready-to-paste snippets for OpenCode, Hermes
-Agent, Codex CLI, Aider, Continue.dev, Cursor, LangChain, the Python SDK, cURL and
-env vars — key and endpoint pre-filled.
+### The `auto-model` alias
+
+Because the admin swaps the running chat model from time to time, hard-coding a
+model name means editing every client on each swap. Instead, point clients at the
+virtual model **`auto-model`**: it is a LiteLLM alias that always routes to the
+chat model currently loaded, re-pointed automatically on every launch. Wire it
+once and never touch your config again — the real model names stay registered and
+keep working in parallel if you'd rather pin to a specific one.
+
+```bash
+curl https://api.cronos.website/v1/chat/completions \
+  -H "Authorization: Bearer sk-your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"auto-model","messages":[{"role":"user","content":"Hello!"}]}'
+```
+
+The **Settings → API keys** panel generates ready-to-paste snippets for OpenCode,
+Hermes Agent, Codex CLI, Aider, Continue.dev, Cursor, LangChain, the Python SDK,
+cURL and env vars — key and endpoint pre-filled, with **`auto-model` selected by
+default** (and a note explaining it) while every named model stays selectable.
 
 > For **OpenCode**, the config uses a dedicated `dgx-cronos` provider (not `openai`)
 > so it won't clash with an official OpenAI account.
@@ -200,8 +222,11 @@ env vars — key and endpoint pre-filled.
 
 ## Portal features
 
-- **My API keys** — create/revoke keys, see per-key spend and the shared account
-  budget, request more tokens; integration snippets per tool.
+- **My API keys** (Settings → API keys) — create/revoke keys, see per-key spend and
+  the shared account budget, request more tokens; integration snippets per tool with
+  `auto-model` pre-selected. Reached from the sidebar gear, or from the home page's
+  "My API keys" / "Create an API key" buttons (which open Settings directly on this
+  tab — there is no standalone `/keys` page).
 - **Playground** — in-browser streaming chat with the active model; no client setup.
   Includes **dictation**: a mic button transcribes what you say into the composer.
   Deliberately self-hosted (Whisper on the GPU) rather than the browser's
@@ -239,17 +264,29 @@ env vars — key and endpoint pre-filled.
   capped at the first page.
 - **Leaderboard** (`/ranking`) — ranks users by weighted spend (day/week/month),
   colorblind-safe palette, from LiteLLM's Postgres spend logs.
-- **Home** — live server stats (CPU/RAM/GPU), active-model health (tok/s, queue,
-  TTFT, requests served), your own hourly usage chart, and every currently-running
-  backend (chat, OCR, video, voice) — the sidecars are clearly marked "not exposed
-  by the API".
+- **Home** — every currently-running backend (chat, OCR, video, voice), each card
+  labelled with what it does and the chat card advertising the `auto-model` tip;
+  a **Server state** panel with live CPU/RAM/GPU, active-model health (tok/s, queue,
+  TTFT, requests served, in/out context) and a **Media services** strip folding the
+  OCR/video/voice activity metrics (throughput, chars-per-doc, mean time, last run)
+  in next to it; plus your own hourly usage chart. Sidecars are clearly marked
+  "not exposed by the API".
 - **Admin** (`adm_cronos` only) — launch/stop models, live vLLM logs, add/edit/remove
   catalog models (chat, OCR **and** voice), start/stop the OCR container, the video
   service and the voice container independently of the chat model, set the default
-  budget, approve token/model requests, per-user consumption **and** per-user
-  OCR/video/voice usage (untracked by LiteLLM since none of them go through a public
-  API key), and a **maintenance mode** toggle that blocks non-admin traffic everywhere
-  (portal chat/OCR/video/voice *and* the public API) without stopping any backend.
+  budget, approve token/model requests, and a **maintenance mode** toggle that blocks
+  non-admin traffic everywhere (portal chat/OCR/video/voice *and* the public API)
+  without stopping any backend. Per-user consumption is a **search box** — look up a
+  single account to see its LiteLLM quota/spend plus its OCR/video/voice usage
+  (untracked by LiteLLM since none of them go through a public API key) and its model
+  requests — rather than a wall of everyone's stats.
+- **Users** (`/users`, admin only) — a dedicated page to manage local accounts:
+  create users with a hashed password, assign them to **groups** carrying a default
+  quota and admin right, override a per-user quota, enable/disable, toggle admin, or
+  reset a password. It also lists **every known account** with a badge for each
+  authentication source — **Local** (managed here), **Debug** (fallback file), **LDAP**,
+  **SSO**, or **External** — recorded per login and cumulative (a user seen via both
+  LDAP and SSO shows both).
 
 ### Screenshots
 
@@ -265,9 +302,32 @@ env vars — key and endpoint pre-filled.
 |---|---|
 | ![Video](assets/video.png) | ![Find a model](assets/search.png) |
 
-![My API keys — budget, keys and integration snippets](assets/keys.png)
+| Settings → API keys — budget, keys, and integration snippets (`auto-model` default) | Users — local accounts, groups, quotas, and auth-source badges |
+|---|---|
+| ![API keys](assets/keys.png) | ![Users](assets/users.png) |
 
-![Admin — one unified backend row (chat, OCR, video, voice, dictation), a type-filtered catalog, and live vLLM logs](assets/admin.png)
+![Admin — one unified backend row (chat, OCR, video, voice, dictation), a type-filtered catalog, per-user search, and live vLLM logs](assets/admin.png)
+
+> **Refreshing these screenshots** — the UI is bilingual; capture them with the
+> interface in **English** (Settings → Appearance → Language → English, or set
+> `PORTAL_LANG=en`). Shoot each page below and save it under `assets/` with the
+> exact filename, replacing the existing file:
+>
+> | Page | Route | File |
+> |---|---|---|
+> | Home dashboard | `/` | `assets/dashboard.png` |
+> | Playground | `/playground` | `assets/playground.png` |
+> | Support assistant | `/support` | `assets/support.png` |
+> | OCR | `/ocr` | `assets/ocr.png` |
+> | Voice cloning | `/voice` | `assets/voice.png` |
+> | Video generation | `/video` | `assets/video.png` |
+> | Find a model | `/search` | `assets/search.png` |
+> | Settings → API keys | gear ▸ API keys | `assets/keys.png` |
+> | Users | `/users` | `assets/users.png` |
+> | Admin | `/admin` | `assets/admin.png` |
+>
+> (The **Leaderboard** at `/ranking` is deliberately *not* screenshotted here — it
+> shows real per-user names and `assets/ranking.png` is gitignored.)
 
 ---
 
@@ -388,7 +448,7 @@ tokens/day, not request rate on a single GPU.
 │   ├── requirements.txt
 │   └── Dockerfile             # non-root image, no published port
 ├── dgx-portal-frontend/       # Next.js + Astryx UI (owns the public port 5000)
-│   ├── app/                   # pages (home, playground, ocr, video, keys, support, admin, ...)
+│   ├── app/                   # pages (home, playground, ocr, video, voice, support, admin, users, ...; keys live in the Settings dialog)
 │   │   ├── playground/chat/route.ts   # streaming proxy to Flask (SSE, unbuffered)
 │   │   └── support/chat/route.ts      # same, for the support assistant
 │   ├── lib/                   # api.ts (auth/CSRF/SSE helpers), types, conversations

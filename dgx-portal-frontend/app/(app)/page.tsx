@@ -45,6 +45,8 @@ type ModelHealth = {
   ttft: number | null;
   requests: number;
   max_seqs: number | null;
+  ctx_in: number | null;
+  ctx_out: number | null;
 } | null;
 
 interface ModelRequest extends Record<string, unknown> {
@@ -68,6 +70,13 @@ type SidecarMetric = {
   video_secs_today?: number | null; // video : secondes de vidéo générées aujourd'hui
   gen_per_vsec?: number | null;   // video : s de calcul par s de vidéo
 };
+
+// Nombre de tokens → format compact « 192k », « 256k » (base 1024, comme les
+// tailles de contexte usuelles). En dessous de 1024, on affiche le nombre brut.
+function fmtCtx(n: number | null): string {
+  if (n == null) return "—";
+  return n >= 1024 ? `${Math.round(n / 1024)}k` : `${n}`;
+}
 
 // ms → durée lisible : « 850 ms », « 4.2 s », « 3 min 12 s ».
 function fmtDur(ms: number): string {
@@ -300,6 +309,14 @@ export default function HomePage() {
                             <Text weight="semibold">{data.modelhealth.model || t("aucun")}</Text>
                             <Badge label={data.modelhealth.up ? t("en ligne") : t("arrêté")} variant={data.modelhealth.up ? "success" : "neutral"} />
                           </HStack>
+                        </VStack>
+                        <VStack gap={0}>
+                          <Text type="supporting" color="secondary">{t("Contexte entrée")}</Text>
+                          <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_in)}</Text>
+                        </VStack>
+                        <VStack gap={0}>
+                          <Text type="supporting" color="secondary">{t("Contexte sortie")}</Text>
+                          <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_out)}</Text>
                         </VStack>
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Débit")}</Text>

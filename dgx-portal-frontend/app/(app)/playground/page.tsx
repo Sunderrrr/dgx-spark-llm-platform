@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
-import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
+import { Card } from "@astryxdesign/core/Card";
+import { Toolbar } from "@astryxdesign/core/Toolbar";
+import { useResizable, ResizeHandle } from "@astryxdesign/core/Resizable";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
@@ -41,6 +44,7 @@ import {
   LightBulbIcon,
   DocumentMagnifyingGlassIcon,
   DocumentTextIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
@@ -125,6 +129,10 @@ export default function PlaygroundPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
   const [firstName, setFirstName] = useState("");
+  // Document/artifact side-panel: pop a long assistant answer into a wide,
+  // resizable reading pane (Markdown + copy), inspired by the Astryx ai-chat template.
+  const [artifact, setArtifact] = useState<{ title: string; content: string } | null>(null);
+  const artifactResize = useResizable({ defaultSize: 560, minSizePx: 420, maxSizePx: 900, autoSaveId: "playground-artifact" });
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -465,6 +473,8 @@ export default function PlaygroundPage() {
               pushed the scrollbar to the middle of the page), its native scrollbar
               lands at the true right edge; density="spacious" narrows just the
               message column and composer to a shared 800px reading width. */}
+          <HStack height="100%">
+          <StackItem size="fill">
           <VStack height="100%">
           <ChatLayout
             density="spacious"
@@ -616,6 +626,16 @@ export default function PlaygroundPage() {
                                     icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
                                     onClick={() => navigator.clipboard?.writeText(m.content)}
                                   />
+                                  {m.content.length > 400 && (
+                                    <Button
+                                      label={t("Ouvrir en document")}
+                                      variant="ghost"
+                                      size="sm"
+                                      isIconOnly
+                                      icon={<Icon icon={DocumentTextIcon} size="sm" />}
+                                      onClick={() => setArtifact({ title: t("Document"), content: m.content })}
+                                    />
+                                  )}
                                   {canRegenerateThis && (
                                     <Button
                                       label={t("Régénérer")}
@@ -657,6 +677,48 @@ export default function PlaygroundPage() {
             </ChatMessageList>
           </ChatLayout>
           </VStack>
+          </StackItem>
+          {artifact && (
+            <>
+              <ResizeHandle
+                direction="horizontal"
+                resizable={artifactResize.props}
+                isReversed
+                pillPlacement="start"
+                hasDivider
+                label={t("Redimensionner le document")}
+              />
+              <Card
+                variant="transparent"
+                height="100%"
+                style={{ width: artifactResize.size, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <Toolbar
+                  label={t("Document")}
+                  dividers={["bottom"]}
+                  startContent={
+                    <HStack gap={2} vAlign="center">
+                      <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
+                      <Text weight="semibold">{artifact.title}</Text>
+                    </HStack>
+                  }
+                  endContent={
+                    <>
+                      <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
+                        icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                        onClick={() => navigator.clipboard?.writeText(artifact.content)} />
+                      <Button label={t("Fermer")} variant="ghost" size="sm" isIconOnly
+                        icon={<Icon icon={XMarkIcon} size="sm" />}
+                        onClick={() => setArtifact(null)} />
+                    </>
+                  }
+                />
+                <VStack padding={4} isScrollable style={{ flex: 1, minHeight: 0 }}>
+                  <Markdown>{artifact.content}</Markdown>
+                </VStack>
+              </Card>
+            </>
+          )}
+          </HStack>
         </LayoutContent>
       }
     />

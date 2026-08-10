@@ -79,12 +79,12 @@ export default function SupportPage() {
   const csrf = useCsrf();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
 
-  // Le message d'accueil dépend de la langue, connue seulement après le
-  // premier rendu (lue depuis localStorage puis /api/whoami) — impossible de
-  // la figer dans l'état initial. On la calcule donc à chaque rendu tant
-  // qu'aucun message n'a été envoyé, plutôt que de la stocker : elle reste
-  // ainsi toujours à jour si la langue change avant le premier envoi, sans
-  // jamais écraser une conversation en cours.
+  // The welcome message depends on the language, known only after the first
+  // render (read from localStorage then /api/whoami) — impossible to freeze
+  // in the initial state. So we compute it on every render as long as no
+  // message has been sent, rather than storing it: it thus stays always
+  // up to date if the language changes before the first send, without ever
+  // overwriting an ongoing conversation.
   const displayMessages = messages.length ? messages : [{ role: "assistant" as const, content: t(WELCOME_MESSAGE_FR) }];
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -228,11 +228,11 @@ export default function SupportPage() {
               {displayMessages.map((m, i) => {
                 const isLast = i === displayMessages.length - 1;
                 const isThinking = isSending && isLast && m.role === "assistant" && !m.content && !m.toolCalls?.length;
-                // isStreaming : sans lui, Markdown reparse tout le texte à
-                // chaque token et ne réaffiche que des blocs complets — d'où
-                // une réponse qui apparaît par paquets au lieu de couler au
-                // fil des tokens comme dans le Playground. Le mode streaming
-                // fait du parsing incrémental avec fondu par fragment.
+                // isStreaming: without it, Markdown reparses all the text on
+                // every token and only re-renders complete blocks — hence
+                // a reply that appears in chunks instead of flowing token by
+                // token like in the Playground. Streaming mode does
+                // incremental parsing with per-fragment fade-in.
                 const isStreamingThis = isSending && isLast && m.role === "assistant";
                 const canRegenerateThis = m.role === "assistant" && isLast && !isSending && i > 0;
                 return (

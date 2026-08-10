@@ -9,9 +9,9 @@ import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import { useT, useLang } from "@/lib/i18n";
 
-// Tout est déjà chargé côté admin : on ne fait PAS de nouvel appel réseau, on
-// agrège par utilisateur ce que la page a reçu. But : remplacer les tableaux qui
-// déballent tout le monde par une recherche ciblée « un utilisateur à la fois ».
+// Everything is already loaded on the admin side: we make NO new network
+// call, we aggregate per user what the page received. Goal: replace the tables
+// that dump everyone with a targeted "one user at a time" search.
 export type SpendRow = { username: string; tokens: number; max_budget: number | null; unlimited: boolean; key_count: number };
 export type UsageRow = { username: string; c: number; last: string };
 export type ReqRow = { username: string; fullname?: string; model_id: string; status: string; created_at: string };
@@ -40,7 +40,7 @@ export function UserLookup({
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
 
-  // Index par utilisateur (union de toutes les sources).
+  // Index by user (union of all sources).
   const profiles = useMemo(() => {
     const byUser = new Map<string, Profile>();
     const ensure = (u: string) =>

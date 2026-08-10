@@ -1,10 +1,10 @@
-// Bloque explicitement /internal/* sur le domaine public (dgx.cronos.website).
-// Sans cette route, next.config.ts's `fallback` rewrite proxyait n'importe
-// quel chemin non reconnu vers Flask tel quel — y compris /internal/authcheck,
-// qui n'est censé être appelé QUE par Traefik en interne (forwardAuth sur le
-// routeur api.cronos.website, cf. routes.yml), jamais via ce frontend. Une
-// route Next.js réelle a priorité sur le rewrite fallback, donc ce handler
-// intercepte la requête avant qu'elle n'atteigne Flask.
+// Explicitly blocks /internal/* on the public domain (dgx.cronos.website).
+// Without this route, next.config.ts's `fallback` rewrite would proxy any
+// unrecognized path to Flask as-is — including /internal/authcheck,
+// which is only ever meant to be called BY Traefik internally (forwardAuth on
+// the api.cronos.website router, cf. routes.yml), never via this frontend. A
+// real Next.js route takes precedence over the fallback rewrite, so this handler
+// intercepts the request before it reaches Flask.
 function blocked() {
   return new Response(null, { status: 404 });
 }

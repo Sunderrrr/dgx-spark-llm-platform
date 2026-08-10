@@ -50,9 +50,9 @@ export default function SearchPage() {
   const [results, setResults] = useState<HfModel[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  // Une page pleine (== page_size renvoyé par le backend) ne PROUVE pas qu'il
-  // en reste, mais son absence prouve qu'il n'en reste pas — heuristique
-  // suffisante pour afficher/masquer "Charger plus" sans un second aller-retour.
+  // A full page (== page_size returned by the backend) does NOT PROVE there
+  // are more, but its absence proves there are none — a heuristic good enough
+  // to show/hide "Load more" without a second round-trip.
   const [hasMore, setHasMore] = useState(false);
 
   const runSearch = useCallback(async (q: string, tk: string, gb10: boolean, skip = 0) => {
@@ -73,11 +73,11 @@ export default function SearchPage() {
     }
   }, []);
 
-  // Recherche automatiquement dès que la requête, la tâche ou le filtre gb10
-  // changent — débounce de 400ms sur la frappe pour ne pas marteler l'API HF
-  // à chaque caractère. Avant ce correctif, seul un clic explicite sur
-  // "Chercher" déclenchait une nouvelle recherche : taper du texte n'avait
-  // aucun effet visible, donnant l'impression de résultats figés/erronés.
+  // Automatically searches as soon as the query, task or gb10 filter
+  // changes — 400ms debounce on typing so we don't hammer the HF API on
+  // every character. Before this fix, only an explicit click on "Search"
+  // triggered a new search: typing text had no visible effect, giving the
+  // impression of frozen/wrong results.
   useEffect(() => {
     const id = setTimeout(() => runSearch(query, task, gb10Only, 0), 400);
     return () => clearTimeout(id);

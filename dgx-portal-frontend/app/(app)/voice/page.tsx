@@ -35,7 +35,7 @@ import { startRecording, type Recorder } from "@/lib/audioRecorder";
 type HistoryItem = { id: number; text: string; created_at: string };
 type RunningModel = { name: string; kind: "chat" | "ocr" | "video" | "voice"; exposed: boolean };
 
-/** Chatterbox rejette tout échantillon de 5 s ou moins (assertion côté modèle). */
+/** Chatterbox rejects any sample of 5 s or less (model-side assertion). */
 const MIN_SECONDS = 6;
 const MAX_SECONDS = 60;
 
@@ -43,20 +43,20 @@ function formatSeconds(s: number) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/* Bruit déterministe (hash classique à base de sinus) : il FAUT que serveur et
- * client tirent exactement les mêmes valeurs, sinon l'hydratation React
- * diverge — d'où ceci plutôt que Math.random(), qui casserait aussi la règle
- * de pureté du rendu. */
+/* Deterministic noise (classic sine-based hash): server and client MUST
+ * draw exactly the same values, otherwise React hydration diverges — hence
+ * this rather than Math.random(), which would also break the render purity
+ * rule. */
 function noise(i: number, seed: number) {
   const x = Math.sin(i * 12.9898 + seed) * 43758.5453;
   return x - Math.floor(x);
 }
 
-/* Chaque barre a sa propre amplitude ET sa propre durée. C'est la durée qui
- * fait tout le travail : à durées différentes les barres dérivent en
- * permanence les unes par rapport aux autres, donc le motif ne se répète
- * jamais. Avec une durée unique et un simple décalage de phase, on obtient
- * une belle sinusoïde qui défile — régulière et mécanique. */
+/* Each bar has its own amplitude AND its own duration. The duration does all
+ * the work: with different durations the bars drift continuously relative to
+ * one another, so the pattern never repeats. With a single duration and a
+ * simple phase offset, you get a nice scrolling sine wave — regular and
+ * mechanical. */
 const WAVE_BARS = Array.from({ length: 40 }, (_, i) => ({
   amp: 0.3 + noise(i, 1) * 0.7,
   dur: 0.85 + noise(i, 2) * 1.1,
@@ -94,8 +94,8 @@ export default function VoicePage() {
     setReference(file);
   }, []);
 
-  // Le micro doit être relâché et l'objet URL révoqué même si l'utilisateur
-  // quitte la page en plein enregistrement.
+  // The mic must be released and the object URL revoked even if the user
+  // leaves the page mid-recording.
   useEffect(() => () => {
     recorderRef.current?.cancel();
     if (recordedUrlRef.current) URL.revokeObjectURL(recordedUrlRef.current);
@@ -114,7 +114,7 @@ export default function VoicePage() {
     }
   }, [setRecorded, showToast, t]);
 
-  // Compteur d'enregistrement + coupure automatique à MAX_SECONDS.
+  // Recording counter + automatic cutoff at MAX_SECONDS.
   useEffect(() => {
     if (!isRecording) return;
     const id = setInterval(() => {
@@ -166,9 +166,9 @@ export default function VoicePage() {
       .catch(() => setAvailable(null));
   }, []);
 
-  // Les langues dépendent de la variante chargée (turbo/original = anglais
-  // seul, multilingual = 23) : on part de la langue de l'interface si le
-  // modèle la connaît, sinon de l'anglais.
+  // The languages depend on the loaded variant (turbo/original = English
+  // only, multilingual = 23): we start from the UI language if the model
+  // knows it, otherwise English.
   useEffect(() => {
     fetch("/api/voice/info", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
@@ -196,9 +196,9 @@ export default function VoicePage() {
         ref_text: refText,
       });
       if (!res.id) {
-        // Les messages d'erreur viennent de Flask, en français : t() les traduit
-        // quand une entrée existe, et retombe sur l'original sinon (par ex. un
-        // motif de refus relayé tel quel par le service voix).
+        // The error messages come from Flask, in French: t() translates them
+        // when an entry exists, and falls back to the original otherwise (e.g. a
+        // refusal reason relayed as-is by the voice service).
         showToast({ body: res.error ? t(res.error) : t("La génération a échoué."), type: "error" });
         return;
       }
@@ -223,7 +223,7 @@ export default function VoicePage() {
               description={t("Demande à un admin de démarrer un modèle vocal pour utiliser cette page.")}
             />
           ) : (
-            // Colonne centrée, comme sur la page vidéo.
+            // Centered column, like on the video page.
             <VStack hAlign="center" width="100%">
             <VStack gap={5} maxWidth={720} width="100%">
               <VStack gap={1}>
@@ -342,8 +342,8 @@ export default function VoicePage() {
                       label={t("Langue du texte")}
                       value={language}
                       onChange={(v) => setLanguage(v ?? "en")}
-                      // Qwen renvoie les noms en minuscules ("french") : on
-                      // remet une capitale pour l'affichage.
+                      // Qwen returns the names in lowercase ("french"): we
+                      // restore a capital letter for display.
                       options={Object.entries(languages)
                         .map(([code, name]) => ({
                           value: code,
@@ -387,10 +387,10 @@ export default function VoicePage() {
                 <Card>
                   <VStack gap={2}>
                     <Text>{t("Génération en cours…")}</Text>
-                    {/* Forme d'onde occupant exactement la hauteur du lecteur
-                        audio qui la remplacera : rien ne saute à l'arrivée du
-                        résultat. Décorative au sens ARIA (le texte au-dessus
-                        porte déjà l'information), d'où aria-hidden. */}
+                    {/* Waveform occupying exactly the height of the audio
+                        player that will replace it: nothing jumps when the
+                        result arrives. Decorative in the ARIA sense (the text
+                        above already carries the information), hence aria-hidden. */}
                     <HStack className="voice-wave" gap={1} vAlign="center" hAlign="center" aria-hidden>
                       {WAVE_BARS.map((b, i) => (
                         <span

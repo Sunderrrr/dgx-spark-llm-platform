@@ -2,11 +2,11 @@
 
 import { createContext, useContext } from "react";
 
-/** Onglets du dialogue Réglages (miroir de `Section` dans SettingsDialog). */
+/** Settings dialog tabs (mirror of `Section` in SettingsDialog). */
 export type SettingsSection = "account" | "usage" | "keys" | "avatar" | "appearance" | "mcp" | "skills";
 
-// Permet à n'importe quelle page d'ouvrir le dialogue Réglages sur un onglet
-// précis (ex. la page d'accueil qui ouvre « Clés API »), sans page /keys dédiée.
+// Lets any page open the Settings dialog on a specific tab
+// (e.g. the home page opening "API keys"), without a dedicated /keys page.
 type SettingsDialogCtx = { open: (section?: SettingsSection) => void };
 
 export const SettingsDialogContext = createContext<SettingsDialogCtx>({ open: () => {} });

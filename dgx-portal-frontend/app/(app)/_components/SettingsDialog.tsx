@@ -131,14 +131,14 @@ const SECTION_TITLES: Record<Section, string> = {
   skills: "Compétences",
 };
 
-// Taille constante du dialogue, quelle que soit la section affichée.
+// Constant dialog size, whatever the displayed section.
 const DIALOG_HEIGHT = "min(86vh, 700px)";
 
 function fmt(n: number) {
   return Math.round(n).toLocaleString("fr-FR");
 }
 
-/** 12 400 → « 12 k » : les tuiles du haut doivent rester lisibles. */
+/** 12,400 → "12 k": the top tiles must stay readable. */
 function compact(n: number) {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1).replace(/\.0$/, "")} G`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(1).replace(/\.0$/, "")} M`;
@@ -168,21 +168,21 @@ export function SettingsDialog({
   const { lang, setLang } = useLang();
   const t = useT();
   const [section, setSection] = useState<Section>("account");
-  // À l'ouverture avec une section demandée (ex. « keys » depuis l'accueil),
-  // on se place directement sur cet onglet. L'engrenage ouvre sans section →
-  // on garde le dernier onglet consulté.
+  // When opening with a requested section (e.g. "keys" from the home page),
+  // we go straight to that tab. The gear opens without a section →
+  // we keep the last tab visited.
   useEffect(() => {
-    // Sync ponctuel à l'ouverture (pas une cascade de rendus) : on place
-    // l'onglet demandé. Usage légitime « synchroniser depuis une prop ».
+    // One-off sync on open (not a render cascade): we set the requested
+    // tab. Legitimate "sync from a prop" use.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isOpen && initialSection) setSection(initialSection);
   }, [isOpen, initialSection]);
   const [data, setData] = useState<SettingsData | null>(null);
-  // Sous-page « formulaire » d'une section (motif du design de référence :
-  // la liste laisse place à un formulaire plein cadre avec flèche retour).
+  // "Form" sub-page of a section (reference design pattern: the list
+  // gives way to a full-frame form with a back arrow).
   const [isAddingMcp, setIsAddingMcp] = useState(false);
   const [isAddingSkill, setIsAddingSkill] = useState(false);
-  // id de l'entrée éditée, ou null quand le formulaire sert à en créer une.
+  // id of the edited entry, or null when the form is used to create one.
   const [editingMcpId, setEditingMcpId] = useState<number | null>(null);
   const [editingSkillId, setEditingSkillId] = useState<number | null>(null);
 
@@ -194,8 +194,8 @@ export function SettingsDialog({
     getJSON<SettingsData>("/api/settings").then(setData).catch(() => {});
   }, []);
 
-  // Chargé à l'ouverture (et pas au montage) : le dialogue vit dans le layout,
-  // donc monté en permanence — sans ça on ferait un appel API sur chaque page.
+  // Loaded on open (and not on mount): the dialog lives in the layout,
+  // so it's permanently mounted — without this we'd make an API call on every page.
   useEffect(() => {
     if (isOpen) refresh();
   }, [isOpen, refresh]);
@@ -296,7 +296,7 @@ export function SettingsDialog({
   }
 
   async function selectTheme(id: ThemeId) {
-    setThemeId(id);            // application immédiate, sans attendre le réseau
+    setThemeId(id);            // applied immediately, without waiting for the network
     if (csrf) void postForm("/settings/appearance", csrf, { theme_id: id });
   }
 
@@ -317,7 +317,7 @@ export function SettingsDialog({
   const limits = data?.limits ?? [];
   const pct = acct && !acct.unlimited && acct.max_budget ? (acct.spend / acct.max_budget) * 100 : 0;
 
-  // Titre du volet droit : nom de la section, ou celui de la sous-page ouverte.
+  // Right pane title: section name, or that of the open sub-page.
   const paneTitle = isAddingMcp ? "MCP" : isAddingSkill ? "Compétences" : SECTION_TITLES[section];
 
   return (
@@ -327,11 +327,11 @@ export function SettingsDialog({
       purpose="form"
       width={980}
       maxHeight={DIALOG_HEIGHT}
-      // Hauteur FIXE (et pas seulement maxHeight) : sans ça le dialogue se
-      // redimensionne à chaque changement de section — « Mon compte » est haut,
-      // une liste de compétences vide est courte — et la fenêtre saute sous le
-      // curseur. Dialog n'expose pas de prop `height`, d'où le style inline ;
-      // min() garde la fenêtre entière sur les écrans courts.
+      // FIXED height (and not just maxHeight): without this the dialog
+      // resizes on every section change — "My account" is tall,
+      // an empty skills list is short — and the window jumps under the
+      // cursor. Dialog doesn't expose a `height` prop, hence the inline style;
+      // min() keeps the whole window on short screens.
       style={{ height: DIALOG_HEIGHT }}>
       <Layout
         height="fill"
@@ -392,9 +392,9 @@ export function SettingsDialog({
               height="fill"
               header={
             <LayoutHeader hasDivider>
-              {/* paddingInline aligné sur le padding={5} du contenu en dessous :
-                  sinon le titre du panneau (« Mon compte »…) était collé au
-                  bord gauche alors que tout le contenu était en retrait. */}
+              {/* paddingInline aligned with the padding={5} of the content below:
+                  otherwise the panel title ("My account"…) was stuck to the
+                  left edge while all the content was indented. */}
               <HStack hAlign="between" vAlign="center" gap={3} paddingInline={5} paddingBlock={3}>
                 <HStack gap={2} vAlign="center">
                   {(isAddingMcp || isAddingSkill) && (
@@ -422,7 +422,7 @@ export function SettingsDialog({
               }
               content={
             <LayoutContent padding={5} isScrollable>
-              {/* ── Mon compte ─────────────────────────────────────────── */}
+              {/* ── My account ─────────────────────────────────────────── */}
               {section === "account" && acct && (
                 <VStack gap={5}>
                   <VStack gap={2} hAlign="center">
@@ -595,7 +595,7 @@ export function SettingsDialog({
                 </VStack>
               )}
 
-              {/* ── Apparence ──────────────────────────────────────────── */}
+              {/* ── Appearance ──────────────────────────────────────────── */}
               {section === "appearance" && (
                 <VStack gap={5}>
                   <VStack gap={2}>
@@ -639,9 +639,9 @@ export function SettingsDialog({
                           onChange={() => selectTheme(th.id)}
                           padding={3}>
                           <VStack gap={2} hAlign="center">
-                            {/* Pastille de prévisualisation : seul endroit où une
-                                couleur brute est légitime — c'est l'échantillon
-                                lui-même, pas un élément d'interface thémé. */}
+                            {/* Preview swatch: the only place where a raw
+                                color is legitimate — it's the sample
+                                itself, not a themed interface element. */}
                             <span
                               aria-hidden="true"
                               style={{
@@ -690,10 +690,10 @@ export function SettingsDialog({
                 </VStack>
               )}
 
-              {/* ── Clés API ───────────────────────────────────────────── */}
+              {/* ── API keys ───────────────────────────────────────────── */}
               {section === "keys" && <KeysContent />}
 
-              {/* ── Personnalisation ───────────────────────────────────── */}
+              {/* ── Personalization ───────────────────────────────────── */}
               {section === "avatar" && (
                 <VStack gap={3}>
                   <Text type="supporting" color="secondary">
@@ -719,7 +719,7 @@ export function SettingsDialog({
                 </VStack>
               )}
 
-              {/* ── MCP : liste ────────────────────────────────────────── */}
+              {/* ── MCP: list ────────────────────────────────────────── */}
               {section === "mcp" && !isAddingMcp && (
                 <VStack gap={4}>
                   <HStack hAlign="between" vAlign="center" gap={3}>
@@ -812,7 +812,7 @@ export function SettingsDialog({
                 </VStack>
               )}
 
-              {/* ── MCP : formulaire ───────────────────────────────────── */}
+              {/* ── MCP: form ───────────────────────────────────── */}
               {section === "mcp" && isAddingMcp && (
                 <VStack gap={4}>
                   <VStack gap={0}>
@@ -870,7 +870,7 @@ export function SettingsDialog({
                 </VStack>
               )}
 
-              {/* ── Compétences : liste ────────────────────────────────── */}
+              {/* ── Skills: list ────────────────────────────────── */}
               {section === "skills" && !isAddingSkill && (
                 <VStack gap={4}>
                   <HStack hAlign="between" vAlign="center" gap={3}>
@@ -940,7 +940,7 @@ export function SettingsDialog({
                 </VStack>
               )}
 
-              {/* ── Compétences : formulaire ───────────────────────────── */}
+              {/* ── Skills: form ───────────────────────────── */}
               {section === "skills" && isAddingSkill && (
                 <VStack gap={4}>
                   <VStack gap={0}>

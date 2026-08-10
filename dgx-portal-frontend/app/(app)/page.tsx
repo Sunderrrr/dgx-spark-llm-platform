@@ -304,19 +304,19 @@ export default function HomePage() {
                     {data.modelhealth && (
                       <HStack gap={5} wrap="wrap">
                         <VStack gap={0}>
-                          <Text type="supporting" color="secondary">{t("Modèle actif")}</Text>
-                          <HStack gap={2} vAlign="center">
-                            <Text weight="semibold">{data.modelhealth.model || t("aucun")}</Text>
-                            <Badge label={data.modelhealth.up ? t("en ligne") : t("arrêté")} variant={data.modelhealth.up ? "success" : "neutral"} />
-                          </HStack>
-                        </VStack>
-                        <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Contexte entrée")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_in)}</Text>
                         </VStack>
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Contexte sortie")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_out)}</Text>
+                        </VStack>
+                        <VStack gap={0}>
+                          <Text type="supporting" color="secondary">{t("Modèle actif")}</Text>
+                          <HStack gap={2} vAlign="center">
+                            <Text weight="semibold">{data.modelhealth.model || t("aucun")}</Text>
+                            <Badge label={data.modelhealth.up ? t("en ligne") : t("arrêté")} variant={data.modelhealth.up ? "success" : "neutral"} />
+                          </HStack>
                         </VStack>
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Débit")}</Text>

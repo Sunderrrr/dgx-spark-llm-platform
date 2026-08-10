@@ -45,8 +45,8 @@ type KeysData = {
 export function KeysContent() {
   const t = useT();
   const { lang } = useLang();
-  // Le séparateur de milliers suit la langue de l'UI (espace en français,
-  // virgule en anglais) au lieu d'être figé en fr-FR.
+  // The thousands separator follows the UI language (space in French,
+  // comma in English) instead of being hardcoded to fr-FR.
   const numLocale = lang === "fr" ? "fr-FR" : "en-US";
   const csrf = useCsrf();
   const showToast = useToast();
@@ -64,12 +64,12 @@ export function KeysContent() {
     getJSON<KeysData>("/api/keys").then((d) => {
       setData(d);
       if (!selectedKey && d.user_keys.length) setSelectedKey(d.user_keys[0].key);
-      // Par défaut : le modèle virtuel « auto-model » (suit le modèle en cours).
+      // Default: the virtual "auto-model" (follows the currently-running model).
       if (!selectedModel) setSelectedModel(d.auto_model || d.running_models[0] || "");
     });
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- ne doit tourner qu'au montage
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- should only run on mount
   useEffect(refresh, []);
 
   async function createKey() {

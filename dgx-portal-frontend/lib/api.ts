@@ -2,8 +2,8 @@ import type { PlaygroundData, Settings } from "./types";
 
 function redirectToLogin(): never {
   if (typeof window !== "undefined") {
-    // Rechargement complet volontaire (pas next/link) : la session vient
-    // d'expirer côté serveur, tout l'état client en mémoire est périmé.
+    // Deliberate full reload (not next/link): the session just expired
+    // server-side, all in-memory client state is stale.
     window.location.href = "/login";
   }
   throw new Error("Non authentifié");
@@ -12,7 +12,7 @@ function redirectToLogin(): never {
 /**
  * Thrown for a 403: the user IS authenticated but lacks permission (e.g. a
  * non-admin hitting an admin-only endpoint). Distinct from a plain fetch
- * failure so callers can show "accès refusé" instead of an empty/broken page
+ * failure so callers can show "access denied" instead of an empty/broken page
  * — redirecting to /login here would be wrong (and confusing) since the user
  * is already logged in.
  */
@@ -40,10 +40,10 @@ export async function getJSON<T>(url: string): Promise<T> {
 }
 
 /**
- * Soumet un formulaire vers une route Flask existante (POST classique,
- * form-encodée) en réutilisant sa logique déjà testée — pas de nouvel
- * endpoint de mutation côté backend. Flask répond par une redirection
- * suivie automatiquement par fetch ; on ignore ce corps HTML.
+ * Submits a form to an existing Flask route (classic POST,
+ * form-encoded) by reusing its already-tested logic — no new
+ * mutation endpoint on the backend. Flask responds with a redirect
+ * automatically followed by fetch; we ignore that HTML body.
  */
 export async function postForm(url: string, csrf: string, data: Record<string, string>): Promise<void> {
   await authFetch(url, {
@@ -54,11 +54,11 @@ export async function postForm(url: string, csrf: string, data: Record<string, s
 }
 
 /**
- * Comme postForm, mais pour les routes qui renvoient un vrai corps JSON
- * {ok, error?} plutôt qu'un 204 — utilisé quand l'action peut échouer pour
- * une raison que l'utilisateur doit connaître (ex: serveur MCP injoignable),
- * contrairement aux actions "quasi toujours réussies" (créer une clé) qui se
- * contentent d'un toast optimiste après postForm().
+ * Like postForm, but for routes that return a real JSON body
+ * {ok, error?} rather than a 204 — used when the action can fail for
+ * a reason the user needs to know (e.g. unreachable MCP server),
+ * unlike the "almost always successful" actions (creating a key) that
+ * settle for an optimistic toast after postForm().
  */
 export async function postFormJSON<T = { ok: boolean; error?: string }>(
   url: string,
@@ -74,9 +74,9 @@ export async function postFormJSON<T = { ok: boolean; error?: string }>(
 }
 
 /**
- * Comme postFormJSON, mais pour les routes qui reçoivent un fichier (upload
- * image) — multipart/form-data, pas d'en-tête Content-Type manuel (le
- * navigateur doit fixer la boundary lui-même).
+ * Like postFormJSON, but for routes that receive a file (image
+ * upload) — multipart/form-data, no manual Content-Type header (the
+ * browser must set the boundary itself).
  */
 export async function postFormData<T = { error?: string }>(
   url: string,
@@ -127,7 +127,7 @@ type SSEPayload = {
   tool_call?: ToolCallEvent;
 };
 
-/** Lit un flux SSE (paquets `data: {...}\n\n`) et invoque onEvent par paquet reçu. */
+/** Reads an SSE stream (packets `data: {...}\n\n`) and invokes onEvent per received packet. */
 async function readSSE(res: Response, onEvent: (payload: SSEPayload) => void): Promise<void> {
   if (!res.body) return;
   const reader = res.body.getReader();
@@ -147,13 +147,13 @@ async function readSSE(res: Response, onEvent: (payload: SSEPayload) => void): P
       try {
         onEvent(JSON.parse(payload));
       } catch {
-        // paquet SSE incomplet/invalide — ignoré, le flux continue
+        // incomplete/invalid SSE packet — ignored, the stream continues
       }
     }
   }
 }
 
-/** Lit le flux SSE de /playground/chat et invoque onDelta pour chaque paquet reçu. */
+/** Reads the SSE stream from /playground/chat and invokes onDelta for each received packet. */
 export async function streamChat(
   csrf: string,
   model: string,
@@ -184,7 +184,7 @@ export async function streamChat(
   });
 }
 
-/** Lit le flux SSE de /api/ocr/extract (upload multipart, réponse streamée comme le playground). */
+/** Reads the SSE stream from /api/ocr/extract (multipart upload, response streamed like the playground). */
 export async function streamOcr(
   csrf: string,
   data: Record<string, string | File>,
@@ -205,7 +205,7 @@ export async function streamOcr(
   });
 }
 
-/** Lit le flux SSE de /support/chat : texte et invocations d'outils (ChatToolCalls). */
+/** Reads the SSE stream from /support/chat: text and tool invocations (ChatToolCalls). */
 export async function streamSupportChat(
   csrf: string,
   messages: { role: string; content: string }[],

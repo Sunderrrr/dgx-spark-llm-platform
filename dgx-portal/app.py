@@ -1356,11 +1356,13 @@ def _vllm_health_uncached():
     # Slots de génération concurrents du modèle actif (--max-num-seqs / --parallel)
     # → « X / N sessions occupées » sur l'accueil.
     max_seqs = None
+    ctx_in = ctx_out = None
     try:
         row = get_db().execute("SELECT vllm_args FROM model_configs WHERE name=?",
                                (running[0],)).fetchone()
         if row:
             max_seqs = max_seqs_of(row['vllm_args'], engine)
+            ctx_in, ctx_out = ctx_split(row['vllm_args'], engine)
     except Exception:
         pass
     return {
@@ -1371,6 +1373,8 @@ def _vllm_health_uncached():
         'running': int(_prom_sum(text, M['running']) or 0),
         'waiting': int(_prom_sum(text, M['waiting']) or 0),
         'max_seqs': max_seqs,
+        'ctx_in': ctx_in,
+        'ctx_out': ctx_out,
         'tps': round(tps, 1) if tps is not None else None,
         'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else None,
         'requests': int(_prom_sum(text, M['requests']) or 0),
@@ -1421,6 +1425,19 @@ def effective_ctx(args, engine='vllm'):
         par = _arg_int(args, 'parallel', 1) or 1
         return ctx // par
     return ctx
+
+def ctx_split(vllm_args, engine='vllm'):
+    """Répartition (entrée, sortie) du contexte annoncée aux clients — source
+    unique partagée par LiteLLM (_register_litellm_model) ET l'accueil (vllm_health).
+
+    llama.cpp / ds4 : le slot KV est partagé entre prompt et génération, on réserve
+    donc une marge de sortie plafonnée à 64k. vLLM sépare déjà entrée/sortie via
+    --max-model-len. Défaut prudent 32k si le contexte n'est pas déclaré."""
+    slot = effective_ctx(vllm_args, engine) or 32768
+    if engine in ('llamacpp', 'ds4'):
+        out_reserve = min(65536, slot // 3)
+        return max(slot - out_reserve, 1024), out_reserve
+    return slot, min(slot // 2, 262144)
 
 _SEARCH_PAGE_SIZE = 48
 
@@ -4481,18 +4498,10 @@ def _register_litellm_model(name, vllm_args, engine='vllm'):
     Les deux servent une API OpenAI sur :8000 → mêmes litellm_params."""
     if not LITELLM_KEY:
         return False
-    slot = effective_ctx(vllm_args, engine) or 32768
-    # llama.cpp / ds4 : le slot est partagé entre le prompt ET la génération. Si on
-    # annonce tout le slot comme entrée, il ne reste rien pour répondre → le client
-    # remplit le contexte et ça casse. On réserve une marge de sortie — plafonnée à
-    # 64k : confortable pour de longues réponses, tout en gardant une entrée annoncée
-    # proche du slot réel (ex. slot 256k → ~192k d'entrée au lieu de 176k). vLLM
-    # sépare déjà entrée/sortie via --max-model-len, on garde le comportement historique.
-    if engine in ('llamacpp', 'ds4'):
-        out_reserve = min(65536, slot // 3)
-        max_input, max_output = max(slot - out_reserve, 1024), out_reserve
-    else:
-        max_input, max_output = slot, min(slot // 2, 262144)
+    # Répartition entrée/sortie : voir ctx_split (source unique, partagée avec
+    # l'accueil). llama.cpp/ds4 réservent une marge de sortie (64k) sur le slot
+    # partagé ; vLLM sépare déjà via --max-model-len.
+    max_input, max_output = ctx_split(vllm_args, engine)
     # ds4 part en mode « thinking » par défaut : il IGNORE alors max_tokens
     # (« client sampling knobs are ignored like the official API ») et génère des
     # milliers de tokens à ~10 tok/s. Comme le moteur est mono-slot, une seule

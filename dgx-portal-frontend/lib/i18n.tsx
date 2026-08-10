@@ -414,6 +414,9 @@ const EN: Record<string, string> = {
   "Services média": "Media services",
   "Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.":
     "Tip: use “{model}” as the model name to always target the current model — no code change when it switches.",
+  "recommandé": "recommended",
+  "Modèle virtuel : route toujours vers le modèle chat actuellement chargé — ton code n'a rien à changer quand l'admin bascule de modèle. Choisis un modèle nommé pour t'épingler à celui-là.":
+    "Virtual model: always routes to the chat model currently loaded — your code needs no change when the admin switches models. Pick a named model to pin to that one.",
   "Contexte entrée": "Input context",
   "Contexte sortie": "Output context",
   "Recherche par utilisateur": "Search by user",

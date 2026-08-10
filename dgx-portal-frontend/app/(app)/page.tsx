@@ -126,6 +126,7 @@ const KIND_NAME: Record<"ocr" | "video" | "voice", string> = { ocr: "OCR", video
 type HomeData = {
   running_models: RunningModel[];
   public_api_url: string;
+  auto_model: string;
   sysmetrics: SysMetrics;
   sidecar_metrics: Partial<Record<"ocr" | "video" | "voice", SidecarMetric>>;
   modelhealth: ModelHealth;
@@ -225,6 +226,11 @@ export default function HomePage() {
                             <Text type="supporting" color="secondary">
                               {t("API :")} {data.public_api_url}
                             </Text>
+                            {data.auto_model && (
+                              <Text type="supporting" color="secondary">
+                                {t("Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.").replace("{model}", data.auto_model)}
+                              </Text>
+                            )}
                             <Button
                               label={t("Créer une clé API")}
                               variant="secondary"

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
-import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
@@ -396,7 +396,7 @@ export default function HomePage() {
 
             <Grid columns={{ minWidth: 260, max: 3 }} gap={3}>
               <Card>
-                <VStack gap={2}>
+                <VStack gap={2} height="100%">
                   <HStack gap={2} vAlign="center">
                     <Icon icon={KeyIcon} size="sm" />
                     <Text weight="semibold">{t("Mes clés API")}</Text>
@@ -405,26 +405,29 @@ export default function HomePage() {
                   <Text type="supporting" color="secondary">
                     {t("Limite :")} {who?.is_admin ? t("Illimitée (admin)") : `${data?.budget_tokens ?? "—"} tokens / ${data?.budget_duration ?? "—"}`}
                   </Text>
+                  <StackItem size="fill" />
                   <Button label={t("Gérer mes clés")} variant="secondary" href="/keys" />
                 </VStack>
               </Card>
               <Card>
-                <VStack gap={2}>
+                <VStack gap={2} height="100%">
                   <HStack gap={2} vAlign="center">
                     <Icon icon={MagnifyingGlassIcon} size="sm" />
                     <Text weight="semibold">{t("Catalogue HuggingFace")}</Text>
                   </HStack>
                   <Text type="supporting" color="secondary">{t("Parcours les modèles disponibles et demande le lancement de celui qui t'intéresse.")}</Text>
+                  <StackItem size="fill" />
                   <Button label={t("Explorer les modèles")} variant="secondary" href="/search" />
                 </VStack>
               </Card>
               <Card>
-                <VStack gap={2}>
+                <VStack gap={2} height="100%">
                   <HStack gap={2} vAlign="center">
                     <Icon icon={PaperAirplaneIcon} size="sm" />
                     <Text weight="semibold">{t("Demander un modèle")}</Text>
                   </HStack>
                   <Text type="supporting" color="secondary">{t("Tu connais un modèle que tu veux tester ? Envoie une demande à l'admin.")}</Text>
+                  <StackItem size="fill" />
                   <Button label={t("Faire une demande")} variant="secondary" href="/request" />
                 </VStack>
               </Card>

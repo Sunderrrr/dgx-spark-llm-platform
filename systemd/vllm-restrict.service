@@ -1,17 +1,24 @@
 [Unit]
 Description=Restrict vLLM (8000), vllm-runner (8001) and ComfyUI (8188) to localhost + ai-platform docker bridge only
-After=network.target docker.service
+# After netbird: Netbird inserts a blanket `-i wt0 -j ACCEPT` into INPUT that,
+# if it precedes our port DROPs, lets any VPN peer reach the unauthenticated
+# model API (:8000) and ComfyUI (:8188). We run after it and insert a wt0 DROP
+# for those ports at the TOP of INPUT so it is evaluated first (audit H1, 2026-08-12).
+After=network.target docker.service netbird.service
+Wants=netbird.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/sh -c '\
+iptables -C INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP 2>/dev/null || iptables -I INPUT 1 -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP; \
 for PORT in 8000 8001 8188; do \
   iptables -C INPUT -p tcp --dport $PORT -j DROP 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -j DROP; \
   iptables -C INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT; \
   iptables -C INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT; \
 done'
 ExecStop=/bin/sh -c '\
+iptables -D INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP 2>/dev/null || true; \
 for PORT in 8000 8001 8188; do \
   iptables -D INPUT -p tcp --dport $PORT -j DROP 2>/dev/null || true; \
   iptables -D INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT 2>/dev/null || true; \

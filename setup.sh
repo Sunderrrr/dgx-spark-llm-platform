@@ -33,8 +33,9 @@ chmod 600 .env
 
 echo "✓ .env généré (secrets internes aléatoires, permissions 600)"
 echo ""
-echo "  LITELLM_MASTER_KEY = ${LITELLM_KEY}"
-echo "  (note cette clé — tu en auras besoin pour le dashboard LiteLLM)"
+echo "  LITELLM_MASTER_KEY written to .env (needed for the LiteLLM dashboard —"
+echo "  read it with: grep LITELLM_MASTER_KEY .env). Not printed here to keep it"
+echo "  out of terminal scrollback / CI logs."
 echo ""
 echo "À remplir à la main (dépendances externes) : LLDAP_ADMIN_PASSWORD,"
 echo "OIDC_CLIENT_SECRET / AUTHENTIK_LITELLM_CLIENT_SECRET, SMTP_*, ADMIN_EMAIL,"

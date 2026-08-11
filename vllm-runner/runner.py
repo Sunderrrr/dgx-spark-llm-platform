@@ -186,7 +186,11 @@ def _resolve_gguf(hf_id):
     if hf_id.startswith("local:"):
         slug = re.sub(r'[^A-Za-z0-9._-]', '', hf_id[len("local:"):])
         snaps = os.path.join(MODELS_DIR, slug)
-        if not slug or not os.path.isdir(snaps):
+        # The char filter strips slashes but keeps dots, so guard against '.'/'..'
+        # and confirm the resolved path stays strictly under MODELS_DIR — no
+        # one-level escape (e.g. local:.. → /root).
+        _base = os.path.realpath(MODELS_DIR)
+        if slug in ("", ".", "..") or not os.path.realpath(snaps).startswith(_base + os.sep) or not os.path.isdir(snaps):
             raise FileNotFoundError(f"local model \"{slug}\" not found in {MODELS_DIR}")
     else:
         snaps = os.path.join(HF_HOME, "hub",

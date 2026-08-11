@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Dialog } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutPanel, LayoutHeader, LayoutFooter } from "@astryxdesign/core/Layout";
 import { List, ListItem } from "@astryxdesign/core/List";
+import { Selector } from "@astryxdesign/core/Selector";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
@@ -45,6 +46,7 @@ import { KeysContent } from "../keys/_components/KeysContent";
 import { useThemeMode } from "../../theme-provider";
 import { THEMES, type ThemeId } from "@/lib/themes";
 import { useLang, useT, type Lang } from "@/lib/i18n";
+import { useIsNarrow } from "@/lib/useIsNarrow";
 import { ActivityHeatmap, type ActivityDay } from "./ActivityHeatmap";
 
 type McpServer = {
@@ -167,6 +169,7 @@ export function SettingsDialog({
   const { mode, setMode, themeId, setThemeId } = useThemeMode();
   const { lang, setLang } = useLang();
   const t = useT();
+  const isNarrow = useIsNarrow();
   const [section, setSection] = useState<Section>("account");
   // When opening with a requested section (e.g. "keys" from the home page),
   // we go straight to that tab. The gear opens without a section →
@@ -325,18 +328,20 @@ export function SettingsDialog({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       purpose="form"
-      width={980}
-      maxHeight={DIALOG_HEIGHT}
-      // FIXED height (and not just maxHeight): without this the dialog
-      // resizes on every section change — "My account" is tall,
-      // an empty skills list is short — and the window jumps under the
-      // cursor. Dialog doesn't expose a `height` prop, hence the inline style;
-      // min() keeps the whole window on short screens.
-      style={{ height: DIALOG_HEIGHT }}>
+      // Phones: a fullscreen dialog (the fixed 980×700 window overflowed the
+      // viewport). Desktop keeps the fixed size — FIXED height (not just
+      // maxHeight) so the window doesn't jump when switching a tall section
+      // ("My account") for a short one (empty skills). Dialog has no `height`
+      // prop, hence the inline style; min() keeps it on short screens.
+      variant={isNarrow ? "fullscreen" : "standard"}
+      width={isNarrow ? undefined : 980}
+      maxHeight={isNarrow ? undefined : DIALOG_HEIGHT}
+      style={isNarrow ? undefined : { height: DIALOG_HEIGHT }}>
       <Layout
         height="fill"
         padding={0}
         start={
+          isNarrow ? undefined : (
           <LayoutPanel width={232} hasDivider role="navigation">
             <VStack height="100%" hAlign="stretch">
               <HStack padding={4} gap={2} vAlign="center">
@@ -385,6 +390,7 @@ export function SettingsDialog({
               </HStack>
             </VStack>
           </LayoutPanel>
+          )
         }
         content={
           <LayoutContent padding={0} isScrollable={false}>
@@ -407,7 +413,19 @@ export function SettingsDialog({
                       onClick={leaveForm}
                     />
                   )}
-                  <Heading level={3}>{t(paneTitle)}</Heading>
+                  {isNarrow && !(isAddingMcp || isAddingSkill) ? (
+                    // No side rail on mobile → a dropdown drives the section.
+                    <Selector
+                      label={t("Section")}
+                      isLabelHidden
+                      size="sm"
+                      value={section}
+                      onChange={(v) => { if (v) { setSection(v as Section); leaveForm(); } }}
+                      options={SECTIONS.flatMap((g) => g.items).map((it) => ({ label: t(it.label), value: it.id }))}
+                    />
+                  ) : (
+                    <Heading level={3}>{t(paneTitle)}</Heading>
+                  )}
                 </HStack>
                 <Button
                   label={t("Fermer")}

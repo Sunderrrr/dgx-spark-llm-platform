@@ -27,6 +27,7 @@ import {
   ViewfinderCircleIcon,
 } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
+import { useIsNarrow } from "@/lib/useIsNarrow";
 import { streamOcr } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
@@ -174,20 +175,6 @@ const LABEL_COLOR: Record<string, string> = {
   diagram: "#f97316",
   text: "#22c55e",
 };
-
-// True on phone-width viewports. Used to stack the two-column layout vertically
-// so the result panel (image + text) isn't squeezed off-screen on mobile.
-function useIsNarrow(): boolean {
-  const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 820px)");
-    const update = () => setNarrow(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-  return narrow;
-}
 
 export default function OcrPage() {
   const t = useT();

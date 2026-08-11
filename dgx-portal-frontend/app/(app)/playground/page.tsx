@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Card } from "@astryxdesign/core/Card";
 import { Toolbar } from "@astryxdesign/core/Toolbar";
@@ -49,6 +50,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
+import { useIsNarrow } from "@/lib/useIsNarrow";
 import { DictateButton } from "../_components/DictateButton";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
@@ -181,6 +183,9 @@ export default function PlaygroundPage() {
   // inline — inspired by the Astryx ai-chat template.
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const artifactResize = useResizable({ defaultSize: 560, minSizePx: 420, maxSizePx: 900, autoSaveId: "playground-artifact" });
+  // On phones the resizable side panel would crush the chat, so the artifact
+  // opens as a fullscreen dialog instead.
+  const isNarrow = useIsNarrow();
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -746,7 +751,7 @@ export default function PlaygroundPage() {
           </ChatLayout>
           </VStack>
           </StackItem>
-          {artifact && (
+          {artifact && !isNarrow && (
             <>
               <ResizeHandle
                 direction="horizontal"
@@ -790,6 +795,32 @@ export default function PlaygroundPage() {
                 </VStack>
               </Card>
             </>
+          )}
+          {artifact && isNarrow && (
+            <Dialog isOpen onOpenChange={(o) => { if (!o) setArtifact(null); }} variant="fullscreen">
+              <Layout
+                header={
+                  <DialogHeader
+                    title={artifact.kind === "code" ? artifact.title : t("Document")}
+                    subtitle={artifact.kind === "code" ? artifact.lang : undefined}
+                    hasDivider
+                    onOpenChange={(o) => { if (!o) setArtifact(null); }}
+                    endContent={
+                      <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
+                        icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                        onClick={() => navigator.clipboard?.writeText(artifact.content)} />
+                    }
+                  />
+                }
+                content={
+                  <LayoutContent padding={4} isScrollable>
+                    {artifact.kind === "code"
+                      ? <CodeBlock title={artifact.title} language={artifact.lang} code={artifact.content} width="100%" />
+                      : <Markdown>{artifact.content}</Markdown>}
+                  </LayoutContent>
+                }
+              />
+            </Dialog>
           )}
           </HStack>
         </LayoutContent>

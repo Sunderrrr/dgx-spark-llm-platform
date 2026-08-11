@@ -102,20 +102,27 @@ const PRESETS = [
 ];
 const MAX_ATTACHMENT_BYTES = 96 * 1024;
 
-// A code file the assistant produced — shown as a card in the chat and rendered
-// in the side panel (canvas/artifact style) rather than dumped inline.
-type FileArtifact = { title: string; lang: string; code: string };
+// Something the assistant produced worth showing in the side panel (canvas/
+// artifact style) and copying in one click: a code "file" or a long "document"
+// (e.g. a rewritten/reformatted text).
+type Artifact =
+  | { kind: "code"; title: string; lang: string; content: string }
+  | { kind: "doc"; title: string; content: string };
 
-// Split an assistant answer into prose + "file" artifacts. Only substantial
-// fenced code blocks (≥6 lines or ≥200 chars) become files; short inline
-// snippets stay in the bubble. The fence info string yields the language and,
-// when it looks like a filename (foo.ts) or carries title=/filename=, a title.
-function parseArtifacts(content: string): { prose: string; files: FileArtifact[] } {
+// Threshold above which the leftover prose is treated as a copyable document.
+const DOC_MIN_CHARS = 900;
+
+// Split an assistant answer into prose + artifacts. Substantial fenced code
+// blocks (≥6 lines or ≥200 chars) become code files (short snippets stay
+// inline). If what remains is a long piece of text, it also becomes a "document"
+// artifact so it can be read wide and copied from the side panel.
+function parseArtifacts(content: string): { prose: string; artifacts: Artifact[] } {
   const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
-  const files: FileArtifact[] = [];
+  const artifacts: Artifact[] = [];
   let prose = "";
   let lastIndex = 0;
   let m: RegExpExecArray | null;
+  let n = 0;
   while ((m = fence.exec(content)) !== null) {
     const code = m[2].replace(/\n$/, "");
     const substantial = code.length >= 200 || code.split("\n").length >= 6;
@@ -127,13 +134,18 @@ function parseArtifacts(content: string): { prose: string; files: FileArtifact[]
     if (first.includes(".")) { title = first; lang = first.split(".").pop() || ""; }
     const named = info.match(/(?:title|file|filename)=(\S+)/i);
     if (named) title = named[1];
-    if (!title) title = lang ? `${lang} · ${files.length + 1}` : `file ${files.length + 1}`;
-    files.push({ title, lang: lang || "text", code });
+    n += 1;
+    if (!title) title = lang ? `${lang} · ${n}` : `file ${n}`;
+    artifacts.push({ kind: "code", title, lang: lang || "text", content: code });
     prose += content.slice(lastIndex, m.index);
     lastIndex = fence.lastIndex;
   }
   prose += content.slice(lastIndex);
-  return { prose: prose.trim(), files };
+  prose = prose.trim();
+  if (prose.length >= DOC_MIN_CHARS) {
+    artifacts.push({ kind: "doc", title: "Document", content: prose });
+  }
+  return { prose, artifacts };
 }
 
 function estimateTokens(
@@ -167,7 +179,7 @@ export default function PlaygroundPage() {
   // Artifact/canvas side-panel: when the assistant writes a file (a substantial
   // code block), it opens on the side automatically instead of being dumped
   // inline — inspired by the Astryx ai-chat template.
-  const [artifact, setArtifact] = useState<FileArtifact | null>(null);
+  const [artifact, setArtifact] = useState<Artifact | null>(null);
   const artifactResize = useResizable({ defaultSize: 560, minSizePx: 420, maxSizePx: 900, autoSaveId: "playground-artifact" });
 
   const abortRef = useRef<AbortController | null>(null);
@@ -348,8 +360,9 @@ export default function PlaygroundPage() {
       });
     }
     setMessages(finalMessages);
-    // If the assistant wrote a file, surface it in the side panel automatically.
-    const produced = parseArtifacts(acc).files;
+    // If the assistant wrote a file or a long document, surface it in the side
+    // panel automatically (the last one — usually the deliverable).
+    const produced = parseArtifacts(acc).artifacts;
     if (produced.length) setArtifact(produced[produced.length - 1]);
     if (usage?.total_tokens) setCtxUsed(usage.total_tokens);
     const savedId = persist(finalMessages, currentId, model);
@@ -638,11 +651,11 @@ export default function PlaygroundPage() {
                   const isThinking = streamingThis && m.role === "assistant" && !m.content && !m.reasoning;
                   const prevAttachments = messages[i - 1]?.attachmentCount;
                   const canRegenerateThis = m.role === "assistant" && isLast && !streaming;
-                  // Once a reply finishes, split off any "file" (code) artifacts so
-                  // the prose shows in the bubble and the files become cards + panel.
+                  // Once a reply finishes, detect artifacts (code files / long
+                  // documents) so they get a card in the bubble + the copyable panel.
                   const arts = m.role === "assistant" && !streamingThis ? parseArtifacts(m.content) : null;
-                  const files = arts?.files ?? [];
-                  const bodyText = files.length ? arts!.prose : m.content;
+                  const items = arts?.artifacts ?? [];
+                  const bodyText = items.length ? arts!.prose : m.content;
                   return (
                   <ChatMessage key={i} sender={m.role}>
                     <ChatMessageBubble
@@ -682,6 +695,15 @@ export default function PlaygroundPage() {
                                     />
                                   )}
                                 </HStack>
+                              ) : m.role === "user" ? (
+                                <Button
+                                  label={t("Copier")}
+                                  variant="ghost"
+                                  size="sm"
+                                  isIconOnly
+                                  icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                                  onClick={() => navigator.clipboard?.writeText(m.content)}
+                                />
                               ) : undefined
                             }
                           />
@@ -697,17 +719,19 @@ export default function PlaygroundPage() {
                             </Collapsible>
                           ) : null}
                           <Markdown isStreaming={streamingThis}>{bodyText || " "}</Markdown>
-                          {files.map((f, fi) => (
+                          {items.map((a, ai) => (
                             <ClickableCard
-                              key={fi}
-                              label={`${t("Ouvrir le fichier")} ${f.title}`}
+                              key={ai}
+                              label={a.kind === "code" ? `${t("Ouvrir le fichier")} ${a.title}` : t("Ouvrir le document")}
                               variant="muted"
-                              onClick={() => setArtifact(f)}>
+                              onClick={() => setArtifact(a)}>
                               <HStack gap={2} vAlign="center">
                                 <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
                                 <VStack gap={0}>
-                                  <Text weight="semibold">{f.title}</Text>
-                                  <Text type="supporting" color="secondary">{f.lang}</Text>
+                                  <Text weight="semibold">{a.kind === "code" ? a.title : t("Document")}</Text>
+                                  <Text type="supporting" color="secondary">
+                                    {a.kind === "code" ? a.lang : t("Ouvrir et copier dans le volet")}
+                                  </Text>
                                 </VStack>
                               </HStack>
                             </ClickableCard>
@@ -737,14 +761,14 @@ export default function PlaygroundPage() {
                 height="100%"
                 style={{ width: artifactResize.size, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <Toolbar
-                  label={t("Fichier")}
+                  label={artifact.kind === "code" ? t("Fichier") : t("Document")}
                   dividers={["bottom"]}
                   startContent={
                     <HStack gap={2} vAlign="center">
                       <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
                       <VStack gap={0}>
-                        <Text weight="semibold">{artifact.title}</Text>
-                        <Text type="supporting" color="secondary">{artifact.lang}</Text>
+                        <Text weight="semibold">{artifact.kind === "code" ? artifact.title : t("Document")}</Text>
+                        {artifact.kind === "code" ? <Text type="supporting" color="secondary">{artifact.lang}</Text> : null}
                       </VStack>
                     </HStack>
                   }
@@ -752,7 +776,7 @@ export default function PlaygroundPage() {
                     <>
                       <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
                         icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                        onClick={() => navigator.clipboard?.writeText(artifact.code)} />
+                        onClick={() => navigator.clipboard?.writeText(artifact.content)} />
                       <Button label={t("Fermer")} variant="ghost" size="sm" isIconOnly
                         icon={<Icon icon={XMarkIcon} size="sm" />}
                         onClick={() => setArtifact(null)} />
@@ -760,7 +784,9 @@ export default function PlaygroundPage() {
                   }
                 />
                 <VStack padding={4} isScrollable style={{ flex: 1, minHeight: 0 }}>
-                  <CodeBlock title={artifact.title} language={artifact.lang} code={artifact.code} width="100%" />
+                  {artifact.kind === "code"
+                    ? <CodeBlock title={artifact.title} language={artifact.lang} code={artifact.content} width="100%" />
+                    : <Markdown>{artifact.content}</Markdown>}
                 </VStack>
               </Card>
             </>

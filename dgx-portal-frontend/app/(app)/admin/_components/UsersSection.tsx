@@ -30,6 +30,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { getJSON, postFormJSON } from "@/lib/api";
 import { useT, useLang } from "@/lib/i18n";
+import { useIsNarrow } from "@/lib/useIsNarrow";
 
 type LocalUser = {
   username: string;
@@ -83,6 +84,7 @@ function Tile({ icon, value, label, locale }: { icon: typeof UsersIcon; value: n
 export function UsersSection({ csrf }: { csrf: string }) {
   const t = useT();
   const { lang } = useLang();
+  const isNarrow = useIsNarrow();
   const showToast = useToast();
   const numLocale = lang === "fr" ? "fr-FR" : "en-US";
   const [data, setData] = useState<UsersData | null>(null);
@@ -301,7 +303,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
       </Card>
 
       {/* New user dialog */}
-      <Dialog isOpen={userDialog} onOpenChange={setUserDialog} purpose="form" width={520}>
+      <Dialog isOpen={userDialog} onOpenChange={setUserDialog} purpose="form" width={isNarrow ? "94vw" : 520}>
         <Layout
           header={<DialogHeader title={t("Nouvel utilisateur")} hasDivider onOpenChange={setUserDialog} />}
           content={
@@ -328,7 +330,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
       </Dialog>
 
       {/* New group dialog */}
-      <Dialog isOpen={groupDialog} onOpenChange={setGroupDialog} purpose="form" width={480}>
+      <Dialog isOpen={groupDialog} onOpenChange={setGroupDialog} purpose="form" width={isNarrow ? "94vw" : 480}>
         <Layout
           header={<DialogHeader title={t("Nouveau groupe")} hasDivider onOpenChange={setGroupDialog} />}
           content={
@@ -352,7 +354,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
       </Dialog>
 
       {/* Reset password dialog */}
-      <Dialog isOpen={pwUser != null} onOpenChange={(o) => { if (!o) setPwUser(null); }} purpose="form" width={440}>
+      <Dialog isOpen={pwUser != null} onOpenChange={(o) => { if (!o) setPwUser(null); }} purpose="form" width={isNarrow ? "94vw" : 440}>
         <Layout
           header={<DialogHeader title={t("Réinitialiser le mot de passe")} subtitle={pwUser?.username} hasDivider onOpenChange={(o) => { if (!o) setPwUser(null); }} />}
           content={

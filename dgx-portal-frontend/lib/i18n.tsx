@@ -431,6 +431,8 @@ const EN: Record<string, string> = {
   "Ouvrir en document": "Open as document",
   "Redimensionner le document": "Resize the document",
   "Ouvrir le fichier": "Open file",
+  "Ouvrir le document": "Open document",
+  "Ouvrir et copier dans le volet": "Open and copy in the panel",
   "Fichier": "File",
   "Redimensionner le panneau": "Resize the panel",
   "Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.":

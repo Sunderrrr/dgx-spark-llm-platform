@@ -306,11 +306,9 @@ default** (and a note explaining it) while every named model stays selectable.
 |---|---|
 | ![Video](assets/video.png) | ![Find a model](assets/search.png) |
 
-| Settings → API keys — budget, keys, and integration snippets (`auto-model` default) | Users — local accounts, groups, quotas, and auth-source badges |
-|---|---|
-| ![API keys](assets/keys.png) | ![Users](assets/users.png) |
+![Settings → API keys — budget, keys, and integration snippets (`auto-model` selected by default)](assets/keys.png)
 
-![Admin — one unified backend row (chat, OCR, video, voice, dictation), a type-filtered catalog, per-user search, and live vLLM logs](assets/admin.png)
+![Admin — the unified backend row (chat, OCR, video, voice, dictation), a type-filtered catalog, and live vLLM logs](assets/admin.png)
 
 > **Refreshing these screenshots** — the UI is bilingual; capture them with the
 > interface in **English** (Settings → Appearance → Language → English, or set
@@ -327,11 +325,12 @@ default** (and a note explaining it) while every named model stays selectable.
 > | Video generation | `/video` | `assets/video.png` |
 > | Find a model | `/search` | `assets/search.png` |
 > | Settings → API keys | gear ▸ API keys | `assets/keys.png` |
-> | Users | `/users` | `assets/users.png` |
 > | Admin | `/admin` | `assets/admin.png` |
 >
-> (The **Leaderboard** at `/ranking` is deliberately *not* screenshotted here — it
-> shows real per-user names and `assets/ranking.png` is gitignored.)
+> The **Users** page (`/users`) and the **Leaderboard** (`/ranking`) are deliberately
+> *not* published here — they list internal usernames (and, for the leaderboard,
+> per-user consumption), so `assets/users.png` and `assets/ranking.png` are
+> gitignored. The current shots above were captured in English from the live app.
 
 ---
 

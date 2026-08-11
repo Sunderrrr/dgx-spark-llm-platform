@@ -114,11 +114,25 @@ type Artifact =
 // Threshold above which the leftover prose is treated as a copyable document.
 const DOC_MIN_CHARS = 900;
 
+// Whether the user's request is a "document" task (correct / rewrite / reformat /
+// draft…). Only then does a long answer become a side "document" — otherwise a
+// normal long explanation would wrongly be shoved into the panel. Accent- and
+// language-insensitive (matches FR + EN).
+function isDocTask(prompt: string): boolean {
+  const p = prompt.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return (
+    /(corrig|reformul|reecri|reecrire|redig|remet(s)? en forme|met(s)? en forme|mise en forme|orthograph|\brelis\b|relire|proofread|rewrite|re-?format|rephrase|\bcorrect\b|clean ?up|\bedit this\b|\bfix the\b)/.test(p) ||
+    /\bwrite (a|an) (doc|document|email|e-mail|letter|essay|report|memo|note)\b/.test(p)
+  );
+}
+
 // Split an assistant answer into prose + artifacts. Substantial fenced code
 // blocks (≥6 lines or ≥200 chars) become code files (short snippets stay
-// inline). If what remains is a long piece of text, it also becomes a "document"
-// artifact so it can be read wide and copied from the side panel.
-function parseArtifacts(content: string): { prose: string; artifacts: Artifact[] } {
+// inline). If the user asked for a document (see isDocTask) and the answer is
+// long, it also becomes a "document" artifact so it can be read wide and copied
+// from the side panel. `allowDoc` gates that so ordinary long answers stay in the
+// chat.
+function parseArtifacts(content: string, allowDoc: boolean): { prose: string; artifacts: Artifact[] } {
   const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
   const artifacts: Artifact[] = [];
   let prose = "";
@@ -144,7 +158,7 @@ function parseArtifacts(content: string): { prose: string; artifacts: Artifact[]
   }
   prose += content.slice(lastIndex);
   prose = prose.trim();
-  if (prose.length >= DOC_MIN_CHARS) {
+  if (allowDoc && prose.length >= DOC_MIN_CHARS) {
     artifacts.push({ kind: "doc", title: "Document", content: prose });
   }
   return { prose, artifacts };
@@ -365,9 +379,10 @@ export default function PlaygroundPage() {
       });
     }
     setMessages(finalMessages);
-    // If the assistant wrote a file or a long document, surface it in the side
-    // panel automatically (the last one — usually the deliverable).
-    const produced = parseArtifacts(acc).artifacts;
+    // If the assistant wrote a file, or wrote a document in reply to a document
+    // task, surface the last one in the side panel automatically.
+    const lastUser = [...nextMessages].reverse().find((mm) => mm.role === "user");
+    const produced = parseArtifacts(acc, isDocTask(lastUser?.content ?? "")).artifacts;
     if (produced.length) setArtifact(produced[produced.length - 1]);
     if (usage?.total_tokens) setCtxUsed(usage.total_tokens);
     const savedId = persist(finalMessages, currentId, model);
@@ -658,7 +673,7 @@ export default function PlaygroundPage() {
                   const canRegenerateThis = m.role === "assistant" && isLast && !streaming;
                   // Once a reply finishes, detect artifacts (code files / long
                   // documents) so they get a card in the bubble + the copyable panel.
-                  const arts = m.role === "assistant" && !streamingThis ? parseArtifacts(m.content) : null;
+                  const arts = m.role === "assistant" && !streamingThis ? parseArtifacts(m.content, isDocTask(messages[i - 1]?.content ?? "")) : null;
                   const items = arts?.artifacts ?? [];
                   const bodyText = items.length ? arts!.prose : m.content;
                   return (

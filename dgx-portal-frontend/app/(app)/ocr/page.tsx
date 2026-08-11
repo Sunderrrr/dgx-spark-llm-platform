@@ -175,10 +175,25 @@ const LABEL_COLOR: Record<string, string> = {
   text: "#22c55e",
 };
 
+// True on phone-width viewports. Used to stack the two-column layout vertically
+// so the result panel (image + text) isn't squeezed off-screen on mobile.
+function useIsNarrow(): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 820px)");
+    const update = () => setNarrow(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return narrow;
+}
+
 export default function OcrPage() {
   const t = useT();
   const csrf = useCsrf();
   const showToast = useToast();
+  const isNarrow = useIsNarrow();
   const [image, setImage] = useState<File | null>(null);
   const [instruction, setInstruction] = useState("document parsing.");
   const [isLoading, setIsLoading] = useState(false);
@@ -257,11 +272,13 @@ export default function OcrPage() {
     navigator.clipboard.writeText(markdown || text).then(() => showToast({ body: t("Copié."), type: "info" }));
   }
 
+  // Side-by-side on desktop, stacked on mobile.
+  const Split = isNarrow ? VStack : HStack;
   return (
     <Layout
       height="fill"
       content={
-        <LayoutContent padding={6} isScrollable={available === false}>
+        <LayoutContent padding={6} isScrollable={available === false || isNarrow}>
           {available === false ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
@@ -269,12 +286,12 @@ export default function OcrPage() {
               description={t("Demande à un admin de démarrer un modèle OCR pour utiliser cette page.")}
             />
           ) : (
-            <HStack gap={5} height="100%">
-              {/* isScrollable: the left column holds the history
-                  (up to 20 entries) and overflowed without ever being able
-                  to scroll — only the right panel was scrollable. */}
-              <StackItem isScrollable>
-                <VStack gap={5} width={360}>
+            <Split gap={5} height={isNarrow ? undefined : "100%"}>
+              {/* On desktop each column scrolls on its own (the left one holds
+                  the history, up to 20 entries). On mobile we stack them and let
+                  the page scroll, so the result panel isn't squeezed off-screen. */}
+              <StackItem isScrollable={!isNarrow}>
+                <VStack gap={5} width={isNarrow ? "100%" : 360}>
                   <VStack gap={1}>
                     <Heading level={1}>OCR</Heading>
                     <Text type="supporting" color="secondary">
@@ -370,7 +387,7 @@ export default function OcrPage() {
                 </VStack>
               </StackItem>
 
-              <StackItem size="fill" isScrollable>
+              <StackItem size={isNarrow ? undefined : "fill"} isScrollable={!isNarrow}>
                 {text ? (
                   <Card>
                     <VStack gap={3}>
@@ -443,7 +460,7 @@ export default function OcrPage() {
                   />
                 )}
               </StackItem>
-            </HStack>
+            </Split>
           )}
         </LayoutContent>
       }

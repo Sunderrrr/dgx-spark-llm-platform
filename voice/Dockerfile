@@ -35,7 +35,7 @@ RUN git clone --branch ${CHATTERBOX_SERVER_REF} --depth 1 \
 RUN python3 -m pip install --no-cache-dir --upgrade pip && \
     python3 -m pip install --no-cache-dir -r requirements-nvidia-cu130.txt && \
     python3 -m pip install --no-cache-dir --no-deps \
-      git+https://github.com/devnen/chatterbox-v2.git@master s3tokenizer==0.3.0 onnx==1.16.0 && \
+      git+https://github.com/devnen/chatterbox-v2.git@cc0357396d9c73fc1e6c544ee40bb596020edd09 s3tokenizer==0.3.0 onnx==1.16.0 && \
     python3 -m pip install --no-cache-dir "protobuf>=4.25.0"
 
 RUN mkdir -p model_cache reference_audio outputs voices logs hf_cache

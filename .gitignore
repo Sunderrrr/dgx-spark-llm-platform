@@ -37,3 +37,6 @@ DEBUG_USERS.txt
 
 # Screenshots that contain real user data (leaderboard is per-user by name)
 assets/ranking.png
+
+# Users page screenshot contains internal usernames (like the leaderboard)
+assets/users.png

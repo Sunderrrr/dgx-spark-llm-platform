@@ -70,6 +70,7 @@ EOF
 docker rm -f voice >/dev/null 2>&1 || true
 
 exec docker run -d --name voice --restart unless-stopped \
+  --security-opt no-new-privileges --cap-drop ALL --pids-limit 512 \
   --network ai-platform_voice_net --gpus all --shm-size=4g \
   -v "$STATE_DIR/config.yaml:/app/config.yaml" \
   -v "$STATE_DIR/model_cache:/app/model_cache" \

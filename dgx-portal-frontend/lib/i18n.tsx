@@ -412,6 +412,7 @@ const EN: Record<string, string> = {
   "Génération de vidéos courtes (texte ou image → vidéo)": "Short video generation (text or image → video)",
   "Clonage de voix zéro-shot à partir d'un court échantillon": "Zero-shot voice cloning from a short sample",
   "Services média": "Media services",
+  "en direct": "live",
   "Erreur lors de l'envoi de la demande.": "Error while sending the request.",
   "La génération a échoué.": "Generation failed.",
   "Nouvel utilisateur": "New user",

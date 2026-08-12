@@ -491,6 +491,13 @@ def init_db():
             last_source TEXT,
             last_seen  TEXT
         );
+        -- Live in-flight in-app model requests (Playground/Support), one row per
+        -- active request; powers the real-time "who's using the model" panel.
+        CREATE TABLE IF NOT EXISTS inflight_requests (
+            id         TEXT PRIMARY KEY,
+            username   TEXT NOT NULL,
+            started_at REAL NOT NULL
+        );
     ''')
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
@@ -3278,7 +3285,7 @@ def support_chat():
                  for s in tool_acc.values() if s['name']]
         return content, calls, 200
 
-    def gen():
+    def _gen_inner():
         # SSE comment emitted BEFORE any work: it forces the response
         # headers to be written immediately. Without it, /support/chat
         # produces its first byte only once the model's full response is
@@ -3452,7 +3459,9 @@ def playground_chat():
     user_key = keys[0]['key']
     msgs = ([{'role': 'system', 'content': system}] if system else []) + history
 
+    _who = session['username']
     def gen():
+        _rid = _inflight_start(_who)   # live "who's using the model" — SpendLogs only logs at request end
         try:
             # READ timeout (2nd value) = anti-stuck-slot: if no byte
             # arrives for 120 s (request stuck in queue behind saturated
@@ -3477,6 +3486,15 @@ def playground_chat():
                         yield line.decode('utf-8', 'replace') + "\n\n"
         except Exception:
             yield _sse_msg("⚠ stream interrupted.")
+        finally:
+            _inflight_end(_rid)   # runs on completion, error, or client disconnect (GeneratorExit)
+
+    def gen():
+        _rid = _inflight_start(username)   # live "who's using the model" — support uses the master key, so SpendLogs never attributes it
+        try:
+            yield from _gen_inner()
+        finally:
+            _inflight_end(_rid)
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -3666,37 +3684,84 @@ def _real_tokens_by_user(since_utc=None):
     finally:
         conn.close()
 
-def _active_users(window_s=120):
-    """Users who queried the model in the last `window_s` seconds
-    (from SpendLogs). Feeds the admin "who's using the model" panel on the home page.
-    NB: SpendLogs only writes at the end of a request → this is recent activity, not
-    strictly the in-flight requests.
-    """
-    conn = _spend_conn()
-    if not conn:
-        return []
+# In-flight in-app model requests (Playground / Support), tracked in real time in
+# a shared SQLite table (NOT in-memory: gunicorn runs several workers, so the
+# admin's /api/home may hit a different worker than the one streaming). SpendLogs
+# only records a request at its END, so a long generation shows GPU activity
+# ("Sessions X/Y") with nobody in the "who's using" panel until it finishes —
+# this registry fills that gap live. One row per active request; a staleness
+# sweep drops rows a crashed worker never deleted.
+def _inflight_start(username):
+    rid = secrets.token_hex(8)
     try:
-        umap = _key_user_map(conn)
-        cur = conn.cursor()
-        since = datetime.now(ZoneInfo('UTC')).replace(tzinfo=None) - timedelta(seconds=window_s)
-        cur.execute('SELECT api_key, COUNT(*), '
-                    'SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
-                    'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s GROUP BY api_key', (since,))
-        agg = {}
-        for api_key, cnt, toks in cur.fetchall():
-            if api_key in _NON_USER_KEYS:
-                continue
-            u = umap.get(api_key)
-            if not u:
-                continue
-            a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0})
-            a['requests'] += int(cnt or 0)
-            a['tokens'] += int(toks or 0)
-        return sorted(agg.values(), key=lambda x: x['requests'], reverse=True)
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("INSERT INTO inflight_requests (id, username, started_at) VALUES (?,?,?)",
+                  (rid, username, time.time()))
+        c.commit(); c.close()
     except Exception:
-        return []
-    finally:
-        conn.close()
+        pass
+    return rid
+
+def _inflight_end(rid):
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("DELETE FROM inflight_requests WHERE id=?", (rid,))
+        c.commit(); c.close()
+    except Exception:
+        pass
+
+def _inflight_snapshot():
+    out = {}
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("DELETE FROM inflight_requests WHERE started_at < ?", (time.time() - 900,))  # staleness sweep
+        for u, n in c.execute("SELECT username, COUNT(*) FROM inflight_requests GROUP BY username").fetchall():
+            out[u] = n
+        c.commit(); c.close()
+    except Exception:
+        pass
+    return out
+
+
+def _active_users(window_s=120):
+    """Users who queried the model recently, from two sources merged:
+      - LiteLLM SpendLogs over the last `window_s` s (attributed by API key → user)
+        — recent COMPLETED requests;
+      - the live in-flight registry (in-app Playground/Support requests still
+        streaming) — SpendLogs only writes at request end, so this shows the
+        current user in real time. Such users are marked `live`.
+    Feeds the admin "who's using the model" panel on the home page.
+    """
+    agg = {}
+    conn = _spend_conn()
+    if conn:
+        try:
+            umap = _key_user_map(conn)
+            cur = conn.cursor()
+            since = datetime.now(ZoneInfo('UTC')).replace(tzinfo=None) - timedelta(seconds=window_s)
+            cur.execute('SELECT api_key, COUNT(*), '
+                        'SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
+                        'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s GROUP BY api_key', (since,))
+            for api_key, cnt, toks in cur.fetchall():
+                if api_key in _NON_USER_KEYS:
+                    continue
+                u = umap.get(api_key)
+                if not u:
+                    continue
+                a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0, 'live': False})
+                a['requests'] += int(cnt or 0)
+                a['tokens'] += int(toks or 0)
+        except Exception:
+            pass
+        finally:
+            conn.close()
+    # Merge live in-flight in-app requests (real time).
+    for u, n in _inflight_snapshot().items():
+        a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0, 'live': False})
+        a['live'] = True
+        if a['requests'] == 0:
+            a['requests'] = n
+    return sorted(agg.values(), key=lambda x: (x['live'], x['requests']), reverse=True)
 
 def _account_activity(username, days=182):
     """Daily series (prompt/generated tokens) for a user over `days`

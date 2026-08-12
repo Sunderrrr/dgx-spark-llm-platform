@@ -131,7 +131,7 @@ type HomeData = {
   sysmetrics: SysMetrics;
   sidecar_metrics: Partial<Record<"ocr" | "video" | "voice", SidecarMetric>>;
   modelhealth: ModelHealth;
-  active_users: { username: string; requests: number; tokens: number }[] | null;
+  active_users: { username: string; requests: number; tokens: number; live?: boolean }[] | null;
   usage: { has_data: boolean; total: number; active_keys: number; points: { hour: number; tokens: number }[] } | null;
   my_requests: ModelRequest[];
   budget_tokens: string;
@@ -385,8 +385,10 @@ export default function HomePage() {
                             {data.active_users.map((u) => (
                               <Badge
                                 key={u.username}
-                                variant="neutral"
-                                label={`${u.username} · ${u.requests} req · ${Math.round(u.tokens).toLocaleString("fr-FR")} tok`}
+                                variant={u.live ? "success" : "neutral"}
+                                label={u.live
+                                  ? `${u.username} · ${t("en direct")}`
+                                  : `${u.username} · ${u.requests} req · ${Math.round(u.tokens).toLocaleString("fr-FR")} tok`}
                               />
                             ))}
                           </HStack>

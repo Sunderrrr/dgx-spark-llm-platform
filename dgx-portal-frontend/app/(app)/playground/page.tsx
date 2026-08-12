@@ -120,7 +120,7 @@ const DOC_MIN_CHARS = 400;
 // document. Accent- and language-insensitive (FR + EN). Plain "explain"/"summarize"
 // stays inline.
 function isDocTask(prompt: string): boolean {
-  const p = prompt.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const p = prompt.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   // (a) Correction / rewrite / reformat tasks.
   if (/(corrig|reformul|reecri|reecrire|redig|remet(s)? en forme|met(s)? en forme|mise en forme|orthograph|\brelis\b|relire|proofread|rewrite|re-?format|rephrase|\bcorrect\b|clean ?up|\bedit this\b|\bfix the\b)/.test(p)) return true;
   // (b) "Produce a document / report / note / letter / …": a create verb near a doc noun.
@@ -135,10 +135,50 @@ function isDocTask(prompt: string): boolean {
 //    stray code-block cards for tables/ascii inside the document).
 //  - Otherwise → substantial fenced code blocks become file artifacts, the rest
 //    of the prose stays inline.
+// Name a generated document from its own content: the first Markdown heading,
+// else the first non-empty line, stripped of Markdown decoration. Returns
+// "Document" while a stream hasn't produced a usable title line yet.
+function docTitleFromContent(content: string): string {
+  const text = content.trim();
+  if (!text) return "Document";
+  const heading = text.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/m);
+  let raw = heading ? heading[1] : (text.split("\n").find((l) => l.trim().length > 0) ?? "");
+  raw = raw
+    .replace(/[*_`~#>]/g, "")          // md emphasis / fences / quotes / hashes
+    .replace(/^\s*[-•]+\s+/, "")       // bullet markers
+    .replace(/^\s*\d+[.)]\s+/, "")     // numbered markers
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!raw) return "Document";
+  return raw.length > 60 ? raw.slice(0, 57).trimEnd() + "…" : raw;
+}
+
+// A filesystem-safe slug for the download filename.
+function slugify(s: string): string {
+  const base = s
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return base || "document";
+}
+
+// Client-side download of some text as a file (used for the Markdown export).
+function downloadText(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function parseArtifacts(content: string, allowDoc: boolean): { prose: string; artifacts: Artifact[] } {
   const text = content.trim();
   if (allowDoc && text.length >= DOC_MIN_CHARS) {
-    return { prose: "", artifacts: [{ kind: "doc", title: "Document", content: text }] };
+    return { prose: "", artifacts: [{ kind: "doc", title: docTitleFromContent(text), content: text }] };
   }
   const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
   const artifacts: Artifact[] = [];
@@ -203,6 +243,12 @@ export default function PlaygroundPage() {
   // On phones the resizable side panel would crush the chat, so the artifact
   // opens as a fullscreen dialog instead.
   const isNarrow = useIsNarrow();
+  // "Watch the document being written live": set when the user clicks the
+  // in-progress document card during a document stream. A ref mirrors it so the
+  // stream-completion closure can read the current value.
+  const [liveDocOpen, setLiveDocOpen] = useState(false);
+  const liveDocOpenRef = useRef(false);
+  const openLiveDoc = () => { setLiveDocOpen(true); liveDocOpenRef.current = true; };
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -306,6 +352,8 @@ export default function PlaygroundPage() {
       return;
     }
     setStreaming(true);
+    setLiveDocOpen(false);
+    liveDocOpenRef.current = false;
     const controller = new AbortController();
     abortRef.current = controller;
     // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
@@ -386,7 +434,14 @@ export default function PlaygroundPage() {
     // task, surface the last one in the side panel automatically.
     const lastUser = [...nextMessages].reverse().find((mm) => mm.role === "user");
     const produced = parseArtifacts(acc, isDocTask(lastUser?.content ?? "")).artifacts;
-    if (produced.length) setArtifact(produced[produced.length - 1]);
+    if (produced.length) {
+      const lastArt = produced[produced.length - 1];
+      // A code file opens on its own; a document opens automatically only if the
+      // user was already watching it being written live (otherwise it stays a
+      // card in the chat that they can click open).
+      if (lastArt.kind === "code" || liveDocOpenRef.current) setArtifact(lastArt);
+    }
+    liveDocOpenRef.current = false;
     if (usage?.total_tokens) setCtxUsed(usage.total_tokens);
     const savedId = persist(finalMessages, currentId, model);
     setCurrentId(savedId ?? null);
@@ -461,6 +516,21 @@ export default function PlaygroundPage() {
   const max = modelLimits[model] || 32768;
   const used = Math.max(ctxUsed, estimateTokens(settings, input, messages, attachments));
   const lastMsg = messages[messages.length - 1];
+  // While a document is being streamed, the chat shows a card (not the raw text)
+  // and the side panel can show a live view of the document being written.
+  const streamingDocActive =
+    streaming && lastMsg?.role === "assistant" && isDocTask(messages[messages.length - 2]?.content ?? "");
+  const liveContent = streamingDocActive ? (lastMsg?.content ?? "") : "";
+  const showLive = liveDocOpen && streamingDocActive;
+  // Unified panel values: live document while streaming, else the pinned artifact.
+  const panelIsCode = !showLive && artifact?.kind === "code";
+  const panelTitle = showLive ? docTitleFromContent(liveContent) : (artifact?.title ?? "Document");
+  const panelContent = showLive ? liveContent : (artifact?.content ?? "");
+  const panelSubtitle = showLive
+    ? t("Rédaction en cours…")
+    : (panelIsCode && artifact?.kind === "code" ? artifact.lang : "");
+  const panelDownloadName = panelIsCode ? panelTitle : `${slugify(panelTitle)}.md`;
+  const panelDownloadMime = panelIsCode ? "text/plain" : "text/markdown";
   const canRegenerate = !streaming && lastMsg && (lastMsg.role === "assistant" || lastMsg.role === "user");
   const canEdit = !streaming && messages.some((m) => m.role === "user");
 
@@ -684,6 +754,11 @@ export default function PlaygroundPage() {
                     ? t("Voici le document — ouvre-le pour le lire ou le copier.")
                     : t("Voici le fichier — ouvre-le pour le copier.");
                   const bodyText = items.length ? (arts!.prose.trim() || emptyMsg) : m.content;
+                  // A document being streamed shows only a live-updating card in
+                  // the chat (its raw text streams into the side panel instead).
+                  const streamingDoc =
+                    streamingThis && m.role === "assistant" && m.content.length > 0 &&
+                    isDocTask(messages[i - 1]?.content ?? "");
                   return (
                   <ChatMessage key={i} sender={m.role}>
                     <ChatMessageBubble
@@ -739,6 +814,19 @@ export default function PlaygroundPage() {
                       }>
                       {isThinking ? (
                         <ThinkingIndicator fixedLabel={prevAttachments ? t("Lecture du fichier…") : undefined} />
+                      ) : streamingDoc ? (
+                        <ClickableCard
+                          label={t("Ouvrir le document en cours de rédaction")}
+                          variant="muted"
+                          onClick={openLiveDoc}>
+                          <HStack gap={2} vAlign="center">
+                            <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
+                            <VStack gap={0}>
+                              <Text weight="semibold">{docTitleFromContent(m.content)}</Text>
+                              <Text type="supporting" color="secondary">{t("Rédaction en cours…")}</Text>
+                            </VStack>
+                          </HStack>
+                        </ClickableCard>
                       ) : (
                         <VStack gap={2}>
                           {m.reasoning ? (
@@ -756,7 +844,7 @@ export default function PlaygroundPage() {
                               <HStack gap={2} vAlign="center">
                                 <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
                                 <VStack gap={0}>
-                                  <Text weight="semibold">{a.kind === "code" ? a.title : t("Document")}</Text>
+                                  <Text weight="semibold">{a.title}</Text>
                                   <Text type="supporting" color="secondary">
                                     {a.kind === "code" ? a.lang : t("Ouvrir et copier dans le volet")}
                                   </Text>
@@ -774,7 +862,7 @@ export default function PlaygroundPage() {
           </ChatLayout>
           </VStack>
           </StackItem>
-          {artifact && !isNarrow && (
+          {(artifact || showLive) && !isNarrow && (
             <>
               <ResizeHandle
                 direction="horizontal"
@@ -789,57 +877,65 @@ export default function PlaygroundPage() {
                 height="100%"
                 style={{ width: artifactResize.size, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <Toolbar
-                  label={artifact.kind === "code" ? t("Fichier") : t("Document")}
+                  label={panelIsCode ? t("Fichier") : t("Document")}
                   dividers={["bottom"]}
                   startContent={
                     <HStack gap={2} vAlign="center">
                       <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
                       <VStack gap={0}>
-                        <Text weight="semibold">{artifact.kind === "code" ? artifact.title : t("Document")}</Text>
-                        {artifact.kind === "code" ? <Text type="supporting" color="secondary">{artifact.lang}</Text> : null}
+                        <Text weight="semibold">{panelTitle}</Text>
+                        {panelSubtitle ? <Text type="supporting" color="secondary">{panelSubtitle}</Text> : null}
                       </VStack>
                     </HStack>
                   }
                   endContent={
                     <>
+                      <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly
+                        icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                        onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
                       <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
                         icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                        onClick={() => navigator.clipboard?.writeText(artifact.content)} />
+                        onClick={() => navigator.clipboard?.writeText(panelContent)} />
                       <Button label={t("Fermer")} variant="ghost" size="sm" isIconOnly
                         icon={<Icon icon={XMarkIcon} size="sm" />}
-                        onClick={() => setArtifact(null)} />
+                        onClick={() => { setArtifact(null); setLiveDocOpen(false); }} />
                     </>
                   }
                 />
                 <VStack padding={4} isScrollable style={{ flex: 1, minHeight: 0 }}>
-                  {artifact.kind === "code"
+                  {panelIsCode && artifact?.kind === "code"
                     ? <CodeBlock title={artifact.title} language={artifact.lang} code={artifact.content} width="100%" />
-                    : <Markdown>{artifact.content}</Markdown>}
+                    : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                 </VStack>
               </Card>
             </>
           )}
-          {artifact && isNarrow && (
-            <Dialog isOpen onOpenChange={(o) => { if (!o) setArtifact(null); }} variant="fullscreen">
+          {(artifact || showLive) && isNarrow && (
+            <Dialog isOpen onOpenChange={(o) => { if (!o) { setArtifact(null); setLiveDocOpen(false); } }} variant="fullscreen">
               <Layout
                 header={
                   <DialogHeader
-                    title={artifact.kind === "code" ? artifact.title : t("Document")}
-                    subtitle={artifact.kind === "code" ? artifact.lang : undefined}
+                    title={panelTitle}
+                    subtitle={panelSubtitle || undefined}
                     hasDivider
-                    onOpenChange={(o) => { if (!o) setArtifact(null); }}
+                    onOpenChange={(o) => { if (!o) { setArtifact(null); setLiveDocOpen(false); } }}
                     endContent={
-                      <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
-                        icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                        onClick={() => navigator.clipboard?.writeText(artifact.content)} />
+                      <HStack gap={1} vAlign="center">
+                        <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly
+                          icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                          onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
+                        <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
+                          icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                          onClick={() => navigator.clipboard?.writeText(panelContent)} />
+                      </HStack>
                     }
                   />
                 }
                 content={
                   <LayoutContent padding={4} isScrollable>
-                    {artifact.kind === "code"
+                    {panelIsCode && artifact?.kind === "code"
                       ? <CodeBlock title={artifact.title} language={artifact.lang} code={artifact.content} width="100%" />
-                      : <Markdown>{artifact.content}</Markdown>}
+                      : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                   </LayoutContent>
                 }
               />

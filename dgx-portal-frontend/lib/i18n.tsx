@@ -436,6 +436,9 @@ const EN: Record<string, string> = {
   "Voici le document — ouvre-le pour le lire ou le copier.": "Here's the document — open it to read or copy it.",
   "Voici le fichier — ouvre-le pour le copier.": "Here's the file — open it to copy it.",
   "Ouvrir et copier dans le volet": "Open and copy in the panel",
+  "Rédaction en cours…": "Writing…",
+  "Ouvrir le document en cours de rédaction": "Open the document being written",
+  "Télécharger": "Download",
   "Fichier": "File",
   "Redimensionner le panneau": "Resize the panel",
   "Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.":

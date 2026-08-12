@@ -35,6 +35,7 @@ import {
   PaperClipIcon,
   Cog6ToothIcon,
   ArrowDownTrayIcon,
+  ArrowDownIcon,
   ClipboardDocumentIcon,
   ArrowPathIcon,
   PencilIcon,
@@ -51,6 +52,7 @@ import {
 import { useT } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { useIsNarrow } from "@/lib/useIsNarrow";
+import { useStickToBottom } from "@/lib/useStickToBottom";
 import { DictateButton } from "../_components/DictateButton";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
@@ -531,6 +533,14 @@ export default function PlaygroundPage() {
     : (panelIsCode && artifact?.kind === "code" ? artifact.lang : "");
   const panelDownloadName = panelIsCode ? panelTitle : `${slugify(panelTitle)}.md`;
   const panelDownloadMime = panelIsCode ? "text/plain" : "text/markdown";
+  // Auto-follow the document while it streams into the panel; show a "jump to
+  // bottom" button when the reader scrolls up and leaves the live tail.
+  const {
+    setRef: panelScrollRef,
+    showButton: showPanelJump,
+    onScroll: onPanelScroll,
+    scrollToBottom: panelJumpDown,
+  } = useStickToBottom(panelContent, showLive);
   const canRegenerate = !streaming && lastMsg && (lastMsg.role === "assistant" || lastMsg.role === "user");
   const canEdit = !streaming && messages.some((m) => m.role === "user");
 
@@ -875,7 +885,7 @@ export default function PlaygroundPage() {
               <Card
                 variant="transparent"
                 height="100%"
-                style={{ width: artifactResize.size, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                style={{ width: artifactResize.size, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
                 <Toolbar
                   label={panelIsCode ? t("Fichier") : t("Document")}
                   dividers={["bottom"]}
@@ -902,11 +912,18 @@ export default function PlaygroundPage() {
                     </>
                   }
                 />
-                <VStack padding={4} isScrollable style={{ flex: 1, minHeight: 0 }}>
+                <VStack ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable style={{ flex: 1, minHeight: 0 }}>
                   {panelIsCode && artifact?.kind === "code"
                     ? <CodeBlock title={artifact.title} language={artifact.lang} code={artifact.content} width="100%" />
                     : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                 </VStack>
+                {showPanelJump && (
+                  <HStack style={{ position: "absolute", bottom: "var(--spacing-4)", left: "50%", transform: "translateX(-50%)", zIndex: 2 }}>
+                    <Button label={t("Descendre")} variant="primary" size="sm"
+                      icon={<Icon icon={ArrowDownIcon} size="sm" />}
+                      onClick={panelJumpDown} />
+                  </HStack>
+                )}
               </Card>
             </>
           )}
@@ -932,13 +949,20 @@ export default function PlaygroundPage() {
                   />
                 }
                 content={
-                  <LayoutContent padding={4} isScrollable>
+                  <LayoutContent ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable>
                     {panelIsCode && artifact?.kind === "code"
                       ? <CodeBlock title={artifact.title} language={artifact.lang} code={artifact.content} width="100%" />
                       : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                   </LayoutContent>
                 }
               />
+              {showPanelJump && (
+                <HStack style={{ position: "fixed", bottom: "var(--spacing-6)", left: "50%", transform: "translateX(-50%)", zIndex: 10 }}>
+                  <Button label={t("Descendre")} variant="primary" size="sm"
+                    icon={<Icon icon={ArrowDownIcon} size="sm" />}
+                    onClick={panelJumpDown} />
+                </HStack>
+              )}
             </Dialog>
           )}
           </HStack>

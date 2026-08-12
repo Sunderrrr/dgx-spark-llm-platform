@@ -120,10 +120,12 @@ const DOC_MIN_CHARS = 900;
 // language-insensitive (matches FR + EN).
 function isDocTask(prompt: string): boolean {
   const p = prompt.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  return (
-    /(corrig|reformul|reecri|reecrire|redig|remet(s)? en forme|met(s)? en forme|mise en forme|orthograph|\brelis\b|relire|proofread|rewrite|re-?format|rephrase|\bcorrect\b|clean ?up|\bedit this\b|\bfix the\b)/.test(p) ||
-    /\bwrite (a|an) (doc|document|email|e-mail|letter|essay|report|memo|note)\b/.test(p)
-  );
+  // (a) Correction / rewrite / reformat tasks.
+  if (/(corrig|reformul|reecri|reecrire|redig|remet(s)? en forme|met(s)? en forme|mise en forme|orthograph|\brelis\b|relire|proofread|rewrite|re-?format|rephrase|\bcorrect\b|clean ?up|\bedit this\b|\bfix the\b)/.test(p)) return true;
+  // (b) "Produce a document / report / note / letter / …" requests: a create verb
+  //     near a document noun (FR + EN). Plain "explain"/"summarize" stays inline.
+  if (/(fais|fait|faire|cree|creer|genere|generer|ecri|redig|prepar|make|create|write|draft|produce|compose|generate|prepare)[\s\S]{0,30}(document|rapport|report|\bnote\b|compte[- ]?rendu|fiche|guide|essai|essay|lettre|letter|courriel|e-?mail|\bmail\b|article|synthese|memo|dossier|cahier|resume)/.test(p)) return true;
+  return false;
 }
 
 // Split an assistant answer into prose + artifacts. Substantial fenced code

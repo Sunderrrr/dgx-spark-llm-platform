@@ -128,6 +128,17 @@ function isDocTask(prompt: string): boolean {
   return false;
 }
 
+// Appended to the system prompt for document requests: the model wraps the full
+// document in a ```document fence and writes only a short sentence outside, so
+// the chat keeps the intro/closing and the side panel holds the document itself.
+const DOC_INSTRUCTION =
+  "Formatting rule for this reply: the user is asking for a document (a document, " +
+  "report, note, letter, essay or similar). Put the ENTIRE document inside a single " +
+  "fenced block that opens with ```document and closes with ```. Outside that block, " +
+  "write only one or two short sentences (a brief intro or closing) — do NOT repeat " +
+  "the document's content outside the block. Use normal ```language fenced blocks only " +
+  "for source code, not for the document.";
+
 // Split an assistant answer into prose + artifacts. Substantial fenced code
 // blocks (≥6 lines or ≥200 chars) become code files (short snippets stay
 // inline). If the user asked for a document (see isDocTask) and the answer is
@@ -142,11 +153,20 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
   let m: RegExpExecArray | null;
   let n = 0;
   while ((m = fence.exec(content)) !== null) {
-    const code = m[2].replace(/\n$/, "");
-    const substantial = code.length >= 200 || code.split("\n").length >= 6;
-    if (!substantial) continue; // leave small snippets inline
+    const body = m[2].replace(/\n$/, "");
     const info = m[1].trim();
     const first = info.split(/\s+/)[0] || "";
+    // A ```document / ```markdown fence = the deliverable document, rendered as
+    // Markdown in the panel whatever its size (the model is told to wrap docs
+    // this way so the chat keeps only the short intro/closing).
+    if (["document", "doc", "md", "markdown"].includes(first.toLowerCase())) {
+      artifacts.push({ kind: "doc", title: "Document", content: body });
+      prose += content.slice(lastIndex, m.index);
+      lastIndex = fence.lastIndex;
+      continue;
+    }
+    const substantial = body.length >= 200 || body.split("\n").length >= 6;
+    if (!substantial) continue; // leave small snippets inline
     let lang = first;
     let title = "";
     if (first.includes(".")) { title = first; lang = first.split(".").pop() || ""; }
@@ -154,7 +174,7 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
     if (named) title = named[1];
     n += 1;
     if (!title) title = lang ? `${lang} · ${n}` : `file ${n}`;
-    artifacts.push({ kind: "code", title, lang: lang || "text", content: code });
+    artifacts.push({ kind: "code", title, lang: lang || "text", content: body });
     prose += content.slice(lastIndex, m.index);
     lastIndex = fence.lastIndex;
   }
@@ -327,6 +347,14 @@ export default function PlaygroundPage() {
       });
     };
 
+    // For a document request, steer the model to wrap the document in a
+    // ```document fence (see DOC_INSTRUCTION) so the chat keeps only the short
+    // message and the panel holds the document.
+    const lastUserContent = [...nextMessages].reverse().find((mm) => mm.role === "user")?.content ?? "";
+    const effSettings = isDocTask(lastUserContent)
+      ? { ...settings, system: (settings.system ? settings.system + "\n\n" : "") + DOC_INSTRUCTION }
+      : settings;
+
     let isError = false;
     let wasAborted = false;
     try {
@@ -334,7 +362,7 @@ export default function PlaygroundPage() {
         csrf,
         model,
         nextMessages.map((m) => ({ role: m.role, content: m.content })),
-        settings,
+        effSettings,
         controller.signal,
         (delta) => {
           if (delta.usage) usage = delta.usage;
@@ -677,7 +705,12 @@ export default function PlaygroundPage() {
                   // documents) so they get a card in the bubble + the copyable panel.
                   const arts = m.role === "assistant" && !streamingThis ? parseArtifacts(m.content, isDocTask(messages[i - 1]?.content ?? "")) : null;
                   const items = arts?.artifacts ?? [];
-                  const bodyText = items.length ? arts!.prose : m.content;
+                  // When the model puts everything in the artifact and writes nothing
+                  // outside, still show a short line in the chat (not an empty bubble).
+                  const emptyMsg = items.some((a) => a.kind === "doc")
+                    ? t("Voici le document — ouvre-le pour le lire ou le copier.")
+                    : t("Voici le fichier — ouvre-le pour le copier.");
+                  const bodyText = items.length ? (arts!.prose.trim() || emptyMsg) : m.content;
                   return (
                   <ChatMessage key={i} sender={m.role}>
                     <ChatMessageBubble

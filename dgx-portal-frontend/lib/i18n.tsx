@@ -432,6 +432,8 @@ const EN: Record<string, string> = {
   "Redimensionner le document": "Resize the document",
   "Ouvrir le fichier": "Open file",
   "Ouvrir le document": "Open document",
+  "Voici le document — ouvre-le pour le lire ou le copier.": "Here's the document — open it to read or copy it.",
+  "Voici le fichier — ouvre-le pour le copier.": "Here's the file — open it to copy it.",
   "Ouvrir et copier dans le volet": "Open and copy in the panel",
   "Fichier": "File",
   "Redimensionner le panneau": "Resize the panel",

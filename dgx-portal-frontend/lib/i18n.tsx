@@ -439,6 +439,7 @@ const EN: Record<string, string> = {
   "Rédaction en cours…": "Writing…",
   "Ouvrir le document en cours de rédaction": "Open the document being written",
   "Télécharger": "Download",
+  "Descendre": "Scroll to bottom",
   "Fichier": "File",
   "Redimensionner le panneau": "Resize the panel",
   "Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.":

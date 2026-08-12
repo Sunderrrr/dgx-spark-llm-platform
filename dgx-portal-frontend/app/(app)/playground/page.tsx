@@ -111,41 +111,35 @@ type Artifact =
   | { kind: "code"; title: string; lang: string; content: string }
   | { kind: "doc"; title: string; content: string };
 
-// Threshold above which the leftover prose is treated as a copyable document.
-const DOC_MIN_CHARS = 900;
+// Below this length a document-task answer is probably a clarifying question →
+// keep it inline rather than filing it as a document.
+const DOC_MIN_CHARS = 400;
 
 // Whether the user's request is a "document" task (correct / rewrite / reformat /
-// draft…). Only then does a long answer become a side "document" — otherwise a
-// normal long explanation would wrongly be shoved into the panel. Accent- and
-// language-insensitive (matches FR + EN).
+// draft / "make a document/report/note…"). Only then is the answer treated as a
+// document. Accent- and language-insensitive (FR + EN). Plain "explain"/"summarize"
+// stays inline.
 function isDocTask(prompt: string): boolean {
   const p = prompt.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   // (a) Correction / rewrite / reformat tasks.
   if (/(corrig|reformul|reecri|reecrire|redig|remet(s)? en forme|met(s)? en forme|mise en forme|orthograph|\brelis\b|relire|proofread|rewrite|re-?format|rephrase|\bcorrect\b|clean ?up|\bedit this\b|\bfix the\b)/.test(p)) return true;
-  // (b) "Produce a document / report / note / letter / …" requests: a create verb
-  //     near a document noun (FR + EN). Plain "explain"/"summarize" stays inline.
+  // (b) "Produce a document / report / note / letter / …": a create verb near a doc noun.
   if (/(fais|fait|faire|cree|creer|genere|generer|ecri|redig|prepar|make|create|write|draft|produce|compose|generate|prepare)[\s\S]{0,30}(document|rapport|report|\bnote\b|compte[- ]?rendu|fiche|guide|essai|essay|lettre|letter|courriel|e-?mail|\bmail\b|article|synthese|memo|dossier|cahier|resume)/.test(p)) return true;
   return false;
 }
 
-// Appended to the system prompt for document requests: the model wraps the full
-// document in a ```document fence and writes only a short sentence outside, so
-// the chat keeps the intro/closing and the side panel holds the document itself.
-const DOC_INSTRUCTION =
-  "Formatting rule for this reply: the user is asking for a document (a document, " +
-  "report, note, letter, essay or similar). Put the ENTIRE document inside a single " +
-  "fenced block that opens with ```document and closes with ```. Outside that block, " +
-  "write only one or two short sentences (a brief intro or closing) — do NOT repeat " +
-  "the document's content outside the block. Use normal ```language fenced blocks only " +
-  "for source code, not for the document.";
-
-// Split an assistant answer into prose + artifacts. Substantial fenced code
-// blocks (≥6 lines or ≥200 chars) become code files (short snippets stay
-// inline). If the user asked for a document (see isDocTask) and the answer is
-// long, it also becomes a "document" artifact so it can be read wide and copied
-// from the side panel. `allowDoc` gates that so ordinary long answers stay in the
-// chat.
+// Turn an assistant answer into prose (chat) + artifacts (side panel).
+// Deterministic — no reliance on the model's own formatting:
+//  - Document task with a substantial answer → the WHOLE answer is ONE document
+//    artifact; the chat shows only a short line + a card (no duplication, no
+//    stray code-block cards for tables/ascii inside the document).
+//  - Otherwise → substantial fenced code blocks become file artifacts, the rest
+//    of the prose stays inline.
 function parseArtifacts(content: string, allowDoc: boolean): { prose: string; artifacts: Artifact[] } {
+  const text = content.trim();
+  if (allowDoc && text.length >= DOC_MIN_CHARS) {
+    return { prose: "", artifacts: [{ kind: "doc", title: "Document", content: text }] };
+  }
   const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
   const artifacts: Artifact[] = [];
   let prose = "";
@@ -154,19 +148,10 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
   let n = 0;
   while ((m = fence.exec(content)) !== null) {
     const body = m[2].replace(/\n$/, "");
-    const info = m[1].trim();
-    const first = info.split(/\s+/)[0] || "";
-    // A ```document / ```markdown fence = the deliverable document, rendered as
-    // Markdown in the panel whatever its size (the model is told to wrap docs
-    // this way so the chat keeps only the short intro/closing).
-    if (["document", "doc", "md", "markdown"].includes(first.toLowerCase())) {
-      artifacts.push({ kind: "doc", title: "Document", content: body });
-      prose += content.slice(lastIndex, m.index);
-      lastIndex = fence.lastIndex;
-      continue;
-    }
     const substantial = body.length >= 200 || body.split("\n").length >= 6;
     if (!substantial) continue; // leave small snippets inline
+    const info = m[1].trim();
+    const first = info.split(/\s+/)[0] || "";
     let lang = first;
     let title = "";
     if (first.includes(".")) { title = first; lang = first.split(".").pop() || ""; }
@@ -179,11 +164,7 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
     lastIndex = fence.lastIndex;
   }
   prose += content.slice(lastIndex);
-  prose = prose.trim();
-  if (allowDoc && prose.length >= DOC_MIN_CHARS) {
-    artifacts.push({ kind: "doc", title: "Document", content: prose });
-  }
-  return { prose, artifacts };
+  return { prose: prose.trim(), artifacts };
 }
 
 function estimateTokens(
@@ -347,14 +328,6 @@ export default function PlaygroundPage() {
       });
     };
 
-    // For a document request, steer the model to wrap the document in a
-    // ```document fence (see DOC_INSTRUCTION) so the chat keeps only the short
-    // message and the panel holds the document.
-    const lastUserContent = [...nextMessages].reverse().find((mm) => mm.role === "user")?.content ?? "";
-    const effSettings = isDocTask(lastUserContent)
-      ? { ...settings, system: (settings.system ? settings.system + "\n\n" : "") + DOC_INSTRUCTION }
-      : settings;
-
     let isError = false;
     let wasAborted = false;
     try {
@@ -362,7 +335,7 @@ export default function PlaygroundPage() {
         csrf,
         model,
         nextMessages.map((m) => ({ role: m.role, content: m.content })),
-        effSettings,
+        settings,
         controller.signal,
         (delta) => {
           if (delta.usage) usage = delta.usage;

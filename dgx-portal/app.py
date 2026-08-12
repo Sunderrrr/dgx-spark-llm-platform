@@ -3382,6 +3382,13 @@ def support_chat():
                                    done=False)
             yield "data: [DONE]\n\n"
 
+    def gen():
+        _rid = _inflight_start(username)   # live "who's using the model" — support uses the master key, so SpendLogs never attributes it
+        try:
+            yield from _gen_inner()
+        finally:
+            _inflight_end(_rid)
+
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
@@ -3488,13 +3495,6 @@ def playground_chat():
             yield _sse_msg("⚠ stream interrupted.")
         finally:
             _inflight_end(_rid)   # runs on completion, error, or client disconnect (GeneratorExit)
-
-    def gen():
-        _rid = _inflight_start(username)   # live "who's using the model" — support uses the master key, so SpendLogs never attributes it
-        try:
-            yield from _gen_inner()
-        finally:
-            _inflight_end(_rid)
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

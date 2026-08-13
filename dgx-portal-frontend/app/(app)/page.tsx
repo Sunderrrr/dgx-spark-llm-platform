@@ -8,6 +8,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
 import { Button } from "@astryxdesign/core/Button";
+import { useToast } from "@astryxdesign/core/Toast";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Badge } from "@astryxdesign/core/Badge";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
@@ -161,12 +162,34 @@ const buildRequestColumns = (t: (s: string) => string): TableColumn<ModelRequest
 export default function HomePage() {
   const t = useT();
   const { open: openSettings } = useSettingsDialog();
+  const showToast = useToast();
   const [data, setData] = useState<HomeData | null>(null);
   const [who, setWho] = useState<Whoami | null>(null);
 
   useEffect(() => {
     getJSON<HomeData>("/api/home").then(setData);
     getJSON<Whoami>("/api/whoami").then(setWho);
+  }, []);
+
+  // After the Discord OAuth round-trip (or unlink), the backend returns here
+  // with ?discord=… — surface the result and open the settings tab that hosts
+  // the link, then clean the URL so a refresh doesn't replay it.
+  useEffect(() => {
+    const d = new URLSearchParams(window.location.search).get("discord");
+    if (!d) return;
+    if (d === "linked") {
+      showToast({ body: t("Compte Discord lié — tu recevras les annonces en message privé."), type: "info" });
+      openSettings("keys");
+    } else if (d === "unlinked") {
+      showToast({ body: t("Compte Discord délié."), type: "info" });
+    } else if (d === "error") {
+      showToast({ body: t("Discord : échec de la liaison. Réessaie."), type: "error" });
+      openSettings("keys");
+    } else if (d === "unavailable") {
+      showToast({ body: t("La liaison Discord n'est pas configurée."), type: "error" });
+    }
+    window.history.replaceState({}, "", window.location.pathname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
 
   // Poll the dashboard every 8s so server load, running models and active

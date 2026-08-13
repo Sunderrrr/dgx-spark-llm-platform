@@ -29,6 +29,7 @@ import {
 } from "@/lib/integrationSnippets";
 import { useT, useLang } from "@/lib/i18n";
 
+type DiscordStatus = { linkable: boolean; dm_enabled: boolean; linked: boolean; discord_name: string };
 type ApiKey = { key_alias: string; key: string; created_at: string; spend: number };
 type Account = { spend: number; max_budget: number; budget_reset_at: string | null; unlimited: boolean; has_pending: boolean };
 type KeysData = {
@@ -59,6 +60,7 @@ export function KeysContent() {
   const [selectedKey, setSelectedKey] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [tool, setTool] = useState<IntegrationTool>("opencode");
+  const [discord, setDiscord] = useState<DiscordStatus | null>(null);
 
   function refresh() {
     getJSON<KeysData>("/api/keys").then((d) => {
@@ -67,6 +69,7 @@ export function KeysContent() {
       // Default: the virtual "auto-model" (follows the currently-running model).
       if (!selectedModel) setSelectedModel(d.auto_model || d.running_models[0] || "");
     });
+    getJSON<DiscordStatus>("/api/discord/status").then(setDiscord).catch(() => {});
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- should only run on mount
@@ -93,6 +96,13 @@ export function KeysContent() {
     setBudgetReason("");
     setShowBudgetForm(false);
     showToast({ body: t("Demande de tokens envoyée !"), type: "info" });
+    refresh();
+  }
+
+  async function unlinkDiscord() {
+    if (!csrf) return;
+    await postForm("/discord/unlink", csrf, {});
+    showToast({ body: t("Compte Discord délié."), type: "info" });
     refresh();
   }
 
@@ -206,6 +216,34 @@ export function KeysContent() {
               </VStack>
             )}
           </VStack>
+        </Card>
+      )}
+
+      {discord && (discord.linkable || discord.linked) && (
+        <Card>
+          <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
+            <VStack gap={1}>
+              <HStack gap={2} vAlign="center">
+                <Text weight="semibold">{t("Notifications Discord")}</Text>
+                {discord.linked ? <Badge label={t("Lié")} variant="success" /> : null}
+              </HStack>
+              <Text type="supporting" color="secondary">
+                {discord.linked
+                  ? `${t("Compte Discord lié :")} ${discord.discord_name || "—"}`
+                  : t("Lie ton compte Discord pour recevoir les annonces (changement de modèle, maintenance…) en message privé.")}
+              </Text>
+            </VStack>
+            {discord.linked ? (
+              <Button label={t("Délier")} variant="secondary" size="sm" onClick={unlinkDiscord} />
+            ) : (
+              <Button
+                label={t("Lier mon compte Discord")}
+                variant="primary"
+                size="sm"
+                onClick={() => { window.location.href = "/discord/link"; }}
+              />
+            )}
+          </HStack>
         </Card>
       )}
 

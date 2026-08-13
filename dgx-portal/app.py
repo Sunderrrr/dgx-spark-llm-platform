@@ -9,7 +9,7 @@ from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from functools import wraps
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from mcp_client import (validate_mcp_url, list_tools_cached, invalidate_tools as _invalidate_mcp_tools,
@@ -173,6 +173,16 @@ VOICE_URL     = os.environ.get('VOICE_URL', 'http://voice:8004')
 # Transcription (dictation) — same.
 ASR_URL       = os.environ.get('ASR_URL', 'http://asr:8006')
 DISCORD_WH    = os.environ.get('DISCORD_WEBHOOK_URL', '')
+# Discord DM notifications: a bot DMs each user who linked their account (OAuth2
+# "identify") whenever an announcement fires (model change, site announcement,
+# maintenance, new model). The bot token sends DMs; the client id/secret drive
+# the account-linking OAuth flow. All optional — absent → the feature is off.
+DISCORD_BOT_TOKEN     = os.environ.get('DISCORD_BOT_TOKEN', '')
+DISCORD_CLIENT_ID     = os.environ.get('DISCORD_CLIENT_ID', '')
+DISCORD_CLIENT_SECRET = os.environ.get('DISCORD_CLIENT_SECRET', '')
+DISCORD_REDIRECT_URI  = os.environ.get('DISCORD_REDIRECT_URI', '')
+DISCORD_LINK_ENABLED  = bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET)
+DISCORD_API           = 'https://discord.com/api/v10'
 SMTP_HOST     = os.environ.get('SMTP_HOST', '')
 SMTP_PORT     = int(os.environ.get('SMTP_PORT', '587'))
 SMTP_USER     = os.environ.get('SMTP_USER', '')
@@ -338,6 +348,12 @@ def init_db():
         CREATE TABLE IF NOT EXISTS announcement_state (
             username     TEXT PRIMARY KEY,
             last_seen_id INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS discord_links (
+            username     TEXT PRIMARY KEY,
+            discord_id   TEXT NOT NULL,
+            discord_name TEXT DEFAULT '',
+            linked_at    TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS mcp_servers (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -719,6 +735,11 @@ def add_announcement(kind, a='', b=''):
             "INSERT INTO announcements (kind, a, b, created_at) VALUES (?,?,?,?)",
             (kind, a or '', b or '', datetime.now().isoformat()))
         db.commit()
+    except Exception:
+        pass
+    # Also DM the announcement to every user who linked their Discord account.
+    try:
+        _discord_announce(kind, a, b)
     except Exception:
         pass
 
@@ -1569,6 +1590,86 @@ def notify_budget_discord(username, fullname, key_alias, current_budget, reason)
     except Exception:
         pass
 
+# ── Discord DM notifications (announcements → linked users' DMs) ──────────────
+# Distinct from the admin webhook above: here the *bot* sends a private message
+# to each user who opted in by linking their Discord account. A DM needs a mutual
+# guild with the bot and the user's DMs open, so per-user failures are expected
+# and swallowed (best-effort).
+def _discord_bot_headers():
+    return {"Authorization": f"Bot {DISCORD_BOT_TOKEN}", "Content-Type": "application/json"}
+
+def _discord_send_dm(discord_id, content):
+    """Open (or reuse) a DM channel with the user and post one message. Handles a
+    single 429 retry. Returns True on success."""
+    if not DISCORD_BOT_TOKEN:
+        return False
+    try:
+        ch = requests.post(f"{DISCORD_API}/users/@me/channels",
+                           headers=_discord_bot_headers(),
+                           json={"recipient_id": str(discord_id)}, timeout=8)
+        if not ch.ok:
+            return False
+        channel_id = ch.json().get('id')
+        if not channel_id:
+            return False
+        body = {"content": content[:1900]}
+        r = requests.post(f"{DISCORD_API}/channels/{channel_id}/messages",
+                          headers=_discord_bot_headers(), json=body, timeout=8)
+        if r.status_code == 429:
+            try:
+                time.sleep(min(float(r.json().get('retry_after', 1)), 5))
+            except Exception:
+                time.sleep(1)
+            r = requests.post(f"{DISCORD_API}/channels/{channel_id}/messages",
+                              headers=_discord_bot_headers(), json=body, timeout=8)
+        return r.ok
+    except Exception:
+        return False
+
+def discord_broadcast(content):
+    """DM every linked user, in a background thread so the caller (a launch or an
+    announcement) isn't blocked. Throttled to stay under Discord's rate limits."""
+    if not DISCORD_BOT_TOKEN or not content:
+        return
+    if get_setting('discord_dm', '1') != '1':   # admin kill-switch
+        return
+    def _run():
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=5)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT discord_id FROM discord_links").fetchall()
+            conn.close()
+        except Exception:
+            return
+        for row in rows:
+            _discord_send_dm(row['discord_id'], content)
+            time.sleep(0.3)   # gentle: ~3 DMs/s, well under the limit
+    threading.Thread(target=_run, daemon=True).start()
+
+def _discord_announce(kind, a='', b=''):
+    """Format an announcement for Discord (FR) and DM it to linked users. Mirrors
+    the four announcement kinds produced by add_announcement()."""
+    a = a or ''
+    b = b or ''
+    if kind == 'model_launch':
+        txt = f"🤖 **Nouveau modèle actif : {a}**"
+        if b:
+            txt += f"\n_Il remplace {b}._"
+    elif kind == 'model_add':
+        txt = f"✨ **Nouveau modèle disponible : {a}**"
+    elif kind == 'maintenance':
+        txt = ("🛠️ **Maintenance en cours** — le service peut être interrompu un moment."
+               if a == 'on' else
+               "✅ **Fin de maintenance** — le service est rétabli.")
+    elif kind == 'site':
+        txt = f"📣 **{a}**"
+        if b:
+            txt += f"\n{b}"
+    else:
+        return
+    txt += "\n\n— Cronos"
+    discord_broadcast(txt)
+
 def notify_budget_email(username, fullname, key_alias, current_budget, reason):
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
         return
@@ -2023,6 +2124,113 @@ def oauth_callback():
     _record_user_source(username, 'sso', fullname)
     _apply_session(username, fullname, is_admin, via_sso=True)
     return redirect(_safe_next(nxt))
+
+
+# ── Discord account linking (OAuth2 "identify") ──────────────────────────────
+# Opt-in: a logged-in user links their Discord account so the bot can DM them
+# announcements. Manual OAuth2 code flow (requests) — no coupling to the OIDC
+# client above, no gateway bot.
+@app.route('/discord/link')
+@login_required
+def discord_link():
+    if not DISCORD_LINK_ENABLED:
+        flash("La liaison Discord n'est pas configurée.", "danger")
+        return redirect('/?discord=unavailable')
+    state = secrets.token_urlsafe(24)
+    session['discord_oauth_state'] = state
+    redirect_uri = DISCORD_REDIRECT_URI or url_for('discord_callback', _external=True)
+    params = urlencode({
+        'client_id': DISCORD_CLIENT_ID,
+        'redirect_uri': redirect_uri,
+        'response_type': 'code',
+        'scope': 'identify',
+        'state': state,
+        'prompt': 'consent',
+    })
+    return redirect(f"https://discord.com/api/oauth2/authorize?{params}")
+
+
+@app.route('/discord/callback')
+@login_required
+def discord_callback():
+    if not DISCORD_LINK_ENABLED:
+        return redirect('/?discord=unavailable')
+    state = request.args.get('state')
+    if not state or state != session.pop('discord_oauth_state', None):
+        flash("Discord : échec de la vérification. Réessaie.", "danger")
+        return redirect('/?discord=error')
+    code = request.args.get('code')
+    if not code:
+        flash("Discord : autorisation refusée.", "warning")
+        return redirect('/?discord=error')
+    redirect_uri = DISCORD_REDIRECT_URI or url_for('discord_callback', _external=True)
+    try:
+        tok = requests.post(f"{DISCORD_API}/oauth2/token",
+                            data={'client_id': DISCORD_CLIENT_ID,
+                                  'client_secret': DISCORD_CLIENT_SECRET,
+                                  'grant_type': 'authorization_code',
+                                  'code': code,
+                                  'redirect_uri': redirect_uri},
+                            headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                            timeout=8)
+        access = tok.json().get('access_token') if tok.ok else None
+        if not access:
+            raise RuntimeError('token exchange failed')
+        me = requests.get(f"{DISCORD_API}/users/@me",
+                          headers={'Authorization': f'Bearer {access}'}, timeout=8)
+        info = me.json() if me.ok else {}
+        did = info.get('id')
+        dname = info.get('global_name') or info.get('username') or ''
+        if info.get('discriminator') and info.get('discriminator') not in ('0', 0, None):
+            dname = f"{info.get('username', dname)}#{info['discriminator']}"
+        if not did:
+            raise RuntimeError('no user id')
+    except Exception:
+        flash("Discord : échec de la liaison. Réessaie.", "danger")
+        return redirect('/?discord=error')
+    try:
+        db = get_db()
+        db.execute(
+            "INSERT OR REPLACE INTO discord_links (username, discord_id, discord_name, linked_at) VALUES (?,?,?,?)",
+            (session['username'], str(did), dname, datetime.now().isoformat()))
+        db.commit()
+    except Exception:
+        flash("Discord : erreur d'enregistrement de la liaison.", "danger")
+        return redirect('/?discord=error')
+    flash("Compte Discord lié — tu recevras les annonces en message privé.", "success")
+    return redirect('/?discord=linked')
+
+
+@app.route('/discord/unlink', methods=['POST'])
+@login_required
+def discord_unlink():
+    try:
+        db = get_db()
+        db.execute("DELETE FROM discord_links WHERE username=?", (session['username'],))
+        db.commit()
+    except Exception:
+        pass
+    flash("Compte Discord délié.", "success")
+    return redirect('/?discord=unlinked')
+
+
+@app.route('/api/discord/status')
+@login_required
+def api_discord_status():
+    name = None
+    try:
+        db = get_db()
+        row = db.execute("SELECT discord_name FROM discord_links WHERE username=?",
+                         (session['username'],)).fetchone()
+        name = row['discord_name'] if row else None
+    except Exception:
+        pass
+    return jsonify({
+        'linkable': DISCORD_LINK_ENABLED,
+        'dm_enabled': bool(DISCORD_BOT_TOKEN),
+        'linked': name is not None,
+        'discord_name': name or '',
+    })
 
 
 # POST only: on GET, any third-party page could log the user out

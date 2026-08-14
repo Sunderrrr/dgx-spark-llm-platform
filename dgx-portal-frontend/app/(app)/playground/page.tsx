@@ -121,11 +121,16 @@ const DOC_MIN_CHARS = 400;
 // Appended to the system prompt so the model can ask the user one or several
 // multiple-choice clarifying questions (rendered as selectable answers, submitted
 // together) instead of guessing — the same idea as Claude's "ask the user" tool.
-const ASK_INSTRUCTION = `When you need the user to clarify things before you can answer well, you MAY ask one or several multiple-choice questions in a single block instead of guessing. To do so, output a fenced block exactly like this:
+const ASK_INSTRUCTION = `When you need the user to clarify things before you can answer well, ask your questions ONLY as a single fenced block, never as normal text. Output it exactly like this:
 \`\`\`ask
 {"questions": [{"question": "<question 1>", "options": ["<option>", "<option>"]}, {"question": "<question 2>", "options": ["<option>", "<option>", "<option>"]}]}
 \`\`\`
-Rules: 1 to 4 questions, each with 2 to 4 short options written in the user's language; the user answers all of them and submits once, so ask everything you need together in the same block; do NOT add an "Other" option (the interface adds one); put the block on its own with at most one short sentence before it; only ask when it genuinely helps — otherwise just answer normally.`;
+Strict rules:
+- Put ALL the questions and their options INSIDE the block ONLY. Do NOT also write, list, repeat or summarise the questions or options as normal text. Outside the block, write nothing at all (the interface renders the block as an interactive form).
+- 1 to 4 questions, each with 2 to 4 short options written in the user's language.
+- The user answers every question and submits once, so ask everything you need together in the same block.
+- Do NOT add an "Other" option (the interface adds one).
+- Only ask when it genuinely helps — otherwise just answer normally.`;
 
 // One clarifying question + its proposed answers.
 type AskQ = { question: string; options: string[] };
@@ -530,8 +535,10 @@ export default function PlaygroundPage() {
     if (streaming) return;
     const t2 = text.trim();
     if (!t2) return;
+    // `hidden`: the answers go to the model but are not shown in the chat — the
+    // user's choices already live in the (now locked) question card.
     // eslint-disable-next-line react-hooks/purity -- answer() only runs from a handler
-    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: t2, ts: Date.now() }];
+    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: t2, ts: Date.now(), hidden: true }];
     setMessages(nextMessages);
     void runStream(nextMessages);
   }
@@ -809,6 +816,9 @@ export default function PlaygroundPage() {
                 </VStack>
               }>
                 {messages.map((m, i) => {
+                  // Hidden messages (e.g. answers submitted from a question card)
+                  // are sent to the model but never shown in the chat.
+                  if (m.hidden) return null;
                   const isLast = i === messages.length - 1;
                   const streamingThis = streaming && isLast;
                   const isThinking = streamingThis && m.role === "assistant" && !m.content && !m.reasoning;
@@ -831,7 +841,9 @@ export default function PlaygroundPage() {
                   const streamingBody = streamingThis && m.content.includes("```ask")
                     ? m.content.split("```ask")[0]
                     : m.content;
-                  const bodyText = ask ? ask.prose : (items.length ? (arts!.prose.trim() || emptyMsg) : streamingBody);
+                  // When the model asks questions, show ONLY the card — never the
+                  // model's prose (which often repeats the questions/options).
+                  const bodyText = ask ? "" : (items.length ? (arts!.prose.trim() || emptyMsg) : streamingBody);
                   // A document being streamed shows only a live-updating card in
                   // the chat (its raw text streams into the side panel instead).
                   const streamingDoc =

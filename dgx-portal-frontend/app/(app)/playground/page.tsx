@@ -121,16 +121,16 @@ const DOC_MIN_CHARS = 400;
 // Appended to the system prompt so the model can ask the user one or several
 // multiple-choice clarifying questions (rendered as selectable answers, submitted
 // together) instead of guessing — the same idea as Claude's "ask the user" tool.
-const ASK_INSTRUCTION = `When you need the user to clarify things before you can answer well, ask your questions ONLY as a single fenced block, never as normal text. Output it exactly like this:
+const ASK_INSTRUCTION = `When you need the user to clarify things before you can answer well, ask your questions as a single fenced block. Output it exactly like this:
 \`\`\`ask
 {"questions": [{"question": "<question 1>", "options": ["<option>", "<option>"]}, {"question": "<question 2>", "options": ["<option>", "<option>", "<option>"]}]}
 \`\`\`
 Strict rules:
-- Put ALL the questions and their options INSIDE the block ONLY. Do NOT also write, list, repeat or summarise the questions or options as normal text. Outside the block, write nothing at all (the interface renders the block as an interactive form).
-- 1 to 4 questions, each with 2 to 4 short options written in the user's language.
-- The user answers every question and submits once, so ask everything you need together in the same block.
+- Before the block you MAY write ONE short introductory sentence (e.g. "Bien sûr ! Quelques précisions pour bien t'aider :"). Do NOT write the questions or their options as normal text anywhere — they go INSIDE the block ONLY.
+- 1 to 4 questions, each with 2 to 4 short options in the user's language. Ask everything you need in this one block (the user answers them all at once).
 - Do NOT add an "Other" option (the interface adds one).
-- Only ask when it genuinely helps — otherwise just answer normally.`;
+- Ask AT MOST ONCE. As soon as the user has answered, you MUST give your real, complete answer using their choices — NEVER reply with another ask block once they have answered.
+- Only ask when it genuinely helps; otherwise just answer normally.`;
 
 // One clarifying question + its proposed answers.
 type AskQ = { question: string; options: string[] };
@@ -357,11 +357,19 @@ export default function PlaygroundPage() {
     return item.id;
   }
 
+  // Close any open document/file panel — it belongs to the conversation we're
+  // leaving, not the one we're opening.
+  function closeArtifact() {
+    setArtifact(null);
+    setLiveDocOpen(false);
+  }
+
   function newConversation() {
     persist(messages, currentId, model);
     setMessages([]);
     setCurrentId(null);
     setCtxUsed(0);
+    closeArtifact();
   }
 
   function selectConversation(conv: Conversation) {
@@ -370,6 +378,7 @@ export default function PlaygroundPage() {
     setCurrentId(conv.id);
     if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
     setCtxUsed(0);
+    closeArtifact();
   }
 
   function deleteConversation(id: number) {
@@ -427,11 +436,15 @@ export default function PlaygroundPage() {
     let isError = false;
     let wasAborted = false;
     try {
-      // Augment the system prompt with the "ask the user" capability, without
-      // mutating the user's own system setting.
+      // Offer the "ask the user" capability only until the user has answered a
+      // question once (a hidden answer message exists). This stops the model from
+      // looping on more and more questions instead of actually answering.
+      const alreadyAsked = nextMessages.some((mm) => mm.hidden);
       const askSettings = {
         ...settings,
-        system: [settings.system.trim(), ASK_INSTRUCTION].filter(Boolean).join("\n\n"),
+        system: alreadyAsked
+          ? settings.system
+          : [settings.system.trim(), ASK_INSTRUCTION].filter(Boolean).join("\n\n"),
       };
       await streamChat(
         csrf,
@@ -841,9 +854,11 @@ export default function PlaygroundPage() {
                   const streamingBody = streamingThis && m.content.includes("```ask")
                     ? m.content.split("```ask")[0]
                     : m.content;
-                  // When the model asks questions, show ONLY the card — never the
-                  // model's prose (which often repeats the questions/options).
-                  const bodyText = ask ? "" : (items.length ? (arts!.prose.trim() || emptyMsg) : streamingBody);
+                  // With a question card, show only the model's short intro
+                  // sentence (its first line) — never the questions/options text,
+                  // which live in the interactive card.
+                  const askIntro = ask ? (ask.prose.split("\n").map((s) => s.trim()).find(Boolean) ?? "").slice(0, 280) : "";
+                  const bodyText = ask ? askIntro : (items.length ? (arts!.prose.trim() || emptyMsg) : streamingBody);
                   // A document being streamed shows only a live-updating card in
                   // the chat (its raw text streams into the side panel instead).
                   const streamingDoc =

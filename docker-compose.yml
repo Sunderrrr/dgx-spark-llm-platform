@@ -26,6 +26,12 @@ services:
     image: ghcr.io/berriai/litellm@sha256:80ea654c506da9083503d00c1b323b2fecddf17af6add9bf01b2603938e17bd2
     container_name: litellm
     restart: unless-stopped
+    # Durcissement (parité avec dgx-portal/frontend) : LiteLLM est une appli
+    # Python qui n'a besoin d'aucune capability et ne doit pas élever ses privs.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "4001:4001"
     volumes:
@@ -33,6 +39,10 @@ services:
     environment:
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # Coupe l'UI d'admin (/ui, /sso) : elle était publiquement joignable via
+      # api.cronos.website et concentrait toute la master key sur un formulaire
+      # de login exposé. L'admin passe par le portail (dgx-portal), pas cette UI.
+      DISABLE_ADMIN_UI: "True"
       # SSO Authentik (crée une app OIDC "litellm" dans Authentik, scope: openid profile email)
       GENERIC_CLIENT_ID: ${AUTHENTIK_LITELLM_CLIENT_ID}
       GENERIC_CLIENT_SECRET: ${AUTHENTIK_LITELLM_CLIENT_SECRET}

@@ -1139,7 +1139,7 @@ def comfyui_generate(image_bytes, prompt_text, duration_seconds=5):
             graph = json.load(f)
         if not is_t2v:
             graph['137']['inputs']['image'] = uploaded_name
-        graph['138']['inputs']['value'] = prompt_text[:2000]
+        graph['138']['inputs']['value'] = prompt_text[:10000]
         graph['132']['inputs']['value'] = max(2, min(15, float(duration_seconds)))
         graph['129']['inputs']['noise_seed'] = secrets.randbelow(2**32)
         r = requests.post(f"{COMFYUI_URL}/prompt", json={'prompt': graph}, timeout=15)

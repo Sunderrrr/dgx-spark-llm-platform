@@ -63,6 +63,7 @@ import {
   removeConversation,
   migrateLegacyConversations,
 } from "@/lib/conversations";
+import { AskQuestion } from "./_components/AskQuestion";
 import { ContextMeter } from "./_components/ContextMeter";
 import { SettingsPanel } from "./_components/SettingsPanel";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
@@ -116,6 +117,35 @@ type Artifact =
 // Below this length a document-task answer is probably a clarifying question →
 // keep it inline rather than filing it as a document.
 const DOC_MIN_CHARS = 400;
+
+// Appended to the system prompt so the model can ask the user a multiple-choice
+// clarifying question (rendered as clickable answers) instead of guessing —
+// the same idea as Claude's "ask the user" tool.
+const ASK_INSTRUCTION = `When you need the user to clarify something before you can answer well, you MAY ask ONE multiple-choice question instead of guessing. To do so, output a fenced block exactly like this:
+\`\`\`ask
+{"question": "<your question>", "options": ["<option 1>", "<option 2>", "<option 3>"]}
+\`\`\`
+Rules: 2 to 4 short options, written in the user's language; put the block on its own with at most one short sentence before it; do NOT add an "Other" option (the interface adds one); only ask when it genuinely helps — otherwise just answer normally.`;
+
+// A clarifying question the model asked, with its proposed answers.
+type AskBlock = { question: string; options: string[]; prose: string };
+
+// Detect a ```ask {question, options} block in an assistant reply.
+function parseAsk(content: string): AskBlock | null {
+  const m = content.match(/```ask\s*\n([\s\S]*?)```/);
+  if (!m) return null;
+  try {
+    const obj = JSON.parse(m[1].trim());
+    const question = typeof obj.question === "string" ? obj.question.trim() : "";
+    const options = Array.isArray(obj.options)
+      ? obj.options.filter((o: unknown) => typeof o === "string" && o.trim()).map((o: string) => o.trim()).slice(0, 4)
+      : [];
+    if (!question || options.length < 1) return null;
+    return { question, options, prose: content.replace(m[0], "").trim() };
+  } catch {
+    return null;
+  }
+}
 
 // Whether the user's request is a "document" task (correct / rewrite / reformat /
 // draft / "make a document/report/note…"). Only then is the answer treated as a
@@ -381,11 +411,17 @@ export default function PlaygroundPage() {
     let isError = false;
     let wasAborted = false;
     try {
+      // Augment the system prompt with the "ask the user" capability, without
+      // mutating the user's own system setting.
+      const askSettings = {
+        ...settings,
+        system: [settings.system.trim(), ASK_INSTRUCTION].filter(Boolean).join("\n\n"),
+      };
       await streamChat(
         csrf,
         model,
         nextMessages.map((m) => ({ role: m.role, content: m.content })),
-        settings,
+        askSettings,
         controller.signal,
         (delta) => {
           if (delta.usage) usage = delta.usage;
@@ -473,6 +509,18 @@ export default function PlaygroundPage() {
     setMessages(nextMessages);
     setInput("");
     setAttachments([]);
+    void runStream(nextMessages);
+  }
+
+  // Answer a clarifying question the model asked (clicking an option, or the
+  // free-text "Other"): send the chosen answer as a user message and continue.
+  function answer(text: string) {
+    if (streaming) return;
+    const t2 = text.trim();
+    if (!t2) return;
+    // eslint-disable-next-line react-hooks/purity -- answer() only runs from a handler
+    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: t2, ts: Date.now() }];
+    setMessages(nextMessages);
     void runStream(nextMessages);
   }
 
@@ -756,14 +804,22 @@ export default function PlaygroundPage() {
                   const canRegenerateThis = m.role === "assistant" && isLast && !streaming;
                   // Once a reply finishes, detect artifacts (code files / long
                   // documents) so they get a card in the bubble + the copyable panel.
-                  const arts = m.role === "assistant" && !streamingThis ? parseArtifacts(m.content, isDocTask(messages[i - 1]?.content ?? "")) : null;
+                  // A clarifying question the model asked (rendered as clickable
+                  // answers). Takes precedence over document/code artifact detection.
+                  const ask = m.role === "assistant" && !streamingThis ? parseAsk(m.content) : null;
+                  const arts = m.role === "assistant" && !streamingThis && !ask ? parseArtifacts(m.content, isDocTask(messages[i - 1]?.content ?? "")) : null;
                   const items = arts?.artifacts ?? [];
                   // When the model puts everything in the artifact and writes nothing
                   // outside, still show a short line in the chat (not an empty bubble).
                   const emptyMsg = items.some((a) => a.kind === "doc")
                     ? t("Voici le document — ouvre-le pour le lire ou le copier.")
                     : t("Voici le fichier — ouvre-le pour le copier.");
-                  const bodyText = items.length ? (arts!.prose.trim() || emptyMsg) : m.content;
+                  // While streaming, hide a half-written ```ask block (raw JSON) —
+                  // the question UI appears once the block is complete.
+                  const streamingBody = streamingThis && m.content.includes("```ask")
+                    ? m.content.split("```ask")[0]
+                    : m.content;
+                  const bodyText = ask ? ask.prose : (items.length ? (arts!.prose.trim() || emptyMsg) : streamingBody);
                   // A document being streamed shows only a live-updating card in
                   // the chat (its raw text streams into the side panel instead).
                   const streamingDoc =
@@ -837,6 +893,21 @@ export default function PlaygroundPage() {
                             </VStack>
                           </HStack>
                         </ClickableCard>
+                      ) : ask ? (
+                        <VStack gap={2}>
+                          {m.reasoning ? (
+                            <Collapsible trigger={t("Raisonnement")} defaultIsOpen={false}>
+                              <Markdown>{m.reasoning}</Markdown>
+                            </Collapsible>
+                          ) : null}
+                          {bodyText.trim() ? <Markdown>{bodyText}</Markdown> : null}
+                          <AskQuestion
+                            question={ask.question}
+                            options={ask.options}
+                            answered={!isLast}
+                            onAnswer={answer}
+                          />
+                        </VStack>
                       ) : (
                         <VStack gap={2}>
                           {m.reasoning ? (

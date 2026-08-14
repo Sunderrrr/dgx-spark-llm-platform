@@ -409,6 +409,18 @@ def init_db():
             video_type      TEXT,
             created_at      TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS image_jobs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            username        TEXT NOT NULL,
+            prompt_id       TEXT NOT NULL,
+            prompt          TEXT NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            image_path      TEXT,
+            image_subfolder TEXT,
+            image_type      TEXT,
+            duration_ms     INTEGER,
+            created_at      TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS ocr_jobs (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             username   TEXT NOT NULL,
@@ -2367,6 +2379,8 @@ def _index_data():
     if comfyui_is_up():
         running.append({'name': 'MiniMax-H3', 'kind': 'video', 'exposed': False})
         metrics['video'] = _sidecar_metrics('video')
+    if comfyui_image_ready():
+        running.append({'name': get_image_model() or 'Image', 'kind': 'image', 'exposed': False})
     voice_model = get_voice_model()
     if voice_model:
         _vlabel = 'Qwen3-TTS' if get_voice_engine() == 'qwen3-tts' else 'Chatterbox'
@@ -5199,6 +5213,166 @@ def video_file(prompt_id):
         abort(502)
     return Response(upstream.iter_content(chunk_size=65536), mimetype='video/mp4',
                     headers={'Content-Disposition': f'inline; filename="{st["video_path"]}"'})
+
+# ── Image generation (ComfyUI text-to-image) ────────────────────────────────
+# Reuses the always-on ComfyUI sidecar (same engine as video). The workflow
+# template + checkpoint are added separately (admin). Until a template exists,
+# generation reports "no image model" while the page/history stay usable — same
+# behaviour as video/OCR when their model is stopped.
+IMAGE_HISTORY_LIMIT = 20
+_IMAGE_T2I_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'workflows', 'image_t2i_template.json')
+
+def comfyui_image_ready():
+    return comfyui_is_up() and os.path.isfile(_IMAGE_T2I_TEMPLATE_PATH)
+
+def get_image_model():
+    """Name of the configured image checkpoint (set by admin when adding one), or
+    None if no image model is set up yet."""
+    return get_setting('image_model') or None
+
+def comfyui_submit_image(prompt_text):
+    """Submit a text-to-image job to ComfyUI. The template carries the
+    placeholders __PROMPT__ and "__SEED__". Returns prompt_id or None."""
+    if not os.path.isfile(_IMAGE_T2I_TEMPLATE_PATH):
+        return None
+    try:
+        with open(_IMAGE_T2I_TEMPLATE_PATH, encoding='utf-8') as f:
+            raw = f.read()
+        raw = raw.replace('__PROMPT__', json.dumps(prompt_text[:10000])[1:-1])
+        raw = raw.replace('"__SEED__"', str(secrets.randbelow(2**32)))
+        graph = json.loads(raw)
+        r = requests.post(f"{COMFYUI_URL}/prompt", json={'prompt': graph}, timeout=15)
+        if r.ok:
+            return r.json().get('prompt_id')
+    except Exception:
+        pass
+    return None
+
+def comfyui_image_status(prompt_id):
+    """Like comfyui_status but for a SaveImage output; scans every output node for
+    an 'images' array (the SaveImage node id depends on the workflow)."""
+    try:
+        r = requests.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=5)
+        if r.ok:
+            hist = r.json()
+            if prompt_id in hist:
+                entry = hist[prompt_id]
+                if entry.get('status', {}).get('status_str') == 'error':
+                    return {'status': 'error', 'image_path': None}
+                for node in (entry.get('outputs', {}) or {}).values():
+                    imgs = node.get('images') or []
+                    if imgs:
+                        im = imgs[0]
+                        return {'status': 'done', 'image_path': im.get('filename'),
+                                'image_subfolder': im.get('subfolder', ''),
+                                'image_type': im.get('type', 'output')}
+                return {'status': 'error', 'image_path': None}
+        rq = requests.get(f"{COMFYUI_URL}/queue", timeout=5)
+        if rq.ok:
+            q = rq.json()
+            if prompt_id in [i[1] for i in q.get('queue_running', [])]:
+                return {'status': 'running', 'image_path': None}
+            if prompt_id in [i[1] for i in q.get('queue_pending', [])]:
+                return {'status': 'pending', 'image_path': None}
+    except Exception:
+        pass
+    return {'status': 'error', 'image_path': None}
+
+
+@app.route('/api/image/generate', methods=['POST'])
+@login_required
+def api_image_generate():
+    blocked = maintenance_block_json()
+    if blocked:
+        return blocked
+    limited = media_rate_block()
+    if limited:
+        return limited
+    prompt_text = request.form.get('prompt', '').strip()
+    if not prompt_text:
+        return jsonify({'error': "Un prompt texte est requis."}), 400
+    if not comfyui_image_ready():
+        return jsonify({'error': "Aucun modèle image configuré."}), 503
+    prompt_id = comfyui_submit_image(prompt_text)
+    if not prompt_id:
+        return jsonify({'error': "ComfyUI inaccessible ou requête refusée."}), 502
+    db = get_db()
+    db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, created_at) VALUES (?,?,?,?)",
+               (session['username'], prompt_id, prompt_text, datetime.now().isoformat()))
+    db.execute("""DELETE FROM image_jobs WHERE username=? AND id NOT IN (
+                     SELECT id FROM image_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
+               (session['username'], session['username'], IMAGE_HISTORY_LIMIT))
+    db.commit()
+    return jsonify({'prompt_id': prompt_id})
+
+
+@app.route('/api/image/history')
+@login_required
+def api_image_history():
+    rows = get_db().execute(
+        "SELECT prompt_id, prompt, status, created_at FROM image_jobs WHERE username=? ORDER BY id DESC",
+        (session['username'],)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/image/status/<prompt_id>')
+@login_required
+def api_image_status(prompt_id):
+    owned = get_db().execute(
+        "SELECT 1 FROM image_jobs WHERE prompt_id=? AND username=?",
+        (prompt_id, session['username'])).fetchone()
+    if not owned:
+        abort(404)
+    st = comfyui_image_status(prompt_id)
+    if st['status'] in ('done', 'error'):
+        get_db().execute(
+            "UPDATE image_jobs SET status=?, image_path=?, image_subfolder=?, image_type=? "
+            "WHERE prompt_id=? AND username=?",
+            (st['status'], st.get('image_path'), st.get('image_subfolder'), st.get('image_type'),
+             prompt_id, session['username']))
+        if st['status'] == 'done':
+            row = get_db().execute(
+                "SELECT created_at, duration_ms FROM image_jobs WHERE prompt_id=? AND username=?",
+                (prompt_id, session['username'])).fetchone()
+            if row and row['duration_ms'] is None and row['created_at']:
+                try:
+                    dur = int((datetime.now() - datetime.fromisoformat(row['created_at'])).total_seconds() * 1000)
+                    if 0 < dur < 3600000:
+                        get_db().execute(
+                            "UPDATE image_jobs SET duration_ms=? WHERE prompt_id=? AND username=? AND duration_ms IS NULL",
+                            (dur, prompt_id, session['username']))
+                except Exception:
+                    pass
+        get_db().commit()
+    return jsonify(st)
+
+
+@app.route('/image/file/<prompt_id>')
+@login_required
+def image_file(prompt_id):
+    owned = get_db().execute(
+        "SELECT image_path, image_subfolder, image_type FROM image_jobs WHERE prompt_id=? AND username=?",
+        (prompt_id, session['username'])).fetchone()
+    if not owned:
+        abort(404)
+    # Serve from ComfyUI's output dir on disk (read-only mount) — works with the
+    # ComfyUI process stopped, and covers past images.
+    if owned['image_path']:
+        disk = _comfyui_output_file(owned['image_path'], owned['image_subfolder'] or '')
+        if disk:
+            return send_file(disk)
+        vp, sf, ty = owned['image_path'], owned['image_subfolder'] or '', owned['image_type'] or 'output'
+    else:
+        st = comfyui_image_status(prompt_id)
+        if st['status'] != 'done' or not st.get('image_path'):
+            abort(404)
+        vp, sf, ty = st['image_path'], st.get('image_subfolder', ''), st.get('image_type', 'output')
+    upstream = comfyui_fetch_video(vp, sf, ty)
+    if upstream is None:
+        abort(502)
+    return Response(upstream.iter_content(chunk_size=65536),
+                    mimetype=upstream.headers.get('Content-Type', 'image/png'))
+
 
 # ── OCR (baidu/Unlimited-OCR) ────────────────────────────────────────────────
 OCR_IMAGES_DIR = '/app/data/ocr_images'

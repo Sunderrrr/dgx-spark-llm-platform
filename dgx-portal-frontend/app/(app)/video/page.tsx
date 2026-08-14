@@ -187,7 +187,7 @@ export default function VideoPage() {
                   value={prompt}
                   onChange={setPrompt}
                   placeholder={t("Ex : un ballon rouge qui rebondit sur un sol blanc, caméra fixe.")}
-                  maxLength={2000}
+                  maxLength={10000}
                   isDisabled={isBusy}
                   isRequired
                 />

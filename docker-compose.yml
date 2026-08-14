@@ -131,6 +131,9 @@ services:
       SESSION_COOKIE_SECURE: "1"
     volumes:
       - portal_data:/app/data
+      # ComfyUI's video output, read-only: lets the portal serve past videos
+      # from disk even when the video sidecar (ComfyUI) is stopped to free the GPU.
+      - /root/ComfyUI/output:/comfyui-output:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

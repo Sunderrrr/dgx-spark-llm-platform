@@ -447,6 +447,7 @@ const EN: Record<string, string> = {
   "Question": "Question",
   "Suivant": "Next",
   "Précédent": "Previous",
+  "Réponses envoyées": "Answers sent",
   "Notifications Discord": "Discord notifications",
   "Lié": "Linked",
   "Compte Discord lié :": "Discord account linked:",

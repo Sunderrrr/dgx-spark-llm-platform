@@ -1,0 +1,240 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Text } from "@astryxdesign/core/Text";
+import { Card } from "@astryxdesign/core/Card";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { Button } from "@astryxdesign/core/Button";
+import { AspectRatio } from "@astryxdesign/core/AspectRatio";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Item } from "@astryxdesign/core/Item";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { Icon } from "@astryxdesign/core/Icon";
+import { useToast } from "@astryxdesign/core/Toast";
+import { PhotoIcon, MoonIcon } from "@heroicons/react/24/outline";
+import { useCsrf } from "@/lib/useCsrf";
+import { postFormData } from "@/lib/api";
+import { useT } from "@/lib/i18n";
+import { useDictation } from "@/lib/useDictation";
+import { DictateButton } from "../_components/DictateButton";
+
+type JobStatus = "idle" | "pending" | "running" | "done" | "error";
+type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string };
+type RunningModel = { name: string; kind: string; exposed: boolean };
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "En file d'attente…",
+  running: "Génération en cours…",
+  done: "Image prête.",
+  error: "Échec de la génération.",
+};
+const STATUS_SHORT: Record<string, string> = {
+  pending: "En attente",
+  running: "En cours",
+  done: "Terminé",
+  error: "Erreur",
+};
+
+export default function ImagePage() {
+  const t = useT();
+  const csrf = useCsrf();
+  const showToast = useToast();
+  const [prompt, setPrompt] = useState("");
+  const [status, setStatus] = useState<JobStatus>("idle");
+  const [promptId, setPromptId] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [available, setAvailable] = useState<boolean | null>(null);
+  const dictation = useDictation({ value: prompt, onChange: setPrompt, csrf });
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  function loadHistory() {
+    fetch("/api/image/history", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setHistory)
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    loadHistory();
+    return stopPolling;
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/home", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setAvailable(!!d?.running_models?.some((m: RunningModel) => m.kind === "image")))
+      .catch(() => setAvailable(null));
+  }, []);
+
+  async function generate() {
+    if (!prompt.trim()) return;
+    setStatus("pending");
+    setPromptId(null);
+    try {
+      const res = await postFormData<{ prompt_id?: string; error?: string }>(
+        "/api/image/generate",
+        csrf,
+        { prompt },
+      );
+      if (!res.prompt_id) {
+        showToast({ body: res.error ? t(res.error) : t("Échec de la génération."), type: "error" });
+        setStatus("error");
+        return;
+      }
+      setPromptId(res.prompt_id);
+      loadHistory();
+      pollRef.current = setInterval(async () => {
+        const r = await fetch(`/api/image/status/${res.prompt_id}`, { credentials: "include" });
+        const st = await r.json();
+        if (st.status === "done" || st.status === "error") {
+          stopPolling();
+          setStatus(st.status);
+          loadHistory();
+          if (st.status === "error") showToast({ body: t("La génération a échoué."), type: "error" });
+        } else {
+          setStatus(st.status);
+        }
+      }, 3000);
+    } catch {
+      setStatus("error");
+      showToast({ body: t("ComfyUI injoignable."), type: "error" });
+    }
+  }
+
+  function viewHistoryItem(item: HistoryItem) {
+    stopPolling();
+    setPromptId(item.prompt_id);
+    setStatus(item.status as JobStatus);
+  }
+
+  const isBusy = status === "pending" || status === "running";
+
+  return (
+    <Layout
+      height="fill"
+      content={
+        <LayoutContent padding={6} isScrollable>
+          {available === false && history.length === 0 ? (
+            <EmptyState
+              icon={<Icon icon={MoonIcon} size="lg" />}
+              title={t("Aucun modèle image n'est disponible")}
+              description={t("Demande à un admin d'ajouter un modèle image pour utiliser cette page.")}
+            />
+          ) : (
+            <VStack hAlign="center" width="100%">
+              <VStack gap={5} maxWidth={720} width="100%">
+                <VStack gap={1}>
+                  <Heading level={1}>{t("Génération d'image")}</Heading>
+                  <Text type="supporting" color="secondary">
+                    {t("Une description → une image générée localement sur le GPU.")}
+                  </Text>
+                </VStack>
+
+                {available === false ? (
+                  <Card>
+                    <HStack gap={3} vAlign="center">
+                      <Icon icon={MoonIcon} size="md" color="secondary" />
+                      <VStack gap={0}>
+                        <Text weight="semibold">{t("Aucun modèle image chargé")}</Text>
+                        <Text type="supporting" color="secondary">
+                          {t("La génération est indisponible pour l'instant, mais tu peux revoir tes images précédentes ci-dessous.")}
+                        </Text>
+                      </VStack>
+                    </HStack>
+                  </Card>
+                ) : (
+                  <Card>
+                    <VStack gap={4}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <Text type="supporting" color="secondary">{t("Décris l'image")}</Text>
+                        <DictateButton dictation={dictation} isDisabled={isBusy} />
+                      </HStack>
+                      <TextArea
+                        label={t("Décris l'image")}
+                        isLabelHidden
+                        value={prompt}
+                        onChange={setPrompt}
+                        placeholder={t("Ex : un renard roux dans la neige, style photo réaliste, lumière douce.")}
+                        maxLength={10000}
+                        isDisabled={isBusy}
+                        isRequired
+                      />
+                      <Button
+                        label={t("Générer")}
+                        variant="primary"
+                        onClick={generate}
+                        isDisabled={!prompt.trim() || isBusy}
+                        isLoading={isBusy}
+                      />
+                    </VStack>
+                  </Card>
+                )}
+
+                {status !== "idle" && (
+                  <Card>
+                    <VStack gap={4}>
+                      <StatusDot
+                        variant={status === "done" ? "success" : status === "error" ? "error" : "accent"}
+                        label={t(STATUS_LABEL[status] ?? status)}
+                      />
+                      {isBusy && (
+                        <AspectRatio ratio={1} fit="contain">
+                          <VStack className="video-generating" height="100%" width="100%" hAlign="center" vAlign="center" gap={2}>
+                            <Icon icon={PhotoIcon} size="lg" color="secondary" />
+                          </VStack>
+                        </AspectRatio>
+                      )}
+                      {status === "done" && promptId && (
+                        <AspectRatio ratio={1} fit="contain">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={`/image/file/${promptId}`} alt={prompt} />
+                        </AspectRatio>
+                      )}
+                    </VStack>
+                  </Card>
+                )}
+
+                {history.length > 0 && (
+                  <VStack gap={2}>
+                    <Text type="supporting" color="secondary">
+                      {t("Historique")} ({history.length})
+                    </Text>
+                    <VStack gap={0}>
+                      {history.map((h) => (
+                        <Item
+                          key={h.prompt_id}
+                          label={h.prompt}
+                          labelLines={1}
+                          description={new Date(h.created_at).toLocaleString("fr-FR")}
+                          startContent={<PhotoIcon width={20} height={20} />}
+                          endContent={
+                            <StatusDot
+                              variant={h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"}
+                              label={t(STATUS_SHORT[h.status] ?? h.status)}
+                            />
+                          }
+                          onClick={() => viewHistoryItem(h)}
+                          isSelected={h.prompt_id === promptId}
+                        />
+                      ))}
+                    </VStack>
+                  </VStack>
+                )}
+              </VStack>
+            </VStack>
+          )}
+        </LayoutContent>
+      }
+    />
+  );
+}

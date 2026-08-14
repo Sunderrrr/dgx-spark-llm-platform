@@ -443,6 +443,7 @@ const EN: Record<string, string> = {
   "Autre…": "Other…",
   "Ta réponse": "Your answer",
   "Ta réponse…": "Your answer…",
+  "Envoyer les réponses": "Send answers",
   "Notifications Discord": "Discord notifications",
   "Lié": "Linked",
   "Compte Discord lié :": "Discord account linked:",

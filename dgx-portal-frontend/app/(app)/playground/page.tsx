@@ -118,30 +118,40 @@ type Artifact =
 // keep it inline rather than filing it as a document.
 const DOC_MIN_CHARS = 400;
 
-// Appended to the system prompt so the model can ask the user a multiple-choice
-// clarifying question (rendered as clickable answers) instead of guessing —
-// the same idea as Claude's "ask the user" tool.
-const ASK_INSTRUCTION = `When you need the user to clarify something before you can answer well, you MAY ask ONE multiple-choice question instead of guessing. To do so, output a fenced block exactly like this:
+// Appended to the system prompt so the model can ask the user one or several
+// multiple-choice clarifying questions (rendered as selectable answers, submitted
+// together) instead of guessing — the same idea as Claude's "ask the user" tool.
+const ASK_INSTRUCTION = `When you need the user to clarify things before you can answer well, you MAY ask one or several multiple-choice questions in a single block instead of guessing. To do so, output a fenced block exactly like this:
 \`\`\`ask
-{"question": "<your question>", "options": ["<option 1>", "<option 2>", "<option 3>"]}
+{"questions": [{"question": "<question 1>", "options": ["<option>", "<option>"]}, {"question": "<question 2>", "options": ["<option>", "<option>", "<option>"]}]}
 \`\`\`
-Rules: 2 to 4 short options, written in the user's language; put the block on its own with at most one short sentence before it; do NOT add an "Other" option (the interface adds one); only ask when it genuinely helps — otherwise just answer normally.`;
+Rules: 1 to 4 questions, each with 2 to 4 short options written in the user's language; the user answers all of them and submits once, so ask everything you need together in the same block; do NOT add an "Other" option (the interface adds one); put the block on its own with at most one short sentence before it; only ask when it genuinely helps — otherwise just answer normally.`;
 
-// A clarifying question the model asked, with its proposed answers.
-type AskBlock = { question: string; options: string[]; prose: string };
+// One clarifying question + its proposed answers.
+type AskQ = { question: string; options: string[] };
+// A model's clarifying block: one or more questions, plus any prose around it.
+type AskBlock = { questions: AskQ[]; prose: string };
 
-// Detect a ```ask {question, options} block in an assistant reply.
+// Detect a ```ask block. Accepts {questions:[…]} and the legacy {question,options}.
 function parseAsk(content: string): AskBlock | null {
   const m = content.match(/```ask\s*\n([\s\S]*?)```/);
   if (!m) return null;
   try {
     const obj = JSON.parse(m[1].trim());
-    const question = typeof obj.question === "string" ? obj.question.trim() : "";
-    const options = Array.isArray(obj.options)
-      ? obj.options.filter((o: unknown) => typeof o === "string" && o.trim()).map((o: string) => o.trim()).slice(0, 4)
-      : [];
-    if (!question || options.length < 1) return null;
-    return { question, options, prose: content.replace(m[0], "").trim() };
+    const raw: unknown[] = Array.isArray(obj.questions) ? obj.questions : (obj.question ? [obj] : []);
+    const questions: AskQ[] = raw
+      .map((q) => {
+        const qq = q as { question?: unknown; options?: unknown };
+        const question = typeof qq.question === "string" ? qq.question.trim() : "";
+        const options = Array.isArray(qq.options)
+          ? qq.options.filter((o: unknown) => typeof o === "string" && o.trim()).map((o: string) => o.trim()).slice(0, 4)
+          : [];
+        return { question, options };
+      })
+      .filter((q) => q.question && q.options.length >= 1)
+      .slice(0, 4);
+    if (!questions.length) return null;
+    return { questions, prose: content.replace(m[0], "").trim() };
   } catch {
     return null;
   }
@@ -224,6 +234,7 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
     if (!substantial) continue; // leave small snippets inline
     const info = m[1].trim();
     const first = info.split(/\s+/)[0] || "";
+    if (first === "ask") continue; // handled by parseAsk, never a file artifact
     let lang = first;
     let title = "";
     if (first.includes(".")) { title = first; lang = first.split(".").pop() || ""; }
@@ -471,7 +482,8 @@ export default function PlaygroundPage() {
     // If the assistant wrote a file, or wrote a document in reply to a document
     // task, surface the last one in the side panel automatically.
     const lastUser = [...nextMessages].reverse().find((mm) => mm.role === "user");
-    const produced = parseArtifacts(acc, isDocTask(lastUser?.content ?? "")).artifacts;
+    // A clarifying question is never a document/file artifact — leave the panel closed.
+    const produced = parseAsk(acc) ? [] : parseArtifacts(acc, isDocTask(lastUser?.content ?? "")).artifacts;
     if (produced.length) {
       const lastArt = produced[produced.length - 1];
       // A code file opens on its own; a document opens automatically only if the
@@ -902,10 +914,15 @@ export default function PlaygroundPage() {
                           ) : null}
                           {bodyText.trim() ? <Markdown>{bodyText}</Markdown> : null}
                           <AskQuestion
-                            question={ask.question}
-                            options={ask.options}
+                            questions={ask.questions}
                             answered={!isLast}
-                            onAnswer={answer}
+                            onSubmit={(ans) =>
+                              answer(
+                                ask.questions.length === 1
+                                  ? ans[0]
+                                  : ask.questions.map((q, k) => `${q.question}\n→ ${ans[k]}`).join("\n\n"),
+                              )
+                            }
                           />
                         </VStack>
                       ) : (

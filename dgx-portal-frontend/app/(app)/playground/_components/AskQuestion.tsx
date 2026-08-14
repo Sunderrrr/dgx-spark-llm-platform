@@ -55,21 +55,15 @@ export function AskQuestion({
     setChosen((a) => set(a, step, null));
   };
 
-  // Read-only recap once submitted.
+  // Once submitted, just confirm — the answers are sent to the model but not
+  // echoed in the chat (the user doesn't want to see them).
   if (answered) {
     return (
       <Card>
-        <VStack gap={3}>
-          {questions.map((q, i) => (
-            <VStack key={i} gap={0}>
-              <Text type="supporting" color="secondary">{q.question}</Text>
-              <HStack gap={1} vAlign="center">
-                <Icon icon={CheckCircleIcon} size="sm" color="accent" />
-                <Text weight="semibold">{effective(i) || "—"}</Text>
-              </HStack>
-            </VStack>
-          ))}
-        </VStack>
+        <HStack gap={2} vAlign="center">
+          <Icon icon={CheckCircleIcon} size="sm" color="accent" />
+          <Text color="secondary">{t("Réponses envoyées")}</Text>
+        </HStack>
       </Card>
     );
   }

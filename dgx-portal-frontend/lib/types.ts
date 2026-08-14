@@ -10,6 +10,9 @@ export type ChatMsg = {
   ts?: number;
   isError?: boolean;
   attachmentCount?: number;
+  // Sent to the model but not rendered in the chat (e.g. the answers submitted
+  // from a clarifying-question card, which the user doesn't want to see echoed).
+  hidden?: boolean;
 };
 
 export type Attachment = {

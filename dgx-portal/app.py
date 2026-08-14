@@ -1203,6 +1203,20 @@ def comfyui_fetch_video(filename, subfolder='', ftype='output'):
 # video backend is often stopped to free the GPU). ComfyUI's /view only answers
 # while its process is up, so relying on it alone made the history unusable at rest.
 VIDEO_FILES_DIR = '/app/data/video_files'
+# ComfyUI's own output directory, bind-mounted read-only (docker-compose): lets us
+# serve past videos straight from disk when the ComfyUI process is stopped.
+COMFYUI_OUTPUT_DIR = os.environ.get('COMFYUI_OUTPUT_DIR', '/comfyui-output')
+
+def _comfyui_output_file(video_path, subfolder=''):
+    """Resolve a video file inside the mounted ComfyUI output dir, guarding against
+    path traversal. Returns the path if it exists, else None."""
+    if not video_path:
+        return None
+    root = os.path.realpath(COMFYUI_OUTPUT_DIR)
+    cand = os.path.realpath(os.path.join(root, subfolder or '', video_path))
+    if (cand == root or cand.startswith(root + os.sep)) and os.path.isfile(cand):
+        return cand
+    return None
 
 def _local_video_path(prompt_id):
     safe = re.sub(r'[^A-Za-z0-9_-]', '', str(prompt_id))
@@ -5161,7 +5175,14 @@ def video_file(prompt_id):
     local = _local_video_path(prompt_id)
     if local and os.path.isfile(local) and os.path.getsize(local) > 0:
         return send_file(local, mimetype='video/mp4')
-    # 2) Otherwise pull it from ComfyUI (and cache it for next time).
+    # 2) Serve straight from ComfyUI's output dir on disk (read-only mount) — also
+    #    works with the ComfyUI process stopped, and covers videos made before the
+    #    portal-side cache existed.
+    if owned['video_path']:
+        disk = _comfyui_output_file(owned['video_path'], owned['video_subfolder'] or '')
+        if disk:
+            return send_file(disk, mimetype='video/mp4')
+    # 3) Otherwise pull it from ComfyUI over HTTP (and cache it for next time).
     if owned['video_path']:
         st = {'video_path': owned['video_path'], 'video_subfolder': owned['video_subfolder'],
               'video_type': owned['video_type']}

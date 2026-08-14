@@ -31,6 +31,7 @@ import {
   ArrowRightOnRectangleIcon,
   Cog6ToothIcon,
   FilmIcon,
+  PhotoIcon,
   DocumentMagnifyingGlassIcon,
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
@@ -51,6 +52,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Accueil", icon: HomeIcon },
   { href: "/playground", label: "Playground", icon: ChatBubbleLeftRightIcon },
   { href: "/video", label: "Vidéo", icon: FilmIcon },
+  { href: "/image", label: "Image", icon: PhotoIcon },
   { href: "/ocr", label: "OCR", icon: DocumentMagnifyingGlassIcon },
   { href: "/voice", label: "Voix", icon: SpeakerWaveIcon },
   { href: "/search", label: "Chercher un modèle", icon: MagnifyingGlassIcon },

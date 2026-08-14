@@ -1,23 +1,30 @@
 "use client";
 
 import { useState } from "react";
-import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { SelectableCard } from "@astryxdesign/core/SelectableCard";
-import { Divider } from "@astryxdesign/core/Divider";
-import { QuestionMarkCircleIcon, PencilIcon, PaperAirplaneIcon } from "@heroicons/react/24/outline";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import {
+  QuestionMarkCircleIcon,
+  PencilIcon,
+  PaperAirplaneIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CheckCircleIcon,
+} from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 
 type AskQ = { question: string; options: string[] };
 
-// Renders one or several clarifying questions the model asked. Each answer is
-// selectable and changeable (no send on click); a single "Send answers" button
-// submits them all together. Once submitted, `answered` locks the card while
-// keeping the chosen answers visible.
+// The model's clarifying questions, shown one at a time (stepper). Each answer
+// is selectable and changeable; "Previous" goes back to revise; on the last
+// question "Send answers" submits them all at once. Once submitted, `answered`
+// locks the card into a read-only recap of the chosen answers.
 export function AskQuestion({
   questions,
   answered,
@@ -28,75 +35,106 @@ export function AskQuestion({
   onSubmit: (answers: string[]) => void;
 }) {
   const t = useT();
+  const [step, setStep] = useState(0);
   const [chosen, setChosen] = useState<(string | null)[]>(() => questions.map(() => null));
   const [otherOpen, setOtherOpen] = useState<boolean[]>(() => questions.map(() => false));
   const [otherText, setOtherText] = useState<string[]>(() => questions.map(() => ""));
 
   const set = <T,>(arr: T[], i: number, v: T) => arr.map((x, j) => (j === i ? v : x));
   const effective = (i: number) => (otherOpen[i] ? otherText[i].trim() : (chosen[i] ?? ""));
+  const currentAnswered = effective(step) !== "";
   const allAnswered = questions.every((_, i) => effective(i) !== "");
+  const isLast = step === questions.length - 1;
 
-  const pickOption = (qi: number, opt: string) => {
-    setChosen((a) => set(a, qi, opt));
-    setOtherOpen((o) => set(o, qi, false));
+  const pickOption = (opt: string) => {
+    setChosen((a) => set(a, step, opt));
+    setOtherOpen((o) => set(o, step, false));
   };
-  const pickOther = (qi: number) => {
-    setOtherOpen((o) => set(o, qi, true));
-    setChosen((a) => set(a, qi, null));
+  const pickOther = () => {
+    setOtherOpen((o) => set(o, step, true));
+    setChosen((a) => set(a, step, null));
   };
 
+  // Read-only recap once submitted.
+  if (answered) {
+    return (
+      <Card>
+        <VStack gap={3}>
+          {questions.map((q, i) => (
+            <VStack key={i} gap={0}>
+              <Text type="supporting" color="secondary">{q.question}</Text>
+              <HStack gap={1} vAlign="center">
+                <Icon icon={CheckCircleIcon} size="sm" color="accent" />
+                <Text weight="semibold">{effective(i) || "—"}</Text>
+              </HStack>
+            </VStack>
+          ))}
+        </VStack>
+      </Card>
+    );
+  }
+
+  const q = questions[step];
   return (
     <Card>
       <VStack gap={4}>
-        {questions.map((q, qi) => (
-          <VStack key={qi} gap={2}>
-            {qi > 0 ? <Divider /> : null}
-            <HStack gap={2} vAlign="start">
-              <Icon icon={QuestionMarkCircleIcon} size="sm" color="accent" />
-              <Text weight="semibold">{q.question}</Text>
-            </HStack>
-            <VStack gap={2}>
-              {q.options.map((opt, oi) => (
-                <SelectableCard
-                  key={oi}
-                  label={opt}
-                  padding={3}
-                  isDisabled={answered}
-                  isSelected={!otherOpen[qi] && chosen[qi] === opt}
-                  onChange={() => pickOption(qi, opt)}
-                >
-                  <Text>{opt}</Text>
-                </SelectableCard>
-              ))}
-              {otherOpen[qi] ? (
-                <TextInput
-                  label={t("Ta réponse")}
-                  isLabelHidden
-                  value={otherText[qi]}
-                  onChange={(v) => setOtherText((a) => set(a, qi, v))}
-                  placeholder={t("Ta réponse…")}
-                  size="sm"
-                  isDisabled={answered}
-                />
-              ) : (
-                <SelectableCard
-                  label={t("Autre…")}
-                  padding={3}
-                  isDisabled={answered}
-                  isSelected={false}
-                  onChange={() => pickOther(qi)}
-                >
-                  <HStack gap={2} vAlign="center">
-                    <Icon icon={PencilIcon} size="sm" color="secondary" />
-                    <Text color="secondary">{t("Autre…")}</Text>
-                  </HStack>
-                </SelectableCard>
-              )}
-            </VStack>
+        {questions.length > 1 ? (
+          <VStack gap={1}>
+            <Text type="supporting" color="secondary">
+              {t("Question")} {step + 1} / {questions.length}
+            </Text>
+            <ProgressBar label={t("Progression")} isLabelHidden value={((step + 1) / questions.length) * 100} />
           </VStack>
-        ))}
-        {!answered ? (
-          <HStack hAlign="end">
+        ) : null}
+
+        <HStack gap={2} vAlign="start">
+          <Icon icon={QuestionMarkCircleIcon} size="sm" color="accent" />
+          <Text weight="semibold">{q.question}</Text>
+        </HStack>
+
+        <VStack gap={2}>
+          {q.options.map((opt, oi) => (
+            <SelectableCard
+              key={oi}
+              label={opt}
+              padding={3}
+              isSelected={!otherOpen[step] && chosen[step] === opt}
+              onChange={() => pickOption(opt)}
+            >
+              <Text>{opt}</Text>
+            </SelectableCard>
+          ))}
+          {otherOpen[step] ? (
+            <TextInput
+              label={t("Ta réponse")}
+              isLabelHidden
+              value={otherText[step]}
+              onChange={(v) => setOtherText((a) => set(a, step, v))}
+              placeholder={t("Ta réponse…")}
+              size="sm"
+            />
+          ) : (
+            <SelectableCard label={t("Autre…")} padding={3} isSelected={false} onChange={pickOther}>
+              <HStack gap={2} vAlign="center">
+                <Icon icon={PencilIcon} size="sm" color="secondary" />
+                <Text color="secondary">{t("Autre…")}</Text>
+              </HStack>
+            </SelectableCard>
+          )}
+        </VStack>
+
+        <HStack vAlign="center">
+          {step > 0 ? (
+            <Button
+              label={t("Précédent")}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={ChevronLeftIcon} size="sm" />}
+              onClick={() => setStep((s) => s - 1)}
+            />
+          ) : null}
+          <StackItem size="fill" />
+          {isLast ? (
             <Button
               label={t("Envoyer les réponses")}
               variant="primary"
@@ -105,8 +143,17 @@ export function AskQuestion({
               icon={<Icon icon={PaperAirplaneIcon} size="sm" />}
               onClick={() => onSubmit(questions.map((_, i) => effective(i)))}
             />
-          </HStack>
-        ) : null}
+          ) : (
+            <Button
+              label={t("Suivant")}
+              variant="primary"
+              size="sm"
+              isDisabled={!currentAnswered}
+              icon={<Icon icon={ChevronRightIcon} size="sm" />}
+              onClick={() => setStep((s) => s + 1)}
+            />
+          )}
+        </HStack>
       </VStack>
     </Card>
   );

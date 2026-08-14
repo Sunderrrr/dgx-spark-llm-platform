@@ -1,0 +1,21 @@
+[Unit]
+Description=Restrict hawser (port 2376) to the traefik-manager host: 172.16.2.9 (LAN) + 100.73.45.103 (Netbird VPN)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '\
+  for S in 172.16.2.9 100.73.45.103; do \
+    iptables -C DOCKER-USER -s $S/32 -p tcp --dport 2376 -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -s $S/32 -p tcp --dport 2376 -j ACCEPT; \
+  done; \
+  iptables -C DOCKER-USER -p tcp --dport 2376 -j DROP 2>/dev/null || iptables -A DOCKER-USER -p tcp --dport 2376 -j DROP'
+ExecStop=/bin/sh -c '\
+  iptables -D DOCKER-USER -p tcp --dport 2376 -j DROP 2>/dev/null || true; \
+  for S in 172.16.2.9 100.73.45.103; do \
+    iptables -D DOCKER-USER -s $S/32 -p tcp --dport 2376 -j ACCEPT 2>/dev/null || true; \
+  done'
+
+[Install]
+WantedBy=multi-user.target

@@ -28,7 +28,7 @@ import json
 import socket
 import time
 import uuid
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import requests
 
@@ -52,28 +52,71 @@ def _is_blocked_ip(ip_str):
     )
 
 
-def validate_mcp_url(url):
-    """Retourne (ok, message_erreur_ou_None)."""
+def resolve_validated_mcp_ip(url):
+    """Valide l'URL et résout l'hôte **une seule fois**. Retourne
+    (ok, message_erreur_ou_None, ip_à_épingler).
+
+    L'IP renvoyée doit être celle utilisée pour la connexion (cf.
+    `_PinnedIPHTTPSAdapter`) : sans ça, `requests` re-résout le nom au moment de
+    la connexion et un serveur peut répondre une IP publique à cette validation
+    puis `127.0.0.1`/une IP interne à la 2ᵉ résolution (DNS-rebinding / TOCTOU),
+    contournant le filtre.
+    """
     try:
         parsed = urlparse(url)
     except Exception:
-        return False, "URL invalide."
+        return False, "URL invalide.", None
     if parsed.scheme != 'https':
-        return False, "L'URL doit être en https://."
+        return False, "L'URL doit être en https://.", None
     host = parsed.hostname or ''
     if not host:
-        return False, "URL invalide (pas d'hôte)."
+        return False, "URL invalide (pas d'hôte).", None
     if host.lower() in _BLOCKED_HOSTNAMES:
-        return False, "Cet hôte n'est pas autorisé."
+        return False, "Cet hôte n'est pas autorisé.", None
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
-        return False, "Nom d'hôte introuvable."
+        return False, "Nom d'hôte introuvable.", None
+    pinned = None
     for info in infos:
         ip_str = info[4][0]
         if _is_blocked_ip(ip_str):
-            return False, "Cette adresse pointe vers un réseau interne/privé, refusée."
-    return True, None
+            return False, "Cette adresse pointe vers un réseau interne/privé, refusée.", None
+        if pinned is None:
+            pinned = ip_str
+    if pinned is None:
+        return False, "Nom d'hôte introuvable.", None
+    return True, None, pinned
+
+
+def validate_mcp_url(url):
+    """Retourne (ok, message_erreur_ou_None). Pré-contrôle UX ; la connexion
+    réelle passe par resolve_validated_mcp_ip() qui épingle l'IP résolue."""
+    ok, err, _ = resolve_validated_mcp_ip(url)
+    return ok, err
+
+
+class _PinnedIPHTTPSAdapter(requests.adapters.HTTPAdapter):
+    """Force la connexion vers une IP déjà validée, tout en gardant le hostname
+    d'origine pour le SNI et la validation du certificat TLS. C'est ce qui ferme
+    la fenêtre de DNS-rebinding : l'IP vérifiée est exactement celle contactée,
+    sans 2ᵉ résolution DNS."""
+
+    def __init__(self, pinned_ip, **kwargs):
+        self._pinned_ip = pinned_ip
+        super().__init__(**kwargs)
+
+    def send(self, request, **kwargs):
+        parsed = urlparse(request.url)
+        host = parsed.hostname or ''
+        # SNI + validation du cert sur le vrai hostname malgré la connexion par IP.
+        self.poolmanager.connection_pool_kw['server_hostname'] = host
+        self.poolmanager.connection_pool_kw['assert_hostname'] = host
+        ip = f"[{self._pinned_ip}]" if ':' in self._pinned_ip else self._pinned_ip
+        netloc_ip = ip + (f":{parsed.port}" if parsed.port else '')
+        request.headers['Host'] = parsed.netloc
+        request.url = urlunparse(parsed._replace(netloc=netloc_ip))
+        return super().send(request, **kwargs)
 
 
 class MCPError(Exception):
@@ -103,19 +146,30 @@ class MCPClient:
             h['Mcp-Session-Id'] = self._session_id
         return h
 
-    def _rpc(self, method, params=None):
-        ok, err = validate_mcp_url(self.url)
+    def _post(self, **kwargs):
+        """POST vers le serveur MCP en épinglant l'IP validée (anti-rebinding) et
+        en refusant les redirections. Résout+valide l'hôte une seule fois, juste
+        avant de se connecter à cette IP-là."""
+        ok, err, ip = resolve_validated_mcp_ip(self.url)
         if not ok:
             raise MCPError(err)
+        session = requests.Session()
+        session.mount('https://', _PinnedIPHTTPSAdapter(ip))
+        try:
+            return session.post(self.url, headers=self._headers(),
+                                timeout=self.timeout, allow_redirects=False, **kwargs)
+        finally:
+            session.close()
+
+    def _rpc(self, method, params=None):
         payload = {'jsonrpc': '2.0', 'id': str(uuid.uuid4()), 'method': method,
                    'params': params or {}}
         # allow_redirects=False : requests suit les redirections par défaut
-        # SANS revalider l'hôte de destination contre validate_mcp_url —
-        # un serveur passerait la validation puis rediriger vers une IP
-        # interne la contournerait entièrement. On refuse toute redirection
-        # plutôt que de la suivre.
-        r = requests.post(self.url, json=payload, headers=self._headers(),
-                          timeout=self.timeout, allow_redirects=False)
+        # SANS revalider l'hôte de destination — un serveur passerait la
+        # validation puis rediriger vers une IP interne la contournerait. On
+        # refuse toute redirection plutôt que de la suivre. L'IP est en plus
+        # épinglée (cf. _post) pour fermer la fenêtre de DNS-rebinding.
+        r = self._post(json=payload)
         if r.is_redirect or r.status_code in (301, 302, 303, 307, 308):
             raise MCPError("Le serveur MCP a répondu par une redirection, refusée.")
         if r.status_code >= 400:
@@ -154,9 +208,7 @@ class MCPClient:
         # serveurs l'exigent avant d'accepter tools/list. allow_redirects=False
         # pour la même raison que dans _rpc().
         try:
-            requests.post(self.url, headers=self._headers(), timeout=self.timeout,
-                          allow_redirects=False,
-                          json={'jsonrpc': '2.0', 'method': 'notifications/initialized'})
+            self._post(json={'jsonrpc': '2.0', 'method': 'notifications/initialized'})
         except Exception:
             pass
         return result

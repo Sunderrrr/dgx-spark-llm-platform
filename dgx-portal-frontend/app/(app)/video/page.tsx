@@ -134,7 +134,7 @@ export default function VideoPage() {
       height="fill"
       content={
         <LayoutContent padding={6} isScrollable>
-          {available === false ? (
+          {available === false && history.length === 0 ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle vidéo n'est disponible")}
@@ -152,6 +152,19 @@ export default function VideoPage() {
               </Text>
             </VStack>
 
+            {available === false ? (
+              <Card>
+                <HStack gap={3} vAlign="center">
+                  <Icon icon={MoonIcon} size="md" color="secondary" />
+                  <VStack gap={0}>
+                    <Text weight="semibold">{t("Aucun modèle vidéo chargé")}</Text>
+                    <Text type="supporting" color="secondary">
+                      {t("La génération est indisponible pour l'instant, mais tu peux revoir tes vidéos précédentes ci-dessous.")}
+                    </Text>
+                  </VStack>
+                </HStack>
+              </Card>
+            ) : (
             <Card>
               <VStack gap={4}>
                 <FileInput
@@ -194,6 +207,7 @@ export default function VideoPage() {
                 />
               </VStack>
             </Card>
+            )}
 
             {status !== "idle" && (
               <Card>

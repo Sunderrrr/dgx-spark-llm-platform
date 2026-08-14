@@ -1198,6 +1198,51 @@ def comfyui_fetch_video(filename, subfolder='', ftype='output'):
         pass
     return None
 
+# Generated MP4s are cached into the portal's own volume so past videos stay
+# viewable even when the ComfyUI video sidecar is stopped (on unified memory the
+# video backend is often stopped to free the GPU). ComfyUI's /view only answers
+# while its process is up, so relying on it alone made the history unusable at rest.
+VIDEO_FILES_DIR = '/app/data/video_files'
+
+def _local_video_path(prompt_id):
+    safe = re.sub(r'[^A-Za-z0-9_-]', '', str(prompt_id))
+    return os.path.join(VIDEO_FILES_DIR, safe + '.mp4') if safe else None
+
+def _cache_video_local(prompt_id, st):
+    """Download the finished MP4 from ComfyUI into VIDEO_FILES_DIR once, so it can
+    be served from disk later without the sidecar. Best-effort; returns the local
+    path if available."""
+    dest = _local_video_path(prompt_id)
+    if not dest:
+        return None
+    if os.path.isfile(dest) and os.path.getsize(dest) > 0:
+        return dest
+    if not st or not st.get('video_path'):
+        return None
+    tmp = dest + '.part'
+    try:
+        os.makedirs(VIDEO_FILES_DIR, exist_ok=True)
+        upstream = comfyui_fetch_video(st['video_path'], st.get('video_subfolder', ''),
+                                       st.get('video_type', 'output'))
+        if upstream is None:
+            return None
+        with open(tmp, 'wb') as f:
+            for chunk in upstream.iter_content(chunk_size=65536):
+                if chunk:
+                    f.write(chunk)
+        if os.path.getsize(tmp) > 0:
+            os.replace(tmp, dest)
+            return dest
+    except Exception:
+        pass
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+    return None
+
 # ── OCR (baidu/Unlimited-OCR by default; chandra-ocr-2 also supported) ──────
 # Internal container (dedicated ocr_net network, cf. README "Security"), never a
 # published port.
@@ -5092,6 +5137,10 @@ def api_video_status(prompt_id):
                 except Exception:
                     pass
         get_db().commit()
+        # Cache the MP4 to the portal volume while ComfyUI is still up, so it
+        # stays viewable after the video sidecar is stopped.
+        if st['status'] == 'done':
+            _cache_video_local(prompt_id, st)
     return jsonify(st)
 
 @app.route('/video/file/<prompt_id>')
@@ -5108,6 +5157,11 @@ def video_file(prompt_id):
         (prompt_id, session['username'])).fetchone()
     if not owned:
         abort(404)
+    # 1) Serve the locally cached copy first — works even when ComfyUI is stopped.
+    local = _local_video_path(prompt_id)
+    if local and os.path.isfile(local) and os.path.getsize(local) > 0:
+        return send_file(local, mimetype='video/mp4')
+    # 2) Otherwise pull it from ComfyUI (and cache it for next time).
     if owned['video_path']:
         st = {'video_path': owned['video_path'], 'video_subfolder': owned['video_subfolder'],
               'video_type': owned['video_type']}
@@ -5115,6 +5169,9 @@ def video_file(prompt_id):
         st = comfyui_status(prompt_id)
         if st['status'] != 'done' or not st['video_path']:
             abort(404)
+    cached = _cache_video_local(prompt_id, st)
+    if cached:
+        return send_file(cached, mimetype='video/mp4')
     upstream = comfyui_fetch_video(st['video_path'], st.get('video_subfolder', ''),
                                    st.get('video_type', 'output'))
     if upstream is None:

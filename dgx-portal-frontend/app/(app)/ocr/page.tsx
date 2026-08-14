@@ -265,8 +265,8 @@ export default function OcrPage() {
     <Layout
       height="fill"
       content={
-        <LayoutContent padding={6} isScrollable={available === false || isNarrow}>
-          {available === false ? (
+        <LayoutContent padding={6} isScrollable={(available === false && history.length === 0) || isNarrow}>
+          {available === false && history.length === 0 ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle OCR n'est disponible")}
@@ -286,6 +286,19 @@ export default function OcrPage() {
                     </Text>
                   </VStack>
 
+                  {available === false ? (
+                    <Card>
+                      <HStack gap={3} vAlign="center">
+                        <Icon icon={MoonIcon} size="md" color="secondary" />
+                        <VStack gap={0}>
+                          <Text weight="semibold">{t("Aucun modèle OCR chargé")}</Text>
+                          <Text type="supporting" color="secondary">
+                            {t("L'extraction est indisponible pour l'instant, mais tu peux revoir tes extractions précédentes.")}
+                          </Text>
+                        </VStack>
+                      </HStack>
+                    </Card>
+                  ) : (
                   <Card>
                     <VStack gap={4}>
                       {previewUrl ? (
@@ -334,6 +347,7 @@ export default function OcrPage() {
                       />
                     </VStack>
                   </Card>
+                  )}
 
                   {history.length > 0 && (
                     <VStack gap={2}>

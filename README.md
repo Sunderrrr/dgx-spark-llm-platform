@@ -466,6 +466,11 @@ tokens/day, not request rate on a single GPU.
 │   ├── Dockerfile             # same CUDA 13.0 / sm_121 base as the voice sidecars
 │   ├── server.py              # minimal HTTP wrapper (transformers pipeline)
 │   └── asr-recreate.sh        # source of /usr/local/sbin/asr-recreate.sh
+├── ocr/                       # OCR sidecar host wrapper (hardened: cap-drop ALL,
+│   └── ocr-recreate.sh        #   no-new-privileges, dedicated HF cache — trust-remote-code)
+├── image-krea/                # Krea-2 text-to-image sidecar (diffusers)
+│   ├── Dockerfile             # CUDA 13.0 / torch cu130 (GB10), diffusers from git
+│   └── server.py              # FastAPI wrapper, single-GPU serialised generation
 ├── voice-qwen/                # Qwen3-TTS voice-cloning sidecar (default engine)
 │   ├── Dockerfile             # same CUDA 13.0 / sm_121 base; no flash-attn on aarch64
 │   ├── server.py              # minimal HTTP wrapper — upstream ships no server
@@ -477,11 +482,15 @@ tokens/day, not request rate on a single GPU.
 └── systemd/                   # host units (runner, firewalls, comfyui)
 ```
 
-> `/usr/local/sbin/ocr-recreate.sh`, `/usr/local/sbin/voice-recreate.sh` and
-> `/etc/sudoers.d/vllmrunner-services` live outside this repo (host-level,
-> root-owned) — see the OCR/video/voice control note under **Security** above.
-> `voice/voice-recreate.sh` is the tracked copy; install it with
-> `install -o root -g root -m 0755 voice/voice-recreate.sh /usr/local/sbin/`.
+> The `/usr/local/sbin/*-recreate.sh` wrappers and `/etc/sudoers.d/vllmrunner-*`
+> live on the host (root-owned) — see the OCR/video/voice/image control note
+> under **Security** above. Their tracked sources are `ocr/ocr-recreate.sh`,
+> `voice/voice-recreate.sh`, `asr/asr-recreate.sh`, `voice-qwen/voice-qwen-recreate.sh`,
+> `systemd/image-recreate.sh` and `systemd/sudoers.d-vllmrunner-image`; install with
+> e.g. `install -o root -g root -m 0755 ocr/ocr-recreate.sh /usr/local/sbin/`.
+> (`ocr-recreate.sh` is hardened: `--cap-drop ALL --no-new-privileges` and a
+> dedicated HF cache `/root/.cache/huggingface-ocr` isolated from the runner's,
+> since OCR is the only sidecar allowed `--trust-remote-code`.)
 
 ## License
 

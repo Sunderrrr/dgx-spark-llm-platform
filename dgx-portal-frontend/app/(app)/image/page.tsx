@@ -16,7 +16,7 @@ import { Item } from "@astryxdesign/core/Item";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { useToast } from "@astryxdesign/core/Toast";
-import { PhotoIcon, MoonIcon } from "@heroicons/react/24/outline";
+import { PhotoIcon, MoonIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -123,6 +123,18 @@ export default function ImagePage() {
     }
   }
 
+  // Same-origin file → a plain anchor with `download` forces a real save
+  // (Content-Disposition-free) instead of the browser opening it inline.
+  function downloadImage(idx: number) {
+    if (!promptId) return;
+    const a = document.createElement("a");
+    a.href = `/image/file/${promptId}/${idx}`;
+    a.download = `image-${promptId}-${idx + 1}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   function viewHistoryItem(item: HistoryItem) {
     stopPolling();
     setPromptId(item.prompt_id);
@@ -220,23 +232,43 @@ export default function ImagePage() {
                       {promptId && (jobCount > 1 || isBusy) ? (
                         <Grid columns={{ minWidth: 220, max: 2 }} gap={3}>
                           {Array.from({ length: jobCount }).map((_, idx) => (
-                            <AspectRatio key={idx} ratio={1} fit="contain">
-                              {idx < doneCount ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={`/image/file/${promptId}/${idx}`} alt={`${prompt} (${idx + 1})`} />
-                              ) : (
-                                <VStack className="video-generating" height="100%" width="100%" hAlign="center" vAlign="center" gap={2}>
-                                  <Icon icon={PhotoIcon} size="lg" color="secondary" />
-                                </VStack>
+                            <VStack key={idx} gap={2}>
+                              <AspectRatio ratio={1} fit="contain">
+                                {idx < doneCount ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={`/image/file/${promptId}/${idx}`} alt={`${prompt} (${idx + 1})`} />
+                                ) : (
+                                  <VStack className="video-generating" height="100%" width="100%" hAlign="center" vAlign="center" gap={2}>
+                                    <Icon icon={PhotoIcon} size="lg" color="secondary" />
+                                  </VStack>
+                                )}
+                              </AspectRatio>
+                              {idx < doneCount && (
+                                <Button
+                                  label={t("Télécharger")}
+                                  variant="secondary"
+                                  size="sm"
+                                  icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                                  onClick={() => downloadImage(idx)}
+                                />
                               )}
-                            </AspectRatio>
+                            </VStack>
                           ))}
                         </Grid>
                       ) : status === "done" && promptId ? (
-                        <AspectRatio ratio={1} fit="contain">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={`/image/file/${promptId}/0`} alt={prompt} />
-                        </AspectRatio>
+                        <VStack gap={2}>
+                          <AspectRatio ratio={1} fit="contain">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/image/file/${promptId}/0`} alt={prompt} />
+                          </AspectRatio>
+                          <Button
+                            label={t("Télécharger")}
+                            variant="secondary"
+                            size="sm"
+                            icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                            onClick={() => downloadImage(0)}
+                          />
+                        </VStack>
                       ) : (
                         <AspectRatio ratio={1} fit="contain">
                           <VStack className="video-generating" height="100%" width="100%" hAlign="center" vAlign="center" gap={2}>

@@ -3,7 +3,7 @@
 # variant — the README explicitly documents DGX Spark support via this exact
 # base image + requirements file. Source isn't vendored here: cloned at build
 # time from the pinned release tag below.
-FROM docker.io/nvidia/cuda:13.0.3-runtime-ubuntu22.04
+FROM docker.io/nvidia/cuda:13.0.3-runtime-ubuntu22.04@sha256:ea99f417d171352c988c499da1c4facb89fa166c95bde42cc659cd174f6e7bea
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

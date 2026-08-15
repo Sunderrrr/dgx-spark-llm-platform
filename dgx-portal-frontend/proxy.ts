@@ -58,6 +58,16 @@ export function proxy(request: NextRequest) {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", csp);
+  // Security headers on Next-served pages, matching what Flask sets on its own
+  // responses (app.py). Without these, the React pages (served by Next, not
+  // Flask) shipped no HSTS — a downgrade window on first contact. NB: the
+  // authoritative public HSTS still depends on Cloudflare passing it through
+  // (its edge currently forces max-age=0 — fix in the CF dashboard); this
+  // covers the origin and any direct-to-Traefik hit.
+  response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("Referrer-Policy", "same-origin");
   return response;
 }
 

@@ -742,6 +742,47 @@ def asr_launch():
     return jsonify({"ok": ok, "detail": out})
 
 
+# ── Image (diffusers, Krea-2) — conteneur `image` sur image_net ───────────────
+# Liste blanche fermée : chaque id correspond à un dossier diffusers déjà
+# présent sur l'hôte (cf. image-recreate.sh). Pas de repo HF arbitraire ici —
+# même posture que l'OCR/voix/dictée.
+_IMAGE_MODEL_IDS = {"krea/Krea-2-Turbo", "krea/Krea-2-Raw"}
+
+
+@app.route("/image/status")
+def image_status():
+    ok, out = _sudo("/usr/bin/docker", "inspect", "image")
+    if not ok:
+        return jsonify({"status": "unknown", "detail": out})
+    try:
+        state = json.loads(out)[0]["State"]
+        return jsonify({"status": "running" if bool(state.get("Running")) else "stopped"})
+    except Exception as e:
+        return jsonify({"status": "unknown", "detail": str(e)})
+
+
+@app.route("/image/start", methods=["POST"])
+def image_start():
+    ok, out = _sudo("/usr/bin/docker", "start", "image", timeout=60)
+    return jsonify({"ok": ok, "detail": out})
+
+
+@app.route("/image/stop", methods=["POST"])
+def image_stop():
+    ok, out = _sudo("/usr/bin/docker", "stop", "image", timeout=30)
+    return jsonify({"ok": ok, "detail": out})
+
+
+@app.route("/image/launch", methods=["POST"])
+def image_launch():
+    data = request.get_json(silent=True) or {}
+    model = (data.get("model_id") or "").strip()
+    if model not in _IMAGE_MODEL_IDS:
+        return jsonify({"ok": False, "detail": "invalid model_id"}), 400
+    ok, out = _sudo("/usr/local/sbin/image-recreate.sh", model, timeout=180)
+    return jsonify({"ok": ok, "detail": out})
+
+
 @app.route("/video/status")
 def video_status():
     ok, out = _sudo("/usr/bin/systemctl", "is-active", "comfyui.service")

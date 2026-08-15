@@ -997,6 +997,7 @@ def _sidecar_status(kind):
              else comfyui_is_up() if kind == 'video'
              else get_voice_model() is not None if kind == 'voice'
              else asr_is_up() if kind == 'asr'
+             else image_ready() if kind == 'image'
              else False)
     return 'running' if ready else 'starting'
 
@@ -1023,7 +1024,7 @@ def _mem_available_gb():
 # higher threshold to keep a real cushion. The chat model's memory is,
 # itself, frozen at launch (KV pre-allocated), so once a sidecar is loaded
 # the whole is stable — that's what makes these thresholds reliable.
-_SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5}
+_SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5, 'image': 40}
 
 def _mem_guard(kind):
     """Return an error message if starting `kind` risks an OOM, otherwise None."""
@@ -1076,6 +1077,27 @@ def _voice_launch(repo_id):
     try:
         r = requests.post(f"{RUNNER_URL}/voice/launch", headers=_runner_headers(),
                           json={'repo_id': repo_id}, timeout=90)
+        detail = ''
+        try:
+            detail = r.json().get('detail', '')
+        except Exception:
+            pass
+        return r.ok, detail
+    except Exception as e:
+        return False, str(e)
+
+# Image generation models the admin may launch (mirrors _VOICE_REPO_IDS): a
+# closed allowlist, revalidated by the runner (_IMAGE_MODEL_IDS) before any sudo
+# call. Each id maps host-side to a pre-downloaded diffusers dir (image-recreate.sh).
+IMAGE_MODEL_IDS = {'krea/Krea-2-Turbo', 'krea/Krea-2-Raw'}
+
+def _image_launch(model_id):
+    """Recreate the image container with another diffusers model (runner.py
+    revalidates model_id against its own allowlist before any sudo call).
+    """
+    try:
+        r = requests.post(f"{RUNNER_URL}/image/launch", headers=_runner_headers(),
+                          json={'model_id': model_id}, timeout=180)
         detail = ''
         try:
             detail = r.json().get('detail', '')
@@ -2379,7 +2401,7 @@ def _index_data():
     if comfyui_is_up():
         running.append({'name': 'MiniMax-H3', 'kind': 'video', 'exposed': False})
         metrics['video'] = _sidecar_metrics('video')
-    if comfyui_image_ready():
+    if image_ready():
         running.append({'name': get_image_model() or 'Image', 'kind': 'image', 'exposed': False})
     voice_model = get_voice_model()
     if voice_model:
@@ -4312,6 +4334,8 @@ def api_admin():
         'voice_status': lambda: _sidecar_status('voice'),
         'voice_model_name': get_voice_model,
         'asr_status': lambda: _sidecar_status('asr'),
+        'image_status': lambda: _sidecar_status('image'),
+        'image_model_name': lambda: get_image_model(),
         'v_status': runner_status,
         'init_logs': lambda: runner_logs(120),
     }
@@ -4329,6 +4353,7 @@ def api_admin():
         'model_cfgs': [dict(r) for r in model_cfgs],
         'ocr_cfgs': [dict(r) for r in ocr_cfgs],
         'voice_cfgs': [dict(r) for r in voice_cfgs],
+        'image_model_ids': sorted(IMAGE_MODEL_IDS),
         'budget_reqs': [dict(r) for r in budget_reqs],
         'default_key_budget': get_setting('default_key_budget', KEY_BUDGET),
         'default_key_duration': get_setting('default_key_duration', KEY_DURATION),
@@ -4486,6 +4511,33 @@ def stop_asr():
     ok = _sidecar_action('asr', 'stop')
     flash("Dictée arrêtée." if ok else "Échec de l'arrêt de la dictée.", "success" if ok else "danger")
     return redirect(url_for('admin'))
+
+@app.route('/admin/image/start', methods=['POST'])
+@admin_required
+def start_image():
+    return _sidecar_start_json('image')
+
+@app.route('/admin/image/stop', methods=['POST'])
+@admin_required
+def stop_image():
+    ok = _sidecar_action('image', 'stop')
+    flash("Génération d'image arrêtée." if ok else "Échec de l'arrêt de l'image.",
+          "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/image/launch', methods=['POST'])
+@admin_required
+def launch_image():
+    model_id = request.form.get('model_id', '').strip()
+    if model_id not in IMAGE_MODEL_IDS:
+        return jsonify({'ok': False, 'error': "Modèle image inconnu."}), 400
+    # Recreating the image container loads ~35 Go bf16; same guard as a plain
+    # start so an OOM never reaches the chat model.
+    err = _mem_guard('image')
+    if err:
+        return jsonify({'ok': False, 'error': err}), 507
+    ok, detail = _image_launch(model_id)
+    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance image : {detail}"}), (200 if ok else 502)
 
 @app.route('/admin/voice/catalog/add', methods=['POST'])
 @admin_required
@@ -5214,69 +5266,51 @@ def video_file(prompt_id):
     return Response(upstream.iter_content(chunk_size=65536), mimetype='video/mp4',
                     headers={'Content-Disposition': f'inline; filename="{st["video_path"]}"'})
 
-# ── Image generation (ComfyUI text-to-image) ────────────────────────────────
-# Reuses the always-on ComfyUI sidecar (same engine as video). The workflow
-# template + checkpoint are added separately (admin). Until a template exists,
-# generation reports "no image model" while the page/history stay usable — same
-# behaviour as video/OCR when their model is stopped.
+# ── Image generation (Krea-2 diffusers sidecar) ──────────────────────────────
+# A dedicated containerised sidecar (image-krea/) runs the diffusers Krea-2
+# pipeline; the portal drives it asynchronously (a background thread calls the
+# sidecar, saves the PNG, updates the job row) so the UI keeps its polling flow.
+IMAGE_URL = os.environ.get('IMAGE_URL', 'http://image:8007')
+IMAGE_FILES_DIR = '/app/data/image_files'
 IMAGE_HISTORY_LIMIT = 20
-_IMAGE_T2I_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'workflows', 'image_t2i_template.json')
 
-def comfyui_image_ready():
-    return comfyui_is_up() and os.path.isfile(_IMAGE_T2I_TEMPLATE_PATH)
+def image_ready():
+    try:
+        r = requests.get(f"{IMAGE_URL}/health", timeout=3)
+        return bool(r.ok and r.json().get('ready'))
+    except Exception:
+        return False
 
 def get_image_model():
-    """Name of the configured image checkpoint (set by admin when adding one), or
-    None if no image model is set up yet."""
-    return get_setting('image_model') or None
-
-def comfyui_submit_image(prompt_text):
-    """Submit a text-to-image job to ComfyUI. The template carries the
-    placeholders __PROMPT__ and "__SEED__". Returns prompt_id or None."""
-    if not os.path.isfile(_IMAGE_T2I_TEMPLATE_PATH):
-        return None
     try:
-        with open(_IMAGE_T2I_TEMPLATE_PATH, encoding='utf-8') as f:
-            raw = f.read()
-        raw = raw.replace('__PROMPT__', json.dumps(prompt_text[:10000])[1:-1])
-        raw = raw.replace('"__SEED__"', str(secrets.randbelow(2**32)))
-        graph = json.loads(raw)
-        r = requests.post(f"{COMFYUI_URL}/prompt", json={'prompt': graph}, timeout=15)
+        r = requests.get(f"{IMAGE_URL}/model-info", timeout=3)
         if r.ok:
-            return r.json().get('prompt_id')
+            return r.json().get('model')
     except Exception:
         pass
     return None
 
-def comfyui_image_status(prompt_id):
-    """Like comfyui_status but for a SaveImage output; scans every output node for
-    an 'images' array (the SaveImage node id depends on the workflow)."""
+def _image_worker(prompt_id, username, prompt_text):
+    """Background thread: call the sidecar, save the PNG, update the job row."""
+    started = datetime.now()
+    status, dur = 'error', None
     try:
-        r = requests.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=5)
-        if r.ok:
-            hist = r.json()
-            if prompt_id in hist:
-                entry = hist[prompt_id]
-                if entry.get('status', {}).get('status_str') == 'error':
-                    return {'status': 'error', 'image_path': None}
-                for node in (entry.get('outputs', {}) or {}).values():
-                    imgs = node.get('images') or []
-                    if imgs:
-                        im = imgs[0]
-                        return {'status': 'done', 'image_path': im.get('filename'),
-                                'image_subfolder': im.get('subfolder', ''),
-                                'image_type': im.get('type', 'output')}
-                return {'status': 'error', 'image_path': None}
-        rq = requests.get(f"{COMFYUI_URL}/queue", timeout=5)
-        if rq.ok:
-            q = rq.json()
-            if prompt_id in [i[1] for i in q.get('queue_running', [])]:
-                return {'status': 'running', 'image_path': None}
-            if prompt_id in [i[1] for i in q.get('queue_pending', [])]:
-                return {'status': 'pending', 'image_path': None}
+        r = requests.post(f"{IMAGE_URL}/generate", data={'prompt': prompt_text[:10000]}, timeout=600)
+        if r.ok and r.headers.get('Content-Type', '').startswith('image/'):
+            os.makedirs(IMAGE_FILES_DIR, exist_ok=True)
+            with open(os.path.join(IMAGE_FILES_DIR, prompt_id + '.png'), 'wb') as f:
+                f.write(r.content)
+            status = 'done'
+            dur = int((datetime.now() - started).total_seconds() * 1000)
     except Exception:
         pass
-    return {'status': 'error', 'image_path': None}
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("UPDATE image_jobs SET status=?, duration_ms=? WHERE prompt_id=? AND username=?",
+                  (status, dur, prompt_id, username))
+        c.commit(); c.close()
+    except Exception:
+        pass
 
 
 @app.route('/api/image/generate', methods=['POST'])
@@ -5291,18 +5325,17 @@ def api_image_generate():
     prompt_text = request.form.get('prompt', '').strip()
     if not prompt_text:
         return jsonify({'error': "Un prompt texte est requis."}), 400
-    if not comfyui_image_ready():
+    if not image_ready():
         return jsonify({'error': "Aucun modèle image configuré."}), 503
-    prompt_id = comfyui_submit_image(prompt_text)
-    if not prompt_id:
-        return jsonify({'error': "ComfyUI inaccessible ou requête refusée."}), 502
+    prompt_id = secrets.token_hex(12)
     db = get_db()
-    db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, created_at) VALUES (?,?,?,?)",
-               (session['username'], prompt_id, prompt_text, datetime.now().isoformat()))
+    db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, created_at) VALUES (?,?,?,?,?)",
+               (session['username'], prompt_id, prompt_text, 'running', datetime.now().isoformat()))
     db.execute("""DELETE FROM image_jobs WHERE username=? AND id NOT IN (
                      SELECT id FROM image_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
                (session['username'], session['username'], IMAGE_HISTORY_LIMIT))
     db.commit()
+    threading.Thread(target=_image_worker, args=(prompt_id, session['username'], prompt_text), daemon=True).start()
     return jsonify({'prompt_id': prompt_id})
 
 
@@ -5318,60 +5351,27 @@ def api_image_history():
 @app.route('/api/image/status/<prompt_id>')
 @login_required
 def api_image_status(prompt_id):
-    owned = get_db().execute(
-        "SELECT 1 FROM image_jobs WHERE prompt_id=? AND username=?",
+    row = get_db().execute(
+        "SELECT status FROM image_jobs WHERE prompt_id=? AND username=?",
         (prompt_id, session['username'])).fetchone()
-    if not owned:
+    if not row:
         abort(404)
-    st = comfyui_image_status(prompt_id)
-    if st['status'] in ('done', 'error'):
-        get_db().execute(
-            "UPDATE image_jobs SET status=?, image_path=?, image_subfolder=?, image_type=? "
-            "WHERE prompt_id=? AND username=?",
-            (st['status'], st.get('image_path'), st.get('image_subfolder'), st.get('image_type'),
-             prompt_id, session['username']))
-        if st['status'] == 'done':
-            row = get_db().execute(
-                "SELECT created_at, duration_ms FROM image_jobs WHERE prompt_id=? AND username=?",
-                (prompt_id, session['username'])).fetchone()
-            if row and row['duration_ms'] is None and row['created_at']:
-                try:
-                    dur = int((datetime.now() - datetime.fromisoformat(row['created_at'])).total_seconds() * 1000)
-                    if 0 < dur < 3600000:
-                        get_db().execute(
-                            "UPDATE image_jobs SET duration_ms=? WHERE prompt_id=? AND username=? AND duration_ms IS NULL",
-                            (dur, prompt_id, session['username']))
-                except Exception:
-                    pass
-        get_db().commit()
-    return jsonify(st)
+    return jsonify({'status': row['status']})
 
 
 @app.route('/image/file/<prompt_id>')
 @login_required
 def image_file(prompt_id):
     owned = get_db().execute(
-        "SELECT image_path, image_subfolder, image_type FROM image_jobs WHERE prompt_id=? AND username=?",
+        "SELECT 1 FROM image_jobs WHERE prompt_id=? AND username=?",
         (prompt_id, session['username'])).fetchone()
     if not owned:
         abort(404)
-    # Serve from ComfyUI's output dir on disk (read-only mount) — works with the
-    # ComfyUI process stopped, and covers past images.
-    if owned['image_path']:
-        disk = _comfyui_output_file(owned['image_path'], owned['image_subfolder'] or '')
-        if disk:
-            return send_file(disk)
-        vp, sf, ty = owned['image_path'], owned['image_subfolder'] or '', owned['image_type'] or 'output'
-    else:
-        st = comfyui_image_status(prompt_id)
-        if st['status'] != 'done' or not st.get('image_path'):
-            abort(404)
-        vp, sf, ty = st['image_path'], st.get('image_subfolder', ''), st.get('image_type', 'output')
-    upstream = comfyui_fetch_video(vp, sf, ty)
-    if upstream is None:
-        abort(502)
-    return Response(upstream.iter_content(chunk_size=65536),
-                    mimetype=upstream.headers.get('Content-Type', 'image/png'))
+    safe = re.sub(r'[^a-f0-9]', '', str(prompt_id))
+    path = os.path.join(IMAGE_FILES_DIR, safe + '.png') if safe else None
+    if not path or not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype='image/png')
 
 
 # ── OCR (baidu/Unlimited-OCR) ────────────────────────────────────────────────

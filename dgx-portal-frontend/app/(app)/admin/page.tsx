@@ -75,11 +75,14 @@ type AdminData = {
   voice_status: string;
   voice_model_name: string | null;
   asr_status: string;
+  image_status: string;
+  image_model_name: string | null;
+  image_model_ids: string[];
   ocr_cfgs: OcrCfg[];
   voice_cfgs: VoiceCfg[];
 };
 
-type CatalogKind = "llm" | "ocr" | "voice" | "video";
+type CatalogKind = "llm" | "ocr" | "voice" | "video" | "image";
 
 const MAX_LOG_LINES = 600;
 
@@ -366,6 +369,27 @@ export default function AdminPage() {
                       <Text type="supporting" color="secondary" wordBreak="break-all">whisper-large-v3-turbo</Text>
                     </VStack>
                   </Card>
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={SIDECAR_VARIANT[data.image_status] ?? "error"}
+                            label={t(SIDECAR_LABEL[data.image_status] ?? "Injoignable")}
+                          />
+                          <Text weight="semibold">{t("Image")}</Text>
+                        </HStack>
+                        {data.image_status === "running" || data.image_status === "starting" ? (
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/image/stop")} />
+                        ) : (
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/image/start")} />
+                        )}
+                      </HStack>
+                      <Text type="supporting" color="secondary" wordBreak="break-all">
+                        {data.image_model_name || t("aucun modèle")}
+                      </Text>
+                    </VStack>
+                  </Card>
                 </Grid>
               )}
 
@@ -378,6 +402,7 @@ export default function AdminPage() {
                   <SegmentedControlItem value="llm" label={t("LLM")} />
                   <SegmentedControlItem value="ocr" label="OCR" />
                   <SegmentedControlItem value="voice" label={t("Voix")} />
+                  <SegmentedControlItem value="image" label={t("Image")} />
                   <SegmentedControlItem value="video" label={t("Vidéo")} />
                 </SegmentedControl>
               </HStack>
@@ -514,6 +539,32 @@ export default function AdminPage() {
                           setNewVoice({ name: "", repo_id: "Qwen3-TTS-12Hz-1.7B-Base" });
                         }}
                       />
+                    </VStack>
+                  </Card>
+                </Grid>
+              )}
+
+              {data && catalogKind === "image" && (
+                <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+                  {data.image_model_ids.map((mid) => (
+                    <Card key={mid}>
+                      <VStack gap={2}>
+                        <Text weight="semibold" wordBreak="break-all">{mid}</Text>
+                        <Text type="supporting" color="secondary">
+                          {mid === data.image_model_name ? t("Modèle actif") : t("diffusers · text-to-image")}
+                        </Text>
+                        <HStack gap={2}>
+                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/image/launch", { model_id: mid })} />
+                        </HStack>
+                      </VStack>
+                    </Card>
+                  ))}
+                  <Card>
+                    <VStack gap={1}>
+                      <Text type="supporting" color="secondary">{t("Ajouter un modèle image")}</Text>
+                      <Text type="supporting" color="secondary">
+                        {t("Les poids image (gated, ~35 Go) se téléchargent côté hôte puis s'ajoutent à la liste blanche — même principe que l'OCR/voix. Lance ensuite le modèle ci-contre.")}
+                      </Text>
                     </VStack>
                   </Card>
                 </Grid>

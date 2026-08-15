@@ -1,0 +1,10 @@
+# Scoped sudo for the image-generation sidecar (Krea-2 / diffusers), mirroring
+# the OCR/voice/asr grants in vllmrunner-services: vllm-runner (unprivileged)
+# may only start/stop/inspect the fixed `image` container and run the
+# recreate script, whose single argument is revalidated against a closed
+# allowlist (_IMAGE_MODEL_IDS) in runner.py before any privileged call.
+# Install to /etc/sudoers.d/vllmrunner-image (root:root, mode 0440).
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker start image
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker stop image
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker inspect image
+vllmrunner ALL=(root) NOPASSWD: /usr/local/sbin/image-recreate.sh *

@@ -9,6 +9,8 @@ import { Card } from "@astryxdesign/core/Card";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Button } from "@astryxdesign/core/Button";
 import { AspectRatio } from "@astryxdesign/core/AspectRatio";
+import { Grid } from "@astryxdesign/core/Grid";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Item } from "@astryxdesign/core/Item";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
@@ -22,8 +24,10 @@ import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 
 type JobStatus = "idle" | "pending" | "running" | "done" | "error";
-type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string };
+type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string; count?: number; done_count?: number };
 type RunningModel = { name: string; kind: string; exposed: boolean };
+
+const BATCH_CHOICES = [1, 2, 3, 4];
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "En file d'attente…",
@@ -45,6 +49,9 @@ export default function ImagePage() {
   const [prompt, setPrompt] = useState("");
   const [status, setStatus] = useState<JobStatus>("idle");
   const [promptId, setPromptId] = useState<string | null>(null);
+  const [batch, setBatch] = useState(1);          // count chosen for the next generation
+  const [jobCount, setJobCount] = useState(1);    // count of the currently-viewed job
+  const [doneCount, setDoneCount] = useState(0);  // images produced so far for it
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [available, setAvailable] = useState<boolean | null>(null);
   const dictation = useDictation({ value: prompt, onChange: setPrompt, csrf });
@@ -80,11 +87,13 @@ export default function ImagePage() {
     if (!prompt.trim()) return;
     setStatus("pending");
     setPromptId(null);
+    setJobCount(batch);
+    setDoneCount(0);
     try {
-      const res = await postFormData<{ prompt_id?: string; error?: string }>(
+      const res = await postFormData<{ prompt_id?: string; count?: number; error?: string }>(
         "/api/image/generate",
         csrf,
-        { prompt },
+        { prompt, count: String(batch) },
       );
       if (!res.prompt_id) {
         showToast({ body: res.error ? t(res.error) : t("Échec de la génération."), type: "error" });
@@ -92,10 +101,13 @@ export default function ImagePage() {
         return;
       }
       setPromptId(res.prompt_id);
+      setJobCount(res.count ?? batch);
       loadHistory();
       pollRef.current = setInterval(async () => {
         const r = await fetch(`/api/image/status/${res.prompt_id}`, { credentials: "include" });
         const st = await r.json();
+        if (typeof st.count === "number") setJobCount(st.count);
+        if (typeof st.done_count === "number") setDoneCount(st.done_count);
         if (st.status === "done" || st.status === "error") {
           stopPolling();
           setStatus(st.status);
@@ -107,7 +119,7 @@ export default function ImagePage() {
       }, 3000);
     } catch {
       setStatus("error");
-      showToast({ body: t("ComfyUI injoignable."), type: "error" });
+      showToast({ body: t("Service de génération injoignable."), type: "error" });
     }
   }
 
@@ -115,6 +127,8 @@ export default function ImagePage() {
     stopPolling();
     setPromptId(item.prompt_id);
     setStatus(item.status as JobStatus);
+    setJobCount(item.count ?? 1);
+    setDoneCount(item.done_count ?? (item.status === "done" ? (item.count ?? 1) : 0));
   }
 
   const isBusy = status === "pending" || status === "running";
@@ -169,8 +183,20 @@ export default function ImagePage() {
                         isDisabled={isBusy}
                         isRequired
                       />
+                      <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
+                        <Text type="supporting" color="secondary">{t("Nombre d'images")}</Text>
+                        <SegmentedControl
+                          label={t("Nombre d'images")}
+                          value={String(batch)}
+                          onChange={(v) => setBatch(Number(v) || 1)}
+                        >
+                          {BATCH_CHOICES.map((n) => (
+                            <SegmentedControlItem key={n} value={String(n)} label={String(n)} isDisabled={isBusy} />
+                          ))}
+                        </SegmentedControl>
+                      </HStack>
                       <Button
-                        label={t("Générer")}
+                        label={batch > 1 ? t("Générer {n} images").replace("{n}", String(batch)) : t("Générer")}
                         variant="primary"
                         onClick={generate}
                         isDisabled={!prompt.trim() || isBusy}
@@ -185,19 +211,37 @@ export default function ImagePage() {
                     <VStack gap={4}>
                       <StatusDot
                         variant={status === "done" ? "success" : status === "error" ? "error" : "accent"}
-                        label={t(STATUS_LABEL[status] ?? status)}
+                        label={
+                          isBusy && jobCount > 1
+                            ? t("Génération en cours… {d}/{n}").replace("{d}", String(doneCount)).replace("{n}", String(jobCount))
+                            : t(STATUS_LABEL[status] ?? status)
+                        }
                       />
-                      {isBusy && (
+                      {promptId && (jobCount > 1 || isBusy) ? (
+                        <Grid columns={{ minWidth: 220, max: 2 }} gap={3}>
+                          {Array.from({ length: jobCount }).map((_, idx) => (
+                            <AspectRatio key={idx} ratio={1} fit="contain">
+                              {idx < doneCount ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={`/image/file/${promptId}/${idx}`} alt={`${prompt} (${idx + 1})`} />
+                              ) : (
+                                <VStack className="video-generating" height="100%" width="100%" hAlign="center" vAlign="center" gap={2}>
+                                  <Icon icon={PhotoIcon} size="lg" color="secondary" />
+                                </VStack>
+                              )}
+                            </AspectRatio>
+                          ))}
+                        </Grid>
+                      ) : status === "done" && promptId ? (
+                        <AspectRatio ratio={1} fit="contain">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={`/image/file/${promptId}/0`} alt={prompt} />
+                        </AspectRatio>
+                      ) : (
                         <AspectRatio ratio={1} fit="contain">
                           <VStack className="video-generating" height="100%" width="100%" hAlign="center" vAlign="center" gap={2}>
                             <Icon icon={PhotoIcon} size="lg" color="secondary" />
                           </VStack>
-                        </AspectRatio>
-                      )}
-                      {status === "done" && promptId && (
-                        <AspectRatio ratio={1} fit="contain">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={`/image/file/${promptId}`} alt={prompt} />
                         </AspectRatio>
                       )}
                     </VStack>
@@ -215,7 +259,10 @@ export default function ImagePage() {
                           key={h.prompt_id}
                           label={h.prompt}
                           labelLines={1}
-                          description={new Date(h.created_at).toLocaleString("fr-FR")}
+                          description={
+                            new Date(h.created_at).toLocaleString("fr-FR") +
+                            ((h.count ?? 1) > 1 ? ` · ${h.count} ${t("images")}` : "")
+                          }
                           startContent={<PhotoIcon width={20} height={20} />}
                           endContent={
                             <StatusDot

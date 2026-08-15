@@ -105,6 +105,11 @@ _VALUE_FLAGS = {
     "--quantization", "--tensor-parallel-size", "--pipeline-parallel-size",
     "--reasoning-parser", "--limit-mm-per-prompt",
     "--uvicorn-log-level",
+    # Speculative decoding (MTP / draft model): a compact JSON value, e.g.
+    # {"method":"mtp","num_speculative_tokens":1}. Passed as argv to vLLM (never
+    # shell-interpreted), so the JSON is inert. Lets bundled-MTP models (Qwen3.5)
+    # predict several tokens per weight-read → ~1.5-2x with no quality loss.
+    "--speculative-config",
     # Enumerated value (auto|slow|mistral|custom), never a path → safe.
     # Needed for Mistral models (tekken): vLLM 0.24 auto-detection falls onto a
     # broken backend ("CachedMistralCommonBackend has no attribute is_fast"),

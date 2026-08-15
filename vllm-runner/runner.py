@@ -14,6 +14,10 @@ VLLM_BIN     = os.environ.get("VLLM_BIN", "/root/.local/bin/vllm")
 # would break existing models (nemotron/minimax/ornith run on VLLM_BIN, tested
 # and stable there). Enabled by the pseudo-flag --vllm-025 in vllm_args (see _BIN_FLAGS).
 VLLM_BIN_025 = os.environ.get("VLLM_BIN_025", "/root/venvs/vllm025/bin/vllm")
+# vLLM 0.27.1 venv (torch 2.13 cu130, aarch64/sm_121). Benchmarked equal to
+# 0.25.1 on Qwen3.8-27B-FP8+MTP (~12 vs ~11.8 tok/s — memory-bandwidth bound),
+# kept as an opt-in --vllm-027 flag for models we choose to run on the latest.
+VLLM_BIN_027 = os.environ.get("VLLM_BIN_027", "/root/venvs/vllm-next/bin/vllm")
 LLAMA_BIN    = os.environ.get("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-server")
 # ds4 engine: DGX Spark-specific "multi-tensor" NVFP4 GGUF (DeepSeek-V4-Flash).
 # Neither vLLM nor stock llama.cpp can load this format.
@@ -96,6 +100,7 @@ _BOOL_FLAGS |= set(_ENV_FLAGS)
 # models). Removed from extra_tokens in _start_process, like _ENV_FLAGS entries.
 _BIN_FLAGS = {
     "--vllm-025": VLLM_BIN_025,
+    "--vllm-027": VLLM_BIN_027,
 }
 _BOOL_FLAGS |= set(_BIN_FLAGS)
 _VALUE_FLAGS = {

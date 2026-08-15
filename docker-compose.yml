@@ -2,7 +2,7 @@ services:
 
   # ─── Base de données LiteLLM ───────────────────────────────────────────────
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15-alpine@sha256:cd17e2ac98240fce1541ad2a803b34009b4eea5aec8a832363cdc7eca62e722e
     container_name: litellm-postgres
     restart: unless-stopped
     environment:

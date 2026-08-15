@@ -473,6 +473,13 @@ def init_db():
     ocr_cols = {r[1] for r in db.execute("PRAGMA table_info(ocr_jobs)")}
     if 'image_path' not in ocr_cols:
         db.execute("ALTER TABLE ocr_jobs ADD COLUMN image_path TEXT")
+    # Batch image generation: N variations per prompt (files <prompt_id>_<idx>.png).
+    # count = requested, done_count = produced so far (progressive display).
+    _ij = {r[1] for r in db.execute("PRAGMA table_info(image_jobs)")}
+    if 'count' not in _ij:
+        db.execute("ALTER TABLE image_jobs ADD COLUMN count INTEGER NOT NULL DEFAULT 1")
+    if 'done_count' not in _ij:
+        db.execute("ALTER TABLE image_jobs ADD COLUMN done_count INTEGER NOT NULL DEFAULT 0")
     # Migration: generation duration (ms) per job → home-page metrics (average
     # OCR / video / voice time). NULL for jobs prior to this addition.
     for _tbl in ('ocr_jobs', 'video_jobs', 'voice_jobs'):
@@ -5273,6 +5280,7 @@ def video_file(prompt_id):
 IMAGE_URL = os.environ.get('IMAGE_URL', 'http://image:8007')
 IMAGE_FILES_DIR = '/app/data/image_files'
 IMAGE_HISTORY_LIMIT = 20
+IMAGE_MAX_BATCH = 4  # max variations generated per prompt (sequential on unified memory)
 
 def image_ready():
     try:
@@ -5290,24 +5298,40 @@ def get_image_model():
         pass
     return None
 
-def _image_worker(prompt_id, username, prompt_text):
-    """Background thread: call the sidecar, save the PNG, update the job row."""
-    started = datetime.now()
-    status, dur = 'error', None
-    try:
-        r = requests.post(f"{IMAGE_URL}/generate", data={'prompt': prompt_text[:10000]}, timeout=600)
-        if r.ok and r.headers.get('Content-Type', '').startswith('image/'):
-            os.makedirs(IMAGE_FILES_DIR, exist_ok=True)
-            with open(os.path.join(IMAGE_FILES_DIR, prompt_id + '.png'), 'wb') as f:
-                f.write(r.content)
-            status = 'done'
-            dur = int((datetime.now() - started).total_seconds() * 1000)
-    except Exception:
-        pass
+def _image_set_done(prompt_id, username, done):
+    """Bump the produced-so-far counter so the page can show images as they land."""
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
-        c.execute("UPDATE image_jobs SET status=?, duration_ms=? WHERE prompt_id=? AND username=?",
-                  (status, dur, prompt_id, username))
+        c.execute("UPDATE image_jobs SET done_count=? WHERE prompt_id=? AND username=?",
+                  (done, prompt_id, username))
+        c.commit(); c.close()
+    except Exception:
+        pass
+
+def _image_worker(prompt_id, username, prompt_text, count):
+    """Background thread: call the sidecar `count` times (sequentially — one image
+    at a time keeps the GPU memory spike at single-image level on unified memory),
+    saving each as <prompt_id>_<idx>.png. Each call reseeds implicitly, so the N
+    images are variations of the same prompt."""
+    started = datetime.now()
+    done = 0
+    os.makedirs(IMAGE_FILES_DIR, exist_ok=True)
+    for idx in range(count):
+        try:
+            r = requests.post(f"{IMAGE_URL}/generate", data={'prompt': prompt_text[:10000]}, timeout=600)
+            if r.ok and r.headers.get('Content-Type', '').startswith('image/'):
+                with open(os.path.join(IMAGE_FILES_DIR, f"{prompt_id}_{idx}.png"), 'wb') as f:
+                    f.write(r.content)
+                done += 1
+                _image_set_done(prompt_id, username, done)
+        except Exception:
+            pass
+    status = 'done' if done else 'error'
+    dur = int((datetime.now() - started).total_seconds() * 1000) if done else None
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("UPDATE image_jobs SET status=?, duration_ms=?, done_count=? WHERE prompt_id=? AND username=?",
+                  (status, dur, done, prompt_id, username))
         c.commit(); c.close()
     except Exception:
         pass
@@ -5327,23 +5351,29 @@ def api_image_generate():
         return jsonify({'error': "Un prompt texte est requis."}), 400
     if not image_ready():
         return jsonify({'error': "Aucun modèle image configuré."}), 503
+    # Batch size: 1–4 variations per prompt (generated sequentially).
+    try:
+        count = int(request.form.get('count', 1))
+    except (TypeError, ValueError):
+        count = 1
+    count = max(1, min(IMAGE_MAX_BATCH, count))
     prompt_id = secrets.token_hex(12)
     db = get_db()
-    db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, created_at) VALUES (?,?,?,?,?)",
-               (session['username'], prompt_id, prompt_text, 'running', datetime.now().isoformat()))
+    db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, count, done_count, created_at) VALUES (?,?,?,?,?,?,?)",
+               (session['username'], prompt_id, prompt_text, 'running', count, 0, datetime.now().isoformat()))
     db.execute("""DELETE FROM image_jobs WHERE username=? AND id NOT IN (
                      SELECT id FROM image_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
                (session['username'], session['username'], IMAGE_HISTORY_LIMIT))
     db.commit()
-    threading.Thread(target=_image_worker, args=(prompt_id, session['username'], prompt_text), daemon=True).start()
-    return jsonify({'prompt_id': prompt_id})
+    threading.Thread(target=_image_worker, args=(prompt_id, session['username'], prompt_text, count), daemon=True).start()
+    return jsonify({'prompt_id': prompt_id, 'count': count})
 
 
 @app.route('/api/image/history')
 @login_required
 def api_image_history():
     rows = get_db().execute(
-        "SELECT prompt_id, prompt, status, created_at FROM image_jobs WHERE username=? ORDER BY id DESC",
+        "SELECT prompt_id, prompt, status, count, done_count, created_at FROM image_jobs WHERE username=? ORDER BY id DESC",
         (session['username'],)).fetchall()
     return jsonify([dict(r) for r in rows])
 
@@ -5352,24 +5382,33 @@ def api_image_history():
 @login_required
 def api_image_status(prompt_id):
     row = get_db().execute(
-        "SELECT status FROM image_jobs WHERE prompt_id=? AND username=?",
+        "SELECT status, count, done_count FROM image_jobs WHERE prompt_id=? AND username=?",
         (prompt_id, session['username'])).fetchone()
     if not row:
         abort(404)
-    return jsonify({'status': row['status']})
+    return jsonify({'status': row['status'], 'count': row['count'], 'done_count': row['done_count']})
 
 
 @app.route('/image/file/<prompt_id>')
+@app.route('/image/file/<prompt_id>/<int:idx>')
 @login_required
-def image_file(prompt_id):
+def image_file(prompt_id, idx=0):
     owned = get_db().execute(
         "SELECT 1 FROM image_jobs WHERE prompt_id=? AND username=?",
         (prompt_id, session['username'])).fetchone()
     if not owned:
         abort(404)
     safe = re.sub(r'[^a-f0-9]', '', str(prompt_id))
-    path = os.path.join(IMAGE_FILES_DIR, safe + '.png') if safe else None
-    if not path or not os.path.isfile(path):
+    if not safe:
+        abort(404)
+    idx = max(0, min(IMAGE_MAX_BATCH - 1, int(idx)))
+    path = os.path.join(IMAGE_FILES_DIR, f"{safe}_{idx}.png")
+    # Backward-compat: jobs made before batching saved a single <prompt_id>.png.
+    if not os.path.isfile(path) and idx == 0:
+        legacy = os.path.join(IMAGE_FILES_DIR, safe + '.png')
+        if os.path.isfile(legacy):
+            path = legacy
+    if not os.path.isfile(path):
         abort(404)
     return send_file(path, mimetype='image/png')
 

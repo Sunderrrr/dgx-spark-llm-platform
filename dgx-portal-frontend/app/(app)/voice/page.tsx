@@ -23,6 +23,7 @@ import {
   StopIcon,
   ArrowUpTrayIcon,
   ArrowPathIcon,
+  ClipboardIcon,
 } from "@heroicons/react/24/outline";
 import { Selector } from "@astryxdesign/core/Selector";
 import { useCsrf } from "@/lib/useCsrf";
@@ -157,6 +158,10 @@ export default function VoicePage() {
       .catch(() => {});
   }
 
+  function copyText(s: string) {
+    navigator.clipboard?.writeText(s).then(() => showToast({ body: t("Copié."), type: "info" }));
+  }
+
   useEffect(loadHistory, []);
 
   useEffect(() => {
@@ -216,7 +221,7 @@ export default function VoicePage() {
       height="fill"
       content={
         <LayoutContent padding={6} isScrollable>
-          {available === false ? (
+          {available === false && history.length === 0 ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle vocal n'est disponible")}
@@ -236,6 +241,22 @@ export default function VoicePage() {
                 </Text>
               </VStack>
 
+              {available === false ? (
+                // No voice model loaded: the generation form is unavailable, but
+                // past creations stay viewable/playable/copyable below (served
+                // from disk, no model needed).
+                <Card>
+                  <HStack gap={3} vAlign="center">
+                    <Icon icon={MoonIcon} size="md" color="secondary" />
+                    <VStack gap={0}>
+                      <Text weight="semibold">{t("Aucun modèle vocal chargé")}</Text>
+                      <Text type="supporting" color="secondary">
+                        {t("La génération est indisponible pour l'instant, mais tu peux réécouter et copier tes créations précédentes ci-dessous.")}
+                      </Text>
+                    </VStack>
+                  </HStack>
+                </Card>
+              ) : (
               <Card>
                 <VStack gap={4}>
                   <SegmentedControl
@@ -382,6 +403,7 @@ export default function VoicePage() {
                   />
                 </VStack>
               </Card>
+              )}
 
               {isLoading && (
                 <Card>
@@ -432,6 +454,16 @@ export default function VoicePage() {
                         startContent={<SpeakerWaveIcon width={20} height={20} />}
                         onClick={() => setCurrentId(h.id)}
                         isSelected={h.id === currentId}
+                        endContent={
+                          <Button
+                            label={t("Copier")}
+                            variant="ghost"
+                            size="sm"
+                            isIconOnly
+                            icon={<Icon icon={ClipboardIcon} size="sm" />}
+                            onClick={(e) => { e.stopPropagation(); copyText(h.text); }}
+                          />
+                        }
                       />
                     ))}
                   </VStack>

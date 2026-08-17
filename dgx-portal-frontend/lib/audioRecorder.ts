@@ -1,44 +1,32 @@
 "use client";
 
 /**
- * Mic recording → WAV file.
+ * Mic recording → WAV file, via CONTINUOUS PCM capture (Web Audio).
  *
- * MediaRecorder does NOT produce WAV: depending on the browser it's WebM/Opus,
- * OGG/Opus or MP4/AAC. But Chatterbox (and thus /api/voice/generate)
- * only accepts WAV or MP3. So we decode the recording to PCM with
- * the AudioContext (which can read all these containers) then re-encode a WAV
- * ourselves — no added dependency, and the backend stays unchanged.
+ * Why not MediaRecorder: it emits WebM/Opus (or OGG/MP4), and a WebM stream
+ * that hasn't been *finalised* is not decodable — `decodeAudioData` throws on a
+ * partial blob because the container header/duration aren't written until the
+ * recorder stops. That silently broke live dictation: every intermediate
+ * `snapshot()` failed to decode and returned null, so text only appeared at the
+ * very end (on the complete container). Capturing raw PCM instead means every
+ * snapshot is a self-contained, always-decodable buffer → real-time dictation.
  *
- * The render is brought down to 24 kHz mono, the model's native rate: this
- * divides the file size by ~4 compared to the mic's raw 48 kHz stereo, with no
- * useful loss since the model resamples anyway.
+ * We tap the mic with an AudioContext + ScriptProcessor, accumulate the mono
+ * Float32 samples, and encode a 24 kHz WAV (the voice model's native rate;
+ * Whisper resamples anyway) on demand. Both `snapshot()` (live) and `stop()`
+ * (final) run off the same accumulated PCM, so they can never disagree on a
+ * container boundary.
  */
 
 export const VOICE_TARGET_SAMPLE_RATE = 24000;
-
-/** Containers tried in order: the first one supported by the browser wins. */
-const PREFERRED_MIME_TYPES = [
-  "audio/webm;codecs=opus",
-  "audio/webm",
-  "audio/ogg;codecs=opus",
-  "audio/mp4",
-];
-
-function pickMimeType(): string | undefined {
-  if (typeof MediaRecorder === "undefined") return undefined;
-  return PREFERRED_MIME_TYPES.find((t) => MediaRecorder.isTypeSupported(t));
-}
 
 export type Recorder = {
   /** Stops the recording and returns the converted WAV. */
   stop: () => Promise<File>;
   /**
-   * WAV of everything captured SINCE THE START, without interrupting
-   * the recording — for live dictation. We always restart from the beginning
-   * rather than the last chunk: the intermediate fragments of a WebM
-   * stream aren't decodable on their own (only the first carries the header), and
-   * re-transcribing everything gives better text, the model having more
-   * context. Returns null as long as nothing has been captured.
+   * WAV of everything captured SINCE THE START, without interrupting the
+   * recording — for live dictation. Always valid (raw PCM, no container to
+   * finalise). Returns null as long as nothing has been captured.
    */
   snapshot: () => Promise<File | null>;
   /** Stops everything and releases the mic without producing a file (cancellation). */
@@ -49,75 +37,81 @@ export async function startRecording(): Promise<Recorder> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
   });
-  const mimeType = pickMimeType();
-  const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-  const chunks: BlobPart[] = [];
-  recorder.ondataavailable = (e) => {
-    if (e.data.size > 0) chunks.push(e.data);
-  };
-  // Periodic chunking: without an argument, MediaRecorder only delivers the
-  // data on stop, and snapshot() would never have anything to transcribe.
-  recorder.start(500);
 
-  const releaseMic = () => stream.getTracks().forEach((t) => t.stop());
+  const ctx = new AudioContext();
+  const sourceRate = ctx.sampleRate; // usually 48000
+  const source = ctx.createMediaStreamSource(stream);
+  // ScriptProcessor is deprecated but universally supported and needs no
+  // separately-served worklet module — pragmatic for a short mono recording.
+  const processor = ctx.createScriptProcessor(4096, 1, 1);
+  // A ScriptProcessor only runs while connected to the destination; route it
+  // through a silent gain so the mic isn't echoed back to the speakers.
+  const silence = ctx.createGain();
+  silence.gain.value = 0;
+
+  const chunks: Float32Array[] = [];
+  let total = 0;
+  processor.onaudioprocess = (e) => {
+    // Copy: the event buffer is reused by the engine after this callback.
+    const input = e.inputBuffer.getChannelData(0);
+    chunks.push(new Float32Array(input));
+    total += input.length;
+  };
+
+  source.connect(processor);
+  processor.connect(silence);
+  silence.connect(ctx.destination);
+
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    try { processor.disconnect(); } catch { /* already gone */ }
+    try { source.disconnect(); } catch { /* already gone */ }
+    try { silence.disconnect(); } catch { /* already gone */ }
+    stream.getTracks().forEach((t) => t.stop());
+    void ctx.close();
+  };
+
+  const buildWav = async (): Promise<File | null> => {
+    if (total === 0) return null;
+    // Flatten the accumulated chunks into one contiguous PCM buffer.
+    const pcm = new Float32Array(total);
+    let at = 0;
+    for (const c of chunks) { pcm.set(c, at); at += c.length; }
+    const resampled = await resampleMonoTo(pcm, sourceRate, VOICE_TARGET_SAMPLE_RATE);
+    const wav = encodeWav(resampled, VOICE_TARGET_SAMPLE_RATE);
+    return new File([wav], "recording.wav", { type: "audio/wav" });
+  };
 
   return {
-    snapshot: async () => {
-      if (!chunks.length) return null;
-      const raw = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-      try {
-        return await blobToWavFile(raw);
-      } catch {
-        // A stream truncated at the wrong place can be undecodable: we
-        // skip this round, the next one will restart from a more complete buffer.
-        return null;
-      }
+    snapshot: buildWav,
+    stop: async () => {
+      const file = await buildWav();
+      release();
+      // total>0 is guaranteed by the caller (min-duration gate); fall back to a
+      // tiny silent WAV rather than reject, so stop() always resolves a File.
+      return file ?? new File([encodeWav(new Float32Array(1), VOICE_TARGET_SAMPLE_RATE)], "recording.wav", { type: "audio/wav" });
     },
-    stop: () =>
-      new Promise<File>((resolve, reject) => {
-        recorder.onstop = async () => {
-          releaseMic();
-          try {
-            const raw = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-            resolve(await blobToWavFile(raw));
-          } catch (e) {
-            reject(e);
-          }
-        };
-        // An already-stopped recorder will never re-emit onstop: we keep the
-        // promise resolvable in that case rather than leaving it pending.
-        if (recorder.state === "inactive") recorder.onstop?.(new Event("stop"));
-        else recorder.stop();
-      }),
-    cancel: () => {
-      if (recorder.state !== "inactive") recorder.stop();
-      releaseMic();
-    },
+    cancel: release,
   };
 }
 
-/** Decodes any audio container readable by the browser → 24 kHz mono WAV. */
-async function blobToWavFile(blob: Blob): Promise<File> {
-  const arrayBuffer = await blob.arrayBuffer();
-  const decodeCtx = new AudioContext();
-  let decoded: AudioBuffer;
-  try {
-    decoded = await decodeCtx.decodeAudioData(arrayBuffer);
-  } finally {
-    void decodeCtx.close();
-  }
-
-  // OfflineAudioContext does the resampling AND the mono downmix in one go.
-  const frameCount = Math.max(1, Math.ceil(decoded.duration * VOICE_TARGET_SAMPLE_RATE));
-  const offline = new OfflineAudioContext(1, frameCount, VOICE_TARGET_SAMPLE_RATE);
-  const source = offline.createBufferSource();
-  source.buffer = decoded;
-  source.connect(offline.destination);
-  source.start();
+/** Resample a mono Float32 buffer to `targetRate` via OfflineAudioContext. */
+async function resampleMonoTo(pcm: Float32Array, sourceRate: number, targetRate: number): Promise<Float32Array> {
+  if (sourceRate === targetRate) return pcm;
+  const frames = Math.max(1, Math.round((pcm.length / sourceRate) * targetRate));
+  const offline = new OfflineAudioContext(1, frames, targetRate);
+  const buffer = offline.createBuffer(1, pcm.length, sourceRate);
+  // .set() copies values without the Float32Array<ArrayBuffer> generic
+  // constraint that copyToChannel imposes.
+  buffer.getChannelData(0).set(pcm);
+  const src = offline.createBufferSource();
+  src.buffer = buffer;
+  src.connect(offline.destination);
+  src.start();
   const rendered = await offline.startRendering();
-
-  const wav = encodeWav(rendered.getChannelData(0), VOICE_TARGET_SAMPLE_RATE);
-  return new File([wav], "recording.wav", { type: "audio/wav" });
+  return rendered.getChannelData(0);
 }
 
 /** PCM float32 [-1,1] → 16-bit mono WAV (44-byte RIFF header). */

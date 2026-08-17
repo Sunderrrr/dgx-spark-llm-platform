@@ -811,6 +811,54 @@ def video_stop():
     return jsonify({"ok": ok, "detail": out})
 
 
+# ── Sidecar logs (read-only) ──────────────────────────────────────────────────
+# Fixed tail so the sudoers rules can be EXACT commands (no wildcards): the
+# vllmrunner user may read only these containers' logs, not any container's
+# (whose logs could contain secrets). dgx-portal itself has no docker access,
+# so it relays these to the admin Logs viewer.
+_LOGS_TAIL = 400
+
+def _combined_sudo(*cmd, timeout=20):
+    """Like _sudo but returns stdout AND stderr merged — docker/vLLM write logs
+    to stderr, so returning only one stream would drop most of the output."""
+    try:
+        r = subprocess.run(["sudo", "-n", *cmd], capture_output=True, text=True, timeout=timeout)
+        return ((r.stdout or "") + (r.stderr or "")).strip()
+    except Exception as e:
+        return str(e)
+
+def _container_logs(container):
+    out = _combined_sudo("/usr/bin/docker", "logs", "--tail", str(_LOGS_TAIL), container)
+    return jsonify({"logs": out.splitlines()})
+
+
+@app.route("/ocr/logs")
+def ocr_logs():
+    return _container_logs("ocr")
+
+
+@app.route("/voice/logs")
+def voice_logs():
+    return _container_logs("voice")
+
+
+@app.route("/image/logs")
+def image_logs():
+    return _container_logs("image")
+
+
+@app.route("/asr/logs")
+def asr_logs():
+    return _container_logs("asr")
+
+
+@app.route("/video/logs")
+def video_logs():
+    out = _combined_sudo("/usr/bin/journalctl", "-u", "comfyui.service",
+                         "-n", str(_LOGS_TAIL), "--no-pager")
+    return jsonify({"logs": out.splitlines()})
+
+
 # ── System metrics (host) ─────────────────────────────────────────────────────
 def _cpu_pct():
     def snap():

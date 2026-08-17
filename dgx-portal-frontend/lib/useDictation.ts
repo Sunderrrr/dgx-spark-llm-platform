@@ -7,12 +7,13 @@ import { useLang } from "./i18n";
 /**
  * Reusable voice dictation (Playground, Voice, Video).
  *
- * The text is written AS speech flows: every 1.5 s we re-transcribe all
+ * The text is written AS speech flows: every second we re-transcribe all
  * the audio captured since the start and rewrite the dictated part of the field.
  * Whisper responds in ~0.2 s whatever the length (up to 30 s), and giving
- * it the whole context lets it correct itself along the way.
+ * it the whole context lets it correct itself along the way. A single request
+ * is ever in flight (busyRef), so a slow round just spaces the updates out.
  */
-const POLL_MS = 1500;
+const POLL_MS = 1000;
 
 type Options = {
   /** Current value of the target field. */

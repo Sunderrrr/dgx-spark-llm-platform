@@ -4909,6 +4909,25 @@ def reject_budget(req_id):
 def admin_runner_logs():
     return jsonify({'logs': runner_logs(200)})
 
+# Sidecar log tabs in the admin Logs viewer (LLM comes from runner_logs/stream
+# above; these relay the containerised sidecars + ComfyUI). The portal has no
+# docker access — the runner reads them via scoped sudo (see /etc/sudoers.d/
+# vllmrunner-logs) and returns the tail as a list of lines.
+_SIDECAR_LOG_KINDS = {'ocr', 'voice', 'image', 'video', 'asr'}
+
+@app.route('/admin/sidecar-logs/<kind>')
+@admin_required
+def admin_sidecar_logs(kind):
+    if kind not in _SIDECAR_LOG_KINDS:
+        return jsonify({'error': 'unknown kind', 'logs': []}), 400
+    try:
+        r = requests.get(f"{RUNNER_URL}/{kind}/logs", headers=_runner_headers(), timeout=10)
+        if r.ok:
+            return jsonify({'logs': r.json().get('logs', [])})
+        return jsonify({'logs': [], 'error': 'runner error'}), 502
+    except Exception:
+        return jsonify({'logs': [], 'error': 'runner unreachable'}), 502
+
 @app.route('/admin/runner/stream')
 @admin_required
 def admin_runner_stream():

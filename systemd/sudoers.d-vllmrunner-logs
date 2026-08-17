@@ -1,0 +1,10 @@
+# Read-only log access for the admin Logs viewer. vllm-runner relays these to
+# dgx-portal (which has no docker access). EXACT commands only — a fixed --tail
+# and pinned container/unit names — so vllmrunner can read ONLY these sidecars'
+# logs, never an arbitrary container's (litellm/postgres logs could hold secrets).
+# Install to /etc/sudoers.d/vllmrunner-logs (root:root, mode 0440).
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker logs --tail 400 ocr
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker logs --tail 400 voice
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker logs --tail 400 image
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker logs --tail 400 asr
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/journalctl -u comfyui.service -n 400 --no-pager

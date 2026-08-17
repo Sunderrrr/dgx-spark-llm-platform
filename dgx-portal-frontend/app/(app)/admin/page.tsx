@@ -107,6 +107,10 @@ export default function AdminPage() {
   const [data, setData] = useState<AdminData | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
+  // Which model's logs the admin is viewing. "llm" is the live SSE stream
+  // (the chat model); the sidecars are fetched on demand + polled.
+  const [logKind, setLogKind] = useState<"llm" | "ocr" | "voice" | "image" | "video">("llm");
+  const [sidecarLogs, setSidecarLogs] = useState<string[]>([]);
   const [newModel, setNewModel] = useState({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
   const [newOcr, setNewOcr] = useState({ name: "", hf_model_id: "", vllm_args: "" });
   const [newVoice, setNewVoice] = useState({ name: "", repo_id: "Qwen3-TTS-12Hz-1.7B-Base" });
@@ -145,6 +149,21 @@ export default function AdminPage() {
     es.addEventListener("clear", () => setLogs([]));
     return () => es.close();
   }, [forbidden]);
+
+  // Sidecar log tabs: fetch the selected sidecar's tail on switch, then poll
+  // every 5s. "llm" uses the live SSE stream above instead, so nothing to fetch.
+  useEffect(() => {
+    if (forbidden || logKind === "llm") return;
+    let alive = true;
+    const load = () => {
+      getJSON<{ logs?: string[] }>(`/admin/sidecar-logs/${logKind}`)
+        .then((d) => { if (alive) setSidecarLogs(d?.logs ?? []); })
+        .catch(() => { if (alive) setSidecarLogs([]); });
+    };
+    load();
+    const id = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(id); };
+  }, [logKind, forbidden]);
 
   async function act(url: string, params: Record<string, string> = {}) {
     if (!csrf) return;
@@ -603,8 +622,27 @@ export default function AdminPage() {
 
               <Card>
                 <VStack gap={2}>
-                  <Text weight="semibold">Logs — {data?.v_status.model || t("aucun modèle")}</Text>
-                  <CodeBlock code={logs.join("\n")} language="plaintext" hasCopyButton width="100%" maxHeight={280} />
+                  <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
+                    <Text weight="semibold">
+                      {logKind === "llm"
+                        ? `Logs — ${data?.v_status.model || t("aucun modèle")}`
+                        : `Logs — ${logKind.toUpperCase()}`}
+                    </Text>
+                    <SegmentedControl label={t("Logs à afficher")} value={logKind} onChange={(v) => { setSidecarLogs([]); setLogKind(v as typeof logKind); }}>
+                      <SegmentedControlItem value="llm" label={t("LLM")} />
+                      <SegmentedControlItem value="ocr" label="OCR" />
+                      <SegmentedControlItem value="voice" label={t("Voix")} />
+                      <SegmentedControlItem value="image" label={t("Image")} />
+                      <SegmentedControlItem value="video" label={t("Vidéo")} />
+                    </SegmentedControl>
+                  </HStack>
+                  <CodeBlock
+                    code={(logKind === "llm" ? logs : sidecarLogs).join("\n") || t("Aucun log — ce modèle n'est pas démarré.")}
+                    language="plaintext"
+                    hasCopyButton
+                    width="100%"
+                    maxHeight={280}
+                  />
                 </VStack>
               </Card>
             </VStack>

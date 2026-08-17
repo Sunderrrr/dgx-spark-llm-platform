@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { startRecording, type Recorder } from "./audioRecorder";
-import { useLang } from "./i18n";
 
 /**
  * Reusable voice dictation (Playground, Voice, Video).
@@ -24,7 +23,6 @@ type Options = {
 };
 
 export function useDictation({ value, onChange, csrf }: Options) {
-  const { lang } = useLang();
   const [available, setAvailable] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -66,7 +64,10 @@ export function useDictation({ value, onChange, csrf }: Options) {
     async (file: File, run: number): Promise<boolean> => {
       const body = new FormData();
       body.append("audio", file);
-      body.append("language", lang);
+      // No forced language: Whisper auto-detects the spoken language and writes
+      // in it (task=transcribe, never translate). Since each pass re-transcribes
+      // the whole buffer, the detection stabilises as more speech accumulates —
+      // so speaking French writes French even if the UI is in English.
       const res = await fetch("/api/transcribe", {
         method: "POST",
         credentials: "include",
@@ -84,7 +85,7 @@ export function useDictation({ value, onChange, csrf }: Options) {
       onChangeRef.current(spoken ? (base ? `${base.trimEnd()} ${spoken}` : spoken) : base);
       return true;
     },
-    [csrf, lang],
+    [csrf],
   );
 
   useEffect(() => {

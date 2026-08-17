@@ -467,6 +467,8 @@ const EN: Record<string, string> = {
   "Demande à un admin d'ajouter un modèle image pour utiliser cette page.": "Ask an admin to add an image model to use this page.",
   "Aucun modèle image chargé": "No image model loaded",
   "La génération est indisponible pour l'instant, mais tu peux revoir tes images précédentes ci-dessous.": "Generation is unavailable for now, but you can review your previous images below.",
+  "Logs à afficher": "Logs to show",
+  "Aucun log — ce modèle n'est pas démarré.": "No logs — this model isn't running.",
   "Aucun modèle vocal chargé": "No voice model loaded",
   "La génération est indisponible pour l'instant, mais tu peux réécouter et copier tes créations précédentes ci-dessous.": "Generation is unavailable for now, but you can replay and copy your previous creations below.",
   "Décris l'image": "Describe the image",

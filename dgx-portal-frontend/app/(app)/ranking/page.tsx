@@ -39,6 +39,8 @@ const PERIODS = [
   { value: "day", label: "Jour" },
   { value: "week", label: "Semaine" },
   { value: "month", label: "Mois" },
+  { value: "year", label: "Année" },
+  { value: "all", label: "Tout" },
 ];
 
 const MEDALS: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };

@@ -1044,7 +1044,11 @@ def _mem_available_gb():
 # higher threshold to keep a real cushion. The chat model's memory is,
 # itself, frozen at launch (KV pre-allocated), so once a sidecar is loaded
 # the whole is stable — that's what makes these thresholds reliable.
-_SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5, 'image': 40, 'music': 30}
+# 'music' vaut pour le mode par défaut du sidecar : quantification 8 bits des
+# deux gros LLM (~24 Go en bf16 → ~13 Go). Surchargeable par env si on repasse
+# le sidecar en pleine précision (MUSIC_QUANT=none) ou en 4 bits.
+_SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5, 'image': 40,
+                        'music': int(os.environ.get('MUSIC_MEM_NEED_GB', 15))}
 
 def _mem_guard(kind):
     """Return an error message if starting `kind` risks an OOM, otherwise None."""

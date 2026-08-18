@@ -27,7 +27,8 @@ RUN python3 -m pip install --no-cache-dir \
       "git+https://github.com/huggingface/diffusers@dafe3733fcfdbf3c48915fe77be3aef65b5d6a2d" \
       "transformers>=4.46" accelerate safetensors sentencepiece protobuf \
       soundfile numpy \
-      "fastapi>=0.115" "uvicorn[standard]>=0.30" python-multipart
+      "fastapi>=0.115" "uvicorn[standard]>=0.30" python-multipart \
+      bitsandbytes
 
 COPY server.py /app/server.py
 RUN mkdir -p /app/hf_cache

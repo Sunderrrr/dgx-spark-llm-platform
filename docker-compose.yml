@@ -154,6 +154,7 @@ services:
       - voice_net
       - asr_net
       - image_net
+      - music_net
 
   # ─── DGX Portal Frontend — Next.js + Astryx, nouvelle interface complète ──
   # Reprend le port 5000 (celui que filtre déjà cronos-docker-restrict.service
@@ -200,6 +201,10 @@ networks:
   # sidecars — reçoit un prompt utilisateur vers du code de modèle tiers, isolé
   # de litellm/postgres. Seul dgx-portal l'atteint (IMAGE_URL=http://image:8007).
   image_net:
+  # Génération musicale (MiniMax-Music3 & co, diffusers) : idem, et d'autant
+  # plus que le modèle est choisi librement depuis l'admin — du code de modèle
+  # tiers arbitraire n'a rien à faire sur le réseau de litellm/postgres.
+  music_net:
 
 # ─── OpenWebUI ────────────────────────────────────────────────────────────────
 # OpenWebUI tourne sur ton autre serveur (vor.cronos.website).

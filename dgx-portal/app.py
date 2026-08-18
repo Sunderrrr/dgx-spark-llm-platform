@@ -172,6 +172,7 @@ OCR_URL       = os.environ.get('OCR_URL', 'http://ocr:8000/v1')
 VOICE_URL     = os.environ.get('VOICE_URL', 'http://voice:8004')
 # Transcription (dictation) — same.
 ASR_URL       = os.environ.get('ASR_URL', 'http://asr:8006')
+MUSIC_URL     = os.environ.get('MUSIC_URL', 'http://music:8008')
 DISCORD_WH    = os.environ.get('DISCORD_WEBHOOK_URL', '')
 # Discord DM notifications: a bot DMs each user who linked their account (OAuth2
 # "identify") whenever an announcement fires (model change, site announcement,
@@ -420,6 +421,17 @@ def init_db():
             image_type      TEXT,
             duration_ms     INTEGER,
             created_at      TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS music_jobs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            username    TEXT NOT NULL,
+            job_id      TEXT NOT NULL,
+            prompt      TEXT NOT NULL,
+            lyrics      TEXT,
+            duration_s  INTEGER,
+            status      TEXT NOT NULL DEFAULT 'running',
+            duration_ms INTEGER,
+            created_at  TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS ocr_jobs (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1005,6 +1017,7 @@ def _sidecar_status(kind):
              else get_voice_model() is not None if kind == 'voice'
              else asr_is_up() if kind == 'asr'
              else image_ready() if kind == 'image'
+             else music_ready() if kind == 'music'
              else False)
     return 'running' if ready else 'starting'
 
@@ -1031,7 +1044,7 @@ def _mem_available_gb():
 # higher threshold to keep a real cushion. The chat model's memory is,
 # itself, frozen at launch (KV pre-allocated), so once a sidecar is loaded
 # the whole is stable — that's what makes these thresholds reliable.
-_SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5, 'image': 40}
+_SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5, 'image': 40, 'music': 30}
 
 def _mem_guard(kind):
     """Return an error message if starting `kind` risks an OOM, otherwise None."""
@@ -1104,6 +1117,24 @@ def _image_launch(model_id):
     """
     try:
         r = requests.post(f"{RUNNER_URL}/image/launch", headers=_runner_headers(),
+                          json={'model_id': model_id}, timeout=180)
+        detail = ''
+        try:
+            detail = r.json().get('detail', '')
+        except Exception:
+            pass
+        return r.ok, detail
+    except Exception as e:
+        return False, str(e)
+
+# Modèles musique : id HuggingFace libre (comme l'OCR), la forme est validée
+# ici ET côté runner avant tout appel sudo.
+_HF_ID_RE = re.compile(r'^[A-Za-z0-9][\w.-]{0,60}/[A-Za-z0-9][\w.-]{0,80}$')
+
+def _music_launch(model_id):
+    """Recrée le conteneur musique avec un autre modèle HF."""
+    try:
+        r = requests.post(f"{RUNNER_URL}/music/launch", headers=_runner_headers(),
                           json={'model_id': model_id}, timeout=180)
         detail = ''
         try:
@@ -2410,6 +2441,8 @@ def _index_data():
         metrics['video'] = _sidecar_metrics('video')
     if image_ready():
         running.append({'name': get_image_model() or 'Image', 'kind': 'image', 'exposed': False})
+    if music_ready():
+        running.append({'name': get_music_model() or 'Musique', 'kind': 'music', 'exposed': False})
     voice_model = get_voice_model()
     if voice_model:
         _vlabel = 'Qwen3-TTS' if get_voice_engine() == 'qwen3-tts' else 'Chatterbox'
@@ -4393,6 +4426,8 @@ def api_admin():
         'asr_status': lambda: _sidecar_status('asr'),
         'image_status': lambda: _sidecar_status('image'),
         'image_model_name': lambda: get_image_model(),
+        'music_status': lambda: _sidecar_status('music'),
+        'music_model_name': lambda: get_music_model(),
         'v_status': runner_status,
         'init_logs': lambda: runner_logs(120),
     }
@@ -4595,6 +4630,33 @@ def launch_image():
         return jsonify({'ok': False, 'error': err}), 507
     ok, detail = _image_launch(model_id)
     return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance image : {detail}"}), (200 if ok else 502)
+
+@app.route('/admin/music/start', methods=['POST'])
+@admin_required
+def start_music():
+    return _sidecar_start_json('music')
+
+@app.route('/admin/music/stop', methods=['POST'])
+@admin_required
+def stop_music():
+    ok = _sidecar_action('music', 'stop')
+    flash("Génération musicale arrêtée." if ok else "Échec de l'arrêt de la musique.",
+          "success" if ok else "danger")
+    return redirect(url_for('admin'))
+
+@app.route('/admin/music/launch', methods=['POST'])
+@admin_required
+def launch_music():
+    """Lance un modèle musique (id HF libre, comme l'OCR). Le conteneur télécharge
+    le modèle lui-même au démarrage : rien à faire côté shell."""
+    model_id = request.form.get('model_id', '').strip()
+    if not _HF_ID_RE.fullmatch(model_id):
+        return jsonify({'ok': False, 'error': "Identifiant HuggingFace invalide (attendu : org/nom)."}), 400
+    err = _mem_guard('music')
+    if err:
+        return jsonify({'ok': False, 'error': err}), 507
+    ok, detail = _music_launch(model_id)
+    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance musique : {detail}"}), (200 if ok else 502)
 
 @app.route('/admin/voice/catalog/add', methods=['POST'])
 @admin_required
@@ -4963,7 +5025,7 @@ def admin_runner_logs():
 # above; these relay the containerised sidecars + ComfyUI). The portal has no
 # docker access — the runner reads them via scoped sudo (see /etc/sudoers.d/
 # vllmrunner-logs) and returns the tail as a list of lines.
-_SIDECAR_LOG_KINDS = {'ocr', 'voice', 'image', 'video', 'asr'}
+_SIDECAR_LOG_KINDS = {'ocr', 'voice', 'image', 'video', 'asr', 'music'}
 
 @app.route('/admin/sidecar-logs/<kind>')
 @admin_required
@@ -5480,6 +5542,125 @@ def image_file(prompt_id, idx=0):
     if not os.path.isfile(path):
         abort(404)
     return send_file(path, mimetype='image/png')
+
+
+# ── Musique (MiniMax-Music3 & co, sidecar diffusers) ────────────────────────
+MUSIC_FILES_DIR = '/app/data/music_files'
+MUSIC_HISTORY_LIMIT = 20
+MUSIC_MAX_SECONDS = 300
+
+def music_ready():
+    try:
+        r = requests.get(f"{MUSIC_URL}/health", timeout=3)
+        return bool(r.ok and r.json().get('ready'))
+    except Exception:
+        return False
+
+def get_music_model():
+    try:
+        r = requests.get(f"{MUSIC_URL}/model-info", timeout=3)
+        if r.ok:
+            return r.json().get('model')
+    except Exception:
+        pass
+    return None
+
+def _music_worker(job_id, username, prompt, lyrics, duration):
+    """Thread : appelle le sidecar, écrit le WAV, met à jour la ligne du job.
+
+    Génération longue (jusqu'à 5 min de musique) → timeout large, et le portail
+    ne bloque pas la requête HTTP de l'utilisateur : la page interroge /status.
+    """
+    started = datetime.now()
+    status, dur = 'error', None
+    try:
+        r = requests.post(f"{MUSIC_URL}/generate",
+                          data={'prompt': prompt, 'lyrics': lyrics, 'duration': duration},
+                          timeout=1800)
+        if r.ok and r.headers.get('Content-Type', '').startswith('audio/'):
+            os.makedirs(MUSIC_FILES_DIR, exist_ok=True)
+            with open(os.path.join(MUSIC_FILES_DIR, job_id + '.wav'), 'wb') as f:
+                f.write(r.content)
+            status = 'done'
+            dur = int((datetime.now() - started).total_seconds() * 1000)
+    except Exception:
+        pass
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("UPDATE music_jobs SET status=?, duration_ms=? WHERE job_id=? AND username=?",
+                  (status, dur, job_id, username))
+        c.commit(); c.close()
+    except Exception:
+        pass
+
+
+@app.route('/api/music/generate', methods=['POST'])
+@login_required
+def api_music_generate():
+    blocked = maintenance_block_json()
+    if blocked:
+        return blocked
+    limited = media_rate_block()
+    if limited:
+        return limited
+    prompt = request.form.get('prompt', '').strip()
+    if not prompt:
+        return jsonify({'error': "Une description musicale est requise."}), 400
+    if not music_ready():
+        return jsonify({'error': "Aucun modèle musique configuré."}), 503
+    lyrics = request.form.get('lyrics', '')[:10000]
+    try:
+        duration = int(float(request.form.get('duration', 60)))
+    except (TypeError, ValueError):
+        duration = 60
+    duration = max(5, min(MUSIC_MAX_SECONDS, duration))
+    job_id = secrets.token_hex(12)
+    db = get_db()
+    db.execute("INSERT INTO music_jobs (username, job_id, prompt, lyrics, duration_s, status, created_at) "
+               "VALUES (?,?,?,?,?,?,?)",
+               (session['username'], job_id, prompt, lyrics, duration, 'running', datetime.now().isoformat()))
+    db.execute("""DELETE FROM music_jobs WHERE username=? AND id NOT IN (
+                     SELECT id FROM music_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
+               (session['username'], session['username'], MUSIC_HISTORY_LIMIT))
+    db.commit()
+    threading.Thread(target=_music_worker,
+                     args=(job_id, session['username'], prompt, lyrics, duration),
+                     daemon=True).start()
+    return jsonify({'job_id': job_id, 'duration': duration})
+
+
+@app.route('/api/music/history')
+@login_required
+def api_music_history():
+    rows = get_db().execute(
+        "SELECT job_id, prompt, lyrics, duration_s, status, created_at FROM music_jobs "
+        "WHERE username=? ORDER BY id DESC", (session['username'],)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/music/status/<job_id>')
+@login_required
+def api_music_status(job_id):
+    row = get_db().execute("SELECT status FROM music_jobs WHERE job_id=? AND username=?",
+                           (job_id, session['username'])).fetchone()
+    if not row:
+        abort(404)
+    return jsonify({'status': row['status']})
+
+
+@app.route('/music/file/<job_id>')
+@login_required
+def music_file(job_id):
+    # Scope (id, username) en une requête — même garde IDOR que /voice/audio.
+    owned = get_db().execute("SELECT 1 FROM music_jobs WHERE job_id=? AND username=?",
+                             (job_id, session['username'])).fetchone()
+    if not owned:
+        abort(404)
+    safe = re.sub(r'[^a-f0-9]', '', str(job_id))
+    path = os.path.join(MUSIC_FILES_DIR, safe + '.wav') if safe else None
+    if not path or not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype='audio/wav')
 
 
 # ── OCR (baidu/Unlimited-OCR) ────────────────────────────────────────────────

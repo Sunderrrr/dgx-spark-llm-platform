@@ -80,11 +80,13 @@ type AdminData = {
   image_status: string;
   image_model_name: string | null;
   image_model_ids: string[];
+  music_status: string;
+  music_model_name: string | null;
   ocr_cfgs: OcrCfg[];
   voice_cfgs: VoiceCfg[];
 };
 
-type CatalogKind = "llm" | "ocr" | "voice" | "video" | "image";
+type CatalogKind = "llm" | "ocr" | "voice" | "video" | "image" | "music";
 
 const MAX_LOG_LINES = 600;
 
@@ -111,7 +113,7 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<string[]>([]);
   // Which model's logs the admin is viewing. "llm" is the live SSE stream
   // (the chat model); the sidecars are fetched on demand + polled.
-  const [logKind, setLogKind] = useState<"llm" | "ocr" | "voice" | "image" | "video">("llm");
+  const [logKind, setLogKind] = useState<"llm" | "ocr" | "voice" | "image" | "music" | "video">("llm");
   const [sidecarLogs, setSidecarLogs] = useState<string[]>([]);
   const [newModel, setNewModel] = useState({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
   const [newOcr, setNewOcr] = useState({ name: "", hf_model_id: "", vllm_args: "" });
@@ -119,6 +121,7 @@ export default function AdminPage() {
   const [catalogKind, setCatalogKind] = useState<CatalogKind>("llm");
   const [announce, setAnnounce] = useState({ title: "", body: "" });
   const [settings, setSettings] = useState({ budget: "", duration: "" });
+  const [musicModel, setMusicModel] = useState("MiniMaxAI/MiniMax-Music3");
 
   // Texte affiché dans le visualiseur de logs, et suivi automatique du bas —
   // même comportement que le panneau du Playground : on colle au bas tant que
@@ -441,6 +444,27 @@ export default function AdminPage() {
                       </Text>
                     </VStack>
                   </Card>
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={SIDECAR_VARIANT[data.music_status] ?? "error"}
+                            label={t(SIDECAR_LABEL[data.music_status] ?? "Injoignable")}
+                          />
+                          <Text weight="semibold">{t("Musique")}</Text>
+                        </HStack>
+                        {data.music_status === "running" || data.music_status === "starting" ? (
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/music/stop")} />
+                        ) : (
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/music/start")} />
+                        )}
+                      </HStack>
+                      <Text type="supporting" color="secondary" wordBreak="break-all">
+                        {data.music_model_name || t("aucun modèle")}
+                      </Text>
+                    </VStack>
+                  </Card>
                 </Grid>
               )}
 
@@ -454,6 +478,7 @@ export default function AdminPage() {
                   <SegmentedControlItem value="ocr" label="OCR" />
                   <SegmentedControlItem value="voice" label={t("Voix")} />
                   <SegmentedControlItem value="image" label={t("Image")} />
+                  <SegmentedControlItem value="music" label={t("Musique")} />
                   <SegmentedControlItem value="video" label={t("Vidéo")} />
                 </SegmentedControl>
               </HStack>
@@ -621,6 +646,34 @@ export default function AdminPage() {
                 </Grid>
               )}
 
+              {data && catalogKind === "music" && (
+                <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+                  <Card>
+                    <VStack gap={2}>
+                      <Text type="supporting" color="secondary">{t("Lancer un modèle musique")}</Text>
+                      <TextInput
+                        label={t("Modèle musique")}
+                        isLabelHidden
+                        value={musicModel}
+                        onChange={setMusicModel}
+                        placeholder={t("Identifiant HuggingFace (ex : MiniMaxAI/MiniMax-Music3)")}
+                        size="sm"
+                      />
+                      <Text type="supporting" color="secondary">
+                        {t("Le conteneur télécharge le modèle depuis HuggingFace au démarrage — le premier lancement peut prendre plusieurs minutes.")}
+                      </Text>
+                      <Button
+                        label={t("Lancer")}
+                        variant="primary"
+                        size="sm"
+                        icon={<Icon icon={PlayIcon} size="sm" />}
+                        onClick={() => act("/admin/music/launch", { model_id: musicModel.trim() })}
+                      />
+                    </VStack>
+                  </Card>
+                </Grid>
+              )}
+
               {data && catalogKind === "video" && (
                 <Card>
                   <VStack gap={1}>
@@ -665,6 +718,7 @@ export default function AdminPage() {
                       <SegmentedControlItem value="ocr" label="OCR" />
                       <SegmentedControlItem value="voice" label={t("Voix")} />
                       <SegmentedControlItem value="image" label={t("Image")} />
+                      <SegmentedControlItem value="music" label={t("Musique")} />
                       <SegmentedControlItem value="video" label={t("Vidéo")} />
                     </SegmentedControl>
                   </HStack>

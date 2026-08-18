@@ -1,0 +1,10 @@
+# Contrôle scoped du sidecar musique, calqué sur les entrées OCR/voix/image :
+# vllm-runner (non privilégié) ne peut que démarrer/arrêter/inspecter le
+# conteneur figé `music`, lire ses logs (tail figé), et lancer le script de
+# recréation dont l'argument est revalidé côté Python avant tout appel sudo.
+# Installer dans /etc/sudoers.d/vllmrunner-music (root:root, 0440).
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker start music
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker stop music
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker inspect music
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker logs --tail 400 music
+vllmrunner ALL=(root) NOPASSWD: /usr/local/sbin/music-recreate.sh *

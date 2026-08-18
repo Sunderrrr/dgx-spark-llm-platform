@@ -652,36 +652,38 @@ export default function AdminPage() {
                       <SegmentedControlItem value="video" label={t("Vidéo")} />
                     </SegmentedControl>
                   </HStack>
-                  {/* CodeBlock n'expose pas son conteneur de défilement (pas de ref
-                      ni d'onScroll), donc on retire son maxHeight et on scrolle le
-                      conteneur parent — même montage que le panneau du Playground,
-                      ce qui permet d'y brancher le suivi automatique du bas. */}
-                  <VStack style={{ position: "relative" }}>
-                    <VStack
-                      ref={setLogsScrollRef}
-                      onScroll={onLogsScroll}
-                      isScrollable
-                      style={{ maxHeight: 280 }}
-                    >
-                      <CodeBlock
-                        code={logText || t("Aucun log — ce modèle n'est pas démarré.")}
-                        language="plaintext"
-                        hasCopyButton
-                        width="100%"
-                      />
-                    </VStack>
-                    {showLogsJump && (
-                      <HStack style={{ position: "absolute", bottom: "var(--spacing-3)", left: "50%", transform: "translateX(-50%)", zIndex: 2 }}>
-                        <Button
-                          label={t("Descendre")}
-                          variant="primary"
-                          size="sm"
-                          icon={<Icon icon={ArrowDownIcon} size="sm" />}
-                          onClick={logsJumpDown}
-                        />
-                      </HStack>
-                    )}
+                  {/* CodeBlock n'expose ni ref ni onScroll : impossible d'y brancher
+                      le suivi du bas. On lui retire donc sa hauteur max et c'est le
+                      VStack parent qui défile. Hauteur via la prop `height` (et non
+                      un style inline) : Stack étale l'objet `style` dans les props au
+                      lieu d'en faire du CSS, donc un maxHeight inline reste sans effet
+                      — c'est ce qui faisait s'étaler tout le journal. */}
+                  <VStack
+                    ref={setLogsScrollRef}
+                    onScroll={onLogsScroll}
+                    isScrollable
+                    height={280}
+                  >
+                    <CodeBlock
+                      code={logText || t("Aucun log — ce modèle n'est pas démarré.")}
+                      language="plaintext"
+                      hasCopyButton
+                      width="100%"
+                    />
                   </VStack>
+                  {/* Flèche dans le flux normal, sous la boîte : le positionnement
+                      absolu dépendrait lui aussi d'un style inline non appliqué. */}
+                  {showLogsJump && (
+                    <HStack hAlign="center">
+                      <Button
+                        label={t("Descendre")}
+                        variant="primary"
+                        size="sm"
+                        icon={<Icon icon={ArrowDownIcon} size="sm" />}
+                        onClick={logsJumpDown}
+                      />
+                    </HStack>
+                  )}
                 </VStack>
               </Card>
             </VStack>

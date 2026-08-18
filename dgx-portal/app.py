@@ -485,6 +485,13 @@ def init_db():
     ocr_cols = {r[1] for r in db.execute("PRAGMA table_info(ocr_jobs)")}
     if 'image_path' not in ocr_cols:
         db.execute("ALTER TABLE ocr_jobs ADD COLUMN image_path TEXT")
+    # Plusieurs versions d'un même morceau (fichiers <job_id>_<idx>.wav) : même
+    # principe que les images — count = demandé, done_count = déjà produit.
+    _mj = {r[1] for r in db.execute("PRAGMA table_info(music_jobs)")}
+    if 'count' not in _mj:
+        db.execute("ALTER TABLE music_jobs ADD COLUMN count INTEGER NOT NULL DEFAULT 1")
+    if 'done_count' not in _mj:
+        db.execute("ALTER TABLE music_jobs ADD COLUMN done_count INTEGER NOT NULL DEFAULT 0")
     # Batch image generation: N variations per prompt (files <prompt_id>_<idx>.png).
     # count = requested, done_count = produced so far (progressive display).
     _ij = {r[1] for r in db.execute("PRAGMA table_info(image_jobs)")}
@@ -5552,6 +5559,9 @@ def image_file(prompt_id, idx=0):
 MUSIC_FILES_DIR = '/app/data/music_files'
 MUSIC_HISTORY_LIMIT = 20
 MUSIC_MAX_SECONDS = 300
+# Plafond volontairement bas : ~4x la durée demandée par version, donc 3 versions
+# d'un morceau de 3 min monopolisent déjà le GPU ~35 min.
+MUSIC_MAX_BATCH = 3
 
 def music_ready():
     try:
@@ -5569,30 +5579,47 @@ def get_music_model():
         pass
     return None
 
-def _music_worker(job_id, username, prompt, lyrics, duration):
-    """Thread : appelle le sidecar, écrit le WAV, met à jour la ligne du job.
-
-    Génération longue (jusqu'à 5 min de musique) → timeout large, et le portail
-    ne bloque pas la requête HTTP de l'utilisateur : la page interroge /status.
-    """
-    started = datetime.now()
-    status, dur = 'error', None
-    try:
-        r = requests.post(f"{MUSIC_URL}/generate",
-                          data={'prompt': prompt, 'lyrics': lyrics, 'duration': duration},
-                          timeout=1800)
-        if r.ok and r.headers.get('Content-Type', '').startswith('audio/'):
-            os.makedirs(MUSIC_FILES_DIR, exist_ok=True)
-            with open(os.path.join(MUSIC_FILES_DIR, job_id + '.wav'), 'wb') as f:
-                f.write(r.content)
-            status = 'done'
-            dur = int((datetime.now() - started).total_seconds() * 1000)
-    except Exception:
-        pass
+def _music_set_done(job_id, username, done):
+    """Incrémente le compteur produit : la page affiche les versions au fur et à
+    mesure plutôt qu'à la toute fin du lot."""
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
-        c.execute("UPDATE music_jobs SET status=?, duration_ms=? WHERE job_id=? AND username=?",
-                  (status, dur, job_id, username))
+        c.execute("UPDATE music_jobs SET done_count=? WHERE job_id=? AND username=?",
+                  (done, job_id, username))
+        c.commit(); c.close()
+    except Exception:
+        pass
+
+def _music_worker(job_id, username, prompt, lyrics, duration, count):
+    """Thread : appelle le sidecar `count` fois, écrit un WAV par version.
+
+    Séquentiel : le sidecar sérialise déjà les générations derrière son verrou
+    GPU, et enchaîner en parallèle ne ferait qu'ajouter de l'attente. Chaque
+    appel repart d'une graine différente → autant de variantes du même morceau.
+    Génération longue (~4x la durée demandée) → timeout large, et le portail ne
+    bloque pas la requête de l'utilisateur : la page interroge /status.
+    """
+    started = datetime.now()
+    done = 0
+    os.makedirs(MUSIC_FILES_DIR, exist_ok=True)
+    for idx in range(count):
+        try:
+            r = requests.post(f"{MUSIC_URL}/generate",
+                              data={'prompt': prompt, 'lyrics': lyrics, 'duration': duration},
+                              timeout=1800)
+            if r.ok and r.headers.get('Content-Type', '').startswith('audio/'):
+                with open(os.path.join(MUSIC_FILES_DIR, f"{job_id}_{idx}.wav"), 'wb') as f:
+                    f.write(r.content)
+                done += 1
+                _music_set_done(job_id, username, done)
+        except Exception:
+            pass
+    status = 'done' if done else 'error'
+    dur = int((datetime.now() - started).total_seconds() * 1000) if done else None
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("UPDATE music_jobs SET status=?, duration_ms=?, done_count=? WHERE job_id=? AND username=?",
+                  (status, dur, done, job_id, username))
         c.commit(); c.close()
     except Exception:
         pass
@@ -5618,26 +5645,31 @@ def api_music_generate():
     except (TypeError, ValueError):
         duration = 60
     duration = max(5, min(MUSIC_MAX_SECONDS, duration))
+    try:
+        count = int(request.form.get('count', 1))
+    except (TypeError, ValueError):
+        count = 1
+    count = max(1, min(MUSIC_MAX_BATCH, count))
     job_id = secrets.token_hex(12)
     db = get_db()
-    db.execute("INSERT INTO music_jobs (username, job_id, prompt, lyrics, duration_s, status, created_at) "
-               "VALUES (?,?,?,?,?,?,?)",
-               (session['username'], job_id, prompt, lyrics, duration, 'running', datetime.now().isoformat()))
+    db.execute("INSERT INTO music_jobs (username, job_id, prompt, lyrics, duration_s, status, count, done_count, created_at) "
+               "VALUES (?,?,?,?,?,?,?,?,?)",
+               (session['username'], job_id, prompt, lyrics, duration, 'running', count, 0, datetime.now().isoformat()))
     db.execute("""DELETE FROM music_jobs WHERE username=? AND id NOT IN (
                      SELECT id FROM music_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
                (session['username'], session['username'], MUSIC_HISTORY_LIMIT))
     db.commit()
     threading.Thread(target=_music_worker,
-                     args=(job_id, session['username'], prompt, lyrics, duration),
+                     args=(job_id, session['username'], prompt, lyrics, duration, count),
                      daemon=True).start()
-    return jsonify({'job_id': job_id, 'duration': duration})
+    return jsonify({'job_id': job_id, 'duration': duration, 'count': count})
 
 
 @app.route('/api/music/history')
 @login_required
 def api_music_history():
     rows = get_db().execute(
-        "SELECT job_id, prompt, lyrics, duration_s, status, created_at FROM music_jobs "
+        "SELECT job_id, prompt, lyrics, duration_s, status, count, done_count, created_at FROM music_jobs "
         "WHERE username=? ORDER BY id DESC", (session['username'],)).fetchall()
     return jsonify([dict(r) for r in rows])
 
@@ -5645,24 +5677,33 @@ def api_music_history():
 @app.route('/api/music/status/<job_id>')
 @login_required
 def api_music_status(job_id):
-    row = get_db().execute("SELECT status FROM music_jobs WHERE job_id=? AND username=?",
+    row = get_db().execute("SELECT status, count, done_count FROM music_jobs WHERE job_id=? AND username=?",
                            (job_id, session['username'])).fetchone()
     if not row:
         abort(404)
-    return jsonify({'status': row['status']})
+    return jsonify({'status': row['status'], 'count': row['count'], 'done_count': row['done_count']})
 
 
 @app.route('/music/file/<job_id>')
+@app.route('/music/file/<job_id>/<int:idx>')
 @login_required
-def music_file(job_id):
+def music_file(job_id, idx=0):
     # Scope (id, username) en une requête — même garde IDOR que /voice/audio.
     owned = get_db().execute("SELECT 1 FROM music_jobs WHERE job_id=? AND username=?",
                              (job_id, session['username'])).fetchone()
     if not owned:
         abort(404)
     safe = re.sub(r'[^a-f0-9]', '', str(job_id))
-    path = os.path.join(MUSIC_FILES_DIR, safe + '.wav') if safe else None
-    if not path or not os.path.isfile(path):
+    if not safe:
+        abort(404)
+    idx = max(0, min(MUSIC_MAX_BATCH - 1, int(idx)))
+    path = os.path.join(MUSIC_FILES_DIR, f"{safe}_{idx}.wav")
+    # Compat : les morceaux d'avant le multi-version sont en <job_id>.wav.
+    if not os.path.isfile(path) and idx == 0:
+        legacy = os.path.join(MUSIC_FILES_DIR, safe + '.wav')
+        if os.path.isfile(legacy):
+            path = legacy
+    if not os.path.isfile(path):
         abort(404)
     return send_file(path, mimetype='audio/wav')
 

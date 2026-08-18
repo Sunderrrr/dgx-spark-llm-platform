@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { Center } from "@astryxdesign/core/Center";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
@@ -128,11 +128,27 @@ export default function AdminPage() {
   // le flux) : les logs continuent d'arriver tant que la page est ouverte.
   const logText = (logKind === "llm" ? logs : sidecarLogs).join("\n");
   const {
-    setRef: setLogsScrollRef,
+    setRef: attachLogsScroller,
     showButton: showLogsJump,
-    onScroll: onLogsScroll,
     scrollToBottom: logsJumpDown,
   } = useStickToBottom(logText, true);
+
+  // CodeBlock gère lui-même son défilement (dès qu'on lui donne un maxHeight) et
+  // n'expose pas ce conteneur. On pose donc la ref sur un parent et on descend
+  // chercher l'élément réellement défilable — vérifié au navigateur : sans ça, le
+  // texte est rogné par un enfant en overflow:hidden et plus rien ne défile.
+  const setLogsScrollRef = useCallback(
+    (node: HTMLElement | null) => {
+      if (!node) return attachLogsScroller(null);
+      const scroller =
+        Array.from(node.querySelectorAll<HTMLElement>("*")).find((e) => {
+          const o = getComputedStyle(e).overflowY;
+          return o === "auto" || o === "scroll";
+        }) ?? node;
+      attachLogsScroller(scroller);
+    },
+    [attachLogsScroller],
+  );
 
   function refresh() {
     getJSON<AdminData>("/api/admin")
@@ -652,23 +668,18 @@ export default function AdminPage() {
                       <SegmentedControlItem value="video" label={t("Vidéo")} />
                     </SegmentedControl>
                   </HStack>
-                  {/* CodeBlock n'expose ni ref ni onScroll : impossible d'y brancher
-                      le suivi du bas. On lui retire donc sa hauteur max et c'est le
-                      VStack parent qui défile. Hauteur via la prop `height` (et non
-                      un style inline) : Stack étale l'objet `style` dans les props au
-                      lieu d'en faire du CSS, donc un maxHeight inline reste sans effet
-                      — c'est ce qui faisait s'étaler tout le journal. */}
-                  <VStack
-                    ref={setLogsScrollRef}
-                    onScroll={onLogsScroll}
-                    isScrollable
-                    height={280}
-                  >
+                  {/* Le maxHeight rend le défilement à CodeBlock : contraindre un
+                      parent à la place ne marche pas, CodeBlock se fait comprimer et
+                      rogne son texte (overflow:hidden interne), si bien que plus rien
+                      ne déborde ni ne défile. La ref sert seulement de point d'entrée
+                      pour retrouver son scroller. */}
+                  <VStack ref={setLogsScrollRef}>
                     <CodeBlock
                       code={logText || t("Aucun log — ce modèle n'est pas démarré.")}
                       language="plaintext"
                       hasCopyButton
                       width="100%"
+                      maxHeight={280}
                     />
                   </VStack>
                   {/* Flèche dans le flux normal, sous la boîte : le positionnement

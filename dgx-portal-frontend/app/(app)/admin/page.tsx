@@ -672,8 +672,9 @@ export default function AdminPage() {
                       parent à la place ne marche pas, CodeBlock se fait comprimer et
                       rogne son texte (overflow:hidden interne), si bien que plus rien
                       ne déborde ni ne défile. La ref sert seulement de point d'entrée
-                      pour retrouver son scroller. */}
-                  <VStack ref={setLogsScrollRef}>
+                      pour retrouver son scroller. Le conteneur est en position
+                      relative pour ancrer la flèche À L'INTÉRIEUR du cadre. */}
+                  <VStack ref={setLogsScrollRef} style={{ position: "relative" }}>
                     <CodeBlock
                       code={logText || t("Aucun log — ce modèle n'est pas démarré.")}
                       language="plaintext"
@@ -681,20 +682,28 @@ export default function AdminPage() {
                       width="100%"
                       maxHeight={280}
                     />
+                    {/* Flèche seule, en bas à DROITE : le coin haut-droit est déjà
+                        pris par le bouton Copier de CodeBlock. */}
+                    {showLogsJump && (
+                      <HStack
+                        style={{
+                          position: "absolute",
+                          bottom: "var(--spacing-3)",
+                          right: "var(--spacing-3)",
+                          zIndex: 2,
+                        }}
+                      >
+                        <Button
+                          label={t("Descendre")}
+                          variant="primary"
+                          size="sm"
+                          isIconOnly
+                          icon={<Icon icon={ArrowDownIcon} size="sm" />}
+                          onClick={logsJumpDown}
+                        />
+                      </HStack>
+                    )}
                   </VStack>
-                  {/* Flèche dans le flux normal, sous la boîte : le positionnement
-                      absolu dépendrait lui aussi d'un style inline non appliqué. */}
-                  {showLogsJump && (
-                    <HStack hAlign="center">
-                      <Button
-                        label={t("Descendre")}
-                        variant="primary"
-                        size="sm"
-                        icon={<Icon icon={ArrowDownIcon} size="sm" />}
-                        onClick={logsJumpDown}
-                      />
-                    </HStack>
-                  )}
                 </VStack>
               </Card>
             </VStack>

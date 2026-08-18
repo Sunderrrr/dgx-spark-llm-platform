@@ -34,6 +34,7 @@ import {
   PhotoIcon,
   DocumentMagnifyingGlassIcon,
   SpeakerWaveIcon,
+  MusicalNoteIcon,
 } from "@heroicons/react/24/outline";
 import { useThemeMode } from "../theme-provider";
 import { useCsrf } from "@/lib/useCsrf";
@@ -55,6 +56,7 @@ const NAV_ITEMS = [
   { href: "/image", label: "Image", icon: PhotoIcon },
   { href: "/ocr", label: "OCR", icon: DocumentMagnifyingGlassIcon },
   { href: "/voice", label: "Voix", icon: SpeakerWaveIcon },
+  { href: "/music", label: "Musique", icon: MusicalNoteIcon },
   { href: "/search", label: "Chercher un modèle", icon: MagnifyingGlassIcon },
   { href: "/request", label: "Demander un modèle", icon: PaperAirplaneIcon },
   { href: "/ranking", label: "Classement", icon: TrophyIcon },

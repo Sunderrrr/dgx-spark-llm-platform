@@ -9,6 +9,7 @@ import { Card } from "@astryxdesign/core/Card";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Button } from "@astryxdesign/core/Button";
 import { Slider } from "@astryxdesign/core/Slider";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Item } from "@astryxdesign/core/Item";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
@@ -22,7 +23,7 @@ import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 
 type JobStatus = "idle" | "running" | "done" | "error";
-type HistoryItem = { job_id: string; prompt: string; lyrics: string | null; duration_s: number; status: string; created_at: string };
+type HistoryItem = { job_id: string; prompt: string; lyrics: string | null; duration_s: number; status: string; count?: number; done_count?: number; created_at: string };
 type RunningModel = { name: string; kind: string; exposed: boolean };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -32,6 +33,24 @@ const STATUS_LABEL: Record<string, string> = {
 };
 const STATUS_SHORT: Record<string, string> = { running: "En cours", done: "Terminé", error: "Erreur" };
 
+const VERSIONS = [1, 2, 3];
+
+/* Bruit déterministe (même hachage sinusoïdal que la page Voix) : serveur et
+   client doivent tirer exactement les mêmes valeurs, sinon l'hydratation React
+   diverge — d'où ceci plutôt que Math.random(). */
+function noise(i: number, seed: number) {
+  const x = Math.sin(i * 12.9898 + seed) * 43758.5453;
+  return x - Math.floor(x);
+}
+/* Chaque barre a son amplitude ET sa durée propres : des durées différentes
+   font dériver les barres les unes par rapport aux autres, donc le motif ne se
+   répète jamais (une durée unique donnerait une vague mécanique). */
+const WAVE_BARS = Array.from({ length: 48 }, (_, i) => ({
+  amp: 0.3 + noise(i, 1) * 0.7,
+  dur: 0.85 + noise(i, 2) * 1.1,
+  delay: -noise(i, 3) * 2,
+}));
+
 export default function MusicPage() {
   const t = useT();
   const csrf = useCsrf();
@@ -39,6 +58,9 @@ export default function MusicPage() {
   const [prompt, setPrompt] = useState("");
   const [lyrics, setLyrics] = useState("");
   const [duration, setDuration] = useState(60);
+  const [versions, setVersions] = useState(1);
+  const [jobCount, setJobCount] = useState(1);   // versions demandées pour le job affiché
+  const [doneCount, setDoneCount] = useState(0); // versions déjà produites
   const [status, setStatus] = useState<JobStatus>("idle");
   const [jobId, setJobId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -66,10 +88,10 @@ export default function MusicPage() {
       .catch(() => setAvailable(null));
   }, []);
 
-  function downloadTrack(id: string) {
+  function downloadTrack(id: string, idx = 0) {
     const a = document.createElement("a");
-    a.href = `/music/file/${id}`;
-    a.download = `musique-${id}.wav`;
+    a.href = `/music/file/${id}/${idx}`;
+    a.download = `musique-${id}-${idx + 1}.wav`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -79,10 +101,12 @@ export default function MusicPage() {
     if (!prompt.trim() || !csrf) return;
     setStatus("running");
     setJobId(null);
+    setJobCount(versions);
+    setDoneCount(0);
     try {
-      const res = await postFormData<{ job_id?: string; error?: string }>(
+      const res = await postFormData<{ job_id?: string; count?: number; error?: string }>(
         "/api/music/generate", csrf,
-        { prompt, lyrics, duration: String(duration) },
+        { prompt, lyrics, duration: String(duration), count: String(versions) },
       );
       if (!res.job_id) {
         showToast({ body: res.error ? t(res.error) : t("Échec de la génération."), type: "error" });
@@ -90,12 +114,15 @@ export default function MusicPage() {
         return;
       }
       setJobId(res.job_id);
+      setJobCount(res.count ?? versions);
       loadHistory();
       // La composition peut durer plusieurs minutes : on interroge le statut
       // plutôt que de tenir une requête HTTP ouverte tout du long.
       pollRef.current = setInterval(async () => {
         const r = await fetch(`/api/music/status/${res.job_id}`, { credentials: "include" });
         const st = await r.json();
+        if (typeof st.count === "number") setJobCount(st.count);
+        if (typeof st.done_count === "number") setDoneCount(st.done_count);
         if (st.status === "done" || st.status === "error") {
           stopPolling();
           setStatus(st.status);
@@ -113,6 +140,8 @@ export default function MusicPage() {
     stopPolling();
     setJobId(item.job_id);
     setStatus(item.status as JobStatus);
+    setJobCount(item.count ?? 1);
+    setDoneCount(item.done_count ?? (item.status === "done" ? (item.count ?? 1) : 0));
   }
 
   const isBusy = status === "running";
@@ -186,8 +215,20 @@ export default function MusicPage() {
                         step={15}
                         isDisabled={isBusy}
                       />
+                      <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
+                        <Text type="supporting" color="secondary">{t("Nombre de versions")}</Text>
+                        <SegmentedControl
+                          label={t("Nombre de versions")}
+                          value={String(versions)}
+                          onChange={(v) => setVersions(Number(v) || 1)}
+                        >
+                          {VERSIONS.map((n) => (
+                            <SegmentedControlItem key={n} value={String(n)} label={String(n)} isDisabled={isBusy} />
+                          ))}
+                        </SegmentedControl>
+                      </HStack>
                       <Button
-                        label={t("Composer")}
+                        label={versions > 1 ? t("Composer {n} versions").replace("{n}", String(versions)) : t("Composer")}
                         variant="primary"
                         onClick={generate}
                         isDisabled={!prompt.trim() || isBusy}
@@ -205,22 +246,53 @@ export default function MusicPage() {
                         label={t(STATUS_LABEL[status] ?? status)}
                       />
                       {isBusy && (
-                        <Text type="supporting" color="secondary">
-                          {t("La composition d'un morceau prend plusieurs minutes — tu peux quitter la page, elle reste en cours.")}
-                        </Text>
-                      )}
-                      {status === "done" && jobId && (
                         <VStack gap={2}>
-                          <audio src={`/music/file/${jobId}`} controls style={{ width: "100%" }} />
-                          <HStack>
-                            <Button
-                              label={t("Télécharger")}
-                              variant="secondary"
-                              size="sm"
-                              icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-                              onClick={() => downloadTrack(jobId)}
-                            />
+                          {/* Onde animée : purement décorative (le texte au-dessus
+                              porte l'information), d'où aria-hidden. */}
+                          <HStack className="voice-wave" gap={1} vAlign="center" hAlign="center" aria-hidden>
+                            {WAVE_BARS.map((b, i) => (
+                              <span
+                                key={i}
+                                className="voice-wave-bar"
+                                style={{
+                                  "--amp": b.amp,
+                                  "--dur": `${b.dur}s`,
+                                  "--delay": `${b.delay}s`,
+                                } as React.CSSProperties}
+                              />
+                            ))}
                           </HStack>
+                          <Text type="supporting" color="secondary">
+                            {jobCount > 1
+                              ? t("Version {d} sur {n} — tu peux quitter la page, la composition continue.")
+                                  .replace("{d}", String(Math.min(doneCount + 1, jobCount)))
+                                  .replace("{n}", String(jobCount))
+                              : t("La composition d'un morceau prend plusieurs minutes — tu peux quitter la page, elle reste en cours.")}
+                          </Text>
+                        </VStack>
+                      )}
+                      {/* Les versions terminées s'écoutent sans attendre la fin du lot. */}
+                      {jobId && doneCount > 0 && (
+                        <VStack gap={3}>
+                          {Array.from({ length: doneCount }).map((_, idx) => (
+                            <VStack key={idx} gap={1}>
+                              {jobCount > 1 && (
+                                <Text type="supporting" color="secondary">
+                                  {t("Version")} {idx + 1}
+                                </Text>
+                              )}
+                              <audio src={`/music/file/${jobId}/${idx}`} controls style={{ width: "100%" }} />
+                              <HStack>
+                                <Button
+                                  label={t("Télécharger")}
+                                  variant="secondary"
+                                  size="sm"
+                                  icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                                  onClick={() => downloadTrack(jobId, idx)}
+                                />
+                              </HStack>
+                            </VStack>
+                          ))}
                         </VStack>
                       )}
                     </VStack>
@@ -236,7 +308,10 @@ export default function MusicPage() {
                           key={h.job_id}
                           label={h.prompt}
                           labelLines={1}
-                          description={`${new Date(h.created_at).toLocaleString("fr-FR")} · ${h.duration_s}s`}
+                          description={
+                            `${new Date(h.created_at).toLocaleString("fr-FR")} · ${h.duration_s}s` +
+                            ((h.count ?? 1) > 1 ? ` · ${h.count} ${t("versions")}` : "")
+                          }
                           startContent={<MusicalNoteIcon width={20} height={20} />}
                           endContent={
                             <StatusDot

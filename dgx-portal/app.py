@@ -6,7 +6,7 @@ from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from functools import wraps
 from urllib.parse import urlparse, urlencode
@@ -3825,8 +3825,11 @@ def api_search():
                     'skip': skip, 'page_size': _SEARCH_PAGE_SIZE})
 
 
-RANKING_LABELS = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours'}
-RANKING_PREV_LABELS = {'day': 'hier', 'week': 'la semaine précédente', 'month': 'les 30 jours précédents'}
+RANKING_LABELS = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours',
+                  'year': '12 derniers mois', 'all': 'Depuis le début'}
+RANKING_PREV_LABELS = {'day': 'hier', 'week': 'la semaine précédente', 'month': 'les 30 jours précédents',
+                       'year': 'les 12 mois précédents', 'all': ''}
+RANKING_PERIODS = tuple(RANKING_LABELS)
 
 
 
@@ -3834,7 +3837,7 @@ RANKING_PREV_LABELS = {'day': 'hier', 'week': 'la semaine précédente', 'month'
 @login_required
 def api_ranking():
     period = request.args.get('period', 'day')
-    if period not in ('day', 'week', 'month'):
+    if period not in RANKING_PERIODS:
         period = 'day'
     data = ranking_full(period, me=session['username'])
     return jsonify({'rows': data['rows'], 'active_count': data['active_count'], 'period': period,
@@ -4158,6 +4161,31 @@ def _spark_points(spark, w=88, h=24):
     return ' '.join(
         f"{(j/(n-1)*w):.1f},{(h - 1 - (v/mx)*(h-2)):.1f}" for j, v in enumerate(spark))
 
+# Arithmétique de mois pour les périodes « 12 derniers mois » et « depuis le
+# début » : timedelta ne connaît pas les mois (durées inégales), et on évite
+# d'ajouter dateutil pour si peu.
+_MIDNIGHT = {'hour': 0, 'minute': 0, 'second': 0, 'microsecond': 0}
+
+def relativedelta_months(n, day=None):
+    """Décalage de n mois, applicable à un datetime via `dt + relativedelta_months(n)`."""
+    class _Shift:
+        def __radd__(self, dt):
+            y, m = dt.year, dt.month + n
+            y += (m - 1) // 12
+            m = (m - 1) % 12 + 1
+            return dt.replace(year=y, month=m, day=day if day else min(dt.day, 28))
+    return _Shift()
+
+def _month_buckets(start, end):
+    """Liste des 1ers du mois de `start` à `end` inclus (clés des sparklines)."""
+    out, y, m = [], start.year, start.month
+    while (y, m) <= (end.year, end.month):
+        out.append(date(y, m, 1))
+        m += 1
+        if m > 12:
+            m = 1; y += 1
+    return out
+
 def ranking_full(period='day', me=None):
     """Enriched ranking: real tokens consumed (prompt + generated), delta vs
     the previous period, prompt/generated split, and a trend sparkline, per
@@ -4181,6 +4209,23 @@ def ranking_full(period='day', me=None):
             prev_start = now_local - timedelta(days=60)
             buckets = [today - timedelta(days=i) for i in range(29, -1, -1)]
             bucket_kind = 'day'
+        elif period in ('year', 'all'):
+            # Buckets MENSUELS : sur un an, 365 points feraient une sparkline
+            # illisible (et 30x plus de lignes à agréger côté SQL).
+            if period == 'year':
+                cur_start = now_local.replace(**_MIDNIGHT) + relativedelta_months(-11, day=1)
+                prev_start = cur_start + relativedelta_months(-12)
+            else:
+                # Depuis le début : on part du tout premier log (à défaut, ce mois-ci).
+                c0 = conn.cursor()
+                c0.execute('SELECT MIN("startTime") FROM "LiteLLM_SpendLogs"')
+                first = (c0.fetchone() or [None])[0]
+                start_date = first.date().replace(day=1) if first else today.replace(day=1)
+                cur_start = now_local.replace(**_MIDNIGHT).replace(
+                    year=start_date.year, month=start_date.month, day=1)
+                prev_start = cur_start  # aucune période antérieure → pas de delta
+            buckets = _month_buckets(cur_start.date(), today)
+            bucket_kind = 'month'
         else:  # day
             cur_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
             prev_start = cur_start - timedelta(days=1)
@@ -4190,9 +4235,12 @@ def ranking_full(period='day', me=None):
         prev_start_utc = prev_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         umap = _key_user_map(conn)
         cur = conn.cursor()
-        bexpr = ("EXTRACT(HOUR FROM ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::int"
-                 if bucket_kind == 'hour'
-                 else "((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s)::date")
+        if bucket_kind == 'hour':
+            bexpr = "EXTRACT(HOUR FROM ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::int"
+        elif bucket_kind == 'month':
+            bexpr = "date_trunc('month', ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::date"
+        else:
+            bexpr = "((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s)::date"
         # Current period: per bucket + key (real tokens + prompt/generated split)
         cur.execute(
             f'SELECT {bexpr} AS b, api_key, SUM(prompt_tokens), SUM(completion_tokens) '
@@ -4208,13 +4256,15 @@ def ranking_full(period='day', me=None):
             a['tokens'] += tok; a['prompt'] += prompt or 0; a['completion'] += comp or 0
             if tok:
                 a['spark'][b] = a['spark'].get(b, 0) + tok
-        # Previous period: total per key (for the delta) — real tokens
+        # Previous period: total per key (for the delta) — real tokens.
+        # « Depuis le début » n'a rien avant lui : on saute la requête, le delta
+        # restera absent (None) plutôt que d'afficher un +∞ trompeur.
         cur.execute('SELECT api_key, SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
                     'FROM "LiteLLM_SpendLogs" '
                     'WHERE "startTime" >= %s AND "startTime" < %s GROUP BY api_key',
-                    (prev_start_utc, cur_start_utc))
+                    (prev_start_utc, cur_start_utc)) if period != 'all' else None
         prev = {}
-        for api_key, toks in cur.fetchall():
+        for api_key, toks in (cur.fetchall() if period != 'all' else []):
             if api_key in _NON_USER_KEYS:
                 continue
             u = umap.get(api_key, 'inconnu')

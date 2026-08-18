@@ -37,4 +37,5 @@ exec docker run -d --name music --restart unless-stopped \
   -v /root/.cache/huggingface-music:/app/hf_cache \
   -e HF_HOME=/app/hf_cache \
   -e MUSIC_MODEL="$MODEL" \
+  -e MUSIC_QUANT="${MUSIC_QUANT:-8bit}" \
   ai-platform-music

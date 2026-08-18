@@ -682,14 +682,15 @@ export default function AdminPage() {
                       width="100%"
                       maxHeight={280}
                     />
-                    {/* Flèche seule, en bas à DROITE : le coin haut-droit est déjà
-                        pris par le bouton Copier de CodeBlock. */}
+                    {/* Flèche seule, centrée en bas du cadre (le coin haut-droit
+                        est déjà pris par le bouton Copier de CodeBlock). */}
                     {showLogsJump && (
                       <HStack
                         style={{
                           position: "absolute",
                           bottom: "var(--spacing-3)",
-                          right: "var(--spacing-3)",
+                          left: "50%",
+                          transform: "translateX(-50%)",
                           zIndex: 2,
                         }}
                       >

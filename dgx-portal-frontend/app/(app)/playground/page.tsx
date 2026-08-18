@@ -279,6 +279,32 @@ export default function PlaygroundPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  // Débit en direct : `usage.completion_tokens` n'arrive qu'à la FIN du flux. On
+  // estime donc le nombre de tokens à partir des CARACTÈRES reçus — compter les
+  // deltas SSE serait faux (mesuré : avec le décodage spéculatif MTP, vLLM envoie
+  // plusieurs tokens par delta, d'où ~2,7x de sous-estimation). Le ratio
+  // caractères/token est auto-calibré à la fin de chaque génération sur le
+  // `usage` exact, donc il s'adapte au modèle et à la langue (mesuré : ~4,5 en
+  // français, ~5,0 en anglais). Refs : mises à jour à chaque delta sans re-render.
+  const liveCharsRef = useRef(0);
+  const charsPerTokenRef = useRef(4.8);
+  const liveStartRef = useRef<number | null>(null);
+  const [liveStats, setLiveStats] = useState<{ tokens: number; tps: number } | null>(null);
+
+  // Rafraîchit le compteur affiché 4x/s pendant le flux — assez fluide à l'œil,
+  // sans ajouter un re-render par token (updateLast en fait déjà un).
+  useEffect(() => {
+    if (!streaming) return;
+    const id = setInterval(() => {
+      const start = liveStartRef.current;
+      const chars = liveCharsRef.current;
+      if (!start || !chars) return;
+      const secs = (performance.now() - start) / 1000;
+      const tokens = Math.round(chars / charsPerTokenRef.current);
+      if (secs > 0 && tokens > 0) setLiveStats({ tokens, tps: Number((tokens / secs).toFixed(1)) });
+    }, 250);
+    return () => clearInterval(id);
+  }, [streaming]);
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
@@ -420,6 +446,9 @@ export default function PlaygroundPage() {
 
     // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
     const t0 = performance.now();
+    liveCharsRef.current = 0;
+    liveStartRef.current = null;
+    setLiveStats(null);
     let tf: number | null = null;
     let acc = "";
     let reason = "";
@@ -456,11 +485,15 @@ export default function PlaygroundPage() {
           if (delta.usage) usage = delta.usage;
           if (delta.reasoningChunk) {
             if (tf === null) tf = performance.now();
+            if (liveStartRef.current === null) liveStartRef.current = tf;
+            liveCharsRef.current += delta.reasoningChunk.length;
             reason += delta.reasoningChunk;
             updateLast();
           }
           if (delta.contentChunk) {
             if (tf === null) tf = performance.now();
+            if (liveStartRef.current === null) liveStartRef.current = tf;
+            liveCharsRef.current += delta.contentChunk.length;
             acc += delta.contentChunk;
             updateLast();
           }
@@ -485,6 +518,14 @@ export default function PlaygroundPage() {
     if (acc || reason) {
       const gen = tf ? (te - tf) / 1000 : 0;
       const tokens = usage?.completion_tokens;
+      // Auto-calibrage : le vrai nombre de tokens est connu ici, on en déduit le
+      // ratio caractères/token réel de ce modèle/cette langue pour que l'estimation
+      // en direct de la PROCHAINE génération soit juste. Borné pour qu'une réponse
+      // dégénérée (1 token, 500 caractères) ne fausse pas durablement l'affichage.
+      const producedChars = acc.length + reason.length;
+      if (tokens && producedChars > 0) {
+        charsPerTokenRef.current = Math.min(12, Math.max(1.5, producedChars / tokens));
+      }
       finalMessages.push({
         role: "assistant",
         content: acc,
@@ -514,6 +555,7 @@ export default function PlaygroundPage() {
     const savedId = persist(finalMessages, currentId, model);
     setCurrentId(savedId ?? null);
     setStreaming(false);
+    setLiveStats(null);
     abortRef.current = null;
   }
 
@@ -873,16 +915,19 @@ export default function PlaygroundPage() {
                             timestamp={<Timestamp value={m.ts} format="time" />}
                             status={m.isError ? "error" : undefined}
                             footer={
-                              m.role === "assistant" && (m.tokens || m.tokensPerSec || canRegenerateThis) ? (
+                              m.role === "assistant" && (m.tokens || m.tokensPerSec || canRegenerateThis || (streamingThis && liveStats)) ? (
                                 <HStack gap={1} vAlign="center">
                                   <Text type="supporting" color="secondary">
-                                    {[
-                                      m.tokens ? `${m.tokens} tokens` : null,
-                                      m.tokensPerSec ? `${m.tokensPerSec} tok/s` : null,
-                                      m.ttft ? `TTFT ${m.ttft}s` : null,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" · ")}
+                                    {streamingThis && liveStats
+                                      ? // Pendant le flux : compté sur les deltas SSE, donc « ~ ».
+                                        `~${liveStats.tokens} tokens · ${liveStats.tps} tok/s`
+                                      : [
+                                          m.tokens ? `${m.tokens} tokens` : null,
+                                          m.tokensPerSec ? `${m.tokensPerSec} tok/s` : null,
+                                          m.ttft ? `TTFT ${m.ttft}s` : null,
+                                        ]
+                                          .filter(Boolean)
+                                          .join(" · ")}
                                   </Text>
                                   <Button
                                     label={t("Copier")}

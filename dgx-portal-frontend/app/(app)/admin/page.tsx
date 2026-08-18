@@ -28,12 +28,14 @@ import {
   XMarkIcon,
   PlusIcon,
   MegaphoneIcon,
+  ArrowDownIcon,
 } from "@heroicons/react/24/outline";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, postFormJSON, ForbiddenError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { useStickToBottom } from "@/lib/useStickToBottom";
 import { UserLookup } from "./_components/UserLookup";
 
 type ModelCfg = { id: number; name: string; hf_model_id: string; engine: string; vllm_args: string };
@@ -117,6 +119,20 @@ export default function AdminPage() {
   const [catalogKind, setCatalogKind] = useState<CatalogKind>("llm");
   const [announce, setAnnounce] = useState({ title: "", body: "" });
   const [settings, setSettings] = useState({ budget: "", duration: "" });
+
+  // Texte affiché dans le visualiseur de logs, et suivi automatique du bas —
+  // même comportement que le panneau du Playground : on colle au bas tant que
+  // l'admin n'a pas remonté ; s'il remonte, on arrête de le ramener en bas et
+  // une flèche apparaît pour redescendre et réactiver le suivi. `active` est
+  // toujours vrai ici (contrairement au Playground où il ne suit que pendant
+  // le flux) : les logs continuent d'arriver tant que la page est ouverte.
+  const logText = (logKind === "llm" ? logs : sidecarLogs).join("\n");
+  const {
+    setRef: setLogsScrollRef,
+    showButton: showLogsJump,
+    onScroll: onLogsScroll,
+    scrollToBottom: logsJumpDown,
+  } = useStickToBottom(logText, true);
 
   function refresh() {
     getJSON<AdminData>("/api/admin")
@@ -636,13 +652,36 @@ export default function AdminPage() {
                       <SegmentedControlItem value="video" label={t("Vidéo")} />
                     </SegmentedControl>
                   </HStack>
-                  <CodeBlock
-                    code={(logKind === "llm" ? logs : sidecarLogs).join("\n") || t("Aucun log — ce modèle n'est pas démarré.")}
-                    language="plaintext"
-                    hasCopyButton
-                    width="100%"
-                    maxHeight={280}
-                  />
+                  {/* CodeBlock n'expose pas son conteneur de défilement (pas de ref
+                      ni d'onScroll), donc on retire son maxHeight et on scrolle le
+                      conteneur parent — même montage que le panneau du Playground,
+                      ce qui permet d'y brancher le suivi automatique du bas. */}
+                  <VStack style={{ position: "relative" }}>
+                    <VStack
+                      ref={setLogsScrollRef}
+                      onScroll={onLogsScroll}
+                      isScrollable
+                      style={{ maxHeight: 280 }}
+                    >
+                      <CodeBlock
+                        code={logText || t("Aucun log — ce modèle n'est pas démarré.")}
+                        language="plaintext"
+                        hasCopyButton
+                        width="100%"
+                      />
+                    </VStack>
+                    {showLogsJump && (
+                      <HStack style={{ position: "absolute", bottom: "var(--spacing-3)", left: "50%", transform: "translateX(-50%)", zIndex: 2 }}>
+                        <Button
+                          label={t("Descendre")}
+                          variant="primary"
+                          size="sm"
+                          icon={<Icon icon={ArrowDownIcon} size="sm" />}
+                          onClick={logsJumpDown}
+                        />
+                      </HStack>
+                    )}
+                  </VStack>
                 </VStack>
               </Card>
             </VStack>

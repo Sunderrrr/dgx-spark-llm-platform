@@ -236,7 +236,10 @@ const EN: Record<string, string> = {
   "Date": "Date",
   "En attente": "Pending",
   "Retirer": "Remove",
-  "La réponse en cours sera interrompue.": "The current reply will be interrupted.",
+  "Messages en attente": "Queued messages",
+  "Envoi imminent…": "Sending now…",
+  "Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.":
+    "Sent automatically when the reply finishes. “Send” interrupts it and moves to this message.",
   "Lancé": "Launched",
   "Refusé": "Rejected",
 

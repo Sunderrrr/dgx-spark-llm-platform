@@ -269,7 +269,7 @@ function estimateTokens(
   return Math.round(chars / 4);
 }
 
-type QueuedMsg = { content: string; attachmentCount?: number; ts: number };
+type QueuedMsg = { content: string; text: string; attachmentCount?: number; ts: number };
 
 export default function PlaygroundPage() {
   const t = useT();
@@ -285,13 +285,13 @@ export default function PlaygroundPage() {
   const [streaming, setStreaming] = useState(false);
 
   // File d'attente : messages soumis pendant qu'une réponse se génère. Au lieu
-  // d'être perdus (l'ancien « if (streaming) return »), ils s'affichent dans la
-  // conversation avec un badge « En attente » et ne partent au modèle qu'une
-  // fois validés. Valider interrompt la réponse en cours (sa partie déjà écrite
-  // est conservée, comme avec Stop) : le modèle répond à CE message à la place.
+  // d'être perdus (l'ancien « if (streaming) return »), ils s'empilent dans un
+  // panneau au-dessus du compositeur et partent TOUT SEULS dès que la réponse en
+  // cours se termine. Les boutons de chaque ligne ne servent qu'à court-circuiter
+  // cette attente : « Envoyer » interrompt la réponse en cours (sa partie déjà
+  // écrite est conservée, comme avec Stop) pour passer à ce message tout de suite.
   const [queued, setQueued] = useState<QueuedMsg[]>([]);
   const queuedRef = useRef<QueuedMsg[]>([]);
-  const flushAfterStreamRef = useRef(false);
   // runStream clôt la conversation depuis sa propre closure : pour repartir de
   // la liste à jour (réponse partielle conservée, etc.) on lit par ref.
   const messagesRef = useRef(messages);
@@ -418,7 +418,6 @@ export default function PlaygroundPage() {
     setCurrentId(null);
     setCtxUsed(0);
     updateQueue([]);
-    flushAfterStreamRef.current = false;
     closeArtifact();
   }
 
@@ -429,7 +428,6 @@ export default function PlaygroundPage() {
     if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
     setCtxUsed(0);
     updateQueue([]);
-    flushAfterStreamRef.current = false;
     closeArtifact();
   }
 
@@ -583,13 +581,10 @@ export default function PlaygroundPage() {
     setStreaming(false);
     setLiveStats(null);
     abortRef.current = null;
-    // File validée pendant cette génération : on enchaîne maintenant que la
-    // conversation est refermée. Base explicite (finalMessages) : messagesRef
-    // n'est pas encore resynchronisé dans cette même tick.
-    if (flushAfterStreamRef.current) {
-      flushAfterStreamRef.current = false;
-      dispatchQueued(finalMessages);
-    }
+    // Des messages ont été mis en file pendant cette génération : ils partent
+    // maintenant, sans validation manuelle. Base explicite (finalMessages) :
+    // messagesRef n'est pas encore resynchronisé dans cette même tick.
+    if (queuedRef.current.length) dispatchQueued(finalMessages);
   }
 
   function send(value: string) {
@@ -610,7 +605,7 @@ export default function PlaygroundPage() {
     // bouton Envoyer de sa bulle) au lieu d'être silencieusement perdu.
     if (streaming) {
       // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
-      updateQueue([...queuedRef.current, { content: full, attachmentCount, ts: Date.now() }]);
+      updateQueue([...queuedRef.current, { content: full, text, attachmentCount, ts: Date.now() }]);
       setInput("");
       setAttachments([]);
       return;
@@ -626,17 +621,30 @@ export default function PlaygroundPage() {
     void runStream(nextMessages);
   }
 
-  // Envoie la file d'attente. Si une réponse est en cours, on l'interrompt
-  // d'abord — son début est conservé dans la conversation — puis la file part
-  // à la fin du runStream en cours (d'où le flag, l'abort étant asynchrone).
-  function flushQueue() {
-    if (!queuedRef.current.length) return;
+  // « Envoyer » sur une ligne : ne pas attendre la fin de la réponse en cours.
+  // On remonte ce message en tête de file puis on interrompt la génération — son
+  // début est conservé, exactement comme avec Stop. L'envoi lui-même est fait par
+  // la fin de runStream (l'abort est asynchrone : lire l'état ici perdrait la
+  // réponse partielle).
+  function sendQueuedNow(idx: number) {
+    const q = queuedRef.current;
+    if (!q[idx]) return;
+    updateQueue([q[idx], ...q.filter((_, i) => i !== idx)]);
     if (streaming) {
-      flushAfterStreamRef.current = true;
       abortRef.current?.abort();
       return;
     }
     dispatchQueued();
+  }
+
+  // « Modifier » : le message ressort de la file et retourne dans le compositeur.
+  // On y remet `content` (et pas le texte brut) pour ne pas perdre en silence les
+  // fichiers joints qui y ont été inlinés.
+  function editQueued(idx: number) {
+    const m = queuedRef.current[idx];
+    if (!m) return;
+    updateQueue(queuedRef.current.filter((_, i) => i !== idx));
+    setInput(m.content);
   }
 
   function dispatchQueued(base?: ChatMsg[]) {
@@ -826,6 +834,60 @@ export default function PlaygroundPage() {
             density="spacious"
             composer={
               <VStack gap={2} padding={4}>
+                {/* File d'attente, juste au-dessus du compositeur : les messages
+                    tapés pendant une génération attendent ici et partent seuls dès
+                    qu'elle se termine. Les actions ne servent qu'à ne pas attendre
+                    (Envoyer), reprendre le texte (Modifier) ou annuler (croix). */}
+                {queued.length > 0 && (
+                  <Card
+                    variant="muted"
+                    padding={3}
+                    style={{ border: "var(--border-width) solid var(--color-border-emphasized)" }}>
+                    <VStack gap={2}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <HStack gap={2} vAlign="center">
+                          <Text weight="semibold">{t("Messages en attente")}</Text>
+                          <Badge label={String(queued.length)} variant="warning" />
+                        </HStack>
+                        <Icon icon={ClockIcon} size="sm" color="secondary" />
+                      </HStack>
+                      {queued.map((q, i) => (
+                        <HStack key={`queued-${q.ts}-${i}`} gap={2} vAlign="center">
+                          <StackItem size="fill">
+                            <Text maxLines={1} color="secondary">{q.text || q.content}</Text>
+                          </StackItem>
+                          <Button
+                            label={t("Modifier")}
+                            variant="ghost"
+                            size="sm"
+                            icon={<Icon icon={PencilIcon} size="sm" />}
+                            onClick={() => editQueued(i)}
+                          />
+                          <Button
+                            label={t("Envoyer")}
+                            variant="secondary"
+                            size="sm"
+                            icon={<Icon icon={PaperAirplaneIcon} size="sm" />}
+                            onClick={() => sendQueuedNow(i)}
+                          />
+                          <Button
+                            label={t("Retirer")}
+                            variant="ghost"
+                            size="sm"
+                            isIconOnly
+                            icon={<Icon icon={XMarkIcon} size="sm" />}
+                            onClick={() => discardQueued(i)}
+                          />
+                        </HStack>
+                      ))}
+                      <Text type="supporting" color="secondary">
+                        {streaming
+                          ? t("Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.")
+                          : t("Envoi imminent…")}
+                      </Text>
+                    </VStack>
+                  </Card>
+                )}
                 <ChatComposer
                   value={input}
                   onChange={setInput}
@@ -1097,48 +1159,6 @@ export default function PlaygroundPage() {
                   </ChatMessage>
                   );
                 })}
-                {queued.map((q, i) => (
-                  <ChatMessage key={`queued-${q.ts}`} sender="user">
-                    <ChatMessageBubble
-                      metadata={
-                        <ChatMessageMetadata
-                          timestamp={<Timestamp value={q.ts} format="time" />}
-                          footer={
-                            <HStack gap={1} vAlign="center" wrap="wrap">
-                              <Badge label={t("En attente")} variant="warning" />
-                              {i === queued.length - 1 && streaming && (
-                                <Text type="supporting" color="secondary">
-                                  {t("La réponse en cours sera interrompue.")}
-                                </Text>
-                              )}
-                              {/* Un seul bouton Envoyer, sur le dernier message en
-                                  attente : valider envoie TOUTE la file d'un coup. */}
-                              {i === queued.length - 1 && (
-                                <Button
-                                  label={t("Envoyer")}
-                                  variant="primary"
-                                  size="sm"
-                                  icon={<Icon icon={PaperAirplaneIcon} size="sm" />}
-                                  onClick={flushQueue}
-                                />
-                              )}
-                              <Button
-                                label={t("Retirer")}
-                                variant="ghost"
-                                size="sm"
-                                isIconOnly
-                                icon={<Icon icon={XMarkIcon} size="sm" />}
-                                onClick={() => discardQueued(i)}
-                              />
-                            </HStack>
-                          }
-                        />
-                      }
-                    >
-                      <Markdown>{q.content}</Markdown>
-                    </ChatMessageBubble>
-                  </ChatMessage>
-                ))}
             </ChatMessageList>
           </ChatLayout>
           </VStack>

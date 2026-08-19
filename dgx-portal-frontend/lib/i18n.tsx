@@ -235,6 +235,8 @@ const EN: Record<string, string> = {
   "Statut": "Status",
   "Date": "Date",
   "En attente": "Pending",
+  "Retirer": "Remove",
+  "La réponse en cours sera interrompue.": "The current reply will be interrupted.",
   "Lancé": "Launched",
   "Refusé": "Rejected",
 

@@ -11,6 +11,7 @@ import { useResizable, ResizeHandle } from "@astryxdesign/core/Resizable";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
+import { Badge } from "@astryxdesign/core/Badge";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Markdown } from "@astryxdesign/core/Markdown";
@@ -48,6 +49,7 @@ import {
   DocumentMagnifyingGlassIcon,
   DocumentTextIcon,
   XMarkIcon,
+  PaperAirplaneIcon,
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
@@ -267,6 +269,8 @@ function estimateTokens(
   return Math.round(chars / 4);
 }
 
+type QueuedMsg = { content: string; attachmentCount?: number; ts: number };
+
 export default function PlaygroundPage() {
   const t = useT();
   const [csrf, setCsrf] = useState("");
@@ -279,6 +283,24 @@ export default function PlaygroundPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [streaming, setStreaming] = useState(false);
+
+  // File d'attente : messages soumis pendant qu'une réponse se génère. Au lieu
+  // d'être perdus (l'ancien « if (streaming) return »), ils s'affichent dans la
+  // conversation avec un badge « En attente » et ne partent au modèle qu'une
+  // fois validés. Valider interrompt la réponse en cours (sa partie déjà écrite
+  // est conservée, comme avec Stop) : le modèle répond à CE message à la place.
+  const [queued, setQueued] = useState<QueuedMsg[]>([]);
+  const queuedRef = useRef<QueuedMsg[]>([]);
+  const flushAfterStreamRef = useRef(false);
+  // runStream clôt la conversation depuis sa propre closure : pour repartir de
+  // la liste à jour (réponse partielle conservée, etc.) on lit par ref.
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; });
+
+  const updateQueue = (q: QueuedMsg[]) => {
+    queuedRef.current = q;
+    setQueued(q);
+  };
   // Débit en direct : `usage.completion_tokens` n'arrive qu'à la FIN du flux. On
   // estime donc le nombre de tokens à partir des CARACTÈRES reçus — compter les
   // deltas SSE serait faux (mesuré : avec le décodage spéculatif MTP, vLLM envoie
@@ -395,6 +417,8 @@ export default function PlaygroundPage() {
     setMessages([]);
     setCurrentId(null);
     setCtxUsed(0);
+    updateQueue([]);
+    flushAfterStreamRef.current = false;
     closeArtifact();
   }
 
@@ -404,6 +428,8 @@ export default function PlaygroundPage() {
     setCurrentId(conv.id);
     if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
     setCtxUsed(0);
+    updateQueue([]);
+    flushAfterStreamRef.current = false;
     closeArtifact();
   }
 
@@ -557,10 +583,16 @@ export default function PlaygroundPage() {
     setStreaming(false);
     setLiveStats(null);
     abortRef.current = null;
+    // File validée pendant cette génération : on enchaîne maintenant que la
+    // conversation est refermée. Base explicite (finalMessages) : messagesRef
+    // n'est pas encore resynchronisé dans cette même tick.
+    if (flushAfterStreamRef.current) {
+      flushAfterStreamRef.current = false;
+      dispatchQueued(finalMessages);
+    }
   }
 
   function send(value: string) {
-    if (streaming) return;
     const text = value.trim();
     if (!text && !attachments.length) return;
     // Sending ends dictation: the message goes out with what has been
@@ -573,15 +605,52 @@ export default function PlaygroundPage() {
         (text ? text + "\n\n" : "") +
         attachments.map((f) => "```" + f.name + "\n" + f.content + "\n```").join("\n\n");
     }
+    const attachmentCount = attachments.length || undefined;
+    // En pleine génération, le message passe en file d'attente (validé par le
+    // bouton Envoyer de sa bulle) au lieu d'être silencieusement perdu.
+    if (streaming) {
+      // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
+      updateQueue([...queuedRef.current, { content: full, attachmentCount, ts: Date.now() }]);
+      setInput("");
+      setAttachments([]);
+      return;
+    }
     const nextMessages: ChatMsg[] = [
       ...messages,
       // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
-      { role: "user", content: full, ts: Date.now(), attachmentCount: attachments.length || undefined },
+      { role: "user", content: full, ts: Date.now(), attachmentCount },
     ];
     setMessages(nextMessages);
     setInput("");
     setAttachments([]);
     void runStream(nextMessages);
+  }
+
+  // Envoie la file d'attente. Si une réponse est en cours, on l'interrompt
+  // d'abord — son début est conservé dans la conversation — puis la file part
+  // à la fin du runStream en cours (d'où le flag, l'abort étant asynchrone).
+  function flushQueue() {
+    if (!queuedRef.current.length) return;
+    if (streaming) {
+      flushAfterStreamRef.current = true;
+      abortRef.current?.abort();
+      return;
+    }
+    dispatchQueued();
+  }
+
+  function dispatchQueued(base?: ChatMsg[]) {
+    const q = queuedRef.current;
+    if (!q.length) return;
+    updateQueue([]);
+    const msgs: ChatMsg[] = q.map((m) => ({ role: "user", content: m.content, ts: m.ts, attachmentCount: m.attachmentCount }));
+    const nextMessages = [...(base ?? messagesRef.current), ...msgs];
+    setMessages(nextMessages);
+    void runStream(nextMessages);
+  }
+
+  function discardQueued(idx: number) {
+    updateQueue(queuedRef.current.filter((_, i) => i !== idx));
   }
 
   // Answer a clarifying question the model asked (clicking an option, or the
@@ -1028,6 +1097,48 @@ export default function PlaygroundPage() {
                   </ChatMessage>
                   );
                 })}
+                {queued.map((q, i) => (
+                  <ChatMessage key={`queued-${q.ts}`} sender="user">
+                    <ChatMessageBubble
+                      metadata={
+                        <ChatMessageMetadata
+                          timestamp={<Timestamp value={q.ts} format="time" />}
+                          footer={
+                            <HStack gap={1} vAlign="center" wrap="wrap">
+                              <Badge label={t("En attente")} variant="warning" />
+                              {i === queued.length - 1 && streaming && (
+                                <Text type="supporting" color="secondary">
+                                  {t("La réponse en cours sera interrompue.")}
+                                </Text>
+                              )}
+                              {/* Un seul bouton Envoyer, sur le dernier message en
+                                  attente : valider envoie TOUTE la file d'un coup. */}
+                              {i === queued.length - 1 && (
+                                <Button
+                                  label={t("Envoyer")}
+                                  variant="primary"
+                                  size="sm"
+                                  icon={<Icon icon={PaperAirplaneIcon} size="sm" />}
+                                  onClick={flushQueue}
+                                />
+                              )}
+                              <Button
+                                label={t("Retirer")}
+                                variant="ghost"
+                                size="sm"
+                                isIconOnly
+                                icon={<Icon icon={XMarkIcon} size="sm" />}
+                                onClick={() => discardQueued(i)}
+                              />
+                            </HStack>
+                          }
+                        />
+                      }
+                    >
+                      <Markdown>{q.content}</Markdown>
+                    </ChatMessageBubble>
+                  </ChatMessage>
+                ))}
             </ChatMessageList>
           </ChatLayout>
           </VStack>

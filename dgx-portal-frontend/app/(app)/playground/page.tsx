@@ -301,6 +301,21 @@ export default function PlaygroundPage() {
     queuedRef.current = q;
     setQueued(q);
   };
+  // Le panneau de file fait grandir/rétrécir le dock, qui est sticky EN BAS du
+  // scroller : sa hauteur s'ajoute donc au contenu, et si on suivait le bas, la
+  // dernière ligne se retrouve masquée dessous. Astryx n'observe que le contenu
+  // des messages, pas le dock — d'où ce recollage explicite. On ne le fait que
+  // si on était déjà collé au bas, pour ne pas arracher quelqu'un qui relit
+  // plus haut. Le scroller est le ChatLayout lui-même (pas de scrollRef fourni),
+  // et la page n'en contient qu'un.
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>(".astryx-chat-layout");
+    if (!el) return;
+    // Marge large : l'écart vient d'AUGMENTER de la hauteur du panneau.
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
+      el.scrollTo({ top: el.scrollHeight });
+    }
+  }, [queued.length]);
   // Débit en direct : `usage.completion_tokens` n'arrive qu'à la FIN du flux. On
   // estime donc le nombre de tokens à partir des CARACTÈRES reçus — compter les
   // deltas SSE serait faux (mesuré : avec le décodage spéculatif MTP, vLLM envoie

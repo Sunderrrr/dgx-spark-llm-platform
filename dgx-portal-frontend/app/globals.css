@@ -151,3 +151,27 @@ dialog::backdrop {
     transform: scaleY(0.5);
   }
 }
+
+/* Playground — le dock du chat (compositeur + file d'attente) est rendu par
+   Astryx en position:sticky AVEC UN FOND TRANSPARENT : le texte défilait donc
+   visiblement derrière, y compris dans la bande de 44 px au-dessus du
+   compositeur. On le rend opaque, et on pose au-dessus un fondu pour que le
+   texte s'efface progressivement au lieu d'être tranché net.
+
+   Cible : le dock est le seul enfant direct du scroller qui contienne le
+   compositeur (`:has`), ce qui évite de dépendre des classes StyleX générées.
+   CSS brut pour la même raison que les blocs ci-dessus : pas de compilateur
+   StyleX côté app, et aucun composant du design system n'expose ce réglage. */
+.astryx-chat-layout > div:has(.astryx-chat-composer) {
+  background: var(--color-background-surface);
+}
+.astryx-chat-layout > div:has(.astryx-chat-composer)::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: var(--spacing-10, 40px);
+  background: linear-gradient(to bottom, transparent, var(--color-background-surface));
+  /* Purement décoratif : ne doit pas intercepter les clics sur les messages. */
+  pointer-events: none;
+}

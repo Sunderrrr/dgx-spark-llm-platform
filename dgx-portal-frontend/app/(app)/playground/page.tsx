@@ -164,6 +164,21 @@ function balanceJson(src: string): string {
   return out;
 }
 
+/** Coupe ce que le modèle a écrit APRÈS son bloc de questions.
+ *
+ * L'instruction lui demande de s'arrêter au bloc, mais il lui arrive de repartir
+ * et de générer jusqu'au plafond de tokens (constaté : 4096 pour une question de
+ * ~150). Ce texte n'est pas affiché — il se retrouve quand même dans l'historique
+ * renvoyé au modèle au tour suivant, qui répond alors n'importe quoi ou rien.
+ * On garde l'introduction et le bloc, on jette la suite.
+ */
+function trimAfterAsk(content: string): string {
+  const i = content.indexOf("```ask");
+  if (i < 0) return content;
+  const close = content.indexOf("```", i + 6);
+  return close < 0 ? content : content.slice(0, close + 3);
+}
+
 // Detect a ```ask block. Accepts {questions:[…]} and the legacy {question,options}.
 // La fence de fermeture est optionnelle : si le modèle l'oublie, on prend tout
 // ce qui suit plutôt que de ne rien reconnaître du tout.
@@ -257,6 +272,39 @@ function downloadText(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+// Extensions reconnues comme des FICHIERS. Liste fermée volontairement : sans
+// elle, « ansible.builtin.reboot » ou « os_family['debian'] » passeraient pour
+// des noms de fichiers et donneraient des titres absurdes.
+const FILE_EXT = new RegExp(
+  "\\.(ya?ml|json|jsonc|toml|ini|cfg|conf|env|py|js|mjs|cjs|ts|tsx|jsx|sh|bash|zsh|" +
+  "go|rs|rb|php|java|kt|c|h|cpp|sql|html|css|scss|md|txt|log|xml|service|tf|gradle)$",
+  "i");
+const BARE_FILES = /^(Dockerfile|Makefile|Vagrantfile|Jenkinsfile|Procfile)$/i;
+
+/** Nom de fichier annoncé juste AVANT un bloc de code.
+ *
+ * Un modèle écrit presque toujours « ### 2. `tasks/main.yml` » puis le bloc.
+ * Sans lire ce contexte, les artefacts s'appelaient « file 1 », « yaml · 2 »… —
+ * des cartes dont on ne pouvait plus dire à quel fichier elles correspondaient,
+ * alors que la prose juste au-dessus, elle, nommait les fichiers.
+ */
+function titleFromContext(before: string): string {
+  const tail = before.slice(-300);
+  const candidats: string[] = [];
+  // 1) entre backticks — la forme la plus fiable
+  for (const m of tail.matchAll(/`([^`\n]{1,80})`/g)) candidats.push(m[1].trim());
+  // 2) sinon un jeton qui ressemble à un chemin
+  for (const m of tail.matchAll(/(?:^|[\s(*_"'>])([\w.-]+(?:\/[\w.-]+)*)(?=[\s:,)*_"'.]|$)/gm)) {
+    candidats.push(m[1].trim());
+  }
+  for (let i = candidats.length - 1; i >= 0; i--) {
+    const c = candidats[i].replace(/^[.\/]+/, "");
+    if (!c || c.length > 80) continue;
+    if (FILE_EXT.test(c) || BARE_FILES.test(c)) return c;
+  }
+  return "";
+}
+
 function parseArtifacts(content: string, allowDoc: boolean): { prose: string; artifacts: Artifact[] } {
   const text = content.trim();
   if (allowDoc && text.length >= DOC_MIN_CHARS) {
@@ -281,6 +329,8 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
     const named = info.match(/(?:title|file|filename)=(\S+)/i);
     if (named) title = named[1];
     n += 1;
+    // Le nom annoncé dans la prose juste au-dessus vaut mieux qu'un numéro.
+    if (!title) title = titleFromContext(content.slice(0, m.index));
     if (!title) title = lang ? `${lang} · ${n}` : `file ${n}`;
     artifacts.push({ kind: "code", title, lang: lang || "text", content: body });
     prose += content.slice(lastIndex, m.index);
@@ -600,7 +650,7 @@ export default function PlaygroundPage() {
       }
       finalMessages.push({
         role: "assistant",
-        content: acc,
+        content: trimAfterAsk(acc),
         reasoning: reason,
         tokens,
         tokensPerSec: tokens && gen > 0 ? Number((tokens / gen).toFixed(1)) : undefined,

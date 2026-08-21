@@ -309,6 +309,10 @@ const EN: Record<string, string> = {
   "Modification proposée.": "Edit proposed.",
   "La modification proposée n'a pas pu être lue. Redemande la correction, ou demande le fichier complet.":
     "The proposed edit could not be read. Ask for the fix again, or ask for the whole file.",
+  "Seul un extrait a été renvoyé": "Only an excerpt was returned",
+  "Le modèle a donné la partie corrigée, pas le fichier complet. La version précédente reste ouverte dans le volet.":
+    "The model gave the corrected part, not the whole file. The previous version stays open in the panel.",
+  "Demander le fichier complet": "Ask for the whole file",
   "Messages en attente": "Queued messages",
   "Envoi imminent…": "Sending now…",
   "Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.":

@@ -139,12 +139,45 @@ type AskQ = { question: string; options: string[] };
 // A model's clarifying block: one or more questions, plus any prose around it.
 type AskBlock = { questions: AskQ[]; prose: string };
 
+// Referme un JSON tronqué en fin de chaîne. Un modèle ouvert de cette taille
+// oublie régulièrement le dernier `}` ou `]` — un seul caractère manquant faisait
+// échouer JSON.parse, et le bloc de questions retombait en JSON brut sous les yeux
+// de l'utilisateur (constaté en production). On rééquilibre plutôt que d'abandonner.
+function balanceJson(src: string): string {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const ch of src) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" || ch === "]") stack.pop();
+  }
+  let out = src.replace(/,\s*$/, "");     // virgule en suspens avant la coupure
+  if (inString) out += '"';                // chaîne laissée ouverte
+  while (stack.length) out += stack.pop() === "{" ? "}" : "]";
+  return out;
+}
+
 // Detect a ```ask block. Accepts {questions:[…]} and the legacy {question,options}.
+// La fence de fermeture est optionnelle : si le modèle l'oublie, on prend tout
+// ce qui suit plutôt que de ne rien reconnaître du tout.
 function parseAsk(content: string): AskBlock | null {
-  const m = content.match(/```ask\s*\n([\s\S]*?)```/);
+  const m = content.match(/```ask\s*\n([\s\S]*?)(?:```|$)/);
   if (!m) return null;
   try {
-    const obj = JSON.parse(m[1].trim());
+    const body = m[1].trim();
+    let obj;
+    try {
+      obj = JSON.parse(body);
+    } catch {
+      obj = JSON.parse(balanceJson(body));
+    }
     const raw: unknown[] = Array.isArray(obj.questions) ? obj.questions : (obj.question ? [obj] : []);
     const questions: AskQ[] = raw
       .map((q) => {

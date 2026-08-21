@@ -77,12 +77,13 @@ import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 const DEFAULT_SETTINGS: Settings = {
   system: "",
   temperature: 0.7,
-  // 4096 coupait net toute réponse un peu longue — une page HTML complète, un
-  // fichier de configuration fourni : le modèle s'arrêtait en plein mot sans que
-  // rien ne l'explique. Le curseur des réglages monte de toute façon à 131072, et
-  // seuls les tokens RÉELLEMENT produits sont facturés : un plafond haut ne coûte
-  // rien tant que la réponse est courte.
-  maxTokens: 32768,
+  // Le maximum. Seuls les tokens RÉELLEMENT produits sont facturés, donc un
+  // plafond haut ne coûte rien sur une réponse courte — et 4096 coupait net toute
+  // réponse un peu longue (page HTML complète, gros fichier de configuration).
+  // Le backend rabaisse cette valeur à ce qui reste dans la fenêtre de contexte
+  // une fois le prompt compté : une longue conversation ne part donc pas en
+  // erreur, elle obtient simplement une réponse plus courte.
+  maxTokens: 131072,
   topP: 1,
   reasoning: false,
 };

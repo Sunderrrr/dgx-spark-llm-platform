@@ -1,5 +1,5 @@
 [Unit]
-Description=Restrict LiteLLM (4001), dgx-portal (5000->3000), Traefik dashboard (8080) and Traefik Manager Agent (8090) published ports by source
+Description=Restrict dgx-portal (5000->3000), Traefik dashboard (8080) and Traefik Manager Agent (8090) published ports by source
 After=network.target docker.service
 Requires=docker.service
 
@@ -7,8 +7,7 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 # Ports publiés par Docker → filtrés dans la chaîne DOCKER-USER (pas INPUT).
-#   4001 (API LiteLLM) : LAN 172.16.0.0/16 + VPN Netbird 100.73.0.0/16
-#                        + bridge docker 172.19.0.0/16 + localhost.
+#   (4001 LiteLLM n'est plus publié du tout — réseau Docker uniquement.)
 #   3000 (portail web) : Traefik 172.16.2.7 uniquement (+ bridge + localhost) —
 #                        l'accès direct doit rester derrière Traefik/HTTPS.
 #                        ATTENTION : on filtre 3000, PAS 5000. DOCKER-USER voit
@@ -17,9 +16,11 @@ RemainAfterExit=yes
 #                        gardent le même numéro des deux côtés). Une règle sur
 #                        --dport 5000 ne correspond donc JAMAIS : elle a l'air
 #                        de protéger le portail sans rien filtrer du tout.
-#   8080 (dashboard Traefik) : LAN 172.16.0.0/16 + VPN Netbird 100.73.0.0/16
-#                        + bridge docker 172.19.0.0/16 + localhost. Jamais
-#                        exposé publiquement (pas de Host cronos.website dessus).
+#   8080 (dashboard Traefik) : VPN Netbird 100.73.0.0/16 + la machine Traefik
+#                        Manager 100.73.45.103 + localhost. PAS le LAN : le
+#                        dashboard donne la carte complète du routage, il n'a
+#                        aucune raison d'être atteignable depuis le réseau
+#                        bureautique. Jamais exposé publiquement non plus.
 #   8090 (Traefik Manager Agent) : 100.73.45.103 (machine Traefik Manager)
 #                        uniquement + bridge docker + localhost.
 # add(): DROP par défaut (append, en bas) + ACCEPT des sources (insert, au-dessus).
@@ -27,17 +28,15 @@ ExecStart=/bin/sh -c '\
 add() { P=$1; shift; \
   iptables -C DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || iptables -A DOCKER-USER -p tcp --dport $P -j DROP; \
   for S in "$@"; do iptables -C DOCKER-USER -p tcp --dport $P -s $S -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -p tcp --dport $P -s $S -j ACCEPT; done; }; \
-add 4001 172.16.0.0/16 100.73.0.0/16 172.19.0.0/16 127.0.0.1; \
 add 3000 172.16.2.7 172.19.0.0/16 127.0.0.1; \
-add 8080 172.16.0.0/16 100.73.0.0/16 172.19.0.0/16 127.0.0.1; \
+add 8080 100.73.0.0/16 100.73.45.103 127.0.0.1; \
 add 8090 100.73.45.103 172.19.0.0/16 127.0.0.1'
 ExecStop=/bin/sh -c '\
 del() { P=$1; shift; \
   iptables -D DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || true; \
   for S in "$@"; do iptables -D DOCKER-USER -p tcp --dport $P -s $S -j ACCEPT 2>/dev/null || true; done; }; \
-del 4001 172.16.0.0/16 100.73.0.0/16 172.19.0.0/16 127.0.0.1; \
 del 3000 172.16.2.7 172.19.0.0/16 127.0.0.1; \
-del 8080 172.16.0.0/16 100.73.0.0/16 172.19.0.0/16 127.0.0.1; \
+del 8080 100.73.0.0/16 100.73.45.103 127.0.0.1; \
 del 8090 100.73.45.103 172.19.0.0/16 127.0.0.1'
 
 [Install]

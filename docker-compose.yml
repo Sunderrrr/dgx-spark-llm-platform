@@ -32,8 +32,10 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    ports:
-      - "4001:4001"
+    # AUCUN port publié : LiteLLM n'est joignable que depuis le réseau Docker.
+    # Traefik (`http://litellm:4001`) et le portail (LITELLM_URL) passent par là ;
+    # l'accès externe se fait par https://api.cronos.website, qui applique en plus
+    # le forwardAuth de maintenance — que l'ancien port publié court-circuitait.
     volumes:
       - ./litellm/config.yaml:/app/config.yaml
     environment:

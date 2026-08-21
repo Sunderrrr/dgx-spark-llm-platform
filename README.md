@@ -237,6 +237,15 @@ default** (and a note explaining it) while every named model stays selectable.
   `SpeechRecognition` API, which in Chrome ships the audio to Google's servers —
   the opposite of the point of this platform. The button only appears when the
   transcription backend is running.
+- **Memory** (`/memory`) — an opt-in knowledge graph of what the assistant has
+  learned about you. Facts are stored as triples (subject, relation, object) in
+  SQLite rather than as a flat list, so "what do you know about X?" resolves to a
+  node's neighbourhood instead of injecting everything; traversal is a recursive
+  CTE, so no graph database or extra sidecar is involved. Writing the same
+  subject+relation again supersedes the older fact (kept for history, never
+  re-injected) so the memory can't accumulate contradictions. **Off by default**
+  — this is personal data: nothing is recorded until the user enables it, the page
+  shows every stored fact, and nobody else can read it, admins included.
 - **OCR** — extract text from an image/scan, streamed token-by-token into a
   formatted panel (same pattern as the Playground), with a toggle to visualize
   every detected region as bounding boxes over the source image; keeps your

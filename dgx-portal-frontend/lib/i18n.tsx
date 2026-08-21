@@ -485,6 +485,7 @@ const EN: Record<string, string> = {
   "Voici le fichier — ouvre-le pour le copier.": "Here's the file — open it to copy it.",
   "Ouvrir et copier dans le volet": "Open and copy in the panel",
   "Rédaction en cours…": "Writing…",
+  "Écriture en cours…": "Writing the file…",
   "Ouvrir le document en cours de rédaction": "Open the document being written",
   "Télécharger": "Download",
   "Descendre": "Scroll to bottom",

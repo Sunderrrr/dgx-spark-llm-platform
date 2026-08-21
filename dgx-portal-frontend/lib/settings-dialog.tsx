@@ -3,7 +3,7 @@
 import { createContext, useContext } from "react";
 
 /** Settings dialog tabs (mirror of `Section` in SettingsDialog). */
-export type SettingsSection = "account" | "usage" | "keys" | "avatar" | "appearance" | "mcp" | "skills";
+export type SettingsSection = "account" | "usage" | "keys" | "memory" | "avatar" | "appearance" | "mcp" | "skills";
 
 // Lets any page open the Settings dialog on a specific tab
 // (e.g. the home page opening "API keys"), without a dedicated /keys page.

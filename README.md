@@ -237,7 +237,7 @@ default** (and a note explaining it) while every named model stays selectable.
   `SpeechRecognition` API, which in Chrome ships the audio to Google's servers —
   the opposite of the point of this platform. The button only appears when the
   transcription backend is running.
-- **Memory** (`/memory`) — an opt-in knowledge graph of what the assistant has
+- **Memory** (Settings → Memory) — an opt-in knowledge graph of what the assistant has
   learned about you. Facts are stored as triples (subject, relation, object) in
   SQLite rather than as a flat list, so "what do you know about X?" resolves to a
   node's neighbourhood instead of injecting everything; traversal is a recursive

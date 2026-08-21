@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
@@ -184,7 +184,14 @@ function parseEdits(content: string): FileEdit[] {
     try {
       obj = JSON.parse(body);
     } catch {
-      obj = JSON.parse(firstJsonValue(body) ?? balanceJson(body));
+      // Trois défauts vus en vrai, dans cet ordre de fréquence : retours à la
+      // ligne bruts dans une chaîne, déchets après la fin, objet non refermé.
+      const repare = escapeRawControlChars(body);
+      try {
+        obj = JSON.parse(repare);
+      } catch {
+        obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
+      }
     }
     const brut: unknown[] = Array.isArray(obj.edits) ? obj.edits : (obj.find ? [obj] : []);
     return brut
@@ -242,6 +249,34 @@ function trimAfterAsk(content: string): string {
   return close < 0 ? content : content.slice(0, close + 3);
 }
 
+/** Échappe les caractères de contrôle laissés BRUTS dans une chaîne JSON.
+ *
+ * Un modèle qui écrit du code dans un champ « replace » oublie régulièrement
+ * d'échapper ses retours à la ligne : la chaîne contient un vrai saut de ligne,
+ * ce que JSON interdit, et tout le bloc devient illisible. Constaté en
+ * production sur un bloc d'édition de plusieurs dizaines de lignes.
+ */
+function escapeRawControlChars(src: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of src) {
+    if (inString) {
+      if (escaped) { escaped = false; out += ch; continue; }
+      if (ch === "\\") { escaped = true; out += ch; continue; }
+      if (ch === '"') { inString = false; out += ch; continue; }
+      if (ch === "\n") { out += "\\n"; continue; }
+      if (ch === "\r") { out += "\\r"; continue; }
+      if (ch === "\t") { out += "\\t"; continue; }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    out += ch;
+  }
+  return out;
+}
+
 /** La première valeur JSON complète de la chaîne, ignorant ce qui suit.
  *
  * Le modèle ajoute parfois un caractère APRÈS l'objet fermé (constaté : un
@@ -287,8 +322,12 @@ function parseAsk(content: string): AskBlock | null {
     } catch {
       // 1) déchets après un objet complet → on coupe à la fermeture
       // 2) objet jamais refermé → on rééquilibre
-      const complet = firstJsonValue(body);
-      obj = JSON.parse(complet ?? balanceJson(body));
+      const repare = escapeRawControlChars(body);
+      try {
+        obj = JSON.parse(repare);
+      } catch {
+        obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
+      }
     }
     const raw: unknown[] = Array.isArray(obj.questions) ? obj.questions : (obj.question ? [obj] : []);
     const questions: AskQ[] = raw
@@ -463,6 +502,26 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
     lastIndex = fence.lastIndex;
   }
   prose += content.slice(lastIndex);
+
+  // Filet : un document HTML écrit SANS bloc de code. Le modèle oublie
+  // régulièrement la clôture pour un gros fichier — il n'en sortait alors aucun
+  // fichier, donc pas de carte, pas d'aperçu, pas de téléchargement. L'utilisateur
+  // se rabattait sur « Exporter en Markdown », qui exporte la CONVERSATION : d'où
+  // un .md contenant la question et la prose autour du HTML.
+  if (!artifacts.length) {
+    const html = content.match(/<!DOCTYPE html[\s\S]*?<\/html\s*>|<html[\s\S]*?<\/html\s*>/i);
+    if (html && html[0].length >= 200) {
+      const avant = content.slice(0, html.index ?? 0);
+      const titre = titleFromContext(avant) || "page.html";
+      artifacts.push({
+        kind: "code",
+        title: /\.html?$/i.test(titre) ? titre : "page.html",
+        lang: "html",
+        content: html[0],
+      });
+      return { prose: (avant + content.slice((html.index ?? 0) + html[0].length)).trim(), artifacts };
+    }
+  }
   return { prose: prose.trim(), artifacts };
 }
 
@@ -1140,11 +1199,28 @@ export default function PlaygroundPage() {
   // Auto-follow the document while it streams into the panel; show a "jump to
   // bottom" button when the reader scrolls up and leaves the live tail.
   const {
-    setRef: panelScrollRef,
+    setRef: panelScrollRefBrut,
     showButton: showPanelJump,
     onScroll: onPanelScroll,
     scrollToBottom: panelJumpDown,
   } = useStickToBottom(panelContent, showLive);
+  // CodeBlock gère lui-même son défilement (dès qu'on lui donne un maxHeight) et
+  // n'expose pas ce conteneur. Sans ça, un fichier long est ROGNÉ par un enfant
+  // en overflow:hidden : plus rien ne déborde, donc plus rien ne défile et le
+  // bouton « Descendre » n'apparaît jamais. Même remède que les logs de l'admin :
+  // on pose la ref sur le parent et on descend chercher l'élément défilable.
+  const panelScrollRef = useCallback(
+    (node: HTMLElement | null) => {
+      if (!node) return panelScrollRefBrut(null);
+      const scroller =
+        Array.from(node.querySelectorAll<HTMLElement>("*")).find((e) => {
+          const o = getComputedStyle(e).overflowY;
+          return o === "auto" || o === "scroll";
+        }) ?? node;
+      panelScrollRefBrut(scroller);
+    },
+    [panelScrollRefBrut],
+  );
   const canRegenerate = !streaming && lastMsg && (lastMsg.role === "assistant" || lastMsg.role === "user");
   const canEdit = !streaming && messages.some((m) => m.role === "user");
 
@@ -1484,12 +1560,24 @@ export default function PlaygroundPage() {
                   const askIntro = ask ? (ask.prose.split("\n").map((s) => s.trim()).find(Boolean) ?? "").slice(0, 280) : "";
                   // Le bloc ```edit lui-même n'a rien à faire dans le chat : on
                   // garde la phrase d'explication, le résultat part en carte.
-                  const proseHorsEdit = (arts?.prose ?? m.content).replace(/```edit[\s\S]*?(?:```|$)/, "").trim();
+                  // Le bloc ```edit est TOUJOURS retiré du chat, même quand il n'a
+                  // pas pu être appliqué : c'est du protocole, pas une réponse. En
+                  // cas d'échec, le bandeau ci-dessous l'explique.
+                  const contientEdit = m.content.includes("```edit");
+                  const proseHorsEdit = (arts?.prose ?? m.content)
+                    .replace(/```edit[\s\S]*?(?:```|$)/g, "")
+                    .trim();
                   const bodyText = ask
                     ? askIntro
                     : items.length
                       ? (proseHorsEdit || emptyMsg)
-                      : streamingBody;
+                      : contientEdit && !streamingThis
+                        ? (proseHorsEdit || t("Modification proposée."))
+                        : streamingBody;
+                  // Bloc présent mais rien appliqué et rien signalé : le parseur
+                  // n'a pas pu le lire du tout. À dire, sinon la réponse paraît vide.
+                  const editIllisible =
+                    contientEdit && !streamingThis && !modifs.fichiers.length && !modifs.echecs.length;
                   // A document being streamed shows only a live-updating card in
                   // the chat (its raw text streams into the side panel instead).
                   const streamingDoc =
@@ -1597,13 +1685,15 @@ export default function PlaygroundPage() {
                           {/* Une modification dont l'ancre n'existe pas dans le
                               fichier ne s'applique PAS. On le dit, plutôt que de
                               laisser croire que la correction est faite. */}
-                          {modifs.echecs.length > 0 && (
+                          {(modifs.echecs.length > 0 || editIllisible) && (
                             <Banner
                               status="warning"
                               title={t("Modification non appliquée")}
-                              description={t(
-                                "Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.",
-                              )}
+                              description={
+                                editIllisible
+                                  ? t("La modification proposée n'a pas pu être lue. Redemande la correction, ou demande le fichier complet.")
+                                  : t("Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.")
+                              }
                             />
                           )}
                           {/* Coupé par le plafond de tokens : sans ce message, la
@@ -1734,7 +1824,7 @@ export default function PlaygroundPage() {
                   {/* Valeurs unifiées : pendant le flux il n'y a pas encore
                       d'artefact épinglé, mais bien un fichier à afficher. */}
                   {panelIsCode
-                    ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped />
+                    ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped maxHeight="100%" />
                     : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                 </VStack>
                 )}
@@ -1772,7 +1862,7 @@ export default function PlaygroundPage() {
                 content={
                   <LayoutContent ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable>
                     {panelIsCode
-                      ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped />
+                      ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped maxHeight="100%" />
                       : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                   </LayoutContent>
                 }

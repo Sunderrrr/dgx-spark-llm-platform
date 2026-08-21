@@ -171,7 +171,8 @@ Rules for edits:
 - \`find\` must appear EXACTLY ONCE in the current file, copied verbatim — including indentation. Include a few surrounding lines if needed to make it unique.
 - Several edits are allowed in the same block; they are applied in order.
 - Write one short sentence before the block saying what you changed. Never describe the change inside the block.
-- Only rewrite the whole file when the change really is a rewrite (restructuring most of it), or when the file does not exist yet.`;
+- Only rewrite the whole file when the change really is a rewrite (restructuring most of it), or when the file does not exist yet.
+- NEVER output a shortened version of a file under its own name — no excerpt, no "rest unchanged", no "...". Either the edits block, or the file complete from first line to last.`;
 
 /** Lit un bloc ```edit. Même tolérance que parseAsk : ces blocs sortent d'un
  *  modèle, ils arrivent parfois tronqués ou suivis de déchets. */
@@ -525,6 +526,62 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
   return { prose: prose.trim(), artifacts };
 }
 
+/** Ce bloc est-il un extrait d'un fichier déjà connu, plutôt qu'une version ? */
+function estFragment(
+  ancien: { content: string; lang: string } | undefined,
+  nouveau: string,
+): boolean {
+  if (!ancien) return false;
+  // Seuils volontairement prudents : on ne refuse une mise à jour que si le
+  // fichier connu est déjà conséquent ET que le nouveau bloc fait moins des
+  // deux tiers. Une vraie réécriture qui raccourcit un peu passe donc encore.
+  return ancien.content.length > 800 && nouveau.length < ancien.content.length * 0.66;
+}
+
+// Titre attribué faute de mieux (« file 1 », « html · 2 ») : le modèle n'a pas
+// nommé son bloc.
+const TITRE_GENERIQUE = /^(file \d+|[\w+#-]+ · \d+)$/;
+
+/** Les fichiers pour lesquels CE message ne contient qu'un extrait.
+ *
+ * Deux formes, vues toutes les deux en vrai :
+ *  - le bloc porte le nom du fichier mais est bien plus court → extrait nommé ;
+ *  - le bloc n'est pas nommé du tout (« voici la partie corrigée ») alors qu'un
+ *    fichier bien plus gros du même langage existe déjà → extrait anonyme.
+ */
+function fragmentsDuMessage(messages: ChatMsg[], index: number): string[] {
+  const m = messages[index];
+  if (!m || m.role !== "assistant") return [];
+  const avant = fichiersJusqua(messages, index - 1);
+  const noms: string[] = [];
+  for (const a of parseArtifacts(m.content, false).artifacts) {
+    if (a.kind !== "code") continue;
+    if (estFragment(avant.get(a.title), a.content)) { noms.push(a.title); continue; }
+    if (!TITRE_GENERIQUE.test(a.title)) continue;
+    // Bloc anonyme : à quel fichier connu du même langage pourrait-il appartenir ?
+    const candidat = [...avant.entries()]
+      .filter(([, f]) => f.lang === a.lang)
+      .find(([, f]) => estFragment(f, a.content));
+    if (candidat) noms.push(candidat[0]);
+  }
+  if (noms.length) return noms;
+
+  // Dernier cas, le plus fréquent : un bloc COURT et sans nom (« voici la partie
+  // corrigée »). Trop petit pour devenir un fichier, il reste dans le fil — mais
+  // l'utilisateur, lui, attendait son fichier corrigé. On regarde donc les blocs
+  // bruts, pas seulement ceux promus en fichiers.
+  if (!avant.size) return [];
+  for (const f of m.content.matchAll(/```([^\n`]*)\n([\s\S]*?)```/g)) {
+    const lang = (f[1].trim().split(/\s+/)[0] || "").toLowerCase();
+    if (lang === "ask" || lang === "edit") continue;
+    const corps = f[2];
+    const candidat = [...avant.entries()].find(
+      ([, fic]) => (!lang || fic.lang.toLowerCase() === lang) && estFragment(fic, corps));
+    if (candidat) return [candidat[0]];
+  }
+  return [];
+}
+
 /** État courant de chaque fichier de la conversation, jusqu'au message `index`.
  *
  * DÉRIVÉ du fil, jamais stocké : un fichier = sa dernière version complète, à
@@ -541,7 +598,13 @@ function fichiersJusqua(
     const m = messages[i];
     if (m.role !== "assistant") continue;
     for (const a of parseArtifacts(m.content, false).artifacts) {
-      if (a.kind === "code") fichiers.set(a.title, { content: a.content, lang: a.lang });
+      if (a.kind !== "code") continue;
+      // Un bloc BIEN plus court qu'un fichier déjà connu du même nom est un
+      // EXTRAIT (« voici la partie corrigée »), pas une nouvelle version. Le
+      // prendre pour le fichier remplaçait 400 lignes par 20, et le volet
+      // affichait ce moignon comme s'il était le fichier.
+      if (estFragment(fichiers.get(a.title), a.content)) continue;
+      fichiers.set(a.title, { content: a.content, lang: a.lang });
     }
     for (const e of parseEdits(m.content)) {
       // Le modèle peut nommer « index.html » un fichier enregistré sous
@@ -1090,6 +1153,23 @@ export default function PlaygroundPage() {
     void runStream(nextMessages);
   }
 
+  /** Redemande le fichier ENTIER quand le modèle n'a renvoyé qu'un extrait. */
+  function demanderFichierComplet(nom: string) {
+    if (streaming) return;
+    const nextMessages: ChatMsg[] = [
+      ...messages,
+      { role: "user",
+        content: `Renvoie le fichier ${nom} EN ENTIER, du début à la fin, `
+          + "avec la correction intégrée. Un seul bloc de code, aucun extrait, "
+          + "aucune ligne omise, pas de « ... » ni de commentaire du type "
+          + "« reste inchangé ».",
+        // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+        ts: Date.now(), hidden: true },
+    ];
+    setMessages(nextMessages);
+    void runStream(nextMessages);
+  }
+
   /** Reprend une réponse coupée par le plafond de tokens, sans la refaire. */
   function continuer() {
     if (streaming || !messages.length) return;
@@ -1537,6 +1617,10 @@ export default function PlaygroundPage() {
                   const modifs = m.role === "assistant" && !streamingThis
                     ? appliquerEdits(messages, i)
                     : { fichiers: [], echecs: [] };
+                  // Le modèle a renvoyé « la partie corrigée » au lieu du fichier.
+                  const fragments = m.role === "assistant" && !streamingThis
+                    ? fragmentsDuMessage(messages, i)
+                    : [];
                   const items = [...(arts?.artifacts ?? []), ...modifs.fichiers];
                   // When the model puts everything in the artifact and writes nothing
                   // outside, still show a short line in the chat (not an empty bubble).
@@ -1685,6 +1769,26 @@ export default function PlaygroundPage() {
                           {/* Une modification dont l'ancre n'existe pas dans le
                               fichier ne s'applique PAS. On le dit, plutôt que de
                               laisser croire que la correction est faite. */}
+                          {fragments.length > 0 && (
+                            <Banner
+                              status="warning"
+                              title={t("Seul un extrait a été renvoyé")}
+                              description={t(
+                                "Le modèle a donné la partie corrigée, pas le fichier complet. La version précédente reste ouverte dans le volet.",
+                              )}
+                              endContent={
+                                isLast ? (
+                                  <Button
+                                    label={t("Demander le fichier complet")}
+                                    variant="primary"
+                                    size="sm"
+                                    isDisabled={streaming}
+                                    onClick={() => demanderFichierComplet(fragments[0])}
+                                  />
+                                ) : undefined
+                              }
+                            />
+                          )}
                           {(modifs.echecs.length > 0 || editIllisible) && (
                             <Banner
                               status="warning"

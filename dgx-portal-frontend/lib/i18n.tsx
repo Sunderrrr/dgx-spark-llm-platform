@@ -236,6 +236,38 @@ const EN: Record<string, string> = {
   "Date": "Date",
   "En attente": "Pending",
   "Retirer": "Remove",
+  "Mémoire": "Memory",
+  "Ce que l'assistant retient de toi, et que tu contrôles entièrement.":
+    "What the assistant remembers about you, entirely under your control.",
+  "Activer la mémoire": "Enable memory",
+  "Désactivée par défaut. Une fois activée, l'assistant peut retenir des informations durables te concernant pour les réutiliser plus tard.":
+    "Off by default. Once enabled, the assistant can keep durable information about you and reuse it later.",
+  "Ajouter une information": "Add an entry",
+  "Sujet": "Subject",
+  "Information": "Entry",
+  "ex : vLLM": "e.g. vLLM",
+  "ex : Je sers mes modèles avec vLLM 0.27.": "e.g. I serve my models with vLLM 0.27.",
+  "Ce qui est mémorisé": "What is remembered",
+  "Capacité utilisée": "Capacity used",
+  "informations": "entries",
+  "Tout effacer": "Erase everything",
+  "Rien de mémorisé pour l'instant": "Nothing remembered yet",
+  "Les informations apparaîtront ici au fil des conversations.":
+    "Entries will appear here as you chat.",
+  "Active la mémoire ci-dessus, ou ajoute une information à la main.":
+    "Turn memory on above, or add an entry by hand.",
+  "Oublier": "Forget",
+  "ajouté par toi": "added by you",
+  "appris en conversation": "learned in conversation",
+  "Mémoire activée.": "Memory enabled.",
+  "Mémoire désactivée. Ce qui est déjà mémorisé est conservé.":
+    "Memory disabled. What is already remembered is kept.",
+  "Mémoire effacée": "Memory erased",
+  "Ajout impossible.": "Could not add.",
+  "Chargement impossible.": "Could not load.",
+  "Chargement…": "Loading…",
+  "Personne d'autre ne peut lire ta mémoire, administrateurs compris. Désactiver la collecte n'efface rien : utilise « Tout effacer » pour ça.":
+    "Nobody else can read your memory, administrators included. Turning collection off erases nothing — use “Erase everything” for that.",
   "Messages en attente": "Queued messages",
   "Envoi imminent…": "Sending now…",
   "Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.":

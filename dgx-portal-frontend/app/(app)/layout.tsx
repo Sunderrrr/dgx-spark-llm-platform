@@ -60,6 +60,7 @@ const NAV_ITEMS = [
   { href: "/search", label: "Chercher un modèle", icon: MagnifyingGlassIcon },
   { href: "/request", label: "Demander un modèle", icon: PaperAirplaneIcon },
   { href: "/ranking", label: "Classement", icon: TrophyIcon },
+  { href: "/memory", label: "Mémoire", icon: SparklesIcon },
   { href: "/support", label: "Support", icon: LifebuoyIcon },
 ];
 

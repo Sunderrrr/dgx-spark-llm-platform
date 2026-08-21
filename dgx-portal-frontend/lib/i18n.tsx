@@ -306,6 +306,9 @@ const EN: Record<string, string> = {
   "Modification non appliquée": "Edit not applied",
   "Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.":
     "The text to replace was not found in the file. Ask again pointing at the spot, or ask for the whole file.",
+  "Modification proposée.": "Edit proposed.",
+  "La modification proposée n'a pas pu être lue. Redemande la correction, ou demande le fichier complet.":
+    "The proposed edit could not be read. Ask for the fix again, or ask for the whole file.",
   "Messages en attente": "Queued messages",
   "Envoi imminent…": "Sending now…",
   "Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.":

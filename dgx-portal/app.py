@@ -3815,10 +3815,22 @@ def _mem_norm(name):
     qu'une simple liste de faits. On retire les accents, la casse et la
     ponctuation pour que les variantes d'écriture convergent.
     """
-    s = unicodedata.normalize('NFKD', (name or '').strip().lower())
-    s = ''.join(c for c in s if not unicodedata.combining(c))
-    s = re.sub(r'[^a-z0-9]+', ' ', s).strip()
-    return s[:MEM_MAX_NAME_LEN]
+    out = []
+    for ch in (name or '').strip().lower():
+        decomp = unicodedata.normalize('NFKD', ch)
+        # On ne « déplie » que le latin. Retirer les marques combinantes partout
+        # casserait les autres écritures : en japonais, NFKD décompose « が » en
+        # « か » + dakuten, et supprimer ce dernier confondrait deux mots
+        # différents. Ailleurs qu'en latin, le caractère est gardé tel quel.
+        if decomp[:1].isascii():
+            out.append(''.join(c for c in decomp if not unicodedata.combining(c)))
+        else:
+            out.append(ch)
+    # `\w` en mode unicode garde les lettres de TOUTES les écritures — s'en tenir
+    # à [a-z0-9] rendait un sujet japonais, russe ou grec impossible à mémoriser
+    # (sa forme normalisée était vide, donc rejetée comme invalide).
+    s = re.sub(r'[^\w]+', ' ', ''.join(out), flags=re.UNICODE).replace('_', ' ')
+    return re.sub(r'\s+', ' ', s).strip()[:MEM_MAX_NAME_LEN]
 
 
 def _mem_enabled(username):

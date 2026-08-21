@@ -52,6 +52,22 @@ class NormalisationTest(MemoryTestBase):
         self.assertEqual(len(noeuds), 1, noeuds)
         self.assertEqual(len(portal._mem_graph(self.USER)['edges']), 3)
 
+    def test_ecritures_non_latines_memorisables(self):
+        # [a-z0-9] seul rendait tout sujet japonais/russe/grec impossible à
+        # mémoriser : sa forme normalisée était vide, donc rejetée.
+        for sujet in ('日本語', 'Привет', 'Ελληνικά', '中文'):
+            self.assertTrue(portal._mem_norm(sujet), sujet)
+            _, ok = portal._mem_add_fact(self.USER, sujet, 'note', f'Fait sur {sujet}')
+            self.assertTrue(ok, sujet)
+        self.assertEqual(len(portal._mem_graph(self.USER)['nodes']), 4)
+
+    def test_le_depliage_des_accents_ne_touche_que_le_latin(self):
+        # En latin, « è » et « e » doivent converger. En japonais NON : NFKD
+        # décompose « が » en « か » + dakuten, et supprimer ce dernier
+        # confondrait deux mots différents.
+        self.assertEqual(portal._mem_norm('Modèle'), portal._mem_norm('modele'))
+        self.assertNotEqual(portal._mem_norm('が'), portal._mem_norm('か'))
+
     def test_sujet_vide_refuse(self):
         _, ok = portal._mem_add_fact(self.USER, '   ', 'utilise', 'peu importe')
         self.assertFalse(ok)

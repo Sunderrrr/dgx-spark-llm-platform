@@ -271,6 +271,31 @@ const EN: Record<string, string> = {
   "Modification impossible.": "Could not update.",
   "Le bouton copier donne toujours la vraie clé, même affichée masquée.":
     "The copy button always gives the real key, even when it is shown masked.",
+  "Aucune clé API": "No API key",
+  "Le playground consomme le budget de ton compte via ta clé API. Crée-en une pour pouvoir discuter avec le modèle.":
+    "The playground spends your account budget through your API key. Create one to be able to chat with the model.",
+  "Plusieurs réponses possibles.": "You can pick several answers.",
+  "Bienvenue": "Welcome",
+  "Trois minutes pour savoir quoi faire de cette plateforme.":
+    "Three minutes to know what this platform can do for you.",
+  "Étape": "Step",
+  "Passer": "Skip",
+  "C'est parti": "Let's go",
+  "1. Crée ta clé API": "1. Create your API key",
+  "Tout passe par elle : le Playground comme tes outils externes. Elle porte ton budget en tokens, elle est personnelle, et tu peux en créer plusieurs (une par machine, par exemple) pour en révoquer une sans casser les autres.":
+    "Everything goes through it: the Playground and your own tools alike. It carries your token budget, it is personal, and you can create several (one per machine, say) so revoking one does not break the others.",
+  "Ouvrir mes clés API": "Open my API keys",
+  "2. Discute dans le Playground": "2. Chat in the Playground",
+  "Le moyen le plus direct d'utiliser un modèle : rien à installer. Tu peux joindre des fichiers texte, suivre le débit en tokens/seconde, et le modèle te posera des questions s'il a besoin de précisions. Les fichiers qu'il écrit s'ouvrent dans un volet à côté.":
+    "The most direct way to use a model — nothing to install. You can attach text files, watch the tokens per second, and the model will ask you questions when it needs details. Files it writes open in a panel beside the chat.",
+  "Aller au Playground": "Go to the Playground",
+  "3. Branche tes propres outils": "3. Plug in your own tools",
+  "L'API est compatible OpenAI et Anthropic. Dans Réglages → Clés API, choisis ton outil (Claude Code, OpenCode, Cursor, Aider, cURL…) : la configuration est générée avec ta clé, prête à copier. Vise le modèle « auto-model » et tu n'auras rien à changer quand l'admin changera de modèle.":
+    "The API speaks both OpenAI and Anthropic. In Settings → API keys, pick your tool (Claude Code, OpenCode, Cursor, Aider, cURL…): the configuration is generated with your key, ready to copy. Target the “auto-model” model and nothing needs changing when the admin switches models.",
+  "Voir les intégrations": "See the integrations",
+  "4. Besoin d'autre chose ?": "4. Need something else?",
+  "Image, voix, musique, OCR et vidéo ont chacun leur page. Si le modèle qu'il te faut n'est pas là, demande-le : un administrateur reçoit la demande et peut l'ajouter. Et le Support répond à tes questions sur la plateforme.":
+    "Image, voice, music, OCR and video each have their own page. If the model you need is missing, request it: an admin gets the request and can add it. And Support answers your questions about the platform.",
   "Messages en attente": "Queued messages",
   "Envoi imminent…": "Sending now…",
   "Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.":
@@ -574,7 +599,6 @@ const EN: Record<string, string> = {
   "Tape un identifiant pour afficher son profil.": "Type a username to show their profile.",
   "Utilisateurs connus": "Known users",
   "Quota LiteLLM": "LiteLLM quota",
-  "Aucune clé API": "No API key",
   "clé(s)": "key(s)",
   "extractions": "extractions",
   "générations": "generations",

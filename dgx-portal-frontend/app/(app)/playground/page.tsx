@@ -23,6 +23,7 @@ import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import type { DropdownMenuOption } from "@astryxdesign/core/DropdownMenu";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { Grid } from "@astryxdesign/core/Grid";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import {
   ChatLayout,
   ChatMessageList,
@@ -76,7 +77,12 @@ import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 const DEFAULT_SETTINGS: Settings = {
   system: "",
   temperature: 0.7,
-  maxTokens: 4096,
+  // 4096 coupait net toute réponse un peu longue — une page HTML complète, un
+  // fichier de configuration fourni : le modèle s'arrêtait en plein mot sans que
+  // rien ne l'explique. Le curseur des réglages monte de toute façon à 131072, et
+  // seuls les tokens RÉELLEMENT produits sont facturés : un plafond haut ne coûte
+  // rien tant que la réponse est courte.
+  maxTokens: 32768,
   topP: 1,
   reasoning: false,
 };
@@ -189,6 +195,37 @@ function trimAfterAsk(content: string): string {
   return close < 0 ? content : content.slice(0, close + 3);
 }
 
+/** La première valeur JSON complète de la chaîne, ignorant ce qui suit.
+ *
+ * Le modèle ajoute parfois un caractère APRÈS l'objet fermé (constaté : un
+ * guillemet orphelin, « …]}\" »). JSON.parse refuse tout ce qui suit une valeur
+ * complète, et le rééquilibrage ne sert à rien ici : le JSON n'est pas tronqué,
+ * il est suivi de déchets. On coupe donc dès que la profondeur revient à zéro.
+ */
+function firstJsonValue(src: string): string | null {
+  const debut = src.search(/[{[]/);
+  if (debut < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = debut; i < src.length; i++) {
+    const ch = src[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") depth++;
+    else if (ch === "}" || ch === "]") {
+      depth--;
+      if (depth === 0) return src.slice(debut, i + 1);
+    }
+  }
+  return null;   // jamais refermé → c'est une troncature, balanceJson s'en charge
+}
+
 // Detect a ```ask block. Accepts {questions:[…]} and the legacy {question,options}.
 // La fence de fermeture est optionnelle : si le modèle l'oublie, on prend tout
 // ce qui suit plutôt que de ne rien reconnaître du tout.
@@ -201,7 +238,10 @@ function parseAsk(content: string): AskBlock | null {
     try {
       obj = JSON.parse(body);
     } catch {
-      obj = JSON.parse(balanceJson(body));
+      // 1) déchets après un objet complet → on coupe à la fermeture
+      // 2) objet jamais refermé → on rééquilibre
+      const complet = firstJsonValue(body);
+      obj = JSON.parse(complet ?? balanceJson(body));
     }
     const raw: unknown[] = Array.isArray(obj.questions) ? obj.questions : (obj.question ? [obj] : []);
     const questions: AskQ[] = raw
@@ -516,6 +556,8 @@ export default function PlaygroundPage() {
   // in-progress document card during a document stream. A ref mirrors it so the
   // stream-completion closure can read the current value.
   const [liveDocOpen, setLiveDocOpen] = useState(false);
+  // Aperçu rendu d'une page HTML générée, plutôt que son code source.
+  const [htmlPreview, setHtmlPreview] = useState(true);
   const liveDocOpenRef = useRef(false);
   const openLiveDoc = () => { setLiveDocOpen(true); liveDocOpenRef.current = true; };
 
@@ -663,6 +705,7 @@ export default function PlaygroundPage() {
     };
 
     let isError = false;
+    let tronque = false;
     let wasAborted = false;
     try {
       // On retire la capacité « poser des questions » UNIQUEMENT sur le tour qui
@@ -690,6 +733,7 @@ export default function PlaygroundPage() {
         controller.signal,
         (delta) => {
           if (delta.usage) usage = delta.usage;
+          if (delta.truncated) tronque = true;
           if (delta.reasoningChunk) {
             if (tf === null) tf = performance.now();
             if (liveStartRef.current === null) liveStartRef.current = tf;
@@ -736,6 +780,7 @@ export default function PlaygroundPage() {
       finalMessages.push({
         role: "assistant",
         content: trimAfterAsk(acc),
+        truncated: tronque,
         reasoning: reason,
         tokens,
         tokensPerSec: tokens && gen > 0 ? Number((tokens / gen).toFixed(1)) : undefined,
@@ -864,6 +909,21 @@ export default function PlaygroundPage() {
     void runStream(nextMessages);
   }
 
+  /** Reprend une réponse coupée par le plafond de tokens, sans la refaire. */
+  function continuer() {
+    if (streaming || !messages.length) return;
+    const nextMessages: ChatMsg[] = [
+      ...messages,
+      { role: "user",
+        content: "Continue exactement là où tu t'es arrêté, sans rien répéter et "
+          + "sans réintroduire ta réponse. Reprends au caractère suivant.",
+        // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+        ts: Date.now(), hidden: true },
+    ];
+    setMessages(nextMessages);
+    void runStream(nextMessages);
+  }
+
   function stop() {
     abortRef.current?.abort();
   }
@@ -950,6 +1010,9 @@ export default function PlaygroundPage() {
       ? t("Rédaction en cours…")
       : (panelIsCode && epingle?.kind === "code" ? epingle.lang : "");
   const panelLang = liveCode ? liveCode.lang : (epingle?.kind === "code" ? epingle.lang : "text");
+  // Une page HTML terminée peut être REGARDÉE, pas seulement lue en code. On ne
+  // le propose pas tant qu'elle s'écrit : un rendu à moitié écrit clignote.
+  const panelEstHtml = !liveCode && panelIsCode && /^html?$/i.test(panelLang);
   const panelDownloadName = panelIsCode ? panelTitle : `${slugify(panelTitle)}.md`;
   const panelDownloadMime = panelIsCode ? "text/plain" : "text/markdown";
   // Auto-follow the document while it streams into the panel; show a "jump to
@@ -1399,6 +1462,28 @@ export default function PlaygroundPage() {
                             </Collapsible>
                           ) : null}
                           <Markdown isStreaming={streamingThis}>{bodyText || " "}</Markdown>
+                          {/* Coupé par le plafond de tokens : sans ce message, la
+                              réponse s'arrête en plein mot et rien ne l'explique. */}
+                          {m.truncated && !streamingThis && (
+                            <Banner
+                              status="warning"
+                              title={t("Réponse coupée")}
+                              description={t(
+                                "Le plafond de tokens a été atteint. Reprends la suite, ou augmente « Max tokens » dans les réglages.",
+                              )}
+                              endContent={
+                                isLast ? (
+                                  <Button
+                                    label={t("Continuer")}
+                                    variant="primary"
+                                    size="sm"
+                                    isDisabled={streaming}
+                                    onClick={continuer}
+                                  />
+                                ) : undefined
+                              }
+                            />
+                          )}
                           {items.map((a, ai) => (
                             <ClickableCard
                               key={ai}
@@ -1466,6 +1551,38 @@ export default function PlaygroundPage() {
                     </>
                   }
                 />
+                {panelEstHtml && (
+                  <HStack padding={3}>
+                    <SegmentedControl
+                      label={t("Affichage")}
+                      value={htmlPreview ? "apercu" : "code"}
+                      onChange={(v) => setHtmlPreview(v === "apercu")}
+                      size="sm">
+                      <SegmentedControlItem value="apercu" label={t("Aperçu")} />
+                      <SegmentedControlItem value="code" label={t("Code source")} />
+                    </SegmentedControl>
+                  </HStack>
+                )}
+                {panelEstHtml && htmlPreview ? (
+                  /* Page générée par le modèle : elle s'affiche dans une iframe
+                     ISOLÉE. `sandbox` sans allow-same-origin lui donne une origine
+                     opaque — elle ne peut ni lire les cookies de session, ni
+                     toucher à la page qui l'héberge. Les scripts qu'elle
+                     contiendrait sont bloqués par la CSP héritée : on regarde une
+                     page, on ne l'exécute pas. Pas de composant Astryx pour ça. */
+                  <iframe
+                    title={panelTitle}
+                    srcDoc={panelContent}
+                    sandbox=""
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      width: "100%",
+                      border: "none",
+                      background: "var(--color-background-surface)",
+                    }}
+                  />
+                ) : (
                 <VStack ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable style={{ flex: 1, minHeight: 0 }}>
                   {/* Valeurs unifiées : pendant le flux il n'y a pas encore
                       d'artefact épinglé, mais bien un fichier à afficher. */}
@@ -1473,6 +1590,7 @@ export default function PlaygroundPage() {
                     ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped />
                     : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                 </VStack>
+                )}
                 {showPanelJump && (
                   <HStack style={{ position: "absolute", bottom: "var(--spacing-4)", left: "50%", transform: "translateX(-50%)", zIndex: 2 }}>
                     <Button label={t("Descendre")} variant="primary" size="sm"

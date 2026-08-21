@@ -130,6 +130,8 @@ export type StreamDelta = {
   reasoningChunk?: string;
   contentChunk?: string;
   usage?: { total_tokens?: number; completion_tokens?: number };
+  /** Le modèle a été coupé net par le plafond de tokens (finish_reason="length"). */
+  truncated?: boolean;
 };
 
 export type ToolCallEvent = {
@@ -143,7 +145,7 @@ export type ToolCallEvent = {
 
 type SSEPayload = {
   usage?: { total_tokens?: number; completion_tokens?: number };
-  choices?: { delta?: { content?: string; reasoning_content?: string } }[];
+  choices?: { delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }[];
   tool_call?: ToolCallEvent;
 };
 
@@ -198,6 +200,9 @@ export async function streamChat(
   });
   await readSSE(res, (json) => {
     if (json.usage) onDelta({ usage: json.usage });
+    // Le backend relaie les lignes SSE telles quelles : finish_reason arrive ici.
+    // "length" = réponse tronquée par max_tokens, à signaler au lecteur.
+    if (json.choices?.[0]?.finish_reason === "length") onDelta({ truncated: true });
     const delta = json.choices?.[0]?.delta;
     if (delta?.reasoning_content) onDelta({ reasoningChunk: delta.reasoning_content });
     if (delta?.content) onDelta({ contentChunk: delta.content });

@@ -129,10 +129,16 @@ const ASK_INSTRUCTION = `When you need the user to clarify things before you can
 \`\`\`
 Strict rules:
 - Before the block you MAY write ONE short introductory sentence (e.g. "Bien sûr ! Quelques précisions pour bien t'aider :"). Do NOT write the questions or their options as normal text anywhere — they go INSIDE the block ONLY.
-- 1 to 4 questions, each with 2 to 4 short options in the user's language. Ask everything you need in this one block (the user answers them all at once).
+- Ask as many questions as are genuinely useful — two if two are enough, more if the request really needs it. Do not pad to reach a number, and do not drop a question that matters. Each question gets 2 to 6 short options in the user's language. Ask everything you need in this one block (the user answers them all at once).
 - Do NOT add an "Other" option (the interface adds one).
 - Ask AT MOST ONCE. As soon as the user has answered, you MUST give your real, complete answer using their choices — NEVER reply with another ask block once they have answered.
 - Only ask when it genuinely helps; otherwise just answer normally.`;
+
+// Le modèle pose autant de questions qu'il le juge utile — deux ou dix. Ces
+// plafonds ne sont PAS un cadrage éditorial mais un garde-fou : une génération
+// qui déraille ne doit pas produire un questionnaire interminable.
+const MAX_ASK_QUESTIONS = 20;
+const MAX_ASK_OPTIONS = 8;
 
 // One clarifying question + its proposed answers.
 type AskQ = { question: string; options: string[] };
@@ -199,12 +205,12 @@ function parseAsk(content: string): AskBlock | null {
         const qq = q as { question?: unknown; options?: unknown };
         const question = typeof qq.question === "string" ? qq.question.trim() : "";
         const options = Array.isArray(qq.options)
-          ? qq.options.filter((o: unknown) => typeof o === "string" && o.trim()).map((o: string) => o.trim()).slice(0, 4)
+          ? qq.options.filter((o: unknown) => typeof o === "string" && o.trim()).map((o: string) => o.trim()).slice(0, MAX_ASK_OPTIONS)
           : [];
         return { question, options };
       })
       .filter((q) => q.question && q.options.length >= 1)
-      .slice(0, 4);
+      .slice(0, MAX_ASK_QUESTIONS);
     if (!questions.length) return null;
     return { questions, prose: content.replace(m[0], "").trim() };
   } catch {
@@ -587,10 +593,17 @@ export default function PlaygroundPage() {
     let isError = false;
     let wasAborted = false;
     try {
-      // Offer the "ask the user" capability only until the user has answered a
-      // question once (a hidden answer message exists). This stops the model from
-      // looping on more and more questions instead of actually answering.
-      const alreadyAsked = nextMessages.some((mm) => mm.hidden);
+      // On retire la capacité « poser des questions » UNIQUEMENT sur le tour qui
+      // suit immédiatement des réponses — là où le modèle serait tenté d'enchaîner
+      // question sur question au lieu de répondre.
+      // Avant, ce test balayait TOUTE la conversation (`some`) : dès qu'on avait
+      // répondu une fois, le modèle ne pouvait plus jamais demander de précisions,
+      // même beaucoup plus tard sur une demande sans rapport. D'où l'impression
+      // qu'il « fonçait » alors qu'il posait encore des questions en début de
+      // conversation (mesuré : 16 demandes floues sur 18 donnent lieu à une
+      // question, et 0 sur 9 demandes précises).
+      const dernier = nextMessages[nextMessages.length - 1];
+      const alreadyAsked = !!dernier?.hidden;
       const askSettings = {
         ...settings,
         system: alreadyAsked

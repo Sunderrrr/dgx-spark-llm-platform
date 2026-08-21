@@ -269,6 +269,8 @@ const EN: Record<string, string> = {
   "Personne d'autre ne peut lire ta mémoire, administrateurs compris. Désactiver la collecte n'efface rien : utilise « Tout effacer » pour ça.":
     "Nobody else can read your memory, administrators included. Turning collection off erases nothing — use “Erase everything” for that.",
   "Modification impossible.": "Could not update.",
+  "Le bouton copier donne toujours la vraie clé, même affichée masquée.":
+    "The copy button always gives the real key, even when it is shown masked.",
   "Messages en attente": "Queued messages",
   "Envoi imminent…": "Sending now…",
   "Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.":

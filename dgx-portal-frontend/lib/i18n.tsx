@@ -296,6 +296,12 @@ const EN: Record<string, string> = {
   "4. Besoin d'autre chose ?": "4. Need something else?",
   "Image, voix, musique, OCR et vidéo ont chacun leur page. Si le modèle qu'il te faut n'est pas là, demande-le : un administrateur reçoit la demande et peut l'ajouter. Et le Support répond à tes questions sur la plateforme.":
     "Image, voice, music, OCR and video each have their own page. If the model you need is missing, request it: an admin gets the request and can add it. And Support answers your questions about the platform.",
+  "Aperçu": "Preview",
+  "Code source": "Source code",
+  "Affichage": "Display",
+  "Réponse coupée": "Reply cut short",
+  "Le plafond de tokens a été atteint. Reprends la suite, ou augmente « Max tokens » dans les réglages.":
+    "The token ceiling was reached. Pick up where it stopped, or raise “Max tokens” in the settings.",
   "Messages en attente": "Queued messages",
   "Envoi imminent…": "Sending now…",
   "Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.":

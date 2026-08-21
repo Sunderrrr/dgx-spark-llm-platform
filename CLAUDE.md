@@ -162,7 +162,9 @@ docker restart traefik                    # if the site 404s
   `./dgx-portal/run-tests.sh` (all) or `./dgx-portal/run-tests.sh test_app`.
 - **Pre-push gate**: `./scripts/pre-push-check.sh` — runs the test suite and scans
   the diff for secrets. **Green is required before any push.** It's also wired as
-  a git `pre-push` hook.
+  a git `pre-push` hook. Run it with **`< /dev/null`**: as a hook it reads the ref
+  lines from stdin, so with stdin left open (e.g. straight after a heredoc in the
+  same command) it blocks forever on `read` instead of running anything.
 - **CI** (`.github/workflows/ci.yml`) runs the backend tests + frontend
   `tsc --noEmit` + eslint on every push/PR. A green check is the merge bar.
 - **Frontend**: `cd dgx-portal-frontend && npx tsc --noEmit && npx eslint .` before

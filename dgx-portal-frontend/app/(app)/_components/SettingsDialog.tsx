@@ -43,6 +43,7 @@ import {
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, postForm, postFormJSON } from "@/lib/api";
 import { KeysContent } from "../keys/_components/KeysContent";
+import { MemoryContent } from "../memory/_components/MemoryContent";
 import { useThemeMode } from "../../theme-provider";
 import { THEMES, type ThemeId } from "@/lib/themes";
 import { useLang, useT, type Lang } from "@/lib/i18n";
@@ -101,7 +102,7 @@ type SettingsData = {
   account: Account;
 };
 
-type Section = "account" | "usage" | "keys" | "avatar" | "appearance" | "mcp" | "skills";
+type Section = "account" | "usage" | "keys" | "memory" | "avatar" | "appearance" | "mcp" | "skills";
 
 const SECTIONS: { group: string; items: { id: Section; label: string; icon: typeof UserIcon }[] }[] = [
   {
@@ -110,6 +111,7 @@ const SECTIONS: { group: string; items: { id: Section; label: string; icon: type
       { id: "account", label: "Mon compte", icon: UserIcon },
       { id: "usage", label: "Usage", icon: ChartBarIcon },
       { id: "keys", label: "Clés API", icon: KeyIcon },
+      { id: "memory", label: "Mémoire", icon: SparklesIcon },
     ],
   },
   {
@@ -127,6 +129,7 @@ const SECTION_TITLES: Record<Section, string> = {
   account: "Mon compte",
   usage: "Usage",
   keys: "Clés API",
+  memory: "Mémoire",
   avatar: "Personnalisation",
   appearance: "Apparence",
   mcp: "MCP",
@@ -710,6 +713,7 @@ export function SettingsDialog({
 
               {/* ── API keys ───────────────────────────────────────────── */}
               {section === "keys" && <KeysContent />}
+              {section === "memory" && <MemoryContent />}
 
               {/* ── Personalization ───────────────────────────────────── */}
               {section === "avatar" && (

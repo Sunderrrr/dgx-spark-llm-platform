@@ -53,6 +53,7 @@ import {
   XMarkIcon,
   PaperAirplaneIcon,
   KeyIcon,
+  ArrowsPointingOutIcon,
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import { useSettingsDialog } from "@/lib/settings-dialog";
@@ -155,6 +156,51 @@ const MAX_ASK_OPTIONS = 8;
 type AskQ = { question: string; options: string[] };
 // A model's clarifying block: one or more questions, plus any prose around it.
 type AskBlock = { questions: AskQ[]; prose: string };
+
+/** Une modification ciblée d'un fichier déjà produit. */
+type FileEdit = { file: string; find: string; replace: string };
+
+// Instruction ajoutée au prompt système : corriger un fichier déjà produit sans
+// le réécrire en entier. Réécrire 400 lignes pour en changer trois coûte du temps,
+// des tokens, et réintroduit des erreurs ailleurs dans le fichier.
+const EDIT_INSTRUCTION = `When the user asks you to FIX or CHANGE a file you already produced in this conversation, do NOT output the whole file again. Output only the edits, as a single fenced block:
+\`\`\`edit
+{"edits": [{"file": "<exact file name you used before>", "find": "<exact text to replace, copied character for character from the file>", "replace": "<the new text>"}]}
+\`\`\`
+Rules for edits:
+- \`find\` must appear EXACTLY ONCE in the current file, copied verbatim — including indentation. Include a few surrounding lines if needed to make it unique.
+- Several edits are allowed in the same block; they are applied in order.
+- Write one short sentence before the block saying what you changed. Never describe the change inside the block.
+- Only rewrite the whole file when the change really is a rewrite (restructuring most of it), or when the file does not exist yet.`;
+
+/** Lit un bloc ```edit. Même tolérance que parseAsk : ces blocs sortent d'un
+ *  modèle, ils arrivent parfois tronqués ou suivis de déchets. */
+function parseEdits(content: string): FileEdit[] {
+  const m = content.match(/```edit\s*\n([\s\S]*?)(?:```|$)/);
+  if (!m) return [];
+  try {
+    const body = m[1].trim();
+    let obj;
+    try {
+      obj = JSON.parse(body);
+    } catch {
+      obj = JSON.parse(firstJsonValue(body) ?? balanceJson(body));
+    }
+    const brut: unknown[] = Array.isArray(obj.edits) ? obj.edits : (obj.find ? [obj] : []);
+    return brut
+      .map((e) => {
+        const ee = e as { file?: unknown; find?: unknown; replace?: unknown };
+        return {
+          file: typeof ee.file === "string" ? ee.file.trim() : "",
+          find: typeof ee.find === "string" ? ee.find : "",
+          replace: typeof ee.replace === "string" ? ee.replace : "",
+        };
+      })
+      .filter((e) => e.find !== "");
+  } catch {
+    return [];
+  }
+}
 
 // Referme un JSON tronqué en fin de chaîne. Un modèle ouvert de cette taille
 // oublie régulièrement le dernier `}` ou `]` — un seul caractère manquant faisait
@@ -420,6 +466,62 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
   return { prose: prose.trim(), artifacts };
 }
 
+/** État courant de chaque fichier de la conversation, jusqu'au message `index`.
+ *
+ * DÉRIVÉ du fil, jamais stocké : un fichier = sa dernière version complète, à
+ * laquelle on applique dans l'ordre les modifications qui ont suivi. Rien à
+ * synchroniser, donc rien qui puisse se désynchroniser — recharger la
+ * conversation reconstruit exactement le même état.
+ */
+function fichiersJusqua(
+  messages: ChatMsg[],
+  index: number,
+): Map<string, { content: string; lang: string }> {
+  const fichiers = new Map<string, { content: string; lang: string }>();
+  for (let i = 0; i <= index && i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role !== "assistant") continue;
+    for (const a of parseArtifacts(m.content, false).artifacts) {
+      if (a.kind === "code") fichiers.set(a.title, { content: a.content, lang: a.lang });
+    }
+    for (const e of parseEdits(m.content)) {
+      // Le modèle peut nommer « index.html » un fichier enregistré sous
+      // « site/index.html » : on retombe sur une correspondance par suffixe.
+      const cle =
+        (fichiers.has(e.file) && e.file) ||
+        [...fichiers.keys()].find((k) => k === e.file || k.endsWith("/" + e.file) || e.file.endsWith("/" + k));
+      if (!cle) continue;
+      const cible = fichiers.get(cle)!;
+      if (!cible.content.includes(e.find)) continue;   // ancre introuvable : on n'invente rien
+      fichiers.set(cle, { ...cible, content: cible.content.replace(e.find, e.replace) });
+    }
+  }
+  return fichiers;
+}
+
+/** Les modifications d'un message, avec le résultat et les échecs éventuels. */
+function appliquerEdits(messages: ChatMsg[], index: number): {
+  fichiers: Artifact[];
+  echecs: string[];
+} {
+  const edits = parseEdits(messages[index]?.content ?? "");
+  if (!edits.length) return { fichiers: [], echecs: [] };
+  const avant = fichiersJusqua(messages, index - 1);
+  const apres = fichiersJusqua(messages, index);
+  const echecs: string[] = [];
+  const touches = new Map<string, Artifact>();
+  for (const e of edits) {
+    const cle =
+      (avant.has(e.file) && e.file) ||
+      [...avant.keys()].find((k) => k === e.file || k.endsWith("/" + e.file) || e.file.endsWith("/" + k));
+    if (!cle) { echecs.push(e.file || "?"); continue; }
+    if (!avant.get(cle)!.content.includes(e.find)) { echecs.push(cle); continue; }
+    const f = apres.get(cle)!;
+    touches.set(cle, { kind: "code", title: cle, lang: f.lang, content: f.content });
+  }
+  return { fichiers: [...touches.values()], echecs };
+}
+
 function estimateTokens(
   settings: Settings,
   input: string,
@@ -559,7 +661,17 @@ export default function PlaygroundPage() {
   const [liveDocOpen, setLiveDocOpen] = useState(false);
   // Aperçu rendu d'une page HTML générée, plutôt que son code source.
   const [htmlPreview, setHtmlPreview] = useState(true);
+  // Plein écran du volet : indispensable pour regarder une page HTML générée,
+  // illisible dans une colonne de 400 px.
+  const [plein, setPlein] = useState(false);
   const liveDocOpenRef = useRef(false);
+  /** Fermeture du panneau : sortir du plein écran ramène au volet latéral, on ne
+   *  referme le fichier que si on n'y était pas. */
+  const fermerPanneau = () => {
+    if (plein) { setPlein(false); return; }
+    setArtifact(null);
+    setLiveDocOpen(false);
+  };
   const openLiveDoc = () => { setLiveDocOpen(true); liveDocOpenRef.current = true; };
 
   const abortRef = useRef<AbortController | null>(null);
@@ -720,11 +832,20 @@ export default function PlaygroundPage() {
       // question, et 0 sur 9 demandes précises).
       const dernier = nextMessages[nextMessages.length - 1];
       const alreadyAsked = !!dernier?.hidden;
+      const plafondModele = modelLimits[model];
       const askSettings = {
         ...settings,
-        system: alreadyAsked
-          ? settings.system
-          : [settings.system.trim(), ASK_INSTRUCTION].filter(Boolean).join("\n\n"),
+        // Le plafond de sortie ne peut pas dépasser la fenêtre du modèle chargé.
+        // Le backend le rabaisse déjà à ce qui reste ; on évite ici d'envoyer une
+        // valeur qui n'a de sens pour aucun modèle en cours.
+        maxTokens: plafondModele ? Math.min(settings.maxTokens, plafondModele) : settings.maxTokens,
+        system: [
+          settings.system.trim(),
+          alreadyAsked ? "" : ASK_INSTRUCTION,
+          // Toujours envoyée : dès qu'un fichier existe dans la conversation, le
+          // modèle doit pouvoir le corriger sans le réécrire.
+          EDIT_INSTRUCTION,
+        ].filter(Boolean).join("\n\n"),
       };
       await streamChat(
         csrf,
@@ -1094,7 +1215,7 @@ export default function PlaygroundPage() {
         <LayoutContent padding={0} isScrollable={false}>
           {isSettingsOpen && (
             <VStack padding={4}>
-              <SettingsPanel settings={settings} onChange={setSettings} />
+              <SettingsPanel settings={settings} onChange={setSettings} contexte={modelLimits[model]} />
             </VStack>
           )}
           {/* VStack (flex column) gives ChatLayout the flex parent its own flex:1
@@ -1335,7 +1456,12 @@ export default function PlaygroundPage() {
                   const arts = m.role === "assistant" && !ask
                     ? parseArtifacts(contenuAffiche, !streamingThis && isDocTask(messages[i - 1]?.content ?? ""))
                     : null;
-                  const items = arts?.artifacts ?? [];
+                  // Un message peut ne contenir que des MODIFICATIONS : le fichier
+                  // à montrer est alors le résultat, pas ce que le message contient.
+                  const modifs = m.role === "assistant" && !streamingThis
+                    ? appliquerEdits(messages, i)
+                    : { fichiers: [], echecs: [] };
+                  const items = [...(arts?.artifacts ?? []), ...modifs.fichiers];
                   // When the model puts everything in the artifact and writes nothing
                   // outside, still show a short line in the chat (not an empty bubble).
                   const emptyMsg = items.some((a) => a.kind === "doc")
@@ -1349,15 +1475,20 @@ export default function PlaygroundPage() {
                   const streamingBody =
                     streamingThis && m.content.includes("```ask")
                       ? m.content.split("```ask")[0]
-                      : contenuAffiche;
+                      : streamingThis && m.content.includes("```edit")
+                        ? m.content.split("```edit")[0]
+                        : contenuAffiche;
                   // With a question card, show only the model's short intro
                   // sentence (its first line) — never the questions/options text,
                   // which live in the interactive card.
                   const askIntro = ask ? (ask.prose.split("\n").map((s) => s.trim()).find(Boolean) ?? "").slice(0, 280) : "";
+                  // Le bloc ```edit lui-même n'a rien à faire dans le chat : on
+                  // garde la phrase d'explication, le résultat part en carte.
+                  const proseHorsEdit = (arts?.prose ?? m.content).replace(/```edit[\s\S]*?(?:```|$)/, "").trim();
                   const bodyText = ask
                     ? askIntro
                     : items.length
-                      ? (arts!.prose.trim() || emptyMsg)
+                      ? (proseHorsEdit || emptyMsg)
                       : streamingBody;
                   // A document being streamed shows only a live-updating card in
                   // the chat (its raw text streams into the side panel instead).
@@ -1463,6 +1594,18 @@ export default function PlaygroundPage() {
                             </Collapsible>
                           ) : null}
                           <Markdown isStreaming={streamingThis}>{bodyText || " "}</Markdown>
+                          {/* Une modification dont l'ancre n'existe pas dans le
+                              fichier ne s'applique PAS. On le dit, plutôt que de
+                              laisser croire que la correction est faite. */}
+                          {modifs.echecs.length > 0 && (
+                            <Banner
+                              status="warning"
+                              title={t("Modification non appliquée")}
+                              description={t(
+                                "Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.",
+                              )}
+                            />
+                          )}
                           {/* Coupé par le plafond de tokens : sans ce message, la
                               réponse s'arrête en plein mot et rien ne l'explique. */}
                           {m.truncated && !streamingThis && (
@@ -1540,6 +1683,9 @@ export default function PlaygroundPage() {
                   }
                   endContent={
                     <>
+                      <Button label={t("Plein écran")} variant="ghost" size="sm" isIconOnly
+                        icon={<Icon icon={ArrowsPointingOutIcon} size="sm" />}
+                        onClick={() => setPlein(true)} />
                       <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly
                         icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
                         onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
@@ -1602,15 +1748,15 @@ export default function PlaygroundPage() {
               </Card>
             </>
           )}
-          {(artifact || showLive) && isNarrow && (
-            <Dialog isOpen onOpenChange={(o) => { if (!o) { setArtifact(null); setLiveDocOpen(false); } }} variant="fullscreen">
+          {(artifact || showLive) && (isNarrow || plein) && (
+            <Dialog isOpen onOpenChange={(o) => { if (!o) fermerPanneau(); }} variant="fullscreen">
               <Layout
                 header={
                   <DialogHeader
                     title={panelTitle}
                     subtitle={panelSubtitle || undefined}
                     hasDivider
-                    onOpenChange={(o) => { if (!o) { setArtifact(null); setLiveDocOpen(false); } }}
+                    onOpenChange={(o) => { if (!o) fermerPanneau(); }}
                     endContent={
                       <HStack gap={1} vAlign="center">
                         <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly

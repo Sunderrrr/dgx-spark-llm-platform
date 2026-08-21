@@ -21,10 +21,13 @@ import { useT } from "@/lib/i18n";
 
 type AskQ = { question: string; options: string[] };
 
-// The model's clarifying questions, shown one at a time (stepper). Each answer
-// is selectable and changeable; "Previous" goes back to revise; on the last
-// question "Send answers" submits them all at once. Once submitted, `answered`
-// locks the card into a read-only recap of the chosen answers.
+// The model's clarifying questions, shown one at a time (stepper).
+// PLUSIEURS réponses par question : chaque option se coche et se décoche, et la
+// réponse libre peut s'ajouter aux options choisies — une contrainte à un seul
+// choix obligeait à trancher là où la vraie réponse est « les deux ».
+// « Précédent » revient corriger ; sur la dernière question, « Envoyer les
+// réponses » les soumet toutes d'un coup. Une fois envoyées, `answered` fige la
+// carte en simple accusé de réception.
 export function AskQuestion({
   questions,
   answered,
@@ -36,24 +39,25 @@ export function AskQuestion({
 }) {
   const t = useT();
   const [step, setStep] = useState(0);
-  const [chosen, setChosen] = useState<(string | null)[]>(() => questions.map(() => null));
+  const [chosen, setChosen] = useState<string[][]>(() => questions.map(() => []));
   const [otherOpen, setOtherOpen] = useState<boolean[]>(() => questions.map(() => false));
   const [otherText, setOtherText] = useState<string[]>(() => questions.map(() => ""));
 
   const set = <T,>(arr: T[], i: number, v: T) => arr.map((x, j) => (j === i ? v : x));
-  const effective = (i: number) => (otherOpen[i] ? otherText[i].trim() : (chosen[i] ?? ""));
+  // La réponse d'une question = les options cochées, plus le texte libre s'il y
+  // en a un. Les deux peuvent coexister.
+  const effective = (i: number) =>
+    [...chosen[i], otherOpen[i] ? otherText[i].trim() : ""].filter(Boolean).join(" + ");
   const currentAnswered = effective(step) !== "";
   const allAnswered = questions.every((_, i) => effective(i) !== "");
   const isLast = step === questions.length - 1;
 
-  const pickOption = (opt: string) => {
-    setChosen((a) => set(a, step, opt));
-    setOtherOpen((o) => set(o, step, false));
+  // Bascule : recliquer une option la retire.
+  const toggleOption = (opt: string) => {
+    setChosen((a) =>
+      set(a, step, a[step].includes(opt) ? a[step].filter((x) => x !== opt) : [...a[step], opt]));
   };
-  const pickOther = () => {
-    setOtherOpen((o) => set(o, step, true));
-    setChosen((a) => set(a, step, null));
-  };
+  const pickOther = () => setOtherOpen((o) => set(o, step, !o[step]));
 
   // Once submitted, just confirm — the answers are sent to the model but not
   // echoed in the chat (the user doesn't want to see them).
@@ -81,10 +85,15 @@ export function AskQuestion({
           </VStack>
         ) : null}
 
-        <HStack gap={2} vAlign="start">
-          <Icon icon={QuestionMarkCircleIcon} size="sm" color="accent" />
-          <Text weight="semibold">{q.question}</Text>
-        </HStack>
+        <VStack gap={1}>
+          <HStack gap={2} vAlign="start">
+            <Icon icon={QuestionMarkCircleIcon} size="sm" color="accent" />
+            <Text weight="semibold">{q.question}</Text>
+          </HStack>
+          <Text type="supporting" color="secondary">
+            {t("Plusieurs réponses possibles.")}
+          </Text>
+        </VStack>
 
         <VStack gap={2}>
           {q.options.map((opt, oi) => (
@@ -92,8 +101,8 @@ export function AskQuestion({
               key={oi}
               label={opt}
               padding={3}
-              isSelected={!otherOpen[step] && chosen[step] === opt}
-              onChange={() => pickOption(opt)}
+              isSelected={chosen[step].includes(opt)}
+              onChange={() => toggleOption(opt)}
             >
               <Text>{opt}</Text>
             </SelectableCard>

@@ -12,6 +12,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
+import { Banner } from "@astryxdesign/core/Banner";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Markdown } from "@astryxdesign/core/Markdown";
@@ -50,8 +51,10 @@ import {
   DocumentTextIcon,
   XMarkIcon,
   PaperAirplaneIcon,
+  KeyIcon,
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
+import { useSettingsDialog } from "@/lib/settings-dialog";
 import { useDictation } from "@/lib/useDictation";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { useStickToBottom } from "@/lib/useStickToBottom";
@@ -131,6 +134,7 @@ Strict rules:
 - Before the block you MAY write ONE short introductory sentence (e.g. "Bien sûr ! Quelques précisions pour bien t'aider :"). Do NOT write the questions or their options as normal text anywhere — they go INSIDE the block ONLY.
 - Ask as many questions as are genuinely useful — two if two are enough, more if the request really needs it. Do not pad to reach a number, and do not drop a question that matters. Each question gets 2 to 6 short options in the user's language. Ask everything you need in this one block (the user answers them all at once).
 - Do NOT add an "Other" option (the interface adds one).
+- The user can pick SEVERAL options for the same question, so write options that can be combined rather than mutually exclusive ones whenever that makes sense. Their answer may come back as "A + B".
 - Ask AT MOST ONCE. As soon as the user has answered, you MUST give your real, complete answer using their choices — NEVER reply with another ask block once they have answered.
 - Only ask when it genuinely helps; otherwise just answer normally.`;
 
@@ -391,9 +395,13 @@ type QueuedMsg = { content: string; text: string; attachmentCount?: number; ts: 
 
 export default function PlaygroundPage() {
   const t = useT();
+  const { open: openSettings } = useSettingsDialog();
   const [csrf, setCsrf] = useState("");
   const [runningModels, setRunningModels] = useState<string[]>([]);
   const [modelLimits, setModelLimits] = useState<Record<string, number>>({});
+  // null = pas encore su. On n'affiche l'alerte qu'une fois la réponse reçue,
+  // pour ne pas faire clignoter un avertissement au chargement.
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [model, setModel] = useState("");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -536,6 +544,7 @@ export default function PlaygroundPage() {
       .then((data) => {
         setRunningModels(data.running_models);
         setModelLimits(data.model_limits);
+        setHasKey(data.has_key);
         if (data.running_models.length) setModel(data.running_models[0]);
       })
       .catch(() => {});
@@ -764,6 +773,12 @@ export default function PlaygroundPage() {
   function send(value: string) {
     const text = value.trim();
     if (!text && !attachments.length) return;
+    // La clé a pu être créée depuis la boîte de réglages entre-temps : on
+    // revérifie ici plutôt que de laisser le bandeau (et l'échec) persister.
+    // Une requête de plus, et uniquement dans l'état cassé.
+    if (hasKey === false) {
+      void fetchPlaygroundData().then((d) => setHasKey(d.has_key)).catch(() => {});
+    }
     // Sending ends dictation: the message goes out with what has been
     // transcribed so far, and no still-in-flight pass will rewrite the
     // field once it's been cleared.
@@ -1039,6 +1054,28 @@ export default function PlaygroundPage() {
             density="spacious"
             composer={
               <VStack gap={2} padding={4}>
+                {/* Sans clé API, le playground ne peut rien envoyer : il tourne sur
+                    la clé de l'utilisateur. On le dit AVANT la première question,
+                    avec le bouton qui mène pile au bon endroit — plutôt que de
+                    laisser découvrir le problème par un message d'erreur. */}
+                {hasKey === false && (
+                  <Banner
+                    status="warning"
+                    title={t("Aucune clé API")}
+                    description={t(
+                      "Le playground consomme le budget de ton compte via ta clé API. Crée-en une pour pouvoir discuter avec le modèle.",
+                    )}
+                    endContent={
+                      <Button
+                        label={t("Créer une clé API")}
+                        variant="primary"
+                        size="sm"
+                        icon={<Icon icon={KeyIcon} size="sm" />}
+                        onClick={() => openSettings("keys")}
+                      />
+                    }
+                  />
+                )}
                 {/* File d'attente, juste au-dessus du compositeur : les messages
                     tapés pendant une génération attendent ici et partent seuls dès
                     qu'elle se termine. Les actions ne servent qu'à ne pas attendre

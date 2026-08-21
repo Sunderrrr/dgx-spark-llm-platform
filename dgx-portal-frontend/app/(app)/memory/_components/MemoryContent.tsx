@@ -14,7 +14,15 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { useToast } from "@astryxdesign/core/Toast";
-import { SparklesIcon, TrashIcon, PlusIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
+import {
+  SparklesIcon,
+  TrashIcon,
+  PlusIcon,
+  ArrowPathIcon,
+  PencilIcon,
+  CheckIcon,
+  XMarkIcon,
+} from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, sendJSON } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -45,6 +53,10 @@ export function MemoryContent() {
   const [loading, setLoading] = useState(true);
   const [subject, setSubject] = useState("");
   const [fact, setFact] = useState("");
+  // Modification d'une information qui a évolué : on édite sur place plutôt que
+  // d'obliger à supprimer puis ré-ajouter (ce qui perdrait sa date d'origine).
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
 
   async function load() {
     try {
@@ -98,6 +110,19 @@ export function MemoryContent() {
     }
     setSubject("");
     setFact("");
+    void load();
+  }
+
+  async function saveEdit(id: number) {
+    const texte = editText.trim();
+    if (!texte) return;
+    const r = await sendJSON<{ ok: boolean; error?: string }>(
+      `/api/memory/facts/${id}`, csrf, { fact: texte }, "PATCH");
+    if (!r.ok) {
+      showToast({ body: r.error ?? t("Modification impossible."), type: "error" });
+      return;
+    }
+    setEditingId(null);
     void load();
   }
 
@@ -216,6 +241,34 @@ export function MemoryContent() {
             <Collapsible key={subj} trigger={`${subj} (${edges.length})`} defaultIsOpen>
               <VStack gap={0}>
                 {edges.map((e) => (
+                  e.id === editingId ? (
+                    <HStack key={e.id} gap={2} vAlign="end" padding={2}>
+                      <StackItem size="fill">
+                        <TextInput
+                          label={t("Information")}
+                          isLabelHidden
+                          value={editText}
+                          onChange={setEditText}
+                        />
+                      </StackItem>
+                      <Button
+                        label={t("Enregistrer")}
+                        variant="primary"
+                        size="sm"
+                        icon={<Icon icon={CheckIcon} size="sm" />}
+                        isDisabled={!editText.trim()}
+                        onClick={() => void saveEdit(e.id)}
+                      />
+                      <Button
+                        label={t("Annuler")}
+                        variant="ghost"
+                        size="sm"
+                        isIconOnly
+                        icon={<Icon icon={XMarkIcon} size="sm" />}
+                        onClick={() => setEditingId(null)}
+                      />
+                    </HStack>
+                  ) : (
                   <Item
                     key={e.id}
                     label={e.fact}
@@ -232,16 +285,30 @@ export function MemoryContent() {
                             .join(" · ")
                     }
                     endContent={
-                      <Button
-                        label={t("Oublier")}
-                        variant="ghost"
-                        size="sm"
-                        isIconOnly
-                        icon={<Icon icon={TrashIcon} size="sm" />}
-                        onClick={() => void forget(e.id)}
-                      />
+                      <HStack gap={1}>
+                        <Button
+                          label={t("Modifier")}
+                          variant="ghost"
+                          size="sm"
+                          isIconOnly
+                          icon={<Icon icon={PencilIcon} size="sm" />}
+                          onClick={() => {
+                            setEditingId(e.id);
+                            setEditText(e.fact);
+                          }}
+                        />
+                        <Button
+                          label={t("Oublier")}
+                          variant="ghost"
+                          size="sm"
+                          isIconOnly
+                          icon={<Icon icon={TrashIcon} size="sm" />}
+                          onClick={() => void forget(e.id)}
+                        />
+                      </HStack>
                     }
                   />
+                  )
                 ))}
               </VStack>
             </Collapsible>

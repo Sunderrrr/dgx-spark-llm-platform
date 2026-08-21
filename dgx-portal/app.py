@@ -3803,6 +3803,11 @@ def support_chat():
 # Tout est cloisonné par `username`, sur les nœuds ET les arêtes : aucune requête
 # ne peut traverser d'un utilisateur à l'autre.
 MEM_MAX_FACTS = 400      # garde-fou par utilisateur (au-delà, il faut oublier)
+# Relation utilisée quand aucune n'est précisée (ajout manuel depuis la page).
+# Elle ne dit rien du contenu : deux faits qui la partagent ne sont PAS deux
+# versions d'une même information, donc elle ne doit jamais servir de clé de
+# remplacement — sinon ajouter une 2e info sur un sujet effacerait la 1re.
+MEM_GENERIC_RELATION = 'à propos de'
 MEM_MAX_FACT_LEN = 300   # un fait est une phrase, pas un document
 MEM_MAX_NAME_LEN = 120
 
@@ -3895,12 +3900,16 @@ def _mem_add_fact(username, subject, relation, fact, obj=None, source='model', k
     if not src:
         return "Sujet invalide.", False
     dst = _mem_node(username, obj) if (obj or '').strip() else None
-    # Périmer un fait équivalent plus ancien plutôt que de le doubler.
-    db.execute("UPDATE memory_edges SET valid_until=? "
-               "WHERE username=? AND src_id=? AND relation=? AND valid_until IS NULL "
-               "AND IFNULL(dst_id, -1) = ?",
-               (datetime.now().isoformat(), username, src['id'], relation,
-                dst['id'] if dst else -1))
+    # Périmer un fait équivalent plus ancien plutôt que de le doubler — mais
+    # UNIQUEMENT sur une relation explicite. Avec la relation générique, deux
+    # faits ne sont pas deux versions d'une même information : les écraser
+    # ferait disparaître la première sans prévenir.
+    if relation and relation != MEM_GENERIC_RELATION:
+        db.execute("UPDATE memory_edges SET valid_until=? "
+                   "WHERE username=? AND src_id=? AND relation=? AND valid_until IS NULL "
+                   "AND IFNULL(dst_id, -1) = ?",
+                   (datetime.now().isoformat(), username, src['id'], relation,
+                    dst['id'] if dst else -1))
     db.execute("INSERT INTO memory_edges (username, src_id, relation, dst_id, fact, source, "
                "confidence, created_at) VALUES (?,?,?,?,?,?,1.0,?)",
                (username, src['id'], relation, dst['id'] if dst else None, fact,
@@ -3963,6 +3972,28 @@ def _mem_graph(username, include_expired=False):
     return {'nodes': [dict(n) for n in nodes], 'edges': [dict(e) for e in edges]}
 
 
+def _mem_update_fact(username, edge_id, fact=None, relation=None):
+    """Modifie un fait existant sur place — pour une information qui a évolué.
+
+    Garde le MÊME identifiant plutôt que de supprimer/recréer : le fait garde sa
+    place et sa date d'origine, et l'utilisateur voit une correction, pas une
+    disparition suivie d'un ajout. Retourne (message, ok).
+    """
+    db = get_db()
+    row = db.execute("SELECT * FROM memory_edges WHERE username=? AND id=? AND valid_until IS NULL",
+                     (username, edge_id)).fetchone()
+    if not row:
+        return "Information introuvable.", False
+    new_fact = (fact if fact is not None else row['fact']).strip()[:MEM_MAX_FACT_LEN]
+    if not new_fact:
+        return "Le texte ne peut pas être vide.", False
+    new_rel = (relation if relation is not None else row['relation']).strip()[:80] or row['relation']
+    db.execute("UPDATE memory_edges SET fact=?, relation=? WHERE username=? AND id=?",
+               (new_fact, new_rel, username, edge_id))
+    db.commit()
+    return f"Mis à jour : {new_fact}", True
+
+
 def _mem_forget(username, edge_id):
     """Supprime un fait. Suppression réelle (pas une péremption) : c'est l'action
     d'un utilisateur qui ne veut plus que ça existe."""
@@ -4007,7 +4038,11 @@ def _mem_tools():
                 "ponctuel d'une conversation."),
             "parameters": {"type": "object", "properties": {
                 "subject": {"type": "string", "description": "Le sujet concerné (ex: vLLM, DGX Spark)."},
-                "relation": {"type": "string", "description": "Le lien (ex: utilise, préfère, travaille sur)."},
+                "relation": {"type": "string", "description": (
+                    "Le lien (ex: utilise, préfère, version, travaille sur). IMPORTANT : "
+                    "pour METTRE À JOUR une information qui a changé, réutilise EXACTEMENT "
+                    "la même relation que la fois précédente — le nouveau fait remplace "
+                    "alors l'ancien au lieu de s'y ajouter.")},
                 "fact": {"type": "string", "description": "Le fait en une phrase, tel qu'il sera relu."},
                 "object": {"type": "string", "description": "Autre sujet relié, si le fait en relie deux. Optionnel."},
                 "kind": {"type": "string", "enum": ["sujet", "personne", "outil", "préférence"],
@@ -4086,6 +4121,17 @@ def api_memory_add():
                             kind=data.get('kind') or 'sujet')
     return (jsonify({'ok': True, 'message': msg}) if ok
             else (jsonify({'ok': False, 'error': msg}), 400))
+
+
+@app.route('/api/memory/facts/<int:edge_id>', methods=['PATCH'])
+@login_required
+def api_memory_update(edge_id):
+    """Corrige une information qui a évolué, sur place."""
+    data = request.get_json(silent=True) or {}
+    msg, ok = _mem_update_fact(session['username'], edge_id,
+                               fact=data.get('fact'), relation=data.get('relation'))
+    return (jsonify({'ok': True, 'message': msg}) if ok
+            else (jsonify({'ok': False, 'error': msg}), 404))
 
 
 @app.route('/api/memory/facts/<int:edge_id>', methods=['DELETE'])

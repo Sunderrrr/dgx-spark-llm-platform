@@ -295,7 +295,12 @@ const BARE_FILES = /^(Dockerfile|Makefile|Vagrantfile|Jenkinsfile|Procfile)$/i;
  * alors que la prose juste au-dessus, elle, nommait les fichiers.
  */
 function titleFromContext(before: string): string {
-  const tail = before.slice(-300);
+  // Ne remonter que jusqu'au bloc PRÉCÉDENT : au-delà, on ramasse les
+  // commentaires écrits À L'INTÉRIEUR du bloc d'avant (« # defaults/main.yml »)
+  // et on nomme le fichier courant avec le nom du précédent.
+  const finBlocPrecedent = before.lastIndexOf("```");
+  const zone = finBlocPrecedent >= 0 ? before.slice(finBlocPrecedent + 3) : before;
+  const tail = zone.slice(-300);
   const candidats: string[] = [];
   // 1) entre backticks — la forme la plus fiable
   for (const m of tail.matchAll(/`([^`\n]{1,80})`/g)) candidats.push(m[1].trim());
@@ -311,6 +316,26 @@ function titleFromContext(before: string): string {
   return "";
 }
 
+/** Le bloc de code encore ouvert à la fin du contenu, s'il y en a un.
+ *
+ * Pendant le flux, c'est le fichier que le modèle est en train d'écrire. On le
+ * dirige vers le volet latéral au lieu de le laisser défiler dans le chat puis
+ * de le déplacer d'un coup à la fin — ce qui donnait l'impression que les
+ * fichiers étaient « recopiés » deux fois.
+ */
+function openCodeFence(content: string): { lang: string; body: string; start: number } | null {
+  const fences = content.match(/```/g);
+  if (!fences || fences.length % 2 === 0) return null;   // tout est refermé
+  const start = content.lastIndexOf("```");
+  const rest = content.slice(start + 3);
+  const nl = rest.indexOf("\n");
+  if (nl < 0) return null;                               // l'info-string n'est pas finie
+  const info = rest.slice(0, nl).trim();
+  const first = info.split(/\s+/)[0] || "";
+  if (first === "ask") return null;                      // géré par parseAsk
+  return { lang: first || "text", body: rest.slice(nl + 1), start };
+}
+
 function parseArtifacts(content: string, allowDoc: boolean): { prose: string; artifacts: Artifact[] } {
   const text = content.trim();
   if (allowDoc && text.length >= DOC_MIN_CHARS) {
@@ -324,8 +349,6 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
   let n = 0;
   while ((m = fence.exec(content)) !== null) {
     const body = m[2].replace(/\n$/, "");
-    const substantial = body.length >= 200 || body.split("\n").length >= 6;
-    if (!substantial) continue; // leave small snippets inline
     const info = m[1].trim();
     const first = info.split(/\s+/)[0] || "";
     if (first === "ask") continue; // handled by parseAsk, never a file artifact
@@ -334,9 +357,15 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
     if (first.includes(".")) { title = first; lang = first.split(".").pop() || ""; }
     const named = info.match(/(?:title|file|filename)=(\S+)/i);
     if (named) title = named[1];
-    n += 1;
     // Le nom annoncé dans la prose juste au-dessus vaut mieux qu'un numéro.
     if (!title) title = titleFromContext(content.slice(0, m.index));
+    // Un bloc DONT LE NOM DE FICHIER EST ANNONCÉ est un fichier, même court : sinon
+    // un rôle Ansible sortait avec deux fichiers en cartes et le troisième — plus
+    // court — resté dans le chat, pour la même chose. Un extrait anonyme et court
+    // reste en revanche dans le fil : c'est une illustration, pas un livrable.
+    const substantial = !!title || body.length >= 200 || body.split("\n").length >= 6;
+    if (!substantial) continue;
+    n += 1;
     if (!title) title = lang ? `${lang} · ${n}` : `file ${n}`;
     artifacts.push({ kind: "code", title, lang: lang || "text", content: body });
     prose += content.slice(lastIndex, m.index);
@@ -833,14 +862,45 @@ export default function PlaygroundPage() {
   const streamingDocActive =
     streaming && lastMsg?.role === "assistant" && isDocTask(messages[messages.length - 2]?.content ?? "");
   const liveContent = streamingDocActive ? (lastMsg?.content ?? "") : "";
-  const showLive = liveDocOpen && streamingDocActive;
-  // Unified panel values: live document while streaming, else the pinned artifact.
-  const panelIsCode = !showLive && artifact?.kind === "code";
-  const panelTitle = showLive ? docTitleFromContent(liveContent) : (artifact?.title ?? "Document");
-  const panelContent = showLive ? liveContent : (artifact?.content ?? "");
-  const panelSubtitle = showLive
-    ? t("Rédaction en cours…")
-    : (panelIsCode && artifact?.kind === "code" ? artifact.lang : "");
+  // Fichier de code en cours d'écriture : il s'affiche DIRECTEMENT dans le volet,
+  // pas dans le chat. Sur écran étroit il n'y a pas de volet — on le laisse alors
+  // défiler dans le chat, sinon l'utilisateur ne verrait rien s'écrire.
+  const liveCode =
+    streaming && !isNarrow && lastMsg?.role === "assistant" && !streamingDocActive
+      ? openCodeFence(lastMsg.content ?? "")
+      : null;
+  const liveCodeTitle = liveCode
+    ? titleFromContext((lastMsg?.content ?? "").slice(0, liveCode.start)) || `${liveCode.lang}`
+    : "";
+  const showLiveDoc = liveDocOpen && streamingDocActive;
+  // Entre deux fichiers (bloc précédent refermé, suivant pas commencé), le volet
+  // garde le dernier fichier terminé au lieu de se vider. Dérivé du contenu, sans
+  // état : rien à synchroniser, donc rien à désynchroniser.
+  const dernierFini =
+    streaming && !isNarrow && lastMsg?.role === "assistant" && !streamingDocActive
+      ? (parseArtifacts(lastMsg.content ?? "", false).artifacts.slice(-1)[0] ?? null)
+      : null;
+  const epingle = liveCode ? null : (dernierFini ?? artifact);
+  const showLive = showLiveDoc || !!liveCode;
+  // Unified panel values: file being written, last finished file, live document,
+  // else the pinned artifact.
+  const panelIsCode = !!liveCode || epingle?.kind === "code";
+  const panelTitle = liveCode
+    ? liveCodeTitle
+    : showLiveDoc
+      ? docTitleFromContent(liveContent)
+      : (epingle?.title ?? "Document");
+  const panelContent = liveCode
+    ? liveCode.body
+    : showLiveDoc
+      ? liveContent
+      : (epingle?.content ?? "");
+  const panelSubtitle = liveCode
+    ? t("Écriture en cours…")
+    : showLiveDoc
+      ? t("Rédaction en cours…")
+      : (panelIsCode && epingle?.kind === "code" ? epingle.lang : "");
+  const panelLang = liveCode ? liveCode.lang : (epingle?.kind === "code" ? epingle.lang : "text");
   const panelDownloadName = panelIsCode ? panelTitle : `${slugify(panelTitle)}.md`;
   const panelDownloadMime = panelIsCode ? "text/plain" : "text/markdown";
   // Auto-follow the document while it streams into the panel; show a "jump to
@@ -1126,7 +1186,20 @@ export default function PlaygroundPage() {
                   // A clarifying question the model asked (rendered as clickable
                   // answers). Takes precedence over document/code artifact detection.
                   const ask = m.role === "assistant" && !streamingThis ? parseAsk(m.content) : null;
-                  const arts = m.role === "assistant" && !streamingThis && !ask ? parseArtifacts(m.content, isDocTask(messages[i - 1]?.content ?? "")) : null;
+                  // Les fichiers TERMINÉS deviennent des cartes tout de suite, sans
+                  // attendre la fin de la réponse : parseArtifacts n'extrait que les
+                  // blocs dont la fence de fermeture est arrivée, celui en cours reste
+                  // donc de côté (volet) et non dans le chat. `allowDoc` reste réservé
+                  // à la fin : basculer tout le message en document au milieu du flux
+                  // ferait disparaître le texte déjà lu.
+                  // Le fichier en cours d'écriture part dans le volet : on le
+                  // retire une bonne fois du contenu analysé, pour qu'il ne
+                  // ressorte ni en carte ni dans la prose du chat.
+                  const contenuAffiche =
+                    streamingThis && isLast && liveCode ? m.content.slice(0, liveCode.start) : m.content;
+                  const arts = m.role === "assistant" && !ask
+                    ? parseArtifacts(contenuAffiche, !streamingThis && isDocTask(messages[i - 1]?.content ?? ""))
+                    : null;
                   const items = arts?.artifacts ?? [];
                   // When the model puts everything in the artifact and writes nothing
                   // outside, still show a short line in the chat (not an empty bubble).
@@ -1135,14 +1208,22 @@ export default function PlaygroundPage() {
                     : t("Voici le fichier — ouvre-le pour le copier.");
                   // While streaming, hide a half-written ```ask block (raw JSON) —
                   // the question UI appears once the block is complete.
-                  const streamingBody = streamingThis && m.content.includes("```ask")
-                    ? m.content.split("```ask")[0]
-                    : m.content;
+                  // Ce qui reste à afficher dans le chat pendant le flux : ni le
+                  // bloc ```ask à moitié écrit (JSON brut), ni le fichier en cours
+                  // d'écriture — ce dernier s'écrit dans le volet.
+                  const streamingBody =
+                    streamingThis && m.content.includes("```ask")
+                      ? m.content.split("```ask")[0]
+                      : contenuAffiche;
                   // With a question card, show only the model's short intro
                   // sentence (its first line) — never the questions/options text,
                   // which live in the interactive card.
                   const askIntro = ask ? (ask.prose.split("\n").map((s) => s.trim()).find(Boolean) ?? "").slice(0, 280) : "";
-                  const bodyText = ask ? askIntro : (items.length ? (arts!.prose.trim() || emptyMsg) : streamingBody);
+                  const bodyText = ask
+                    ? askIntro
+                    : items.length
+                      ? (arts!.prose.trim() || emptyMsg)
+                      : streamingBody;
                   // A document being streamed shows only a live-updating card in
                   // the chat (its raw text streams into the side panel instead).
                   const streamingDoc =
@@ -1274,7 +1355,7 @@ export default function PlaygroundPage() {
           </ChatLayout>
           </VStack>
           </StackItem>
-          {(artifact || showLive) && !isNarrow && (
+          {(artifact || showLive || dernierFini) && !isNarrow && (
             <>
               <ResizeHandle
                 direction="horizontal"
@@ -1315,8 +1396,10 @@ export default function PlaygroundPage() {
                   }
                 />
                 <VStack ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable style={{ flex: 1, minHeight: 0 }}>
-                  {panelIsCode && artifact?.kind === "code"
-                    ? <CodeBlock title={artifact.title} language={artifact.lang} code={artifact.content} width="100%" />
+                  {/* Valeurs unifiées : pendant le flux il n'y a pas encore
+                      d'artefact épinglé, mais bien un fichier à afficher. */}
+                  {panelIsCode
+                    ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped />
                     : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                 </VStack>
                 {showPanelJump && (
@@ -1352,8 +1435,8 @@ export default function PlaygroundPage() {
                 }
                 content={
                   <LayoutContent ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable>
-                    {panelIsCode && artifact?.kind === "code"
-                      ? <CodeBlock title={artifact.title} language={artifact.lang} code={artifact.content} width="100%" />
+                    {panelIsCode
+                      ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped />
                       : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                   </LayoutContent>
                 }

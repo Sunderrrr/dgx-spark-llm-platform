@@ -142,6 +142,61 @@ class PeremptionTest(MemoryTestBase):
         self.assertEqual(len(portal._mem_graph(self.USER)['edges']), 1)
 
 
+class MiseAJourTest(MemoryTestBase):
+    """Une information qui évolue doit pouvoir être corrigée, sans que deux
+    informations distinctes s'effacent l'une l'autre."""
+
+    def test_deux_infos_sur_un_meme_sujet_coexistent(self):
+        # Régression : les deux ajouts manuels partagent la relation générique.
+        # Les traiter comme deux versions d'un même fait effaçait la première
+        # EN SILENCE — on perdait une information que l'utilisateur avait saisie.
+        portal._mem_add_fact(self.USER, 'vLLM', portal.MEM_GENERIC_RELATION,
+                             'Sert les modèles de chat.', source='user')
+        portal._mem_add_fact(self.USER, 'vLLM', portal.MEM_GENERIC_RELATION,
+                             'Écoute sur le port 8001.', source='user')
+        faits = sorted(e['fact'] for e in portal._mem_graph(self.USER)['edges'])
+        self.assertEqual(faits, ['Sert les modèles de chat.', 'Écoute sur le port 8001.'])
+
+    def test_relation_explicite_remplace_toujours(self):
+        # À l'inverse, une relation explicite EST la clé de mise à jour.
+        portal._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.25.')
+        portal._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+        self.assertEqual([e['fact'] for e in portal._mem_graph(self.USER)['edges']],
+                         ['Tourne en 0.27.'])
+
+    def test_modification_sur_place(self):
+        portal._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.25.')
+        edge = portal._mem_graph(self.USER)['edges'][0]
+        msg, ok = portal._mem_update_fact(self.USER, edge['id'], fact='Tourne en 0.27.')
+        self.assertTrue(ok, msg)
+        apres = portal._mem_graph(self.USER)['edges']
+        self.assertEqual(len(apres), 1)
+        self.assertEqual(apres[0]['fact'], 'Tourne en 0.27.')
+        # Même identifiant : c'est une correction, pas une suppression + un ajout.
+        self.assertEqual(apres[0]['id'], edge['id'])
+
+    def test_modification_texte_vide_refusee(self):
+        portal._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+        edge_id = portal._mem_graph(self.USER)['edges'][0]['id']
+        _, ok = portal._mem_update_fact(self.USER, edge_id, fact='   ')
+        self.assertFalse(ok)
+        self.assertEqual(len(portal._mem_graph(self.USER)['edges']), 1)
+
+    def test_modification_cloisonnee(self):
+        portal._mem_add_fact(self.USER, 'vLLM', 'version', 'Fait de A.')
+        edge_id = portal._mem_graph(self.USER)['edges'][0]['id']
+        _, ok = portal._mem_update_fact(self.OTHER, edge_id, fact='Détourné par B.')
+        self.assertFalse(ok)
+        self.assertEqual(portal._mem_graph(self.USER)['edges'][0]['fact'], 'Fait de A.')
+
+    def test_modification_d_un_fait_perime_refusee(self):
+        portal._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.25.')
+        ancien = portal._mem_graph(self.USER, include_expired=True)['edges'][0]['id']
+        portal._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+        _, ok = portal._mem_update_fact(self.USER, ancien, fact='Ressuscité.')
+        self.assertFalse(ok)
+
+
 class RappelTest(MemoryTestBase):
     """Le rappel rend le voisinage du sujet, pas toute la mémoire."""
 

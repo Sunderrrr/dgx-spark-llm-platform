@@ -48,7 +48,7 @@ export async function sendJSON<T = { ok: boolean; error?: string }>(
   url: string,
   csrf: string,
   body?: unknown,
-  method: "POST" | "DELETE" = "POST",
+  method: "POST" | "PATCH" | "DELETE" = "POST",
 ): Promise<T> {
   const res = await authFetch(url, {
     method,

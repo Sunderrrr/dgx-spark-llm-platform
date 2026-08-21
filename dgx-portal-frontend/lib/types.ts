@@ -31,6 +31,8 @@ export type Conversation = {
 export type PlaygroundData = {
   running_models: string[];
   model_limits: Record<string, number>;
+  /** Le playground consomme la clé de l'utilisateur : sans clé, rien ne part. */
+  has_key: boolean;
 };
 
 export type Settings = {

@@ -457,6 +457,10 @@ def init_db():
     # donc personne n'en accumule sans l'avoir explicitement demandé.
     if 'memory_enabled' not in pref_cols:
         db.execute("ALTER TABLE user_prefs ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 0")
+    # Prise en main affichée une fois par COMPTE (et non par navigateur) : le
+    # nouvel arrivant la voit quel que soit le poste, et ne la revoit jamais.
+    if 'onboarded' not in pref_cols:
+        db.execute("ALTER TABLE user_prefs ADD COLUMN onboarded INTEGER NOT NULL DEFAULT 0")
     mcp_cols = {r[1] for r in db.execute("PRAGMA table_info(mcp_servers)")}
     for col, ddl in (('description', "TEXT DEFAULT ''"),
                      ('allowed_tools', "TEXT DEFAULT ''"),
@@ -2534,14 +2538,30 @@ def index():
 @app.route('/api/whoami')
 @login_required
 def api_whoami():
-    pref = get_db().execute("SELECT avatar_id, theme_id, lang FROM user_prefs WHERE username=?",
-                            (session.get('username'),)).fetchone()
+    pref = get_db().execute(
+        "SELECT avatar_id, theme_id, lang, onboarded FROM user_prefs WHERE username=?",
+        (session.get('username'),)).fetchone()
     return jsonify({'username': session.get('username'), 'fullname': session.get('fullname'),
                      'is_admin': bool(session.get('is_admin')),
                      'avatar_id': pref['avatar_id'] if pref else None,
                      'theme_id': (pref['theme_id'] if pref else None) or 'neutral',
                      'lang': (pref['lang'] if pref else None) or 'en',
+                     # Absence de ligne user_prefs = compte qui n'a jamais rien
+                     # réglé, donc jamais vu la prise en main.
+                     'onboarded': bool(pref['onboarded']) if pref else False,
                      'maintenance_mode': maintenance_active()})
+
+
+@app.route('/api/onboarding/done', methods=['POST'])
+@login_required
+def api_onboarding_done():
+    """Marque la prise en main comme vue, une fois pour toutes, pour ce compte."""
+    db = get_db()
+    db.execute("INSERT INTO user_prefs (username, onboarded) VALUES (?,1) "
+               "ON CONFLICT(username) DO UPDATE SET onboarded=1",
+               (session['username'],))
+    db.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/home')
@@ -4169,8 +4189,13 @@ def api_csrf():
 @app.route('/api/playground/data')
 @login_required
 def api_playground_data():
+    # `has_key` : le playground tourne sur la clé de l'utilisateur. Sans clé, la
+    # requête échoue au moment de l'envoi avec un message que la page devrait
+    # reconnaître au texte. On le dit franchement ici pour qu'elle puisse prévenir
+    # AVANT la première question, et proposer d'aller créer la clé.
     return jsonify({'running_models': get_running_models(),
-                     'model_limits': _playground_model_limits()})
+                     'model_limits': _playground_model_limits(),
+                     'has_key': bool(get_user_keys(session['username']))})
 
 
 def _sse_msg(text):

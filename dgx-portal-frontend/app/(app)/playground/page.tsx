@@ -415,6 +415,38 @@ export default function PlaygroundPage() {
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; });
 
+  // ── Auto-défilement du fil pendant la génération ───────────────────────────
+  // ChatLayout suit déjà le bas, mais il décroche par intermittence : quand un
+  // gros morceau de texte arrive d'un coup (un paragraphe entier re-rendu),
+  // l'écart au bas dépasse son seuil en UNE frame, il en déduit que le lecteur a
+  // remonté et cesse de suivre jusqu'à ce qu'on redescende à la main. Mesuré :
+  // sur deux exécutions identiques, une réponse suivait le bas sur 7/7
+  // échantillons, l'autre décrochait sur 38/40.
+  // On double donc son mécanisme par un suivi explicite, désarmé UNIQUEMENT
+  // quand le lecteur remonte volontairement, et réarmé dès qu'il revient en bas.
+  const suitLeBasRef = useRef(true);
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>(".astryx-chat-layout");
+    if (!el) return;
+    let precedent = el.scrollTop;
+    const onScroll = () => {
+      const ecart = el.scrollHeight - el.scrollTop - el.clientHeight;
+      // Remontée d'au moins 4 px : c'est le lecteur, pas nous.
+      if (el.scrollTop < precedent - 4) suitLeBasRef.current = false;
+      if (ecart < 40) suitLeBasRef.current = true;
+      precedent = el.scrollTop;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+  // Après chaque rendu : si on suivait, on recolle au bas. Écriture DOM
+  // uniquement — aucun état mis à jour, donc aucun rendu en cascade.
+  useEffect(() => {
+    if (!streaming || !suitLeBasRef.current) return;
+    const el = document.querySelector<HTMLElement>(".astryx-chat-layout");
+    if (el) el.scrollTop = el.scrollHeight;
+  });
+
   const updateQueue = (q: QueuedMsg[]) => {
     queuedRef.current = q;
     setQueued(q);
@@ -592,6 +624,8 @@ export default function PlaygroundPage() {
       return;
     }
     setStreaming(true);
+    // Nouvel envoi : le lecteur veut voir la réponse arriver, on réarme le suivi.
+    suitLeBasRef.current = true;
     setLiveDocOpen(false);
     liveDocOpenRef.current = false;
     const controller = new AbortController();

@@ -40,6 +40,26 @@ export async function getJSON<T>(url: string): Promise<T> {
 }
 
 /**
+ * POST/DELETE JSON vers une route JSON du backend. Les routes de mémoire
+ * échangent du JSON structuré (un fait a un sujet, une relation, un objet),
+ * là où `postForm` sérialise à plat.
+ */
+export async function sendJSON<T = { ok: boolean; error?: string }>(
+  url: string,
+  csrf: string,
+  body?: unknown,
+  method: "POST" | "DELETE" = "POST",
+): Promise<T> {
+  const res = await authFetch(url, {
+    method,
+    headers: { "Content-Type": "application/json", "X-CSRFToken": csrf },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (res.status === 403) throw new ForbiddenError(url);
+  return res.json().catch(() => ({}) as T);
+}
+
+/**
  * Submits a form to an existing Flask route (classic POST,
  * form-encoded) by reusing its already-tested logic — no new
  * mutation endpoint on the backend. Flask responds with a redirect

@@ -282,11 +282,16 @@ export function KeysContent() {
                 {t("Modèle virtuel : route toujours vers le modèle chat actuellement chargé — ton code n'a rien à changer quand l'admin bascule de modèle. Choisis un modèle nommé pour t'épingler à celui-là.")}
               </Text>
             )}
-            <TabList value={tool} onChange={(v) => setTool(v as IntegrationTool)}>
-              {INTEGRATION_TOOLS.map((t) => (
-                <Tab key={t.value} value={t.value} label={t.label} />
-              ))}
-            </TabList>
+            {/* La bande d'onglets dépasse la largeur du panneau (une douzaine
+                d'intégrations pour ~684 px) : sans conteneur défilant, les
+                derniers onglets débordent hors du cadre et sont inatteignables. */}
+            <HStack width="100%" style={{ overflowX: "auto" }}>
+              <TabList value={tool} onChange={(v) => setTool(v as IntegrationTool)}>
+                {INTEGRATION_TOOLS.map((t) => (
+                  <Tab key={t.value} value={t.value} label={t.label} />
+                ))}
+              </TabList>
+            </HStack>
             <Button
               label={revealKeyInSnippet ? t("Masquer la clé") : t("Révéler la clé")}
               variant="secondary"
@@ -294,7 +299,11 @@ export function KeysContent() {
               icon={<Icon icon={revealKeyInSnippet ? EyeSlashIcon : EyeIcon} size="sm" />}
               onClick={() => setRevealKeyInSnippet((v) => !v)}
             />
+            {/* isWrapped : le <pre> est en overflow-x hidden, donc sans retour à la
+                ligne les lignes longues (URL + clé) sont coupées SANS moyen de
+                les lire ni de les sélectionner. */}
             <CodeBlock
+              isWrapped
               code={
                 selectedKey && selectedModel
                   ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, revealKeyInSnippet)

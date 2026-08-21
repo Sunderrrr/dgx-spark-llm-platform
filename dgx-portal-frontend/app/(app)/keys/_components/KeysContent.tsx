@@ -146,6 +146,17 @@ export function KeysContent() {
 
   const pct = data && !data.account.unlimited && data.account.max_budget ? (data.account.spend / data.account.max_budget) * 100 : 0;
 
+  // Deux versions du même extrait : celle affichée (clé masquée si non révélée)
+  // et celle copiée (toujours la vraie clé).
+  const snippetAffiche =
+    data && selectedKey && selectedModel
+      ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, revealKeyInSnippet)
+      : "";
+  const snippetReel =
+    data && selectedKey && selectedModel
+      ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, true)
+      : "";
+
   return (
     <VStack gap={5} maxWidth={980}>
       <HStack hAlign="between" vAlign="start" wrap="wrap" gap={3}>
@@ -299,16 +310,24 @@ export function KeysContent() {
               icon={<Icon icon={revealKeyInSnippet ? EyeSlashIcon : EyeIcon} size="sm" />}
               onClick={() => setRevealKeyInSnippet((v) => !v)}
             />
+            <Text type="supporting" color="secondary">
+              {t("Le bouton copier donne toujours la vraie clé, même affichée masquée.")}
+            </Text>
             {/* isWrapped : le <pre> est en overflow-x hidden, donc sans retour à la
                 ligne les lignes longues (URL + clé) sont coupées SANS moyen de
                 les lire ni de les sélectionner. */}
+            {/* La clé est masquée à l'écran (on ne veut pas d'une clé en clair
+                sur un écran partagé ou une capture), mais COPIER doit donner la
+                vraie clé — sinon on colle « sk-Oo-••••83EQ » dans sa config et
+                rien ne marche. CodeBlock copie son propre `code` : on réécrit
+                donc le presse-papiers juste après avec la version révélée. */}
             <CodeBlock
               isWrapped
-              code={
-                selectedKey && selectedModel
-                  ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, revealKeyInSnippet)
-                  : ""
-              }
+              code={snippetAffiche}
+              onCopy={() => {
+                if (!snippetReel) return;
+                void navigator.clipboard?.writeText(snippetReel).catch(() => {});
+              }}
               language={snippetLanguage(tool)}
               width="100%"
             />

@@ -39,10 +39,11 @@ import {
 import { useThemeMode } from "../theme-provider";
 import { useCsrf } from "@/lib/useCsrf";
 import { SettingsDialog } from "./_components/SettingsDialog";
+import { OnboardingDialog } from "./_components/OnboardingDialog";
 import { useT } from "@/lib/i18n";
 import { SettingsDialogContext, type SettingsSection } from "@/lib/settings-dialog";
 
-type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id: string | null; maintenance_mode: boolean };
+type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id: string | null; maintenance_mode: boolean; onboarded: boolean };
 
 // "My API keys" is deliberately no longer here: its configuration now lives
 // in the Settings dialog ("API keys" tab), opened by the gear at the bottom
@@ -68,6 +69,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { mode, setMode } = useThemeMode();
   const [who, setWho] = useState<Whoami | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Prise en main : ouverte quand le compte ne l'a jamais vue. L'état vient du
+  // serveur (colonne user_prefs.onboarded), pas du navigateur — elle suit donc
+  // la personne d'un poste à l'autre, et ne revient jamais une fois passée.
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined);
   const t = useT();
   const csrf = useCsrf();
@@ -105,7 +110,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetch("/api/whoami", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then(setWho)
+      .then((d: Whoami | null) => {
+        setWho(d);
+        if (d && !d.onboarded) setShowOnboarding(true);
+      })
       .catch(() => {});
   }, []);
 
@@ -185,6 +193,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         />
       )}
       {children}
+      <OnboardingDialog
+        isOpen={showOnboarding}
+        prenom={who?.fullname?.split(" ")[0]}
+        onClose={() => {
+          setShowOnboarding(false);
+          void fetch("/api/onboarding/done", {
+            method: "POST",
+            credentials: "include",
+            headers: { "X-CSRFToken": csrf },
+          }).catch(() => {});
+        }}
+      />
       <SettingsDialog
         isOpen={isSettingsOpen}
         onOpenChange={setIsSettingsOpen}

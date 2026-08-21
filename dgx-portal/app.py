@@ -5492,6 +5492,19 @@ def _litellm_upsert(public_name, upstream, max_input, max_output):
             "api_key": "dummy",
             "input_cost_per_token": 1,
             "output_cost_per_token": 1,
+            # Les modèles servis ici sont des « thinking models » : sans ça, le
+            # raisonnement part dans la réponse et consomme tout le budget de
+            # sortie. Une requête qui passe explicitement chat_template_kwargs
+            # (le bouton « Raisonnement » du playground) l'emporte toujours —
+            # vérifié, ce réglage n'est qu'un défaut.
+            "chat_template_kwargs": {"enable_thinking": False},
+            # Le MÊME réglage, en double, pour l'endpoint Anthropic /v1/messages
+            # (utilisé par Claude Code) : l'adaptateur Anthropic de LiteLLM
+            # ignore le chat_template_kwargs de haut niveau et ne transmet que
+            # extra_body. Sans cette ligne, un appel court revient VIDE —
+            # content: [] et stop_reason: max_tokens, le raisonnement ayant
+            # mangé tout le budget (mesuré : 41 tokens contre 3).
+            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
         },
         "model_info": {
             "mode": "chat",

@@ -1,6 +1,7 @@
 export type ModelLimit = { context: number; output: number };
 
 export const INTEGRATION_TOOLS = [
+  { value: "claudecode", label: "Claude Code" },
   { value: "opencode", label: "OpenCode" },
   { value: "hermes", label: "Hermes Agent" },
   { value: "codex", label: "Codex CLI" },
@@ -20,6 +21,31 @@ export function maskKey(k: string): string {
 }
 
 const BUILDERS: Record<IntegrationTool, (base: string, key: string, model: string, limits: Record<string, ModelLimit>) => string> = {
+  claudecode: (base, k, m, limits) => {
+    // Claude Code ajoute lui-même « /v1/messages » : ANTHROPIC_BASE_URL doit
+    // être la RACINE, pas le chemin OpenAI-compatible qui sert aux autres outils.
+    const root = base.replace(/\/v1\/?$/, "");
+    const lim = limits[m];
+    const ctx = lim ? `\n# Contexte du modèle : ${lim.context.toLocaleString("fr-FR")} tokens (sortie max ${lim.output.toLocaleString("fr-FR")}).` : "";
+    return `# Claude Code — https://claude.com/claude-code
+# Installation : npm install -g @anthropic-ai/claude-code
+
+# Le proxy expose l'API Anthropic sur /v1/messages : Claude Code s'y branche
+# directement, sans passerelle ni adaptateur.
+export ANTHROPIC_BASE_URL="${root}"
+export ANTHROPIC_AUTH_TOKEN="${k}"
+
+# Indispensable : sans ces deux lignes Claude Code réclame ses modèles
+# « claude-… », que le proxy ne connaît pas — il répond 400 « Invalid model name ».
+export ANTHROPIC_MODEL="${m}"
+export ANTHROPIC_SMALL_FAST_MODEL="${m}"
+
+claude${ctx}
+
+# À savoir : le modèle est un modèle ouvert auto-hébergé, pas un modèle Anthropic.
+# Le fonctionnement est le même (outils, édition de fichiers, commandes), mais la
+# qualité sur les tâches longues et l'enchaînement d'outils reste en deçà.`;
+  },
   opencode: (base, k, m, limits) => {
     const lim = limits[m];
     const modelDef = lim
@@ -128,6 +154,7 @@ export OPENAI_DEFAULT_MODEL="${m}"`,
 };
 
 const LANGUAGES: Record<IntegrationTool, string> = {
+  claudecode: "bash",
   opencode: "json",
   hermes: "yaml",
   codex: "bash",

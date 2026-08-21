@@ -4246,6 +4246,19 @@ def playground_chat():
     user_key = keys[0]['key']
     msgs = ([{'role': 'system', 'content': system}] if system else []) + history
 
+    # Le plafond de sortie S'AJOUTE au prompt dans la fenêtre de contexte : au-delà,
+    # vLLM refuse la requête (400 ContextWindowExceededError) au lieu de répondre.
+    # Mesuré : prompt 9 053 + 131 072 passe, prompt 9 053 + 262 000 échoue sur un
+    # contexte de 262 144. On borne donc le plafond à ce qui reste réellement,
+    # plutôt que d'imposer une valeur basse à tout le monde « au cas où ».
+    ctx = _playground_model_limits().get(model)
+    if ctx:
+        # ~3 caractères par token : volontairement PESSIMISTE (le vrai ratio est
+        # plutôt 4). Mieux vaut se laisser un peu moins de place que de refuser.
+        approx_prompt = sum(len(str(m.get('content', ''))) for m in msgs) // 3
+        reste = ctx - approx_prompt - 512      # 512 : marge pour le gabarit de chat
+        max_tokens = max(256, min(max_tokens, reste))
+
     _who = session['username']
     def gen():
         _rid = _inflight_start(_who)   # live "who's using the model" — SpendLogs only logs at request end

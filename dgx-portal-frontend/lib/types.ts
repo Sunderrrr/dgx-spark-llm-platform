@@ -13,6 +13,9 @@ export type ChatMsg = {
   // Sent to the model but not rendered in the chat (e.g. the answers submitted
   // from a clarifying-question card, which the user doesn't want to see echoed).
   hidden?: boolean;
+  /** Réponse coupée net par le plafond de tokens : on le signale et on propose
+   *  de reprendre là où le modèle s'est arrêté. */
+  truncated?: boolean;
 };
 
 export type Attachment = {

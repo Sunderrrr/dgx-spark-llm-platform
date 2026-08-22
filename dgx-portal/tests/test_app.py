@@ -388,60 +388,55 @@ class ContexteOutilsTest(unittest.TestCase):
 
 
 class PertinenceRechercheTest(unittest.TestCase):
-    """On ne propose pas le web quand la réponse est dans la conversation.
+    """La recherche ne part que si la demande en a visiblement besoin.
 
-    Constaté en vrai : « je ne peux pas appuyer sur piocher, rester, doubler »
-    a déclenché la recherche « jeu blackjack boutons piocher doubler split
-    abandoner ». Inutile, et du délai en plus, alors que le code était là.
+    La règle inverse s'est trompée deux fois de suite en production : une
+    correction de jeu Pong et une dissertation sur la propagation du son ont
+    toutes deux déclenché une recherche. La seconde a même fait échouer la
+    requête, sur un contexte de 431 tokens — donc rien à précharger.
     """
 
-    def _code(self, n=800):
-        return "Voici `index.html` :\n\n```html\n" + ("x" * n) + "\n```"
+    def _u(self, t):
+        return [{'role': 'user', 'content': t}]
 
-    def test_pas_de_recherche_quand_un_fichier_est_deja_la(self):
-        h = [{'role': 'user', 'content': 'fais-moi un blackjack'},
-             {'role': 'assistant', 'content': self._code()},
-             {'role': 'user', 'content': "je ne peux pas appuyer sur piocher ni doubler"}]
+    def test_une_dissertation_ne_declenche_rien(self):
+        self.assertFalse(portal._recherche_pertinente(
+            self._u("tu peux me faire une dissertation sur la propagation de l'onde sonore stp")))
+
+    def test_une_salutation_ne_declenche_rien(self):
+        self.assertFalse(portal._recherche_pertinente(self._u("hello comment vas-tu ?")))
+
+    def test_une_demande_de_code_ne_declenche_rien(self):
+        self.assertFalse(portal._recherche_pertinente(
+            self._u("fais-moi un jeu d'échecs en HTML")))
+
+    def test_demande_explicite(self):
+        for t in ("cherche sur internet les règles du blackjack",
+                  "recherche la doc de cette API", "regarde en ligne"):
+            self.assertTrue(portal._recherche_pertinente(self._u(t)), t)
+
+    def test_question_d_actualite(self):
+        for t in ("quelles sont les dernières nouvelles sur l'Ukraine ?",
+                  "quoi de neuf aujourd'hui ?", "l'actualité de cette semaine"):
+            self.assertTrue(portal._recherche_pertinente(self._u(t)), t)
+
+    def test_donnee_mouvante(self):
+        for t in ("quel est le prix du bitcoin ?", "quelle est la dernière version de Python ?",
+                  "la météo demain", "vérifie cette information"):
+            self.assertTrue(portal._recherche_pertinente(self._u(t)), t)
+
+    def test_un_fichier_present_oppose_son_veto(self):
+        h = [{'role': 'user', 'content': "voici :\n\n```html\n" + ("x" * 2000) + "\n```"},
+             {'role': 'user', 'content': "quelles sont les dernières nouvelles à ce sujet ?"}]
         self.assertFalse(portal._recherche_pertinente(h))
 
-    def test_pas_de_recherche_quand_l_utilisateur_envoie_le_fichier(self):
-        # Cas réel : l'utilisateur colle son pong.html et demande de corriger la
-        # collision. Aucun bloc côté assistant à ce stade — la règle ne regardait
-        # que ceux-là, et une recherche web partait.
-        h = [{'role': 'user',
-              'content': "c'est un jeu pong, la balle se bloque :\n\n```html\n"
-                         + ("x" * 18000) + "\n```"}]
-        self.assertFalse(portal._recherche_pertinente(h))
-
-    def test_le_fichier_envoye_n_empeche_pas_une_demande_explicite(self):
-        h = [{'role': 'user', 'content': "voici mon code :\n\n```js\n" + ("y" * 2000) + "\n```"},
-             {'role': 'user', 'content': "cherche sur internet la doc de cette API"}]
+    def test_mais_une_demande_explicite_passe_outre_le_fichier(self):
+        h = [{'role': 'user', 'content': "voici :\n\n```html\n" + ("x" * 2000) + "\n```"},
+             {'role': 'user', 'content': "cherche sur internet la doc de cette balise"}]
         self.assertTrue(portal._recherche_pertinente(h))
 
-    def test_recherche_si_l_utilisateur_la_demande_explicitement(self):
-        h = [{'role': 'user', 'content': 'fais-moi un blackjack'},
-             {'role': 'assistant', 'content': self._code()},
-             {'role': 'user', 'content': "cherche sur internet les règles officielles"}]
-        self.assertTrue(portal._recherche_pertinente(h))
-
-    def test_recherche_sur_une_question_d_actualite(self):
-        h = [{'role': 'user', 'content': "quelles sont les dernières nouvelles sur l'Ukraine ?"}]
-        self.assertTrue(portal._recherche_pertinente(h))
-
-    def test_recherche_sur_une_conversation_sans_code(self):
-        h = [{'role': 'user', 'content': 'qui a gagné la coupe du monde 2026 ?'},
-             {'role': 'assistant', 'content': "Je ne suis pas certain."},
-             {'role': 'user', 'content': 'vérifie'}]
-        self.assertTrue(portal._recherche_pertinente(h))
-
-    def test_un_petit_extrait_de_code_ne_bloque_pas_la_recherche(self):
-        # Trois lignes d'illustration ne font pas une session de développement.
-        h = [{'role': 'assistant', 'content': "Par exemple :\n\n```py\nprint(1)\n```"},
-             {'role': 'user', 'content': "et les actualités du jour ?"}]
-        self.assertTrue(portal._recherche_pertinente(h))
-
-    def test_conversation_vide_reste_permise(self):
-        self.assertTrue(portal._recherche_pertinente([]))
+    def test_conversation_vide(self):
+        self.assertFalse(portal._recherche_pertinente([]))
 
 
 class VersionsPerimeesTest(unittest.TestCase):

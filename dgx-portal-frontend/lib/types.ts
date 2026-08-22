@@ -24,7 +24,8 @@ export type Attachment = {
 };
 
 export type Conversation = {
-  id: number;
+  /** `client_id` côté serveur : une chaîne, jamais un nombre. */
+  id: string;
   title: string;
   ts: number;
   model: string;

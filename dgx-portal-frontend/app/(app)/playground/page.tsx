@@ -440,6 +440,7 @@ const RECOL_QUEUE = 6000;      // portion de fin de fichier où l'on cherche
 const RECOL_TETE  = 6000;      // portion de début de reprise où l'on cherche
 const RECOL_MIN_LIGNES = 3;    // en dessous, c'est du bruit (« } », lignes vides)
 const RECOL_MIN_CARS = 60;
+const RECOL_MAX_SUPPRIME = 2000;   // au-delà, on préfère dupliquer que perdre
 
 function decoupeLignes(texte: string, depart: number) {
   const lignes: { texte: string; pos: number }[] = [];
@@ -452,8 +453,14 @@ function decoupeLignes(texte: string, depart: number) {
 }
 
 function recoller(base: string, suite: string): string {
-  // Une suite qui recommence un document entier est un remplacement, pas un ajout.
-  if (/^\s*(<!DOCTYPE|<html[\s>])/i.test(suite) && /<!DOCTYPE|<html[\s>]/i.test(base)) return suite;
+  // Une suite qui réécrit VRAIMENT le document entier est un remplacement, pas un
+  // ajout. On exige qu'elle aille jusqu'au bout et qu'elle pèse son poids : sans
+  // ces deux conditions, une reprise de trois lignes commençant par « <html> »
+  // effaçait un fichier de plusieurs milliers de lignes.
+  if (/^\s*(<!DOCTYPE|<html[\s>])/i.test(suite) && /<!DOCTYPE|<html[\s>]/i.test(base)
+      && /<\/html\s*>/i.test(suite) && suite.length >= base.length * 0.5) {
+    return suite;
+  }
   const queue = base.slice(-RECOL_QUEUE);
   const lb = decoupeLignes(queue, base.length - queue.length);
   const ls = decoupeLignes(suite.slice(0, RECOL_TETE), 0);
@@ -473,7 +480,14 @@ function recoller(base: string, suite: string): string {
       }
     }
   }
-  if (meilleur) return base.slice(0, meilleur.base) + suite.slice(meilleur.suite);
+  // Garde-fou : le raboutage SUPPRIME la queue du fichier. Le chevauchement réel
+  // observé est de quelques centaines de caractères (le modèle réémet le bloc en
+  // cours) ; au-delà, une correspondance fortuite détruirait du bon code. Dans le
+  // doute on recolle bout à bout : un peu de duplication se voit et se corrige,
+  // du code disparu, non.
+  if (meilleur && base.length - meilleur.base <= RECOL_MAX_SUPPRIME) {
+    return base.slice(0, meilleur.base) + suite.slice(meilleur.suite);
+  }
   return base + suite;
 }
 

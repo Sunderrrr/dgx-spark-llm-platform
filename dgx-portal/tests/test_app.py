@@ -404,6 +404,20 @@ class PertinenceRechercheTest(unittest.TestCase):
              {'role': 'user', 'content': "je ne peux pas appuyer sur piocher ni doubler"}]
         self.assertFalse(portal._recherche_pertinente(h))
 
+    def test_pas_de_recherche_quand_l_utilisateur_envoie_le_fichier(self):
+        # Cas réel : l'utilisateur colle son pong.html et demande de corriger la
+        # collision. Aucun bloc côté assistant à ce stade — la règle ne regardait
+        # que ceux-là, et une recherche web partait.
+        h = [{'role': 'user',
+              'content': "c'est un jeu pong, la balle se bloque :\n\n```html\n"
+                         + ("x" * 18000) + "\n```"}]
+        self.assertFalse(portal._recherche_pertinente(h))
+
+    def test_le_fichier_envoye_n_empeche_pas_une_demande_explicite(self):
+        h = [{'role': 'user', 'content': "voici mon code :\n\n```js\n" + ("y" * 2000) + "\n```"},
+             {'role': 'user', 'content': "cherche sur internet la doc de cette API"}]
+        self.assertTrue(portal._recherche_pertinente(h))
+
     def test_recherche_si_l_utilisateur_la_demande_explicitement(self):
         h = [{'role': 'user', 'content': 'fais-moi un blackjack'},
              {'role': 'assistant', 'content': self._code()},

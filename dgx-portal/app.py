@@ -6916,10 +6916,12 @@ def _recherche_pertinente(history):
     demande = _DEMANDE_RECHERCHE.search(str((dernier or {}).get('content', '')))
     if demande:
         return True
-    # Un bloc de code conséquent déjà produit = on travaille sur ce code.
+    # Un bloc de code conséquent, D'OÙ QU'IL VIENNE, veut dire qu'on travaille sur
+    # ce code. Ne regarder que les réponses de l'assistant laissait passer le cas
+    # le plus net : l'utilisateur ENVOIE son fichier et demande de le corriger —
+    # il n'existe alors aucun bloc côté assistant, et une recherche partait.
     for m in history:
-        if m.get('role') == 'assistant' and re.search(r"```[^\n`]*\n[\s\S]{400,}?```",
-                                                      str(m.get('content', ''))):
+        if re.search(r"```[^\n`]*\n[\s\S]{400,}?```", str(m.get('content', ''))):
             return False
     return True
 

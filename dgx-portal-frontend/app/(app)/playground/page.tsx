@@ -63,7 +63,7 @@ import { useStickToBottom } from "@/lib/useStickToBottom";
 import { DictateButton } from "../_components/DictateButton";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
-import { fetchCsrfToken, fetchPlaygroundData, streamChat } from "@/lib/api";
+import { fetchCsrfToken, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
 import {
   fetchConversations,
   persistConversation,
@@ -163,6 +163,12 @@ type FileEdit = { file: string; find: string; replace: string };
 // Instruction ajoutée au prompt système : corriger un fichier déjà produit sans
 // le réécrire en entier. Réécrire 400 lignes pour en changer trois coûte du temps,
 // des tokens, et réintroduit des erreurs ailleurs dans le fichier.
+// Le modèle nomme lui-même ses fichiers : c'est lui qui sait ce que l'utilisateur
+// a demandé et dans quel projet ça s'insère. Sans ça, l'interface doit deviner et
+// retombe sur un nom générique.
+const NAME_INSTRUCTION = `Whenever you output a file, announce its name on the line just before the code block, as a path in backticks — for example \`index.html\`, \`src/app.py\` or \`roles/web/tasks/main.yml\`.
+Choose the name from what the user asked and from the project it belongs to: a standalone web page is \`index.html\`, a chess game can be \`echecs.html\`, an Ansible task file is \`tasks/main.yml\`. Never leave a file unnamed, and never invent a different name for a file you already named earlier in the conversation — reuse it exactly.`;
+
 const EDIT_INSTRUCTION = `When the user asks you to FIX or CHANGE a file you already produced in this conversation, do NOT output the whole file again. Output only the edits, as a single fenced block:
 \`\`\`edit
 {"edits": [{"file": "<exact file name you used before>", "find": "<exact text to replace, copied character for character from the file>", "replace": "<the new text>"}]}
@@ -506,7 +512,10 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
     // téléchargeait en « html · 1.txt » — ni lisible, ni ouvrable.
     if (!title) {
       const info = LANG_INFO[(lang || "").toLowerCase()];
-      title = info ? `fichier-${n}.${info.ext}` : `fichier-${n}.txt`;
+      // Une page HTML seule s'appelle index.html — c'est ce qu'on attend d'elle,
+      // et c'est ouvrable tel quel. Les autres gardent un nom neutre numéroté.
+      if (info?.ext === "html" && n === 0) title = "index.html";
+      else title = info ? `fichier-${n + 1}.${info.ext}` : `fichier-${n + 1}.txt`;
     }
     artifacts.push({ kind: "code", title, lang: lang || "text", content: body });
     prose += content.slice(lastIndex, m.index);
@@ -517,8 +526,8 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
   // Filet : un document HTML écrit SANS bloc de code. Le modèle oublie
   // régulièrement la clôture pour un gros fichier — il n'en sortait alors aucun
   // fichier, donc pas de carte, pas d'aperçu, pas de téléchargement. L'utilisateur
-  // se rabattait sur « Exporter en Markdown », qui exporte la CONVERSATION : d'où
-  // un .md contenant la question et la prose autour du HTML.
+  // se rabattait sur l'export de la conversation (bouton depuis retiré, il prêtait
+  // justement à confusion) : d'où un .md contenant la question et la prose.
   if (!artifacts.length) {
     const html = content.match(/<!DOCTYPE html[\s\S]*?<\/html\s*>|<html[\s\S]*?<\/html\s*>/i);
     if (html && html[0].length >= 200) {
@@ -824,7 +833,7 @@ export default function PlaygroundPage() {
     }, 250);
     return () => clearInterval(id);
   }, [streaming]);
-  const [currentId, setCurrentId] = useState<number | null>(null);
+  const [currentId, setCurrentId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
   const [firstName, setFirstName] = useState("");
@@ -842,6 +851,10 @@ export default function PlaygroundPage() {
   const [liveDocOpen, setLiveDocOpen] = useState(false);
   // Aperçu rendu d'une page HTML générée, plutôt que son code source.
   const [htmlPreview, setHtmlPreview] = useState(true);
+  // URL de l'aperçu servi par le backend. Une iframe `srcdoc` hérite de la CSP
+  // du portail et ses scripts inline sont bloqués : la page s'affiche mais rien
+  // n'y répond. On passe donc par une réponse qui porte son propre bac à sable.
+  const [previewUrl, setPreviewUrl] = useState("");
   // Plein écran du volet : indispensable pour regarder une page HTML générée,
   // illisible dans une colonne de 400 px.
   const [plein, setPlein] = useState(false);
@@ -893,12 +906,12 @@ export default function PlaygroundPage() {
   // persist()/runStream() only ever run from event handlers (send/regenerate/edit),
   // never during render, so Date.now()/performance.now() here are safe despite the
   // purity lint rule's conservative render-reachability analysis.
-  function persist(msgs: ChatMsg[], convId: number | null, activeModel: string) {
+  function persist(msgs: ChatMsg[], convId: string | null, activeModel: string) {
     if (!msgs.length) return convId;
     const title = (msgs.find((m) => m.role === "user")?.content || t("Conversation")).slice(0, 80);
     const item: Conversation = {
       // eslint-disable-next-line react-hooks/purity
-      id: convId ?? Date.now(),
+      id: convId ?? String(Date.now()),
       title,
       // eslint-disable-next-line react-hooks/purity
       ts: Date.now(),
@@ -944,7 +957,7 @@ export default function PlaygroundPage() {
     closeArtifact();
   }
 
-  function deleteConversation(id: number) {
+  function deleteConversation(id: string) {
     setConversations((prev) => prev.filter((c) => c.id !== id));
     if (csrf) void removeConversation(csrf, id);
     if (id === currentId) setCurrentId(null);
@@ -1026,6 +1039,7 @@ export default function PlaygroundPage() {
         system: [
           settings.system.trim(),
           alreadyAsked ? "" : ASK_INSTRUCTION,
+          NAME_INSTRUCTION,
           // Toujours envoyée : dès qu'un fichier existe dans la conversation, le
           // modèle doit pouvoir le corriger sans le réécrire.
           EDIT_INSTRUCTION,
@@ -1269,22 +1283,6 @@ export default function PlaygroundPage() {
     }
   }
 
-  function exportMarkdown() {
-    if (!messages.length) {
-      window.alert(t("Rien à exporter."));
-      return;
-    }
-    let out = "# Conversation Cronos\n\n";
-    for (const m of messages) {
-      out += (m.role === "user" ? `## ${t("Vous")}` : `## ${model || t("Modèle")}`) + "\n\n" + m.content + "\n\n";
-    }
-    const blob = new Blob([out], { type: "text/markdown" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "cronos-conversation.md";
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
 
   const max = modelLimits[model] || 32768;
   const used = Math.max(ctxUsed, estimateTokens(settings, input, messages, attachments));
@@ -1340,6 +1338,22 @@ export default function PlaygroundPage() {
     ? nomTelechargeable(panelTitle, panelLang)
     : `${slugify(panelTitle)}.md`;
   const panelDownloadMime = panelIsCode ? mimePourLangage(panelLang) : "text/markdown";
+  // Publie la page à prévisualiser dès que son contenu change. Écriture externe
+  // (réseau) suivie d'une mise à jour d'état APRÈS l'await : pas de rendu en
+  // cascade. Rien n'est publié tant qu'on ne regarde pas un aperçu.
+  useEffect(() => {
+    let annule = false;
+    if (!panelEstHtml || !htmlPreview || !panelContent) {
+      // Remise à zéro différée : mettre l'état à jour dans le CORPS de l'effet
+      // déclencherait un rendu en cascade.
+      void Promise.resolve().then(() => { if (!annule) setPreviewUrl(""); });
+      return () => { annule = true; };
+    }
+    void sendJSON<{ ok: boolean; id?: string }>("/playground/preview", csrf, { html: panelContent })
+      .then((r) => { if (!annule && r.ok && r.id) setPreviewUrl(`/playground/preview/${r.id}`); })
+      .catch(() => {});
+    return () => { annule = true; };
+  }, [panelEstHtml, htmlPreview, panelContent, csrf]);
   // Auto-follow the document while it streams into the panel; show a "jump to
   // bottom" button when the reader scrolls up and leaves the live tail.
   const {
@@ -1368,13 +1382,32 @@ export default function PlaygroundPage() {
   const canRegenerate = !streaming && lastMsg && (lastMsg.role === "assistant" || lastMsg.role === "user");
   const canEdit = !streaming && messages.some((m) => m.role === "user");
 
+  // Deux sections : ouvrir, et supprimer. Jusqu'ici la seule suppression possible
+  // était celle de la conversation OUVERTE (corbeille de l'en-tête) — impossible
+  // de faire le ménage dans une liste longue sans ouvrir chaque conversation.
   const historyItems: DropdownMenuOption[] =
     conversations.length === 0
       ? [{ label: t("Aucune conversation"), isDisabled: true }]
-      : conversations.map((conv) => ({
-          label: conv.title || t("Conversation"),
-          onClick: () => selectConversation(conv),
-        }));
+      : [
+          {
+            type: "section",
+            title: t("Ouvrir"),
+            items: conversations.map((conv) => ({
+              label: conv.title || t("Conversation"),
+              onClick: () => selectConversation(conv),
+            })),
+          },
+          { type: "divider" },
+          {
+            type: "section",
+            title: t("Supprimer"),
+            items: conversations.map((conv) => ({
+              label: conv.title || t("Conversation"),
+              icon: <Icon icon={TrashIcon} size="sm" />,
+              onClick: () => deleteConversation(conv.id),
+            })),
+          },
+        ];
 
   return (
     <Layout
@@ -1411,14 +1444,6 @@ export default function PlaygroundPage() {
                   onClick={() => deleteConversation(currentId)}
                 />
               )}
-              <Button
-                label={t("Exporter en Markdown")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-                isIconOnly
-                onClick={exportMarkdown}
-              />
               <Button
                 label={t("Réglages")}
                 variant="secondary"
@@ -1969,16 +1994,20 @@ export default function PlaygroundPage() {
                   </HStack>
                 )}
                 {panelEstHtml && htmlPreview ? (
-                  /* Page générée par le modèle : elle s'affiche dans une iframe
-                     ISOLÉE. `sandbox` sans allow-same-origin lui donne une origine
-                     opaque — elle ne peut ni lire les cookies de session, ni
-                     toucher à la page qui l'héberge. Les scripts qu'elle
-                     contiendrait sont bloqués par la CSP héritée : on regarde une
-                     page, on ne l'exécute pas. Pas de composant Astryx pour ça. */
+                  /* Page générée par le modèle, dans une iframe ISOLÉE.
+                     `allow-scripts` SANS `allow-same-origin` : la page peut
+                     s'exécuter — sinon boutons et interactions sont morts, ce qui
+                     rend l'aperçu inutile pour une page interactive — mais son
+                     origine reste OPAQUE. Elle ne peut donc ni lire les cookies
+                     de session, ni toucher au DOM de la page qui l'héberge, ni
+                     appeler l'API avec les droits de l'utilisateur.
+                     `allow-same-origin` ne doit JAMAIS être ajouté ici : combiné à
+                     `allow-scripts`, il annule le bac à sable et un HTML généré
+                     deviendrait du code exécuté dans notre propre origine. */
                   <iframe
                     title={panelTitle}
-                    srcDoc={panelContent}
-                    sandbox=""
+                    src={previewUrl}
+                    sandbox="allow-scripts allow-forms allow-modals allow-popups"
                     style={{
                       flex: 1,
                       minHeight: 0,
@@ -2045,8 +2074,8 @@ export default function PlaygroundPage() {
                        justement à REGARDER la page, pas à relire son code. */
                     <iframe
                       title={panelTitle}
-                      srcDoc={panelContent}
-                      sandbox=""
+                      src={previewUrl}
+                      sandbox="allow-scripts allow-forms allow-modals allow-popups"
                       style={{ width: "100%", height: "100%", border: "none",
                                background: "var(--color-background-surface)" }}
                     />

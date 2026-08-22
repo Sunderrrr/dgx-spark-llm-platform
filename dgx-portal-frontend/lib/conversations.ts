@@ -18,7 +18,10 @@ export async function fetchConversations(): Promise<Conversation[]> {
   try {
     const data = await getJSON<{ conversations: ApiConversation[] }>("/api/conversations");
     return data.conversations.map((c) => ({
-      id: Number(c.id) || Date.parse(c.ts) || Date.now(),
+      // L'identifiant vient du serveur (`client_id`) et n'est PAS un nombre :
+      // le convertir donnait NaN, donc un horodatage fabriqué sans rapport — et
+      // toute suppression visait un identifiant inexistant, sans erreur visible.
+      id: c.id,
       title: c.title,
       ts: Date.parse(c.ts) || Date.now(),
       model: c.model,
@@ -43,7 +46,7 @@ export async function persistConversation(csrf: string, conv: Conversation): Pro
   }
 }
 
-export async function removeConversation(csrf: string, id: number): Promise<void> {
+export async function removeConversation(csrf: string, id: string): Promise<void> {
   try {
     await postForm("/conversations", csrf, { action: "delete", id: String(id) });
   } catch {

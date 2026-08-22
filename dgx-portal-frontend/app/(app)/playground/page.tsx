@@ -364,6 +364,25 @@ function scriptCasse(contenu: string): boolean {
   return casse;
 }
 
+/** Le modèle a-t-il annoncé quelque chose puis clos son tour ?
+ *
+ * Vu en production : « Bien sûr ! Quelques précisions pour bien t'aider : » — 13
+ * tokens, puis fin normale du modèle (le journal serveur confirme un arrêt propre,
+ * ni coupure réseau ni plafond). Le bloc de questions annoncé n'arrive jamais et
+ * l'utilisateur se retrouve devant une phrase d'introduction toute seule.
+ *
+ * Une réponse ENTIÈRE qui se termine par deux-points, sans le moindre bloc de code,
+ * n'est jamais une réponse finie : elle promet une suite qui n'est pas venue.
+ */
+function tourAvorte(m: ChatMsg | undefined): boolean {
+  if (!m || m.role !== "assistant") return false;
+  const t = m.content.trim();
+  // Au-delà, c'est une vraie réponse qui se trouve finir par « : » (une liste
+  // introduite, par exemple) — pas un tour avorté.
+  if (!t || t.length > 400 || t.includes("```")) return false;
+  return /[:：]$/.test(t);
+}
+
 /** Le texte du message, avec la fence jamais refermée refermée d'office.
  *
  * `parseArtifacts` n'extrait qu'un bloc DÉLIMITÉ des deux côtés. Une réponse
@@ -1471,6 +1490,16 @@ export default function PlaygroundPage() {
     // minutes, et le texte déjà reçu s'arrête en plein mot. C'est exactement le cas
     // où reprendre tout seul a le plus de valeur. Seul un arrêt DEMANDÉ (bouton
     // Stop) interdit la reprise.
+    // Tour avorté (annonce sans la suite) : on REFAIT le tour au lieu de le
+    // reprendre — il n'y a rien à prolonger, la réponse n'a jamais commencé.
+    if (!wasAborted && tourAvorte(finalMessages[finalMessages.length - 1])) {
+      if (reprisesRef.current < MAX_REPRISES_AUTO) {
+        reprisesRef.current += 1;
+        setReprise(reprisesRef.current);
+        void runStream(nextMessages);
+        return;
+      }
+    }
     if (!wasAborted && messageIncomplet(finalMessages, finalMessages.length - 1)) {
       if (reprisesRef.current < MAX_REPRISES_AUTO) {
         reprisesRef.current += 1;

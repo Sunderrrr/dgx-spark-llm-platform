@@ -126,12 +126,27 @@ export async function fetchPlaygroundData(): Promise<PlaygroundData> {
   return res.json();
 }
 
+/** Une étape de recherche web, telle que le backend l'annonce au fil de l'eau. */
+export type EtapeWeb = {
+  etape: "recherche" | "recherche_finie" | "lecture" | "lecture_finie" | "inconnue";
+  outil: string;
+  question?: string;
+  urls?: string[];
+  nombre?: number;
+  lues?: number;
+  erreur?: string | null;
+  sources?: { titre: string; url: string }[];
+  echecs?: { url: string; raison: string }[];
+};
+
 export type StreamDelta = {
   reasoningChunk?: string;
   contentChunk?: string;
   usage?: { total_tokens?: number; completion_tokens?: number };
   /** Le modèle a été coupé net par le plafond de tokens (finish_reason="length"). */
   truncated?: boolean;
+  /** Étape de recherche web : ce que le modèle est en train de chercher ou lire. */
+  webStep?: EtapeWeb;
 };
 
 export type ToolCallEvent = {
@@ -146,6 +161,7 @@ export type ToolCallEvent = {
 type SSEPayload = {
   usage?: { total_tokens?: number; completion_tokens?: number };
   choices?: { delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }[];
+  cronos_web?: EtapeWeb;
   tool_call?: ToolCallEvent;
 };
 
@@ -203,6 +219,8 @@ export async function streamChat(
     // Le backend relaie les lignes SSE telles quelles : finish_reason arrive ici.
     // "length" = réponse tronquée par max_tokens, à signaler au lecteur.
     if (json.choices?.[0]?.finish_reason === "length") onDelta({ truncated: true });
+    // Recherche web : événement à part, jamais mêlé au texte de la réponse.
+    if (json.cronos_web) onDelta({ webStep: json.cronos_web });
     const delta = json.choices?.[0]?.delta;
     if (delta?.reasoning_content) onDelta({ reasoningChunk: delta.reasoning_content });
     if (delta?.content) onDelta({ contentChunk: delta.content });

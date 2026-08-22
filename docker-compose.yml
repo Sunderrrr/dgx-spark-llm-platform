@@ -139,7 +139,16 @@ services:
       # Même jeton, côté appelant.
       - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # Épinglé sur la passerelle du réseau `default`, PAS sur `host-gateway`.
+      # `host-gateway` désigne la passerelle de l'interface qui porte la route par
+      # défaut — laquelle dépend de l'ordre des réseaux attachés. L'ajout d'un
+      # réseau a suffi, deux fois (asr_net hier, web_net aujourd'hui), à la faire
+      # basculer : les paquets sortaient alors en 172.22.x ou 172.25.x, et
+      # vllm-restrict.service — qui n'autorise que 172.19.0.0/16 vers le runner
+      # et vLLM — les mettait en DROP. Plus aucun modèle joignable.
+      # Cette adresse est déjà celle que le pare-feu autorise en dur : on aligne
+      # les deux plutôt que de dépendre d'un ordre d'interfaces.
+      - "host.docker.internal:172.19.0.1"
     depends_on:
       - litellm
     networks:
@@ -153,13 +162,20 @@ services:
       # On garde volontairement la règle pare-feu étroite plutôt que d'ouvrir
       # les autres sous-réseaux : les conteneurs OCR/voix/dictée n'ont aucune
       # raison d'atteindre le runner.
-      - default
-      - ocr_net
-      - voice_net
-      - asr_net
-      - image_net
-      - music_net
-      - web_net
+      # `priority` : c'est l'interface de plus haute priorité qui porte la route
+      # par défaut, donc l'IP SOURCE des appels sortants. Sans elle, docker
+      # choisit par ordre alphabétique — l'ajout de `web_net` a suffi à faire
+      # sortir les paquets en 172.25.x, que vllm-restrict.service (qui n'autorise
+      # que 172.19.0.0/16) a mis en DROP : plus aucun accès au runner ni à vLLM.
+      # Constaté en direct, exactement comme lors de l'ajout d'`asr_net`.
+      default:
+        priority: 100
+      ocr_net: {}
+      voice_net: {}
+      asr_net: {}
+      image_net: {}
+      music_net: {}
+      web_net: {}
 
   # ─── DGX Portal Frontend — Next.js + Astryx, nouvelle interface complète ──
   # Reprend le port 5000 (celui que filtre déjà cronos-docker-restrict.service

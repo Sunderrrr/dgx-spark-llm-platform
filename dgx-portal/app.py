@@ -6867,6 +6867,10 @@ if __name__ == '__main__':
 # Découper ainsi évite d'avoir à reconstituer des appels d'outils fragmentés en
 # deltas, et la réponse visible arrive toujours token par token.
 MAX_TOURS_OUTILS = 3
+# Plafond de temps de la phase outils. Même légitime, une recherche ne doit
+# jamais monopoliser l'attente : au-delà, on répond avec ce qui a été trouvé.
+# Une lecture de page peut à elle seule prendre une minute et demie.
+DELAI_MAX_OUTILS = 60
 # Ce que la phase outils relit pour décider s'il faut chercher. Volontairement
 # COURT : décider « faut-il une recherche ? » ne demande pas de relire un fichier
 # de 65 Ko. Lui passer toute la conversation ajoutait un préchargement complet
@@ -6898,32 +6902,41 @@ def _contexte_outils(msgs):
             for m in systeme] + list(reversed(court))
 
 
-# Une session de code n'a rien à demander au web : le fichier est déjà là.
-# Constaté : « je ne peux pas appuyer sur piocher, rester, doubler » a déclenché
-# une recherche « jeu blackjack boutons piocher doubler split abandoner » —
-# inutile, et du délai en plus, alors que la réponse était dans le code de la
-# conversation. On ne cherche donc pas quand un fichier est présent, SAUF si
-# l'utilisateur le demande explicitement.
+# La recherche ne part QUE si la demande en a visiblement besoin.
+#
+# La règle inverse — « cherche sauf si du code traîne » — s'est révélée fausse
+# deux fois de suite : une correction de jeu Pong a déclenché une recherche, et
+# une simple dissertation sur la propagation du son en a déclenché une autre qui
+# a fait échouer la requête (contexte de 431 tokens, donc rien à précharger :
+# c'est bien la recherche qui a tout mangé). Le défaut doit donc être de NE PAS
+# chercher : le modèle sait déjà énormément de choses, et une recherche inutile
+# coûte des dizaines de secondes d'attente pour rien.
 _DEMANDE_RECHERCHE = re.compile(
-    r"\b(cherche|recherche|google|sur internet|sur le web|en ligne|actualit|"
-    r"derni[eè]re[s]? (?:nouvelle|info|news)|news|quoi de neuf|aujourd'hui)\b",
-    re.I)
+    r"(?:^|\W)(?:"
+    r"cherche|recherch|google|sur internet|sur le web|en ligne|"          # demande directe
+    r"actualit|derni[eè]re[s]?\s+(?:nouvelle|info|news)|news|"            # actualité
+    r"quoi de neuf|aujourd'hui|ce matin|cette semaine|en ce moment|"
+    r"v[ée]rifie|source[s]?\b|d'apr[eè]s le web|"                          # vérification
+    r"prix\s+(?:de|du|des)|combien\s+co[ûu]te|cours\s+(?:de|du)|"        # données mouvantes
+    r"m[ée]t[ée]o|derni[eè]re\s+version|version\s+actuelle|changelog|"
+    r"20[3-9]\d"                                                          # une année future
+    r")", re.I)
+
+# Un fichier dans la conversation reste un veto explicite : même formulée comme
+# une question, une demande portant sur du code présent se répond en le lisant.
+_BLOC_CONSEQUENT = re.compile(r"```[^\n`]*\n[\s\S]{400,}?```")
 
 
 def _recherche_pertinente(history):
     """Faut-il seulement PROPOSER les outils de recherche pour ce tour ?"""
     dernier = next((m for m in reversed(history) if m.get('role') == 'user'), None)
-    demande = _DEMANDE_RECHERCHE.search(str((dernier or {}).get('content', '')))
-    if demande:
+    texte = str((dernier or {}).get('content', ''))
+    if not _DEMANDE_RECHERCHE.search(texte):
+        return False
+    # Demande explicite de chercher : elle l'emporte même sur un fichier présent.
+    if re.search(r"(?:^|\W)(?:cherche|recherch|google|sur internet|sur le web|en ligne)", texte, re.I):
         return True
-    # Un bloc de code conséquent, D'OÙ QU'IL VIENNE, veut dire qu'on travaille sur
-    # ce code. Ne regarder que les réponses de l'assistant laissait passer le cas
-    # le plus net : l'utilisateur ENVOIE son fichier et demande de le corriger —
-    # il n'existe alors aucun bloc côté assistant, et une recherche partait.
-    for m in history:
-        if re.search(r"```[^\n`]*\n[\s\S]{400,}?```", str(m.get('content', ''))):
-            return False
-    return True
+    return not any(_BLOC_CONSEQUENT.search(str(m.get('content', ''))) for m in history)
 
 
 def websearch_active(username):
@@ -7012,7 +7025,12 @@ def _phase_outils(model, msgs, user_key, journal):
     ne produit aucun texte destiné à la lecture.
     """
     court = _contexte_outils(msgs)
+    _fin = time.monotonic() + DELAI_MAX_OUTILS
     for _ in range(MAX_TOURS_OUTILS):
+        if time.monotonic() > _fin:
+            journal.append({'etape': 'delai', 'outil': 'recherche',
+                            'erreur': "Recherche interrompue : trop longue."})
+            return
         try:
             r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
                               headers={'Authorization': f'Bearer {user_key}'},
@@ -7038,6 +7056,8 @@ def _phase_outils(model, msgs, user_key, journal):
         court.append(tour)
         msgs.append(tour)
         for appel in appels[:4]:
+            if time.monotonic() > _fin:
+                break
             fn = (appel.get('function') or {})
             try:
                 args = json.loads(fn.get('arguments') or '{}')

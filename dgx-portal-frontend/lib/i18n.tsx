@@ -313,6 +313,7 @@ const EN: Record<string, string> = {
   "Le modèle a donné la partie corrigée, pas le fichier complet. La version précédente reste ouverte dans le volet.":
     "The model gave the corrected part, not the whole file. The previous version stays open in the panel.",
   "Demander le fichier complet": "Ask for the whole file",
+  "Ouvrir": "Open",
   "Messages en attente": "Queued messages",
   "Envoi imminent…": "Sending now…",
   "Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.":

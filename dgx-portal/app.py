@@ -4280,9 +4280,15 @@ def playground_preview_create():
 _PREVIEW_RAPPORT = """<script>
 (function(){
   var envoye = 0;
+  // Le bac à sable lui-même provoque des erreurs qui ne disent RIEN sur la page :
+  // origine opaque (donc parent.document illisible, localStorage interdit), et
+  // ressources externes bloquées. Les remonter accusait à tort du code correct.
+  var bruit = /cross-origin|Blocked a frame|SecurityError|operation is insecure|localStorage|sessionStorage|indexedDB|Access is denied/i;
   function dire(m){
+    var s = String(m);
+    if (bruit.test(s)) return;
     if (envoye++ > 3) return;                       // on ne noie pas le parent
-    try { parent.postMessage({ cronosPreviewError: String(m).slice(0, 400) }, '*'); } catch (e) {}
+    try { parent.postMessage({ cronosPreviewError: s.slice(0, 400) }, '*'); } catch (e) {}
   }
   window.addEventListener('error', function(e){
     dire(e && e.message ? e.message : 'erreur de chargement');

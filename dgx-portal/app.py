@@ -4415,7 +4415,8 @@ def playground_chat():
     # avant de renvoyer la réponse laissait le client sans le moindre octet
     # pendant plusieurs secondes — le proxy du frontend abandonnait avant que la
     # génération ne commence.
-    _web_ok = data.get('web') is not False and websearch_active(session['username'])
+    _web_ok = (data.get('web') is not False and _recherche_pertinente(history)
+               and websearch_active(session['username']))
 
     # Le plafond de sortie S'AJOUTE au prompt dans la fenêtre de contexte : au-delà,
     # vLLM refuse la requête (400 ContextWindowExceededError) au lieu de répondre.
@@ -6832,6 +6833,32 @@ def _contexte_outils(msgs):
             for m in systeme] + list(reversed(court))
 
 
+# Une session de code n'a rien à demander au web : le fichier est déjà là.
+# Constaté : « je ne peux pas appuyer sur piocher, rester, doubler » a déclenché
+# une recherche « jeu blackjack boutons piocher doubler split abandoner » —
+# inutile, et du délai en plus, alors que la réponse était dans le code de la
+# conversation. On ne cherche donc pas quand un fichier est présent, SAUF si
+# l'utilisateur le demande explicitement.
+_DEMANDE_RECHERCHE = re.compile(
+    r"\b(cherche|recherche|google|sur internet|sur le web|en ligne|actualit|"
+    r"derni[eè]re[s]? (?:nouvelle|info|news)|news|quoi de neuf|aujourd'hui)\b",
+    re.I)
+
+
+def _recherche_pertinente(history):
+    """Faut-il seulement PROPOSER les outils de recherche pour ce tour ?"""
+    dernier = next((m for m in reversed(history) if m.get('role') == 'user'), None)
+    demande = _DEMANDE_RECHERCHE.search(str((dernier or {}).get('content', '')))
+    if demande:
+        return True
+    # Un bloc de code conséquent déjà produit = on travaille sur ce code.
+    for m in history:
+        if m.get('role') == 'assistant' and re.search(r"```[^\n`]*\n[\s\S]{400,}?```",
+                                                      str(m.get('content', ''))):
+            return False
+    return True
+
+
 def websearch_active(username):
     """La recherche est-elle utilisable pour cet utilisateur ?"""
     row = get_db().execute(
@@ -6846,9 +6873,10 @@ def _web_tools():
         {'type': 'function', 'function': {
             'name': 'recherche_web',
             'description': ("Cherche sur le web et rend une liste de résultats (titre, adresse, "
-                            "extrait). À utiliser dès que la question porte sur l'actualité, "
-                            "sur des faits postérieurs à ton entraînement, ou sur quelque chose "
-                            "que tu n'es pas certain de savoir."),
+                            "extrait). Réservé à ce que tu ne peux pas savoir : actualité, faits "
+                            "postérieurs à ton entraînement, informations à vérifier. "
+                            "N'appelle JAMAIS cet outil pour comprendre ou corriger du code déjà "
+                            "présent dans la conversation : la réponse est dans ce code, relis-le."),
             'parameters': {'type': 'object', 'properties': {
                 'question': {'type': 'string', 'description': "Ce qu'il faut chercher."},
                 'nombre': {'type': 'integer',

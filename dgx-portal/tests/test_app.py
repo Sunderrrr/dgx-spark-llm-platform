@@ -385,3 +385,46 @@ class ContexteOutilsTest(unittest.TestCase):
                 {'role': 'assistant', 'content': 'bonjour'}]
         self.assertEqual([m['content'] for m in portal._contexte_outils(msgs)],
                          ['salut', 'bonjour'])
+
+
+class PertinenceRechercheTest(unittest.TestCase):
+    """On ne propose pas le web quand la réponse est dans la conversation.
+
+    Constaté en vrai : « je ne peux pas appuyer sur piocher, rester, doubler »
+    a déclenché la recherche « jeu blackjack boutons piocher doubler split
+    abandoner ». Inutile, et du délai en plus, alors que le code était là.
+    """
+
+    def _code(self, n=800):
+        return "Voici `index.html` :\n\n```html\n" + ("x" * n) + "\n```"
+
+    def test_pas_de_recherche_quand_un_fichier_est_deja_la(self):
+        h = [{'role': 'user', 'content': 'fais-moi un blackjack'},
+             {'role': 'assistant', 'content': self._code()},
+             {'role': 'user', 'content': "je ne peux pas appuyer sur piocher ni doubler"}]
+        self.assertFalse(portal._recherche_pertinente(h))
+
+    def test_recherche_si_l_utilisateur_la_demande_explicitement(self):
+        h = [{'role': 'user', 'content': 'fais-moi un blackjack'},
+             {'role': 'assistant', 'content': self._code()},
+             {'role': 'user', 'content': "cherche sur internet les règles officielles"}]
+        self.assertTrue(portal._recherche_pertinente(h))
+
+    def test_recherche_sur_une_question_d_actualite(self):
+        h = [{'role': 'user', 'content': "quelles sont les dernières nouvelles sur l'Ukraine ?"}]
+        self.assertTrue(portal._recherche_pertinente(h))
+
+    def test_recherche_sur_une_conversation_sans_code(self):
+        h = [{'role': 'user', 'content': 'qui a gagné la coupe du monde 2026 ?'},
+             {'role': 'assistant', 'content': "Je ne suis pas certain."},
+             {'role': 'user', 'content': 'vérifie'}]
+        self.assertTrue(portal._recherche_pertinente(h))
+
+    def test_un_petit_extrait_de_code_ne_bloque_pas_la_recherche(self):
+        # Trois lignes d'illustration ne font pas une session de développement.
+        h = [{'role': 'assistant', 'content': "Par exemple :\n\n```py\nprint(1)\n```"},
+             {'role': 'user', 'content': "et les actualités du jour ?"}]
+        self.assertTrue(portal._recherche_pertinente(h))
+
+    def test_conversation_vide_reste_permise(self):
+        self.assertTrue(portal._recherche_pertinente([]))

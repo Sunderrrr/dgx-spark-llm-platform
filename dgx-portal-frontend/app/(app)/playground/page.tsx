@@ -19,6 +19,7 @@ import { Markdown } from "@astryxdesign/core/Markdown";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { Grid } from "@astryxdesign/core/Grid";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
@@ -61,7 +62,7 @@ import { useStickToBottom } from "@/lib/useStickToBottom";
 import { DictateButton } from "../_components/DictateButton";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
-import { fetchCsrfToken, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
+import { type EtapeWeb, fetchCsrfToken, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
 import {
   fetchConversations,
   persistConversation,
@@ -362,6 +363,42 @@ function scriptCasse(contenu: string): boolean {
   if (memoScript.size > 40) memoScript.clear();
   memoScript.set(contenu, casse);
   return casse;
+}
+
+/** Ce qu'affiche une étape de recherche web, en clair.
+ *
+ * Le modèle passe plusieurs dizaines de secondes à chercher et à lire avant de
+ * répondre. Sans ce fil, l'attente est totalement muette et personne ne sait ce
+ * qui se passe — c'est le premier retour d'usage qu'on a eu dessus.
+ */
+function libelleEtapeWeb(
+  e: EtapeWeb,
+  t: (s: string) => string,
+): { texte: string; fini: boolean } {
+  const outil = e.outil;
+  switch (e.etape) {
+    case "recherche":
+      return { fini: false,
+        texte: `${outil} · ` + t("recherche « {q} »").replace("{q}", e.question ?? "") };
+    case "recherche_finie":
+      return { fini: true, texte: `${outil} · ` + (e.erreur
+        ? t("recherche impossible : {e}").replace("{e}", e.erreur)
+        : t("{n} résultat(s) pour « {q} »")
+            .replace("{n}", String(e.nombre ?? 0)).replace("{q}", e.question ?? "")) };
+    case "lecture":
+      return { fini: false,
+        texte: `${outil} · ` + t("lecture de {n} page(s)")
+          .replace("{n}", String((e.urls ?? []).length)) };
+    case "lecture_finie": {
+      const rates = (e.echecs ?? []).length;
+      return { fini: true, texte: `${outil} · ` + (e.erreur
+        ? t("lecture impossible : {e}").replace("{e}", e.erreur)
+        : t("{n} page(s) lue(s)").replace("{n}", String(e.lues ?? 0))
+          + (rates ? t(", {n} inaccessible(s)").replace("{n}", String(rates)) : "")) };
+    }
+    default:
+      return { texte: outil, fini: true };
+  }
 }
 
 /** Le modèle a-t-il annoncé quelque chose puis clos son tour ?
@@ -1182,6 +1219,10 @@ export default function PlaygroundPage() {
     }, 250);
     return () => clearInterval(id);
   }, [streaming]);
+  // Étapes de recherche web de la génération EN COURS. Sans cet affichage,
+  // l'attente est muette : plusieurs dizaines de secondes pendant lesquelles le
+  // modèle cherche et lit, sans que rien ne l'indique.
+  const [etapesWeb, setEtapesWeb] = useState<EtapeWeb[]>([]);
   // Première erreur d'exécution remontée par l'aperçu (vide = la page tourne).
   const [erreurApercu, setErreurApercu] = useState("");
   const [currentId, setCurrentId] = useState<string | null>(null);
@@ -1339,6 +1380,7 @@ export default function PlaygroundPage() {
       return;
     }
     setStreaming(true);
+    setEtapesWeb([]);
     // Nouvel envoi : le lecteur veut voir la réponse arriver, on réarme le suivi.
     suitLeBasRef.current = true;
     setLiveDocOpen(false);
@@ -1420,6 +1462,14 @@ export default function PlaygroundPage() {
         (delta) => {
           if (delta.usage) usage = delta.usage;
           if (delta.truncated) tronque = true;
+          if (delta.webStep) {
+            const e = delta.webStep;
+            // Une étape « finie » remplace son annonce, elle ne s'ajoute pas.
+            setEtapesWeb((prec) => {
+              const base = e.etape.endsWith("_finie") ? prec.slice(0, -1) : prec;
+              return [...base, e].slice(-6);
+            });
+          }
           if (delta.reasoningChunk) {
             if (tf === null) tf = performance.now();
             if (liveStartRef.current === null) liveStartRef.current = tf;
@@ -2272,7 +2322,24 @@ export default function PlaygroundPage() {
                           />
                         ) : undefined
                       }>
-                      {isThinking ? (
+                      {/* Recherche web en cours : on dit ce qui est cherché et lu,
+                          au fil de l'eau. Sans ça l'attente est muette pendant
+                          des dizaines de secondes. */}
+                      {streamingThis && etapesWeb.length > 0 && (
+                        <VStack gap={1} padding={2}>
+                          {etapesWeb.map((e, k) => {
+                            const l = libelleEtapeWeb(e, t);
+                            return (
+                              <HStack key={`web-${k}`} gap={2} vAlign="center">
+                                <StatusDot variant={l.fini ? "success" : "accent"}
+                                  isPulsing={!l.fini} label={l.texte} />
+                                <Text type="supporting" color="secondary">{l.texte}</Text>
+                              </HStack>
+                            );
+                          })}
+                        </VStack>
+                      )}
+                      {isThinking && etapesWeb.length === 0 ? (
                         <ThinkingIndicator fixedLabel={prevAttachments ? t("Lecture du fichier…") : undefined} />
                       ) : streamingDoc ? (
                         <ClickableCard

@@ -10,6 +10,8 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from functools import wraps
 from urllib.parse import urlparse, urlencode
+
+import websearch
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from mcp_client import (validate_mcp_url, list_tools_cached, invalidate_tools as _invalidate_mcp_tools,
@@ -463,6 +465,11 @@ def init_db():
         db.execute("ALTER TABLE user_prefs ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 0")
     # Prise en main affichée une fois par COMPTE (et non par navigateur) : le
     # nouvel arrivant la voit quel que soit le poste, et ne la revoit jamais.
+    if 'websearch_enabled' not in pref_cols:
+        # Activée par défaut, contrairement à la mémoire : la recherche ne
+        # conserve rien sur l'utilisateur. Le réglage sert à la couper pour qui
+        # ne veut pas que ses questions atteignent des moteurs externes.
+        db.execute("ALTER TABLE user_prefs ADD COLUMN websearch_enabled INTEGER NOT NULL DEFAULT 1")
     if 'onboarded' not in pref_cols:
         db.execute("ALTER TABLE user_prefs ADD COLUMN onboarded INTEGER NOT NULL DEFAULT 0")
     mcp_cols = {r[1] for r in db.execute("PRAGMA table_info(mcp_servers)")}
@@ -4404,6 +4411,12 @@ def playground_chat():
     history = _history_for_model(history, system, _playground_model_limits().get(model))
     msgs = ([{'role': 'system', 'content': system}] if system else []) + history
 
+    # Recherche web : décidé ici, EXÉCUTÉ dans le flux (voir plus bas). La faire
+    # avant de renvoyer la réponse laissait le client sans le moindre octet
+    # pendant plusieurs secondes — le proxy du frontend abandonnait avant que la
+    # génération ne commence.
+    _web_ok = data.get('web') is not False and websearch_active(session['username'])
+
     # Le plafond de sortie S'AJOUTE au prompt dans la fenêtre de contexte : au-delà,
     # vLLM refuse la requête (400 ContextWindowExceededError) au lieu de répondre.
     # Mesuré : prompt 9 053 + 131 072 passe, prompt 9 053 + 262 000 échoue sur un
@@ -4423,6 +4436,16 @@ def playground_chat():
         # `_out` n'arrive qu'au tout dernier chunk : sur un flux abandonné en
         # cours de route il vaut None. `_octets` mesure l'avancement réel.
         _finish, _out, _octets = None, None, 0
+        if _web_ok:
+            # Un commentaire SSE part AVANT toute chose : le client reçoit des
+            # octets immédiatement, donc aucun proxy ne conclut à un silence.
+            yield ": recherche\n\n"
+            _journal = []
+            for _etape in _phase_outils(model, msgs, user_key, _journal):
+                yield _etape
+            # Rien à récapituler ici : chaque étape est partie au fil de l'eau,
+            # dans un événement à part — jamais mêlé au texte de la réponse, donc
+            # rien à nettoyer ensuite et rien qui pollue la conversation enregistrée.
         try:
             # READ timeout (2nd value) = anti-stuck-slot: if no byte
             # arrives for 120 s (request stuck in queue behind saturated
@@ -6736,3 +6759,136 @@ with app.app_context():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+
+
+# ─── Recherche web depuis le playground ──────────────────────────────────────
+# Le playground n'avait aucune boucle d'outils : il relayait le flux du modèle
+# tel quel. On en ajoute une, en deux temps :
+#   1. une phase OUTILS sans flux — le modèle peut chercher, lire, rechercher
+#      encore, jusqu'à MAX_TOURS_OUTILS ;
+#   2. la réponse finale, en flux, exactement comme avant.
+# Découper ainsi évite d'avoir à reconstituer des appels d'outils fragmentés en
+# deltas, et la réponse visible arrive toujours token par token.
+MAX_TOURS_OUTILS = 3
+
+
+def websearch_active(username):
+    """La recherche est-elle utilisable pour cet utilisateur ?"""
+    row = get_db().execute(
+        "SELECT websearch_enabled FROM user_prefs WHERE username=?", (username,)).fetchone()
+    if row is not None and not row['websearch_enabled']:
+        return False
+    return websearch.disponible()
+
+
+def _web_tools():
+    return [
+        {'type': 'function', 'function': {
+            'name': 'recherche_web',
+            'description': ("Cherche sur le web et rend une liste de résultats (titre, adresse, "
+                            "extrait). À utiliser dès que la question porte sur l'actualité, "
+                            "sur des faits postérieurs à ton entraînement, ou sur quelque chose "
+                            "que tu n'es pas certain de savoir."),
+            'parameters': {'type': 'object', 'properties': {
+                'question': {'type': 'string', 'description': "Ce qu'il faut chercher."},
+                'nombre': {'type': 'integer',
+                           'description': "Nombre de résultats souhaités (1 à 8, défaut 6)."},
+            }, 'required': ['question']}}},
+        {'type': 'function', 'function': {
+            'name': 'lire_pages',
+            'description': ("Ouvre des adresses trouvées par recherche_web et rend leur contenu. "
+                            "N'invente jamais une adresse : n'utilise que celles des résultats. "
+                            "Certaines pages sont inaccessibles (mur d'abonnement, blocage) — "
+                            "c'est dit explicitement, appuie-toi alors sur les extraits."),
+            'parameters': {'type': 'object', 'properties': {
+                'urls': {'type': 'array', 'items': {'type': 'string'},
+                         'description': "Jusqu'à 4 adresses, issues des résultats de recherche."},
+            }, 'required': ['urls']}}},
+    ]
+
+
+def _annonce(nom, args):
+    """Ce qu'on s'apprête à faire, dit au client avant de le faire."""
+    if nom == 'recherche_web':
+        return {'etape': 'recherche', 'outil': 'searxng',
+                'question': str(args.get('question', ''))[:200]}
+    if nom == 'lire_pages':
+        urls = [str(u) for u in (args.get('urls') or [])][:websearch.MAX_PAGES]
+        return {'etape': 'lecture', 'outil': 'crawl4ai', 'urls': urls}
+    return {'etape': 'inconnue', 'outil': nom}
+
+
+def _exec_web_tool(nom, args, journal):
+    """Exécute un outil et rend le texte à remettre au modèle."""
+    if nom == 'recherche_web':
+        question = str(args.get('question', ''))[:400]
+        res, err = websearch.rechercher(question, args.get('nombre', 6))
+        journal.append({'etape': 'recherche_finie', 'outil': 'searxng',
+                        'question': question, 'nombre': len(res), 'erreur': err,
+                        'sources': [{'titre': r['titre'], 'url': r['url']} for r in res[:8]]})
+        if err:
+            return f"La recherche a échoué : {err}"
+        if not res:
+            return "Aucun résultat."
+        return json.dumps({'resultats': res}, ensure_ascii=False)
+    if nom == 'lire_pages':
+        urls = [str(u) for u in (args.get('urls') or [])][:websearch.MAX_PAGES]
+        pages, err = websearch.lire(urls)
+        journal.append({'etape': 'lecture_finie', 'outil': 'crawl4ai', 'urls': urls,
+                        'lues': sum(1 for p in pages if p.get('contenu')), 'erreur': err,
+                        'echecs': [{'url': p['url'], 'raison': p['erreur']}
+                                   for p in pages if p.get('erreur')]})
+        if err:
+            return f"La lecture a échoué : {err}"
+        return json.dumps({'pages': pages}, ensure_ascii=False)
+    return "Outil inconnu."
+
+
+def _phase_outils(model, msgs, user_key, journal):
+    """Laisse le modèle chercher avant de répondre. Modifie `msgs` sur place.
+
+    GÉNÉRATEUR : il rend des commentaires SSE au fur et à mesure. Sans eux, le
+    client ne reçoit rien pendant toute la phase — plusieurs secondes de
+    recherche et de lecture — et le proxy du frontend coupe la connexion avant
+    le premier token (constaté : « Le serveur ne répond pas »).
+
+    Les appels au modèle, eux, se font SANS flux : reconstituer des appels
+    d'outils fragmentés en deltas est une source de bugs connue, et cette phase
+    ne produit aucun texte destiné à la lecture.
+    """
+    for _ in range(MAX_TOURS_OUTILS):
+        try:
+            r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
+                              headers={'Authorization': f'Bearer {user_key}'},
+                              json={'model': model, 'messages': msgs, 'tools': _web_tools(),
+                                    'tool_choice': 'auto', 'temperature': 0.2,
+                                    'max_tokens': 1024,
+                                    'chat_template_kwargs': {'enable_thinking': False}},
+                              timeout=120)
+            if not r.ok:
+                return
+            choix = (r.json().get('choices') or [{}])[0]
+        except Exception:
+            return
+        message = choix.get('message') or {}
+        appels = message.get('tool_calls') or []
+        if not appels:
+            return                      # le modèle n'a pas besoin d'outil : on répond
+        msgs.append({'role': 'assistant', 'content': message.get('content') or '',
+                     'tool_calls': appels})
+        for appel in appels[:4]:
+            fn = (appel.get('function') or {})
+            try:
+                args = json.loads(fn.get('arguments') or '{}')
+            except Exception:
+                args = {}
+            # Une recherche ou une lecture prend plusieurs secondes. On dit au
+            # client CE QU'ON FAIT avant de le faire : sans ça l'attente est
+            # muette et personne ne sait ce qui se passe. Ça tient aussi le flux
+            # ouvert, sinon le proxy coupe avant le premier token.
+            yield "data: " + json.dumps({'cronos_web': _annonce(fn.get('name', ''), args)}) + "\n\n"
+            resultat = _exec_web_tool(fn.get('name', ''), args, journal)
+            yield "data: " + json.dumps({'cronos_web': journal[-1] if journal else {}}) + "\n\n"
+
+            msgs.append({'role': 'tool', 'tool_call_id': appel.get('id', ''),
+                         'name': fn.get('name', ''), 'content': resultat[:20000]})

@@ -238,6 +238,65 @@ function balanceJson(src: string): string {
   return out;
 }
 
+/** La réponse s'arrête-t-elle au milieu d'un fichier ?
+ *
+ * Le plafond de tokens n'est pas la seule façon de finir tronqué : un modèle de
+ * cette taille lâche parfois prise au milieu d'un gros fichier et émet sa fin de
+ * séquence en pleine expression. Le compteur dit alors « terminé » alors que le
+ * fichier est inutilisable, et rien ne permettait de reprendre.
+ */
+function reponseIncomplete(content: string): boolean {
+  const fences = content.match(/```/g);
+  if (fences && fences.length % 2 === 1) return true;           // bloc jamais refermé
+  if (/<!DOCTYPE html|<html[\s>]/i.test(content) && !/<\/html\s*>/i.test(content)) return true;
+  return false;
+}
+
+/** Le texte du message, avec la fence jamais refermée refermée d'office.
+ *
+ * `parseArtifacts` n'extrait qu'un bloc DÉLIMITÉ des deux côtés. Une réponse
+ * coupée en plein fichier n'en produisait donc aucun : ni carte, ni aperçu, ni
+ * téléchargement — le code se déversait tel quel dans la bulle. On referme le
+ * bloc pour récupérer ce qui a été écrit ; c'est toujours mieux que rien, et le
+ * bandeau « Réponse coupée » dit que ce n'est pas fini.
+ */
+function contenuCloture(content: string): string {
+  const fences = content.match(/```/g);
+  return fences && fences.length % 2 === 1 ? content + "\n```" : content;
+}
+
+/** Le fichier que ce message laisse inachevé, s'il y en a un. */
+function fichierInacheve(content: string): string | null {
+  const fences = content.match(/```/g);
+  if (!fences || fences.length % 2 === 0) return null;
+  const arts = parseArtifacts(contenuCloture(content), false).artifacts;
+  const dernier = arts[arts.length - 1];
+  return dernier && dernier.kind === "code" ? dernier.title : null;
+}
+
+/** Ce qu'il faut recoller au fichier : le message de reprise, sans son emballage. */
+function corpsDeSuite(content: string): string {
+  const ferme = content.match(/```[^\n`]*\n([\s\S]*?)```/);
+  if (ferme) return ferme[1].replace(/\n$/, "");
+  const ouvert = openCodeFence(content);
+  if (ouvert) return ouvert.body;
+  return content;
+}
+
+const PROMPT_REPRISE = "Continue exactement là où tu t'es arrêté";
+const PROMPT_REPRISE_COMPLET =
+  PROMPT_REPRISE + ", sans rien répéter et sans réintroduire ta réponse. "
+  + "Reprends au caractère suivant, et va jusqu'au bout du fichier.";
+const REPRISE_INSTRUCTION = `Your previous reply was cut off in the middle of a file. Output ONLY the missing remainder of that file, starting at the exact character where you stopped. Do not repeat anything already written, do not re-introduce, do not summarise, and do not use an edit block — just continue the raw content until the file is complete.`;
+
+/** Reprises automatiques d'affilée avant de rendre la main à l'utilisateur. */
+const MAX_REPRISES_AUTO = 3;
+
+/** Ce message caché est-il la demande de reprise émise par « Continuer » ? */
+function estReprise(m: ChatMsg | undefined): boolean {
+  return !!m && m.role === "user" && !!m.hidden && m.content.startsWith(PROMPT_REPRISE);
+}
+
 /** Coupe ce que le modèle a écrit APRÈS son bloc de questions.
  *
  * L'instruction lui demande de s'arrêter au bloc, mais il lui arrive de repartir
@@ -619,7 +678,7 @@ function fragmentsDuMessage(messages: ChatMsg[], index: number): string[] {
   if (!m || m.role !== "assistant") return [];
   const avant = fichiersJusqua(messages, index - 1);
   const noms: string[] = [];
-  for (const a of parseArtifacts(m.content, false).artifacts) {
+  for (const a of parseArtifacts(contenuCloture(m.content), false).artifacts) {
     if (a.kind !== "code") continue;
     if (estFragment(avant.get(a.title), a.content)) { noms.push(a.title); continue; }
     if (!TITRE_GENERIQUE.test(a.title)) continue;
@@ -659,10 +718,28 @@ function fichiersJusqua(
   index: number,
 ): Map<string, { content: string; lang: string }> {
   const fichiers = new Map<string, { content: string; lang: string }>();
+  // Le fichier laissé en plan par le message précédent : une reprise le complète
+  // au lieu d'ouvrir un second fichier avec la moitié du contenu.
+  let inacheve: string | null = null;
   for (let i = 0; i <= index && i < messages.length; i++) {
     const m = messages[i];
     if (m.role !== "assistant") continue;
-    for (const a of parseArtifacts(m.content, false).artifacts) {
+    const cible: { content: string; lang: string } | undefined =
+      inacheve ? fichiers.get(inacheve) : undefined;
+    // Un bloc de protocole n'est PAS la suite du fichier : le modèle a répondu à
+    // « Continue » par un ```edit (constaté en production). Le recoller aurait
+    // injecté du JSON au milieu du HTML — on le traite comme un message normal.
+    const protocole = /```(?:edit|ask)\b/.test(m.content);
+    if (cible && !protocole && estReprise(messages[i - 1])) {
+      const fusion: string = cible.content + corpsDeSuite(m.content);
+      fichiers.set(inacheve!, { ...cible, content: fusion });
+      const fences = m.content.match(/```/g);
+      // Une reprise peut être coupée à son tour : on garde alors le fichier ouvert.
+      inacheve = (fences ? fences.length % 2 === 1 : reponseIncomplete(fusion)) ? inacheve : null;
+      continue;
+    }
+    inacheve = fichierInacheve(m.content);
+    for (const a of parseArtifacts(contenuCloture(m.content), false).artifacts) {
       if (a.kind !== "code") continue;
       // Un bloc BIEN plus court qu'un fichier déjà connu du même nom est un
       // EXTRAIT (« voici la partie corrigée »), pas une nouvelle version. Le
@@ -684,6 +761,41 @@ function fichiersJusqua(
     }
   }
   return fichiers;
+}
+
+/** Le fichier qu'un message de reprise vient de compléter.
+ *
+ * Ce message ne contient que la fin du fichier : ce qu'il faut montrer, c'est le
+ * fichier entier reconstitué, pas la moitié qu'il transporte.
+ */
+function fusionDuMessage(messages: ChatMsg[], index: number): Artifact[] {
+  const m = messages[index];
+  if (!m || m.role !== "assistant" || !estReprise(messages[index - 1])) return [];
+  const avant = fichiersJusqua(messages, index - 1);
+  const apres = fichiersJusqua(messages, index);
+  const out: Artifact[] = [];
+  for (const [titre, f] of apres) {
+    const a = avant.get(titre);
+    if (a && a.content !== f.content) {
+      out.push({ kind: "code", title: titre, lang: f.lang, content: f.content });
+    }
+  }
+  return out;
+}
+
+/** Ce message laisse-t-il un fichier inachevé, reprises comprises ? */
+function messageIncomplet(messages: ChatMsg[], index: number): boolean {
+  const m = messages[index];
+  if (!m || m.role !== "assistant") return false;
+  const fusion = fusionDuMessage(messages, index);
+  // Après une reprise, c'est le fichier reconstitué qui décide — le message,
+  // lui, n'est qu'une queue de fichier sans balise de fin ni fence.
+  if (fusion.length) {
+    const fences = m.content.match(/```/g);
+    if (fences) return fences.length % 2 === 1;
+    return fusion.some((f) => reponseIncomplete(f.content));
+  }
+  return reponseIncomplete(m.content);
 }
 
 /** Les modifications d'un message, avec le résultat et les échecs éventuels. */
@@ -747,6 +859,10 @@ export default function PlaygroundPage() {
   // cours se termine. Les boutons de chaque ligne ne servent qu'à court-circuiter
   // cette attente : « Envoyer » interrompt la réponse en cours (sa partie déjà
   // écrite est conservée, comme avec Stop) pour passer à ce message tout de suite.
+  // Reprises enchaînées sans intervention : au-delà, on rend la main plutôt
+  // que de laisser un modèle qui boucle consommer le budget du compte.
+  const reprisesRef = useRef(0);
+  const [reprise, setReprise] = useState(0);
   const [queued, setQueued] = useState<QueuedMsg[]>([]);
   const queuedRef = useRef<QueuedMsg[]>([]);
   // runStream clôt la conversation depuis sa propre closure : pour repartir de
@@ -1029,6 +1145,8 @@ export default function PlaygroundPage() {
       // conversation (mesuré : 16 demandes floues sur 18 donnent lieu à une
       // question, et 0 sur 9 demandes précises).
       const dernier = nextMessages[nextMessages.length - 1];
+    // Ce tour est-il une reprise (bouton « Continuer » ou reprise automatique) ?
+    const enReprise = estReprise(dernier);
       const alreadyAsked = !!dernier?.hidden;
       const plafondModele = modelLimits[model];
       const askSettings = {
@@ -1043,12 +1161,18 @@ export default function PlaygroundPage() {
         // l'instruction de questions passe en dernier. On garde donc les questions
         // EN TÊTE, un nommage réduit à une phrase, et l'instruction d'édition
         // seulement quand un fichier existe déjà — avant, elle ne sert à rien.
-        system: [
-          settings.system.trim(),
-          alreadyAsked ? "" : ASK_INSTRUCTION,
-          NAME_INSTRUCTION,
-          fichiersJusqua(nextMessages, nextMessages.length - 1).size ? EDIT_INSTRUCTION : "",
-        ].filter(Boolean).join("\n\n"),
+        // Sur un tour de REPRISE, ni questions ni protocole d'édition : le modèle
+        // avait justement répondu par un bloc ```edit tronqué au lieu de finir le
+        // fichier, ce qui laissait l'utilisateur sans rien.
+        system: (enReprise
+          ? [settings.system.trim(), REPRISE_INSTRUCTION]
+          : [
+              settings.system.trim(),
+              alreadyAsked ? "" : ASK_INSTRUCTION,
+              NAME_INSTRUCTION,
+              fichiersJusqua(nextMessages, nextMessages.length - 1).size ? EDIT_INSTRUCTION : "",
+            ]
+        ).filter(Boolean).join("\n\n"),
       };
       await streamChat(
         csrf,
@@ -1119,7 +1243,9 @@ export default function PlaygroundPage() {
     // task, surface the last one in the side panel automatically.
     const lastUser = [...nextMessages].reverse().find((mm) => mm.role === "user");
     // A clarifying question is never a document/file artifact — leave the panel closed.
-    const produced = parseAsk(acc) ? [] : parseArtifacts(acc, isDocTask(lastUser?.content ?? "")).artifacts;
+    const produced = parseAsk(acc)
+      ? []
+      : parseArtifacts(contenuCloture(acc), isDocTask(lastUser?.content ?? "")).artifacts;
     if (produced.length) {
       const lastArt = produced[produced.length - 1];
       // A code file opens on its own; a document opens automatically only if the
@@ -1134,6 +1260,25 @@ export default function PlaygroundPage() {
     setStreaming(false);
     setLiveStats(null);
     abortRef.current = null;
+    // Le modèle a lâché en plein fichier : on enchaîne tout seul. Constaté en
+    // production — un gros fichier HTML s'arrêtait en pleine expression sans
+    // que rien ne l'indique, et il fallait tout redemander. Le plafond de
+    // tokens n'y était pour rien : c'est le modèle qui rend la main trop tôt.
+    if (!wasAborted && !isError && messageIncomplet(finalMessages, finalMessages.length - 1)) {
+      if (reprisesRef.current < MAX_REPRISES_AUTO) {
+        reprisesRef.current += 1;
+        setReprise(reprisesRef.current);
+        void runStream([...finalMessages, {
+          role: "user", content: PROMPT_REPRISE_COMPLET,
+          // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+          ts: Date.now(), hidden: true,
+        }]);
+        return;
+      }
+      // Trop de reprises d'affilée : le bandeau et le bouton prennent le relais.
+    }
+    reprisesRef.current = 0;
+    setReprise(0);
     // Des messages ont été mis en file pendant cette génération : ils partent
     // maintenant, sans validation manuelle. Base explicite (finalMessages) :
     // messagesRef n'est pas encore resynchronisé dans cette même tick.
@@ -1257,8 +1402,7 @@ export default function PlaygroundPage() {
     const nextMessages: ChatMsg[] = [
       ...messages,
       { role: "user",
-        content: "Continue exactement là où tu t'es arrêté, sans rien répéter et "
-          + "sans réintroduire ta réponse. Reprends au caractère suivant.",
+        content: PROMPT_REPRISE_COMPLET,
         // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
         ts: Date.now(), hidden: true },
     ];
@@ -1670,8 +1814,16 @@ export default function PlaygroundPage() {
                   const contenuAffiche =
                     streamingThis && isLast && liveCode ? m.content.slice(0, liveCode.start) : m.content;
                   const arts = m.role === "assistant" && !ask
-                    ? parseArtifacts(contenuAffiche, !streamingThis && isDocTask(messages[i - 1]?.content ?? ""))
+                    ? parseArtifacts(
+                        // Fence jamais refermée : on la referme, sinon le fichier
+                        // coupé reste du code brut au milieu de la bulle.
+                        streamingThis ? contenuAffiche : contenuCloture(contenuAffiche),
+                        !streamingThis && isDocTask(messages[i - 1]?.content ?? ""))
                     : null;
+                  // Message de reprise : il ne porte que la fin du fichier.
+                  const suite = m.role === "assistant" && !streamingThis
+                    ? fusionDuMessage(messages, i)
+                    : [];
                   // Un message peut ne contenir que des MODIFICATIONS : le fichier
                   // à montrer est alors le résultat, pas ce que le message contient.
                   const modifs = m.role === "assistant" && !streamingThis
@@ -1681,7 +1833,9 @@ export default function PlaygroundPage() {
                   const fragments = m.role === "assistant" && !streamingThis
                     ? fragmentsDuMessage(messages, i)
                     : [];
-                  const items = [...(arts?.artifacts ?? []), ...modifs.fichiers];
+                  const items = suite.length
+                    ? [...suite, ...modifs.fichiers]
+                    : [...(arts?.artifacts ?? []), ...modifs.fichiers];
                   // When the model puts everything in the artifact and writes nothing
                   // outside, still show a short line in the chat (not an empty bubble).
                   const emptyMsg = items.some((a) => a.kind === "doc")
@@ -1708,9 +1862,13 @@ export default function PlaygroundPage() {
                   // pas pu être appliqué : c'est du protocole, pas une réponse. En
                   // cas d'échec, le bandeau ci-dessous l'explique.
                   const contientEdit = m.content.includes("```edit");
-                  const proseHorsEdit = (arts?.prose ?? m.content)
-                    .replace(/```edit[\s\S]*?(?:```|$)/g, "")
-                    .trim();
+                  // Une reprise n'a pas de prose à montrer : tout son contenu est
+                  // la fin du fichier, déjà recollée dans la carte.
+                  const proseHorsEdit = suite.length
+                    ? ""
+                    : (arts?.prose ?? m.content)
+                        .replace(/```edit[\s\S]*?(?:```|$)/g, "")
+                        .trim();
                   const bodyText = ask
                     ? askIntro
                     : items.length
@@ -1741,7 +1899,11 @@ export default function PlaygroundPage() {
                                   <Text type="supporting" color="secondary">
                                     {streamingThis && liveStats
                                       ? // Pendant le flux : compté sur les deltas SSE, donc « ~ ».
-                                        `~${liveStats.tokens} tokens · ${liveStats.tps} tok/s`
+                                        // Une reprise automatique est dite : sinon la réponse
+                                        // semble repartir de nulle part.
+                                        (reprise
+                                          ? `${t("Reprise automatique")} ${reprise}/${MAX_REPRISES_AUTO} · `
+                                          : "") + `~${liveStats.tokens} tokens · ${liveStats.tps} tok/s`
                                       : [
                                           m.tokens ? `${m.tokens} tokens` : null,
                                           m.tokensPerSec ? `${m.tokensPerSec} tok/s` : null,
@@ -1862,13 +2024,15 @@ export default function PlaygroundPage() {
                           )}
                           {/* Coupé par le plafond de tokens : sans ce message, la
                               réponse s'arrête en plein mot et rien ne l'explique. */}
-                          {m.truncated && !streamingThis && (
+                          {(m.truncated || (!streamingThis && messageIncomplet(messages, i))) && !streamingThis && (
                             <Banner
                               status="warning"
                               title={t("Réponse coupée")}
-                              description={t(
-                                "Le plafond de tokens a été atteint. Reprends la suite, ou augmente « Max tokens » dans les réglages.",
-                              )}
+                              description={
+                                m.truncated
+                                  ? t("Le plafond de tokens a été atteint. Reprends la suite, ou augmente « Max tokens » dans les réglages.")
+                                  : t("Le fichier s'arrête avant sa fin et les reprises automatiques n'ont pas suffi. Relance la suite, ou demande-lui de l'écrire en plusieurs fichiers.")
+                              }
                               endContent={
                                 isLast ? (
                                   <Button

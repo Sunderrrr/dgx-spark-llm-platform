@@ -1,4 +1,4 @@
-import os, sqlite3, smtplib, requests, time, re, threading, json, secrets, hmac, base64, ipaddress, unicodedata
+import os, sqlite3, smtplib, requests, time, re, threading, queue, json, secrets, hmac, base64, ipaddress, unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort, send_file
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
@@ -4447,25 +4447,56 @@ def playground_chat():
             # dans un événement à part — jamais mêlé au texte de la réponse, donc
             # rien à nettoyer ensuite et rien qui pollue la conversation enregistrée.
         try:
-            # READ timeout (2nd value) = anti-stuck-slot: if no byte
-            # arrives for 120 s (request stuck in queue behind saturated
-            # slots, or model blocked), we raise an exception, the `with` closes
-            # the connection, LiteLLM closes its own to llama.cpp, and the slot is
-            # released. A NORMAL generation sends tokens continuously (far
-            # more often than every 120 s), so it's never cut off.
+            # READ timeout (2nd value) = anti-stuck-slot: if no byte arrives for
+            # 300 s (request stuck in queue behind saturated slots, or model
+            # blocked), we raise, the `with` closes the connection, LiteLLM closes
+            # its own, and the slot is released. A NORMAL generation sends tokens
+            # continuously, so this never cuts one off.
+            # Relevé de 120 à 300 s : rien n'arrive pendant le PRÉCHARGEMENT du
+            # contexte, et une conversation portant un gros fichier peut y passer
+            # plus de deux minutes. À 120 s, ces requêtes mouraient en
+            # « flux interrompu (ReadTimeout) » — visible dans le journal.
             with requests.post(f"{LITELLM_URL}/v1/chat/completions",
                                headers={'Authorization': f'Bearer {user_key}'},
                                json={'model': model, 'messages': msgs, 'stream': True,
                                      'temperature': temperature, 'max_tokens': max_tokens, 'top_p': top_p,
                                      'stream_options': {'include_usage': True},
                                      'chat_template_kwargs': {'enable_thinking': reasoning}},
-                               stream=True, timeout=(10, 120)) as r:
+                               stream=True, timeout=(10, 300)) as r:
                 if not r.ok:
                     msg = ("Budget de compte dépassé — attends le reset quotidien ou demande plus de tokens."
                            if r.status_code == 429 else f"Erreur modèle ({r.status_code}).")
                     yield _sse_msg(msg)
                     return
-                for line in r.iter_lines():
+                # `iter_lines()` BLOQUE tant que rien n'arrive. Or rien n'arrive
+                # pendant tout le préchargement du contexte — plusieurs dizaines de
+                # secondes sur une longue conversation. Le client n'avait alors aucun
+                # signe de vie et renonçait (« Network error ») avant le premier
+                # token. On lit donc dans un fil, et on émet un battement de cœur
+                # toutes les 5 s d'attente. L'assistant Support fait déjà ainsi.
+                _file = queue.Queue(maxsize=1000)
+
+                def _lecteur():
+                    try:
+                        for _l in r.iter_lines():
+                            _file.put(_l)
+                    except Exception as _e:                      # noqa: BLE001
+                        _file.put(_e)
+                    finally:
+                        _file.put(None)
+
+                _fil = threading.Thread(target=_lecteur, daemon=True)
+                _fil.start()
+                while True:
+                    try:
+                        line = _file.get(timeout=5)
+                    except queue.Empty:
+                        yield ": attente\n\n"          # commentaire SSE : ignoré du parseur
+                        continue
+                    if line is None:
+                        break
+                    if isinstance(line, Exception):
+                        raise line
                     if line:
                         txt = line.decode('utf-8', 'replace')
                         # Vérité terrain sur la fin de génération : sans cette trace,
@@ -6770,6 +6801,35 @@ if __name__ == '__main__':
 # Découper ainsi évite d'avoir à reconstituer des appels d'outils fragmentés en
 # deltas, et la réponse visible arrive toujours token par token.
 MAX_TOURS_OUTILS = 3
+# Ce que la phase outils relit pour décider s'il faut chercher. Volontairement
+# COURT : décider « faut-il une recherche ? » ne demande pas de relire un fichier
+# de 65 Ko. Lui passer toute la conversation ajoutait un préchargement complet
+# AVANT la réponse — mesuré : 30 s sur 100 Ko de contexte, plus de 60 s au-delà,
+# et le client abandonnait (« Network error ») sur les conversations un peu
+# anciennes alors qu'une conversation neuve marchait.
+OUTILS_MSG_MAX = 1500      # par message
+OUTILS_TOTAL_MAX = 8000    # au total
+OUTILS_DERNIERS = 6        # nombre de messages relus
+
+
+def _contexte_outils(msgs):
+    """Version allégée de la conversation, pour la seule décision d'outil."""
+    systeme = [m for m in msgs[:1] if m.get('role') == 'system']
+    reste = msgs[len(systeme):]
+    court, total = [], 0
+    for m in reversed(reste[-OUTILS_DERNIERS:]):
+        c = str(m.get('content', ''))
+        if len(c) > OUTILS_MSG_MAX:
+            # On garde le DÉBUT et la FIN : la demande est souvent en tête, la
+            # dernière consigne en queue ; le ventre d'un gros fichier n'aide pas.
+            moitie = OUTILS_MSG_MAX // 2
+            c = c[:moitie] + "\n…\n" + c[-moitie:]
+        if total + len(c) > OUTILS_TOTAL_MAX and court:
+            break
+        total += len(c)
+        court.append({'role': m.get('role'), 'content': c})
+    return [{'role': m['role'], 'content': str(m.get('content', ''))[:OUTILS_MSG_MAX]}
+            for m in systeme] + list(reversed(court))
 
 
 def websearch_active(username):
@@ -6856,11 +6916,12 @@ def _phase_outils(model, msgs, user_key, journal):
     d'outils fragmentés en deltas est une source de bugs connue, et cette phase
     ne produit aucun texte destiné à la lecture.
     """
+    court = _contexte_outils(msgs)
     for _ in range(MAX_TOURS_OUTILS):
         try:
             r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
                               headers={'Authorization': f'Bearer {user_key}'},
-                              json={'model': model, 'messages': msgs, 'tools': _web_tools(),
+                              json={'model': model, 'messages': court, 'tools': _web_tools(),
                                     'tool_choice': 'auto', 'temperature': 0.2,
                                     'max_tokens': 1024,
                                     'chat_template_kwargs': {'enable_thinking': False}},
@@ -6874,8 +6935,13 @@ def _phase_outils(model, msgs, user_key, journal):
         appels = message.get('tool_calls') or []
         if not appels:
             return                      # le modèle n'a pas besoin d'outil : on répond
-        msgs.append({'role': 'assistant', 'content': message.get('content') or '',
-                     'tool_calls': appels})
+        # L'échange d'outils s'empile sur les DEUX : sur `court` pour que le tour
+        # suivant en tienne compte, sur `msgs` pour que la réponse finale dispose
+        # de ce qui a été trouvé.
+        tour = {'role': 'assistant', 'content': message.get('content') or '',
+                'tool_calls': appels}
+        court.append(tour)
+        msgs.append(tour)
         for appel in appels[:4]:
             fn = (appel.get('function') or {})
             try:
@@ -6890,5 +6956,7 @@ def _phase_outils(model, msgs, user_key, journal):
             resultat = _exec_web_tool(fn.get('name', ''), args, journal)
             yield "data: " + json.dumps({'cronos_web': journal[-1] if journal else {}}) + "\n\n"
 
-            msgs.append({'role': 'tool', 'tool_call_id': appel.get('id', ''),
-                         'name': fn.get('name', ''), 'content': resultat[:20000]})
+            trouve = {'role': 'tool', 'tool_call_id': appel.get('id', ''),
+                      'name': fn.get('name', ''), 'content': resultat[:20000]}
+            court.append(trouve)
+            msgs.append(trouve)

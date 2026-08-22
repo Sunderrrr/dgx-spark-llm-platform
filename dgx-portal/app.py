@@ -4346,6 +4346,9 @@ def playground_chat():
     _who = session['username']
     def gen():
         _rid = _inflight_start(_who)   # live "who's using the model" — SpendLogs only logs at request end
+        # `_out` n'arrive qu'au tout dernier chunk : sur un flux abandonné en
+        # cours de route il vaut None. `_octets` mesure l'avancement réel.
+        _finish, _out, _octets = None, None, 0
         try:
             # READ timeout (2nd value) = anti-stuck-slot: if no byte
             # arrives for 120 s (request stuck in queue behind saturated
@@ -4365,7 +4368,6 @@ def playground_chat():
                            if r.status_code == 429 else f"Erreur modèle ({r.status_code}).")
                     yield _sse_msg(msg)
                     return
-                _finish, _out = None, None
                 for line in r.iter_lines():
                     if line:
                         txt = line.decode('utf-8', 'replace')
@@ -4379,6 +4381,7 @@ def playground_chat():
                                 _out = (_d.get('usage') or {}).get('completion_tokens') or _out
                             except Exception:
                                 pass
+                        _octets += len(txt)
                         yield txt + "\n\n"
                 if _finish is None:
                     # Le flux amont s'est fermé SANS annoncer de fin. Pour `iter_lines`
@@ -4386,8 +4389,8 @@ def playground_chat():
                     # client reçoit une réponse qui a l'air complète alors qu'elle est
                     # coupée en plein mot. On le dit explicitement, sinon rien ne le
                     # signale et la réponse tronquée passe pour finie.
-                    app.logger.warning("playground %s : flux ferme sans finish_reason "
-                                       "apres %s tokens — reponse coupee", _who, _out)
+                    app.logger.warning("playground %s : flux amont ferme sans finish_reason "
+                                       "apres %s octets — reponse coupee", _who, _octets)
                     yield ("data: " + json.dumps({'choices': [{'delta': {},
                            'finish_reason': 'length'}]}) + "\n\n")
                 elif _finish != 'stop':
@@ -4399,7 +4402,8 @@ def playground_chat():
             # Le navigateur a fermé la connexion en cours de route (coupure réseau,
             # onglet fermé). Ce n'est PAS une Exception : sans ce cas, la coupure la
             # plus fréquente ne laissait aucune trace côté serveur.
-            app.logger.warning("playground %s : client deconnecte en cours de flux", _who)
+            app.logger.warning("playground %s : generateur ferme apres %s octets / %s tokens "
+                               "(client parti en cours de flux)", _who, _octets, _out)
             raise
         except Exception as _e:
             app.logger.warning("playground %s : flux interrompu (%s)", _who, type(_e).__name__)

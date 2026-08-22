@@ -1168,6 +1168,8 @@ export default function PlaygroundPage() {
     }, 250);
     return () => clearInterval(id);
   }, [streaming]);
+  // Première erreur d'exécution remontée par l'aperçu (vide = la page tourne).
+  const [erreurApercu, setErreurApercu] = useState("");
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
@@ -1667,6 +1669,24 @@ export default function PlaygroundPage() {
     void runStream(nextMessages);
   }
 
+  /** L'aperçu a levé une erreur : on redemande le fichier corrigé, en entier. */
+  function corrigerErreur(nom: string, message: string) {
+    if (streaming || !messages.length) return;
+    const nextMessages: ChatMsg[] = [
+      ...messages,
+      { role: "user",
+        content: `Le fichier \`${nom}\` s'ouvre mais ne fonctionne pas. Le navigateur `
+          + `signale : « ${message} ». Corrige la cause exacte de cette erreur `
+          + "(vérifie notamment que les fonctions appelées existent bien dans la version "
+          + "de bibliothèque que tu utilises) et renvoie le fichier COMPLET corrigé, "
+          + "en entier, sous le même nom.",
+        // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+        ts: Date.now(), hidden: true },
+    ];
+    setMessages(nextMessages);
+    void runStream(nextMessages);
+  }
+
   function stop() {
     abortRef.current?.abort();
   }
@@ -1756,10 +1776,30 @@ export default function PlaygroundPage() {
       return () => { annule = true; };
     }
     void sendJSON<{ ok: boolean; id?: string }>("/playground/preview", csrf, { html: panelContent })
-      .then((r) => { if (!annule && r.ok && r.id) setPreviewUrl(`/playground/preview/${r.id}`); })
+      .then((r) => {
+        if (annule || !r.ok || !r.id) return;
+        setErreurApercu("");            // nouvelle page : on repart d'un état propre
+        setPreviewUrl(`/playground/preview/${r.id}`);
+      })
       .catch(() => {});
     return () => { annule = true; };
   }, [panelEstHtml, htmlPreview, panelContent, csrf]);
+
+  // L'aperçu remonte ses erreurs d'exécution. Une page peut être parfaitement
+  // formée et ne rien faire — mauvaise version de bibliothèque, méthode
+  // inexistante — et aucune analyse du texte ne peut le voir. Seule l'exécution
+  // le dit, et c'est l'aperçu qui exécute.
+  useEffect(() => {
+    function surMessage(e: MessageEvent) {
+      const d = e.data as { cronosPreviewError?: unknown } | null;
+      const msg = d && typeof d.cronosPreviewError === "string" ? d.cronosPreviewError : null;
+      if (!msg) return;
+      // Contenu produit par la page générée : jamais interprété, seulement affiché.
+      setErreurApercu((prec) => prec || msg.slice(0, 300));
+    }
+    window.addEventListener("message", surMessage);
+    return () => window.removeEventListener("message", surMessage);
+  }, []);
   // Auto-follow the document while it streams into the panel; show a "jump to
   // bottom" button when the reader scrolls up and leaves the live tail.
   const {
@@ -2421,6 +2461,27 @@ export default function PlaygroundPage() {
                     </SegmentedControl>
                   </HStack>
                 )}
+                {panelEstHtml && htmlPreview && erreurApercu ? (
+                  /* La page s'ouvre mais lève une erreur : elle est bien formée et
+                     pourtant inutilisable. Sans ce bandeau, l'utilisateur voit un
+                     aperçu vide ou figé sans savoir pourquoi. */
+                  <HStack padding={3}>
+                    <Banner
+                      status="warning"
+                      title={t("La page ne s'exécute pas")}
+                      description={erreurApercu}
+                      endContent={
+                        <Button
+                          label={t("Corriger")}
+                          variant="primary"
+                          size="sm"
+                          isDisabled={streaming}
+                          onClick={() => corrigerErreur(panelTitle, erreurApercu)}
+                        />
+                      }
+                    />
+                  </HStack>
+                ) : null}
                 {panelEstHtml && htmlPreview ? (
                   /* Page générée par le modèle, dans une iframe ISOLÉE.
                      `allow-scripts` SANS `allow-same-origin` : la page peut

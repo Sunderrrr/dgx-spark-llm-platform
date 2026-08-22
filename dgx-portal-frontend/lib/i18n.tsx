@@ -313,6 +313,13 @@ const EN: Record<string, string> = {
   "Refaire le fichier": "Rebuild the file",
   "La page ne s'exécute pas": "The page does not run",
   "Corriger": "Fix it",
+  "recherche « {q} »": "searching for “{q}”",
+  "recherche impossible : {e}": "search failed: {e}",
+  "{n} résultat(s) pour « {q} »": "{n} result(s) for “{q}”",
+  "lecture de {n} page(s)": "reading {n} page(s)",
+  "lecture impossible : {e}": "reading failed: {e}",
+  "{n} page(s) lue(s)": "{n} page(s) read",
+  ", {n} inaccessible(s)": ", {n} unreachable",
   "Plein écran": "Fullscreen",
   "Modification non appliquée": "Edit not applied",
   "Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.":

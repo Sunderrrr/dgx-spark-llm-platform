@@ -76,6 +76,63 @@ table. Scale the ceremony to the risk.
 
 ---
 
+## Docker networking gotchas
+
+- **`host.docker.internal` is pinned, don't "fix" it back to `host-gateway`.**
+  `host-gateway` resolves to the gateway of whichever interface carries the
+  container's default route — and that depends on the *order of attached
+  networks*. Attaching one more network has silently flipped it twice
+  (`asr_net`, then `web_net`): outbound packets then left as `172.22.x` /
+  `172.25.x`, and `vllm-restrict.service` — which only allows `172.19.0.0/16`
+  towards the runner and vLLM — dropped them. Symptom: the portal reaches
+  nothing, no model is available, and **nothing is logged**. `dgx-portal` now
+  pins `host.docker.internal:172.19.0.1`, the address the firewall already
+  hardcodes. Compose's `priority:` on networks did *not* fix this when tried.
+- **Adding a network to `dgx-portal` is never free.** After any such change,
+  check from inside the container that the runner still answers:
+  `docker exec dgx-portal python3 -c "import requests;
+  print(requests.get('http://host.docker.internal:8001/status', timeout=4).status_code)"`
+  (401 = reachable, timeout = you broke the route).
+
+---
+
+## Web search (SearXNG + crawl4ai)
+
+The playground can search the web. Two sidecars, both on the dedicated
+`web_net`, neither published:
+
+- **SearXNG** (`:8080`) turns a question into links. crawl4ai cannot search —
+  it only extracts URLs it is given, hence two services. Its `settings.yml`
+  lives in `./searxng/` (git-ignored, holds a generated secret) and **must**
+  keep `formats: [html, json]`: JSON is off by default.
+- **crawl4ai** (`:11235`) reads the pages. It refuses to listen beyond loopback
+  without a credential; the token is generated once into `./secrets/` and
+  mounted at `/run/secrets/api_token`, the path its entrypoint reads. The file
+  must be world-readable (0644) — the container runs unprivileged and cannot
+  read a 0600 root-owned mount.
+
+Rules that are not obvious:
+
+- **crawl4ai is the most exposed component on this box** — it drives a browser
+  over pages entirely controlled by third parties. It has no route to litellm,
+  postgres or traefik, and `cronos-web-restrict.service` drops every new
+  connection from `web_net` to the host (before that rule, the host's SSH port
+  accepted connections from it). Never attach it to `default`.
+- **Every URL is resolved and checked public before it reaches the crawler**
+  (`websearch.url_publique`). The network cannot do this: a hostile page can
+  redirect anywhere.
+- **Extraction settings were chosen by measurement**, see `test_websearch.py`:
+  `ignore_links` + `excluded_tags` cut 61–75 % of volume without losing
+  substance. `PruningContentFilter` was tried and **rejected** — it strips code
+  blocks (`TaskGroup` vanished from the asyncio docs).
+- **Banners are cleaned line by line, pages are not discarded.** Judging a page
+  by its opening threw away pages that held the answer.
+- The tool phase runs **inside** the SSE generator and emits progress events.
+  Running it before the response starts left the client with no bytes for tens
+  of seconds and the frontend proxy gave up.
+
+---
+
 ## Model serving
 
 The **`vllm-runner`** systemd daemon (host, user `vllmrunner`, port `8001`, Bearer

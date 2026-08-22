@@ -136,6 +136,8 @@ services:
       # ComfyUI's video output, read-only: lets the portal serve past videos
       # from disk even when the video sidecar (ComfyUI) is stopped to free the GPU.
       - /root/ComfyUI/output:/comfyui-output:ro
+      # Même jeton, côté appelant.
+      - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -157,6 +159,7 @@ services:
       - asr_net
       - image_net
       - music_net
+      - web_net
 
   # ─── DGX Portal Frontend — Next.js + Astryx, nouvelle interface complète ──
   # Reprend le port 5000 (celui que filtre déjà cronos-docker-restrict.service
@@ -174,6 +177,49 @@ services:
       - ALL
     ports:
       - "5000:3000"
+
+  # ─── Recherche web : SearXNG (métamoteur) + crawl4ai (extraction) ──────────
+  # Aucun `ports:` : ni l'un ni l'autre n'est joignable depuis l'extérieur, seul
+  # dgx-portal les atteint sur web_net.
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    environment:
+      # Vue depuis dgx-portal ; sert aussi à SearXNG pour ses propres URL.
+      - SEARXNG_BASE_URL=http://searxng:8080/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-cronos-searxng-local}
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # SearXNG (uwsgi) se rabat sur un utilisateur non privilégié au démarrage.
+      - SETUID
+      - SETGID
+    networks:
+      - web_net
+
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    container_name: crawl4ai
+    restart: unless-stopped
+    volumes:
+      # Sans jeton, crawl4ai refuse délibérément d'écouter ailleurs que sur la
+      # boucle locale — il serait donc injoignable depuis dgx-portal. Le jeton est
+      # généré une fois dans ./secrets (hors dépôt, 0600) et monté ici sous le
+      # chemin que son entrypoint lit tout seul.
+      - ./secrets/crawl4ai_token:/run/secrets/api_token:ro
+    # Chromium a besoin de mémoire partagée : sans ça il plante sur les pages
+    # un peu lourdes. C'est /dev/shm, PAS une limite mémoire — on ne met JAMAIS
+    # `mem_limit` sur un sidecar de cette machine (mémoire unifiée, cf. CLAUDE.md).
+    shm_size: 1g
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - web_net
 
 volumes:
   postgres_data:
@@ -207,6 +253,12 @@ networks:
   # plus que le modèle est choisi librement depuis l'admin — du code de modèle
   # tiers arbitraire n'a rien à faire sur le réseau de litellm/postgres.
   music_net:
+  # Recherche web : c'est le sidecar le PLUS exposé de la machine — crawl4ai
+  # pilote un navigateur qui visite des pages arbitraires, donc du contenu
+  # entièrement contrôlé par des tiers, et SearXNG interroge des moteurs
+  # externes. Ni l'un ni l'autre n'a la moindre raison d'avoir une route vers
+  # litellm, postgres ou traefik. Seul dgx-portal est multi-homé dessus.
+  web_net:
 
 # ─── OpenWebUI ────────────────────────────────────────────────────────────────
 # OpenWebUI tourne sur ton autre serveur (vor.cronos.website).

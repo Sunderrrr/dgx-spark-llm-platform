@@ -6902,29 +6902,25 @@ def _contexte_outils(msgs):
             for m in systeme] + list(reversed(court))
 
 
-# La recherche ne part QUE si la demande en a visiblement besoin.
+# La recherche ne part QUE sur une DIRECTIVE EXPLICITE.
 #
-# La règle inverse — « cherche sauf si du code traîne » — s'est révélée fausse
-# deux fois de suite : une correction de jeu Pong a déclenché une recherche, et
-# une simple dissertation sur la propagation du son en a déclenché une autre qui
-# a fait échouer la requête (contexte de 431 tokens, donc rien à précharger :
-# c'est bien la recherche qui a tout mangé). Le défaut doit donc être de NE PAS
-# chercher : le modèle sait déjà énormément de choses, et une recherche inutile
-# coûte des dizaines de secondes d'attente pour rien.
+# Cinq versions de cette règle ont échoué en production, toujours de la même
+# façon : deviner l'intention à partir de mots isolés. « google » venait d'une
+# balise de police, « source » d'un createBufferSource, et « en ligne » d'un
+# « jeu d'échecs en ligne » — cette dernière a bloqué un utilisateur six fois de
+# suite. Un mot isolé ne dit pas ce que quelqu'un veut.
+#
+# On exige donc une tournure qui ne peut vouloir dire qu'une chose : « cherche
+# sur internet », « fais une recherche web ». Une question d'actualité ne
+# déclenche plus rien toute seule — c'est un recul assumé, mais prévisible :
+# personne ne subit une recherche qu'il n'a pas demandée, et il suffit de
+# l'écrire pour l'obtenir.
 _DEMANDE_RECHERCHE = re.compile(
-    r"(?:^|\W)(?:"
-    r"cherche|recherch|google|sur internet|sur le web|en ligne|"          # demande directe
-    r"actualit|derni[eè]re[s]?\s+(?:nouvelle|info|news)|news|"            # actualité
-    r"quoi de neuf|aujourd'hui|ce matin|cette semaine|en ce moment|"
-    r"v[ée]rifie|(?:cite|avec|donne|tes)\s+(?:tes\s+)?sources?|d'apr[eè]s le web|"                          # vérification
-    r"prix\s+(?:de|du|des)|combien\s+co[ûu]te|cours\s+(?:de|du)|"        # données mouvantes
-    r"m[ée]t[ée]o|derni[eè]re\s+version|version\s+actuelle|changelog|"
-    r"20[3-9]\d"                                                          # une année future
-    r")", re.I)
-
-# Un fichier dans la conversation reste un veto explicite : même formulée comme
-# une question, une demande portant sur du code présent se répond en le lisant.
-_BLOC_CONSEQUENT = re.compile(r"```[^\n`]*\n[\s\S]{400,}?```")
+    r"(?:cherche|recherche|regarde|va voir|renseigne-toi|informe-toi)"
+    r"[^.!?\n]{0,30}?\b(?:sur (?:le )?(?:web|internet|net)|en ligne|sur google)"
+    r"|(?:fais|lance|effectue)[^.!?\n]{0,20}?\brecherche"
+    r"|recherche\s+web|web\s*search|search\s+the\s+web",
+    re.I)
 
 
 def _texte_de_la_demande(contenu):
@@ -6950,12 +6946,9 @@ def _recherche_pertinente(history):
     """Faut-il seulement PROPOSER les outils de recherche pour ce tour ?"""
     dernier = next((m for m in reversed(history) if m.get('role') == 'user'), None)
     texte = _texte_de_la_demande(str((dernier or {}).get('content', '')))
-    if not _DEMANDE_RECHERCHE.search(texte):
-        return False
-    # Demande explicite de chercher : elle l'emporte même sur un fichier présent.
-    if re.search(r"(?:^|\W)(?:cherche|recherch|google|sur internet|sur le web|en ligne)", texte, re.I):
-        return True
-    return not any(_BLOC_CONSEQUENT.search(str(m.get('content', ''))) for m in history)
+    # Une directive explicite, et rien d'autre. Elle l'emporte sur tout le reste :
+    # si quelqu'un écrit « cherche sur internet », c'est qu'il le veut.
+    return bool(_DEMANDE_RECHERCHE.search(texte))
 
 
 def websearch_active(username):

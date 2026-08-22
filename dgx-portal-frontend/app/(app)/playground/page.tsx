@@ -1934,6 +1934,11 @@ export default function PlaygroundPage() {
                   const fragments = m.role === "assistant" && !streamingThis
                     ? fragmentsDuMessage(messages, i)
                     : [];
+                  // Le flux a cassé APRÈS avoir livré du texte : ce n'est pas une
+                  // heuristique, c'est une erreur constatée. Sans ce signalement, la
+                  // réponse s'arrêtait en plein mot sans que rien ne l'explique.
+                  const coupeReseau = !!m.isError && m.role === "assistant"
+                    && m.content.length > 200 && !streamingThis;
                   // Un message de REPRISE ne montre que le fichier reconstitué. S'il
                   // n'y avait rien à compléter, il ne montre aucun fichier : son
                   // contenu est la suite d'un texte, pas un livrable. Sans ce test,
@@ -2131,13 +2136,15 @@ export default function PlaygroundPage() {
                           )}
                           {/* Coupé par le plafond de tokens : sans ce message, la
                               réponse s'arrête en plein mot et rien ne l'explique. */}
-                          {(m.truncated || (!streamingThis && messageIncomplet(messages, i))) && !streamingThis && (
+                          {(m.truncated || coupeReseau || (!streamingThis && messageIncomplet(messages, i))) && !streamingThis && (
                             <Banner
                               status="warning"
                               title={t("Réponse coupée")}
                               description={
                                 m.truncated
                                   ? t("Le plafond de tokens a été atteint. Reprends la suite, ou augmente « Max tokens » dans les réglages.")
+                                  : coupeReseau
+                                  ? t("La connexion s'est interrompue pendant la génération. Reprends la suite — ce qui est déjà écrit est conservé.")
                                   : t("Le fichier s'arrête avant sa fin et les reprises automatiques n'ont pas suffi. Relance la suite, ou demande-lui de l'écrire en plusieurs fichiers.")
                               }
                               endContent={

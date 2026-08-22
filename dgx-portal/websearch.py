@@ -45,16 +45,25 @@ _EXTRACTION = {
     },
 }
 
-# Beaucoup de sites de presse ne servent pas l'article : mur de consentement,
-# abonnement, ou détection de robot. On récupère alors leur bandeau, pas
-# l'information — pire que rien, puisque le modèle le prendrait pour le contenu.
-# Ces pages sont marquées illisibles ; l'extrait du moteur de recherche, lui,
-# reste exploitable et suffit souvent pour de l'actualité.
-MOTS_DE_MUR = ('continuer sans accepter', 'utilisons des cookies', 'consentement',
-               'accepter les cookies', 'votre abonnement', 'abonnez-vous',
-               'required part of this site', 'enable javascript', 'activez javascript',
-               'accept cookies', 'privacy preferences')
-MIN_MOTS_UTILES = 120
+# Beaucoup de sites servent leur bandeau AVANT l'article : consentement,
+# abonnement, fil de notifications. Mesuré : sur letelegramme.fr les vrais titres
+# n'arrivent qu'à la 4ᵉ ligne, et sur tf1info.fr chaque titre est préfixé de
+# « Nouvelle notification » — dont celui qu'on cherchait. Juger la page sur son
+# DÉBUT revenait donc à jeter des pages qui contenaient la réponse ; on retire
+# ces lignes-là, et on ne renonce que si le reste est vraiment vide.
+#
+# On filtre par LIGNE et jamais par longueur : une ligne courte peut être du
+# code, et une page de documentation en est pleine.
+LIGNES_DE_BANDEAU = (
+    'continuer sans accepter', 'utilisons des cookies', 'accepter les cookies',
+    'gérer mes choix', 'gerer mes choix', 'politique de confidentialité',
+    'votre carte de paiement', 'votre abonnement', "n'a pas encore été validé",
+    'abonnez-vous', 'accept cookies', 'privacy preferences', 'consent',
+    'enable javascript', 'activez javascript', 'required part of this site',
+)
+# Préfixes parasites collés à des titres utiles : on retire le préfixe, pas la ligne.
+PREFIXES_PARASITES = ('Vidéo Nouvelle notification', 'Nouvelle notification')
+MIN_MOTS_UTILES = 60
 
 MAX_RESULTATS = 8
 MAX_PAGES = 4
@@ -123,15 +132,34 @@ def url_publique(url):
     return True, None
 
 
-def _page_inexploitable(texte):
-    """Ce qu'on a extrait est-il un mur plutôt que le contenu ? (None si ça va.)"""
-    t = (texte or '').strip()
-    mots = sum(1 for m in t.split() if len(m) > 3)
+def nettoyer(texte):
+    """Retire les lignes de bandeau et les préfixes parasites. Retourne le texte."""
+    sorties = []
+    for ligne in (texte or '').split('\n'):
+        l = ligne.rstrip()
+        bas = l.lower()
+        if any(m in bas for m in LIGNES_DE_BANDEAU):
+            continue
+        for prefixe in PREFIXES_PARASITES:
+            if l.lstrip('* ').startswith(prefixe):
+                l = l.lstrip('* ')[len(prefixe):].lstrip()
+                break
+        sorties.append(l)
+    # Les blancs multiples laissés par les lignes retirées n'apportent rien.
+    propre, vide = [], False
+    for l in sorties:
+        if l.strip():
+            propre.append(l); vide = False
+        elif not vide:
+            propre.append(''); vide = True
+    return '\n'.join(propre).strip()
+
+
+def _trop_pauvre(texte):
+    """La page est-elle vide de substance une fois nettoyée ? (None si ça va.)"""
+    mots = sum(1 for m in (texte or '').split() if len(m) > 3)
     if mots < MIN_MOTS_UTILES:
-        return "Page trop pauvre (contenu chargé en JavaScript, ou accès refusé)."
-    debut = ' '.join(t.split())[:500].lower()
-    if any(m in debut for m in MOTS_DE_MUR):
-        return "Mur de consentement ou d'abonnement : l'article n'est pas accessible."
+        return "Page sans contenu exploitable (chargée en JavaScript, ou accès refusé)."
     return None
 
 
@@ -204,12 +232,13 @@ def lire(urls, max_cars=MAX_CARS_PAGE):
         if not info or not info['ok']:
             pages.append({'url': u, 'erreur': "Page illisible."})
             continue
-        souci = _page_inexploitable(info['markdown'])
+        propre = nettoyer(info['markdown'])
+        souci = _trop_pauvre(propre)
         if souci:
             pages.append({'url': u, 'titre': info['titre'], 'erreur': souci})
             continue
         reste = max(0, MAX_CARS_TOTAL - total)
-        texte = info['markdown'][:reste]
+        texte = propre[:reste]
         total += len(texte)
         pages.append({'url': u, 'titre': info['titre'], 'contenu': texte})
     return pages, None

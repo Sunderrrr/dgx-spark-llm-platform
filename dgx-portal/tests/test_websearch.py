@@ -10,6 +10,22 @@ from unittest import mock
 import websearch
 
 
+def _lire_avec(texte):
+    """Fait passer `texte` pour le markdown rendu par le crawler."""
+    def faux_post(url, **kw):
+        r = mock.Mock(); r.raise_for_status = lambda: None
+        r.json = lambda: {'results': [{'url': u, 'success': True,
+                                       'markdown': {'raw_markdown': texte},
+                                       'metadata': {'title': 't'}}
+                                      for u in kw['json']['urls']]}
+        return r
+    with mock.patch('websearch.requests.post', side_effect=faux_post), \
+         mock.patch('websearch.socket.getaddrinfo',
+                    return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
+        pages, _ = websearch.lire(['https://exemple.fr/a'])
+    return pages[0]
+
+
 class UrlPubliqueTest(unittest.TestCase):
     def test_schemas_exotiques_refuses(self):
         for u in ('file:///etc/passwd', 'ftp://exemple.fr', 'gopher://x',
@@ -137,54 +153,59 @@ class LectureTest(unittest.TestCase):
         self.assertIn('injoignable', err)
 
 
-class MurEtPauvreteTest(unittest.TestCase):
-    """Une page qui rend son bandeau au lieu de son article est pire que rien :
-    le modèle prendrait le bandeau pour l'information. Mesuré en vrai sur la
-    presse française — murs de consentement, d'abonnement, détection de robot.
+class NettoyageTest(unittest.TestCase):
+    """Le bandeau se retire ligne à ligne — on ne jette PAS la page.
+
+    Mesuré en vrai : sur letelegramme.fr le premier vrai titre n'arrive qu'à la
+    4ᵉ ligne, et sur tf1info.fr chaque titre est préfixé de « Nouvelle
+    notification » — y compris celui qu'on cherchait. Juger la page sur son début
+    revenait à jeter des pages qui contenaient la réponse.
     """
 
-    def _crawl(self, texte):
-        def faux_post(url, **kw):
-            r = mock.Mock(); r.raise_for_status = lambda: None
-            r.json = lambda: {'results': [{'url': u, 'success': True,
-                                           'markdown': {'raw_markdown': texte},
-                                           'metadata': {'title': 't'}}
-                                          for u in kw['json']['urls']]}
-            return r
-        with mock.patch('websearch.requests.post', side_effect=faux_post), \
-             mock.patch('websearch.socket.getaddrinfo',
-                        return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
-            pages, _ = websearch.lire(['https://exemple.fr/a'])
-        return pages[0]
+    def test_bandeau_retire_mais_article_conserve(self):
+        brut = ("Votre carte de paiement arrive à expiration. Mettez la à jour.\n"
+                "Continuer sans accepter →\n"
+                "## Dans le Morbihan, la liquidation d'une entreprise du bâtiment\n"
+                "laisse clients, artisans et salariés dans l'impasse.")
+        net = websearch.nettoyer(brut)
+        self.assertNotIn('carte de paiement', net)
+        self.assertNotIn('Continuer sans accepter', net)
+        self.assertIn('Morbihan', net)
 
-    def test_mur_de_cookies_signale_et_contenu_ecarte(self):
-        p = self._crawl("Continuer sans accepter → Pour soutenir le travail de notre "
-                        "rédaction, nous et nos 231 partenaires utilisons des cookies "
-                        + "pour stocker des informations sur votre terminal. " * 20)
-        self.assertIn('erreur', p)
-        self.assertNotIn('contenu', p)
+    def test_prefixe_de_notification_retire_sans_perdre_le_titre(self):
+        brut = ("* Nouvelle notificationEN DIRECT - Guerre en Ukraine : Macron annonce\n"
+                "* Vidéo Nouvelle notification\"The Voice Kids 2026\" : des gages")
+        net = websearch.nettoyer(brut)
+        self.assertNotIn('Nouvelle notification', net)
+        self.assertIn('Guerre en Ukraine', net)
 
-    def test_mur_d_abonnement_signale(self):
-        p = self._crawl("Votre abonnement arrive à expiration, mettez à jour votre carte. "
-                        * 40)
+    def test_les_lignes_courtes_de_code_ne_sont_jamais_retirees(self):
+        # Une doc technique est pleine de lignes courtes : filtrer par longueur
+        # détruirait le code. On ne filtre que sur des motifs de bandeau.
+        brut = "async def main():\n    await asyncio.gather(a(), b())\n}\n)\nreturn x"
+        net = websearch.nettoyer(brut)
+        for l in ('async def main():', 'asyncio.gather', 'return x', '}'):
+            self.assertIn(l, net)
+
+    def test_page_reduite_a_rien_est_signalee(self):
+        p = _lire_avec("Continuer sans accepter\nutilisons des cookies\naccepter les cookies")
         self.assertIn('erreur', p)
 
     def test_page_javascript_vide_signalee(self):
-        p = self._crawl("A required part of this site couldn't load.")
+        p = _lire_avec("A required part of this site couldn't load.")
         self.assertIn('erreur', p)
 
     def test_article_normal_conserve(self):
         article = ("Le président a annoncé mardi une nouvelle livraison de matériel "
-                   "destinée à renforcer la défense antiaérienne du pays. ") * 12
-        p = self._crawl(article)
+                   "destinée à renforcer la défense antiaérienne du pays.\n") * 12
+        p = _lire_avec(article)
         self.assertNotIn('erreur', p)
-        self.assertIn('contenu', p)
         self.assertGreater(len(p['contenu']), 200)
 
     def test_documentation_technique_conservee(self):
-        doc = ("asyncio.TaskGroup permet de regrouper plusieurs tâches concurrentes "
-               "et d'attendre leur achèvement collectif de manière structurée. ") * 12
-        p = self._crawl(doc)
+        doc = ("asyncio.TaskGroup regroupe plusieurs tâches concurrentes et attend "
+               "leur achèvement collectif de manière structurée.\n") * 12
+        p = _lire_avec(doc)
         self.assertNotIn('erreur', p)
         self.assertIn('TaskGroup', p['contenu'])
 

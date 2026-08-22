@@ -6916,7 +6916,7 @@ _DEMANDE_RECHERCHE = re.compile(
     r"cherche|recherch|google|sur internet|sur le web|en ligne|"          # demande directe
     r"actualit|derni[eè]re[s]?\s+(?:nouvelle|info|news)|news|"            # actualité
     r"quoi de neuf|aujourd'hui|ce matin|cette semaine|en ce moment|"
-    r"v[ée]rifie|source[s]?\b|d'apr[eè]s le web|"                          # vérification
+    r"v[ée]rifie|(?:cite|avec|donne|tes)\s+(?:tes\s+)?sources?|d'apr[eè]s le web|"                          # vérification
     r"prix\s+(?:de|du|des)|combien\s+co[ûu]te|cours\s+(?:de|du)|"        # données mouvantes
     r"m[ée]t[ée]o|derni[eè]re\s+version|version\s+actuelle|changelog|"
     r"20[3-9]\d"                                                          # une année future
@@ -6927,10 +6927,29 @@ _DEMANDE_RECHERCHE = re.compile(
 _BLOC_CONSEQUENT = re.compile(r"```[^\n`]*\n[\s\S]{400,}?```")
 
 
+def _texte_de_la_demande(contenu):
+    """Ce que l'utilisateur a ÉCRIT, sans le fichier qu'il a collé.
+
+    Chercher l'intention dans le message entier revenait à la chercher dans le
+    code. Constaté : un `<link href="https://fonts.googleapis.com/...">` — donc
+    le mot « google » — suffisait à faire croire à une demande de recherche
+    explicite, laquelle passe outre le veto du fichier. Trois recherches sont
+    parties sur « "index (2).html" », toutes vides.
+    """
+    t = re.sub(r"```[\s\S]*?```", " ", contenu or "")     # blocs délimités
+    t = re.sub(r"<[^>]{1,300}>", " ", t)                    # balises collées
+    t = re.sub(r"https?://\S+", " ", t)                     # adresses (google, etc.)
+    if len(t) > 1200:
+        # Collage brut sans délimiteur : la demande d'un humain se trouve au
+        # début ou à la fin, jamais au milieu de 60 Ko de code.
+        t = t[:600] + " \n " + t[-600:]
+    return t
+
+
 def _recherche_pertinente(history):
     """Faut-il seulement PROPOSER les outils de recherche pour ce tour ?"""
     dernier = next((m for m in reversed(history) if m.get('role') == 'user'), None)
-    texte = str((dernier or {}).get('content', ''))
+    texte = _texte_de_la_demande(str((dernier or {}).get('content', '')))
     if not _DEMANDE_RECHERCHE.search(texte):
         return False
     # Demande explicite de chercher : elle l'emporte même sur un fichier présent.

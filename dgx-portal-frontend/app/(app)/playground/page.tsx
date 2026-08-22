@@ -246,26 +246,14 @@ function balanceJson(src: string): string {
  * fichier est inutilisable, et rien ne permettait de reprendre.
  */
 function reponseIncomplete(content: string): boolean {
-  const fences = content.match(/```/g);
-  if (fences && fences.length % 2 === 1) return true;           // bloc jamais refermé
+  const ouvert = openCodeFence(content);
+  if (ouvert) {
+    // Fence de fermeture simplement oubliée sur un fichier qui, lui, est fini :
+    // ce n'est pas une coupure, et le dire relançait une génération pour rien.
+    return !/<\/html\s*>\s*$/i.test(ouvert.body.trimEnd());
+  }
   if (/<!DOCTYPE html|<html[\s>]/i.test(content) && !/<\/html\s*>/i.test(content)) return true;
   return false;
-}
-
-/** La réponse s'arrête-t-elle en pleine phrase, APRÈS un fichier pourtant complet ?
- *
- * Constaté en production : le fichier était refermé et `</html>` présent, mais le
- * commentaire qui suivait s'arrêtait au milieu d'un mot (« je peux ajouter un
- * **nive »). Rien ne le signalait. On ne relance PAS tout seul dans ce cas — le
- * livrable est là — mais on propose la suite.
- */
-function proseIncomplete(content: string): boolean {
-  if (content.length < 800) return false;                       // trop court pour conclure
-  const prose = content.replace(/```[\s\S]*?```/g, "").trim();
-  if (prose.length < 120) return false;                         // presque que du code
-  if ((prose.match(/\*\*/g) || []).length % 2 === 1) return true;  // gras jamais refermé
-  // Une phrase finie se termine par une ponctuation (ou un emoji, fréquent ici).
-  return !/[.!?:;)\]}»"'`…\p{Extended_Pictographic}]$/u.test(prose);
 }
 
 /** Le texte du message, avec la fence jamais refermée refermée d'office.
@@ -290,13 +278,25 @@ function fichierInacheve(content: string): string | null {
   return dernier && dernier.kind === "code" ? dernier.title : null;
 }
 
-/** Ce qu'il faut recoller au fichier : le message de reprise, sans son emballage. */
+/** Ce qu'il faut recoller au fichier : le message de reprise, sans son emballage.
+ *
+ * Une reprise commence AU MILIEU du bloc. Trois formes vues en vrai :
+ *  - le modèle rouvre une fence : on prend le corps du bloc ;
+ *  - il enchaîne le contenu brut puis REFERME le bloc : le seul ``` est une
+ *    fermeture, le corps est donc ce qui la PRÉCÈDE (le lire à l'envers ne
+ *    rapportait que la phrase de conclusion, et le fichier restait tronqué) ;
+ *  - il n'y a aucune fence : tout le message est du contenu.
+ */
 function corpsDeSuite(content: string): string {
   const ferme = content.match(/```[^\n`]*\n([\s\S]*?)```/);
   if (ferme) return ferme[1].replace(/\n$/, "");
-  const ouvert = openCodeFence(content);
-  if (ouvert) return ouvert.body;
-  return content;
+  const premier = content.indexOf("```");
+  if (premier < 0) return content;
+  // Une fence d'OUVERTURE est suivie d'une info-string puis d'un saut de ligne, et
+  // se trouve en tête du message ; sinon c'est une fermeture.
+  const ouvrante = /^\s*```[^\n`]*\n/.test(content);
+  if (ouvrante) return openCodeFence(content)?.body ?? content;
+  return content.slice(0, premier).replace(/\n$/, "");
 }
 
 /** Recolle une suite sur un fichier inachevé, en absorbant ce qu'elle répète.
@@ -797,18 +797,30 @@ function fichiersJusqua(
   for (let i = 0; i <= index && i < messages.length; i++) {
     const m = messages[i];
     if (m.role !== "assistant") continue;
+    // Une reprise ne se recolle que sur un fichier RÉELLEMENT laissé ouvert.
+    // Se rabattre sur le dernier fichier connu paraissait prudent, mais recollait
+    // la suite sur un fichier déjà terminé : deux </html>, accolades déséquilibrées.
+    const titreCible: string | null = inacheve;
     const cible: { content: string; lang: string } | undefined =
-      inacheve ? fichiers.get(inacheve) : undefined;
+      titreCible ? fichiers.get(titreCible) : undefined;
     // Un bloc de protocole n'est PAS la suite du fichier : le modèle a répondu à
     // « Continue » par un ```edit (constaté en production). Le recoller aurait
     // injecté du JSON au milieu du HTML — on le traite comme un message normal.
     const protocole = /```(?:edit|ask)\b/.test(m.content);
+    if (estReprise(messages[i - 1]) && !protocole && !cible) {
+      // Reprise sans rien à compléter (le fichier était déjà fini) : son contenu
+      // n'est pas un fichier. En faire un donnait la carte « fichier-2.txt »
+      // remplie d'un demi-script.
+      inacheve = null;
+      continue;
+    }
     if (cible && !protocole && estReprise(messages[i - 1])) {
       const fusion: string = recoller(cible.content, corpsDeSuite(m.content));
-      fichiers.set(inacheve!, { ...cible, content: fusion });
-      const fences = m.content.match(/```/g);
-      // Une reprise peut être coupée à son tour : on garde alors le fichier ouvert.
-      inacheve = (fences ? fences.length % 2 === 1 : reponseIncomplete(fusion)) ? inacheve : null;
+      fichiers.set(titreCible!, { ...cible, content: fusion });
+      // Une reprise peut être coupée à son tour. Son compte de fences ne dit rien
+      // (elle commence au milieu d'un bloc) : c'est le fichier reconstitué qui
+      // décide s'il reste ouvert.
+      inacheve = reponseIncomplete(fusion) ? titreCible : null;
       continue;
     }
     inacheve = fichierInacheve(m.content);
@@ -871,21 +883,16 @@ function fusionDuMessage(messages: ChatMsg[], index: number): Artifact[] {
 function messageIncomplet(messages: ChatMsg[], index: number): boolean {
   const m = messages[index];
   if (!m || m.role !== "assistant") return false;
-  const fusion = fusionDuMessage(messages, index);
-  // Après une reprise, c'est le fichier reconstitué qui décide — le message,
-  // lui, n'est qu'une queue de fichier sans balise de fin ni fence.
-  if (fusion.length) {
-    const fences = m.content.match(/```/g);
-    if (fences) return fences.length % 2 === 1;
-    return fusion.some((f) => reponseIncomplete(f.content));
+  // Une reprise commence AU MILIEU d'un bloc : elle n'a pas de fence ouvrante, donc
+  // son compte de fences est toujours impair. S'y fier relançait une reprise après
+  // l'autre alors que le fichier était refermé. Seul le fichier reconstitué décide.
+  if (estReprise(messages[index - 1])) {
+    const fusion = fusionDuMessage(messages, index);
+    return fusion.length ? fusion.some((f) => reponseIncomplete(f.content)) : false;
   }
   return reponseIncomplete(m.content);
 }
 
-/** Ce message mérite-t-il le bandeau « Réponse coupée » ? */
-function messageCoupe(messages: ChatMsg[], index: number): boolean {
-  return messageIncomplet(messages, index) || proseIncomplete(messages[index]?.content ?? "");
-}
 
 /** Les modifications d'un message, avec le résultat et les échecs éventuels. */
 function appliquerEdits(messages: ChatMsg[], index: number): {
@@ -2113,7 +2120,7 @@ export default function PlaygroundPage() {
                           )}
                           {/* Coupé par le plafond de tokens : sans ce message, la
                               réponse s'arrête en plein mot et rien ne l'explique. */}
-                          {(m.truncated || (!streamingThis && messageCoupe(messages, i))) && !streamingThis && (
+                          {(m.truncated || (!streamingThis && messageIncomplet(messages, i))) && !streamingThis && (
                             <Banner
                               status="warning"
                               title={t("Réponse coupée")}

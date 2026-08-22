@@ -3030,7 +3030,12 @@ def conversations_route():
         # un message ordinaire au rechargement et décale tout le rendu.
         messages = [{'role': m.get('role'),
                      'content': str(m.get('content', ''))[:MSG_MAX_CHARS],
-                     **({'hidden': True} if m.get('hidden') else {})}
+                     **({'hidden': True} if m.get('hidden') else {}),
+                     # Conservés : sans eux, une réponse coupée par le réseau
+                     # repassait pour finie après un rechargement, et on ne
+                     # pouvait plus diagnostiquer la cause a posteriori.
+                     **({'isError': True} if m.get('isError') else {}),
+                     **({'truncated': True} if m.get('truncated') else {})}
                     for m in messages if m.get('role') in ('user', 'assistant')][-60:]
         while len(json.dumps(messages)) > CONV_MAX_CHARS and len(messages) > 1:
             messages.pop(0)
@@ -4360,10 +4365,44 @@ def playground_chat():
                            if r.status_code == 429 else f"Erreur modèle ({r.status_code}).")
                     yield _sse_msg(msg)
                     return
+                _finish, _out = None, None
                 for line in r.iter_lines():
                     if line:
-                        yield line.decode('utf-8', 'replace') + "\n\n"
-        except Exception:
+                        txt = line.decode('utf-8', 'replace')
+                        # Vérité terrain sur la fin de génération : sans cette trace,
+                        # impossible de dire APRÈS COUP si une réponse coupée l'a été
+                        # par le plafond de tokens ou par un EOS émis par le modèle.
+                        if '"finish_reason"' in txt or '"completion_tokens"' in txt:
+                            try:
+                                _d = json.loads(txt[6:]) if txt.startswith('data: ') else {}
+                                _finish = (_d.get('choices') or [{}])[0].get('finish_reason') or _finish
+                                _out = (_d.get('usage') or {}).get('completion_tokens') or _out
+                            except Exception:
+                                pass
+                        yield txt + "\n\n"
+                if _finish is None:
+                    # Le flux amont s'est fermé SANS annoncer de fin. Pour `iter_lines`
+                    # c'est une fin normale : la boucle se termine sans exception, le
+                    # client reçoit une réponse qui a l'air complète alors qu'elle est
+                    # coupée en plein mot. On le dit explicitement, sinon rien ne le
+                    # signale et la réponse tronquée passe pour finie.
+                    app.logger.warning("playground %s : flux ferme sans finish_reason "
+                                       "apres %s tokens — reponse coupee", _who, _out)
+                    yield ("data: " + json.dumps({'choices': [{'delta': {},
+                           'finish_reason': 'length'}]}) + "\n\n")
+                elif _finish != 'stop':
+                    app.logger.warning("playground %s : finish_reason=%s, %s tokens produits",
+                                       _who, _finish, _out)
+                elif _out and _out > 4000:
+                    app.logger.warning("playground %s : fin normale (stop) apres %s tokens", _who, _out)
+        except GeneratorExit:
+            # Le navigateur a fermé la connexion en cours de route (coupure réseau,
+            # onglet fermé). Ce n'est PAS une Exception : sans ce cas, la coupure la
+            # plus fréquente ne laissait aucune trace côté serveur.
+            app.logger.warning("playground %s : client deconnecte en cours de flux", _who)
+            raise
+        except Exception as _e:
+            app.logger.warning("playground %s : flux interrompu (%s)", _who, type(_e).__name__)
             yield _sse_msg("⚠ stream interrupted.")
         finally:
             _inflight_end(_rid)   # runs on completion, error, or client disconnect (GeneratorExit)

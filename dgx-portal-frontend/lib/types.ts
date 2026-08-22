@@ -28,7 +28,9 @@ export type Conversation = {
   title: string;
   ts: number;
   model: string;
-  messages: { role: Role; content: string }[];
+  // `hidden` est conservé : une réponse à des questions doit rester cachée
+  // après rechargement, sinon les index se décalent et le rendu change.
+  messages: { role: Role; content: string; hidden?: boolean }[];
 };
 
 export type PlaygroundData = {

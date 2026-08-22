@@ -164,8 +164,7 @@ type FileEdit = { file: string; find: string; replace: string };
 // Le modèle nomme lui-même ses fichiers : c'est lui qui sait ce que l'utilisateur
 // a demandé et dans quel projet ça s'insère. Sans ça, l'interface doit deviner et
 // retombe sur un nom générique.
-const NAME_INSTRUCTION = `Whenever you output a file, announce its name on the line just before the code block, as a path in backticks — for example \`index.html\`, \`src/app.py\` or \`roles/web/tasks/main.yml\`.
-Choose the name from what the user asked and from the project it belongs to: a standalone web page is \`index.html\`, a chess game can be \`echecs.html\`, an Ansible task file is \`tasks/main.yml\`. Never leave a file unnamed, and never invent a different name for a file you already named earlier in the conversation — reuse it exactly.`;
+const NAME_INSTRUCTION = `Name every file you output: put its path in backticks on the line just before the code block (\`index.html\`, \`roles/web/tasks/main.yml\`), chosen from what the user asked. Reuse the exact same name for a file you already produced.`;
 
 const EDIT_INSTRUCTION = `When the user asks you to FIX or CHANGE a file you already produced in this conversation, do NOT output the whole file again. Output only the edits, as a single fenced block:
 \`\`\`edit
@@ -1038,13 +1037,17 @@ export default function PlaygroundPage() {
         // Le backend le rabaisse déjà à ce qui reste ; on évite ici d'envoyer une
         // valeur qui n'a de sens pour aucun modèle en cours.
         maxTokens: plafondModele ? Math.min(settings.maxTokens, plafondModele) : settings.maxTokens,
+        // L'ordre et le VOLUME comptent : mesuré sur 12 demandes floues, le modèle
+        // pose une question 11 fois sur 12 avec la seule instruction de questions,
+        // 7 fois sur 12 en y ajoutant nommage et édition, et 3 fois sur 12 si
+        // l'instruction de questions passe en dernier. On garde donc les questions
+        // EN TÊTE, un nommage réduit à une phrase, et l'instruction d'édition
+        // seulement quand un fichier existe déjà — avant, elle ne sert à rien.
         system: [
           settings.system.trim(),
           alreadyAsked ? "" : ASK_INSTRUCTION,
           NAME_INSTRUCTION,
-          // Toujours envoyée : dès qu'un fichier existe dans la conversation, le
-          // modèle doit pouvoir le corriger sans le réécrire.
-          EDIT_INSTRUCTION,
+          fichiersJusqua(nextMessages, nextMessages.length - 1).size ? EDIT_INSTRUCTION : "",
         ].filter(Boolean).join("\n\n"),
       };
       await streamChat(

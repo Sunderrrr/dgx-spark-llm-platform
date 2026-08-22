@@ -307,6 +307,10 @@ const EN: Record<string, string> = {
     "The file stops before its end and the automatic retries were not enough. Resume it again, or ask for it split across several files.",
   "La connexion s'est interrompue pendant la génération. Reprends la suite — ce qui est déjà écrit est conservé.":
     "The connection dropped mid-generation. Pick up where it stopped — what was already written is kept.",
+  "Fichier inutilisable": "File will not run",
+  "Le fichier se termine bien, mais son JavaScript ne compile pas — un bloc n'est jamais refermé, donc la page reste vide.":
+    "The file ends properly, but its JavaScript does not compile — a block is never closed, so the page stays blank.",
+  "Refaire le fichier": "Rebuild the file",
   "Plein écran": "Fullscreen",
   "Modification non appliquée": "Edit not applied",
   "Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.":

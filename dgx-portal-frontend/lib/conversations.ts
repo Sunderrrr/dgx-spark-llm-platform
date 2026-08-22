@@ -11,7 +11,16 @@ type ApiConversation = {
   title: string;
   model: string;
   ts: string;
-  messages: { role: "user" | "assistant"; content: string }[];
+  // Les drapeaux voyagent avec le message : `hidden` (réponses aux questions,
+  // demandes de reprise), et `isError`/`truncated` sans lesquels une réponse
+  // coupée repassait pour finie après un rechargement.
+  messages: {
+    role: "user" | "assistant";
+    content: string;
+    hidden?: boolean;
+    isError?: boolean;
+    truncated?: boolean;
+  }[];
 };
 
 export async function fetchConversations(): Promise<Conversation[]> {

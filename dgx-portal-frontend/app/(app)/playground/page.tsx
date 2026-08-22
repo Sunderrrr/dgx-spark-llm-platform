@@ -1358,7 +1358,12 @@ export default function PlaygroundPage() {
     // production — un gros fichier HTML s'arrêtait en pleine expression sans
     // que rien ne l'indique, et il fallait tout redemander. Le plafond de
     // tokens n'y était pour rien : c'est le modèle qui rend la main trop tôt.
-    if (!wasAborted && !isError && messageIncomplet(finalMessages, finalMessages.length - 1)) {
+    // `isError` n'exclut PAS la reprise : la coupure la plus fréquente est justement
+    // une erreur — le flux casse en cours de route sur une génération de plusieurs
+    // minutes, et le texte déjà reçu s'arrête en plein mot. C'est exactement le cas
+    // où reprendre tout seul a le plus de valeur. Seul un arrêt DEMANDÉ (bouton
+    // Stop) interdit la reprise.
+    if (!wasAborted && messageIncomplet(finalMessages, finalMessages.length - 1)) {
       if (reprisesRef.current < MAX_REPRISES_AUTO) {
         reprisesRef.current += 1;
         setReprise(reprisesRef.current);

@@ -4195,6 +4195,13 @@ def _playground_model_limits():
         ctx = effective_ctx(row['vllm_args'], row['engine'] or 'vllm')
         if ctx:
             model_limits[row['name']] = ctx
+    # `auto-model` n'est pas dans model_configs : sans cette ligne il n'avait AUCUN
+    # plafond, donc ni bornage adaptatif côté serveur ni curseur juste dans les
+    # réglages — une longue conversation partait en 400 (context window exceeded)
+    # au lieu d'obtenir une réponse plus courte. Il hérite du modèle qui tourne.
+    running = get_running_models()
+    if running and model_limits.get(running[0]):
+        model_limits[AUTO_MODEL_NAME] = model_limits[running[0]]
     return model_limits
 
 

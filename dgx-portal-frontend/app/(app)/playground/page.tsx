@@ -258,6 +258,112 @@ function reponseIncomplete(content: string): boolean {
   return false;
 }
 
+/** Le script de cette page HTML est-il refermé ?
+ *
+ * Constaté en production : le modèle écrit `</script></body></html>` alors qu'une
+ * accolade reste ouverte au milieu. Le fichier a l'air terminé — il finit bien par
+ * `</html>` — mais son JavaScript ne s'exécute pas du tout (« Unexpected end of
+ * input »), plateau vide, page morte. Vérifier la balise de fin ne suffit donc pas.
+ *
+ * On ne peut PAS s'appuyer sur `new Function` pour le savoir : la CSP du portail
+ * (`script-src 'self' 'nonce-…'`, sans `unsafe-eval`) l'interdit dans le navigateur,
+ * et l'exception levée n'est alors même pas une SyntaxError. On compte donc les
+ * blocs nous-mêmes, en sautant chaînes, gabarits, commentaires et littéraux
+ * d'expression rationnelle — sans quoi la moindre accolade dans un texte fausserait
+ * tout.
+ */
+function profondeurFinale(code: string): number {
+  let i = 0, prof = 0;
+  const n = code.length;
+  // Pile des gabarits `...${ ... }...` : à l'intérieur d'un ${}, on relit du code.
+  const gabarits: number[] = [];
+  let precedent = "";                       // dernier caractère significatif
+  const avantRegex = /[(,=:[!&|?{};+\-*%~^<>]/;
+  const motsAvantRegex = /(?:^|[^\w$])(?:return|typeof|instanceof|in|of|new|delete|void|do|else|case|yield|await)$/;
+  while (i < n) {
+    const c = code[i];
+    // — commentaires
+    if (c === "/" && code[i + 1] === "/") { while (i < n && code[i] !== "\n") i++; continue; }
+    if (c === "/" && code[i + 1] === "*") { i += 2; while (i < n && !(code[i] === "*" && code[i + 1] === "/")) i++; i += 2; continue; }
+    // — chaînes
+    if (c === "'" || c === '"') {
+      const q = c; i++;
+      while (i < n && code[i] !== q) { if (code[i] === "\\") i++; i++; }
+      i++; precedent = "x"; continue;
+    }
+    // — gabarits
+    if (c === "`") {
+      i++;
+      for (;;) {
+        if (i >= n) return 1;               // gabarit jamais refermé → tronqué
+        if (code[i] === "\\") { i += 2; continue; }
+        if (code[i] === "`") { i++; break; }
+        if (code[i] === "$" && code[i + 1] === "{") { gabarits.push(prof); prof++; i += 2; break; }
+        i++;
+      }
+      precedent = "x"; continue;
+    }
+    // — littéral d'expression rationnelle
+    if (c === "/" && (precedent === "" || avantRegex.test(precedent)
+                      || motsAvantRegex.test(code.slice(Math.max(0, i - 12), i)))) {
+      i++;
+      let classe = false;
+      while (i < n) {
+        if (code[i] === "\\") { i += 2; continue; }
+        if (code[i] === "[") classe = true;
+        else if (code[i] === "]") classe = false;
+        else if (code[i] === "/" && !classe) { i++; break; }
+        else if (code[i] === "\n") break;   // pas une regex finalement
+        i++;
+      }
+      precedent = "x"; continue;
+    }
+    if (c === "{" || c === "(" || c === "[") prof++;
+    else if (c === "}" || c === ")" || c === "]") {
+      prof--;
+      // Une accolade qui referme un `${…}` fait retomber dans le gabarit.
+      if (gabarits.length && prof === gabarits[gabarits.length - 1]) {
+        gabarits.pop();
+        i++;
+        // on repart dans le gabarit jusqu'à son backtick
+        for (;;) {
+          if (i >= n) return 1;
+          if (code[i] === "\\") { i += 2; continue; }
+          if (code[i] === "`") { i++; break; }
+          if (code[i] === "$" && code[i + 1] === "{") { gabarits.push(prof); prof++; i += 2; break; }
+          i++;
+        }
+        precedent = "x"; continue;
+      }
+    }
+    if (!/\s/.test(c)) precedent = c;
+    i++;
+  }
+  return prof;
+}
+
+const memoScript = new Map<string, boolean>();
+
+function scriptCasse(contenu: string): boolean {
+  const cache = memoScript.get(contenu);
+  if (cache !== undefined) return cache;
+  let casse = false;
+  for (const m of contenu.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+    const attrs = m[1] || "";
+    if (/\bsrc\s*=/i.test(attrs)) continue;                       // script externe
+    if (/type\s*=\s*["']?(?!text\/javascript|application\/javascript)[^"'\s>]+/i.test(attrs)) continue;
+    const code = m[2];
+    if (!code.trim()) continue;
+    // Un bloc encore ouvert à la fin = fichier inutilisable. On ne signale QUE ce
+    // sens-là : un excès de fermetures viendrait plus probablement d'une lecture
+    // imparfaite de notre part que d'un vrai défaut.
+    if (profondeurFinale(code) > 0) { casse = true; break; }
+  }
+  if (memoScript.size > 40) memoScript.clear();
+  memoScript.set(contenu, casse);
+  return casse;
+}
+
 /** Le texte du message, avec la fence jamais refermée refermée d'office.
  *
  * `parseArtifacts` n'extrait qu'un bloc DÉLIMITÉ des deux côtés. Une réponse
@@ -1511,6 +1617,27 @@ export default function PlaygroundPage() {
     void runStream(nextMessages);
   }
 
+  /** Le fichier livré ne s'exécute pas : on en redemande une version complète.
+   *
+   * Surtout PAS une reprise : la coupure n'est pas à la fin, elle est au milieu
+   * (un bloc jamais refermé). Ajouter du texte à la suite n'y changerait rien.
+   */
+  function refaireFichier(nom: string) {
+    if (streaming || !messages.length) return;
+    const nextMessages: ChatMsg[] = [
+      ...messages,
+      { role: "user",
+        content: `Le fichier \`${nom}\` ne fonctionne pas : son JavaScript ne compile pas `
+          + "(« Unexpected end of input » — un bloc n'est jamais refermé), donc la page reste "
+          + "vide. Renvoie le fichier COMPLET et corrigé, en entier, du début à la fin, "
+          + "sous le même nom. Vérifie que chaque accolade et chaque parenthèse est refermée.",
+        // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+        ts: Date.now(), hidden: true },
+    ];
+    setMessages(nextMessages);
+    void runStream(nextMessages);
+  }
+
   function stop() {
     abortRef.current?.abort();
   }
@@ -1948,6 +2075,11 @@ export default function PlaygroundPage() {
                   const items = estSuite
                     ? [...suite, ...modifs.fichiers]
                     : [...(arts?.artifacts ?? []), ...modifs.fichiers];
+                  // Un fichier qui se termine par </html> mais dont le script ne compile
+                  // pas est inutilisable : rien ne le signalait, la page restait vide.
+                  const fichierCasse = !streamingThis
+                    ? items.find((a) => a.kind === "code" && scriptCasse(a.content))
+                    : undefined;
                   // When the model puts everything in the artifact and writes nothing
                   // outside, still show a short line in the chat (not an empty bubble).
                   const emptyMsg = items.some((a) => a.kind === "doc")
@@ -2131,6 +2263,24 @@ export default function PlaygroundPage() {
                                 editIllisible
                                   ? t("La modification proposée n'a pas pu être lue. Redemande la correction, ou demande le fichier complet.")
                                   : t("Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.")
+                              }
+                            />
+                          )}
+                          {fichierCasse && (
+                            <Banner
+                              status="warning"
+                              title={t("Fichier inutilisable")}
+                              description={t("Le fichier se termine bien, mais son JavaScript ne compile pas — un bloc n'est jamais refermé, donc la page reste vide.")}
+                              endContent={
+                                isLast ? (
+                                  <Button
+                                    label={t("Refaire le fichier")}
+                                    variant="primary"
+                                    size="sm"
+                                    isDisabled={streaming}
+                                    onClick={() => refaireFichier(fichierCasse.title)}
+                                  />
+                                ) : undefined
                               }
                             />
                           )}

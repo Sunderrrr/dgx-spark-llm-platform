@@ -311,6 +311,8 @@ const EN: Record<string, string> = {
   "Le fichier se termine bien, mais son JavaScript ne compile pas — un bloc n'est jamais refermé, donc la page reste vide.":
     "The file ends properly, but its JavaScript does not compile — a block is never closed, so the page stays blank.",
   "Refaire le fichier": "Rebuild the file",
+  "La page ne s'exécute pas": "The page does not run",
+  "Corriger": "Fix it",
   "Plein écran": "Fullscreen",
   "Modification non appliquée": "Edit not applied",
   "Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.":

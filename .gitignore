@@ -40,3 +40,9 @@ assets/ranking.png
 
 # Users page screenshot contains internal usernames (like the leaderboard)
 assets/users.png
+
+# Configuration SearXNG : contient un secret généré au premier démarrage.
+searxng/
+
+# Jetons de service générés localement (crawl4ai). Jamais dans git.
+secrets/

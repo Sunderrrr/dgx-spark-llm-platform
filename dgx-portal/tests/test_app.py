@@ -292,3 +292,46 @@ class ClientIpTest(unittest.TestCase):
         a = self._ip({'Cf-Connecting-Ip': '203.0.113.10'})
         b = self._ip({'Cf-Connecting-Ip': '203.0.113.20'})
         self.assertNotEqual(a, b)
+
+
+class HistoriqueModeleTest(unittest.TestCase):
+    """Ce que le playground renvoie au modèle ne doit JAMAIS être amputé.
+
+    Le bug d'origine : chaque message était tronqué à 8 000 caractères, donc après
+    une longue réponse le modèle relisait son propre fichier coupé en plein milieu
+    et affirmait s'être interrompu — ce qui était vrai de son point de vue.
+    """
+
+    def _msgs(self, *tailles):
+        return [{'role': 'user' if i % 2 == 0 else 'assistant', 'content': 'x' * n}
+                for i, n in enumerate(tailles)]
+
+    def test_un_gros_message_n_est_pas_tronque(self):
+        h = self._msgs(50, 57_000)
+        out = portal._history_for_model(h, '', 262144)
+        self.assertEqual(len(out[-1]['content']), 57_000)
+
+    def test_sans_contexte_connu_on_ne_touche_a_rien(self):
+        h = self._msgs(10, 900_000)
+        self.assertEqual(portal._history_for_model(h, '', None), h)
+
+    def test_le_debordement_retire_les_plus_anciens(self):
+        # budget = (32768 - 8192) * 3 = 73 728 caractères
+        h = self._msgs(40_000, 40_000, 40_000, 500)
+        out = portal._history_for_model(h, '', 32768)
+        self.assertLess(len(out), len(h))
+        # le dernier échange survit toujours, entier
+        self.assertEqual(out[-1]['content'], h[-1]['content'])
+        self.assertEqual(len(out[-2]['content']), 40_000)
+
+    def test_jamais_moins_de_deux_messages(self):
+        h = self._msgs(500_000, 500_000)
+        out = portal._history_for_model(h, '', 32768)
+        self.assertEqual(len(out), 2)
+        self.assertEqual(len(out[0]['content']), 500_000)
+
+    def test_le_systeme_compte_dans_le_budget(self):
+        h = self._msgs(30_000, 30_000, 30_000, 100)
+        sans = portal._history_for_model(list(h), '', 32768)
+        avec = portal._history_for_model(list(h), 'y' * 20_000, 32768)
+        self.assertLessEqual(len(avec), len(sans))

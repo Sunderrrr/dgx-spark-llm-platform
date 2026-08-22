@@ -4320,12 +4320,47 @@ def playground_preview_show(pid):
     return resp
 
 
+def _history_for_model(history, system, ctx):
+    """Ce que le modèle doit relire : des messages ENTIERS, jamais amputés.
+
+    Tronquer chaque message (c'était 8 000 caractères) mutilait la conversation :
+    après une réponse de 57 000 caractères, le modèle n'en relisait que le début,
+    coupé en plein milieu — et concluait, à juste titre de son point de vue, que sa
+    propre réponse avait été coupée. D'où les « ma première réponse s'est coupée »,
+    les réécritures en boucle, et des reprises impossibles puisqu'il ne voyait
+    jamais la fin de son fichier.
+
+    Quand ça ne tient pas dans la fenêtre, on écarte des messages ENTIERS, du plus
+    ancien au plus récent : perdre un vieux tour est réparable, amputer le dernier
+    fichier ne l'est pas. Le dernier échange est toujours conservé.
+    """
+    if not ctx:
+        return history
+    # ~3 caractères par token, volontairement pessimiste (le vrai ratio est ~4), et
+    # on réserve de quoi répondre.
+    budget = max(20_000, (ctx - 8192) * 3)
+    total = sum(len(m['content']) for m in history) + len(system or '')
+    while len(history) > 2 and total > budget:
+        total -= len(history[0]['content'])
+        history = history[1:]
+    return history
+
+
 @app.route('/playground/chat', methods=['POST'])
 @login_required
 def playground_chat():
     data = request.get_json(silent=True) or {}
-    history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:8000]}
-               for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')][-20:]
+    # On garde les messages ENTIERS. Les tronquer à 8 000 caractères mutilait la
+    # conversation vue par le modèle : après une réponse de 57 000 caractères, il
+    # n'en relisait que le début, coupé en plein milieu — et concluait, à juste
+    # titre de son point de vue, que sa propre réponse avait été coupée. D'où les
+    # « ma première réponse s'est coupée », les réécritures en boucle, et des
+    # reprises impossibles puisqu'il ne voyait pas la fin de son fichier.
+    # Ce qui ne tient pas dans la fenêtre est écarté par MESSAGE, du plus ancien
+    # au plus récent : perdre un vieux tour est réparable, amputer le dernier
+    # fichier ne l'est pas.
+    history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:MSG_MAX_CHARS]}
+               for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')]
     if not history:
         return Response(_sse_msg("Empty message."), mimetype='text/event-stream')
     blocked = maintenance_block_sse()
@@ -4360,6 +4395,7 @@ def playground_chat():
                                  "playground runs on your account budget."),
                         mimetype='text/event-stream')
     user_key = keys[0]['key']
+    history = _history_for_model(history, system, _playground_model_limits().get(model))
     msgs = ([{'role': 'system', 'content': system}] if system else []) + history
 
     # Le plafond de sortie S'AJOUTE au prompt dans la fenêtre de contexte : au-delà,

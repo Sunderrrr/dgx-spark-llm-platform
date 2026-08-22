@@ -299,6 +299,57 @@ function corpsDeSuite(content: string): string {
   return content;
 }
 
+/** Recolle une suite sur un fichier inachevé, en absorbant ce qu'elle répète.
+ *
+ * Le modèle ne reprend pas au caractère près : il rafistole le mot coupé puis
+ * réémet le bloc en cours depuis son début. Recoller bêtement dupliquait le code
+ * et laissait une accolade en trop — la page s'affichait mais son script mourait
+ * sur « Unexpected end of input », donc pas d'échiquier. On cherche la plus longue
+ * suite de lignes commune entre la FIN du fichier et le DÉBUT de la reprise, et on
+ * raboute là. La recherche est bornée à la queue du fichier : même trompée, elle ne
+ * peut jamais amputer le début.
+ */
+const RECOL_QUEUE = 6000;      // portion de fin de fichier où l'on cherche
+const RECOL_TETE  = 6000;      // portion de début de reprise où l'on cherche
+const RECOL_MIN_LIGNES = 3;    // en dessous, c'est du bruit (« } », lignes vides)
+const RECOL_MIN_CARS = 60;
+
+function decoupeLignes(texte: string, depart: number) {
+  const lignes: { texte: string; pos: number }[] = [];
+  let pos = depart;
+  for (const l of texte.split("\n")) {
+    lignes.push({ texte: l.trimEnd(), pos });
+    pos += l.length + 1;
+  }
+  return lignes;
+}
+
+function recoller(base: string, suite: string): string {
+  // Une suite qui recommence un document entier est un remplacement, pas un ajout.
+  if (/^\s*(<!DOCTYPE|<html[\s>])/i.test(suite) && /<!DOCTYPE|<html[\s>]/i.test(base)) return suite;
+  const queue = base.slice(-RECOL_QUEUE);
+  const lb = decoupeLignes(queue, base.length - queue.length);
+  const ls = decoupeLignes(suite.slice(0, RECOL_TETE), 0);
+  let meilleur: { base: number; suite: number; cars: number } | null = null;
+  for (let i = 0; i < lb.length; i++) {
+    for (let j = 0; j < ls.length; j++) {
+      let k = 0, cars = 0, utiles = 0;
+      while (i + k < lb.length && j + k < ls.length && lb[i + k].texte === ls[j + k].texte) {
+        const t = lb[i + k].texte.trim();
+        cars += t.length;
+        if (t.length >= 10) utiles++;      // « } » ou ligne vide ne prouvent rien
+        k++;
+      }
+      if (k >= RECOL_MIN_LIGNES && utiles >= 1 && cars >= RECOL_MIN_CARS
+          && (!meilleur || cars > meilleur.cars)) {
+        meilleur = { base: lb[i].pos, suite: ls[j].pos, cars };
+      }
+    }
+  }
+  if (meilleur) return base.slice(0, meilleur.base) + suite.slice(meilleur.suite);
+  return base + suite;
+}
+
 const PROMPT_REPRISE = "Continue exactement là où tu t'es arrêté";
 const PROMPT_REPRISE_COMPLET =
   PROMPT_REPRISE + ", sans rien répéter et sans réintroduire ta réponse. "
@@ -565,7 +616,10 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
     const body = m[2].replace(/\n$/, "");
     const info = m[1].trim();
     const first = info.split(/\s+/)[0] || "";
-    if (first === "ask") continue; // handled by parseAsk, never a file artifact
+    // ```ask et ```edit sont du PROTOCOLE, jamais des fichiers. `edit` ne posait pas
+    // problème tant qu'un bloc non refermé n'était pas extrait ; depuis qu'on referme
+    // les fences d'office, un bloc edit tronqué ressortait en « fichier-2.txt ».
+    if (first === "ask" || first === "edit") continue;
     let lang = first;
     let title = "";
     if (first.includes(".")) { title = first; lang = first.split(".").pop() || ""; }
@@ -747,7 +801,7 @@ function fichiersJusqua(
     // injecté du JSON au milieu du HTML — on le traite comme un message normal.
     const protocole = /```(?:edit|ask)\b/.test(m.content);
     if (cible && !protocole && estReprise(messages[i - 1])) {
-      const fusion: string = cible.content + corpsDeSuite(m.content);
+      const fusion: string = recoller(cible.content, corpsDeSuite(m.content));
       fichiers.set(inacheve!, { ...cible, content: fusion });
       const fences = m.content.match(/```/g);
       // Une reprise peut être coupée à son tour : on garde alors le fichier ouvert.
@@ -755,8 +809,19 @@ function fichiersJusqua(
       continue;
     }
     inacheve = fichierInacheve(m.content);
-    for (const a of parseArtifacts(contenuCloture(m.content), false).artifacts) {
+    const arts = parseArtifacts(contenuCloture(m.content), false).artifacts;
+    for (const [rang, a] of arts.entries()) {
       if (a.kind !== "code") continue;
+      // Le bloc que la coupure a laissé ouvert est la version EN COURS d'écriture,
+      // pas un extrait : sans ça, la reprise se recollait sur la version complète
+      // précédente. On garde tout de même un plancher, pour qu'un moignon de
+      // quelques lignes ne détruise pas un fichier abouti.
+      const precedent = fichiers.get(a.title);
+      if (rang === arts.length - 1 && a.title === inacheve
+          && (!precedent || a.content.length >= precedent.content.length * 0.25)) {
+        fichiers.set(a.title, { content: a.content, lang: a.lang });
+        continue;
+      }
       // Un bloc BIEN plus court qu'un fichier déjà connu du même nom est un
       // EXTRAIT (« voici la partie corrigée »), pas une nouvelle version. Le
       // prendre pour le fichier remplaçait 400 lignes par 20, et le volet

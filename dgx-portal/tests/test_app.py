@@ -435,6 +435,26 @@ class PertinenceRechercheTest(unittest.TestCase):
              {'role': 'user', 'content': "cherche sur internet la doc de cette balise"}]
         self.assertTrue(portal._recherche_pertinente(h))
 
+    def test_un_fichier_colle_ne_declenche_jamais_rien(self):
+        # Cas réel : le fichier contient <link href="https://fonts.googleapis.com/…>,
+        # donc le mot « google ». L'intention doit se lire dans ce que l'humain
+        # écrit, pas dans le code qu'il colle.
+        code = ('<!doctype html><html><head>'
+                '<link rel="preconnect" href="https://fonts.googleapis.com">'
+                '<script>const source = ctx.createBufferSource();</script>'
+                + ("x" * 20000) + '</html>')
+        self.assertFalse(portal._recherche_pertinente(
+            [{'role': 'user', 'content': code}]))
+
+    def test_un_fichier_colle_avec_une_vraie_demande_autour(self):
+        code = '```html\n<link href="https://fonts.googleapis.com/x">\n' + ("y" * 5000) + '\n```'
+        h = [{'role': 'user', 'content': "corrige ce fichier stp\n\n" + code}]
+        self.assertFalse(portal._recherche_pertinente(h))
+
+    def test_la_demande_est_lue_meme_apres_un_gros_collage(self):
+        h = [{'role': 'user', 'content': ("z" * 30000) + "\n\ncherche sur internet la doc"}]
+        self.assertTrue(portal._recherche_pertinente(h))
+
     def test_conversation_vide(self):
         self.assertFalse(portal._recherche_pertinente([]))
 

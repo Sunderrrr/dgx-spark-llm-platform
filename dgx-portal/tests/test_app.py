@@ -428,3 +428,63 @@ class PertinenceRechercheTest(unittest.TestCase):
 
     def test_conversation_vide_reste_permise(self):
         self.assertTrue(portal._recherche_pertinente([]))
+
+
+class VersionsPerimeesTest(unittest.TestCase):
+    """Seule la dernière version de chaque fichier repart au modèle.
+
+    Mesuré sur les conversations réelles : 42 332 des 72 182 caractères d'un fil
+    étaient d'anciennes versions du même fichier, rejouées à chaque message.
+    """
+
+    def _msg(self, role, contenu):
+        return {'role': role, 'content': contenu}
+
+    def _fichier(self, nom, marqueur, n=3000):
+        return f"Voici `{nom}` :\n\n```html\n<!-- {marqueur} -->\n" + ("x" * n) + "\n```"
+
+    def test_seule_la_derniere_version_survit(self):
+        h = [self._msg('user', 'fais un jeu'),
+             self._msg('assistant', self._fichier('index.html', 'V1')),
+             self._msg('user', 'corrige'),
+             self._msg('assistant', self._fichier('index.html', 'V2'))]
+        out = portal._sans_versions_perimees(h)
+        self.assertNotIn('V1', out[1]['content'])
+        self.assertIn('version précédente', out[1]['content'])
+        self.assertIn('V2', out[3]['content'])
+
+    def test_deux_fichiers_distincts_gardent_chacun_leur_version(self):
+        h = [self._msg('assistant', self._fichier('index.html', 'HTML1')),
+             self._msg('assistant', self._fichier('style.css', 'CSS1'))]
+        out = portal._sans_versions_perimees(h)
+        self.assertIn('HTML1', out[0]['content'])
+        self.assertIn('CSS1', out[1]['content'])
+
+    def test_le_code_colle_par_l_utilisateur_n_est_jamais_touche(self):
+        colle = "```html\n<!-- COLLE -->\n" + ("y" * 3000) + "\n```"
+        h = [self._msg('user', colle),
+             self._msg('assistant', self._fichier('index.html', 'V1'))]
+        out = portal._sans_versions_perimees(h)
+        self.assertIn('COLLE', out[0]['content'])
+
+    def test_un_court_extrait_ne_perime_rien(self):
+        h = [self._msg('assistant', self._fichier('index.html', 'V1')),
+             self._msg('assistant', "Regarde :\n\n```js\nconst a = 1;\n```")]
+        out = portal._sans_versions_perimees(h)
+        self.assertIn('V1', out[0]['content'])
+
+    def test_la_prose_autour_du_bloc_est_conservee(self):
+        h = [self._msg('assistant', self._fichier('index.html', 'V1') + "\n\nJ'ai ajouté le son."),
+             self._msg('assistant', self._fichier('index.html', 'V2'))]
+        out = portal._sans_versions_perimees(h)
+        self.assertIn("J'ai ajouté le son.", out[0]['content'])
+
+    def test_le_gain_est_reel(self):
+        h = [self._msg('assistant', self._fichier('index.html', f'V{i}', 20000)) for i in range(4)]
+        avant = sum(len(m['content']) for m in h)
+        apres = sum(len(m['content']) for m in portal._sans_versions_perimees(h))
+        self.assertLess(apres, avant * 0.4)
+
+    def test_conversation_sans_code_inchangee(self):
+        h = [self._msg('user', 'bonjour'), self._msg('assistant', 'salut')]
+        self.assertEqual(portal._sans_versions_perimees(h), h)

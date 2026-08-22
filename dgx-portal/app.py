@@ -4333,6 +4333,70 @@ def playground_preview_show(pid):
     return resp
 
 
+_FICHIER_ANNONCE = re.compile(r"`([\w./-]+\.[A-Za-z0-9]{1,6})`[^\n]{0,40}$")
+
+
+def _cle_fichier(info, avant):
+    """Sous quel nom ce bloc de code est-il connu ?"""
+    premier = (info or '').strip().split()[0] if (info or '').strip() else ''
+    if '.' in premier:
+        return premier                       # ```index.html
+    # « Voici `index.html` : » juste au-dessus du bloc.
+    for ligne in reversed((avant or '').split('\n')[-4:]):
+        m = _FICHIER_ANNONCE.search(ligne.strip())
+        if m:
+            return m.group(1)
+    return premier or 'bloc'                 # à défaut, le langage
+
+
+def _sans_versions_perimees(history):
+    """Ne garde que la DERNIÈRE version de chaque fichier.
+
+    Mesuré sur les conversations réelles : la moitié du contexte rejoué à chaque
+    message est constituée d'anciennes versions du même fichier — 42 332 des
+    72 182 caractères d'un fil, 47 938 sur 102 515 d'un autre. Le modèle n'a
+    besoin que de la version courante ; les précédentes ne font que gonfler le
+    préchargement, qui est déjà 23 fois plus lourd que la génération elle-même
+    (ce modèle hybride ne peut pas mettre de préfixe en cache : ses couches à
+    attention linéaire portent un état courant, pas un cache adressable).
+
+    On ne touche QUE les messages de l'assistant : du code collé par
+    l'utilisateur est une donnée, pas une version qu'on aurait produite.
+    """
+    fence = re.compile(r"```([^\n`]*)\n([\s\S]*?)```")
+    # 1er passage : où se trouve la dernière version de chaque fichier ?
+    dernier = {}
+    for i, m in enumerate(history):
+        if m.get('role') != 'assistant':
+            continue
+        for f in fence.finditer(m.get('content') or ''):
+            if len(f.group(2)) < 2000:       # un court extrait ne périme rien
+                continue
+            dernier[_cle_fichier(f.group(1), (m.get('content') or '')[:f.start()])] = i
+    if not dernier:
+        return history
+    # 2e passage : on remplace les versions dépassées par une ligne.
+    out = []
+    for i, m in enumerate(history):
+        if m.get('role') != 'assistant':
+            out.append(m)
+            continue
+        contenu = m.get('content') or ''
+
+        def _remplace(f, _i=i, _c=contenu):
+            corps, info = f.group(2), f.group(1)
+            if len(corps) < 2000:
+                return f.group(0)
+            cle = _cle_fichier(info, _c[:f.start()])
+            if dernier.get(cle) == _i:
+                return f.group(0)            # c'est la version courante
+            return (f"```\n[version précédente de `{cle}` retirée du contexte — "
+                    f"la version à jour figure plus bas dans la conversation]\n```")
+
+        out.append({**m, 'content': fence.sub(_remplace, contenu)})
+    return out
+
+
 def _history_for_model(history, system, ctx):
     """Ce que le modèle doit relire : des messages ENTIERS, jamais amputés.
 
@@ -4347,6 +4411,7 @@ def _history_for_model(history, system, ctx):
     ancien au plus récent : perdre un vieux tour est réparable, amputer le dernier
     fichier ne l'est pas. Le dernier échange est toujours conservé.
     """
+    history = _sans_versions_perimees(history)
     if not ctx:
         return history
     # ~3 caractères par token, volontairement pessimiste (le vrai ratio est ~4), et

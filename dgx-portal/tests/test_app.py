@@ -335,3 +335,53 @@ class HistoriqueModeleTest(unittest.TestCase):
         sans = portal._history_for_model(list(h), '', 32768)
         avec = portal._history_for_model(list(h), 'y' * 20_000, 32768)
         self.assertLessEqual(len(avec), len(sans))
+
+
+class ContexteOutilsTest(unittest.TestCase):
+    """La phase outils relit une version COURTE de la conversation.
+
+    Lui passer l'historique entier ajoutait un préchargement complet avant la
+    réponse : mesuré 30 s sur 100 Ko de contexte, plus de 60 s au-delà — et le
+    client abandonnait sur une conversation un peu ancienne, alors qu'une
+    conversation neuve fonctionnait. Décider « faut-il chercher ? » ne demande
+    pas de relire un fichier de 65 Ko.
+    """
+
+    def test_un_gros_message_est_raccourci(self):
+        msgs = [{'role': 'user', 'content': 'x' * 65_000},
+                {'role': 'user', 'content': 'et maintenant ?'}]
+        out = portal._contexte_outils(msgs)
+        self.assertTrue(all(len(m['content']) <= portal.OUTILS_MSG_MAX + 8 for m in out))
+
+    def test_le_total_reste_borne(self):
+        msgs = [{'role': 'user', 'content': 'y' * 20_000} for _ in range(20)]
+        out = portal._contexte_outils(msgs)
+        self.assertLessEqual(sum(len(m['content']) for m in out),
+                             portal.OUTILS_TOTAL_MAX + portal.OUTILS_MSG_MAX)
+
+    def test_le_dernier_message_est_toujours_la(self):
+        msgs = [{'role': 'user', 'content': 'z' * 30_000} for _ in range(10)]
+        msgs.append({'role': 'user', 'content': 'CE QUE JE DEMANDE'})
+        out = portal._contexte_outils(msgs)
+        self.assertIn('CE QUE JE DEMANDE', out[-1]['content'])
+
+    def test_le_systeme_est_conserve_en_tete(self):
+        msgs = [{'role': 'system', 'content': 'consignes'},
+                {'role': 'user', 'content': 'bonjour'}]
+        out = portal._contexte_outils(msgs)
+        self.assertEqual(out[0]['role'], 'system')
+        self.assertIn('consignes', out[0]['content'])
+
+    def test_debut_et_fin_conserves_dans_un_message_coupe(self):
+        # La demande est souvent en tête, la dernière consigne en queue : c'est le
+        # ventre du fichier qui n'apprend rien.
+        msgs = [{'role': 'user', 'content': 'DEBUT' + 'm' * 60_000 + 'FIN'}]
+        out = portal._contexte_outils(msgs)
+        self.assertIn('DEBUT', out[-1]['content'])
+        self.assertIn('FIN', out[-1]['content'])
+
+    def test_conversation_courte_passe_telle_quelle(self):
+        msgs = [{'role': 'user', 'content': 'salut'},
+                {'role': 'assistant', 'content': 'bonjour'}]
+        self.assertEqual([m['content'] for m in portal._contexte_outils(msgs)],
+                         ['salut', 'bonjour'])

@@ -640,7 +640,10 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
       const info = LANG_INFO[(lang || "").toLowerCase()];
       // Une page HTML seule s'appelle index.html — c'est ce qu'on attend d'elle,
       // et c'est ouvrable tel quel. Les autres gardent un nom neutre numéroté.
-      if (info?.ext === "html" && n === 0) title = "index.html";
+      // `n` vient d'être incrémenté : le PREMIER bloc porte n === 1. Avec `n === 0`
+      // la condition n'était jamais vraie et une page HTML sans nom annoncé
+      // ressortait toujours en « fichier-2.html ».
+      if (info?.ext === "html" && n === 1) title = "index.html";
       else title = info ? `fichier-${n + 1}.${info.ext}` : `fichier-${n + 1}.txt`;
     }
     artifacts.push({ kind: "code", title, lang: lang || "text", content: body });

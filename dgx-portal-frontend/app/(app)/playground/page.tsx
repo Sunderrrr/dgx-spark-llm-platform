@@ -19,8 +19,6 @@ import { Markdown } from "@astryxdesign/core/Markdown";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
-import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
-import type { DropdownMenuOption } from "@astryxdesign/core/DropdownMenu";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { Grid } from "@astryxdesign/core/Grid";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
@@ -741,6 +739,7 @@ export default function PlaygroundPage() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [streaming, setStreaming] = useState(false);
 
   // File d'attente : messages soumis pendant qu'une réponse se génère. Au lieu
@@ -939,7 +938,9 @@ export default function PlaygroundPage() {
   }
 
   function newConversation() {
-    persist(messages, currentId, model);
+    // Pas de ré-enregistrement ici : chaque génération sauvegarde déjà à sa fin.
+    // Ré-enregistrer remontait la conversation en tête de liste au simple fait
+    // d'en changer, alors que l'ordre doit refléter la dernière ACTIVITÉ.
     setMessages([]);
     setCurrentId(null);
     setCtxUsed(0);
@@ -948,7 +949,8 @@ export default function PlaygroundPage() {
   }
 
   function selectConversation(conv: Conversation) {
-    persist(messages, currentId, model);
+    // Idem : ouvrir une conversation ne la modifie pas, donc ne doit pas la
+    // faire remonter ni réécrire celle qu'on quitte.
     setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })));
     setCurrentId(conv.id);
     if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
@@ -1382,32 +1384,6 @@ export default function PlaygroundPage() {
   const canRegenerate = !streaming && lastMsg && (lastMsg.role === "assistant" || lastMsg.role === "user");
   const canEdit = !streaming && messages.some((m) => m.role === "user");
 
-  // Deux sections : ouvrir, et supprimer. Jusqu'ici la seule suppression possible
-  // était celle de la conversation OUVERTE (corbeille de l'en-tête) — impossible
-  // de faire le ménage dans une liste longue sans ouvrir chaque conversation.
-  const historyItems: DropdownMenuOption[] =
-    conversations.length === 0
-      ? [{ label: t("Aucune conversation"), isDisabled: true }]
-      : [
-          {
-            type: "section",
-            title: t("Ouvrir"),
-            items: conversations.map((conv) => ({
-              label: conv.title || t("Conversation"),
-              onClick: () => selectConversation(conv),
-            })),
-          },
-          { type: "divider" },
-          {
-            type: "section",
-            title: t("Supprimer"),
-            items: conversations.map((conv) => ({
-              label: conv.title || t("Conversation"),
-              icon: <Icon icon={TrashIcon} size="sm" />,
-              onClick: () => deleteConversation(conv.id),
-            })),
-          },
-        ];
 
   return (
     <Layout
@@ -1429,21 +1405,13 @@ export default function PlaygroundPage() {
                 isIconOnly
                 onClick={newConversation}
               />
-              <DropdownMenu
-                button={{ label: t("Historique"), variant: "secondary", size: "sm", icon: <Icon icon={ClockIcon} size="sm" /> }}
-                items={historyItems}
-                menuWidth={260}
+              <Button
+                label={t("Historique")}
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={ClockIcon} size="sm" />}
+                onClick={() => setHistoryOpen(true)}
               />
-              {currentId != null && (
-                <Button
-                  label={t("Supprimer cette conversation")}
-                  variant="secondary"
-                  size="sm"
-                  icon={<Icon icon={TrashIcon} size="sm" />}
-                  isIconOnly
-                  onClick={() => deleteConversation(currentId)}
-                />
-              )}
               <Button
                 label={t("Réglages")}
                 variant="secondary"
@@ -2035,6 +2003,50 @@ export default function PlaygroundPage() {
               </Card>
             </>
           )}
+          {/* Historique : UNE ligne par conversation, corbeille au bout. Cliquer la
+              ligne ouvre la conversation (et referme le panneau) ; cliquer la
+              corbeille supprime SANS refermer, pour pouvoir faire le ménage
+              d'affilée. La corbeille est un bouton FRÈRE de la ligne, pas un
+              bouton imbriqué : aucun risque qu'un clic déclenche les deux. */}
+          <Dialog isOpen={historyOpen} onOpenChange={(o) => { if (!o) setHistoryOpen(false); }} width={560}>
+            <DialogHeader
+              title={t("Historique")}
+              subtitle={`${conversations.length} ${t("conversations")}`}
+              hasDivider
+              onOpenChange={(o) => { if (!o) setHistoryOpen(false); }}
+            />
+            <VStack gap={1} padding={3} height={520} isScrollable>
+              {conversations.length === 0 ? (
+                <Text color="secondary">{t("Aucune conversation")}</Text>
+              ) : (
+                conversations.map((conv) => (
+                  <HStack key={conv.id} gap={2} vAlign="center">
+                    <StackItem size="fill">
+                      <ClickableCard
+                        label={conv.title || t("Conversation")}
+                        variant={conv.id === currentId ? "default" : "muted"}
+                        onClick={() => { selectConversation(conv); setHistoryOpen(false); }}>
+                        <VStack gap={0}>
+                          <Text maxLines={1}>{conv.title || t("Conversation")}</Text>
+                          <Text type="supporting" color="secondary">
+                            <Timestamp value={conv.ts} format="date_time" />
+                          </Text>
+                        </VStack>
+                      </ClickableCard>
+                    </StackItem>
+                    <Button
+                      label={t("Supprimer")}
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={TrashIcon} size="sm" />}
+                      onClick={() => deleteConversation(conv.id)}
+                    />
+                  </HStack>
+                ))
+              )}
+            </VStack>
+          </Dialog>
           {(artifact || showLive) && (isNarrow || plein) && (
             <Dialog isOpen onOpenChange={(o) => { if (!o) fermerPanneau(); }} variant="fullscreen">
               <Layout

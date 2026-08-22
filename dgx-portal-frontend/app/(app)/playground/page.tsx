@@ -469,7 +469,12 @@ function openCodeFence(content: string): { lang: string; body: string; start: nu
 
 function parseArtifacts(content: string, allowDoc: boolean): { prose: string; artifacts: Artifact[] } {
   const text = content.trim();
-  if (allowDoc && text.length >= DOC_MIN_CHARS) {
+  // Un message qui contient un vrai bloc de code est un FICHIER, jamais un
+  // document : le prendre pour un document renvoyait tout le message — question
+  // comprise — sous un nom en .md. Ça dépendait de `allowDoc`, donc du message
+  // PRÉCÉDENT, d'où un comportement qui changeait après un F5.
+  const aDuCode = /```[^\n`]*\n[\s\S]{120,}?```/.test(text) || /<!DOCTYPE html|<html[\s>]/i.test(text);
+  if (allowDoc && !aDuCode && text.length >= DOC_MIN_CHARS) {
     return { prose: "", artifacts: [{ kind: "doc", title: docTitleFromContent(text), content: text }] };
   }
   const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
@@ -497,7 +502,12 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
     const substantial = !!title || body.length >= 200 || body.split("\n").length >= 6;
     if (!substantial) continue;
     n += 1;
-    if (!title) title = lang ? `${lang} · ${n}` : `file ${n}`;
+    // Nom de repli : un vrai nom de fichier, pas une étiquette. « html · 1 » se
+    // téléchargeait en « html · 1.txt » — ni lisible, ni ouvrable.
+    if (!title) {
+      const info = LANG_INFO[(lang || "").toLowerCase()];
+      title = info ? `fichier-${n}.${info.ext}` : `fichier-${n}.txt`;
+    }
     artifacts.push({ kind: "code", title, lang: lang || "text", content: body });
     prose += content.slice(lastIndex, m.index);
     lastIndex = fence.lastIndex;
@@ -526,6 +536,55 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
   return { prose: prose.trim(), artifacts };
 }
 
+// Extension et type de contenu par langage. Sans extension, le navigateur ajoute
+// « .txt » d'après le type MIME : un fichier nommé « html · 1 » se téléchargeait
+// en « html · 1.txt », illisible et non ouvrable.
+const LANG_INFO: Record<string, { ext: string; mime: string }> = {
+  html: { ext: "html", mime: "text/html" },
+  htm: { ext: "html", mime: "text/html" },
+  css: { ext: "css", mime: "text/css" },
+  javascript: { ext: "js", mime: "text/javascript" },
+  js: { ext: "js", mime: "text/javascript" },
+  typescript: { ext: "ts", mime: "text/plain" },
+  ts: { ext: "ts", mime: "text/plain" },
+  tsx: { ext: "tsx", mime: "text/plain" },
+  jsx: { ext: "jsx", mime: "text/plain" },
+  json: { ext: "json", mime: "application/json" },
+  yaml: { ext: "yml", mime: "text/yaml" },
+  yml: { ext: "yml", mime: "text/yaml" },
+  toml: { ext: "toml", mime: "text/plain" },
+  python: { ext: "py", mime: "text/x-python" },
+  py: { ext: "py", mime: "text/x-python" },
+  bash: { ext: "sh", mime: "text/x-shellscript" },
+  sh: { ext: "sh", mime: "text/x-shellscript" },
+  shell: { ext: "sh", mime: "text/x-shellscript" },
+  sql: { ext: "sql", mime: "text/plain" },
+  xml: { ext: "xml", mime: "text/xml" },
+  markdown: { ext: "md", mime: "text/markdown" },
+  md: { ext: "md", mime: "text/markdown" },
+  go: { ext: "go", mime: "text/plain" },
+  rust: { ext: "rs", mime: "text/plain" },
+  rs: { ext: "rs", mime: "text/plain" },
+  java: { ext: "java", mime: "text/plain" },
+  c: { ext: "c", mime: "text/plain" },
+  cpp: { ext: "cpp", mime: "text/plain" },
+  php: { ext: "php", mime: "text/plain" },
+  ruby: { ext: "rb", mime: "text/plain" },
+};
+
+/** Nom réellement téléchargeable : ni espace ni « · », et toujours une extension
+ *  cohérente avec le langage. */
+function nomTelechargeable(titre: string, lang: string): string {
+  if (/\.[a-z0-9]{1,6}$/i.test(titre)) return titre;
+  const info = LANG_INFO[(lang || "").toLowerCase()];
+  const base = titre.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "fichier";
+  return info ? `${base}.${info.ext}` : `${base}.txt`;
+}
+
+function mimePourLangage(lang: string): string {
+  return LANG_INFO[(lang || "").toLowerCase()]?.mime ?? "text/plain";
+}
+
 /** Ce bloc est-il un extrait d'un fichier déjà connu, plutôt qu'une version ? */
 function estFragment(
   ancien: { content: string; lang: string } | undefined,
@@ -538,9 +597,9 @@ function estFragment(
   return ancien.content.length > 800 && nouveau.length < ancien.content.length * 0.66;
 }
 
-// Titre attribué faute de mieux (« file 1 », « html · 2 ») : le modèle n'a pas
-// nommé son bloc.
-const TITRE_GENERIQUE = /^(file \d+|[\w+#-]+ · \d+)$/;
+// Titre attribué faute de mieux (« fichier-2.html ») : le modèle n'a pas nommé
+// son bloc.
+const TITRE_GENERIQUE = /^fichier-\d+\.[a-z0-9]{1,6}$/i;
 
 /** Les fichiers pour lesquels CE message ne contient qu'un extrait.
  *
@@ -844,7 +903,10 @@ export default function PlaygroundPage() {
       // eslint-disable-next-line react-hooks/purity
       ts: Date.now(),
       model: activeModel,
-      messages: msgs.map((m) => ({ role: m.role, content: m.content })),
+      // `hidden` fait partie du message : sans lui, une réponse à des questions
+      // redevenait un message ordinaire au rechargement, décalant les index et
+      // changeant le rendu de la conversation.
+      messages: msgs.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })),
     };
     // Optimistic on the UI side, then server save in the background: the
     // list must not wait for the network round-trip to update.
@@ -874,7 +936,7 @@ export default function PlaygroundPage() {
 
   function selectConversation(conv: Conversation) {
     persist(messages, currentId, model);
-    setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content })));
+    setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })));
     setCurrentId(conv.id);
     if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
     setCtxUsed(0);
@@ -1274,8 +1336,10 @@ export default function PlaygroundPage() {
   // Une page HTML terminée peut être REGARDÉE, pas seulement lue en code. On ne
   // le propose pas tant qu'elle s'écrit : un rendu à moitié écrit clignote.
   const panelEstHtml = !liveCode && panelIsCode && /^html?$/i.test(panelLang);
-  const panelDownloadName = panelIsCode ? panelTitle : `${slugify(panelTitle)}.md`;
-  const panelDownloadMime = panelIsCode ? "text/plain" : "text/markdown";
+  const panelDownloadName = panelIsCode
+    ? nomTelechargeable(panelTitle, panelLang)
+    : `${slugify(panelTitle)}.md`;
+  const panelDownloadMime = panelIsCode ? mimePourLangage(panelLang) : "text/markdown";
   // Auto-follow the document while it streams into the panel; show a "jump to
   // bottom" button when the reader scrolls up and leaves the live tail.
   const {
@@ -1961,14 +2025,38 @@ export default function PlaygroundPage() {
                           onClick={() => navigator.clipboard?.writeText(panelContent)} />
                       </HStack>
                     }
+                    startContent={
+                      panelEstHtml ? (
+                        <SegmentedControl
+                          label={t("Affichage")}
+                          value={htmlPreview ? "apercu" : "code"}
+                          onChange={(v) => setHtmlPreview(v === "apercu")}
+                          size="sm">
+                          <SegmentedControlItem value="apercu" label={t("Aperçu")} />
+                          <SegmentedControlItem value="code" label={t("Code source")} />
+                        </SegmentedControl>
+                      ) : undefined
+                    }
                   />
                 }
                 content={
+                  panelEstHtml && htmlPreview ? (
+                    /* Même aperçu isolé qu'en volet : le plein écran sert
+                       justement à REGARDER la page, pas à relire son code. */
+                    <iframe
+                      title={panelTitle}
+                      srcDoc={panelContent}
+                      sandbox=""
+                      style={{ width: "100%", height: "100%", border: "none",
+                               background: "var(--color-background-surface)" }}
+                    />
+                  ) : (
                   <LayoutContent ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable>
                     {panelIsCode
                       ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped maxHeight="100%" />
                       : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                   </LayoutContent>
+                  )
                 }
               />
               {showPanelJump && (

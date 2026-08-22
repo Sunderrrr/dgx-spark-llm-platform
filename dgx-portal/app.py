@@ -4271,6 +4271,38 @@ def playground_preview_create():
     return jsonify({'ok': True, 'id': pid})
 
 
+# Une page générée peut être syntaxiquement parfaite et ne rien faire : mauvaise
+# version de bibliothèque, méthode inexistante, variable non définie. Aucune analyse
+# statique ne voit ça — seule l'exécution le révèle. L'aperçu exécute déjà la page :
+# on lui greffe de quoi REMONTER ses erreurs au playground, qui peut alors les
+# afficher et proposer une correction. Le script est inséré en tête pour attraper
+# aussi ce qui casse au chargement.
+_PREVIEW_RAPPORT = """<script>
+(function(){
+  var envoye = 0;
+  function dire(m){
+    if (envoye++ > 3) return;                       // on ne noie pas le parent
+    try { parent.postMessage({ cronosPreviewError: String(m).slice(0, 400) }, '*'); } catch (e) {}
+  }
+  window.addEventListener('error', function(e){
+    dire(e && e.message ? e.message : 'erreur de chargement');
+  }, true);
+  window.addEventListener('unhandledrejection', function(e){
+    dire((e && e.reason && e.reason.message) || 'promesse rejetee');
+  });
+})();
+</script>"""
+
+
+def _preview_avec_rapport(html):
+    """Insère le mouchard d'erreurs le plus tôt possible dans le document."""
+    for balise in ('<head>', '<HEAD>', '<html>', '<HTML>'):
+        i = html.find(balise)
+        if i >= 0:
+            return html[:i + len(balise)] + _PREVIEW_RAPPORT + html[i + len(balise):]
+    return _PREVIEW_RAPPORT + html
+
+
 @app.route('/playground/preview/<pid>')
 @login_required
 def playground_preview_show(pid):
@@ -4278,7 +4310,7 @@ def playground_preview_show(pid):
     # Cloisonné par compte : l'aperçu d'un autre utilisateur n'est pas lisible.
     if not entry or entry[0] != session['username']:
         abort(404)
-    resp = Response(entry[1], mimetype='text/html')
+    resp = Response(_preview_avec_rapport(entry[1]), mimetype='text/html')
     # `sandbox` en en-tête → origine opaque, même hors iframe. Les autres
     # directives sont volontairement absentes : la page doit pouvoir s'exécuter.
     resp.headers['Content-Security-Policy'] = (

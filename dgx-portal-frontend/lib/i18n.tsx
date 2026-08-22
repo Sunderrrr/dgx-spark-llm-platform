@@ -305,6 +305,8 @@ const EN: Record<string, string> = {
   "Reprise automatique": "Auto-resume",
   "Le fichier s'arrête avant sa fin et les reprises automatiques n'ont pas suffi. Relance la suite, ou demande-lui de l'écrire en plusieurs fichiers.":
     "The file stops before its end and the automatic retries were not enough. Resume it again, or ask for it split across several files.",
+  "La connexion s'est interrompue pendant la génération. Reprends la suite — ce qui est déjà écrit est conservé.":
+    "The connection dropped mid-generation. Pick up where it stopped — what was already written is kept.",
   "Plein écran": "Fullscreen",
   "Modification non appliquée": "Edit not applied",
   "Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.":

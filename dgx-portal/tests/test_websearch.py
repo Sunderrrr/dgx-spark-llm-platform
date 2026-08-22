@@ -135,3 +135,77 @@ class LectureTest(unittest.TestCase):
             pages, err = websearch.lire(['https://exemple.fr/a'])
         self.assertEqual(pages, [])
         self.assertIn('injoignable', err)
+
+
+class MurEtPauvreteTest(unittest.TestCase):
+    """Une page qui rend son bandeau au lieu de son article est pire que rien :
+    le modèle prendrait le bandeau pour l'information. Mesuré en vrai sur la
+    presse française — murs de consentement, d'abonnement, détection de robot.
+    """
+
+    def _crawl(self, texte):
+        def faux_post(url, **kw):
+            r = mock.Mock(); r.raise_for_status = lambda: None
+            r.json = lambda: {'results': [{'url': u, 'success': True,
+                                           'markdown': {'raw_markdown': texte},
+                                           'metadata': {'title': 't'}}
+                                          for u in kw['json']['urls']]}
+            return r
+        with mock.patch('websearch.requests.post', side_effect=faux_post), \
+             mock.patch('websearch.socket.getaddrinfo',
+                        return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
+            pages, _ = websearch.lire(['https://exemple.fr/a'])
+        return pages[0]
+
+    def test_mur_de_cookies_signale_et_contenu_ecarte(self):
+        p = self._crawl("Continuer sans accepter → Pour soutenir le travail de notre "
+                        "rédaction, nous et nos 231 partenaires utilisons des cookies "
+                        + "pour stocker des informations sur votre terminal. " * 20)
+        self.assertIn('erreur', p)
+        self.assertNotIn('contenu', p)
+
+    def test_mur_d_abonnement_signale(self):
+        p = self._crawl("Votre abonnement arrive à expiration, mettez à jour votre carte. "
+                        * 40)
+        self.assertIn('erreur', p)
+
+    def test_page_javascript_vide_signalee(self):
+        p = self._crawl("A required part of this site couldn't load.")
+        self.assertIn('erreur', p)
+
+    def test_article_normal_conserve(self):
+        article = ("Le président a annoncé mardi une nouvelle livraison de matériel "
+                   "destinée à renforcer la défense antiaérienne du pays. ") * 12
+        p = self._crawl(article)
+        self.assertNotIn('erreur', p)
+        self.assertIn('contenu', p)
+        self.assertGreater(len(p['contenu']), 200)
+
+    def test_documentation_technique_conservee(self):
+        doc = ("asyncio.TaskGroup permet de regrouper plusieurs tâches concurrentes "
+               "et d'attendre leur achèvement collectif de manière structurée. ") * 12
+        p = self._crawl(doc)
+        self.assertNotIn('erreur', p)
+        self.assertIn('TaskGroup', p['contenu'])
+
+
+class ReglagesExtractionTest(unittest.TestCase):
+    def test_les_reglages_mesures_partent_bien_au_crawler(self):
+        vus = {}
+
+        def faux_post(url, **kw):
+            vus.update(kw['json']['crawler_config']['params'])
+            r = mock.Mock(); r.raise_for_status = lambda: None
+            r.json = lambda: {'results': []}
+            return r
+
+        with mock.patch('websearch.requests.post', side_effect=faux_post), \
+             mock.patch('websearch.socket.getaddrinfo',
+                        return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
+            websearch.lire(['https://exemple.fr/a'])
+        self.assertTrue(vus['markdown_generator']['params']['options']['ignore_links'])
+        self.assertIn('nav', vus['excluded_tags'])
+        self.assertIn('footer', vus['excluded_tags'])
+        # L'élagage par pertinence est volontairement ABSENT : il supprimait les
+        # blocs de code des pages de documentation.
+        self.assertNotIn('content_filter', vus['markdown_generator']['params'])

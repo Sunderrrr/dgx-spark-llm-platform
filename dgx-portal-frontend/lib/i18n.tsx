@@ -302,6 +302,9 @@ const EN: Record<string, string> = {
   "Réponse coupée": "Reply cut short",
   "Le plafond de tokens a été atteint. Reprends la suite, ou augmente « Max tokens » dans les réglages.":
     "The token ceiling was reached. Pick up where it stopped, or raise “Max tokens” in the settings.",
+  "Reprise automatique": "Auto-resume",
+  "Le fichier s'arrête avant sa fin et les reprises automatiques n'ont pas suffi. Relance la suite, ou demande-lui de l'écrire en plusieurs fichiers.":
+    "The file stops before its end and the automatic retries were not enough. Resume it again, or ask for it split across several files.",
   "Plein écran": "Fullscreen",
   "Modification non appliquée": "Edit not applied",
   "Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.":
@@ -315,6 +318,8 @@ const EN: Record<string, string> = {
   "Demander le fichier complet": "Ask for the whole file",
   "Ouvrir": "Open",
   "conversations": "conversations",
+  "Le fichier s'arrête avant sa fin — le modèle s'est interrompu tout seul. Reprends la suite.":
+    "The file stops before its end — the model gave up on its own. Pick up where it left off.",
   "Messages en attente": "Queued messages",
   "Envoi imminent…": "Sending now…",
   "Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.":

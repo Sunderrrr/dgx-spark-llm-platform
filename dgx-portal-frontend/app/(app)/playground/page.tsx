@@ -166,16 +166,18 @@ type FileEdit = { file: string; find: string; replace: string };
 // retombe sur un nom générique.
 const NAME_INSTRUCTION = `Name every file you output: put its path in backticks on the line just before the code block (\`index.html\`, \`roles/web/tasks/main.yml\`), chosen from what the user asked. Reuse the exact same name for a file you already produced.`;
 
-const EDIT_INSTRUCTION = `When the user asks you to FIX or CHANGE a file you already produced in this conversation, do NOT output the whole file again. Output only the edits, as a single fenced block:
-\`\`\`edit
-{"edits": [{"file": "<exact file name you used before>", "find": "<exact text to replace, copied character for character from the file>", "replace": "<the new text>"}]}
-\`\`\`
-Rules for edits:
-- \`find\` must appear EXACTLY ONCE in the current file, copied verbatim — including indentation. Include a few surrounding lines if needed to make it unique.
-- Several edits are allowed in the same block; they are applied in order.
-- Write one short sentence before the block saying what you changed. Never describe the change inside the block.
-- Only rewrite the whole file when the change really is a rewrite (restructuring most of it), or when the file does not exist yet.
-- NEVER output a shortened version of a file under its own name — no excerpt, no "rest unchanged", no "...". Either the edits block, or the file complete from first line to last.`;
+// Le protocole d'édition partielle a été retiré : sur du code généré qui contient
+// des erreurs, une correction ponctuelle laissait un fichier à moitié juste, et
+// une ancre mal recopiée ne s'appliquait pas du tout. On redemande le fichier
+// ENTIER — c'est plus long à générer, mais ce qui sort est utilisable tel quel.
+const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you already produced, output that file COMPLETE, from its first line to its last, under the exact same name. Never output a partial file, an excerpt, a diff, or a "rest unchanged" placeholder.`;
+
+/* ── Compatibilité : anciennes conversations ────────────────────────────────
+ * Le modèle ne reçoit plus le protocole d'édition (il réécrit le fichier en
+ * entier). Ces fonctions restent parce que l'historique déjà enregistré
+ * contient des blocs ```edit : sans elles, ces conversations réafficheraient
+ * du JSON brut au lieu du fichier corrigé. Rien de neuf n'en produit.
+ */
 
 /** Lit un bloc ```edit. Même tolérance que parseAsk : ces blocs sortent d'un
  *  modèle, ils arrivent parfois tronqués ou suivis de déchets. */
@@ -1264,7 +1266,7 @@ export default function PlaygroundPage() {
               settings.system.trim(),
               alreadyAsked ? "" : ASK_INSTRUCTION,
               NAME_INSTRUCTION,
-              fichiersJusqua(nextMessages, nextMessages.length - 1).size ? EDIT_INSTRUCTION : "",
+              fichiersJusqua(nextMessages, nextMessages.length - 1).size ? REWRITE_INSTRUCTION : "",
             ]
         ).filter(Boolean).join("\n\n"),
       };

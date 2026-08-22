@@ -1,0 +1,30 @@
+[Unit]
+Description=Empeche le reseau des sidecars de recherche web (SearXNG, crawl4ai) d'atteindre l'hote
+# crawl4ai pilote un navigateur qui visite des pages entierement controlees par
+# des tiers : une page hostile peut le rediriger vers une adresse interne (SSRF).
+# Son reseau docker dedie n'a deja aucune route vers litellm/postgres, et
+# DOCKER-USER bloque les ports du runner/vLLM, mais la machine hote reste
+# joignable sur les ports non couverts (constate : SSH accepte la connexion en
+# 0,05 s depuis ce reseau). On coupe donc toute connexion NEUVE de ce reseau
+# vers l'hote. Le trafic sortant vers Internet passe par FORWARD/MASQUERADE et
+# n'est pas concerne : les recherches continuent de fonctionner.
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Le sous-reseau n'est volontairement PAS epingle dans docker-compose.yml (le
+# figer force docker a recreer le reseau) : on le lit donc a chaud.
+ExecStart=/bin/sh -c '\
+SUB=$(docker network inspect ai-platform_web_net -f "{{range .IPAM.Config}}{{.Subnet}}{{end}}" 2>/dev/null); \
+[ -n "$SUB" ] || exit 0; \
+iptables -C INPUT -s "$SUB" -m conntrack --ctstate NEW -j DROP 2>/dev/null \
+  || iptables -I INPUT 1 -s "$SUB" -m conntrack --ctstate NEW -j DROP'
+ExecStop=/bin/sh -c '\
+SUB=$(docker network inspect ai-platform_web_net -f "{{range .IPAM.Config}}{{.Subnet}}{{end}}" 2>/dev/null); \
+[ -n "$SUB" ] || exit 0; \
+iptables -D INPUT -s "$SUB" -m conntrack --ctstate NEW -j DROP 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target

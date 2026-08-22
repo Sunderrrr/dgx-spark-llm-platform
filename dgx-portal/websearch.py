@@ -28,6 +28,34 @@ CRAWL4AI_URL = os.environ.get('CRAWL4AI_URL', 'http://crawl4ai:11235')
 _TOKEN_FILE = os.environ.get('CRAWL4AI_TOKEN_FILE', '/run/secrets/crawl4ai_token')
 
 # Bornes : ce qui part au modèle doit rester lisible et tenir dans le contexte.
+# Réglages d'extraction, choisis sur mesure (voir tests/test_websearch.py) :
+#  - `ignore_links` : sans lui, une page de doc sort avec 325 liens de navigation
+#    noyant le texte. Avec, le contenu reste intact — y compris les blocs de code.
+#  - `excluded_tags` : retire menus, pieds de page et barres latérales. Mesuré
+#    -61 % de volume sur une page produit, -75 % sur une page d'actualité.
+# L'élagage par pertinence (PruningContentFilter) a été ESSAYÉ puis écarté : il
+# supprime les blocs de code — `TaskGroup` et `asyncio.gather` disparaissaient
+# d'une page de documentation Python — sans rien gagner sur les murs de cookies.
+_EXTRACTION = {
+    'cache_mode': 'bypass',
+    'excluded_tags': ['nav', 'footer', 'header', 'aside', 'script', 'style', 'form'],
+    'markdown_generator': {
+        'type': 'DefaultMarkdownGenerator',
+        'params': {'options': {'ignore_links': True, 'ignore_images': True}},
+    },
+}
+
+# Beaucoup de sites de presse ne servent pas l'article : mur de consentement,
+# abonnement, ou détection de robot. On récupère alors leur bandeau, pas
+# l'information — pire que rien, puisque le modèle le prendrait pour le contenu.
+# Ces pages sont marquées illisibles ; l'extrait du moteur de recherche, lui,
+# reste exploitable et suffit souvent pour de l'actualité.
+MOTS_DE_MUR = ('continuer sans accepter', 'utilisons des cookies', 'consentement',
+               'accepter les cookies', 'votre abonnement', 'abonnez-vous',
+               'required part of this site', 'enable javascript', 'activez javascript',
+               'accept cookies', 'privacy preferences')
+MIN_MOTS_UTILES = 120
+
 MAX_RESULTATS = 8
 MAX_PAGES = 4
 MAX_CARS_PAGE = 6000
@@ -95,6 +123,18 @@ def url_publique(url):
     return True, None
 
 
+def _page_inexploitable(texte):
+    """Ce qu'on a extrait est-il un mur plutôt que le contenu ? (None si ça va.)"""
+    t = (texte or '').strip()
+    mots = sum(1 for m in t.split() if len(m) > 3)
+    if mots < MIN_MOTS_UTILES:
+        return "Page trop pauvre (contenu chargé en JavaScript, ou accès refusé)."
+    debut = ' '.join(t.split())[:500].lower()
+    if any(m in debut for m in MOTS_DE_MUR):
+        return "Mur de consentement ou d'abonnement : l'article n'est pas accessible."
+    return None
+
+
 def rechercher(question, nombre=6, langue='fr'):
     """Question → liens. Retourne (resultats, erreur)."""
     question = (question or '').strip()[:400]
@@ -140,7 +180,7 @@ def lire(urls, max_cars=MAX_CARS_PAGE):
                               headers={'Authorization': f'Bearer {_token()}'},
                               json={'urls': a_lire,
                                     'crawler_config': {'type': 'CrawlerRunConfig',
-                                                       'params': {'cache_mode': 'bypass'}}})
+                                                       'params': _EXTRACTION}})
             r.raise_for_status()
             for item in (r.json().get('results') or []):
                 md = item.get('markdown')
@@ -163,6 +203,10 @@ def lire(urls, max_cars=MAX_CARS_PAGE):
                                          if k.rstrip('/') == u.rstrip('/')), None)
         if not info or not info['ok']:
             pages.append({'url': u, 'erreur': "Page illisible."})
+            continue
+        souci = _page_inexploitable(info['markdown'])
+        if souci:
+            pages.append({'url': u, 'titre': info['titre'], 'erreur': souci})
             continue
         reste = max(0, MAX_CARS_TOTAL - total)
         texte = info['markdown'][:reste]

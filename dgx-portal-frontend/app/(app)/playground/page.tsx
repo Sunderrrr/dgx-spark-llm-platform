@@ -252,6 +252,22 @@ function reponseIncomplete(content: string): boolean {
   return false;
 }
 
+/** La réponse s'arrête-t-elle en pleine phrase, APRÈS un fichier pourtant complet ?
+ *
+ * Constaté en production : le fichier était refermé et `</html>` présent, mais le
+ * commentaire qui suivait s'arrêtait au milieu d'un mot (« je peux ajouter un
+ * **nive »). Rien ne le signalait. On ne relance PAS tout seul dans ce cas — le
+ * livrable est là — mais on propose la suite.
+ */
+function proseIncomplete(content: string): boolean {
+  if (content.length < 800) return false;                       // trop court pour conclure
+  const prose = content.replace(/```[\s\S]*?```/g, "").trim();
+  if (prose.length < 120) return false;                         // presque que du code
+  if ((prose.match(/\*\*/g) || []).length % 2 === 1) return true;  // gras jamais refermé
+  // Une phrase finie se termine par une ponctuation (ou un emoji, fréquent ici).
+  return !/[.!?:;)\]}»"'`…\p{Extended_Pictographic}]$/u.test(prose);
+}
+
 /** Le texte du message, avec la fence jamais refermée refermée d'office.
  *
  * `parseArtifacts` n'extrait qu'un bloc DÉLIMITÉ des deux côtés. Une réponse
@@ -796,6 +812,11 @@ function messageIncomplet(messages: ChatMsg[], index: number): boolean {
     return fusion.some((f) => reponseIncomplete(f.content));
   }
   return reponseIncomplete(m.content);
+}
+
+/** Ce message mérite-t-il le bandeau « Réponse coupée » ? */
+function messageCoupe(messages: ChatMsg[], index: number): boolean {
+  return messageIncomplet(messages, index) || proseIncomplete(messages[index]?.content ?? "");
 }
 
 /** Les modifications d'un message, avec le résultat et les échecs éventuels. */
@@ -2024,7 +2045,7 @@ export default function PlaygroundPage() {
                           )}
                           {/* Coupé par le plafond de tokens : sans ce message, la
                               réponse s'arrête en plein mot et rien ne l'explique. */}
-                          {(m.truncated || (!streamingThis && messageIncomplet(messages, i))) && !streamingThis && (
+                          {(m.truncated || (!streamingThis && messageCoupe(messages, i))) && !streamingThis && (
                             <Banner
                               status="warning"
                               title={t("Réponse coupée")}

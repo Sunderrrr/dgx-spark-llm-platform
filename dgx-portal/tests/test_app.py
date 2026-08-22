@@ -388,71 +388,43 @@ class ContexteOutilsTest(unittest.TestCase):
 
 
 class PertinenceRechercheTest(unittest.TestCase):
-    """La recherche ne part que si la demande en a visiblement besoin.
+    """La recherche ne part que sur une directive explicite.
 
-    La règle inverse s'est trompée deux fois de suite en production : une
-    correction de jeu Pong et une dissertation sur la propagation du son ont
-    toutes deux déclenché une recherche. La seconde a même fait échouer la
-    requête, sur un contexte de 431 tokens — donc rien à précharger.
+    Cinq versions ont échoué en production en devinant l'intention à partir de
+    mots isolés : « google » venait d'une balise de police, « source » d'un
+    createBufferSource, « en ligne » d'un « jeu d'échecs en ligne » — celle-là a
+    bloqué un utilisateur six fois de suite.
     """
 
     def _u(self, t):
         return [{'role': 'user', 'content': t}]
 
-    def test_une_dissertation_ne_declenche_rien(self):
-        self.assertFalse(portal._recherche_pertinente(
-            self._u("tu peux me faire une dissertation sur la propagation de l'onde sonore stp")))
+    def test_les_faux_declencheurs_historiques(self):
+        for t in ("j'aurais besoin que tu regardes dans ce fichier, "
+                  "c'est un jeu d'échecs en ligne, sauf que j'ai un problème",
+                  "fais-moi un jeu d'échecs en ligne",
+                  "tu peux me faire une dissertation sur la propagation du son",
+                  "hello comment vas-tu ?",
+                  '<link rel="preconnect" href="https://fonts.googleapis.com">',
+                  "const source = ctx.createBufferSource();",
+                  "quelles sont les dernières nouvelles ?",
+                  "quel est le prix du bitcoin ?"):
+            self.assertFalse(portal._recherche_pertinente(self._u(t)), t)
 
-    def test_une_salutation_ne_declenche_rien(self):
-        self.assertFalse(portal._recherche_pertinente(self._u("hello comment vas-tu ?")))
-
-    def test_une_demande_de_code_ne_declenche_rien(self):
-        self.assertFalse(portal._recherche_pertinente(
-            self._u("fais-moi un jeu d'échecs en HTML")))
-
-    def test_demande_explicite(self):
+    def test_les_directives_explicites(self):
         for t in ("cherche sur internet les règles du blackjack",
-                  "recherche la doc de cette API", "regarde en ligne"):
+                  "cherche sur le web la doc de cette API",
+                  "va voir sur internet ce que ça donne",
+                  "regarde sur le web si c'est encore vrai",
+                  "fais une recherche sur les ondes sonores",
+                  "lance une recherche web",
+                  "recherche web : propagation du son",
+                  "renseigne-toi en ligne là-dessus"):
             self.assertTrue(portal._recherche_pertinente(self._u(t)), t)
 
-    def test_question_d_actualite(self):
-        for t in ("quelles sont les dernières nouvelles sur l'Ukraine ?",
-                  "quoi de neuf aujourd'hui ?", "l'actualité de cette semaine"):
-            self.assertTrue(portal._recherche_pertinente(self._u(t)), t)
-
-    def test_donnee_mouvante(self):
-        for t in ("quel est le prix du bitcoin ?", "quelle est la dernière version de Python ?",
-                  "la météo demain", "vérifie cette information"):
-            self.assertTrue(portal._recherche_pertinente(self._u(t)), t)
-
-    def test_un_fichier_present_oppose_son_veto(self):
-        h = [{'role': 'user', 'content': "voici :\n\n```html\n" + ("x" * 2000) + "\n```"},
-             {'role': 'user', 'content': "quelles sont les dernières nouvelles à ce sujet ?"}]
-        self.assertFalse(portal._recherche_pertinente(h))
-
-    def test_mais_une_demande_explicite_passe_outre_le_fichier(self):
-        h = [{'role': 'user', 'content': "voici :\n\n```html\n" + ("x" * 2000) + "\n```"},
-             {'role': 'user', 'content': "cherche sur internet la doc de cette balise"}]
-        self.assertTrue(portal._recherche_pertinente(h))
-
-    def test_un_fichier_colle_ne_declenche_jamais_rien(self):
-        # Cas réel : le fichier contient <link href="https://fonts.googleapis.com/…>,
-        # donc le mot « google ». L'intention doit se lire dans ce que l'humain
-        # écrit, pas dans le code qu'il colle.
-        code = ('<!doctype html><html><head>'
-                '<link rel="preconnect" href="https://fonts.googleapis.com">'
-                '<script>const source = ctx.createBufferSource();</script>'
-                + ("x" * 20000) + '</html>')
-        self.assertFalse(portal._recherche_pertinente(
-            [{'role': 'user', 'content': code}]))
-
-    def test_un_fichier_colle_avec_une_vraie_demande_autour(self):
-        code = '```html\n<link href="https://fonts.googleapis.com/x">\n' + ("y" * 5000) + '\n```'
-        h = [{'role': 'user', 'content': "corrige ce fichier stp\n\n" + code}]
-        self.assertFalse(portal._recherche_pertinente(h))
-
-    def test_la_demande_est_lue_meme_apres_un_gros_collage(self):
-        h = [{'role': 'user', 'content': ("z" * 30000) + "\n\ncherche sur internet la doc"}]
+    def test_la_directive_marche_meme_avec_un_fichier_colle(self):
+        h = [{'role': 'user', 'content': "```html\n" + ("x" * 5000)
+              + "\n```\n\ncherche sur internet la doc de cette balise"}]
         self.assertTrue(portal._recherche_pertinente(h))
 
     def test_conversation_vide(self):

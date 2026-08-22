@@ -800,9 +800,7 @@ function fichiersJusqua(
     // Une reprise ne se recolle que sur un fichier RÉELLEMENT laissé ouvert.
     // Se rabattre sur le dernier fichier connu paraissait prudent, mais recollait
     // la suite sur un fichier déjà terminé : deux </html>, accolades déséquilibrées.
-    const titreCible: string | null = inacheve;
-    const cible: { content: string; lang: string } | undefined =
-      titreCible ? fichiers.get(titreCible) : undefined;
+    const cible = inacheve ? fichiers.get(inacheve) : undefined;
     // Un bloc de protocole n'est PAS la suite du fichier : le modèle a répondu à
     // « Continue » par un ```edit (constaté en production). Le recoller aurait
     // injecté du JSON au milieu du HTML — on le traite comme un message normal.
@@ -816,11 +814,11 @@ function fichiersJusqua(
     }
     if (cible && !protocole && estReprise(messages[i - 1])) {
       const fusion: string = recoller(cible.content, corpsDeSuite(m.content));
-      fichiers.set(titreCible!, { ...cible, content: fusion });
+      fichiers.set(inacheve!, { ...cible, content: fusion });
       // Une reprise peut être coupée à son tour. Son compte de fences ne dit rien
       // (elle commence au milieu d'un bloc) : c'est le fichier reconstitué qui
       // décide s'il reste ouvert.
-      inacheve = reponseIncomplete(fusion) ? titreCible : null;
+      inacheve = reponseIncomplete(fusion) ? inacheve : null;
       continue;
     }
     inacheve = fichierInacheve(m.content);
@@ -1929,7 +1927,13 @@ export default function PlaygroundPage() {
                   const fragments = m.role === "assistant" && !streamingThis
                     ? fragmentsDuMessage(messages, i)
                     : [];
-                  const items = suite.length
+                  // Un message de REPRISE ne montre que le fichier reconstitué. S'il
+                  // n'y avait rien à compléter, il ne montre aucun fichier : son
+                  // contenu est la suite d'un texte, pas un livrable. Sans ce test,
+                  // la carte « fichier-2.txt » (un demi-script) revenait dans le fil.
+                  const estSuite = m.role === "assistant" && !streamingThis
+                    && estReprise(messages[i - 1]);
+                  const items = estSuite
                     ? [...suite, ...modifs.fichiers]
                     : [...(arts?.artifacts ?? []), ...modifs.fichiers];
                   // When the model puts everything in the artifact and writes nothing
@@ -1960,7 +1964,7 @@ export default function PlaygroundPage() {
                   const contientEdit = m.content.includes("```edit");
                   // Une reprise n'a pas de prose à montrer : tout son contenu est
                   // la fin du fichier, déjà recollée dans la carte.
-                  const proseHorsEdit = suite.length
+                  const proseHorsEdit = estSuite && suite.length
                     ? ""
                     : (arts?.prose ?? m.content)
                         .replace(/```edit[\s\S]*?(?:```|$)/g, "")

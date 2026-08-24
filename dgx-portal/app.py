@@ -1181,7 +1181,7 @@ def _voice_launch(repo_id):
 # Image generation models the admin may launch (mirrors _VOICE_REPO_IDS): a
 # closed allowlist, revalidated by the runner (_IMAGE_MODEL_IDS) before any sudo
 # call. Each id maps host-side to a pre-downloaded diffusers dir (image-recreate.sh).
-IMAGE_MODEL_IDS = {'krea/Krea-2-Turbo', 'krea/Krea-2-Raw'}
+IMAGE_MODEL_IDS = {'black-forest-labs/FLUX.2-klein-4B'}
 
 def _image_launch(model_id):
     """Recreate the image container with another diffusers model (runner.py
@@ -1459,6 +1459,14 @@ def ocr_extract_stream(image_bytes, mime, instruction, on_done):
     on_done(full_text) is called once the stream ends (empty text on
     error), to let the caller persist the history.
     """
+    # Commentaire SSE emis AVANT tout travail : il force l'ecriture immediate
+    # des en-tetes de reponse. Sinon le premier octet ne part qu'au retour du
+    # POST vers le conteneur OCR, or celui-ci peut monter a ~100 s sous
+    # contention GPU (cf. plus bas) — bien au-dela des 15 s de delai de
+    # connexion du proxy Next.js (lib/sseProxy.ts), qui coupait donc la requete
+    # avant meme la premiere reponse. Meme piege que /support/chat et
+    # /playground/chat. get_ocr_model() sonde le reseau : le yield passe avant.
+    yield ": ouverture\n\n"
     model = get_ocr_model() or 'baidu/Unlimited-OCR'
     is_chandra = 'chandra' in model.lower()
     prompt_text = _CHANDRA_OCR_LAYOUT_PROMPT if is_chandra else f'<image>{instruction}'
@@ -4502,96 +4510,136 @@ def playground_chat():
         # `_out` n'arrive qu'au tout dernier chunk : sur un flux abandonné en
         # cours de route il vaut None. `_octets` mesure l'avancement réel.
         _finish, _out, _octets = None, None, 0
+        # Arme le fil de lecture amont (defini plus bas) : pose dans le `finally`
+        # du generateur, donc sur fin normale, erreur OU depart du client.
+        _stop = threading.Event()
+        # Un commentaire SSE part AVANT TOUTE CHOSE, recherche web ou pas. En
+        # WSGI les en-tetes ne partent qu'au PREMIER yield du generateur : tant
+        # que rien n'est produit, le proxy du frontend ne voit pas la reponse
+        # commencer et coupe a CONNECT_TIMEOUT_MS (lib/sseProxy.ts) sur un 502
+        # « Le serveur ne repond pas ». Or sans recherche le premier yield
+        # n'arrivait qu'au RETOUR du POST vers LiteLLM, donc apres tout le
+        # prechargement du contexte : largement plus de 15 s sur une grosse
+        # conversation, ce modele etant a attention lineaire (aucun cache de
+        # prefixe possible, rien n'est jamais reutilise d'un tour a l'autre).
+        # Vu en prod le 22/08 : conversation de 68 kio, 502 a 15 s pile.
+        yield ": ouverture\n\n"
         if _web_ok:
-            # Un commentaire SSE part AVANT toute chose : le client reçoit des
-            # octets immédiatement, donc aucun proxy ne conclut à un silence.
             yield ": recherche\n\n"
-            _journal = []
-            for _etape in _phase_outils(model, msgs, user_key, _journal):
+            _journal, _trouvailles = [], []
+            for _etape in _phase_outils(model, msgs, user_key, _journal, _trouvailles):
                 yield _etape
+            # Réinjection EN TEXTE, dans le dernier message de l'utilisateur.
+            _txt = _texte_des_trouvailles(_trouvailles)
+            if _txt:
+                for _k in range(len(msgs) - 1, -1, -1):
+                    if msgs[_k].get('role') == 'user':
+                        msgs[_k] = {**msgs[_k], 'content': msgs[_k].get('content', '') + _txt}
+                        break
             # Rien à récapituler ici : chaque étape est partie au fil de l'eau,
             # dans un événement à part — jamais mêlé au texte de la réponse, donc
             # rien à nettoyer ensuite et rien qui pollue la conversation enregistrée.
         try:
-            # READ timeout (2nd value) = anti-stuck-slot: if no byte arrives for
-            # 300 s (request stuck in queue behind saturated slots, or model
-            # blocked), we raise, the `with` closes the connection, LiteLLM closes
-            # its own, and the slot is released. A NORMAL generation sends tokens
-            # continuously, so this never cuts one off.
-            # Relevé de 120 à 300 s : rien n'arrive pendant le PRÉCHARGEMENT du
-            # contexte, et une conversation portant un gros fichier peut y passer
-            # plus de deux minutes. À 120 s, ces requêtes mouraient en
-            # « flux interrompu (ReadTimeout) » — visible dans le journal.
-            with requests.post(f"{LITELLM_URL}/v1/chat/completions",
-                               headers={'Authorization': f'Bearer {user_key}'},
-                               json={'model': model, 'messages': msgs, 'stream': True,
-                                     'temperature': temperature, 'max_tokens': max_tokens, 'top_p': top_p,
-                                     'stream_options': {'include_usage': True},
-                                     'chat_template_kwargs': {'enable_thinking': reasoning}},
-                               stream=True, timeout=(10, 300)) as r:
-                if not r.ok:
-                    msg = ("Budget de compte dépassé — attends le reset quotidien ou demande plus de tokens."
-                           if r.status_code == 429 else f"Erreur modèle ({r.status_code}).")
-                    yield _sse_msg(msg)
-                    return
-                # `iter_lines()` BLOQUE tant que rien n'arrive. Or rien n'arrive
-                # pendant tout le préchargement du contexte — plusieurs dizaines de
-                # secondes sur une longue conversation. Le client n'avait alors aucun
-                # signe de vie et renonçait (« Network error ») avant le premier
-                # token. On lit donc dans un fil, et on émet un battement de cœur
-                # toutes les 5 s d'attente. L'assistant Support fait déjà ainsi.
-                _file = queue.Queue(maxsize=1000)
+            # Le POST lui-meme BLOQUE jusqu'au premier octet renvoye par LiteLLM,
+            # c'est-a-dire jusqu'a la fin du PRECHARGEMENT du contexte : des dizaines
+            # de secondes sur une grosse conversation, ce modele n'ayant aucun cache
+            # de prefixe (attention lineaire). Il part donc DANS le fil de lecture et
+            # non dans le generateur : sinon aucun battement de coeur n'est emis
+            # pendant tout ce temps, et le proxy du frontend coupait sur inactivite
+            # (IDLE_TIMEOUT_MS, 60 s) une generation pourtant parfaitement saine.
+            # READ timeout (2e valeur) = anti-slot-coince : si aucun octet n'arrive
+            # pendant 300 s (requete coincee derriere des slots satures, ou modele
+            # bloque), on leve, le `with` ferme la connexion, LiteLLM ferme la sienne
+            # et le slot est libere. Une generation NORMALE envoie des tokens en
+            # continu, donc ceci ne coupe jamais rien. Releve de 120 a 300 s : rien
+            # n'arrive pendant le prechargement, et une conversation portant un gros
+            # fichier peut y passer plus de deux minutes.
+            _file = queue.Queue(maxsize=1000)
+            _amont = {}
 
-                def _lecteur():
-                    try:
+            def _lecteur():
+                try:
+                    with requests.post(f"{LITELLM_URL}/v1/chat/completions",
+                                       headers={'Authorization': f'Bearer {user_key}'},
+                                       json={'model': model, 'messages': msgs, 'stream': True,
+                                             'temperature': temperature, 'max_tokens': max_tokens,
+                                             'top_p': top_p,
+                                             'stream_options': {'include_usage': True},
+                                             'chat_template_kwargs': {'enable_thinking': reasoning}},
+                                       stream=True, timeout=(10, 300)) as r:
+                        if not r.ok:
+                            _amont['statut'] = r.status_code
+                            return
                         for _l in r.iter_lines():
-                            _file.put(_l)
-                    except Exception as _e:                      # noqa: BLE001
-                        _file.put(_e)
-                    finally:
-                        _file.put(None)
-
-                _fil = threading.Thread(target=_lecteur, daemon=True)
-                _fil.start()
-                while True:
-                    try:
-                        line = _file.get(timeout=5)
-                    except queue.Empty:
-                        yield ": attente\n\n"          # commentaire SSE : ignoré du parseur
-                        continue
-                    if line is None:
-                        break
-                    if isinstance(line, Exception):
-                        raise line
-                    if line:
-                        txt = line.decode('utf-8', 'replace')
-                        # Vérité terrain sur la fin de génération : sans cette trace,
-                        # impossible de dire APRÈS COUP si une réponse coupée l'a été
-                        # par le plafond de tokens ou par un EOS émis par le modèle.
-                        if '"finish_reason"' in txt or '"completion_tokens"' in txt:
+                            # Le client est parti : on sort du `with`, ce qui ferme la
+                            # connexion amont et libere le slot vLLM. Sans cela le fil
+                            # survivrait au generateur en gardant le slot occupe.
+                            if _stop.is_set():
+                                return
                             try:
-                                _d = json.loads(txt[6:]) if txt.startswith('data: ') else {}
-                                _finish = (_d.get('choices') or [{}])[0].get('finish_reason') or _finish
-                                _out = (_d.get('usage') or {}).get('completion_tokens') or _out
-                            except Exception:
-                                pass
-                        _octets += len(txt)
-                        yield txt + "\n\n"
-                if _finish is None:
-                    # Le flux amont s'est fermé SANS annoncer de fin. Pour `iter_lines`
-                    # c'est une fin normale : la boucle se termine sans exception, le
-                    # client reçoit une réponse qui a l'air complète alors qu'elle est
-                    # coupée en plein mot. On le dit explicitement, sinon rien ne le
-                    # signale et la réponse tronquée passe pour finie.
-                    app.logger.warning("playground %s : flux amont ferme sans finish_reason "
-                                       "apres %s octets — reponse coupee", _who, _octets)
-                    yield ("data: " + json.dumps({'choices': [{'delta': {},
-                           'finish_reason': 'length'}]}) + "\n\n")
-                elif _finish != 'stop':
-                    app.logger.warning("playground %s : finish_reason=%s, %s tokens produits",
-                                       _who, _finish, _out)
-                elif _out and _out > 4000:
-                    app.logger.warning("playground %s : fin normale (stop) apres %s tokens", _who, _out)
+                                _file.put(_l, timeout=30)
+                            except queue.Full:
+                                return
+                except Exception as _e:                      # noqa: BLE001
+                    try:
+                        _file.put_nowait(_e)
+                    except queue.Full:
+                        pass
+                finally:
+                    try:
+                        _file.put_nowait(None)
+                    except queue.Full:
+                        pass
+
+            _fil = threading.Thread(target=_lecteur, daemon=True)
+            _fil.start()
+            while True:
+                try:
+                    line = _file.get(timeout=5)
+                except queue.Empty:
+                    yield ": attente\n\n"          # commentaire SSE : ignoré du parseur
+                    continue
+                if line is None:
+                    break
+                if isinstance(line, Exception):
+                    raise line
+                if line:
+                    txt = line.decode('utf-8', 'replace')
+                    # Vérité terrain sur la fin de génération : sans cette trace,
+                    # impossible de dire APRÈS COUP si une réponse coupée l'a été
+                    # par le plafond de tokens ou par un EOS émis par le modèle.
+                    if '"finish_reason"' in txt or '"completion_tokens"' in txt:
+                        try:
+                            _d = json.loads(txt[6:]) if txt.startswith('data: ') else {}
+                            _finish = (_d.get('choices') or [{}])[0].get('finish_reason') or _finish
+                            _out = (_d.get('usage') or {}).get('completion_tokens') or _out
+                        except Exception:
+                            pass
+                    _octets += len(txt)
+                    yield txt + "\n\n"
+            if _amont.get('statut'):
+                # Statut releve dans le fil : le generateur ne voit plus la reponse
+                # HTTP elle-meme, seulement ce que le fil lui en rapporte.
+                yield _sse_msg("Budget de compte dépassé — attends le reset quotidien "
+                               "ou demande plus de tokens."
+                               if _amont['statut'] == 429
+                               else f"Erreur modèle ({_amont['statut']}).")
+                return
+            if _finish is None:
+                # Le flux amont s'est fermé SANS annoncer de fin. Pour `iter_lines`
+                # c'est une fin normale : la boucle se termine sans exception, le
+                # client reçoit une réponse qui a l'air complète alors qu'elle est
+                # coupée en plein mot. On le dit explicitement, sinon rien ne le
+                # signale et la réponse tronquée passe pour finie.
+                app.logger.warning("playground %s : flux amont ferme sans finish_reason "
+                                   "apres %s octets — reponse coupee", _who, _octets)
+                yield ("data: " + json.dumps({'choices': [{'delta': {},
+                       'finish_reason': 'length'}]}) + "\n\n")
+            elif _finish != 'stop':
+                app.logger.warning("playground %s : finish_reason=%s, %s tokens produits",
+                                   _who, _finish, _out)
+            elif _out and _out > 4000:
+                app.logger.warning("playground %s : fin normale (stop) apres %s tokens", _who, _out)
         except GeneratorExit:
             # Le navigateur a fermé la connexion en cours de route (coupure réseau,
             # onglet fermé). Ce n'est PAS une Exception : sans ce cas, la coupure la
@@ -4603,6 +4651,10 @@ def playground_chat():
             app.logger.warning("playground %s : flux interrompu (%s)", _who, type(_e).__name__)
             yield _sse_msg("⚠ stream interrupted.")
         finally:
+            # Libere le fil de lecture : il sort de son `with`, ferme la connexion
+            # amont et rend le slot vLLM. Sans cela un client parti laissait le fil
+            # drainer la generation entiere, slot occupe pour rien.
+            _stop.set()
             _inflight_end(_rid)   # runs on completion, error, or client disconnect (GeneratorExit)
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
@@ -4835,7 +4887,32 @@ def _inflight_snapshot():
     return out
 
 
-def _active_users(window_s=120):
+def _compte_existe(nom):
+    """Ce nom correspond-il a un compte connu de la plateforme ?
+
+    Sert uniquement a VALIDER un nom devine depuis l'alias d'une cle API : sans
+    cette verification on afficherait n'importe quel morceau d'alias comme s'il
+    s'agissait d'un utilisateur. user_prefs, et non local_users : les comptes
+    LDAP/SSO n'ont pas de ligne locale, seul user_prefs les voit tous.
+    """
+    if not nom:
+        return False
+    try:
+        return get_db().execute(
+            "SELECT 1 FROM user_prefs WHERE username=? LIMIT 1", (nom,)).fetchone() is not None
+    except Exception:
+        return False
+
+
+# 180 s et non 120 : le registre in-flight ne couvre QUE les routes du portail
+# (Playground/Support). Un client API passe par Traefik -> LiteLLM sans jamais
+# traverser le portail : sa seule trace est SpendLogs, ecrite en FIN de requete.
+# Les requetes agentiques mesurees durent 100 a 124 s, donc sous ~150 s un tel
+# client disparaissait entre deux appels alors qu'il tournait sans discontinuer.
+# Pas plus de 180 s non plus : au-dela, le panneau garde des noms partis depuis
+# longtemps. C'est le garde-fou sur l'activite du moteur qui borne vraiment —
+# moteur au repos, panneau vide, quelle que soit la fenetre.
+def _active_users(window_s=180):
     """Users who queried the model recently, from two sources merged:
       - LiteLLM SpendLogs over the last `window_s` s (attributed by API key → user)
         — recent COMPLETED requests;
@@ -4844,6 +4921,22 @@ def _active_users(window_s=120):
         current user in real time. Such users are marked `live`.
     Feeds the admin "who's using the model" panel on the home page.
     """
+    # Le panneau doit refleter l'activite REELLE. Sans ce garde-fou il gardait des
+    # noms affiches pendant toute la fenetre alors que plus rien ne tournait :
+    # l'admin voyait « 0 / 8 sessions » et pourtant deux utilisateurs listes. Le
+    # moteur est la seule autorite sur « est-ce que quelque chose tourne ».
+    inflight = _inflight_snapshot()
+    en_cours = 0
+    try:
+        h = vllm_health() or {}
+        en_cours = int(h.get('running') or 0) + int(h.get('waiting') or 0)
+    except Exception:
+        # Moteur injoignable : on ne VIDE PAS le panneau sur une simple panne de
+        # sonde, sinon une erreur de metriques ferait croire que personne n'utilise
+        # le modele. On retombe sur la fenetre SpendLogs seule.
+        en_cours = -1
+    if not inflight and en_cours == 0:
+        return []
     agg = {}
     conn = _spend_conn()
     if conn:
@@ -4851,24 +4944,61 @@ def _active_users(window_s=120):
             umap = _key_user_map(conn)
             cur = conn.cursor()
             since = datetime.now(ZoneInfo('UTC')).replace(tzinfo=None) - timedelta(seconds=window_s)
+            # Filtre sur endTime, PAS sur startTime. LiteLLM n'ecrit la ligne qu'a la
+            # FIN de la requete : au moment ou elle devient visible, son startTime est
+            # deja vieux de toute la duree de la generation. Mesure du 23/08 sur un
+            # client agentique (mpigeon via une cle API) : requetes de 100 a 124 s
+            # enchainees sans interruption, donc systematiquement hors d'une fenetre
+            # de 120 s calee sur startTime — l'utilisateur etait invisible du panneau
+            # « qui utilise le modele » alors qu'il saturait le GPU en continu.
+            # Deux bornes, et c'est VOULU. Seul startTime est indexe (pas endTime) :
+            # filtrer sur le seul COALESCE(endTime, startTime) forcait un balayage
+            # complet — 38 000 lignes et 5,7 ms par appel, qui empirent a chaque
+            # requete enregistree. La borne large sur startTime laisse Postgres
+            # utiliser son index, la borne fine sur endTime garde la justesse pour
+            # une requete longue. Mesure du 23/08 : 5,741 ms -> 0,145 ms.
+            # 1 h de marge : au-dela, une requete unique aussi longue n'existe pas.
+            large = since - timedelta(seconds=3600)
             cur.execute('SELECT api_key, COUNT(*), '
-                        'SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
-                        'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s GROUP BY api_key', (since,))
-            for api_key, cnt, toks in cur.fetchall():
+                        'SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)), '
+                        'MAX(COALESCE("user", \'\')), '
+                        'MAX(COALESCE(metadata->>\'user_api_key_alias\', \'\')) '
+                        'FROM "LiteLLM_SpendLogs" '
+                        'WHERE "startTime" >= %s AND COALESCE("endTime", "startTime") >= %s '
+                        'GROUP BY api_key', (large, since))
+            for api_key, cnt, toks, col_user, alias in cur.fetchall():
                 if api_key in _NON_USER_KEYS:
                     continue
-                u = umap.get(api_key)
+                # Trois sources d'attribution, de la plus fiable a la plus faible.
+                # Avant, une cle absente de la table de correspondance etait
+                # SILENCIEUSEMENT ignoree : son proprietaire n'apparaissait jamais,
+                # sans que rien ne le signale. Or une cle creee hors du portail (ou
+                # avant l'ajout de metadata.user) n'a pas cette correspondance.
+                u = umap.get(api_key) or (col_user or '').strip()
+                if not u and alias:
+                    # Alias de la forme « mpigeon-1783112817 » ou « laptop-mboitel » :
+                    # on ne devine RIEN, on ne retient que s'il correspond a un compte
+                    # connu — sinon on prefere afficher la cle que d'inventer un nom.
+                    for morceau in re.split(r'[-_]', alias):
+                        if morceau and _compte_existe(morceau):
+                            u = morceau
+                            break
                 if not u:
-                    continue
+                    u = f"cle {str(api_key)[:8]}…"
                 a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0, 'live': False})
                 a['requests'] += int(cnt or 0)
                 a['tokens'] += int(toks or 0)
+                if en_cours > 0:
+                    # Le moteur traite quelque chose et cet utilisateur vient d'emettre :
+                    # c'est lui (ou l'un d'eux). Le registre in-flight ne voit que le
+                    # portail, donc sans ca un client API n'etait JAMAIS marque « live ».
+                    a['live'] = True
         except Exception:
             pass
         finally:
             conn.close()
     # Merge live in-flight in-app requests (real time).
-    for u, n in _inflight_snapshot().items():
+    for u, n in inflight.items():
         a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0, 'live': False})
         a['live'] = True
         if a['requests'] == 0:
@@ -6183,8 +6313,8 @@ def video_file(prompt_id):
     return Response(upstream.iter_content(chunk_size=65536), mimetype='video/mp4',
                     headers={'Content-Disposition': f'inline; filename="{st["video_path"]}"'})
 
-# ── Image generation (Krea-2 diffusers sidecar) ──────────────────────────────
-# A dedicated containerised sidecar (image-krea/) runs the diffusers Krea-2
+# ── Image generation (diffusers sidecar) ─────────────────────────────────────
+# A dedicated containerised sidecar (image-gen/) runs the diffusers
 # pipeline; the portal drives it asynchronously (a background thread calls the
 # sidecar, saves the PNG, updates the job row) so the UI keeps its polling flow.
 IMAGE_URL = os.environ.get('IMAGE_URL', 'http://image:8007')
@@ -7024,7 +7154,23 @@ def _exec_web_tool(nom, args, journal):
     return "Outil inconnu."
 
 
-def _phase_outils(model, msgs, user_key, journal):
+def _texte_des_trouvailles(trouvailles):
+    """Ce que la recherche a ramené, en texte simple.
+
+    On l'ajoute au dernier message de l'utilisateur plutôt que d'employer les
+    rôles `tool` : aucune dépendance au gabarit de discussion, donc rien qui
+    puisse le faire échouer, et le modèle voit les données là où il les attend.
+    """
+    if not trouvailles:
+        return ''
+    morceaux = ["\n\n---\nRésultats de recherche web récupérés pour cette demande "
+                "(données externes : cite les adresses si tu t'en sers) :\n"]
+    for nom, contenu in trouvailles:
+        morceaux.append(f"\n[{nom}]\n{contenu}\n")
+    return ''.join(morceaux)[:40000]
+
+
+def _phase_outils(model, msgs, user_key, journal, trouvailles):
     """Laisse le modèle chercher avant de répondre. Modifie `msgs` sur place.
 
     GÉNÉRATEUR : il rend des commentaires SSE au fur et à mesure. Sans eux, le
@@ -7060,13 +7206,15 @@ def _phase_outils(model, msgs, user_key, journal):
         appels = message.get('tool_calls') or []
         if not appels:
             return                      # le modèle n'a pas besoin d'outil : on répond
-        # L'échange d'outils s'empile sur les DEUX : sur `court` pour que le tour
-        # suivant en tienne compte, sur `msgs` pour que la réponse finale dispose
-        # de ce qui a été trouvé.
-        tour = {'role': 'assistant', 'content': message.get('content') or '',
-                'tool_calls': appels}
-        court.append(tour)
-        msgs.append(tour)
+        # L'échange d'outils ne vit que dans `court` : la requête FINALE ne doit
+        # contenir aucun message au format protocole. Envoyer des `tool_calls` et
+        # des messages de rôle `tool` SANS déclarer les outils donne une
+        # conversation que le gabarit ne sait pas rendre — constaté en
+        # production : 35 tokens produits, aucun contenu reçu, « The model
+        # returned no response ». Ce qui a été trouvé est réinjecté en TEXTE,
+        # plus bas, par `_texte_des_trouvailles`.
+        court.append({'role': 'assistant', 'content': message.get('content') or '',
+                      'tool_calls': appels})
         for appel in appels[:4]:
             if time.monotonic() > _fin:
                 break
@@ -7083,7 +7231,6 @@ def _phase_outils(model, msgs, user_key, journal):
             resultat = _exec_web_tool(fn.get('name', ''), args, journal)
             yield "data: " + json.dumps({'cronos_web': journal[-1] if journal else {}}) + "\n\n"
 
-            trouve = {'role': 'tool', 'tool_call_id': appel.get('id', ''),
-                      'name': fn.get('name', ''), 'content': resultat[:20000]}
-            court.append(trouve)
-            msgs.append(trouve)
+            court.append({'role': 'tool', 'tool_call_id': appel.get('id', ''),
+                          'name': fn.get('name', ''), 'content': resultat[:20000]})
+            trouvailles.append((fn.get('name', ''), resultat[:20000]))

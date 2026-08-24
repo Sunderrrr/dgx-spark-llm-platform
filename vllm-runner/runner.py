@@ -752,11 +752,11 @@ def asr_launch():
     return jsonify({"ok": ok, "detail": out})
 
 
-# ── Image (diffusers, Krea-2) — conteneur `image` sur image_net ───────────────
+# ── Image (diffusers) — conteneur `image` sur image_net ──────────────────────
 # Liste blanche fermée : chaque id correspond à un dossier diffusers déjà
 # présent sur l'hôte (cf. image-recreate.sh). Pas de repo HF arbitraire ici —
 # même posture que l'OCR/voix/dictée.
-_IMAGE_MODEL_IDS = {"krea/Krea-2-Turbo", "krea/Krea-2-Raw"}
+_IMAGE_MODEL_IDS = {"black-forest-labs/FLUX.2-klein-4B"}
 
 
 @app.route("/image/status")

@@ -261,7 +261,7 @@ networks:
   # Idem pour la transcription : de l'audio utilisateur passe dans du code de
   # modèle tiers, il n'a rien à faire sur le réseau de litellm/postgres.
   asr_net:
-  # Génération d'image (Krea-2, diffusers) : même posture que les autres
+  # Génération d'image (diffusers) : même posture que les autres
   # sidecars — reçoit un prompt utilisateur vers du code de modèle tiers, isolé
   # de litellm/postgres. Seul dgx-portal l'atteint (IMAGE_URL=http://image:8007).
   image_net:

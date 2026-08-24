@@ -6,9 +6,9 @@
 # l'atteint, par image_net (IMAGE_URL=http://image:8007).
 #
 # $1 = model id (liste blanche ci-dessous). Chaque modèle correspond à un
-#      dossier diffusers déjà présent sur l'hôte sous /root/models/<slug>
-#      (les poids Krea sont gated : le téléchargement à froid — avec token HF —
-#      est une étape de provisioning séparée, pas déclenchée depuis le web).
+#      dossier diffusers déjà présent sur l'hôte sous /root/models/<slug> : le
+#      téléchargement à froid est une étape de provisioning séparée, jamais
+#      déclenchée depuis le web.
 set -euo pipefail
 
 if [ $# -ne 1 ]; then
@@ -17,10 +17,15 @@ if [ $# -ne 1 ]; then
 fi
 
 MODEL="$1"
-# slug = dossier local ; NAME = étiquette affichée dans l'UI.
+# slug = dossier local ; NAME = étiquette affichée dans l'UI ; STEPS/GUIDANCE =
+# réglages d'inférence propres au modèle. Un modèle DISTILLÉ (few-step) se
+# contente de ~8 étapes à guidage 1.0 — le pousser plus haut le sursature. Un
+# modèle COMPLET en demande 35 à 50 avec un guidage de 4 à 6. Aucune valeur par
+# défaut ne convient aux deux, d'où ce réglage par entrée.
 case "$MODEL" in
-  krea/Krea-2-Turbo) SLUG="krea2-turbo"; NAME="Krea-2-Turbo" ;;
-  krea/Krea-2-Raw)   SLUG="krea2-raw";   NAME="Krea-2-Raw" ;;
+  black-forest-labs/FLUX.2-klein-4B)
+    SLUG="flux2-klein-4b"; NAME="FLUX.2 Klein 4B"
+    STEPS=4; GUIDANCE=1.0 ;;
   *) echo "model id invalide : $MODEL" >&2; exit 2 ;;
 esac
 
@@ -34,7 +39,8 @@ docker rm -f image >/dev/null 2>&1 || true
 
 # PAS de --memory : sur le GB10 la mémoire GPU est UNIFIÉE avec la RAM et est
 #   comptée dans le cgroup mémoire du conteneur ; une limite plafonnerait donc
-#   aussi les allocations CUDA et ferait échouer le chargement (~35 Go bf16).
+#   aussi les allocations CUDA et ferait échouer le chargement (~16 Go pour
+#   FLUX.2 Klein 4B).
 # --cap-drop/--security-opt : ce conteneur reçoit un prompt utilisateur vers du
 #   code de modèle tiers, même durcissement que les autres sidecars.
 # Modèle monté en lecture seule ; seul dgx-portal atteint le port 8007 (image_net).
@@ -44,4 +50,5 @@ exec docker run -d --name image --restart unless-stopped \
   --security-opt no-new-privileges --cap-drop ALL \
   -v "$MODEL_DIR":/model:ro \
   -e MODEL_DIR=/model -e MODEL_NAME="$NAME" \
-  ai-platform-image-krea
+  -e IMAGE_STEPS="$STEPS" -e IMAGE_GUIDANCE="$GUIDANCE" \
+  ai-platform-image-gen

@@ -1,9 +1,13 @@
-"""Minimal text-to-image server around a diffusers Krea-2 pipeline.
+"""Serveur texte-vers-image minimal autour d'un pipeline diffusers.
 
-The model directory is mounted read-only at /model (downloaded on the host).
-Generation is serialised behind a lock (single GPU); a request returns the PNG
-directly. The portal wraps this in its own async job (thread + DB), so the
-sidecar itself stays dead-simple.
+Le dossier du modele est monte en lecture seule sur /model (telecharge sur
+l'hote). La generation est serialisee derriere un verrou (GPU unique) ; une
+requete renvoie le PNG directement. Le portail enveloppe ca dans son propre job
+asynchrone (fil + base), donc le sidecar reste volontairement simple.
+
+Volontairement AGNOSTIQUE du modele : la classe de pipeline est lue dans
+model_index.json par DiffusionPipeline, et la sortie est normalisee, parce que
+les pipelines ne rendent pas tous la meme chose (cf. _premiere_image).
 """
 import io
 import os
@@ -14,41 +18,86 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse, Response
 
 MODEL_DIR = os.environ.get("MODEL_DIR", "/model")
-# Turbo is distilled for few-step inference; Raw needs many more steps.
-DEFAULT_STEPS = int(os.environ.get("IMAGE_STEPS", "8"))
-# Krea-2-Turbo is distilled for few-step inference: high CFG oversaturates it
-# (tested — 3.5 gave lurid colours, 1.0 is natural). Keep guidance low.
-DEFAULT_GUIDANCE = float(os.environ.get("IMAGE_GUIDANCE", "1.0"))
+# Valeurs par defaut fournies par image-recreate.sh, qui les choisit selon le
+# modele : un modele distille se contente de ~8 etapes a guidage 1.0, un modele
+# complet en demande 35 a 50 avec un guidage de 4 a 6. Aucune valeur ici ne
+# convient aux deux — d'ou le passage par l'environnement.
+DEFAULT_STEPS = int(os.environ.get("IMAGE_STEPS", "35"))
+DEFAULT_GUIDANCE = float(os.environ.get("IMAGE_GUIDANCE", "4.0"))
 
 app = FastAPI()
 _gpu_lock = threading.Lock()
 _pipe = None
 _load_error = None
-_model_name = os.environ.get("MODEL_NAME") or os.path.basename(MODEL_DIR.rstrip("/")) or "krea-2"
+_model_name = os.environ.get("MODEL_NAME") or os.path.basename(MODEL_DIR.rstrip("/")) or "image"
 
 
 def _load_pipeline():
+    """Charge le pipeline decrit par model_index.json.
+
+    DiffusionPipeline lit `_class_name` et instancie la bonne classe : pas de
+    liste de classes en dur, un nouveau modele diffusers marche sans toucher au
+    code. AutoPipelineForText2Image ne convenait pas — sa table de correspondance
+    ne connait pas les pipelines recents (Cosmos3OmniPipeline en fait partie).
+
+    Deux pieges specifiques aux modeles pre-quantifies NF4 (bitsandbytes) :
+      - ne JAMAIS appeler .to(dtype) dessus, seulement .to(device) ;
+      - la configuration de quantification est deja dans le depot, il ne faut
+        surtout pas en passer une autre.
+    """
     global _pipe, _load_error
     try:
-        # from_pretrained reads model_index.json to pick the right pipeline class
-        # (Krea2Pipeline / Krea2Turbo…); AutoPipeline covers both.
+        from diffusers import DiffusionPipeline
+
+        # enable_safety_checker=False evite d'exiger cosmos_guardrail, une
+        # dependance optionnelle des pipelines Cosmos. Les autres pipelines ne
+        # connaissent pas ce parametre et levent : on retente sans.
         try:
-            from diffusers import AutoPipelineForText2Image as _Auto
-            pipe = _Auto.from_pretrained(MODEL_DIR, torch_dtype=torch.bfloat16)
+            pipe = DiffusionPipeline.from_pretrained(
+                MODEL_DIR, torch_dtype=torch.bfloat16, enable_safety_checker=False)
+        except TypeError:
+            pipe = DiffusionPipeline.from_pretrained(MODEL_DIR, torch_dtype=torch.bfloat16)
+
+        # .to("cuda") deplace SANS convertir le dtype : sur un modele 4 bits une
+        # conversion casserait les poids quantifies. Si accelerate a deja reparti
+        # le modele, le deplacement echoue — ce n'est pas une erreur de chargement.
+        try:
+            pipe = pipe.to("cuda")
         except Exception:
-            from diffusers import Krea2Pipeline as _Krea
-            pipe = _Krea.from_pretrained(MODEL_DIR, torch_dtype=torch.bfloat16)
-        pipe = pipe.to("cuda")
+            pass
+
         try:
             pipe.set_progress_bar_config(disable=True)
         except Exception:
             pass
         globals()["_pipe"] = pipe
-    except Exception as e:  # keep the error so /health can report it
+    except Exception as e:  # on garde l'erreur pour que /health la rapporte
         globals()["_load_error"] = f"{type(e).__name__}: {e}"
 
 
 threading.Thread(target=_load_pipeline, daemon=True).start()
+
+
+def _premiere_image(out):
+    """Recupere la premiere image, quel que soit ce que rend le pipeline.
+
+    Les pipelines texte-vers-image classiques renvoient `.images` (liste de
+    PIL.Image). Les pipelines Cosmos 3 sont omnimodaux et renvoient `.video` :
+    une liste de sequences, dont la premiere contient une seule frame en mode
+    texte-vers-image. Sans ce demelage, la generation reussissait cote GPU puis
+    echouait a l'enregistrement.
+    """
+    images = getattr(out, "images", None)
+    if images:
+        return images[0]
+    video = getattr(out, "video", None)
+    if video:
+        premiere = video[0]
+        # Sequence de frames, ou frame unique deja deballee.
+        return premiere[0] if isinstance(premiere, (list, tuple)) else premiere
+    if isinstance(out, (list, tuple)) and out:
+        return out[0]
+    raise RuntimeError("le pipeline n'a renvoye ni .images ni .video")
 
 
 @app.get("/health")
@@ -79,9 +128,14 @@ def generate(prompt: str = Form(...),
     try:
         with _gpu_lock:
             with torch.inference_mode():
-                out = _pipe(prompt, num_inference_steps=steps, guidance_scale=float(guidance),
-                            width=width, height=height)
-            image = out.images[0]
+                # prompt= en argument NOMME, jamais positionnel : les pipelines qui
+                # savent aussi editer une image (Flux2KleinPipeline entre autres)
+                # attendent l'image en premiere position, et un prompt positionnel
+                # y atterrit comme image -> « Provide either `prompt` or
+                # `prompt_embeds` ». Constate le 24/08 sur FLUX.2 Klein 4B.
+                out = _pipe(prompt=prompt, num_inference_steps=steps,
+                            guidance_scale=float(guidance), width=width, height=height)
+            image = _premiere_image(out)
         buf = io.BytesIO()
         image.save(buf, format="PNG")
         return Response(buf.getvalue(), media_type="image/png")

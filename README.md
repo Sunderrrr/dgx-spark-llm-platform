@@ -477,7 +477,7 @@ tokens/day, not request rate on a single GPU.
 │   └── asr-recreate.sh        # source of /usr/local/sbin/asr-recreate.sh
 ├── ocr/                       # OCR sidecar host wrapper (hardened: cap-drop ALL,
 │   └── ocr-recreate.sh        #   no-new-privileges, dedicated HF cache — trust-remote-code)
-├── image-krea/                # Krea-2 text-to-image sidecar (diffusers)
+├── image-gen/                 # sidecar texte-vers-image (diffusers)
 │   ├── Dockerfile             # CUDA 13.0 / torch cu130 (GB10), diffusers from git
 │   └── server.py              # FastAPI wrapper, single-GPU serialised generation
 ├── voice-qwen/                # Qwen3-TTS voice-cloning sidecar (default engine)

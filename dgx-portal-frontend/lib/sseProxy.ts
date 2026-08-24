@@ -1,6 +1,14 @@
 const BACKEND_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
 
-const CONNECT_TIMEOUT_MS = 15_000; // time to receive the response headers
+// Time to receive the response HEADERS. Every Flask SSE route emits a ":"
+// comment as its very first action precisely so the headers leave
+// immediately, well within this budget — but a route that forgets to (or a
+// backend under heavy load) used to turn into a bogus 502 "Le serveur ne
+// repond pas" while the generation was in fact running fine, which the user
+// experienced as a random failure on large conversations. 45 s leaves room
+// for a slow-but-alive backend; a truly dead one refuses the connection
+// instantly and never waits this out. Seen in prod on 22/08.
+const CONNECT_TIMEOUT_MS = 45_000;
 const IDLE_TIMEOUT_MS = 60_000; // time with no byte received once the stream has started
 
 function sseErrorFrame(text: string): string {

@@ -489,3 +489,29 @@ class VersionsPerimeesTest(unittest.TestCase):
     def test_conversation_sans_code_inchangee(self):
         h = [self._msg('user', 'bonjour'), self._msg('assistant', 'salut')]
         self.assertEqual(portal._sans_versions_perimees(h), h)
+
+
+class TrouvaillesTest(unittest.TestCase):
+    """Ce que la recherche ramène est réinjecté en TEXTE, jamais en rôle `tool`.
+
+    Envoyer des `tool_calls` et des messages de rôle `tool` sans déclarer les
+    outils donnait une conversation que le gabarit ne sait pas rendre : 35 tokens
+    produits, aucun contenu reçu, « The model returned no response ».
+    """
+
+    def test_rien_trouve_rien_ajoute(self):
+        self.assertEqual(portal._texte_des_trouvailles([]), '')
+
+    def test_le_contenu_est_repris_et_cadre_comme_externe(self):
+        t = portal._texte_des_trouvailles([('recherche_web', '{"resultats": [{"url": "https://x.fr"}]}')])
+        self.assertIn('https://x.fr', t)
+        self.assertIn('externes', t)
+
+    def test_le_texte_reste_borne(self):
+        t = portal._texte_des_trouvailles([('lire_pages', 'x' * 200_000)])
+        self.assertLessEqual(len(t), 40_000)
+
+    def test_plusieurs_appels_sont_tous_repris(self):
+        t = portal._texte_des_trouvailles([('recherche_web', 'AAA'), ('lire_pages', 'BBB')])
+        self.assertIn('AAA', t)
+        self.assertIn('BBB', t)

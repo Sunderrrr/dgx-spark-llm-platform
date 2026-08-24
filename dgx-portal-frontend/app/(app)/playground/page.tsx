@@ -173,6 +173,16 @@ const NAME_INSTRUCTION = `Name every file you output: put its path in backticks 
 // ENTIER — c'est plus long à générer, mais ce qui sort est utilisable tel quel.
 const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you already produced, output that file COMPLETE, from its first line to its last, under the exact same name. Never output a partial file, an excerpt, a diff, or a "rest unchanged" placeholder.`;
 
+// Le modele ABANDONNE de lui-meme sur un gros fichier : mesure en prod le 22/08,
+// il s'est arrete a 14 187 tokens sur 131 072 disponibles, avec
+// finish_reason=stop (donc rien ne le distinguait d'une reponse reussie), en
+// ecrivant « Le fichier est trop long pour etre affiche en entier ici » suivi
+// d'un fichier tronque presente comme complet. Aucune limite technique n'etait
+// atteinte. Cette instruction part a TOUS les tours, pas seulement quand un
+// fichier existe deja, et passe EN DERNIER pour ne pas diluer ASK_INSTRUCTION
+// (dont l'efficacite depend de sa position en tete, cf. mesure plus bas).
+const INTEGRALITE_INSTRUCTION = `Never abridge a file you were asked to produce. Never write that a file is "too long to show here", never say you are giving a "shortened", "simplified" or "essential" version, and never replace any part of a file with an ellipsis, a placeholder, or a comment such as "rest of the code unchanged". There is no display limit: write the file in full, from its first line to its last. If you run out of room before the end, stop mid-file rather than closing it early — you will be asked to continue, and you will resume at the exact character where you stopped. A truncated file presented as complete is the worst possible answer.`;
+
 /* ── Compatibilité : anciennes conversations ────────────────────────────────
  * Le modèle ne reçoit plus le protocole d'édition (il réécrit le fichier en
  * entier). Ces fonctions restent parce que l'historique déjà enregistré
@@ -532,10 +542,18 @@ const PROMPT_REPRISE = "Continue exactement là où tu t'es arrêté";
 const PROMPT_REPRISE_COMPLET =
   PROMPT_REPRISE + ", sans rien répéter et sans réintroduire ta réponse. "
   + "Reprends au caractère suivant, et va jusqu'au bout du fichier.";
+const PROMPT_INTEGRAL =
+  "Tu viens d'abreger ce fichier alors que je l'ai demande complet. "
+  + "Reecris-le en ENTIER, de la premiere a la derniere ligne, sans aucune coupure, "
+  + "sans resume et sans « reste inchange ». Il n'y a aucune limite d'affichage.";
 const REPRISE_INSTRUCTION = `Your previous reply was cut off in the middle of a file. Output ONLY the missing remainder of that file, starting at the exact character where you stopped. Do not repeat anything already written, do not re-introduce, do not summarise, and do not use an edit block — just continue the raw content until the file is complete.`;
 
 /** Reprises automatiques d'affilée avant de rendre la main à l'utilisateur. */
-const MAX_REPRISES_AUTO = 3;
+// Releve de 3 a 10 : un gros fichier unique demande une dizaine de segments
+// (mesure : 2 400 a 14 000 tokens par reprise), et a 3 la chaine rendait
+// toujours la main sur un fichier inacheve. Borne quand meme : une reprise
+// qui boucle sans avancer doit revenir a l'utilisateur, pas tourner sans fin.
+const MAX_REPRISES_AUTO = 10;
 
 /** Ce message caché est-il la demande de reprise émise par « Continuer » ? */
 function estReprise(m: ChatMsg | undefined): boolean {
@@ -1056,7 +1074,7 @@ function fusionDuMessage(messages: ChatMsg[], index: number): Artifact[] {
 }
 
 /** Ce message laisse-t-il un fichier inachevé, reprises comprises ? */
-function messageIncomplet(messages: ChatMsg[], index: number): boolean {
+function fichierLaisseOuvert(messages: ChatMsg[], index: number): boolean {
   const m = messages[index];
   if (!m || m.role !== "assistant") return false;
   // Une reprise commence AU MILIEU d'un bloc : elle n'a pas de fence ouvrante, donc
@@ -1067,6 +1085,42 @@ function messageIncomplet(messages: ChatMsg[], index: number): boolean {
     return fusion.length ? fusion.some((f) => reponseIncomplete(f.content)) : false;
   }
   return reponseIncomplete(m.content);
+}
+
+/* Le modèle qui AVOUE avoir abrégé.
+ *
+ * Cas vu en prod le 22/08 : « Le fichier est trop long pour être affiché en
+ * entier ici », suivi d'un fichier tronqué. Un tel message peut parfaitement
+ * refermer sa fence — le fichier a alors l'air fini et fichierLaisseOuvert() ne
+ * voit rien, alors que le modèle vient de dire lui-même qu'il manque du contenu.
+ *
+ * Chaque motif est un AVEU explicite, jamais une tournure ordinaire : « version
+ * simplifiée » ou « pour résumer » sont volontairement absents, ils apparaissent
+ * dans des réponses parfaitement complètes et déclencheraient des reprises en
+ * boucle (déjà vécu avec proseIncomplete, qui a détruit une conversation entière
+ * en quatre reprises avant d'être retiré).
+ */
+const ABANDON_DECLARE =
+  /trop\s+(?:long|volumineux|gros)[^.\n]{0,80}?(?:affich|ici\b|ce\s+message)/i;
+const ABANDON_DECLARE_ALT = [
+  /too\s+(?:long|large)[^.\n]{0,80}?(?:display|show\b|here\b|message)/i,
+  /je\s+ne\s+peux\s+pas\s+(?:l['’]?)?(?:affich|[ée]crire)[^.\n]{0,60}?(?:int[ée]gralit|en\s+entier)/i,
+  /(?:reste|suite)\s+du\s+(?:code|fichier)\s+(?:inchang|identique|omis)/i,
+  /rest\s+of\s+the\s+(?:code|file)[^.\n]{0,30}?unchanged/i,
+  /\.\.\.\s*\(\s*(?:suite|reste)/i,
+];
+
+function abandonDeclare(content: string): boolean {
+  // Seulement sur un message qui prétend livrer du code : la même phrase dans
+  // une réponse en prose ne signale rien à reprendre.
+  if (!content.includes("```")) return false;
+  return ABANDON_DECLARE.test(content) || ABANDON_DECLARE_ALT.some((r) => r.test(content));
+}
+
+function messageIncomplet(messages: ChatMsg[], index: number): boolean {
+  const m = messages[index];
+  if (!m || m.role !== "assistant") return false;
+  return fichierLaisseOuvert(messages, index) || abandonDeclare(m.content);
 }
 
 
@@ -1450,6 +1504,7 @@ export default function PlaygroundPage() {
               alreadyAsked ? "" : ASK_INSTRUCTION,
               NAME_INSTRUCTION,
               fichiersJusqua(nextMessages, nextMessages.length - 1).size ? REWRITE_INSTRUCTION : "",
+              INTEGRALITE_INSTRUCTION,
             ]
         ).filter(Boolean).join("\n\n"),
       };
@@ -1570,8 +1625,15 @@ export default function PlaygroundPage() {
       if (reprisesRef.current < MAX_REPRISES_AUTO) {
         reprisesRef.current += 1;
         setReprise(reprisesRef.current);
+        // Fichier laissé OUVERT : on le prolonge au caractère suivant. Fichier
+        // REFERMÉ mais abrégé de l'aveu du modèle : le prolonger produirait du
+        // contenu après la dernière ligne d'un fichier déjà clos — c'est une
+        // réécriture complète qu'il faut demander.
+        const suite = fichierLaisseOuvert(finalMessages, finalMessages.length - 1)
+          ? PROMPT_REPRISE_COMPLET
+          : PROMPT_INTEGRAL;
         void runStream([...finalMessages, {
-          role: "user", content: PROMPT_REPRISE_COMPLET,
+          role: "user", content: suite,
           // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
           ts: Date.now(), hidden: true,
         }]);

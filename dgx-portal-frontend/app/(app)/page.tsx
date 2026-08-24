@@ -192,12 +192,15 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
 
-  // Poll the dashboard every 8s so server load, running models and active
-  // users stay live without a manual refresh.
+  // Poll the dashboard every 5s so server load, running models and active
+  // users stay live without a manual refresh. 5 s et pas moins : vllm_health()
+  // met ses metriques en cache ~4 s, donc sonder plus vite ne rafraichirait
+  // rien de plus et ne ferait que multiplier les requetes. L'agregat SpendLogs
+  // derriere passe par l'index startTime (~0,15 ms), il encaisse ce rythme.
   useEffect(() => {
     const id = setInterval(() => {
       getJSON<HomeData>("/api/home").then(setData).catch(() => {});
-    }, 8000);
+    }, 5000);
     return () => clearInterval(id);
   }, []);
 

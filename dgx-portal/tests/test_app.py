@@ -553,8 +553,10 @@ class GardeDesRoutesTest(unittest.TestCase):
         'oauth_callback':     "retour du fournisseur OIDC, hors session",
         'logout':             "doit marcher même sur une session déjà expirée",
         'api_csrf':           "délivre le jeton CSRF nécessaire pour se connecter",
-        'internal_authcheck': "appelé par Traefik (forwardAuth), jamais par un navigateur ; "
-                              "ne renvoie aucune donnée",
+        # Prefixe 'admin.' depuis que l'administration est un blueprint (28/08) :
+        # les CHEMINS n'ont pas bougé, seuls les noms d'endpoints.
+        'admin.internal_authcheck': "appelé par Traefik (forwardAuth), jamais par un "
+                                    "navigateur ; ne renvoie aucune donnée",
         'static':             "fichiers statiques servis par Flask",
     }
 

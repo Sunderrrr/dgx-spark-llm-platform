@@ -11,6 +11,9 @@ import time
 import unittest
 
 import app as portal
+# La memoire a quitte le monolithe pour memory_routes.py (28/08, 1er
+# blueprint) : on la vise dans son module proprietaire.
+import memory_routes as memoire
 
 
 class MemoryApiBase(unittest.TestCase):
@@ -29,7 +32,7 @@ class MemoryApiBase(unittest.TestCase):
         with portal.app.test_request_context():
             db = portal.get_db()
             for u in (self.USER, self.OTHER):
-                portal._mem_purge(u)
+                memoire._mem_purge(u)
                 db.execute("DELETE FROM user_prefs WHERE username=?", (u,))
             db.commit()
 
@@ -194,8 +197,8 @@ class EntreesHostilesTest(MemoryApiBase):
         r = self._post({'subject': 'A' * 5000, 'fact': 'B' * 5000})
         self.assertEqual(r.status_code, 200)
         d = self.client.get('/api/memory').get_json()
-        self.assertLessEqual(len(d['edges'][0]['fact']), portal.MEM_MAX_FACT_LEN)
-        self.assertLessEqual(len(d['nodes'][0]['name']), portal.MEM_MAX_NAME_LEN)
+        self.assertLessEqual(len(d['edges'][0]['fact']), memoire.MEM_MAX_FACT_LEN)
+        self.assertLessEqual(len(d['nodes'][0]['name']), memoire.MEM_MAX_NAME_LEN)
 
     def test_injection_sql_traitee_comme_du_texte(self):
         charge = "'; DROP TABLE memory_edges; --"
@@ -233,7 +236,7 @@ class ParcoursTest(MemoryApiBase):
         super().setUp()
         self.ctx = portal.app.test_request_context()
         self.ctx.push()
-        portal._mem_set_enabled(self.USER, True)
+        memoire._mem_set_enabled(self.USER, True)
 
     def tearDown(self):
         self.ctx.pop()
@@ -241,37 +244,37 @@ class ParcoursTest(MemoryApiBase):
 
     def test_deux_sauts(self):
         # Cronos —> vLLM —> CUDA : depuis Cronos, 1 saut voit vLLM, 2 sauts CUDA.
-        portal._mem_add_fact(self.USER, 'Cronos', 'sert avec', 'Cronos sert avec vLLM.', obj='vLLM')
-        portal._mem_add_fact(self.USER, 'vLLM', 'repose sur', 'vLLM repose sur CUDA.', obj='CUDA')
-        un = {f['fact'] for f in portal._mem_recall(self.USER, 'Cronos', hops=1)}
-        deux = {f['fact'] for f in portal._mem_recall(self.USER, 'Cronos', hops=2)}
+        memoire._mem_add_fact(self.USER, 'Cronos', 'sert avec', 'Cronos sert avec vLLM.', obj='vLLM')
+        memoire._mem_add_fact(self.USER, 'vLLM', 'repose sur', 'vLLM repose sur CUDA.', obj='CUDA')
+        un = {f['fact'] for f in memoire._mem_recall(self.USER, 'Cronos', hops=1)}
+        deux = {f['fact'] for f in memoire._mem_recall(self.USER, 'Cronos', hops=2)}
         self.assertIn('Cronos sert avec vLLM.', un)
         self.assertIn('vLLM repose sur CUDA.', deux)
         self.assertTrue(deux.issuperset(un))
 
     def test_composante_non_reliee_exclue(self):
-        portal._mem_add_fact(self.USER, 'Cronos', 'sert avec', 'Cronos sert avec vLLM.', obj='vLLM')
-        portal._mem_add_fact(self.USER, 'Cuisine', 'aime', 'Aime le curry.')
-        faits = {f['fact'] for f in portal._mem_recall(self.USER, 'Cronos', hops=2)}
+        memoire._mem_add_fact(self.USER, 'Cronos', 'sert avec', 'Cronos sert avec vLLM.', obj='vLLM')
+        memoire._mem_add_fact(self.USER, 'Cuisine', 'aime', 'Aime le curry.')
+        faits = {f['fact'] for f in memoire._mem_recall(self.USER, 'Cronos', hops=2)}
         self.assertNotIn('Aime le curry.', faits)
 
     def test_cycle_ne_boucle_pas(self):
         # A—B, B—C, C—A : la CTE récursive doit s'arrêter (UNION dédoublonne).
-        portal._mem_add_fact(self.USER, 'A', 'lie', 'A vers B.', obj='B')
-        portal._mem_add_fact(self.USER, 'B', 'lie', 'B vers C.', obj='C')
-        portal._mem_add_fact(self.USER, 'C', 'lie', 'C vers A.', obj='A')
-        faits = portal._mem_recall(self.USER, 'A', hops=2)
+        memoire._mem_add_fact(self.USER, 'A', 'lie', 'A vers B.', obj='B')
+        memoire._mem_add_fact(self.USER, 'B', 'lie', 'B vers C.', obj='C')
+        memoire._mem_add_fact(self.USER, 'C', 'lie', 'C vers A.', obj='A')
+        faits = memoire._mem_recall(self.USER, 'A', hops=2)
         self.assertEqual(len(faits), 3)
 
     def test_nombre_de_faits_borne(self):
         for i in range(40):
-            portal._mem_add_fact(self.USER, 'Gros', f'note{i}', f'Fait {i}')
-        self.assertLessEqual(len(portal._mem_recall(self.USER, 'Gros')), 25)
+            memoire._mem_add_fact(self.USER, 'Gros', f'note{i}', f'Fait {i}')
+        self.assertLessEqual(len(memoire._mem_recall(self.USER, 'Gros')), 25)
 
     def test_hops_hors_bornes_ramene_dans_la_plage(self):
-        portal._mem_add_fact(self.USER, 'A', 'lie', 'A vers B.', obj='B')
+        memoire._mem_add_fact(self.USER, 'A', 'lie', 'A vers B.', obj='B')
         for mauvais in (0, -5, 99, None):
-            self.assertTrue(portal._mem_recall(self.USER, 'A', hops=mauvais))
+            self.assertTrue(memoire._mem_recall(self.USER, 'A', hops=mauvais))
 
 
 class AliasTest(MemoryApiBase):
@@ -281,32 +284,32 @@ class AliasTest(MemoryApiBase):
         super().setUp()
         self.ctx = portal.app.test_request_context()
         self.ctx.push()
-        portal._mem_set_enabled(self.USER, True)
+        memoire._mem_set_enabled(self.USER, True)
 
     def tearDown(self):
         self.ctx.pop()
         super().tearDown()
 
     def test_alias_rattache_au_meme_noeud(self):
-        portal._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
-        noeud = portal._mem_node(self.USER, 'vLLM', create=False)
+        memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+        noeud = memoire._mem_node(self.USER, 'vLLM', create=False)
         db = portal.get_db()
         db.execute("INSERT INTO memory_aliases (node_id, username, alias_norm) VALUES (?,?,?)",
-                   (noeud['id'], self.USER, portal._mem_norm("le serveur d'inférence")))
+                   (noeud['id'], self.USER, memoire._mem_norm("le serveur d'inférence")))
         db.commit()
-        retrouve = portal._mem_node(self.USER, "Le serveur d'inférence", create=False)
+        retrouve = memoire._mem_node(self.USER, "Le serveur d'inférence", create=False)
         self.assertIsNotNone(retrouve)
         self.assertEqual(retrouve['id'], noeud['id'])
-        self.assertTrue(portal._mem_recall(self.USER, "le serveur d'inférence"))
+        self.assertTrue(memoire._mem_recall(self.USER, "le serveur d'inférence"))
 
     def test_alias_cloisonne_par_utilisateur(self):
-        portal._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
-        noeud = portal._mem_node(self.USER, 'vLLM', create=False)
+        memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+        noeud = memoire._mem_node(self.USER, 'vLLM', create=False)
         db = portal.get_db()
         db.execute("INSERT INTO memory_aliases (node_id, username, alias_norm) VALUES (?,?,?)",
-                   (noeud['id'], self.USER, portal._mem_norm('le moteur')))
+                   (noeud['id'], self.USER, memoire._mem_norm('le moteur')))
         db.commit()
-        self.assertIsNone(portal._mem_node(self.OTHER, 'le moteur', create=False))
+        self.assertIsNone(memoire._mem_node(self.OTHER, 'le moteur', create=False))
 
 
 class OutilsTest(MemoryApiBase):
@@ -322,7 +325,7 @@ class OutilsTest(MemoryApiBase):
         super().tearDown()
 
     def test_schemas_bien_formes(self):
-        for outil in portal._mem_tools():
+        for outil in memoire._mem_tools():
             self.assertEqual(outil['type'], 'function')
             fn = outil['function']
             self.assertTrue(fn['name'] and fn['description'])
@@ -331,30 +334,30 @@ class OutilsTest(MemoryApiBase):
                 self.assertIn(champ, fn['parameters']['properties'], fn['name'])
 
     def test_noms_uniques(self):
-        noms = [o['function']['name'] for o in portal._mem_tools()]
+        noms = [o['function']['name'] for o in memoire._mem_tools()]
         self.assertEqual(len(noms), len(set(noms)))
 
     def test_outil_inconnu_refuse(self):
-        portal._mem_set_enabled(self.USER, True)
-        _, ok = portal._exec_memory_tool('drop_everything', {}, self.USER)
+        memoire._mem_set_enabled(self.USER, True)
+        _, ok = memoire._exec_memory_tool('drop_everything', {}, self.USER)
         self.assertFalse(ok)
 
     def test_le_modele_ne_choisit_pas_pour_qui(self):
         # Un argument « username » injecté dans l'appel d'outil ne doit avoir
         # aucun effet : la cible vient de la session.
-        portal._mem_set_enabled(self.USER, True)
-        portal._exec_memory_tool(
+        memoire._mem_set_enabled(self.USER, True)
+        memoire._exec_memory_tool(
             'save_memory',
             {'subject': 'vLLM', 'fact': 'Écrit par le modèle.', 'username': self.OTHER},
             self.USER)
-        self.assertEqual(len(portal._mem_graph(self.USER)['edges']), 1)
-        self.assertEqual(portal._mem_graph(self.OTHER)['edges'], [])
+        self.assertEqual(len(memoire._mem_graph(self.USER)['edges']), 1)
+        self.assertEqual(memoire._mem_graph(self.OTHER)['edges'], [])
 
     def test_rappel_sans_opt_in_ne_lit_rien(self):
-        portal._mem_set_enabled(self.USER, True)
-        portal._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
-        portal._mem_set_enabled(self.USER, False)
-        msg, ok = portal._exec_memory_tool('recall_memory', {'subject': 'vLLM'}, self.USER)
+        memoire._mem_set_enabled(self.USER, True)
+        memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+        memoire._mem_set_enabled(self.USER, False)
+        msg, ok = memoire._exec_memory_tool('recall_memory', {'subject': 'vLLM'}, self.USER)
         self.assertFalse(ok)
         self.assertNotIn('0.27', msg)
 

@@ -15,28 +15,14 @@ from comfyui_client import (
     comfyui_fetch_video, comfyui_generate, comfyui_status,
 )
 from db import get_db
-from guards import maintenance_block_json, media_rate_block
+from guards import (
+    _ALLOWED_IMAGE_TYPES, _MAX_UPLOAD_BYTES, _read_uploaded_image,
+    maintenance_block_json, media_rate_block,
+)
 
 bp = Blueprint('video', __name__)
 
-_MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB, reference image
 VIDEO_HISTORY_LIMIT = 10
-OCR_HISTORY_LIMIT = 20
-_ALLOWED_IMAGE_TYPES = {'image/png', 'image/jpeg', 'image/webp'}
-
-def _read_uploaded_image(field='image'):
-    """Reads and validates an image file from the form. Returns (bytes, mime) or
-    (None, error_message).
-    """
-    f = request.files.get(field)
-    if not f or not f.filename:
-        return None, "Aucune image fournie."
-    if f.mimetype not in _ALLOWED_IMAGE_TYPES:
-        return None, "Format d'image non supporté (PNG/JPEG/WebP uniquement)."
-    data = f.read(_MAX_UPLOAD_BYTES + 1)
-    if len(data) > _MAX_UPLOAD_BYTES:
-        return None, "Image trop volumineuse (15 Mo max)."
-    return data, f.mimetype
 
 @bp.route('/api/video/generate', methods=['POST'])
 @login_required

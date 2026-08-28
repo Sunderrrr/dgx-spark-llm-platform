@@ -75,3 +75,28 @@ OIDC_REDIRECT_URI  = os.environ.get('OIDC_REDIRECT_URI', '')
 OIDC_LOGOUT_URL    = os.environ.get('OIDC_LOGOUT_URL', '')
 OIDC_ADMIN_GROUP   = os.environ.get('OIDC_ADMIN_GROUP', 'adm_cronos')
 OIDC_ENABLED       = bool(OIDC_METADATA_URL and OIDC_CLIENT_ID and OIDC_CLIENT_SECRET)
+
+
+# ── Apparence (avatars, themes, langues) ─────────────────────────────────────
+# Lues par les reglages, par l'historique de conversations et par l'amorcage
+# (purge des avatars disparus) : ce sont des constantes partagees, pas des
+# details de la page de reglages.
+AVATAR_IDS = [
+    'claude', 'anthropic', 'openai', 'copilot', 'gemini', 'grok', 'mistral',
+    'deepseek', 'qwen', 'meta', 'ollama', 'huggingface', 'perplexity',
+    'nvidia', 'langchain',
+]
+# Offered palettes: each maps to an Astryx theme built on the
+# frontend via defineTheme({extends: neutralTheme, color: {accent}}) — the
+# official design-system path. We never override --color-* in :root.
+THEME_IDS = ['neutral', 'indigo', 'violet', 'rose', 'ambre', 'emeraude',
+             'cyan', 'ardoise', 'brique', 'prune']
+LANGS = ['fr', 'en']
+
+AVATAR_LABELS = {
+    'claude': 'Claude', 'anthropic': 'Anthropic', 'openai': 'ChatGPT',
+    'copilot': 'GitHub Copilot', 'gemini': 'Gemini', 'grok': 'Grok',
+    'mistral': 'Mistral', 'deepseek': 'DeepSeek', 'qwen': 'Qwen',
+    'meta': 'Llama (Meta)', 'ollama': 'Ollama', 'huggingface': 'Hugging Face',
+    'perplexity': 'Perplexity', 'nvidia': 'NVIDIA', 'langchain': 'LangChain',
+}

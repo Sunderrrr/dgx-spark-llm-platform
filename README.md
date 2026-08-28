@@ -20,12 +20,9 @@ It provides:
   self-service actions (create a key, request budget, request a model…);
 - a **runner** that launches/stops one vLLM model on the GPU on demand and
   auto-resumes it after a crash or reboot;
-- always-on **OCR** (datalab-to/chandra-ocr-2 by default, swappable via an admin
-  catalog), **video generation** (MiniMax H3, text-to-video and reference-image-to-video)
-  and **voice cloning** (Chatterbox, zero-shot from a short reference sample)
-  served from dedicated backends alongside the main chat model, streamed into
-  the portal with a live bounding-box visualization of detected regions —
-  never exposed as separate public UIs;
+- always-on media sidecars — **OCR**, **video**, **image**, **music**, **voice
+  cloning** and **dictation** — served alongside the main chat model and streamed
+  into the portal, never exposed as separate public UIs;
 - an admin **maintenance mode** that blocks non-admin API/portal traffic without
   stopping any model, enforced both in the portal and at the edge (Traefik);
 - a UI available in **English and French**, switchable per account from Settings
@@ -33,7 +30,31 @@ It provides:
 
 ![Cronos portal — home dashboard](assets/dashboard.png)
 
---- 
+---
+
+## Contents
+
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [Configuration (`.env`)](#configuration-env)
+- [Authentication](#authentication)
+- [Token budget model](#token-budget-model)
+- [Using the API](#using-the-api)
+- [Portal features](#portal-features)
+- [Screenshots](#screenshots)
+- [Operations](#operations)
+- [Security](#security)
+- [Repository layout](#repository-layout)
+- [License](#license)
+
+Two companion documents:
+
+| Document | For |
+|---|---|
+| [`SECURITY.md`](SECURITY.md) | threat model, controls, accepted risks — operators and auditors |
+| [`CLAUDE.md`](CLAUDE.md) | operating guide: golden rules, GB10 gotchas, reboot runbook, test gate |
+
+---
 
 ## Architecture
 
@@ -50,15 +71,20 @@ flowchart LR
   P -->|issues keys + budgets| L
   P -->|:8001 · Bearer token| R[vllm-runner]
   R -->|launch / stop| V[vLLM · :8000]
-  R -->|sudo, scoped: docker start/stop/recreate| O[OCR container · vLLM]
+  R -->|sudo, scoped: docker start/stop/recreate| S[Media sidecars]
   R -->|sudo, scoped: systemctl start/stop| CU[ComfyUI · MiniMax H3]
-  R -->|sudo, scoped: docker start/stop/recreate| VC[Voice container · Chatterbox]
   L -->|:8000| V
   L --> PG[(Postgres)]
-  P -->|chat/completions, streamed| O
+  P -->|streamed, per-sidecar network| S
   P -->|/prompt, /history, /view| CU
-  P -->|/upload_reference, /tts| VC
 ```
+
+> **The backend is modular.** `dgx-portal` is not one big Flask file: it is a
+> shared core (config, database, auth, guards), a set of clients for everything
+> it talks to (LiteLLM, vLLM, ComfyUI, the sidecars, MCP, web search), and one
+> route blueprint per feature. [`app.py`](dgx-portal/app.py) is a wiring facade —
+> it builds the Flask app, registers the blueprints and boots the schema. See
+> [Repository layout](#repository-layout).
 
 ### Components
 
@@ -66,29 +92,30 @@ flowchart LR
 |---|---|---|---|
 | **litellm** | OpenAI-compatible gateway: per-user keys, budgets, token accounting | `4001` | Docker container |
 | **litellm-postgres** | LiteLLM database (keys, spend logs) | `5432` (internal) | Docker container |
-| **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, playground, OCR, video, voice, support, find-a-model, leaderboard, admin, users (keys live in Settings) | `5000` | Docker container (non-root) |
+| **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, playground, media pages, support, find-a-model, leaderboard, admin, users (keys and memory live in the Settings dialog) | `5000` | Docker container (non-root) |
 | **dgx-portal** | Backend (Flask): LDAP/OIDC auth, sessions, JSON API, business logic | internal only | Docker container (non-root) |
-| **vllm-runner** | Daemon driving **one** vLLM process (start/stop/logs) with auto-resume, plus scoped start/stop/recreate of the OCR container and video service | `8001` | systemd service on the host |
+| **vllm-runner** | Daemon driving **one** vLLM process (start/stop/logs) with auto-resume, plus scoped start/stop/recreate of every media sidecar | `8001` | systemd service on the host |
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
-| **OCR container** | vLLM serving an OCR-capable VLM (datalab-to/chandra-ocr-2 by default; baidu/Unlimited-OCR also in the catalog), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
+| **OCR container** | vLLM serving an OCR-capable VLM (datalab-to/chandra-ocr-2 by default), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
 | **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports; 12.5 GB per UNET instead of 21 GB for the INT8 build) | `8188`, host-restricted | systemd service on the host |
+| **Image container** | Text-to-image (diffusers). FLUX.2 Klein 4B by default — distilled to 4 steps, ~4–5 s per 1024×1024 image | internal only | Docker container, own network + GPU slice |
+| **Music container** | Text-to-music (diffusers, MiniMax-Music3 & co) | internal only | Docker container, own network + GPU slice |
 | **ASR container** | Whisper (`large-v3-turbo` by default) for Playground dictation | internal only | Docker container, own network + GPU slice |
-| **Voice container** | Zero-shot voice cloning. Two interchangeable engines, swappable from the admin catalog: **Qwen3-TTS** (default, Apache 2.0, 10 languages, 3s cloning) or **Chatterbox** (MIT, Turbo/Original are English-only, Multilingual covers 23 languages) | internal only | Docker container, own network + GPU slice |
+| **Voice container** | Zero-shot voice cloning. Two interchangeable engines: **Qwen3-TTS** (default, Apache 2.0, 10 languages, 3 s cloning) or **Chatterbox** (MIT) | internal only | Docker container, own network + GPU slice |
+| **SearXNG + crawl4ai** | Web search for the playground: SearXNG finds links, crawl4ai reads the pages | internal only | Docker containers, shared `web_net` |
 
-> Only one **chat** model runs on the GPU at a time (launching another replaces the current
-> one) — OCR, video and voice are separate, always-addressable backends that run alongside
-> it, each with their own GPU memory budget. On a single 128 GB unified-memory box that
-> budget is genuinely shared: if a launch fails with an out-of-memory error, stop one of
-> the sidecars from **Admin** rather than shrinking the chat model.
+> Only one **chat** model runs on the GPU at a time (launching another replaces the
+> current one) — the media sidecars are separate, always-addressable backends running
+> alongside it, each with its own GPU memory budget. On a single 128 GB unified-memory
+> box that budget is genuinely shared: if a launch fails with an out-of-memory error,
+> stop a sidecar from **Admin** rather than shrinking the chat model.
 
 The UI used to be server-rendered Jinja templates served directly by Flask on
 `:5000`. It's now a separate Next.js/Astryx frontend that owns `:5000` and
 talks to Flask over the internal docker network for everything — auth, data,
 and even the streaming chat endpoints (proxied through dedicated Next.js
 Route Handlers so token-by-token streaming isn't buffered). Flask itself no
-longer has a published port. The old templates are gone; reverting would mean
-restoring them from git history and swapping the two services' ports back in
-`docker-compose.yml`.
+longer has a published port.
 
 ---
 
@@ -122,6 +149,7 @@ go to **Admin**, and launch a model from the catalog.
 
 `docker-compose.yml` injects these into `dgx-portal` / `litellm`. `install.sh`
 (via `setup.sh`) generates the random secrets; fill in the rest. See `.env.example`.
+The backend reads them all in one place, [`config.py`](dgx-portal/config.py).
 
 | Variable | Purpose |
 |---|---|
@@ -129,10 +157,12 @@ go to **Admin**, and launch a model from the catalog.
 | `LITELLM_MASTER_KEY` | LiteLLM master key (gateway admin) |
 | `POSTGRES_PASSWORD` | LiteLLM database password |
 | `LLDAP_ADMIN_PASSWORD` | LDAP bind (user/group lookup, notification emails) |
-| `RUNNER_TOKEN` | Bearer token between `dgx-portal` and `vllm-runner` (also used for the OCR/video sidecar control routes) |
+| `RUNNER_TOKEN` | Bearer token between `dgx-portal` and `vllm-runner` (also used for the sidecar control routes) |
 | `OCR_URL` | Internal URL of the OCR vLLM container (default `http://ocr:8000/v1`) |
-| `VOICE_URL` | Internal URL of the Chatterbox voice container (default `http://voice:8004`) |
+| `VOICE_URL` | Internal URL of the voice container (default `http://voice:8004`) |
 | `ASR_URL` | Internal URL of the Whisper transcription container (default `http://asr:8006`) |
+| `IMAGE_URL` | Internal URL of the text-to-image container (default `http://image:8007`) |
+| `MUSIC_URL` | Internal URL of the text-to-music container (default `http://music:8008`) |
 | `COMFYUI_URL` | Internal URL of the ComfyUI video backend (default `http://host.docker.internal:8188`) |
 | `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.cronos.website/v1`) |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Authentik `dgx-spark` OIDC app |
@@ -144,23 +174,27 @@ go to **Admin**, and launch a model from the catalog.
 
 > `.env` is **gitignored** — no secret is committed. `.env.example` holds only placeholders.
 >
-> The UI (`dgx-portal-frontend`) supports **English and French**, toggled
-> from Settings → Appearance; English is the default. `docker-compose.yml`
-> reads `BACKEND_URL` to reach Flask internally; the default
-> (`http://dgx-portal:5000`) matches the compose service name and rarely
-> needs changing.
+> `docker-compose.yml` reads `BACKEND_URL` to reach Flask internally; the default
+> (`http://dgx-portal:5000`) matches the compose service name and rarely needs changing.
+> Note that `host.docker.internal` is **pinned to a fixed address** there rather than
+> using `host-gateway` — see the networking gotcha in [`CLAUDE.md`](CLAUDE.md).
 
 ---
 
 ## Authentication
 
-Two methods, handled by `dgx-portal`:
+Two methods, handled by [`auth.py`](dgx-portal/auth.py):
 
 - **OIDC SSO (Authentik)** — primary. "Sign in with Cronos SSO". Flow:
   `/login/sso` → Authentik → `/api/oauth2-redirect`. Admin comes from the `groups`
   claim (`adm_cronos`), falling back to an LDAP lookup by username if absent.
 - **LDAP (LLDAP)** — username/password fallback: direct bind, injection-escaped,
-  empty-password binds rejected, with in-memory brute-force lockout (6 fails / 15 min).
+  empty-password binds rejected, with brute-force lockout (6 fails / 15 min)
+  persisted in SQLite so it survives a redeploy and is shared across workers.
+
+Local accounts managed by an admin ([`local_users.py`](dgx-portal/local_users.py))
+sit between the two, and a file-based fallback login exists for when LDAP is
+unreachable.
 
 Session hardening: `HttpOnly` + `SameSite=Lax` cookies + `Secure` behind TLS.
 `ProxyFix` trusts Traefik's `X-Forwarded-*` headers.
@@ -191,7 +225,7 @@ key issued from the portal (`Authorization: Bearer sk-…`).
 curl https://api.cronos.website/v1/chat/completions \
   -H "Authorization: Bearer sk-your-key" \
   -H "Content-Type: application/json" \
-  -d '{"model":"ornith-35b-fp8","messages":[{"role":"user","content":"Hello!"}]}'
+  -d '{"model":"auto-model","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 ### The `auto-model` alias
@@ -203,17 +237,10 @@ chat model currently loaded, re-pointed automatically on every launch. Wire it
 once and never touch your config again — the real model names stay registered and
 keep working in parallel if you'd rather pin to a specific one.
 
-```bash
-curl https://api.cronos.website/v1/chat/completions \
-  -H "Authorization: Bearer sk-your-key" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"auto-model","messages":[{"role":"user","content":"Hello!"}]}'
-```
-
-The **Settings → API keys** panel generates ready-to-paste snippets for OpenCode,
-Hermes Agent, Codex CLI, Aider, Continue.dev, Cursor, LangChain, the Python SDK,
-cURL and env vars — key and endpoint pre-filled, with **`auto-model` selected by
-default** (and a note explaining it) while every named model stays selectable.
+The **Settings → API keys** panel generates ready-to-paste snippets for Claude
+Code, OpenCode, Hermes Agent, Codex CLI, Aider, Continue.dev, Cursor, LangChain,
+the Python SDK, cURL and env vars — key and endpoint pre-filled, with
+**`auto-model` selected by default** while every named model stays selectable.
 
 > For **OpenCode**, the config uses a dedicated `dgx-cronos` provider (not `openai`)
 > so it won't clash with an official OpenAI account.
@@ -222,107 +249,159 @@ default** (and a note explaining it) while every named model stays selectable.
 
 ## Portal features
 
-- **My API keys** (Settings → API keys) — create/revoke keys, see per-key spend and
-  the shared account budget, request more tokens; integration snippets per tool with
-  `auto-model` pre-selected. Reached from the sidebar gear, or from the home page's
-  "My API keys" / "Create an API key" buttons (which open Settings directly on this
-  tab — there is no standalone `/keys` page).
-- **Playground** — in-browser streaming chat with the active model; no client setup.
-  Streamed Markdown, a collapsible reasoning trace for thinking models, attachments,
-  a live context meter, per-message copy/regenerate, and a resizable **document
-  panel**: long answers get an "Open as document" button that pops the content into
-  a wide, side-by-side reading pane (handy for generated docs and code). Includes
-  **dictation**: a mic button transcribes what you say into the composer.
-  Deliberately self-hosted (Whisper on the GPU) rather than the browser's
-  `SpeechRecognition` API, which in Chrome ships the audio to Google's servers —
-  the opposite of the point of this platform. The button only appears when the
-  transcription backend is running.
-- **Memory** (Settings → Memory) — an opt-in knowledge graph of what the assistant has
-  learned about you. Facts are stored as triples (subject, relation, object) in
-  SQLite rather than as a flat list, so "what do you know about X?" resolves to a
-  node's neighbourhood instead of injecting everything; traversal is a recursive
-  CTE, so no graph database or extra sidecar is involved. Writing the same
-  subject+relation again supersedes the older fact (kept for history, never
-  re-injected) so the memory can't accumulate contradictions. **Off by default**
-  — this is personal data: nothing is recorded until the user enables it, the page
-  shows every stored fact, and nobody else can read it, admins included.
-- **OCR** — extract text from an image/scan, streamed token-by-token into a
-  formatted panel (same pattern as the Playground), with a toggle to visualize
-  every detected region as bounding boxes over the source image; keeps your
-  last 20 results, including the analyzed image itself.
-- **Video** — turn a text description, with or without a reference image, into
-  a short video with synced audio (MiniMax H3), polled to completion; keeps
-  your last 3 results.
-- **Voice** — **record a sample straight from your microphone** (1 minute max,
-  auto-stops, with playback before you commit) or upload one (WAV/MP3), give it
-  any text, and get that text read back in that voice — zero-shot, no
-  fine-tuning, a few seconds per generation; keeps your last 20 results with
-  in-page playback. The page adapts to whichever engine is loaded: it only
-  shows the language selector when the engine speaks more than one, and only
-  offers the optional **reference transcript** (which noticeably improves
-  likeness) on Qwen3-TTS, which is the only one that uses it. Browser
-  recordings are converted to 24 kHz mono WAV client-side
-  (`lib/audioRecorder.ts`) because `MediaRecorder` only emits WebM/Opus, which
-  neither model accepts. Samples shorter than ~6 s are rejected client-side —
-  both engines need a few seconds of speech, Chatterbox strictly more than 5.
-  OCR, video and voice all show a clear empty state if no backend is currently
-  running, instead of letting you submit into a dead end.
-- **Support (Cronos)** — an AI assistant that sees your keys (masked), budget, the
-  model catalog and server status, and can **act for you**: create a key, revoke one,
-  request budget, request a model (admins also get launch/stop). Actions are always
-  scoped server-side to the logged-in user; impactful ones require in-chat confirmation.
-- **Find a model** (`/search`) — live search over the Hugging Face Hub (no local
-  cache), filterable by task including text/image/video generation, defaulting
-  to models tagged as tested on GB10; paginated ("Load more") rather than
-  capped at the first page.
-- **Leaderboard** (`/ranking`) — ranks users by weighted spend (day/week/month),
-  colorblind-safe palette, from LiteLLM's Postgres spend logs.
-- **Home** — every currently-running backend (chat, OCR, video, voice), each card
-  labelled with what it does and the chat card advertising the `auto-model` tip;
-  a **Server state** panel with live CPU/RAM/GPU, active-model health (tok/s, queue,
-  TTFT, requests served, in/out context) and a **Media services** strip folding the
-  OCR/video/voice activity metrics (throughput, chars-per-doc, mean time, last run)
-  in next to it; plus your own hourly usage chart. Sidecars are clearly marked
-  "not exposed by the API".
-- **Admin** (`adm_cronos` only) — launch/stop models, live vLLM logs, add/edit/remove
-  catalog models (chat, OCR **and** voice), start/stop the OCR container, the video
-  service and the voice container independently of the chat model, set the default
-  budget, approve token/model requests, and a **maintenance mode** toggle that blocks
-  non-admin traffic everywhere (portal chat/OCR/video/voice *and* the public API)
-  without stopping any backend. Per-user consumption is a **search box** — look up a
-  single account to see its LiteLLM quota/spend plus its OCR/video/voice usage
-  (untracked by LiteLLM since none of them go through a public API key) and its model
-  requests — rather than a wall of everyone's stats.
-- **Users** (`/users`, admin only) — a dedicated page to manage local accounts:
-  create users with a hashed password, assign them to **groups** carrying a default
-  quota and admin right, override a per-user quota, enable/disable, toggle admin, or
-  reset a password. It also lists **every known account** with a badge for each
-  authentication source — **Local** (managed here), **Debug** (fallback file), **LDAP**,
-  **SSO**, or **External** — recorded per login and cumulative (a user seen via both
-  LDAP and SSO shows both).
+| Feature | Where | In one line |
+|---|---|---|
+| [API keys](#api-keys) | Settings ▸ API keys | create/revoke keys, see spend, copy integration snippets |
+| [Playground](#playground) | `/playground` | streaming chat with the active model, attachments, dictation, web search |
+| [Memory](#memory) | Settings ▸ Memory | opt-in knowledge graph of what the assistant knows about you |
+| [Media pages](#media-pages) | `/ocr` `/video` `/image` `/music` `/voice` | OCR, video, image, music and voice cloning |
+| [Support](#support-cronos) | `/support` | an assistant that can act on your account |
+| [Find a model](#find-a-model) | `/search` | live Hugging Face search, GB10-tested first |
+| [Request a model](#request-a-model) | `/request` | ask an admin for a model or more tokens |
+| [Home](#home) | `/` | running backends, live server state, your usage |
+| [Leaderboard](#leaderboard) | `/ranking` | weighted spend ranking |
+| [Admin](#admin) | `/admin` | models, sidecars, catalog, quotas, maintenance |
+| [Users](#users) | `/users` | local accounts, groups, quotas, auth sources |
 
-### Screenshots
+### API keys
 
-| Playground — in-browser streaming chat (with dictation) | Support — the Cronos assistant, budget- and status-aware |
+Create/revoke keys, see per-key spend and the shared account budget, request more
+tokens; integration snippets per tool with `auto-model` pre-selected. Reached from
+the sidebar gear or the home page's "My API keys" button — there is no standalone
+`/keys` page.
+
+### Playground
+
+In-browser streaming chat with the active model; no client setup. Streamed
+Markdown, a collapsible reasoning trace for thinking models, attachments, a live
+context meter, per-message copy/regenerate, and a resizable **document panel**:
+long answers get an "Open as document" button that pops the content into a wide,
+side-by-side reading pane.
+
+Includes **dictation** — a mic button transcribes what you say into the composer.
+Deliberately self-hosted (Whisper on the GPU) rather than the browser's
+`SpeechRecognition` API, which in Chrome ships the audio to Google's servers.
+
+**Web search** is available on explicit request ("search the web for…"): SearXNG
+finds the links, crawl4ai reads the pages, and the progress of each step is shown
+live. See [`websearch_tools.py`](dgx-portal/websearch_tools.py) and the rules in
+[`CLAUDE.md`](CLAUDE.md).
+
+### Memory
+
+An opt-in knowledge graph of what the assistant has learned about you. Facts are
+stored as triples (subject, relation, object) in SQLite rather than as a flat
+list, so "what do you know about X?" resolves to a node's neighbourhood instead of
+injecting everything; traversal is a recursive CTE, so no graph database is
+involved. Writing the same subject+relation again supersedes the older fact.
+
+**Off by default** — this is personal data: nothing is recorded until the user
+enables it, the page shows every stored fact, and nobody else can read it, admins
+included.
+
+### Media pages
+
+- **OCR** — extract text from an image or scan, streamed token-by-token, with a
+  toggle to visualize every detected region as bounding boxes over the source
+  image; keeps your last 20 results.
+- **Video** — turn a text description, with or without a reference image, into a
+  short video with synced audio (MiniMax H3); keeps your last 3 results.
+- **Image** — text-to-image; the default model is distilled to 4 steps, so a
+  1024×1024 image lands in about 5 seconds.
+- **Music** — text-to-music, same shape as the image page.
+- **Voice** — record a sample straight from your microphone (1 min max, with
+  playback before you commit) or upload one, give it any text, and get that text
+  read back in that voice — zero-shot, a few seconds per generation. The page
+  adapts to whichever engine is loaded. Browser recordings are converted to 24 kHz
+  mono WAV client-side because `MediaRecorder` only emits WebM/Opus, which neither
+  engine accepts.
+
+All media pages show a clear empty state when their backend is not running,
+instead of letting you submit into a dead end.
+
+### Support (Cronos)
+
+An AI assistant that sees your keys (masked), budget, the model catalog and server
+status, and can **act for you**: create a key, revoke one, request budget, request
+a model (admins also get launch/stop). Actions are always scoped server-side to the
+logged-in user; impactful ones require in-chat confirmation. It can also call MCP
+servers and skills you configure in Settings — with the guardrail that once
+third-party tool output has entered the conversation, privileged tools are refused
+for the rest of the turn.
+
+### Find a model
+
+Live search over the Hugging Face Hub (no local cache), filterable by task
+including text/image/video generation, defaulting to models tagged as tested on
+GB10; paginated rather than capped at the first page.
+
+### Request a model
+
+A short form to ask an admin for a model that isn't in the catalog, or for more
+tokens. Requests land in Admin with the requester and their reason.
+
+### Home
+
+Every currently-running backend, each card labelled with what it does and the chat
+card advertising the `auto-model` tip; a **Server state** panel with live CPU/RAM/GPU,
+active-model health (tok/s, queue, TTFT, requests served, in/out context) and a
+**Media services** strip folding sidecar activity metrics in next to it; plus your
+own hourly usage chart. Sidecars are clearly marked "not exposed by the API".
+
+### Leaderboard
+
+Ranks users by weighted spend (day/week/month), colorblind-safe palette, from
+LiteLLM's Postgres spend logs.
+
+### Admin
+
+Launch/stop models, live vLLM logs, add/edit/remove catalog models (chat, OCR and
+voice), start/stop each sidecar independently of the chat model, set the default
+budget, approve token/model requests, and a **maintenance mode** toggle that blocks
+non-admin traffic everywhere without stopping any backend. Per-user consumption is
+a **search box** — look up a single account to see its LiteLLM quota/spend plus its
+media usage (untracked by LiteLLM, since none of it goes through a public API key).
+
+### Users
+
+A dedicated page to manage local accounts: create users with a hashed password,
+assign them to **groups** carrying a default quota and admin right, override a
+per-user quota, enable/disable, toggle admin, or reset a password. It lists every
+known account with a badge for each authentication source — **Local**, **Debug**,
+**LDAP**, **SSO** or **External** — recorded per login and cumulative.
+
+---
+
+## Screenshots
+
+| Playground — streaming chat, dictation and web search | Support — the Cronos assistant, budget- and status-aware |
 |---|---|
 | ![Playground](assets/playground.png) | ![Support](assets/support.png) |
 
-| OCR — text extracted live from a scanned document | Voice cloning — zero-shot from a short sample (Qwen3-TTS) |
+| OCR — text extracted live from a scanned document | Voice cloning — zero-shot from a short sample |
 |---|---|
 | ![OCR](assets/ocr.png) | ![Voice](assets/voice.png) |
 
-| Video generation — text- or image-driven, MiniMax H3 | Find a model — Hugging Face catalog search |
+| Video generation — text- or image-driven, MiniMax H3 | Image generation — FLUX.2 Klein, 4 steps |
 |---|---|
-| ![Video](assets/video.png) | ![Find a model](assets/search.png) |
+| ![Video](assets/video.png) | ![Image](assets/image.png) |
+
+| Music generation | Memory — the opt-in knowledge graph |
+|---|---|
+| ![Music](assets/music.png) | ![Memory](assets/memory.png) |
+
+| Find a model — Hugging Face catalog search | Request a model |
+|---|---|
+| ![Find a model](assets/search.png) | ![Request a model](assets/request.png) |
 
 ![Settings → API keys — budget, keys, and integration snippets (`auto-model` selected by default)](assets/keys.png)
 
-![Admin — the unified backend row (chat, OCR, video, voice, dictation), a type-filtered catalog, and live vLLM logs](assets/admin.png)
+![Admin — the unified backend row, a type-filtered catalog, and live vLLM logs](assets/admin.png)
 
 > **Refreshing these screenshots** — the UI is bilingual; capture them with the
-> interface in **English** (Settings → Appearance → Language → English, or set
-> `PORTAL_LANG=en`). Shoot each page below and save it under `assets/` with the
-> exact filename, replacing the existing file:
+> interface in **English** (Settings → Appearance → Language → English). Shoot each
+> page below and save it under `assets/` with the exact filename, replacing the
+> existing file:
 >
 > | Page | Route | File |
 > |---|---|---|
@@ -332,18 +411,25 @@ default** (and a note explaining it) while every named model stays selectable.
 > | OCR | `/ocr` | `assets/ocr.png` |
 > | Voice cloning | `/voice` | `assets/voice.png` |
 > | Video generation | `/video` | `assets/video.png` |
+> | Image generation | `/image` | `assets/image.png` |
+> | Music generation | `/music` | `assets/music.png` |
+> | Memory | Settings ▸ Memory (or `/memory`) | `assets/memory.png` |
 > | Find a model | `/search` | `assets/search.png` |
 > | Settings → API keys | gear ▸ API keys | `assets/keys.png` |
+> | Request a model | `/request` | `assets/request.png` |
 > | Admin | `/admin` | `assets/admin.png` |
 >
 > The **Users** page (`/users`) and the **Leaderboard** (`/ranking`) are deliberately
 > *not* published here — they list internal usernames (and, for the leaderboard,
 > per-user consumption), so `assets/users.png` and `assets/ranking.png` are
-> gitignored. The current shots above were captured in English from the live app.
+> gitignored.
 
 ---
 
 ## Operations
+
+Day-to-day runbook — reboot recovery, the test gate, model-serving gotchas — lives
+in [`CLAUDE.md`](CLAUDE.md). The essentials:
 
 ### Launch a model
 
@@ -356,11 +442,20 @@ curl -H "Authorization: Bearer $RUNNER_TOKEN" -H "Content-Type: application/json
   http://127.0.0.1:8001/launch
 ```
 
+`vllm_args` is validated against a strict allowlist — see [`SECURITY.md`](SECURITY.md#21-model-launching--a-strict-allowlist-not-a-denylist).
+
 ### Auto-resume
 
 The runner persists the last successful launch (`/var/lib/vllm-runner/last_model.json`)
 and **relaunches it** after a process crash, a service restart or a reboot. A manual
 `/stop` clears that state (no resume). Capped at 3 consecutive attempts.
+
+### Tests
+
+```bash
+./dgx-portal/run-tests.sh        # backend suite, in a throwaway image
+./scripts/pre-push-check.sh      # tests + secret scan — green is required to push
+```
 
 ### systemd services
 
@@ -369,69 +464,26 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
 | `vllm-runner.service` | The runner daemon (non-root `vllmrunner` user) |
 | `vllm-restrict.service` | iptables: host ports **8000**/**8001** limited to localhost + Docker bridge |
 | `cronos-docker-restrict.service` | DOCKER-USER rules: **4001** to LAN+VPN, **5000** to Traefik only |
-| `cronos-traefik-boot.service` | One-shot at boot: waits for DNS, then restarts Traefik once (avoids the plugin/ACME-fetch race that 404s the site after a reboot) |
+| `cronos-web-restrict.service` | Drops new connections from the web-search network to the host |
+| `cronos-ocr-restrict.service` | Prevents the OCR container from opening a connection to the portal |
+| `cronos-traefik-boot.service` | One-shot at boot: waits for DNS, then restarts Traefik once (avoids the plugin/ACME race that 404s the site after a reboot) |
 
 ---
 
 ## Security
 
-- **LiteLLM API (4001)**: no request without a valid key (`401`), budgets enforced
-  (`429`). Restricted by firewall to the LAN + VPN; the intended public surface is
-  via Traefik.
-- **vLLM (8000) and runner (8001)**: firewalled to localhost + Docker bridge. The
-  runner also requires a **Bearer token** and **allowlists** `vllm_args` (blocks
-  `--trust-remote-code` and overriding critical flags), and runs **non-root**.
-- **Portal**: LDAP/SSO auth, hardened cookies, per-request nonce CSP on
-  `script-src` (`dgx-portal-frontend/proxy.ts`), security headers, non-root
-  containers with dropped capabilities on both `dgx-portal` and
-  `dgx-portal-frontend`, IDOR / open-redirect / LDAP-injection guards, login
-  brute-force lockout. `dgx-portal` itself has no published port — only
-  `dgx-portal-frontend` is reachable from outside the docker network, and it
-  only ever talks to Flask over that internal network.
-- **Published ports** are filtered in `DOCKER-USER`: `4001` (API) reachable from the
-  LAN and the Netbird VPN, `5000` (frontend) from Traefik only (HTTPS).
-- **OCR / video / voice control**: no `docker.sock` is mounted anywhere — `vllm-runner`
-  (already a trusted, HMAC-token-gated host daemon) gets narrowly scoped `sudo`
-  rights (`/etc/sudoers.d/vllmrunner-services`) to `systemctl start/stop` the
-  video service and `docker start/stop/inspect` the OCR container, plus one
-  wildcard-argument rule limited to a single root-owned wrapper script
-  (`/usr/local/sbin/ocr-recreate.sh`) that recreates the OCR container from a
-  fixed image/network/mount template — the admin only controls the trailing
-  vLLM argv, allowlisted the same way as the main model catalog (with
-  `--trust-remote-code` deliberately allowed for this one container, since the
-  OCR models that need it require it — an admin-only tradeoff, not available
-  anywhere else). The OCR container lives on its own docker network
-  (`ocr_net`, shared only with `dgx-portal`) rather than the shared
-  `ai-platform_default` network — arbitrary code from a malicious HF repo run
-  there has no L3 route to `litellm`, `litellm-postgres`, or `traefik`.
-  The **voice** container follows the same pattern: its own `voice_net`, its own
-  `docker start/stop/inspect` sudo rules, and a root-owned
-  `/usr/local/sbin/voice-recreate.sh` wrapper. Its one variable argument
-  (`repo_id`) is checked against a **closed allowlist** of the three Chatterbox
-  variants in both `runner.py` and the script itself — there is no free-form
-  argv here at all, unlike the OCR container.
-- **Maintenance mode**: a DB flag, enforced twice. Inside the portal,
-  chat/OCR/video/voice routes check it directly and let admins through. For the public API
-  (`api.cronos.website`), a Traefik `forwardAuth` middleware calls an internal,
-  unauthenticated `/internal/authcheck` route on every request; it's a cheap no-op
-  (immediate 200, no lookup) whenever maintenance mode is off, and when it's on it
-  resolves the caller's API key to an account and only lets admin accounts through
-  — everyone else gets Traefik's relayed 503 before the request ever reaches LiteLLM.
-- **Abuse & resource limits** (hardened after a multi-agent security review):
-  - GPU-heavy media routes (`/api/video/generate`, `/api/ocr/extract`,
-    `/api/voice/generate`) are rate-limited per account — none go through a
-    LiteLLM key, so token budgets don't cap them; a per-user sliding window does.
-  - Flask enforces `MAX_CONTENT_LENGTH` (16 MB) so an unauthenticated POST can't
-    stream gigabytes onto disk before the CSRF/auth checks run.
-  - The voice/ASR sidecars read the **audio header before decoding** (rejecting
-    out-of-range duration / sample-rate / channel counts) so a tiny crafted FLAC
-    can't decompress into tens of GB and trip the OOM killer on the shared
-    unified-memory pool; decoding and resampling run off the event loop, TTS text
-    and chunk length are hard-bounded, and generation runs under a GPU lock with
-    a wall-clock timeout.
-  - `Cf-Connecting-Ip` / `X-Forwarded-For` are validated as real IPs before being
-    trusted as a login-lockout key, and the Flask CSP served on proxied responses
-    was tightened to `script-src 'self'` (the old Jinja UI it loosened for is gone).
+The gateway refuses any call without a valid key and enforces budgets; vLLM and the
+runner are firewalled to localhost plus the docker bridge, and the runner
+allowlists every launch flag, requires a Bearer token and runs non-root. No
+`docker.sock` is mounted anywhere — sidecars are driven through scoped `sudo` on
+root-owned wrapper scripts, each on its own docker network with no route to
+LiteLLM, Postgres or Traefik. The portal adds LDAP/SSO auth, hardened cookies,
+CSRF, a persisted brute-force lockout and a per-request nonce CSP, and a test
+fails the build if any route loses its authentication guard.
+
+**Full threat model, the complete list of controls, and the risks knowingly
+accepted (starting with OCR, the one sidecar allowed to execute third-party code)
+are in [`SECURITY.md`](SECURITY.md).**
 
 ### Exposing the API publicly
 
@@ -447,59 +499,75 @@ tokens/day, not request rate on a single GPU.
 
 ```
 .
-├── install.sh                # one-shot host bootstrap (packages + systemd + .env)
-├── setup.sh                  # generates .env with random secrets
-├── docker-compose.yml        # postgres + litellm + dgx-portal + dgx-portal-frontend
-├── .env.example              # placeholders (no real secrets)
-├── litellm/
-│   └── config.yaml           # models, token pricing, model_info
-├── dgx-portal/                # Flask backend: auth + JSON API + business logic
-│   ├── app.py                 # LDAP+OIDC auth, /api/*, budgets, support, admin,
-│   │                          #   OCR/video proxying, maintenance mode
-│   ├── workflows/              # ComfyUI API-format workflow templates (video)
-│   ├── requirements.txt
-│   └── Dockerfile             # non-root image, no published port
+├── install.sh                 # one-shot host bootstrap (packages + systemd + .env)
+├── setup.sh                   # generates .env with random secrets
+├── docker-compose.yml         # postgres + litellm + portal + frontend + search sidecars
+├── .env.example               # placeholders (no real secrets)
+├── README.md · SECURITY.md · CLAUDE.md
+├── litellm/config.yaml        # models, token pricing, model_info
+├── dgx-portal/                # Flask backend — see the module map below
 ├── dgx-portal-frontend/       # Next.js + Astryx UI (owns the public port 5000)
-│   ├── app/                   # pages (home, playground, ocr, video, voice, support, admin, users, ...; keys live in the Settings dialog)
-│   │   ├── playground/chat/route.ts   # streaming proxy to Flask (SSE, unbuffered)
-│   │   └── support/chat/route.ts      # same, for the support assistant
-│   ├── lib/                   # api.ts (auth/CSRF/SSE helpers), types, conversations
-│   ├── proxy.ts                # Next.js 16 proxy: nonce CSP + method-based routing
-│   ├── next.config.ts          # CSP headers, fallback rewrite to Flask
-│   └── Dockerfile
-├── voice/                     # Chatterbox voice-cloning sidecar (fallback engine)
-│   ├── Dockerfile             # pinned upstream release, CUDA 13.0 / sm_121 (GB10)
-│   ├── entrypoint.sh          # server + periodic purge of uploaded reference clips
-│   └── voice-recreate.sh      # source of /usr/local/sbin/voice-recreate.sh (installed on the host)
-├── asr/                       # Whisper transcription sidecar (Playground dictation)
-│   ├── Dockerfile             # same CUDA 13.0 / sm_121 base as the voice sidecars
-│   ├── server.py              # minimal HTTP wrapper (transformers pipeline)
-│   └── asr-recreate.sh        # source of /usr/local/sbin/asr-recreate.sh
-├── ocr/                       # OCR sidecar host wrapper (hardened: cap-drop ALL,
-│   └── ocr-recreate.sh        #   no-new-privileges, dedicated HF cache — trust-remote-code)
-├── image-gen/                 # sidecar texte-vers-image (diffusers)
-│   ├── Dockerfile             # CUDA 13.0 / torch cu130 (GB10), diffusers from git
-│   └── server.py              # FastAPI wrapper, single-GPU serialised generation
-├── voice-qwen/                # Qwen3-TTS voice-cloning sidecar (default engine)
-│   ├── Dockerfile             # same CUDA 13.0 / sm_121 base; no flash-attn on aarch64
-│   ├── server.py              # minimal HTTP wrapper — upstream ships no server
-│   │                          #   (vLLM-Omni is offline-inference only so far)
-│   └── voice-qwen-recreate.sh # source of /usr/local/sbin/voice-qwen-recreate.sh
-├── vllm-runner/
-│   └── runner.py              # start/stop/logs daemon + auto-resume;
-│                               #   scoped sudo control of the OCR + voice containers and video service
-└── systemd/                   # host units (runner, firewalls, comfyui)
+├── vllm-runner/runner.py      # model lifecycle daemon + scoped sidecar control
+├── ocr/ · voice/ · voice-qwen/ · asr/ · image-gen/   # sidecar images and host wrappers
+└── systemd/                   # host units (runner, firewalls, ComfyUI, recreate scripts)
 ```
 
+### Backend module map (`dgx-portal/`)
+
+The backend was a single 7 200-line file; it is now a shared core, a set of
+clients, and one blueprint per feature. [`app.py`](dgx-portal/app.py) is a wiring
+facade of ~870 lines: it creates the Flask app, sets security headers and the CSP,
+keeps the handful of routes that other modules reach by name (`index`, `login`,
+`logout`, the OAuth callbacks), registers every blueprint and boots the schema.
+
+**Shared core** — imports nothing from the rest, so nothing can create a cycle:
+
+| Module | Holds |
+|---|---|
+| [`config.py`](dgx-portal/config.py) | every environment-derived constant, in one place |
+| [`db.py`](dgx-portal/db.py) | SQLite access, persisted settings, schema and migrations, the LiteLLM Postgres connector |
+| [`auth.py`](dgx-portal/auth.py) | `login_required` / `admin_required`, CSRF, LDAP, brute-force lockout, session lifetime |
+| [`guards.py`](dgx-portal/guards.py) | maintenance and rate-limit guards, shared SSE helpers, upload validation |
+
+**Clients and adapters** — one module per thing the portal talks to:
+
+| Module | Talks to |
+|---|---|
+| [`litellm_client.py`](dgx-portal/litellm_client.py) | LiteLLM: keys, budgets, accounts, model registration |
+| [`vllm_health.py`](dgx-portal/vllm_health.py) | the engine: served models, health, throughput, context window, HF search |
+| [`sidecars.py`](dgx-portal/sidecars.py) | the runner: launch/stop/logs, and every sidecar readiness probe |
+| [`comfyui_client.py`](dgx-portal/comfyui_client.py) | ComfyUI, for video |
+| [`mcp_client.py`](dgx-portal/mcp_client.py) | user-configured MCP servers |
+| [`websearch.py`](dgx-portal/websearch.py) · [`websearch_tools.py`](dgx-portal/websearch_tools.py) | SearXNG + crawl4ai, and the tool layer exposing them to the model |
+| [`notify.py`](dgx-portal/notify.py) · [`discord_notify.py`](dgx-portal/discord_notify.py) · [`announcements.py`](dgx-portal/announcements.py) | mail, Discord webhook and DMs, platform announcements |
+| [`stats.py`](dgx-portal/stats.py) · [`local_users.py`](dgx-portal/local_users.py) · [`support.py`](dgx-portal/support.py) | consumption aggregates · local accounts · the Support assistant's tools |
+
+**Route blueprints** — no `url_prefix`, so every path is unchanged:
+
+| Module | Routes |
+|---|---|
+| [`chat_routes.py`](dgx-portal/chat_routes.py) | `/playground/chat`, `/support/chat` — SSE streaming |
+| [`admin_routes.py`](dgx-portal/admin_routes.py) | `/admin/*` — models, sidecars, accounts, quotas, maintenance |
+| [`conversation_routes.py`](dgx-portal/conversation_routes.py) · [`settings_routes.py`](dgx-portal/settings_routes.py) · [`memory_routes.py`](dgx-portal/memory_routes.py) | history · user settings · memory graph |
+| [`ocr_routes.py`](dgx-portal/ocr_routes.py) · [`voice_routes.py`](dgx-portal/voice_routes.py) · [`asr_routes.py`](dgx-portal/asr_routes.py) | OCR · voice cloning · dictation |
+| [`image_routes.py`](dgx-portal/image_routes.py) · [`music_routes.py`](dgx-portal/music_routes.py) · [`video_routes.py`](dgx-portal/video_routes.py) | the generation pages |
+| [`preview_routes.py`](dgx-portal/preview_routes.py) · [`discord_routes.py`](dgx-portal/discord_routes.py) | sandboxed HTML preview · Discord account linking |
+
+Also under `dgx-portal/`: `workflows/` (ComfyUI API-format templates for video),
+`tests/`, `requirements.txt` and a non-root `Dockerfile` with no published port.
+
+### Frontend (`dgx-portal-frontend/`)
+
+Next.js 16 + Astryx. `app/(app)/` holds the pages, `lib/` the data helpers and the
+i18n dictionary, `proxy.ts` the per-request nonce CSP and method-based routing, and
+`lib/sseProxy.ts` the streaming relay to Flask. It has its own `README.md`,
+`CLAUDE.md` and `AGENTS.md` — start there for UI work.
+
 > The `/usr/local/sbin/*-recreate.sh` wrappers and `/etc/sudoers.d/vllmrunner-*`
-> live on the host (root-owned) — see the OCR/video/voice/image control note
-> under **Security** above. Their tracked sources are `ocr/ocr-recreate.sh`,
+> live on the host (root-owned). Their tracked sources are `ocr/ocr-recreate.sh`,
 > `voice/voice-recreate.sh`, `asr/asr-recreate.sh`, `voice-qwen/voice-qwen-recreate.sh`,
-> `systemd/image-recreate.sh` and `systemd/sudoers.d-vllmrunner-image`; install with
-> e.g. `install -o root -g root -m 0755 ocr/ocr-recreate.sh /usr/local/sbin/`.
-> (`ocr-recreate.sh` is hardened: `--cap-drop ALL --no-new-privileges` and a
-> dedicated HF cache `/root/.cache/huggingface-ocr` isolated from the runner's,
-> since OCR is the only sidecar allowed `--trust-remote-code`.)
+> `systemd/image-recreate.sh` and `systemd/ocr-restrict.sh`; install with e.g.
+> `install -o root -g root -m 0755 ocr/ocr-recreate.sh /usr/local/sbin/`.
 
 ## License
 

@@ -47,7 +47,6 @@ app.config.update(
 
 # LDAP identifier validation regex (defense in depth against
 # filter/DN injection, on top of escaping).
-USERNAME_RE = re.compile(r'^[a-zA-Z0-9._-]{1,64}$')
 
 
 # Flask no longer serves any HTML document (the Jinja templates are removed,
@@ -81,44 +80,22 @@ def _security_headers(resp):
 # Each session carries a token; every unsafe request (POST/PUT/PATCH/DELETE)
 # must send it back via the hidden `csrf_token` field (forms) or the
 # X-CSRFToken header (fetch/JSON calls). Defense in depth on top of SameSite=Lax.
-def _ensure_csrf():
-    """Return the session token, creating it if needed.
 
-    LAZY creation, and that's essential: doing it in before_request
-    mutated the session on every request, so every response returned a
-    Set-Cookie. On the login page, the browser fires /api/csrf and
-    /api/whoami in parallel with no cookie; both then created a fresh
-    session with a DIFFERENT token, the last Set-Cookie to arrive overwrote
-    the other, and the token the page had memorized no longer matched the
-    actually-stored cookie → POST /login as 400, shown to the user
-    as "Invalid credentials". By touching the session only where the
-    token is really requested, a single request can create it.
-
-    """
-    if 'csrf' not in session:
-        session['csrf'] = secrets.token_urlsafe(32)
-    return session['csrf']
-
-
-@app.before_request
-def _csrf_protect():
-    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
-        sent = request.form.get('csrf_token') or request.headers.get('X-CSRFToken', '')
-        expected = session.get('csrf')
-        # .encode() required: hmac.compare_digest raises TypeError on
-        # str containing non-ASCII, which would turn an exotic token
-        # into a 500 instead of the expected 400. We compare bytes.
-        if not expected or not hmac.compare_digest(str(expected).encode(), str(sent).encode()):
-            abort(400, description='CSRF token manquant ou invalide.')
-
-
-@app.context_processor
-def _inject_csrf():
-    return {'csrf_token': _ensure_csrf}
-
+# Socle d'authentification (CSRF, secours, LDAP, anti-force-brute, session) :
+# cf. auth.py. Les deux crochets ci-dessous y ont perdu leur decorateur, qui
+# aurait exige l'objet `app` — on les enregistre donc ici, explicitement.
+from auth import (  # noqa: E402
+    LOGIN_LOCK, LOGIN_MAX_FAILS, LOGIN_WINDOW, USERNAME_RE, _admin_username_cache,
+    _apply_session, _client_ip, _csrf_protect, _debug_user_fullname, _ensure_csrf,
+    _inject_csrf, _is_admin_group, _load_debug_users, _login_fail, _login_locked,
+    _login_reset, DEBUG_LOGIN_FLAG, DEBUG_USERS_FILE, is_admin_username,
+    ldap_authenticate, ldap_lookup_admin, ldap_lookup_email,
+)
+app.before_request(_csrf_protect)
+app.context_processor(_inject_csrf)
 # Configuration : cf. config.py (2e piece du noyau partage, avec db.py).
 from config import (  # noqa: E402
-    AVATAR_IDS, AVATAR_LABELS, LANGS, THEME_IDS,
+    AUTO_MODEL_NAME, AVATAR_IDS, AVATAR_LABELS, LANGS, THEME_IDS, VLLM_API_BASE,
     LDAP_URI, LDAP_BASE, LDAP_BIND_DN, LDAP_BIND_PW,
     DEBUG_ADMIN_USERNAMES, LITELLM_URL, LITELLM_KEY, VLLM_API,
     RUNNER_URL, RUNNER_TOKEN, COMFYUI_URL, OCR_URL,
@@ -137,41 +114,10 @@ from config import (  # noqa: E402
 # /app/data/DEBUG_USERS.txt — a "user : password" file, one per line, in
 # the persistent volume (never in .env/git). Re-read on each login
 # attempt: adding/removing a user needs no redeploy.
-DEBUG_LOGIN_FLAG  = '/app/data/DEBUG_LOGIN_ENABLED'
-DEBUG_USERS_FILE  = '/app/data/DEBUG_USERS.txt'
 
 
-def _load_debug_users():
-    """Parse DEBUG_USERS_FILE ('user : password' per line) → {user: pwd}.
-    File absent/unreadable → {} (the fallback login becomes a no-op).
-    """
-    try:
-        with open(DEBUG_USERS_FILE, encoding='utf-8') as f:
-            lines = f.readlines()
-    except OSError:
-        return {}
-    users = {}
-    for line in lines:
-        if ':' not in line:
-            continue
-        u, _, p = line.partition(':')
-        u, p = u.strip(), p.strip()
-        if u and p:
-            users[u] = p
-    return users
 
 
-def _debug_user_fullname(username):
-    """Best-effort: reuse an already-known full name (past requests),
-    otherwise fall back on the username as-is.
-    """
-    for table in ('model_requests', 'budget_requests'):
-        row = get_db().execute(
-            f"SELECT fullname FROM {table} WHERE username=? AND fullname IS NOT NULL AND fullname!='' "
-            "ORDER BY created_at DESC LIMIT 1", (username,)).fetchone()
-        if row and row['fullname']:
-            return row['fullname']
-    return username
 from db import (  # noqa: E402  (cf. commentaire plus bas)
     DB_PATH, _spend_conn, close_db, get_db, get_setting, init_db,
     maintenance_active, set_setting,
@@ -200,21 +146,7 @@ app.teardown_appcontext(close_db)
 
 # get_setting / set_setting / maintenance_active : cf. db.py (noyau partage).
 
-_admin_username_cache = {}
 
-def is_admin_username(username):
-    """Admin status of an account, without an active session (used by
-    /internal/authcheck, called by Traefik for EVERY external API request
-    in maintenance mode — hence the cache, to avoid hitting LDAP each
-    time).
-    """
-    now = time.time()
-    cached = _admin_username_cache.get(username)
-    if cached and now - cached[0] < 60:
-        return cached[1]
-    is_admin = username in DEBUG_ADMIN_USERNAMES or ldap_lookup_admin(username)
-    _admin_username_cache[username] = (now, is_admin)
-    return is_admin
 
 # _sse_msg / maintenance_block_sse : cf. guards.py
 from guards import _sse_msg, maintenance_block_sse  # noqa: E402
@@ -229,47 +161,8 @@ from guards import (  # noqa: E402
 
 # ── LDAP ────────────────────────────────────────────────────────────────────
 
-def _is_admin_group(dn):
-    """True if one of the DN's RDN components is exactly cn=adm_cronos.
-    Avoids the false positive of a plain `'adm_cronos' in dn` (which would match
-    cn=adm_cronos_readonly, cn=notadm_cronos, etc.).
-    """
-    for part in dn.split(','):
-        attr, _, val = part.strip().partition('=')
-        if attr.strip().lower() == 'cn' and val.strip().lower() == 'adm_cronos':
-            return True
-    return False
 
 
-def ldap_authenticate(username, password):
-    """Return (ok, is_admin, display_name)."""
-    # Strict rejection: an empty password triggers an LDAP "unauthenticated bind"
-    # that succeeds on some directories → authentication bypass.
-    # An identifier outside the allowed charset is refused before any LDAP access.
-    if not password or not USERNAME_RE.match(username):
-        return False, False, username
-    try:
-        server = Server(LDAP_URI, get_info=ALL)
-        # Anti-injection escaping: RDN for the bind DN, filter for the search.
-        user_dn = f"uid={escape_rdn(username)},ou=people,{LDAP_BASE}"
-        conn = Connection(server, user=user_dn, password=password,
-                          authentication=SIMPLE, auto_bind=True)
-        conn.search(
-            search_base=f"ou=people,{LDAP_BASE}",
-            search_filter=f"(uid={escape_filter_chars(username)})",
-            attributes=['cn', 'memberOf']
-        )
-        if not conn.entries:
-            conn.unbind()
-            return False, False, username
-        entry = conn.entries[0]
-        fullname = str(entry.cn) if hasattr(entry, 'cn') else username
-        groups = [str(g) for g in entry.memberOf] if hasattr(entry, 'memberOf') else []
-        is_admin = any(_is_admin_group(g) for g in groups)
-        conn.unbind()
-        return True, is_admin, fullname
-    except Exception:
-        return False, False, username
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -344,6 +237,7 @@ from vllm_health import (  # noqa: E402
 # Notifications (mail admin, webhook Discord) : cf. notify.py
 from notify import (  # noqa: E402
     notify_budget_discord, notify_budget_email, notify_discord, notify_email,
+    send_user_email,
 )
 
 # ── Notifications Discord ────────────────────────────────────────────────────
@@ -366,78 +260,15 @@ from auth import (  # noqa: E402
 # in-RAM counter is local to each worker (so 2× the allowed attempts,
 # depending on which worker gets the request) and resets on each
 # redeploy — two trivial ways to bypass the lockout.
-LOGIN_MAX_FAILS = 6           # attempts before lockout
-LOGIN_WINDOW    = 900         # sliding window (15 min)
-LOGIN_LOCK      = 900         # lockout duration (15 min)
 
-def _login_locked(key):
-    """Return the number of lockout seconds remaining, or 0."""
-    row = get_db().execute("SELECT locked_until FROM login_attempts WHERE key=?", (key,)).fetchone()
-    if not row or not row['locked_until']:
-        return 0
-    return max(0, int(row['locked_until'] - time.time()))
 
-def _login_fail(key):
-    now = time.time()
-    db = get_db()
-    row = db.execute("SELECT fails, first_at FROM login_attempts WHERE key=?", (key,)).fetchone()
-    if not row or now - row['first_at'] > LOGIN_WINDOW:
-        fails, first_at = 1, now
-    else:
-        fails, first_at = row['fails'] + 1, row['first_at']
-    locked_until = now + LOGIN_LOCK if fails >= LOGIN_MAX_FAILS else 0
-    db.execute(
-        "INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,?,?,?) "
-        "ON CONFLICT(key) DO UPDATE SET fails=excluded.fails, first_at=excluded.first_at, "
-        "locked_until=excluded.locked_until",
-        (key, fails, first_at, locked_until))
-    db.commit()
 
-def _login_reset(key):
-    db = get_db()
-    db.execute("DELETE FROM login_attempts WHERE key=?", (key,))
-    db.commit()
 
 @app.route('/api/config')
 def api_config():
     return jsonify({'oidc_enabled': OIDC_ENABLED})
 
 
-def _client_ip():
-    """Real visitor IP, not that of the last proxy.
-
-    ProxyFix(x_for=1) only walks back ONE hop, but the chain is
-    client → Cloudflare → Traefik → Next.js → Flask: request.remote_addr
-    therefore always held the frontend container's IP (172.19.0.x), identical
-    for everyone. Consequence: the global brute-force lock
-    _login_locked(ip) triggered on the SUM of everyone's failures
-    and blocked login for the entire portal for 15 min.
-
-    Cf-Connecting-Ip is set by Cloudflare and normalized by Traefik's
-    cloudflarewarp plugin; port 5000 is only reachable from
-    Traefik and the docker bridge (see cronos-docker-restrict.service), so
-    the header isn't spoofable from the outside.
-
-    """
-    # We only trust the header if its value is a valid IP: otherwise
-    # a client reaching Traefik outside the Cloudflare path (LAN) could set
-    # an arbitrary (or even non-IP) Cf-Connecting-Ip on each attempt and reset
-    # to zero on a different lockout key, or poison the
-    # chat-quota buckets that share the login_attempts table. An invalid value is
-    # ignored and we fall back on the real connection address.
-    def _valid_ip(v):
-        try:
-            ipaddress.ip_address(v)
-            return v
-        except ValueError:
-            return None
-    cf = _valid_ip((request.headers.get('Cf-Connecting-Ip') or '').strip())
-    if cf:
-        return cf
-    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
-    if _valid_ip(fwd):
-        return fwd
-    return request.remote_addr or 'unknown'
 
 
 # ── Local users managed by the admin (local_users table) ─────────────────────
@@ -572,89 +403,12 @@ def _safe_next(target):
     return target
 
 
-def _apply_session(username, fullname, is_admin, via_sso=False):
-    session.clear()
-    # session.clear() also erases 'csrf' (set up by _csrf_protect in
-    # before_request, before the view calls _apply_session). Without
-    # regenerating it here, the session leaves without a CSRF token: the first
-    # subsequent request regenerates it via _csrf_protect, but if several requests
-    # go out in parallel right after login (real case: the frontend
-    # home page fires several fetches on mount), each
-    # can independently regenerate a different token — the last response
-    # to set its cookie "wins", and a token grabbed by a losing
-    # request no longer matches the actually-stored cookie → 400 CSRF
-    # invalid. Fixing it here eliminates the race window.
-    session['csrf'] = secrets.token_urlsafe(32)
-    session['username'] = username
-    session['fullname'] = fullname
-    session['is_admin'] = is_admin
-    session['sso'] = via_sso
-    # Authentication timestamp: without it, the signed cookie stayed valid
-    # indefinitely. A stolen cookie (or a machine left open) gave permanent
-    # access, and the is_admin flag frozen inside survived a removal from the
-    # admin group on the directory side. See _session_expired().
-    session['auth_at'] = int(time.time())
 
 
-def ldap_lookup_admin(username):
-    """Determines is_admin via an LDAP lookup by uid (service account).
-    Used for SSO when the OIDC 'groups' claim is absent.
-    """
-    if not (LDAP_BIND_DN and LDAP_BIND_PW) or not USERNAME_RE.match(username or ''):
-        return False
-    try:
-        server = Server(LDAP_URI, get_info=ALL)
-        conn = Connection(server, user=LDAP_BIND_DN, password=LDAP_BIND_PW,
-                          authentication=SIMPLE, auto_bind=True)
-        conn.search(search_base=f"ou=people,{LDAP_BASE}",
-                    search_filter=f"(uid={escape_filter_chars(username)})",
-                    attributes=['memberOf'])
-        is_admin = False
-        if conn.entries and hasattr(conn.entries[0], 'memberOf'):
-            groups = [str(g) for g in conn.entries[0].memberOf]
-            is_admin = any(_is_admin_group(g) for g in groups)
-        conn.unbind()
-        return is_admin
-    except Exception:
-        return False
 
 
-def ldap_lookup_email(username):
-    """User's email via the LDAP service account (to notify them)."""
-    if not (LDAP_BIND_DN and LDAP_BIND_PW) or not USERNAME_RE.match(username or ''):
-        return None
-    try:
-        conn = Connection(Server(LDAP_URI, get_info=ALL), user=LDAP_BIND_DN,
-                          password=LDAP_BIND_PW, authentication=SIMPLE, auto_bind=True)
-        conn.search(search_base=f"ou=people,{LDAP_BASE}",
-                    search_filter=f"(uid={escape_filter_chars(username)})", attributes=['mail'])
-        email = None
-        if conn.entries and hasattr(conn.entries[0], 'mail') and conn.entries[0].mail:
-            email = str(conn.entries[0].mail)
-        conn.unbind()
-        return email or None
-    except Exception:
-        return None
 
 
-def send_user_email(to_email, subject, body):
-    """Sends a simple email to a user (notifications)."""
-    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]) or not to_email:
-        return False
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = SMTP_FROM or SMTP_USER
-    msg['To'] = to_email
-    msg.attach(MIMEText(body, 'plain'))
-    try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-            s.starttls()
-            s.login(SMTP_USER, SMTP_PASS)
-            s.sendmail(msg['From'], [to_email], msg.as_string())
-        return True
-    except Exception as e:
-        print(f"[email user] erreur : {e}")
-        return False
 
 
 @app.context_processor
@@ -2812,112 +2566,16 @@ def _model_slug(hf_id):
     base = (hf_id or '').split('/')[-1]
     return (re.sub(r'[^a-zA-Z0-9_-]', '-', base).strip('-').lower()[:40]) or 'modele'
 
-VLLM_API_BASE = os.environ.get('VLLM_API_BASE', 'http://host.docker.internal:8000/v1')
+# VLLM_API_BASE / AUTO_MODEL_NAME : cf. config.py
 # Name of the virtual model that always routes to the current chat model (re-pointed
 # on each launch). Clients wire it once and no longer need to change the
 # model name on each switch.
-AUTO_MODEL_NAME = os.environ.get('AUTO_MODEL_NAME', 'auto-model')
 
-def _litellm_model_id(name):
-    """LiteLLM id of the model carrying this model_name, or None."""
-    try:
-        r = requests.get(f"{LITELLM_URL}/model/info", headers=litellm_headers(), timeout=5)
-        for m in r.json().get('data', []):
-            if m.get('model_name') == name:
-                return m.get('model_info', {}).get('id')
-    except Exception:
-        pass
-    return None
-
-def _model_upstream(name, engine):
-    """Name actually expected by the backend on :8000 for this model.
-
-    ds4 starts in "thinking" mode by default: it then IGNORES max_tokens
-    ("client sampling knobs are ignored like the official API") and generates
-    thousands of tokens at ~10 tok/s. Since the engine is single-slot, one
-    request blocks the whole platform. So we route to the reserved name
-    `deepseek-chat`, which selects the NON-thinking mode (cf. ds4's --help).
-    """
-    return 'deepseek-chat' if engine == 'ds4' else name
-
-def _litellm_upsert(public_name, upstream, max_input, max_output):
-    """Creates (or refreshes) a LiteLLM entry `public_name` routing to the
-    model `upstream` served on :8000. Returns True if LiteLLM accepted.
-    """
-    if not LITELLM_KEY:
-        return False
-    body = {
-        "model_name": public_name,
-        "litellm_params": {
-            "model": f"openai/{upstream}",
-            "api_base": VLLM_API_BASE,
-            "api_key": "dummy",
-            "input_cost_per_token": 1,
-            "output_cost_per_token": 1,
-            # Les modèles servis ici sont des « thinking models » : sans ça, le
-            # raisonnement part dans la réponse et consomme tout le budget de
-            # sortie. Une requête qui passe explicitement chat_template_kwargs
-            # (le bouton « Raisonnement » du playground) l'emporte toujours —
-            # vérifié, ce réglage n'est qu'un défaut.
-            "chat_template_kwargs": {"enable_thinking": False},
-            # Le MÊME réglage, en double, pour l'endpoint Anthropic /v1/messages
-            # (utilisé par Claude Code) : l'adaptateur Anthropic de LiteLLM
-            # ignore le chat_template_kwargs de haut niveau et ne transmet que
-            # extra_body. Sans cette ligne, un appel court revient VIDE —
-            # content: [] et stop_reason: max_tokens, le raisonnement ayant
-            # mangé tout le budget (mesuré : 41 tokens contre 3).
-            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
-        },
-        "model_info": {
-            "mode": "chat",
-            "supports_function_calling": True,
-            "max_input_tokens": max_input,
-            "max_output_tokens": max_output,
-        },
-    }
-    try:
-        existing = _litellm_model_id(public_name)
-        if existing:
-            requests.post(f"{LITELLM_URL}/model/delete", headers=litellm_headers(),
-                          json={"id": existing}, timeout=5)
-        r = requests.post(f"{LITELLM_URL}/model/new", headers=litellm_headers(),
-                          json=body, timeout=8)
-        return r.status_code < 300
-    except Exception:
-        return False
-
-def _register_litellm_model(name, vllm_args, engine='vllm'):
-    """Registers (or refreshes) the model in LiteLLM at runtime. The context is
-    deduced from the engine args (--max-model-len for vLLM, --ctx-size for llama.cpp).
-    Both serve an OpenAI API on :8000 → same litellm_params.
-
-    NB: registering a model in the CATALOG does not make it run. The
-    `auto-model` alias therefore does NOT follow this call — it only follows real launches
-    (see _point_auto_model, called from runner_launch).
-    """
-    max_input, max_output = ctx_split(vllm_args, engine)
-    return _litellm_upsert(name, _model_upstream(name, engine), max_input, max_output)
-
-def _point_auto_model(name, vllm_args, engine='vllm'):
-    """Re-routes the virtual model `auto-model` to the chat model that was
-    just launched, so clients wire this name ONCE and automatically follow
-    the current model, without touching their code on each
-    switch. The real names stay registered in parallel and still work.
-    Called on each successful launch (runner_launch).
-    """
-    max_input, max_output = ctx_split(vllm_args, engine)
-    return _litellm_upsert(AUTO_MODEL_NAME, _model_upstream(name, engine), max_input, max_output)
-
-def _unregister_litellm_model(name):
-    if not LITELLM_KEY:
-        return
-    mid = _litellm_model_id(name)
-    if mid:
-        try:
-            requests.post(f"{LITELLM_URL}/model/delete", headers=litellm_headers(),
-                          json={"id": mid}, timeout=5)
-        except Exception:
-            pass
+# Enregistrement des modeles dans LiteLLM : cf. litellm_client.py
+from litellm_client import (  # noqa: E402
+    _litellm_upsert, _point_auto_model, _register_litellm_model,
+    _unregister_litellm_model,
+)
 
 def hf_engine_for(hf_id):
     """Queries the Hub to know whether the model is GGUF (→ llama.cpp) or

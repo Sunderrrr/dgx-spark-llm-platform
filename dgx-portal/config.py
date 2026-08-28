@@ -66,6 +66,9 @@ KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '1d')
 
 # Public URL of the OpenAI-compatible API, shown to users.
 PUBLIC_API_URL = os.environ.get('PUBLIC_API_URL', 'https://api.cronos.website/v1')
+# Amont vu par LiteLLM, et nom du modele virtuel qui suit le modele actif.
+VLLM_API_BASE = os.environ.get('VLLM_API_BASE', 'http://host.docker.internal:8000/v1')
+AUTO_MODEL_NAME = os.environ.get('AUTO_MODEL_NAME', 'auto-model')
 # LiteLLM database (Postgres) for timestamped consumption stats.
 LITELLM_DB_URL = os.environ.get('LITELLM_DATABASE_URL', '')
 LOCAL_TZ       = os.environ.get('TZ_DISPLAY', 'Europe/Paris')

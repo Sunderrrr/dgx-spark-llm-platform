@@ -1,4 +1,4 @@
-import os, sqlite3, smtplib, requests, time, re, threading, queue, json, secrets, hmac, base64, ipaddress, unicodedata
+import os, sqlite3, smtplib, requests, time, re, threading, queue, json, secrets, hmac, hashlib, base64, ipaddress, unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort, send_file
 from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
@@ -867,32 +867,58 @@ def get_user_keys(username):
         conn.close()
     except Exception:
         return []
+    infos = _infos_cles([k['key_value'] for k in local_keys])
     result = []
     for k in local_keys:
-        info = {
+        depuis_litellm = infos.get(k['key_value'], {})
+        result.append({
             'key_alias': k['key_alias'],
             'key': k['key_value'],
             'created_at': k['created_at'],
-            'spend': 0,
-            'max_budget': None,
-            'budget_reset_at': None,
-        }
-        try:
-            r = requests.get(
-                f"{LITELLM_URL}/key/info",
-                headers=litellm_headers(),
-                params={"key": k['key_value']},
-                timeout=3
-            )
-            if r.ok:
-                data = r.json().get('info', {})
-                info['spend'] = data.get('spend', 0)
-                info['max_budget'] = data.get('max_budget')
-                info['budget_reset_at'] = data.get('budget_reset_at', '')
-        except Exception:
-            pass
-        result.append(info)
+            'spend': depuis_litellm.get('spend', 0),
+            'max_budget': depuis_litellm.get('max_budget'),
+            'budget_reset_at': depuis_litellm.get('budget_reset_at'),
+        })
     return result
+
+def _infos_cles(cles):
+    """spend / max_budget / budget_reset_at pour une liste de cles EN CLAIR.
+
+    Lit directement la base LiteLLM plutot que son endpoint HTTP /key/info.
+    Deux raisons :
+
+    1. FUITE. /key/info n'accepte que le GET avec la cle en parametre d'URL
+       (le POST repond 405, verifie), et le journal d'acces de LiteLLM
+       enregistre l'URL complete : `docker logs litellm` exposait donc des cles
+       API valides et utilisables a quiconque a acces au demon Docker.
+       Constate en prod le 23/08.
+    2. COUT. L'appelant boucle sur les cles d'un utilisateur : c'etait un
+       aller-retour HTTP PAR cle, ici une seule requete.
+
+    LiteLLM stocke le sha256 de la cle, jamais la cle : on hache pour joindre.
+    Renvoie {cle_en_clair: {...}} ; une cle absente n'a simplement pas d'entree.
+    """
+    cles = [c for c in cles if c]
+    if not cles:
+        return {}
+    par_hash = {hashlib.sha256(c.encode()).hexdigest(): c for c in cles}
+    conn = _spend_conn()
+    if not conn:
+        app.logger.warning("infos cles : base LiteLLM injoignable, budgets affiches a 0")
+        return {}
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT token, spend, max_budget, budget_reset_at '
+                    'FROM "LiteLLM_VerificationToken" WHERE token = ANY(%s)',
+                    (list(par_hash),))
+        return {par_hash[t]: {'spend': sp or 0, 'max_budget': mb, 'budget_reset_at': br or ''}
+                for t, sp, mb, br in cur.fetchall() if t in par_hash}
+    except Exception as e:                                   # noqa: BLE001
+        app.logger.warning("infos cles : lecture LiteLLM impossible (%s)", type(e).__name__)
+        return {}
+    finally:
+        conn.close()
+
 
 def _ensure_litellm_user(username, max_budget, budget_duration):
     """Create/update the LiteLLM user with an ACCOUNT budget, shared by all
@@ -963,14 +989,8 @@ def create_litellm_key(alias, username, is_admin=False):
     return None
 
 def litellm_key_info(key_value):
-    try:
-        r = requests.get(f"{LITELLM_URL}/key/info", headers=litellm_headers(),
-                         params={'key': key_value}, timeout=5)
-        if r.ok:
-            return r.json().get('info', {})
-    except Exception:
-        pass
-    return {}
+    """cf. _infos_cles : lecture en base, jamais la cle dans une URL."""
+    return _infos_cles([key_value]).get(key_value, {})
 
 def litellm_update_key_budget(key_value, new_max_budget):
     try:
@@ -1243,164 +1263,15 @@ def runner_metrics():
         pass
     return None
 
-# ── ComfyUI (MiniMax H3 video generation) ───────────────────────────────────
-# Never exposed (ComfyUI listens on 127.0.0.1 on the host): only this backend
-# talks to it, going through host.docker.internal like the vLLM runner.
-_H3_R2V_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'workflows', 'h3_r2v_template.json')
-# T2V (text only, no reference image): same CLIP/VAE as R2V, only the
-# UNET checkpoint differs (minimax_h3_fl2va_* instead of *_ref2va_*) — derived
-# from the official Comfy-Org template (MiniMaxH3ImageToVideo, first_frame/last_frame
-# left unconnected), manually validated on 05/08.
-_H3_T2V_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'workflows', 'h3_t2v_template.json')
-
-def _comfyui_upload_image(image_bytes, filename):
-    try:
-        r = requests.post(f"{COMFYUI_URL}/upload/image",
-                          files={'image': (filename, image_bytes)},
-                          data={'type': 'input'}, timeout=30)
-        if r.ok:
-            return r.json().get('name')
-    except Exception:
-        pass
-    return None
-
-def comfyui_generate(image_bytes, prompt_text, duration_seconds=5):
-    """Submit an H3 video generation to ComfyUI. Returns prompt_id or None.
-
-    image_bytes is optional: None → text only (T2V, workflows/h3_t2v_template.json),
-    provided → reference image (R2V, workflows/h3_r2v_template.json). Both
-    graphs derive from the official Comfy-Org workflow (manually validated);
-    only a few fields are substituted (image, prompt, duration, seed).
-    """
-    is_t2v = image_bytes is None
-    template_path = _H3_T2V_TEMPLATE_PATH if is_t2v else _H3_R2V_TEMPLATE_PATH
-    if not is_t2v:
-        uploaded_name = _comfyui_upload_image(image_bytes, 'ref.png')
-        if not uploaded_name:
-            return None
-    try:
-        with open(template_path) as f:
-            graph = json.load(f)
-        if not is_t2v:
-            graph['137']['inputs']['image'] = uploaded_name
-        graph['138']['inputs']['value'] = prompt_text[:10000]
-        graph['132']['inputs']['value'] = max(2, min(15, float(duration_seconds)))
-        graph['129']['inputs']['noise_seed'] = secrets.randbelow(2**32)
-        r = requests.post(f"{COMFYUI_URL}/prompt", json={'prompt': graph}, timeout=15)
-        if r.ok:
-            return r.json().get('prompt_id')
-    except Exception:
-        pass
-    return None
-
-def comfyui_status(prompt_id):
-    """Returns {'status': 'pending'|'running'|'done'|'error', 'video_path': str|None}.
-
-    Real shape of a /history/<id> entry (verified on a full generation):
-      {"status": {"status_str": "success"|"error", "completed": bool, "messages": [...]},
-       "outputs": {"92": {"images": [{"filename", "subfolder", "type"}], "animated": [true]}}}
-    The SaveVideo node stores its file under the historical key "images".
-    """
-    try:
-        r = requests.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=5)
-        if r.ok:
-            hist = r.json()
-            if prompt_id in hist:
-                entry = hist[prompt_id]
-                if entry.get('status', {}).get('status_str') == 'error':
-                    return {'status': 'error', 'video_path': None}
-                videos = entry.get('outputs', {}).get('92', {}).get('images') or []
-                if videos:
-                    v = videos[0]
-                    return {'status': 'done',
-                            'video_path': v.get('filename'),
-                            'video_subfolder': v.get('subfolder', ''),
-                            'video_type': v.get('type', 'output')}
-                return {'status': 'error', 'video_path': None}
-        # not yet in the history → in progress or waiting in the queue
-        rq = requests.get(f"{COMFYUI_URL}/queue", timeout=5)
-        if rq.ok:
-            q = rq.json()
-            running_ids = [item[1] for item in q.get('queue_running', [])]
-            pending_ids = [item[1] for item in q.get('queue_pending', [])]
-            if prompt_id in running_ids:
-                return {'status': 'running', 'video_path': None}
-            if prompt_id in pending_ids:
-                return {'status': 'pending', 'video_path': None}
-    except Exception:
-        pass
-    return {'status': 'error', 'video_path': None}
-
-def comfyui_fetch_video(filename, subfolder='', ftype='output'):
-    try:
-        r = requests.get(f"{COMFYUI_URL}/view",
-                         params={'filename': filename, 'subfolder': subfolder, 'type': ftype},
-                         timeout=30, stream=True)
-        if r.ok:
-            return r
-    except Exception:
-        pass
-    return None
-
-# Generated MP4s are cached into the portal's own volume so past videos stay
-# viewable even when the ComfyUI video sidecar is stopped (on unified memory the
-# video backend is often stopped to free the GPU). ComfyUI's /view only answers
-# while its process is up, so relying on it alone made the history unusable at rest.
-VIDEO_FILES_DIR = '/app/data/video_files'
-# ComfyUI's own output directory, bind-mounted read-only (docker-compose): lets us
-# serve past videos straight from disk when the ComfyUI process is stopped.
-COMFYUI_OUTPUT_DIR = os.environ.get('COMFYUI_OUTPUT_DIR', '/comfyui-output')
-
-def _comfyui_output_file(video_path, subfolder=''):
-    """Resolve a video file inside the mounted ComfyUI output dir, guarding against
-    path traversal. Returns the path if it exists, else None."""
-    if not video_path:
-        return None
-    root = os.path.realpath(COMFYUI_OUTPUT_DIR)
-    cand = os.path.realpath(os.path.join(root, subfolder or '', video_path))
-    if (cand == root or cand.startswith(root + os.sep)) and os.path.isfile(cand):
-        return cand
-    return None
-
-def _local_video_path(prompt_id):
-    safe = re.sub(r'[^A-Za-z0-9_-]', '', str(prompt_id))
-    return os.path.join(VIDEO_FILES_DIR, safe + '.mp4') if safe else None
-
-def _cache_video_local(prompt_id, st):
-    """Download the finished MP4 from ComfyUI into VIDEO_FILES_DIR once, so it can
-    be served from disk later without the sidecar. Best-effort; returns the local
-    path if available."""
-    dest = _local_video_path(prompt_id)
-    if not dest:
-        return None
-    if os.path.isfile(dest) and os.path.getsize(dest) > 0:
-        return dest
-    if not st or not st.get('video_path'):
-        return None
-    tmp = dest + '.part'
-    try:
-        os.makedirs(VIDEO_FILES_DIR, exist_ok=True)
-        upstream = comfyui_fetch_video(st['video_path'], st.get('video_subfolder', ''),
-                                       st.get('video_type', 'output'))
-        if upstream is None:
-            return None
-        with open(tmp, 'wb') as f:
-            for chunk in upstream.iter_content(chunk_size=65536):
-                if chunk:
-                    f.write(chunk)
-        if os.path.getsize(tmp) > 0:
-            os.replace(tmp, dest)
-            return dest
-    except Exception:
-        pass
-    finally:
-        try:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-        except Exception:
-            pass
-    return None
-
+# ── ComfyUI (generation video MiniMax H3) ────────────────────────────────────
+# Deplace dans comfyui_client.py le 28/08 : cette section n'avait qu'une seule
+# dependance (COMFYUI_URL, issue de l'environnement), c'etait donc la coupure la
+# moins risquee du monolithe. Les routes /api/video/* restent ici.
+from comfyui_client import (  # noqa: E402
+    comfyui_generate, comfyui_status, comfyui_fetch_video,
+    _comfyui_output_file, _local_video_path, _cache_video_local,
+    VIDEO_FILES_DIR, COMFYUI_OUTPUT_DIR,
+)
 # ── OCR (baidu/Unlimited-OCR by default; chandra-ocr-2 also supported) ──────
 # Internal container (dedicated ocr_net network, cf. README "Security"), never a
 # published port.
@@ -1944,6 +1815,10 @@ def login_required(f):
                 abort(401)
             return redirect(url_for('login', next=request.path))
         return f(*args, **kwargs)
+    # Marqueur lu a l'execution par le test de garde des routes : @wraps efface
+    # toute trace du decorateur, donc sans lui il faudrait analyser le source —
+    # fragile, et aveugle a une route enregistree autrement qu'en litteral.
+    decorated._garde = 'login'
     return decorated
 
 def admin_required(f):
@@ -1961,6 +1836,7 @@ def admin_required(f):
             flash("Accès réservé aux administrateurs.", "danger")
             return redirect(url_for('index'))
         return f(*args, **kwargs)
+    decorated._garde = 'admin'          # cf. login_required
     return decorated
 
 # ── Routes ──────────────────────────────────────────────────────────────────

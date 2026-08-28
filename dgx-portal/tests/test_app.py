@@ -15,6 +15,9 @@ import time
 import unittest
 
 import app as portal
+# Le chat a quitte le monolithe pour chat_routes.py (28/08) : on le vise dans
+# son module proprietaire.
+import chat_routes as chat
 # Le support a quitte le monolithe pour support.py (28/08) : on le vise dans
 # son module proprietaire.
 import support as assistance
@@ -157,18 +160,18 @@ class SseFramingTest(unittest.TestCase):
     """Le frontend ne lit que les lignes `data:` ; le cadrage doit rester exact."""
 
     def test_trame_texte(self):
-        trame = portal._sse_text('salut')
+        trame = chat._sse_text('salut')
         self.assertTrue(trame.startswith('data: '))
         self.assertTrue(trame.endswith('\n\n'))
         self.assertIn('salut', trame)
 
     def test_echappe_les_sauts_de_ligne(self):
         # Un \n brut couperait la trame SSE en deux et casserait le flux.
-        self.assertNotIn('\n', portal._sse_text('a\nb')[:-2])
+        self.assertNotIn('\n', chat._sse_text('a\nb')[:-2])
 
     def test_done_optionnel(self):
-        self.assertIn('[DONE]', ''.join(portal._sse_chunks('x', done=True)))
-        self.assertNotIn('[DONE]', ''.join(portal._sse_chunks('x', done=False)))
+        self.assertIn('[DONE]', ''.join(chat._sse_chunks('x', done=True)))
+        self.assertNotIn('[DONE]', ''.join(chat._sse_chunks('x', done=False)))
 
 
 class AvatarTest(unittest.TestCase):
@@ -318,17 +321,17 @@ class HistoriqueModeleTest(unittest.TestCase):
 
     def test_un_gros_message_n_est_pas_tronque(self):
         h = self._msgs(50, 57_000)
-        out = portal._history_for_model(h, '', 262144)
+        out = chat._history_for_model(h, '', 262144)
         self.assertEqual(len(out[-1]['content']), 57_000)
 
     def test_sans_contexte_connu_on_ne_touche_a_rien(self):
         h = self._msgs(10, 900_000)
-        self.assertEqual(portal._history_for_model(h, '', None), h)
+        self.assertEqual(chat._history_for_model(h, '', None), h)
 
     def test_le_debordement_retire_les_plus_anciens(self):
         # budget = (32768 - 8192) * 3 = 73 728 caractères
         h = self._msgs(40_000, 40_000, 40_000, 500)
-        out = portal._history_for_model(h, '', 32768)
+        out = chat._history_for_model(h, '', 32768)
         self.assertLess(len(out), len(h))
         # le dernier échange survit toujours, entier
         self.assertEqual(out[-1]['content'], h[-1]['content'])
@@ -336,14 +339,14 @@ class HistoriqueModeleTest(unittest.TestCase):
 
     def test_jamais_moins_de_deux_messages(self):
         h = self._msgs(500_000, 500_000)
-        out = portal._history_for_model(h, '', 32768)
+        out = chat._history_for_model(h, '', 32768)
         self.assertEqual(len(out), 2)
         self.assertEqual(len(out[0]['content']), 500_000)
 
     def test_le_systeme_compte_dans_le_budget(self):
         h = self._msgs(30_000, 30_000, 30_000, 100)
-        sans = portal._history_for_model(list(h), '', 32768)
-        avec = portal._history_for_model(list(h), 'y' * 20_000, 32768)
+        sans = chat._history_for_model(list(h), '', 32768)
+        avec = chat._history_for_model(list(h), 'y' * 20_000, 32768)
         self.assertLessEqual(len(avec), len(sans))
 
 
@@ -459,7 +462,7 @@ class VersionsPerimeesTest(unittest.TestCase):
              self._msg('assistant', self._fichier('index.html', 'V1')),
              self._msg('user', 'corrige'),
              self._msg('assistant', self._fichier('index.html', 'V2'))]
-        out = portal._sans_versions_perimees(h)
+        out = chat._sans_versions_perimees(h)
         self.assertNotIn('V1', out[1]['content'])
         self.assertIn('version précédente', out[1]['content'])
         self.assertIn('V2', out[3]['content'])
@@ -467,7 +470,7 @@ class VersionsPerimeesTest(unittest.TestCase):
     def test_deux_fichiers_distincts_gardent_chacun_leur_version(self):
         h = [self._msg('assistant', self._fichier('index.html', 'HTML1')),
              self._msg('assistant', self._fichier('style.css', 'CSS1'))]
-        out = portal._sans_versions_perimees(h)
+        out = chat._sans_versions_perimees(h)
         self.assertIn('HTML1', out[0]['content'])
         self.assertIn('CSS1', out[1]['content'])
 
@@ -475,30 +478,30 @@ class VersionsPerimeesTest(unittest.TestCase):
         colle = "```html\n<!-- COLLE -->\n" + ("y" * 3000) + "\n```"
         h = [self._msg('user', colle),
              self._msg('assistant', self._fichier('index.html', 'V1'))]
-        out = portal._sans_versions_perimees(h)
+        out = chat._sans_versions_perimees(h)
         self.assertIn('COLLE', out[0]['content'])
 
     def test_un_court_extrait_ne_perime_rien(self):
         h = [self._msg('assistant', self._fichier('index.html', 'V1')),
              self._msg('assistant', "Regarde :\n\n```js\nconst a = 1;\n```")]
-        out = portal._sans_versions_perimees(h)
+        out = chat._sans_versions_perimees(h)
         self.assertIn('V1', out[0]['content'])
 
     def test_la_prose_autour_du_bloc_est_conservee(self):
         h = [self._msg('assistant', self._fichier('index.html', 'V1') + "\n\nJ'ai ajouté le son."),
              self._msg('assistant', self._fichier('index.html', 'V2'))]
-        out = portal._sans_versions_perimees(h)
+        out = chat._sans_versions_perimees(h)
         self.assertIn("J'ai ajouté le son.", out[0]['content'])
 
     def test_le_gain_est_reel(self):
         h = [self._msg('assistant', self._fichier('index.html', f'V{i}', 20000)) for i in range(4)]
         avant = sum(len(m['content']) for m in h)
-        apres = sum(len(m['content']) for m in portal._sans_versions_perimees(h))
+        apres = sum(len(m['content']) for m in chat._sans_versions_perimees(h))
         self.assertLess(apres, avant * 0.4)
 
     def test_conversation_sans_code_inchangee(self):
         h = [self._msg('user', 'bonjour'), self._msg('assistant', 'salut')]
-        self.assertEqual(portal._sans_versions_perimees(h), h)
+        self.assertEqual(chat._sans_versions_perimees(h), h)
 
 
 class TrouvaillesTest(unittest.TestCase):

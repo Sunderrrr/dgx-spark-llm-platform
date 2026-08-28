@@ -17,6 +17,7 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 from auth import login_required
 from config import MUSIC_URL
 from db import DB_PATH, get_db
+from sidecars import get_music_model, music_ready
 from guards import maintenance_block_json, media_rate_block
 
 bp = Blueprint('music', __name__)
@@ -28,21 +29,6 @@ MUSIC_MAX_SECONDS = 300
 # d'un morceau de 3 min monopolisent déjà le GPU ~35 min.
 MUSIC_MAX_BATCH = 3
 
-def music_ready():
-    try:
-        r = requests.get(f"{MUSIC_URL}/health", timeout=3)
-        return bool(r.ok and r.json().get('ready'))
-    except Exception:
-        return False
-
-def get_music_model():
-    try:
-        r = requests.get(f"{MUSIC_URL}/model-info", timeout=3)
-        if r.ok:
-            return r.json().get('model')
-    except Exception:
-        pass
-    return None
 
 def _music_set_done(job_id, username, done):
     """Incrémente le compteur produit : la page affiche les versions au fur et à

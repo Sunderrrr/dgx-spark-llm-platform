@@ -11,6 +11,9 @@ import time
 import unittest
 
 import app as portal
+# Ces symboles ont quitte le monolithe pour websearch_tools.py (28/08) : on les
+# vise dans leur module proprietaire plutot que de faire de app.py une facade.
+import websearch_tools as outils_web
 
 
 class SafeNextTest(unittest.TestCase):
@@ -350,25 +353,25 @@ class ContexteOutilsTest(unittest.TestCase):
     def test_un_gros_message_est_raccourci(self):
         msgs = [{'role': 'user', 'content': 'x' * 65_000},
                 {'role': 'user', 'content': 'et maintenant ?'}]
-        out = portal._contexte_outils(msgs)
-        self.assertTrue(all(len(m['content']) <= portal.OUTILS_MSG_MAX + 8 for m in out))
+        out = outils_web._contexte_outils(msgs)
+        self.assertTrue(all(len(m['content']) <= outils_web.OUTILS_MSG_MAX + 8 for m in out))
 
     def test_le_total_reste_borne(self):
         msgs = [{'role': 'user', 'content': 'y' * 20_000} for _ in range(20)]
-        out = portal._contexte_outils(msgs)
+        out = outils_web._contexte_outils(msgs)
         self.assertLessEqual(sum(len(m['content']) for m in out),
-                             portal.OUTILS_TOTAL_MAX + portal.OUTILS_MSG_MAX)
+                             outils_web.OUTILS_TOTAL_MAX + outils_web.OUTILS_MSG_MAX)
 
     def test_le_dernier_message_est_toujours_la(self):
         msgs = [{'role': 'user', 'content': 'z' * 30_000} for _ in range(10)]
         msgs.append({'role': 'user', 'content': 'CE QUE JE DEMANDE'})
-        out = portal._contexte_outils(msgs)
+        out = outils_web._contexte_outils(msgs)
         self.assertIn('CE QUE JE DEMANDE', out[-1]['content'])
 
     def test_le_systeme_est_conserve_en_tete(self):
         msgs = [{'role': 'system', 'content': 'consignes'},
                 {'role': 'user', 'content': 'bonjour'}]
-        out = portal._contexte_outils(msgs)
+        out = outils_web._contexte_outils(msgs)
         self.assertEqual(out[0]['role'], 'system')
         self.assertIn('consignes', out[0]['content'])
 
@@ -376,14 +379,14 @@ class ContexteOutilsTest(unittest.TestCase):
         # La demande est souvent en tête, la dernière consigne en queue : c'est le
         # ventre du fichier qui n'apprend rien.
         msgs = [{'role': 'user', 'content': 'DEBUT' + 'm' * 60_000 + 'FIN'}]
-        out = portal._contexte_outils(msgs)
+        out = outils_web._contexte_outils(msgs)
         self.assertIn('DEBUT', out[-1]['content'])
         self.assertIn('FIN', out[-1]['content'])
 
     def test_conversation_courte_passe_telle_quelle(self):
         msgs = [{'role': 'user', 'content': 'salut'},
                 {'role': 'assistant', 'content': 'bonjour'}]
-        self.assertEqual([m['content'] for m in portal._contexte_outils(msgs)],
+        self.assertEqual([m['content'] for m in outils_web._contexte_outils(msgs)],
                          ['salut', 'bonjour'])
 
 
@@ -409,7 +412,7 @@ class PertinenceRechercheTest(unittest.TestCase):
                   "const source = ctx.createBufferSource();",
                   "quelles sont les dernières nouvelles ?",
                   "quel est le prix du bitcoin ?"):
-            self.assertFalse(portal._recherche_pertinente(self._u(t)), t)
+            self.assertFalse(outils_web._recherche_pertinente(self._u(t)), t)
 
     def test_les_directives_explicites(self):
         for t in ("cherche sur internet les règles du blackjack",
@@ -420,15 +423,15 @@ class PertinenceRechercheTest(unittest.TestCase):
                   "lance une recherche web",
                   "recherche web : propagation du son",
                   "renseigne-toi en ligne là-dessus"):
-            self.assertTrue(portal._recherche_pertinente(self._u(t)), t)
+            self.assertTrue(outils_web._recherche_pertinente(self._u(t)), t)
 
     def test_la_directive_marche_meme_avec_un_fichier_colle(self):
         h = [{'role': 'user', 'content': "```html\n" + ("x" * 5000)
               + "\n```\n\ncherche sur internet la doc de cette balise"}]
-        self.assertTrue(portal._recherche_pertinente(h))
+        self.assertTrue(outils_web._recherche_pertinente(h))
 
     def test_conversation_vide(self):
-        self.assertFalse(portal._recherche_pertinente([]))
+        self.assertFalse(outils_web._recherche_pertinente([]))
 
 
 class VersionsPerimeesTest(unittest.TestCase):
@@ -500,19 +503,19 @@ class TrouvaillesTest(unittest.TestCase):
     """
 
     def test_rien_trouve_rien_ajoute(self):
-        self.assertEqual(portal._texte_des_trouvailles([]), '')
+        self.assertEqual(outils_web._texte_des_trouvailles([]), '')
 
     def test_le_contenu_est_repris_et_cadre_comme_externe(self):
-        t = portal._texte_des_trouvailles([('recherche_web', '{"resultats": [{"url": "https://x.fr"}]}')])
+        t = outils_web._texte_des_trouvailles([('recherche_web', '{"resultats": [{"url": "https://x.fr"}]}')])
         self.assertIn('https://x.fr', t)
         self.assertIn('externes', t)
 
     def test_le_texte_reste_borne(self):
-        t = portal._texte_des_trouvailles([('lire_pages', 'x' * 200_000)])
+        t = outils_web._texte_des_trouvailles([('lire_pages', 'x' * 200_000)])
         self.assertLessEqual(len(t), 40_000)
 
     def test_plusieurs_appels_sont_tous_repris(self):
-        t = portal._texte_des_trouvailles([('recherche_web', 'AAA'), ('lire_pages', 'BBB')])
+        t = outils_web._texte_des_trouvailles([('recherche_web', 'AAA'), ('lire_pages', 'BBB')])
         self.assertIn('AAA', t)
         self.assertIn('BBB', t)
 

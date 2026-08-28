@@ -198,10 +198,22 @@ export default function HomePage() {
   // rien de plus et ne ferait que multiplier les requetes. L'agregat SpendLogs
   // derriere passe par l'index startTime (~0,15 ms), il encaisse ce rythme.
   useEffect(() => {
-    const id = setInterval(() => {
-      getJSON<HomeData>("/api/home").then(setData).catch(() => {});
-    }, 5000);
-    return () => clearInterval(id);
+    // Poll the dashboard every 5s. Skip the round-trip when the tab is hidden
+    // (a backgrounded tab still renders and re-renders the whole page on each
+    // poll; that's wasted work for N hidden tabs) and refresh immediately when
+    // the tab becomes visible again instead of waiting up to 5s.
+    const tick = () => {
+      if (document.visibilityState === "visible") {
+        getJSON<HomeData>("/api/home").then(setData).catch(() => {});
+      }
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }, []);
 
   const firstName = who?.fullname?.split(" ")[0] || "";

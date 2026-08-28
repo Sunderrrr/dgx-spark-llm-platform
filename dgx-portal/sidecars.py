@@ -23,21 +23,12 @@ from flask import jsonify
 from comfyui_client import comfyui_is_up
 from config import (ASR_URL, IMAGE_URL, MUSIC_URL, OCR_URL, RUNNER_TOKEN,
                     RUNNER_URL, VOICE_URL)
+from litellm_client import _point_auto_model
 from vllm_health import get_running_models
 
 _log = logging.getLogger('app')
 
 
-def _point_auto_model_differe(name, vllm_args, engine='vllm'):
-    """Import DIFFERE de app._point_auto_model.
-
-    Ce reroutage touche l'enregistrement des modeles dans LiteLLM, qui vit
-    encore dans app.py avec les routes d'administration. L'importer en tete
-    recreerait un cycle ; a l'appel, non — app.py est charge bien avant.
-    A retirer quand l'enregistrement des modeles sortira a son tour.
-    """
-    from app import _point_auto_model
-    return _point_auto_model(name, vllm_args, engine)
 
 
 _ocr_model_cache = {'t': 0.0, 'v': None}
@@ -174,7 +165,7 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
                           timeout=90)
         # Launch accepted → the `auto-model` alias follows the new model.
         if r.ok:
-            _point_auto_model_differe(model_name, vllm_args, engine or 'vllm')
+            _point_auto_model(model_name, vllm_args, engine or 'vllm')
         return r.ok
     except Exception:
         return False

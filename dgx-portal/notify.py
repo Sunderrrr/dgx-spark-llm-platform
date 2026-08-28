@@ -106,3 +106,25 @@ def notify_budget_email(username, fullname, key_alias, current_budget, reason):
             s.sendmail(msg['From'], [ADMIN_EMAIL], msg.as_string())
     except Exception as e:
         print(f"[email] erreur : {e}")
+
+
+# Courriel a UN utilisateur (et non a l'administrateur) : rapatrie de app.py
+# le 28/08, il etait range avec le LDAP alors que c'est de l'envoi de mail.
+def send_user_email(to_email, subject, body):
+    """Sends a simple email to a user (notifications)."""
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]) or not to_email:
+        return False
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = SMTP_FROM or SMTP_USER
+    msg['To'] = to_email
+    msg.attach(MIMEText(body, 'plain'))
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(msg['From'], [to_email], msg.as_string())
+        return True
+    except Exception as e:
+        print(f"[email user] erreur : {e}")
+        return False

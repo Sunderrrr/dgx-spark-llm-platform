@@ -9,7 +9,9 @@ Ne depend que de flask, du noyau (db) et du temps.
 """
 import time
 
-from flask import jsonify, session
+import json
+
+from flask import Response, jsonify, request, session
 
 from db import get_db, maintenance_active
 
@@ -53,3 +55,55 @@ def media_rate_block():
     if wait:
         return jsonify({'error': f"Trop de requêtes. Réessaie dans {wait} s."}), 429
     return None
+
+
+# Limite d'envoi audio, partagee par la voix (clip de reference) et la dictee :
+# les deux acceptent un fichier de l'utilisateur vers du code de modele tiers.
+_MAX_VOICE_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB, reference sample
+
+
+# ── Envoi d'image, partage ───────────────────────────────────────────────────
+# Lu par les routes video ET OCR : les deux acceptent une image de
+# l'utilisateur. Cette aide vivait dans la section video du monolithe, ce qui
+# l'a rendue invisible pour l'OCR au moment de l'extraction — la route
+# /api/ocr/extract levait un NameError A L'APPEL, que ni les tests ni la
+# comparaison de table de routes ne pouvaient voir.
+_MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB, reference image
+_ALLOWED_IMAGE_TYPES = {'image/png', 'image/jpeg', 'image/webp'}
+
+
+def _read_uploaded_image(field='image'):
+    """Reads and validates an image file from the form. Returns (bytes, mime) or
+    (None, error_message).
+    """
+    f = request.files.get(field)
+    if not f or not f.filename:
+        return None, "Aucune image fournie."
+    if f.mimetype not in _ALLOWED_IMAGE_TYPES:
+        return None, "Format d'image non supporté (PNG/JPEG/WebP uniquement)."
+    data = f.read(_MAX_UPLOAD_BYTES + 1)
+    if len(data) > _MAX_UPLOAD_BYTES:
+        return None, "Image trop volumineuse (15 Mo max)."
+    return data, f.mimetype
+
+
+
+# ── Aides SSE, partagees ─────────────────────────────────────────────────────
+# Utilisees par le playground, le support et l'OCR : elles doivent vivre hors
+# du monolithe pour qu'un blueprint puisse les importer.
+
+def _sse_msg(text):
+    """A single SSE 'content' message + end of stream (safe JSON escaping)."""
+    payload = json.dumps({'choices': [{'delta': {'content': text}}]})
+    return f"data: {payload}\n\ndata: [DONE]\n\n"
+
+
+def maintenance_block_sse():
+    """For use in the chat routes (SSE): same mechanism as the error
+    messages already shown client-side ("No active model", etc.).
+    """
+    if not maintenance_active() or session.get('is_admin'):
+        return None
+    return Response(_sse_msg("Maintenance in progress — model access is temporarily "
+                             "suspended, please try again later."),
+                    mimetype='text/event-stream')

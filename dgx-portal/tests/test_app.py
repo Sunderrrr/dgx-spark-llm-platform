@@ -7,6 +7,10 @@ protection CSRF, et la collision possible entre un outil de serveur MCP et un
 outil privilégié intégré.
 """
 
+import ast
+import builtins
+import io
+import os
 import time
 import unittest
 
@@ -575,3 +579,58 @@ class GardeDesRoutesTest(unittest.TestCase):
         gardees = [r.endpoint for r in portal.app.url_map.iter_rules()
                    if getattr(portal.app.view_functions.get(r.endpoint), '_garde', None)]
         self.assertGreater(len(gardees), 90, "le marqueur _garde a disparu des décorateurs")
+
+
+class NomsResolublesTest(unittest.TestCase):
+    """Aucun module du portail ne charge un nom défini nulle part.
+
+    Python résout les globales À L'APPEL. Un nom parti dans un autre module lors
+    d'une extraction ne casse donc ni l'import, ni les tests, ni la comparaison
+    de table de routes — seulement la requête de l'utilisateur, en production.
+
+    Vécu deux fois le 28/08 pendant le découpage : `_read_uploaded_image` emporté
+    avec la section vidéo alors que /api/ocr/extract s'en servait, puis
+    `image_ready`/`get_music_model` restés référencés par le tableau de bord des
+    sidecars. Les deux importaient proprement et auraient levé un NameError au
+    premier clic. Ce test les aurait vus ; c'est pour ça qu'il existe.
+    """
+
+    MODULES = [
+        'app', 'auth', 'config', 'db', 'guards', 'comfyui_client', 'discord_notify',
+        'websearch_tools', 'memory_routes', 'conversation_routes', 'video_routes',
+        'image_routes', 'music_routes', 'voice_routes', 'asr_routes', 'ocr_routes',
+    ]
+
+    def _noms_non_resolus(self, chemin):
+        arbre = ast.parse(io.open(chemin, encoding='utf-8').read())
+        connus = set(dir(builtins)) | {'__file__', '__name__', '__doc__'}
+        for n in ast.walk(arbre):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                connus.add(n.name)
+            elif isinstance(n, (ast.Import, ast.ImportFrom)):
+                for a in n.names:
+                    connus.add((a.asname or a.name).split('.')[0])
+            elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+                connus.add(n.id)
+            elif isinstance(n, ast.arg):
+                connus.add(n.arg)
+            elif isinstance(n, ast.ExceptHandler) and n.name:
+                connus.add(n.name)
+            elif isinstance(n, ast.Global):
+                connus.update(n.names)
+        return sorted({n.id for n in ast.walk(arbre)
+                       if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                       and n.id not in connus})
+
+    def test_chaque_module_resout_tous_ses_noms(self):
+        racine = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for nom in self.MODULES:
+            chemin = os.path.join(racine, f'{nom}.py')
+            if not os.path.exists(chemin):
+                continue
+            with self.subTest(module=nom):
+                self.assertEqual(
+                    self._noms_non_resolus(chemin), [],
+                    f"{nom}.py charge un nom défini nulle part — il lèvera un "
+                    "NameError à l'appel. Réimporte-le depuis le module qui le "
+                    "définit désormais.")

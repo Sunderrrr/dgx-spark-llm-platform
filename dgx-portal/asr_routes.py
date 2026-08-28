@@ -14,24 +14,11 @@ from flask import Blueprint, jsonify, request, session
 from auth import login_required
 from config import ASR_URL
 from db import get_db
+from sidecars import asr_is_up
 from guards import _MAX_VOICE_UPLOAD_BYTES, maintenance_block_json, media_rate_block
 
 bp = Blueprint('asr', __name__)
 
-_asr_up_cache = {'t': 0.0, 'v': False}
-
-def asr_is_up():
-    now = time.time()
-    if now - _asr_up_cache['t'] < 10:
-        return _asr_up_cache['v']
-    v = False
-    try:
-        r = requests.get(f"{ASR_URL}/api/model-info", timeout=3)
-        v = bool(r.ok and r.json().get('loaded'))
-    except Exception:
-        pass
-    _asr_up_cache.update(t=now, v=v)
-    return v
 
 @bp.route('/api/transcribe', methods=['POST'])
 @login_required

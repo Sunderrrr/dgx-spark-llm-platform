@@ -41,6 +41,9 @@ VOICE_URL     = os.environ.get('VOICE_URL', 'http://voice:8004')
 # Transcription (dictation) — same.
 ASR_URL       = os.environ.get('ASR_URL', 'http://asr:8006')
 MUSIC_URL     = os.environ.get('MUSIC_URL', 'http://music:8008')
+# Sidecar image : etait declare dans la section image du monolithe, alors que
+# c'est une URL de service comme les autres — et sidecars.py en a besoin.
+IMAGE_URL = os.environ.get('IMAGE_URL', 'http://image:8007')
 DISCORD_WH    = os.environ.get('DISCORD_WEBHOOK_URL', '')
 # Discord DM notifications: a bot DMs each user who linked their account (OAuth2
 # "identify") whenever an announcement fires (model change, site announcement,

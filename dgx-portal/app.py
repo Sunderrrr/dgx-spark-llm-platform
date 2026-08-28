@@ -173,7 +173,8 @@ def _debug_user_fullname(username):
             return row['fullname']
     return username
 from db import (  # noqa: E402  (cf. commentaire plus bas)
-    DB_PATH, close_db, get_db, get_setting, maintenance_active, set_setting,
+    DB_PATH, _spend_conn, close_db, get_db, get_setting, maintenance_active,
+    set_setting,
 )
 
 # ── SSO / OIDC (Authentik) ───────────────────────────────────────────────────
@@ -618,27 +619,16 @@ def ldap_authenticate(username, password):
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
-def litellm_headers():
-    return {'Authorization': f'Bearer {LITELLM_KEY}', 'Content-Type': 'application/json'}
+# Client LiteLLM (cles, budgets, comptes) : cf. litellm_client.py
+from litellm_client import (  # noqa: E402
+    _ensure_litellm_user, _infos_cles, _litellm_user_info, create_litellm_key,
+    get_user_keys, litellm_headers, litellm_key_info, litellm_update_key_budget,
+    litellm_update_user_budget, revoke_litellm_key,
+)
 
-_rm_cache = {'t': 0.0, 'v': []}
+# get_running_models / _rm_cache : cf. vllm_health.py
+from vllm_health import get_running_models  # noqa: E402
 
-def get_running_models():
-    """Model(s) served by vLLM. Cached ~5 s to avoid hammering
-    /v1/models on every page render and every poll (readable vLLM logs).
-    """
-    now = time.time()
-    if now - _rm_cache['t'] < 5:
-        return _rm_cache['v']
-    v = []
-    try:
-        r = requests.get(f"{VLLM_API}/models", timeout=3)
-        if r.ok:
-            v = [m['id'] for m in r.json().get('data', [])]
-    except Exception:
-        pass
-    _rm_cache.update(t=now, v=v)
-    return v
 
 
 
@@ -650,49 +640,7 @@ VOICE_REPO_IDS = (
 )
 
 
-_voice_model_cache = {'t': 0.0, 'v': None}
 
-def get_voice_model():
-    """Chatterbox variant currently loaded by the voice container, probed
-    live via /api/model-info (never frozen: the admin can recreate this
-    container with another variant, cf. the voice catalog /admin/voice/*).
-    Returns the type ('original'|'turbo'|'multilingual') only once
-    the model is actually loaded (the 'loaded' field), not just the process up.
-    """
-    now = time.time()
-    if now - _voice_model_cache['t'] < 5:
-        return _voice_model_cache['v']
-    v = None
-    # Same guard as get_ocr_model: no HTTP call if the voice container is
-    # stopped (otherwise a full ~3 s timeout, sidecar network in DROP).
-    if _sidecar_proc_status('voice') == 'running':
-        try:
-            r = requests.get(f"{VOICE_URL}/api/model-info", timeout=3)
-            if r.ok:
-                data = r.json()
-                if data.get('loaded'):
-                    v = data.get('type')
-        except Exception:
-            pass
-    _voice_model_cache.update(t=now, v=v)
-    return v
-
-_comfyui_up_cache = {'t': 0.0, 'v': False}
-
-def comfyui_is_up():
-    """ComfyUI (MiniMax-H3, video generation) serves a single fixed workflow and
-    has no /v1/models — we just probe its availability.
-    """
-    now = time.time()
-    if now - _comfyui_up_cache['t'] < 5:
-        return _comfyui_up_cache['v']
-    v = False
-    try:
-        v = requests.get(f"{COMFYUI_URL}/system_stats", timeout=3).ok
-    except Exception:
-        pass
-    _comfyui_up_cache.update(t=now, v=v)
-    return v
 
 def add_announcement(kind, a='', b=''):
     """Publishes an announcement (a card shown when the site opens). kind ∈
@@ -727,430 +675,25 @@ def _announce_launch(new_name):
         return
     add_announcement('model_launch', new_name, prev)
 
-def get_user_keys(username):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        local_keys = conn.execute(
-            "SELECT key_alias, key_value, created_at FROM api_keys WHERE username=? ORDER BY created_at DESC",
-            (username,)
-        ).fetchall()
-        conn.close()
-    except Exception:
-        return []
-    infos = _infos_cles([k['key_value'] for k in local_keys])
-    result = []
-    for k in local_keys:
-        depuis_litellm = infos.get(k['key_value'], {})
-        result.append({
-            'key_alias': k['key_alias'],
-            'key': k['key_value'],
-            'created_at': k['created_at'],
-            'spend': depuis_litellm.get('spend', 0),
-            'max_budget': depuis_litellm.get('max_budget'),
-            'budget_reset_at': depuis_litellm.get('budget_reset_at'),
-        })
-    return result
-
-def _infos_cles(cles):
-    """spend / max_budget / budget_reset_at pour une liste de cles EN CLAIR.
-
-    Lit directement la base LiteLLM plutot que son endpoint HTTP /key/info.
-    Deux raisons :
-
-    1. FUITE. /key/info n'accepte que le GET avec la cle en parametre d'URL
-       (le POST repond 405, verifie), et le journal d'acces de LiteLLM
-       enregistre l'URL complete : `docker logs litellm` exposait donc des cles
-       API valides et utilisables a quiconque a acces au demon Docker.
-       Constate en prod le 23/08.
-    2. COUT. L'appelant boucle sur les cles d'un utilisateur : c'etait un
-       aller-retour HTTP PAR cle, ici une seule requete.
-
-    LiteLLM stocke le sha256 de la cle, jamais la cle : on hache pour joindre.
-    Renvoie {cle_en_clair: {...}} ; une cle absente n'a simplement pas d'entree.
-    """
-    cles = [c for c in cles if c]
-    if not cles:
-        return {}
-    par_hash = {hashlib.sha256(c.encode()).hexdigest(): c for c in cles}
-    conn = _spend_conn()
-    if not conn:
-        app.logger.warning("infos cles : base LiteLLM injoignable, budgets affiches a 0")
-        return {}
-    try:
-        cur = conn.cursor()
-        cur.execute('SELECT token, spend, max_budget, budget_reset_at '
-                    'FROM "LiteLLM_VerificationToken" WHERE token = ANY(%s)',
-                    (list(par_hash),))
-        return {par_hash[t]: {'spend': sp or 0, 'max_budget': mb, 'budget_reset_at': br or ''}
-                for t, sp, mb, br in cur.fetchall() if t in par_hash}
-    except Exception as e:                                   # noqa: BLE001
-        app.logger.warning("infos cles : lecture LiteLLM impossible (%s)", type(e).__name__)
-        return {}
-    finally:
-        conn.close()
 
 
-def _ensure_litellm_user(username, max_budget, budget_duration):
-    """Create/update the LiteLLM user with an ACCOUNT budget, shared by all
-    their keys (user_id). Does not overwrite the budget if the user already exists —
-    only the amount may have been adjusted by an admin.
-    """
-    body = {"user_id": username, "metadata": {"created_by": "dgx-portal"}}
-    try:
-        # /user/info already exists? otherwise we create it with the default budget.
-        info = _litellm_user_info(username)
-        if info.get('exists'):
-            return True
-        body["max_budget"] = float(max_budget)
-        body["budget_duration"] = budget_duration
-        r = requests.post(f"{LITELLM_URL}/user/new", headers=litellm_headers(),
-                          json=body, timeout=8)
-        return r.status_code < 300
-    except Exception:
-        return False
 
-
-def _litellm_user_info(username):
-    """Budget/spend at the ACCOUNT level (LiteLLM user object)."""
-    out = {'spend': 0, 'max_budget': None, 'budget_reset_at': '', 'exists': False}
-    try:
-        r = requests.get(f"{LITELLM_URL}/user/info", headers=litellm_headers(),
-                         params={'user_id': username}, timeout=5)
-        if r.ok:
-            d = r.json()
-            ui = d.get('user_info') or d
-            if ui:
-                out['exists'] = True
-                out['spend'] = ui.get('spend', 0) or 0
-                out['max_budget'] = ui.get('max_budget')
-                out['budget_reset_at'] = ui.get('budget_reset_at', '') or ''
-    except Exception:
-        pass
-    return out
-
-
-def litellm_update_user_budget(username, new_max_budget):
-    try:
-        r = requests.post(f"{LITELLM_URL}/user/update", headers=litellm_headers(),
-                          json={'user_id': username, 'max_budget': float(new_max_budget)},
-                          timeout=5)
-        return r.ok
-    except Exception:
-        return False
-
-
-def create_litellm_key(alias, username, is_admin=False):
-    payload = {
-        "key_alias": alias,
-        "metadata": {"user": username, "created_by": "dgx-portal"},
-    }
-    if not is_admin:
-        # Budget at the ACCOUNT level (shared by all the account's keys), not at the
-        # key level: the key carries user_id and LiteLLM caps the sum of the user's
-        # spend across all their keys.
-        _ensure_litellm_user(username,
-                             float(get_setting('default_key_budget', KEY_BUDGET)),
-                             get_setting('default_key_duration', KEY_DURATION))
-        payload["user_id"] = username
-    r = requests.post(f"{LITELLM_URL}/key/generate",
-                      headers=litellm_headers(), json=payload, timeout=10)
-    if r.ok:
-        return r.json().get('key')
-    return None
-
-def litellm_key_info(key_value):
-    """cf. _infos_cles : lecture en base, jamais la cle dans une URL."""
-    return _infos_cles([key_value]).get(key_value, {})
-
-def litellm_update_key_budget(key_value, new_max_budget):
-    try:
-        r = requests.post(f"{LITELLM_URL}/key/update", headers=litellm_headers(),
-                          json={'key': key_value, 'max_budget': new_max_budget}, timeout=5)
-        return r.ok
-    except Exception:
-        return False
-
-def revoke_litellm_key(key_value):
-    r = requests.post(f"{LITELLM_URL}/key/delete",
-                      headers=litellm_headers(),
-                      json={"keys": [key_value]}, timeout=5)
-    return r.ok
-
-def _runner_headers():
-    return {'Authorization': f'Bearer {RUNNER_TOKEN}'}
-
-def runner_status():
-    try:
-        r = requests.get(f"{RUNNER_URL}/status", headers=_runner_headers(), timeout=3)
-        if r.ok:
-            st = r.json()
-            # The runner only switches to "running" on the log line
-            # "Application startup complete", hidden by --uvicorn-log-level
-            # warning. We make state reliable by checking vLLM actually serves
-            # the model → no more "Starting…" status stuck on screen.
-            if st.get('status') == 'starting' and st.get('model') in get_running_models():
-                st['status'] = 'running'
-            return st
-    except Exception:
-        pass
-    return {'status': 'unreachable', 'model': None, 'pid': None}
-
-def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
-    # Long timeout: when a model is already running, the runner waits for the driver
-    # to release unified memory before spawning the new one (anti-OOM). /launch can
-    # thus take ~10-60 s to respond — a short timeout would look like a failure
-    # even though the launch is well underway.
-    try:
-        r = requests.post(f"{RUNNER_URL}/launch",
-                          headers=_runner_headers(),
-                          json={'hf_model_id': hf_model_id, 'model_name': model_name,
-                                'vllm_args': vllm_args, 'engine': engine or 'vllm'},
-                          timeout=90)
-        # Launch accepted → the `auto-model` alias follows the new model.
-        if r.ok:
-            _point_auto_model(model_name, vllm_args, engine or 'vllm')
-        return r.ok
-    except Exception:
-        return False
-
-def runner_stop():
-    try:
-        r = requests.post(f"{RUNNER_URL}/stop", headers=_runner_headers(), timeout=5)
-        return r.ok
-    except Exception:
-        return False
-
-_sidecar_proc_cache = {}
-
-def _sidecar_proc_status(kind):
-    """kind ∈ {'ocr', 'video', 'voice', 'asr'} — raw PROCESS/CONTAINER state (docker inspect /
-    systemctl is-active), via vllm-runner (scoped sudo privileges on the host,
-    see /etc/sudoers.d/vllmrunner-services): dgx-portal itself has no
-    docker/systemd access, neither here nor elsewhere. Does NOT say whether the service already
-    answers requests — cf. _sidecar_status().
-
-    Result cached 5 s: each call triggers on the runner side a `sudo`
-    then a `docker inspect`/`systemctl is-active`, and the `systemctl` alone
-    cost 1.5 s on this machine. The admin probes all four sidecars and
-    refreshes every 8 s, so without the cache the page spent most of
-    its time in there.
-    """
-    now = time.time()
-    hit = _sidecar_proc_cache.get(kind)
-    if hit and now - hit[0] < 5:
-        return hit[1]
-    v = 'unreachable'
-    try:
-        r = requests.get(f"{RUNNER_URL}/{kind}/status", headers=_runner_headers(), timeout=5)
-        if r.ok:
-            v = r.json().get('status', 'unknown')
-    except Exception:
-        pass
-    _sidecar_proc_cache[kind] = (now, v)
-    return v
-
-def _sidecar_status(kind):
-    """Status shown to the admin. A container/service that just started
-    stays several tens of seconds (even minutes, large checkpoint) loading
-    the model before it answers — during that time, docker/systemd already
-    see it as "running", but any generation would fail. Before this
-    fix, the admin card showed "Online" as soon as the process
-    launched, not when the backend is really usable (reported: the
-    status said video was running while it wasn't answering
-    yet). So we additionally verify, live, that the service answers:
-    get_ocr_model()/comfyui_is_up() hit respectively /v1/models and
-    /system_stats, which only answer once loading is finished.
-
-    We test the CONTAINER state first (fast, cached 5 s). If it isn't
-    running, no point probing the HTTP service: the check would go into the
-    void and wait its timeout (~3 s), which dragged down the whole admin page
-    when a sidecar was stopped. The HTTP "does it answer yet?" probe only makes
-    sense if the container is up, to tell "starting" from "running".
-    """
-    proc = _sidecar_proc_status(kind)
-    if proc != 'running':
-        return proc
-    ready = (get_ocr_model() is not None if kind == 'ocr'
-             else comfyui_is_up() if kind == 'video'
-             else get_voice_model() is not None if kind == 'voice'
-             else asr_is_up() if kind == 'asr'
-             else image_ready() if kind == 'image'
-             else music_ready() if kind == 'music'
-             else False)
-    return 'running' if ready else 'starting'
-
-def _mem_available_gb():
-    """Actually allocatable memory (MemAvailable from /proc/meminfo), in GB.
-    On the GB10 memory is unified: this is also the headroom available to
-    load a model on the GPU.
-    """
-    try:
-        with open('/proc/meminfo') as f:
-            for line in f:
-                if line.startswith('MemAvailable:'):
-                    return int(line.split()[1]) / 1024 / 1024
-    except Exception:
-        pass
-    return None
-
-# Approximate memory (GB, margin included) a sidecar must be able to allocate
-# to load its model. On unified memory, a sidecar that overflows doesn't
-# merely fail: the OOM killer kills the largest process — the chat model —
-# and the whole platform goes down. Hence this guard BEFORE starting.
-# OCR/voice/dictation load a model then stay stable → threshold = weight + small
-# margin. Video (ComfyUI) additionally has memory SPIKES during generation →
-# higher threshold to keep a real cushion. The chat model's memory is,
-# itself, frozen at launch (KV pre-allocated), so once a sidecar is loaded
-# the whole is stable — that's what makes these thresholds reliable.
-# 'music' vaut pour le mode par défaut du sidecar : quantification 8 bits des
-# deux gros LLM (~24 Go en bf16 → ~13 Go). Surchargeable par env si on repasse
-# le sidecar en pleine précision (MUSIC_QUANT=none) ou en 4 bits.
-_SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5, 'image': 40,
-                        'music': int(os.environ.get('MUSIC_MEM_NEED_GB', 15))}
-
-def _mem_guard(kind):
-    """Return an error message if starting `kind` risks an OOM, otherwise None."""
-    need = _SIDECAR_MEM_NEED_GB.get(kind)
-    if not need:
-        return None
-    avail = _mem_available_gb()
-    if avail is not None and avail < need:
-        return (f"Mémoire insuffisante pour démarrer {kind} : {avail:.0f} Go libres, "
-                f"~{need} Go requis. Arrête un autre backend, ou réduis le contexte du "
-                f"modèle de chat, puis réessaie.")
-    return None
-
-def _sidecar_start_json(kind):
-    """Start a sidecar with a memory guard, JSON response for the frontend."""
-    err = _mem_guard(kind)
-    if err:
-        return jsonify({'ok': False, 'error': err}), 507
-    ok = _sidecar_action(kind, 'start')
-    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec du démarrage {kind}."}), (200 if ok else 502)
-
-def _sidecar_action(kind, action):
-    try:
-        r = requests.post(f"{RUNNER_URL}/{kind}/{action}", headers=_runner_headers(), timeout=30)
-        return r.ok
-    except Exception:
-        return False
-
-def _ocr_launch(hf_id, args):
-    """Recreate the OCR container with another model (runner.py validates the flags
-    against the OCR allowlist before any sudo call, see _OCR_*_FLAGS).
-    """
-    try:
-        r = requests.post(f"{RUNNER_URL}/ocr/launch", headers=_runner_headers(),
-                          json={'hf_model_id': hf_id, 'vllm_args': args or ''}, timeout=90)
-        detail = ''
-        try:
-            detail = r.json().get('detail', '')
-        except Exception:
-            pass
-        return r.ok, detail
-    except Exception as e:
-        return False, str(e)
-
-def _voice_launch(repo_id):
-    """Recreate the voice container with another Chatterbox variant (runner.py
-    revalidates repo_id against its own allowlist before any sudo call,
-    see _VOICE_REPO_IDS).
-    """
-    try:
-        r = requests.post(f"{RUNNER_URL}/voice/launch", headers=_runner_headers(),
-                          json={'repo_id': repo_id}, timeout=90)
-        detail = ''
-        try:
-            detail = r.json().get('detail', '')
-        except Exception:
-            pass
-        return r.ok, detail
-    except Exception as e:
-        return False, str(e)
-
-# Image generation models the admin may launch (mirrors _VOICE_REPO_IDS): a
-# closed allowlist, revalidated by the runner (_IMAGE_MODEL_IDS) before any sudo
-# call. Each id maps host-side to a pre-downloaded diffusers dir (image-recreate.sh).
-IMAGE_MODEL_IDS = {'black-forest-labs/FLUX.2-klein-4B'}
-
-def _image_launch(model_id):
-    """Recreate the image container with another diffusers model (runner.py
-    revalidates model_id against its own allowlist before any sudo call).
-    """
-    try:
-        r = requests.post(f"{RUNNER_URL}/image/launch", headers=_runner_headers(),
-                          json={'model_id': model_id}, timeout=180)
-        detail = ''
-        try:
-            detail = r.json().get('detail', '')
-        except Exception:
-            pass
-        return r.ok, detail
-    except Exception as e:
-        return False, str(e)
-
-# Modèles musique : id HuggingFace libre (comme l'OCR), la forme est validée
-# ici ET côté runner avant tout appel sudo.
-_HF_ID_RE = re.compile(r'^[A-Za-z0-9][\w.-]{0,60}/[A-Za-z0-9][\w.-]{0,80}$')
-
-def _music_launch(model_id):
-    """Recrée le conteneur musique avec un autre modèle HF."""
-    try:
-        r = requests.post(f"{RUNNER_URL}/music/launch", headers=_runner_headers(),
-                          json={'model_id': model_id}, timeout=180)
-        detail = ''
-        try:
-            detail = r.json().get('detail', '')
-        except Exception:
-            pass
-        return r.ok, detail
-    except Exception as e:
-        return False, str(e)
-
-# Routine access lines (health/status polls) → noise that drowns the useful logs.
-_LOG_NOISE_RE = re.compile(r'"GET /(?:v1/models|metrics|health\S*|version|ping)\b')
-
-def _drop_log_noise(lines):
-    return [l for l in lines if not _LOG_NOISE_RE.search(l)]
-
-# Tampon complet du runner. On demande TOUJOURS le maximum, jamais une fenetre
-# proportionnelle a n : le tampon est domine par les lignes d'acces de routine
-# (sondes /metrics et /v1/models), dans une proportion qui varie avec la cadence
-# des sondages et l'activite du modele. Mesure du 28/08, modele au repos : sur
-# les 1 000 dernieres lignes brutes, ZERO ligne utile — la fenetre de n*5 = 750
-# ne contenait que du bruit, `runner_logs` renvoyait une liste vide et le
-# panneau d'administration affichait « ce modele n'est pas demarre » alors qu'il
-# tournait. Les premieres lignes utiles n'apparaissaient qu'au-dela de 1 500.
-_RUNNER_LOGS_TAMPON = 2000
-
-def runner_logs(n=150):
-    try:
-        r = requests.get(f"{RUNNER_URL}/logs", headers=_runner_headers(),
-                         params={'n': _RUNNER_LOGS_TAMPON}, timeout=5)
-        if r.ok:
-            return _drop_log_noise(r.json().get('logs', []))[-n:]
-        app.logger.warning("runner_logs : le runner a repondu %s", r.status_code)
-    except Exception as e:                                   # noqa: BLE001
-        # Sans cette trace, un echec ici est indiscernable d'un modele arrete :
-        # c'est exactement ce qui a masque le probleme ci-dessus.
-        app.logger.warning("runner_logs : %s", type(e).__name__)
-    return []
-
-def runner_metrics():
-    try:
-        r = requests.get(f"{RUNNER_URL}/metrics", headers=_runner_headers(), timeout=5)
-        if r.ok:
-            return r.json()
-    except Exception:
-        pass
-    return None
+# Runner et sidecars (etat, lancement, journaux, sondes) : cf. sidecars.py
+from sidecars import (  # noqa: E402
+    _drop_log_noise, _image_launch, _mem_guard, _music_launch, _ocr_launch,
+    _runner_headers, _sidecar_action, _sidecar_proc_status, _sidecar_start_json,
+    _sidecar_status, _voice_launch, asr_is_up, get_image_model, get_music_model,
+    get_ocr_model, get_voice_model, image_ready, music_ready, runner_launch,
+    runner_logs, runner_metrics, runner_status, runner_stop,
+    IMAGE_MODEL_IDS, _HF_ID_RE, _LOG_NOISE_RE,
+)
 
 # ── ComfyUI (generation video MiniMax H3) ────────────────────────────────────
 # Deplace dans comfyui_client.py le 28/08 : cette section n'avait qu'une seule
 # dependance (COMFYUI_URL, issue de l'environnement), c'etait donc la coupure la
 # moins risquee du monolithe. Les routes /api/video/* restent ici.
 from comfyui_client import (  # noqa: E402
+    comfyui_is_up,
     comfyui_generate, comfyui_status, comfyui_fetch_video,
     _comfyui_output_file, _local_video_path, _cache_video_local,
     VIDEO_FILES_DIR, COMFYUI_OUTPUT_DIR,
@@ -1167,314 +710,22 @@ from comfyui_client import (  # noqa: E402
 # rewording it would break the output format expected by the front-end parser.
 
 
-_VLLM_METRICS_URL = VLLM_API.rsplit('/v1', 1)[0] + '/metrics'
-_vllm_tps = {'t': 0.0, 'gen': 0.0}
+# Sonde vLLM (sante, debit, contexte) + recherche HF : cf. vllm_health.py
+from vllm_health import (  # noqa: E402
+    GB10_TAG, _CTX_FLAG, _SEARCH_PAGE_SIZE, _SEQS_FLAG, _prom_sum, ctx_of, ctx_split,
+    effective_ctx,
+    guess_engine, max_seqs_of, search_hf_models, vllm_health,
+)
 
-def _prom_sum(text, metric):
-    """Sum of a Prometheus metric's samples (exact name, labels ignored)."""
-    tot, found = 0.0, False
-    for line in text.splitlines():
-        if line.startswith(metric) and len(line) > len(metric) and line[len(metric)] in ' {':
-            try:
-                tot += float(line.rsplit(' ', 1)[1]); found = True
-            except (ValueError, IndexError):
-                pass
-    return tot if found else None
-
-_vllm_health_cache = {'t': 0.0, 'v': None}
-
-def vllm_health():
-    """Health of the active model (throughput tok/s, in-flight/queued requests, average TTFT).
-    Cached ~4 s → a single /metrics scrape even with multiple polls.
-    """
-    now = time.time()
-    if _vllm_health_cache['v'] is not None and now - _vllm_health_cache['t'] < 4:
-        return _vllm_health_cache['v']
-    out = _vllm_health_uncached()
-    _vllm_health_cache.update(t=now, v=out)
-    return out
-
-# Both engines expose /metrics in Prometheus format, but with different
-# names. We map both onto the same health dictionary.
-_METRIC_NAMES = {
-    'vllm': {
-        'gen':      'vllm:generation_tokens_total',
-        'running':  'vllm:num_requests_running',
-        'waiting':  'vllm:num_requests_waiting',
-        'requests': 'vllm:request_success_total',
-        'ttft_sum': 'vllm:time_to_first_token_seconds_sum',
-        'ttft_cnt': 'vllm:time_to_first_token_seconds_count',
-    },
-    'llamacpp': {
-        'gen':      'llamacpp:tokens_predicted_total',
-        'running':  'llamacpp:requests_processing',
-        'waiting':  'llamacpp:requests_deferred',
-        'requests': 'llamacpp:n_decode_total',
-        # llama.cpp exposes its generation speed directly; we use it
-        # as-is instead of a tokens/wall-clock delta, which strongly overestimates
-        # (it divides a batch of tokens by a short scrape
-        # interval → "57 tok/s" where the engine actually does 8.5).
-        'speed':    'llamacpp:predicted_tokens_seconds',
-        # No real TTFT metric on the llama.cpp side → we leave the field empty
-        # ("—") rather than show a made-up number.
-        'ttft_sum': None,
-        'ttft_cnt': None,
-    },
-}
-
-def _vllm_health_uncached():
-    running = get_running_models()
-    if not running:
-        return {'up': False, 'model': None}
-    engine = 'vllm'
-    try:
-        row = get_db().execute("SELECT engine FROM model_configs WHERE name=?",
-                               (running[0],)).fetchone()
-        if row and row['engine']:
-            engine = row['engine']
-    except Exception:
-        pass
-    try:
-        text = requests.get(_VLLM_METRICS_URL, timeout=4).text
-    except Exception:
-        return {'up': True, 'model': running[0], 'engine': engine, 'metrics': False}
-    M = _METRIC_NAMES.get(engine, _METRIC_NAMES['vllm'])
-    gen = _prom_sum(text, M['gen']) or 0.0
-    now = time.time()
-    running_now = int(_prom_sum(text, M['running']) or 0)
-    tps = None
-    # If the engine publishes its own speed (llama.cpp), we take it directly.
-    speed_metric = M.get('speed')
-    if speed_metric:
-        if running_now > 0:
-            # predicted_tokens_seconds is a GAUGE that KEEPS the speed of the
-            # last generation: at rest it would stay frozen ("stuck at 8").
-            # We therefore only show it if there is actually a generation in progress,
-            # otherwise 0 — that's the instantaneous throughput expected on the home page.
-            v = _prom_sum(text, speed_metric)
-            tps = round(v, 1) if v else 0.0
-        else:
-            tps = 0.0
-    else:
-        # vLLM: no instantaneous speed metric → cumulative delta/time.
-        if _vllm_tps['t'] and now > _vllm_tps['t'] and gen >= _vllm_tps['gen']:
-            tps = round((gen - _vllm_tps['gen']) / (now - _vllm_tps['t']), 1)
-    _vllm_tps.update(t=now, gen=gen)
-    ttft_sum = _prom_sum(text, M['ttft_sum']) if M.get('ttft_sum') else 0.0
-    ttft_cnt = _prom_sum(text, M['ttft_cnt']) if M.get('ttft_cnt') else 0.0
-    ttft_sum = ttft_sum or 0.0
-    ttft_cnt = ttft_cnt or 0.0
-    # Concurrent generation slots of the active model (--max-num-seqs / --parallel)
-    # → "X / N sessions busy" on the home page.
-    max_seqs = None
-    ctx_in = ctx_out = None
-    try:
-        row = get_db().execute("SELECT vllm_args FROM model_configs WHERE name=?",
-                               (running[0],)).fetchone()
-        if row:
-            max_seqs = max_seqs_of(row['vllm_args'], engine)
-            ctx_in, ctx_out = ctx_split(row['vllm_args'], engine)
-    except Exception:
-        pass
-    return {
-        'up': True,
-        'model': running[0],
-        'engine': engine,
-        'metrics': True,
-        'running': int(_prom_sum(text, M['running']) or 0),
-        'waiting': int(_prom_sum(text, M['waiting']) or 0),
-        'max_seqs': max_seqs,
-        'ctx_in': ctx_in,
-        'ctx_out': ctx_out,
-        'tps': round(tps, 1) if tps is not None else None,
-        'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else None,
-        'requests': int(_prom_sum(text, M['requests']) or 0),
-    }
-
-# HF tag carried by models actually tested on DGX Spark / GB10.
-GB10_TAG = 'gb10'
-
-def guess_engine(model):
-    """Engine needed to serve this model, deduced from its HF tags.
-    GGUF → llama.cpp; safetensors weights (NVFP4/FP8/BF16) → vLLM.
-    """
-    tags = {t.lower() for t in (model.get('tags') or [])}
-    if 'gguf' in tags:
-        return 'llamacpp'
-    return 'vllm'
-
-# Both engines express context and concurrency with different flags.
-_CTX_FLAG  = {'vllm': 'max-model-len', 'llamacpp': 'ctx-size', 'ds4': 'ctx'}
-_SEQS_FLAG = {'vllm': 'max-num-seqs',  'llamacpp': 'parallel'}
-
-def _arg_int(args, flag, default=None):
-    m = re.search(r'--' + re.escape(flag) + r'\s+(\d+)', args or '')
-    return int(m.group(1)) if m else default
-
-def ctx_of(args, engine='vllm'):
-    """Configured context window (--max-model-len or --ctx-size)."""
-    return _arg_int(args, _CTX_FLAG.get(engine or 'vllm', 'max-model-len'))
-
-def max_seqs_of(args, engine='vllm'):
-    """Configured concurrent sessions (--max-num-seqs or --parallel).
-    ds4 has no parallelism setting: it allocates a single huge KV cache (1M)
-    and serializes requests → 1 session, measured (2 requests = 2× the solo latency).
-    """
-    if engine == 'ds4':
-        return 1
-    return _arg_int(args, _SEQS_FLAG.get(engine or 'vllm', 'max-num-seqs'))
-
-def effective_ctx(args, engine='vllm'):
-    """Real usable context PER REQUEST (this is what we advertise to the client:
-    LiteLLM, OpenCode, the Playground ring).
-
-    Careful with llama.cpp: --ctx-size is the TOTAL context split across the slots,
-    so a request only gets ctx-size ÷ --parallel. vLLM/ds4: --max-model-len
-    / --ctx are already per request.
-    """
-    ctx = ctx_of(args, engine)
-    if ctx is None:
-        return None
-    if engine == 'llamacpp':
-        par = _arg_int(args, 'parallel', 1) or 1
-        return ctx // par
-    return ctx
-
-def ctx_split(vllm_args, engine='vllm'):
-    """(input, output) split of the context advertised to clients — single
-    source shared by LiteLLM (_register_litellm_model) AND the home page (vllm_health).
-
-    llama.cpp / ds4: the KV slot is shared between prompt and generation, so we
-    reserve an output margin capped at 64k. vLLM already separates input/output via
-    --max-model-len. Cautious default of 32k if the context isn't declared.
-    """
-    slot = effective_ctx(vllm_args, engine) or 32768
-    if engine in ('llamacpp', 'ds4'):
-        out_reserve = min(65536, slot // 3)
-        return max(slot - out_reserve, 1024), out_reserve
-    return slot, min(slot // 2, 262144)
-
-_SEARCH_PAGE_SIZE = 48
-
-def search_hf_models(query, task='text-generation', gb10_only=True, skip=0):
-    """HF search. By default, restricted to models tagged `gb10` — that is,
-    the ones actually tested on DGX Spark. Multiple `filter` = AND on the HF API side.
-
-    Paginated (skip, page of _SEARCH_PAGE_SIZE): the gb10 tag alone already returns
-    80+ models for text-generation, invisible beyond the old fixed
-    limit of 24 with no way to go further — reported in real use.
-    """
-    filters = [task] if task else []
-    if gb10_only:
-        filters.append(GB10_TAG)
-    try:
-        r = requests.get(
-            'https://huggingface.co/api/models',
-            params={'search': query, 'filter': filters, 'limit': _SEARCH_PAGE_SIZE,
-                    'skip': max(0, int(skip)), 'sort': 'downloads', 'direction': -1},
-            timeout=8
-        )
-        if r.ok:
-            out = r.json()
-            for m in out:
-                m['engine'] = guess_engine(m)
-            return out
-    except Exception:
-        pass
-    return []
-
-def notify_discord(model_id, username, fullname, reason):
-    if not DISCORD_WH:
-        return
-    payload = {"embeds": [{
-        "title": "🤖 Nouvelle demande de modèle — DGX Spark",
-        "color": 0x76B900,
-        "fields": [
-            {"name": "Utilisateur", "value": f"{fullname} (`{username}`)", "inline": True},
-            {"name": "Modèle", "value": f"`{model_id}`", "inline": True},
-            {"name": "Raison", "value": reason or "—"},
-        ],
-        "footer": {"text": "DGX Portal"},
-        "timestamp": datetime.utcnow().isoformat()
-    }]}
-    try:
-        requests.post(DISCORD_WH, json=payload, timeout=5)
-    except Exception:
-        pass
-
-def notify_email(model_id, username, fullname, reason):
-    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
-        return
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"[DGX] Demande modèle : {model_id}"
-    msg['From'] = SMTP_FROM or SMTP_USER
-    msg['To'] = ADMIN_EMAIL
-    body = (
-        f"Nouvelle demande de modèle\n\n"
-        f"Utilisateur : {fullname} ({username})\n"
-        f"Modèle      : {model_id}\n"
-        f"Raison      : {reason or '—'}\n"
-        f"Date        : {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
-        f"Dashboard admin : http://dgx.cronos.lan:5000/admin\n"
-    )
-    msg.attach(MIMEText(body, 'plain'))
-    try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-            s.starttls()
-            s.login(SMTP_USER, SMTP_PASS)
-            s.sendmail(msg['From'], [ADMIN_EMAIL], msg.as_string())
-    except Exception as e:
-        print(f"[email] erreur : {e}")
-
-def notify_budget_discord(username, fullname, key_alias, current_budget, reason):
-    if not DISCORD_WH:
-        return
-    payload = {"embeds": [{
-        "title": "🔋 Demande de tokens supplémentaires — DGX Spark",
-        "color": 0xF0A500,
-        "fields": [
-            {"name": "Utilisateur", "value": f"{fullname} (`{username}`)", "inline": True},
-            {"name": "Clé", "value": f"`{key_alias}`", "inline": True},
-            {"name": "Budget actuel", "value": f"{current_budget:,.0f} tokens" if current_budget is not None else "—", "inline": True},
-            {"name": "Raison", "value": reason or "—"},
-        ],
-        "footer": {"text": "DGX Portal"},
-        "timestamp": datetime.utcnow().isoformat()
-    }]}
-    try:
-        requests.post(DISCORD_WH, json=payload, timeout=5)
-    except Exception:
-        pass
+# Notifications (mail admin, webhook Discord) : cf. notify.py
+from notify import (  # noqa: E402
+    notify_budget_discord, notify_budget_email, notify_discord, notify_email,
+)
 
 # ── Notifications Discord ────────────────────────────────────────────────────
 # Deplacees dans discord_notify.py le 28/08 (cf. db.py et config.py).
 from discord_notify import _discord_announce, discord_broadcast  # noqa: E402
 
-def notify_budget_email(username, fullname, key_alias, current_budget, reason):
-    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
-        return
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"[DGX] Demande de tokens : {username}"
-    msg['From'] = SMTP_FROM or SMTP_USER
-    msg['To'] = ADMIN_EMAIL
-    budget_str = f"{current_budget:,.0f} tokens" if current_budget is not None else "—"
-    body = (
-        f"Nouvelle demande de tokens supplémentaires\n\n"
-        f"Utilisateur   : {fullname} ({username})\n"
-        f"Clé           : {key_alias}\n"
-        f"Budget actuel : {budget_str}\n"
-        f"Raison        : {reason or '—'}\n"
-        f"Date          : {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
-        f"Dashboard admin : http://dgx.cronos.lan:5000/admin\n"
-    )
-    msg.attach(MIMEText(body, 'plain'))
-    try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-            s.starttls()
-            s.login(SMTP_USER, SMTP_PASS)
-            s.sendmail(msg['From'], [ADMIN_EMAIL], msg.as_string())
-    except Exception as e:
-        print(f"[email] erreur : {e}")
 
 # ── Gardes d'authentification ────────────────────────────────────────────────
 # Deplacees dans auth.py le 28/08 : un blueprint doit pouvoir les importer sans
@@ -3796,16 +3047,6 @@ def admin_get_voice_usage():
 # Pseudo-keys that don't correspond to a user (admin/health calls).
 _NON_USER_KEYS = {'litellm_proxy_master_key', 'None', ''}
 
-def _spend_conn():
-    if not LITELLM_DB_URL:
-        return None
-    try:
-        import psycopg2
-        conn = psycopg2.connect(LITELLM_DB_URL, connect_timeout=4)
-        conn.autocommit = True   # read-only: prevents a failed query from aborting the transaction
-        return conn
-    except Exception:
-        return None
 
 def _real_tokens_by_user(since_utc=None):
     """Real tokens (prompt + generated) per user, from SpendLogs. If
@@ -5169,7 +4410,9 @@ app.register_blueprint(ocr_bp)
 # Frontiere redessinee le 28/08 : cette banniere couvrait voix + dictee +
 # amorcage. La voix part dans voice_routes.py, la dictee dans asr_routes.py,
 # l'amorcage reste ci-dessous.
-from voice_routes import bp as voice_bp, get_voice_engine, get_voice_languages  # noqa: E402
+from voice_routes import (  # noqa: E402
+    bp as voice_bp, get_voice_engine, get_voice_languages, get_voice_model,
+)
 from asr_routes import bp as asr_bp, asr_is_up  # noqa: E402
 app.register_blueprint(voice_bp)
 app.register_blueprint(asr_bp)

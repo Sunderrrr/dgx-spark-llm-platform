@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import time
 
 import requests
 
@@ -172,3 +173,23 @@ def _cache_video_local(prompt_id, st):
         except Exception:
             pass
     return None
+
+
+# Sonde de disponibilite, rapatriee de app.py le 28/08 : elle etait rangee dans
+# « Helpers » alors qu'elle interroge ComfyUI et rien d'autre.
+_comfyui_up_cache = {'t': 0.0, 'v': False}
+
+def comfyui_is_up():
+    """ComfyUI (MiniMax-H3, video generation) serves a single fixed workflow and
+    has no /v1/models — we just probe its availability.
+    """
+    now = time.time()
+    if now - _comfyui_up_cache['t'] < 5:
+        return _comfyui_up_cache['v']
+    v = False
+    try:
+        v = requests.get(f"{COMFYUI_URL}/system_stats", timeout=3).ok
+    except Exception:
+        pass
+    _comfyui_up_cache.update(t=now, v=v)
+    return v

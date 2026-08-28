@@ -15,6 +15,9 @@ import time
 import unittest
 
 import app as portal
+# Le support a quitte le monolithe pour support.py (28/08) : on le vise dans
+# son module proprietaire.
+import support as assistance
 # Ces symboles ont quitte le monolithe pour websearch_tools.py (28/08) : on les
 # vise dans leur module proprietaire plutot que de faire de app.py une facade.
 import websearch_tools as outils_web
@@ -126,28 +129,28 @@ class McpToolNameTest(unittest.TestCase):
     """Un serveur MCP hostile ne doit pas pouvoir masquer un outil intégré."""
 
     def test_prefixe_toujours_present(self):
-        self.assertTrue(portal._mcp_tool_name(3, 'search').startswith('mcp_3_'))
+        self.assertTrue(assistance._mcp_tool_name(3, 'search').startswith('mcp_3_'))
 
     def test_pas_de_collision_avec_les_outils_integres(self):
         integres = {'create_api_key', 'revoke_api_key', 'request_budget',
                     'request_model', 'launch_model', 'stop_model', 'use_skill'}
         for nom in list(integres) + ['../create_api_key', 'create api key']:
-            self.assertNotIn(portal._mcp_tool_name(1, nom), integres)
+            self.assertNotIn(assistance._mcp_tool_name(1, nom), integres)
 
     def test_caracteres_dangereux_neutralises(self):
-        genere = portal._mcp_tool_name(1, 'a b/c\\d"e')
+        genere = assistance._mcp_tool_name(1, 'a b/c\\d"e')
         self.assertTrue(all(c.isalnum() or c in '_-' for c in genere), genere)
 
 
 class CleanReplyTest(unittest.TestCase):
     def test_retire_le_bloc_de_raisonnement(self):
-        self.assertEqual(portal._clean_reply('<think>bla</think>Bonjour'), 'Bonjour')
+        self.assertEqual(assistance._clean_reply('<think>bla</think>Bonjour'), 'Bonjour')
 
     def test_garde_ce_qui_suit_le_marqueur_final(self):
-        self.assertEqual(portal._clean_reply('cheminement...\n### Réponse\nVoilà'), 'Voilà')
+        self.assertEqual(assistance._clean_reply('cheminement...\n### Réponse\nVoilà'), 'Voilà')
 
     def test_texte_simple_inchange(self):
-        self.assertEqual(portal._clean_reply('Bonjour'), 'Bonjour')
+        self.assertEqual(assistance._clean_reply('Bonjour'), 'Bonjour')
 
 
 class SseFramingTest(unittest.TestCase):
@@ -218,11 +221,11 @@ class GuardedToolsTest(unittest.TestCase):
 
     def test_les_actions_destructives_sont_gardees(self):
         for nom in ('revoke_api_key', 'launch_model', 'stop_model'):
-            self.assertIn(nom, portal.GUARDED_TOOLS)
+            self.assertIn(nom, assistance.GUARDED_TOOLS)
 
     def test_les_actions_inoffensives_ne_le_sont_pas(self):
         for nom in ('request_budget', 'request_model', 'list_models'):
-            self.assertNotIn(nom, portal.GUARDED_TOOLS)
+            self.assertNotIn(nom, assistance.GUARDED_TOOLS)
 
 
 class OidcUsernameTest(unittest.TestCase):

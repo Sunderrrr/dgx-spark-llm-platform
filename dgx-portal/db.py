@@ -12,6 +12,8 @@ import sqlite3
 
 from flask import g
 
+from config import LITELLM_DB_URL
+
 DB_PATH = '/app/data/portal.db'
 
 
@@ -60,3 +62,20 @@ def set_setting(key, value):
 
 def maintenance_active():
     return get_setting('maintenance_mode', '0') == '1'
+
+
+# ── Base LiteLLM (Postgres) ──────────────────────────────────────────────────
+# Lecture seule, pour les statistiques de consommation et les budgets de cles.
+# Sa place est ici, avec l'acces SQLite : c'est le module des bases, et
+# litellm_client comme les routes de statistiques en ont besoin.
+
+def _spend_conn():
+    if not LITELLM_DB_URL:
+        return None
+    try:
+        import psycopg2
+        conn = psycopg2.connect(LITELLM_DB_URL, connect_timeout=4)
+        conn.autocommit = True   # read-only: prevents a failed query from aborting the transaction
+        return conn
+    except Exception:
+        return None

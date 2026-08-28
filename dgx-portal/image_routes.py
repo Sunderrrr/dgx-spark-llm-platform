@@ -16,6 +16,8 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 
 from auth import login_required
 from db import DB_PATH, get_db
+from config import IMAGE_URL
+from sidecars import get_image_model, image_ready
 from guards import maintenance_block_json, media_rate_block
 
 bp = Blueprint('image', __name__)
@@ -23,26 +25,10 @@ bp = Blueprint('image', __name__)
 # A dedicated containerised sidecar (image-gen/) runs the diffusers
 # pipeline; the portal drives it asynchronously (a background thread calls the
 # sidecar, saves the PNG, updates the job row) so the UI keeps its polling flow.
-IMAGE_URL = os.environ.get('IMAGE_URL', 'http://image:8007')
 IMAGE_FILES_DIR = '/app/data/image_files'
 IMAGE_HISTORY_LIMIT = 20
 IMAGE_MAX_BATCH = 4  # max variations generated per prompt (sequential on unified memory)
 
-def image_ready():
-    try:
-        r = requests.get(f"{IMAGE_URL}/health", timeout=3)
-        return bool(r.ok and r.json().get('ready'))
-    except Exception:
-        return False
-
-def get_image_model():
-    try:
-        r = requests.get(f"{IMAGE_URL}/model-info", timeout=3)
-        if r.ok:
-            return r.json().get('model')
-    except Exception:
-        pass
-    return None
 
 def _image_set_done(prompt_id, username, done):
     """Bump the produced-so-far counter so the page can show images as they land."""

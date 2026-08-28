@@ -24,22 +24,11 @@ from config import OCR_URL
 from db import get_db
 from guards import (_chat_rate_limited, _read_uploaded_image, _sse_msg,
                     maintenance_block_sse)
+from sidecars import get_ocr_model
 
 bp = Blueprint('ocr', __name__)
 
 
-def _sidecar_proc_status_differe(kind):
-    """Import DIFFERE de app._sidecar_proc_status, volontairement.
-
-    Cette aide est generique (elle interroge les quatre sidecars via le runner)
-    et reste donc dans app.py. L'importer en tete d'ocr_routes.py creerait le
-    cycle qu'on evite depuis db.py ; l'importer A L'APPEL ne le cree pas, car
-    app.py est entierement charge avant qu'une requete n'arrive. C'est une
-    couture assumee, a retirer le jour ou la gestion des sidecars sortira elle
-    aussi du monolithe.
-    """
-    from app import _sidecar_proc_status
-    return _sidecar_proc_status(kind)
 
 OCR_HISTORY_LIMIT = 20
 
@@ -82,33 +71,6 @@ Guidelines:
 * Make sure the text is accurate and easy for a human to read and interpret.  Reading order should be correct and natural.
 """.strip()
 
-_ocr_model_cache = {'t': 0.0, 'v': None}
-
-def get_ocr_model():
-    """Model served by the OCR container (baidu/Unlimited-OCR), a separate vLLM
-    with its own /v1/models — never mixed with get_running_models() on which
-    other routes (stop/relaunch from admin) depend to target only
-    the main chat model.
-    """
-    now = time.time()
-    if now - _ocr_model_cache['t'] < 5:
-        return _ocr_model_cache['v']
-    v = None
-    # Do NOT attempt the HTTP call if the container isn't running: the sidecar
-    # network silently DROPs packets to an absent service, so
-    # requests would wait the full timeout (~3 s) — that's what dragged down the
-    # admin page when OCR was stopped. Process state is cached for 5 s.
-    if _sidecar_proc_status_differe('ocr') == 'running':
-        try:
-            r = requests.get(f"{OCR_URL}/models", timeout=3)
-            if r.ok:
-                data = r.json().get('data', [])
-                if data:
-                    v = data[0]['id']
-        except Exception:
-            pass
-    _ocr_model_cache.update(t=now, v=v)
-    return v
 
 def ocr_extract_stream(image_bytes, mime, instruction, on_done):
     """SSE generator: relays the OCR container's response as it comes

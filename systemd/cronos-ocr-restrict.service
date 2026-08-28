@@ -1,0 +1,34 @@
+[Unit]
+Description=Empeche le conteneur OCR d'ouvrir une connexion vers le portail
+# Le conteneur OCR est le SEUL a tourner avec --trust-remote-code : un depot HF
+# malveillant (choisi par un admin depuis le catalogue) y execute du code
+# arbitraire. Or dgx-portal est multi-homé sur ocr_net et porte dans son
+# environnement LITELLM_MASTER_KEY, RUNNER_TOKEN, LDAP_BIND_PW, OIDC_CLIENT_SECRET,
+# SECRET_KEY et SMTP_PASSWORD.
+#
+# Audit du 24/08 : sur 108 routes du portail, 7 sont publiques et AUCUNE ne
+# renvoie de donnee (flux de connexion, CSRF, forwardAuth) — l'exploitabilite
+# immediate est donc nulle. Ce blocage est de la defense en profondeur : le jour
+# ou une route non authentifiee ou une SSRF apparait, elle ne doit pas etre
+# joignable depuis du code de modele tiers.
+#
+# ebtables et non iptables : br_netfilter n'est pas charge, donc le trafic entre
+# deux conteneurs d'un MEME bridge ne traverse pas iptables. L'activer
+# soumettrait d'un coup tout l'inter-conteneurs aux regles DOCKER-USER
+# existantes (DROP sur 3000/2376/8080/8090) — trop risque. Le filtre L2 est
+# cible sur ce seul bridge.
+#
+# Seul le port 5000 (celui sur lequel le portail ECOUTE) est bloque : le filtre
+# est sans etat, et bloquer tout ocr->portail casserait les REPONSES du flux
+# legitime portail->ocr:8000, qui reviennent sur un port ephemere.
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ocr-restrict.sh add
+ExecStop=/usr/local/sbin/ocr-restrict.sh del
+
+[Install]
+WantedBy=multi-user.target

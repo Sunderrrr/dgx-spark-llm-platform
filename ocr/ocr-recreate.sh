@@ -34,10 +34,25 @@ mkdir -p "$OCR_CACHE"
 
 docker rm -f ocr >/dev/null 2>&1 || true
 
-exec docker run -d --name ocr --restart unless-stopped \
+# Pas d'`exec` : le filtre L2 doit etre repose APRES la creation. Docker
+# reattribue une IP a chaque recreation, et une regle epinglee sur l'ancienne ne
+# bloquerait plus rien SANS que rien ne le signale (echec silencieux).
+docker run -d --name ocr --restart unless-stopped \
   --network ai-platform_ocr_net --gpus all --shm-size=8g \
   --security-opt no-new-privileges --cap-drop ALL \
   -v "$OCR_CACHE":/root/.cache/huggingface \
   -e HF_HOME=/root/.cache/huggingface \
   vllm/vllm-openai:unlimited-ocr \
   "$HF_ID" "$@"
+rc=$?
+
+# cf. cronos-ocr-restrict.service : empeche ce conteneur (le seul en
+# --trust-remote-code) d'ouvrir une connexion vers le portail, qui porte les
+# secrets maitres. Best-effort : une OCR qui demarre sans le filtre vaut mieux
+# qu'une OCR qui ne demarre pas, mais on le dit fort dans le journal.
+if [ -x /usr/local/sbin/ocr-restrict.sh ]; then
+  /usr/local/sbin/ocr-restrict.sh add || echo "ATTENTION : filtre ocr->portail NON pose" >&2
+else
+  echo "ATTENTION : /usr/local/sbin/ocr-restrict.sh absent, filtre ocr->portail NON pose" >&2
+fi
+exit $rc

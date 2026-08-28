@@ -1,0 +1,159 @@
+"""Generation d'image (sidecar diffusers) — routes extraites de app.py le 28/08.
+
+Blueprint sans url_prefix : les chemins restent identiques au caractere pres,
+donc le frontend n'a rien a changer. Cf. memory_routes.py pour le raisonnement
+complet sur les endpoints.
+"""
+import os
+import re
+import secrets
+import sqlite3
+import threading
+from datetime import datetime
+
+import requests
+from flask import Blueprint, abort, jsonify, request, send_file, session
+
+from auth import login_required
+from db import DB_PATH, get_db
+from guards import maintenance_block_json, media_rate_block
+
+bp = Blueprint('image', __name__)
+
+# A dedicated containerised sidecar (image-gen/) runs the diffusers
+# pipeline; the portal drives it asynchronously (a background thread calls the
+# sidecar, saves the PNG, updates the job row) so the UI keeps its polling flow.
+IMAGE_URL = os.environ.get('IMAGE_URL', 'http://image:8007')
+IMAGE_FILES_DIR = '/app/data/image_files'
+IMAGE_HISTORY_LIMIT = 20
+IMAGE_MAX_BATCH = 4  # max variations generated per prompt (sequential on unified memory)
+
+def image_ready():
+    try:
+        r = requests.get(f"{IMAGE_URL}/health", timeout=3)
+        return bool(r.ok and r.json().get('ready'))
+    except Exception:
+        return False
+
+def get_image_model():
+    try:
+        r = requests.get(f"{IMAGE_URL}/model-info", timeout=3)
+        if r.ok:
+            return r.json().get('model')
+    except Exception:
+        pass
+    return None
+
+def _image_set_done(prompt_id, username, done):
+    """Bump the produced-so-far counter so the page can show images as they land."""
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("UPDATE image_jobs SET done_count=? WHERE prompt_id=? AND username=?",
+                  (done, prompt_id, username))
+        c.commit(); c.close()
+    except Exception:
+        pass
+
+def _image_worker(prompt_id, username, prompt_text, count):
+    """Background thread: call the sidecar `count` times (sequentially — one image
+    at a time keeps the GPU memory spike at single-image level on unified memory),
+    saving each as <prompt_id>_<idx>.png. Each call reseeds implicitly, so the N
+    images are variations of the same prompt."""
+    started = datetime.now()
+    done = 0
+    os.makedirs(IMAGE_FILES_DIR, exist_ok=True)
+    for idx in range(count):
+        try:
+            r = requests.post(f"{IMAGE_URL}/generate", data={'prompt': prompt_text[:10000]}, timeout=600)
+            if r.ok and r.headers.get('Content-Type', '').startswith('image/'):
+                with open(os.path.join(IMAGE_FILES_DIR, f"{prompt_id}_{idx}.png"), 'wb') as f:
+                    f.write(r.content)
+                done += 1
+                _image_set_done(prompt_id, username, done)
+        except Exception:
+            pass
+    status = 'done' if done else 'error'
+    dur = int((datetime.now() - started).total_seconds() * 1000) if done else None
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("UPDATE image_jobs SET status=?, duration_ms=?, done_count=? WHERE prompt_id=? AND username=?",
+                  (status, dur, done, prompt_id, username))
+        c.commit(); c.close()
+    except Exception:
+        pass
+
+
+@bp.route('/api/image/generate', methods=['POST'])
+@login_required
+def api_image_generate():
+    blocked = maintenance_block_json()
+    if blocked:
+        return blocked
+    limited = media_rate_block()
+    if limited:
+        return limited
+    prompt_text = request.form.get('prompt', '').strip()
+    if not prompt_text:
+        return jsonify({'error': "Un prompt texte est requis."}), 400
+    if not image_ready():
+        return jsonify({'error': "Aucun modèle image configuré."}), 503
+    # Batch size: 1–4 variations per prompt (generated sequentially).
+    try:
+        count = int(request.form.get('count', 1))
+    except (TypeError, ValueError):
+        count = 1
+    count = max(1, min(IMAGE_MAX_BATCH, count))
+    prompt_id = secrets.token_hex(12)
+    db = get_db()
+    db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, count, done_count, created_at) VALUES (?,?,?,?,?,?,?)",
+               (session['username'], prompt_id, prompt_text, 'running', count, 0, datetime.now().isoformat()))
+    db.execute("""DELETE FROM image_jobs WHERE username=? AND id NOT IN (
+                     SELECT id FROM image_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
+               (session['username'], session['username'], IMAGE_HISTORY_LIMIT))
+    db.commit()
+    threading.Thread(target=_image_worker, args=(prompt_id, session['username'], prompt_text, count), daemon=True).start()
+    return jsonify({'prompt_id': prompt_id, 'count': count})
+
+
+@bp.route('/api/image/history')
+@login_required
+def api_image_history():
+    rows = get_db().execute(
+        "SELECT prompt_id, prompt, status, count, done_count, created_at FROM image_jobs WHERE username=? ORDER BY id DESC",
+        (session['username'],)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@bp.route('/api/image/status/<prompt_id>')
+@login_required
+def api_image_status(prompt_id):
+    row = get_db().execute(
+        "SELECT status, count, done_count FROM image_jobs WHERE prompt_id=? AND username=?",
+        (prompt_id, session['username'])).fetchone()
+    if not row:
+        abort(404)
+    return jsonify({'status': row['status'], 'count': row['count'], 'done_count': row['done_count']})
+
+
+@bp.route('/image/file/<prompt_id>')
+@bp.route('/image/file/<prompt_id>/<int:idx>')
+@login_required
+def image_file(prompt_id, idx=0):
+    owned = get_db().execute(
+        "SELECT 1 FROM image_jobs WHERE prompt_id=? AND username=?",
+        (prompt_id, session['username'])).fetchone()
+    if not owned:
+        abort(404)
+    safe = re.sub(r'[^a-f0-9]', '', str(prompt_id))
+    if not safe:
+        abort(404)
+    idx = max(0, min(IMAGE_MAX_BATCH - 1, int(idx)))
+    path = os.path.join(IMAGE_FILES_DIR, f"{safe}_{idx}.png")
+    # Backward-compat: jobs made before batching saved a single <prompt_id>.png.
+    if not os.path.isfile(path) and idx == 0:
+        legacy = os.path.join(IMAGE_FILES_DIR, safe + '.png')
+        if os.path.isfile(legacy):
+            path = legacy
+    if not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype='image/png')

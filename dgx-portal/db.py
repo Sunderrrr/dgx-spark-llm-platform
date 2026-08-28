@@ -38,3 +38,25 @@ def close_db(e=None):
     db = g.pop('db', None)
     if db:
         db.close()
+
+
+# ── Reglages persistes (table `settings`) ────────────────────────────────────
+# De simples enveloppes SQL sur get_db : leur place est dans le noyau, pas dans
+# le monolithe, parce que plusieurs sections extraites en ont besoin.
+
+def get_setting(key, default=None):
+    row = get_db().execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row['value'] if row else default
+
+
+def set_setting(key, value):
+    db = get_db()
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, str(value))
+    )
+    db.commit()
+
+
+def maintenance_active():
+    return get_setting('maintenance_mode', '0') == '1'

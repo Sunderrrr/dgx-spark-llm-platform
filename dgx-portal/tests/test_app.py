@@ -515,3 +515,60 @@ class TrouvaillesTest(unittest.TestCase):
         t = portal._texte_des_trouvailles([('recherche_web', 'AAA'), ('lire_pages', 'BBB')])
         self.assertIn('AAA', t)
         self.assertIn('BBB', t)
+
+
+class GardeDesRoutesTest(unittest.TestCase):
+    """Toute route du portail est authentifiée, sauf une liste explicite.
+
+    Audit du 24/08 : 108 routes, 7 publiques, aucun oubli. Ce test fige ce
+    résultat. Il ne lit PAS le source — il parcourt le `url_map` de Flask et
+    interroge le marqueur `_garde` posé par login_required/admin_required, donc
+    il voit aussi une route enregistrée autrement que par un `@app.route`
+    littéral.
+
+    Le vrai risque couvert n'est pas l'état actuel du code mais son futur : le
+    conteneur OCR exécute du code de modèle tiers (`--trust-remote-code`) et
+    partage `ocr_net` avec le portail. Une route publique ajoutée par
+    inadvertance deviendrait joignable depuis ce code-là. Si ce test échoue,
+    la question n'est pas « comment le faire passer » mais « cette route
+    a-t-elle vraiment vocation à être publique ».
+    """
+
+    # Chaque entrée est publique POUR UNE RAISON. On n'en ajoute pas sans
+    # savoir dire laquelle.
+    PUBLIQUES = {
+        'api_config':         "ne renvoie que {oidc_enabled}, lu avant connexion",
+        'login':              "point d'entrée de l'authentification",
+        'login_sso':          "redirection vers le fournisseur OIDC",
+        'oauth_callback':     "retour du fournisseur OIDC, hors session",
+        'logout':             "doit marcher même sur une session déjà expirée",
+        'api_csrf':           "délivre le jeton CSRF nécessaire pour se connecter",
+        'internal_authcheck': "appelé par Traefik (forwardAuth), jamais par un navigateur ; "
+                              "ne renvoie aucune donnée",
+        'static':             "fichiers statiques servis par Flask",
+    }
+
+    def test_aucune_route_sans_garde_hors_liste(self):
+        sans_garde = set()
+        for regle in portal.app.url_map.iter_rules():
+            vue = portal.app.view_functions.get(regle.endpoint)
+            if vue is None or getattr(vue, '_garde', None):
+                continue
+            sans_garde.add(regle.endpoint)
+        nouvelles = sans_garde - set(self.PUBLIQUES)
+        self.assertEqual(nouvelles, set(),
+                         "route(s) sans login_required/admin_required : "
+                         f"{sorted(nouvelles)} — publier une route est un choix, "
+                         "pas un défaut : documente-la dans PUBLIQUES ou ajoute une garde.")
+
+    def test_la_liste_des_publiques_ne_pourrit_pas(self):
+        """Une entrée qui ne correspond plus à aucune route doit disparaître."""
+        connues = {r.endpoint for r in portal.app.url_map.iter_rules()}
+        self.assertEqual(set(self.PUBLIQUES) - connues, set(),
+                         "entrée(s) obsolète(s) dans PUBLIQUES")
+
+    def test_le_marqueur_est_bien_pose(self):
+        """Sans marqueur, le test principal passerait en ne voyant rien."""
+        gardees = [r.endpoint for r in portal.app.url_map.iter_rules()
+                   if getattr(portal.app.view_functions.get(r.endpoint), '_garde', None)]
+        self.assertGreater(len(gardees), 90, "le marqueur _garde a disparu des décorateurs")

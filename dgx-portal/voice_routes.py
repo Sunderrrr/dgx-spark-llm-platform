@@ -24,6 +24,7 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 from auth import login_required
 from config import VOICE_URL
 from db import get_db
+from sidecars import get_voice_model
 from guards import _MAX_VOICE_UPLOAD_BYTES, maintenance_block_json, media_rate_block
 
 bp = Blueprint('voice', __name__)
@@ -289,3 +290,7 @@ def voice_audio(job_id):
     if not os.path.isfile(path):
         abort(404)
     return send_file(path, mimetype='audio/mpeg')
+
+
+# Variante Chatterbox chargee, rapatriee de app.py le 28/08 : sonde purement
+# voix, elle etait rangee dans « Helpers ». app.py et sidecars.py la reimportent.

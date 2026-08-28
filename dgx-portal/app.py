@@ -116,10 +116,19 @@ def _csrf_protect():
 def _inject_csrf():
     return {'csrf_token': _ensure_csrf}
 
-LDAP_URI      = os.environ.get('LDAP_URI', 'ldap://lldap.cronos.lan:3890')
-LDAP_BASE     = os.environ.get('LDAP_BASE', 'dc=cronos,dc=website')
-LDAP_BIND_DN  = os.environ.get('LDAP_BIND_DN', '')
-LDAP_BIND_PW  = os.environ.get('LDAP_BIND_PW', '')
+# Configuration : cf. config.py (2e piece du noyau partage, avec db.py).
+from config import (  # noqa: E402
+    LDAP_URI, LDAP_BASE, LDAP_BIND_DN, LDAP_BIND_PW,
+    DEBUG_ADMIN_USERNAMES, LITELLM_URL, LITELLM_KEY, VLLM_API,
+    RUNNER_URL, RUNNER_TOKEN, COMFYUI_URL, OCR_URL,
+    VOICE_URL, ASR_URL, MUSIC_URL, DISCORD_WH,
+    DISCORD_BOT_TOKEN, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI,
+    DISCORD_LINK_ENABLED, DISCORD_API, SMTP_HOST, SMTP_PORT,
+    SMTP_USER, SMTP_PASS, SMTP_FROM, ADMIN_EMAIL,
+    KEY_BUDGET, KEY_DURATION, PUBLIC_API_URL, LITELLM_DB_URL,
+    LOCAL_TZ, OIDC_METADATA_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET,
+    OIDC_REDIRECT_URI, OIDC_LOGOUT_URL, OIDC_ADMIN_GROUP, OIDC_ENABLED,
+)
 # Local fallback accounts, usable when LDAP is unreachable. Inert
 # by default: it does nothing unless /app/data/DEBUG_LOGIN_ENABLED
 # exists (toggled by hand via `docker exec dgx-portal touch|rm ...`, no
@@ -129,7 +138,6 @@ LDAP_BIND_PW  = os.environ.get('LDAP_BIND_PW', '')
 # attempt: adding/removing a user needs no redeploy.
 DEBUG_LOGIN_FLAG  = '/app/data/DEBUG_LOGIN_ENABLED'
 DEBUG_USERS_FILE  = '/app/data/DEBUG_USERS.txt'
-DEBUG_ADMIN_USERNAMES = {u.strip() for u in os.environ.get('DEBUG_ADMIN_USERNAMES', '').split(',') if u.strip()}
 
 
 def _load_debug_users():
@@ -163,56 +171,11 @@ def _debug_user_fullname(username):
         if row and row['fullname']:
             return row['fullname']
     return username
-LITELLM_URL   = os.environ.get('LITELLM_URL', 'http://litellm:4000')
-LITELLM_KEY   = os.environ.get('LITELLM_MASTER_KEY', '')
-VLLM_API      = os.environ.get('VLLM_API_URL', 'http://host.docker.internal:8000/v1')
-RUNNER_URL    = os.environ.get('VLLM_RUNNER_URL', 'http://host.docker.internal:8001')
-RUNNER_TOKEN  = os.environ.get('RUNNER_TOKEN', '')
-# ComfyUI (MiniMax H3 video generation) — host process, never exposed (127.0.0.1
-# only on the host, reached via host.docker.internal like the vLLM runner).
-COMFYUI_URL   = os.environ.get('COMFYUI_URL', 'http://host.docker.internal:8188')
-# OCR (baidu/Unlimited-OCR) — container on the internal docker network, never
-# a port published on the host.
-OCR_URL       = os.environ.get('OCR_URL', 'http://ocr:8000/v1')
-# Voice (Chatterbox, cloning) — same reasoning as OCR, dedicated network.
-VOICE_URL     = os.environ.get('VOICE_URL', 'http://voice:8004')
-# Transcription (dictation) — same.
-ASR_URL       = os.environ.get('ASR_URL', 'http://asr:8006')
-MUSIC_URL     = os.environ.get('MUSIC_URL', 'http://music:8008')
-DISCORD_WH    = os.environ.get('DISCORD_WEBHOOK_URL', '')
-# Discord DM notifications: a bot DMs each user who linked their account (OAuth2
-# "identify") whenever an announcement fires (model change, site announcement,
-# maintenance, new model). The bot token sends DMs; the client id/secret drive
-# the account-linking OAuth flow. All optional — absent → the feature is off.
-DISCORD_BOT_TOKEN     = os.environ.get('DISCORD_BOT_TOKEN', '')
-DISCORD_CLIENT_ID     = os.environ.get('DISCORD_CLIENT_ID', '')
-DISCORD_CLIENT_SECRET = os.environ.get('DISCORD_CLIENT_SECRET', '')
-DISCORD_REDIRECT_URI  = os.environ.get('DISCORD_REDIRECT_URI', '')
-DISCORD_LINK_ENABLED  = bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET)
-DISCORD_API           = 'https://discord.com/api/v10'
-SMTP_HOST     = os.environ.get('SMTP_HOST', '')
-SMTP_PORT     = int(os.environ.get('SMTP_PORT', '587'))
-SMTP_USER     = os.environ.get('SMTP_USER', '')
-SMTP_PASS     = os.environ.get('SMTP_PASSWORD', '')
-SMTP_FROM     = os.environ.get('SMTP_FROM', '')
-ADMIN_EMAIL   = os.environ.get('ADMIN_EMAIL', '')
-KEY_BUDGET    = float(os.environ.get('KEY_MAX_BUDGET', '0.002'))
-KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '1d')
-from db import DB_PATH, close_db, get_db  # noqa: E402  (cf. commentaire plus bas)
-# Public URL of the OpenAI-compatible API, shown to users.
-PUBLIC_API_URL = os.environ.get('PUBLIC_API_URL', 'https://api.cronos.website/v1')
-# LiteLLM database (Postgres) for timestamped consumption stats.
-LITELLM_DB_URL = os.environ.get('LITELLM_DATABASE_URL', '')
-LOCAL_TZ       = os.environ.get('TZ_DISPLAY', 'Europe/Paris')
+from db import (  # noqa: E402  (cf. commentaire plus bas)
+    DB_PATH, close_db, get_db, get_setting, maintenance_active, set_setting,
+)
 
 # ── SSO / OIDC (Authentik) ───────────────────────────────────────────────────
-OIDC_METADATA_URL  = os.environ.get('OIDC_METADATA_URL', '')
-OIDC_CLIENT_ID     = os.environ.get('OIDC_CLIENT_ID', '')
-OIDC_CLIENT_SECRET = os.environ.get('OIDC_CLIENT_SECRET', '')
-OIDC_REDIRECT_URI  = os.environ.get('OIDC_REDIRECT_URI', '')
-OIDC_LOGOUT_URL    = os.environ.get('OIDC_LOGOUT_URL', '')
-OIDC_ADMIN_GROUP   = os.environ.get('OIDC_ADMIN_GROUP', 'adm_cronos')
-OIDC_ENABLED       = bool(OIDC_METADATA_URL and OIDC_CLIENT_ID and OIDC_CLIENT_SECRET)
 
 oauth = None
 if OIDC_ENABLED:
@@ -233,20 +196,7 @@ if OIDC_ENABLED:
 # app.py ne peut pas reimporter app.py.
 app.teardown_appcontext(close_db)
 
-def get_setting(key, default=None):
-    row = get_db().execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-    return row['value'] if row else default
-
-def set_setting(key, value):
-    db = get_db()
-    db.execute(
-        "INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (key, str(value))
-    )
-    db.commit()
-
-def maintenance_active():
-    return get_setting('maintenance_mode', '0') == '1'
+# get_setting / set_setting / maintenance_active : cf. db.py (noyau partage).
 
 _admin_username_cache = {}
 
@@ -1677,85 +1627,9 @@ def notify_budget_discord(username, fullname, key_alias, current_budget, reason)
     except Exception:
         pass
 
-# ── Discord DM notifications (announcements → linked users' DMs) ──────────────
-# Distinct from the admin webhook above: here the *bot* sends a private message
-# to each user who opted in by linking their Discord account. A DM needs a mutual
-# guild with the bot and the user's DMs open, so per-user failures are expected
-# and swallowed (best-effort).
-def _discord_bot_headers():
-    return {"Authorization": f"Bot {DISCORD_BOT_TOKEN}", "Content-Type": "application/json"}
-
-def _discord_send_dm(discord_id, content):
-    """Open (or reuse) a DM channel with the user and post one message. Handles a
-    single 429 retry. Returns True on success."""
-    if not DISCORD_BOT_TOKEN:
-        return False
-    try:
-        ch = requests.post(f"{DISCORD_API}/users/@me/channels",
-                           headers=_discord_bot_headers(),
-                           json={"recipient_id": str(discord_id)}, timeout=8)
-        if not ch.ok:
-            return False
-        channel_id = ch.json().get('id')
-        if not channel_id:
-            return False
-        body = {"content": content[:1900]}
-        r = requests.post(f"{DISCORD_API}/channels/{channel_id}/messages",
-                          headers=_discord_bot_headers(), json=body, timeout=8)
-        if r.status_code == 429:
-            try:
-                time.sleep(min(float(r.json().get('retry_after', 1)), 5))
-            except Exception:
-                time.sleep(1)
-            r = requests.post(f"{DISCORD_API}/channels/{channel_id}/messages",
-                              headers=_discord_bot_headers(), json=body, timeout=8)
-        return r.ok
-    except Exception:
-        return False
-
-def discord_broadcast(content):
-    """DM every linked user, in a background thread so the caller (a launch or an
-    announcement) isn't blocked. Throttled to stay under Discord's rate limits."""
-    if not DISCORD_BOT_TOKEN or not content:
-        return
-    if get_setting('discord_dm', '1') != '1':   # admin kill-switch
-        return
-    def _run():
-        try:
-            conn = sqlite3.connect(DB_PATH, timeout=5)
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute("SELECT discord_id FROM discord_links").fetchall()
-            conn.close()
-        except Exception:
-            return
-        for row in rows:
-            _discord_send_dm(row['discord_id'], content)
-            time.sleep(0.3)   # gentle: ~3 DMs/s, well under the limit
-    threading.Thread(target=_run, daemon=True).start()
-
-def _discord_announce(kind, a='', b=''):
-    """Format an announcement for Discord (FR) and DM it to linked users. Mirrors
-    the four announcement kinds produced by add_announcement()."""
-    a = a or ''
-    b = b or ''
-    if kind == 'model_launch':
-        txt = f"🤖 **Nouveau modèle actif : {a}**"
-        if b:
-            txt += f"\n_Il remplace {b}._"
-    elif kind == 'model_add':
-        txt = f"✨ **Nouveau modèle disponible : {a}**"
-    elif kind == 'maintenance':
-        txt = ("🛠️ **Maintenance en cours** — le service peut être interrompu un moment."
-               if a == 'on' else
-               "✅ **Fin de maintenance** — le service est rétabli.")
-    elif kind == 'site':
-        txt = f"📣 **{a}**"
-        if b:
-            txt += f"\n{b}"
-    else:
-        return
-    txt += "\n\n— Cronos"
-    discord_broadcast(txt)
+# ── Notifications Discord ────────────────────────────────────────────────────
+# Deplacees dans discord_notify.py le 28/08 (cf. db.py et config.py).
+from discord_notify import _discord_announce, discord_broadcast  # noqa: E402
 
 def notify_budget_email(username, fullname, key_alias, current_budget, reason):
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):

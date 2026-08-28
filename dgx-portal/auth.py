@@ -188,9 +188,34 @@ def is_admin_username(username):
     cached = _admin_username_cache.get(username)
     if cached and now - cached[0] < 60:
         return cached[1]
-    is_admin = username in DEBUG_ADMIN_USERNAMES or ldap_lookup_admin(username)
+    is_admin = (username in DEBUG_ADMIN_USERNAMES
+                or ldap_lookup_admin(username)
+                or _local_user_admin(username))
     _admin_username_cache[username] = (now, is_admin)
     return is_admin
+
+
+def _local_user_admin(username):
+    """True if a managed local account (local_users table) is an admin.
+
+    is_admin_username feeds /internal/authcheck, which decides whether an API key
+    bypasses maintenance mode. It previously only looked at DEBUG_ADMIN_USERNAMES
+    + LDAP, so an admin created through the local-users UI had a working web
+    session (session['is_admin']) but their key was rejected (503) in
+    maintenance mode — two sources of truth for "admin". This closes that gap.
+    """
+    try:
+        row = get_db().execute(
+            "SELECT * FROM local_users WHERE username=? AND enabled=1", (username,)).fetchone()
+        if not row:
+            return False
+        if row['is_admin']:
+            return True
+        g = get_db().execute(
+            "SELECT is_admin FROM user_groups WHERE name=?", (row['group_name'],)).fetchone()
+        return bool(g and g['is_admin'])
+    except Exception:
+        return False
 
 # ── LDAP ──
 

@@ -30,6 +30,12 @@ def api_transcribe():
     blocked = maintenance_block_json()
     if blocked:
         return blocked
+    # Dictation is an expensive GPU endpoint (up to 180 s per call against the
+    # shared ASR model) that has no LiteLLM key/budget — bound it like the other
+    # media routes (guards.media_rate_block documents "video/OCR/voice/dictation").
+    limited = media_rate_block()
+    if limited:
+        return limited
     f = request.files.get('audio')
     if not f or not f.filename:
         return jsonify({'error': "Aucun audio fourni."}), 400

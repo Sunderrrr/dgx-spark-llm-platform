@@ -124,7 +124,20 @@ def api_admin():
     }
     with ThreadPoolExecutor(max_workers=len(probes)) as pool:
         futures = {k: pool.submit(fn) for k, fn in probes.items()}
-        probed = {k: f.result() for k, f in futures.items()}
+        # One probe raising (e.g. the runner is down and a dependency times out)
+        # must not 500 the whole admin page. Degrade that probe to a benign
+        # default the frontend can render instead of the whole page failing.
+        probed = {}
+        for k, future in futures.items():
+            try:
+                probed[k] = future.result()
+            except Exception:
+                if k in ('running_models', 'spend_data', 'init_logs'):
+                    probed[k] = []
+                elif k in ('v_status',) or k.endswith('_status'):
+                    probed[k] = {'running': False}
+                else:
+                    probed[k] = None
 
     return jsonify({
         'requests': [dict(r) for r in all_reqs],
@@ -727,8 +740,17 @@ def admin_runner_stream():
     # set an Authorization header. dgx-portal, however, is on the bridge and has
     # the token — so we relay the SSE stream here, internally, without ever exposing
     # RUNNER_TOKEN to the browser.
-    upstream = requests.get(f"{RUNNER_URL}/stream", headers=_runner_headers(),
-                            stream=True, timeout=(5, None))
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    try:
+        upstream = requests.get(f"{RUNNER_URL}/stream", headers=_runner_headers(),
+                                stream=True, timeout=(5, None))
+    except Exception:
+        upstream = None
+    # If the runner is down, degrade to a closed SSE error frame instead of a 500
+    # that would be indistinguishable from a broken stream on the client side.
+    if upstream is None or not upstream.ok:
+        return Response('data: {"error": "runner unreachable"}\n\ndata: [DONE]\n\n',
+                        mimetype="text/event-stream", headers=headers)
 
     def generate():
         buf = ''
@@ -746,7 +768,6 @@ def admin_runner_stream():
         finally:
             upstream.close()
 
-    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     return Response(stream_with_context(generate()), mimetype="text/event-stream", headers=headers)
 
 # Cautious default vLLM args for a validated model (to tune afterwards).

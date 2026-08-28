@@ -274,8 +274,21 @@ def _account_activity(username, days=182):
     }
 
 
+_key_user_map_cache = {'t': 0.0, 'v': None}
+
 def _key_user_map(conn):
-    """token(hash) -> username, from the keys' metadata (active + deleted)."""
+    """token(hash) -> username, from the keys' metadata (active + deleted).
+
+    Reads the three key tables on every call — and this is called by
+    user_hourly, _active_users and the admin consumption view, i.e. on every
+    /api/home and /api/admin poll. The mapping only changes when an admin
+    creates/revokes a key, so cache it briefly (~30 s) to stop a multi-SELECT
+    scan per poll. A new key's attribution may lag up to 30 s (acceptable);
+    newly-created keys only get used after that in any case.
+    """
+    now = time.time()
+    if _key_user_map_cache['v'] is not None and now - _key_user_map_cache['t'] < 30:
+        return _key_user_map_cache['v']
     mapping = {}
     cur = conn.cursor()
     for table in ('LiteLLM_VerificationToken', 'LiteLLM_DeletedVerificationToken',
@@ -287,6 +300,7 @@ def _key_user_map(conn):
                     mapping[token] = user
         except Exception:
             pass
+    _key_user_map_cache.update(t=time.time(), v=mapping)
     return mapping
 
 def _series_for(usernames):

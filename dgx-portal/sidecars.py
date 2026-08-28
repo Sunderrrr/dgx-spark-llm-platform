@@ -28,6 +28,13 @@ from vllm_health import get_running_models
 
 _log = logging.getLogger('app')
 
+# Launchable voice variants. Must stay aligned with runner.py's
+# allowlists (_VOICE_REPO_IDS / _VOICE_QWEN_IDS), which revalidate on their side.
+VOICE_REPO_IDS = (
+    'Qwen3-TTS-12Hz-1.7B-Base', 'Qwen3-TTS-12Hz-0.6B-Base',
+    'chatterbox-multilingual', 'chatterbox-turbo', 'chatterbox',
+)
+
 
 
 

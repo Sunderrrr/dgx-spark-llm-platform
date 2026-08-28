@@ -11,14 +11,16 @@ celles en cours — LiteLLM n'ecrit sa ligne qu'a la fin, donc sans ce registre 
 utilisateur en pleine generation resterait invisible.
 """
 import re
+import requests
 import secrets
 import sqlite3
 import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from config import LOCAL_TZ
+from config import LITELLM_URL, LOCAL_TZ
 from db import DB_PATH, _spend_conn, get_db
+from litellm_client import litellm_headers
 from vllm_health import vllm_health
 
 # The rate is now 1:1 (input=1, output=1) → SpendLogs.spend ≈ real tokens
@@ -473,3 +475,78 @@ def user_hourly(username):
         return empty
     finally:
         conn.close()
+
+
+# ── Usage par sidecar, pour l'administration ────────────────────────────────
+# Rapatriees de la banniere « Apercu » le 28/08, ou elles n'avaient rien a
+# faire : ce sont des agregats de consommation, comme le reste de ce module.
+
+def admin_get_user_consumption():
+    """Consumption per ACCOUNT: number of keys (local DB) + spend/budget at the
+    LiteLLM user level, fetched in ONE /user/list call (instead of one call per key and
+    per user — which blocked the admin page render).
+    """
+    counts = {}
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        for r in conn.execute("SELECT username, COUNT(*) c FROM api_keys GROUP BY username"):
+            counts[r['username']] = r['c']
+        conn.close()
+    except Exception:
+        pass
+    users = {}
+    try:
+        r = requests.get(f"{LITELLM_URL}/user/list", headers=litellm_headers(),
+                         params={"page_size": 100}, timeout=6)
+        if r.ok:
+            for u in r.json().get('users', []):
+                uid = u.get('user_id')
+                if uid not in counts:
+                    continue  # only display accounts that have keys here
+                mb = u.get('max_budget')
+                users[uid] = {'username': uid, 'spend': u.get('spend') or 0,
+                              'max_budget': mb if mb is not None else 0,
+                              'unlimited': mb is None, 'key_count': counts[uid]}
+    except Exception:
+        pass
+    # Accounts with keys but no LiteLLM user object → shown anyway.
+    for uname, c in counts.items():
+        users.setdefault(uname, {'username': uname, 'spend': 0, 'max_budget': 0,
+                                 'unlimited': False, 'key_count': c})
+    # Real tokens consumed (prompt + generated) over the current budget period.
+    # The budget is daily and resets at 00:00 UTC → we only count
+    # since the start of the UTC day, so "consumed" is comparable to
+    # "budget / day" (otherwise we showed the all-time cumulative > budget).
+    day_start = (datetime.now(ZoneInfo('UTC'))
+                 .replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None))
+    toks = _real_tokens_by_user(day_start)
+    for uid, u in users.items():
+        u['tokens'] = toks.get(uid, 0)
+    return sorted(users.values(), key=lambda u: u['tokens'], reverse=True)
+
+def admin_get_ocr_usage():
+    """OCR and video never go through a LiteLLM API key (internal backend,
+    not exposed — cf. get_ocr_model()/comfyui_is_up()): LiteLLM_SpendLogs knows
+    nothing about them. Only the local ocr_jobs/video_jobs tables know who
+    uses them.
+    """
+    rows = get_db().execute(
+        "SELECT username, COUNT(*) AS c, MAX(created_at) AS last "
+        "FROM ocr_jobs GROUP BY username ORDER BY c DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+def admin_get_video_usage():
+    rows = get_db().execute(
+        "SELECT username, COUNT(*) AS c, MAX(created_at) AS last "
+        "FROM video_jobs GROUP BY username ORDER BY c DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+def admin_get_voice_usage():
+    rows = get_db().execute(
+        "SELECT username, COUNT(*) AS c, MAX(created_at) AS last "
+        "FROM voice_jobs GROUP BY username ORDER BY c DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]

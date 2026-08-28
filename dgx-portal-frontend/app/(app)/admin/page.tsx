@@ -153,11 +153,18 @@ export default function AdminPage() {
     [attachLogsScroller],
   );
 
-  function refresh() {
+  // `amorce` : ne recopier init_logs QUE lors du premier chargement. Ce
+  // rafraîchissement tourne toutes les 8 s, et il écrasait à chaque passage les
+  // lignes accumulées par le flux SSE avec un instantané figé — donc en régime
+  // normal le panneau reperdait tout le direct trois fois par tour de flux, et
+  // si l'instantané était vide (cf. runner_logs côté portail) il se vidait
+  // purement et simplement. Le flux est la source de vérité une fois ouvert ;
+  // init_logs ne sert qu'à remplir le panneau avant sa première ligne.
+  function refresh(amorce = false) {
     getJSON<AdminData>("/api/admin")
       .then((d) => {
         setData(d);
-        setLogs(d.init_logs);
+        if (amorce) setLogs(d.init_logs);
         setSettings({ budget: String(d.default_key_budget), duration: d.default_key_duration });
       })
       .catch((e) => {
@@ -165,12 +172,12 @@ export default function AdminPage() {
       });
   }
 
-  useEffect(refresh, []);
+  useEffect(() => { refresh(true); }, []);
   // Re-poll admin data every 8s; stops once access is known forbidden to
   // avoid hammering a 403.
   useEffect(() => {
     if (forbidden) return;
-    const id = setInterval(refresh, 8000);
+    const id = setInterval(() => refresh(), 8000);
     return () => clearInterval(id);
   }, [forbidden]);
 
@@ -179,7 +186,11 @@ export default function AdminPage() {
     // EventSource would retry indefinitely an admin-only stream.
     if (forbidden) return;
     const es = new EventSource("/admin/runner/stream");
+    // Le flux rejoue TOUT son tampon a chaque connexion : on vide donc a
+    // l'ouverture, sinon ses lignes s'ajouteraient a celles de l'amorce et le
+    // panneau afficherait tout en double.
     es.onopen = () => setLogs([]);
+
     es.onmessage = (e) => setLogs((prev) => [...prev, e.data].slice(-MAX_LOG_LINES));
     es.addEventListener("clear", () => setLogs([]));
     return () => es.close();

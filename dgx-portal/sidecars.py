@@ -400,11 +400,24 @@ def runner_logs(n=150):
         _log.warning("runner_logs : %s", type(e).__name__)
     return []
 
+_runner_metrics_cache = {'t': 0.0, 'v': None}
+
 def runner_metrics():
+    """Host CPU/RAM/GPU metrics from the runner. Expensive on the runner side:
+    _cpu_pct() samples /proc/stat and _gpu() spawns nvidia-smi. /api/home calls
+    this on every poll, so cache briefly — the "Server state" panel is polled
+    every ~5 s and doesn't need sub-3 s freshness. (The 229 ms cost itself is a
+    runner-side time.sleep(0.2); see vllm-runner/runner.py _cpu_pct.)
+    """
+    now = time.time()
+    if now - _runner_metrics_cache['t'] < 3:
+        return _runner_metrics_cache['v']
+    out = None
     try:
         r = requests.get(f"{RUNNER_URL}/metrics", headers=_runner_headers(), timeout=5)
         if r.ok:
-            return r.json()
+            out = r.json()
     except Exception:
         pass
-    return None
+    _runner_metrics_cache.update(t=now, v=out)
+    return out

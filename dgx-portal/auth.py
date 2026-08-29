@@ -50,7 +50,22 @@ def _session_expired():
         return False
     # Sessions created before auth_at was introduced: treated as
     # expired rather than eternal.
-    return time.time() - session.get('auth_at', 0) > SESSION_MAX_AGE
+    if time.time() - session.get('auth_at', 0) > SESSION_MAX_AGE:
+        return True
+    # Registre serveur : la session n'est plus seulement limitée par son âge,
+    # elle peut être révoquée à volonté (logout, compte verrouillé, admin).
+    sid = session.get('sid')
+    if not sid:
+        # Session antérieure au registre (ou session de test sans sid) : on
+        # conserve l'expiration par l'âge seule — elle n'est pas révocable mais
+        # expirera naturellement. Les nouvelles sessions portent un sid et le
+        # sont. Pas de déconnexion en masse lors de la migration.
+        return False
+    row = get_db().execute(
+        "SELECT revoked, expires_at FROM user_sessions WHERE sid=?", (sid,)).fetchone()
+    if row is None or row['revoked'] or row['expires_at'] < time.time():
+        return True
+    return False
 
 
 def login_required(f):
@@ -356,3 +371,33 @@ def _apply_session(username, fullname, is_admin, via_sso=False):
     # access, and the is_admin flag frozen inside survived a removal from the
     # admin group on the directory side. See _session_expired().
     session['auth_at'] = int(time.time())
+    # Registre serveur : le cookie signé ne porte que ce sid aléatoire ; la
+    # ligne en base (user_sessions) permet de le révoquer à volonté. Un
+    # sid est créé à chaque ouverture de session (login local/LDAP/SSO).
+    sid = secrets.token_urlsafe(32)
+    db = get_db()
+    db.execute(
+        "INSERT INTO user_sessions (sid, username, auth_at, expires_at, revoked, created_at) "
+        "VALUES (?, ?, ?, ?, 0, ?)",
+        (sid, username, session['auth_at'], session['auth_at'] + SESSION_MAX_AGE, time.time()))
+    db.commit()
+    session['sid'] = sid
+
+
+def _revoke_current_session():
+    """Révoque la session courante (logout) : le sid en base passe à revoked,
+    la demande suivante la considérera expirée."""
+    sid = session.get('sid')
+    if not sid:
+        return
+    db = get_db()
+    db.execute("UPDATE user_sessions SET revoked=1 WHERE sid=?", (sid,))
+    db.commit()
+
+
+def _revoke_user_sessions(username):
+    """Révoque toutes les sessions actives d'un compte (verrouillage, admin).
+    Ne lève pas si le compte n'a pas de session en base."""
+    db = get_db()
+    db.execute("UPDATE user_sessions SET revoked=1 WHERE username=?", (username,))
+    db.commit()

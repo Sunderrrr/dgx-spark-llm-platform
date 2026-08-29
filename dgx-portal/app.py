@@ -131,11 +131,6 @@ if OIDC_ENABLED:
 # noyau partage par les modules extraits du monolithe, et un module importe par
 # app.py ne peut pas reimporter app.py.
 app.teardown_appcontext(close_db)
-
-# get_setting / set_setting / maintenance_active : cf. db.py (noyau partage).
-
-
-
 # _sse_msg / maintenance_block_sse : cf. guards.py
 from guards import _sse_msg, maintenance_block_sse  # noqa: E402
 
@@ -144,15 +139,6 @@ from guards import (  # noqa: E402
     CHAT_RATE_MAX, CHAT_RATE_WINDOW, _chat_rate_limited,
     maintenance_block_json, media_rate_block,
 )
-
-# init_db (schema + migrations) : cf. db.py
-
-# ── LDAP ────────────────────────────────────────────────────────────────────
-
-
-
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
 
 # Client LiteLLM (cles, budgets, comptes) : cf. litellm_client.py
 from litellm_client import (  # noqa: E402
@@ -163,19 +149,8 @@ from litellm_client import (  # noqa: E402
 # get_running_models / _rm_cache : cf. vllm_health.py
 from vllm_health import get_running_models  # noqa: E402
 
-
-
-
-# VOICE_REPO_IDS : cf. sidecars.py (liste blanche des variantes lancables)
-
-
-
-
 # Annonces (enregistrement + diffusion) : cf. announcements.py
 from announcements import _announce_launch, add_announcement  # noqa: E402
-
-
-
 
 # Runner et sidecars (etat, lancement, journaux, sondes) : cf. sidecars.py
 from sidecars import (  # noqa: E402
@@ -198,17 +173,6 @@ from comfyui_client import (  # noqa: E402
     _comfyui_output_file, _local_video_path, _cache_video_local,
     VIDEO_FILES_DIR, COMFYUI_OUTPUT_DIR,
 )
-# ── OCR (baidu/Unlimited-OCR by default; chandra-ocr-2 also supported) ──────
-# Internal container (dedicated ocr_net network, cf. README "Security"), never a
-# published port.
-#
-# chandra-ocr-2 (datalab-to) has a completely different input/output contract
-# from Unlimited-OCR: instead of a free prompt + "label [x,y,x,y]text" lines,
-# it expects a fixed STRUCTURED prompt and replies in HTML with
-# data-label/data-bbox attributes (bbox as spaced "x0 y0 x1 y1", always 0-1000). Text
-# copied verbatim from chandra/prompts.py (OCR_LAYOUT_PROMPT on the model side) —
-# rewording it would break the output format expected by the front-end parser.
-
 
 # Sonde vLLM (sante, debit, contexte) + recherche HF : cf. vllm_health.py
 from vllm_health import (  # noqa: E402
@@ -227,7 +191,6 @@ from notify import (  # noqa: E402
 # Deplacees dans discord_notify.py le 28/08 (cf. db.py et config.py).
 from discord_notify import _discord_announce, discord_broadcast  # noqa: E402
 
-
 # ── Gardes d'authentification ────────────────────────────────────────────────
 # Deplacees dans auth.py le 28/08 : un blueprint doit pouvoir les importer sans
 # reimporter app.py. Cf. la docstring d'auth.py.
@@ -235,6 +198,142 @@ from auth import (  # noqa: E402
     SESSION_MAX_AGE, _API_FETCH_PATHS, _is_api_request, _session_expired,
     admin_required, login_required,
 )
+
+# ── Local users managed by the admin (local_users table) ─────────────────────
+# Comptes locaux (authentification, budget) : cf. local_users.py
+from local_users import (  # noqa: E402
+    _local_group, _local_user_auth, _local_user_effective_budget,
+    _local_user_is_admin, _parse_budget, _record_user_source,
+    _sync_local_user_budget,
+)
+
+# ── Discord account linking (OAuth2 "identify") ──────────────────────────────
+# ── Liaison de compte Discord ────────────────────────────────────────────────
+# Blueprint : cf. discord_routes.py (28/08).
+from discord_routes import bp as discord_bp  # noqa: E402
+
+# ── Reglages utilisateur ─────────────────────────────────────────────────────
+# Blueprint : cf. settings_routes.py (28/08).
+from settings_routes import bp as settings_bp  # noqa: E402
+
+# ── Historique des conversations du playground ───────────────────────────────
+# Blueprint : cf. conversation_routes.py (28/08).
+from conversation_routes import (  # noqa: E402
+    CONVERSATIONS_MAX, CONV_MAX_CHARS, MSG_MAX_CHARS, bp as conversations_bp,
+)
+
+# ── Support (assistant IA) ───────────────────────────────────────────────────
+# Assistant Support (outils, execution, contexte) : cf. support.py
+from support import (  # noqa: E402
+    _clean_reply, _exec_support_tool, _mask_key, _sse_tool_event,
+    _support_context, _support_tools, _user_extra_tools,
+    GUARDED_TOOLS, SUPPORT_SYSTEM, TOOL_LABELS, _exec_mcp_tool, _exec_skill,
+    _support_tool_target,
+)
+
+# ── Memoire : graphe de connaissances par utilisateur ────────────────────────
+# Premier blueprint sorti du monolithe (28/08) : cf. memory_routes.py.
+from memory_routes import bp as memory_bp  # noqa: E402
+
+# ── Apercu d'une page HTML generee ───────────────────────────────────────────
+# Blueprint : cf. preview_routes.py (28/08).
+from preview_routes import bp as preview_bp  # noqa: E402
+
+# ── Chat (playground + support), en flux SSE ─────────────────────────────────
+# Blueprint : cf. chat_routes.py (28/08).
+from chat_routes import bp as chat_bp  # noqa: E402
+
+# ── Statistiques de consommation (base LiteLLM Postgres) ─────────────────────
+# Statistiques (agregats, classements, utilisateurs actifs) : cf. stats.py
+from stats import (  # noqa: E402
+    _account_activity, _active_users, _inflight_end, _inflight_start,
+    ranking_full, user_hourly,
+)
+
+# ── Administration (modeles, sidecars, comptes, annonces) ────────────────────
+# Blueprint : cf. admin_routes.py (28/08). L'endpoint `admin` devient
+# `admin.admin` ; les 34 url_for du projet, tous dans ce bloc, ont suivi.
+from admin_routes import bp as admin_bp  # noqa: E402
+
+# ── Video (MiniMax H3 via ComfyUI) ──
+# Blueprint : cf. video_routes.py (28/08).
+from video_routes import bp as video_bp  # noqa: E402
+
+# ── Generation d'image (sidecar diffusers) ──
+# Blueprint : cf. image_routes.py (28/08).
+from image_routes import bp as image_bp  # noqa: E402  (get_image_model/image_ready deja importes de sidecars)
+
+# ── Musique (sidecar diffusers) ──
+# Blueprint : cf. music_routes.py (28/08).
+from music_routes import bp as music_bp  # noqa: E402  (get_music_model/music_ready deja importes de sidecars)
+
+# ── OCR ──────────────────────────────────────────────────────────────────────
+# Blueprint : cf. ocr_routes.py (28/08). Frontiere redessinee — voir sa docstring.
+from ocr_routes import bp as ocr_bp  # noqa: E402  (get_ocr_model deja importe de sidecars)
+
+# ── Voix et dictee ───────────────────────────────────────────────────────────
+# Frontiere redessinee le 28/08 : cette banniere couvrait voix + dictee +
+# amorcage. La voix part dans voice_routes.py, la dictee dans asr_routes.py,
+# l'amorcage reste ci-dessous.
+from voice_routes import (  # noqa: E402
+    bp as voice_bp, get_voice_engine, get_voice_languages,
+)
+
+from asr_routes import bp as asr_bp, asr_is_up  # noqa: E402
+
+# ── Recherche web depuis le playground ───────────────────────────────────────
+# Deplacee dans websearch_tools.py le 28/08 (cf. db.py pour le noyau partage).
+from websearch_tools import (  # noqa: E402
+    _phase_outils, _recherche_pertinente, _texte_des_trouvailles, websearch_active,
+)
+
+
+# get_setting / set_setting / maintenance_active : cf. db.py (noyau partage).
+
+
+
+
+
+# init_db (schema + migrations) : cf. db.py
+
+# ── LDAP ────────────────────────────────────────────────────────────────────
+
+
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+# VOICE_REPO_IDS : cf. sidecars.py (liste blanche des variantes lancables)
+
+
+
+
+
+
+
+
+
+# ── OCR (baidu/Unlimited-OCR by default; chandra-ocr-2 also supported) ──────
+# Internal container (dedicated ocr_net network, cf. README "Security"), never a
+# published port.
+#
+# chandra-ocr-2 (datalab-to) has a completely different input/output contract
+# from Unlimited-OCR: instead of a free prompt + "label [x,y,x,y]text" lines,
+# it expects a fixed STRUCTURED prompt and replies in HTML with
+# data-label/data-bbox attributes (bbox as spaced "x0 y0 x1 y1", always 0-1000). Text
+# copied verbatim from chandra/prompts.py (OCR_LAYOUT_PROMPT on the model side) —
+# rewording it would break the output format expected by the front-end parser.
+
+
+
+
+
+
 
 # ── Routes ──────────────────────────────────────────────────────────────────
 
@@ -254,13 +353,6 @@ def api_config():
 
 
 
-# ── Local users managed by the admin (local_users table) ─────────────────────
-# Comptes locaux (authentification, budget) : cf. local_users.py
-from local_users import (  # noqa: E402
-    _local_group, _local_user_auth, _local_user_effective_budget,
-    _local_user_is_admin, _parse_budget, _record_user_source,
-    _sync_local_user_budget,
-)
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -417,10 +509,6 @@ def oauth_callback():
     return redirect(_safe_next(nxt))
 
 
-# ── Discord account linking (OAuth2 "identify") ──────────────────────────────
-# ── Liaison de compte Discord ────────────────────────────────────────────────
-# Blueprint : cf. discord_routes.py (28/08).
-from discord_routes import bp as discord_bp  # noqa: E402
 app.register_blueprint(discord_bp)
 
 
@@ -679,25 +767,9 @@ def api_keys():
     })
 
 
-# ── Reglages utilisateur ─────────────────────────────────────────────────────
-# Blueprint : cf. settings_routes.py (28/08).
-from settings_routes import bp as settings_bp  # noqa: E402
 app.register_blueprint(settings_bp)
 
-# ── Historique des conversations du playground ───────────────────────────────
-# Blueprint : cf. conversation_routes.py (28/08).
-from conversation_routes import (  # noqa: E402
-    CONVERSATIONS_MAX, CONV_MAX_CHARS, MSG_MAX_CHARS, bp as conversations_bp,
-)
 app.register_blueprint(conversations_bp)
-# ── Support (assistant IA) ───────────────────────────────────────────────────
-# Assistant Support (outils, execution, contexte) : cf. support.py
-from support import (  # noqa: E402
-    _clean_reply, _exec_support_tool, _mask_key, _sse_tool_event,
-    _support_context, _support_tools, _user_extra_tools,
-    GUARDED_TOOLS, SUPPORT_SYSTEM, TOOL_LABELS, _exec_mcp_tool, _exec_skill,
-    _support_tool_target,
-)
 # ── Rate limit for chat endpoints ───────────────────────────────────────────
 # The LiteLLM budget caps tokens, not the NUMBER of calls: a client that
 # loops can monopolize the gunicorn threads (each SSE stream occupies one)
@@ -713,18 +785,9 @@ def api_csrf():
 
 
 
-# ── Memoire : graphe de connaissances par utilisateur ────────────────────────
-# Premier blueprint sorti du monolithe (28/08) : cf. memory_routes.py.
-from memory_routes import bp as memory_bp  # noqa: E402
 app.register_blueprint(memory_bp)
-# ── Apercu d'une page HTML generee ───────────────────────────────────────────
-# Blueprint : cf. preview_routes.py (28/08).
-from preview_routes import bp as preview_bp  # noqa: E402
 app.register_blueprint(preview_bp)
 
-# ── Chat (playground + support), en flux SSE ─────────────────────────────────
-# Blueprint : cf. chat_routes.py (28/08).
-from chat_routes import bp as chat_bp  # noqa: E402
 app.register_blueprint(chat_bp)
 
 
@@ -796,42 +859,12 @@ def request_model():
 # Usage par sidecar (administration) : cf. stats.py
 
 
-# ── Statistiques de consommation (base LiteLLM Postgres) ─────────────────────
-# Statistiques (agregats, classements, utilisateurs actifs) : cf. stats.py
-from stats import (  # noqa: E402
-    _account_activity, _active_users, _inflight_end, _inflight_start,
-    ranking_full, user_hourly,
-)
 
-# ── Administration (modeles, sidecars, comptes, annonces) ────────────────────
-# Blueprint : cf. admin_routes.py (28/08). L'endpoint `admin` devient
-# `admin.admin` ; les 34 url_for du projet, tous dans ce bloc, ont suivi.
-from admin_routes import bp as admin_bp  # noqa: E402
 app.register_blueprint(admin_bp)
-# ── Video (MiniMax H3 via ComfyUI) ──
-# Blueprint : cf. video_routes.py (28/08).
-from video_routes import bp as video_bp  # noqa: E402
 app.register_blueprint(video_bp)
-# ── Generation d'image (sidecar diffusers) ──
-# Blueprint : cf. image_routes.py (28/08).
-from image_routes import bp as image_bp  # noqa: E402  (get_image_model/image_ready deja importes de sidecars)
 app.register_blueprint(image_bp)
-# ── Musique (sidecar diffusers) ──
-# Blueprint : cf. music_routes.py (28/08).
-from music_routes import bp as music_bp  # noqa: E402  (get_music_model/music_ready deja importes de sidecars)
 app.register_blueprint(music_bp)
-# ── OCR ──────────────────────────────────────────────────────────────────────
-# Blueprint : cf. ocr_routes.py (28/08). Frontiere redessinee — voir sa docstring.
-from ocr_routes import bp as ocr_bp  # noqa: E402  (get_ocr_model deja importe de sidecars)
 app.register_blueprint(ocr_bp)
-# ── Voix et dictee ───────────────────────────────────────────────────────────
-# Frontiere redessinee le 28/08 : cette banniere couvrait voix + dictee +
-# amorcage. La voix part dans voice_routes.py, la dictee dans asr_routes.py,
-# l'amorcage reste ci-dessous.
-from voice_routes import (  # noqa: E402
-    bp as voice_bp, get_voice_engine, get_voice_languages,
-)
-from asr_routes import bp as asr_bp, asr_is_up  # noqa: E402
 app.register_blueprint(voice_bp)
 app.register_blueprint(asr_bp)
 
@@ -854,8 +887,3 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
 
 
-# ── Recherche web depuis le playground ───────────────────────────────────────
-# Deplacee dans websearch_tools.py le 28/08 (cf. db.py pour le noyau partage).
-from websearch_tools import (  # noqa: E402
-    _phase_outils, _recherche_pertinente, _texte_des_trouvailles, websearch_active,
-)

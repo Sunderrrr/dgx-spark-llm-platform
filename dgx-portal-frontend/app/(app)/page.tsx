@@ -28,6 +28,7 @@ import {
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
+import { useWhoami } from "@/lib/whoami";
 import { UsageChart } from "./_components/UsageChart";
 import { useT } from "@/lib/i18n";
 import { useSettingsDialog } from "@/lib/settings-dialog";
@@ -139,7 +140,6 @@ type HomeData = {
   budget_duration: string;
 };
 
-type Whoami = { username: string; fullname: string; is_admin: boolean };
 
 const STATUS_VARIANT: Record<string, "warning" | "success" | "error"> = {
   pending: "warning",
@@ -164,11 +164,10 @@ export default function HomePage() {
   const { open: openSettings } = useSettingsDialog();
   const showToast = useToast();
   const [data, setData] = useState<HomeData | null>(null);
-  const [who, setWho] = useState<Whoami | null>(null);
+  const { who } = useWhoami();
 
   useEffect(() => {
     getJSON<HomeData>("/api/home").then(setData);
-    getJSON<Whoami>("/api/whoami").then(setWho);
   }, []);
 
   // After the Discord OAuth round-trip (or unlink), the backend returns here

@@ -7,6 +7,7 @@ import { LinkProvider } from "@astryxdesign/core/Link";
 import { InternationalizationProvider } from "@astryxdesign/core";
 import { themeById, type ThemeId } from "@/lib/themes";
 import { I18nProvider, type Lang } from "@/lib/i18n";
+import { useWhoami } from "@/lib/whoami";
 import astryxFr from "@/lib/astryx-fr.json";
 
 type Mode = "light" | "dark" | "system";
@@ -55,6 +56,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [themeId, setThemeIdState] = useState<ThemeId>("neutral");
   const [lang, setLangState] = useState<Lang>("en");
 
+  // /api/whoami is fetched once up the tree (WhoamiProvider); we only reconcile
+  // theme/lang from it, and only on change. This is the account preference that
+  // overrides localStorage, sourced from a single request instead of three.
+  const { who } = useWhoami();
+
   useEffect(() => {
     // One-time hydration from localStorage, just after mount: this is the
     // legitimate "sync from an external system" case (the
@@ -69,21 +75,22 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    fetch("/api/whoami", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!d) return;
-        if (d.theme_id) {
-          setThemeIdState(d.theme_id);
-          window.localStorage.setItem("cronos_theme_id", d.theme_id);
-        }
-        if (d.lang) {
-          setLangState(d.lang);
-          window.localStorage.setItem("cronos_lang", d.lang);
-        }
-      })
-      .catch(() => {});
-  }, []);
+    // The server (via /api/whoami) is authoritative for these account
+    // preferences, reconciled once when identity arrives. Same "sync from an
+    // external system" case as the localStorage read above, so we disable the
+    // rule on these lines for the same reason.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (!who) return;
+    if (who.theme_id) {
+      setThemeIdState(who.theme_id as ThemeId);
+      window.localStorage.setItem("cronos_theme_id", who.theme_id);
+    }
+    if (who.lang) {
+      setLangState(who.lang as Lang);
+      window.localStorage.setItem("cronos_lang", who.lang);
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [who]);
 
   function setMode(m: Mode) {
     setModeState(m);

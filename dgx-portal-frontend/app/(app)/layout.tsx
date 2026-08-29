@@ -38,12 +38,11 @@ import {
 } from "@heroicons/react/24/outline";
 import { useThemeMode } from "../theme-provider";
 import { useCsrf } from "@/lib/useCsrf";
+import { useWhoami } from "@/lib/whoami";
 import { SettingsDialog } from "./_components/SettingsDialog";
 import { OnboardingDialog } from "./_components/OnboardingDialog";
 import { useT } from "@/lib/i18n";
 import { SettingsDialogContext, type SettingsSection } from "@/lib/settings-dialog";
-
-type Whoami = { username: string; fullname: string; is_admin: boolean; avatar_id: string | null; maintenance_mode: boolean; onboarded: boolean };
 
 // "My API keys" is deliberately no longer here: its configuration now lives
 // in the Settings dialog ("API keys" tab), opened by the gear at the bottom
@@ -67,7 +66,7 @@ const NAV_ITEMS = [
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { mode, setMode } = useThemeMode();
-  const [who, setWho] = useState<Whoami | null>(null);
+  const { who, setWho } = useWhoami();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // Prise en main : ouverte quand le compte ne l'a jamais vue. L'état vient du
   // serveur (colonne user_prefs.onboarded), pas du navigateur — elle suit donc
@@ -108,14 +107,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     : NAV_ITEMS;
 
   useEffect(() => {
-    fetch("/api/whoami", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: Whoami | null) => {
-        setWho(d);
-        if (d && !d.onboarded) setShowOnboarding(true);
-      })
-      .catch(() => {});
-  }, []);
+    // La prise en main s'ouvre quand le compte ne l'a jamais vue (état serveur).
+    // Sync "from an external system" (the server's onboarded flag), same rule
+    // as the localStorage reconcile in the theme provider.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (who && !who.onboarded) setShowOnboarding(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [who]);
 
   const isDark = mode === "dark" || (mode === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 

@@ -18,7 +18,8 @@ from auth import login_required
 from config import MUSIC_URL
 from db import DB_PATH, get_db
 from sidecars import get_music_model, music_ready
-from guards import maintenance_block_json, media_rate_block
+from guards import (maintenance_block_json, media_job_done, media_job_slot,
+                    media_rate_block)
 
 bp = Blueprint('music', __name__)
 
@@ -110,9 +111,17 @@ def api_music_generate():
                      SELECT id FROM music_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
                (session['username'], session['username'], MUSIC_HISTORY_LIMIT))
     db.commit()
-    threading.Thread(target=_music_worker,
-                     args=(job_id, session['username'], prompt, lyrics, duration, count),
-                     daemon=True).start()
+    username = session['username']
+    # Bound the number of in-flight async jobs per account: each spawns a
+    # thread that blocks up to 1800 s against the shared GPU sidecar.
+    if not media_job_slot(username):
+        return jsonify({'error': "Trop de générations en cours. Attends la fin des précédentes."}), 429
+    def _run(u=username, jid=job_id, pr=prompt, ly=lyrics, dur=duration, c=count):
+        try:
+            _music_worker(jid, u, pr, ly, dur, c)
+        finally:
+            media_job_done(u)
+    threading.Thread(target=_run, daemon=True).start()
     return jsonify({'job_id': job_id, 'duration': duration, 'count': count})
 
 

@@ -161,18 +161,6 @@ def create_litellm_key(alias, username, is_admin=False):
         return r.json().get('key')
     return None
 
-def litellm_key_info(key_value):
-    """cf. _infos_cles : lecture en base, jamais la cle dans une URL."""
-    return _infos_cles([key_value]).get(key_value, {})
-
-def litellm_update_key_budget(key_value, new_max_budget):
-    try:
-        r = requests.post(f"{LITELLM_URL}/key/update", headers=litellm_headers(),
-                          json={'key': key_value, 'max_budget': new_max_budget}, timeout=5)
-        return r.ok
-    except Exception:
-        return False
-
 def revoke_litellm_key(key_value):
     r = requests.post(f"{LITELLM_URL}/key/delete",
                       headers=litellm_headers(),

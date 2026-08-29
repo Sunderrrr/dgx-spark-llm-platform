@@ -47,14 +47,10 @@ from vllm_health import get_running_models, guess_engine, vllm_health
 
 bp = Blueprint('admin', __name__)
 
-# Statistiques (agregats, classements, utilisateurs actifs) : cf. stats.py
-from stats import (  # noqa: E402
-    _account_activity, _active_users, _compte_existe, _inflight_end,
-    _inflight_snapshot, _inflight_start, _key_user_map, _month_buckets,
-    _real_tokens_by_user, _series_for, _spark_points, admin_get_ocr_usage,
-    admin_get_user_consumption, admin_get_video_usage, admin_get_voice_usage,
-    ranking_full, relativedelta_months, user_hourly,
-)
+# Statistiques (agregats, classements, utilisateurs actifs) : cf. stats.py.
+# Les noms utilises sont importes en tete (voir ci-dessus, lignes 43-45) ; les
+# agregats du monolithe (classements, inflight, buckets) ont ete rapatries dans
+# leur propre module et ne sont plus utilises ici.
 
 @bp.route('/usage/hourly')
 @login_required

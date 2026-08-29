@@ -159,7 +159,6 @@ export function UsersSection({ csrf }: { csrf: string }) {
   const sourceOptions = [
     { label: t("Toutes les sources"), value: "all" },
     { label: t("Local"), value: "local" },
-    { label: t("Debug"), value: "debug" },
     { label: "LDAP", value: "ldap" },
     { label: "SSO", value: "sso" },
     { label: t("Externe"), value: "externe" },

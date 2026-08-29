@@ -355,7 +355,7 @@ def init_db():
     if 'req_duration_s' not in _vd:
         db.execute("ALTER TABLE video_jobs ADD COLUMN req_duration_s INTEGER")
     # Local user management by the admin (accounts created from the UI,
-    # HASHED passwords — unlike the plaintext DEBUG_USERS.txt file).
+    # HASHED passwords via werkzeug).
     # A group carries a default quota and admin right; a user can
     # override the quota. Login checks this table in addition to LDAP/SSO.
     db.executescript('''

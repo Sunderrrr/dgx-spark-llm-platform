@@ -1,4 +1,4 @@
-import os, re, time, hmac, requests
+import os, re, time, requests
 from flask import Flask, request, session, redirect, url_for, flash, g, jsonify
 from datetime import datetime
 from urllib.parse import urlparse
@@ -74,9 +74,9 @@ def _security_headers(resp):
 # aurait exige l'objet `app` — on les enregistre donc ici, explicitement.
 from auth import (  # noqa: E402
     LOGIN_LOCK, LOGIN_MAX_FAILS, LOGIN_WINDOW, USERNAME_RE, _admin_username_cache,
-    _apply_session, _client_ip, _csrf_protect, _debug_user_fullname, _ensure_csrf,
-    _inject_csrf, _is_admin_group, _load_debug_users, _login_fail, _login_locked,
-    _login_reset, DEBUG_LOGIN_FLAG, DEBUG_USERS_FILE, is_admin_username,
+    _apply_session, _client_ip, _csrf_protect, _ensure_csrf,
+    _inject_csrf, _is_admin_group, _login_fail, _login_locked,
+    _login_reset, is_admin_username,
     ldap_authenticate, ldap_lookup_admin, ldap_lookup_email,
 )
 app.before_request(_csrf_protect)
@@ -85,7 +85,7 @@ app.context_processor(_inject_csrf)
 from config import (  # noqa: E402
     AUTO_MODEL_NAME, AVATAR_IDS, AVATAR_LABELS, LANGS, THEME_IDS, VLLM_API_BASE,
     LDAP_URI, LDAP_BASE, LDAP_BIND_DN, LDAP_BIND_PW,
-    DEBUG_ADMIN_USERNAMES, LITELLM_URL, LITELLM_KEY, VLLM_API,
+    LITELLM_URL, LITELLM_KEY, VLLM_API,
     RUNNER_URL, RUNNER_TOKEN, COMFYUI_URL, OCR_URL,
     VOICE_URL, ASR_URL, MUSIC_URL, DISCORD_WH,
     DISCORD_BOT_TOKEN, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI,
@@ -95,14 +95,9 @@ from config import (  # noqa: E402
     LOCAL_TZ, OIDC_METADATA_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET,
     OIDC_REDIRECT_URI, OIDC_LOGOUT_URL, OIDC_ADMIN_GROUP, OIDC_ENABLED,
 )
-# Local fallback accounts, usable when LDAP is unreachable. Inert
-# by default: it does nothing unless /app/data/DEBUG_LOGIN_ENABLED
-# exists (toggled by hand via `docker exec dgx-portal touch|rm ...`, no
-# restart). The credentials (one per real user) live in
-# /app/data/DEBUG_USERS.txt — a "user : password" file, one per line, in
-# the persistent volume (never in .env/git). Re-read on each login
-# attempt: adding/removing a user needs no redeploy.
-
+# Account auth: local_users (hashed) → LDAP → SSO, in that order. The
+# plaintext debug/file fallback was removed (see git history at the 4a59c6f
+# migration): its 13 accounts are now local_users entries, so nothing is lost.
 
 
 
@@ -368,26 +363,6 @@ def login():
         if wait:
             flash(f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min.", "danger")
             return ('', 401)
-        if os.path.exists(DEBUG_LOGIN_FLAG):
-            debug_users = _load_debug_users()
-            # compare_digest runs even if username is absent (comparison
-            # against '') so as not to let an attacker distinguish, via
-            # response time, an unknown username from a wrong password.
-            # .encode() required: on non-ASCII str, compare_digest
-            # raises TypeError. Since this block runs BEFORE ldap_authenticate,
-            # a single accent in the password (French-speaking user
-            # base) returned a 500 and never reached LDAP.
-            debug_pass_ok = hmac.compare_digest(password.encode(),
-                                                 debug_users.get(username, '').encode())
-            if username in debug_users and debug_pass_ok:
-                _login_reset(key); _login_reset(ip)
-                is_admin = username in DEBUG_ADMIN_USERNAMES
-                fullname = _debug_user_fullname(username)
-                app.logger.warning('Connexion de secours (LDAP indisponible) : %s depuis %s (admin=%s)',
-                                   username, ip, is_admin)
-                _record_user_source(username, 'debug', fullname)
-                _apply_session(username, fullname, is_admin, via_sso=False)
-                return redirect(_safe_next(request.args.get('next')))
         # Local accounts managed by the admin (local_users table, hashed) — checked
         # before LDAP so as not to depend on its availability.
         l_ok, l_admin, l_name = _local_user_auth(username, password)

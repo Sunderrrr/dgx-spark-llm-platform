@@ -5,9 +5,7 @@ monolithe, _parse_budget deux mille lignes plus bas avec les routes qui s'en
 servent. Elles forment un seul sujet — l'authentification et le budget d'un
 compte local — et le blueprint d'administration en a besoin.
 
-A ne pas confondre avec la connexion de SECOURS (auth.py) : celle-ci lit un
-fichier hors base et sert quand LDAP est injoignable ; celle-la est la gestion
-normale de comptes, en base, par l'administrateur.
+C'est la gestion normale de comptes, en base, par l'administrateur.
 """
 from datetime import datetime
 
@@ -37,8 +35,6 @@ def _local_user_is_admin(row):
 
 def _local_user_auth(username, password):
     """(ok, is_admin, fullname) against local_users, HASHED password (werkzeug).
-    Independent of the DEBUG_LOGIN flag: this is a managed account system, not
-    the plaintext emergency bypass.
     """
     row = get_db().execute(
         "SELECT * FROM local_users WHERE username=? AND enabled=1", (username,)).fetchone()

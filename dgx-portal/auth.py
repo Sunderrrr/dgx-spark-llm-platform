@@ -24,7 +24,7 @@ from ldap3 import ALL, SIMPLE, Connection, Server
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 
-from config import (DEBUG_ADMIN_USERNAMES, LDAP_BASE, LDAP_BIND_DN,
+from config import (LDAP_BASE, LDAP_BIND_DN,
                     LDAP_BIND_PW, LDAP_URI)
 from db import DB_PATH, get_db
 
@@ -138,42 +138,6 @@ def _csrf_protect():
 def _inject_csrf():
     return {'csrf_token': _ensure_csrf}
 
-# ── Connexion de secours (fichier local) ──
-
-DEBUG_LOGIN_FLAG  = '/app/data/DEBUG_LOGIN_ENABLED'
-DEBUG_USERS_FILE  = '/app/data/DEBUG_USERS.txt'
-
-def _load_debug_users():
-    """Parse DEBUG_USERS_FILE ('user : password' per line) → {user: pwd}.
-    File absent/unreadable → {} (the fallback login becomes a no-op).
-    """
-    try:
-        with open(DEBUG_USERS_FILE, encoding='utf-8') as f:
-            lines = f.readlines()
-    except OSError:
-        return {}
-    users = {}
-    for line in lines:
-        if ':' not in line:
-            continue
-        u, _, p = line.partition(':')
-        u, p = u.strip(), p.strip()
-        if u and p:
-            users[u] = p
-    return users
-
-def _debug_user_fullname(username):
-    """Best-effort: reuse an already-known full name (past requests),
-    otherwise fall back on the username as-is.
-    """
-    for table in ('model_requests', 'budget_requests'):
-        row = get_db().execute(
-            f"SELECT fullname FROM {table} WHERE username=? AND fullname IS NOT NULL AND fullname!='' "
-            "ORDER BY created_at DESC LIMIT 1", (username,)).fetchone()
-        if row and row['fullname']:
-            return row['fullname']
-    return username
-
 # ── Statut administrateur ──
 
 _admin_username_cache = {}
@@ -188,8 +152,7 @@ def is_admin_username(username):
     cached = _admin_username_cache.get(username)
     if cached and now - cached[0] < 60:
         return cached[1]
-    is_admin = (username in DEBUG_ADMIN_USERNAMES
-                or ldap_lookup_admin(username)
+    is_admin = (ldap_lookup_admin(username)
                 or _local_user_admin(username))
     _admin_username_cache[username] = (now, is_admin)
     return is_admin
@@ -199,10 +162,10 @@ def _local_user_admin(username):
     """True if a managed local account (local_users table) is an admin.
 
     is_admin_username feeds /internal/authcheck, which decides whether an API key
-    bypasses maintenance mode. It previously only looked at DEBUG_ADMIN_USERNAMES
-    + LDAP, so an admin created through the local-users UI had a working web
-    session (session['is_admin']) but their key was rejected (503) in
-    maintenance mode — two sources of truth for "admin". This closes that gap.
+    bypasses maintenance mode. It previously only looked at the plaintext debug
+    admin list + LDAP, so an admin created through the local-users UI had a
+    working web session (session['is_admin']) but their key was rejected (503)
+    in maintenance mode — two sources of truth for "admin". This closes that gap.
     """
     try:
         row = get_db().execute(

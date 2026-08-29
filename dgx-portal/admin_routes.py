@@ -21,7 +21,7 @@ from flask import (Blueprint, Response, flash, jsonify, redirect, request,
 from werkzeug.security import generate_password_hash
 
 from announcements import _announce_launch, add_announcement
-from auth import (DEBUG_LOGIN_FLAG, USERNAME_RE, _load_debug_users,
+from auth import (USERNAME_RE,
                   admin_required, is_admin_username, ldap_lookup_email,
                   login_required)
 from config import KEY_BUDGET, KEY_DURATION, RUNNER_URL
@@ -476,7 +476,6 @@ def update_settings():
 def api_admin_users():
     """UNIFIED view of all known accounts, with their source(s):
       - local  : account managed here (local_users table, edit actions)
-      - debug  : present in DEBUG_USERS.txt (plaintext local bypass)
       - ldap   : has already logged in via LDAP
       - sso    : has already logged in via SSO/Authentik
     An account can carry several sources at once (e.g. ldap + sso). Accounts
@@ -485,18 +484,15 @@ def api_admin_users():
     """
     db = get_db()
     managed = {u['username']: u for u in db.execute("SELECT * FROM local_users").fetchall()}
-    debug_users = set(_load_debug_users().keys()) if os.path.exists(DEBUG_LOGIN_FLAG) else set()
     recorded = {r['username']: r for r in db.execute("SELECT * FROM user_sources").fetchall()}
     spend = {s['username']: s for s in (admin_get_user_consumption() or [])}
 
-    names = set(managed) | set(debug_users) | set(recorded) | set(spend)
+    names = set(managed) | set(recorded) | set(spend)
     out = []
     for name in sorted(names):
         srcs = set()
         if name in managed:
             srcs.add('local')
-        if name in debug_users:
-            srcs.add('debug')
         if name in recorded:
             srcs |= {s for s in (recorded[name]['sources'] or '').split(',') if s}
         # Used the platform but no source observed → external (LDAP/SSO).

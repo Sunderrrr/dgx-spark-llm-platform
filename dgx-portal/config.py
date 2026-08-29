@@ -6,12 +6,6 @@ toutes a ces constantes, donc rien de plus n'etait extractible tant qu'elles
 vivaient dans app.py.
 
 Ce module n'importe que `os` : il ne peut creer aucun cycle.
-
-Ce qui reste VOLONTAIREMENT dans app.py : DEBUG_LOGIN_FLAG et DEBUG_USERS_FILE,
-avec toute la mecanique de connexion de secours. LDAP et le SSO sont eteints,
-c'est donc le seul chemin d'acces a la plateforme — on n'y touche pas pour un
-gain de rangement. Seul DEBUG_ADMIN_USERNAMES vient ici : c'est une variable
-d'environnement, pas un chemin de fichier, et le SSO en a besoin.
 """
 import os
 
@@ -20,9 +14,6 @@ LDAP_URI      = os.environ.get('LDAP_URI', 'ldap://lldap.cronos.lan:3890')
 LDAP_BASE     = os.environ.get('LDAP_BASE', 'dc=cronos,dc=website')
 LDAP_BIND_DN  = os.environ.get('LDAP_BIND_DN', '')
 LDAP_BIND_PW  = os.environ.get('LDAP_BIND_PW', '')
-
-# Comptes administrateurs de la connexion de secours (cf. app.py pour le reste).
-DEBUG_ADMIN_USERNAMES = {u.strip() for u in os.environ.get('DEBUG_ADMIN_USERNAMES', '').split(',') if u.strip()}
 
 # ── Services internes ────────────────────────────────────────────────────────
 LITELLM_URL   = os.environ.get('LITELLM_URL', 'http://litellm:4000')

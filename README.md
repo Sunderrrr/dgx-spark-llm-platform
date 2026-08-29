@@ -15,7 +15,7 @@ It provides:
   in an in-browser **playground**, requests models, and tracks consumption;
 - **admin user management** — a dedicated page to create local accounts, group them,
   and set per-group / per-user quotas and rights, with each account's auth source
-  (local / debug / LDAP / SSO) shown at a glance;
+  (local / LDAP / SSO) shown at a glance;
 - **Cronos**, an AI support assistant that answers questions *and* performs
   self-service actions (create a key, request budget, request a model…);
 - a **runner** that launches/stops one vLLM model on the GPU on demand and
@@ -193,8 +193,8 @@ Two methods, handled by [`auth.py`](dgx-portal/auth.py):
   persisted in SQLite so it survives a redeploy and is shared across workers.
 
 Local accounts managed by an admin ([`local_users.py`](dgx-portal/local_users.py))
-sit between the two, and a file-based fallback login exists for when LDAP is
-unreachable.
+[local_users.py](dgx-portal/local_users.py) sit between the two: a hashed,
+admin-managed account system checked before LDAP/SSO.
 
 Session hardening: `HttpOnly` + `SameSite=Lax` cookies + `Secure` behind TLS.
 `ProxyFix` trusts Traefik's `X-Forwarded-*` headers.
@@ -367,8 +367,8 @@ media usage (untracked by LiteLLM, since none of it goes through a public API ke
 A dedicated page to manage local accounts: create users with a hashed password,
 assign them to **groups** carrying a default quota and admin right, override a
 per-user quota, enable/disable, toggle admin, or reset a password. It lists every
-known account with a badge for each authentication source — **Local**, **Debug**,
-**LDAP**, **SSO** or **External** — recorded per login and cumulative.
+known account with a badge for each authentication source — **Local**, **LDAP**,
+**SSO** or **External** — recorded per login and cumulative.
 
 ---
 

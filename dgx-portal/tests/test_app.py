@@ -96,6 +96,51 @@ class LoginLockoutTest(unittest.TestCase):
         self.assertEqual(row['fails'], 1)
 
 
+class LoginLockoutParUserTest(unittest.TestCase):
+    """Le seuil de verrouillage doit aussi se cumuler par username, pas seulement
+    par IP : un botnet qui change d'IP à chaque essai ne doit pas contourner la
+    protection (chaque IP seule reste sous le seuil, le compte lui se verrouille)."""
+
+    def setUp(self):
+        portal.app.config['TESTING'] = True
+        self.client = portal.app.test_client()
+        with self.client.session_transaction() as s:
+            s['csrf'] = 'test-csrf'
+
+    def tearDown(self):
+        with portal.app.test_request_context():
+            portal.get_db().execute("DELETE FROM login_attempts")
+            portal.get_db().commit()
+
+    def _login(self, ip, username, password='x'):
+        # Username avec '@' (échoue USERNAME_RE) pour ne pas dépendre d'un LDAP
+        # joignable : le chemin d'échec reste instantané et purement local.
+        return self.client.post('/login',
+                                data={'username': username, 'password': password},
+                                headers={'X-CSRFToken': 'test-csrf',
+                                         'Cf-Connecting-Ip': ip})
+
+    def test_botnet_ip_rotatives_verrouille_le_user(self):
+        u = 'bob@cible'
+        for i in range(portal.LOGIN_MAX_FAILS - 1):  # seuil - 1, IPs toutes différentes
+            self.assertEqual(self._login(f'198.51.100.{i+1}', u).status_code, 401)
+        with portal.app.test_request_context():
+            row = portal.get_db().execute(
+                "SELECT fails FROM login_attempts WHERE key=?", ('user:bob@cible',)).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row['fails'], portal.LOGIN_MAX_FAILS - 1)
+            self.assertEqual(portal._login_locked('user:bob@cible'), 0)
+        # Le seuil est atteint sur le compte → verrouillé, même depuis une IP neuve,
+        # et la tentative suivante est bloquée AVANT d'être comptée.
+        self.assertEqual(self._login('203.0.113.201', u).status_code, 401)
+        with portal.app.test_request_context():
+            self.assertGreater(portal._login_locked('user:bob@cible'), 0)
+            self._login('203.0.113.202', u)
+            row = portal.get_db().execute(
+                "SELECT fails FROM login_attempts WHERE key=?", ('user:bob@cible',)).fetchone()
+            self.assertEqual(row['fails'], portal.LOGIN_MAX_FAILS)
+
+
 class CsrfTest(unittest.TestCase):
     """Toute requête non sûre doit porter un jeton CSRF valide."""
 

@@ -191,6 +191,9 @@ Two methods, handled by [`auth.py`](dgx-portal/auth.py):
 - **LDAP (LLDAP)** — username/password fallback: direct bind, injection-escaped,
   empty-password binds rejected, with brute-force lockout (6 fails / 15 min)
   persisted in SQLite so it survives a redeploy and is shared across workers.
+  The counter is keyed **per IP and per username**: rotating source IPs can't
+  dodge the threshold, since all attempts against one account feed the same
+  counter regardless of origin.
 
 Local accounts managed by an admin ([`local_users.py`](dgx-portal/local_users.py))
 [local_users.py](dgx-portal/local_users.py) sit between the two: a hashed,

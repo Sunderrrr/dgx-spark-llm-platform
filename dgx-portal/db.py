@@ -208,6 +208,19 @@ def init_db():
             first_at     REAL NOT NULL,
             locked_until REAL NOT NULL DEFAULT 0
         );
+        -- Registre serveur des sessions : le cookie signé ne porte qu'un
+        -- sid aléatoire ; la ligne en base permet de révoquer une session à
+        -- volonté (logout, compte verrouillé, révocation admin) et pas
+        -- seulement à l'expiration HTTP.
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            sid        TEXT PRIMARY KEY,
+            username   TEXT NOT NULL,
+            auth_at    REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            revoked    INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_sessions_username ON user_sessions(username);
         CREATE TABLE IF NOT EXISTS video_jobs (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             username        TEXT NOT NULL,

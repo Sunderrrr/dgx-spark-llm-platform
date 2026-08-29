@@ -22,6 +22,7 @@ from werkzeug.security import generate_password_hash
 
 from announcements import _announce_launch, add_announcement
 from auth import (USERNAME_RE,
+                  _revoke_user_sessions,
                   admin_required, is_admin_username, ldap_lookup_email,
                   login_required)
 from config import KEY_BUDGET, KEY_DURATION, RUNNER_URL
@@ -584,7 +585,22 @@ def admin_users_update(uid):
         db.execute(f"UPDATE local_users SET {', '.join(sets)} WHERE id=?", (*vals, uid))
         db.commit()
     updated = db.execute("SELECT * FROM local_users WHERE id=?", (uid,)).fetchone()
+    # Verrouiller un compte (enabled=0) révoque immédiatement ses sessions :
+    # il perd son accès sans attendre l'expiration HTTP.
+    if 'enabled' in request.form and not updated['enabled']:
+        _revoke_user_sessions(updated['username'])
     _sync_local_user_budget(updated['username'], updated)
+    return jsonify({'ok': True})
+
+
+@bp.route('/admin/users/<username>/revoke-sessions', methods=['POST'])
+@admin_required
+def admin_revoke_sessions(username):
+    """Révoque à volonté toutes les sessions actives d'un compte (même un
+    cookie volé devient inutilisable immédiatement)."""
+    if not USERNAME_RE.match(username):
+        return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
+    _revoke_user_sessions(username)
     return jsonify({'ok': True})
 
 @bp.route('/admin/users/delete/<int:uid>', methods=['POST'])

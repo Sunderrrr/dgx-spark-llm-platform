@@ -199,6 +199,12 @@ Local accounts managed by an admin ([`local_users.py`](dgx-portal/local_users.py
 [local_users.py](dgx-portal/local_users.py) sit between the two: a hashed,
 admin-managed account system checked before LDAP/SSO.
 
+Sessions are **server-revocable**: the signed cookie carries only a random
+`sid`, and a `user_sessions` row (same SQLite) lets an admin kill any active
+session at will (`POST /admin/users/<username>/revoke-sessions`), revoke on
+logout, and instantly drop a locked account's sessions (`enabled=0`). Sessions
+predating the registry expire by age only, so the migration logs nobody out.
+
 Session hardening: `HttpOnly` + `SameSite=Lax` cookies + `Secure` behind TLS.
 `ProxyFix` trusts Traefik's `X-Forwarded-*` headers.
 

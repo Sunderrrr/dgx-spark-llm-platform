@@ -213,6 +213,38 @@ Login order (`login()` in `dgx-portal/app.py`):
 
 ---
 
+## Notifications email (SMTP Zoho)
+
+Le portail envoie des emails depuis `no-reply@cronos.website` via **Zoho Mail**
+(`smtp.zoho.com:587`, STARTTLS). Le nom d'app affiché chez le destinataire
+(Gmail) est **« DGX platform »** (`notify._sender()` construit le « From »).
+
+`.env` (fichier protégé, à saisir à la main — jamais de secret en clair dans un
+fichier suivi) :
+```
+SMTP_HOST=smtp.zoho.com
+SMTP_PORT=587
+SMTP_USER=no-reply@cronos.website
+SMTP_PASSWORD=<mot de passe d'application Zoho>
+SMTP_FROM=DGX platform <no-reply@cronos.website>
+ADMIN_EMAIL=<adresse qui reçoit les demandes, ex. ton Gmail>
+```
+
+Sans config SMTP, `notify_*` est un no-op (retourne `False`), rien ne part.
+
+Trois canaux (tous vers `ADMIN_EMAIL`, sauf `send_user_email` qui écrit à un
+utilisateur) :
+- **Demande de modèle / budgets** : `notify_email` / `notify_budget_email`,
+  appelés par les outils de support (`request_model`, `request_budget`).
+- **Bouton maintenance** (Admin) : `notify_maintenance_email`, envoyé à
+  `ADMIN_EMAIL` à chaque bascule (destinataires = admins).
+- **Bouton « demander un modèle »** sur les pages image/musique/vidéo/OCR/voix :
+  `POST /api/model/request` ({category}) → `notify_media_request_email`. La route
+  refuse (409) si un modèle de la catégorie tourne déjà (`_media_category_running`,
+  mêmes capteurs que `/api/home`).
+
+---
+
 ## Reboot recovery runbook
 
 Auto-resume exists (`runner.py` persists `last_model.json` and relaunches on boot,

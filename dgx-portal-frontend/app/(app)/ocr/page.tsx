@@ -29,6 +29,7 @@ import {
 import { useCsrf } from "@/lib/useCsrf";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { streamOcr } from "@/lib/api";
+import { ModelRequestButton } from "../_components/ModelRequestButton";
 import { useT } from "@/lib/i18n";
 
 type HistoryItem = { id: number; text: string; created_at: string; has_image: boolean };
@@ -288,15 +289,18 @@ export default function OcrPage() {
 
                   {available === false ? (
                     <Card>
-                      <HStack gap={3} vAlign="center">
-                        <Icon icon={MoonIcon} size="md" color="secondary" />
-                        <VStack gap={0}>
-                          <Text weight="semibold">{t("Aucun modèle OCR chargé")}</Text>
-                          <Text type="supporting" color="secondary">
-                            {t("L'extraction est indisponible pour l'instant, mais tu peux revoir tes extractions précédentes.")}
-                          </Text>
-                        </VStack>
-                      </HStack>
+                      <VStack gap={4}>
+                        <HStack gap={3} vAlign="center">
+                          <Icon icon={MoonIcon} size="md" color="secondary" />
+                          <VStack gap={0}>
+                            <Text weight="semibold">{t("Aucun modèle OCR chargé")}</Text>
+                            <Text type="supporting" color="secondary">
+                              {t("L'extraction est indisponible pour l'instant, mais tu peux revoir tes extractions précédentes.")}
+                            </Text>
+                          </VStack>
+                        </HStack>
+                        <ModelRequestButton category="ocr" />
+                      </VStack>
                     </Card>
                   ) : (
                   <Card>

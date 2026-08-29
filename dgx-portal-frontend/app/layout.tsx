@@ -5,6 +5,7 @@ import "@astryxdesign/theme-neutral/theme.css";
 import "./globals.css";
 import { ThemeProvider } from "./theme-provider";
 import { WhoamiProvider } from "@/lib/whoami";
+import { CsrfProvider } from "@/lib/csrf";
 
 export const metadata: Metadata = {
   title: "Cronos",
@@ -27,7 +28,9 @@ export default function RootLayout({
     <html lang="fr" suppressHydrationWarning>
       <body>
         <WhoamiProvider>
-          <ThemeProvider>{children}</ThemeProvider>
+          <CsrfProvider>
+            <ThemeProvider>{children}</ThemeProvider>
+          </CsrfProvider>
         </WhoamiProvider>
       </body>
     </html>

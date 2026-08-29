@@ -56,6 +56,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import { useWhoami } from "@/lib/whoami";
+import { useCsrf } from "@/lib/useCsrf";
 import { useSettingsDialog } from "@/lib/settings-dialog";
 import { useDictation } from "@/lib/useDictation";
 import { useIsNarrow } from "@/lib/useIsNarrow";
@@ -63,7 +64,7 @@ import { useStickToBottom } from "@/lib/useStickToBottom";
 import { DictateButton } from "../_components/DictateButton";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
-import { type EtapeWeb, fetchCsrfToken, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
+import { type EtapeWeb, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
 import {
   fetchConversations,
   persistConversation,
@@ -1165,7 +1166,7 @@ type QueuedMsg = { content: string; text: string; attachmentCount?: number; ts: 
 export default function PlaygroundPage() {
   const t = useT();
   const { open: openSettings } = useSettingsDialog();
-  const [csrf, setCsrf] = useState("");
+  const csrf = useCsrf();
   const [runningModels, setRunningModels] = useState<string[]>([]);
   const [modelLimits, setModelLimits] = useState<Record<string, number>>({});
   // null = pas encore su. On n'affiche l'alerte qu'une fois la réponse reçue,
@@ -1336,7 +1337,6 @@ export default function PlaygroundPage() {
   }, [csrf]);
 
   useEffect(() => {
-    fetchCsrfToken().then(setCsrf).catch(() => {});
     fetchPlaygroundData()
       .then((data) => {
         setRunningModels(data.running_models);

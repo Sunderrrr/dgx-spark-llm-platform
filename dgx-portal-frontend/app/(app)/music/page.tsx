@@ -21,6 +21,7 @@ import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
+import { ModelRequestButton } from "../_components/ModelRequestButton";
 
 type JobStatus = "idle" | "running" | "done" | "error";
 type HistoryItem = { job_id: string; prompt: string; lyrics: string | null; duration_s: number; status: string; count?: number; done_count?: number; created_at: string };
@@ -169,15 +170,18 @@ export default function MusicPage() {
 
                 {available === false ? (
                   <Card>
-                    <HStack gap={3} vAlign="center">
-                      <Icon icon={MoonIcon} size="md" color="secondary" />
-                      <VStack gap={0}>
-                        <Text weight="semibold">{t("Aucun modèle musique chargé")}</Text>
-                        <Text type="supporting" color="secondary">
-                          {t("La génération est indisponible pour l'instant, mais tu peux réécouter tes morceaux précédents ci-dessous.")}
-                        </Text>
-                      </VStack>
-                    </HStack>
+                    <VStack gap={4}>
+                      <HStack gap={3} vAlign="center">
+                        <Icon icon={MoonIcon} size="md" color="secondary" />
+                        <VStack gap={0}>
+                          <Text weight="semibold">{t("Aucun modèle musique chargé")}</Text>
+                          <Text type="supporting" color="secondary">
+                            {t("La génération est indisponible pour l'instant, mais tu peux réécouter tes morceaux précédents ci-dessous.")}
+                          </Text>
+                        </VStack>
+                      </HStack>
+                      <ModelRequestButton category="music" />
+                    </VStack>
                   </Card>
                 ) : (
                   <Card>

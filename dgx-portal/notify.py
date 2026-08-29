@@ -8,6 +8,7 @@ aux utilisateurs ; ici c'est le webhook d'equipe et le mail admin).
 
 Ne depend que de la configuration et de la bibliotheque standard.
 """
+import re
 import smtplib
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
@@ -17,6 +18,19 @@ import requests
 
 from config import (ADMIN_EMAIL, DISCORD_WH, SMTP_FROM, SMTP_HOST, SMTP_PASS,
                     SMTP_PORT, SMTP_USER)
+
+# Nom d'application affiché par le client mail (gmail indique « DGX platform »).
+# L'adresse d'expédition reste le compte SMTP authentifié (no-reply@cronos.website).
+APP_NAME = "DGX platform"
+
+
+def _sender():
+    """Adresse « From » complète : `<APP_NAME> <<compte SMTP>>`."""
+    addr = SMTP_USER
+    m = re.search(r"<([^>]+)>", SMTP_FROM or "")
+    if m:
+        addr = m.group(1)
+    return f"{APP_NAME} <{addr}>"
 
 def notify_discord(model_id, username, fullname, reason):
     if not DISCORD_WH:
@@ -41,8 +55,8 @@ def notify_email(model_id, username, fullname, reason):
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
         return
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"[DGX] Demande modèle : {model_id}"
-    msg['From'] = SMTP_FROM or SMTP_USER
+    msg['Subject'] = f"[DGX platform] Demande modèle : {model_id}"
+    msg['From'] = _sender()
     msg['To'] = ADMIN_EMAIL
     body = (
         f"Nouvelle demande de modèle\n\n"
@@ -85,8 +99,8 @@ def notify_budget_email(username, fullname, key_alias, current_budget, reason):
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
         return
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"[DGX] Demande de tokens : {username}"
-    msg['From'] = SMTP_FROM or SMTP_USER
+    msg['Subject'] = f"[DGX platform] Demande de tokens : {username}"
+    msg['From'] = _sender()
     msg['To'] = ADMIN_EMAIL
     budget_str = f"{current_budget:,.0f} tokens" if current_budget is not None else "—"
     body = (
@@ -116,7 +130,7 @@ def send_user_email(to_email, subject, body):
         return False
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
-    msg['From'] = SMTP_FROM or SMTP_USER
+    msg['From'] = _sender()
     msg['To'] = to_email
     msg.attach(MIMEText(body, 'plain'))
     try:
@@ -127,4 +141,59 @@ def send_user_email(to_email, subject, body):
         return True
     except Exception as e:
         print(f"[email user] erreur : {e}")
+        return False
+
+
+# Courriel à l'administrateur : bascule du mode maintenance (bouton Admin).
+# Les destinataires sont les admins — on écrit à ADMIN_EMAIL (le compte opérateur).
+def notify_maintenance_email(enabled, by_username, by_fullname):
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
+        return False
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = f"[DGX platform] Mode maintenance {'ACTIVÉ' if enabled else 'DÉSACTIVÉ'}"
+    msg['From'] = _sender()
+    msg['To'] = ADMIN_EMAIL
+    body = (
+        f"Le mode maintenance a été {'ACTIVÉ' if enabled else 'DÉSACTIVÉ'}.\n\n"
+        f"Par    : {by_fullname or by_username or '—'} ({by_username})\n"
+        f"Date   : {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"{'Le portail bloque désormais les requêtes des non-admins.' if enabled else 'Le portail est de nouveau accessible à tous.'}\n"
+    )
+    msg.attach(MIMEText(body, 'plain'))
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(msg['From'], [ADMIN_EMAIL], msg.as_string())
+        return True
+    except Exception as e:
+        print(f"[email maintenance] erreur : {e}")
+        return False
+
+
+# Courriel à l'administrateur : un utilisateur demande qu'un modèle d'une
+# catégorie (image/musique/vidéo/OCR/voix) soit lancé.
+def notify_media_request_email(category, username, fullname):
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
+        return False
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = f"[DGX platform] Demande de modèle {category}"
+    msg['From'] = _sender()
+    msg['To'] = ADMIN_EMAIL
+    body = (
+        f"Un utilisateur demande le lancement d'un modèle « {category} ».\n\n"
+        f"Utilisateur : {fullname} ({username})\n"
+        f"Catégorie   : {category}\n"
+        f"Date        : {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"Aucun modèle de cette catégorie n'est actuellement chargé.\n"
+    )
+    msg.attach(MIMEText(body, 'plain'))
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(msg['From'], [ADMIN_EMAIL], msg.as_string())
+        return True
+    except Exception as e:
+        print(f"[email média] erreur : {e}")
         return False

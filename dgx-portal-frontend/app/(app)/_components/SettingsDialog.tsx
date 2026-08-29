@@ -49,6 +49,7 @@ import { THEMES, type ThemeId } from "@/lib/themes";
 import { useLang, useT, type Lang } from "@/lib/i18n";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { ActivityHeatmap, type ActivityDay } from "./ActivityHeatmap";
+import { SecurityContent } from "./SecurityContent";
 
 type McpServer = {
   id: number;
@@ -551,6 +552,8 @@ export function SettingsDialog({
                       )}
                     </Card>
                   </VStack>
+
+                  <SecurityContent />
                 </VStack>
               )}
 

@@ -862,7 +862,6 @@ const EN: Record<string, string> = {
   "LDAP": "LDAP",
   "SSO": "SSO",
   "Local": "Local",
-  "Debug": "Debug",
   "Géré à l'extérieur": "Managed externally",
   "Crée et gère les comptes locaux, les groupes, les quotas et les droits.": "Create and manage local accounts, groups, quotas and rights.",
   "Identifiant": "Username",

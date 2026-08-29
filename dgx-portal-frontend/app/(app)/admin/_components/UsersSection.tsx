@@ -54,7 +54,6 @@ type UsersData = { users: LocalUser[]; groups: Group[]; default_budget: number }
 // Category tags (auth source) → non-semantic color variants.
 const SOURCE_META: Record<string, { label: string; variant: "green" | "orange" | "blue" | "purple" | "neutral" }> = {
   local: { label: "Local", variant: "green" },
-  debug: { label: "Debug", variant: "orange" },
   ldap: { label: "LDAP", variant: "blue" },
   sso: { label: "SSO", variant: "purple" },
   externe: { label: "Externe", variant: "neutral" },

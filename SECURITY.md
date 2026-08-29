@@ -87,6 +87,15 @@ For the **voice** sidecar there is no free-form argv at all: the single variable
 script. The **image** sidecar is the same shape, with per-model inference
 settings baked into the wrapper.
 
+**The one exception is `hawser`** (`ghcr.io/finsys/hawser`, systemd
+`hawser-restrict.service`), the Docker control-plane agent used to drive the
+runner. It *does* mount `/var/run/docker.sock` (plus host `/opt` and `/root`) —
+this is deliberate, not a sidecar, and it is scoped down two ways: its HTTP API
+(`0.0.0.0:2376`) is firewalled to exactly two admin hosts and it requires a
+bearer `HAWSER_TOKEN` before it will act. A compromise of `hawser` is host-root
+equivalent, so its token stays a protected secret and its allowlist stays
+minimal (see §3.2).
+
 ### 2.3 Network isolation
 
 Each sidecar has its own docker network — `ocr_net`, `voice_net`, `asr_net`,
@@ -205,9 +214,9 @@ accounts is a security parameter — keep it small.
   reads LiteLLM's database directly, keyed by the SHA-256 of the key, and no key
   ever travels in a URL. Any other client calling that endpoint would leak
   again; silencing LiteLLM's access log is the remaining hardening.
-- **HSTS is `max-age=0` at the Cloudflare edge.** The origin sends a correct
-  `Strict-Transport-Security` header; the edge overrides it. Fix in the
-  Cloudflare dashboard (SSL/TLS → Edge Certificates → HSTS).
+- **HSTS (resolved).** The Cloudflare edge previously overrode the origin's HSTS
+  with `max-age=0`; it is now `max-age=31536000; includeSubDomains` (set in the
+  Cloudflare dashboard, verified on `/` and `/login`).
 - **The historical monolith.** `dgx-portal/app.py` was a single 7 200-line file
   holding auth, budgets, admin and media proxying, which made it hard to
   guarantee no route had lost a guard. It is now a wiring facade over a shared

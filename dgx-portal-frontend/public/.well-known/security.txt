@@ -1,6 +1,6 @@
 # Coordonnées pour signaler une faille de sécurité sur la plateforme DGX.
 # RFC 9116 (security.txt).
-Contact: mailto:security@example.org
+Contact: mailto:invite@example.org
 Expires: 2026-08-29T00:00:00Z
 Preferred-Languages: fr, en
 Canonical: https://dgx.example.org/.well-known/security.txt

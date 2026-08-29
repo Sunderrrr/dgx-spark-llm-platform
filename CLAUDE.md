@@ -218,6 +218,10 @@ Login order (`login()` in `dgx-portal/app.py`):
 Le portail envoie des emails depuis `no-reply@cronos.website` via **Zoho Mail**
 (`smtp.zoho.com:587`, STARTTLS). Le nom d'app affiché chez le destinataire
 (Gmail) est **« DGX platform »** (`notify._sender()` construit le « From »).
+Les notifications admin sont en **anglais** et rendues en **HTML** (gabarit
+commun `_render_html`, bandeau brandé + tableau + pied de page) ; `send_user_email`
+écrit à un utilisateur et garde le contenu fourni par l'appelant (FR, portail
+FR-first).
 
 `.env` (fichier protégé, à saisir à la main — jamais de secret en clair dans un
 fichier suivi) :

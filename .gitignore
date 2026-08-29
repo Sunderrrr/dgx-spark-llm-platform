@@ -46,3 +46,6 @@ searxng/
 
 # Jetons de service générés localement (crawl4ai). Jamais dans git.
 secrets/
+
+# Machine-private security notes (operator-specific; never commit)
+.machine/

@@ -359,7 +359,11 @@ def login():
         password = request.form.get('password', '')
         ip  = _client_ip()
         key = f"{ip}|{username}"
-        wait = _login_locked(key) or _login_locked(ip)
+        ukey = f"user:{username}"
+        # Compteur par username, indépendant de l'IP : un attaquant qui change
+        # d'IP à chaque essai reste sous le seuil par IP, mais le compteur du
+        # compte cumule toutes les tentatives → il finit par se verrouiller.
+        wait = _login_locked(key) or _login_locked(ip) or _login_locked(ukey)
         if wait:
             flash(f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min.", "danger")
             return ('', 401)
@@ -367,17 +371,17 @@ def login():
         # before LDAP so as not to depend on its availability.
         l_ok, l_admin, l_name = _local_user_auth(username, password)
         if l_ok:
-            _login_reset(key); _login_reset(ip)
+            _login_reset(key); _login_reset(ip); _login_reset(ukey)
             _record_user_source(username, 'local', l_name)
             _apply_session(username, l_name, l_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
-            _login_reset(key); _login_reset(ip)
+            _login_reset(key); _login_reset(ip); _login_reset(ukey)
             _record_user_source(username, 'ldap', fullname)
             _apply_session(username, fullname, is_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
-        _login_fail(key); _login_fail(ip)
+        _login_fail(key); _login_fail(ip); _login_fail(ukey)
         flash("Identifiants incorrects.", "danger")
         return ('', 401)
     # GET /login: the page itself is rendered by the Next.js frontend

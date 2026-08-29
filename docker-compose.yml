@@ -5,6 +5,13 @@ services:
     image: postgres:15-alpine@sha256:cd17e2ac98240fce1541ad2a803b34009b4eea5aec8a832363cdc7eca62e722e
     container_name: litellm-postgres
     restart: unless-stopped
+    # Durcissement : mono-utilisateur postgres (uid 70) sans capability et sans
+    # elevation. Le serveur s'exécute en non-root ; la base reste non publiée.
+    user: "70:70"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_DB: litellm
       POSTGRES_USER: litellm

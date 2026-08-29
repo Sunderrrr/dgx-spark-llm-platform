@@ -954,6 +954,36 @@ const EN: Record<string, string> = {
   "La transcription a mis trop de temps.": "Transcription took too long.",
   "Service de transcription injoignable.": "Transcription service unreachable.",
   "Mode maintenance en cours — réessaie plus tard.": "Maintenance in progress — try again later.",
+  // ── Double authentification par clé de sécurité (WebAuthn / passkeys) ──
+  "Sécurité": "Security",
+  "Double authentification par clé de sécurité (passkey, YubiKey, 1Password) — pas de TOTP.":
+    "Two-factor authentication with a security key (passkey, YubiKey, 1Password) — no TOTP.",
+  "Exiger une clé de sécurité au login": "Require a security key at login",
+  "Ta clé sera demandée après le mot de passe (local ou LDAP).":
+    "Your key will be requested after the password (local or LDAP).",
+  "Une fois activée, la clé est exigée à chaque connexion.":
+    "Once enabled, the key is required on every sign-in.",
+  "Clés de sécurité": "Security keys",
+  "Ajouter une clé": "Add a key",
+  "Clé de sécurité": "Security key",
+  "Clé de sécurité ajoutée.": "Security key added.",
+  "Échec de l'enregistrement de la clé.": "Failed to register the key.",
+  "Ajout de clé annulé.": "Key addition cancelled.",
+  "Ce navigateur ne supporte pas les clés de sécurité.":
+    "This browser does not support security keys.",
+  "Aucune clé de sécurité": "No security key",
+  "Ajoute une passkey, une YubiKey ou une clé 1Password pour sécuriser ton compte.":
+    "Add a passkey, a YubiKey, or a 1Password key to secure your account.",
+  "Confirme avec ton mot de passe pour supprimer la clé.":
+    "Confirm with your password to delete the key.",
+  "Confirme avec ton mot de passe pour changer la double authentification.":
+    "Confirm with your password to change two-factor authentication.",
+  "Confirmer": "Confirm",
+  "Clé supprimée.": "Key deleted.",
+  "Double authentification mise à jour.": "Two-factor authentication updated.",
+  // ── Étape 2FA côté login ──
+  "Double authentification annulée.": "Two-factor authentication cancelled.",
+  "Vérification de la clé échouée.": "Key verification failed.",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

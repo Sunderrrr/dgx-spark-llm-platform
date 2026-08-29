@@ -276,6 +276,9 @@ from voice_routes import (  # noqa: E402
 )
 
 from asr_routes import bp as asr_bp, asr_is_up  # noqa: E402
+from webauthn_routes import (  # noqa: E402
+    bp as webauthn_bp, _webauthn_enabled, start_login,
+)
 
 # ── Recherche web depuis le playground ───────────────────────────────────────
 # Deplacee dans websearch_tools.py le 28/08 (cf. db.py pour le noyau partage).
@@ -374,12 +377,23 @@ def login():
         if l_ok:
             _login_reset(key); _login_reset(ip); _login_reset(ukey)
             _record_user_source(username, 'local', l_name)
+            if _webauthn_enabled(username):
+                # 2e facteur : mot de passe valide MAIS pas encore de session.
+                payload = start_login(username, l_name, l_admin, 'local')
+                return jsonify({'webauthn_required': True,
+                                'publicKey': payload['publicKey'],
+                                'nonce': payload['nonce']})
             _apply_session(username, l_name, l_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
             _login_reset(key); _login_reset(ip); _login_reset(ukey)
             _record_user_source(username, 'ldap', fullname)
+            if _webauthn_enabled(username):
+                payload = start_login(username, fullname, is_admin, 'ldap')
+                return jsonify({'webauthn_required': True,
+                                'publicKey': payload['publicKey'],
+                                'nonce': payload['nonce']})
             _apply_session(username, fullname, is_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
         _login_fail(key); _login_fail(ip); _login_fail(ukey)
@@ -861,6 +875,7 @@ app.register_blueprint(music_bp)
 app.register_blueprint(ocr_bp)
 app.register_blueprint(voice_bp)
 app.register_blueprint(asr_bp)
+app.register_blueprint(webauthn_bp)
 
 with app.app_context():
     init_db()

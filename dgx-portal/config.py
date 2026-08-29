@@ -74,6 +74,24 @@ OIDC_ADMIN_GROUP   = os.environ.get('OIDC_ADMIN_GROUP', 'adm_cronos')
 OIDC_ENABLED       = bool(OIDC_METADATA_URL and OIDC_CLIENT_ID and OIDC_CLIENT_SECRET)
 
 
+# ── WebAuthn / passkeys (2FA par clé de sécurité) ────────────────────────────
+# La passkey est liée à l'ORIGINE exacte (scheme+host). L'accès public passe
+# par https://dgx.cronos.website (Cloudflare → Traefik) ; c'est l'origine que
+# les utilisateurs déclarent au navigateur, donc celle à laquelle la clé est
+# rattachée. Une clé enregistrée ici ne fonctionnera PAS depuis une autre
+# origine (ex. http://dgx.cronos.lan, scheme/host différent).
+WEBAUTHN_RP_ID   = os.environ.get('WEBAUTHN_RP_ID', 'dgx.cronos.website')
+WEBAUTHN_RP_NAME = os.environ.get('WEBAUTHN_RP_NAME', 'Cronos')
+WEBAUTHN_ORIGIN  = os.environ.get('WEBAUTHN_ORIGIN', 'https://dgx.cronos.website')
+# Exiger la vérification utilisateur (PIN/biometrie) en plus de la présence.
+# Off par défaut : une clé physique "touch-only" (YubiKey classique) ne fait PAS
+# de vérification utilisateur — l'exiger bloquerait ces clés. `preferred` exige
+# la présence (touch) mais accepte une UV quand l'authentificateur en offre une
+# (passkey OS, 1Password, YubiKey avec PIN). À activer seulement si toute la
+# flotte le supporte.
+WEBAUTHN_REQUIRE_UV = os.environ.get('WEBAUTHN_REQUIRE_UV', '0') == '1'
+
+
 # ── Apparence (avatars, themes, langues) ─────────────────────────────────────
 # Lues par les reglages, par l'historique de conversations et par l'amorcage
 # (purge des avatars disparus) : ce sont des constantes partagees, pas des

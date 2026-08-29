@@ -12,6 +12,7 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Divider } from "@astryxdesign/core/Divider";
 import { ShieldCheckIcon, ArrowRightOnRectangleIcon, CpuChipIcon } from "@heroicons/react/24/outline";
 import { fetchCsrfToken } from "@/lib/api";
+import { getPasskeyAssertion } from "@/lib/webauthn";
 import { useT } from "@/lib/i18n";
 
 // Self-hosted (public/login-bg*.jpg) to respect the CSP img-src 'self' —
@@ -59,16 +60,32 @@ export default function LoginPage() {
           headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": token },
           body: new URLSearchParams({ username, password }).toString(),
         });
-      let res = await post(csrf);
+      // Server reads the token from the header; a copy in the closure is needed
+      // after a CSRF retry, where the React state may not have flushed yet.
+      let activeCsrf = csrf;
+      let res = await post(activeCsrf);
       // A 400 here is the CSRF token, not the password: the session cookie
       // may have been replaced between the page load and the submission.
       // We fetch the current token and retry once, rather than
       // accusing the user of mistyping their credentials.
       if (res.status === 400) {
         const fresh = await fetchCsrfToken().catch(() => "");
-        if (fresh && fresh !== csrf) {
+        if (fresh && fresh !== activeCsrf) {
+          activeCsrf = fresh;
           setCsrf(fresh);
           res = await post(fresh);
+        }
+      }
+      // 2e facteur : mot de passe/LDAP valide mais la passkey est exigée. Le
+      // backend renvoie un JSON {webauthn_required, publicKey, nonce} et ne pose
+      // PAS encore la session. On déclenche `navigator.credentials.get` puis on
+      // finalise via /api/security/verify-login (qui, lui, ouvre la session).
+      const ct = res.headers.get("content-type") ?? "";
+      if (res.ok && ct.includes("application/json")) {
+        const body = await res.json().catch(() => null);
+        if (body?.webauthn_required) {
+          await complete2FA(body, activeCsrf);
+          return;
         }
       }
       // A successful form redirects to /, which fetch follows — the presence of a
@@ -77,17 +94,38 @@ export default function LoginPage() {
       if (who.ok) {
         // Deliberate full reload: we just obtained a session cookie,
         // and the server render must start over with it.
-        window.location.href = "/";
+        window.location.assign("/");
       } else if (res.status === 400) {
         setError(t("Session expirée — recharge la page et réessaie."));
       } else {
         setError(t("Identifiants incorrects."));
       }
-    } catch {
-      setError(t("Erreur réseau — réessaie."));
+    } catch (e) {
+      const msg = (e as Error)?.message;
+      setError(
+        msg === "create-cancelled"
+          ? t("Double authentification annulée.")
+          : msg || t("Erreur réseau — réessaie."),
+      );
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function complete2FA(body: { publicKey: Record<string, unknown>; nonce: string }, token: string) {
+    const assertion = await getPasskeyAssertion(body.publicKey);
+    const res = await fetch("/api/security/verify-login", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+      body: JSON.stringify({ nonce: body.nonce, credential: assertion }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setError(j?.error || t("Vérification de la clé échouée."));
+      return;
+    }
+    window.location.assign("/");
   }
 
   return (

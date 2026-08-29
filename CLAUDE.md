@@ -195,6 +195,15 @@ Login order (`login()` in `dgx-portal/app.py`):
   session at will (`POST /admin/users/<username>/revoke-sessions`), revoke on
   logout, and drop a locked account's sessions instantly (`enabled=0`).
   Sessions predating the registry expire by age only (no mass logout).
+- **2FA par passkey (WebAuthn/FIDO2, non-TOTP)** : optionnelle par utilisateur
+  (Réglages → Mon compte → Sécurité), clés dans `webauthn_credentials` +
+  flag `user_security.enabled`. Portée par choix produit : local + LDAP
+  seulement (pas le SSO). La passkey est liée à l'**origine** (`WEBAUTHN_ORIGIN`
+  = `https://dgx.cronos.website`) — une clé déclarée là ne fonctionne pas
+  depuis `http://dgx.cronos.lan`. `WEBAUTHN_REQUIRE_UV` (défaut off) accepte
+  les clés "touch-only" (YubiKey classique) ; l'activer exigerait PIN/biométrie.
+  Toute suppression/désactivation exige une re-vérification par mot de passe.
+  Défis one-time stockés dans `pending_webauthn`, TTL 5 min.
 - **The container is hardened** (cap_drop ALL, no-new-privileges). Even
   `docker exec -u 0` can't override file perms (no CAP_DAC_OVERRIDE) — manual
   edits to the data volume must be done **as the portal user (uid 10001)**,

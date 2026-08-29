@@ -484,9 +484,12 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
 The gateway refuses any call without a valid key and enforces budgets; vLLM and the
 runner are firewalled to localhost plus the docker bridge, and the runner
 allowlists every launch flag, requires a Bearer token and runs non-root. No
-`docker.sock` is mounted anywhere — sidecars are driven through scoped `sudo` on
-root-owned wrapper scripts, each on its own docker network with no route to
-LiteLLM, Postgres or Traefik. The portal adds LDAP/SSO auth, hardened cookies,
+`docker.sock` is mounted by any sidecar — they are driven through scoped `sudo`
+on root-owned wrapper scripts, each on its own docker network with no route to
+LiteLLM, Postgres or Traefik. The one deliberate exception is the `hawser`
+control-plane agent, which mounts the socket for the runner but requires a
+`HAWSER_TOKEN` and is IP-firewalled to two admin hosts (see
+[`SECURITY.md`](SECURITY.md)). The portal adds LDAP/SSO auth, hardened cookies,
 CSRF, a persisted brute-force lockout and a per-request nonce CSP, and a test
 fails the build if any route loses its authentication guard.
 

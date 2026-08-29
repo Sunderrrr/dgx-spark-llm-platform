@@ -22,6 +22,7 @@ import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
+import { ModelRequestButton } from "../_components/ModelRequestButton";
 
 type JobStatus = "idle" | "pending" | "running" | "done" | "error";
 type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string; count?: number; done_count?: number };
@@ -168,15 +169,18 @@ export default function ImagePage() {
 
                 {available === false ? (
                   <Card>
-                    <HStack gap={3} vAlign="center">
-                      <Icon icon={MoonIcon} size="md" color="secondary" />
-                      <VStack gap={0}>
-                        <Text weight="semibold">{t("Aucun modèle image chargé")}</Text>
-                        <Text type="supporting" color="secondary">
-                          {t("La génération est indisponible pour l'instant, mais tu peux revoir tes images précédentes ci-dessous.")}
-                        </Text>
-                      </VStack>
-                    </HStack>
+                    <VStack gap={4}>
+                      <HStack gap={3} vAlign="center">
+                        <Icon icon={MoonIcon} size="md" color="secondary" />
+                        <VStack gap={0}>
+                          <Text weight="semibold">{t("Aucun modèle image chargé")}</Text>
+                          <Text type="supporting" color="secondary">
+                            {t("La génération est indisponible pour l'instant, mais tu peux revoir tes images précédentes ci-dessous.")}
+                          </Text>
+                        </VStack>
+                      </HStack>
+                      <ModelRequestButton category="image" />
+                    </VStack>
                   </Card>
                 ) : (
                   <Card>

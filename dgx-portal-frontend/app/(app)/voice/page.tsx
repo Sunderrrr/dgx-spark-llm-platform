@@ -31,6 +31,7 @@ import { postFormData } from "@/lib/api";
 import { useT, useLang } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
+import { ModelRequestButton } from "../_components/ModelRequestButton";
 import { startRecording, type Recorder } from "@/lib/audioRecorder";
 
 type HistoryItem = { id: number; text: string; created_at: string };
@@ -246,15 +247,18 @@ export default function VoicePage() {
                 // past creations stay viewable/playable/copyable below (served
                 // from disk, no model needed).
                 <Card>
-                  <HStack gap={3} vAlign="center">
-                    <Icon icon={MoonIcon} size="md" color="secondary" />
-                    <VStack gap={0}>
-                      <Text weight="semibold">{t("Aucun modèle vocal chargé")}</Text>
-                      <Text type="supporting" color="secondary">
-                        {t("La génération est indisponible pour l'instant, mais tu peux réécouter et copier tes créations précédentes ci-dessous.")}
-                      </Text>
-                    </VStack>
-                  </HStack>
+                  <VStack gap={4}>
+                    <HStack gap={3} vAlign="center">
+                      <Icon icon={MoonIcon} size="md" color="secondary" />
+                      <VStack gap={0}>
+                        <Text weight="semibold">{t("Aucun modèle vocal chargé")}</Text>
+                        <Text type="supporting" color="secondary">
+                          {t("La génération est indisponible pour l'instant, mais tu peux réécouter et copier tes créations précédentes ci-dessous.")}
+                        </Text>
+                      </VStack>
+                    </HStack>
+                    <ModelRequestButton category="voice" />
+                  </VStack>
                 </Card>
               ) : (
               <Card>

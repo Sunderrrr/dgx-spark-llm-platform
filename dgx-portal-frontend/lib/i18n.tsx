@@ -984,6 +984,13 @@ const EN: Record<string, string> = {
   // ── Étape 2FA côté login ──
   "Double authentification annulée.": "Two-factor authentication cancelled.",
   "Vérification de la clé échouée.": "Key verification failed.",
+  // ── Bouton « demander un modèle » sur les pages média ──
+  "Envie de ce modèle ? Préviens le responsable, il pourra le lancer.":
+    "Want this model? Let the admin know, they can launch it.",
+  "Demander ce modèle": "Request this model",
+  "Demande envoyée": "Request sent",
+  "Demande envoyée au responsable.": "Request sent to the admin.",
+  "La demande a échoué.": "The request failed.",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

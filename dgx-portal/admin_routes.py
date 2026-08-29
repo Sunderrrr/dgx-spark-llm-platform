@@ -33,7 +33,7 @@ from litellm_client import (_litellm_user_info, _register_litellm_model,
 from local_users import (_local_group, _local_user_effective_budget,
                          _local_user_is_admin, _parse_budget,
                          _sync_local_user_budget)
-from notify import send_user_email
+from notify import notify_maintenance_email, send_user_email
 from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       _image_launch, _mem_guard, _music_launch, _ocr_launch,
                       _runner_headers, _sidecar_action, _sidecar_start_json,
@@ -651,6 +651,10 @@ def toggle_maintenance():
     now_on = not maintenance_active()
     set_setting('maintenance_mode', '1' if now_on else '0')
     add_announcement('maintenance', 'on' if now_on else 'off')
+    # Notifie l'opérateur (ADMIN_EMAIL) de la bascule — les admins sont les
+    # destinataires, pas les utilisateurs bloqués.
+    notify_maintenance_email(now_on, session.get('username', ''),
+                             session.get('fullname', ''))
     flash("Mode maintenance activé." if now_on else "Mode maintenance désactivé.", "success")
     return redirect(url_for('admin.admin'))
 

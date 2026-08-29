@@ -525,6 +525,9 @@ def logout():
         return redirect(OIDC_LOGOUT_URL)
     return redirect(url_for('login'))
 
+_SIDECAR_METRICS_CACHE = {}
+_SIDECAR_METRICS_TTL = 3.0
+
 def _sidecar_metrics(kind):
     """Home-page metrics for a media backend (OCR/video/voice): today's
     generations, total, and average/last generation time measured over the last 20
@@ -532,6 +535,13 @@ def _sidecar_metrics(kind):
     NULL and are therefore ignored). Global (platform activity), not scoped per
     user: these are counters and timings, nothing confidential.
     """
+    # Global platform counters (not per-user) that update slowly. Each kind is
+    # ~3-5 read-only queries on the media tables, and /api/home polls this on
+    # every refresh — a short per-process cache spares that recurring scan.
+    now = time.time()
+    hit = _SIDECAR_METRICS_CACHE.get(kind)
+    if hit and now - hit[0] < _SIDECAR_METRICS_TTL:
+        return hit[1]
     tbl = {'ocr': 'ocr_jobs', 'video': 'video_jobs', 'voice': 'voice_jobs'}.get(kind)
     if not tbl:
         return None
@@ -574,6 +584,7 @@ def _sidecar_metrics(kind):
         gpv = _avg([(r['duration_ms'] / 1000.0) / r['req_duration_s']
                     for r in recent if r['req_duration_s'] and r['duration_ms']])
         m['gen_per_vsec'] = round(gpv, 1) if gpv else None
+    _SIDECAR_METRICS_CACHE[kind] = (time.time(), m)
     return m
 
 

@@ -81,10 +81,6 @@ services:
       LDAP_BASE: dc=cronos,dc=website
       LDAP_BIND_DN: uid=admin,ou=people,dc=cronos,dc=website
       LDAP_BIND_PW: ${LLDAP_ADMIN_PASSWORD}
-      # Comptes de secours locaux, inactifs tant que /app/data/DEBUG_LOGIN_ENABLED
-      # n'existe pas dans le conteneur (bascule à la main, sans redémarrage).
-      # Identifiants dans /app/data/DEBUG_USERS.txt (volume, jamais dans .env).
-      DEBUG_ADMIN_USERNAMES: ${DEBUG_ADMIN_USERNAMES:-}
       LITELLM_URL: http://litellm:4001
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       # Passerelle du réseau `default` plutôt que host.docker.internal : ce

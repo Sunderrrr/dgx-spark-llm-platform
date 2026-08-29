@@ -22,11 +22,11 @@ treat it as live infrastructure, not a scratch project.
 3. **Never restore the Traefik geoblock / fail2ban / breidablik middlewares.**
    They were deliberately removed.
 4. **Never echo or commit secrets.** Real credentials go only in `.env` (git-ignored)
-   and `/app/data/DEBUG_USERS.txt` (a container volume, 0600, uid 10001). Never
-   print a password to output, never write one into a tracked file. The pre-push
-   gate (below) is a backstop, not a substitute for care.
-5. **`.env` is protected by a hook** — it cannot be edited by tools. Hand edits to
-   the user. Same posture for `DEBUG_USERS.txt`.
+   and local-account passwords (hashed in `local_users`). Never print a password
+   to output, never write one into a tracked file. The pre-push gate (below)
+   is a backstop, not a substitute for care.
+5. **`.env` is protected by a hook** — it cannot be edited by tools. Hand edits
+   to the user.
 
 ---
 
@@ -171,18 +171,18 @@ Key facts and gotchas:
 ## Auth & users
 
 Login order (`login()` in `dgx-portal/app.py`):
-`DEBUG_USERS.txt` (plaintext, gated by `/app/data/DEBUG_LOGIN_ENABLED`) →
 `local_users` (hashed) → **LDAP** → **SSO** (`/api/oauth2-redirect`, `via_sso=True`).
 
 - Each successful login records its source in the `user_sources` table
-  (`debug` / `local` / `ldap` / `sso`, cumulative). The **Users** page
-  (`/users`, admin-only) shows every known account with source badges.
+  (`local` / `ldap` / `sso`, cumulative). The **Users** page (`/users`,
+  admin-only) shows every known account with source badges.
 - **Local user management** is admin-only: create users, assign groups with
   quota/admin rights, hashed passwords. Budget precedence: user override → group
   → global default (`get_setting('default_key_budget')`).
 - **The container is hardened** (cap_drop ALL, no-new-privileges). Even
-  `docker exec -u 0` can't override 0600 file perms (no CAP_DAC_OVERRIDE) — edit
-  `DEBUG_USERS.txt` **as the portal user (uid 10001)**, not root.
+  `docker exec -u 0` can't override file perms (no CAP_DAC_OVERRIDE) — manual
+  edits to the data volume must be done **as the portal user (uid 10001)**,
+  not root.
 - **`docker exec` heredoc gotcha**: `docker exec ... python3 - << 'PY'` produces
   no output in this harness. Write the script to a file, `docker cp` it in, run it.
 

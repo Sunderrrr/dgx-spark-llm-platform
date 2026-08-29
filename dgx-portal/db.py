@@ -262,6 +262,18 @@ def init_db():
             created_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_previews_created ON previews(created_at);
+        -- Histories are read per user (WHERE username=? ... ORDER BY id/created_at
+        -- DESC LIMIT n) and purged with the same shape; an index on the leading
+        -- username column turns what was a full scan into an indexed range lookup.
+        CREATE INDEX IF NOT EXISTS idx_image_jobs_user   ON image_jobs(username, id);
+        CREATE INDEX IF NOT EXISTS idx_music_jobs_user   ON music_jobs(username, id);
+        CREATE INDEX IF NOT EXISTS idx_video_jobs_user   ON video_jobs(username, id);
+        CREATE INDEX IF NOT EXISTS idx_voice_jobs_user   ON voice_jobs(username, id);
+        CREATE INDEX IF NOT EXISTS idx_ocr_jobs_user     ON ocr_jobs(username, id);
+        CREATE INDEX IF NOT EXISTS idx_model_req_user    ON model_requests(username, created_at);
+        CREATE INDEX IF NOT EXISTS idx_model_req_status  ON model_requests(username, status);
+        CREATE INDEX IF NOT EXISTS idx_budget_req_status ON budget_requests(username, status);
+        CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(username, updated_at);
     ''')
     # Migration: columns added to mcp_servers after its initial creation
     # (description, tool filter, enablement) — additive ALTER, lossless.

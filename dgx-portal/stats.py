@@ -448,12 +448,22 @@ def ranking_full(period='day', me=None):
     finally:
         conn.close()
 
+_USER_HOURLY_CACHE = {}
+_USER_HOURLY_TTL = 30.0
+
 def user_hourly(username):
     """24 hourly points (real tokens consumed = prompt + generated) for today
     for the user, + total, hourly peak and number of active keys in the
     day. We show real tokens, not the weighted cost (input×0.1) which
     underestimates consumption by ~10× on prompt-heavy loads.
     """
+    # The Postgres SpendLogs GROUP BY runs on every call (home refresh, hourly
+    # admin endpoint, support). Usage barely changes second-to-second, so cache
+    # per user for a short window; _key_user_map is already cached separately.
+    now = time.time()
+    hit = _USER_HOURLY_CACHE.get(username)
+    if hit and now - hit[0] < _USER_HOURLY_TTL:
+        return hit[1]
     conn = _spend_conn()
     if not conn:
         return None
@@ -463,6 +473,7 @@ def user_hourly(username):
         umap = _key_user_map(conn)
         my_keys = {tok for tok, u in umap.items() if u == username}
         if not my_keys:
+            _USER_HOURLY_CACHE[username] = (time.time(), empty)
             return empty
         cur = conn.cursor()
         cur.execute(
@@ -481,10 +492,12 @@ def user_hourly(username):
                 active.add(api_key)
         peak_hour = max(range(24), key=lambda h: by_hour[h])
         total = sum(by_hour.values())
-        return {'has_data': total > 0,
-                'points': [{'hour': h, 'tokens': round(by_hour[h])} for h in range(24)],
-                'total': round(total), 'peak_hour': peak_hour,
-                'peak_val': round(by_hour[peak_hour]), 'active_keys': len(active)}
+        result = {'has_data': total > 0,
+                  'points': [{'hour': h, 'tokens': round(by_hour[h])} for h in range(24)],
+                  'total': round(total), 'peak_hour': peak_hour,
+                  'peak_val': round(by_hour[peak_hour]), 'active_keys': len(active)}
+        _USER_HOURLY_CACHE[username] = (time.time(), result)
+        return result
     except Exception:
         return empty
     finally:

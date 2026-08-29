@@ -26,6 +26,8 @@ import {
   DocumentMagnifyingGlassIcon,
   FilmIcon,
   SpeakerWaveIcon,
+  PhotoIcon,
+  MusicalNoteIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
 import { useWhoami } from "@/lib/whoami";
@@ -59,7 +61,7 @@ interface ModelRequest extends Record<string, unknown> {
   created_at: string;
 }
 
-type RunningModel = { name: string; kind: "chat" | "ocr" | "video" | "voice"; exposed: boolean };
+type RunningModel = { name: string; kind: "chat" | "image" | "music" | "video" | "ocr" | "voice"; exposed: boolean };
 
 type SidecarMetric = {
   count_today: number;
@@ -119,9 +121,22 @@ function sidecarLines(
 // What each capability does, in one line (shown on each model card).
 const KIND_DESC: Record<RunningModel["kind"], string> = {
   chat: "Chat & complétions — API OpenAI-compatible",
-  ocr: "Extraction de texte et de tableaux depuis images et PDF",
+  image: "Génération d'images (texte → image)",
+  music: "Génération musicale (texte → chanson)",
   video: "Génération de vidéos courtes (texte ou image → vidéo)",
+  ocr: "Extraction de texte et de tableaux depuis images et PDF",
   voice: "Clonage de voix zéro-shot à partir d'un court échantillon",
+};
+// Destination + libellé du bouton « Ouvrir » sur les cartes de services média.
+// Chaque capacité va sur SA page (le fallback « vidéo » était le bug : image et
+// musique atterrissaient sur /video).
+const KIND_OPEN: Record<RunningModel["kind"], { label: string; href: string }> = {
+  chat: { label: "Ouvrir le chat", href: "/playground" },
+  image: { label: "Ouvrir la génération d'image", href: "/image" },
+  music: { label: "Ouvrir la génération musicale", href: "/music" },
+  video: { label: "Ouvrir la génération vidéo", href: "/video" },
+  ocr: { label: "Ouvrir l'OCR", href: "/ocr" },
+  voice: { label: "Ouvrir le clonage de voix", href: "/voice" },
 };
 // Short name of the media backends (for the "Media services" block).
 const KIND_NAME: Record<"ocr" | "video" | "voice", string> = { ocr: "OCR", video: "Vidéo", voice: "Voix" };
@@ -257,6 +272,8 @@ export default function HomePage() {
                           {m.kind === "ocr" && <Icon icon={DocumentMagnifyingGlassIcon} size="sm" />}
                           {m.kind === "video" && <Icon icon={FilmIcon} size="sm" />}
                           {m.kind === "voice" && <Icon icon={SpeakerWaveIcon} size="sm" />}
+                          {m.kind === "image" && <Icon icon={PhotoIcon} size="sm" />}
+                          {m.kind === "music" && <Icon icon={MusicalNoteIcon} size="sm" />}
                         </HStack>
                         <Text weight="semibold" wordBreak="break-all">
                           {m.name}
@@ -287,14 +304,10 @@ export default function HomePage() {
                             </Text>
                             <StackItem size="fill" />
                             <Button
-                              label={
-                                m.kind === "ocr" ? t("Ouvrir l'OCR")
-                                : m.kind === "voice" ? t("Ouvrir le clonage de voix")
-                                : t("Ouvrir la génération vidéo")
-                              }
+                              label={t(KIND_OPEN[m.kind].label)}
                               variant="secondary"
                               size="sm"
-                              href={m.kind === "ocr" ? "/ocr" : m.kind === "voice" ? "/voice" : "/video"}
+                              href={KIND_OPEN[m.kind].href}
                             />
                           </>
                         )}

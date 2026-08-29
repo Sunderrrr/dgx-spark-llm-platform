@@ -180,7 +180,7 @@ from vllm_health import (  # noqa: E402
 # Notifications (mail admin, webhook Discord) : cf. notify.py
 from notify import (  # noqa: E402
     notify_budget_discord, notify_budget_email, notify_discord, notify_email,
-    send_user_email,
+    notify_media_request_email, send_user_email,
 )
 
 # ── Notifications Discord ────────────────────────────────────────────────────
@@ -665,6 +665,48 @@ def api_home():
     data = _index_data()
     data['my_requests'] = [dict(r) for r in data['my_requests']]
     return jsonify(data)
+
+
+# Catégories média sur lesquelles un utilisateur peut demander le lancement d'un
+# modèle. Un "request" n'a de sens que si AUCUN modèle de la catégorie n'est
+# chargé : sinon le bouton ne sert à rien (la page permet déjà de générer).
+_MEDIA_CATEGORIES = {
+    'image', 'music', 'video', 'ocr', 'voice',
+}
+
+
+def _media_category_running(category):
+    """True si un modèle de la catégorie est déjà chargé (mêmes capteurs que
+    _index_data, pour ne pas dupliquer la notion de « disponible »)."""
+    if category == 'image':
+        return image_ready()
+    if category == 'music':
+        return music_ready()
+    if category == 'video':
+        return comfyui_is_up()
+    if category == 'ocr':
+        return bool(get_ocr_model())
+    if category == 'voice':
+        return bool(get_voice_model())
+    return False
+
+
+@app.route('/api/model/request', methods=['POST'])
+@login_required
+def api_model_request():
+    """Signale à l'admin qu'un utilisateur veut un modèle de la catégorie donnée.
+    Refuse si un modèle de cette catégorie est déjà chargé (défense en
+    profondeur : le frontend cache déjà le bouton dans ce cas)."""
+    data = request.get_json(silent=True) or {}
+    category = (data.get('category') or '').strip().lower()
+    if category not in _MEDIA_CATEGORIES:
+        return jsonify({'error': {'message': 'Catégorie inconnue.'}}), 400
+    if _media_category_running(category):
+        return jsonify({'error': {'message':
+                       f"Un modèle « {category} » est déjà chargé."}}), 409
+    notify_media_request_email(
+        category, session['username'], session.get('fullname', ''))
+    return jsonify({'ok': True, 'category': category})
 
 @app.route('/keys', methods=['GET', 'POST'])
 @login_required

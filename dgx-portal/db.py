@@ -221,6 +221,36 @@ def init_db():
             created_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_user_sessions_username ON user_sessions(username);
+        -- WebAuthn (2FA par passkey) : clés enregistrées + flag d'activation +
+        -- challenges en attente (one-time, bornés dans le temps). Cf. webauthn_routes.py
+        CREATE TABLE IF NOT EXISTS user_security (
+            username   TEXT PRIMARY KEY,
+            enabled    INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS webauthn_credentials (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT NOT NULL,
+            credential_id TEXT NOT NULL UNIQUE,  -- base64url (toujours normalisé)
+            public_key    BLOB NOT NULL,          -- clé publique brute (RAW)
+            sign_count    INTEGER NOT NULL DEFAULT 0,
+            transports    TEXT,                   -- JSON array
+            label         TEXT NOT NULL DEFAULT '',
+            created_at    REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_webauthn_cred_username ON webauthn_credentials(username);
+        CREATE TABLE IF NOT EXISTS pending_webauthn (
+            nonce      TEXT PRIMARY KEY,
+            username   TEXT NOT NULL,
+            kind       TEXT NOT NULL,             -- 'register' | 'login' | 'reverify'
+            challenge  BLOB NOT NULL,
+            fullname   TEXT,
+            is_admin   INTEGER,
+            source     TEXT,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS video_jobs (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             username        TEXT NOT NULL,

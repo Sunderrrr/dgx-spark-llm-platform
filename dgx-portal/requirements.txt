@@ -4,3 +4,6 @@ requests==2.33.1
 gunicorn==23.0.0
 Authlib==1.6.12
 psycopg2-binary==2.9.9
+# WebAuthn/FIDO2 (2FA par passkey / YubiKey / clé 1Password) — vérification
+# cryptographique côté serveur. Voir webauthn_routes.py.
+webauthn==3.0.0

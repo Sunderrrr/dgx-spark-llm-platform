@@ -1,21 +1,9 @@
-import os, sqlite3, smtplib, requests, time, re, threading, queue, json, secrets, hmac, hashlib, base64, ipaddress, unicodedata
-from concurrent.futures import ThreadPoolExecutor
-from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response, stream_with_context, abort, send_file
-from ldap3 import Server, Connection, ALL, SUBTREE, SIMPLE
-from ldap3.utils.conv import escape_filter_chars
-from ldap3.utils.dn import escape_rdn
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
-from functools import wraps
-from urllib.parse import urlparse, urlencode
+import os, re, time, hmac, requests
+from flask import Flask, request, session, redirect, url_for, flash, g, jsonify
+from datetime import datetime
+from urllib.parse import urlparse
 
-import websearch
 from werkzeug.middleware.proxy_fix import ProxyFix
-from werkzeug.security import generate_password_hash, check_password_hash
-from mcp_client import (validate_mcp_url, list_tools_cached, invalidate_tools as _invalidate_mcp_tools,
-                        MCPClient, MCPError)
 
 app = Flask(__name__)
 app.secret_key = os.environ['SECRET_KEY']
@@ -169,8 +157,7 @@ from guards import (  # noqa: E402
 # Client LiteLLM (cles, budgets, comptes) : cf. litellm_client.py
 from litellm_client import (  # noqa: E402
     _ensure_litellm_user, _infos_cles, _litellm_user_info, create_litellm_key,
-    get_user_keys, litellm_headers, litellm_key_info, litellm_update_key_budget,
-    litellm_update_user_budget, revoke_litellm_key,
+    get_user_keys, litellm_headers, litellm_update_user_budget, revoke_litellm_key,
 )
 
 # get_running_models / _rm_cache : cf. vllm_health.py
@@ -827,22 +814,22 @@ from video_routes import bp as video_bp  # noqa: E402
 app.register_blueprint(video_bp)
 # ── Generation d'image (sidecar diffusers) ──
 # Blueprint : cf. image_routes.py (28/08).
-from image_routes import bp as image_bp, get_image_model, image_ready  # noqa: E402
+from image_routes import bp as image_bp  # noqa: E402  (get_image_model/image_ready deja importes de sidecars)
 app.register_blueprint(image_bp)
 # ── Musique (sidecar diffusers) ──
 # Blueprint : cf. music_routes.py (28/08).
-from music_routes import bp as music_bp, get_music_model, music_ready  # noqa: E402
+from music_routes import bp as music_bp  # noqa: E402  (get_music_model/music_ready deja importes de sidecars)
 app.register_blueprint(music_bp)
 # ── OCR ──────────────────────────────────────────────────────────────────────
 # Blueprint : cf. ocr_routes.py (28/08). Frontiere redessinee — voir sa docstring.
-from ocr_routes import bp as ocr_bp, get_ocr_model  # noqa: E402
+from ocr_routes import bp as ocr_bp  # noqa: E402  (get_ocr_model deja importe de sidecars)
 app.register_blueprint(ocr_bp)
 # ── Voix et dictee ───────────────────────────────────────────────────────────
 # Frontiere redessinee le 28/08 : cette banniere couvrait voix + dictee +
 # amorcage. La voix part dans voice_routes.py, la dictee dans asr_routes.py,
 # l'amorcage reste ci-dessous.
 from voice_routes import (  # noqa: E402
-    bp as voice_bp, get_voice_engine, get_voice_languages, get_voice_model,
+    bp as voice_bp, get_voice_engine, get_voice_languages,
 )
 from asr_routes import bp as asr_bp, asr_is_up  # noqa: E402
 app.register_blueprint(voice_bp)

@@ -255,6 +255,13 @@ def init_db():
             audio_path  TEXT NOT NULL,
             created_at  TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS previews (
+            id         TEXT PRIMARY KEY,
+            username   TEXT NOT NULL,
+            html       TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_previews_created ON previews(created_at);
     ''')
     # Migration: columns added to mcp_servers after its initial creation
     # (description, tool filter, enablement) — additive ALTER, lossless.

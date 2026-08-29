@@ -55,6 +55,7 @@ import {
   ArrowsPointingOutIcon,
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
+import { useWhoami } from "@/lib/whoami";
 import { useSettingsDialog } from "@/lib/settings-dialog";
 import { useDictation } from "@/lib/useDictation";
 import { useIsNarrow } from "@/lib/useIsNarrow";
@@ -1282,7 +1283,8 @@ export default function PlaygroundPage() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
-  const [firstName, setFirstName] = useState("");
+  const { who } = useWhoami();
+  const firstName = who?.fullname?.split(" ")[0] || "";
   // Artifact/canvas side-panel: when the assistant writes a file (a substantial
   // code block), it opens on the side automatically instead of being dumped
   // inline — inspired by the Astryx ai-chat template.
@@ -1342,10 +1344,6 @@ export default function PlaygroundPage() {
         setHasKey(data.has_key);
         if (data.running_models.length) setModel(data.running_models[0]);
       })
-      .catch(() => {});
-    fetch("/api/whoami", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setFirstName(d?.fullname?.split(" ")[0] || ""))
       .catch(() => {});
   }, []);
 

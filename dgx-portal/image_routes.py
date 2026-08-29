@@ -18,7 +18,8 @@ from auth import login_required
 from db import DB_PATH, get_db
 from config import IMAGE_URL
 from sidecars import get_image_model, image_ready
-from guards import maintenance_block_json, media_rate_block
+from guards import (maintenance_block_json, media_job_done, media_job_slot,
+                    media_rate_block)
 
 bp = Blueprint('image', __name__)
 
@@ -97,7 +98,17 @@ def api_image_generate():
                      SELECT id FROM image_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
                (session['username'], session['username'], IMAGE_HISTORY_LIMIT))
     db.commit()
-    threading.Thread(target=_image_worker, args=(prompt_id, session['username'], prompt_text, count), daemon=True).start()
+    username = session['username']
+    # Bound the number of in-flight async jobs per account: each spawns a
+    # thread that blocks up to 600 s against the shared GPU sidecar.
+    if not media_job_slot(username):
+        return jsonify({'error': "Trop de générations d'images en cours. Attends la fin des précédentes."}), 429
+    def _run(u=username, pid=prompt_id, pt=prompt_text, c=count):
+        try:
+            _image_worker(pid, u, pt, c)
+        finally:
+            media_job_done(u)
+    threading.Thread(target=_run, daemon=True).start()
     return jsonify({'prompt_id': prompt_id, 'count': count})
 
 

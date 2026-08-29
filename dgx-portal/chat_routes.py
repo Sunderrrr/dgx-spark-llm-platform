@@ -48,6 +48,13 @@ _log = logging.getLogger('app')
 
 bp = Blueprint('chat', __name__)
 
+# _run_turn returns a status int. A transport/connectivity failure (LiteLLM
+# unreachable) is NOT a model error: it should not surface as « erreur (0) »
+# nor trigger the retry-without-tools path (which exists for models that don't
+# support tools). We flag it with a sentinel that cannot collide with a real
+# HTTP status code.
+TRANSPORT_ERR = -1
+
 def _sse_text(text):
     """A single SSE frame carrying a text fragment, as-is."""
     return f"data: {json.dumps({'choices': [{'delta': {'content': text}}]})}\n\n"
@@ -133,7 +140,8 @@ def support_chat():
         try:
             r = _chat(with_tools, stream=True)
         except Exception:
-            return '', [], 0
+            # Connectivity failure, not a model error (see TRANSPORT_ERR).
+            return '', [], TRANSPORT_ERR
         if not r.ok:
             status = r.status_code
             r.close()
@@ -249,6 +257,12 @@ def support_chat():
             untrusted_seen = False
             for _ in range(4):  # loop: the model can chain tool calls
                 content, tcs, status = yield from _run_turn(use_tools)
+                if status == TRANSPORT_ERR:
+                    yield from _sse_chunks(
+                        "Le service de modèle est momentanément injoignable. Réessaie dans un instant.",
+                        done=False)
+                    yield "data: [DONE]\n\n"
+                    return
                 if status != 200 and use_tools:
                     use_tools = False   # model without tools support → retry without
                     continue

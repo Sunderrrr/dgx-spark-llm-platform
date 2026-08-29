@@ -7,7 +7,9 @@ evite depuis db.py.
 
 Ne depend que de flask, du noyau (db) et du temps.
 """
+import threading
 import time
+from collections import defaultdict
 
 import json
 
@@ -55,6 +57,36 @@ def media_rate_block():
     if wait:
         return jsonify({'error': f"Trop de requêtes. Réessaie dans {wait} s."}), 429
     return None
+
+
+# ── Jobs asynchrones (image/musique) : borne de concurrence par utilisateur ──
+# media_rate_block borne le DEBIT (20/min), mais chaque requete cree un thread
+# daemon qui se bloque jusqu'a 600 s (image) / 1800 s (musique) sur le sidecar.
+# Sur plusieurs fenetres, un meme compte peut donc empiler des threads qui
+# restent accroches au GPU. On borne le nombre de jobs EN COURS par compte,
+# independamment du rythme — la seule vraie limite pour un thread de fond.
+_MEDIA_SLOTS = defaultdict(int)
+_MEDIA_SLOTS_LOCK = threading.Lock()
+MEDIA_MAX_CONCURRENT = 3
+
+def media_job_slot(username):
+    """Acquiert un slot de job asynchrone pour `username`. True si accepte
+    (l'appelant DOIT liberer via media_job_done quand le worker finit),
+    False si ce compte a deja MEDIA_MAX_CONCURRENT jobs en cours."""
+    with _MEDIA_SLOTS_LOCK:
+        if _MEDIA_SLOTS[username] >= MEDIA_MAX_CONCURRENT:
+            return False
+        _MEDIA_SLOTS[username] += 1
+        return True
+
+def media_job_done(username):
+    """Libere un slot acquis par media_job_slot (appele en fin de worker)."""
+    with _MEDIA_SLOTS_LOCK:
+        cur = _MEDIA_SLOTS.get(username, 0)
+        if cur <= 1:
+            _MEDIA_SLOTS.pop(username, None)
+        else:
+            _MEDIA_SLOTS[username] = cur - 1
 
 
 # Limite d'envoi audio, partagee par la voix (clip de reference) et la dictee :

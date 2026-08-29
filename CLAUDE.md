@@ -179,6 +179,11 @@ Login order (`login()` in `dgx-portal/app.py`):
 - **Local user management** is admin-only: create users, assign groups with
   quota/admin rights, hashed passwords. Budget precedence: user override → group
   → global default (`get_setting('default_key_budget')`).
+- **Sessions are server-revocable** via a `user_sessions` registry in SQLite:
+  the signed cookie carries only a random `sid`; a row lets an admin kill a
+  session at will (`POST /admin/users/<username>/revoke-sessions`), revoke on
+  logout, and drop a locked account's sessions instantly (`enabled=0`).
+  Sessions predating the registry expire by age only (no mass logout).
 - **The container is hardened** (cap_drop ALL, no-new-privileges). Even
   `docker exec -u 0` can't override file perms (no CAP_DAC_OVERRIDE) — manual
   edits to the data volume must be done **as the portal user (uid 10001)**,

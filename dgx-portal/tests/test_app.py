@@ -141,6 +141,52 @@ class LoginLockoutParUserTest(unittest.TestCase):
             self.assertEqual(row['fails'], portal.LOGIN_MAX_FAILS)
 
 
+class SessionRegistryTest(unittest.TestCase):
+    """Le registre serveur rend la révocation immédiate possible : un compte
+    verrouillé / une session révoquée expire tout de suite, même si le cookie
+    signé (volé ou rejoué) est encore valide."""
+
+    def setUp(self):
+        self.ctx = portal.app.test_request_context()
+        self.ctx.push()
+        portal.get_db().execute("DELETE FROM user_sessions")
+        portal.get_db().commit()
+
+    def tearDown(self):
+        portal.get_db().execute("DELETE FROM user_sessions")
+        portal.get_db().commit()
+        self.ctx.pop()
+
+    def test_apply_session_cree_le_registre(self):
+        portal._apply_session('bob', 'Bob', False)
+        self.assertIn('sid', portal.session)
+        row = portal.get_db().execute(
+            "SELECT username, revoked FROM user_sessions WHERE sid=?",
+            (portal.session['sid'],)).fetchone()
+        self.assertEqual(row['username'], 'bob')
+        self.assertEqual(row['revoked'], 0)
+
+    def test_session_valide_pas_expire(self):
+        portal._apply_session('bob', 'Bob', False)
+        self.assertFalse(portal._session_expired())
+
+    def test_session_revoquee_expire(self):
+        portal._apply_session('bob', 'Bob', False)
+        portal._revoke_user_sessions('bob')
+        self.assertTrue(portal._session_expired())
+
+    def test_session_sans_sid_nest_pas_expire(self):
+        # Session sans sid (postérieure au registre ? non : antérieure, ou de
+        # test) : on garde l'expiration par l'âge, pas de révocation forcée —
+        # c'est ce qui évite de déconnecter tout le monde à la migration.
+        portal.session['username'] = 'bob'
+        portal.session['auth_at'] = int(time.time())
+        self.assertFalse(portal._session_expired())
+        # Mais une session sans sid et trop âgée expire bien par l'âge.
+        portal.session['auth_at'] = int(time.time()) - portal.SESSION_MAX_AGE - 10
+        self.assertTrue(portal._session_expired())
+
+
 class CsrfTest(unittest.TestCase):
     """Toute requête non sûre doit porter un jeton CSRF valide."""
 

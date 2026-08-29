@@ -76,7 +76,8 @@ from auth import (  # noqa: E402
     LOGIN_LOCK, LOGIN_MAX_FAILS, LOGIN_WINDOW, USERNAME_RE, _admin_username_cache,
     _apply_session, _client_ip, _csrf_protect, _ensure_csrf,
     _inject_csrf, _is_admin_group, _login_fail, _login_locked,
-    _login_reset, is_admin_username,
+    _login_reset, _revoke_current_session, _revoke_user_sessions,
+    is_admin_username,
     ldap_authenticate, ldap_lookup_admin, ldap_lookup_email,
 )
 app.before_request(_csrf_protect)
@@ -497,6 +498,9 @@ app.register_blueprint(discord_bp)
 @app.route('/logout', methods=['POST'])
 def logout():
     was_sso = session.get('sso')
+    # Révoque la session côté serveur (registre) AVANT de vider le cookie :
+    # même un cookie volé/rejoué ne pourra plus être utilisé après logout.
+    _revoke_current_session()
     session.clear()
     # RP-initiated logout: if the user logged in via SSO, we also
     # send them to Authentik's end-session to close the IdP session.

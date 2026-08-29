@@ -52,7 +52,7 @@ def _sync_local_user_budget(username, row):
         pass
 
 def _record_user_source(username, source, fullname=None):
-    """Records that a user logged in via `source` (local/debug/ldap/
+    """Records that a user logged in via `source` (local/ldap/
     sso). Cumulative: an account present in LDAP AND in SSO ends with both.
     Feeds the admin "Users" view (Source column).
     """

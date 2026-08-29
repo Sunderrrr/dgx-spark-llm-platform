@@ -1,0 +1,6 @@
+# Coordonnées pour signaler une faille de sécurité sur la plateforme Cronos.
+# RFC 9116 (security.txt).
+Contact: mailto:security@cronos.website
+Expires: 2026-08-29T00:00:00Z
+Preferred-Languages: fr, en
+Canonical: https://dgx.cronos.website/.well-known/security.txt

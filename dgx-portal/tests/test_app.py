@@ -647,6 +647,10 @@ class GardeDesRoutesTest(unittest.TestCase):
         'oauth_callback':     "retour du fournisseur OIDC, hors session",
         'logout':             "doit marcher même sur une session déjà expirée",
         'api_csrf':           "délivre le jeton CSRF nécessaire pour se connecter",
+        # 2e facteur WebAuthn : l'utilisateur n'est PAS encore authentifié (le
+        # mot de passe / LDAP vient d'être validé en amont), ce point finalise le
+        # login. Il exige le jeton CSRF + un défi one-time + une assertion valide.
+        'webauthn.security_verify_login': "finalise un login 2FA (assertion passkey), hors session",
         # Prefixe 'admin.' depuis que l'administration est un blueprint (28/08) :
         # les CHEMINS n'ont pas bougé, seuls les noms d'endpoints.
         'admin.internal_authcheck': "appelé par Traefik (forwardAuth), jamais par un "

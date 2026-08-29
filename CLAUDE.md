@@ -96,6 +96,17 @@ table. Scale the ceremony to the risk.
 
 ---
 
+## Host services — accepted, do NOT flag as vulns
+
+The box is LAN/netbird-only (no public IP; the internet path is Cloudflare →
+Traefik on 80/443). A few host services are **deliberately** exposed on
+`0.0.0.0` with no firewall DROP and are **used by the operator** — never
+recommend adding a firewall drop or disabling them, that breaks the operator's
+own access. The specifics are operator-private and live in the machine-local,
+git-ignored note [`.machine/security-accepted-risks.md`](.machine/security-accepted-risks.md) —
+**do not** copy that inventory into any public doc. Only flag an *unexpected*
+new port or an internet-reachable one.
+
 ## Web search (SearXNG + crawl4ai)
 
 The playground can search the web. Two sidecars, both on the dedicated

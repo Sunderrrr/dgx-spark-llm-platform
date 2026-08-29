@@ -212,8 +212,11 @@ accounts is a security parameter — keep it small.
   `GET /key/info?key=sk-…`, and LiteLLM's access log records the full URL, so
   `docker logs litellm` exposed usable keys. The portal side is fixed — it now
   reads LiteLLM's database directly, keyed by the SHA-256 of the key, and no key
-  ever travels in a URL. Any other client calling that endpoint would leak
-  again; silencing LiteLLM's access log is the remaining hardening.
+  ever travels in a URL, so there is no ongoing leak. LiteLLM's uvicorn access
+  log is baked into the digest-pinned image and has no config/env switch, so
+  it is *not* silenced (doing so would mean forgoing digest-pinning). The
+  residual risk is only keys that already hit the log — rotate them; the
+  portal never puts a key in a URL again.
 - **HSTS (resolved).** The Cloudflare edge previously overrode the origin's HSTS
   with `max-age=0`; it is now `max-age=31536000; includeSubDomains` (set in the
   Cloudflare dashboard, verified on `/` and `/login`).

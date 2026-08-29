@@ -991,6 +991,12 @@ const EN: Record<string, string> = {
   "Demande envoyée": "Request sent",
   "Demande envoyée au responsable.": "Request sent to the admin.",
   "La demande a échoué.": "The request failed.",
+  // ── Accueil : cartes des services média (bouton « Ouvrir ») ──
+  "Génération d'images (texte → image)": "Image generation (text → image)",
+  "Génération musicale (texte → chanson)": "Music generation (text → song)",
+  "Ouvrir le chat": "Open chat",
+  "Ouvrir la génération d'image": "Open image generation",
+  "Ouvrir la génération musicale": "Open music generation",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

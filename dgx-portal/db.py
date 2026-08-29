@@ -376,8 +376,8 @@ def init_db():
             enabled       INTEGER NOT NULL DEFAULT 1,
             created_at    TEXT NOT NULL
         );
-        -- Source(s) d'authentification observées par utilisateur (local/debug/
-        -- ldap/sso), enregistrées à chaque login. Permet de savoir COMMENT chaque
+        -- Source(s) d'authentification observées par utilisateur (local/ldap/
+        -- sso), enregistrées à chaque login. Permet de savoir COMMENT chaque
         -- compte se connecte, y compris les cumuls (ex. LDAP + SSO).
         CREATE TABLE IF NOT EXISTS user_sources (
             username   TEXT PRIMARY KEY,

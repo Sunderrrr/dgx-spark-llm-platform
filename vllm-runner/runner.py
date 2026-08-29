@@ -907,14 +907,27 @@ def video_logs():
 
 
 # ── System metrics (host) ─────────────────────────────────────────────────────
+_cpu_prev = None  # (idle, total, monotonic ts) from the previous /metrics call
+
 def _cpu_pct():
+    """Host CPU %, measured over the interval since the last call instead of
+    sleeping 0.2 s inside the request. time.sleep(0.2) here made /metrics — and
+    therefore /api/home, which calls it every ~5 s — take ~228 ms per request,
+    which is what made the portal home page feel slow. The delta over the poll
+    interval (~5 s) is just as accurate for a dashboard and returns in ~0 ms."""
+    global _cpu_prev
     def snap():
         with open('/proc/stat') as f:
             v = list(map(int, f.readline().split()[1:]))
         idle = v[3] + (v[4] if len(v) > 4 else 0)   # idle + iowait
         return idle, sum(v)
-    i1, t1 = snap(); time.sleep(0.2); i2, t2 = snap()
-    dt, di = t2 - t1, i2 - i1
+    idle, total = snap()
+    di = dt = 0
+    if _cpu_prev is not None:
+        p_idle, p_total, _ = _cpu_prev
+        di = idle - p_idle
+        dt = total - p_total
+    _cpu_prev = (idle, total, time.monotonic())
     return round((1 - di / dt) * 100, 1) if dt > 0 else 0.0
 
 def _ram():

@@ -835,6 +835,29 @@ function newTabId() {
   return `tab-${Date.now()}-${tabSeq}`;
 }
 
+// Renommage des fichiers générés (artefacts). Clé = `convId::kind::titre`
+// (les noms de fichiers sont générés uniques par le modèle) et persistée en
+// localStorage pour survivre à un rechargement ; `convId` évite qu'un même nom
+// (`fichier-1.yml`) dans deux conversations se renomme l'un l'autre.
+const ARTIFACT_RENAME_KEY = "cronos.artifact.renames";
+function loadArtifactRenames(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(ARTIFACT_RENAME_KEY) || "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+function saveArtifactRenames(m: Record<string, string>) {
+  try {
+    localStorage.setItem(ARTIFACT_RENAME_KEY, JSON.stringify(m));
+  } catch {
+    /* stockage indisponible : on ignore */
+  }
+}
+function artifactRenameKey(convId: string | null, a: Artifact): string {
+  return `${convId ?? "anon"}::${a.kind}::${a.title}`;
+}
+
 function convTitleFallback(msgs: ExportConversation["messages"], fallback: string): string {
   const first = msgs.find((m) => m.role === "user")?.content ?? "";
   return (first.slice(0, 80).trim() || fallback);
@@ -1687,6 +1710,25 @@ export default function PlaygroundPage() {
     }
   }
 
+  // Renommage d'un fichier généré : applique le nouveau nom (persisté par
+  // conversation) et ferme l'édition. Le titre se met à jour dans la carte du
+  // chat, le volet et le nom de téléchargement.
+  function renamedTitle(a: Artifact): string {
+    return artifactRenames[artifactRenameKey(currentId, a)] ?? a.title;
+  }
+  function commitArtifactRename(a: Artifact, title: string) {
+    const clean = title.trim();
+    if (clean) {
+      const key = artifactRenameKey(currentId, a);
+      setArtifactRenames((prev) => {
+        const next = { ...prev, [key]: clean };
+        saveArtifactRenames(next);
+        return next;
+      });
+    }
+    setRenamingArtifact(false);
+  }
+
   const [shared, setShared] = useState(false);
   // Snippets / prompts réutilisables (bibliothèque navigateur).
   const [snippetsOpen, setSnippetsOpen] = useState(false);
@@ -1697,6 +1739,10 @@ export default function PlaygroundPage() {
   const [busyTitle, setBusyTitle] = useState(false);
   // Panneau « contexte » : ce que le modèle voit (system, fichiers, tokens).
   const [ctxOpen, setCtxOpen] = useState(false);
+  // Renommage des fichiers générés : map persistée (convId::kind::titre → nom).
+  const [artifactRenames, setArtifactRenames] = useState<Record<string, string>>(loadArtifactRenames);
+  const [renamingArtifact, setRenamingArtifact] = useState(false);
+  const [renameArtifactValue, setRenameArtifactValue] = useState("");
 
   // Export (Markdown/JSON) de la conversation chargée.
   function exportConversation(conv: ExportConversation, fmt: "md" | "json") {
@@ -2218,7 +2264,8 @@ export default function PlaygroundPage() {
     ? liveCodeTitle
     : showLiveDoc
       ? docTitleFromContent(liveContent)
-      : (epingle?.title ?? "Document");
+      : (epingle ? renamedTitle(epingle) : "Document");
+  const canRenamePanel = !!epingle && !liveCode && !showLiveDoc;
   const panelContent = liveCode
     ? liveCode.body
     : showLiveDoc
@@ -2973,13 +3020,13 @@ export default function PlaygroundPage() {
                           {items.map((a, ai) => (
                             <ClickableCard
                               key={ai}
-                              label={a.kind === "code" ? `${t("Ouvrir le fichier")} ${a.title}` : t("Ouvrir le document")}
+                              label={a.kind === "code" ? `${t("Ouvrir le fichier")} ${renamedTitle(a)}` : t("Ouvrir le document")}
                               variant="muted"
-                              onClick={() => setArtifact(a)}>
+                              onClick={() => { setArtifact(a); setRenamingArtifact(false); }}>
                               <HStack gap={2} vAlign="center">
                                 <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
                                 <VStack gap={0}>
-                                  <Text weight="semibold">{a.title}</Text>
+                                  <Text weight="semibold">{renamedTitle(a)}</Text>
                                   <Text type="supporting" color="secondary">
                                     {a.kind === "code" ? a.lang : t("Ouvrir et copier dans le volet")}
                                   </Text>
@@ -3015,29 +3062,56 @@ export default function PlaygroundPage() {
                   label={panelIsCode ? t("Fichier") : t("Document")}
                   dividers={["bottom"]}
                   startContent={
-                    <HStack gap={2} vAlign="center">
-                      <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
-                      <VStack gap={0}>
-                        <Text weight="semibold">{panelTitle}</Text>
-                        {panelSubtitle ? <Text type="supporting" color="secondary">{panelSubtitle}</Text> : null}
-                      </VStack>
-                    </HStack>
+                    renamingArtifact && canRenamePanel ? (
+                      <TextInput
+                        label={t("Nouveau nom du fichier")}
+                        value={renameArtifactValue}
+                        onChange={setRenameArtifactValue}
+                        onEnter={() => epingle && commitArtifactRename(epingle, renameArtifactValue)}
+                        isLabelHidden
+                        size="sm"
+                      />
+                    ) : (
+                      <HStack gap={2} vAlign="center">
+                        <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
+                        <VStack gap={0}>
+                          <Text weight="semibold">{panelTitle}</Text>
+                          {panelSubtitle ? <Text type="supporting" color="secondary">{panelSubtitle}</Text> : null}
+                        </VStack>
+                      </HStack>
+                    )
                   }
                   endContent={
-                    <>
-                      <Button label={t("Plein écran")} variant="ghost" size="sm" isIconOnly
-                        icon={<Icon icon={ArrowsPointingOutIcon} size="sm" />}
-                        onClick={() => setPlein(true)} />
-                      <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly
-                        icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-                        onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
-                      <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
-                        icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                        onClick={() => navigator.clipboard?.writeText(panelContent)} />
-                      <Button label={t("Fermer")} variant="ghost" size="sm" isIconOnly
-                        icon={<Icon icon={XMarkIcon} size="sm" />}
-                        onClick={() => { setArtifact(null); setLiveDocOpen(false); }} />
-                    </>
+                    renamingArtifact && canRenamePanel ? (
+                      <>
+                        <Button label={t("Valider")} variant="ghost" size="sm" isIconOnly
+                          icon={<Icon icon={CheckIcon} size="sm" />}
+                          onClick={() => epingle && commitArtifactRename(epingle, renameArtifactValue)} />
+                        <Button label={t("Annuler")} variant="ghost" size="sm" isIconOnly
+                          icon={<Icon icon={XMarkIcon} size="sm" />}
+                          onClick={() => setRenamingArtifact(false)} />
+                      </>
+                    ) : (
+                      <>
+                        {canRenamePanel && (
+                          <Button label={t("Renommer ce fichier")} variant="ghost" size="sm" isIconOnly
+                            icon={<Icon icon={PencilIcon} size="sm" />}
+                            onClick={() => { setRenameArtifactValue(panelTitle); setRenamingArtifact(true); }} />
+                        )}
+                        <Button label={t("Plein écran")} variant="ghost" size="sm" isIconOnly
+                          icon={<Icon icon={ArrowsPointingOutIcon} size="sm" />}
+                          onClick={() => setPlein(true)} />
+                        <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly
+                          icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                          onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
+                        <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
+                          icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                          onClick={() => navigator.clipboard?.writeText(panelContent)} />
+                        <Button label={t("Fermer")} variant="ghost" size="sm" isIconOnly
+                          icon={<Icon icon={XMarkIcon} size="sm" />}
+                          onClick={() => { setArtifact(null); setLiveDocOpen(false); }} />
+                      </>
+                    )
                   }
                 />
                 {panelEstHtml && (
@@ -3330,16 +3404,43 @@ export default function PlaygroundPage() {
                     onOpenChange={(o) => { if (!o) fermerPanneau(); }}
                     endContent={
                       <HStack gap={1} vAlign="center">
-                        <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly
-                          icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-                          onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
-                        <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
-                          icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                          onClick={() => navigator.clipboard?.writeText(panelContent)} />
+                        {renamingArtifact && canRenamePanel ? (
+                          <>
+                            <Button label={t("Valider")} variant="ghost" size="sm" isIconOnly
+                              icon={<Icon icon={CheckIcon} size="sm" />}
+                              onClick={() => epingle && commitArtifactRename(epingle, renameArtifactValue)} />
+                            <Button label={t("Annuler")} variant="ghost" size="sm" isIconOnly
+                              icon={<Icon icon={XMarkIcon} size="sm" />}
+                              onClick={() => setRenamingArtifact(false)} />
+                          </>
+                        ) : (
+                          <>
+                            {canRenamePanel && (
+                              <Button label={t("Renommer ce fichier")} variant="ghost" size="sm" isIconOnly
+                                icon={<Icon icon={PencilIcon} size="sm" />}
+                                onClick={() => { setRenameArtifactValue(panelTitle); setRenamingArtifact(true); }} />
+                            )}
+                            <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly
+                              icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                              onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
+                            <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
+                              icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                              onClick={() => navigator.clipboard?.writeText(panelContent)} />
+                          </>
+                        )}
                       </HStack>
                     }
                     startContent={
-                      panelEstHtml ? (
+                      renamingArtifact && canRenamePanel ? (
+                        <TextInput
+                          label={t("Nouveau nom du fichier")}
+                          value={renameArtifactValue}
+                          onChange={setRenameArtifactValue}
+                          onEnter={() => epingle && commitArtifactRename(epingle, renameArtifactValue)}
+                          isLabelHidden
+                          size="sm"
+                        />
+                      ) : panelEstHtml ? (
                         <SegmentedControl
                           label={t("Affichage")}
                           value={htmlPreview ? "apercu" : "code"}

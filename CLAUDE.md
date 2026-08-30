@@ -258,8 +258,8 @@ utilisateur) :
   jamais renvoyer le mot de passe) + `POST /admin/email/test`
   (`send_test_email`) — bouton « Envoyer un test » dans l'Admin.
 - **Alertes infra** : `notify_infra_alert_email` sur **échec de lancement** d'un
-  modèle (chat, OCR, image, musique, voix) — pas de moniteur continu des
-  sidecars (nécessiterait une tâche planifiée, non prévue ici).
+  modèle (chat, OCR, image, musique, voix). Le **moniteur continu** (cœur
+  toujours-up) est côté hôte : voir « Monitoring & sauvegardes ».
 
 Le gabarit HTML (`_render_html`) rend un **bouton « Open the Admin dashboard »**
 si `ADMIN_URL` est défini ; vide → aucun bouton.
@@ -290,6 +290,35 @@ docker restart traefik                    # if the site 404s
 ```
 
 ---
+
+## Monitoring & sauvegardes (hôte, systemd)
+
+Deux timers systemd + deux scripts (dans `monitoring/`), qui tournent **en root**
+sur l'hôte (accès au socket docker + au `.env` 600).
+
+- **`cronos-monitor.timer`/`.service`** (toutes les 5 min) → `monitoring/monitor.py` :
+  sonde le **cœur** toujours-up (vllm-runner `:8001`, conteneurs traefik /
+  litellm / litellm-postgres / dgx-portal / dgx-portal-frontend) et envoie un
+  email d'alerte à `ADMIN_EMAIL` quand un service tombe, puis un email de
+  rétablissement. État **sticky** dans `/var/lib/cronos-monitor/state.json`
+  (1 alerte par incident). Les sidecars média (vLLM `:8000`, OCR/voix/musique/
+  image/ComfyUI) sont **on-demand** : non sondés pour éviter les faux positifs.
+- **`cronos-backup.timer`/`.service`** (quotidien 03:00) → `monitoring/backup.py` :
+  dump SQLite `/app/data/portal.db` (snapshot cohérent via `sqlite3.backup`) et
+  `pg_dump -Fc` de la base LiteLLM (sans mot de passe : auth de confiance dans
+  le conteneur). Destination `/var/backups/cronos/`, rétention 14 fichiers
+  (`--keep`). **Ces dumps contiennent les données de la DB — jamais poussés.**
+  Restauration : `docker cp` du `.db`/`.dump` puis ouverture/`pg_restore`.
+
+Endpoints de santé (côté portail) :
+- `GET /healthz` — liveness **publique** minimal `{ok, time}` (healthcheck /
+  sonde). `GET /api/health` — état agrégé **connecté** (`runner`, `litellm`,
+  `chat`, `video/ocr/voice/image/music` en `ready`/`on_demand`).
+
+Notifications email : la route `POST /api/model/request` renvoie `email_sent`
+et le bouton Admin/test email reflète un échec d'envoi (`send_test_email` /
+`notify_*` retourne `False`, la bascule de maintenance ajoute un flash
+« email non envoyé » si le SMTP est configuré mais que l'envoi échoue).
 
 ## Tests, gate & CI
 

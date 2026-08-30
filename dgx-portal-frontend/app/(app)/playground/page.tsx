@@ -1522,10 +1522,45 @@ export default function PlaygroundPage() {
     setSnippetsOpen(false);
   }
 
+  // Auto-titre : demande au modèle un titre court, puis renomme la conversation.
+  async function genTitle() {
+    if (busyTitle || !messages.length || !currentId) return;
+    setBusyTitle(true);
+    try {
+      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model, messages });
+      const title = res?.title;
+      const conv = conversations.find((c) => c.id === currentId);
+      if (title && conv) {
+        setConversations((prev) => prev.map((c) => (c.id === currentId ? { ...c, title } : c)));
+        void persistConversation(csrf, { ...conv, title });
+      }
+    } finally {
+      setBusyTitle(false);
+    }
+  }
+
+  // Résumé : condense la conversation, affiché dans un dialog copiable.
+  async function genSummary() {
+    if (!messages.length) return;
+    setSummary(t("Génération en cours…"));
+    setSummaryOpen(true);
+    try {
+      const res = await sendJSON<{ summary?: string; error?: string }>("/api/playground/summarize", csrf, { model, messages });
+      if (res.summary) setSummary(res.summary);
+      else if (res.error) setSummary(res.error);
+    } catch {
+      setSummary(t("Impossible de générer le résumé."));
+    }
+  }
+
   const [shared, setShared] = useState(false);
   // Snippets / prompts réutilisables (bibliothèque navigateur).
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [snippets, setSnippets] = useState<Snippet[]>(loadSnippets);
+  // Auto-titre + résumé (générés par le modèle, facturés sur le budget).
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summary, setSummary] = useState("");
+  const [busyTitle, setBusyTitle] = useState(false);
 
   // Export (Markdown/JSON) de la conversation chargée.
   function exportConversation(conv: ExportConversation, fmt: "md" | "json") {
@@ -2199,6 +2234,24 @@ export default function PlaygroundPage() {
                 icon={<Icon icon={Cog6ToothIcon} size="sm" />}
                 isIconOnly
                 onClick={() => setIsSettingsOpen((v) => !v)}
+              />
+              <Button
+                label={t("Titrer automatiquement")}
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={SparklesIcon} size="sm" />}
+                isIconOnly
+                isDisabled={busyTitle || !currentId || !messages.length}
+                onClick={genTitle}
+              />
+              <Button
+                label={t("Résumer")}
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={DocumentTextIcon} size="sm" />}
+                isIconOnly
+                isDisabled={!messages.length}
+                onClick={genSummary}
               />
             </HStack>
           </HStack>
@@ -3026,6 +3079,25 @@ export default function PlaygroundPage() {
                   ))}
                 </VStack>
               )}
+            </VStack>
+          </Dialog>
+          <Dialog isOpen={summaryOpen} onOpenChange={(o) => { if (!o) setSummaryOpen(false); }} width={560}>
+            <DialogHeader
+              title={t("Résumé de la conversation")}
+              hasDivider
+              onOpenChange={(o) => { if (!o) setSummaryOpen(false); }}
+            />
+            <VStack padding={3} gap={3}>
+              <Text type="supporting" color="secondary">{summary}</Text>
+              <HStack hAlign="end" gap={2}>
+                <Button
+                  label={t("Copier")}
+                  variant="secondary"
+                  size="sm"
+                  icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                  onClick={() => navigator.clipboard?.writeText(summary)}
+                />
+              </HStack>
             </VStack>
           </Dialog>
           {(artifact || showLive) && (isNarrow || plein) && (

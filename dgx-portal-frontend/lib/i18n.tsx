@@ -72,6 +72,9 @@ const EN: Record<string, string> = {
   "Prompts réutilisables": "Reusable prompts",
   "Enregistrer le prompt courant en snippet": "Save current prompt as a snippet",
   "Aucun snippet": "No snippets",
+  "Titrer automatiquement": "Auto-title",
+  "Résumé de la conversation": "Conversation summary",
+  "Impossible de générer le résumé.": "Unable to generate the summary.",
   // — Navigation and shell —
   "Accueil": "Home",
   "Playground": "Playground",

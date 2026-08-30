@@ -812,6 +812,26 @@ function saveSnippets(list: Snippet[]) {
   }
 }
 
+// Onglets : plusieurs conversations ouvertes en parallèle. On garde la logique de
+// génération intacte (les états live `messages`/`model`/… sont ceux de l'onglet
+// ACTIF) ; on ne fait que sauvegarder/restaurer le snapshot de chaque onglet à la
+// bascule. Le basculement est désactivé pendant un flux pour ne pas couper une
+// réponse en cours.
+type Tab = {
+  id: string;
+  title: string;
+  currentId: string | null;
+  model: string;
+  settings: Settings;
+  attachments: Attachment[];
+  messages: ChatMsg[];
+};
+let tabSeq = 0;
+function newTabId() {
+  tabSeq += 1;
+  return `tab-${Date.now()}-${tabSeq}`;
+}
+
 function convTitleFallback(msgs: ExportConversation["messages"], fallback: string): string {
   const first = msgs.find((m) => m.role === "user")?.content ?? "";
   return (first.slice(0, 80).trim() || fallback);
@@ -1288,6 +1308,22 @@ export default function PlaygroundPage() {
   const [renameValue, setRenameValue] = useState("");
   const [streaming, setStreaming] = useState(false);
 
+  // Onglets : plusieurs conversations ouvertes. Le live state ci-dessus est
+  // l'onglet actif ; chaque entrée de `tabs` en garde un snapshot.
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string>("");
+  const tabsRef = useRef<Tab[]>([]);
+  useEffect(() => { tabsRef.current = tabs; }, [tabs]);
+  const tabsInitRef = useRef(false);
+  useEffect(() => {
+    if (tabsInitRef.current) return;
+    tabsInitRef.current = true;
+    const id = newTabId();
+    setActiveTabId(id);
+    setTabs([{ id, title: "", currentId: null, model, settings, attachments: [], messages: [] }]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // File d'attente : messages soumis pendant qu'une réponse se génère. Au lieu
   // d'être perdus (l'ancien « if (streaming) return »), ils s'empilent dans un
   // panneau au-dessus du compositeur et partent TOUT SEULS dès que la réponse en
@@ -1497,12 +1533,79 @@ export default function PlaygroundPage() {
     // Pas de ré-enregistrement ici : chaque génération sauvegarde déjà à sa fin.
     // Ré-enregistrer remontait la conversation en tête de liste au simple fait
     // d'en changer, alors que l'ordre doit refléter la dernière ACTIVITÉ.
-    setMessages([]);
-    setCurrentId(null);
+    // Avec les onglets, « nouvelle conversation » ouvre un onglet propre.
+    newTab();
+  }
+
+  // Commute vers un onglet : on fige le snapshot de l'onglet actif puis on
+  // restaure celui de la cible. Désactivé pendant un flux (l'état live est alors
+  // celui de la génération en cours).
+  function switchTab(id: string) {
+    if (streaming || id === activeTabId || !id) return;
+    setTabs((prev) => prev.map((t) =>
+      t.id === activeTabId ? { ...t, messages, currentId, model, settings, attachments } : t));
+    const target = tabsRef.current.find((t) => t.id === id);
+    if (!target) return;
+    setMessages(target.messages);
+    setCurrentId(target.currentId);
+    if (target.model && runningModels.includes(target.model)) setModel(target.model);
+    setSettings(target.settings);
+    setAttachments(target.attachments);
     setCtxUsed(0);
     setConvTokens(0);
     updateQueue([]);
     closeArtifact();
+    setActiveTabId(id);
+  }
+
+  function newTab() {
+    if (streaming) return;
+    const id = newTabId();
+    setTabs((prev) => [
+      ...prev.map((t) => (t.id === activeTabId ? { ...t, messages, currentId, model, settings, attachments } : t)),
+      { id, title: "", currentId: null, model, settings, attachments: [], messages: [] },
+    ]);
+    setActiveTabId(id);
+    setMessages([]);
+    setCurrentId(null);
+    setAttachments([]);
+    setCtxUsed(0);
+    setConvTokens(0);
+    updateQueue([]);
+    closeArtifact();
+  }
+
+  function closeTab(id: string) {
+    if (streaming) return;
+    const idx = tabsRef.current.findIndex((t) => t.id === id);
+    if (idx < 0) return;
+    const next = tabsRef.current.filter((t) => t.id !== id);
+    setTabs(next);
+    if (activeTabId !== id) return;
+    const fallback = next[Math.min(idx, next.length - 1)];
+    if (fallback) {
+      setMessages(fallback.messages);
+      setCurrentId(fallback.currentId);
+      if (fallback.model && runningModels.includes(fallback.model)) setModel(fallback.model);
+      setSettings(fallback.settings);
+      setAttachments(fallback.attachments);
+      setCtxUsed(0);
+      setConvTokens(0);
+      updateQueue([]);
+      closeArtifact();
+      setActiveTabId(fallback.id);
+    } else {
+      const nid = newTabId();
+      setTabs([{ id: nid, title: "", currentId: null, model, settings, attachments: [], messages: [] }]);
+      setActiveTabId(nid);
+      setMessages([]);
+      setCurrentId(null);
+      setAttachments([]);
+      setCtxUsed(0);
+      setConvTokens(0);
+      updateQueue([]);
+      closeArtifact();
+    }
   }
 
   function selectConversation(conv: Conversation) {
@@ -1510,6 +1613,8 @@ export default function PlaygroundPage() {
     // faire remonter ni réécrire celle qu'on quitte.
     setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })));
     setCurrentId(conv.id);
+    // L'onglet actif porte cette conversation (titre dans la barre d'onglets).
+    setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, title: conv.title, currentId: conv.id } : t)));
     if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
     setCtxUsed(0);
     setConvTokens(0);
@@ -2317,6 +2422,40 @@ export default function PlaygroundPage() {
           <HStack height="100%">
           <StackItem size="fill">
           <VStack height="100%">
+          {/* Onglets : plusieurs conversations ouvertes. Basculement désactivé
+              pendant un flux (l'état live est celui de la génération en cours). */}
+          {tabs.length > 0 && (
+            <VStack gap={1} padding={2}>
+              <HStack gap={2} vAlign="center" wrap="wrap">
+                {tabs.map((tb) => (
+                  <HStack key={tb.id} gap={1} vAlign="center">
+                    <Button
+                      label={tb.title || t("Nouvelle conversation")}
+                      variant={tb.id === activeTabId ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => switchTab(tb.id)}
+                    />
+                    <Button
+                      label={t("Fermer")}
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={XMarkIcon} size="sm" />}
+                      onClick={() => closeTab(tb.id)}
+                    />
+                  </HStack>
+                ))}
+                <Button
+                  label={t("Nouvel onglet")}
+                  variant="ghost"
+                  size="sm"
+                  icon={<Icon icon={PlusIcon} size="sm" />}
+                  isDisabled={streaming}
+                  onClick={newTab}
+                />
+              </HStack>
+            </VStack>
+          )}
           <ChatLayout
             density="spacious"
             composer={

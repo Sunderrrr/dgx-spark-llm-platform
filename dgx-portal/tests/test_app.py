@@ -656,6 +656,8 @@ class GardeDesRoutesTest(unittest.TestCase):
         'admin.internal_authcheck': "appelé par Traefik (forwardAuth), jamais par un "
                                     "navigateur ; ne renvoie aucune donnée",
         'static':             "fichiers statiques servis par Flask",
+        'healthz':            "liveness publique (healthcheck / sonde) : ne renvoie "
+                              "que {ok, time}, rien d'interné",
     }
 
     def test_aucune_route_sans_garde_hors_liste(self):
@@ -737,3 +739,41 @@ class NomsResolublesTest(unittest.TestCase):
                     f"{nom}.py charge un nom défini nulle part — il lèvera un "
                     "NameError à l'appel. Réimporte-le depuis le module qui le "
                     "définit désormais.")
+
+
+class HealthRouteTest(unittest.TestCase):
+    """/healthz (liveness publique) et /api/health (état agrégé, connecté)."""
+
+    def setUp(self):
+        portal.app.config["TESTING"] = True
+
+    def test_healthz_publique_renvoie_ok(self):
+        c = portal.app.test_client()
+        r = c.get("/healthz")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()["ok"])
+
+    def test_api_health_requiert_session(self):
+        c = portal.app.test_client()
+        r = c.get("/api/health")
+        self.assertEqual(r.status_code, 401)
+
+    def test_api_health_rend_l_etat_des_services(self):
+        import unittest.mock as mock
+        with mock.patch.object(portal, "_service_reachable", return_value=False), \
+                mock.patch.object(portal, "get_running_models", return_value=[]), \
+                mock.patch.object(portal, "comfyui_is_up", return_value=False), \
+                mock.patch.object(portal, "get_ocr_model", return_value=None), \
+                mock.patch.object(portal, "get_voice_model", return_value=None), \
+                mock.patch.object(portal, "image_ready", return_value=False), \
+                mock.patch.object(portal, "music_ready", return_value=False):
+            c = portal.app.test_client()
+            with c.session_transaction() as s:
+                s["username"] = "demo"
+                s["auth_at"] = int(time.time())
+            r = c.get("/api/health")
+            self.assertEqual(r.status_code, 200)
+            body = r.get_json()
+            self.assertIn("services", body)
+            self.assertFalse(body["services"]["runner"]["reachable"])
+            self.assertFalse(body["ok"])

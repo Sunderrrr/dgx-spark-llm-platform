@@ -55,6 +55,7 @@ type BudgetRequest = {
   granted_amount: number | null;
 };
 type SpendRow = { username: string; tokens: number; max_budget: number | null; unlimited: boolean; key_count: number };
+type AuditRow = { id: number; username: string; action: string; detail: string; created_at: string };
 type UsageRow = { username: string; c: number; last: string };
 type VStatus = { status: string; model: string | null; pid: number | null; engine?: string };
 type AdminData = {
@@ -112,6 +113,7 @@ export default function AdminPage() {
   const [data, setData] = useState<AdminData | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
+  const [audit, setAudit] = useState<AuditRow[]>([]);
   // Which model's logs the admin is viewing. "llm" is the live SSE stream
   // (the chat model); the sidecars are fetched on demand + polled.
   const [logKind, setLogKind] = useState<"llm" | "ocr" | "voice" | "image" | "music" | "video">("llm");
@@ -174,6 +176,13 @@ export default function AdminPage() {
   }
 
   useEffect(() => { refresh(true); }, []);
+  // Journal d'audit : chargé une fois à l'ouverture (les actions sensibles sont
+  // rares, pas besoin de polling rapproché).
+  useEffect(() => {
+    getJSON<AuditRow[]>("/admin/audit")
+      .then((d) => setAudit(d ?? []))
+      .catch(() => {});
+  }, []);
   // Re-poll admin data every 8s; stops once access is known forbidden to
   // avoid hammering a 403.
   useEffect(() => {
@@ -278,6 +287,13 @@ export default function AdminPage() {
         </HStack>
       ),
     },
+  ];
+
+  const auditColumns: TableColumn<AuditRow>[] = [
+    { key: "username", header: t("Acteur") },
+    { key: "action", header: t("Action"), renderCell: (r) => <Badge label={r.action} variant="neutral" /> },
+    { key: "detail", header: t("Détail") },
+    { key: "created_at", header: t("Date"), renderCell: (r) => r.created_at.slice(0, 16).replace("T", " ") },
   ];
 
   if (forbidden) {
@@ -839,6 +855,13 @@ export default function AdminPage() {
               <Text weight="semibold">{t("Demandes de modèles")}</Text>
               <Card padding={0}>
                 <Table<ModelRequest & Record<string, unknown>> data={data?.requests ?? []} columns={requestColumns} idKey="id" density="balanced" dividers="rows" />
+              </Card>
+            </VStack>
+
+            <VStack gap={2}>
+              <Text weight="semibold">{t("Journal d'audit")}</Text>
+              <Card padding={0}>
+                <Table<AuditRow> data={audit} columns={auditColumns} idKey="id" density="balanced" dividers="rows" emptyState={<EmptyState icon={<Icon icon={ShieldExclamationIcon} size="lg" color="secondary" />} title={t("Aucune entrée")} description={t("Les actions sensibles apparaîtront ici.")} />} />
               </Card>
             </VStack>
           </VStack>

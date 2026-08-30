@@ -17,7 +17,7 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
-import { FilmIcon, MoonIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
+import { FilmIcon, MoonIcon, ArrowPathIcon, StopIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -25,7 +25,7 @@ import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
 
-type JobStatus = "idle" | "pending" | "running" | "done" | "error";
+type JobStatus = "idle" | "pending" | "running" | "done" | "error" | "cancelled";
 type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string };
 type RunningModel = { name: string; kind: "chat" | "ocr" | "video"; exposed: boolean };
 
@@ -38,12 +38,14 @@ const STATUS_LABEL: Record<string, string> = {
   running: "Génération en cours…",
   done: "Vidéo prête.",
   error: "Échec de la génération.",
+  cancelled: "Génération annulée.",
 };
 const STATUS_SHORT: Record<string, string> = {
   pending: "En attente",
   running: "En cours",
   done: "Terminé",
   error: "Erreur",
+  cancelled: "Annulé",
 };
 
 export default function VideoPage() {
@@ -57,6 +59,7 @@ export default function VideoPage() {
   const [promptId, setPromptId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const dictation = useDictation({ value: prompt, onChange: setPrompt, csrf });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -137,6 +140,27 @@ export default function VideoPage() {
   // de référence courants (la référence d'origine n'est pas restituable).
   function retryItem(item: HistoryItem) {
     generate({ prompt: item.prompt });
+  }
+
+  // Arrête la génération vidéo en cours (interrupt ComfyUI) ou en attente.
+  async function cancel() {
+    if (!promptId) return;
+    setCancelling(true);
+    try {
+      await fetch(`/api/video/cancel/${promptId}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRFToken": csrf },
+      });
+      setStatus("cancelled");
+      stopPolling();
+      loadHistory();
+      showToast({ body: t("Génération annulée."), type: "info" });
+    } catch {
+      showToast({ body: t("Impossible d'annuler."), type: "error" });
+    } finally {
+      setCancelling(false);
+    }
   }
 
   const isBusy = status === "pending" || status === "running";
@@ -246,10 +270,23 @@ export default function VideoPage() {
                   {/* A single status carrier: the dot showed the RAW label
                       ("running") right next to the same translated status,
                       and the placeholder repeated it a third time. */}
-                  <StatusDot
-                    variant={status === "done" ? "success" : status === "error" ? "error" : "accent"}
-                    label={t(STATUS_LABEL[status] ?? status)}
-                  />
+                  <HStack hAlign="between" vAlign="center" gap={2}>
+                    <StatusDot
+                      variant={status === "done" ? "success" : status === "error" ? "error" : status === "cancelled" ? "neutral" : "accent"}
+                      label={t(STATUS_LABEL[status] ?? status)}
+                    />
+                    {isBusy && (
+                      <Button
+                        label={t("Arrêter")}
+                        variant="secondary"
+                        size="sm"
+                        icon={<Icon icon={StopIcon} size="sm" />}
+                        onClick={cancel}
+                        isDisabled={cancelling}
+                        isLoading={cancelling}
+                      />
+                    )}
+                  </HStack>
                   {/* During generation we already occupy the exact spot of
                       the upcoming video (same 16/9) with a shimmer: the
                       indeterminate progress bar said nothing more and made
@@ -304,7 +341,7 @@ export default function VideoPage() {
                         <HStack gap={2} vAlign="center">
                           <StatusDot
                             variant={
-                              h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"
+                              h.status === "done" ? "success" : h.status === "error" ? "error" : h.status === "cancelled" ? "neutral" : "accent"
                             }
                             label={t(STATUS_SHORT[h.status] ?? h.status)}
                           />

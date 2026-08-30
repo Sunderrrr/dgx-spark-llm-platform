@@ -27,7 +27,7 @@ from auth import (USERNAME_RE,
                   login_required)
 from config import (ADMIN_EMAIL, KEY_BUDGET, KEY_DURATION, RUNNER_URL,
                     SMTP_HOST, SMTP_PASS, SMTP_USER)
-from db import get_db, get_setting, maintenance_active, set_setting
+from db import get_db, get_setting, log_audit, maintenance_active, set_setting
 from litellm_client import (_litellm_user_info, _register_litellm_model,
                             _unregister_litellm_model,
                             litellm_update_user_budget)
@@ -169,10 +169,12 @@ def launch_model():
                        cfg['engine'] or 'vllm')
     if ok:
         _announce_launch(cfg['name'])
+        log_audit(session.get('username'), 'model.launch', f"lancement de {name}")
     else:
         notify_infra_alert_email(
             "Chat model launch failed",
             f"{name}: the runner did not accept the launch (unreachable or unavailable).")
+        log_audit(session.get('username'), 'model.launch_échec', f"lancement refusé de {name}")
     flash(f"Lancement de {name} en cours…" if ok else "Runner inaccessible (ou moteur indisponible).",
           "success" if ok else "danger")
     return redirect(url_for('admin.admin'))
@@ -210,6 +212,7 @@ def admin_announce():
         flash("Titre requis pour l'annonce.", "warning")
         return redirect(url_for('admin.admin'))
     add_announcement('site', title, body)
+    log_audit(session.get('username'), 'announce', f"annonce : {title}")
     flash("Annonce publiée — elle s'affichera à l'ouverture du site.", "success")
     return redirect(url_for('admin.admin'))
 
@@ -217,6 +220,8 @@ def admin_announce():
 @admin_required
 def stop_model():
     ok = runner_stop()
+    log_audit(session.get('username'), 'model.stop',
+              "arrêt du modèle de chat" if ok else "échec de l'arrêt du modèle de chat")
     flash("Modèle arrêté." if ok else "Runner vLLM inaccessible.", "success" if ok else "danger")
     return redirect(url_for('admin.admin'))
 
@@ -285,6 +290,8 @@ def launch_ocr_cfg():
     if err:
         return jsonify({'ok': False, 'error': err}), 507
     ok, detail = _ocr_launch(cfg['hf_model_id'], cfg['vllm_args'] or '')
+    log_audit(session.get('username'), 'ocr.launch',
+              f"lancement OCR {cfg['hf_model_id']}" if ok else f"échec du lancement OCR : {detail}")
     if not ok:
         notify_infra_alert_email("OCR launch failed", f"{cfg['hf_model_id']}: {detail}")
     return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance OCR : {detail}"}), (200 if ok else 502)
@@ -338,6 +345,8 @@ def launch_image():
     if err:
         return jsonify({'ok': False, 'error': err}), 507
     ok, detail = _image_launch(model_id)
+    log_audit(session.get('username'), 'image.launch',
+              f"lancement image {model_id}" if ok else f"échec du lancement image : {detail}")
     if not ok:
         notify_infra_alert_email("Image model launch failed", f"{model_id}: {detail}")
     return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance image : {detail}"}), (200 if ok else 502)
@@ -367,6 +376,8 @@ def launch_music():
     if err:
         return jsonify({'ok': False, 'error': err}), 507
     ok, detail = _music_launch(model_id)
+    log_audit(session.get('username'), 'music.launch',
+              f"lancement musique {model_id}" if ok else f"échec du lancement musique : {detail}")
     if not ok:
         notify_infra_alert_email("Music model launch failed", f"{model_id}: {detail}")
     return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance musique : {detail}"}), (200 if ok else 502)
@@ -407,6 +418,8 @@ def launch_voice_cfg():
         flash("Modèle voix introuvable.", "danger")
         return redirect(url_for('admin.admin'))
     ok, detail = _voice_launch(cfg['repo_id'])
+    log_audit(session.get('username'), 'voice.launch',
+              f"relance voix {cfg['repo_id']}" if ok else f"échec relance voix : {detail}")
     if not ok:
         notify_infra_alert_email("Voice model launch failed", f"{name}: {detail}")
     flash(f"Relance voix avec {name} en cours…" if ok else f"Échec de la relance voix : {detail}",
@@ -536,6 +549,24 @@ def api_admin_users():
     return jsonify({'users': out, 'groups': [dict(g) for g in groups],
                     'default_budget': float(get_setting('default_key_budget', KEY_BUDGET))})
 
+@bp.route('/admin/audit')
+@admin_required
+def admin_audit():
+    """Journal d'audit (admin) : les derniers événements sensibles, filtrables
+    par utilisateur (?username=). Lecture antéchronologique, plafonnée."""
+    username = (request.args.get('username') or '').strip()
+    db = get_db()
+    if username:
+        rows = db.execute(
+            "SELECT id, username, action, detail, created_at FROM audit_log WHERE username=? "
+            "ORDER BY id DESC LIMIT 100", (username,)).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT id, username, action, detail, created_at FROM audit_log "
+            "ORDER BY id DESC LIMIT 100").fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
 @bp.route('/admin/users/create', methods=['POST'])
 @admin_required
 def admin_users_create():
@@ -564,6 +595,8 @@ def admin_users_create():
     db.commit()
     row = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
     _sync_local_user_budget(username, row)
+    log_audit(session.get('username'), 'user.create',
+              f"création de {username}" + (f" (groupe {group})" if group else ""))
     return jsonify({'ok': True})
 
 @bp.route('/admin/users/update/<int:uid>', methods=['POST'])
@@ -604,6 +637,7 @@ def admin_users_update(uid):
     if 'enabled' in request.form and not updated['enabled']:
         _revoke_user_sessions(updated['username'])
     _sync_local_user_budget(updated['username'], updated)
+    log_audit(session.get('username'), 'user.update', f"mise à jour de {updated['username']}")
     return jsonify({'ok': True})
 
 
@@ -621,8 +655,11 @@ def admin_revoke_sessions(username):
 @admin_required
 def admin_users_delete(uid):
     db = get_db()
+    name = db.execute("SELECT username FROM local_users WHERE id=?", (uid,)).fetchone()
     db.execute("DELETE FROM local_users WHERE id=?", (uid,))
     db.commit()
+    if name:
+        log_audit(session.get('username'), 'user.delete', f"suppression de {name['username']}")
     return jsonify({'ok': True})
 
 @bp.route('/admin/groups/create', methods=['POST'])
@@ -643,6 +680,7 @@ def admin_groups_create():
     # Propagates the group's new quota to its members (who have no override).
     for u in db.execute("SELECT * FROM local_users WHERE group_name=? AND max_budget IS NULL", (name,)):
         _sync_local_user_budget(u['username'], u)
+    log_audit(session.get('username'), 'group.create', f"groupe {name}")
     return jsonify({'ok': True})
 
 @bp.route('/admin/groups/delete/<name>', methods=['POST'])
@@ -652,6 +690,7 @@ def admin_groups_delete(name):
     db.execute("UPDATE local_users SET group_name=NULL WHERE group_name=?", (name,))
     db.execute("DELETE FROM user_groups WHERE name=?", (name,))
     db.commit()
+    log_audit(session.get('username'), 'group.delete', f"suppression du groupe {name}")
     return jsonify({'ok': True})
 
 @bp.route('/admin/maintenance/toggle', methods=['POST'])

@@ -19,6 +19,26 @@ from config import KEY_BUDGET, KEY_DURATION, LITELLM_DB_URL
 DB_PATH = '/app/data/portal.db'
 
 
+def log_audit(username, action, detail):
+    """Écrit une entrée de journal d'audit (connexion dédiée, utilisable hors
+    contexte de requête — même depuis un module appelé par app.py).
+
+    `action` est un libellé court et stable (ex. « launch », « stop »,
+    « user.create ») ; `detail` la description lisible. On journalise l'acteur
+    (`username`) et l'horodatage, jamais de secret."""
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("INSERT INTO audit_log (username, action, detail, created_at) VALUES (?,?,?,?)",
+                  (username or 'système', action, detail, datetime.now().isoformat()))
+        # On ne garde que l'historique récent (les actions sensibles sont rares).
+        c.execute("""DELETE FROM audit_log WHERE id NOT IN (
+            SELECT id FROM audit_log ORDER BY id DESC LIMIT 500)""")
+        c.commit()
+        c.close()
+    except Exception:
+        pass
+
+
 def get_db():
     """Connexion SQLite liee au contexte d'application Flask.
 
@@ -325,6 +345,30 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_model_req_status  ON model_requests(username, status);
         CREATE INDEX IF NOT EXISTS idx_budget_req_status ON budget_requests(username, status);
         CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(username, updated_at);
+        -- Journal d'audit des actions sensibles (launch/stop modèle, changements
+        -- admin, comptes). Lecture par ordre antéchronologique (id DESC), filtre
+        -- optionnel par utilisateur → index sur (username, id).
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            action TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(username, id);
+        -- Partage en lecture seule d'une conversation (lien public). On duplique
+        -- un instantané (title/model/messages) plutôt que de pointer vers la
+        -- conversation de l'utilisateur : le partage survit à la suppression de
+        -- l'original et ne dévoile rien d'autre que ce qui a été partagé.
+        CREATE TABLE IF NOT EXISTS conversation_shares (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            model TEXT NOT NULL,
+            messages TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            views INTEGER NOT NULL DEFAULT 0
+        );
     ''')
     # Migration: columns added to mcp_servers after its initial creation
     # (description, tool filter, enablement) — additive ALTER, lossless.

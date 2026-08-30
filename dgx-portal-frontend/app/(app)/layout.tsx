@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Banner } from "@astryxdesign/core/Banner";
+import { CommandPalette } from "@astryxdesign/core/CommandPalette";
+import { createStaticSource } from "@astryxdesign/core/Typeahead";
 import {
   SideNav,
   SideNavHeading,
@@ -78,6 +80,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined);
   const t = useT();
+  const router = useRouter();
+  // Palette de commandes (Ctrl/Cmd+K) : navigation et actions rapides.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteValue, setPaletteValue] = useState("");
   const csrf = useCsrf();
 
   // Opens the Settings dialog, optionally on a specific tab. Used by the gear
@@ -104,11 +110,53 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     form.submit();
   }
 
-  const navItems = who?.is_admin
-    ? [...NAV_ITEMS,
-       { href: "/users", label: "Utilisateurs", icon: UsersIcon },
-       { href: "/admin", label: "Admin", icon: ShieldCheckIcon }]
-    : NAV_ITEMS;
+  const navItems = useMemo(
+    () => (who?.is_admin
+      ? [...NAV_ITEMS,
+         { href: "/users", label: "Utilisateurs", icon: UsersIcon },
+         { href: "/admin", label: "Admin", icon: ShieldCheckIcon }]
+      : NAV_ITEMS),
+    [who?.is_admin],
+  );
+
+  // Palette de commandes : navigation (les mêmes pages que la sidebar) +
+  // quelques actions rapides. Groupe via auxiliaryData.group.
+  const paletteItems = useMemo(
+    () => [
+      ...navItems.map((it) => ({
+        id: it.href,
+        label: t(it.label),
+        auxiliaryData: { group: t("Navigation") },
+      })),
+      { id: "theme", label: t("Basculer le thème"), auxiliaryData: { group: t("Actions") } },
+      { id: "logout", label: t("Déconnexion"), auxiliaryData: { group: t("Actions") } },
+    ],
+    [navItems, t],
+  );
+  const paletteSource = useMemo(
+    () => createStaticSource(paletteItems, { keywords: (i) => [i.auxiliaryData?.group ?? ""] }),
+    [paletteItems],
+  );
+
+  // Ouverture au clavier (Cmd/Ctrl+K) : listener global, hors champs de saisie.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  function onPaletteSelect(id: string) {
+    setPaletteValue("");
+    setPaletteOpen(false);
+    if (id === "theme") setMode(isDark ? "light" : "dark");
+    else if (id === "logout") logout();
+    else router.push(id);
+  }
 
   useEffect(() => {
     // La prise en main s'ouvre quand le compte ne l'a jamais vue (état serveur).
@@ -158,6 +206,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </Text>
               </HStack>
               <HStack gap={1}>
+                <Button
+                  label={t("Recherche rapide")}
+                  variant="ghost"
+                  size="sm"
+                  isIconOnly
+                  icon={<Icon icon={MagnifyingGlassIcon} size="sm" />}
+                  onClick={() => setPaletteOpen(true)}
+                />
                 <Button
                   label={t("Réglages")}
                   variant="ghost"
@@ -231,6 +287,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         onOpenChange={setIsSettingsOpen}
         initialSection={settingsSection}
         onAvatarChange={(avatarId) => setWho((prev) => (prev ? { ...prev, avatar_id: avatarId } : prev))}
+      />
+      <CommandPalette
+        isOpen={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        searchSource={paletteSource}
+        value={paletteValue}
+        onValueChange={onPaletteSelect}
+        label={t("Recherche rapide")}
+        emptyBootstrapText={t("Commence à taper pour chercher")}
+        emptySearchText={t("Aucun résultat")}
       />
     </AppShell>
     </SettingsDialogContext.Provider>

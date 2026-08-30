@@ -104,6 +104,27 @@ def comfyui_status(prompt_id):
         pass
     return {'status': 'error', 'video_path': None}
 
+def comfyui_cancel(prompt_id):
+    """Annule une génération vidéo. Retire la requête de la file si elle attend,
+    sinon interrompt la génération en cours. ComfyUI sérialise les rendus : si
+    ce prompt est le seul 'running', c'est bien lui que /interrupt annule ; s'il
+    est dans la file, on le supprime par id (scopé, pas d'effet de bord)."""
+    try:
+        rq = requests.get(f"{COMFYUI_URL}/queue", timeout=5)
+        if rq.ok:
+            q = rq.json()
+            running_ids = [i[1] for i in q.get('queue_running', [])]
+            pending_ids = [i[1] for i in q.get('queue_pending', [])]
+            if prompt_id in pending_ids:
+                requests.post(f"{COMFYUI_URL}/queue", json={'delete': [prompt_id]}, timeout=10)
+                return True
+            if prompt_id in running_ids:
+                requests.post(f"{COMFYUI_URL}/interrupt", timeout=10)
+                return True
+    except Exception:
+        pass
+    return False
+
 def comfyui_fetch_video(filename, subfolder='', ftype='output'):
     try:
         r = requests.get(f"{COMFYUI_URL}/view",

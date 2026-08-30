@@ -8,10 +8,12 @@ a la section des reglages ou elles vivaient.
 MSG_MAX_CHARS et CONVERSATIONS_MAX sont reimportes par app.py, qui les utilise
 encore ailleurs.
 """
+import html
 import json
+import secrets
 from datetime import datetime
 
-from flask import Blueprint, flash, jsonify, request, session
+from flask import Blueprint, Response, abort, flash, jsonify, request, session
 
 from auth import login_required
 from config import AVATAR_IDS, LANGS, THEME_IDS
@@ -105,6 +107,74 @@ def conversations_route():
                    (username, request.form.get('id', '')))
         db.commit()
     return ('', 204)
+
+
+@bp.route('/conversations/share', methods=['POST'])
+@login_required
+def conversations_share():
+    """Crée un lien de partage en lecture seule d'une conversation. On duplique
+    l'instantané dans conversation_shares : le partage ne révèle que ce qui a été
+    partagé et survit à la suppression de l'original."""
+    client_id = request.form.get('client_id', '').strip()[:64]
+    if not client_id:
+        return jsonify({'ok': False, 'error': 'id manquant'}), 400
+    db = get_db()
+    row = db.execute(
+        "SELECT title, model, messages FROM conversations WHERE username=? AND client_id=?",
+        (session['username'], client_id)).fetchone()
+    if not row:
+        return jsonify({'ok': False, 'error': 'conversation introuvable'}), 404
+    token = secrets.token_urlsafe(24)
+    db.execute(
+        "INSERT INTO conversation_shares (token, title, model, messages, created_at) VALUES (?,?,?,?,?)",
+        (token, row['title'], row['model'], row['messages'], datetime.now().isoformat()))
+    db.commit()
+    return jsonify({'ok': True, 'token': token})
+
+
+@bp.route('/c/<token>')
+def share_view(token):
+    """Vue publique, lecture seule, d'une conversation partagée (page HTML
+    minimale, sans dépendance frontend). Le jeton est opaque et à usage unique
+    de fait (on ne liste jamais les liens)."""
+    db = get_db()
+    row = db.execute(
+        "SELECT title, model, messages, views FROM conversation_shares WHERE token=?",
+        (token,)).fetchone()
+    if not row:
+        abort(404)
+    try:
+        messages = json.loads(row['messages'])
+    except Exception:
+        messages = []
+    db.execute("UPDATE conversation_shares SET views=views+1 WHERE token=?", (token,))
+    db.commit()
+    title = html.escape(row['title'])
+    model = html.escape(row['model'])
+    blocks = []
+    for m in messages:
+        role = m.get('role')
+        if role not in ('user', 'assistant'):
+            continue
+        content = html.escape(m.get('content', '')).replace('\n', '<br>')
+        who = "Vous" if role == 'user' else "Assistant"
+        color = "#1d4ed8" if role == 'user' else "#059669"
+        blocks.append(f'<div style="margin:0 0 18px">'
+                      f'<div style="font:600 13px system-ui;color:{color};margin-bottom:6px">{who}</div>'
+                      f'<div style="font:400 15px/1.6 system-ui;color:#111827;white-space:pre-wrap">{content}</div>'
+                      f'</div>')
+    body = "\n".join(blocks)
+    html_doc = f"""<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title></head>
+<body style="margin:0;background:#f9fafb;color:#111827;font:15px/1.6 system-ui">
+<div style="max-width:760px;margin:0 auto;padding:32px 20px">
+<h1 style="font:700 22px system-ui;margin:0 0 4px">{title}</h1>
+<p style="margin:0 0 24px;color:#6b7280;font:13px system-ui">Modèle : {model or "—"}</p>
+{body}
+<p style="margin-top:32px;color:#9ca3af;font:12px system-ui">Partagé depuis Cronos</p>
+</div></body></html>"""
+    return Response(html_doc, mimetype='text/html')
 
 
 @bp.route('/settings/appearance', methods=['POST'])

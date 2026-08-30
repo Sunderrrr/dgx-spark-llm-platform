@@ -18,7 +18,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
-import { PhotoIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
+import { PhotoIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon, StopIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -26,7 +26,7 @@ import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
 
-type JobStatus = "idle" | "pending" | "running" | "done" | "error";
+type JobStatus = "idle" | "pending" | "running" | "done" | "error" | "cancelled";
 type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string; count?: number; done_count?: number };
 type RunningModel = { name: string; kind: string; exposed: boolean };
 
@@ -37,12 +37,14 @@ const STATUS_LABEL: Record<string, string> = {
   running: "Génération en cours…",
   done: "Image prête.",
   error: "Échec de la génération.",
+  cancelled: "Génération annulée.",
 };
 const STATUS_SHORT: Record<string, string> = {
   pending: "En attente",
   running: "En cours",
   done: "Terminé",
   error: "Erreur",
+  cancelled: "Annulé",
 };
 
 export default function ImagePage() {
@@ -57,6 +59,7 @@ export default function ImagePage() {
   const [doneCount, setDoneCount] = useState(0);  // images produced so far for it
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const dictation = useDictation({ value: prompt, onChange: setPrompt, csrf });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -158,6 +161,27 @@ export default function ImagePage() {
     generate({ prompt: item.prompt, batch: item.count ?? 1 });
   }
 
+  // Arrête la génération en cours (coopératif : la suite du lot est interrompue).
+  async function cancel() {
+    if (!promptId) return;
+    setCancelling(true);
+    try {
+      await fetch(`/api/image/cancel/${promptId}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRFToken": csrf },
+      });
+      setStatus("cancelled");
+      stopPolling();
+      loadHistory();
+      showToast({ body: t("Génération annulée."), type: "info" });
+    } catch {
+      showToast({ body: t("Impossible d'annuler."), type: "error" });
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   const isBusy = status === "pending" || status === "running";
 
   return (
@@ -257,14 +281,27 @@ export default function ImagePage() {
                 {status !== "idle" && (
                   <Card>
                     <VStack gap={4}>
-                      <StatusDot
-                        variant={status === "done" ? "success" : status === "error" ? "error" : "accent"}
-                        label={
-                          isBusy && jobCount > 1
-                            ? t("En cours")
-                            : t(STATUS_LABEL[status] ?? status)
-                        }
-                      />
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <StatusDot
+                          variant={status === "done" ? "success" : status === "error" ? "error" : status === "cancelled" ? "neutral" : "accent"}
+                          label={
+                            isBusy && jobCount > 1
+                              ? t("En cours")
+                              : t(STATUS_LABEL[status] ?? status)
+                          }
+                        />
+                        {isBusy && (
+                          <Button
+                            label={t("Arrêter")}
+                            variant="secondary"
+                            size="sm"
+                            icon={<Icon icon={StopIcon} size="sm" />}
+                            onClick={cancel}
+                            isDisabled={cancelling}
+                            isLoading={cancelling}
+                          />
+                        )}
+                      </HStack>
                       {isBusy && jobCount > 1 && (
                         <ProgressBar
                           label={t("Progression de la génération")}
@@ -353,7 +390,7 @@ export default function ImagePage() {
                           endContent={
                             <HStack gap={2} vAlign="center">
                               <StatusDot
-                                variant={h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"}
+                                variant={h.status === "done" ? "success" : h.status === "error" ? "error" : h.status === "cancelled" ? "neutral" : "accent"}
                                 label={t(STATUS_SHORT[h.status] ?? h.status)}
                               />
                               {h.status === "error" && (

@@ -17,7 +17,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
-import { MusicalNoteIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
+import { MusicalNoteIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon, StopIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -25,7 +25,7 @@ import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
 
-type JobStatus = "idle" | "running" | "done" | "error";
+type JobStatus = "idle" | "running" | "done" | "error" | "cancelled";
 type HistoryItem = { job_id: string; prompt: string; lyrics: string | null; duration_s: number; status: string; count?: number; done_count?: number; created_at: string };
 type RunningModel = { name: string; kind: string; exposed: boolean };
 
@@ -33,8 +33,9 @@ const STATUS_LABEL: Record<string, string> = {
   running: "Composition en cours…",
   done: "Morceau prêt.",
   error: "Échec de la génération.",
+  cancelled: "Composition annulée.",
 };
-const STATUS_SHORT: Record<string, string> = { running: "En cours", done: "Terminé", error: "Erreur" };
+const STATUS_SHORT: Record<string, string> = { running: "En cours", done: "Terminé", error: "Erreur", cancelled: "Annulé" };
 
 const VERSIONS = [1, 2, 3];
 
@@ -68,6 +69,7 @@ export default function MusicPage() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const dictation = useDictation({ value: prompt, onChange: setPrompt, csrf });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -158,6 +160,27 @@ export default function MusicPage() {
   // Relance une composition échouée avec les mêmes réglages.
   function retryItem(item: HistoryItem) {
     generate({ prompt: item.prompt, lyrics: item.lyrics ?? "", duration: item.duration_s, count: item.count ?? 1 });
+  }
+
+  // Arrête la composition en cours (la version en cours se termine).
+  async function cancel() {
+    if (!jobId) return;
+    setCancelling(true);
+    try {
+      await fetch(`/api/music/cancel/${jobId}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRFToken": csrf },
+      });
+      setStatus("cancelled");
+      stopPolling();
+      loadHistory();
+      showToast({ body: t("Composition annulée."), type: "info" });
+    } catch {
+      showToast({ body: t("Impossible d'annuler."), type: "error" });
+    } finally {
+      setCancelling(false);
+    }
   }
 
   const isBusy = status === "running";
@@ -277,10 +300,23 @@ export default function MusicPage() {
                 {status !== "idle" && (
                   <Card>
                     <VStack gap={3}>
-                      <StatusDot
-                        variant={status === "done" ? "success" : status === "error" ? "error" : "accent"}
-                        label={t(STATUS_LABEL[status] ?? status)}
-                      />
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <StatusDot
+                          variant={status === "done" ? "success" : status === "error" ? "error" : status === "cancelled" ? "neutral" : "accent"}
+                          label={t(STATUS_LABEL[status] ?? status)}
+                        />
+                        {isBusy && (
+                          <Button
+                            label={t("Arrêter")}
+                            variant="secondary"
+                            size="sm"
+                            icon={<Icon icon={StopIcon} size="sm" />}
+                            onClick={cancel}
+                            isDisabled={cancelling}
+                            isLoading={cancelling}
+                          />
+                        )}
+                      </HStack>
                       {isBusy && (
                         <VStack gap={2}>
                           {jobCount > 1 && (
@@ -370,7 +406,7 @@ export default function MusicPage() {
                           endContent={
                             <HStack gap={2} vAlign="center">
                               <StatusDot
-                                variant={h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"}
+                                variant={h.status === "done" ? "success" : h.status === "error" ? "error" : h.status === "cancelled" ? "neutral" : "accent"}
                                 label={t(STATUS_SHORT[h.status] ?? h.status)}
                               />
                               {h.status === "error" && (

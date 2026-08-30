@@ -41,15 +41,32 @@ def _image_set_done(prompt_id, username, done):
     except Exception:
         pass
 
+def _image_cancelled(prompt_id, username):
+    """True si l'utilisateur a demandé l'arrêt de ce job (bouton « Arrêter »)."""
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        row = c.execute("SELECT status FROM image_jobs WHERE prompt_id=? AND username=?",
+                        (prompt_id, username)).fetchone()
+        c.close()
+        return bool(row and row['status'] == 'cancelled')
+    except Exception:
+        return False
+
+
 def _image_worker(prompt_id, username, prompt_text, count):
     """Background thread: call the sidecar `count` times (sequentially — one image
     at a time keeps the GPU memory spike at single-image level on unified memory),
     saving each as <prompt_id>_<idx>.png. Each call reseeds implicitly, so the N
-    images are variations of the same prompt."""
+    images are variations of the same prompt. L'annulation est coopérative : on
+    vérifie le drapeau « cancelled » avant chaque image — l'image en cours se
+    termine, la suite du lot est interrompue et le slot GPU est libéré par le
+    finally côté generate."""
     started = datetime.now()
     done = 0
     os.makedirs(IMAGE_FILES_DIR, exist_ok=True)
     for idx in range(count):
+        if _image_cancelled(prompt_id, username):
+            break
         try:
             r = requests.post(f"{IMAGE_URL}/generate", data={'prompt': prompt_text[:10000]}, timeout=600)
             if r.ok and r.headers.get('Content-Type', '').startswith('image/'):
@@ -59,7 +76,8 @@ def _image_worker(prompt_id, username, prompt_text, count):
                 _image_set_done(prompt_id, username, done)
         except Exception:
             pass
-    status = 'done' if done else 'error'
+    cancelled = _image_cancelled(prompt_id, username)
+    status = 'cancelled' if cancelled else ('done' if done else 'error')
     dur = int((datetime.now() - started).total_seconds() * 1000) if done else None
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
@@ -130,6 +148,27 @@ def api_image_status(prompt_id):
     if not row:
         abort(404)
     return jsonify({'status': row['status'], 'count': row['count'], 'done_count': row['done_count']})
+
+
+@bp.route('/api/image/cancel/<prompt_id>', methods=['POST'])
+@login_required
+def api_image_cancel(prompt_id):
+    """Demande l'arrêt d'une génération image (coopératif : l'image en cours se
+    termine, la suite du lot est interrompue). Ne concerne que ses propres jobs."""
+    db = get_db()
+    row = db.execute(
+        "SELECT status FROM image_jobs WHERE prompt_id=? AND username=?",
+        (prompt_id, session['username'])).fetchone()
+    if not row:
+        abort(404)
+    if row['status'] in ('done', 'cancelled'):
+        return jsonify({'ok': True})  # déjà terminé : no-op
+    if row['status'] != 'running':
+        return jsonify({'error': "Ce job n'est plus actif."}), 400
+    db.execute("UPDATE image_jobs SET status='cancelled' WHERE prompt_id=? AND username=?",
+               (prompt_id, session['username']))
+    db.commit()
+    return jsonify({'ok': True})
 
 
 @bp.route('/image/file/<prompt_id>')

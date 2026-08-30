@@ -18,11 +18,12 @@ import re
 import time
 
 import requests
-from flask import jsonify
+from flask import jsonify, session
 
 from comfyui_client import comfyui_is_up
 from config import (ASR_URL, IMAGE_URL, MUSIC_URL, OCR_URL, RUNNER_TOKEN,
                     RUNNER_URL, VOICE_URL)
+from db import log_audit
 from litellm_client import _point_auto_model
 from vllm_health import get_running_models
 
@@ -295,9 +296,12 @@ def _sidecar_start_json(kind):
 def _sidecar_action(kind, action):
     try:
         r = requests.post(f"{RUNNER_URL}/{kind}/{action}", headers=_runner_headers(), timeout=30)
-        return r.ok
+        ok = r.ok
     except Exception:
-        return False
+        ok = False
+    log_audit(session.get('username'), f'sidecar.{action}',
+              f"{kind} : {'OK' if ok else 'échec'}")
+    return ok
 
 def _ocr_launch(hf_id, args):
     """Recreate the OCR container with another model (runner.py validates the flags

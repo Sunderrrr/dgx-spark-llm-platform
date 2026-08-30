@@ -12,7 +12,7 @@ from flask import Blueprint, Response, abort, jsonify, request, send_file, sessi
 from auth import login_required
 from comfyui_client import (
     _cache_video_local, _comfyui_output_file, _local_video_path,
-    comfyui_fetch_video, comfyui_generate, comfyui_status,
+    comfyui_cancel, comfyui_fetch_video, comfyui_generate, comfyui_status,
 )
 from db import get_db
 from guards import (
@@ -78,10 +78,13 @@ def api_video_status(prompt_id):
     # logged-in user could query another's status/video
     # just by knowing their prompt_id.
     owned = get_db().execute(
-        "SELECT 1 FROM video_jobs WHERE prompt_id=? AND username=?",
+        "SELECT status FROM video_jobs WHERE prompt_id=? AND username=?",
         (prompt_id, session['username'])).fetchone()
     if not owned:
         abort(404)
+    # Annulé → ne plus interroger ComfyUI (l'interrupt peut le marquer 'error').
+    if owned['status'] == 'cancelled':
+        return jsonify({'status': 'cancelled', 'video_path': None})
     st = comfyui_status(prompt_id)
     # Persists the result as soon as it's known: ComfyUI's in-memory
     # history is volatile (cleared on each service restart), whereas
@@ -115,6 +118,27 @@ def api_video_status(prompt_id):
         if st['status'] == 'done':
             _cache_video_local(prompt_id, st)
     return jsonify(st)
+
+
+@bp.route('/api/video/cancel/<prompt_id>', methods=['POST'])
+@login_required
+def api_video_cancel(prompt_id):
+    """Annule une génération vidéo en cours (interrupt ComfyUI) ou en attente
+    (retirée de la file). Ne concerne que ses propres jobs."""
+    db = get_db()
+    row = db.execute("SELECT status FROM video_jobs WHERE prompt_id=? AND username=?",
+                     (prompt_id, session['username'])).fetchone()
+    if not row:
+        abort(404)
+    if row['status'] in ('done', 'cancelled'):
+        return jsonify({'ok': True})
+    if row['status'] != 'running':
+        return jsonify({'error': "Ce job n'est plus actif."}), 400
+    comfyui_cancel(prompt_id)
+    db.execute("UPDATE video_jobs SET status='cancelled' WHERE prompt_id=? AND username=?",
+               (prompt_id, session['username']))
+    db.commit()
+    return jsonify({'ok': True})
 
 @bp.route('/video/file/<prompt_id>')
 @login_required

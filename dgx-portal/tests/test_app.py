@@ -1013,3 +1013,55 @@ class AuditLogTest(unittest.TestCase):
             s["is_admin"] = True
         rows = c.get("/admin/audit").get_json()
         self.assertTrue(any(r["action"] == "model.launch" and r["username"] == "ops" for r in rows))
+
+
+class NotificationsTest(unittest.TestCase):
+    """Centrale de notifications : liste (cloche) + marquage lu + page /docs."""
+
+    def setUp(self):
+        portal.app.config["TESTING"] = True
+        with portal.app.app_context():
+            portal.get_db().execute("DELETE FROM notifications")
+            portal.get_db().commit()
+
+    def _login(self, username="mael", is_admin=False):
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = username
+            s["auth_at"] = int(time.time())
+            s["is_admin"] = is_admin
+            s["csrf"] = "test-csrf"
+        return c
+
+    def test_liste_et_compteur(self):
+        from db import add_notification
+        add_notification("mael", "image", "Génération image terminée (2/2).")
+        add_notification("mael", "request", "Budget accordé : +100 tokens.")
+        c = self._login()
+        data = c.get("/api/notifications").get_json()
+        self.assertEqual(data["unread"], 2)
+        self.assertEqual(len(data["items"]), 2)
+        self.assertTrue(all(not i["seen"] for i in data["items"]))
+
+    def test_marquage_lu(self):
+        from db import add_notification
+        add_notification("mael", "image", "Génération image terminée (1/1).")
+        c = self._login()
+        self.assertEqual(c.get("/api/notifications").get_json()["unread"], 1)
+        r = c.post("/api/notifications/seen", headers={"X-CSRFToken": "test-csrf"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(c.get("/api/notifications").get_json()["unread"], 0)
+
+    def test_sans_session_est_refuse(self):
+        c = portal.app.test_client()
+        self.assertIn(c.get("/api/notifications").status_code, (302, 401, 403))
+        # POST sans CSRF → 400 (before_request CSRF avant login_required).
+        self.assertEqual(c.post("/api/notifications/seen").status_code, 400)
+
+    def test_docs_requiert_login(self):
+        c = portal.app.test_client()
+        self.assertIn(c.get("/docs").status_code, (302, 401, 403))
+        c2 = self._login()
+        r = c2.get("/docs")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("application", r.get_data(as_text=True).lower())

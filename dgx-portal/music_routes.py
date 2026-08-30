@@ -16,7 +16,7 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 
 from auth import login_required
 from config import MUSIC_URL
-from db import DB_PATH, get_db
+from db import DB_PATH, add_notification, get_db
 from sidecars import get_music_model, music_ready
 from guards import (maintenance_block_json, media_job_done, media_job_slot,
                     media_rate_block)
@@ -92,6 +92,10 @@ def _music_worker(job_id, username, prompt, lyrics, duration, count):
         c.commit(); c.close()
     except Exception:
         pass
+    if not cancelled:
+        add_notification(username, 'music',
+                         'Composition terminée ({}/{}).'.format(done or 0, count)
+                         if done else 'Échec de la composition.')
 
 
 @bp.route('/api/music/generate', methods=['POST'])

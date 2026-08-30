@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -16,14 +16,18 @@ import { NavIcon } from "@astryxdesign/core/NavIcon";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
-import { HStack } from "@astryxdesign/core/Stack";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import {
   SparklesIcon,
   HomeIcon,
   ChatBubbleLeftRightIcon,
   MagnifyingGlassIcon,
+  BellIcon,
   PaperAirplaneIcon,
   TrophyIcon,
   LifebuoyIcon,
@@ -46,6 +50,14 @@ import { SettingsDialog } from "./_components/SettingsDialog";
 import { OnboardingDialog } from "./_components/OnboardingDialog";
 import { useT } from "@/lib/i18n";
 import { SettingsDialogContext, type SettingsSection } from "@/lib/settings-dialog";
+
+type NotificationItem = {
+  id: number;
+  kind: string;
+  title: string;
+  seen: boolean;
+  created_at: string;
+};
 
 // "My API keys" is deliberately no longer here: its configuration now lives
 // in the Settings dialog ("API keys" tab), opened by the gear at the bottom
@@ -84,6 +96,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Palette de commandes (Ctrl/Cmd+K) : navigation et actions rapides.
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteValue, setPaletteValue] = useState("");
+  // Centrale de notifications (cloche) : liste + nombre de non-lues.
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifs, setNotifs] = useState<NotificationItem[]>([]);
+  const [notifUnread, setNotifUnread] = useState(0);
   const csrf = useCsrf();
 
   // Opens the Settings dialog, optionally on a specific tab. Used by the gear
@@ -181,6 +197,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  // Cloche : liste + badge des non-lues à l'ouverture, rafraîchi à l'ouverture.
+  const loadNotifs = useCallback((markSeen: boolean) => {
+    fetch("/api/notifications", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { items: [], unread: 0 }))
+      .then((d) => {
+        setNotifs(d?.items ?? []);
+        setNotifUnread(d?.unread ?? 0);
+        if (markSeen && (d?.unread ?? 0) > 0) {
+          setNotifUnread(0);
+          fetch("/api/notifications/seen", { method: "POST", credentials: "include", headers: { "X-CSRFToken": csrf } }).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, [csrf]);
+  useEffect(() => { loadNotifs(false); }, [loadNotifs]);
+
   const isDark = mode === "dark" || (mode === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
   return (
@@ -214,6 +246,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   icon={<Icon icon={MagnifyingGlassIcon} size="sm" />}
                   onClick={() => setPaletteOpen(true)}
                 />
+                <Button
+                  label={t("Notifications")}
+                  variant="ghost"
+                  size="sm"
+                  isIconOnly
+                  icon={<Icon icon={BellIcon} size="sm" />}
+                  onClick={() => { setNotifOpen(true); loadNotifs(true); }}
+                />
+                {notifUnread > 0 && <Badge label={String(notifUnread)} variant="info" />}
                 <Button
                   label={t("Réglages")}
                   variant="ghost"
@@ -298,6 +339,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         emptyBootstrapText={t("Commence à taper pour chercher")}
         emptySearchText={t("Aucun résultat")}
       />
+      <Dialog isOpen={notifOpen} onOpenChange={(o) => { if (!o) setNotifOpen(false); }} width={480}>
+        <DialogHeader
+          title={t("Notifications")}
+          subtitle={notifUnread > 0 ? String(notifUnread) : undefined}
+          hasDivider
+          onOpenChange={(o) => { if (!o) setNotifOpen(false); }}
+        />
+        <VStack gap={1} padding={3} height={420} isScrollable>
+          {notifs.length === 0 ? (
+            <Text color="secondary">{t("Aucune notification")}</Text>
+          ) : (
+            notifs.map((n) => (
+              <HStack key={n.id} gap={2} vAlign="center">
+                {!n.seen && <StatusDot variant="accent" label={n.kind} />}
+                <VStack gap={0}>
+                  <Text weight={n.seen ? undefined : "semibold"}>{n.title}</Text>
+                  <Text type="supporting" color="secondary">
+                    <Timestamp value={n.created_at} format="date_time" />
+                  </Text>
+                </VStack>
+              </HStack>
+            ))
+          )}
+        </VStack>
+      </Dialog>
     </AppShell>
     </SettingsDialogContext.Provider>
   );

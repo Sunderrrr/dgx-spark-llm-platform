@@ -151,6 +151,7 @@ type HomeData = {
   modelhealth: ModelHealth;
   active_users: { username: string; requests: number; tokens: number; live?: boolean }[] | null;
   usage: { has_data: boolean; total: number; active_keys: number; points: { hour: number; tokens: number }[] } | null;
+  usage_by_model: { model: string; tokens: number }[];
   my_requests: ModelRequest[];
   budget_tokens: string;
   budget_duration: string;
@@ -526,6 +527,25 @@ export default function HomePage() {
                   <Button label={t("Gérer mes clés")} variant="secondary" onClick={() => openSettings("keys")} />
                 </VStack>
               </Card>
+              {(data?.usage_by_model?.length ?? 0) > 0 && (
+                <Card>
+                  <VStack gap={2} height="100%">
+                    <HStack gap={2} vAlign="center">
+                      <Icon icon={CpuChipIcon} size="sm" />
+                      <Text weight="semibold">{t("Usage par modèle")}</Text>
+                    </HStack>
+                    <Text type="supporting" color="secondary">{t("Tokens consommés ces dernières 24 h, par modèle (tous comptes).")}</Text>
+                    <VStack gap={2}>
+                      {data!.usage_by_model.slice(0, 6).map((m) => (
+                        <HStack key={m.model} hAlign="between" vAlign="center" gap={2}>
+                          <Text type="supporting" maxLines={1}>{m.model}</Text>
+                          <Text hasTabularNumbers weight="semibold">{m.tokens.toLocaleString("fr-FR")} {t("tokens")}</Text>
+                        </HStack>
+                      ))}
+                    </VStack>
+                  </VStack>
+                </Card>
+              )}
               <Card>
                 <VStack gap={2} height="100%">
                   <HStack gap={2} vAlign="center">

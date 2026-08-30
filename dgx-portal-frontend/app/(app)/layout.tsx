@@ -13,6 +13,7 @@ import {
 import { NavIcon } from "@astryxdesign/core/NavIcon";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Button } from "@astryxdesign/core/Button";
+import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Avatar } from "@astryxdesign/core/Avatar";
@@ -68,6 +69,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { mode, setMode } = useThemeMode();
   const { who, setWho } = useWhoami();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Demandes en attente (badge de la sidebar). Poll léger pour rester à jour
+  // sans charger l'app — pas un compteur temps réel critique.
+  const [pendingCount, setPendingCount] = useState(0);
   // Prise en main : ouverte quand le compte ne l'a jamais vue. L'état vient du
   // serveur (colonne user_prefs.onboarded), pas du navigateur — elle suit donc
   // la personne d'un poste à l'autre, et ne revient jamais une fois passée.
@@ -114,6 +118,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (who && !who.onboarded) setShowOnboarding(true);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [who]);
+
+  // Badge « demandes en attente » dans la sidebar : compteur léger, mis à jour
+  // toutes les 30 s.
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () =>
+      fetch("/api/pending-count", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : { count: 0 }))
+        .then((d) => { if (!cancelled) setPendingCount(d?.count ?? 0); })
+        .catch(() => {});
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   const isDark = mode === "dark" || (mode === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
@@ -175,6 +193,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 icon={item.icon}
                 href={item.href}
                 isSelected={item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)}
+                endContent={
+                  pendingCount > 0 && (item.href === "/request" || item.href === "/admin")
+                    ? <Badge label={String(pendingCount)} variant="info" />
+                    : undefined
+                }
               />
             ))}
           </SideNavSection>

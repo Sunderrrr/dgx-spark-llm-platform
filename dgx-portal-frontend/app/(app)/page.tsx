@@ -12,6 +12,7 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Badge } from "@astryxdesign/core/Badge";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Table } from "@astryxdesign/core/Table";
 import type { TableColumn } from "@astryxdesign/core/Table";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
@@ -153,6 +154,8 @@ type HomeData = {
   my_requests: ModelRequest[];
   budget_tokens: string;
   budget_duration: string;
+  budget_used: number;
+  budget_remaining: number;
 };
 
 
@@ -253,7 +256,18 @@ export default function HomePage() {
 
             <VStack gap={2}>
               <Text weight="semibold">{t("Modèles disponibles maintenant")}</Text>
-              {data && data.running_models.length === 0 && (
+              {data === null ? (
+                <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+                  {[0, 1, 2].map((i) => (
+                    <Card key={i}>
+                      <VStack gap={2}>
+                        <Skeleton height={16} width={140} />
+                        <Skeleton height={14} width={200} />
+                      </VStack>
+                    </Card>
+                  ))}
+                </Grid>
+              ) : data.running_models.length === 0 ? (
                 <EmptyState
                   icon={<Icon icon={MoonIcon} size="lg" />}
                   title={t("Aucun modèle actif")}
@@ -261,8 +275,7 @@ export default function HomePage() {
                   actions={<Button label={t("Demander un modèle")} variant="secondary" href="/request" />}
                   isCompact
                 />
-              )}
-              {data && data.running_models.length > 0 && (
+              ) : (
                 <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
                   {data.running_models.map((m) => (
                     <Card key={m.name}>
@@ -486,6 +499,29 @@ export default function HomePage() {
                   <Text type="supporting" color="secondary">
                     {t("Limite :")} {who?.is_admin ? t("Illimitée (admin)") : `${data?.budget_tokens ?? "—"} tokens / ${data?.budget_duration ?? "—"}`}
                   </Text>
+                  {!who?.is_admin && data && (
+                    <VStack gap={2}>
+                      <ProgressBar
+                        label={t("Quota consommé")}
+                        value={data.budget_used}
+                        max={(data.budget_used + data.budget_remaining) || 1}
+                        variant={data.budget_remaining <= 0 ? "error" : "accent"}
+                        hasValueLabel
+                        formatValueLabel={(v, m) => `${Math.round((v / m) * 100)} %`}
+                      />
+                      <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
+                        <Text type="supporting" color="secondary">
+                          {t("Restant :")} <Text hasTabularNumbers weight="semibold">{data.budget_remaining.toLocaleString("fr-FR")}</Text> {t("tokens")}
+                        </Text>
+                        <Button
+                          label={t("Demander plus de budget")}
+                          variant="secondary"
+                          size="sm"
+                          href="/request"
+                        />
+                      </HStack>
+                    </VStack>
+                  )}
                   <StackItem size="fill" />
                   <Button label={t("Gérer mes clés")} variant="secondary" onClick={() => openSettings("keys")} />
                 </VStack>

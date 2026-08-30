@@ -494,6 +494,7 @@ const EN: Record<string, string> = {
   "Prompt à envoyer": "Prompt to send",
   "Créer le skill": "Create the skill",
   "Mes compétences": "My skills",
+  "Ajoute tes propres compétences": "Add your own skills",
   "Ex : Résumer des PDF": "E.g. Summarize PDFs",
   "Ex : resumer": "E.g. summarize",
   "Ce que fait cette compétence": "What this skill does",

@@ -3,15 +3,15 @@
 import { Card } from "@astryxdesign/core/Card";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Icon } from "@astryxdesign/core/Icon";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
-import { PlusIcon } from "@heroicons/react/24/outline";
+import { BoltIcon } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import { type Skill, skillMatches } from "@/lib/skills";
 
-/** Menu des compétences affiché sous le champ quand l'utilisateur tape « / ». */
+/** Menu des compétences affiché sous le champ quand l'utilisateur tape « / ».
+ *  Propose TOUTES les compétences (de base + créées) + l'entrée « créer ». */
 export function SkillsMenu({
   skills,
   query,
@@ -32,12 +32,16 @@ export function SkillsMenu({
       style={{ border: "var(--border-width) solid var(--color-border-emphasized)" }}>
       <VStack gap={2}>
         <HStack hAlign="between" vAlign="center" gap={2}>
-          <Text weight="semibold">{t("Compétences")}</Text>
+          <HStack gap={2} vAlign="center">
+            <Icon icon={BoltIcon} size="sm" color="accent" />
+            <Text weight="semibold">{t("Compétences")}</Text>
+            <Badge label={String(hits.length)} variant="info" />
+          </HStack>
           <Text type="supporting" color="secondary">
             {query ? `/${query}` : t("Tapez / pour appeler une compétence")}
           </Text>
         </HStack>
-        <VStack gap={1} height={240} isScrollable>
+        <VStack gap={1} height={260} isScrollable>
           {hits.length === 0 ? (
             <Text color="secondary">{t("Aucune compétence ne correspond")}</Text>
           ) : (
@@ -57,15 +61,14 @@ export function SkillsMenu({
             ))
           )}
         </VStack>
-        <HStack>
-          <Button
-            label={t("Créer un skill")}
-            variant="ghost"
-            size="sm"
-            icon={<Icon icon={PlusIcon} size="sm" />}
-            onClick={onCreate}
-          />
-        </HStack>
+        <ClickableCard label={t("Créer un skill")} variant="muted" onClick={onCreate}>
+          <HStack gap={2} vAlign="center" wrap="wrap">
+            <Badge label="/skill-creator" variant="warning" />
+            <Text maxLines={1} type="supporting" color="secondary">
+              {t("Ajoute tes propres compétences")}
+            </Text>
+          </HStack>
+        </ClickableCard>
       </VStack>
     </Card>
   );

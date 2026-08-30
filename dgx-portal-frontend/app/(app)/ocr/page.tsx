@@ -272,6 +272,7 @@ export default function OcrPage() {
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle OCR n'est disponible")}
               description={t("Demande à un admin de démarrer un modèle OCR pour utiliser cette page.")}
+              actions={<ModelRequestButton category="ocr" showText={false} />}
             />
           ) : (
             <Split gap={5} height={isNarrow ? undefined : "100%"}>

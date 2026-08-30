@@ -25,7 +25,8 @@ from auth import (USERNAME_RE,
                   _revoke_user_sessions,
                   admin_required, is_admin_username, ldap_lookup_email,
                   login_required)
-from config import KEY_BUDGET, KEY_DURATION, RUNNER_URL
+from config import (ADMIN_EMAIL, KEY_BUDGET, KEY_DURATION, RUNNER_URL,
+                    SMTP_HOST, SMTP_PASS, SMTP_USER)
 from db import get_db, get_setting, maintenance_active, set_setting
 from litellm_client import (_litellm_user_info, _register_litellm_model,
                             _unregister_litellm_model,
@@ -33,7 +34,8 @@ from litellm_client import (_litellm_user_info, _register_litellm_model,
 from local_users import (_local_group, _local_user_effective_budget,
                          _local_user_is_admin, _parse_budget,
                          _sync_local_user_budget)
-from notify import notify_maintenance_email, send_user_email
+from notify import (notify_infra_alert_email, notify_maintenance_email,
+                    send_test_email, send_user_email)
 from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       _image_launch, _mem_guard, _music_launch, _ocr_launch,
                       _runner_headers, _sidecar_action, _sidecar_start_json,
@@ -167,6 +169,10 @@ def launch_model():
                        cfg['engine'] or 'vllm')
     if ok:
         _announce_launch(cfg['name'])
+    else:
+        notify_infra_alert_email(
+            "Chat model launch failed",
+            f"{name}: the runner did not accept the launch (unreachable or unavailable).")
     flash(f"Lancement de {name} en cours…" if ok else "Runner inaccessible (ou moteur indisponible).",
           "success" if ok else "danger")
     return redirect(url_for('admin.admin'))
@@ -279,6 +285,8 @@ def launch_ocr_cfg():
     if err:
         return jsonify({'ok': False, 'error': err}), 507
     ok, detail = _ocr_launch(cfg['hf_model_id'], cfg['vllm_args'] or '')
+    if not ok:
+        notify_infra_alert_email("OCR launch failed", f"{cfg['hf_model_id']}: {detail}")
     return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance OCR : {detail}"}), (200 if ok else 502)
 
 @bp.route('/admin/voice/start', methods=['POST'])
@@ -330,6 +338,8 @@ def launch_image():
     if err:
         return jsonify({'ok': False, 'error': err}), 507
     ok, detail = _image_launch(model_id)
+    if not ok:
+        notify_infra_alert_email("Image model launch failed", f"{model_id}: {detail}")
     return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance image : {detail}"}), (200 if ok else 502)
 
 @bp.route('/admin/music/start', methods=['POST'])
@@ -357,6 +367,8 @@ def launch_music():
     if err:
         return jsonify({'ok': False, 'error': err}), 507
     ok, detail = _music_launch(model_id)
+    if not ok:
+        notify_infra_alert_email("Music model launch failed", f"{model_id}: {detail}")
     return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance musique : {detail}"}), (200 if ok else 502)
 
 @bp.route('/admin/voice/catalog/add', methods=['POST'])
@@ -395,6 +407,8 @@ def launch_voice_cfg():
         flash("Modèle voix introuvable.", "danger")
         return redirect(url_for('admin.admin'))
     ok, detail = _voice_launch(cfg['repo_id'])
+    if not ok:
+        notify_infra_alert_email("Voice model launch failed", f"{name}: {detail}")
     flash(f"Relance voix avec {name} en cours…" if ok else f"Échec de la relance voix : {detail}",
           "success" if ok else "danger")
     return redirect(url_for('admin.admin'))
@@ -657,6 +671,25 @@ def toggle_maintenance():
                              session.get('fullname', ''))
     flash("Mode maintenance activé." if now_on else "Mode maintenance désactivé.", "success")
     return redirect(url_for('admin.admin'))
+
+@bp.route('/admin/email/config')
+@admin_required
+def admin_email_config():
+    """Statut de la config email (hôte / user / mot de passe / admin) — ne
+    renvoie jamais le mot de passe."""
+    configured = bool(all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]))
+    return jsonify({'configured': configured, 'admin_email': ADMIN_EMAIL})
+
+@bp.route('/admin/email/test', methods=['POST'])
+@admin_required
+def admin_email_test():
+    """Envoie un email de test à ADMIN_EMAIL pour valider le SMTP."""
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]) or not ADMIN_EMAIL:
+        return jsonify({'ok': False, 'configured': False,
+                        'error': "SMTP non configuré (renseigne SMTP_HOST / "
+                                 "SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL)."}), 400
+    ok = send_test_email()
+    return jsonify({'ok': bool(ok), 'configured': True})
 
 @bp.route('/internal/authcheck')
 def internal_authcheck():

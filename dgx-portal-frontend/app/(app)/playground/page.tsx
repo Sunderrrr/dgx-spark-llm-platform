@@ -2617,6 +2617,15 @@ export default function PlaygroundPage() {
                         onClick={() => fileInputRef.current?.click()}
                       />
                       <DictateButton dictation={dictation} isDisabled={streaming} />
+                      <Selector
+                        label={t("Modèle")}
+                        isLabelHidden
+                        size="sm"
+                        placeholder={t("Aucun modèle actif")}
+                        options={runningModels}
+                        value={model}
+                        onChange={(v) => setModel(v ?? "")}
+                      />
                     </>
                   }
                   headerContext={<ContextMeter used={used} max={max} />}
@@ -2633,17 +2642,7 @@ export default function PlaygroundPage() {
                       </ChatComposerDrawer>
                     ) : undefined
                   }
-                  footerActions={
-                    <Selector
-                      label={t("Modèle")}
-                      isLabelHidden
-                      size="sm"
-                      placeholder={t("Aucun modèle actif")}
-                      options={runningModels}
-                      value={model}
-                      onChange={(v) => setModel(v ?? "")}
-                    />
-                  }
+                  footerActions={undefined}
                 />
                 <input
                   ref={fileInputRef}

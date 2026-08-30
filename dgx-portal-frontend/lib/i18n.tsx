@@ -82,6 +82,7 @@ const EN: Record<string, string> = {
   "Aucun system prompt.": "No system prompt.",
   "Aucun fichier.": "No files.",
   "La fenêtre de contexte est partagée : system prompt + messages + fichiers. Le % indique ce qui est utilisé.": "The context window is shared: system prompt + messages + files. The % shows what is used.",
+  "Nouvel onglet": "New tab",
   // — Navigation and shell —
   "Accueil": "Home",
   "Playground": "Playground",

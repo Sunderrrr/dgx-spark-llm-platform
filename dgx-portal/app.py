@@ -825,7 +825,7 @@ def api_whoami():
                      'is_admin': bool(session.get('is_admin')),
                      'avatar_id': pref['avatar_id'] if pref else None,
                      'theme_id': (pref['theme_id'] if pref else None) or 'neutral',
-                     'lang': (pref['lang'] if pref else None) or 'en',
+                     'lang': (pref['lang'] if pref else None) or 'fr',
                      # Absence de ligne user_prefs = compte qui n'a jamais rien
                      # réglé, donc jamais vu la prise en main.
                      'onboarded': bool(pref['onboarded']) if pref else False,

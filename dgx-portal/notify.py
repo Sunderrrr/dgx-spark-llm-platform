@@ -17,8 +17,8 @@ from email.mime.text import MIMEText
 
 import requests
 
-from config import (ADMIN_EMAIL, DISCORD_WH, SMTP_FROM, SMTP_HOST, SMTP_PASS,
-                    SMTP_PORT, SMTP_USER)
+from config import (ADMIN_EMAIL, ADMIN_URL, DISCORD_WH, SMTP_FROM, SMTP_HOST,
+                    SMTP_PASS, SMTP_PORT, SMTP_USER)
 
 # Nom d'application affiché par le client mail (gmail indique « DGX platform »).
 # L'adresse d'expédition reste le compte SMTP authentifié (no-reply@cronos.website).
@@ -57,7 +57,7 @@ def _rows_html(rows):
     return "".join(cells)
 
 
-def _render_html(subject, heading, rows, body, footnote):
+def _render_html(subject, heading, rows, body, footnote, cta_url=None):
     rows_html = _rows_html(rows) if rows else ""
     body_html = (
         f'<p style="margin:16px 0 0;font-size:14px;line-height:1.6;color:#374151;">'
@@ -65,6 +65,13 @@ def _render_html(subject, heading, rows, body, footnote):
     footnote_html = (
         f'<p style="margin:18px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">'
         f'{_esc(footnote)}</p>') if footnote else ""
+    cta_html = (
+        f'<p style="margin:20px 0 0;">'
+        f'<a href="{_esc(cta_url)}" target="_blank" rel="noopener" '
+        f'style="display:inline-block;padding:11px 22px;border-radius:8px;'
+        f'background:#0f172a;color:#ffffff;font-size:14px;font-weight:600;'
+        f'text-decoration:none;">Open the Admin dashboard&nbsp;→</a></p>'
+    ) if cta_url else ""
     return f"""<!doctype html>
 <html lang="en"><body style="margin:0;background:#f3f4f6;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 12px;">
@@ -77,6 +84,7 @@ def _render_html(subject, heading, rows, body, footnote):
  <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0f172a;">{_esc(heading)}</h1>
  <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;">{rows_html}</table>
  {body_html}
+ {cta_html}
 </td></tr>
 <tr><td style="padding:16px 30px;background:#f9fafb;border-top:1px solid #eef0f2;color:#9ca3af;font-size:12px;">
  Cronos&nbsp;·&nbsp;DGX platform&nbsp;·&nbsp;Automated message&nbsp;·&nbsp;{datetime.utcnow().strftime('%d %b %Y, %H:%M UTC')}
@@ -87,7 +95,7 @@ def _render_html(subject, heading, rows, body, footnote):
 </body></html>"""
 
 
-def _email_parts(subject, heading, rows, body, footnote):
+def _email_parts(subject, heading, rows, body, footnote, cta_url=None):
     text = [heading, ""]
     if rows:
         text.extend(f"{label}: {value if value is not None else '—'}"
@@ -97,10 +105,12 @@ def _email_parts(subject, heading, rows, body, footnote):
     if footnote:
         text.extend(["", footnote])
     text.extend(["", "— Cronos · DGX platform"])
-    return "\n".join(text), _render_html(subject, heading, rows, body, footnote)
+    return ("\n".join(text),
+            _render_html(subject, heading, rows, body, footnote, cta_url))
 
 
-def _send(to_email, subject, heading, rows=None, body=None, footnote=None):
+def _send(to_email, subject, heading, rows=None, body=None, footnote=None,
+          cta_url=None):
     """Envoie un email HTML + texte alternatif à `to_email`. Retourne True/False."""
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]) or not to_email:
         return False
@@ -108,7 +118,8 @@ def _send(to_email, subject, heading, rows=None, body=None, footnote=None):
     msg['Subject'] = subject
     msg['From'] = _sender()
     msg['To'] = to_email
-    text, html_body = _email_parts(subject, heading, rows, body, footnote)
+    text, html_body = _email_parts(subject, heading, rows, body, footnote,
+                                   cta_url)
     msg.attach(MIMEText(text, 'plain'))
     msg.attach(MIMEText(html_body, 'html'))
     try:
@@ -178,6 +189,7 @@ def notify_email(model_id, username, fullname, reason):
               ("Reason", reason or "—")],
         body="A user is asking for this model to be added to the platform.",
         footnote="Open the Admin dashboard to review and approve the request.",
+        cta_url=ADMIN_URL,
     )
 
 
@@ -194,6 +206,7 @@ def notify_budget_email(username, fullname, key_alias, current_budget, reason):
               ("Reason", reason or "—")],
         body="A user is asking for more tokens on their API key.",
         footnote="Open the Admin dashboard to review and approve the request.",
+        cta_url=ADMIN_URL,
     )
 
 
@@ -214,6 +227,7 @@ def notify_maintenance_email(enabled, by_username, by_fullname):
         rows=[("By", f"{by_fullname or by_username or '—'} ({by_username})")],
         body=("The portal is now blocking requests from non-admin accounts."
               if enabled else "The portal is accessible to everyone again."),
+        cta_url=ADMIN_URL,
     )
 
 
@@ -226,4 +240,29 @@ def notify_media_request_email(category, username, fullname):
         rows=[("User", f"{fullname or username} ({username})"),
               ("Category", category)],
         body="No model of this category is currently loaded. Launch one to enable it.",
+        cta_url=ADMIN_URL,
+    )
+
+
+def notify_infra_alert_email(kind, detail):
+    """Email admin : incident infra (échec de lancement d'un modèle, etc.)."""
+    return _send(
+        ADMIN_EMAIL,
+        f"[DGX platform] Alert — {kind}",
+        "Platform alert",
+        rows=[("Kind", kind), ("Detail", detail or "—")],
+        body="Something went wrong on the platform. Please check the Admin dashboard.",
+        cta_url=ADMIN_URL,
+    )
+
+
+def send_test_email():
+    """Email de test du SMTP (bouton Admin). Retourne True si l'envoi a réussi."""
+    return _send(
+        ADMIN_EMAIL,
+        "[DGX platform] SMTP test",
+        "SMTP test",
+        rows=[("Sender", APP_NAME), ("Environment", "Cronos / DGX platform")],
+        body="The SMTP configuration works. Nice!",
+        cta_url=ADMIN_URL,
     )

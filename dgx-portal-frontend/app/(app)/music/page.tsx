@@ -157,6 +157,7 @@ export default function MusicPage() {
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle musique n'est disponible")}
               description={t("Demande à un admin de démarrer un modèle musique pour utiliser cette page.")}
+              actions={<ModelRequestButton category="music" showText={false} />}
             />
           ) : (
             <VStack hAlign="center" width="100%">

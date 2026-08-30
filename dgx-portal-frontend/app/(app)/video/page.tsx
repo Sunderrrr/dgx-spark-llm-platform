@@ -140,6 +140,7 @@ export default function VideoPage() {
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle vidéo n'est disponible")}
               description={t("Demande à un admin de démarrer un modèle vidéo pour utiliser cette page.")}
+              actions={<ModelRequestButton category="video" showText={false} />}
             />
           ) : (
           // Centered column: on the left of a wide screen the page looked

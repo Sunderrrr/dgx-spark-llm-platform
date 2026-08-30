@@ -232,11 +232,16 @@ SMTP_USER=no-reply@cronos.website
 SMTP_PASSWORD=<mot de passe d'application Zoho>
 SMTP_FROM=DGX platform <no-reply@cronos.website>
 ADMIN_EMAIL=<adresse qui reçoit les demandes, ex. ton Gmail>
+# Facultatif : URL du dashboard admin pour le bouton « Open the Admin dashboard »
+# des emails. S'il est vide, aucun bouton n'est rendu dans le gabarit HTML.
+ADMIN_URL=https://dgx.cronos.website/admin
+# Fenêtre d'anti-spam pour les demandes « lancer une catégorie média » (secondes).
+MEDIA_REQUEST_COOLDOWN_S=1800
 ```
 
 Sans config SMTP, `notify_*` est un no-op (retourne `False`), rien ne part.
 
-Trois canaux (tous vers `ADMIN_EMAIL`, sauf `send_user_email` qui écrit à un
+Canaux (tous vers `ADMIN_EMAIL`, sauf `send_user_email` qui écrit à un
 utilisateur) :
 - **Demande de modèle / budgets** : `notify_email` / `notify_budget_email`,
   appelés par les outils de support (`request_model`, `request_budget`).
@@ -245,7 +250,19 @@ utilisateur) :
 - **Bouton « demander un modèle »** sur les pages image/musique/vidéo/OCR/voix :
   `POST /api/model/request` ({category}) → `notify_media_request_email`. La route
   refuse (409) si un modèle de la catégorie tourne déjà (`_media_category_running`,
-  mêmes capteurs que `/api/home`).
+  mêmes capteurs que `/api/home`), et applique un **cooldown anti-spam**
+  (`media_request_cooldown`, 1 demande / user / catégorie par
+  `MEDIA_REQUEST_COOLDOWN_S`, défaut 1800 s → 429 sinon). Le bouton est affiché
+  aussi dans l'`EmptyState` (aucun modèle + aucun historique).
+- **Config email** (Admin) : `GET /admin/email/config` (statut SMTP, sans
+  jamais renvoyer le mot de passe) + `POST /admin/email/test`
+  (`send_test_email`) — bouton « Envoyer un test » dans l'Admin.
+- **Alertes infra** : `notify_infra_alert_email` sur **échec de lancement** d'un
+  modèle (chat, OCR, image, musique, voix) — pas de moniteur continu des
+  sidecars (nécessiterait une tâche planifiée, non prévue ici).
+
+Le gabarit HTML (`_render_html`) rend un **bouton « Open the Admin dashboard »**
+si `ADMIN_URL` est défini ; vide → aucun bouton.
 
 ---
 

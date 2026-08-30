@@ -156,6 +156,7 @@ export default function ImagePage() {
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle image n'est disponible")}
               description={t("Demande à un admin d'ajouter un modèle image pour utiliser cette page.")}
+              actions={<ModelRequestButton category="image" showText={false} />}
             />
           ) : (
             <VStack hAlign="center" width="100%">

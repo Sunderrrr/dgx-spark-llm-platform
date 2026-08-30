@@ -263,6 +263,9 @@ const EN: Record<string, string> = {
 
   // — Home —
   "Bonjour": "Hello",
+  "Bonjour, comment allez-vous ?": "Hello, how are you?",
+  "Bonsoir, comment allez-vous ?": "Good evening, how are you?",
+  "Écris ton message ci-dessous pour commencer.": "Write your message below to get started.",
   "Ton accès self-service à l'inférence LLM sur DGX Spark.":
     "Your self-service access to LLM inference on the DGX Spark.",
   "Mes clés API": "My API keys",

@@ -1510,6 +1510,34 @@ export default function PlaygroundPage() {
       .catch(() => {});
   }, []);
 
+  // Ouverture ciblée depuis l'accueil : ?conv=<id> ouvre une conversation
+  // précise, ?model=<name> présélectionne le modèle courant. Appliqué une seule
+  // fois, une fois les conversations ET les modèles courants chargés (les deux
+  // fetchs sont dans des effets séparés, l'ordre n'est pas garanti).
+  const initFromUrlRef = useRef(false);
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- init one-shot depuis l'URL */
+  useEffect(() => {
+    if (initFromUrlRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const convId = params.get("conv");
+    const modelName = params.get("model");
+    if (!convId && !modelName) return;
+    if (runningModels.length === 0) return; // attente des modèles
+    if (convId && conversations.length === 0) return; // attente des conversations
+    initFromUrlRef.current = true;
+    if (modelName && runningModels.includes(modelName)) setModel(modelName);
+    const conv = convId ? conversations.find((c) => c.id === convId) : undefined;
+    if (conv) {
+      setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })));
+      setCurrentId(conv.id);
+      setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, title: conv.title, currentId: conv.id } : t)));
+      if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
+      setCtxUsed(0);
+      setConvTokens(0);
+    }
+  }, [conversations, runningModels]);
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+
   // persist()/runStream() only ever run from event handlers (send/regenerate/edit),
   // never during render, so Date.now()/performance.now() here are safe despite the
   // purity lint rule's conservative render-reachability analysis.

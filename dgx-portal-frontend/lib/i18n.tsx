@@ -484,6 +484,10 @@ const EN: Record<string, string> = {
   "Résumer": "Summarise",
   "Condense un texte en points clés": "Condense a text into key points",
   "Résume ce texte en 3 points : ": "Summarise this text in 3 points: ",
+  "Comment puis-je vous aider aujourd'hui ?": "How can I help you today?",
+  "Tapez / pour appeler une compétence": "Type / to call a skill",
+  "Résumez un document, générez une image, écrivez du code…":
+    "Summarize a document, generate an image, write code…",
 
   // — Support —
   "Un assistant IA connecté à la plateforme : il voit tes clés (masquées), ton budget et l'état du serveur pour t'aider en cas de pépin.":

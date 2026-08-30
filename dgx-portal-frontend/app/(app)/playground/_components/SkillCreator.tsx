@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Card } from "@astryxdesign/core/Card";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
@@ -19,17 +19,20 @@ import type { Skill } from "@/lib/skills";
 export function SkillCreator({
   open,
   onOpenChange,
+  initial,
   customSkills,
   onSave,
   onDelete,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initial?: Skill | null;
   customSkills: Skill[];
   onSave: (s: Skill) => void;
   onDelete: (id: string) => void;
 }) {
   const t = useT();
+  const isEditing = Boolean(initial);
   const [name, setName] = useState("");
   const [alias, setAlias] = useState("");
   const [description, setDescription] = useState("");
@@ -37,10 +40,23 @@ export function SkillCreator({
   const [systemPrompt, setSystemPrompt] = useState("");
   const canSave = Boolean(name.trim()) && Boolean(prompt.trim());
 
+  // Préremplir le formulaire à l'ouverture (édition) ou le vider (création).
+  // Sync depuis les props à l'ouverture : cas légitime autorisé par le lint.
+  useEffect(() => {
+    if (!open) return;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setName(initial?.name ?? "");
+    setAlias(initial?.alias ?? "");
+    setDescription(initial?.description ?? "");
+    setPrompt(initial?.prompt ?? "");
+    setSystemPrompt(initial?.systemPrompt ?? "");
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [open, initial]);
+
   function save() {
     if (!name.trim() || !prompt.trim()) return;
     onSave({
-      id: "s" + Date.now(),
+      id: initial?.id ?? "s" + Date.now(),
       name: name.trim(),
       alias: (alias.trim() || name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "comp"),
       description: description.trim(),
@@ -57,7 +73,7 @@ export function SkillCreator({
   return (
     <Dialog isOpen={open} onOpenChange={onOpenChange} width={560}>
       <DialogHeader
-        title={t("Créer un skill")}
+        title={t(isEditing ? "Modifier la compétence" : "Créer un skill")}
         subtitle={t("Une compétence = un prompt à envoyer + une commande / pour l'appeler")}
         hasDivider
         onOpenChange={onOpenChange}
@@ -87,7 +103,7 @@ export function SkillCreator({
         />
         <HStack hAlign="end" gap={2}>
           <Button label={t("Annuler")} variant="ghost" size="sm" onClick={() => onOpenChange(false)} />
-          <Button label={t("Créer le skill")} variant="primary" size="sm" isDisabled={!canSave} onClick={save} />
+          <Button label={t(isEditing ? "Enregistrer" : "Créer le skill")} variant="primary" size="sm" isDisabled={!canSave} onClick={save} />
         </HStack>
         {customSkills.length > 0 && (
           <VStack gap={1} height={240} isScrollable>

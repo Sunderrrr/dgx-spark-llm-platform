@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
@@ -84,7 +84,7 @@ import { SettingsPanel } from "./_components/SettingsPanel";
 import { SkillsMenu } from "./_components/SkillsMenu";
 import { SkillCreator } from "./_components/SkillCreator";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
-import { BASE_SKILLS, type Skill, loadCustomSkills, saveCustomSkills } from "@/lib/skills";
+import { BASE_SKILLS, type Skill, loadCustomSkills, saveCustomSkills, skillMatches } from "@/lib/skills";
 
 const DEFAULT_SETTINGS: Settings = {
   system: "",
@@ -1750,10 +1750,26 @@ export default function PlaygroundPage() {
   // Compétences (skills) : compétences de base + celles créées par l'utilisateur.
   const [skills, setSkills] = useState<Skill[]>(() => [...BASE_SKILLS, ...loadCustomSkills()]);
   const [skillCreatorOpen, setSkillCreatorOpen] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const customSkills = skills.filter((s) => !s.builtin);
+
+  // Ouvre le créateur (édition si une compétence existante est fournie) et
+  // referme le menu « / » pour ne pas superposer modal + menu.
+  function openSkillCreator(skill?: Skill) {
+    setEditingSkill(skill ?? null);
+    setSkillCreatorOpen(true);
+    setInput("");
+  }
 
   function addCustomSkill(s: Skill) {
     const custom = [...customSkills, s];
+    saveCustomSkills(custom);
+    setSkills([...BASE_SKILLS, ...custom]);
+  }
+
+  // Édition : on remplace la compétence du même id (les autres restent).
+  function updateCustomSkill(s: Skill) {
+    const custom = customSkills.map((c) => (c.id === s.id ? s : c));
     saveCustomSkills(custom);
     setSkills([...BASE_SKILLS, ...custom]);
   }
@@ -1764,10 +1780,10 @@ export default function PlaygroundPage() {
     setSkills([...BASE_SKILLS, ...custom]);
   }
 
-  // Sélection d'une compétence : on inscrit son prompt dans le champ et, si
-  // elle en a un, on applique son prompt système au modèle.
+  // Sélection d'une compétence : on inscrit son prompt (localisé) dans le champ
+  // et, si elle en a un, on applique son prompt système au modèle.
   function selectSkill(s: Skill) {
-    setInput(s.prompt);
+    setInput(t(s.prompt));
     const sp = s.systemPrompt;
     if (sp) setSettings((prev) => ({ ...prev, system: sp }));
   }
@@ -2008,18 +2024,13 @@ export default function PlaygroundPage() {
       setCtxUsed(total);
       setConvTokens((p) => p + total);
     }
-    const wasNew = !currentId;
     const savedId = persist(finalMessages, currentId, model);
     setCurrentId(savedId ?? null);
     // L'onglet actif porte immédiatement cette conversation (avant même que
     // l'auto-titre ne réponde), pour que fermer/commuter reste cohérent.
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, currentId: savedId ?? null } : t)));
-    // Auto-titre : à la PREMIÈRE réponse d'une nouvelle conversation, on demande
-    // au modèle un résumé court (3–8 mots) et on le propage en direct à
-    // l'historique + à l'onglet, sans rechargement. Silencieux en cas d'échec.
-    if (wasNew && savedId) {
-      void autoTitle(savedId, finalMessages, activeTabId);
-    }
+    // (Auto-titre à la fermeture uniquement — on analyse la conversation complète
+    // pour un titre d'historique fiable ; voir closeTab.)
     setStreaming(false);
     setLiveStats(null);
     abortRef.current = null;
@@ -2426,12 +2437,79 @@ export default function PlaygroundPage() {
   function handleInput(v: string) {
     const cmd = v.startsWith("/") ? v.slice(1).trim().toLowerCase() : null;
     if (cmd && SLASH_CREATE_COMMANDS.includes(cmd)) {
-      setSkillCreatorOpen(true);
-      setInput("");
+      openSkillCreator();
       return;
     }
     setInput(v);
   }
+
+  // Compétences filtrées (pour la navigation clavier + le menu) : base puis créées.
+  const baseHits = useMemo(
+    () => (slashQuery !== null ? skills.filter((s) => s.builtin && skillMatches(s, slashQuery)) : []),
+    [skills, slashQuery],
+  );
+  const customHits = useMemo(
+    () => (slashQuery !== null ? skills.filter((s) => !s.builtin && skillMatches(s, slashQuery)) : []),
+    [skills, slashQuery],
+  );
+  // Ligne 0 = carte « créer », lignes 1..n = compétences (base puis créées).
+  const skillHits = useMemo(() => [...baseHits, ...customHits], [baseHits, customHits]);
+  const menuRows = 1 + skillHits.length;
+
+  // Ligne surlignée dans le menu (0 = « Créer un skill », 1..n = compétences).
+  const [skillSel, setSkillSel] = useState(1);
+  useEffect(() => {
+    // On remonte le surlignage à la première compétence à chaque changement de
+    // filtre (sync depuis l'état du champ, cas légitime autorisé par le lint).
+    if (slashQuery !== null) {
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setSkillSel(1);
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+  }, [slashQuery]);
+
+  // Handler de navigation clavier, maintenu à jour à chaque rendu via une ref :
+  // l'effet d'écoute ne dépend que de l'ouverture du menu, sans dépendances
+  // instables (fonctions / tableaux recréés), donc 0 warning exhaustive-deps.
+  const onMenuKeyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    onMenuKeyRef.current = (e: KeyboardEvent) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        e.stopPropagation();
+        setSkillSel((s) => Math.min(s + 1, menuRows - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        setSkillSel((s) => Math.max(s - 1, 0));
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setInput("");
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        const sel = Math.min(skillSel, menuRows - 1);
+        if (sel === 0) openSkillCreator();
+        else {
+          const s = skillHits[sel - 1];
+          if (s) selectSkill(s);
+        }
+      }
+    };
+  });
+
+  useEffect(() => {
+    if (slashQuery === null) return;
+    function onMenuKey(e: KeyboardEvent) {
+      onMenuKeyRef.current(e);
+    }
+    // Écoute en PHASE DE CAPTURE sur la fenêtre pour devancer le champ (sinon
+    // ↑/↓ relit l'historique et Entrée envoie le message).
+    window.addEventListener("keydown", onMenuKey, true);
+    return () => window.removeEventListener("keydown", onMenuKey, true);
+  }, [slashQuery]);
+  const effectiveSel = Math.min(skillSel, menuRows - 1);
 
   // Nœud « composer » réutilisé à la fois dans le layout ancré en bas (conversation
   // en cours) et centré sur le premier message. Barre en bas : Attacher (gauche),
@@ -2584,10 +2662,14 @@ export default function PlaygroundPage() {
           sélectionner une) juste sous le champ. */}
       {slashQuery !== null && (
         <SkillsMenu
-          skills={skills}
+          baseSkills={baseHits}
+          customSkills={customHits}
           query={slashQuery}
+          selectedIndex={effectiveSel}
           onSelect={selectSkill}
-          onCreate={() => setSkillCreatorOpen(true)}
+          onCreate={() => openSkillCreator()}
+          onEdit={(s) => openSkillCreator(s)}
+          onDelete={deleteCustomSkill}
         />
       )}
       <input
@@ -2783,7 +2865,9 @@ export default function PlaygroundPage() {
               d'accueil centré, où le carré reste épuré). */}
           {!isFirstEmpty && (
             <HStack hAlign="end" padding={2}>
-              <ContextMeter used={used} max={max} />
+              <HStack width={300}>
+                <ContextMeter used={used} max={max} />
+              </HStack>
             </HStack>
           )}
           {isFirstEmpty ? (
@@ -3449,9 +3533,13 @@ export default function PlaygroundPage() {
           </Dialog>
           <SkillCreator
             open={skillCreatorOpen}
-            onOpenChange={(o) => setSkillCreatorOpen(o)}
+            onOpenChange={(o) => {
+              setSkillCreatorOpen(o);
+              if (!o) setEditingSkill(null);
+            }}
+            initial={editingSkill}
             customSkills={customSkills}
-            onSave={addCustomSkill}
+            onSave={(s) => (editingSkill ? updateCustomSkill(s) : addCustomSkill(s))}
             onDelete={deleteCustomSkill}
           />
           <Dialog isOpen={summaryOpen} onOpenChange={(o) => { if (!o) setSummaryOpen(false); }} width={560}>

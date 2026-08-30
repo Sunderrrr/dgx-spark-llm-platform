@@ -15,6 +15,7 @@ import { Item } from "@astryxdesign/core/Item";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { useToast } from "@astryxdesign/core/Toast";
 import {
@@ -267,7 +268,22 @@ export default function OcrPage() {
       height="fill"
       content={
         <LayoutContent padding={6} isScrollable={(available === false && history.length === 0) || isNarrow}>
-          {available === false && history.length === 0 ? (
+          {available === null ? (
+            <VStack hAlign="center" width="100%">
+              <VStack gap={5} width={isNarrow ? "100%" : 360}>
+                <VStack gap={2}>
+                  <Skeleton height={28} width={160} />
+                  <Skeleton height={14} width={260} />
+                </VStack>
+                <Card>
+                  <VStack gap={4}>
+                    <Skeleton height={16} width={140} />
+                    <Skeleton height={120} radius={2} />
+                  </VStack>
+                </Card>
+              </VStack>
+            </VStack>
+          ) : available === false && history.length === 0 ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle OCR n'est disponible")}

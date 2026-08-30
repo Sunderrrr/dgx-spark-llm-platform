@@ -1,6 +1,6 @@
 import os, re, time, requests
 from flask import Flask, request, session, redirect, url_for, flash, g, jsonify
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -244,6 +244,7 @@ from chat_routes import bp as chat_bp  # noqa: E402
 # Statistiques (agregats, classements, utilisateurs actifs) : cf. stats.py
 from stats import (  # noqa: E402
     _account_activity, _active_users, _inflight_end, _inflight_start,
+    _real_tokens_by_user,
     ranking_full, user_hourly,
 )
 
@@ -586,6 +587,38 @@ def _sidecar_metrics(kind):
     return m
 
 
+def _budget_period_days(duration):
+    """Jours couverts par la fenêtre budgétaire (« 1d », « 7d », « 30d »,
+    « 3 mois »…). Défaut raisonnable : 1 jour si non parsable."""
+    s = str(duration or "").lower()
+    if "mois" in s or "month" in s:
+        return 30
+    digits = re.sub(r"\D", "", s)
+    try:
+        return max(1, int(digits)) if digits else 1
+    except ValueError:
+        return 1
+
+
+# Cache court : /api/home est pollé souvent, on ne re-scinde pas SpendLogs à
+# chaque refresh (même logique de TTL que user_hourly dans stats.py).
+_BUDGET_CACHE = {}
+_BUDGET_TTL = 60
+
+
+def _budget_remaining(username, default_budget, duration):
+    """(used, remaining) tokens réels de l'utilisateur sur la fenêtre budgétaire."""
+    now = time.time()
+    hit = _BUDGET_CACHE.get(username)
+    if hit and now - hit[0] < _BUDGET_TTL:
+        return hit[1]
+    since = datetime.utcnow() - timedelta(days=_budget_period_days(duration))
+    used = int(_real_tokens_by_user(since).get(username, 0) or 0)
+    remaining = max(0, int(default_budget - used))
+    _BUDGET_CACHE[username] = (now, (used, remaining))
+    return used, remaining
+
+
 def _index_data():
     running = [{'name': m, 'kind': 'chat', 'exposed': True} for m in get_running_models()]
     metrics = {}
@@ -611,6 +644,8 @@ def _index_data():
         (session['username'],)
     ).fetchall()
     default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
+    budget_duration = get_setting('default_key_duration', KEY_DURATION)
+    budget_used, budget_remaining = _budget_remaining(session['username'], default_budget, budget_duration)
     return dict(running_models=running, my_requests=my_requests,
                 public_api_url=PUBLIC_API_URL, auto_model=AUTO_MODEL_NAME,
                 usage=user_hourly(session['username']),
@@ -619,7 +654,9 @@ def _index_data():
                 modelhealth=vllm_health(),
                 active_users=_active_users() if session.get('is_admin') else None,
                 budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
-                budget_duration=get_setting('default_key_duration', KEY_DURATION))
+                budget_duration=budget_duration,
+                budget_used=budget_used,
+                budget_remaining=budget_remaining)
 
 
 @app.route('/')
@@ -706,6 +743,25 @@ def api_home():
     data = _index_data()
     data['my_requests'] = [dict(r) for r in data['my_requests']]
     return jsonify(data)
+
+
+@app.route('/api/pending-count')
+@login_required
+def api_pending_count():
+    """Nombre de demandes (modèle + budget) en attente — badge de la sidebar."""
+    db = get_db()
+    if session.get('is_admin'):
+        n = db.execute(
+            "SELECT (SELECT COUNT(*) FROM model_requests WHERE status='pending')"
+            " + (SELECT COUNT(*) FROM budget_requests WHERE status='pending')"
+        ).fetchone()[0]
+    else:
+        n = db.execute(
+            "SELECT (SELECT COUNT(*) FROM model_requests WHERE status='pending' AND username=?)"
+            " + (SELECT COUNT(*) FROM budget_requests WHERE status='pending' AND username=?)",
+            (session['username'], session['username']),
+        ).fetchone()[0]
+    return jsonify({'count': int(n or 0)})
 
 
 # Catégories média sur lesquelles un utilisateur peut demander le lancement d'un
@@ -871,6 +927,8 @@ def api_keys():
         'user_keys': get_user_keys(session['username']),
         'budget_tokens': f"{default_budget:,.0f}".replace(',', ' '),
         'budget_duration': get_setting('default_key_duration', KEY_DURATION),
+        'budget_used': _budget_remaining(session['username'], default_budget, get_setting('default_key_duration', KEY_DURATION))[0],
+        'budget_remaining': _budget_remaining(session['username'], default_budget, get_setting('default_key_duration', KEY_DURATION))[1],
         'account': account,
         'model_limits': model_limits,
         'running_models': running,

@@ -781,10 +781,13 @@ function renderMath(expr: string) {
   }
 }
 const MATH_PLUGINS: MarkdownInlinePlugin[] = [
+  // Convention KaTeX : `$...$` inline sans espace juste après `$` ni avant le
+  // `$` fermant, pour ne pas confondre avec des montants (`$5 and $10`) ou du
+  // texte mis entre dollars. KaTeX échoue sans lever d'erreur → retour au texte.
   {
-    pattern: /\$[^$]+\$/g,
+    pattern: /\$(?!\s)([^$\n]+?)(?<!\s)\$/g,
     render: (m, key) => (
-      <span key={key} className="cronos-inline-math" dangerouslySetInnerHTML={{ __html: renderMath(m[0].slice(1, -1)) }} />
+      <span key={key} className="cronos-inline-math" dangerouslySetInnerHTML={{ __html: renderMath(m[1]) }} />
     ),
   },
   {
@@ -1678,7 +1681,7 @@ export default function PlaygroundPage() {
     try {
       const res = await sendJSON<{ summary?: string; error?: string }>("/api/playground/summarize", csrf, { model, messages });
       if (res.summary) setSummary(res.summary);
-      else if (res.error) setSummary(res.error);
+      else setSummary(res.error || t("Impossible de générer le résumé."));
     } catch {
       setSummary(t("Impossible de générer le résumé."));
     }

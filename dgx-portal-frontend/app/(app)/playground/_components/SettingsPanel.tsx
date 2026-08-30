@@ -27,10 +27,14 @@ export function SettingsPanel({
    *  prompt : proposer plus que le contexte n'a aucun sens, et le backend le
    *  rabaisserait de toute façon. Le curseur suit donc le modèle en cours. */
   contexte,
+  provenance = "manual",
+  onProvenance,
 }: {
   settings: Settings;
   onChange: (next: Settings) => void;
   contexte?: number;
+  provenance?: "persona" | "skill" | "manual";
+  onProvenance?: (p: "persona" | "skill" | "manual") => void;
 }) {
   const plafond = contexte && contexte > 0 ? contexte : 131072;
   const t = useT();
@@ -42,10 +46,18 @@ export function SettingsPanel({
           placeholder={t("Ex : Tu es un assistant concis et technique.")}
           rows={2}
           value={settings.system}
-          onChange={(value) => onChange({ ...settings, system: value })}
+          onChange={(value) => {
+            onChange({ ...settings, system: value });
+            onProvenance?.("manual");
+          }}
         />
         <VStack gap={1}>
           <Text type="supporting" color="secondary">{t("Personas")}</Text>
+          {provenance === "skill" && settings.system ? (
+            <Text color="secondary" type="supporting">
+              {t("Le prompt système provient d'une compétence. Choisir un persona le remplacera.")}
+            </Text>
+          ) : null}
           <HStack gap={2} vAlign="center" wrap="wrap">
             {PERSONAS.map((p) => (
               <Button
@@ -53,7 +65,10 @@ export function SettingsPanel({
                 label={t(p.label)}
                 variant={settings.system === p.prompt ? "secondary" : "ghost"}
                 size="sm"
-                onClick={() => onChange({ ...settings, system: p.prompt })}
+                onClick={() => {
+                  onChange({ ...settings, system: p.prompt });
+                  onProvenance?.("persona");
+                }}
               />
             ))}
             {settings.system && (
@@ -61,7 +76,10 @@ export function SettingsPanel({
                 label={t("Effacer le system prompt")}
                 variant="ghost"
                 size="sm"
-                onClick={() => onChange({ ...settings, system: "" })}
+                onClick={() => {
+                  onChange({ ...settings, system: "" });
+                  onProvenance?.("manual");
+                }}
               />
             )}
           </HStack>

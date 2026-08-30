@@ -509,6 +509,8 @@ const EN: Record<string, string> = {
   "Relis le texte suivant, corrige les fautes et améliore le style : ": "Proofread the following text, fix errors and improve the style: ",
   "Sys": "Sys",
   "Certaines compétences remplacent le prompt système": "Some skills replace the system prompt",
+  "Le prompt système provient d'une compétence. Choisir un persona le remplacera.": "The system prompt comes from a skill. Choosing a persona will replace it.",
+  "Chargement des utilisateurs": "Loading users",
   "Ex : Résumer des PDF": "E.g. Summarize PDFs",
   "Ex : resumer": "E.g. summarize",
   "Ce que fait cette compétence": "What this skill does",

@@ -24,7 +24,6 @@ import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
-import { Grid } from "@astryxdesign/core/Grid";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import {
   ChatLayout,
@@ -52,12 +51,12 @@ import {
   ClockIcon,
   TrashIcon,
   SparklesIcon,
-  CodeBracketIcon,
-  LightBulbIcon,
   DocumentMagnifyingGlassIcon,
   DocumentTextIcon,
   XMarkIcon,
   PaperAirplaneIcon,
+  ArrowUpIcon,
+  StopIcon,
   KeyIcon,
   ArrowsPointingOutIcon,
 } from "@heroicons/react/24/outline";
@@ -100,32 +99,6 @@ const DEFAULT_SETTINGS: Settings = {
 const ATTACH_ACCEPT =
   ".md,.markdown,.txt,.text,.log,.logs,.err,.error,.out,.json,.jsonl,.csv,.tsv,.yaml,.yml,.toml,.ini,.conf,.cfg,.env,.py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.sh,.bash,.sql,.html,.css,.xml,.diff,.patch";
 
-const PRESETS = [
-  {
-    heading: "Code Python",
-    body: "Génère une fonction, un script ou un test",
-    prompt: "Écris une fonction Python qui vérifie si un nombre est premier.",
-    icon: CodeBracketIcon,
-  },
-  {
-    heading: "Expliquer",
-    body: "Décompose un sujet technique simplement",
-    prompt: "Explique la mémoire unifiée du DGX Spark en termes simples.",
-    icon: LightBulbIcon,
-  },
-  {
-    heading: "Analyser des logs",
-    body: "Trouve la cause d'une erreur dans un extrait de logs",
-    prompt: "Analyse ces logs et trouve la cause de l'erreur : ",
-    icon: DocumentMagnifyingGlassIcon,
-  },
-  {
-    heading: "Résumer",
-    body: "Condense un texte en points clés",
-    prompt: "Résume ce texte en 3 points : ",
-    icon: DocumentTextIcon,
-  },
-];
 const MAX_ATTACHMENT_BYTES = 96 * 1024;
 
 // Something the assistant produced worth showing in the side panel (canvas/
@@ -1457,8 +1430,7 @@ export default function PlaygroundPage() {
   // facture prompt + complétion, donc la somme des `total_tokens` = ce qui est
   // débité du budget). Per-message, `m.tokens` est l'affichage déjà en place.
   const [convTokens, setConvTokens] = useState(0);
-  const { who } = useWhoami();
-  const firstName = who?.fullname?.split(" ")[0] || "";
+  useWhoami();
   // Artifact/canvas side-panel: when the assistant writes a file (a substantial
   // code block), it opens on the side automatically instead of being dumped
   // inline — inspired by the Astryx ai-chat template.
@@ -2377,6 +2349,203 @@ export default function PlaygroundPage() {
   const canRegenerate = !streaming && lastMsg && (lastMsg.role === "assistant" || lastMsg.role === "user");
   const canEdit = !streaming && messages.some((m) => m.role === "user");
 
+  // Salutation horaire pour le premier message (type Claude). « soir » à partir de 18h.
+  const playHour = new Date().getHours();
+  const greeting =
+    playHour >= 18 || playHour < 5
+      ? t("Bonsoir, comment allez-vous ?")
+      : t("Bonjour, comment allez-vous ?");
+  // Premier message : on centre le composeur avec la salutation au-dessus.
+  const isFirstEmpty = messages.length === 0 && !isSettingsOpen && !streaming;
+
+  // Nœud « composer » réutilisé à la fois dans le layout ancré en bas (conversation
+  // en cours) et centré sur le premier message. Barre en bas : Attacher (gauche),
+  // sélecteur de modèle + bouton micro/envoyer (droite).
+  const composerNode = (
+    <VStack gap={2} padding={4}>
+      {/* Sans clé API, le playground ne peut rien envoyer : il tourne sur
+          la clé de l'utilisateur. On le dit AVANT la première question,
+          avec le bouton qui mène pile au bon endroit — plutôt que de
+          laisser découvrir le problème par un message d'erreur. */}
+      {hasKey === false && (
+        <Banner
+          status="warning"
+          title={t("Aucune clé API")}
+          description={t(
+            "Le playground consomme le budget de ton compte via ta clé API. Crée-en une pour pouvoir discuter avec le modèle.",
+          )}
+          endContent={
+            <Button
+              label={t("Créer une clé API")}
+              variant="primary"
+              size="sm"
+              icon={<Icon icon={KeyIcon} size="sm" />}
+              onClick={() => openSettings("keys")}
+            />
+          }
+        />
+      )}
+      {/* File d'attente, juste au-dessus du compositeur : les messages
+          tapés pendant une génération attendent ici et partent seuls dès
+          qu'elle se termine. Les actions ne servent qu'à ne pas attendre
+          (Envoyer), reprendre le texte (Modifier) ou annuler (croix). */}
+      {queued.length > 0 && (
+        <Card
+          variant="muted"
+          padding={3}
+          style={{ border: "var(--border-width) solid var(--color-border-emphasized)" }}>
+          <VStack gap={2}>
+            <HStack hAlign="between" vAlign="center" gap={2}>
+              <HStack gap={2} vAlign="center">
+                <Text weight="semibold">{t("Messages en attente")}</Text>
+                <Badge label={String(queued.length)} variant="warning" />
+              </HStack>
+              <Icon icon={ClockIcon} size="sm" color="secondary" />
+            </HStack>
+            {queued.map((q, i) => (
+              <HStack key={`queued-${q.ts}-${i}`} gap={2} vAlign="center">
+                <StackItem size="fill">
+                  <Text maxLines={1} color="secondary">{q.text || q.content}</Text>
+                </StackItem>
+                <Button
+                  label={t("Modifier")}
+                  variant="ghost"
+                  size="sm"
+                  icon={<Icon icon={PencilIcon} size="sm" />}
+                  onClick={() => editQueued(i)}
+                />
+                <Button
+                  label={t("Envoyer")}
+                  variant="secondary"
+                  size="sm"
+                  icon={<Icon icon={PaperAirplaneIcon} size="sm" />}
+                  onClick={() => sendQueuedNow(i)}
+                />
+                <Button
+                  label={t("Retirer")}
+                  variant="ghost"
+                  size="sm"
+                  isIconOnly
+                  icon={<Icon icon={XMarkIcon} size="sm" />}
+                  onClick={() => discardQueued(i)}
+                />
+              </HStack>
+            ))}
+            <Text type="supporting" color="secondary">
+              {streaming
+                ? t("Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.")
+                : t("Envoi imminent…")}
+            </Text>
+          </VStack>
+        </Card>
+      )}
+      <ChatComposer
+        value={input}
+        onChange={setInput}
+        onSubmit={send}
+        isStopShown={streaming}
+        onStop={stop}
+        placeholder={t("Écris ton message… (Entrée pour envoyer, Maj+Entrée = saut de ligne)")}
+        input={<ChatComposerInput value={input} onChange={setInput} onSubmit={send} />}
+        headerContext={<ContextMeter used={used} max={max} />}
+        drawer={
+          attachments.length ? (
+            <ChatComposerDrawer count={attachments.length} label={t("Fichiers joints")}>
+              {attachments.map((f, i) => (
+                <Token
+                  key={f.name + i}
+                  label={`${f.name} (${Math.ceil(f.content.length / 1024)} Ko)`}
+                  onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                />
+              ))}
+            </ChatComposerDrawer>
+          ) : undefined
+        }
+        footerActions={
+          <Button
+            label={t("Joindre un fichier")}
+            variant="ghost"
+            size="sm"
+            isIconOnly
+            icon={<Icon icon={PaperClipIcon} size="sm" />}
+            onClick={() => fileInputRef.current?.click()}
+          />
+        }
+        sendActions={
+          <Selector
+            label={t("Modèle")}
+            isLabelHidden
+            size="sm"
+            placeholder={t("Aucun modèle actif")}
+            options={runningModels}
+            value={model}
+            onChange={(v) => setModel(v ?? "")}
+          />
+        }
+        sendButton={
+          streaming ? (
+            <Button
+              label={t("Arrêter")}
+              variant="primary"
+              isIconOnly
+              size="md"
+              icon={<Icon icon={StopIcon} size="sm" />}
+              onClick={stop}
+            />
+          ) : input.trim().length > 0 || attachments.length > 0 ? (
+            <Button
+              label={t("Envoyer")}
+              variant="primary"
+              isIconOnly
+              size="md"
+              icon={<Icon icon={ArrowUpIcon} size="sm" />}
+              onClick={() => send(input)}
+            />
+          ) : (
+            <DictateButton dictation={dictation} isDisabled={false} size="md" />
+          )
+        }
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept={ATTACH_ACCEPT}
+        style={{ display: "none" }}
+        onChange={(e) => handleFiles(e.target.files)}
+      />
+      <HStack hAlign="between" gap={2}>
+        <Text type="supporting" color="secondary">{t("Fichiers texte uniquement. Les tokens comptent sur ton budget.")}</Text>
+        <HStack gap={2}>
+          {canEdit && (
+            <Button
+              label={t("Éditer")}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={PencilIcon} size="sm" />}
+              onClick={editLast}
+            />
+          )}
+          {canRegenerate && (
+            <Button
+              label={t("Régénérer")}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={ArrowPathIcon} size="sm" />}
+              onClick={regenerate}
+            />
+          )}
+          <Button
+            label={t("Snippets")}
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={BookmarkIcon} size="sm" />}
+            onClick={() => setSnippetsOpen(true)}
+          />
+        </HStack>
+      </HStack>
+    </VStack>
+  );
 
   return (
     <Layout
@@ -2518,203 +2687,27 @@ export default function PlaygroundPage() {
               </HStack>
             </VStack>
           )}
+          {isFirstEmpty ? (
+            <VStack height="100%" vAlign="center" hAlign="center" gap={4} padding={4}>
+              <HStack gap={2} vAlign="center">
+                <Icon icon={SparklesIcon} size="lg" color="accent" />
+                <Text type="display-2" as="h1">{greeting}</Text>
+              </HStack>
+              <HStack width="100%" hAlign="center">
+                <StackItem size="fill">
+                  <VStack maxWidth={720} width="100%">{composerNode}</VStack>
+                </StackItem>
+              </HStack>
+            </VStack>
+          ) : (
           <ChatLayout
             density="spacious"
-            composer={
-              <VStack gap={2} padding={4}>
-                {/* Sans clé API, le playground ne peut rien envoyer : il tourne sur
-                    la clé de l'utilisateur. On le dit AVANT la première question,
-                    avec le bouton qui mène pile au bon endroit — plutôt que de
-                    laisser découvrir le problème par un message d'erreur. */}
-                {hasKey === false && (
-                  <Banner
-                    status="warning"
-                    title={t("Aucune clé API")}
-                    description={t(
-                      "Le playground consomme le budget de ton compte via ta clé API. Crée-en une pour pouvoir discuter avec le modèle.",
-                    )}
-                    endContent={
-                      <Button
-                        label={t("Créer une clé API")}
-                        variant="primary"
-                        size="sm"
-                        icon={<Icon icon={KeyIcon} size="sm" />}
-                        onClick={() => openSettings("keys")}
-                      />
-                    }
-                  />
-                )}
-                {/* File d'attente, juste au-dessus du compositeur : les messages
-                    tapés pendant une génération attendent ici et partent seuls dès
-                    qu'elle se termine. Les actions ne servent qu'à ne pas attendre
-                    (Envoyer), reprendre le texte (Modifier) ou annuler (croix). */}
-                {queued.length > 0 && (
-                  <Card
-                    variant="muted"
-                    padding={3}
-                    style={{ border: "var(--border-width) solid var(--color-border-emphasized)" }}>
-                    <VStack gap={2}>
-                      <HStack hAlign="between" vAlign="center" gap={2}>
-                        <HStack gap={2} vAlign="center">
-                          <Text weight="semibold">{t("Messages en attente")}</Text>
-                          <Badge label={String(queued.length)} variant="warning" />
-                        </HStack>
-                        <Icon icon={ClockIcon} size="sm" color="secondary" />
-                      </HStack>
-                      {queued.map((q, i) => (
-                        <HStack key={`queued-${q.ts}-${i}`} gap={2} vAlign="center">
-                          <StackItem size="fill">
-                            <Text maxLines={1} color="secondary">{q.text || q.content}</Text>
-                          </StackItem>
-                          <Button
-                            label={t("Modifier")}
-                            variant="ghost"
-                            size="sm"
-                            icon={<Icon icon={PencilIcon} size="sm" />}
-                            onClick={() => editQueued(i)}
-                          />
-                          <Button
-                            label={t("Envoyer")}
-                            variant="secondary"
-                            size="sm"
-                            icon={<Icon icon={PaperAirplaneIcon} size="sm" />}
-                            onClick={() => sendQueuedNow(i)}
-                          />
-                          <Button
-                            label={t("Retirer")}
-                            variant="ghost"
-                            size="sm"
-                            isIconOnly
-                            icon={<Icon icon={XMarkIcon} size="sm" />}
-                            onClick={() => discardQueued(i)}
-                          />
-                        </HStack>
-                      ))}
-                      <Text type="supporting" color="secondary">
-                        {streaming
-                          ? t("Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.")
-                          : t("Envoi imminent…")}
-                      </Text>
-                    </VStack>
-                  </Card>
-                )}
-                <ChatComposer
-                  value={input}
-                  onChange={setInput}
-                  onSubmit={send}
-                  isStopShown={streaming}
-                  onStop={stop}
-                  placeholder={t("Écris ton message… (Entrée pour envoyer, Maj+Entrée = saut de ligne)")}
-                  input={<ChatComposerInput value={input} onChange={setInput} onSubmit={send} />}
-                  headerActions={
-                    <>
-                      <Button
-                        label={t("Joindre un fichier")}
-                        variant="ghost"
-                        size="sm"
-                        isIconOnly
-                        icon={<Icon icon={PaperClipIcon} size="sm" />}
-                        onClick={() => fileInputRef.current?.click()}
-                      />
-                      <DictateButton dictation={dictation} isDisabled={streaming} />
-                      <Selector
-                        label={t("Modèle")}
-                        isLabelHidden
-                        size="sm"
-                        placeholder={t("Aucun modèle actif")}
-                        options={runningModels}
-                        value={model}
-                        onChange={(v) => setModel(v ?? "")}
-                      />
-                    </>
-                  }
-                  headerContext={<ContextMeter used={used} max={max} />}
-                  drawer={
-                    attachments.length ? (
-                      <ChatComposerDrawer count={attachments.length} label={t("Fichiers joints")}>
-                        {attachments.map((f, i) => (
-                          <Token
-                            key={f.name + i}
-                            label={`${f.name} (${Math.ceil(f.content.length / 1024)} Ko)`}
-                            onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                          />
-                        ))}
-                      </ChatComposerDrawer>
-                    ) : undefined
-                  }
-                  footerActions={undefined}
-                />
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept={ATTACH_ACCEPT}
-                  style={{ display: "none" }}
-                  onChange={(e) => handleFiles(e.target.files)}
-                />
-                <HStack hAlign="between" gap={2}>
-                  <Text type="supporting" color="secondary">{t("Fichiers texte uniquement. Les tokens comptent sur ton budget.")}</Text>
-                  <HStack gap={2}>
-                    {canEdit && (
-                      <Button
-                        label={t("Éditer")}
-                        variant="ghost"
-                        size="sm"
-                        icon={<Icon icon={PencilIcon} size="sm" />}
-                        onClick={editLast}
-                      />
-                    )}
-                    {canRegenerate && (
-                      <Button
-                        label={t("Régénérer")}
-                        variant="ghost"
-                        size="sm"
-                        icon={<Icon icon={ArrowPathIcon} size="sm" />}
-                        onClick={regenerate}
-                      />
-                    )}
-                    <Button
-                      label={t("Snippets")}
-                      variant="ghost"
-                      size="sm"
-                      icon={<Icon icon={BookmarkIcon} size="sm" />}
-                      onClick={() => setSnippetsOpen(true)}
-                    />
-                  </HStack>
-                </HStack>
-              </VStack>
-            }>
+            composer={composerNode}>
             <ChatMessageList
               emptyState={
-                <VStack gap={6} hAlign="center">
-                  <VStack gap={1} hAlign="center">
-                    <HStack gap={2} vAlign="center">
-                      <Icon icon={SparklesIcon} size="md" color="accent" />
-                      <Text type="large" as="h2">
-                        {firstName ? `${t("Bonjour")}, ${firstName}` : t("Bonjour")}
-                      </Text>
-                    </HStack>
-                    <Text type="display-2" as="h1">{t("Sur quoi veux-tu travailler ?")}</Text>
-                  </VStack>
-                  <Grid columns={{ minWidth: 220, max: 2 }} gap={3} width="100%">
-                    {PRESETS.map((preset) => (
-                      <ClickableCard
-                        key={preset.heading}
-                        label={t(preset.heading)}
-                        variant="muted"
-                        onClick={() => setInput(t(preset.prompt))}>
-                        <VStack gap={1}>
-                          <HStack gap={2} vAlign="center">
-                            <Icon icon={preset.icon} size="sm" color="secondary" />
-                            <Text weight="semibold">{t(preset.heading)}</Text>
-                          </HStack>
-                          <Text type="supporting" color="secondary">
-                            {t(preset.body)}
-                          </Text>
-                        </VStack>
-                      </ClickableCard>
-                    ))}
-                  </Grid>
+                <VStack gap={2} hAlign="center">
+                  <Text type="display-2" as="h1">{greeting}</Text>
+                  <Text type="supporting" color="secondary">{t("Écris ton message ci-dessous pour commencer.")}</Text>
                 </VStack>
               }>
                 {messages.map((m, i) => {
@@ -3063,6 +3056,7 @@ export default function PlaygroundPage() {
                 })}
             </ChatMessageList>
           </ChatLayout>
+          )}
           </VStack>
           </StackItem>
           {(artifact || showLive || dernierFini) && !isNarrow && (

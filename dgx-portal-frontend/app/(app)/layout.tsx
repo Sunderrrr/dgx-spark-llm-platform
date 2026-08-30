@@ -230,14 +230,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             />
           }
           footer={
-            <HStack padding={2} gap={2} vAlign="center" hAlign="between">
+            <VStack padding={2} gap={2}>
               <HStack gap={2} vAlign="center">
                 {who?.avatar_id && <Avatar src={`/avatars/${who.avatar_id}.svg`} name={who.fullname} size="sm" />}
                 <Text type="supporting" color="secondary" maxLines={1}>
                   {who?.fullname || ""}
                 </Text>
               </HStack>
-              <HStack gap={1}>
+              <HStack gap={1} wrap="wrap">
                 <Button
                   label={t("Recherche rapide")}
                   variant="ghost"
@@ -280,7 +280,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   onClick={logout}
                 />
               </HStack>
-            </HStack>
+            </VStack>
           }>
           <SideNavSection title="Menu" isHeaderHidden>
             {navItems.map((item) => (

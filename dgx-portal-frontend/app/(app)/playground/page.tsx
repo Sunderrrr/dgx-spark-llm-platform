@@ -16,7 +16,9 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
-import { Markdown } from "@astryxdesign/core/Markdown";
+import { Markdown, type MarkdownInlinePlugin } from "@astryxdesign/core/Markdown";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
@@ -768,6 +770,30 @@ function savePinnedIds(ids: string[]) {
   }
 }
 
+// Math/LaTeX inline : rendu via KaTeX dans le Markdown. Le parseur Astryx n'a
+// pas de nœud « math en bloc » — on couvre `$...$` et `\(...\)` (inline). Les
+// blocs `$$...$$` restent du texte brut (limitation connue).
+function renderMath(expr: string) {
+  try {
+    return katex.renderToString(expr, { throwOnError: false, output: "html", displayMode: false });
+  } catch {
+    return expr;
+  }
+}
+const MATH_PLUGINS: MarkdownInlinePlugin[] = [
+  {
+    pattern: /\$[^$]+\$/g,
+    render: (m, key) => (
+      <span key={key} className="cronos-inline-math" dangerouslySetInnerHTML={{ __html: renderMath(m[0].slice(1, -1)) }} />
+    ),
+  },
+  {
+    pattern: /\\\(([\s\S]+?)\\\)/g,
+    render: (m, key) => (
+      <span key={key} className="cronos-inline-math" dangerouslySetInnerHTML={{ __html: renderMath(m[1]) }} />
+    ),
+  },
+];
 // Snippets / prompts réutilisables, sauvegardés par l'utilisateur (navigateur).
 type Snippet = { id: string; label: string; content: string };
 const SNIPPET_KEY = "cronos.snippets";
@@ -2703,7 +2729,7 @@ export default function PlaygroundPage() {
                               <Markdown>{m.reasoning}</Markdown>
                             </Collapsible>
                           ) : null}
-                          {bodyText.trim() ? <Markdown>{bodyText}</Markdown> : null}
+                          {bodyText.trim() ? <Markdown inlinePlugins={MATH_PLUGINS}>{bodyText}</Markdown> : null}
                           <AskQuestion
                             questions={ask.questions}
                             answered={!isLast}
@@ -2723,7 +2749,7 @@ export default function PlaygroundPage() {
                               <Markdown isStreaming={streamingThis}>{m.reasoning}</Markdown>
                             </Collapsible>
                           ) : null}
-                          <Markdown isStreaming={streamingThis}>{bodyText || " "}</Markdown>
+                          <Markdown isStreaming={streamingThis} inlinePlugins={MATH_PLUGINS}>{bodyText || " "}</Markdown>
                           {/* Une modification dont l'ancre n'existe pas dans le
                               fichier ne s'applique PAS. On le dit, plutôt que de
                               laisser croire que la correction est faite. */}
@@ -2934,7 +2960,7 @@ export default function PlaygroundPage() {
                       d'artefact épinglé, mais bien un fichier à afficher. */}
                   {panelIsCode
                     ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped maxHeight="100%" />
-                    : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
+                    : <Markdown isStreaming={showLive} inlinePlugins={MATH_PLUGINS}>{panelContent || " "}</Markdown>}
                 </VStack>
                 )}
                 {showPanelJump && (
@@ -3199,7 +3225,7 @@ export default function PlaygroundPage() {
                   <LayoutContent ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable>
                     {panelIsCode
                       ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped maxHeight="100%" />
-                      : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
+                      : <Markdown isStreaming={showLive} inlinePlugins={MATH_PLUGINS}>{panelContent || " "}</Markdown>}
                   </LayoutContent>
                   )
                 }

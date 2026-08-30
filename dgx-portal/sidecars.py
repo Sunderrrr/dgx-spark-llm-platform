@@ -165,7 +165,7 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
     # to release unified memory before spawning the new one (anti-OOM). /launch can
     # thus take ~10-60 s to respond — a short timeout would look like a failure
     # even though the launch is well underway.
-    try:
+    def _once():
         r = requests.post(f"{RUNNER_URL}/launch",
                           headers=_runner_headers(),
                           json={'hf_model_id': hf_model_id, 'model_name': model_name,
@@ -175,6 +175,19 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
         if r.ok:
             _point_auto_model(model_name, vllm_args, engine or 'vllm')
         return r.ok
+    try:
+        return _once()
+    except requests.exceptions.ConnectionError:
+        # Runner brièvement injoignable : on retente UNE fois. Une ConnectionError
+        # signifie qu'aucun lancement n'a pu partir (on ne risque donc pas de
+        # double-spawn). Un timeout, en revanche, peut correspondre à un démarrage
+        # déjà en cours → on n'insiste pas (règle d'or : ne pas relancer un modèle
+        # qui tourne déjà).
+        time.sleep(1)
+        try:
+            return _once()
+        except Exception:
+            return False
     except Exception:
         return False
 

@@ -1561,6 +1561,8 @@ export default function PlaygroundPage() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summary, setSummary] = useState("");
   const [busyTitle, setBusyTitle] = useState(false);
+  // Panneau « contexte » : ce que le modèle voit (system, fichiers, tokens).
+  const [ctxOpen, setCtxOpen] = useState(false);
 
   // Export (Markdown/JSON) de la conversation chargée.
   function exportConversation(conv: ExportConversation, fmt: "md" | "json") {
@@ -2252,6 +2254,14 @@ export default function PlaygroundPage() {
                 isIconOnly
                 isDisabled={!messages.length}
                 onClick={genSummary}
+              />
+              <Button
+                label={t("Contexte")}
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={DocumentMagnifyingGlassIcon} size="sm" />}
+                isIconOnly
+                onClick={() => setCtxOpen(true)}
               />
             </HStack>
           </HStack>
@@ -3098,6 +3108,47 @@ export default function PlaygroundPage() {
                   onClick={() => navigator.clipboard?.writeText(summary)}
                 />
               </HStack>
+            </VStack>
+          </Dialog>
+          <Dialog isOpen={ctxOpen} onOpenChange={(o) => { if (!o) setCtxOpen(false); }} width={560}>
+            <DialogHeader
+              title={t("Contexte injecté")}
+              subtitle={t("Ce que le modèle voit pour ce tour")}
+              hasDivider
+              onOpenChange={(o) => { if (!o) setCtxOpen(false); }}
+            />
+            <VStack padding={3} gap={3}>
+              <HStack gap={2} vAlign="center" wrap="wrap">
+                {model && <Badge label={model} variant="info" />}
+                <Badge label={`${Math.round((used / (max || 1)) * 100)} % ${t("contexte")}`} variant="info" />
+                {convTokens > 0 && (
+                  <Badge label={`${convTokens.toLocaleString("fr-FR")} ${t("tokens")}`} variant="info" />
+                )}
+              </HStack>
+              {settings.system ? (
+                <VStack gap={1}>
+                  <Text type="label">{t("System prompt")}</Text>
+                  <Text type="supporting" color="secondary">{settings.system}</Text>
+                </VStack>
+              ) : (
+                <Text type="supporting" color="secondary">{t("Aucun system prompt.")}</Text>
+              )}
+              <VStack gap={1}>
+                <Text type="label">{t("Fichiers joints")}</Text>
+                {attachments.length === 0 ? (
+                  <Text type="supporting" color="secondary">{t("Aucun fichier.")}</Text>
+                ) : (
+                  attachments.map((f, i) => (
+                    <HStack key={i} gap={2} vAlign="center">
+                      <Text type="supporting" color="secondary">{f.name}</Text>
+                      <Text type="supporting" color="secondary">{Math.ceil(f.content.length / 1024)} Ko</Text>
+                    </HStack>
+                  ))
+                )}
+              </VStack>
+              <Text type="supporting" color="secondary">
+                {t("La fenêtre de contexte est partagée : system prompt + messages + fichiers. Le % indique ce qui est utilisé.")}
+              </Text>
             </VStack>
           </Dialog>
           {(artifact || showLive) && (isNarrow || plein) && (

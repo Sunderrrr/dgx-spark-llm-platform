@@ -75,6 +75,13 @@ const EN: Record<string, string> = {
   "Titrer automatiquement": "Auto-title",
   "Résumé de la conversation": "Conversation summary",
   "Impossible de générer le résumé.": "Unable to generate the summary.",
+  "Contexte": "Context",
+  "Contexte injecté": "Injected context",
+  "System prompt": "System prompt",
+  "Ce que le modèle voit pour ce tour": "What the model sees for this turn",
+  "Aucun system prompt.": "No system prompt.",
+  "Aucun fichier.": "No files.",
+  "La fenêtre de contexte est partagée : system prompt + messages + fichiers. Le % indique ce qui est utilisé.": "The context window is shared: system prompt + messages + files. The % shows what is used.",
   // — Navigation and shell —
   "Accueil": "Home",
   "Playground": "Playground",

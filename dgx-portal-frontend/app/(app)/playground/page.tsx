@@ -2688,17 +2688,17 @@ export default function PlaygroundPage() {
             </VStack>
           )}
           {isFirstEmpty ? (
-            <VStack height="100%" vAlign="center" hAlign="center" gap={4} padding={4}>
-              <HStack gap={2} vAlign="center">
-                <Icon icon={SparklesIcon} size="lg" color="accent" />
-                <Text type="display-2" as="h1">{greeting}</Text>
-              </HStack>
-              <HStack width="100%" hAlign="center">
-                <StackItem size="fill">
+            <StackItem size="fill">
+              <VStack width="100%" height="100%" vAlign="center" hAlign="center" gap={4} padding={4}>
+                <HStack gap={2} vAlign="center">
+                  <Icon icon={SparklesIcon} size="lg" color="accent" />
+                  <Text type="display-2" as="h1">{greeting}</Text>
+                </HStack>
+                <HStack gap={4} width="100%" hAlign="center">
                   <VStack maxWidth={720} width="100%">{composerNode}</VStack>
-                </StackItem>
-              </HStack>
-            </VStack>
+                </HStack>
+              </VStack>
+            </StackItem>
           ) : (
           <ChatLayout
             density="spacious"

@@ -54,7 +54,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // replaced). So we apply the local preferences just after mount.
   const [mode, setModeState] = useState<Mode>("system");
   const [themeId, setThemeIdState] = useState<ThemeId>("neutral");
-  const [lang, setLangState] = useState<Lang>("en");
+  const [lang, setLangState] = useState<Lang>("fr");
 
   // /api/whoami is fetched once up the tree (WhoamiProvider); we only reconcile
   // theme/lang from it, and only on change. This is the account preference that
@@ -70,7 +70,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     /* eslint-disable react-hooks/set-state-in-effect */
     setModeState(readLocal<Mode>("dgx_theme_mode", "system"));
     setThemeIdState(readLocal<ThemeId>("dgx_theme_id", "neutral"));
-    setLangState(readLocal<Lang>("dgx_lang", "en"));
+    setLangState(readLocal<Lang>("dgx_lang", "fr"));
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 

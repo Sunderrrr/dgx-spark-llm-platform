@@ -13,6 +13,8 @@ import { Avatar } from "@astryxdesign/core/Avatar";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Table } from "@astryxdesign/core/Table";
 import type { TableColumn } from "@astryxdesign/core/Table";
+import { Pagination } from "@astryxdesign/core/Pagination";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { MoreMenu } from "@astryxdesign/core/MoreMenu";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
@@ -64,10 +66,12 @@ const BOOL_OPTS = (t: (s: string) => string) => [
   { label: t("Oui"), value: "1" },
 ];
 
+// Pagination de la table des utilisateurs (client-side).
+const PAGE_SIZE = 10;
+
 // Compact stat tile used in the overview row (module-level so it isn't
 // recreated on every render).
-function Tile({ icon, value, label, locale }: { icon: typeof UsersIcon; value: number; label: string; locale: string }) {
-  return (
+function Tile({ icon, value, label, locale }: { icon: typeof UsersIcon; value: number; label: string; locale: string }) {  return (
     <Card>
       <HStack gap={3} vAlign="center">
         <Icon icon={icon} size="md" color="secondary" />
@@ -91,6 +95,8 @@ export function UsersSection({ csrf }: { csrf: string }) {
   // Toolbar state: free-text search + auth-source filter.
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
+  // État de chargement (premier fetch) + page courante de la table.
+  const [page, setPage] = useState(1);
 
   // Dialog state — create forms and the (masked) password reset live in modals
   // instead of always-open forms / window.prompt.
@@ -150,6 +156,11 @@ export function UsersSection({ csrf }: { csrf: string }) {
       return matchesQ && matchesSrc;
     });
   }, [users, query, sourceFilter]);
+
+  // Slicing de la page courante (pagination client-side).
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageUsers = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const groupOptions = [
     { label: t("Aucun groupe"), value: "" },
@@ -255,21 +266,41 @@ export function UsersSection({ csrf }: { csrf: string }) {
       {/* Toolbar */}
       <HStack gap={2} wrap="wrap" vAlign="end">
         <StackItem size="fill">
-          <TextInput label={t("Rechercher")} value={query} onChange={setQuery}
+          <TextInput label={t("Rechercher")} value={query}
+            onChange={(v) => { setQuery(v); setPage(1); }}
             placeholder={t("Identifiant ou nom…")} />
         </StackItem>
-        <Selector label={t("Source")} value={sourceFilter} onChange={(v) => setSourceFilter(v ?? "all")} options={sourceOptions} />
+        <Selector label={t("Source")} value={sourceFilter}
+          onChange={(v) => { setSourceFilter(v ?? "all"); setPage(1); }} options={sourceOptions} />
       </HStack>
 
       {/* Users table */}
       <Card padding={0}>
-        {filtered.length === 0 ? (
+        {!data ? (
+          <HStack padding={4} hAlign="center">
+            <HStack width={200}>
+              <ProgressBar label={t("Chargement des utilisateurs")} isIndeterminate isLabelHidden />
+            </HStack>
+          </HStack>
+        ) : filtered.length === 0 ? (
           <EmptyState icon={<Icon icon={UsersIcon} size="lg" />} title={t("Aucun utilisateur")}
             description={t("Aucun compte ne correspond à la recherche.")} isCompact />
         ) : (
-          <Table<LocalUser & Record<string, unknown>>
-            data={filtered as (LocalUser & Record<string, unknown>)[]}
-            columns={columns} idKey="id" density="balanced" dividers="rows" />
+          <>
+            <Table<LocalUser & Record<string, unknown>>
+              data={pageUsers as (LocalUser & Record<string, unknown>)[]}
+              columns={columns} idKey="id" density="balanced" dividers="rows" />
+            <HStack hAlign="center" padding={2}>
+              <Pagination
+                page={safePage}
+                onChange={setPage}
+                totalItems={filtered.length}
+                pageSize={PAGE_SIZE}
+                variant="count"
+                size="sm"
+              />
+            </HStack>
+          </>
         )}
       </Card>
 

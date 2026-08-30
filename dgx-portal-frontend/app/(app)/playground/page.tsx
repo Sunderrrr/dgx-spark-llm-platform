@@ -1312,6 +1312,9 @@ export default function PlaygroundPage() {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  // Origine du prompt système : un persona, une compétence ou une saisie manuelle.
+  // Permet de signaler qu'une compétence a écrasé le system prompt d'un persona.
+  const [systemProvenance, setSystemProvenance] = useState<"persona" | "skill" | "manual">("manual");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   // Recherche dans l'historique + conversations épinglées (star).
@@ -1781,11 +1784,15 @@ export default function PlaygroundPage() {
   }
 
   // Sélection d'une compétence : on inscrit son prompt (localisé) dans le champ
-  // et, si elle en a un, on applique son prompt système au modèle.
+  // et, si elle en a un, on applique son prompt système au modèle (en signalant
+  // que la provenance devient « compétence »).
   function selectSkill(s: Skill) {
     setInput(t(s.prompt));
     const sp = s.systemPrompt;
-    if (sp) setSettings((prev) => ({ ...prev, system: sp }));
+    if (sp) {
+      setSettings((prev) => ({ ...prev, system: sp }));
+      setSystemProvenance("skill");
+    }
   }
 
   // Auto-titre + résumé (générés par le modèle, facturés sur le budget).
@@ -2806,7 +2813,13 @@ export default function PlaygroundPage() {
         <LayoutContent padding={0} isScrollable={false}>
           {isSettingsOpen && (
             <VStack padding={4}>
-              <SettingsPanel settings={settings} onChange={setSettings} contexte={modelLimits[model]} />
+              <SettingsPanel
+                settings={settings}
+                onChange={setSettings}
+                contexte={modelLimits[model]}
+                provenance={systemProvenance}
+                onProvenance={setSystemProvenance}
+              />
             </VStack>
           )}
           {/* VStack (flex column) gives ChatLayout the flex parent its own flex:1
@@ -3422,6 +3435,7 @@ export default function PlaygroundPage() {
                           value={renameValue}
                           onChange={setRenameValue}
                           size="sm"
+                          hasAutoFocus
                           onEnter={() => commitRename(conv.id)}
                         />
                       </StackItem>

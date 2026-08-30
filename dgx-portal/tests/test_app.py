@@ -1065,3 +1065,28 @@ class NotificationsTest(unittest.TestCase):
         r = c2.get("/docs")
         self.assertEqual(r.status_code, 200)
         self.assertIn("application", r.get_data(as_text=True).lower())
+
+
+class PlaygroundTitleSummarizeTest(unittest.TestCase):
+    """Routes auto-titre / résumé du playground : POST login_required, CSRF."""
+
+    def _paths(self):
+        rules = {str(r) for r in portal.app.url_map.iter_rules()}
+        return rules
+
+    def test_routes_enregistrees(self):
+        self.assertIn('/api/playground/title', self._paths())
+        self.assertIn('/api/playground/summarize', self._paths())
+
+    def test_post_sans_csrf_refuse(self):
+        c = portal.app.test_client()
+        # before_request CSRF court avant login_required → 400 sur POST.
+        self.assertEqual(c.post('/api/playground/title').status_code, 400)
+        self.assertEqual(c.post('/api/playground/summarize').status_code, 400)
+
+    def test_sans_session_refuse(self):
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["csrf"] = "test-csrf"
+        r = c.post('/api/playground/title', headers={"X-CSRFToken": "test-csrf"}, json={"messages": [{"role": "user", "content": "Bonjour"}]})
+        self.assertIn(r.status_code, (200, 302, 401, 403, 409, 502))

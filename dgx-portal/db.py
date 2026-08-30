@@ -39,6 +39,35 @@ def log_audit(username, action, detail):
         pass
 
 
+def add_notification(username, kind, title, max_per_user=50):
+    """Crée une notification in-app (connexion dédiée, utilisable hors requête —
+    même depuis un worker en thread). `kind` = 'image'|'music'|'request'|...
+    On borne l'historique par utilisateur pour ne pas gonfler la base."""
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("INSERT INTO notifications (username, kind, title, seen, created_at) VALUES (?,?,?,0,?)",
+                  (username or 'système', kind, title, datetime.now().isoformat()))
+        c.execute("""DELETE FROM notifications WHERE username=? AND id NOT IN (
+            SELECT id FROM notifications WHERE username=? ORDER BY id DESC LIMIT ?)""",
+                  (username, username, max_per_user))
+        c.commit()
+        c.close()
+    except Exception:
+        pass
+
+
+def notification_unread(username):
+    """Nombre de notifications non lues (badge de la cloche)."""
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        row = c.execute("SELECT COUNT(*) FROM notifications WHERE username=? AND seen=0",
+                        (username,)).fetchone()
+        c.close()
+        return int(row[0] or 0)
+    except Exception:
+        return 0
+
+
 def get_db():
     """Connexion SQLite liee au contexte d'application Flask.
 
@@ -369,6 +398,17 @@ def init_db():
             created_at TEXT NOT NULL,
             views INTEGER NOT NULL DEFAULT 0
         );
+        -- Notifications in-app (cloche, vu/non-vu) : fin de génération média,
+        -- demandes modèle/budget traitées. `seen` pilote le badge de la cloche.
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            seen INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(username, id);
     ''')
     # Migration: columns added to mcp_servers after its initial creation
     # (description, tool filter, enablement) — additive ALTER, lossless.

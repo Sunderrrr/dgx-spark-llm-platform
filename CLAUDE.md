@@ -303,6 +303,9 @@ sur l'hôte (accès au socket docker + au `.env` 600).
   rétablissement. État **sticky** dans `/var/lib/cronos-monitor/state.json`
   (1 alerte par incident). Les sidecars média (vLLM `:8000`, OCR/voix/musique/
   image/ComfyUI) sont **on-demand** : non sondés pour éviter les faux positifs.
+  Le moniteur sonde aussi la **fraîcheur du dump portal** (`/var/backups/cronos/portal-*.db`
+  < 26 h) : un backup manquant/ancien compte comme un service down (alerte +
+  rétablissement via le même mécanisme sticky).
 - **`cronos-backup.timer`/`.service`** (quotidien 03:00) → `monitoring/backup.py` :
   dump SQLite `/app/data/portal.db` (snapshot cohérent via `sqlite3.backup`) et
   `pg_dump -Fc` de la base LiteLLM (sans mot de passe : auth de confiance dans

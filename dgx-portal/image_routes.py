@@ -15,7 +15,7 @@ import requests
 from flask import Blueprint, abort, jsonify, request, send_file, session
 
 from auth import login_required
-from db import DB_PATH, get_db
+from db import DB_PATH, add_notification, get_db
 from config import IMAGE_URL
 from sidecars import get_image_model, image_ready
 from guards import (maintenance_block_json, media_job_done, media_job_slot,
@@ -86,6 +86,10 @@ def _image_worker(prompt_id, username, prompt_text, count):
         c.commit(); c.close()
     except Exception:
         pass
+    if not cancelled:
+        add_notification(username, 'image',
+                         'Génération image terminée ({}/{}).'.format(done or 0, count)
+                         if done else 'Échec de la génération image.')
 
 
 @bp.route('/api/image/generate', methods=['POST'])
@@ -169,6 +173,25 @@ def api_image_cancel(prompt_id):
                (prompt_id, session['username']))
     db.commit()
     return jsonify({'ok': True})
+
+
+@bp.route('/api/image/delete/<prompt_id>/<int:idx>', methods=['POST'])
+@login_required
+def api_image_delete(prompt_id, idx):
+    """Supprime UNE image d'un lot (galerie). Le job (et l'historique) reste :
+    seule la vignette est retirée du disque."""
+    owned = get_db().execute(
+        "SELECT 1 FROM image_jobs WHERE prompt_id=? AND username=?",
+        (prompt_id, session['username'])).fetchone()
+    if not owned:
+        abort(404)
+    path = os.path.join(IMAGE_FILES_DIR, f"{prompt_id}_{idx}.png")
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
 
 
 @bp.route('/image/file/<prompt_id>')

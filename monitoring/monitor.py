@@ -54,6 +54,27 @@ SERVICES = [
     ("dgx-portal-frontend", "container", "dgx-portal-frontend", None),
 ]
 
+# Sauvegarde nocturne : un dump trop ancien = incident (rétention/maintenance).
+BACKUP_DIR = "/var/backups/cronos"
+BACKUP_MAX_AGE_H = 26  # cronos-backup tourne à 03:00 → < 26 h = toujours frais
+
+
+def _backup_fresh():
+    """(up, detail) : le dump portal le plus récent doit dater de < 26 h."""
+    import glob
+    import time
+    try:
+        files = glob.glob(os.path.join(BACKUP_DIR, "portal-*.db"))
+    except Exception:
+        files = []
+    if not files:
+        return False, "no portal backup found"
+    latest = max(files, key=os.path.getmtime)
+    age_h = (time.time() - os.path.getmtime(latest)) / 3600
+    if age_h > BACKUP_MAX_AGE_H:
+        return False, f"last backup {age_h:.0f}h old (> {BACKUP_MAX_AGE_H}h)"
+    return True, os.path.basename(latest)
+
 
 def _load_env(path=ENV_FILE):
     """Lit KEY=VALUE d'un fichier .env (ignore les commentaires)."""
@@ -105,6 +126,11 @@ def probe():
             detail = target
             up = _container_up(target)
         state[key] = {"up": up, "detail": detail}
+    # Sauvegarde nocturne : elle doit être fraîche, sinon c'est un incident —
+    # on passe par le même mécanisme sticky (1 alerte par incident, email de
+    # rétablissement au retour).
+    bu, bdetail = _backup_fresh()
+    state["backup"] = {"up": bu, "detail": bdetail}
     return state
 
 

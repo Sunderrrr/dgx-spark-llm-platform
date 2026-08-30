@@ -105,7 +105,7 @@ from config import (  # noqa: E402
 
 from db import (  # noqa: E402  (cf. commentaire plus bas)
     DB_PATH, _spend_conn, close_db, get_db, get_setting, init_db,
-    maintenance_active, set_setting,
+    maintenance_active, notification_unread, set_setting,
 )
 
 # ── SSO / OIDC (Authentik) ───────────────────────────────────────────────────
@@ -244,7 +244,7 @@ from chat_routes import bp as chat_bp  # noqa: E402
 # Statistiques (agregats, classements, utilisateurs actifs) : cf. stats.py
 from stats import (  # noqa: E402
     _account_activity, _active_users, _inflight_end, _inflight_start,
-    _real_tokens_by_user,
+    _real_tokens_by_user, _tokens_by_model,
     ranking_full, user_hourly,
 )
 
@@ -649,6 +649,7 @@ def _index_data():
     return dict(running_models=running, my_requests=my_requests,
                 public_api_url=PUBLIC_API_URL, auto_model=AUTO_MODEL_NAME,
                 usage=user_hourly(session['username']),
+                usage_by_model=_tokens_by_model(),
                 sysmetrics=runner_metrics(),
                 sidecar_metrics=metrics,
                 modelhealth=vllm_health(),
@@ -701,6 +702,84 @@ def prom_metrics():
         _g('model_online', 'Served chat model online (1/0)', online),
     ]
     return Response('\n'.join(parts) + '\n', mimetype='text/plain')
+
+
+@app.route('/docs')
+@login_required
+def docs():
+    """Documentation de l'API OpenAI-compatible, page HTML autonome (aucune
+    dépendance CDN : le box est LAN/netbird). Liste les modèles courants + les
+    endpoints /v1/* avec exemples curl/Python/JS."""
+    import html as _h
+    models = get_running_models() or []
+    model_rows = "".join(f'<code>{_h.escape(m)}</code><br>' for m in models)
+    if not model_rows:
+        model_rows = '<span style="color:#9ca3af">aucun modèle en cours</span>'
+    base = _h.escape(PUBLIC_API_URL)
+    auto = _h.escape(AUTO_MODEL_NAME)
+    curl_chat = f"""curl {base}/v1/chat/completions \\
+  -H "Authorization: Bearer $CRONOS_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{{"model": "{auto}", "messages": [{{"role": "user", "content": "Bonjour"}}]}}'"""
+    py_chat = ('from openai import OpenAI\n'
+               'client = OpenAI(base_url="' + base + '/v1", api_key="<ta clé>")\n'
+               'r = client.chat.completions.create(model="' + auto + '",\n'
+               '    messages=[{"role": "user", "content": "Bonjour"}])\n'
+               'print(r.choices[0].message.content)')
+    js_chat = ('import OpenAI from "openai";\n'
+               'const client = new OpenAI({ baseURL: "' + base + '/v1", apiKey: "<ta clé>" });\n'
+               'const r = await client.chat.completions.create({\n'
+               '  model: "' + auto + '",\n'
+               '  messages: [{ role: "user", content: "Bonjour" }]\n'
+               '});\n'
+               'console.log(r.choices[0].message.content);')
+    html_doc = f"""<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Docs API — Cronos</title></head>
+<body style="margin:0;background:#f9fafb;color:#111827;font:15px/1.6 system-ui">
+<div style="max-width:860px;margin:0 auto;padding:32px 20px">
+<h1 style="font:700 26px system-ui;margin:0 0 4px">API Cronos</h1>
+<p style="margin:0 0 24px;color:#6b7280">Compatible OpenAI — crée une clé puis appelle comme un provider classique. URL de base : <code>{base}</code></p>
+<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:20px 24px;margin:0 0 24px">
+<h2 style="font:700 16px system-ui;margin:0 0 8px">Modèles actuellement servis</h2>
+{model_rows}
+<p style="margin:8px 0 0;color:#374151">L'alias <code>{auto}</code> pointe toujours vers le modèle de chat en cours : branche-le une fois, plus besoin de renommer.</p>
+</div>
+<h2 style="font:700 18px system-ui">GET /v1/models</h2>
+<p style="color:#6b7280">Liste les modèles disponibles.</p>
+<pre style="background:#0f172a;color:#e2e8f0;padding:12px 16px;border-radius:8px;overflow:auto">{_h.escape('curl ' + base + '/v1/models -H "Authorization: Bearer $CRONOS_KEY"')}</pre>
+<h2 style="font:700 18px system-ui">POST /v1/chat/completions</h2>
+<p style="color:#6b7280">Génération (streaming via <code>"stream": true</code>).</p>
+<pre style="background:#0f172a;color:#e2e8f0;padding:12px 16px;border-radius:8px;overflow:auto">{_h.escape(curl_chat)}</pre>
+<h3 style="font:700 15px system-ui">Python</h3>
+<pre style="background:#0f172a;color:#e2e8f0;padding:12px 16px;border-radius:8px;overflow:auto">{_h.escape(py_chat)}</pre>
+<h3 style="font:700 15px system-ui">JavaScript</h3>
+<pre style="background:#0f172a;color:#e2e8f0;padding:12px 16px;border-radius:8px;overflow:auto">{_h.escape(js_chat)}</pre>
+<p style="margin:32px 0 0;color:#9ca3af;font:12px system-ui">Gère tes clés depuis les réglages. Les tokens comptent sur ton budget de compte.</p>
+</div></body></html>"""
+    return Response(html_doc, mimetype='text/html')
+
+
+@app.route('/api/notifications')
+@login_required
+def api_notifications():
+    """Notifications in-app de l'utilisateur (cloche, vu/non-vu)."""
+    rows = get_db().execute(
+        "SELECT id, kind, title, seen, created_at FROM notifications "
+        "WHERE username=? ORDER BY id DESC LIMIT 30", (session['username'],)).fetchall()
+    items = [{'id': r['id'], 'kind': r['kind'], 'title': r['title'],
+              'seen': bool(r['seen']), 'created_at': r['created_at']} for r in rows]
+    return jsonify({'items': items, 'unread': notification_unread(session['username'])})
+
+
+@app.route('/api/notifications/seen', methods=['POST'])
+@login_required
+def api_notifications_seen():
+    db = get_db()
+    db.execute("UPDATE notifications SET seen=1 WHERE username=? AND seen=0",
+               (session['username'],))
+    db.commit()
+    return jsonify({'ok': True})
 
 
 def _service_reachable(url, expect=(200, 401), timeout=3):

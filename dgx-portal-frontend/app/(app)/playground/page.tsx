@@ -177,6 +177,9 @@ const PLACEHOLDER_TEXTS = [
   "Résumez un document, générez une image, écrivez du code…",
 ];
 
+// Commandes « / » qui ouvrent le créateur de compétences.
+const SLASH_CREATE_COMMANDS = ["skill-creator", "create", "new", "creer", "competence", "compétence"];
+
 /* ── Compatibilité : anciennes conversations ────────────────────────────────
  * Le modèle ne reçoit plus le protocole d'édition (il réécrit le fichier en
  * entier). Ces fonctions restent parce que l'historique déjà enregistré
@@ -2417,6 +2420,19 @@ export default function PlaygroundPage() {
   // le menu des compétences. Le texte après « / » sert de filtre.
   const slashQuery = input.startsWith("/") ? input.slice(1).trim().toLowerCase() : null;
 
+  // Commandes « / » spéciales : /skill-creator (ou /create, /new) ouvre le
+  // créateur de compétence et vide le champ. Détecté à la saisie (onChange),
+  // pas dans un effect, pour respecter la règle react-hooks/set-state-in-effect.
+  function handleInput(v: string) {
+    const cmd = v.startsWith("/") ? v.slice(1).trim().toLowerCase() : null;
+    if (cmd && SLASH_CREATE_COMMANDS.includes(cmd)) {
+      setSkillCreatorOpen(true);
+      setInput("");
+      return;
+    }
+    setInput(v);
+  }
+
   // Nœud « composer » réutilisé à la fois dans le layout ancré en bas (conversation
   // en cours) et centré sur le premier message. Barre en bas : Attacher (gauche),
   // sélecteur de modèle + bouton micro/envoyer (droite).
@@ -2500,12 +2516,12 @@ export default function PlaygroundPage() {
       )}
       <ChatComposer
         value={input}
-        onChange={setInput}
+        onChange={handleInput}
         onSubmit={send}
         isStopShown={streaming}
         onStop={stop}
         placeholder={placeholderText}
-        input={<ChatComposerInput value={input} onChange={setInput} onSubmit={send} />}
+        input={<ChatComposerInput value={input} onChange={handleInput} onSubmit={send} />}
         drawer={
           attachments.length ? (
             <ChatComposerDrawer count={attachments.length} label={t("Fichiers joints")}>

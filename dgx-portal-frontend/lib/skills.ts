@@ -23,8 +23,8 @@ export const SKILLS_KEY = "cronos.skills";
 export const BASE_SKILLS: Skill[] = [
   {
     id: "resumer",
-    name: "Résumer",
-    alias: "resumer",
+    name: "Summarize",
+    alias: "summarize",
     description: "Condense un texte en points clés",
     prompt: "Résume ce texte en 3 points clairs et concis : ",
     systemPrompt:
@@ -33,8 +33,8 @@ export const BASE_SKILLS: Skill[] = [
   },
   {
     id: "expliquer",
-    name: "Expliquer",
-    alias: "expliquer",
+    name: "Explain",
+    alias: "explain",
     description: "Décompose un sujet technique simplement",
     prompt: "Explique-moi ce sujet simplement, comme à un débutant : ",
     systemPrompt:
@@ -43,8 +43,8 @@ export const BASE_SKILLS: Skill[] = [
   },
   {
     id: "coder",
-    name: "Coder",
-    alias: "coder",
+    name: "Code",
+    alias: "code",
     description: "Génère une fonction, un script ou un test",
     prompt: "Écris le code suivant, complet et exécutable : ",
     systemPrompt:
@@ -53,7 +53,7 @@ export const BASE_SKILLS: Skill[] = [
   },
   {
     id: "logs",
-    name: "Analyser des logs",
+    name: "Analyze logs",
     alias: "logs",
     description: "Trouve la cause d'une erreur dans des logs",
     prompt: "Analyse ces logs et trouve la cause de l'erreur : ",
@@ -63,8 +63,8 @@ export const BASE_SKILLS: Skill[] = [
   },
   {
     id: "rediger",
-    name: "Rédiger",
-    alias: "rediger",
+    name: "Write",
+    alias: "write",
     description: "Rédige un texte, un email ou un document",
     prompt: "Rédige le texte suivant : ",
     systemPrompt:
@@ -73,8 +73,8 @@ export const BASE_SKILLS: Skill[] = [
   },
   {
     id: "traduire",
-    name: "Traduire",
-    alias: "traduire",
+    name: "Translate",
+    alias: "translate",
     description: "Traduis un texte vers une autre langue",
     prompt: "Traduis le texte suivant : ",
     systemPrompt:
@@ -83,8 +83,8 @@ export const BASE_SKILLS: Skill[] = [
   },
   {
     id: "idees",
-    name: "Brainstormer",
-    alias: "idees",
+    name: "Brainstorm",
+    alias: "brainstorm",
     description: "Propose des idées et des alternatives",
     prompt: "Propose-moi des idées à partir de ce sujet : ",
     systemPrompt:
@@ -93,8 +93,8 @@ export const BASE_SKILLS: Skill[] = [
   },
   {
     id: "relecture",
-    name: "Relecture",
-    alias: "relecture",
+    name: "Proofread",
+    alias: "proofread",
     description: "Relis, corrige et améliore un texte",
     prompt: "Relis le texte suivant, corrige les fautes et améliore le style : ",
     systemPrompt:

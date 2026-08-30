@@ -19,8 +19,15 @@ type Req = { ok?: boolean; error?: { message?: string } };
  * modèle de la catégorie n'est chargé. Il prévient l'admin (email) — le
  * bouton disparaît côté backend si un modèle de la catégorie tourne déjà.
  * Une fois la demande envoyée, il se verrouille (évite les doublons).
+ * Avec `showText={false}`, il ne rend que le bouton (pour les EmptyState).
  */
-export function ModelRequestButton({ category }: { category: MediaCategory }) {
+export function ModelRequestButton({
+  category,
+  showText = true,
+}: {
+  category: MediaCategory;
+  showText?: boolean;
+}) {
   const t = useT();
   const csrf = useCsrf();
   const showToast = useToast();
@@ -40,20 +47,24 @@ export function ModelRequestButton({ category }: { category: MediaCategory }) {
     }
   }
 
+  const button = (
+    <Button
+      label={sent ? t("Demande envoyée") : t("Demander ce modèle")}
+      icon={<Icon icon={sent ? CheckIcon : BellAlertIcon} size="sm" />}
+      variant={sent ? "secondary" : "primary"}
+      isDisabled={sent}
+      clickAction={request}
+    />
+  );
+
+  if (!showText) return button;
+
   return (
     <VStack gap={2}>
       <Text type="supporting" color="secondary">
         {t("Envie de ce modèle ? Préviens le responsable, il pourra le lancer.")}
       </Text>
-      <HStack gap={2}>
-        <Button
-          label={sent ? t("Demande envoyée") : t("Demander ce modèle")}
-          icon={<Icon icon={sent ? CheckIcon : BellAlertIcon} size="sm" />}
-          variant={sent ? "secondary" : "primary"}
-          isDisabled={sent}
-          clickAction={request}
-        />
-      </HStack>
+      <HStack gap={2}>{button}</HStack>
     </VStack>
   );
 }

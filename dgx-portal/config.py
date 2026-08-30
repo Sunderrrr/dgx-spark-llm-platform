@@ -52,6 +52,11 @@ SMTP_USER     = os.environ.get('SMTP_USER', '')
 SMTP_PASS     = os.environ.get('SMTP_PASSWORD', '')
 SMTP_FROM     = os.environ.get('SMTP_FROM', '')
 ADMIN_EMAIL   = os.environ.get('ADMIN_EMAIL', '')
+# URL du dashboard admin (pour le CTA des emails de notification). Si vide, le
+# bouton « Open the Admin dashboard » n'est pas rendu dans le gabarit HTML.
+ADMIN_URL     = os.environ.get('ADMIN_URL', '')
+# Fenêtre d'anti-spam pour les demandes « lancer une catégorie média » (secondes).
+MEDIA_REQUEST_COOLDOWN_S = int(os.environ.get('MEDIA_REQUEST_COOLDOWN_S', '1800'))
 KEY_BUDGET    = float(os.environ.get('KEY_MAX_BUDGET', '0.002'))
 KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '1d')
 

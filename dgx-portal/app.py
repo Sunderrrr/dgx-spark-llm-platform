@@ -93,6 +93,7 @@ from config import (  # noqa: E402
     DISCORD_LINK_ENABLED, DISCORD_API, SMTP_HOST, SMTP_PORT,
     SMTP_USER, SMTP_PASS, SMTP_FROM, ADMIN_EMAIL,
     KEY_BUDGET, KEY_DURATION, PUBLIC_API_URL, LITELLM_DB_URL,
+    MEDIA_REQUEST_COOLDOWN_S,
     LOCAL_TZ, OIDC_METADATA_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET,
     OIDC_REDIRECT_URI, OIDC_LOGOUT_URL, OIDC_ADMIN_GROUP, OIDC_ENABLED,
 )
@@ -699,13 +700,33 @@ def api_model_request():
     profondeur : le frontend cache déjà le bouton dans ce cas)."""
     data = request.get_json(silent=True) or {}
     category = (data.get('category') or '').strip().lower()
+    user = session['username']
     if category not in _MEDIA_CATEGORIES:
         return jsonify({'error': {'message': 'Catégorie inconnue.'}}), 400
     if _media_category_running(category):
         return jsonify({'error': {'message':
                        f"Un modèle « {category} » est déjà chargé."}}), 409
+    # Anti-spam : une seule demande par (utilisateur, catégorie) dans la
+    # fenêtre MEDIA_REQUEST_COOLDOWN_S, même après navigation/refresh (le
+    # verrou côté frontend se réinitialise, celui-ci non).
+    now = time.time()
+    db = get_db()
+    row = db.execute(
+        "SELECT created_at FROM media_request_cooldown "
+        "WHERE username=? AND category=?", (user, category)).fetchone()
+    if row and (now - row['created_at']) < MEDIA_REQUEST_COOLDOWN_S:
+        remaining = int((MEDIA_REQUEST_COOLDOWN_S
+                         - (now - row['created_at'])) // 60) + 1
+        return jsonify({'error': {'message':
+                       f"Déjà signalé. Nouvelle demande possible dans ≈ {remaining} min."}}), 429
+    db.execute(
+        "INSERT INTO media_request_cooldown (username, category, created_at) "
+        "VALUES (?,?,?) ON CONFLICT(username, category) "
+        "DO UPDATE SET created_at=excluded.created_at",
+        (user, category, now))
+    db.commit()
     notify_media_request_email(
-        category, session['username'], session.get('fullname', ''))
+        category, user, session.get('fullname', ''))
     return jsonify({'ok': True, 'category': category})
 
 @app.route('/keys', methods=['GET', 'POST'])

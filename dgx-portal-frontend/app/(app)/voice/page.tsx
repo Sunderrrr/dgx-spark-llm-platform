@@ -227,6 +227,7 @@ export default function VoicePage() {
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle vocal n'est disponible")}
               description={t("Demande à un admin de démarrer un modèle vocal pour utiliser cette page.")}
+              actions={<ModelRequestButton category="voice" showText={false} />}
             />
           ) : (
             // Centered column, like on the video page.

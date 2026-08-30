@@ -251,6 +251,14 @@ def init_db():
             created_at REAL NOT NULL,
             expires_at REAL NOT NULL
         );
+        -- Anti-spam : une seule demande « lancer une catégorie média » par
+        -- (utilisateur, catégorie) dans la fenêtre MEDIA_REQUEST_COOLDOWN_S.
+        CREATE TABLE IF NOT EXISTS media_request_cooldown (
+            username   TEXT NOT NULL,
+            category   TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (username, category)
+        );
         CREATE TABLE IF NOT EXISTS video_jobs (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             username        TEXT NOT NULL,

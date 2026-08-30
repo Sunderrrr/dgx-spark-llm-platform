@@ -37,6 +37,7 @@ import { getJSON, postFormJSON, ForbiddenError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { UserLookup } from "./_components/UserLookup";
+import { EmailConfig } from "./_components/EmailConfig";
 
 type ModelCfg = { id: number; name: string; hf_model_id: string; engine: string; vllm_args: string };
 type OcrCfg = { id: number; name: string; hf_model_id: string; vllm_args: string };
@@ -327,6 +328,8 @@ export default function AdminPage() {
                 }
               />
             )}
+
+            <EmailConfig />
 
             <VStack gap={3}>
               {/* A single row for the four backends: their status and

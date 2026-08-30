@@ -13,6 +13,14 @@ export type Lang = "fr" | "en";
  * dictionary; a missing entry falls back to French rather than
  * showing a key name. */
 const EN: Record<string, string> = {
+  "Emails de notification": "Notification emails",
+  "SMTP configuré": "SMTP configured",
+  "SMTP non configuré": "SMTP not configured",
+  "Envoi depuis no-reply@cronos.website via Zoho ; les notifications admin partent vers l'adresse ci-dessous.":
+    "Sent from no-reply@cronos.website via Zoho; admin notifications go to the address below.",
+  "Envoyer un test": "Send a test",
+  "Email de test envoyé.": "Test email sent.",
+  "Échec de l'envoi.": "Send failed.",
   // — Navigation and shell —
   "Accueil": "Home",
   "Playground": "Playground",

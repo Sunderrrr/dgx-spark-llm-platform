@@ -708,3 +708,68 @@ def playground_chat():
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _non_stream(messages, model, max_tokens, temperature=0.2):
+    """Complétion NON streamée (titre/résumé) : même canal que le playground,
+    facturée sur la clé de l'utilisateur. Retourne (texte, erreur)."""
+    keys = get_user_keys(session['username'])
+    if not keys:
+        return None, "Aucune clé API — crée une clé (budget de compte)."
+    user_key = keys[0]['key']
+    try:
+        r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
+                          headers={'Authorization': f'Bearer {user_key}'},
+                          json={'model': model, 'messages': messages, 'stream': False,
+                                'temperature': temperature, 'max_tokens': max_tokens,
+                                'chat_template_kwargs': {'enable_thinking': False}},
+                          timeout=(10, 120))
+        if not r.ok:
+            return None, f"Erreur modèle ({r.status_code})"
+        data = r.json()
+        content = (data.get('choices') or [{}])[0].get('message', {}).get('content', '') or ''
+        return content.strip(), None
+    except Exception as exc:                    # noqa: BLE001
+        return None, str(exc)
+
+
+@bp.route('/api/playground/title', methods=['POST'])
+@login_required
+def playground_title():
+    """Titre court (auto-titre) de la conversation, généré par le modèle."""
+    data = request.get_json(silent=True) or {}
+    running = get_running_models()
+    if not running:
+        return jsonify({'error': 'no_model'}), 409
+    model = data.get('model') if data.get('model') in running else running[0]
+    msgs = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:600]}
+            for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')]
+    if not msgs:
+        return jsonify({'title': ''})
+    prompt = [{'role': 'system', 'content': "Sume en 3 à 8 mots le sujet de cette conversation. Réponds UNIQUEMENT avec le titre, en français, sans guillemets ni point final."},
+              {'role': 'user', 'content': "\n".join(f"{m['role']}: {m['content'][:200]}" for m in msgs[-6:])}]
+    title, err = _non_stream(prompt, model, max_tokens=40)
+    if err:
+        return jsonify({'error': err}), 502
+    return jsonify({'title': title or ''})
+
+
+@bp.route('/api/playground/summarize', methods=['POST'])
+@login_required
+def playground_summarize():
+    """Résumé de la conversation (condensé du contexte, réutilisable ensuite)."""
+    data = request.get_json(silent=True) or {}
+    running = get_running_models()
+    if not running:
+        return jsonify({'error': 'no_model'}), 409
+    model = data.get('model') if data.get('model') in running else running[0]
+    msgs = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:3000]}
+            for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')]
+    if not msgs:
+        return jsonify({'summary': ''})
+    abrev = [{'role': 'system', 'content': "Résume cette conversation en quelques phrases claires (français). Garde les décisions, fichiers créés et points importants. Sois concis."},
+             {'role': 'user', 'content': "\n\n".join(f"{m['role']}: {m['content']}" for m in msgs[-12:])}]
+    summary, err = _non_stream(abrev, model, max_tokens=500, temperature=0.2)
+    if err:
+        return jsonify({'error': err}), 502
+    return jsonify({'summary': summary or ''})

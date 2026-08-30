@@ -746,7 +746,7 @@ def playground_title():
             for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')]
     if not msgs:
         return jsonify({'title': ''})
-    prompt = [{'role': 'system', 'content': "Sume en 3 à 8 mots le sujet de cette conversation. Réponds UNIQUEMENT avec le titre, en français, sans guillemets ni point final."},
+    prompt = [{'role': 'system', 'content': "Résume en 3 à 8 mots le sujet de cette conversation. Réponds UNIQUEMENT avec le titre, en français, sans guillemets ni point final."},
               {'role': 'user', 'content': "\n".join(f"{m['role']}: {m['content'][:200]}" for m in msgs[-6:])}]
     title, err = _non_stream(prompt, model, max_tokens=40)
     if err:

@@ -1090,3 +1090,57 @@ class PlaygroundTitleSummarizeTest(unittest.TestCase):
             s["csrf"] = "test-csrf"
         r = c.post('/api/playground/title', headers={"X-CSRFToken": "test-csrf"}, json={"messages": [{"role": "user", "content": "Bonjour"}]})
         self.assertIn(r.status_code, (200, 302, 401, 403, 409, 502))
+
+
+class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
+    """Routes auto-titre/résumé avec modèle mocké : réponse JSON attendue."""
+
+    CSRF = "test-csrf"
+
+    def _login(self, c, username="demo"):
+        with c.session_transaction() as s:
+            s["username"] = username
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+
+    def test_titre_genere(self):
+        import unittest.mock as mock
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "_non_stream", return_value=("Titre court", None)):
+            c = portal.app.test_client()
+            self._login(c)
+            r = c.post("/api/playground/title", headers={"X-CSRFToken": self.CSRF},
+                       json={"model": "fake-model", "messages": [{"role": "user", "content": "Bonjour"}]})
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.get_json()["title"], "Titre court")
+
+    def test_titre_sans_modele_409(self):
+        import unittest.mock as mock
+        with mock.patch.object(chat, "get_running_models", return_value=[]):
+            c = portal.app.test_client()
+            self._login(c)
+            r = c.post("/api/playground/title", headers={"X-CSRFToken": self.CSRF},
+                       json={"messages": [{"role": "user", "content": "Bonjour"}]})
+            self.assertEqual(r.status_code, 409)
+
+    def test_titre_vide_retourne_vide(self):
+        import unittest.mock as mock
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "_non_stream", return_value=("", None)):
+            c = portal.app.test_client()
+            self._login(c)
+            r = c.post("/api/playground/title", headers={"X-CSRFToken": self.CSRF},
+                       json={"messages": [{"role": "user", "content": "Salut"}]})
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.get_json()["title"], "")
+
+    def test_summary_genere(self):
+        import unittest.mock as mock
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "_non_stream", return_value=("Résumé du contexte", None)):
+            c = portal.app.test_client()
+            self._login(c)
+            r = c.post("/api/playground/summarize", headers={"X-CSRFToken": self.CSRF},
+                       json={"messages": [{"role": "assistant", "content": "Réponse"}]})
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.get_json()["summary"], "Résumé du contexte")

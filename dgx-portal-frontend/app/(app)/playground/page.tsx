@@ -39,6 +39,7 @@ import {
   ArrowDownTrayIcon,
   ArrowDownIcon,
   ClipboardDocumentIcon,
+  LinkIcon,
   ArrowPathIcon,
   PencilIcon,
   PlusIcon,
@@ -736,6 +737,40 @@ function downloadText(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+// ── Export & partage d'une conversation ─────────────────────────────────────
+// Une conversation à exporter : mêmes champs que l'API (même forme qu'ApiConversation
+// côté lib/conversations).
+type ExportConversation = {
+  title: string;
+  model: string;
+  messages: { role: "user" | "assistant"; content: string; hidden?: boolean }[];
+};
+
+function convTitleFallback(msgs: ExportConversation["messages"], fallback: string): string {
+  const first = msgs.find((m) => m.role === "user")?.content ?? "";
+  return (first.slice(0, 80).trim() || fallback);
+}
+
+/** Conversation → Markdown lisible, exporté en .md. */
+function convAsMarkdown(conv: ExportConversation): string {
+  const lines = [`# ${conv.title}`, "", `_Modèle : ${conv.model || "—"}_`, "", "---", ""];
+  for (const m of conv.messages) {
+    if (m.hidden) continue;
+    lines.push(m.role === "user" ? "**Vous :**" : "**Assistant :**");
+    lines.push("", m.content, "");
+  }
+  return lines.join("\n");
+}
+
+/** Conversation → JSON complet (on conserve tout, y compris hidden), en .json. */
+function convAsJson(conv: ExportConversation): string {
+  return JSON.stringify(
+    { title: conv.title, model: conv.model, exported_at: new Date().toISOString(), messages: conv.messages },
+    null,
+    2,
+  );
+}
+
 // Extensions reconnues comme des FICHIERS. Liste fermée volontairement : sans
 // elle, « ansible.builtin.reboot » ou « os_family['debian'] » passeraient pour
 // des noms de fichiers et donneraient des titres absurdes.
@@ -1410,6 +1445,31 @@ export default function PlaygroundPage() {
     if (id === currentId) setCurrentId(null);
   }
 
+  const [shared, setShared] = useState(false);
+
+  // Export (Markdown/JSON) de la conversation chargée.
+  function exportConversation(conv: ExportConversation, fmt: "md" | "json") {
+    const name = slugify(convTitleFallback(conv.messages, t("Conversation")));
+    if (fmt === "json") downloadText(`${name}.json`, convAsJson(conv), "application/json");
+    else downloadText(`${name}.md`, convAsMarkdown(conv), "text/markdown");
+  }
+
+  // Lien de partage en lecture seule : on crée l'instantané puis on copie l'URL.
+  async function shareConversation(id: string) {
+    if (!csrf) return;
+    try {
+      const res = await sendJSON<{ ok: boolean; token: string }>("/conversations/share", csrf, { client_id: id });
+      if (res?.ok && res.token) {
+        const url = `${window.location.origin}/c/${res.token}`;
+        await navigator.clipboard.writeText(url);
+        setShared(true);
+        setTimeout(() => setShared(false), 2500);
+      }
+    } catch {
+      /* lien non copié : silencieux */
+    }
+  }
+
   function handleFiles(files: FileList | null) {
     if (!files) return;
     for (const file of Array.from(files)) {
@@ -1979,6 +2039,23 @@ export default function PlaygroundPage() {
                 size="sm"
                 icon={<Icon icon={ClockIcon} size="sm" />}
                 onClick={() => setHistoryOpen(true)}
+              />
+              <Button
+                label={t("Exporter")}
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                isIconOnly
+                onClick={() => exportConversation({ title: convTitleFallback(messages, t("Conversation")), model, messages }, "md")}
+              />
+              <Button
+                label={shared ? t("Lien copié") : t("Partager")}
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={LinkIcon} size="sm" />}
+                isIconOnly
+                isDisabled={!currentId}
+                onClick={() => currentId && shareConversation(currentId)}
               />
               <Button
                 label={t("Réglages")}
@@ -2696,6 +2773,22 @@ export default function PlaygroundPage() {
                         </VStack>
                       </ClickableCard>
                     </StackItem>
+                    <Button
+                      label={t("Exporter JSON")}
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                      onClick={() => exportConversation({ title: conv.title || t("Conversation"), model: conv.model || "", messages: conv.messages }, "json")}
+                    />
+                    <Button
+                      label={t("Partager")}
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={LinkIcon} size="sm" />}
+                      onClick={() => shareConversation(conv.id)}
+                    />
                     <Button
                       label={t("Supprimer")}
                       variant="ghost"

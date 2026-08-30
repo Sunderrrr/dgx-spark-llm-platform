@@ -165,6 +165,14 @@ const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you 
 // (dont l'efficacite depend de sa position en tete, cf. mesure plus bas).
 const INTEGRALITE_INSTRUCTION = `Never abridge a file you were asked to produce. Never write that a file is "too long to show here", never say you are giving a "shortened", "simplified" or "essential" version, and never replace any part of a file with an ellipsis, a placeholder, or a comment such as "rest of the code unchanged". There is no display limit: write the file in full, from its first line to its last. If you run out of room before the end, stop mid-file rather than closing it early — you will be asked to continue, and you will resume at the exact character where you stopped. A truncated file presented as complete is the worst possible answer.`;
 
+// Placeholder du champ : on fait tourner quelques textes (dont l'astuce « / »
+// pour appeler une compétence). Chaque entrée est une clé i18n (FR-as-msgid).
+const PLACEHOLDER_TEXTS = [
+  "Comment puis-je vous aider aujourd'hui ?",
+  "Tapez / pour appeler une compétence",
+  "Résumez un document, générez une image, écrivez du code…",
+];
+
 /* ── Compatibilité : anciennes conversations ────────────────────────────────
  * Le modèle ne reçoit plus le protocole d'édition (il réécrit le fichier en
  * entier). Ces fonctions restent parce que l'historique déjà enregistré
@@ -1577,6 +1585,13 @@ export default function PlaygroundPage() {
     if (streaming) return;
     const idx = tabsRef.current.findIndex((t) => t.id === id);
     if (idx < 0) return;
+    // Titre généré à la fermeture : on analyse TOUTE la conversation qu'on
+    // ferme (pas seulement son premier échange) pour poser un titre fiable
+    // dans l'historique. Silencieux si la conversation n'a ni messages ni id.
+    const closingTab = tabsRef.current[idx];
+    if (closingTab && closingTab.messages.length > 0 && closingTab.currentId) {
+      void autoTitle(closingTab.currentId, closingTab.messages, id, closingTab.model);
+    }
     const next = tabsRef.current.filter((t) => t.id !== id);
     setTabs(next);
     if (activeTabId !== id) return;
@@ -1685,16 +1700,17 @@ export default function PlaygroundPage() {
 
   // Auto-titre déclenché à la première réponse : résumé court généré par le
   // modèle, propagé en direct à l'historique + l'onglet, sans rechargement.
-  async function autoTitle(convId: string, msgs: ChatMsg[], tabId: string) {
+  async function autoTitle(convId: string, msgs: ChatMsg[], tabId: string, modelForTitle?: string) {
     if (!csrf) return;
+    const titleModel = modelForTitle || model;
     try {
-      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model, messages: msgs });
+      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model: titleModel, messages: msgs });
       const title = res?.title;
       if (!title) return;
       setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title } : c)));
       setTabs((prev) => prev.map((t) => (t.id === tabId || t.currentId === convId ? { ...t, title, currentId: convId } : t)));
       // eslint-disable-next-line react-hooks/purity -- handler async
-      const item: Conversation = { id: convId, title, ts: Date.now(), model, messages: msgs.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })) };
+      const item: Conversation = { id: convId, title, ts: Date.now(), model: titleModel, messages: msgs.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })) };
       void persistConversation(csrf, item);
     } catch {
       // silencieux : on garde le titre provisoire (début du prompt)
@@ -2358,6 +2374,16 @@ export default function PlaygroundPage() {
   // Premier message : on centre le composeur avec la salutation au-dessus.
   const isFirstEmpty = messages.length === 0 && !isSettingsOpen && !streaming;
 
+  // Placeholder rotatif : quelques textes qui défilent (dont l'astuce « / »
+  // pour appeler une compétence). Le timer est indépendant du rendu : il fait
+  // simplement avancer l'index dans PLACEHOLDER_TEXTS.
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setPlaceholderIdx((i) => (i + 1) % PLACEHOLDER_TEXTS.length), 5000);
+    return () => clearInterval(id);
+  }, []);
+  const placeholderText = t(PLACEHOLDER_TEXTS[placeholderIdx] ?? PLACEHOLDER_TEXTS[0]);
+
   // Nœud « composer » réutilisé à la fois dans le layout ancré en bas (conversation
   // en cours) et centré sur le premier message. Barre en bas : Attacher (gauche),
   // sélecteur de modèle + bouton micro/envoyer (droite).
@@ -2445,9 +2471,8 @@ export default function PlaygroundPage() {
         onSubmit={send}
         isStopShown={streaming}
         onStop={stop}
-        placeholder={t("Écris ton message… (Entrée pour envoyer, Maj+Entrée = saut de ligne)")}
+        placeholder={placeholderText}
         input={<ChatComposerInput value={input} onChange={setInput} onSubmit={send} />}
-        headerContext={<ContextMeter used={used} max={max} />}
         drawer={
           attachments.length ? (
             <ChatComposerDrawer count={attachments.length} label={t("Fichiers joints")}>
@@ -2686,6 +2711,14 @@ export default function PlaygroundPage() {
                 />
               </HStack>
             </VStack>
+          )}
+          {/* Indicateur de contexte global, discret, en haut de la zone de chat.
+              Uniquement quand une conversation est en cours (pas sur l'écran
+              d'accueil centré, où le carré reste épuré). */}
+          {!isFirstEmpty && (
+            <HStack hAlign="end" padding={2}>
+              <ContextMeter used={used} max={max} />
+            </HStack>
           )}
           {isFirstEmpty ? (
             <StackItem size="fill">

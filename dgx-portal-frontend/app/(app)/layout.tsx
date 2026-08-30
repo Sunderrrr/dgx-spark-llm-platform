@@ -33,8 +33,6 @@ import {
   LifebuoyIcon,
   ShieldCheckIcon,
   UsersIcon,
-  SunIcon,
-  MoonIcon,
   ArrowRightOnRectangleIcon,
   Cog6ToothIcon,
   FilmIcon,
@@ -230,14 +228,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             />
           }
           footer={
-            <VStack padding={2} gap={2}>
-              <HStack gap={2} vAlign="center">
+            <HStack padding={2} gap={2} vAlign="center" hAlign="between" wrap="wrap">
+              <HStack gap={2} vAlign="center" wrap="wrap">
                 {who?.avatar_id && <Avatar src={`/avatars/${who.avatar_id}.svg`} name={who.fullname} size="sm" />}
                 <Text type="supporting" color="secondary" maxLines={1}>
                   {who?.fullname || ""}
                 </Text>
               </HStack>
-              <HStack gap={1} wrap="wrap">
+              <HStack gap={1} vAlign="center" hAlign="end" wrap="wrap">
                 <Button
                   label={t("Recherche rapide")}
                   variant="ghost"
@@ -264,14 +262,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   onClick={() => openSettings()}
                 />
                 <Button
-                  label={t("Basculer le thème")}
-                  variant="ghost"
-                  size="sm"
-                  isIconOnly
-                  icon={<Icon icon={isDark ? SunIcon : MoonIcon} size="sm" />}
-                  onClick={() => setMode(isDark ? "light" : "dark")}
-                />
-                <Button
                   label={t("Déconnexion")}
                   variant="ghost"
                   size="sm"
@@ -280,7 +270,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   onClick={logout}
                 />
               </HStack>
-            </VStack>
+            </HStack>
           }>
           <SideNavSection title="Menu" isHeaderHidden>
             {navItems.map((item) => (

@@ -52,7 +52,7 @@ export function SkillsMenu({
                     <HStack gap={2} vAlign="center" wrap="wrap">
                       <Badge label={`/${s.alias}`} variant="info" />
                       <Text maxLines={1} type="supporting" color="secondary">
-                        {s.description}
+                        {t(s.description)}
                       </Text>
                     </HStack>
                   </ClickableCard>

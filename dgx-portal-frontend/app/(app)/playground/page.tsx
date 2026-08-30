@@ -59,6 +59,7 @@ import {
   StopIcon,
   KeyIcon,
   ArrowsPointingOutIcon,
+  BoltIcon,
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import { useWhoami } from "@/lib/whoami";
@@ -80,7 +81,10 @@ import {
 import { AskQuestion } from "./_components/AskQuestion";
 import { ContextMeter } from "./_components/ContextMeter";
 import { SettingsPanel } from "./_components/SettingsPanel";
+import { SkillsMenu } from "./_components/SkillsMenu";
+import { SkillCreator } from "./_components/SkillCreator";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
+import { BASE_SKILLS, type Skill, loadCustomSkills, saveCustomSkills } from "@/lib/skills";
 
 const DEFAULT_SETTINGS: Settings = {
   system: "",
@@ -1740,6 +1744,31 @@ export default function PlaygroundPage() {
   // Snippets / prompts réutilisables (bibliothèque navigateur).
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [snippets, setSnippets] = useState<Snippet[]>(loadSnippets);
+  // Compétences (skills) : compétences de base + celles créées par l'utilisateur.
+  const [skills, setSkills] = useState<Skill[]>(() => [...BASE_SKILLS, ...loadCustomSkills()]);
+  const [skillCreatorOpen, setSkillCreatorOpen] = useState(false);
+  const customSkills = skills.filter((s) => !s.builtin);
+
+  function addCustomSkill(s: Skill) {
+    const custom = [...customSkills, s];
+    saveCustomSkills(custom);
+    setSkills([...BASE_SKILLS, ...custom]);
+  }
+
+  function deleteCustomSkill(id: string) {
+    const custom = customSkills.filter((s) => s.id !== id);
+    saveCustomSkills(custom);
+    setSkills([...BASE_SKILLS, ...custom]);
+  }
+
+  // Sélection d'une compétence : on inscrit son prompt dans le champ et, si
+  // elle en a un, on applique son prompt système au modèle.
+  function selectSkill(s: Skill) {
+    setInput(s.prompt);
+    const sp = s.systemPrompt;
+    if (sp) setSettings((prev) => ({ ...prev, system: sp }));
+  }
+
   // Auto-titre + résumé (générés par le modèle, facturés sur le budget).
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summary, setSummary] = useState("");
@@ -2384,6 +2413,10 @@ export default function PlaygroundPage() {
   }, []);
   const placeholderText = t(PLACEHOLDER_TEXTS[placeholderIdx] ?? PLACEHOLDER_TEXTS[0]);
 
+  // Mode « /compétence » : dès que le champ commence par un « / », on affiche
+  // le menu des compétences. Le texte après « / » sert de filtre.
+  const slashQuery = input.startsWith("/") ? input.slice(1).trim().toLowerCase() : null;
+
   // Nœud « composer » réutilisé à la fois dans le layout ancré en bas (conversation
   // en cours) et centré sur le premier message. Barre en bas : Attacher (gauche),
   // sélecteur de modèle + bouton micro/envoyer (droite).
@@ -2531,6 +2564,16 @@ export default function PlaygroundPage() {
           )
         }
       />
+      {/* Menu des compétences : affiché dès qu'on tape « / » (pour en
+          sélectionner une) juste sous le champ. */}
+      {slashQuery !== null && (
+        <SkillsMenu
+          skills={skills}
+          query={slashQuery}
+          onSelect={selectSkill}
+          onCreate={() => setSkillCreatorOpen(true)}
+        />
+      )}
       <input
         ref={fileInputRef}
         type="file"
@@ -2566,6 +2609,13 @@ export default function PlaygroundPage() {
             size="sm"
             icon={<Icon icon={BookmarkIcon} size="sm" />}
             onClick={() => setSnippetsOpen(true)}
+          />
+          <Button
+            label={t("Compétences")}
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={BoltIcon} size="sm" />}
+            onClick={() => setSkillCreatorOpen(true)}
           />
         </HStack>
       </HStack>
@@ -3381,6 +3431,13 @@ export default function PlaygroundPage() {
               )}
             </VStack>
           </Dialog>
+          <SkillCreator
+            open={skillCreatorOpen}
+            onOpenChange={(o) => setSkillCreatorOpen(o)}
+            customSkills={customSkills}
+            onSave={addCustomSkill}
+            onDelete={deleteCustomSkill}
+          />
           <Dialog isOpen={summaryOpen} onOpenChange={(o) => { if (!o) setSummaryOpen(false); }} width={560}>
             <DialogHeader
               title={t("Résumé de la conversation")}

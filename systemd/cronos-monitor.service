@@ -1,0 +1,13 @@
+[Unit]
+Description=CrOS health monitor — alerte email quand les services cœur sont down
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Tourne en root : le .env (600) et le socket docker y sont accessibles.
+ExecStart=/usr/bin/python3 /root/ai-platform/monitoring/monitor.py
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

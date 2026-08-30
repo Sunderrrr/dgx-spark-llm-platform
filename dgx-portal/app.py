@@ -631,6 +631,46 @@ def index():
     return ('', 204)
 
 
+@app.route('/healthz')
+def healthz():
+    """Liveness minimale, publique — pour les healthchecks / sondes de
+    disponibilité. Ne révèle rien d'interné."""
+    return jsonify({'ok': True, 'time': int(time.time())})
+
+
+def _service_reachable(url, expect=(200, 401), timeout=3):
+    """True si le service répond (statut dans `expect`), sinon False."""
+    try:
+        r = requests.get(url, timeout=timeout)
+        return r.status_code in expect
+    except requests.RequestException:
+        return False
+
+
+@app.route('/api/health')
+@login_required
+def api_health():
+    """État agrégé des services (diagnostic). Les services média sont
+    on-demand : leur absence n'invalide pas la santé globale."""
+    chat = get_running_models()
+    runner_up = _service_reachable(f"{RUNNER_URL}/status")
+    litellm_up = _service_reachable(f"{LITELLM_URL}/health", expect=(200,))
+    return jsonify({
+        'ok': bool(runner_up and litellm_up),
+        'services': {
+            'runner': {'reachable': runner_up},
+            'litellm': {'reachable': litellm_up},
+            'chat': {'running': chat, 'ready': bool(chat)},
+            'video': {'ready': bool(comfyui_is_up()), 'on_demand': True},
+            'ocr': {'ready': bool(get_ocr_model()), 'on_demand': True},
+            'voice': {'ready': bool(get_voice_model()), 'on_demand': True},
+            'image': {'ready': bool(image_ready()), 'on_demand': True},
+            'music': {'ready': bool(music_ready()), 'on_demand': True},
+        },
+        'time': int(time.time()),
+    })
+
+
 @app.route('/api/whoami')
 @login_required
 def api_whoami():
@@ -715,19 +755,20 @@ def api_model_request():
         "SELECT created_at FROM media_request_cooldown "
         "WHERE username=? AND category=?", (user, category)).fetchone()
     if row and (now - row['created_at']) < MEDIA_REQUEST_COOLDOWN_S:
-        remaining = int((MEDIA_REQUEST_COOLDOWN_S
-                         - (now - row['created_at'])) // 60) + 1
+        retry_after = int(MEDIA_REQUEST_COOLDOWN_S - (now - row['created_at']))
+        remaining = retry_after // 60 + 1
         return jsonify({'error': {'message':
-                       f"Déjà signalé. Nouvelle demande possible dans ≈ {remaining} min."}}), 429
+                       f"Déjà signalé. Nouvelle demande possible dans ≈ {remaining} min."},
+                        'cooldown': True, 'retry_after': retry_after}), 429
     db.execute(
         "INSERT INTO media_request_cooldown (username, category, created_at) "
         "VALUES (?,?,?) ON CONFLICT(username, category) "
         "DO UPDATE SET created_at=excluded.created_at",
         (user, category, now))
     db.commit()
-    notify_media_request_email(
+    email_sent = notify_media_request_email(
         category, user, session.get('fullname', ''))
-    return jsonify({'ok': True, 'category': category})
+    return jsonify({'ok': True, 'category': category, 'email_sent': bool(email_sent)})
 
 @app.route('/keys', methods=['GET', 'POST'])
 @login_required

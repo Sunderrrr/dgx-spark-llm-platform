@@ -21,6 +21,10 @@ const EN: Record<string, string> = {
   "Envoyer un test": "Send a test",
   "Email de test envoyé.": "Test email sent.",
   "Échec de l'envoi.": "Send failed.",
+  "Déjà signalé — la demande se débloquera automatiquement.": "Already requested — it will unlock automatically.",
+  "Réessaie dans": "Try again in",
+  "min": "min",
+  "Demande enregistrée mais l'email à l'admin n'a pas pu partir.": "Request recorded, but the admin email could not be sent.",
   // — Navigation and shell —
   "Accueil": "Home",
   "Playground": "Playground",

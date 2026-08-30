@@ -1,0 +1,13 @@
+[Unit]
+Description=CrOS backup — SQLite portail + Postgres LiteLLM
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Tourne en root : accès au socket docker (dump des conteneurs).
+ExecStart=/usr/bin/python3 /root/ai-platform/monitoring/backup.py --dir /var/backups/cronos
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

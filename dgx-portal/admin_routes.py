@@ -667,9 +667,11 @@ def toggle_maintenance():
     add_announcement('maintenance', 'on' if now_on else 'off')
     # Notifie l'opérateur (ADMIN_EMAIL) de la bascule — les admins sont les
     # destinataires, pas les utilisateurs bloqués.
-    notify_maintenance_email(now_on, session.get('username', ''),
-                             session.get('fullname', ''))
+    sent = notify_maintenance_email(now_on, session.get('username', ''),
+                                    session.get('fullname', ''))
     flash("Mode maintenance activé." if now_on else "Mode maintenance désactivé.", "success")
+    if all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]) and not sent:
+        flash("L'email d'alerte n'a pas pu être envoyé — vérifie la config SMTP.", "warning")
     return redirect(url_for('admin.admin'))
 
 @bp.route('/admin/email/config')

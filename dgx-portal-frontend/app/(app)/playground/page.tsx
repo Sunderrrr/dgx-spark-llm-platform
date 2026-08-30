@@ -9,6 +9,7 @@ import { Card } from "@astryxdesign/core/Card";
 import { Toolbar } from "@astryxdesign/core/Toolbar";
 import { useResizable, ResizeHandle } from "@astryxdesign/core/Resizable";
 import { Heading } from "@astryxdesign/core/Heading";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
@@ -41,6 +42,7 @@ import {
   ClipboardDocumentIcon,
   LinkIcon,
   ArrowPathIcon,
+  CheckIcon,
   PencilIcon,
   PlusIcon,
   ClockIcon,
@@ -1214,6 +1216,9 @@ export default function PlaygroundPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Renommage d'une conversation depuis l'historique.
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [streaming, setStreaming] = useState(false);
 
   // File d'attente : messages soumis pendant qu'une réponse se génère. Au lieu
@@ -1455,6 +1460,19 @@ export default function PlaygroundPage() {
   }
 
   // Lien de partage en lecture seule : on crée l'instantané puis on copie l'URL.
+  // Renommage d'une conversation (titre dérivé du 1er message par défaut).
+  function startRename(id: string, title: string) {
+    setRenamingId(id);
+    setRenameValue(title || t("Conversation"));
+  }
+  function commitRename(id: string) {
+    const title = (renameValue.trim().slice(0, 120) || t("Conversation"));
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
+    const conv = conversations.find((c) => c.id === id);
+    if (csrf && conv) void persistConversation(csrf, { ...conv, title });
+    setRenamingId(null);
+  }
+
   async function shareConversation(id: string) {
     if (!csrf) return;
     try {
@@ -2758,47 +2776,72 @@ export default function PlaygroundPage() {
               {conversations.length === 0 ? (
                 <Text color="secondary">{t("Aucune conversation")}</Text>
               ) : (
-                conversations.map((conv) => (
-                  <HStack key={conv.id} gap={2} vAlign="center">
-                    <StackItem size="fill">
-                      <ClickableCard
-                        label={conv.title || t("Conversation")}
-                        variant={conv.id === currentId ? "default" : "muted"}
-                        onClick={() => { selectConversation(conv); setHistoryOpen(false); }}>
-                        <VStack gap={0}>
-                          <Text maxLines={1}>{conv.title || t("Conversation")}</Text>
-                          <Text type="supporting" color="secondary">
-                            <Timestamp value={conv.ts} format="date_time" />
-                          </Text>
-                        </VStack>
-                      </ClickableCard>
-                    </StackItem>
-                    <Button
-                      label={t("Exporter JSON")}
-                      variant="ghost"
-                      size="sm"
-                      isIconOnly
-                      icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                      onClick={() => exportConversation({ title: conv.title || t("Conversation"), model: conv.model || "", messages: conv.messages }, "json")}
-                    />
-                    <Button
-                      label={t("Partager")}
-                      variant="ghost"
-                      size="sm"
-                      isIconOnly
-                      icon={<Icon icon={LinkIcon} size="sm" />}
-                      onClick={() => shareConversation(conv.id)}
-                    />
-                    <Button
-                      label={t("Supprimer")}
-                      variant="ghost"
-                      size="sm"
-                      isIconOnly
-                      icon={<Icon icon={TrashIcon} size="sm" />}
-                      onClick={() => deleteConversation(conv.id)}
-                    />
-                  </HStack>
-                ))
+                conversations.map((conv) =>
+                  renamingId === conv.id ? (
+                    <HStack key={conv.id} gap={2} vAlign="center">
+                      <StackItem size="fill">
+                        <TextInput
+                          label={t("Renommer")}
+                          isLabelHidden
+                          value={renameValue}
+                          onChange={setRenameValue}
+                          size="sm"
+                          onEnter={() => commitRename(conv.id)}
+                        />
+                      </StackItem>
+                      <Button label={t("Valider")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={CheckIcon} size="sm" />} onClick={() => commitRename(conv.id)} />
+                      <Button label={t("Annuler")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => setRenamingId(null)} />
+                    </HStack>
+                  ) : (
+                    <HStack key={conv.id} gap={2} vAlign="center">
+                      <StackItem size="fill">
+                        <ClickableCard
+                          label={conv.title || t("Conversation")}
+                          variant={conv.id === currentId ? "default" : "muted"}
+                          onClick={() => { selectConversation(conv); setHistoryOpen(false); }}>
+                          <VStack gap={0}>
+                            <Text maxLines={1}>{conv.title || t("Conversation")}</Text>
+                            <Text type="supporting" color="secondary">
+                              <Timestamp value={conv.ts} format="date_time" />
+                            </Text>
+                          </VStack>
+                        </ClickableCard>
+                      </StackItem>
+                      <Button
+                        label={t("Renommer")}
+                        variant="ghost"
+                        size="sm"
+                        isIconOnly
+                        icon={<Icon icon={PencilIcon} size="sm" />}
+                        onClick={() => startRename(conv.id, conv.title)}
+                      />
+                      <Button
+                        label={t("Exporter JSON")}
+                        variant="ghost"
+                        size="sm"
+                        isIconOnly
+                        icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                        onClick={() => exportConversation({ title: conv.title || t("Conversation"), model: conv.model || "", messages: conv.messages }, "json")}
+                      />
+                      <Button
+                        label={t("Partager")}
+                        variant="ghost"
+                        size="sm"
+                        isIconOnly
+                        icon={<Icon icon={LinkIcon} size="sm" />}
+                        onClick={() => shareConversation(conv.id)}
+                      />
+                      <Button
+                        label={t("Supprimer")}
+                        variant="ghost"
+                        size="sm"
+                        isIconOnly
+                        icon={<Icon icon={TrashIcon} size="sm" />}
+                        onClick={() => deleteConversation(conv.id)}
+                      />
+                    </HStack>
+                  ),
+                )
               )}
             </VStack>
           </Dialog>

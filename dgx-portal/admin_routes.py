@@ -27,7 +27,7 @@ from auth import (USERNAME_RE,
                   login_required)
 from config import (ADMIN_EMAIL, KEY_BUDGET, KEY_DURATION, RUNNER_URL,
                     SMTP_HOST, SMTP_PASS, SMTP_USER)
-from db import get_db, get_setting, log_audit, maintenance_active, set_setting
+from db import add_notification, get_db, get_setting, log_audit, maintenance_active, set_setting
 from litellm_client import (_litellm_user_info, _register_litellm_model,
                             _unregister_litellm_model,
                             litellm_update_user_budget)
@@ -779,6 +779,8 @@ def approve_budget(req_id):
         (amount_val, datetime.now().isoformat(), req_id)
     )
     db.commit()
+    add_notification(breq['username'], 'request',
+                     f"Budget accordé : +{amount_val:,.0f} tokens.".replace(',', ' '))
     flash(f"+{amount_val:,.0f} tokens accordés à {breq['fullname']} (nouveau total : {new_budget:,.0f}).".replace(',', ' '), "success")
     return redirect(url_for('admin.admin'))
 
@@ -786,11 +788,14 @@ def approve_budget(req_id):
 @admin_required
 def reject_budget(req_id):
     db = get_db()
+    breq = db.execute("SELECT username FROM budget_requests WHERE id=?", (req_id,)).fetchone()
     db.execute(
         "UPDATE budget_requests SET status='rejected', updated_at=? WHERE id=?",
         (datetime.now().isoformat(), req_id)
     )
     db.commit()
+    if breq and breq['username']:
+        add_notification(breq['username'], 'request', "Ta demande de budget a été refusée.")
     flash("Demande rejetée.", "success")
     return redirect(url_for('admin.admin'))
 
@@ -925,8 +930,15 @@ def update_request(req_id):
         flash("Statut invalide.", "danger")
         return redirect(url_for('admin.admin'))
     db = get_db()
+    req = db.execute("SELECT username, model_id FROM model_requests WHERE id=?", (req_id,)).fetchone()
     db.execute("UPDATE model_requests SET status=?, updated_at=? WHERE id=?",
                (status, datetime.now().isoformat(), req_id))
+    # Notification in-app au demandeur (cloche) — l'email reste le canal de fond.
+    if req and req['username']:
+        if status == 'done':
+            add_notification(req['username'], 'request', f"Ton modèle est disponible : {req['model_id'] or 'demande validée'}.")
+        elif status == 'rejected':
+            add_notification(req['username'], 'request', "Ta demande de modèle a été refusée.")
     # Approving a request = adding it to the launchable catalog (like seeded models).
     if status == 'done':
         req = db.execute("SELECT username, model_id FROM model_requests WHERE id=?", (req_id,)).fetchone()

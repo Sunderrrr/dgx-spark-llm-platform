@@ -9,6 +9,7 @@ import { Card } from "@astryxdesign/core/Card";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Button } from "@astryxdesign/core/Button";
 import { AspectRatio } from "@astryxdesign/core/AspectRatio";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Grid } from "@astryxdesign/core/Grid";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
@@ -18,7 +19,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
-import { PhotoIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon, StopIcon } from "@heroicons/react/24/outline";
+import { PhotoIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -57,6 +58,9 @@ export default function ImagePage() {
   const [batch, setBatch] = useState(1);          // count chosen for the next generation
   const [jobCount, setJobCount] = useState(1);    // count of the currently-viewed job
   const [doneCount, setDoneCount] = useState(0);  // images produced so far for it
+  // Galerie : visionneuse plein écran + vignettes supprimées individuellement.
+  const [viewer, setViewer] = useState<{ promptId: string; idx: number } | null>(null);
+  const [deletedImgs, setDeletedImgs] = useState<Set<string>>(new Set());
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -180,6 +184,23 @@ export default function ImagePage() {
     } finally {
       setCancelling(false);
     }
+  }
+
+  // Galerie : ouvre la visionneuse, retire une image du disque et de l'affichage.
+  function viewImage(id: string, idx: number) { setViewer({ promptId: id, idx }); }
+  async function deleteImage(id: string, idx: number) {
+    try {
+      await fetch(`/api/image/delete/${id}/${idx}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRFToken": csrf },
+      });
+    } catch {
+      /* suppression déjà-tentée : on masque quand même */
+    }
+    setDeletedImgs((prev) => new Set(prev).add(`${id}:${idx}`));
+    setViewer(null);
+    showToast({ body: t("Image supprimée."), type: "info" });
   }
 
   const isBusy = status === "pending" || status === "running";
@@ -317,23 +338,32 @@ export default function ImagePage() {
                           {Array.from({ length: jobCount }).map((_, idx) => (
                             <VStack key={idx} gap={2}>
                               <AspectRatio ratio={1} fit="contain">
-                                {idx < doneCount ? (
+                                {idx < doneCount && !deletedImgs.has(`${promptId}:${idx}`) ? (
                                   // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={`/image/file/${promptId}/${idx}`} alt={`${prompt} (${idx + 1})`} />
+                                  <img src={`/image/file/${promptId}/${idx}`} alt={`${prompt} (${idx + 1})`} onClick={() => viewImage(String(promptId), idx)} style={{ cursor: "pointer" }} />
                                 ) : (
                                   <VStack className="video-generating" height="100%" width="100%" hAlign="center" vAlign="center" gap={2}>
                                     <Icon icon={PhotoIcon} size="lg" color="secondary" />
                                   </VStack>
                                 )}
                               </AspectRatio>
-                              {idx < doneCount && (
-                                <Button
-                                  label={t("Télécharger")}
-                                  variant="secondary"
-                                  size="sm"
-                                  icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-                                  onClick={() => downloadImage(idx)}
-                                />
+                              {idx < doneCount && !deletedImgs.has(`${promptId}:${idx}`) && (
+                                <HStack hAlign="between" vAlign="center" gap={1}>
+                                  <Button
+                                    label={t("Télécharger")}
+                                    variant="secondary"
+                                    size="sm"
+                                    icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                                    onClick={() => downloadImage(idx)}
+                                  />
+                                  <Button
+                                    label={t("Voir")}
+                                    variant="ghost"
+                                    size="sm"
+                                    icon={<Icon icon={PhotoIcon} size="sm" />}
+                                    onClick={() => viewImage(String(promptId), idx)}
+                                  />
+                                </HStack>
                               )}
                             </VStack>
                           ))}
@@ -342,7 +372,7 @@ export default function ImagePage() {
                         <VStack gap={2}>
                           <AspectRatio ratio={1} fit="contain">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={`/image/file/${promptId}/0`} alt={prompt} />
+                            <img src={`/image/file/${promptId}/0`} alt={prompt} onClick={() => viewImage(String(promptId), 0)} style={{ cursor: "pointer" }} />
                           </AspectRatio>
                           <Button
                             label={t("Télécharger")}
@@ -414,6 +444,19 @@ export default function ImagePage() {
                 )}
               </VStack>
             </VStack>
+          )}
+          {viewer && (
+            <Dialog isOpen onOpenChange={(o) => { if (!o) setViewer(null); }} variant="fullscreen">
+              <DialogHeader title={t("Aperçu")} hasDivider onOpenChange={(o) => { if (!o) setViewer(null); }} />
+              <VStack gap={3} padding={4} hAlign="center" vAlign="center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/image/file/${viewer.promptId}/${viewer.idx}`} alt={t("Image agrandie")} style={{ maxWidth: "90%", maxHeight: "70vh", objectFit: "contain", borderRadius: "12px" }} />
+                <HStack gap={2}>
+                  <Button label={t("Télécharger")} variant="secondary" icon={<Icon icon={ArrowDownTrayIcon} size="sm" />} onClick={() => downloadImage(viewer.idx)} />
+                  <Button label={t("Supprimer cette image")} variant="secondary" icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => deleteImage(viewer.promptId, viewer.idx)} />
+                </HStack>
+              </VStack>
+            </Dialog>
           )}
         </LayoutContent>
       }

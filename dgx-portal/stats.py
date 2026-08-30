@@ -70,6 +70,31 @@ def _real_tokens_by_user(since_utc=None):
 # ("Sessions X/Y") with nobody in the "who's using" panel until it finishes —
 # this registry fills that gap live. One row per active request; a staleness
 # sweep drops rows a crashed worker never deleted.
+def _tokens_by_model(since_utc=None):
+    """Tokens réels par modèle (chat), depuis `since_utc` (naive UTC). Sert au
+    « usage par modèle » du dashboard — voir ce qui consomme le GPU, au-delà de la
+    répartition par utilisateur."""
+    conn = _spend_conn()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor()
+        q = ('SELECT model, SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
+             'FROM "LiteLLM_SpendLogs"')
+        params = []
+        if since_utc is not None:
+            q += ' WHERE "startTime" >= %s'
+            params.append(since_utc)
+        q += ' GROUP BY model ORDER BY 2 DESC'
+        cur.execute(q, params)
+        return [{'model': model or 'inconnu', 'tokens': int(toks or 0)}
+                for model, toks in cur.fetchall()]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
 def _inflight_start(username):
     rid = secrets.token_hex(8)
     try:

@@ -1689,6 +1689,7 @@ export default function PlaygroundPage() {
       const conv = conversations.find((c) => c.id === currentId);
       if (title && conv) {
         setConversations((prev) => prev.map((c) => (c.id === currentId ? { ...c, title } : c)));
+        setTabs((prev) => prev.map((t) => (t.currentId === currentId || t.id === activeTabId ? { ...t, title } : t)));
         void persistConversation(csrf, { ...conv, title });
       }
     } finally {
@@ -1707,6 +1708,24 @@ export default function PlaygroundPage() {
       else setSummary(res.error || t("Impossible de générer le résumé."));
     } catch {
       setSummary(t("Impossible de générer le résumé."));
+    }
+  }
+
+  // Auto-titre déclenché à la première réponse : résumé court généré par le
+  // modèle, propagé en direct à l'historique + l'onglet, sans rechargement.
+  async function autoTitle(convId: string, msgs: ChatMsg[], tabId: string) {
+    if (!csrf) return;
+    try {
+      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model, messages: msgs });
+      const title = res?.title;
+      if (!title) return;
+      setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title } : c)));
+      setTabs((prev) => prev.map((t) => (t.id === tabId || t.currentId === convId ? { ...t, title, currentId: convId } : t)));
+      // eslint-disable-next-line react-hooks/purity -- handler async
+      const item: Conversation = { id: convId, title, ts: Date.now(), model, messages: msgs.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })) };
+      void persistConversation(csrf, item);
+    } catch {
+      // silencieux : on garde le titre provisoire (début du prompt)
     }
   }
 
@@ -1969,8 +1988,18 @@ export default function PlaygroundPage() {
       setCtxUsed(total);
       setConvTokens((p) => p + total);
     }
+    const wasNew = !currentId;
     const savedId = persist(finalMessages, currentId, model);
     setCurrentId(savedId ?? null);
+    // L'onglet actif porte immédiatement cette conversation (avant même que
+    // l'auto-titre ne réponde), pour que fermer/commuter reste cohérent.
+    setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, currentId: savedId ?? null } : t)));
+    // Auto-titre : à la PREMIÈRE réponse d'une nouvelle conversation, on demande
+    // au modèle un résumé court (3–8 mots) et on le propage en direct à
+    // l'historique + à l'onglet, sans rechargement. Silencieux en cas d'échec.
+    if (wasNew && savedId) {
+      void autoTitle(savedId, finalMessages, activeTabId);
+    }
     setStreaming(false);
     setLiveStats(null);
     abortRef.current = null;

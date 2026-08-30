@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -29,6 +29,7 @@ import {
   SpeakerWaveIcon,
   PhotoIcon,
   MusicalNoteIcon,
+  ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
 import { useWhoami } from "@/lib/whoami";
@@ -183,15 +184,27 @@ export default function HomePage() {
   const { open: openSettings } = useSettingsDialog();
   const showToast = useToast();
   const [data, setData] = useState<HomeData | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const { who } = useWhoami();
 
-  useEffect(() => {
-    getJSON<HomeData>("/api/home").then(setData);
+  // Charge le tableau de bord. On ne signale l'erreur que s'il n'y a encore rien
+  // à afficher (un échec de poll transitoire ne doit pas effacer les données déjà
+  // affichées) ; un succès met à jour l'horodatage « dernière mise à jour ».
+  const load = useCallback(() => {
+    if (document.visibilityState !== "visible") return;
+    getJSON<HomeData>("/api/home")
+      .then((d) => {
+        setData(d);
+        setLoadError(false);
+        setLastUpdated(Date.now());
+      })
+      .catch(() => setLoadError(true));
   }, []);
 
-  // After the Discord OAuth round-trip (or unlink), the backend returns here
-  // with ?discord=… — surface the result and open the settings tab that hosts
-  // the link, then clean the URL so a refresh doesn't replay it.
+  // Après le round-trip Discord OAuth (ou unlink), le backend revient ici avec
+  // ?discord=… — on affiche le résultat et on ouvre l'onglet qui héberge le
+  // lien, puis on nettoie l'URL pour qu'un refresh ne rejoue pas la scène.
   useEffect(() => {
     const d = new URLSearchParams(window.location.search).get("discord");
     if (!d) return;
@@ -215,24 +228,17 @@ export default function HomePage() {
   // met ses metriques en cache ~4 s, donc sonder plus vite ne rafraichirait
   // rien de plus et ne ferait que multiplier les requetes. L'agregat SpendLogs
   // derriere passe par l'index startTime (~0,15 ms), il encaisse ce rythme.
+  // load() s'occupe du fetch initial (tick immédiat) ET du rythme, et saute le
+  // round-trip quand l'onglet est masqué — pas de double requête au montage.
   useEffect(() => {
-    // Poll the dashboard every 5s. Skip the round-trip when the tab is hidden
-    // (a backgrounded tab still renders and re-renders the whole page on each
-    // poll; that's wasted work for N hidden tabs) and refresh immediately when
-    // the tab becomes visible again instead of waiting up to 5s.
-    const tick = () => {
-      if (document.visibilityState === "visible") {
-        getJSON<HomeData>("/api/home").then(setData).catch(() => {});
-      }
-    };
-    tick();
-    const id = setInterval(tick, 5000);
-    document.addEventListener("visibilitychange", tick);
+    load();
+    const id = setInterval(load, 5000);
+    document.addEventListener("visibilitychange", load);
     return () => {
       clearInterval(id);
-      document.removeEventListener("visibilitychange", tick);
+      document.removeEventListener("visibilitychange", load);
     };
-  }, []);
+  }, [load]);
 
   const firstName = who?.fullname?.split(" ")[0] || "";
 
@@ -256,18 +262,42 @@ export default function HomePage() {
             </HStack>
 
             <VStack gap={2}>
-              <Text weight="semibold">{t("Modèles disponibles maintenant")}</Text>
+              <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
+                <Text weight="semibold">{t("Modèles disponibles maintenant")}</Text>
+                {lastUpdated ? (
+                  <Text type="supporting" color="secondary">
+                    {t("Mis à jour")} · {new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </Text>
+                ) : null}
+              </HStack>
               {data === null ? (
-                <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
-                  {[0, 1, 2].map((i) => (
-                    <Card key={i}>
-                      <VStack gap={2}>
-                        <Skeleton height={16} width={140} />
-                        <Skeleton height={14} width={200} />
-                      </VStack>
-                    </Card>
-                  ))}
-                </Grid>
+                loadError ? (
+                  <Card>
+                    <VStack gap={2}>
+                      <HStack gap={2} vAlign="center">
+                        <Icon icon={ExclamationTriangleIcon} size="sm" />
+                        <Text weight="semibold">{t("Impossible de charger le tableau de bord")}</Text>
+                      </HStack>
+                      <Text type="supporting" color="secondary">
+                        {t("Le serveur n'a pas répondu. Réessaie dans un instant.")}
+                      </Text>
+                      <HStack>
+                        <Button label={t("Réessayer")} variant="secondary" size="sm" onClick={load} />
+                      </HStack>
+                    </VStack>
+                  </Card>
+                ) : (
+                  <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+                    {[0, 1, 2].map((i) => (
+                      <Card key={i}>
+                        <VStack gap={2}>
+                          <Skeleton height={16} width={140} />
+                          <Skeleton height={14} width={200} />
+                        </VStack>
+                      </Card>
+                    ))}
+                  </Grid>
+                )
               ) : data.running_models.length === 0 ? (
                 <EmptyState
                   icon={<Icon icon={MoonIcon} size="lg" />}
@@ -570,12 +600,25 @@ export default function HomePage() {
               </Card>
             </Grid>
 
-            {data && data.my_requests.length > 0 && (
+            {data && (
               <VStack gap={2}>
                 <Text weight="semibold">{t("Mes dernières demandes")}</Text>
-                <Card padding={0}>
-                  <Table<ModelRequest> data={data.my_requests} columns={buildRequestColumns(t)} idKey="model_id" density="balanced" dividers="rows" />
-                </Card>
+                {data.my_requests.length > 0 ? (
+                  <Card padding={0}>
+                    <Table<ModelRequest> data={data.my_requests} columns={buildRequestColumns(t)} idKey="model_id" density="balanced" dividers="rows" />
+                  </Card>
+                ) : (
+                  <Card padding={4}>
+                    <VStack gap={2}>
+                      <Text type="supporting" color="secondary">
+                        {t("Aucune demande de modèle pour l'instant.")}
+                      </Text>
+                      <HStack>
+                        <Button label={t("Demander un modèle")} variant="secondary" size="sm" href="/request" />
+                      </HStack>
+                    </VStack>
+                  </Card>
+                )}
               </VStack>
             )}
           </VStack>

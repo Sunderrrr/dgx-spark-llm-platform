@@ -2369,12 +2369,6 @@ export default function PlaygroundPage() {
                   value={model}
                   onChange={(v) => setModel(v ?? "")}
                 />
-                {model && (
-                  <Badge label={`${Math.round((used / (max || 1)) * 100)} % ${t("contexte")}`} variant="info" />
-                )}
-                {convTokens > 0 && (
-                  <Badge label={`${convTokens.toLocaleString("fr-FR")} ${t("tokens")}`} variant="info" />
-                )}
               </HStack>
             </VStack>
             <HStack gap={2}>

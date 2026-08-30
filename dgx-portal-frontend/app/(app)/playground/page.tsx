@@ -40,6 +40,8 @@ import {
   ArrowDownTrayIcon,
   ArrowDownIcon,
   ClipboardDocumentIcon,
+  StarIcon,
+  BookmarkIcon,
   LinkIcon,
   ArrowPathIcon,
   CheckIcon,
@@ -748,6 +750,42 @@ type ExportConversation = {
   messages: { role: "user" | "assistant"; content: string; hidden?: boolean }[];
 };
 
+// Conversations épinglées (star) : préférence personnelle stockée côté navigateur —
+// pas de migration backend, partagée sur ce poste.
+const PINNED_KEY = "cronos.pinned.conversations";
+function loadPinnedIds(): string[] {
+  try {
+    return (JSON.parse(localStorage.getItem(PINNED_KEY) || "[]") as string[]);
+  } catch {
+    return [];
+  }
+}
+function savePinnedIds(ids: string[]) {
+  try {
+    localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
+  } catch {
+    /* stockage indisponible (mode privé) : on ignore */
+  }
+}
+
+// Snippets / prompts réutilisables, sauvegardés par l'utilisateur (navigateur).
+type Snippet = { id: string; label: string; content: string };
+const SNIPPET_KEY = "cronos.snippets";
+function loadSnippets(): Snippet[] {
+  try {
+    return (JSON.parse(localStorage.getItem(SNIPPET_KEY) || "[]") as Snippet[]);
+  } catch {
+    return [];
+  }
+}
+function saveSnippets(list: Snippet[]) {
+  try {
+    localStorage.setItem(SNIPPET_KEY, JSON.stringify(list));
+  } catch {
+    /* stockage indisponible : on ignore */
+  }
+}
+
 function convTitleFallback(msgs: ExportConversation["messages"], fallback: string): string {
   const first = msgs.find((m) => m.role === "user")?.content ?? "";
   return (first.slice(0, 80).trim() || fallback);
@@ -1216,6 +1254,9 @@ export default function PlaygroundPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Recherche dans l'historique + conversations épinglées (star).
+  const [histQuery, setHistQuery] = useState("");
+  const [pinnedIds, setPinnedIds] = useState<string[]>(loadPinnedIds);
   // Renommage d'une conversation depuis l'historique.
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -1324,6 +1365,10 @@ export default function PlaygroundPage() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
+  // Tokens cumulés de la conversation en cours (coût réel : chaque requête
+  // facture prompt + complétion, donc la somme des `total_tokens` = ce qui est
+  // débité du budget). Per-message, `m.tokens` est l'affichage déjà en place.
+  const [convTokens, setConvTokens] = useState(0);
   const { who } = useWhoami();
   const firstName = who?.fullname?.split(" ")[0] || "";
   // Artifact/canvas side-panel: when the assistant writes a file (a substantial
@@ -1429,6 +1474,7 @@ export default function PlaygroundPage() {
     setMessages([]);
     setCurrentId(null);
     setCtxUsed(0);
+    setConvTokens(0);
     updateQueue([]);
     closeArtifact();
   }
@@ -1440,6 +1486,7 @@ export default function PlaygroundPage() {
     setCurrentId(conv.id);
     if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
     setCtxUsed(0);
+    setConvTokens(0);
     updateQueue([]);
     closeArtifact();
   }
@@ -1450,7 +1497,35 @@ export default function PlaygroundPage() {
     if (id === currentId) setCurrentId(null);
   }
 
+  // Star/épingler une conversation (préférence navigateur, triée en tête).
+  function togglePinned(id: string) {
+    setPinnedIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
+      savePinnedIds(next);
+      return next;
+    });
+  }
+
+  // Snippets : sauvegarde le prompt courant, insère, supprime.
+  function saveSnippet() {
+    const content = input.trim();
+    if (!content) return;
+    // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+    const snip: Snippet = { id: String(Date.now()), label: content.slice(0, 60), content };
+    setSnippets((prev) => { const next = [...prev, snip]; saveSnippets(next); return next; });
+  }
+  function deleteSnippet(id: string) {
+    setSnippets((prev) => { const next = prev.filter((s) => s.id !== id); saveSnippets(next); return next; });
+  }
+  function insertSnippet(content: string) {
+    setInput(content);
+    setSnippetsOpen(false);
+  }
+
   const [shared, setShared] = useState(false);
+  // Snippets / prompts réutilisables (bibliothèque navigateur).
+  const [snippetsOpen, setSnippetsOpen] = useState(false);
+  const [snippets, setSnippets] = useState<Snippet[]>(loadSnippets);
 
   // Export (Markdown/JSON) de la conversation chargée.
   function exportConversation(conv: ExportConversation, fmt: "md" | "json") {
@@ -1672,7 +1747,11 @@ export default function PlaygroundPage() {
       if (lastArt.kind === "code" || liveDocOpenRef.current) setArtifact(lastArt);
     }
     liveDocOpenRef.current = false;
-    if (usage?.total_tokens) setCtxUsed(usage.total_tokens);
+    const total = usage?.total_tokens;
+    if (total) {
+      setCtxUsed(total);
+      setConvTokens((p) => p + total);
+    }
     const savedId = persist(finalMessages, currentId, model);
     setCurrentId(savedId ?? null);
     setStreaming(false);
@@ -1911,9 +1990,30 @@ export default function PlaygroundPage() {
     }
   }
 
+  // Éditer un message PASSÉ et rebrancher la suite : on garde tout ce qui
+  // précède ce tour, on retire ce message + la suite, et on remet son contenu
+  // dans l'input pour le renvoyer (la conversation repart de là).
+  function editMessage(i: number) {
+    if (streaming) return;
+    const m = messages[i];
+    if (!m || m.role !== "user") return;
+    setMessages(messages.slice(0, i));
+    setInput(m.content);
+  }
+
 
   const max = modelLimits[model] || 32768;
   const used = Math.max(ctxUsed, estimateTokens(settings, input, messages, attachments));
+
+  // Liste d'historique : recherche par titre + épinglées en tête, puis récentes.
+  const q = histQuery.trim().toLowerCase();
+  const visibleConvs = conversations
+    .filter((c) => !q || (c.title || "").toLowerCase().includes(q))
+    .sort((a, b) => {
+      const pa = pinnedIds.includes(a.id) ? 0 : 1;
+      const pb = pinnedIds.includes(b.id) ? 0 : 1;
+      return pa - pb || ((b.ts ?? 0) - (a.ts ?? 0));
+    });
   const lastMsg = messages[messages.length - 1];
   // While a document is being streamed, the chat shows a card (not the raw text)
   // and the side panel can show a live view of the document being written.
@@ -2041,6 +2141,23 @@ export default function PlaygroundPage() {
             <VStack gap={0}>
               <Heading level={2}>{t("Playground")}</Heading>
               <Text type="supporting" color="secondary">{t("Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.")}</Text>
+              <HStack gap={2} vAlign="center" wrap="wrap">
+                <Selector
+                  label={t("Modèle")}
+                  isLabelHidden
+                  size="sm"
+                  placeholder={t("Aucun modèle actif")}
+                  options={runningModels}
+                  value={model}
+                  onChange={(v) => setModel(v ?? "")}
+                />
+                {model && (
+                  <Badge label={`${Math.round((used / (max || 1)) * 100)} % ${t("contexte")}`} variant="info" />
+                )}
+                {convTokens > 0 && (
+                  <Badge label={`${convTokens.toLocaleString("fr-FR")} ${t("tokens")}`} variant="info" />
+                )}
+              </HStack>
             </VStack>
             <HStack gap={2}>
               <Button
@@ -2226,17 +2343,7 @@ export default function PlaygroundPage() {
                       </ChatComposerDrawer>
                     ) : undefined
                   }
-                  footerActions={
-                    <Selector
-                      label={t("Modèle")}
-                      isLabelHidden
-                      size="sm"
-                      placeholder={t("Aucun modèle actif")}
-                      options={runningModels}
-                      value={model}
-                      onChange={(v) => setModel(v ?? "")}
-                    />
-                  }
+                  footerActions={undefined}
                 />
                 <input
                   ref={fileInputRef}
@@ -2267,6 +2374,13 @@ export default function PlaygroundPage() {
                         onClick={regenerate}
                       />
                     )}
+                    <Button
+                      label={t("Snippets")}
+                      variant="ghost"
+                      size="sm"
+                      icon={<Icon icon={BookmarkIcon} size="sm" />}
+                      onClick={() => setSnippetsOpen(true)}
+                    />
                   </HStack>
                 </HStack>
               </VStack>
@@ -2464,14 +2578,24 @@ export default function PlaygroundPage() {
                                   )}
                                 </HStack>
                               ) : m.role === "user" ? (
-                                <Button
-                                  label={t("Copier")}
-                                  variant="ghost"
-                                  size="sm"
-                                  isIconOnly
-                                  icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                  onClick={() => navigator.clipboard?.writeText(m.content)}
-                                />
+                                <HStack gap={1} vAlign="center">
+                                  <Button
+                                    label={t("Éditer")}
+                                    variant="ghost"
+                                    size="sm"
+                                    isIconOnly
+                                    icon={<Icon icon={PencilIcon} size="sm" />}
+                                    onClick={() => editMessage(i)}
+                                  />
+                                  <Button
+                                    label={t("Copier")}
+                                    variant="ghost"
+                                    size="sm"
+                                    isIconOnly
+                                    icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+                                    onClick={() => navigator.clipboard?.writeText(m.content)}
+                                  />
+                                </HStack>
                               ) : undefined
                             }
                           />
@@ -2772,11 +2896,20 @@ export default function PlaygroundPage() {
               hasDivider
               onOpenChange={(o) => { if (!o) setHistoryOpen(false); }}
             />
-            <VStack gap={1} padding={3} height={520} isScrollable>
-              {conversations.length === 0 ? (
-                <Text color="secondary">{t("Aucune conversation")}</Text>
+            <VStack padding={3} gap={2}>
+              <TextInput
+                label={t("Rechercher")}
+                isLabelHidden
+                size="sm"
+                value={histQuery}
+                onChange={setHistQuery}
+                placeholder={t("Rechercher une conversation")}
+              />
+              <VStack gap={1} height={470} isScrollable>
+              {visibleConvs.length === 0 ? (
+                <Text color="secondary">{q ? t("Aucun résultat") : t("Aucune conversation")}</Text>
               ) : (
-                conversations.map((conv) =>
+                visibleConvs.map((conv) =>
                   renamingId === conv.id ? (
                     <HStack key={conv.id} gap={2} vAlign="center">
                       <StackItem size="fill">
@@ -2807,6 +2940,14 @@ export default function PlaygroundPage() {
                           </VStack>
                         </ClickableCard>
                       </StackItem>
+                      <Button
+                        label={pinnedIds.includes(conv.id) ? t("Désépingler") : t("Épingler")}
+                        variant="ghost"
+                        size="sm"
+                        isIconOnly
+                        icon={<Icon icon={StarIcon} size="sm" />}
+                        onClick={() => togglePinned(conv.id)}
+                      />
                       <Button
                         label={t("Renommer")}
                         variant="ghost"
@@ -2842,6 +2983,48 @@ export default function PlaygroundPage() {
                     </HStack>
                   ),
                 )
+              )}
+              </VStack>
+            </VStack>
+          </Dialog>
+          <Dialog isOpen={snippetsOpen} onOpenChange={(o) => { if (!o) setSnippetsOpen(false); }} width={480}>
+            <DialogHeader
+              title={t("Snippets")}
+              subtitle={t("Prompts réutilisables")}
+              hasDivider
+              onOpenChange={(o) => { if (!o) setSnippetsOpen(false); }}
+            />
+            <VStack padding={3} gap={3}>
+              <Button
+                label={t("Enregistrer le prompt courant en snippet")}
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={PlusIcon} size="sm" />}
+                isDisabled={!input.trim()}
+                onClick={saveSnippet}
+              />
+              {snippets.length === 0 ? (
+                <Text color="secondary">{t("Aucun snippet")}</Text>
+              ) : (
+                <VStack gap={1} height={380} isScrollable>
+                  {snippets.map((s) => (
+                    <HStack key={s.id} gap={2} vAlign="center">
+                      <StackItem size="fill">
+                        <ClickableCard label={s.label} variant="muted" onClick={() => insertSnippet(s.content)}>
+                          <Text maxLines={2} type="supporting" color="secondary">{s.content}</Text>
+                        </ClickableCard>
+                      </StackItem>
+                      <Button
+                        label={t("Supprimer")}
+                        variant="ghost"
+                        size="sm"
+                        isIconOnly
+                        icon={<Icon icon={TrashIcon} size="sm" />}
+                        onClick={() => deleteSnippet(s.id)}
+                      />
+                    </HStack>
+                  ))}
+                </VStack>
               )}
             </VStack>
           </Dialog>

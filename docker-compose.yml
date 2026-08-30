@@ -106,6 +106,9 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       SMTP_FROM: ${SMTP_FROM}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
+      # CTA « Open the Admin dashboard » dans les emails (si vide, aucun bouton).
+      ADMIN_URL: ${ADMIN_URL}
+      MEDIA_REQUEST_COOLDOWN_S: ${MEDIA_REQUEST_COOLDOWN_S}
       KEY_MAX_BUDGET: "0.002"
       KEY_BUDGET_DURATION: "1d"
       VLLM_RUNNER_URL: http://172.19.0.1:8001

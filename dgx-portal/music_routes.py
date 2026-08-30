@@ -42,6 +42,18 @@ def _music_set_done(job_id, username, done):
     except Exception:
         pass
 
+def _music_cancelled(job_id, username):
+    """True si l'utilisateur a demandé l'arrêt de ce job (bouton « Arrêter »)."""
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        row = c.execute("SELECT status FROM music_jobs WHERE job_id=? AND username=?",
+                        (job_id, username)).fetchone()
+        c.close()
+        return bool(row and row['status'] == 'cancelled')
+    except Exception:
+        return False
+
+
 def _music_worker(job_id, username, prompt, lyrics, duration, count):
     """Thread : appelle le sidecar `count` fois, écrit un WAV par version.
 
@@ -50,11 +62,15 @@ def _music_worker(job_id, username, prompt, lyrics, duration, count):
     appel repart d'une graine différente → autant de variantes du même morceau.
     Génération longue (~4x la durée demandée) → timeout large, et le portail ne
     bloque pas la requête de l'utilisateur : la page interroge /status.
+    Annulation coopérative (comme l'image) : on vérifie le drapeau avant chaque
+    version, la version en cours se termine et le slot GPU est libéré ensuite.
     """
     started = datetime.now()
     done = 0
     os.makedirs(MUSIC_FILES_DIR, exist_ok=True)
     for idx in range(count):
+        if _music_cancelled(job_id, username):
+            break
         try:
             r = requests.post(f"{MUSIC_URL}/generate",
                               data={'prompt': prompt, 'lyrics': lyrics, 'duration': duration},
@@ -66,7 +82,8 @@ def _music_worker(job_id, username, prompt, lyrics, duration, count):
                 _music_set_done(job_id, username, done)
         except Exception:
             pass
-    status = 'done' if done else 'error'
+    cancelled = _music_cancelled(job_id, username)
+    status = 'cancelled' if cancelled else ('done' if done else 'error')
     dur = int((datetime.now() - started).total_seconds() * 1000) if done else None
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
@@ -142,6 +159,26 @@ def api_music_status(job_id):
     if not row:
         abort(404)
     return jsonify({'status': row['status'], 'count': row['count'], 'done_count': row['done_count']})
+
+
+@bp.route('/api/music/cancel/<job_id>', methods=['POST'])
+@login_required
+def api_music_cancel(job_id):
+    """Demande l'arrêt d'une composition (coopératif : la version en cours se
+    termine, la suite du lot est interrompue). Ne concerne que ses propres jobs."""
+    db = get_db()
+    row = db.execute("SELECT status FROM music_jobs WHERE job_id=? AND username=?",
+                     (job_id, session['username'])).fetchone()
+    if not row:
+        abort(404)
+    if row['status'] in ('done', 'cancelled'):
+        return jsonify({'ok': True})
+    if row['status'] != 'running':
+        return jsonify({'error': "Ce job n'est plus actif."}), 400
+    db.execute("UPDATE music_jobs SET status='cancelled' WHERE job_id=? AND username=?",
+               (job_id, session['username']))
+    db.commit()
+    return jsonify({'ok': True})
 
 
 @bp.route('/music/file/<job_id>')

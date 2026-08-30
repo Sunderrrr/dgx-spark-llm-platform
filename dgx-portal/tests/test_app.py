@@ -658,6 +658,10 @@ class GardeDesRoutesTest(unittest.TestCase):
         'static':             "fichiers statiques servis par Flask",
         'healthz':            "liveness publique (healthcheck / sonde) : ne renvoie "
                               "que {ok, time}, rien d'interné",
+        'prom_metrics':       "métriques Prometheus (texte) pour Grafana : publique "
+                              "par choix (pull), réseau LAN/netbird uniquement",
+        'conversations.share_view': "vue publique, lecture seule, d'une conversation "
+                                    "partagée (jeton opaque) : contenu échappé",
     }
 
     def test_aucune_route_sans_garde_hors_liste(self):
@@ -844,3 +848,168 @@ class BudgetPeriodTest(unittest.TestCase):
         with mock.patch.object(portal, "_real_tokens_by_user", return_value={'budget-test': 99999}):
             used, remaining = portal._budget_remaining('budget-test', 1000, '7d')
             self.assertEqual(remaining, 0)
+
+
+class PromMetricsTest(unittest.TestCase):
+    """/metrics (Prometheus) : exposition publique, texte, toujours 200."""
+
+    def test_metriques_publiques(self):
+        c = portal.app.test_client()
+        r = c.get("/metrics")
+        self.assertEqual(r.status_code, 200)
+        body = r.get_data(as_text=True)
+        self.assertIn("cronos_cpu_pct", body)
+        self.assertIn("cronos_model_online", body)
+        self.assertIn("cronos_gpu_util_pct", body)
+
+
+class MediaCancelTest(unittest.TestCase):
+    """Annulation d'une génération image/musique/vidéo (bouton « Arrêter »)."""
+
+    CSRF = "test-csrf"
+
+    def setUp(self):
+        portal.app.config["TESTING"] = True
+        with portal.app.app_context():
+            db = portal.get_db()
+            for t in ("image_jobs", "music_jobs", "video_jobs"):
+                db.execute(f"DELETE FROM {t}")
+            db.commit()
+
+    def _login(self, c, username="demo"):
+        with c.session_transaction() as s:
+            s["username"] = username
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+
+    def _headers(self):
+        return {"X-CSRFToken": self.CSRF}
+
+    def test_post_sans_jeton_refuse(self):
+        # before_request vérifie le CSRF avant toute chose (défense en profondeur).
+        c = portal.app.test_client(); self._login(c)
+        self.assertEqual(c.post("/api/image/cancel/p1").status_code, 400)
+
+    def test_img_cancel_inconnu_404(self):
+        c = portal.app.test_client(); self._login(c)
+        self.assertEqual(c.post("/api/image/cancel/inconnu", headers=self._headers()).status_code, 404)
+
+    def test_img_cancel_noop_si_deja_fini(self):
+        with portal.app.app_context():
+            portal.get_db().execute(
+                "INSERT INTO image_jobs (username,prompt_id,prompt,status,count,done_count,created_at) "
+                "VALUES ('demo','p1','x','done',1,1,'2025-01-01')")
+            portal.get_db().commit()
+        c = portal.app.test_client(); self._login(c)
+        r = c.post("/api/image/cancel/p1", headers=self._headers())
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()["ok"])
+
+    def test_img_cancel_annule_un_job_en_cours(self):
+        with portal.app.app_context():
+            portal.get_db().execute(
+                "INSERT INTO image_jobs (username,prompt_id,prompt,status,count,done_count,created_at) "
+                "VALUES ('demo','p2','x','running',4,0,'2025-01-01')")
+            portal.get_db().commit()
+        c = portal.app.test_client(); self._login(c)
+        self.assertTrue(c.post("/api/image/cancel/p2", headers=self._headers()).get_json()["ok"])
+        with portal.app.app_context():
+            st = portal.get_db().execute(
+                "SELECT status FROM image_jobs WHERE prompt_id='p2'").fetchone()["status"]
+        self.assertEqual(st, "cancelled")
+
+    def test_music_cancel_annule(self):
+        with portal.app.app_context():
+            portal.get_db().execute(
+                "INSERT INTO music_jobs (username,job_id,prompt,status,count,done_count,created_at,duration_ms) "
+                "VALUES ('demo','m1','x','running',3,0,'2025-01-01',NULL)")
+            portal.get_db().commit()
+        c = portal.app.test_client(); self._login(c)
+        self.assertTrue(c.post("/api/music/cancel/m1", headers=self._headers()).get_json()["ok"])
+        with portal.app.app_context():
+            st = portal.get_db().execute(
+                "SELECT status FROM music_jobs WHERE job_id='m1'").fetchone()["status"]
+        self.assertEqual(st, "cancelled")
+
+    def test_video_cancel_annule(self):
+        with portal.app.app_context():
+            portal.get_db().execute(
+                "INSERT INTO video_jobs (username,prompt_id,prompt,status,created_at,req_duration_s) "
+                "VALUES ('demo','v1','x','running','2025-01-01',5)")
+            portal.get_db().commit()
+        c = portal.app.test_client(); self._login(c)
+        self.assertTrue(c.post("/api/video/cancel/v1", headers=self._headers()).get_json()["ok"])
+
+
+class ShareConversationTest(unittest.TestCase):
+    """Partage d'une conversation : création d'un lien public en lecture seule."""
+
+    CSRF = "test-csrf"
+
+    def setUp(self):
+        portal.app.config["TESTING"] = True
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute("DELETE FROM conversations")
+            db.execute("DELETE FROM conversation_shares")
+            db.commit()
+
+    def _login(self, c, username="demo"):
+        with c.session_transaction() as s:
+            s["username"] = username
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+
+    def test_post_sans_jeton_refuse(self):
+        # Pas de session → before_request renvoie 400 (jeton manquant) avant toute
+        # autre considération : on ne crée jamais un partage anonyme.
+        self.assertEqual(
+            portal.app.test_client().post("/conversations/share", data={"client_id": "x"}).status_code,
+            400)
+
+    def test_partage_puis_vue_lecture_seule(self):
+        with portal.app.app_context():
+            portal.get_db().execute(
+                "INSERT INTO conversations (username,client_id,title,model,messages,updated_at) "
+                "VALUES ('demo','c1','Titre','m1','[{\"role\":\"user\",\"content\":\"Bonjour\"}]','2025-01-01')")
+            portal.get_db().commit()
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = "demo"
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+        r = c.post("/conversations/share", data={"client_id": "c1"}, headers={"X-CSRFToken": self.CSRF})
+        self.assertEqual(r.status_code, 200)
+        token = r.get_json()["token"]
+        self.assertTrue(token)
+        view = c.get(f"/c/{token}")
+        self.assertEqual(view.status_code, 200)
+        self.assertIn("Bonjour", view.get_data(as_text=True))
+
+    def test_vue_inconnue_404(self):
+        self.assertEqual(portal.app.test_client().get("/c/nimportequoi").status_code, 404)
+
+
+class AuditLogTest(unittest.TestCase):
+    """Journal d'audit : écriture + lecture admin."""
+
+    def setUp(self):
+        portal.app.config["TESTING"] = True
+        with portal.app.app_context():
+            portal.get_db().execute("DELETE FROM audit_log")
+            portal.get_db().commit()
+
+    def test_audit_sans_session_est_refuse(self):
+        c = portal.app.test_client()
+        self.assertIn(c.get("/admin/audit").status_code, (302, 401, 403))
+
+    def test_log_puis_liste(self):
+        from db import log_audit
+        log_audit("ops", "model.launch", "lancement de test")
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = "ops"
+            s["auth_at"] = int(time.time())
+            s["is_admin"] = True
+        rows = c.get("/admin/audit").get_json()
+        self.assertTrue(any(r["action"] == "model.launch" and r["username"] == "ops" for r in rows))

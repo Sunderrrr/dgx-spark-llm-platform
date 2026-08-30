@@ -1,5 +1,5 @@
 import os, re, time, requests
-from flask import Flask, request, session, redirect, url_for, flash, g, jsonify
+from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
@@ -673,6 +673,34 @@ def healthz():
     """Liveness minimale, publique — pour les healthchecks / sondes de
     disponibilité. Ne révèle rien d'interné."""
     return jsonify({'ok': True, 'time': int(time.time())})
+
+
+@app.route('/metrics')
+def prom_metrics():
+    """Exposition Prometheus (texte) — pour scraper avec Grafana.
+
+    Publique par choix : c'est le standard pour un pull de métriques, et on le
+    branche sur le réseau LAN/netbird (jamais exposé sur l'internet). Reprend le
+    payload du runner sans dupliquer la collecte (déjà mise en cache côté lui).
+    """
+    m = runner_metrics() or {}
+    ram = m.get('ram') or {}
+    gpu = m.get('gpu') or {}
+    online = 1 if m.get('model_status') == 'running' else 0
+
+    def _g(name, doc, value):
+        return f"# HELP cronos_{name} {doc}\n# TYPE cronos_{name} gauge\ncronos_{name} {value}"
+
+    parts = [
+        _g('cpu_pct', 'CPU usage (%)', m.get('cpu_pct') if m.get('cpu_pct') is not None else 'NaN'),
+        _g('ram_used_gb', 'Host RAM used (GB)', ram.get('used_gb', 'NaN')),
+        _g('ram_total_gb', 'Host RAM total (GB)', ram.get('total_gb', 'NaN')),
+        _g('gpu_util_pct', 'GPU utilisation (%)', gpu.get('util', 'NaN')),
+        _g('gpu_power_w', 'GPU power draw (W)', gpu.get('power', 'NaN')),
+        _g('gpu_temp_c', 'GPU temperature (C)', gpu.get('temp', 'NaN')),
+        _g('model_online', 'Served chat model online (1/0)', online),
+    ]
+    return Response('\n'.join(parts) + '\n', mimetype='text/plain')
 
 
 def _service_reachable(url, expect=(200, 401), timeout=3):

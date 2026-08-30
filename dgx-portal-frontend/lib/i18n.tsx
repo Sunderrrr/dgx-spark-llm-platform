@@ -488,6 +488,19 @@ const EN: Record<string, string> = {
   "Tapez / pour appeler une compétence": "Type / to call a skill",
   "Résumez un document, générez une image, écrivez du code…":
     "Summarize a document, generate an image, write code…",
+  "Créer un skill": "Create a skill",
+  "Aucune compétence ne correspond": "No matching skill",
+  "Commande (optionnel)": "Command (optional)",
+  "Prompt à envoyer": "Prompt to send",
+  "Créer le skill": "Create the skill",
+  "Mes compétences": "My skills",
+  "Ex : Résumer des PDF": "E.g. Summarize PDFs",
+  "Ex : resumer": "E.g. summarize",
+  "Ce que fait cette compétence": "What this skill does",
+  "Ex : Résume ce document…": "E.g. Summarize this document…",
+  "Ex : Tu es un assistant spécialisé…": "E.g. You are a specialised assistant…",
+  "Une compétence = un prompt à envoyer + une commande / pour l'appeler":
+    "A skill = a prompt to send + a / command to call it",
 
   // — Support —
   "Un assistant IA connecté à la plateforme : il voit tes clés (masquées), ton budget et l'état du serveur pour t'aider en cas de pépin.":

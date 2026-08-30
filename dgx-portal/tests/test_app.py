@@ -777,3 +777,70 @@ class HealthRouteTest(unittest.TestCase):
             self.assertIn("services", body)
             self.assertFalse(body["services"]["runner"]["reachable"])
             self.assertFalse(body["ok"])
+
+
+class PendingCountRouteTest(unittest.TestCase):
+    """/api/pending-count : badge sidebar (demandes modèle + budget en attente)."""
+
+    def setUp(self):
+        portal.app.config["TESTING"] = True
+        with portal.app.app_context():
+            db = portal.get_db()
+            for t in ("model_requests", "budget_requests"):
+                db.execute(f"DELETE FROM {t}")
+            db.commit()
+
+    def test_requiert_session(self):
+        c = portal.app.test_client()
+        self.assertEqual(c.get("/api/pending-count").status_code, 401)
+
+    def test_compte_les_demandes_en_attente(self):
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute(
+                "INSERT INTO model_requests (username, fullname, model_id, created_at, status) "
+                "VALUES ('demo','D','m1','2025-01-01','pending')")
+            db.execute(
+                "INSERT INTO model_requests (username, fullname, model_id, created_at, status) "
+                "VALUES ('demo','D','m2','2025-01-01','approved')")
+            db.execute(
+                "INSERT INTO budget_requests (username, fullname, key_alias, created_at, status) "
+                "VALUES ('other','O','k','2025-01-01','pending')")
+            db.commit()
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = "demo"
+            s["auth_at"] = int(time.time())
+        # Utilisateur non-admin : uniquement ses propres demandes en attente.
+        self.assertEqual(c.get("/api/pending-count").get_json()["count"], 1)
+        # Admin : toutes (demo pending + other pending) = 2.
+        with c.session_transaction() as s:
+            s["is_admin"] = True
+        self.assertEqual(c.get("/api/pending-count").get_json()["count"], 2)
+
+
+class BudgetPeriodTest(unittest.TestCase):
+    """Découpage de la fenêtre budgétaire + calcul du quota restant."""
+
+    def setUp(self):
+        portal._BUDGET_CACHE.clear()
+
+    def test_budget_period_days_parse(self):
+        self.assertEqual(portal._budget_period_days('1d'), 1)
+        self.assertEqual(portal._budget_period_days('7d'), 7)
+        self.assertEqual(portal._budget_period_days('30d'), 30)
+        self.assertEqual(portal._budget_period_days('3 mois'), 30)
+        self.assertEqual(portal._budget_period_days('xyz'), 1)
+
+    def test_budget_remaining_utilise_les_tokens_reels(self):
+        import unittest.mock as mock
+        with mock.patch.object(portal, "_real_tokens_by_user", return_value={'budget-test': 1200}):
+            used, remaining = portal._budget_remaining('budget-test', 10000, '7d')
+            self.assertEqual(used, 1200)
+            self.assertEqual(remaining, 8800)
+        # Plancher : jamais négatif quand on a dépassé le budget. On vide le
+        # cache entre les deux (sinon le TTL renvoie la valeur précédente).
+        portal._BUDGET_CACHE.clear()
+        with mock.patch.object(portal, "_real_tokens_by_user", return_value={'budget-test': 99999}):
+            used, remaining = portal._budget_remaining('budget-test', 1000, '7d')
+            self.assertEqual(remaining, 0)

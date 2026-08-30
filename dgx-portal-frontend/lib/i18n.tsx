@@ -25,6 +25,11 @@ const EN: Record<string, string> = {
   "Réessaie dans": "Try again in",
   "min": "min",
   "Demande enregistrée mais l'email à l'admin n'a pas pu partir.": "Request recorded, but the admin email could not be sent.",
+  "Progression de la génération": "Generation progress",
+  "Réessayer": "Retry",
+  "Quota consommé": "Budget used",
+  "Restant :": "Remaining:",
+  "Demander plus de budget": "Request more budget",
   // — Navigation and shell —
   "Accueil": "Home",
   "Playground": "Playground",

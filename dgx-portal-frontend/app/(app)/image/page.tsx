@@ -15,8 +15,10 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Item } from "@astryxdesign/core/Item";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
-import { PhotoIcon, MoonIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
+import { PhotoIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -84,17 +86,24 @@ export default function ImagePage() {
       .catch(() => setAvailable(null));
   }, []);
 
-  async function generate() {
-    if (!prompt.trim()) return;
+  // Un génération peut partir du formulaire (état courant) ou d'un « Réessayer »
+  // sur un item d'historique échoué (prompt/batch fournis en dur — setState étant
+  // asynchrone, on passe la valeur à la requête plutôt que de relire l'état).
+  async function generate(opts?: { prompt?: string; batch?: number }) {
+    const p = (opts?.prompt ?? prompt).trim();
+    const b = Math.max(1, opts?.batch ?? batch);
+    if (!p) return;
+    if (opts?.prompt !== undefined) setPrompt(opts.prompt);
+    if (opts?.batch !== undefined) setBatch(b);
     setStatus("pending");
     setPromptId(null);
-    setJobCount(batch);
+    setJobCount(b);
     setDoneCount(0);
     try {
       const res = await postFormData<{ prompt_id?: string; count?: number; error?: string }>(
         "/api/image/generate",
         csrf,
-        { prompt, count: String(batch) },
+        { prompt: p, count: String(b) },
       );
       if (!res.prompt_id) {
         showToast({ body: res.error ? t(res.error) : t("Échec de la génération."), type: "error" });
@@ -102,7 +111,7 @@ export default function ImagePage() {
         return;
       }
       setPromptId(res.prompt_id);
-      setJobCount(res.count ?? batch);
+      setJobCount(res.count ?? b);
       loadHistory();
       pollRef.current = setInterval(async () => {
         const r = await fetch(`/api/image/status/${res.prompt_id}`, { credentials: "include" });
@@ -144,6 +153,11 @@ export default function ImagePage() {
     setDoneCount(item.done_count ?? (item.status === "done" ? (item.count ?? 1) : 0));
   }
 
+  // Relance une génération échouée avec le même prompt & le même nombre d'images.
+  function retryItem(item: HistoryItem) {
+    generate({ prompt: item.prompt, batch: item.count ?? 1 });
+  }
+
   const isBusy = status === "pending" || status === "running";
 
   return (
@@ -151,7 +165,24 @@ export default function ImagePage() {
       height="fill"
       content={
         <LayoutContent padding={6} isScrollable>
-          {available === false && history.length === 0 ? (
+          {/* Chargement : squelettes (available démarre à null) pour éviter le
+              flash du formulaire avant l'EmptyState. */}
+          {available === null ? (
+            <VStack hAlign="center" width="100%">
+              <VStack gap={5} maxWidth={720} width="100%">
+                <VStack gap={2}>
+                  <Skeleton height={28} width={260} />
+                  <Skeleton height={14} width={340} />
+                </VStack>
+                <Card>
+                  <VStack gap={4}>
+                    <Skeleton height={16} width={160} />
+                    <Skeleton height={120} radius={2} />
+                  </VStack>
+                </Card>
+              </VStack>
+            </VStack>
+          ) : available === false && history.length === 0 ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle image n'est disponible")}
@@ -215,7 +246,7 @@ export default function ImagePage() {
                       <Button
                         label={batch > 1 ? t("Générer {n} images").replace("{n}", String(batch)) : t("Générer")}
                         variant="primary"
-                        onClick={generate}
+                        onClick={() => generate()}
                         isDisabled={!prompt.trim() || isBusy}
                         isLoading={isBusy}
                       />
@@ -230,10 +261,20 @@ export default function ImagePage() {
                         variant={status === "done" ? "success" : status === "error" ? "error" : "accent"}
                         label={
                           isBusy && jobCount > 1
-                            ? t("Génération en cours… {d}/{n}").replace("{d}", String(doneCount)).replace("{n}", String(jobCount))
+                            ? t("En cours")
                             : t(STATUS_LABEL[status] ?? status)
                         }
                       />
+                      {isBusy && jobCount > 1 && (
+                        <ProgressBar
+                          label={t("Progression de la génération")}
+                          value={doneCount}
+                          max={jobCount}
+                          variant="accent"
+                          hasValueLabel
+                          formatValueLabel={(v, m) => `${v}/${m}`}
+                        />
+                      )}
                       {promptId && (jobCount > 1 || isBusy) ? (
                         <Grid columns={{ minWidth: 220, max: 2 }} gap={3}>
                           {Array.from({ length: jobCount }).map((_, idx) => (
@@ -281,6 +322,14 @@ export default function ImagePage() {
                           </VStack>
                         </AspectRatio>
                       )}
+                      {status === "error" && (
+                        <Button
+                          label={t("Réessayer")}
+                          variant="secondary"
+                          icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                          onClick={() => generate()}
+                        />
+                      )}
                     </VStack>
                   </Card>
                 )}
@@ -302,10 +351,22 @@ export default function ImagePage() {
                           }
                           startContent={<PhotoIcon width={20} height={20} />}
                           endContent={
-                            <StatusDot
-                              variant={h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"}
-                              label={t(STATUS_SHORT[h.status] ?? h.status)}
-                            />
+                            <HStack gap={2} vAlign="center">
+                              <StatusDot
+                                variant={h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"}
+                                label={t(STATUS_SHORT[h.status] ?? h.status)}
+                              />
+                              {h.status === "error" && (
+                                <Button
+                                  label={t("Réessayer")}
+                                  variant="ghost"
+                                  size="sm"
+                                  isIconOnly
+                                  icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                                  onClick={() => retryItem(h)}
+                                />
+                              )}
+                            </HStack>
                           }
                           onClick={() => viewHistoryItem(h)}
                           isSelected={h.prompt_id === promptId}

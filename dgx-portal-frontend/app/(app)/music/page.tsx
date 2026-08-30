@@ -14,8 +14,10 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Item } from "@astryxdesign/core/Item";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
-import { MusicalNoteIcon, MoonIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
+import { MusicalNoteIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -98,16 +100,24 @@ export default function MusicPage() {
     a.remove();
   }
 
-  async function generate() {
-    if (!prompt.trim() || !csrf) return;
+  async function generate(opts?: { prompt?: string; lyrics?: string; duration?: number; count?: number }) {
+    const p = (opts?.prompt ?? prompt).trim();
+    const ly = opts?.lyrics ?? lyrics;
+    const dur = opts?.duration ?? duration;
+    const n = Math.max(1, opts?.count ?? versions);
+    if (!p || !csrf) return;
+    if (opts?.prompt !== undefined) setPrompt(opts.prompt);
+    if (opts?.lyrics !== undefined) setLyrics(opts.lyrics);
+    if (opts?.duration !== undefined) setDuration(opts.duration);
+    if (opts?.count !== undefined) setVersions(n);
     setStatus("running");
     setJobId(null);
-    setJobCount(versions);
+    setJobCount(n);
     setDoneCount(0);
     try {
       const res = await postFormData<{ job_id?: string; count?: number; error?: string }>(
         "/api/music/generate", csrf,
-        { prompt, lyrics, duration: String(duration), count: String(versions) },
+        { prompt: p, lyrics: ly, duration: String(dur), count: String(n) },
       );
       if (!res.job_id) {
         showToast({ body: res.error ? t(res.error) : t("Échec de la génération."), type: "error" });
@@ -115,7 +125,7 @@ export default function MusicPage() {
         return;
       }
       setJobId(res.job_id);
-      setJobCount(res.count ?? versions);
+      setJobCount(res.count ?? n);
       loadHistory();
       // La composition peut durer plusieurs minutes : on interroge le statut
       // plutôt que de tenir une requête HTTP ouverte tout du long.
@@ -145,6 +155,11 @@ export default function MusicPage() {
     setDoneCount(item.done_count ?? (item.status === "done" ? (item.count ?? 1) : 0));
   }
 
+  // Relance une composition échouée avec les mêmes réglages.
+  function retryItem(item: HistoryItem) {
+    generate({ prompt: item.prompt, lyrics: item.lyrics ?? "", duration: item.duration_s, count: item.count ?? 1 });
+  }
+
   const isBusy = status === "running";
 
   return (
@@ -152,7 +167,23 @@ export default function MusicPage() {
       height="fill"
       content={
         <LayoutContent padding={6} isScrollable>
-          {available === false && history.length === 0 ? (
+          {available === null ? (
+            <VStack hAlign="center" width="100%">
+              <VStack gap={5} maxWidth={720} width="100%">
+                <VStack gap={2}>
+                  <Skeleton height={28} width={260} />
+                  <Skeleton height={14} width={360} />
+                </VStack>
+                <Card>
+                  <VStack gap={4}>
+                    <Skeleton height={16} width={160} />
+                    <Skeleton height={120} radius={2} />
+                    <Skeleton height={40} radius={2} />
+                  </VStack>
+                </Card>
+              </VStack>
+            </VStack>
+          ) : available === false && history.length === 0 ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle musique n'est disponible")}
@@ -235,7 +266,7 @@ export default function MusicPage() {
                       <Button
                         label={versions > 1 ? t("Composer {n} versions").replace("{n}", String(versions)) : t("Composer")}
                         variant="primary"
-                        onClick={generate}
+                        onClick={() => generate()}
                         isDisabled={!prompt.trim() || isBusy}
                         isLoading={isBusy}
                       />
@@ -252,6 +283,16 @@ export default function MusicPage() {
                       />
                       {isBusy && (
                         <VStack gap={2}>
+                          {jobCount > 1 && (
+                            <ProgressBar
+                              label={t("Progression de la génération")}
+                              value={doneCount}
+                              max={jobCount}
+                              variant="accent"
+                              hasValueLabel
+                              formatValueLabel={(v, m) => `${v}/${m}`}
+                            />
+                          )}
                           {/* Onde animée : purement décorative (le texte au-dessus
                               porte l'information), d'où aria-hidden. */}
                           <HStack className="voice-wave" gap={1} vAlign="center" hAlign="center" aria-hidden>
@@ -300,6 +341,14 @@ export default function MusicPage() {
                           ))}
                         </VStack>
                       )}
+                      {status === "error" && (
+                        <Button
+                          label={t("Réessayer")}
+                          variant="secondary"
+                          icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                          onClick={() => generate()}
+                        />
+                      )}
                     </VStack>
                   </Card>
                 )}
@@ -319,10 +368,22 @@ export default function MusicPage() {
                           }
                           startContent={<MusicalNoteIcon width={20} height={20} />}
                           endContent={
-                            <StatusDot
-                              variant={h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"}
-                              label={t(STATUS_SHORT[h.status] ?? h.status)}
-                            />
+                            <HStack gap={2} vAlign="center">
+                              <StatusDot
+                                variant={h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"}
+                                label={t(STATUS_SHORT[h.status] ?? h.status)}
+                              />
+                              {h.status === "error" && (
+                                <Button
+                                  label={t("Réessayer")}
+                                  variant="ghost"
+                                  size="sm"
+                                  isIconOnly
+                                  icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                                  onClick={() => retryItem(h)}
+                                />
+                              )}
+                            </HStack>
                           }
                           onClick={() => viewHistoryItem(h)}
                           isSelected={h.job_id === jobId}

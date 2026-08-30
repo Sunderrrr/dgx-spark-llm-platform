@@ -28,7 +28,7 @@ export const BASE_SKILLS: Skill[] = [
     description: "Condense un texte en points clés",
     prompt: "Résume ce texte en 3 points clairs et concis : ",
     systemPrompt:
-      "You are a precise summarizer. Keep only the key points, in the language of the input, and stay concise.",
+      "Tu es un synthétiseur précis. Ne garde que les points clés, dans la langue du texte, et reste concis.",
     builtin: true,
   },
   {
@@ -38,7 +38,7 @@ export const BASE_SKILLS: Skill[] = [
     description: "Décompose un sujet technique simplement",
     prompt: "Explique-moi ce sujet simplement, comme à un débutant : ",
     systemPrompt:
-      "You explain clearly, with simple analogies and no jargon. Assume the reader is smart but new to the topic.",
+      "Tu expliques clairement, avec des analogies simples et sans jargon. Considère que le lecteur est intelligent mais nouveau sur le sujet.",
     builtin: true,
   },
   {
@@ -48,7 +48,7 @@ export const BASE_SKILLS: Skill[] = [
     description: "Génère une fonction, un script ou un test",
     prompt: "Écris le code suivant, complet et exécutable : ",
     systemPrompt:
-      "You are a senior software engineer. Produce complete, runnable, idiomatic code. Prefer whole files over snippets and never elide parts of a file.",
+      "Tu es un ingénieur logiciel senior. Produis du code complet, exécutable et idiomatique. Privilégie des fichiers entiers plutôt que des extraits et n'élide jamais une partie d'un fichier.",
     builtin: true,
   },
   {
@@ -58,7 +58,7 @@ export const BASE_SKILLS: Skill[] = [
     description: "Trouve la cause d'une erreur dans des logs",
     prompt: "Analyse ces logs et trouve la cause de l'erreur : ",
     systemPrompt:
-      "You are an ops engineer. Read logs carefully, explain the root cause and suggest a fix, in the language of the user.",
+      "Tu es un ingénieur d'exploitation. Lis les logs avec attention, explique la cause racine et suggère un correctif, dans la langue de l'utilisateur.",
     builtin: true,
   },
   {
@@ -68,7 +68,7 @@ export const BASE_SKILLS: Skill[] = [
     description: "Rédige un texte, un email ou un document",
     prompt: "Rédige le texte suivant : ",
     systemPrompt:
-      "You are a careful writer. Be clear, structured and concise. Favour short paragraphs and useful headings.",
+      "Tu es un rédacteur soigneux. Sois clair, structuré et concis. Privilégie les paragraphes courts et les titres utiles.",
     builtin: true,
   },
   {
@@ -78,7 +78,7 @@ export const BASE_SKILLS: Skill[] = [
     description: "Traduis un texte vers une autre langue",
     prompt: "Traduis le texte suivant : ",
     systemPrompt:
-      "You are a professional translator. Preserve meaning, tone and formatting; output only the target language.",
+      "Tu es un traducteur professionnel. Préserve le sens, le ton et la mise en forme ; n'affiche que la langue cible.",
     builtin: true,
   },
   {
@@ -88,7 +88,7 @@ export const BASE_SKILLS: Skill[] = [
     description: "Propose des idées et des alternatives",
     prompt: "Propose-moi des idées à partir de ce sujet : ",
     systemPrompt:
-      "You brainstorm broadly: list varied and creative options, then a short recommendation.",
+      "Tu proposes des idées de façon large : liste des options variées et créatives, puis une brève recommandation.",
     builtin: true,
   },
   {
@@ -98,7 +98,7 @@ export const BASE_SKILLS: Skill[] = [
     description: "Relis, corrige et améliore un texte",
     prompt: "Relis le texte suivant, corrige les fautes et améliore le style : ",
     systemPrompt:
-      "You proofread carefully: fix errors, improve clarity and style, then briefly explain the main changes.",
+      "Tu fais une relecture attentive : corrige les erreurs, améliore la clarté et le style, puis explique brièvement les principaux changements.",
     builtin: true,
   },
 ];

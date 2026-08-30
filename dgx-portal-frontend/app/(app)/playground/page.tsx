@@ -2388,17 +2388,6 @@ export default function PlaygroundPage() {
             <VStack gap={0}>
               <Heading level={2}>{t("Playground")}</Heading>
               <Text type="supporting" color="secondary">{t("Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.")}</Text>
-              <HStack gap={2} vAlign="center" wrap="wrap">
-                <Selector
-                  label={t("Modèle")}
-                  isLabelHidden
-                  size="sm"
-                  placeholder={t("Aucun modèle actif")}
-                  options={runningModels}
-                  value={model}
-                  onChange={(v) => setModel(v ?? "")}
-                />
-              </HStack>
             </VStack>
             <HStack gap={2}>
               <Button
@@ -2644,7 +2633,17 @@ export default function PlaygroundPage() {
                       </ChatComposerDrawer>
                     ) : undefined
                   }
-                  footerActions={undefined}
+                  footerActions={
+                    <Selector
+                      label={t("Modèle")}
+                      isLabelHidden
+                      size="sm"
+                      placeholder={t("Aucun modèle actif")}
+                      options={runningModels}
+                      value={model}
+                      onChange={(v) => setModel(v ?? "")}
+                    />
+                  }
                 />
                 <input
                   ref={fileInputRef}

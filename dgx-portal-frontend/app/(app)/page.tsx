@@ -7,6 +7,7 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { Button } from "@astryxdesign/core/Button";
 import { useToast } from "@astryxdesign/core/Toast";
 import { Icon } from "@astryxdesign/core/Icon";
@@ -30,8 +31,11 @@ import {
   PhotoIcon,
   MusicalNoteIcon,
   ExclamationTriangleIcon,
+  ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
+import { fetchConversations, relativeTime } from "@/lib/conversations";
+import type { Conversation } from "@/lib/types";
 import { useWhoami } from "@/lib/whoami";
 import { UsageChart } from "./_components/UsageChart";
 import { useT } from "@/lib/i18n";
@@ -143,6 +147,17 @@ const KIND_OPEN: Record<RunningModel["kind"], { label: string; href: string }> =
 // Short name of the media backends (for the "Media services" block).
 const KIND_NAME: Record<"ocr" | "video" | "voice", string> = { ocr: "OCR", video: "Vidéo", voice: "Voix" };
 
+// Bandeau « disponibilité par capacité » : chaque capacité va sur SA page, et
+// son statut reflète un modèle en cours d'exécution de ce type.
+const CAPS: { kind: RunningModel["kind"]; label: string; icon: typeof PhotoIcon }[] = [
+  { kind: "chat", label: "Chat", icon: ChatBubbleLeftRightIcon },
+  { kind: "image", label: "Image", icon: PhotoIcon },
+  { kind: "music", label: "Musique", icon: MusicalNoteIcon },
+  { kind: "video", label: "Vidéo", icon: FilmIcon },
+  { kind: "ocr", label: "OCR", icon: DocumentMagnifyingGlassIcon },
+  { kind: "voice", label: "Voix", icon: SpeakerWaveIcon },
+];
+
 type HomeData = {
   running_models: RunningModel[];
   public_api_url: string;
@@ -186,7 +201,18 @@ export default function HomePage() {
   const [data, setData] = useState<HomeData | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [recentConvs, setRecentConvs] = useState<Conversation[]>([]);
   const { who } = useWhoami();
+
+  // Reprendre une conversation : les plus récentes, pour ouvrir le playground
+  // dessus. Chargées une fois au montage (aller-retour léger, sans csrf).
+  useEffect(() => {
+    let annule = false;
+    fetchConversations()
+      .then((c) => { if (!annule) setRecentConvs(c); })
+      .catch(() => {});
+    return () => { annule = true; };
+  }, []);
 
   // Charge le tableau de bord. On ne signale l'erreur que s'il n'y a encore rien
   // à afficher (un échec de poll transitoire ne doit pas effacer les données déjà
@@ -252,14 +278,43 @@ export default function HomePage() {
               <VStack gap={1}>
                 <Heading level={1}>{t("Bonjour")}{firstName ? `, ${firstName}` : ""}</Heading>
                 <Text type="supporting" color="secondary">{t("Ton accès self-service à l'inférence LLM sur DGX Spark.")}</Text>
+                <HStack gap={2} wrap="wrap">
+                  <Button label={t("Explorer les modèles")} variant="ghost" size="sm" icon={<Icon icon={MagnifyingGlassIcon} size="sm" />} href="/search" />
+                  <Button label={t("Demander un modèle")} variant="ghost" size="sm" icon={<Icon icon={PaperAirplaneIcon} size="sm" />} href="/request" />
+                </HStack>
               </VStack>
-              <Button
-                label={t("Mes clés API")}
-                variant="primary"
-                icon={<Icon icon={KeyIcon} size="sm" />}
-                onClick={() => openSettings("keys")}
-              />
+              <HStack gap={2} wrap="wrap">
+                <Button label={t("Lancer une conversation")} variant="primary" icon={<Icon icon={ChatBubbleLeftRightIcon} size="sm" />} href="/playground" />
+                <Button label={t("Mes clés API")} variant="secondary" icon={<Icon icon={KeyIcon} size="sm" />} onClick={() => openSettings("keys")} />
+              </HStack>
             </HStack>
+
+            {data ? (
+              <VStack gap={2}>
+                <Text weight="semibold">{t("Disponibilité par capacité")}</Text>
+                <Grid columns={{ minWidth: 150, max: 6 }} gap={3}>
+                  {CAPS.map((c) => {
+                    const on = data.running_models.some((m) => m.kind === c.kind);
+                    return (
+                      <ClickableCard
+                        key={c.kind}
+                        label={KIND_OPEN[c.kind].label}
+                        variant="muted"
+                        href={KIND_OPEN[c.kind].href}
+                      >
+                        <VStack gap={1}>
+                          <HStack gap={2} vAlign="center">
+                            <Icon icon={c.icon} size="sm" />
+                            <Text weight="semibold" size="sm">{t(c.label)}</Text>
+                          </HStack>
+                          <Badge label={on ? t("En ligne") : t("à la demande")} variant={on ? "success" : "neutral"} />
+                        </VStack>
+                      </ClickableCard>
+                    );
+                  })}
+                </Grid>
+              </VStack>
+            ) : null}
 
             <VStack gap={2}>
               <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
@@ -362,6 +417,32 @@ export default function HomePage() {
               )}
             </VStack>
 
+            {recentConvs.length > 0 && (
+              <VStack gap={2}>
+                <HStack hAlign="between" vAlign="center">
+                  <Text weight="semibold">{t("Reprendre une conversation")}</Text>
+                  <Button label={t("Tout voir")} variant="ghost" size="sm" href="/playground" />
+                </HStack>
+                <Grid columns={{ minWidth: 260, max: 3 }} gap={3}>
+                  {recentConvs.slice(0, 3).map((c) => (
+                    <ClickableCard
+                      key={c.id}
+                      label={c.title || t("Conversation")}
+                      variant="muted"
+                      href={`/playground?conv=${encodeURIComponent(c.id)}`}
+                    >
+                      <VStack gap={0}>
+                        <Text maxLines={1} weight="semibold">{c.title || t("Conversation")}</Text>
+                        <Text type="supporting" color="secondary">
+                          {c.model || ""}{c.model ? " · " : ""}{relativeTime(c.ts)}
+                        </Text>
+                      </VStack>
+                    </ClickableCard>
+                  ))}
+                </Grid>
+              </VStack>
+            )}
+
             {data?.sysmetrics && (
               <VStack gap={2}>
                 <Text weight="semibold">{t("État du serveur")}</Text>
@@ -442,6 +523,18 @@ export default function HomePage() {
                           <Text type="supporting" color="secondary">{t("Contexte sortie")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_out)}</Text>
                         </VStack>
+                        {data.modelhealth.model && (
+                          <VStack gap={1} hAlign="start">
+                            <Text type="supporting" color="secondary">{t("Accès rapide")}</Text>
+                            <Button
+                              label={t("Discuter avec le modèle actif")}
+                              variant="secondary"
+                              size="sm"
+                              icon={<Icon icon={ChatBubbleLeftRightIcon} size="sm" />}
+                              href={`/playground?model=${encodeURIComponent(data.modelhealth.model)}`}
+                            />
+                          </VStack>
+                        )}
                       </HStack>
                     )}
 

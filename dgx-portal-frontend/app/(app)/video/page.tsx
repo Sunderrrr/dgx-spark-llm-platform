@@ -15,8 +15,9 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Item } from "@astryxdesign/core/Item";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
-import { FilmIcon, MoonIcon } from "@heroicons/react/24/outline";
+import { FilmIcon, MoonIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -85,12 +86,16 @@ export default function VideoPage() {
       .catch(() => setAvailable(null));
   }, []);
 
-  async function generate() {
-    if (!prompt.trim()) return;
+  // `prompt` est passable en surcharge (« Réessayer » d'un item d'historique) —
+  // setState étant asynchrone, on lit la valeur du paramètre pour la requête.
+  async function generate(opts?: { prompt?: string }) {
+    const p = (opts?.prompt ?? prompt).trim();
+    if (!p) return;
+    if (opts?.prompt !== undefined) setPrompt(opts.prompt);
     setStatus("pending");
     setPromptId(null);
     try {
-      const payload: Record<string, string | File> = { prompt, duration };
+      const payload: Record<string, string | File> = { prompt: p, duration };
       if (image) payload.image = image;
       const res = await postFormData<{ prompt_id?: string; error?: string }>(
         "/api/video/generate",
@@ -128,6 +133,12 @@ export default function VideoPage() {
     setStatus(item.status as JobStatus);
   }
 
+  // Relance une génération échouée : on reprend le prompt, la durée et l'image
+  // de référence courants (la référence d'origine n'est pas restituable).
+  function retryItem(item: HistoryItem) {
+    generate({ prompt: item.prompt });
+  }
+
   const isBusy = status === "pending" || status === "running";
 
   return (
@@ -135,7 +146,22 @@ export default function VideoPage() {
       height="fill"
       content={
         <LayoutContent padding={6} isScrollable>
-          {available === false && history.length === 0 ? (
+          {available === null ? (
+            <VStack hAlign="center" width="100%">
+              <VStack gap={5} maxWidth={720} width="100%">
+                <VStack gap={2}>
+                  <Skeleton height={28} width={300} />
+                  <Skeleton height={14} width={360} />
+                </VStack>
+                <Card>
+                  <VStack gap={4}>
+                    <Skeleton height={16} width={180} />
+                    <Skeleton height={120} radius={2} />
+                  </VStack>
+                </Card>
+              </VStack>
+            </VStack>
+          ) : available === false && history.length === 0 ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle vidéo n'est disponible")}
@@ -206,7 +232,7 @@ export default function VideoPage() {
                 <Button
                   label={t("Générer")}
                   variant="primary"
-                  onClick={generate}
+                  onClick={() => generate()}
                   isDisabled={!prompt.trim() || isBusy}
                   isLoading={isBusy}
                 />
@@ -247,6 +273,14 @@ export default function VideoPage() {
                       <video src={`/video/file/${promptId}`} controls autoPlay loop />
                     </AspectRatio>
                   )}
+                  {status === "error" && (
+                    <Button
+                      label={t("Réessayer")}
+                      variant="secondary"
+                      icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                      onClick={() => generate()}
+                    />
+                  )}
                 </VStack>
               </Card>
             )}
@@ -267,12 +301,24 @@ export default function VideoPage() {
                       description={new Date(h.created_at).toLocaleString("fr-FR")}
                       startContent={<FilmIcon width={20} height={20} />}
                       endContent={
-                        <StatusDot
-                          variant={
-                            h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"
-                          }
-                          label={t(STATUS_SHORT[h.status] ?? h.status)}
-                        />
+                        <HStack gap={2} vAlign="center">
+                          <StatusDot
+                            variant={
+                              h.status === "done" ? "success" : h.status === "error" ? "error" : "accent"
+                            }
+                            label={t(STATUS_SHORT[h.status] ?? h.status)}
+                          />
+                          {h.status === "error" && (
+                            <Button
+                              label={t("Réessayer")}
+                              variant="ghost"
+                              size="sm"
+                              isIconOnly
+                              icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                              onClick={() => retryItem(h)}
+                            />
+                          )}
+                        </HStack>
                       }
                       onClick={() => viewHistoryItem(h)}
                       isSelected={h.prompt_id === promptId}

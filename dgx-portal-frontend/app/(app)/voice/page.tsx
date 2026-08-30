@@ -15,6 +15,7 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Badge } from "@astryxdesign/core/Badge";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
 import {
   SpeakerWaveIcon,
@@ -222,7 +223,22 @@ export default function VoicePage() {
       height="fill"
       content={
         <LayoutContent padding={6} isScrollable>
-          {available === false && history.length === 0 ? (
+          {available === null ? (
+            <VStack hAlign="center" width="100%">
+              <VStack gap={5} maxWidth={720} width="100%">
+                <VStack gap={2}>
+                  <Skeleton height={28} width={200} />
+                  <Skeleton height={14} width={340} />
+                </VStack>
+                <Card>
+                  <VStack gap={4}>
+                    <Skeleton height={16} width={180} />
+                    <Skeleton height={120} radius={2} />
+                  </VStack>
+                </Card>
+              </VStack>
+            </VStack>
+          ) : available === false && history.length === 0 ? (
             <EmptyState
               icon={<Icon icon={MoonIcon} size="lg" />}
               title={t("Aucun modèle vocal n'est disponible")}

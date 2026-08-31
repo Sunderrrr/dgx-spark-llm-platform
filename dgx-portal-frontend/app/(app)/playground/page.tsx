@@ -2665,14 +2665,16 @@ export default function PlaygroundPage() {
         }
         footerActions={
           <>
-            <Button
-              label={t("Fenêtre de contexte")}
-              variant="ghost"
-              size="sm"
-              isIconOnly
-              icon={<StatusDot variant={ctxLevel} label={t("Fenêtre de contexte")} />}
-              onClick={() => setCtxOpen(true)}
-            />
+            {messages.length > 0 && (
+              <Button
+                label={t("Fenêtre de contexte")}
+                variant="ghost"
+                size="sm"
+                isIconOnly
+                icon={<StatusDot variant={ctxLevel} label={t("Fenêtre de contexte")} />}
+                onClick={() => setCtxOpen(true)}
+              />
+            )}
             <Button
               label={t("Joindre un fichier")}
               variant="ghost"

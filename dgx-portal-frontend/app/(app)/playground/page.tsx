@@ -80,7 +80,7 @@ import {
   migrateLegacyConversations,
 } from "@/lib/conversations";
 import { AskQuestion } from "./_components/AskQuestion";
-import { ContextMeter, fmtK } from "./_components/ContextMeter";
+import { fmtK } from "./_components/ContextMeter";
 import { ContextRing } from "./_components/ContextRing";
 import { SettingsPanel } from "./_components/SettingsPanel";
 import { SkillsMenu } from "./_components/SkillsMenu";
@@ -2924,16 +2924,6 @@ export default function PlaygroundPage() {
                 />
               </HStack>
             </VStack>
-          )}
-          {/* Indicateur de contexte global, discret, en haut de la zone de chat.
-              Uniquement quand une conversation est en cours (pas sur l'écran
-              d'accueil centré, où le carré reste épuré). */}
-          {!isFirstEmpty && (
-            <HStack hAlign="end" padding={2}>
-              <HStack width={300}>
-                <ContextMeter used={used} max={max} />
-              </HStack>
-            </HStack>
           )}
           {isFirstEmpty ? (
             <StackItem size="fill">

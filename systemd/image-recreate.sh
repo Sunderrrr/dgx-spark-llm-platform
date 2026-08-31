@@ -49,6 +49,7 @@ exec docker run -d --name image --restart unless-stopped \
   --pids-limit 512 \
   --security-opt no-new-privileges --cap-drop ALL \
   -v "$MODEL_DIR":/model:ro \
+  -v /root/models/esrgan:/esrgan:ro \
   -e MODEL_DIR=/model -e MODEL_NAME="$NAME" \
   -e IMAGE_STEPS="$STEPS" -e IMAGE_GUIDANCE="$GUIDANCE" \
   ai-platform-image-gen

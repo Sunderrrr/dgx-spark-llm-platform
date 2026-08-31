@@ -30,6 +30,12 @@ IMAGE_FILES_DIR = '/app/data/image_files'
 IMAGE_HISTORY_LIMIT = 20
 IMAGE_MAX_BATCH = 4  # max variations generated per prompt (sequential on unified memory)
 
+# Formats de sortie acceptés. « jpg » est un alias normalisé vers « jpeg » ; le
+# sidecar reçoit la clé canonique, on stocke/sert selon l'extension réelle.
+IMAGE_FORMATS = {'png': 'png', 'jpg': 'jpeg', 'jpeg': 'jpeg', 'webp': 'webp'}
+IMAGE_EXT = {'png': 'png', 'jpeg': 'jpg', 'webp': 'webp'}
+IMAGE_MIME = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'webp': 'image/webp'}
+
 
 def _image_set_done(prompt_id, username, done):
     """Bump the produced-so-far counter so the page can show images as they land."""
@@ -53,24 +59,26 @@ def _image_cancelled(prompt_id, username):
         return False
 
 
-def _image_worker(prompt_id, username, prompt_text, count):
+def _image_worker(prompt_id, username, prompt_text, count, fmt='png'):
     """Background thread: call the sidecar `count` times (sequentially — one image
     at a time keeps the GPU memory spike at single-image level on unified memory),
-    saving each as <prompt_id>_<idx>.png. Each call reseeds implicitly, so the N
+    saving each as <prompt_id>_<idx>.<ext>. Each call reseeds implicitly, so the N
     images are variations of the same prompt. L'annulation est coopérative : on
     vérifie le drapeau « cancelled » avant chaque image — l'image en cours se
     termine, la suite du lot est interrompue et le slot GPU est libéré par le
     finally côté generate."""
     started = datetime.now()
     done = 0
+    ext = IMAGE_EXT.get(fmt, 'png')
     os.makedirs(IMAGE_FILES_DIR, exist_ok=True)
     for idx in range(count):
         if _image_cancelled(prompt_id, username):
             break
         try:
-            r = requests.post(f"{IMAGE_URL}/generate", data={'prompt': prompt_text[:10000]}, timeout=600)
+            r = requests.post(f"{IMAGE_URL}/generate",
+                              data={'prompt': prompt_text[:10000], 'format': fmt}, timeout=600)
             if r.ok and r.headers.get('Content-Type', '').startswith('image/'):
-                with open(os.path.join(IMAGE_FILES_DIR, f"{prompt_id}_{idx}.png"), 'wb') as f:
+                with open(os.path.join(IMAGE_FILES_DIR, f"{prompt_id}_{idx}.{ext}"), 'wb') as f:
                     f.write(r.content)
                 done += 1
                 _image_set_done(prompt_id, username, done)
@@ -112,10 +120,13 @@ def api_image_generate():
     except (TypeError, ValueError):
         count = 1
     count = max(1, min(IMAGE_MAX_BATCH, count))
+    # Format de sortie : normalisé (alias jpg -> jpeg), défaut png. Le sidecar
+    # encode ce format et le portail stocke/sert l'extension correspondante.
+    fmt = IMAGE_FORMATS.get((request.form.get('format', 'png') or 'png').strip().lower(), 'png')
     prompt_id = secrets.token_hex(12)
     db = get_db()
-    db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, count, done_count, created_at) VALUES (?,?,?,?,?,?,?)",
-               (session['username'], prompt_id, prompt_text, 'running', count, 0, datetime.now().isoformat()))
+    db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, count, done_count, format, created_at) VALUES (?,?,?,?,?,?,?,?)",
+               (session['username'], prompt_id, prompt_text, 'running', count, 0, fmt, datetime.now().isoformat()))
     db.execute("""DELETE FROM image_jobs WHERE username=? AND id NOT IN (
                      SELECT id FROM image_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
                (session['username'], session['username'], IMAGE_HISTORY_LIMIT))
@@ -125,9 +136,9 @@ def api_image_generate():
     # thread that blocks up to 600 s against the shared GPU sidecar.
     if not media_job_slot(username):
         return jsonify({'error': "Trop de générations d'images en cours. Attends la fin des précédentes."}), 429
-    def _run(u=username, pid=prompt_id, pt=prompt_text, c=count):
+    def _run(u=username, pid=prompt_id, pt=prompt_text, c=count, f=fmt):
         try:
-            _image_worker(pid, u, pt, c)
+            _image_worker(pid, u, pt, c, f)
         finally:
             media_job_done(u)
     threading.Thread(target=_run, daemon=True).start()
@@ -138,7 +149,7 @@ def api_image_generate():
 @login_required
 def api_image_history():
     rows = get_db().execute(
-        "SELECT prompt_id, prompt, status, count, done_count, created_at FROM image_jobs WHERE username=? ORDER BY id DESC",
+        "SELECT prompt_id, prompt, status, count, done_count, format, created_at FROM image_jobs WHERE username=? ORDER BY id DESC",
         (session['username'],)).fetchall()
     return jsonify([dict(r) for r in rows])
 
@@ -185,13 +196,21 @@ def api_image_delete(prompt_id, idx):
         (prompt_id, session['username'])).fetchone()
     if not owned:
         abort(404)
-    path = os.path.join(IMAGE_FILES_DIR, f"{prompt_id}_{idx}.png")
-    try:
-        if os.path.exists(path):
-            os.remove(path)
-        return jsonify({'ok': True})
-    except Exception as exc:
-        return jsonify({'error': str(exc)}), 500
+    safe = re.sub(r'[^a-f0-9]', '', str(prompt_id))
+    if not safe:
+        abort(404)
+    idx = max(0, min(IMAGE_MAX_BATCH - 1, int(idx)))
+    # Le format varie d'un job à l'autre : on cherche le fichier sous n'importe
+    # quelle extension connue avant de le retirer.
+    for ext in IMAGE_EXT.values():
+        path = os.path.join(IMAGE_FILES_DIR, f"{safe}_{idx}.{ext}")
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+            except Exception as exc:
+                return jsonify({'error': str(exc)}), 500
+            return jsonify({'ok': True})
+    return jsonify({'ok': True})
 
 
 @bp.route('/image/file/<prompt_id>')
@@ -207,12 +226,20 @@ def image_file(prompt_id, idx=0):
     if not safe:
         abort(404)
     idx = max(0, min(IMAGE_MAX_BATCH - 1, int(idx)))
-    path = os.path.join(IMAGE_FILES_DIR, f"{safe}_{idx}.png")
+    # Le format (et donc l'extension) varie d'un job à l'autre : on cherche le
+    # fichier sous chaque extension connue, puis on sert le bon Content-Type.
+    path = None
+    for ext in IMAGE_EXT.values():
+        cand = os.path.join(IMAGE_FILES_DIR, f"{safe}_{idx}.{ext}")
+        if os.path.isfile(cand):
+            path = cand
+            break
     # Backward-compat: jobs made before batching saved a single <prompt_id>.png.
-    if not os.path.isfile(path) and idx == 0:
+    if path is None and idx == 0:
         legacy = os.path.join(IMAGE_FILES_DIR, safe + '.png')
         if os.path.isfile(legacy):
             path = legacy
-    if not os.path.isfile(path):
+    if path is None:
         abort(404)
-    return send_file(path, mimetype='image/png')
+    mime = IMAGE_MIME.get(os.path.splitext(path)[1].lstrip('.').lower(), 'image/png')
+    return send_file(path, mimetype=mime)

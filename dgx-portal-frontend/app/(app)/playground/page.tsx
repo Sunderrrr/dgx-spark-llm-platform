@@ -2665,26 +2665,14 @@ export default function PlaygroundPage() {
           ) : undefined
         }
         footerActions={
-          <>
-            {messages.length > 0 && (
-              <Button
-                label={t("Fenêtre de contexte")}
-                variant="ghost"
-                size="sm"
-                isIconOnly
-                icon={<ContextRing used={used} max={max} />}
-                onClick={() => setCtxOpen(true)}
-              />
-            )}
-            <Button
-              label={t("Joindre un fichier")}
-              variant="ghost"
-              size="sm"
-              isIconOnly
-              icon={<Icon icon={PaperClipIcon} size="sm" />}
-              onClick={() => fileInputRef.current?.click()}
-            />
-          </>
+          <Button
+            label={t("Joindre un fichier")}
+            variant="ghost"
+            size="sm"
+            isIconOnly
+            icon={<Icon icon={PaperClipIcon} size="sm" />}
+            onClick={() => fileInputRef.current?.click()}
+          />
         }
         sendActions={
           <Selector
@@ -2771,6 +2759,16 @@ export default function PlaygroundPage() {
             icon={<Icon icon={BookmarkIcon} size="sm" />}
             onClick={() => setSnippetsOpen(true)}
           />
+          {messages.length > 0 && (
+            <Button
+              label={t("Fenêtre de contexte")}
+              variant="ghost"
+              size="sm"
+              isIconOnly
+              icon={<ContextRing used={used} max={max} />}
+              onClick={() => setCtxOpen(true)}
+            />
+          )}
           <Button
             label={t("Compétences")}
             variant="ghost"

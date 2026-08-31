@@ -2757,6 +2757,13 @@ export default function PlaygroundPage() {
             icon={<Icon icon={BookmarkIcon} size="sm" />}
             onClick={() => setSnippetsOpen(true)}
           />
+          <Button
+            label={t("Compétences")}
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={BoltIcon} size="sm" />}
+            onClick={() => setSkillCreatorOpen(true)}
+          />
           {messages.length > 0 && (
             <Button
               label={t("Fenêtre de contexte")}
@@ -2767,13 +2774,6 @@ export default function PlaygroundPage() {
               onClick={() => setCtxOpen(true)}
             />
           )}
-          <Button
-            label={t("Compétences")}
-            variant="ghost"
-            size="sm"
-            icon={<Icon icon={BoltIcon} size="sm" />}
-            onClick={() => setSkillCreatorOpen(true)}
-          />
         </HStack>
       </HStack>
     </VStack>

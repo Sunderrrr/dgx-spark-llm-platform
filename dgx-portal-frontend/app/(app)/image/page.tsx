@@ -28,10 +28,21 @@ import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
 
 type JobStatus = "idle" | "pending" | "running" | "done" | "error" | "cancelled";
-type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string; count?: number; done_count?: number };
+type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string; count?: number; done_count?: number; format?: string };
 type RunningModel = { name: string; kind: string; exposed: boolean };
 
 const BATCH_CHOICES = [1, 2, 3, 4];
+
+// Formats de sortie proposés à la génération. Le sidecar encode (PNG/JPEG/WebP),
+// le portail stocke/sert l'extension correspondante. jpeg -> .jpg à la sortie.
+const FORMATS = [
+  { value: "png", label: "PNG", ext: "png" },
+  { value: "jpeg", label: "JPEG", ext: "jpg" },
+  { value: "webp", label: "WebP", ext: "webp" },
+] as const;
+type ImageFormat = (typeof FORMATS)[number]["value"];
+
+const FORMAT_EXT: Record<ImageFormat, string> = { png: "png", jpeg: "jpg", webp: "webp" };
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "En file d'attente…",
@@ -56,6 +67,7 @@ export default function ImagePage() {
   const [status, setStatus] = useState<JobStatus>("idle");
   const [promptId, setPromptId] = useState<string | null>(null);
   const [batch, setBatch] = useState(1);          // count chosen for the next generation
+  const [format, setFormat] = useState<ImageFormat>("png");  // output format for the next generation
   const [jobCount, setJobCount] = useState(1);    // count of the currently-viewed job
   const [doneCount, setDoneCount] = useState(0);  // images produced so far for it
   // Galerie : visionneuse plein écran + vignettes supprimées individuellement.
@@ -96,12 +108,14 @@ export default function ImagePage() {
   // Un génération peut partir du formulaire (état courant) ou d'un « Réessayer »
   // sur un item d'historique échoué (prompt/batch fournis en dur — setState étant
   // asynchrone, on passe la valeur à la requête plutôt que de relire l'état).
-  async function generate(opts?: { prompt?: string; batch?: number }) {
+  async function generate(opts?: { prompt?: string; batch?: number; format?: ImageFormat }) {
     const p = (opts?.prompt ?? prompt).trim();
     const b = Math.max(1, opts?.batch ?? batch);
+    const f = opts?.format ?? format;
     if (!p) return;
     if (opts?.prompt !== undefined) setPrompt(opts.prompt);
     if (opts?.batch !== undefined) setBatch(b);
+    if (opts?.format !== undefined) setFormat(f);
     setStatus("pending");
     setPromptId(null);
     setJobCount(b);
@@ -110,7 +124,7 @@ export default function ImagePage() {
       const res = await postFormData<{ prompt_id?: string; count?: number; error?: string }>(
         "/api/image/generate",
         csrf,
-        { prompt: p, count: String(b) },
+        { prompt: p, count: String(b), format: f },
       );
       if (!res.prompt_id) {
         showToast({ body: res.error ? t(res.error) : t("Échec de la génération."), type: "error" });
@@ -146,7 +160,7 @@ export default function ImagePage() {
     if (!promptId) return;
     const a = document.createElement("a");
     a.href = `/image/file/${promptId}/${idx}`;
-    a.download = `image-${promptId}-${idx + 1}.png`;
+    a.download = `image-${promptId}-${idx + 1}.${FORMAT_EXT[format]}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -158,11 +172,16 @@ export default function ImagePage() {
     setStatus(item.status as JobStatus);
     setJobCount(item.count ?? 1);
     setDoneCount(item.done_count ?? (item.status === "done" ? (item.count ?? 1) : 0));
+    // Le téléchargement doit porter la bonne extension pour ce job.
+    if (item.format === "png" || item.format === "jpeg" || item.format === "webp") {
+      setFormat(item.format);
+    }
   }
 
-  // Relance une génération échouée avec le même prompt & le même nombre d'images.
+  // Relance une génération échouée avec le même prompt, nombre d'images et format.
   function retryItem(item: HistoryItem) {
-    generate({ prompt: item.prompt, batch: item.count ?? 1 });
+    const f: ImageFormat = item.format === "jpeg" || item.format === "webp" ? item.format : "png";
+    generate({ prompt: item.prompt, batch: item.count ?? 1, format: f });
   }
 
   // Arrête la génération en cours (coopératif : la suite du lot est interrompue).
@@ -285,6 +304,18 @@ export default function ImagePage() {
                         >
                           {BATCH_CHOICES.map((n) => (
                             <SegmentedControlItem key={n} value={String(n)} label={String(n)} isDisabled={isBusy} />
+                          ))}
+                        </SegmentedControl>
+                      </HStack>
+                      <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
+                        <Text type="supporting" color="secondary">{t("Format")}</Text>
+                        <SegmentedControl
+                          label={t("Format")}
+                          value={format}
+                          onChange={(v) => setFormat(v as ImageFormat)}
+                        >
+                          {FORMATS.map((f) => (
+                            <SegmentedControlItem key={f.value} value={f.value} label={f.label} isDisabled={isBusy} />
                           ))}
                         </SegmentedControl>
                       </HStack>

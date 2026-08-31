@@ -25,6 +25,12 @@ MODEL_DIR = os.environ.get("MODEL_DIR", "/model")
 DEFAULT_STEPS = int(os.environ.get("IMAGE_STEPS", "35"))
 DEFAULT_GUIDANCE = float(os.environ.get("IMAGE_GUIDANCE", "4.0"))
 
+# Formats de sortie acceptés. PNG = défaut historique ; JPEG perd l'alpha (on
+# convertit en RGB) mais pèse moins ; WebP garde l'alpha et pèse le moins. Le
+# portail valide déjà la valeur ; on re-normalise ici par sécurité (alias jpg).
+FORMAT_PIL = {'png': 'PNG', 'jpeg': 'JPEG', 'jpg': 'JPEG', 'webp': 'WEBP'}
+FORMAT_MIME = {'png': 'image/png', 'jpeg': 'image/jpeg', 'jpg': 'image/jpeg', 'webp': 'image/webp'}
+
 app = FastAPI()
 _gpu_lock = threading.Lock()
 _pipe = None
@@ -116,12 +122,15 @@ def generate(prompt: str = Form(...),
              steps: int = Form(DEFAULT_STEPS),
              guidance: float = Form(DEFAULT_GUIDANCE),
              width: int = Form(1024),
-             height: int = Form(1024)):
+             height: int = Form(1024),
+             format: str = Form("png")):
     if _pipe is None:
         return JSONResponse({"error": _load_error or "model still loading"}, status_code=503)
     prompt = (prompt or "").strip()[:10000]
     if not prompt:
         return JSONResponse({"error": "empty prompt"}, status_code=400)
+    fmt_key = (format or "png").strip().lower()
+    fmt = FORMAT_PIL.get(fmt_key, "PNG")
     steps = max(1, min(80, int(steps)))
     width = max(256, min(1536, (int(width) // 8) * 8))
     height = max(256, min(1536, (int(height) // 8) * 8))
@@ -136,9 +145,12 @@ def generate(prompt: str = Form(...),
                 out = _pipe(prompt=prompt, num_inference_steps=steps,
                             guidance_scale=float(guidance), width=width, height=height)
             image = _premiere_image(out)
+        # JPEG ne sait pas coder un canal alpha : on aplatit sur RGB avant.
+        if fmt == "JPEG" and image.mode in ("RGBA", "LA", "P"):
+            image = image.convert("RGB")
         buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        return Response(buf.getvalue(), media_type="image/png")
+        image.save(buf, format=fmt)
+        return Response(buf.getvalue(), media_type=FORMAT_MIME.get(fmt_key, "image/png"))
     except torch.cuda.OutOfMemoryError:
         torch.cuda.empty_cache()
         return JSONResponse({"error": "GPU out of memory"}, status_code=507)

@@ -475,6 +475,8 @@ def init_db():
         db.execute("ALTER TABLE image_jobs ADD COLUMN count INTEGER NOT NULL DEFAULT 1")
     if 'done_count' not in _ij:
         db.execute("ALTER TABLE image_jobs ADD COLUMN done_count INTEGER NOT NULL DEFAULT 0")
+    if 'format' not in _ij:
+        db.execute("ALTER TABLE image_jobs ADD COLUMN format TEXT NOT NULL DEFAULT 'png'")
     # Migration: generation duration (ms) per job → home-page metrics (average
     # OCR / video / voice time). NULL for jobs prior to this addition.
     for _tbl in ('ocr_jobs', 'video_jobs', 'voice_jobs'):

@@ -2456,7 +2456,6 @@ export default function PlaygroundPage() {
     },
     [panelScrollRefBrut],
   );
-  const canRegenerate = !streaming && lastMsg && (lastMsg.role === "assistant" || lastMsg.role === "user");
   const canEdit = !streaming && messages.some((m) => m.role === "user");
 
   // Salutation horaire pour le premier message (type Claude). « soir » à partir de 18h.
@@ -2741,15 +2740,6 @@ export default function PlaygroundPage() {
               size="sm"
               icon={<Icon icon={PencilIcon} size="sm" />}
               onClick={editLast}
-            />
-          )}
-          {canRegenerate && (
-            <Button
-              label={t("Régénérer")}
-              variant="ghost"
-              size="sm"
-              icon={<Icon icon={ArrowPathIcon} size="sm" />}
-              onClick={regenerate}
             />
           )}
           <Button

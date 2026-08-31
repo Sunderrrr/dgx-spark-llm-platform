@@ -1312,6 +1312,9 @@ export default function PlaygroundPage() {
   const [model, setModel] = useState("");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
+  // Index du message utilisateur en cours d'édition (édition en place). La
+  // conversation reste affichée ; au renvoi, on rebranche depuis cet index.
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   // Origine du prompt système : un persona, une compétence ou une saisie manuelle.
@@ -1599,6 +1602,7 @@ export default function PlaygroundPage() {
     setAttachments(target.attachments);
     setCtxUsed(0);
     setConvTokens(0);
+    setEditingIdx(null);
     updateQueue([]);
     closeArtifact();
     setActiveTabId(id);
@@ -1615,6 +1619,7 @@ export default function PlaygroundPage() {
     setMessages([]);
     setCurrentId(null);
     setAttachments([]);
+    setEditingIdx(null);
     setCtxUsed(0);
     setConvTokens(0);
     updateQueue([]);
@@ -1644,6 +1649,7 @@ export default function PlaygroundPage() {
       setAttachments(fallback.attachments);
       setCtxUsed(0);
       setConvTokens(0);
+      setEditingIdx(null);
       updateQueue([]);
       closeArtifact();
       setActiveTabId(fallback.id);
@@ -1654,6 +1660,7 @@ export default function PlaygroundPage() {
       setMessages([]);
       setCurrentId(null);
       setAttachments([]);
+      setEditingIdx(null);
       setCtxUsed(0);
       setConvTokens(0);
       updateQueue([]);
@@ -1666,6 +1673,7 @@ export default function PlaygroundPage() {
     // faire remonter ni réécrire celle qu'on quitte.
     setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })));
     setCurrentId(conv.id);
+    setEditingIdx(null);
     // L'onglet actif porte cette conversation (titre dans la barre d'onglets).
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, title: conv.title, currentId: conv.id } : t)));
     if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
@@ -2148,13 +2156,17 @@ export default function PlaygroundPage() {
       return;
     }
     const nextMessages: ChatMsg[] = [
-      ...messages,
+      // En édition en place : on rebranche depuis le message édité — on garde
+      // tout ce qui le précède, on remplace ce message + la suite par la
+      // nouvelle version.
+      ...(editingIdx !== null ? messages.slice(0, editingIdx) : messages),
       // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
       { role: "user", content: full, ts: Date.now(), attachmentCount },
     ];
     setMessages(nextMessages);
     setInput("");
     setAttachments([]);
+    setEditingIdx(null);
     void runStream(nextMessages);
   }
 
@@ -2293,26 +2305,16 @@ export default function PlaygroundPage() {
     if (base.length && base[base.length - 1].role === "user") void runStream(base);
   }
 
-  function editLast() {
-    if (streaming || !messages.length) return;
-    let base = messages;
-    if (base[base.length - 1]?.role === "assistant") base = base.slice(0, -1);
-    const last = base[base.length - 1];
-    if (last?.role === "user") {
-      setInput(last.content);
-      setMessages(base.slice(0, -1));
-    }
-  }
-
-  // Éditer un message PASSÉ et rebrancher la suite : on garde tout ce qui
-  // précède ce tour, on retire ce message + la suite, et on remet son contenu
-  // dans l'input pour le renvoyer (la conversation repart de là).
+  // Éditer un message PASSÉ, en place : la conversation reste affichée, le
+  // contenu repart dans l'input, et l'envoi rebranchera depuis ce point (le
+  // message édité + la suite sont remplacés, pas tronqués à l'affichage).
   function editMessage(i: number) {
     if (streaming) return;
     const m = messages[i];
     if (!m || m.role !== "user") return;
-    setMessages(messages.slice(0, i));
+    setEditingIdx(i);
     setInput(m.content);
+    setAttachments([]);
   }
 
 
@@ -2456,8 +2458,6 @@ export default function PlaygroundPage() {
     },
     [panelScrollRefBrut],
   );
-  const canEdit = !streaming && messages.some((m) => m.role === "user");
-
   // Salutation horaire pour le premier message (type Claude). « soir » à partir de 18h.
   const playHour = new Date().getHours();
   const greeting =
@@ -2566,6 +2566,23 @@ export default function PlaygroundPage() {
   // sélecteur de modèle + bouton micro/envoyer (droite).
   const composerNode = (
     <VStack gap={2} padding={4}>
+      {/* Édition en place : la conversation reste affichée, on signale que le
+          prochain envoi rebranchera depuis le message édité, avec annulation. */}
+      {editingIdx !== null && (
+        <Banner
+          status="info"
+          title={t("Message en cours de modification")}
+          description={t("Le prochain envoi remplacera ce message et la suite de la conversation.")}
+          endContent={
+            <Button
+              label={t("Annuler")}
+              variant="ghost"
+              size="sm"
+              onClick={() => { setEditingIdx(null); setInput(""); }}
+            />
+          }
+        />
+      )}
       {/* Sans clé API, le playground ne peut rien envoyer : il tourne sur
           la clé de l'utilisateur. On le dit AVANT la première question,
           avec le bouton qui mène pile au bon endroit — plutôt que de
@@ -2733,15 +2750,6 @@ export default function PlaygroundPage() {
       <HStack hAlign="between" gap={2}>
         <Text type="supporting" color="secondary">{t("Fichiers texte uniquement. Les tokens comptent sur ton budget.")}</Text>
         <HStack gap={2}>
-          {canEdit && (
-            <Button
-              label={t("Éditer")}
-              variant="ghost"
-              size="sm"
-              icon={<Icon icon={PencilIcon} size="sm" />}
-              onClick={editLast}
-            />
-          )}
           <Button
             label={t("Snippets")}
             variant="ghost"
@@ -3111,6 +3119,9 @@ export default function PlaygroundPage() {
                                 </HStack>
                               ) : m.role === "user" ? (
                                 <HStack gap={1} vAlign="center">
+                                  {editingIdx === i && (
+                                    <StatusDot variant="accent" isPulsing label={t("En modification")} />
+                                  )}
                                   <Button
                                     label={t("Éditer")}
                                     variant="ghost"

@@ -18,6 +18,8 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse, Response
 from PIL import Image, ImageFilter
 
+import esrgan
+
 MODEL_DIR = os.environ.get("MODEL_DIR", "/model")
 # Valeurs par defaut fournies par image-recreate.sh, qui les choisit selon le
 # modele : un modele distille se contente de ~8 etapes a guidage 1.0, un modele
@@ -31,6 +33,34 @@ DEFAULT_GUIDANCE = float(os.environ.get("IMAGE_GUIDANCE", "4.0"))
 # portail valide déjà la valeur ; on re-normalise ici par sécurité (alias jpg).
 FORMAT_PIL = {'png': 'PNG', 'jpeg': 'JPEG', 'jpg': 'JPEG', 'webp': 'WEBP'}
 FORMAT_MIME = {'png': 'image/png', 'jpeg': 'image/jpeg', 'jpg': 'image/jpeg', 'webp': 'image/webp'}
+
+# Real-ESRGAN (super-résolution x4) pour les sorties « 4K ». Poids montés en
+# lecture seule sur /esrgan. Chargé paresseusement (une seule fois) au premier
+# upscale qui dépasse le seuil ; le réseau est petit (~64 Mo) et tourne sur le
+# même GPU que le pipeline.
+ESRGAN_PATH = os.environ.get("ESRGAN_PATH", "/esrgan/RealESRGAN_x4plus.pth")
+ESRGAN_SCALE_THRESHOLD = 1.6  # au-delà de ~1.6x, on préfère ESRGAN à Lanczos
+_esrgan = None
+_esrgan_error = None
+_esrgan_lock = threading.Lock()
+
+
+def _get_esrgan():
+    """Renvoie le réseau Real-ESRGAN (chargé à la demande) ou None si indisponible."""
+    global _esrgan, _esrgan_error
+    if _esrgan is not None:
+        return _esrgan
+    with _esrgan_lock:
+        if _esrgan is not None:
+            return _esrgan
+        try:
+            if not os.path.isfile(ESRGAN_PATH):
+                _esrgan_error = f"poids absents: {ESRGAN_PATH}"
+            else:
+                _esrgan = esrgan.load_esrgan(ESRGAN_PATH, "cuda")
+        except Exception as e:  # on dégrade proprement vers Lanczos
+            _esrgan_error = f"{type(e).__name__}: {e}"
+        return _esrgan
 
 app = FastAPI()
 _gpu_lock = threading.Lock()
@@ -119,16 +149,22 @@ def model_info():
 
 
 def _upscale(image, out_w, out_h):
-    """Agrandit vers out_w x out_h en haute qualité (Lanczos + accentuation).
+    """Agrandit vers out_w x out_h en haute qualité.
 
-    Le modèle génère à sa résolution native (ratio cible), puis on monte à la
-    taille demandée. Pour un facteur modeste (~1.25x vers 1920x1080), Lanczos +
-    un léger unsharp est quasi indiscernable d'un upscaler GAN — sans dépendance
-    ni second modèle en VRAM. Le crop centré ne sert qu'en filet de sécurité si
-    le ratio diverge (on choisit des tailles natives au même ratio, donc no-op).
+    Petite montée (Full HD, ~1.25x) : Lanczos + unsharp suffit. Grande montée
+    (4K, >1.6x) : Real-ESRGAN x4 (synthèse de détail) puis ajustement Lanczos à
+    la taille exacte. Le crop centré est un filet de sécurité (ratios identiques
+    en pratique, donc no-op).
     """
     if image.width >= out_w and image.height >= out_h:
         return image
+    scale = max(out_w / image.width, out_h / image.height)
+    if scale > ESRGAN_SCALE_THRESHOLD:
+        net = _get_esrgan()
+        if net is not None:
+            image = esrgan.upscale_4x(net, image)
+    # Ajustement final à la taille exacte (cover + crop), qui gère aussi la
+    # redescente quand ESRGAN a sur-dimensionné (4x > cible).
     scale = max(out_w / image.width, out_h / image.height)
     w = max(out_w, round(image.width * scale))
     h = max(out_h, round(image.height * scale))

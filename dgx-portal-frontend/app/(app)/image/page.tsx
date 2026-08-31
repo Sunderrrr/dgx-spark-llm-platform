@@ -51,6 +51,7 @@ const SIZES = [
   { value: "square", label: "1024×1024", width: 1024, height: 1024, outWidth: 0, outHeight: 0 },
   { value: "landscape", label: "1920×1080", width: 1536, height: 864, outWidth: 1920, outHeight: 1080 },
   { value: "portrait", label: "1080×1920", width: 864, height: 1536, outWidth: 1080, outHeight: 1920 },
+  { value: "uhd", label: "3840×2160", width: 1536, height: 864, outWidth: 3840, outHeight: 2160 },
 ] as const;
 type ImageSize = (typeof SIZES)[number]["value"];
 

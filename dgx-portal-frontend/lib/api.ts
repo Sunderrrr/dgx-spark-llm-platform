@@ -142,7 +142,7 @@ export type EtapeWeb = {
 export type StreamDelta = {
   reasoningChunk?: string;
   contentChunk?: string;
-  usage?: { total_tokens?: number; completion_tokens?: number };
+  usage?: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number };
   /** Le modèle a été coupé net par le plafond de tokens (finish_reason="length"). */
   truncated?: boolean;
   /** Étape de recherche web : ce que le modèle est en train de chercher ou lire. */
@@ -159,7 +159,7 @@ export type ToolCallEvent = {
 };
 
 type SSEPayload = {
-  usage?: { total_tokens?: number; completion_tokens?: number };
+  usage?: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number };
   choices?: { delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }[];
   cronos_web?: EtapeWeb;
   tool_call?: ToolCallEvent;

@@ -1449,6 +1449,10 @@ export default function PlaygroundPage() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
+  // Découpage entrée/sortie de la DERNIÈRE génération (mesure exacte remontée
+  // par LiteLLM via `usage`) : prompt_tokens = ce qui remplit la fenêtre,
+  // completion_tokens = la réponse produite. null tant qu'aucune génération.
+  const [ioTokens, setIoTokens] = useState<{ prompt: number; completion: number } | null>(null);
   // Tokens cumulés de la conversation en cours (coût réel : chaque requête
   // facture prompt + complétion, donc la somme des `total_tokens` = ce qui est
   // débité du budget). Per-message, `m.tokens` est l'affichage déjà en place.
@@ -1539,6 +1543,7 @@ export default function PlaygroundPage() {
       if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
       setCtxUsed(0);
       setConvTokens(0);
+      setIoTokens(null);
     }
   }, [conversations, runningModels]);
   /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
@@ -1603,6 +1608,7 @@ export default function PlaygroundPage() {
     setCtxUsed(0);
     setConvTokens(0);
     setEditingIdx(null);
+    setIoTokens(null);
     updateQueue([]);
     closeArtifact();
     setActiveTabId(id);
@@ -1622,6 +1628,7 @@ export default function PlaygroundPage() {
     setEditingIdx(null);
     setCtxUsed(0);
     setConvTokens(0);
+    setIoTokens(null);
     updateQueue([]);
     closeArtifact();
   }
@@ -1650,6 +1657,7 @@ export default function PlaygroundPage() {
       setCtxUsed(0);
       setConvTokens(0);
       setEditingIdx(null);
+      setIoTokens(null);
       updateQueue([]);
       closeArtifact();
       setActiveTabId(fallback.id);
@@ -1663,6 +1671,7 @@ export default function PlaygroundPage() {
       setEditingIdx(null);
       setCtxUsed(0);
       setConvTokens(0);
+      setIoTokens(null);
       updateQueue([]);
       closeArtifact();
     }
@@ -1679,6 +1688,7 @@ export default function PlaygroundPage() {
     if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
     setCtxUsed(0);
     setConvTokens(0);
+    setIoTokens(null);
     updateQueue([]);
     closeArtifact();
   }
@@ -1922,7 +1932,7 @@ export default function PlaygroundPage() {
     let tf: number | null = null;
     let acc = "";
     let reason = "";
-    let usage: { total_tokens?: number; completion_tokens?: number } | undefined;
+    let usage: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number } | undefined;
 
     const updateLast = () => {
       setMessages((prev) => {
@@ -2068,6 +2078,9 @@ export default function PlaygroundPage() {
     if (total) {
       setCtxUsed(total);
       setConvTokens((p) => p + total);
+    }
+    if (typeof usage?.prompt_tokens === "number" || typeof usage?.completion_tokens === "number") {
+      setIoTokens({ prompt: usage?.prompt_tokens ?? 0, completion: usage?.completion_tokens ?? 0 });
     }
     const savedId = persist(finalMessages, currentId, model);
     setCurrentId(savedId ?? null);
@@ -2320,6 +2333,12 @@ export default function PlaygroundPage() {
 
   const max = modelLimits[model] || 32768;
   const used = Math.max(ctxUsed, estimateTokens(settings, input, messages, attachments));
+  // Entrée / sortie : la fenêtre se remplit de tokens d'ENTRÉE (prompt : system
+  // + historique + message + fichiers) et de tokens de SORTIE (la réponse
+  // générée). Mesure exacte de la dernière génération (usage LiteLLM) quand elle
+  // existe ; sinon estimation chars/4 de l'entrée courante.
+  const inTokens = ioTokens?.prompt ?? estimateTokens(settings, input, messages, attachments);
+  const outTokens = ioTokens?.completion ?? 0;
   // Décomposition du contenu pour « Fenêtre de contexte » : prompt système vs
   // messages/fichiers (même estimation chars/4 que estimateTokens). Le backend
   // ne fournit pas le décompte par segment, on estime donc la part relative —
@@ -3638,6 +3657,25 @@ export default function PlaygroundPage() {
                 </HStack>
                 <ProgressBar label={t("Utilisation du contexte")} isLabelHidden value={used} max={max || 1} variant={ctxLevel} />
               </VStack>
+              {/* Entrée / sortie : le contexte n'est pas un bloc opaque — on sépare
+                  ce qui le remplit (prompt) de ce qui est produit (réponse). */}
+              <VStack gap={1}>
+                <Text type="label">{t("Entrée / sortie")}</Text>
+                <HStack gap={2} vAlign="center">
+                  <StatusDot variant="accent" label={t("Entrée (prompt)")} />
+                  <Text type="supporting">{t("Entrée (prompt)")}</Text>
+                  <StackItem size="fill" />
+                  <Text type="supporting" color="secondary" hasTabularNumbers>{inTokens.toLocaleString("fr-FR")} {t("tokens")}</Text>
+                </HStack>
+                <HStack gap={2} vAlign="center">
+                  <StatusDot variant="neutral" label={t("Sortie (généré)")} />
+                  <Text type="supporting">{t("Sortie (généré)")}</Text>
+                  <StackItem size="fill" />
+                  <Text type="supporting" color="secondary" hasTabularNumbers>
+                    {ioTokens ? `${outTokens.toLocaleString("fr-FR")} ${t("tokens")}` : "—"}
+                  </Text>
+                </HStack>
+              </VStack>
               {/* Répartition : prompt système vs messages/fichiers */}
               <VStack gap={1}>
                 <Text type="label">{t("Répartition")}</Text>
@@ -3683,7 +3721,7 @@ export default function PlaygroundPage() {
                 )}
               </VStack>
               <Text type="supporting" color="secondary">
-                {t("La fenêtre de contexte est partagée : system prompt + messages + fichiers. Le % indique ce qui est utilisé.")}
+                {t("La fenêtre de contexte = entrée (system prompt + messages + fichiers) + sortie (réponse générée). Le % indique la part utilisée.")}
               </Text>
             </VStack>
           </Dialog>

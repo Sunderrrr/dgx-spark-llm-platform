@@ -81,6 +81,7 @@ import {
 } from "@/lib/conversations";
 import { AskQuestion } from "./_components/AskQuestion";
 import { ContextMeter, fmtK } from "./_components/ContextMeter";
+import { ContextRing } from "./_components/ContextRing";
 import { SettingsPanel } from "./_components/SettingsPanel";
 import { SkillsMenu } from "./_components/SkillsMenu";
 import { SkillCreator } from "./_components/SkillCreator";
@@ -2671,7 +2672,7 @@ export default function PlaygroundPage() {
                 variant="ghost"
                 size="sm"
                 isIconOnly
-                icon={<StatusDot variant={ctxLevel} label={t("Fenêtre de contexte")} />}
+                icon={<ContextRing used={used} max={max} />}
                 onClick={() => setCtxOpen(true)}
               />
             )}

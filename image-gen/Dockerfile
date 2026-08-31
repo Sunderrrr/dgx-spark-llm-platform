@@ -35,6 +35,7 @@ RUN python3 -m pip install --no-cache-dir \
       "fastapi>=0.115" "uvicorn[standard]>=0.30" python-multipart
 
 COPY server.py /app/server.py
+COPY esrgan.py /app/esrgan.py
 
 RUN mkdir -p /app/hf_cache
 

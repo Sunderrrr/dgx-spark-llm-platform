@@ -23,6 +23,7 @@ import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import {
@@ -79,7 +80,7 @@ import {
   migrateLegacyConversations,
 } from "@/lib/conversations";
 import { AskQuestion } from "./_components/AskQuestion";
-import { ContextMeter } from "./_components/ContextMeter";
+import { ContextMeter, fmtK } from "./_components/ContextMeter";
 import { SettingsPanel } from "./_components/SettingsPanel";
 import { SkillsMenu } from "./_components/SkillsMenu";
 import { SkillCreator } from "./_components/SkillCreator";
@@ -2316,6 +2317,20 @@ export default function PlaygroundPage() {
 
   const max = modelLimits[model] || 32768;
   const used = Math.max(ctxUsed, estimateTokens(settings, input, messages, attachments));
+  // Décomposition du contenu pour « Fenêtre de contexte » : prompt système vs
+  // messages/fichiers (même estimation chars/4 que estimateTokens). Le backend
+  // ne fournit pas le décompte par segment, on estime donc la part relative —
+  // assez fidèle pour visualiser ce qui occupe la fenêtre.
+  const systemTokens = Math.round(settings.system.length / 4);
+  let contentChars = input.length;
+  for (const m of messages) contentChars += m.content.length;
+  for (const a of attachments) contentChars += a.content.length;
+  const contentTokens = Math.round(contentChars / 4);
+  const totalEstimate = Math.max(1, systemTokens + contentTokens);
+  const sysPct = Math.round((systemTokens / totalEstimate) * 100);
+  const msgPct = 100 - sysPct;
+  const ctxLevel: "accent" | "warning" | "error" =
+    used / (max || 1) >= 0.95 ? "error" : used / (max || 1) >= 0.8 ? "warning" : "accent";
 
   // Liste d'historique : recherche par titre + épinglées en tête, puis récentes.
   const q = histQuery.trim().toLowerCase();
@@ -2649,14 +2664,24 @@ export default function PlaygroundPage() {
           ) : undefined
         }
         footerActions={
-          <Button
-            label={t("Joindre un fichier")}
-            variant="ghost"
-            size="sm"
-            isIconOnly
-            icon={<Icon icon={PaperClipIcon} size="sm" />}
-            onClick={() => fileInputRef.current?.click()}
-          />
+          <>
+            <Button
+              label={t("Fenêtre de contexte")}
+              variant="ghost"
+              size="sm"
+              isIconOnly
+              icon={<StatusDot variant={ctxLevel} label={t("Fenêtre de contexte")} />}
+              onClick={() => setCtxOpen(true)}
+            />
+            <Button
+              label={t("Joindre un fichier")}
+              variant="ghost"
+              size="sm"
+              isIconOnly
+              icon={<Icon icon={PaperClipIcon} size="sm" />}
+              onClick={() => fileInputRef.current?.click()}
+            />
+          </>
         }
         sendActions={
           <Selector
@@ -3605,12 +3630,38 @@ export default function PlaygroundPage() {
           </Dialog>
           <Dialog isOpen={ctxOpen} onOpenChange={(o) => { if (!o) setCtxOpen(false); }} width={560}>
             <DialogHeader
-              title={t("Contexte injecté")}
+              title={t("Fenêtre de contexte")}
               subtitle={t("Ce que le modèle voit pour ce tour")}
               hasDivider
               onOpenChange={(o) => { if (!o) setCtxOpen(false); }}
             />
             <VStack padding={3} gap={3}>
+              {/* Total + barre de progression */}
+              <VStack gap={1}>
+                <HStack hAlign="between" vAlign="center">
+                  <Text weight="semibold">{t("Utilisation du contexte")}</Text>
+                  <Text type="supporting" color="secondary" hasTabularNumbers>
+                    {fmtK(used)} / {fmtK(max)} {t("tokens")}
+                  </Text>
+                </HStack>
+                <ProgressBar label={t("Utilisation du contexte")} isLabelHidden value={used} max={max || 1} variant={ctxLevel} />
+              </VStack>
+              {/* Répartition : prompt système vs messages/fichiers */}
+              <VStack gap={1}>
+                <Text type="label">{t("Répartition")}</Text>
+                <HStack gap={2} vAlign="center">
+                  <StatusDot variant="accent" label={t("System prompt")} />
+                  <Text type="supporting">{t("System prompt")}</Text>
+                  <StackItem size="fill" />
+                  <Text type="supporting" color="secondary" hasTabularNumbers>{sysPct} %</Text>
+                </HStack>
+                <HStack gap={2} vAlign="center">
+                  <StatusDot variant="neutral" label={t("Messages")} />
+                  <Text type="supporting">{t("Messages")}</Text>
+                  <StackItem size="fill" />
+                  <Text type="supporting" color="secondary" hasTabularNumbers>{msgPct} %</Text>
+                </HStack>
+              </VStack>
               <HStack gap={2} vAlign="center" wrap="wrap">
                 {model && <Badge label={model} variant="info" />}
                 <Badge label={`${Math.round((used / (max || 1)) * 100)} % ${t("contexte")}`} variant="info" />

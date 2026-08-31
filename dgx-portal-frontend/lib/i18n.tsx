@@ -95,6 +95,7 @@ const EN: Record<string, string> = {
   "Modèle image": "Image model",
   "Nombre d'images": "Number of images",
   "Format": "Format",
+  "Résolution": "Resolution",
   "Générer {n} images": "Generate {n} images",
   "Génération en cours… {d}/{n}": "Generating… {d}/{n}",
   "images": "images",

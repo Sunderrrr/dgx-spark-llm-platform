@@ -59,7 +59,8 @@ def _image_cancelled(prompt_id, username):
         return False
 
 
-def _image_worker(prompt_id, username, prompt_text, count, fmt='png'):
+def _image_worker(prompt_id, username, prompt_text, count, fmt='png',
+                  width=1024, height=1024, out_width=0, out_height=0):
     """Background thread: call the sidecar `count` times (sequentially — one image
     at a time keeps the GPU memory spike at single-image level on unified memory),
     saving each as <prompt_id>_<idx>.<ext>. Each call reseeds implicitly, so the N
@@ -76,7 +77,10 @@ def _image_worker(prompt_id, username, prompt_text, count, fmt='png'):
             break
         try:
             r = requests.post(f"{IMAGE_URL}/generate",
-                              data={'prompt': prompt_text[:10000], 'format': fmt}, timeout=600)
+                              data={'prompt': prompt_text[:10000], 'format': fmt,
+                                    'width': width, 'height': height,
+                                    'out_width': out_width, 'out_height': out_height},
+                              timeout=600)
             if r.ok and r.headers.get('Content-Type', '').startswith('image/'):
                 with open(os.path.join(IMAGE_FILES_DIR, f"{prompt_id}_{idx}.{ext}"), 'wb') as f:
                     f.write(r.content)
@@ -123,6 +127,18 @@ def api_image_generate():
     # Format de sortie : normalisé (alias jpg -> jpeg), défaut png. Le sidecar
     # encode ce format et le portail stocke/sert l'extension correspondante.
     fmt = IMAGE_FORMATS.get((request.form.get('format', 'png') or 'png').strip().lower(), 'png')
+    # Résolution : génération native (multiple de 8, bornée comme le sidecar) et
+    # taille de sortie optionnelle (upscale Lanczos côté sidecar si plus grande).
+    def _dim(key, default, lo, hi):
+        try:
+            v = int(request.form.get(key) or default)
+        except (TypeError, ValueError):
+            v = default
+        return max(lo, min(hi, v))
+    width = _dim('width', 1024, 256, 1536)
+    height = _dim('height', 1024, 256, 1536)
+    out_width = _dim('out_width', 0, 0, 3840)
+    out_height = _dim('out_height', 0, 0, 3840)
     prompt_id = secrets.token_hex(12)
     db = get_db()
     db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, count, done_count, format, created_at) VALUES (?,?,?,?,?,?,?,?)",
@@ -136,9 +152,10 @@ def api_image_generate():
     # thread that blocks up to 600 s against the shared GPU sidecar.
     if not media_job_slot(username):
         return jsonify({'error': "Trop de générations d'images en cours. Attends la fin des précédentes."}), 429
-    def _run(u=username, pid=prompt_id, pt=prompt_text, c=count, f=fmt):
+    def _run(u=username, pid=prompt_id, pt=prompt_text, c=count, f=fmt,
+             w=width, h=height, ow=out_width, oh=out_height):
         try:
-            _image_worker(pid, u, pt, c, f)
+            _image_worker(pid, u, pt, c, f, w, h, ow, oh)
         finally:
             media_job_done(u)
     threading.Thread(target=_run, daemon=True).start()

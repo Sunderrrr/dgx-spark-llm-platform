@@ -16,6 +16,7 @@ import threading
 import torch
 from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse, Response
+from PIL import Image, ImageFilter
 
 MODEL_DIR = os.environ.get("MODEL_DIR", "/model")
 # Valeurs par defaut fournies par image-recreate.sh, qui les choisit selon le
@@ -117,12 +118,35 @@ def model_info():
     return {"model": _model_name, "ready": _pipe is not None}
 
 
+def _upscale(image, out_w, out_h):
+    """Agrandit vers out_w x out_h en haute qualité (Lanczos + accentuation).
+
+    Le modèle génère à sa résolution native (ratio cible), puis on monte à la
+    taille demandée. Pour un facteur modeste (~1.25x vers 1920x1080), Lanczos +
+    un léger unsharp est quasi indiscernable d'un upscaler GAN — sans dépendance
+    ni second modèle en VRAM. Le crop centré ne sert qu'en filet de sécurité si
+    le ratio diverge (on choisit des tailles natives au même ratio, donc no-op).
+    """
+    if image.width >= out_w and image.height >= out_h:
+        return image
+    scale = max(out_w / image.width, out_h / image.height)
+    w = max(out_w, round(image.width * scale))
+    h = max(out_h, round(image.height * scale))
+    img = image.resize((w, h), Image.LANCZOS)
+    left = (w - out_w) // 2
+    top = (h - out_h) // 2
+    img = img.crop((left, top, left + out_w, top + out_h))
+    return img.filter(ImageFilter.UnsharpMask(radius=2, percent=80, threshold=3))
+
+
 @app.post("/generate")
 def generate(prompt: str = Form(...),
              steps: int = Form(DEFAULT_STEPS),
              guidance: float = Form(DEFAULT_GUIDANCE),
              width: int = Form(1024),
              height: int = Form(1024),
+             out_width: int = Form(0),
+             out_height: int = Form(0),
              format: str = Form("png")):
     if _pipe is None:
         return JSONResponse({"error": _load_error or "model still loading"}, status_code=503)
@@ -134,6 +158,10 @@ def generate(prompt: str = Form(...),
     steps = max(1, min(80, int(steps)))
     width = max(256, min(1536, (int(width) // 8) * 8))
     height = max(256, min(1536, (int(height) // 8) * 8))
+    # Taille de sortie : si demandée et plus grande que la génération native, on
+    # upscale (Lanczos + unsharp). Borné à 3840 (4K) par côté.
+    out_width = max(0, min(3840, int(out_width or 0)))
+    out_height = max(0, min(3840, int(out_height or 0)))
     try:
         with _gpu_lock:
             with torch.inference_mode():
@@ -145,6 +173,8 @@ def generate(prompt: str = Form(...),
                 out = _pipe(prompt=prompt, num_inference_steps=steps,
                             guidance_scale=float(guidance), width=width, height=height)
             image = _premiere_image(out)
+        if out_width and out_height:
+            image = _upscale(image, out_width, out_height)
         # JPEG ne sait pas coder un canal alpha : on aplatit sur RGB avant.
         if fmt == "JPEG" and image.mode in ("RGBA", "LA", "P"):
             image = image.convert("RGB")

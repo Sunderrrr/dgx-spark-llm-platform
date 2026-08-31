@@ -44,6 +44,16 @@ type ImageFormat = (typeof FORMATS)[number]["value"];
 
 const FORMAT_EXT: Record<ImageFormat, string> = { png: "png", jpeg: "jpg", webp: "webp" };
 
+// Résolutions proposées. Le modèle génère à sa taille native (multiple de 8,
+// bornée à 1536), puis le sidecar monte en Lanczos vers la taille de sortie.
+// width/height = génération native ; out* = taille finale (0 = pas d'upscale).
+const SIZES = [
+  { value: "square", label: "1024×1024", width: 1024, height: 1024, outWidth: 0, outHeight: 0 },
+  { value: "landscape", label: "1920×1080", width: 1536, height: 864, outWidth: 1920, outHeight: 1080 },
+  { value: "portrait", label: "1080×1920", width: 864, height: 1536, outWidth: 1080, outHeight: 1920 },
+] as const;
+type ImageSize = (typeof SIZES)[number]["value"];
+
 const STATUS_LABEL: Record<string, string> = {
   pending: "En file d'attente…",
   running: "Génération en cours…",
@@ -68,6 +78,7 @@ export default function ImagePage() {
   const [promptId, setPromptId] = useState<string | null>(null);
   const [batch, setBatch] = useState(1);          // count chosen for the next generation
   const [format, setFormat] = useState<ImageFormat>("png");  // output format for the next generation
+  const [size, setSize] = useState<ImageSize>("square");      // output resolution for the next generation
   const [jobCount, setJobCount] = useState(1);    // count of the currently-viewed job
   const [doneCount, setDoneCount] = useState(0);  // images produced so far for it
   // Galerie : visionneuse plein écran + vignettes supprimées individuellement.
@@ -108,14 +119,16 @@ export default function ImagePage() {
   // Un génération peut partir du formulaire (état courant) ou d'un « Réessayer »
   // sur un item d'historique échoué (prompt/batch fournis en dur — setState étant
   // asynchrone, on passe la valeur à la requête plutôt que de relire l'état).
-  async function generate(opts?: { prompt?: string; batch?: number; format?: ImageFormat }) {
+  async function generate(opts?: { prompt?: string; batch?: number; format?: ImageFormat; size?: ImageSize }) {
     const p = (opts?.prompt ?? prompt).trim();
     const b = Math.max(1, opts?.batch ?? batch);
     const f = opts?.format ?? format;
+    const sz = SIZES.find((s) => s.value === (opts?.size ?? size)) ?? SIZES[0];
     if (!p) return;
     if (opts?.prompt !== undefined) setPrompt(opts.prompt);
     if (opts?.batch !== undefined) setBatch(b);
     if (opts?.format !== undefined) setFormat(f);
+    if (opts?.size !== undefined) setSize(sz.value);
     setStatus("pending");
     setPromptId(null);
     setJobCount(b);
@@ -124,7 +137,11 @@ export default function ImagePage() {
       const res = await postFormData<{ prompt_id?: string; count?: number; error?: string }>(
         "/api/image/generate",
         csrf,
-        { prompt: p, count: String(b), format: f },
+        {
+          prompt: p, count: String(b), format: f,
+          width: String(sz.width), height: String(sz.height),
+          out_width: String(sz.outWidth), out_height: String(sz.outHeight),
+        },
       );
       if (!res.prompt_id) {
         showToast({ body: res.error ? t(res.error) : t("Échec de la génération."), type: "error" });
@@ -304,6 +321,18 @@ export default function ImagePage() {
                         >
                           {BATCH_CHOICES.map((n) => (
                             <SegmentedControlItem key={n} value={String(n)} label={String(n)} isDisabled={isBusy} />
+                          ))}
+                        </SegmentedControl>
+                      </HStack>
+                      <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
+                        <Text type="supporting" color="secondary">{t("Résolution")}</Text>
+                        <SegmentedControl
+                          label={t("Résolution")}
+                          value={size}
+                          onChange={(v) => setSize(v as ImageSize)}
+                        >
+                          {SIZES.map((s) => (
+                            <SegmentedControlItem key={s.value} value={s.value} label={s.label} isDisabled={isBusy} />
                           ))}
                         </SegmentedControl>
                       </HStack>

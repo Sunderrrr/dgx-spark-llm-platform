@@ -84,10 +84,10 @@ services:
       - ALL
     environment:
       SECRET_KEY: ${WEBUI_SECRET_KEY}
-      LDAP_URI: ldap://lldap.cronos.lan:3890
-      LDAP_BASE: dc=cronos,dc=website
-      LDAP_BIND_DN: uid=admin,ou=people,dc=cronos,dc=website
-      LDAP_BIND_PW: ${LLDAP_ADMIN_PASSWORD}
+      LDAP_URI: ldap://100.73.45.103:389
+      LDAP_BASE: dc=cronos,dc=lan
+      LDAP_BIND_DN: cn=ldap,ou=users,dc=cronos,dc=lan
+      LDAP_BIND_PW: ${LDAP_BIND_PW}
       LITELLM_URL: http://litellm:4001
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       # Passerelle du réseau `default` plutôt que host.docker.internal : ce
@@ -129,11 +129,11 @@ services:
       LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       TZ_DISPLAY: Europe/Paris
       # ── SSO / OIDC (Authentik) ──
-      OIDC_METADATA_URL: https://gjallarhorn.cronos.website/application/o/dgx-spark/.well-known/openid-configuration
+      OIDC_METADATA_URL: https://gjallarhorn.cronos.website/application/o/dgx/.well-known/openid-configuration
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
       OIDC_REDIRECT_URI: https://dgx.cronos.website/api/oauth2-redirect
-      OIDC_LOGOUT_URL: https://gjallarhorn.cronos.website/application/o/dgx-spark/end-session/
+      OIDC_LOGOUT_URL: https://gjallarhorn.cronos.website/application/o/dgx/end-session/
       OIDC_ADMIN_GROUP: adm_cronos
       # App servie en HTTPS derrière Traefik → cookie de session Secure
       SESSION_COOKIE_SECURE: "1"

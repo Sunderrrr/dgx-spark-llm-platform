@@ -573,6 +573,12 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_mem_edges_user ON memory_edges(username, src_id);
         CREATE INDEX IF NOT EXISTS idx_mem_nodes_user ON memory_nodes(username, name_norm);
     ''')
+    # Migration: remember the admin status of the last observed login (local/
+    # LDAP/SSO). The Users page uses it to show the effective role with the
+    # directory (SSO/LDAP) taking precedence over the local record.
+    us_cols = {r[1] for r in db.execute("PRAGMA table_info(user_sources)")}
+    if 'last_is_admin' not in us_cols:
+        db.execute("ALTER TABLE user_sources ADD COLUMN last_is_admin INTEGER")
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
         ('default_key_budget', str(KEY_BUDGET))

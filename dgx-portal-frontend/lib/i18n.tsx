@@ -796,7 +796,6 @@ const EN: Record<string, string> = {
 
   // — Login —
   "Plateforme IA privée · NVIDIA DGX Spark": "Private AI platform · NVIDIA DGX Spark",
-  "Identifiant LLDAP": "LLDAP username",
   "Mot de passe": "Password",
   "Se connecter": "Sign in",
   "Ou": "Or",

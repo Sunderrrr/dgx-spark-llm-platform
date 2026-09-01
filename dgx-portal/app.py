@@ -114,12 +114,25 @@ oauth = None
 if OIDC_ENABLED:
     from authlib.integrations.flask_client import OAuth
     oauth = OAuth(app)
+    # gjallarhorn (Cloudflare) renvoie 403 aux User-Agents non-navigateur, y
+    # compris celui d'authlib quand il récupère le metadata OIDC. On le récupère
+    # donc nous-mêmes (UA navigateur) et on passe les endpoints directement (via
+    # **_md) ; `user_agent` couvre les appels token/userinfo ultérieurs.
+    _md = {}
+    try:
+        import requests as _requests
+        _md = _requests.get(OIDC_METADATA_URL, timeout=15,
+                            headers={'User-Agent': 'Mozilla/5.0 (Cronos portal)'}).json()
+    except Exception as e:
+        app.logger.warning("SSO: metadata OIDC injoignable (%s)", e)
     oauth.register(
         name='authentik',
-        server_metadata_url=OIDC_METADATA_URL,
         client_id=OIDC_CLIENT_ID,
         client_secret=OIDC_CLIENT_SECRET,
+        server_metadata_url=(OIDC_METADATA_URL if not _md else None),
         client_kwargs={'scope': 'openid profile email'},
+        user_agent='Mozilla/5.0 (Cronos portal)',
+        **_md,
     )
 
 # ── DB ─────────────────────────────────────────────────────────────────────

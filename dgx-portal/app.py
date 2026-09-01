@@ -391,7 +391,7 @@ def login():
         l_ok, l_admin, l_name = _local_user_auth(username, password)
         if l_ok:
             _login_reset(key); _login_reset(ip); _login_reset(ukey)
-            _record_user_source(username, 'local', l_name)
+            _record_user_source(username, 'local', l_name, l_admin)
             if _webauthn_enabled(username):
                 # 2e facteur : mot de passe valide MAIS pas encore de session.
                 payload = start_login(username, l_name, l_admin, 'local')
@@ -403,7 +403,7 @@ def login():
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
             _login_reset(key); _login_reset(ip); _login_reset(ukey)
-            _record_user_source(username, 'ldap', fullname)
+            _record_user_source(username, 'ldap', fullname, is_admin)
             if _webauthn_enabled(username):
                 payload = start_login(username, fullname, is_admin, 'ldap')
                 return jsonify({'webauthn_required': True,
@@ -513,7 +513,7 @@ def oauth_callback():
         is_admin = ldap_lookup_admin(username)
 
     nxt = session.pop('sso_next', None)
-    _record_user_source(username, 'sso', fullname)
+    _record_user_source(username, 'sso', fullname, is_admin)
     _apply_session(username, fullname, is_admin, via_sso=True)
     return redirect(_safe_next(nxt))
 

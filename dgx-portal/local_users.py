@@ -51,10 +51,12 @@ def _sync_local_user_budget(username, row):
     except Exception:
         pass
 
-def _record_user_source(username, source, fullname=None):
+def _record_user_source(username, source, fullname=None, is_admin=None):
     """Records that a user logged in via `source` (local/ldap/
     sso). Cumulative: an account present in LDAP AND in SSO ends with both.
-    Feeds the admin "Users" view (Source column).
+    `is_admin` (0/1/None) is the role this login granted; it is stored as
+    last_is_admin so the admin "Users" view can show the effective role with
+    the directory (SSO/LDAP) taking precedence over the local record.
     """
     try:
         db = get_db()
@@ -63,12 +65,14 @@ def _record_user_source(username, source, fullname=None):
         srcs.discard('')
         srcs.add(source)
         now = datetime.now().isoformat()
+        admin_val = int(is_admin) if is_admin is not None else None
         db.execute(
-            "INSERT INTO user_sources (username, sources, fullname, last_source, last_seen) "
-            "VALUES (?,?,?,?,?) ON CONFLICT(username) DO UPDATE SET "
+            "INSERT INTO user_sources (username, sources, fullname, last_source, last_seen, last_is_admin) "
+            "VALUES (?,?,?,?,?,?) ON CONFLICT(username) DO UPDATE SET "
             "sources=excluded.sources, fullname=COALESCE(excluded.fullname, user_sources.fullname), "
-            "last_source=excluded.last_source, last_seen=excluded.last_seen",
-            (username, ','.join(sorted(srcs)), fullname, source, now))
+            "last_source=excluded.last_source, last_seen=excluded.last_seen, "
+            "last_is_admin=excluded.last_is_admin",
+            (username, ','.join(sorted(srcs)), fullname, source, now, admin_val))
         db.commit()
     except Exception:
         pass

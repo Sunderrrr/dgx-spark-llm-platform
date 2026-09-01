@@ -529,6 +529,24 @@ def api_admin_users():
         mu = managed.get(name)
         fullname = (mu['fullname'] if mu else None) or (recorded[name]['fullname'] if name in recorded else None)
         sp = spend.get(name)
+        rs = recorded.get(name)
+        last_source = rs['last_source'] if rs else None
+        last_is_admin = rs['last_is_admin'] if rs else None
+        local_admin = _local_user_is_admin(mu) if mu else None
+        # Effective role: the directory (SSO/LDAP) wins over the local record.
+        # A local account that logs in via SSO gets the SSO groups' admin right
+        # (last_source='sso'), not its local_users flag.
+        if mu is not None:
+            if last_source in ('sso', 'ldap') and last_is_admin is not None:
+                effective_admin = bool(last_is_admin)
+                role_source = last_source
+            else:
+                effective_admin = local_admin
+                role_source = 'local'
+        else:
+            # External account: the directory is the only source of rights.
+            effective_admin = bool(last_is_admin) if last_is_admin is not None else None
+            role_source = last_source if last_source in ('sso', 'ldap') else 'externe'
         out.append({
             'username': name,
             'fullname': fullname,
@@ -538,7 +556,9 @@ def api_admin_users():
             'group_name': mu['group_name'] if mu else None,
             'enabled': mu['enabled'] if mu else 1,
             'is_admin': mu['is_admin'] if mu else None,
-            'effective_admin': _local_user_is_admin(mu) if mu else None,
+            'effective_admin': effective_admin,
+            'role_source': role_source,
+            'last_source': last_source,
             'effective_budget': _local_user_effective_budget(mu) if mu else (sp['max_budget'] if sp else None),
             'unlimited': (sp['unlimited'] if sp else False),
             'spend': (sp['spend'] if sp else 0),

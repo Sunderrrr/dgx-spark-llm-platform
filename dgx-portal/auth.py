@@ -24,8 +24,8 @@ from ldap3 import ALL, SIMPLE, Connection, Server
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 
-from config import (LDAP_BASE, LDAP_BIND_DN,
-                    LDAP_BIND_PW, LDAP_URI)
+from config import (LDAP_BASE, LDAP_BIND_DN, LDAP_BIND_PW,
+                    LDAP_LOGIN_ATTR, LDAP_URI, LDAP_USERS_DN)
 from db import DB_PATH, get_db
 
 _API_FETCH_PATHS = ('/playground/chat', '/support/chat', '/admin/runner/stream')
@@ -218,19 +218,27 @@ def ldap_authenticate(username, password):
     try:
         server = Server(LDAP_URI, get_info=ALL)
         # Anti-injection escaping: RDN for the bind DN, filter for the search.
-        user_dn = f"uid={escape_rdn(username)},ou=people,{LDAP_BASE}"
+        user_dn = f"{LDAP_LOGIN_ATTR}={escape_rdn(username)},{LDAP_USERS_DN},{LDAP_BASE}"
         conn = Connection(server, user=user_dn, password=password,
                           authentication=SIMPLE, auto_bind=True)
         conn.search(
-            search_base=f"ou=people,{LDAP_BASE}",
-            search_filter=f"(uid={escape_filter_chars(username)})",
-            attributes=['cn', 'memberOf']
+            search_base=f"{LDAP_USERS_DN},{LDAP_BASE}",
+            search_filter=f"({LDAP_LOGIN_ATTR}={escape_filter_chars(username)})",
+            attributes=['cn', 'displayName', 'memberOf']
         )
         if not conn.entries:
             conn.unbind()
             return False, False, username
         entry = conn.entries[0]
-        fullname = str(entry.cn) if hasattr(entry, 'cn') else username
+        # displayName (ex. « Abdillah Abdou ») quand présent ; sinon cn, sinon
+        # l'identifiant. Authentik stocke displayName base64 pour les accents,
+        # ldap3 le décode déjà.
+        if hasattr(entry, 'displayName') and getattr(entry, 'displayName'):
+            fullname = str(entry.displayName)
+        elif hasattr(entry, 'cn'):
+            fullname = str(entry.cn)
+        else:
+            fullname = username
         groups = [str(g) for g in entry.memberOf] if hasattr(entry, 'memberOf') else []
         is_admin = any(_is_admin_group(g) for g in groups)
         conn.unbind()
@@ -248,8 +256,8 @@ def ldap_lookup_admin(username):
         server = Server(LDAP_URI, get_info=ALL)
         conn = Connection(server, user=LDAP_BIND_DN, password=LDAP_BIND_PW,
                           authentication=SIMPLE, auto_bind=True)
-        conn.search(search_base=f"ou=people,{LDAP_BASE}",
-                    search_filter=f"(uid={escape_filter_chars(username)})",
+        conn.search(search_base=f"{LDAP_USERS_DN},{LDAP_BASE}",
+                    search_filter=f"({LDAP_LOGIN_ATTR}={escape_filter_chars(username)})",
                     attributes=['memberOf'])
         is_admin = False
         if conn.entries and hasattr(conn.entries[0], 'memberOf'):
@@ -267,8 +275,8 @@ def ldap_lookup_email(username):
     try:
         conn = Connection(Server(LDAP_URI, get_info=ALL), user=LDAP_BIND_DN,
                           password=LDAP_BIND_PW, authentication=SIMPLE, auto_bind=True)
-        conn.search(search_base=f"ou=people,{LDAP_BASE}",
-                    search_filter=f"(uid={escape_filter_chars(username)})", attributes=['mail'])
+        conn.search(search_base=f"{LDAP_USERS_DN},{LDAP_BASE}",
+                    search_filter=f"({LDAP_LOGIN_ATTR}={escape_filter_chars(username)})", attributes=['mail'])
         email = None
         if conn.entries and hasattr(conn.entries[0], 'mail') and conn.entries[0].mail:
             email = str(conn.entries[0].mail)

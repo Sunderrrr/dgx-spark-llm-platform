@@ -10,10 +10,17 @@ Ce module n'importe que `os` : il ne peut creer aucun cycle.
 import os
 
 # ── LDAP ─────────────────────────────────────────────────────────────────────
-LDAP_URI      = os.environ.get('LDAP_URI', 'ldap://lldap.cronos.lan:3890')
-LDAP_BASE     = os.environ.get('LDAP_BASE', 'dc=cronos,dc=website')
-LDAP_BIND_DN  = os.environ.get('LDAP_BIND_DN', '')
-LDAP_BIND_PW  = os.environ.get('LDAP_BIND_PW', '')
+# Serveur Authentik : les comptes vivent sous ou=users, l'identifiant de
+# connexion est l'attribut `cn` (le `uid` est un hash interne Authentik, PAS le
+# nom d'utilisateur), et le nom affiché est `displayName`.
+LDAP_URI        = os.environ.get('LDAP_URI', 'ldap://100.73.45.103:389')
+LDAP_BASE       = os.environ.get('LDAP_BASE', 'dc=cronos,dc=lan')
+LDAP_BIND_DN    = os.environ.get('LDAP_BIND_DN', '')
+LDAP_BIND_PW    = os.environ.get('LDAP_BIND_PW', '')
+# RDN des comptes, relatif à LDAP_BASE (ou=users ici ; l'ancien lldap était ou=people).
+LDAP_USERS_DN   = os.environ.get('LDAP_USERS_DN', 'ou=users')
+# Attribut utilisé comme identifiant de connexion (cn ici ; l'ancien lldap était uid).
+LDAP_LOGIN_ATTR = os.environ.get('LDAP_LOGIN_ATTR', 'cn')
 
 # ── Services internes ────────────────────────────────────────────────────────
 LITELLM_URL   = os.environ.get('LITELLM_URL', 'http://litellm:4000')

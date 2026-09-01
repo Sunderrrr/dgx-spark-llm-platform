@@ -143,7 +143,7 @@ export default function LoginPage() {
           {error && <Banner status="error" title={error} />}
 
           <VStack gap={3}>
-            <TextInput label={t("Identifiant LLDAP")} value={username} onChange={setUsername} size="lg" hasAutoFocus />
+            <TextInput label={t("Identifiant")} value={username} onChange={setUsername} size="lg" hasAutoFocus />
             <TextInput
               label={t("Mot de passe")}
               type="password"

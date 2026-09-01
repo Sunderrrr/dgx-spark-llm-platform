@@ -44,6 +44,8 @@ type LocalUser = {
   enabled: number;
   is_admin: number | null;
   effective_admin: boolean | null;
+  role_source: "local" | "sso" | "ldap" | "externe" | null;
+  last_source: string | null;
   effective_budget: number | null;
   unlimited: boolean;
   spend: number;
@@ -211,18 +213,26 @@ export function UsersSection({ csrf }: { csrf: string }) {
           })}
         </HStack>
       ) },
+    { key: "managed", header: t("Géré"), renderCell: (u) =>
+        u.managed ? <Badge label={t("Ici")} variant="green" /> : <Badge label="Authentik" variant="neutral" /> },
     { key: "group_name", header: t("Groupe"), renderCell: (u) => u.group_name || "—" },
     { key: "effective_budget", header: t("Quota / j"), renderCell: (u) =>
         u.unlimited ? <Text color="secondary">{t("Illimité")}</Text>
         : u.effective_budget != null ? <Text hasTabularNumbers>{fmtBudget(u.effective_budget)}</Text>
         : <Text color="secondary">—</Text> },
-    { key: "effective_admin", header: t("Rôle"), renderCell: (u) =>
-        u.effective_admin ? <Badge label={t("Admin")} variant="warning" /> : <Text color="secondary">{t("Utilisateur")}</Text> },
+    { key: "effective_admin", header: t("Rôle"), renderCell: (u) => (
+        <HStack gap={1} vAlign="center">
+          {u.effective_admin ? <Badge label={t("Admin")} variant="warning" /> : <Text color="secondary">{t("Utilisateur")}</Text>}
+          {u.managed && (u.role_source === "sso" || u.role_source === "ldap") ? (
+            <Text type="supporting" color="secondary">{t("via")} {u.role_source.toUpperCase()}</Text>
+          ) : null}
+        </HStack>
+      ) },
     { key: "enabled", header: t("Statut"), renderCell: (u) =>
-        !u.managed ? <Badge label={t("Externe")} variant="neutral" />
+        !u.managed ? <Text color="secondary">—</Text>
         : u.enabled ? <Badge label={t("Actif")} variant="success" /> : <Badge label={t("Désactivé")} variant="error" /> },
     { key: "id", header: "", renderCell: (u) =>
-        !u.managed ? <Text type="supporting" color="secondary">{t("Géré à l'extérieur")}</Text> : (
+        !u.managed ? <Text color="secondary">—</Text> : (
         <MoreMenu
           label={t("Actions")}
           size="sm"

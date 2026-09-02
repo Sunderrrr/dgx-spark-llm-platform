@@ -547,11 +547,17 @@ def api_admin_users():
             # External account: the directory is the only source of rights.
             effective_admin = bool(last_is_admin) if last_is_admin is not None else None
             role_source = last_source if last_source in ('sso', 'ldap') else 'externe'
+        # Management origin for the "Géré" column: an account that has logged in
+        # via the directory (SSO/LDAP) is effectively managed by Authentik, even
+        # if a historical local_users row still exists (edit actions remain
+        # available because the row exists, but its rights/budget are delegated).
+        managed_by = 'repertoire' if (mu is not None and last_source in ('sso', 'ldap')) else ('local' if mu is not None else 'repertoire')
         out.append({
             'username': name,
             'fullname': fullname,
             'sources': sorted(srcs),
             'managed': bool(mu),
+            'managed_by': managed_by,
             'id': mu['id'] if mu else None,
             'group_name': mu['group_name'] if mu else None,
             'enabled': mu['enabled'] if mu else 1,

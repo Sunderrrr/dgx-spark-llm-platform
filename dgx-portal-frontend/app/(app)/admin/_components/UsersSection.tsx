@@ -39,6 +39,7 @@ type LocalUser = {
   fullname: string | null;
   sources: string[];
   managed: boolean;
+  managed_by: "local" | "repertoire";
   id: number | null;
   group_name: string | null;
   enabled: number;
@@ -214,7 +215,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
         </HStack>
       ) },
     { key: "managed", header: t("Géré"), renderCell: (u) =>
-        u.managed ? <Badge label={t("Ici")} variant="green" /> : <Badge label="Authentik" variant="neutral" /> },
+        u.managed_by === "local" ? <Badge label={t("Ici")} variant="green" /> : <Badge label="Authentik" variant="neutral" /> },
     { key: "group_name", header: t("Groupe"), renderCell: (u) => u.group_name || "—" },
     { key: "effective_budget", header: t("Quota / j"), renderCell: (u) =>
         u.unlimited ? <Text color="secondary">{t("Illimité")}</Text>

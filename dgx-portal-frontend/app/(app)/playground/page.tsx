@@ -763,6 +763,9 @@ function savePinnedIds(ids: string[]) {
 // Math/LaTeX inline : rendu via KaTeX dans le Markdown. Le parseur Astryx n'a
 // pas de nœud « math en bloc » — on couvre `$...$` et `\(...\)` (inline). Les
 // blocs `$$...$$` restent du texte brut (limitation connue).
+// XSS : `trust` reste à false (jamais activé) — KaTeX échappe l'HTML de sortie,
+// donc un `$…$` contenant du contenu hostile ne peut pas s'injecter dans le DOM.
+// Ne jamais passer `trust: true` ici, même pour du « joli » rendu.
 function renderMath(expr: string) {
   try {
     return katex.renderToString(expr, { throwOnError: false, output: "html", displayMode: false });

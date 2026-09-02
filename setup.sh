@@ -23,11 +23,13 @@ LITELLM_KEY="sk-$(generate_key)"
 POSTGRES_PASS="$(generate_key)"
 WEBUI_KEY="$(generate_key)"
 RUNNER_TOK="$(generate_key)"
+SEARXNG_SECRET="$(generate_key)"
 
 sed -i "s|LITELLM_MASTER_KEY=sk-changeme|LITELLM_MASTER_KEY=${LITELLM_KEY}|" .env
 sed -i "s|POSTGRES_PASSWORD=changeme|POSTGRES_PASSWORD=${POSTGRES_PASS}|" .env
 sed -i "s|WEBUI_SECRET_KEY=changeme|WEBUI_SECRET_KEY=${WEBUI_KEY}|" .env
 sed -i "s|RUNNER_TOKEN=changeme|RUNNER_TOKEN=${RUNNER_TOK}|" .env
+sed -i "s|SEARXNG_SECRET=changeme|SEARXNG_SECRET=${SEARXNG_SECRET}|" .env
 
 chmod 600 .env
 

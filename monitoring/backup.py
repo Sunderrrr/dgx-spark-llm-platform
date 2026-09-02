@@ -48,6 +48,10 @@ def _sqlite_backup(dest_dir):
     _run(["docker", "exec", "dgx-portal", "rm", "-f", tmp])
     if r2.returncode != 0:
         return None, f"docker cp failed: {r2.stderr.strip()}"
+    try:
+        os.chmod(out, 0o600)
+    except OSError:
+        pass
     return out, None
 
 
@@ -61,6 +65,10 @@ def _pg_dump(dest_dir):
             stdout=fh, stderr=subprocess.PIPE, timeout=180)
     if r.returncode != 0:
         return None, f"pg_dump failed: {r.stderr.decode().strip()}"
+    try:
+        os.chmod(out, 0o600)
+    except OSError:
+        pass
     return out, None
 
 
@@ -89,6 +97,13 @@ def main():
     args = ap.parse_args()
 
     os.makedirs(args.dir, exist_ok=True)
+    # Les dumps contiennent des clés API / journaux : répertoire 0700 et
+    # fichiers 0600 (le script tourne en root ; un autre process local ne doit
+    # pas pouvoir lire l'historique des clés).
+    try:
+        os.chmod(args.dir, 0o700)
+    except OSError:
+        pass
     if args.list:
         _list(args.dir)
         return 0

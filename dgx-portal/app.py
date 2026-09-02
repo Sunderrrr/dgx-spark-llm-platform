@@ -79,6 +79,7 @@ from auth import (  # noqa: E402
     _login_reset, _revoke_current_session, _revoke_user_sessions,
     is_admin_username,
     ldap_authenticate, ldap_lookup_admin, ldap_lookup_email,
+    ldap_resolve_sso_identity,
 )
 app.before_request(_csrf_protect)
 app.context_processor(_inject_csrf)
@@ -489,28 +490,36 @@ def oauth_callback():
         except Exception:
             userinfo = {}
 
-    username = (userinfo.get('preferred_username') or userinfo.get('nickname')
-                or (userinfo.get('email') or '').split('@')[0]
-                or userinfo.get('sub') or '').strip().lower()
-    # preferred_username / nickname / email are claims MODIFIABLE by
-    # the user in many IdPs. This value becomes session['username'],
-    # which is the ownership key of ALL the app's data (API keys,
-    # MCP servers, skills, conversations, LiteLLM quotas): without the same
-    # filter as the LDAP path, an SSO account that renames itself "mboitel" would
-    # be assigned mboitel's data. So we apply USERNAME_RE.
-    if not username or not USERNAME_RE.match(username):
+    # ── Identity binding (fail closed) ────────────────────────────────────────
+    # `session['username']` is the ownership key of ALL the app's data (API keys,
+    # MCP servers, skills, conversations, LiteLLM quotas). It must therefore come
+    # from an AUTHENTIC source, not from user-editable OIDC claims:
+    # `preferred_username`/`nickname`/`email` are modifiable by the user in many
+    # IdPs, so trusting them would let an SSO account rename itself "mboitel" and
+    # inherit that account. We resolve the canonical identity from the LDAP
+    # directory, keyed on the immutable `sub` (Authentik → LDAP `uid`) with a
+    # fallback to the verified unique `email` (→ LDAP `mail`). If the directory
+    # does not recognise the caller, we refuse the login rather than trust the
+    # token's own username.
+    sub = (userinfo.get('sub') or '').strip()
+    email = (userinfo.get('email') or '').strip().lower()
+    username, is_admin, fullname = ldap_resolve_sso_identity(sub, email)
+    if username is None:
+        flash("SSO : identité non reconnue dans le répertoire.", "danger")
+        return redirect(url_for('login'))
+    username = username.lower()
+    if not USERNAME_RE.match(username):
         flash("SSO : identifiant de profil invalide ou manquant.", "danger")
         return redirect(url_for('login'))
-    fullname = userinfo.get('name') or username
+    fullname = fullname or (userinfo.get('name') or username)
 
     groups = userinfo.get('groups')
     if isinstance(groups, list):
         # Authentik returns group names ("adm_cronos"); _is_admin_group
-        # also covers the case where it would be a full DN.
-        is_admin = any(g == OIDC_ADMIN_GROUP or _is_admin_group(g) for g in groups)
-    else:
-        # 'groups' claim absent → we fall back on an LDAP lookup by uid.
-        is_admin = ldap_lookup_admin(username)
+        # also covers the case where it would be a full DN. The directory
+        # lookup above already gave us is_admin from memberOf; the `groups`
+        # claim is treated as a secondary signal only when present.
+        is_admin = is_admin or any(g == OIDC_ADMIN_GROUP or _is_admin_group(g) for g in groups)
 
     nxt = session.pop('sso_next', None)
     _record_user_source(username, 'sso', fullname, is_admin)

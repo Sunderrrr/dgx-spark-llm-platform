@@ -285,6 +285,61 @@ def ldap_lookup_email(username):
     except Exception:
         return None
 
+def ldap_resolve_sso_identity(sub=None, email=None):
+    """Resolves the canonical *username* (cn) for an SSO login, from the
+    authoritative LDAP directory — never from user-editable OIDC claims.
+
+    The OIDC token's `preferred_username`/`nickname` are modifiable by the user
+    in many IdPs; trusting them would let an SSO account claim another account's
+    identity (and its data, API keys, admin rights). So the callback binds on
+    immutable/authoritative signals instead:
+
+      - `sub`   : the IdP's stable per-user identifier. In Authentik this
+                 corresponds to the LDAP `uid` (the long hash, not the cn).
+      - `email` : the verified email, unique in the directory and present in
+                 both the token (email claim) and LDAP (`mail`).
+
+    Returns (username, is_admin, fullname) or (None, False, None) when the
+    directory does not recognise the identity — the caller then REFUSES the
+    login (fail closed) rather than trusting the token's own username.
+    """
+    if not (LDAP_BIND_DN and LDAP_BIND_PW):
+        return None, False, None
+    try:
+        conn = Connection(Server(LDAP_URI, get_info=ALL), user=LDAP_BIND_DN,
+                          password=LDAP_BIND_PW, authentication=SIMPLE, auto_bind=True)
+        entry = None
+        # 1) bind by the immutable sub (Authentik LDAP maps it to `uid`).
+        if sub and re.match(r'^[a-zA-Z0-9._:@-]{1,256}$', sub):
+            conn.search(search_base=f"{LDAP_USERS_DN},{LDAP_BASE}",
+                        search_filter=f"(uid={escape_filter_chars(sub)})",
+                        attributes=['cn', 'displayName', 'mail', 'memberOf'])
+            if conn.entries:
+                entry = conn.entries[0]
+        # 2) fall back to the verified email (unique directory key).
+        if entry is None and email and '@' in email:
+            conn.search(search_base=f"{LDAP_USERS_DN},{LDAP_BASE}",
+                        search_filter=f"(mail={escape_filter_chars(email)})",
+                        attributes=['cn', 'displayName', 'mail', 'memberOf'])
+            if conn.entries:
+                entry = conn.entries[0]
+        if entry is None:
+            conn.unbind()
+            return None, False, None
+        username = str(entry.cn) if hasattr(entry, 'cn') and entry.cn else None
+        if not username or not USERNAME_RE.match(username):
+            conn.unbind()
+            return None, False, None
+        fullname = (str(entry.displayName) if hasattr(entry, 'displayName') and getattr(entry, 'displayName')
+                    else username)
+        groups = [str(g) for g in entry.memberOf] if hasattr(entry, 'memberOf') else []
+        is_admin = any(_is_admin_group(g) for g in groups)
+        conn.unbind()
+        return username, is_admin, fullname
+    except Exception:
+        return None, False, None
+
+
 # ── Anti-force-brute (persiste en base) ──
 
 LOGIN_MAX_FAILS = 6           # attempts before lockout

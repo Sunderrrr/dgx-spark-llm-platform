@@ -7,7 +7,10 @@ Type=simple
 User=vllmrunner
 Group=vllmrunner
 WorkingDirectory=/root/ComfyUI
-ExecStart=/root/venvs/comfyui/bin/python3 main.py --listen 0.0.0.0 --port 8188
+# Loopback uniquement : le portail (conteneur docker) l'atteint via le relais
+# socat comfyui-relay.service qui écoute sur 172.19.0.1:8188. Plus de
+# 0.0.0.0 — le moteur vidéo sans auth n'est joignable que depuis l'hôte.
+ExecStart=/root/venvs/comfyui/bin/python3 main.py --listen 127.0.0.1 --port 8188
 Restart=always
 RestartSec=5
 Environment=HOME=/var/lib/vllm-runner

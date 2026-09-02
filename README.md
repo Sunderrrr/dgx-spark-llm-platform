@@ -403,8 +403,6 @@ known account with a badge for each authentication source — **Local**, **LDAP*
 |---|---|
 | ![Find a model](assets/search.png) | ![Request a model](assets/request.png) |
 
-![Settings → API keys — budget, keys, and integration snippets (`auto-model` selected by default)](assets/keys.png)
-
 ![Admin — the unified backend row, a type-filtered catalog, and live vLLM logs](assets/admin.png)
 
 > **Refreshing these screenshots** — the UI is bilingual; capture them with the
@@ -424,7 +422,6 @@ known account with a badge for each authentication source — **Local**, **LDAP*
 > | Music generation | `/music` | `assets/music.png` |
 > | Memory | Settings ▸ Memory (or `/memory`) | `assets/memory.png` |
 > | Find a model | `/search` | `assets/search.png` |
-> | Settings → API keys | gear ▸ API keys | `assets/keys.png` |
 > | Request a model | `/request` | `assets/request.png` |
 > | Admin | `/admin` | `assets/admin.png` |
 >

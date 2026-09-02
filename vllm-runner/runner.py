@@ -570,6 +570,11 @@ def launch():
 
     if not hf_id:
         return jsonify({"error": "hf_model_id required"}), 400
+    # Shape-guard the model id (audit M6) : a HF repo id ("org/name") or a
+    # local GGUF alias ("local:<name>"), both charset-bound — reject anything
+    # else BEFORE it flows into _start_process/_resolve_gguf (argv + path).
+    if not (_HF_ID_RE.fullmatch(hf_id) or _LOCAL_ID_RE.fullmatch(hf_id)):
+        return jsonify({"error": "invalid hf_model_id"}), 400
     if engine not in ENGINES:
         return jsonify({"error": f"unknown engine: {engine}"}), 400
     if engine != "vllm" and not os.path.exists(_ENGINE_BIN[engine]):
@@ -799,6 +804,8 @@ def image_launch():
 # avant tout appel sudo — le script hôte revalide de son côté, et l'argument
 # part en argv (jamais interprété par un shell).
 _HF_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,60}/[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
+# GGUF local ("local:<name>", ds4/llamacpp) — même charset, sans slash requis.
+_LOCAL_ID_RE = re.compile(r"^local:[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
 
 
 @app.route("/music/status")

@@ -4,8 +4,13 @@ Description=Relais socat 172.19.0.1:8188 -> 127.0.0.1:8188 (ComfyUI vers le port
 # uniquement l'adresse du pont docker (172.19.0.1) que le portail vise, sans
 # rouvrir 0.0.0.0. Le pare-feu vllm-restrict.service DROP toujours 8188 pour
 # le reste (wt0/netbird inclus).
+#
+# BindsTo + PartOf : le relais suit EXACTEMENT le cycle de vie de comfyui —
+# comfyui on-demand stoppé via Admin → relay s'arrête proprement (plus de « failed »
+# fantôme) ; comfyui relancé → relay repart avec lui, sans démarrer relais à part.
 After=comfyui.service network.target
-Requires=comfyui.service
+BindsTo=comfyui.service
+PartOf=comfyui.service
 
 [Service]
 Type=simple

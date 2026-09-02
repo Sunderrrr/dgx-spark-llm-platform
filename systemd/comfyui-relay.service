@@ -19,4 +19,6 @@ Restart=always
 RestartSec=5
 
 [Install]
+# Suit comfyui (on-demand) : ne PAS enable non plus, sinon le relais tenterait
+# de démarrer seul au boot (et échouerait sans comfyui). Aucun WantedBy réel.
 WantedBy=multi-user.target

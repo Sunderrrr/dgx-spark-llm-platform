@@ -17,4 +17,9 @@ Environment=HOME=/var/lib/vllm-runner
 Environment=HF_HOME=/root/.cache/huggingface
 
 [Install]
+# ON-DEMAND : ne PAS `systemctl enable` ce service. ComfyUI (MiniMax H3) est un
+# sidecar média on-demand (~33 Go de VRAM) lancé UNIQUEMENT via Admin →
+# POST /video/start (le runner fait `systemctl start comfyui`). L'enabler force
+# son chargement à chaque boot, gaspillant la VRAM au profit du chat. Un service
+# disabled reste démarrable manuellement, donc /video/start continue de marcher.
 WantedBy=multi-user.target

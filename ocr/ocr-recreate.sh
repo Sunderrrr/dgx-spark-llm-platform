@@ -42,7 +42,7 @@ docker run -d --name ocr --restart unless-stopped \
   --security-opt no-new-privileges --cap-drop ALL \
   -v "$OCR_CACHE":/root/.cache/huggingface \
   -e HF_HOME=/root/.cache/huggingface \
-  vllm/vllm-openai:unlimited-ocr \
+  vllm/vllm-openai:unlimited-ocr@sha256:542961a42d9183813819a23ef3a8b50bfb4f5ef7b0fb4f8e4f56edd8445efb18 \
   "$HF_ID" "$@"
 rc=$?
 

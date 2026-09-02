@@ -208,13 +208,16 @@ services:
   # Aucun `ports:` : ni l'un ni l'autre n'est joignable depuis l'extérieur, seul
   # dgx-portal les atteint sur web_net.
   searxng:
-    image: searxng/searxng:latest
+    # Digest-pinné (repro + anti supply-chain). Pour mettre à jour :
+    # docker pull searxng/searxng:latest puis remplacer le sha ci-dessous.
+    image: searxng/searxng@sha256:11a9b34cdc0b1ec2b991470a2762ecb5a1a531898289fb51dcd015260450729e
     container_name: searxng
     restart: unless-stopped
     environment:
       # Vue depuis dgx-portal ; sert aussi à SearXNG pour ses propres URL.
       - SEARXNG_BASE_URL=http://searxng:8080/
-      - SEARXNG_SECRET=${SEARXNG_SECRET:-cronos-searxng-local}
+      # Secret généré par setup.sh (plus de fallback faible public).
+      - SEARXNG_SECRET=${SEARXNG_SECRET}
     volumes:
       - ./searxng:/etc/searxng:rw
     security_opt:
@@ -229,7 +232,9 @@ services:
       - web_net
 
   crawl4ai:
-    image: unclecode/crawl4ai:latest
+    # Digest-pinné (repro + anti supply-chain). Pour mettre à jour :
+    # docker pull unclecode/crawl4ai:latest puis remplacer le sha ci-dessous.
+    image: unclecode/crawl4ai@sha256:bd36741e7bdd35ddc1a05d9183e1d6d8cefb61dd640d944a25d026b76e917690
     container_name: crawl4ai
     restart: unless-stopped
     volumes:

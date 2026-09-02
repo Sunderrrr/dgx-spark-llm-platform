@@ -27,9 +27,9 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
       torch==2.10.0 torchaudio==2.10.0
 
 RUN python3 -m pip install --no-cache-dir \
-      "transformers>=4.46" accelerate \
-      "fastapi>=0.115" "uvicorn[standard]>=0.30" python-multipart \
-      soundfile numpy
+      "transformers>=4.46" "accelerate==1.14.0" \
+      "fastapi==0.141.1" "uvicorn[standard]==0.52.1" python-multipart \
+      "soundfile==0.14.0" "numpy==2.2.6"
 
 COPY server.py /app/server.py
 

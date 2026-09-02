@@ -19,12 +19,14 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 #   POST/sub-resource (→ protects against CSRF on POST routes), BUT it IS sent
 #   on a top-level GET navigation — which is needed so the OIDC
 #   return (Authentik → /api/oauth2-redirect) recovers the OAuth state in session.
-# Secure: cookie sent only over HTTPS. Enabled via env (=1) when a
-#   TLS reverse proxy sits in front (dgx.cronos.website via Traefik).
+# Secure: cookie sent only over HTTPS. Production is TLS-gated (Cloudflare →
+# Traefik), so the SECURE default is on. A LAN-only box reached over plain
+# HTTP (http://dgx.cronos.lan:5000) must set SESSION_COOKIE_SECURE=0 in .env,
+# otherwise the browser won't send the cookie over HTTP and login breaks there.
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE', '0') == '1',
+    SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE', '1') != '0',
     # Werkzeug parses the multipart BEFORE our application guards (the CSRF guard reads
     # request.form on each POST). Without a cap, an unauthenticated multi-GB POST
     # writes to disk before any check. 16 MB covers the
@@ -383,7 +385,11 @@ def login():
         # Compteur par username, indépendant de l'IP : un attaquant qui change
         # d'IP à chaque essai reste sous le seuil par IP, mais le compteur du
         # compte cumule toutes les tentatives → il finit par se verrouiller.
-        wait = _login_locked(key) or _login_locked(ip) or _login_locked(ukey)
+        # NB: PAS de verrou global par IP (audit L2) — derrière un NAT partagé
+        # (VPN/office), un verrou IP bloquait TOUT le monde après 6 échecs
+        # cumulés. Le verrou par-compte (ukey) suffit contre le brute-force
+        # ciblé ; la clé ip|username borne un compte depuis une IP donnée.
+        wait = _login_locked(key) or _login_locked(ukey)
         if wait:
             flash(f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min.", "danger")
             return ('', 401)
@@ -391,7 +397,7 @@ def login():
         # before LDAP so as not to depend on its availability.
         l_ok, l_admin, l_name = _local_user_auth(username, password)
         if l_ok:
-            _login_reset(key); _login_reset(ip); _login_reset(ukey)
+            _login_reset(key); _login_reset(ukey)
             _record_user_source(username, 'local', l_name, l_admin)
             if _webauthn_enabled(username):
                 # 2e facteur : mot de passe valide MAIS pas encore de session.
@@ -403,7 +409,7 @@ def login():
             return redirect(_safe_next(request.args.get('next')))
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
-            _login_reset(key); _login_reset(ip); _login_reset(ukey)
+            _login_reset(key); _login_reset(ukey)
             _record_user_source(username, 'ldap', fullname, is_admin)
             if _webauthn_enabled(username):
                 payload = start_login(username, fullname, is_admin, 'ldap')
@@ -412,7 +418,7 @@ def login():
                                 'nonce': payload['nonce']})
             _apply_session(username, fullname, is_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
-        _login_fail(key); _login_fail(ip); _login_fail(ukey)
+        _login_fail(key); _login_fail(ukey)
         flash("Identifiants incorrects.", "danger")
         return ('', 401)
     # GET /login: the page itself is rendered by the Next.js frontend

@@ -25,9 +25,9 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
 # commit exact recommandé par la fiche du modèle (reproductible).
 RUN python3 -m pip install --no-cache-dir \
       "git+https://github.com/huggingface/diffusers@dafe3733fcfdbf3c48915fe77be3aef65b5d6a2d" \
-      "transformers>=4.46" accelerate safetensors sentencepiece protobuf \
-      soundfile numpy \
-      "fastapi>=0.115" "uvicorn[standard]>=0.30" python-multipart \
+      "transformers>=4.46" "accelerate==1.14.0" safetensors sentencepiece protobuf \
+      "soundfile==0.14.0" "numpy==2.2.6" \
+      "fastapi==0.141.1" "uvicorn[standard]==0.52.1" python-multipart \
       bitsandbytes
 
 COPY server.py /app/server.py

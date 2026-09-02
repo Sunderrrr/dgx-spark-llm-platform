@@ -23,13 +23,15 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
       --extra-index-url https://download.pytorch.org/whl/cu130 \
       torch==2.10.0
 
-# diffusers depuis git : les classes de pipeline utilisees ici n'existent pas
-# encore dans une version publiee.
+# diffusers depuis git : les classes de pipeline utilisees ici (Cosmos3Omni
+# entre autres) n'existent pas encore dans une version publiee. Commit épinglé
+# (celui constaté en production via direct_url.json) — ne PAS repasser sur HEAD :
+# un commit mouvant fait entrer du code non audité dans le sidecar à chaque build.
 # bitsandbytes : OBLIGATOIRE pour les modeles pre-quantifies NF4 (4 bits), sans
 #   quoi from_pretrained echoue sur la quantization_config embarquee dans le
 #   depot. Roue aarch64 disponible a partir de la 0.50 (manylinux_2_24_aarch64).
 RUN python3 -m pip install --no-cache-dir \
-      "git+https://github.com/huggingface/diffusers.git" \
+      "git+https://github.com/huggingface/diffusers.git@efabd60d61c2b7aabf9f182bee6b5b6058980304" \
       "transformers>=4.46" accelerate safetensors sentencepiece protobuf Pillow \
       "bitsandbytes>=0.50" \
       "fastapi>=0.115" "uvicorn[standard]>=0.30" python-multipart

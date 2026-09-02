@@ -16,6 +16,16 @@ const OWN_ROUTE_HANDLERS = new Set([
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // /internal/* (notably /internal/authcheck) is only ever meant to be called
+  // BY Traefik's forwardAuth on the internal network — never via this public
+  // frontend. The catch-all route handler (app/internal/[...path]/route.ts)
+  // blocks GET/HEAD, but a non-GET request would be rewritten to Flask by the
+  // method branch below BEFORE Next.js route matching runs, defeating that
+  // guard. Deny the whole prefix here, ahead of the rewrite.
+  if (pathname === "/internal" || pathname.startsWith("/internal/")) {
+    return new NextResponse(null, { status: 404 });
+  }
+
   // Every page in this app is a client-rendered React page — none of them
   // handle their own POST. All real form/API actions live in Flask.
   // next.config.ts's `fallback` rewrite only fires when a request matches NO

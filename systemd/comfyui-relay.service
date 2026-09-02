@@ -1,0 +1,17 @@
+[Unit]
+Description=Relais socat 172.19.0.1:8188 -> 127.0.0.1:8188 (ComfyUI vers le portail docker)
+# ComfyUI écoute en loopback uniquement (comfyui.service). Ce relais expose
+# uniquement l'adresse du pont docker (172.19.0.1) que le portail vise, sans
+# rouvrir 0.0.0.0. Le pare-feu vllm-restrict.service DROP toujours 8188 pour
+# le reste (wt0/netbird inclus).
+After=comfyui.service network.target
+Requires=comfyui.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat TCP-LISTEN:8188,bind=172.19.0.1,reuseaddr,fork TCP:127.0.0.1:8188
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

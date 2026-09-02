@@ -35,6 +35,10 @@ services:
     restart: unless-stopped
     # Durcissement (parité avec dgx-portal/frontend) : LiteLLM est une appli
     # Python qui n'a besoin d'aucune capability et ne doit pas élever ses privs.
+    # `user:` non-root — l'image amont tourne en uid 0 par défaut ; on la force
+    # en uid non privilégié. HOME et PYTHONDONTWRITEBYTECODE compensent ce que
+    # l'image faisait en root : écrire le cache Prisma/.venv sous /root.
+    user: "10001:0"
     cap_drop:
       - ALL
     security_opt:
@@ -48,6 +52,11 @@ services:
     environment:
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # Non-root : l'image écrivait son cache Prisma sous /root (uid 0). On
+      # pointe HOME sur un répertoire inscriptible et on évite l'écriture des
+      # .pyc dans le .venv root-owned de l'image.
+      HOME: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
       # Coupe l'UI d'admin (/ui, /sso) : elle était publiquement joignable via
       # api.cronos.website et concentrait toute la master key sur un formulaire
       # de login exposé. L'admin passe par le portail (dgx-portal), pas cette UI.
@@ -240,6 +249,11 @@ services:
     shm_size: 1g
     security_opt:
       - no-new-privileges:true
+    # crawl4ai est le composant le plus exposé de la box (il pilote un navigateur
+    # sur des pages entièrement contrôlées par des tiers) : on lui retire TOUTES
+    # les capabilities par défaut, comme les autres sidecars.
+    cap_drop:
+      - ALL
     networks:
       - web_net
 

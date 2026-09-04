@@ -196,6 +196,20 @@ Key facts and gotchas:
   `--chat-template-kwargs '{"enable_thinking":false}'`.
 - **Thinking models**: always disable thinking in the chat template unless the
   user wants visible reasoning.
+- **LiteLLM supprime le `timings` de llama.cpp.** llama.cpp joint bien un objet
+  `timings` (`prompt_ms`, `predicted_per_second`…) a son dernier fragment SSE, mais
+  il ne survit pas au passage par LiteLLM — verifie sur flux reel. Le TTFT affiché
+  est donc **mesuré par le portail** (depart de la requete → premier token du delta),
+  ce qui est de toute façon le delai reellement subi. Ne pas rebrancher `timings`.
+- **Le debit llama.cpp doit se calculer en delta.** `tokens_predicted_total` /
+  `tokens_predicted_seconds_total` sont des compteurs *cumulés depuis le demarrage* :
+  leur ratio se fige (36 tok/s pendant des heures) et n'informe plus. `vllm_health`
+  garde donc le releve precedent et affiche `Δtokens / Δsecondes-de-generation` — un
+  vrai debit, insensible au temps de repos dans la fenetre. La jauge
+  `predicted_tokens_seconds` ne sert que pendant une generation (figee au repos).
+- **`/api/modelhealth`** existe pour le rafraichissement **1 s** du tableau de bord
+  (debit + TTFT). `/api/home` reste a 5 s : il agrege les depenses et sonde les
+  sidecars. Le cache de `vllm_health()` est a **1 s** — le relever coute ~1 ms.
 - **`auto-model` alias**: a virtual LiteLLM model (`AUTO_MODEL_NAME`, default
   `auto-model`) that always routes to the **currently-running** chat model, so
   clients wire it once and never rename on a model switch. Re-pointed on every

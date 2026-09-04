@@ -217,6 +217,23 @@ Key facts and gotchas:
 - **`/api/modelhealth`** existe pour le rafraichissement **1 s** du tableau de bord
   (debit + TTFT). `/api/home` reste a 5 s : il agrege les depenses et sonde les
   sidecars. Le cache de `vllm_health()` est a **1 s** — le relever coute ~1 ms.
+- **Redemarrer `vllm-runner` TUE le modele servi.** L'unite n'a pas de `KillMode`,
+  donc systemd applique `control-group` — et le `llama-server` engendre par le
+  runner vit dans le cgroup `vllm-runner.service` (verifie via `/proc/<pid>/cgroup`).
+  Un `systemctl restart vllm-runner` emporte donc la generation en cours. Toute
+  modif de `runner.py` qui doit prendre effet demande la meme fenetre de coupure
+  qu'une relance de modele — ce n'est pas une operation « sans rien couper ».
+- **Qwen3.8-Flash-Next EST multimodal, mais on le sert sans la vision.** Le
+  `config.json` officiel declare `"image_token_id": 248056` et
+  `"language_model_only": false`. Sans `--mmproj`, `llama-server` annonce
+  `{"vision": false}` sur `/props` et repond HTTP 500 `image input is not supported`
+  a toute image. Le projecteur existe (`mmproj-Qwen3.8-Flash-Next-Uncensored-F16.gguf`,
+  907 Mo, meme depot GGUF) mais **ce depot orcarouter est gated** : sans token HF
+  autorise, le telechargement echoue par `Access denied. This repository requires
+  approval.` `--mmproj` est desormais sur l'allow-list, avec la meme regle que
+  `--chat-template-file` : nom de fichier SEUL, resolu a cote des poids
+  (`_resolve_mmproj_tokens`) — ni chemin absolu, ni `..`, ni sous-dossier.
+
 - **`auto-model` alias**: a virtual LiteLLM model (`AUTO_MODEL_NAME`, default
   `auto-model`) that always routes to the **currently-running** chat model, so
   clients wire it once and never rename on a model switch. Re-pointed on every

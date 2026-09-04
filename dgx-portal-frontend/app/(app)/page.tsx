@@ -54,7 +54,6 @@ type ModelHealth = {
   running: number;
   waiting: number;
   ttft: number | null;
-  ttft_base?: number | null;
   requests: number;
   max_seqs: number | null;
   ctx_in: number | null;
@@ -227,6 +226,21 @@ export default function HomePage() {
         setLastUpdated(Date.now());
       })
       .catch(() => setLoadError(true));
+  }, []);
+
+  // Le débit et le TTFT sont les seules valeurs qui bougent à la seconde. On les
+  // rafraîchit sur un endpoint dédié et minuscule (/api/modelhealth) plutôt que de
+  // passer tout le tableau de bord à 1 s : /api/home agrège les dépenses et sonde
+  // les sidecars, le payer 5 fois plus souvent pour deux chiffres serait absurde.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      getJSON<ModelHealth>("/api/modelhealth")
+        .then((h) => setData((d) => (d ? { ...d, modelhealth: h } : d)))
+        .catch(() => {});   // poll transitoire : le cycle 5 s reprendra la main
+    };
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
   }, []);
 
   // Après le round-trip Discord OAuth (ou unlink), le backend revient ici avec
@@ -509,12 +523,7 @@ export default function HomePage() {
                           </Text>
                         </VStack>
                         <VStack gap={0}>
-                          {/* llama.cpp ne publie pas de TTFT par requête : le backend renvoie
-                              alors le temps de prompt pour `ttft_base` tokens, et on l'étiquette
-                              comme tel plutôt que de laisser croire à une mesure par requête. */}
-                          <Text type="supporting" color="secondary">
-                            {data.modelhealth.ttft_base ? t("TTFT / 1k prompt") : t("TTFT")}
-                          </Text>
+                          <Text type="supporting" color="secondary">{t("TTFT")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{data.modelhealth.ttft ?? "—"} s</Text>
                         </VStack>
                         <VStack gap={0}>

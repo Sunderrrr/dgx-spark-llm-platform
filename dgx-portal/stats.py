@@ -602,3 +602,40 @@ def admin_get_voice_usage():
         "FROM voice_jobs GROUP BY username ORDER BY c DESC"
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── TTFT reellement mesure ───────────────────────────────────────────────────
+# llama.cpp ne publie aucun TTFT dans /metrics, mais il renvoie un `timings`
+# PAR REQUETE (y compris dans le dernier fragment SSE), dont `prompt_ms` est
+# exactement le temps avant le premier token. Le portail relaie chaque
+# generation : il est donc le seul endroit qui puisse en tenir une moyenne.
+#
+# Moyenne mobile exponentielle, stockee dans `settings` : partagee entre les
+# workers gunicorn (une moyenne en memoire de processus donnerait un chiffre
+# different a chaque sondage selon le worker touche), bornee par construction,
+# et elle suit l'evolution au lieu d'etre ecrasee par l'historique.
+_TTFT_ALPHA = 0.2
+
+
+def enregistrer_ttft(ms):
+    """Intègre une mesure de TTFT (millisecondes) dans la moyenne mobile."""
+    try:
+        ms = float(ms)
+        if ms <= 0 or ms > 600_000:      # garde-fou : mesure aberrante ignoree
+            return
+        from db import get_setting, set_setting
+        ancien = get_setting('ttft_ms_ewma')
+        nouveau = ms if ancien is None else (1 - _TTFT_ALPHA) * float(ancien) + _TTFT_ALPHA * ms
+        set_setting('ttft_ms_ewma', round(nouveau, 1))
+    except Exception:                                        # noqa: BLE001
+        pass                                                 # jamais bloquant
+
+
+def ttft_mesure():
+    """Moyenne mobile du TTFT en secondes, ou None si rien n'a encore ete mesure."""
+    try:
+        from db import get_setting
+        v = get_setting('ttft_ms_ewma')
+        return round(float(v) / 1000.0, 2) if v else None
+    except Exception:                                        # noqa: BLE001
+        return None

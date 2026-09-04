@@ -880,6 +880,19 @@ def api_home():
     return jsonify(data)
 
 
+@app.route('/api/modelhealth')
+@login_required
+def api_modelhealth():
+    """Sante du modele SEULE, sondee a la seconde par le tableau de bord.
+
+    /api/home est bien plus lourd (agregat des depenses, requetes de l'user,
+    capteurs des sidecars) et reste a 5 s ; seul le debit temps reel avait
+    besoin d'un rythme rapide, d'ou cet endpoint minimal.
+    """
+    from vllm_health import vllm_health
+    return jsonify(vllm_health())
+
+
 @app.route('/api/pending-count')
 @login_required
 def api_pending_count():

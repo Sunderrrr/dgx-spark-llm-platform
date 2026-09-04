@@ -201,12 +201,19 @@ Key facts and gotchas:
   il ne survit pas au passage par LiteLLM — verifie sur flux reel. Le TTFT affiché
   est donc **mesuré par le portail** (depart de la requete → premier token du delta),
   ce qui est de toute façon le delai reellement subi. Ne pas rebrancher `timings`.
-- **Le debit llama.cpp doit se calculer en delta.** `tokens_predicted_total` /
-  `tokens_predicted_seconds_total` sont des compteurs *cumulés depuis le demarrage* :
-  leur ratio se fige (36 tok/s pendant des heures) et n'informe plus. `vllm_health`
-  garde donc le releve precedent et affiche `Δtokens / Δsecondes-de-generation` — un
-  vrai debit, insensible au temps de repos dans la fenetre. La jauge
-  `predicted_tokens_seconds` ne sert que pendant une generation (figee au repos).
+- **Le debit llama.cpp se lit sur `n_decode_total`, et sur rien d'autre.** Mesure
+  faite sur ce serveur : **pendant** une generation, la jauge
+  `predicted_tokens_seconds` vaut 0 et `tokens_predicted_total` n'avance pas —
+  llama.cpp ne les met a jour qu'a la **fin** de chaque requete. Les lire donnait
+  0 tok/s pendant toute la generation puis un chiffre fige entre deux. Seul
+  `n_decode_total` avance en continu ; `vllm_health` en fait un `Δdecode / Δtemps`.
+  Il compte les pas de decodage de **tous les slots**, donc le chiffre est le debit
+  **agrege de toutes les sessions** (mesure : 34 tok/s a 1 session, 20,9 tok/s au
+  total a 3 — `n_busy_slots_per_decode` ≈ 1, llama.cpp alterne les slots au lieu de
+  les batcher, la concurrence ne multiplie donc pas le debit, elle le partage).
+- **llama.cpp n'a aucun compteur de requetes.** `n_decode_total` compte des tokens ;
+  l'afficher en « requetes servies » annoncait 39 303 requetes pour 39 303 tokens.
+  `'requests'` est donc `None` pour cet engine et l'interface montre « — ».
 - **`/api/modelhealth`** existe pour le rafraichissement **1 s** du tableau de bord
   (debit + TTFT). `/api/home` reste a 5 s : il agrege les depenses et sonde les
   sidecars. Le cache de `vllm_health()` est a **1 s** — le relever coute ~1 ms.

@@ -39,10 +39,10 @@ def get_running_models():
 
 _VLLM_METRICS_URL = VLLM_API.rsplit('/v1', 1)[0] + '/metrics'
 _vllm_tps = {'t': 0.0, 'gen': 0.0}
-# llama.cpp : dernier releve des deux compteurs cumules, pour en tirer un debit
-# GLISSANT. Le ratio cumule brut est une moyenne depuis le demarrage : au bout de
-# quelques heures il ne bouge plus (fige a 36 tok/s) et n'informe plus de rien.
-_llama_tps = {'tok': None, 'sec': None, 'last': None}
+# llama.cpp : dernier releve de n_decode_total + son horodatage, pour en tirer un
+# debit INSTANTANE. Voir le commentaire du calcul plus bas : c'est le seul
+# compteur qui avance pendant la generation.
+_llama_tps = {'t': 0.0, 'dec': None, 'last': None}
 
 def _prom_sum(text, metric):
     """Sum of a Prometheus metric's samples (exact name, labels ignored)."""
@@ -83,7 +83,10 @@ _METRIC_NAMES = {
         'gen':      'llamacpp:tokens_predicted_total',
         'running':  'llamacpp:requests_processing',
         'waiting':  'llamacpp:requests_deferred',
-        'requests': 'llamacpp:n_decode_total',
+        # llama.cpp ne publie AUCUN compteur de requetes. `n_decode_total`
+        # comptait des tokens : l'afficher en "requetes servies" annoncait 39 303
+        # requetes pour 39 303 tokens generes. Faute de source, on n'affiche rien.
+        'requests': None,
         # llama.cpp exposes its generation speed directly; we use it
         # as-is instead of a tokens/wall-clock delta, which strongly overestimates
         # (it divides a batch of tokens by a short scrape
@@ -121,29 +124,33 @@ def _vllm_health_uncached():
     # If the engine publishes its own speed (llama.cpp), we take it directly.
     speed_metric = M.get('speed')
     if speed_metric:
-        # Debit de la FENETRE ecoulee : (tokens produits) / (temps passe a les
-        # produire) depuis le releve precedent. Les deux compteurs n'avancent que
-        # pendant une generation, donc le ratio reste un vrai debit meme si la
-        # fenetre contient surtout du repos — contrairement a un delta/temps mural.
-        tot_tok = _prom_sum(text, M['gen']) or 0.0
-        tot_sec = (_prom_sum(text, M.get('gen_sec')) or 0.0) if M.get('gen_sec') else 0.0
-        p_tok, p_sec = _llama_tps['tok'], _llama_tps['sec']
-        if p_tok is not None and tot_tok >= p_tok and tot_sec > p_sec:
-            _llama_tps['last'] = round((tot_tok - p_tok) / (tot_sec - p_sec), 1)
-        _llama_tps.update(tok=tot_tok, sec=tot_sec)
+        # Debit INSTANTANE, agrege sur toutes les sessions.
+        #
+        # Mesure faite sur ce serveur : pendant une generation en cours,
+        # `predicted_tokens_seconds` (jauge) vaut 0 et `tokens_predicted_total`
+        # n'avance PAS — llama.cpp ne les met a jour qu'a la fin de la requete.
+        # Les lire donnait donc 0 tok/s pendant toute la generation, puis un
+        # chiffre fige entre deux : exactement le "compteur statique" constate.
+        # `n_decode_total` est le seul a avancer en continu (+33/s mesure, soit
+        # la vitesse reelle), et il compte les pas de decodage de TOUS les slots :
+        # le debit obtenu est celui de l'ensemble des sessions simultanees, pas
+        # d'une seule conversation.
+        dec = _prom_sum(text, 'llamacpp:n_decode_total') or 0.0
+        p_t, p_dec = _llama_tps['t'], _llama_tps['dec']
+        if p_dec is not None and now > p_t and dec >= p_dec:
+            inst = (dec - p_dec) / (now - p_t)
+            if inst > 0:
+                _llama_tps['last'] = round(inst, 1)
+        _llama_tps.update(t=now, dec=dec)
 
-        if running_now > 0:
-            # predicted_tokens_seconds is a GAUGE that KEEPS the speed of the
-            # last generation: at rest it would stay frozen ("stuck at 8").
-            # We therefore only show it if there is actually a generation in progress.
-            v = _prom_sum(text, speed_metric)
-            tps = round(v, 1) if v else (_llama_tps['last'] or 0.0)
-        elif _llama_tps['last'] is not None:
-            # Au repos : debit de la derniere generation observee, pas 0 (les
-            # generations sont courtes, on ne tombait quasiment jamais dessus).
+        if _llama_tps['last'] is not None:
+            # Au repos on garde le dernier debit observe plutot que d'afficher 0 :
+            # les generations sont courtes et l'utilisateur ne voyait jamais rien.
             tps = _llama_tps['last']
         else:
-            # Premier releve : rien a comparer, moyenne cumulee en attendant.
+            # Premier releve du process : rien a comparer, moyenne cumulee.
+            tot_tok = _prom_sum(text, M['gen']) or 0.0
+            tot_sec = (_prom_sum(text, M.get('gen_sec')) or 0.0) if M.get('gen_sec') else 0.0
             tps = round(tot_tok / tot_sec, 1) if tot_sec else 0.0
     else:
         # vLLM: no instantaneous speed metric → cumulative delta/time.
@@ -187,7 +194,8 @@ def _vllm_health_uncached():
         'ctx_out': ctx_out,
         'tps': round(tps, 1) if tps is not None else None,
         'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else ttft_mesure_s,
-        'requests': int(_prom_sum(text, M['requests']) or 0),
+        'requests': (int(_prom_sum(text, M['requests']) or 0)
+                     if M.get('requests') else None),
     }
 
 # HF tag carried by models actually tested on DGX Spark / GB10.

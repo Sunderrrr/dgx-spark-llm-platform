@@ -54,7 +54,7 @@ type ModelHealth = {
   running: number;
   waiting: number;
   ttft: number | null;
-  requests: number;
+  requests: number | null;
   max_seqs: number | null;
   ctx_in: number | null;
   ctx_out: number | null;
@@ -528,7 +528,7 @@ export default function HomePage() {
                         </VStack>
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Requêtes servies")}</Text>
-                          <Text weight="semibold" hasTabularNumbers>{data.modelhealth.requests}</Text>
+                          <Text weight="semibold" hasTabularNumbers>{data.modelhealth.requests ?? "—"}</Text>
                         </VStack>
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Contexte entrée")}</Text>

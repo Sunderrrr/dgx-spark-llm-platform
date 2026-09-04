@@ -163,21 +163,25 @@ def launch_model():
     db   = get_db()
     cfg  = db.execute("SELECT * FROM model_configs WHERE name=?", (name,)).fetchone()
     if not cfg:
-        flash("Modèle introuvable.", "danger")
-        return redirect(url_for('admin.admin'))
-    ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
-                       cfg['engine'] or 'vllm')
+        return jsonify({'ok': False, 'error': "Modèle introuvable."}), 404
+    ok, motif = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
+                              cfg['engine'] or 'vllm')
     if ok:
         _announce_launch(cfg['name'])
         log_audit(session.get('username'), 'model.launch', f"lancement de {name}")
     else:
         notify_infra_alert_email(
-            "Chat model launch failed",
-            f"{name}: the runner did not accept the launch (unreachable or unavailable).")
-        log_audit(session.get('username'), 'model.launch_échec', f"lancement refusé de {name}")
-    flash(f"Lancement de {name} en cours…" if ok else "Runner inaccessible (ou moteur indisponible).",
-          "success" if ok else "danger")
-    return redirect(url_for('admin.admin'))
+            "Chat model launch failed", f"{name}: {motif or 'launch refused'}")
+        log_audit(session.get('username'), 'model.launch_échec',
+                  f"lancement refusé de {name} : {motif}")
+    # Réponse JSON, pas une redirection : `act()` côté frontend lit {ok, error} et
+    # traite toute réponse NON-JSON comme un succès (son propre commentaire le dit).
+    # Cette route redirigeait, donc un lancement refusé s'affichait comme réussi et
+    # l'administrateur ne voyait « rien se passer ». Constaté le 04/09 : deux
+    # tentatives refusées en 400, aucune trace à l'écran.
+    return jsonify({'ok': bool(ok),
+                    'error': None if ok else (motif or "Lancement refusé par le runner.")}), \
+           (200 if ok else 502)
 
 @bp.route('/api/announcements')
 @login_required

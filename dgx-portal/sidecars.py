@@ -161,6 +161,7 @@ def runner_status():
     return {'status': 'unreachable', 'model': None, 'pid': None}
 
 def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
+    """Lance un modele. Renvoie (ok, motif) — le motif est vide en cas de succes."""
     # Long timeout: when a model is already running, the runner waits for the driver
     # to release unified memory before spawning the new one (anti-OOM). /launch can
     # thus take ~10-60 s to respond — a short timeout would look like a failure
@@ -174,7 +175,16 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
         # Launch accepted → the `auto-model` alias follows the new model.
         if r.ok:
             _point_auto_model(model_name, vllm_args, engine or 'vllm')
-        return r.ok
+            return True, ''
+        # Le runner REFUSE avec un motif precis (flag hors liste blanche, moteur
+        # absent, GGUF introuvable). Le jeter et n'annoncer qu'un echec generique
+        # envoie l'administrateur chercher au mauvais endroit : vu le 04/09, un
+        # « flag not allowed: --llama-next » affiche comme « Runner inaccessible ».
+        try:
+            motif = (r.json() or {}).get('error') or r.text[:200]
+        except Exception:                                    # noqa: BLE001
+            motif = r.text[:200]
+        return False, f"{motif} (HTTP {r.status_code})"
     try:
         return _once()
     except requests.exceptions.ConnectionError:
@@ -187,9 +197,9 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
         try:
             return _once()
         except Exception:
-            return False
-    except Exception:
-        return False
+            return False, "runner injoignable"
+    except Exception as e:                                   # noqa: BLE001
+        return False, f"runner injoignable ({type(e).__name__})"
 
 def runner_stop():
     try:

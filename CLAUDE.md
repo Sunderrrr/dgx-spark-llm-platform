@@ -155,6 +155,14 @@ Key facts and gotchas:
 - **`vllm_args` is allowlisted.** `--trust-remote-code` and overrides of critical
   flags are blocked for chat models (only OCR may pass trust-remote-code). Don't
   try to smuggle blocked flags — extend the allowlist deliberately if truly needed.
+- **`LLAMA_BIN` comes from `.env`, not from the code default.** It points at
+  `/root/atomic-llama/build/bin/llama-server`. Since 2026-09-04 that path is a
+  **symlink to `/root/llama-cpp-upstream/build/bin/llama-server`** (0.3.0-dev), the
+  only build that knows `qwen4exp`. The TurboQuant fork binary is kept beside it as
+  `llama-server.fork-turboquant` — restore it if Ling-3.0 comes back, its GGUF needs
+  the fork's `ssm_f`/`ssm_a` tensors. The symlink was the way to change the binary
+  **without restarting the runner**: the path is resolved at each spawn, the env var
+  only at import.
 - **Engine versions are opt-in pseudo-flags**, never a default swap: `--vllm-025`,
   `--vllm-027`, `--vllm-028`, `--llama-next` pick a specific binary for THAT launch
   (`_BIN_FLAGS` in `runner.py`). Added 2026-08-29: vLLM **0.28.0**

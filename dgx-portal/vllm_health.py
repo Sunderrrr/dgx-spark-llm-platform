@@ -85,8 +85,15 @@ _METRIC_NAMES = {
         # (it divides a batch of tokens by a short scrape
         # interval → "57 tok/s" where the engine actually does 8.5).
         'speed':    'llamacpp:predicted_tokens_seconds',
-        # No real TTFT metric on the llama.cpp side → we leave the field empty
-        # ("—") rather than show a made-up number.
+        # Compteurs CUMULES : la jauge `speed` se fige au repos, ces deux-la non.
+        # Leur rapport donne le debit moyen reel, affichable en permanence.
+        'gen_sec':  'llamacpp:tokens_predicted_seconds_total',
+        # llama.cpp ne publie pas de TTFT par requete (aucun compteur de
+        # requetes non plus). Ces deux compteurs donnent le temps de traitement
+        # du prompt, qui EST ce qui determine le TTFT : on l'exprime pour 1000
+        # tokens de prompt, une valeur reproductible plutot qu'un chiffre invente.
+        'prompt_tok': 'llamacpp:prompt_tokens_total',
+        'prompt_sec': 'llamacpp:prompt_seconds_total',
         'ttft_sum': None,
         'ttft_cnt': None,
     },
@@ -119,12 +126,17 @@ def _vllm_health_uncached():
         if running_now > 0:
             # predicted_tokens_seconds is a GAUGE that KEEPS the speed of the
             # last generation: at rest it would stay frozen ("stuck at 8").
-            # We therefore only show it if there is actually a generation in progress,
-            # otherwise 0 — that's the instantaneous throughput expected on the home page.
+            # We therefore only show it if there is actually a generation in progress.
             v = _prom_sum(text, speed_metric)
             tps = round(v, 1) if v else 0.0
         else:
-            tps = 0.0
+            # Au repos on affichait 0, donc l'utilisateur ne voyait JAMAIS de
+            # debit : le tableau de bord sonde toutes les 5 s et les generations
+            # sont courtes. On montre desormais la moyenne cumulee, calculee sur
+            # deux COMPTEURS (jamais figes) — chiffre honnete et stable.
+            tot_tok = _prom_sum(text, M['gen']) or 0.0
+            tot_sec = _prom_sum(text, M.get('gen_sec')) if M.get('gen_sec') else 0.0
+            tps = round(tot_tok / tot_sec, 1) if tot_sec else 0.0
     else:
         # vLLM: no instantaneous speed metric → cumulative delta/time.
         if _vllm_tps['t'] and now > _vllm_tps['t'] and gen >= _vllm_tps['gen']:
@@ -134,6 +146,17 @@ def _vllm_health_uncached():
     ttft_cnt = _prom_sum(text, M['ttft_cnt']) if M.get('ttft_cnt') else 0.0
     ttft_sum = ttft_sum or 0.0
     ttft_cnt = ttft_cnt or 0.0
+    # llama.cpp : pas de TTFT par requete, mais le temps de prompt cumule permet
+    # d'exprimer le TTFT pour 1000 tokens de prompt. `ttft_base` dit a l'interface
+    # sur quelle base le chiffre est calcule, pour ne pas laisser croire a une
+    # mesure par requete.
+    ttft_base = None
+    if not ttft_cnt and M.get('prompt_sec'):
+        p_tok = _prom_sum(text, M['prompt_tok']) or 0.0
+        p_sec = _prom_sum(text, M['prompt_sec']) or 0.0
+        if p_tok > 0 and p_sec > 0:
+            ttft_sum, ttft_cnt = p_sec * 1000.0 / p_tok, 1.0
+            ttft_base = 1000
     # Concurrent generation slots of the active model (--max-num-seqs / --parallel)
     # → "X / N sessions busy" on the home page.
     max_seqs = None
@@ -158,6 +181,7 @@ def _vllm_health_uncached():
         'ctx_out': ctx_out,
         'tps': round(tps, 1) if tps is not None else None,
         'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else None,
+        'ttft_base': ttft_base,
         'requests': int(_prom_sum(text, M['requests']) or 0),
     }
 

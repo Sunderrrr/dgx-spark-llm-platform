@@ -42,7 +42,7 @@ _vllm_tps = {'t': 0.0, 'gen': 0.0}
 # llama.cpp : dernier releve de n_decode_total + son horodatage, pour en tirer un
 # debit INSTANTANE. Voir le commentaire du calcul plus bas : c'est le seul
 # compteur qui avance pendant la generation.
-_llama_tps = {'t': 0.0, 'dec': None, 'last': None}
+_llama_tps = {'t': 0.0, 'dec': None}
 
 def _prom_sum(text, metric):
     """Sum of a Prometheus metric's samples (exact name, labels ignored)."""
@@ -135,20 +135,14 @@ def _vllm_health_uncached():
         dec = _prom_sum(text, 'llamacpp:n_decode_total') or 0.0
         p_t, p_dec = _llama_tps['t'], _llama_tps['dec']
         if p_dec is not None and now > p_t and dec >= p_dec:
-            inst = (dec - p_dec) / (now - p_t)
-            if inst > 0:
-                _llama_tps['last'] = round(inst, 1)
-        _llama_tps.update(t=now, dec=dec)
-
-        if _llama_tps['last'] is not None:
-            # Au repos on garde le dernier debit observe plutot que d'afficher 0 :
-            # les generations sont courtes et l'utilisateur ne voyait jamais rien.
-            tps = _llama_tps['last']
+            # Rien de genere depuis le dernier releve => 0. C'est la verite quand
+            # personne n'utilise le modele, et c'est desormais lisible : le chiffre
+            # bouge a la seconde pendant une generation, donc un 0 au repos ne
+            # cache plus le debit, il dit juste qu'il ne se passe rien.
+            tps = round((dec - p_dec) / (now - p_t), 1)
         else:
-            # Premier releve du process : rien a comparer, moyenne cumulee.
-            tot_tok = _prom_sum(text, M['gen']) or 0.0
-            tot_sec = (_prom_sum(text, M.get('gen_sec')) or 0.0) if M.get('gen_sec') else 0.0
-            tps = round(tot_tok / tot_sec, 1) if tot_sec else 0.0
+            tps = 0.0        # premier releve du process : rien a comparer
+        _llama_tps.update(t=now, dec=dec)
     else:
         # vLLM: no instantaneous speed metric → cumulative delta/time.
         if _vllm_tps['t'] and now > _vllm_tps['t'] and gen >= _vllm_tps['gen']:

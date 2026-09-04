@@ -97,7 +97,7 @@ class SanteLlamacppTest(unittest.TestCase):
     def test_debit_lu_sur_n_decode_total_le_seul_a_avancer(self):
         """Pendant une generation la jauge vaut 0 et tokens_predicted_total ne
         bouge pas : seul n_decode_total avance, et il agrege tous les slots."""
-        vllm_health._llama_tps.update(t=0.0, dec=None, last=None)
+        vllm_health._llama_tps.update(t=0.0, dec=None)
         base = ("llamacpp:tokens_predicted_total 39080\n"
                 "llamacpp:tokens_predicted_seconds_total 1235.5\n"
                 "llamacpp:predicted_tokens_seconds 0\n"
@@ -107,6 +107,27 @@ class SanteLlamacppTest(unittest.TestCase):
         time.sleep(1.05)
         tps = _sante('llamacpp', base + "llamacpp:n_decode_total 1030\n")['tps']
         self.assertTrue(25 < tps < 35, tps)      # ~30 tokens en ~1 s
+
+    def test_debit_retombe_a_zero_quand_personne_ne_genere(self):
+        """Compteur immobile entre deux releves = plus personne ne genere.
+
+        On affichait le dernier debit connu, ce qui se lisait comme un compteur
+        fige alors que la machine ne faisait rien.
+        """
+        vllm_health._llama_tps.update(t=0.0, dec=None)
+        base = ("llamacpp:tokens_predicted_total 39080\n"
+                "llamacpp:tokens_predicted_seconds_total 1235.5\n"
+                "llamacpp:predicted_tokens_seconds 0\n"
+                "llamacpp:requests_deferred 0\n")
+        actif = base + "llamacpp:requests_processing 1\n"
+        repos = base + "llamacpp:requests_processing 0\n"
+        _sante('llamacpp', actif + "llamacpp:n_decode_total 1000\n")
+        time.sleep(1.05)
+        # une generation a eu lieu : debit non nul
+        self.assertTrue(_sante('llamacpp', actif + "llamacpp:n_decode_total 1030\n")['tps'] > 0)
+        time.sleep(1.05)
+        # le compteur n'a plus bouge : personne n'utilise le modele
+        self.assertEqual(_sante('llamacpp', repos + "llamacpp:n_decode_total 1030\n")['tps'], 0.0)
 
 
 if __name__ == '__main__':

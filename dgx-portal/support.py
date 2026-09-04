@@ -298,7 +298,7 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
                              (mname,)).fetchone()
             if not cfg:
                 return f"Modèle « {mname} » introuvable dans le catalogue.", False
-            ok = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
+            ok, _motif = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
                                cfg['engine'] or 'vllm')
             if ok:
                 _announce_launch(cfg['name'])

@@ -7,7 +7,6 @@ export type ChatMsg = {
   tokens?: number;
   tokensPerSec?: number;
   ttft?: number;
-  ttft_base?: number | null;
   ts?: number;
   isError?: boolean;
   attachmentCount?: number;

@@ -155,6 +155,17 @@ Key facts and gotchas:
 - **`vllm_args` is allowlisted.** `--trust-remote-code` and overrides of critical
   flags are blocked for chat models (only OCR may pass trust-remote-code). Don't
   try to smuggle blocked flags — extend the allowlist deliberately if truly needed.
+- **1 M context on Qwen3.8-Flash-Next needs YaRN, and llama.cpp can do it.** The
+  model is 262,144 native; without scaling llama.cpp caps the slot back to that
+  while still reserving memory for what you asked (measured: 107 GB resident for
+  the same usable context — strictly worse). With
+  `--rope-scaling yarn --rope-freq-scale 0.25` (= Qwen's documented factor 4.0;
+  `--yarn-orig-ctx` defaults to the training context, so it can be omitted — and
+  it is not on the runner's allow-list anyway) the cap lifts: `n_ctx_slot =
+  1000192`, quality verified intact on short prompts. Cost: 106 GB resident,
+  ~15 GB free — no room left for the OCR/image/video sidecars. At 262,144 it is
+  81 GB and 40 GB free. Qwen warns static YaRN degrades SHORT contexts, so enable
+  it only when long context is actually needed.
 - **`LLAMA_BIN` comes from `.env`, not from the code default.** It points at
   `/root/atomic-llama/build/bin/llama-server`. Since 2026-09-04 that path is a
   **symlink to `/root/llama-cpp-upstream/build/bin/llama-server`** (0.3.0-dev), the

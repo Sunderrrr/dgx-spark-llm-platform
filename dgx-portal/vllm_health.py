@@ -192,7 +192,13 @@ def max_seqs_of(args, engine='vllm'):
     """
     if engine == 'ds4':
         return 1
-    return _arg_int(args, _SEQS_FLAG.get(engine or 'vllm', 'max-num-seqs'))
+    n = _arg_int(args, _SEQS_FLAG.get(engine or 'vllm', 'max-num-seqs'))
+    # llama.cpp sert 4 slots quand --parallel est absent (verifie sur le moteur
+    # lui-meme : « n_slots = 4 »). Sans ce repli, le panneau de sante affichait
+    # « 0 / — » au lieu de « 0 / 4 » des qu'un modele etait lance sans ce drapeau.
+    if n is None and (engine or 'vllm') == 'llamacpp':
+        return 4
+    return n
 
 def effective_ctx(args, engine='vllm'):
     """Real usable context PER REQUEST (this is what we advertise to the client:

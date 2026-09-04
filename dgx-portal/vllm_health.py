@@ -226,7 +226,15 @@ def ctx_split(vllm_args, engine='vllm'):
     """
     slot = effective_ctx(vllm_args, engine) or 32768
     if engine in ('llamacpp', 'ds4'):
-        out_reserve = min(65536, slot // 3)
+        # --n-predict EST la limite de sortie du moteur quand l'admin la fixe :
+        # on l'annonce telle quelle plutot que de la deviner. Sans ce drapeau, on
+        # garde l'heuristique prudente (un tiers du slot, plafonne a 64k).
+        # Le plafond code en dur ne devrait pas decider a la place du modele :
+        # Qwen recommande jusqu'a 262144 tokens de raisonnement et 131072 de
+        # reponse finale sur Flash-Next, tres au-dela de ces 64k.
+        demande = _arg_int(vllm_args, 'n-predict')
+        out_reserve = (demande if demande and 0 < demande < slot
+                       else min(65536, slot // 3))
         return max(slot - out_reserve, 1024), out_reserve
     return slot, min(slot // 2, 262144)
 

@@ -24,7 +24,7 @@ from comfyui_client import comfyui_is_up
 from config import (ASR_URL, IMAGE_URL, MUSIC_URL, OCR_URL, RUNNER_TOKEN,
                     RUNNER_URL, VOICE_URL)
 from db import log_audit
-from litellm_client import _point_auto_model
+from litellm_client import _point_auto_model, _register_litellm_model
 from vllm_health import get_running_models
 
 _log = logging.getLogger('app')
@@ -174,6 +174,12 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
                           timeout=90)
         # Launch accepted → the `auto-model` alias follows the new model.
         if r.ok:
+            # Et le modele REEL est re-enregistre : ses limites annoncees a LiteLLM
+            # (max_input/max_output, calculees par ctx_split) dependent des args de
+            # CE lancement. Sans cela, seul `auto-model` suivait un changement de
+            # contexte et le nom reel gardait les anciennes valeurs — constate le
+            # 04/09 : auto-model annoncait 737856/262144, le nom reel 196608/65536.
+            _register_litellm_model(model_name, vllm_args, engine or 'vllm')
             _point_auto_model(model_name, vllm_args, engine or 'vllm')
             return True, ''
         # Le runner REFUSE avec un motif precis (flag hors liste blanche, moteur

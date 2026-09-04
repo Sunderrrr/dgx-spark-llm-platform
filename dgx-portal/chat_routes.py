@@ -35,7 +35,7 @@ from conversation_routes import MSG_MAX_CHARS
 from db import get_db
 from guards import _chat_rate_limited, _sse_msg, maintenance_block_sse
 from litellm_client import get_user_keys, litellm_headers
-from stats import _inflight_end, _inflight_start
+from stats import _inflight_end, _inflight_start, enregistrer_ttft
 from support import (GUARDED_TOOLS, SUPPORT_SYSTEM, TOOL_LABELS, _clean_reply,
                      _exec_mcp_tool, _exec_skill, _exec_support_tool,
                      _sse_tool_event, _support_context, _support_tool_target,
@@ -641,6 +641,8 @@ def playground_chat():
                         pass
 
             _fil = threading.Thread(target=_lecteur, daemon=True)
+            _t0 = time.monotonic()
+            _ttft_vu = False
             _fil.start()
             while True:
                 try:
@@ -654,6 +656,20 @@ def playground_chat():
                     raise line
                 if line:
                     txt = line.decode('utf-8', 'replace')
+                    # TTFT reel de la requete. llama.cpp joint bien un `timings`
+                    # (prompt_ms) a son dernier fragment, mais LiteLLM le SUPPRIME
+                    # en route — verifie sur un flux reel. On mesure donc nous-memes
+                    # le delai jusqu'au premier token emis : c'est de toute facon
+                    # celui que l'utilisateur subit, file d'attente et proxy compris.
+                    if not _ttft_vu and txt.startswith('data: ') and '"delta"' in txt:
+                        try:
+                            _dl = ((json.loads(txt[6:]).get('choices') or [{}])[0]
+                                   .get('delta') or {})
+                            if _dl.get('content') or _dl.get('reasoning_content'):
+                                enregistrer_ttft((time.monotonic() - _t0) * 1000)
+                                _ttft_vu = True
+                        except Exception:
+                            pass
                     # Vérité terrain sur la fin de génération : sans cette trace,
                     # impossible de dire APRÈS COUP si une réponse coupée l'a été
                     # par le plafond de tokens ou par un EOS émis par le modèle.

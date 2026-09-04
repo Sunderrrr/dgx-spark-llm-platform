@@ -425,6 +425,7 @@ const EN: Record<string, string> = {
   "RAM": "RAM",
   "GPU": "GPU",
   "TTFT": "TTFT",
+  "TTFT / 1k prompt": "TTFT / 1k prompt",
   "Go": "GB",
   "API :": "API:",
 

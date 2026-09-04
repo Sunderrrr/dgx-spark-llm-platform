@@ -54,6 +54,7 @@ type ModelHealth = {
   running: number;
   waiting: number;
   ttft: number | null;
+  ttft_base?: number | null;
   requests: number;
   max_seqs: number | null;
   ctx_in: number | null;
@@ -508,7 +509,12 @@ export default function HomePage() {
                           </Text>
                         </VStack>
                         <VStack gap={0}>
-                          <Text type="supporting" color="secondary">{t("TTFT")}</Text>
+                          {/* llama.cpp ne publie pas de TTFT par requête : le backend renvoie
+                              alors le temps de prompt pour `ttft_base` tokens, et on l'étiquette
+                              comme tel plutôt que de laisser croire à une mesure par requête. */}
+                          <Text type="supporting" color="secondary">
+                            {data.modelhealth.ttft_base ? t("TTFT / 1k prompt") : t("TTFT")}
+                          </Text>
                           <Text weight="semibold" hasTabularNumbers>{data.modelhealth.ttft ?? "—"} s</Text>
                         </VStack>
                         <VStack gap={0}>

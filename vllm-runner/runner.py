@@ -171,6 +171,10 @@ _LLAMA_VALUE_FLAGS = {
     # Value = file name only, resolved under TEMPLATES_DIR (no arbitrary path,
     # see _resolve_template) → used to fix up an embedded template.
     "--chat-template-file",
+    # Projecteur vision (multimodal). Meme regle que ci-dessus : nom de fichier
+    # seul, resolu A COTE des poids (cf. _resolve_mmproj_tokens) — un projecteur
+    # n'a de sens qu'avec la quantification contre laquelle il a ete produit.
+    "--mmproj",
 }
 
 
@@ -459,6 +463,32 @@ def _resolve_template_tokens(tokens):
     return out
 
 
+def _resolve_mmproj_tokens(tokens, hf_id):
+    """Replace the value of --mmproj (file name only) with the absolute path,
+    resolved NEXT TO the model's own weights.
+
+    Same rule as --chat-template-file: no separator, no "..", so no arbitrary
+    file can be handed to the engine. A projector only makes sense alongside the
+    quantisation it was produced against, so there is no legitimate reason to
+    accept a path pointing anywhere else — which is what keeps this flag from
+    becoming a way to read files outside MODELS_DIR.
+    """
+    out = list(tokens)
+    for i, t in enumerate(out):
+        if t == "--mmproj" and i + 1 < len(out):
+            raw = out[i + 1]
+            if "/" in raw or "\\" in raw or ".." in raw:
+                raise ValueError("invalid mmproj name")
+            if not hf_id.startswith("local:"):
+                raise ValueError("--mmproj requires a local: model")
+            path = os.path.join(os.path.dirname(_resolve_gguf(hf_id)), raw)
+            if not os.path.isfile(path):
+                raise FileNotFoundError(
+                    f'mmproj "{raw}" not found next to the weights')
+            out[i + 1] = path
+    return out
+
+
 def _build_cmd(hf_id, name, extra_tokens, engine, bin_override=None):
     """Engine command line. They all serve an OpenAI API on :8000, so nothing
     downstream changes (LiteLLM, portal, playground)."""
@@ -475,6 +505,7 @@ def _build_cmd(hf_id, name, extra_tokens, engine, bin_override=None):
         # --metrics exposes /metrics (Prometheus) like vLLM, for the health panel.
         src = ["-m", _resolve_gguf(hf_id)] if hf_id.startswith("local:") else ["-hf", hf_id]
         extra_tokens = _resolve_template_tokens(extra_tokens)
+        extra_tokens = _resolve_mmproj_tokens(extra_tokens, hf_id)
         # bin_override : pose par --llama-next (cf. _BIN_FLAGS). Sans cela le
         # drapeau serait retire de l'argv mais n'aurait AUCUN effet, le binaire
         # etant code en dur ici — panne silencieuse.

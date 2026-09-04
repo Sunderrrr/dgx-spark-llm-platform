@@ -87,13 +87,10 @@ _METRIC_NAMES = {
         # comptait des tokens : l'afficher en "requetes servies" annoncait 39 303
         # requetes pour 39 303 tokens generes. Faute de source, on n'affiche rien.
         'requests': None,
-        # llama.cpp exposes its generation speed directly; we use it
-        # as-is instead of a tokens/wall-clock delta, which strongly overestimates
-        # (it divides a batch of tokens by a short scrape
-        # interval → "57 tok/s" where the engine actually does 8.5).
+        # Presence de cette cle = "ce moteur a son propre calcul de debit"
+        # (cf. plus bas). La jauge elle-meme ne sert plus : elle vaut 0 pendant
+        # la generation, le debit est tire de n_decode_total.
         'speed':    'llamacpp:predicted_tokens_seconds',
-        # Compteurs CUMULES : la jauge `speed` se fige au repos, ces deux-la non.
-        # Leur rapport donne le debit moyen reel, affichable en permanence.
         'gen_sec':  'llamacpp:tokens_predicted_seconds_total',
         'ttft_sum': None,   # cf. plus bas : le TTFT vient d'une mesure reelle
         'ttft_cnt': None,   #   relevee par chat_routes, pas de /metrics.
@@ -166,8 +163,12 @@ def _vllm_health_uncached():
     # c'est une vraie mesure de bout en bout, pas une extrapolation. On la prefere
     # donc, et faute de mesure on n'affiche RIEN plutot qu'un chiffre calcule sur
     # une autre base — un TTFT rapporte a 1000 tokens n'est pas un TTFT.
+    # Repli reserve aux moteurs qui n'ont AUCUNE source de TTFT (llama.cpp). Le
+    # declencher sur `ttft_cnt == 0` afficherait, pour un vLLM fraichement lance
+    # n'ayant encore rien servi, une mesure heritee du moteur precedent. vLLM
+    # publie son propre histogramme : on ne s'en melange pas.
     ttft_mesure_s = None
-    if not ttft_cnt:
+    if M.get('ttft_cnt') is None:
         from stats import ttft_mesure
         ttft_mesure_s = ttft_mesure()
     # Concurrent generation slots of the active model (--max-num-seqs / --parallel)

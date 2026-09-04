@@ -18,7 +18,19 @@ VLLM_BIN_025 = os.environ.get("VLLM_BIN_025", "/root/venvs/vllm025/bin/vllm")
 # 0.25.1 on Qwen3.8-27B-FP8+MTP (~12 vs ~11.8 tok/s — memory-bandwidth bound),
 # kept as an opt-in --vllm-027 flag for models we choose to run on the latest.
 VLLM_BIN_027 = os.environ.get("VLLM_BIN_027", "/root/venvs/vllm-next/bin/vllm")
+# vLLM 0.28.0 venv (meme torch 2.13 cu130, verifie sur le GB10 : sm_121 detecte).
+# Ajoute 11 architectures par rapport a 0.27.1, dont BailingMoeV3 — Ling-3.0
+# devient servable par vLLM et non plus seulement par llama.cpp. Toujours PAS de
+# Qwen4Exp. Opt-in via --vllm-028, comme les precedentes.
+VLLM_BIN_028 = os.environ.get("VLLM_BIN_028", "/root/venvs/vllm-028/bin/vllm")
 LLAMA_BIN    = os.environ.get("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-server")
+# llama.cpp amont recent (0.3.0-dev, aout 2026), compile pour le GB10. Il apporte
+# `qwen4exp` (Qwen3.8-Flash-Next), absent des deux autres builds, tout en gardant
+# `bailingmoe3` et `deepseek4`. Opt-in via --llama-next et NON par defaut : le
+# GGUF de Ling-3.0 publie par AtomicChat utilise des tenseurs `ssm_f`/`ssm_a` que
+# seul le fork TurboQuant sait lire, l'amont attend `ssm_f_a`. Basculer par
+# defaut casserait ce modele en silence.
+LLAMA_BIN_NEXT = os.environ.get("LLAMA_BIN_NEXT", "/root/llama-cpp-upstream/build/bin/llama-server")
 # ds4 engine: DGX Spark-specific "multi-tensor" NVFP4 GGUF (DeepSeek-V4-Flash).
 # Neither vLLM nor stock llama.cpp can load this format.
 DS4_BIN      = os.environ.get("DS4_BIN", "/root/ds4-nvfp4-spark/ds4-server")
@@ -101,6 +113,8 @@ _BOOL_FLAGS |= set(_ENV_FLAGS)
 _BIN_FLAGS = {
     "--vllm-025": VLLM_BIN_025,
     "--vllm-027": VLLM_BIN_027,
+    "--vllm-028": VLLM_BIN_028,
+    "--llama-next": LLAMA_BIN_NEXT,
 }
 _BOOL_FLAGS |= set(_BIN_FLAGS)
 _VALUE_FLAGS = {
@@ -445,7 +459,7 @@ def _resolve_template_tokens(tokens):
     return out
 
 
-def _build_cmd(hf_id, name, extra_tokens, engine, vllm_bin=None):
+def _build_cmd(hf_id, name, extra_tokens, engine, bin_override=None):
     """Engine command line. They all serve an OpenAI API on :8000, so nothing
     downstream changes (LiteLLM, portal, playground)."""
     if engine == "ds4":
@@ -461,11 +475,14 @@ def _build_cmd(hf_id, name, extra_tokens, engine, vllm_bin=None):
         # --metrics exposes /metrics (Prometheus) like vLLM, for the health panel.
         src = ["-m", _resolve_gguf(hf_id)] if hf_id.startswith("local:") else ["-hf", hf_id]
         extra_tokens = _resolve_template_tokens(extra_tokens)
-        return [LLAMA_BIN] + src + [
+        # bin_override : pose par --llama-next (cf. _BIN_FLAGS). Sans cela le
+        # drapeau serait retire de l'argv mais n'aurait AUCUN effet, le binaire
+        # etant code en dur ici — panne silencieuse.
+        return [bin_override or LLAMA_BIN] + src + [
                 "--host", "0.0.0.0", "--port", "8000",
                 "--alias", name,
                 "--metrics"] + extra_tokens
-    return [vllm_bin or VLLM_BIN, "serve", hf_id,
+    return [bin_override or VLLM_BIN, "serve", hf_id,
             "--port", "8000", "--host", "0.0.0.0",
             "--served-model-name", name] + extra_tokens
 
@@ -505,13 +522,13 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
 
     # --vllm-025 (see _BIN_FLAGS): switch to the separate vLLM 0.25.1 venv for
     # this launch, without touching the default binary of the other models.
-    vllm_bin = None
+    bin_override = None
     for flag, bin_path in _BIN_FLAGS.items():
         if flag in extra_tokens:
             extra_tokens = [t for t in extra_tokens if t != flag]
-            vllm_bin = bin_path
+            bin_override = bin_path
 
-    cmd = _build_cmd(hf_id, name, extra_tokens, engine, vllm_bin=vllm_bin)
+    cmd = _build_cmd(hf_id, name, extra_tokens, engine, bin_override=bin_override)
     _append(f"[runner] ({engine}) $ {' '.join(cmd)}")
     if model_env:
         _append(f"[runner] model-specific env: {model_env}")

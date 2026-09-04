@@ -155,6 +155,14 @@ Key facts and gotchas:
 - **`vllm_args` is allowlisted.** `--trust-remote-code` and overrides of critical
   flags are blocked for chat models (only OCR may pass trust-remote-code). Don't
   try to smuggle blocked flags — extend the allowlist deliberately if truly needed.
+- **Engine versions are opt-in pseudo-flags**, never a default swap: `--vllm-025`,
+  `--vllm-027`, `--vllm-028`, `--llama-next` pick a specific binary for THAT launch
+  (`_BIN_FLAGS` in `runner.py`). Added 2026-08-29: vLLM **0.28.0**
+  (`/root/venvs/vllm-028`, torch 2.13 cu130, sm_121 verified — adds BailingMoeV3, so
+  Ling-3.0 is now servable by vLLM too) and llama.cpp **0.3.0-dev upstream**
+  (`/root/llama-cpp-upstream`, built for GB10 — adds `qwen4exp`, i.e.
+  Qwen3.8-Flash-Next). Neither is the default: the AtomicChat Ling-3.0 GGUF needs the
+  TurboQuant fork's `ssm_f`/`ssm_a` tensors, which upstream does not read.
 - **`llamacpp` engine** uses `LLAMA_BIN` (env). For GGUFs with a custom arch we run
   a **TurboQuant fork** build at `/root/atomic-llama/build/bin/llama-server`
   (has `bailingmoe3` + `deepseek4`). `local:<name>` resolves a local GGUF via

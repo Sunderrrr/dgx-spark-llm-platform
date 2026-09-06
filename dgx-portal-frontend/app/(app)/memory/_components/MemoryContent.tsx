@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
@@ -22,9 +22,11 @@ import {
   PencilIcon,
   CheckIcon,
   XMarkIcon,
+  ArrowDownTrayIcon,
+  ArrowUpTrayIcon,
 } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { getJSON, sendJSON } from "@/lib/api";
+import { authFetch, getJSON, sendJSON } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 type MemNode = { id: number; name: string; kind: string; created_at: string };
@@ -135,6 +137,59 @@ export function MemoryContent() {
     const r = await sendJSON<{ ok: boolean; deleted: number }>("/api/memory/purge", csrf);
     showToast({ body: `${t("Mémoire effacée")} — ${r.deleted} ${t("informations")}`, type: "info" });
     void load();
+  }
+
+  // ── Export / import ────────────────────────────────────────────────────────
+  // Export : le backend renvoie un fichier (Content-Disposition: attachment).
+  // On récupère le blob via authFetch (credentials incluses → session conservée)
+  // puis on déclenche un téléchargement navigateur. Aucun secret dans l'URL.
+  async function download(fmt: "json" | "md") {
+    try {
+      const res = await authFetch(fmt === "json" ? "/api/memory/export" : "/api/memory/export.md");
+      if (!res.ok) {
+        showToast({ body: t("Export impossible."), type: "error" });
+        return;
+      }
+      const blob = await res.blob();
+      const disp = res.headers.get("Content-Disposition") ?? "";
+      const match = disp.match(/filename=([^;]+)/);
+      const name = match ? match[1].replace(/["']/g, "") : `cronos-memory.${fmt}`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast({ body: t("Export impossible."), type: "error" });
+    }
+  }
+
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  // Import : on lit le fichier JSON local, puis on le POSTE comme le reste
+  // (sendJSON gère le CSRF). La fusion est côté backend, on ne fait que relayer
+  // le document et recharger l'état.
+  async function importFile(file: File) {
+    try {
+      const text = await file.text();
+      const doc = JSON.parse(text);
+      const r = await sendJSON<{ ok: boolean; error?: string; imported_facts?: number; imported_nodes?: number }>(
+        "/api/memory/import", csrf, doc);
+      if (!r.ok) {
+        showToast({ body: r.error ?? t("Import impossible."), type: "error" });
+        return;
+      }
+      showToast({
+        body: `${t("Import terminé")} — ${r.imported_facts ?? 0} ${t("informations")}`,
+        type: "info",
+      });
+      void load();
+    } catch {
+      showToast({ body: t("Fichier invalide (JSON attendu)."), type: "error" });
+    }
   }
 
   return (
@@ -321,6 +376,51 @@ export function MemoryContent() {
           "Personne d'autre ne peut lire ta mémoire, administrateurs compris. Désactiver la collecte n'efface rien : utilise « Tout effacer » pour ça.",
         )}
       </Text>
+
+      <Card variant="muted" padding={3}>
+        <VStack gap={1}>
+          <Text weight="semibold">{t("Exporter / importer")}</Text>
+          <Text type="supporting" color="secondary">
+            {t(
+              "Garde une copie de ce que l'assistant sait de toi (JSON pour réimporter ailleurs, Markdown pour le lire), ou restaure une mémoire exportée.",
+            )}
+          </Text>
+          <HStack gap={2} vAlign="center" wrap="wrap">
+            <Button
+              label={t("Exporter (JSON)")}
+              variant="secondary"
+              size="sm"
+              icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+              onClick={() => void download("json")}
+            />
+            <Button
+              label={t("Exporter (Markdown)")}
+              variant="secondary"
+              size="sm"
+              icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+              onClick={() => void download("md")}
+            />
+            <Button
+              label={t("Importer")}
+              variant="secondary"
+              size="sm"
+              icon={<Icon icon={ArrowUpTrayIcon} size="sm" />}
+              onClick={() => fileRef.current?.click()}
+            />
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void importFile(f);
+                e.target.value = "";
+              }}
+            />
+          </HStack>
+        </VStack>
+      </Card>
     </VStack>
   );
 }

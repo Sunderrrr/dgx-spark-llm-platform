@@ -171,6 +171,86 @@ class IsolationApiTest(MemoryApiBase):
         self.assertNotEqual(a['nodes'][0]['id'], b['nodes'][0]['id'])
 
 
+class ImportExportApiTest(MemoryApiBase):
+    """Export (JSON/Markdown) et import (fusion) de la mémoire du compte connecté."""
+
+    def setUp(self):
+        super().setUp()
+        self.csrf = self._enable(self.USER)
+        self.client.post('/api/memory/facts',
+                         json={'subject': 'vLLM', 'fact': 'Tourne en 0.27.', 'object': 'DGX Spark'},
+                         headers={'X-CSRFToken': self.csrf})
+
+    def test_export_json_structure(self):
+        r = self.client.get('/api/memory/export')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('attachment', r.headers.get('Content-Disposition', ''))
+        doc = r.get_json()
+        self.assertEqual(doc['schema'], 'cronos-memory')
+        self.assertEqual(doc['username'], self.USER)
+        self.assertEqual(len(doc['edges']), 1)
+        self.assertEqual(doc['edges'][0]['subject'], 'vLLM')
+        self.assertEqual(doc['edges'][0]['fact'], 'Tourne en 0.27.')
+        # Un fait avec un objet crée DEUX nœuds (sujet + objet).
+        self.assertEqual(len(doc['nodes']), 2)
+        self.assertEqual({n['name'] for n in doc['nodes']}, {'vLLM', 'DGX Spark'})
+
+    def test_export_markdown_contient_le_fait(self):
+        r = self.client.get('/api/memory/export.md')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('text/markdown', r.headers.get('Content-Type'))
+        body = r.get_data(as_text=True)
+        self.assertIn('vLLM', body)
+        self.assertIn('Tourne en 0.27.', body)
+
+    def test_import_roundtrip_fusion(self):
+        doc = self.client.get('/api/memory/export').get_json()
+        # Purge puis réimport : on doit retrouver exactement le même fait.
+        self.client.post('/api/memory/purge', headers={'X-CSRFToken': self.csrf})
+        self.assertEqual(self.client.get('/api/memory').get_json()['edges'], [])
+        r = self.client.post('/api/memory/import', json=doc, headers={'X-CSRFToken': self.csrf})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()['ok'])
+        faits = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
+        self.assertEqual(faits, ['Tourne en 0.27.'])
+
+    def test_import_duplique_ne_cree_pas_de_double(self):
+        doc = self.client.get('/api/memory/export').get_json()
+        self.client.post('/api/memory/import', json=doc, headers={'X-CSRFToken': self.csrf})
+        faits = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
+        self.assertEqual(faits, ['Tourne en 0.27.'])  # fusion, pas de doublon
+
+    def test_import_json_invalide_refuse(self):
+        r = self.client.post('/api/memory/import', data='pas du json',
+                             headers={'X-CSRFToken': self.csrf})
+        self.assertEqual(r.status_code, 400)
+
+    def test_import_schema_inconnu_refuse(self):
+        r = self.client.post('/api/memory/import', json={'schema': 'autre-chose'},
+                             headers={'X-CSRFToken': self.csrf})
+        self.assertEqual(r.status_code, 400)
+
+    def test_import_ne_traverse_pas_les_comptes(self):
+        # Le champ `username` du doc est ignoré : la SESSION fait foi.
+        doc = self.client.get('/api/memory/export').get_json()
+        doc['username'] = self.OTHER  # tenté d'usurper la destination
+        r = self.client.post('/api/memory/import', json=doc, headers={'X-CSRFToken': self.csrf})
+        self.assertEqual(r.status_code, 200)
+        # L'import a bien atterri chez USER (session), et OTHER n'a rien reçu.
+        self.assertEqual(
+            len([e for e in self.client.get('/api/memory').get_json()['edges'] if e['fact'] == 'Tourne en 0.27.']), 1)
+        autre = portal.app.test_client()
+        self._login(self.OTHER, autre)
+        autre.post('/api/memory/enabled', json={'enabled': True},
+                   headers={'X-CSRFToken': f'jeton-{self.OTHER}'})
+        self.assertEqual(autre.get('/api/memory').get_json()['edges'], [])
+
+    def test_export_requiert_une_session(self):
+        autre = portal.app.test_client()
+        r = autre.get('/api/memory/export')
+        self.assertIn(r.status_code, (302, 401, 403))
+
+
 class EntreesHostilesTest(MemoryApiBase):
     """Entrées limites et malveillantes : rien ne doit planter ni déborder."""
 

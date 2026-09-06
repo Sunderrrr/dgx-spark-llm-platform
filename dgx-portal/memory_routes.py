@@ -10,11 +10,12 @@ pres, donc le frontend n'a rien a changer. Les endpoints, eux, deviennent
 vise ces routes (seuls `admin`, `login`, `index`, `discord_callback` et
 `oauth_callback` sont cites par nom, et ils restent dans app.py).
 """
+import json
 import re
 import unicodedata
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, Response, jsonify, request, session
 
 from auth import login_required
 from db import get_db
@@ -373,3 +374,215 @@ def api_memory_forget(edge_id):
 @login_required
 def api_memory_purge():
     return jsonify({'ok': True, 'deleted': _mem_purge(session['username'])})
+
+
+# ── Export / import ─────────────────────────────────────────────────────────
+# L'utilisateur est le SEUL lecteur de sa mémoire : ces routes n'exposent donc
+# que le graphe du compte connecté (jamais celui d'un autre, admin compris —
+# même règle que GET /api/memory). L'export sert à emporter « ce que l'IA sait
+# de toi » vers Claude/ChatGPT ou à le conserver ; l'import à le restaurer après
+# une purge ou une migration. Les deux passent par le même schéma JSON.
+
+EXPORT_SCHEMA_VERSION = 1
+
+# Taille max du payload d'import : un graphe de MEM_MAX_FACTS faits tient très
+# largement sous 5 Mo (chaque fait ≤ MEM_MAX_FACT_LEN caractères). Au-delà, on
+# refuse : un JSON contrefait/gonflé ne doit pas pouvoir stresser le worker.
+IMPORT_MAX_BYTES = 5 * 1024 * 1024
+IMPORT_MAX_NODES = 10_000     # garde-fou anti-déni (le vrai plafond utile est MEM_MAX_FACTS)
+
+
+def _mem_aliases(username):
+    """Map node_id -> [alias_norm, ...] pour l'utilisateur connecté."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT node_id, alias_norm FROM memory_aliases WHERE username=? ORDER BY alias_norm",
+        (username,)).fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(r['node_id'], []).append(r['alias_norm'])
+    return out
+
+
+def _mem_export_doc(username):
+    """Construit le document JSON d'export pour `username` (déjà cloisonné)."""
+    g = _mem_graph(username, include_expired=False)
+    aliases = _mem_aliases(username)
+    nodes = []
+    for n in g['nodes']:
+        nodes.append({
+            'name': n['name'],
+            'kind': n['kind'],
+            'aliases': aliases.get(n['id'], []),
+        })
+    edges = []
+    for e in g['edges']:
+        edges.append({
+            'subject': e['subject'],
+            'relation': e['relation'],
+            'fact': e['fact'],
+            'object': e['object'],
+            'source': e['source'],
+        })
+    return {
+        'schema': 'cronos-memory',
+        'version': EXPORT_SCHEMA_VERSION,
+        'username': username,
+        'exported_at': datetime.now().isoformat(),
+        'nodes': nodes,
+        'edges': edges,
+    }
+
+
+@bp.route('/api/memory/export')
+@login_required
+def api_memory_export():
+    """Télécharge la mémoire du compte connecté au format JSON structuré."""
+    doc = _mem_export_doc(session['username'])
+    payload = json.dumps(doc, ensure_ascii=False, indent=2)
+    resp = Response(payload, mimetype='application/json')
+    resp.headers['Content-Disposition'] = \
+        f"attachment; filename=cronos-memory-{session['username']}.json"
+    return resp
+
+
+@bp.route('/api/memory/export.md')
+@login_required
+def api_memory_export_md():
+    """Télécharge la mémoire sous forme Markdown lisible par un humain."""
+    doc = _mem_export_doc(session['username'])
+    lines = [f"# Ce que Cronos sait de moi", "",
+             f"> Exporté le {doc['exported_at'][:19].replace('T', ' ')} — "
+             f"{len(doc['edges'])} fait(s), {len(doc['nodes'])} sujet(s).", ""]
+    # Regrouper les faits par sujet (libellé du nœud source).
+    by_subject = {}
+    for e in doc['edges']:
+        by_subject.setdefault(e['subject'], []).append(e)
+    for subject in sorted(by_subject, key=str.lower):
+        lines.append(f"## {subject}")
+        facts = by_subject[subject]
+        # Les alias du sujet, à titre indicatif.
+        node = next((n for n in doc['nodes'] if n['name'] == subject), None)
+        if node and node['aliases']:
+            lines.append(f"_alias : {', '.join(node['aliases'])}_")
+        for e in facts:
+            rel = e['relation'] or 'à propos de'
+            if e['object']:
+                lines.append(f"- **{rel}** {e['object']} : {e['fact']}")
+            else:
+                lines.append(f"- **{rel}** : {e['fact']}")
+        lines.append("")
+    # Sujets sans aucun fait (nœuds isolés) — les signaler pour ne rien perdre.
+    subjects_faits = set(f['subject'] for f in doc['edges'])
+    orphelins = [n for n in doc['nodes'] if n['name'] not in subjects_faits]
+    if orphelins:
+        lines.append("## Sujets sans fait")
+        for n in sorted(orphelins, key=lambda x: str.lower(x['name'])):
+            lines.append(f"- {n['name']} ({n['kind']})")
+        lines.append("")
+    payload = "\n".join(lines)
+    resp = Response(payload, mimetype='text/markdown; charset=utf-8')
+    resp.headers['Content-Disposition'] = \
+        f"attachment; filename=cronos-memory-{session['username']}.md"
+    return resp
+
+
+def _validate_import_doc(doc):
+    """Valide la structure d'un JSON d'import. Retourne (msg, None) si invalide."""
+    if not isinstance(doc, dict):
+        return "Document JSON invalide (objet attendu).", None
+    if doc.get('schema') != 'cronos-memory':
+        return "Format non reconnu (clé 'schema' manquante ou incorrecte).", None
+    nodes = doc.get('nodes')
+    edges = doc.get('edges')
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return "'nodes' et 'edges' doivent être des listes.", None
+    if len(nodes) > IMPORT_MAX_NODES:
+        return f"Trop de sujets ({len(nodes)}).", None
+    if len(edges) > MEM_MAX_FACTS:
+        return f"Trop de faits ({len(edges)} > {MEM_MAX_FACTS}).", None
+    for n in nodes:
+        if not isinstance(n, dict) or not isinstance(n.get('name'), str):
+            return "Un sujet est invalide (champ 'name' manquant).", None
+        if len(n['name']) > MEM_MAX_NAME_LEN:
+            return "Nom de sujet trop long.", None
+        if n.get('kind') not in ('sujet', 'personne', 'outil', 'préférence'):
+            n['kind'] = 'sujet'
+        if n.get('aliases') is not None and not isinstance(n['aliases'], list):
+            return "Les alias d'un sujet doivent être une liste.", None
+    for e in edges:
+        if not isinstance(e, dict):
+            return "Un fait est invalide.", None
+        if not isinstance(e.get('subject'), str) or not isinstance(e.get('fact'), str):
+            return "Un fait est invalide (subject/fact manquants).", None
+        if len(e['fact']) > MEM_MAX_FACT_LEN:
+            return "Fait trop long.", None
+    return None, doc
+
+
+@bp.route('/api/memory/import', methods=['POST'])
+@login_required
+def api_memory_import():
+    """Réimporte une mémoire exportée, en FUSION (upsert par triplet).
+
+    Un fait identique (sujet+relation+objet) remplace l'ancien ; un fait nouveau
+    s'ajoute ; les entités se rapprochent par name_norm, donc pas de doublons.
+    Le cloisonnement est celui de la session : on n'écrit JAMAIS pour un autre
+    username que celui du doc.
+    """
+    username = session['username']
+    raw = request.get_data()
+    if len(raw) > IMPORT_MAX_BYTES:
+        return jsonify({'ok': False, 'error': 'Fichier trop volumineux.'}), 413
+    try:
+        doc = json.loads(raw)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'JSON invalide.'}), 400
+    # Le username du doc est ignoré : c'est la SESSION qui fait foi.
+    err, doc = _validate_import_doc(doc)
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+
+    db = get_db()
+    imported_nodes = 0
+    imported_facts = 0
+    # 1. Nœuds + alias, via _mem_node (rapprochement name_norm).
+    for n in doc.get('nodes', []):
+        row = _mem_node(username, n['name'], kind=n['kind'])
+        if not row:
+            continue
+        imported_nodes += 1
+        for alias in (n.get('aliases') or []):
+            alias_norm = _mem_norm(alias)
+            if not alias_norm:
+                continue
+            db.execute(
+                "INSERT OR IGNORE INTO memory_aliases (node_id, username, alias_norm) "
+                "VALUES (?,?,?)", (row['id'], username, alias_norm))
+    # 2. Faits, en fusion : on ne duplique JAMAIS un fait déjà présent. Un fait
+    #    est identifié par (sujet normalisé + texte du fait) — indépendamment de
+    #    la relation, qui peut être la générique « à propos de » (celle-ci n'est
+    #    pas remplaçable par design, mais un import ne doit pas la doubler).
+    for e in doc.get('edges', []):
+        subject = (e.get('subject') or '').strip()
+        fact = (e.get('fact') or '').strip()[:MEM_MAX_FACT_LEN]
+        if not subject or not fact:
+            continue
+        subject_norm = _mem_norm(subject)
+        dup = db.execute(
+            "SELECT 1 FROM memory_edges e JOIN memory_nodes s ON s.id = e.src_id "
+            "WHERE e.username=? AND s.name_norm=? AND e.fact=? AND e.valid_until IS NULL",
+            (username, subject_norm, fact)).fetchone()
+        if dup:
+            continue  # déjà mémorisé : on ne crée pas de doublon
+        msg, ok = _mem_add_fact(username, subject,
+                                e.get('relation') or MEM_GENERIC_RELATION, fact,
+                                obj=e.get('object'),
+                                source='user' if e.get('source') == 'user' else 'model',
+                                kind='sujet')
+        if ok:
+            imported_facts += 1
+    db.commit()
+    return jsonify({'ok': True,
+                    'imported_nodes': imported_nodes,
+                    'imported_facts': imported_facts})

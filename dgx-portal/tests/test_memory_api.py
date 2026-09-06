@@ -251,6 +251,82 @@ class ImportExportApiTest(MemoryApiBase):
         self.assertIn(r.status_code, (302, 401, 403))
 
 
+class ImportMarkdownTest(MemoryApiBase):
+    """Import Markdown : parseur tolérant + round-trip avec l'export .md."""
+
+    def setUp(self):
+        super().setUp()
+        self.csrf = self._enable(self.USER)
+
+    def test_roundtrip_avec_notre_export_markdown(self):
+        # Un fait structuré (avec objet) + notre export .md, puis purge + réimport.
+        self.client.post('/api/memory/facts',
+                         json={'subject': 'vLLM', 'fact': 'Tourne en 0.27.', 'object': 'DGX Spark'},
+                         headers={'X-CSRFToken': self.csrf})
+        md = self.client.get('/api/memory/export.md').get_data(as_text=True)
+        self.client.post('/api/memory/purge', headers={'X-CSRFToken': self.csrf})
+        r = self.client.post('/api/memory/import.md', data=md.encode('utf-8'),
+                             headers={'X-CSRFToken': self.csrf,
+                                      'Content-Type': 'text/plain; charset=utf-8'})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertTrue(r.get_json()['ok'])
+        faits = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
+        self.assertIn('Tourne en 0.27.', faits)
+
+    def test_markdown_generique_claude_chatgpt(self):
+        # Format libre : titres = sujets, puces = faits (sans structure gras).
+        md = (
+            "# Memory\n"
+            "## Préférences\n"
+            "- Aime les réponses courtes\n"
+            "- Développe en Python\n"
+            "## Outils\n"
+            "- Utilise Docker au quotidien\n"
+        )
+        r = self.client.post('/api/memory/import.md', data=md.encode('utf-8'),
+                             headers={'X-CSRFToken': self.csrf,
+                                      'Content-Type': 'text/plain; charset=utf-8'})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        faits = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
+        self.assertIn('Aime les réponses courtes', faits)
+        self.assertIn('Développe en Python', faits)
+        self.assertIn('Utilise Docker au quotidien', faits)
+
+    def test_fusion_dedup_sur_markdown(self):
+        md = "## vLLM\n- Tourne en 0.27.\n"
+        self.client.post('/api/memory/facts',
+                         json={'subject': 'vLLM', 'fact': 'Tourne en 0.27.'},
+                         headers={'X-CSRFToken': self.csrf})
+        self.client.post('/api/memory/import.md', data=md.encode('utf-8'),
+                         headers={'X-CSRFToken': self.csrf,
+                                  'Content-Type': 'text/plain; charset=utf-8'})
+        faits = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
+        self.assertEqual(faits, ['Tourne en 0.27.'])  # pas de doublon
+
+    def test_fichier_sans_fait_refuse(self):
+        r = self.client.post('/api/memory/import.md', data=b'# Rien ici\n\njuste du texte',
+                             headers={'X-CSRFToken': self.csrf,
+                                      'Content-Type': 'text/plain'})
+        self.assertEqual(r.status_code, 400)
+
+    def test_import_md_requiert_une_session(self):
+        # Sans session ni jeton CSRF cohérent, l'écriture est refusée (400 par le
+        # guard CSRF global, exécuté avant login_required).
+        autre = portal.app.test_client()
+        r = autre.post('/api/memory/import.md', data=b'## x\n- y',
+                       headers={'Content-Type': 'text/plain'})
+        self.assertIn(r.status_code, (302, 400, 401, 403))
+
+    def test_parseur_relations_structurées(self):
+        # Motif « **relation** objet : fait » reconnu ; hors gras → relation générique.
+        md = "## vLLM\n- **sert avec** DGX Spark : Tourne en 0.27.\n"
+        edges, aliases = memoire._md_parse(md)
+        self.assertEqual(len(edges), 1)
+        self.assertEqual(edges[0]['relation'], 'sert avec')
+        self.assertEqual(edges[0]['object'], 'DGX Spark')
+        self.assertEqual(edges[0]['fact'], 'Tourne en 0.27.')
+
+
 class EntreesHostilesTest(MemoryApiBase):
     """Entrées limites et malveillantes : rien ne doit planter ni déborder."""
 

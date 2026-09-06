@@ -503,7 +503,10 @@ _MEM_EXTRACT_SYSTEM = (
     "sujet | relation | fait\n"
     "ou, si le fait relie deux sujets :\n"
     "sujet | relation | fait | objet\n"
-    "Si rien ne mérite d'être retenu, réponds UNIQUEMENT : RIEN"
+    "Si une information DÉJÀ mémorisée a changé (nouvelle version, nouveau "
+    "poste…), reprends le MÊME sujet et la MÊME relation que dans la liste des "
+    "relations connues : le nouveau fait remplacera l'ancien au lieu de se "
+    "doubler. Si rien ne mérite d'être retenu, réponds UNIQUEMENT : RIEN"
 ) % _MEM_EXTRACT_MAX_FACTS
 
 
@@ -527,6 +530,18 @@ def _mem_extraire_et_sauver(username, model, user_key, extraits):
                 break
         if not convo:
             return
+        # Les relations déjà connues, pour qu'une MISE À JOUR réutilise exactement
+        # la même relation (c'est ce qui déclenche le remplacement de l'ancien
+        # fait au lieu d'un doublon). Borné : c'est un indice, pas un dump.
+        connues = {}
+        for e in memoire._mem_graph(username, include_expired=False)['edges']:
+            connues.setdefault(e['subject'], set())
+            if len(connues[e['subject']]) < 5:
+                connues[e['subject']].add(e['relation'])
+        index = "\n".join(f"- {s} : {', '.join(sorted(r))}" for s, r in sorted(connues.items())[:30])
+        if index:
+            convo.append("Relations déjà mémorisées (réutilise la même relation "
+                         "pour mettre à jour) :\n" + index)
         msgs = [{'role': 'system', 'content': _MEM_EXTRACT_SYSTEM},
                 {'role': 'user', 'content': "\n".join(convo)}]
         r = requests.post(f"{LITELLM_URL}/v1/chat/completions",

@@ -36,7 +36,9 @@ MEM_MAX_FACTS = 400      # garde-fou par utilisateur (au-delà, il faut oublier)
 # versions d'une même information, donc elle ne doit jamais servir de clé de
 # remplacement — sinon ajouter une 2e info sur un sujet effacerait la 1re.
 MEM_GENERIC_RELATION = 'à propos de'
-MEM_MAX_FACT_LEN = 300   # un fait est une phrase, pas un document
+MEM_MAX_FACT_LEN = 2000  # un fait est une phrase, pas un document — monté de 300
+                         # à 2000 pour accueillir les longues phrases des exports
+                         # Markdown de Claude/ChatGPT sans troncature brutale.
 MEM_MAX_NAME_LEN = 120
 
 
@@ -603,22 +605,64 @@ def api_memory_import():
 _MD_BULLET_RE = re.compile(r'^\s*(?:[-*+]|\d+[.)])\s+(.*)$')
 _MD_HEADING_RE = re.compile(r'^\s*(#{1,6})\s+(.*?)\s*#*\s*$')
 _MD_ALIAS_RE = re.compile(r'^\s*_?alias\s*:\s*(.+?)\s*_?\s*$', re.IGNORECASE)
+# Ligne ENTIÈREMENT en gras — `**Work context**` (sections d'un export Claude
+# legacy). Pas de texte autour : un titre de section, pas une puce.
+_MD_BOLD_LINE_RE = re.compile(r'^\s*\*\*(?P<t>.+?)\*\*\s*$')
+# Ligne ENTIÈREMENT en italique — `*Recent months*` (sous-sections Claude).
+_MD_ITALIC_LINE_RE = re.compile(r'^\s*\*(?P<t>[^*].*?)\*\s*$')
 # Fact de la forme « **relation** objet : texte » ou « **relation** : texte »
 # (notre format d'export) ; sinon la ligne entière devient le fait, en relation
 # générique. On ne reconnaît le motif structuré QUE si la relation est en gras.
 _MD_STRUCT_RE = re.compile(r'^\*\*(?P<rel>[^*]+)\*\*(?:\s+(?P<obj>[^:]+?))?\s*:\s*(?P<fact>.+)$')
 
 
+def _strip_markdown_inline(text):
+    """Retire le marquage inline résiduel (gras `**x**`, italique `*x*`) d'un
+    texte mémorisé : c'est du balisage, pas de l'information à conserver."""
+    return re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+
+
+def _split_sentences(text):
+    """Découpe une prose en phrases, sans exploser les abréviations courantes.
+
+    Coupe après `.`, `!`, `?` suivis d'une espace et d'une majuscule (ou d'une
+    fin de ligne). On regroupe les morceaux trop courts (< 40 caractères) avec
+    la phrase précédente pour ne pas créer des faits orphelins sur des
+    abréviations type « e.g. » ou « DGX Spark. ».
+    """
+    parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Þ])', text.strip())
+    sentences = []
+    buf = ''
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        if buf and len(buf) < 40:
+            buf = (buf + ' ' + p).strip()
+        else:
+            if buf:
+                sentences.append(buf)
+            buf = p
+    if buf:
+        sentences.append(buf)
+    return sentences
+
+
 def _md_parse(text):
     """Parse un Markdown en liste de faits (subject, relation, object, fact).
 
-    Heuristique simple et déterministe :
-      - un titre `##` (ou plus) ouvre un nouveau sujet ;
-      - le H1 d'ouverture (« # Ce que … ») est ignoré (c'est le titre du doc) ;
-      - une ligne `alias : …` (éventuellement en italique) devient un alias du
-        sujet courant ;
-      - une puce est un fait : si elle matche le motif structuré on en extrait la
-        relation/objet/fait, sinon la ligne entière = fait avec relation générique.
+    Heuristique simple et déterministe, tolérante :
+
+      - un titre `##` (ou plus) ouvre un sujet ;
+      - une ligne ENTIÈREMENT en gras (`**Work context**`) ou en italique
+        (`*Recent months*`, sous-sections d'un export Claude legacy) ouvre un
+        sujet ;
+      - le H1 d'ouverture (« # Ce que … ») est ignoré (titre du document) ;
+      - une ligne `alias : …` devient un alias du sujet courant ;
+      - une puce est un fait : si elle matche le motif structuré on extrait
+        relation/objet/fait, sinon la ligne entière = fait (relation générique) ;
+      - une ligne de PROSE (paragraphe) est découpée en phrases, chacune
+        devenant un fait du sujet courant (cas des exports Claude).
     """
     edges = []
     aliases = []          # (subject, alias) à rattacher une fois le sujet connu
@@ -633,42 +677,53 @@ def _md_parse(text):
             if not title:
                 continue
             if level == 1:
-                # Titre global du document (« # Ce que Cronos sait de moi ») :
-                # ce n'est pas un sujet.
-                continue
-            # `## Sujets sans fait` (section d'orphelins de notre export) : les
-            # puces qui suivent sont des noms de sujets, pas des faits.
+                continue          # titre global du document
             if title.lower() == 'sujets sans fait':
-                cur_subject = None   # on ignore les puces de cette section
+                cur_subject = None
                 continue
             cur_subject = title
             continue
+        m = _MD_BOLD_LINE_RE.match(line)
+        if m:
+            cur_subject = _strip_markdown_inline(m.group('t')).strip()
+            if cur_subject:
+                continue
+        m = _MD_ITALIC_LINE_RE.match(line)
+        if m:
+            cur_subject = _strip_markdown_inline(m.group('t')).strip()
+            if cur_subject:
+                continue
         m = _MD_ALIAS_RE.match(line)
         if m and cur_subject:
             aliases.append((cur_subject, m.group(1).strip()))
             continue
         m = _MD_BULLET_RE.match(line)
-        if not m:
+        if m:
+            content = m.group(1).strip()
+            if not content:
+                continue
+            if cur_subject is None:
+                continue
+            sm = _MD_STRUCT_RE.match(content)
+            if sm:
+                rel = sm.group('rel').strip() or MEM_GENERIC_RELATION
+                obj = (sm.group('obj') or '').strip() or None
+                fact = _strip_markdown_inline(sm.group('fact').strip())
+            else:
+                rel = MEM_GENERIC_RELATION
+                obj = None
+                fact = _strip_markdown_inline(content)
+            if fact:
+                edges.append({'subject': cur_subject, 'relation': rel,
+                              'object': obj, 'fact': fact})
             continue
-        content = m.group(1).strip()
-        if not content:
-            continue
-        if cur_subject is None:
-            # Puce hors de tout sujet : impossible de la rattacher, on l'ignore.
-            continue
-        sm = _MD_STRUCT_RE.match(content)
-        if sm:
-            rel = sm.group('rel').strip() or MEM_GENERIC_RELATION
-            obj = (sm.group('obj') or '').strip() or None
-            fact = sm.group('fact').strip()
-        else:
-            rel = MEM_GENERIC_RELATION
-            obj = None
-            fact = content
-        if not fact:
-            continue
-        edges.append({'subject': cur_subject, 'relation': rel,
-                      'object': obj, 'fact': fact})
+        # Prose (paragraphe) : découper en phrases, chacune = un fait.
+        if cur_subject is not None:
+            for sent in _split_sentences(line):
+                edges.append({'subject': cur_subject,
+                              'relation': MEM_GENERIC_RELATION,
+                              'object': None,
+                              'fact': _strip_markdown_inline(sent)})
     return edges, aliases
 
 

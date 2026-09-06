@@ -326,6 +326,54 @@ class ImportMarkdownTest(MemoryApiBase):
         self.assertEqual(edges[0]['object'], 'DGX Spark')
         self.assertEqual(edges[0]['fact'], 'Tourne en 0.27.')
 
+    def test_format_claude_legacy(self):
+        # Export Claude legacy réel : sections en gras seul + sous-sections en
+        # italique seul + paragraphes de prose (une ligne dense, pas de puces).
+        md = (
+            "**Work context**\n"
+            "\n"
+            "Maël is a French IT infrastructure apprentice (alternance). "
+            "He is finishing his alternance in September and actively job hunting.\n"
+            "\n"
+            "**Brief history**\n"
+            "\n"
+            "*Recent months*\n"
+            "\n"
+            "His homelab uses a Norse mythology naming convention. "
+            "He runs a DGX Spark (NVIDIA GB10, ARM64, 128GB).\n"
+        )
+        edges, aliases = memoire._md_parse(md)
+        # 4 phrases → 4 faits, répartis sous Work context / Recent months.
+        self.assertEqual(len(edges), 4)
+        by_subject = {}
+        for e in edges:
+            by_subject.setdefault(e['subject'], []).append(e['fact'])
+        self.assertIn('Work context', by_subject)
+        self.assertIn('Recent months', by_subject)
+        self.assertEqual(len(by_subject['Work context']), 2)
+        self.assertEqual(len(by_subject['Recent months']), 2)
+        # Le gras inline (DGX Spark) est débarrassé de son markup.
+        self.assertTrue(any('DGX Spark' in f for f in by_subject['Recent months']))
+        self.assertTrue(all('**' not in f for f in by_subject['Recent months']))
+
+    def test_import_complet_format_claude(self):
+        # Import bout-en-bout d'un extrait Claude : les faits doivent atterrir.
+        md = (
+            "**Personal context**\n"
+            "\n"
+            "Maël communicates primarily in French. He has dyslexia and dyspraxia.\n"
+        )
+        r = self.client.post('/api/memory/import.md', data=md.encode('utf-8'),
+                             headers={'X-CSRFToken': self.csrf,
+                                      'Content-Type': 'text/plain; charset=utf-8'})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        faits = {e['subject']: [f['fact'] for f in self.client.get('/api/memory').get_json()['edges']
+                                if f['subject'] == e['subject']]
+                 for e in self.client.get('/api/memory').get_json()['edges']}
+        all_facts = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
+        self.assertTrue(any('communicates primarily in French' in f for f in all_facts))
+        self.assertTrue(any('dyslexia' in f for f in all_facts))
+
 
 class EntreesHostilesTest(MemoryApiBase):
     """Entrées limites et malveillantes : rien ne doit planter ni déborder."""

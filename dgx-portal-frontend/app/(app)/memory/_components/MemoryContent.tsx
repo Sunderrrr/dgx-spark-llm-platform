@@ -169,26 +169,47 @@ export function MemoryContent() {
 
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // Import : on lit le fichier JSON local, puis on le POSTE comme le reste
-  // (sendJSON gère le CSRF). La fusion est côté backend, on ne fait que relayer
-  // le document et recharger l'état.
+  // Import : on lit le fichier local (JSON ou Markdown), puis on le POSTE comme
+  // le reste (sendJSON gère le CSRF). L'extension choisit la route ; la fusion
+  // est côté backend, on ne fait que relayer le document et recharger l'état.
   async function importFile(file: File) {
+    const isJson = /\.json$/i.test(file.name);
     try {
-      const text = await file.text();
-      const doc = JSON.parse(text);
-      const r = await sendJSON<{ ok: boolean; error?: string; imported_facts?: number; imported_nodes?: number }>(
-        "/api/memory/import", csrf, doc);
-      if (!r.ok) {
-        showToast({ body: r.error ?? t("Import impossible."), type: "error" });
-        return;
+      if (isJson) {
+        const text = await file.text();
+        const doc = JSON.parse(text);
+        const r = await sendJSON<{ ok: boolean; error?: string; imported_facts?: number }>(
+          "/api/memory/import", csrf, doc);
+        if (!r.ok) {
+          showToast({ body: r.error ?? t("Import impossible."), type: "error" });
+          return;
+        }
+        showToast({
+          body: `${t("Import terminé")} — ${r.imported_facts ?? 0} ${t("informations")}`,
+          type: "info",
+        });
+      } else {
+        // Markdown : on envoie le texte brut (pas de JSON.parse).
+        const text = await file.text();
+        const res = await authFetch("/api/memory/import.md", {
+          method: "POST",
+          headers: { "Content-Type": "text/plain; charset=utf-8", "X-CSRFToken": csrf },
+          body: text,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { error?: string };
+          showToast({ body: err.error ?? t("Import impossible."), type: "error" });
+          return;
+        }
+        const r = await res.json() as { imported_facts?: number };
+        showToast({
+          body: `${t("Import terminé")} — ${r.imported_facts ?? 0} ${t("informations")}`,
+          type: "info",
+        });
       }
-      showToast({
-        body: `${t("Import terminé")} — ${r.imported_facts ?? 0} ${t("informations")}`,
-        type: "info",
-      });
       void load();
     } catch {
-      showToast({ body: t("Fichier invalide (JSON attendu)."), type: "error" });
+      showToast({ body: t("Fichier invalide."), type: "error" });
     }
   }
 
@@ -382,7 +403,7 @@ export function MemoryContent() {
           <Text weight="semibold">{t("Exporter / importer")}</Text>
           <Text type="supporting" color="secondary">
             {t(
-              "Garde une copie de ce que l'assistant sait de toi (JSON pour réimporter ailleurs, Markdown pour le lire), ou restaure une mémoire exportée.",
+              "Garde une copie de ce que l'assistant sait de toi (JSON pour réimporter ailleurs, Markdown pour le lire), ou restaure une mémoire exportée — JSON ou Markdown.",
             )}
           </Text>
           <HStack gap={2} vAlign="center" wrap="wrap">
@@ -410,7 +431,7 @@ export function MemoryContent() {
             <input
               ref={fileRef}
               type="file"
-              accept="application/json,.json"
+              accept="application/json,.json,.md,.mdx,.txt,text/markdown"
               style={{ display: "none" }}
               onChange={(e) => {
                 const f = e.target.files?.[0];

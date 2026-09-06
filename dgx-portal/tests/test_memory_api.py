@@ -9,8 +9,10 @@ niveau SQL mais qu'une route contourne en lisant un paramètre de requête.
 
 import time
 import unittest
+from unittest import mock
 
 import app as portal
+import chat_routes as chat_routes
 # La memoire a quitte le monolithe pour memory_routes.py (28/08, 1er
 # blueprint) : on la vise dans son module proprietaire.
 import memory_routes as memoire
@@ -411,6 +413,41 @@ class InjectionContexteTest(MemoryApiBase):
                              ('2020-01-01T00:00:00', row['id']))
             get_db().commit()
             self.assertEqual(memoire._mem_inject_context(self.USER), '')
+
+
+class ExtractionPostTourTest(MemoryApiBase):
+    """Le fil d'extraction post-tour écrit la mémoire HORS contexte de requête."""
+
+    def test_ecrit_hors_contexte_requete(self):
+        # Le fil post-tour ne possède PAS de contexte de requête Flask : c'est
+        # exactement ce qui a cassé la première version (get_db y levait
+        # « Working outside of application context », gobé par un except nu).
+        with portal.app.app_context():
+            memoire._mem_set_enabled(self.USER, True)
+        extraits = [{'role': 'user', 'content': "Je préfère les réponses courtes."},
+                    {'role': 'assistant', 'content': "Bien noté."}]
+
+        class _Reponse:
+            ok = True
+            status_code = 200
+
+            def json(self):
+                return {'choices': [{'message': {'content':
+                    "préférences | style | Préfère les réponses courtes."}}]}
+
+        with portal.app.app_context():
+            with mock.patch('chat_routes.requests.post', return_value=_Reponse()):
+                chat_routes._mem_extraire_et_sauver(
+                    self.USER, 'm', 'k', extraits, portal.app)
+            faits = [e['fact'] for e in memoire._mem_graph(self.USER)['edges']]
+        self.assertTrue(any('courtes' in f for f in faits))
+
+    def test_desactive_n_appelle_meme_pas_le_modele(self):
+        with portal.app.app_context():
+            memoire._mem_set_enabled(self.USER, False)
+            with mock.patch('chat_routes.requests.post') as faux_post:
+                chat_routes._mem_extraire_et_sauver(self.USER, 'm', 'k', [], portal.app)
+        faux_post.assert_not_called()
 
 
 class EntreesHostilesTest(MemoryApiBase):

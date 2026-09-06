@@ -26,7 +26,7 @@ import threading
 import time
 
 import requests
-from flask import (Blueprint, Response, jsonify, request, session,
+from flask import (Blueprint, Response, current_app, jsonify, request, session,
                    stream_with_context)
 
 from auth import login_required
@@ -510,38 +510,44 @@ _MEM_EXTRACT_SYSTEM = (
 ) % _MEM_EXTRACT_MAX_FACTS
 
 
-def _mem_extraire_et_sauver(username, model, user_key, extraits):
+def _mem_extraire_et_sauver(username, model, user_key, extraits, _app):
     """Tour post-réponse : propose des faits et les mémorise (best effort).
 
     Ne lève jamais : l'extraction est un bonus, un échec ne doit pas apparaître
-    côté utilisateur. Les faits sont validés par _mem_add_fact (bornes, dédup,
-    opt-in re-vérifié à l'écriture).
+    côté utilisateur — mais elle est JOURNALISÉE (un except nu a déjà caché un
+    bug complet : le fil tourne hors requête Flask et get_db() y levait
+    « Working outside of application context » sans laisser de trace). Le fil
+    ne possède pas de contexte : l'app est passée explicitement et l'accès DB se
+    fait sous `app_context()`. Les faits sont validés par _mem_add_fact (bornes,
+    dédup, opt-in re-vérifié à l'écriture).
     """
     try:
-        if not memoire._mem_enabled(username):
-            return
-        convo = []
-        total = 0
-        for m in extraits:
-            chunk = f"{m['role']}: {m['content'][:2000]}"
-            convo.append(chunk)
-            total += len(chunk) + 1
-            if total > _MEM_EXTRACT_MAX_CHARS:
-                break
-        if not convo:
-            return
-        # Les relations déjà connues, pour qu'une MISE À JOUR réutilise exactement
-        # la même relation (c'est ce qui déclenche le remplacement de l'ancien
-        # fait au lieu d'un doublon). Borné : c'est un indice, pas un dump.
-        connues = {}
-        for e in memoire._mem_graph(username, include_expired=False)['edges']:
-            connues.setdefault(e['subject'], set())
-            if len(connues[e['subject']]) < 5:
-                connues[e['subject']].add(e['relation'])
-        index = "\n".join(f"- {s} : {', '.join(sorted(r))}" for s, r in sorted(connues.items())[:30])
-        if index:
-            convo.append("Relations déjà mémorisées (réutilise la même relation "
-                         "pour mettre à jour) :\n" + index)
+        with _app.app_context():
+            if not memoire._mem_enabled(username):
+                return
+            convo = []
+            total = 0
+            for m in extraits:
+                chunk = f"{m['role']}: {m['content'][:2000]}"
+                convo.append(chunk)
+                total += len(chunk) + 1
+                if total > _MEM_EXTRACT_MAX_CHARS:
+                    break
+            if not convo:
+                return
+            # Les relations déjà connues, pour qu'une MISE À JOUR réutilise exactement
+            # la même relation (c'est ce qui déclenche le remplacement de l'ancien
+            # fait au lieu d'un doublon). Borné : c'est un indice, pas un dump.
+            connues = {}
+            for e in memoire._mem_graph(username, include_expired=False)['edges']:
+                connues.setdefault(e['subject'], set())
+                if len(connues[e['subject']]) < 5:
+                    connues[e['subject']].add(e['relation'])
+            index = "\n".join(f"- {s} : {', '.join(sorted(r))}"
+                              for s, r in sorted(connues.items())[:30])
+            if index:
+                convo.append("Relations déjà mémorisées (réutilise la même relation "
+                             "pour mettre à jour) :\n" + index)
         msgs = [{'role': 'system', 'content': _MEM_EXTRACT_SYSTEM},
                 {'role': 'user', 'content': "\n".join(convo)}]
         r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
@@ -551,28 +557,34 @@ def _mem_extraire_et_sauver(username, model, user_key, extraits):
                                 'chat_template_kwargs': {'enable_thinking': False}},
                           timeout=(10, 60))
         if not r.ok:
+            _log.warning("memoire extraction %s : modele %s a repondu %s",
+                         username, model, r.status_code)
             return
         texte = ((r.json().get('choices') or [{}])[0].get('message') or {}).get('content') or ''
         if 'RIEN' in texte[:40]:
             return
         retenus = 0
-        for ligne in texte.splitlines():
-            ligne = ligne.strip().lstrip('-').strip()
-            if not ligne or '|' not in ligne or retenus >= _MEM_EXTRACT_MAX_FACTS:
-                continue
-            parts = [p.strip() for p in ligne.split('|')]
-            if len(parts) < 3 or not parts[0] or not parts[2]:
-                continue
-            msg, ok = memoire._exec_memory_tool('save_memory', {
-                'subject': parts[0][:memoire.MEM_MAX_NAME_LEN],
-                'relation': parts[1][:80],
-                'fact': parts[2][:memoire.MEM_MAX_FACT_LEN],
-                **({'object': parts[3][:memoire.MEM_MAX_NAME_LEN]} if len(parts) > 3 and parts[3] else {}),
-            }, username)
-            if ok:
-                retenus += 1
-    except Exception:                                    # noqa: BLE001
-        pass
+        with _app.app_context():
+            for ligne in texte.splitlines():
+                ligne = ligne.strip().lstrip('-').strip()
+                if not ligne or '|' not in ligne or retenus >= _MEM_EXTRACT_MAX_FACTS:
+                    continue
+                parts = [p.strip() for p in ligne.split('|')]
+                if len(parts) < 3 or not parts[0] or not parts[2]:
+                    continue
+                msg, ok = memoire._exec_memory_tool('save_memory', {
+                    'subject': parts[0][:memoire.MEM_MAX_NAME_LEN],
+                    'relation': parts[1][:80],
+                    'fact': parts[2][:memoire.MEM_MAX_FACT_LEN],
+                    **({'object': parts[3][:memoire.MEM_MAX_NAME_LEN]} if len(parts) > 3 and parts[3] else {}),
+                }, username)
+                if ok:
+                    retenus += 1
+            if retenus:
+                _log.info("memoire extraction %s : %d fait(s) retenu(s)", username, retenus)
+    except Exception as exc:                             # noqa: BLE001
+        _log.warning("memoire extraction %s : echec (%s: %s)",
+                     username, type(exc).__name__, exc)
 
 
 @bp.route('/playground/chat', methods=['POST'])
@@ -821,15 +833,20 @@ def playground_chat():
                 _log.warning("playground %s : fin normale (stop) apres %s tokens", _who, _out)
             if _mem_on and _finish == 'stop':
                 # Écriture mémoire : APRÈS la réponse (le client est servi), dans
-                # un thread jetable — l'extracteur ne lève jamais et re-vérifie
-                # l'opt-in. On passe la conversation récente + la réponse obtenue.
+                # un thread jetable — l'extracteur journalise ses échecs et
+                # re-vérifie l'opt-in. Le fil vit HORS contexte Flask : on lui
+                # passe l'objet app (un proxy current_app ne survivrait pas au
+                # démontage du contexte du générateur) + la conversation récente
+                # et la réponse obtenue.
                 _extraits = [{'role': m['role'], 'content': m['content']}
                              for m in history[-4:]]
                 _extraits.append({'role': 'assistant',
                                   'content': "".join(_reponse)[:4000]})
-                threading.Thread(target=_mem_extraire_et_sauver,
-                                 args=(session['username'], model, user_key, _extraits),
-                                 daemon=True).start()
+                threading.Thread(
+                    target=_mem_extraire_et_sauver,
+                    args=(session['username'], model, user_key, _extraits,
+                          current_app._get_current_object()),
+                    daemon=True).start()
         except GeneratorExit:
             # Le navigateur a fermé la connexion en cours de route (coupure réseau,
             # onglet fermé). Ce n'est PAS une Exception : sans ce cas, la coupure la

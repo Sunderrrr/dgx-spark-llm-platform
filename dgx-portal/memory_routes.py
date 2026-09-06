@@ -404,6 +404,17 @@ def _mem_aliases(username):
     return out
 
 
+def _mem_fact_exists(username, subject, fact):
+    """True si un fait valide (non périmé) de même sujet normalisé + même texte
+    existe déjà. Sert à la fusion des imports JSON et Markdown."""
+    subject_norm = _mem_norm(subject)
+    row = get_db().execute(
+        "SELECT 1 FROM memory_edges e JOIN memory_nodes s ON s.id = e.src_id "
+        "WHERE e.username=? AND s.name_norm=? AND e.fact=? AND e.valid_until IS NULL",
+        (username, subject_norm, fact)).fetchone()
+    return row is not None
+
+
 def _mem_export_doc(username):
     """Construit le document JSON d'export pour `username` (déjà cloisonné)."""
     g = _mem_graph(username, include_expired=False)
@@ -568,12 +579,7 @@ def api_memory_import():
         fact = (e.get('fact') or '').strip()[:MEM_MAX_FACT_LEN]
         if not subject or not fact:
             continue
-        subject_norm = _mem_norm(subject)
-        dup = db.execute(
-            "SELECT 1 FROM memory_edges e JOIN memory_nodes s ON s.id = e.src_id "
-            "WHERE e.username=? AND s.name_norm=? AND e.fact=? AND e.valid_until IS NULL",
-            (username, subject_norm, fact)).fetchone()
-        if dup:
+        if _mem_fact_exists(username, subject, fact):
             continue  # déjà mémorisé : on ne crée pas de doublon
         msg, ok = _mem_add_fact(username, subject,
                                 e.get('relation') or MEM_GENERIC_RELATION, fact,
@@ -586,3 +592,135 @@ def api_memory_import():
     return jsonify({'ok': True,
                     'imported_nodes': imported_nodes,
                     'imported_facts': imported_facts})
+
+
+# ── Import Markdown ─────────────────────────────────────────────────────────
+# Accepte un .md générique (export Cronos, mais aussi du Markdown de Claude ou
+# ChatGPT) et en extrait les faits pour les mémoriser. Tolérant : on ne rejette
+# que les lignes réellement inclassables, jamais tout le fichier pour une ligne
+# parasite.
+
+_MD_BULLET_RE = re.compile(r'^\s*(?:[-*+]|\d+[.)])\s+(.*)$')
+_MD_HEADING_RE = re.compile(r'^\s*(#{1,6})\s+(.*?)\s*#*\s*$')
+_MD_ALIAS_RE = re.compile(r'^\s*_?alias\s*:\s*(.+?)\s*_?\s*$', re.IGNORECASE)
+# Fact de la forme « **relation** objet : texte » ou « **relation** : texte »
+# (notre format d'export) ; sinon la ligne entière devient le fait, en relation
+# générique. On ne reconnaît le motif structuré QUE si la relation est en gras.
+_MD_STRUCT_RE = re.compile(r'^\*\*(?P<rel>[^*]+)\*\*(?:\s+(?P<obj>[^:]+?))?\s*:\s*(?P<fact>.+)$')
+
+
+def _md_parse(text):
+    """Parse un Markdown en liste de faits (subject, relation, object, fact).
+
+    Heuristique simple et déterministe :
+      - un titre `##` (ou plus) ouvre un nouveau sujet ;
+      - le H1 d'ouverture (« # Ce que … ») est ignoré (c'est le titre du doc) ;
+      - une ligne `alias : …` (éventuellement en italique) devient un alias du
+        sujet courant ;
+      - une puce est un fait : si elle matche le motif structuré on en extrait la
+        relation/objet/fait, sinon la ligne entière = fait avec relation générique.
+    """
+    edges = []
+    aliases = []          # (subject, alias) à rattacher une fois le sujet connu
+    cur_subject = None
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            continue
+        m = _MD_HEADING_RE.match(line)
+        if m:
+            level, title = len(m.group(1)), m.group(2).strip()
+            if not title:
+                continue
+            if level == 1:
+                # Titre global du document (« # Ce que Cronos sait de moi ») :
+                # ce n'est pas un sujet.
+                continue
+            # `## Sujets sans fait` (section d'orphelins de notre export) : les
+            # puces qui suivent sont des noms de sujets, pas des faits.
+            if title.lower() == 'sujets sans fait':
+                cur_subject = None   # on ignore les puces de cette section
+                continue
+            cur_subject = title
+            continue
+        m = _MD_ALIAS_RE.match(line)
+        if m and cur_subject:
+            aliases.append((cur_subject, m.group(1).strip()))
+            continue
+        m = _MD_BULLET_RE.match(line)
+        if not m:
+            continue
+        content = m.group(1).strip()
+        if not content:
+            continue
+        if cur_subject is None:
+            # Puce hors de tout sujet : impossible de la rattacher, on l'ignore.
+            continue
+        sm = _MD_STRUCT_RE.match(content)
+        if sm:
+            rel = sm.group('rel').strip() or MEM_GENERIC_RELATION
+            obj = (sm.group('obj') or '').strip() or None
+            fact = sm.group('fact').strip()
+        else:
+            rel = MEM_GENERIC_RELATION
+            obj = None
+            fact = content
+        if not fact:
+            continue
+        edges.append({'subject': cur_subject, 'relation': rel,
+                      'object': obj, 'fact': fact})
+    return edges, aliases
+
+
+@bp.route('/api/memory/import.md', methods=['POST'])
+@login_required
+def api_memory_import_md():
+    """Importe une mémoire depuis un fichier Markdown (générique), en fusion.
+
+    Le Markdown peut venir de « Exporter (Markdown) » de Cronos, ou d'un export
+    de Claude/ChatGPT (titres = sujets, puces = faits). Grammaire tolérante : une
+    ligne non reconnue est sautée, jamais un échec global.
+    """
+    username = session['username']
+    raw = request.get_data()
+    if len(raw) > IMPORT_MAX_BYTES:
+        return jsonify({'ok': False, 'error': 'Fichier trop volumineux.'}), 413
+    try:
+        text = raw.decode('utf-8')
+    except UnicodeDecodeError:
+        return jsonify({'ok': False, 'error': 'Encodage invalide (UTF-8 attendu).'}), 400
+
+    edges, aliases = _md_parse(text)
+    if not edges:
+        return jsonify({'ok': False, 'error': 'Aucun fait reconnu dans ce fichier.'}), 400
+
+    db = get_db()
+    imported_facts = 0
+    # 1. Faits (fusion).
+    for e in edges:
+        subject = e['subject'].strip()[:MEM_MAX_NAME_LEN]
+        fact = e['fact'].strip()[:MEM_MAX_FACT_LEN]
+        if not subject or not fact:
+            continue
+        if _mem_fact_exists(username, subject, fact):
+            continue
+        msg, ok = _mem_add_fact(username, subject, e['relation'], fact,
+                                obj=e['object'], source='user', kind='sujet')
+        if ok:
+            imported_facts += 1
+    # 2. Alias (rattachés au sujet courant, upsert par alias_norm).
+    imported_aliases = 0
+    for subject, alias in aliases:
+        row = _mem_node(username, subject, create=False)
+        alias_norm = _mem_norm(alias)
+        if not row or not alias_norm:
+            continue
+        cur = db.execute(
+            "INSERT OR IGNORE INTO memory_aliases (node_id, username, alias_norm) "
+            "VALUES (?,?,?)", (row['id'], username, alias_norm))
+        imported_aliases += cur.rowcount
+    db.commit()
+    return jsonify({'ok': True,
+                    'imported_facts': imported_facts,
+                    'imported_aliases': imported_aliases})
+

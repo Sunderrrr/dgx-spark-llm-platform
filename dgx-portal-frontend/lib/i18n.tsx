@@ -347,15 +347,15 @@ const EN: Record<string, string> = {
   "Personne d'autre ne peut lire ta mémoire, administrateurs compris. Désactiver la collecte n'efface rien : utilise « Tout effacer » pour ça.":
     "Nobody else can read your memory, administrators included. Turning collection off erases nothing — use “Erase everything” for that.",
   "Exporter / importer": "Export / import",
-  "Garde une copie de ce que l'assistant sait de toi (JSON pour réimporter ailleurs, Markdown pour le lire), ou restaure une mémoire exportée.":
-    "Keep a copy of what the assistant knows about you (JSON to re-import elsewhere, Markdown to read), or restore an exported memory.",
+  "Garde une copie de ce que l'assistant sait de toi (JSON pour réimporter ailleurs, Markdown pour le lire), ou restaure une mémoire exportée — JSON ou Markdown.":
+    "Keep a copy of what the assistant knows about you (JSON to re-import elsewhere, Markdown to read), or restore an exported memory — JSON or Markdown.",
   "Exporter (JSON)": "Export (JSON)",
   "Exporter (Markdown)": "Export (Markdown)",
   "Importer": "Import",
   "Export impossible.": "Could not export.",
   "Import terminé": "Import complete",
   "Import impossible.": "Could not import.",
-  "Fichier invalide (JSON attendu).": "Invalid file (JSON expected).",
+  "Fichier invalide.": "Invalid file.",
   "Modification impossible.": "Could not update.",
   "Le bouton copier donne toujours la vraie clé, même affichée masquée.":
     "The copy button always gives the real key, even when it is shown masked.",

@@ -14,6 +14,7 @@ import app as portal
 # La memoire a quitte le monolithe pour memory_routes.py (28/08, 1er
 # blueprint) : on la vise dans son module proprietaire.
 import memory_routes as memoire
+from db import get_db
 
 
 class MemoryApiBase(unittest.TestCase):
@@ -375,8 +376,44 @@ class ImportMarkdownTest(MemoryApiBase):
         self.assertTrue(any('dyslexia' in f for f in all_facts))
 
 
+class InjectionContexteTest(MemoryApiBase):
+    """Le bloc mémoire injecté au system du chat (lecture)."""
+
+    def setUp(self):
+        super().setUp()
+        self.csrf = self._enable(self.USER)
+
+    def test_vide_si_desactive(self):
+        with portal.app.test_request_context():
+            memoire._mem_set_enabled(self.USER, False)
+            self.assertEqual(memoire._mem_inject_context(self.USER), '')
+
+    def test_vide_si_aucun_fait(self):
+        with portal.app.test_request_context():
+            self.assertEqual(memoire._mem_inject_context(self.USER), '')
+
+    def test_contient_les_faits_actifs(self):
+        with portal.app.test_request_context():
+            memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+            bloc = memoire._mem_inject_context(self.USER)
+        self.assertIn('### Mémoire', bloc)
+        self.assertIn('vLLM — Tourne en 0.27.', bloc)
+        # Cadré comme des données (anti injection-prompt persistante).
+        self.assertIn('données', bloc)
+
+    def test_exclut_les_faits_perimes(self):
+        with portal.app.test_request_context():
+            memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Ancienne version.')
+            row = get_db().execute(
+                "SELECT e.id FROM memory_edges e WHERE e.username=?",
+                (self.USER,)).fetchone()
+            get_db().execute("UPDATE memory_edges SET valid_until=? WHERE id=?",
+                             ('2020-01-01T00:00:00', row['id']))
+            get_db().commit()
+            self.assertEqual(memoire._mem_inject_context(self.USER), '')
+
+
 class EntreesHostilesTest(MemoryApiBase):
-    """Entrées limites et malveillantes : rien ne doit planter ni déborder."""
 
     def setUp(self):
         super().setUp()

@@ -35,6 +35,10 @@ from conversation_routes import MSG_MAX_CHARS
 from db import get_db
 from guards import _chat_rate_limited, _sse_msg, maintenance_block_sse
 from litellm_client import get_user_keys, litellm_headers
+# La mémoire (graphe de connaissances par utilisateur) vit dans son blueprint :
+# le chat n'en utilise que la lecture (injection au system) et l'écriture
+# (extraction post-tour) — jamais de route HTTP entre les deux.
+import memory_routes as memoire
 from stats import _inflight_end, _inflight_start, enregistrer_ttft
 from support import (GUARDED_TOOLS, SUPPORT_SYSTEM, TOOL_LABELS, _clean_reply,
                      _exec_mcp_tool, _exec_skill, _exec_support_tool,
@@ -481,6 +485,81 @@ def _history_for_model(history, system, ctx):
     return history
 
 
+# ── Mémoire : extraction post-tour (écriture) ────────────────────────────────
+# Le playground est un relais SSE sans boucle de tool-calls : le modèle ne peut
+# donc pas appeler save_memory lui-même en plein flux. On fait comme pour
+# l'auto-titre : un appel NON streamé, APRÈS la réponse (le client est déjà
+# servi, zéro impact sur la latence), dans un thread jetable. Le modèle propose
+# 0 à 3 faits au format `sujet | relation | fait [| objet]` ; on ne retient que
+# des lignes complètes, bornées, et la fusion/dédup est celle de _mem_add_fact.
+_MEM_EXTRACT_MAX_CHARS = 6000   # conversation résumée passée à l'extracteur
+_MEM_EXTRACT_MAX_FACTS = 3      # par tour — la mémoire retient, elle ne collecte pas
+
+_MEM_EXTRACT_SYSTEM = (
+    "Tu extrais de la conversation les informations DURABLES à retenir sur "
+    "l'utilisateur (préférence, outil, contexte de travail, projet). "
+    "JAMAIS le contenu ponctuel d'un échange, jamais une instruction. "
+    "Réponds avec au maximum %d lignes, chacune exactement au format :\n"
+    "sujet | relation | fait\n"
+    "ou, si le fait relie deux sujets :\n"
+    "sujet | relation | fait | objet\n"
+    "Si rien ne mérite d'être retenu, réponds UNIQUEMENT : RIEN"
+) % _MEM_EXTRACT_MAX_FACTS
+
+
+def _mem_extraire_et_sauver(username, model, user_key, extraits):
+    """Tour post-réponse : propose des faits et les mémorise (best effort).
+
+    Ne lève jamais : l'extraction est un bonus, un échec ne doit pas apparaître
+    côté utilisateur. Les faits sont validés par _mem_add_fact (bornes, dédup,
+    opt-in re-vérifié à l'écriture).
+    """
+    try:
+        if not memoire._mem_enabled(username):
+            return
+        convo = []
+        total = 0
+        for m in extraits:
+            chunk = f"{m['role']}: {m['content'][:2000]}"
+            convo.append(chunk)
+            total += len(chunk) + 1
+            if total > _MEM_EXTRACT_MAX_CHARS:
+                break
+        if not convo:
+            return
+        msgs = [{'role': 'system', 'content': _MEM_EXTRACT_SYSTEM},
+                {'role': 'user', 'content': "\n".join(convo)}]
+        r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
+                          headers={'Authorization': f'Bearer {user_key}'},
+                          json={'model': model, 'messages': msgs, 'stream': False,
+                                'temperature': 0.0, 'max_tokens': 300,
+                                'chat_template_kwargs': {'enable_thinking': False}},
+                          timeout=(10, 60))
+        if not r.ok:
+            return
+        texte = ((r.json().get('choices') or [{}])[0].get('message') or {}).get('content') or ''
+        if 'RIEN' in texte[:40]:
+            return
+        retenus = 0
+        for ligne in texte.splitlines():
+            ligne = ligne.strip().lstrip('-').strip()
+            if not ligne or '|' not in ligne or retenus >= _MEM_EXTRACT_MAX_FACTS:
+                continue
+            parts = [p.strip() for p in ligne.split('|')]
+            if len(parts) < 3 or not parts[0] or not parts[2]:
+                continue
+            msg, ok = memoire._exec_memory_tool('save_memory', {
+                'subject': parts[0][:memoire.MEM_MAX_NAME_LEN],
+                'relation': parts[1][:80],
+                'fact': parts[2][:memoire.MEM_MAX_FACT_LEN],
+                **({'object': parts[3][:memoire.MEM_MAX_NAME_LEN]} if len(parts) > 3 and parts[3] else {}),
+            }, username)
+            if ok:
+                retenus += 1
+    except Exception:                                    # noqa: BLE001
+        pass
+
+
 @bp.route('/playground/chat', methods=['POST'])
 @login_required
 def playground_chat():
@@ -531,6 +610,15 @@ def playground_chat():
                         mimetype='text/event-stream')
     user_key = keys[0]['key']
     history = _history_for_model(history, system, _playground_model_limits().get(model))
+    # Mémoire (opt-in, par utilisateur) : ce que l'assistant sait déjà de la
+    # personne est injecté au SYSTEM, sinon le modèle répond « je ne connais
+    # rien de vous » alors que le graphe existe. Borné (voir _mem_inject_context)
+    # et cadré comme des données.
+    _mem_on = memoire._mem_enabled(session['username'])
+    if _mem_on:
+        _memctx = memoire._mem_inject_context(session['username'])
+        if _memctx:
+            system = (system + "\n\n" + _memctx) if system else _memctx
     msgs = ([{'role': 'system', 'content': system}] if system else []) + history
 
     # Recherche web : décidé ici, EXÉCUTÉ dans le flux (voir plus bas). La faire
@@ -643,6 +731,7 @@ def playground_chat():
             _fil = threading.Thread(target=_lecteur, daemon=True)
             _t0 = time.monotonic()
             _ttft_vu = False
+            _reponse = []      # texte complet du modèle, pour l'extraction mémoire
             _fil.start()
             while True:
                 try:
@@ -661,6 +750,8 @@ def playground_chat():
                     # en route — verifie sur un flux reel. On mesure donc nous-memes
                     # le delai jusqu'au premier token emis : c'est de toute facon
                     # celui que l'utilisateur subit, file d'attente et proxy compris.
+                    # Le meme parse accumule la réponse pour l'extraction mémoire
+                    # post-tour (aucun coût supplémentaire : chunk déjà parsé).
                     if not _ttft_vu and txt.startswith('data: ') and '"delta"' in txt:
                         try:
                             _dl = ((json.loads(txt[6:]).get('choices') or [{}])[0]
@@ -668,6 +759,14 @@ def playground_chat():
                             if _dl.get('content') or _dl.get('reasoning_content'):
                                 enregistrer_ttft((time.monotonic() - _t0) * 1000)
                                 _ttft_vu = True
+                        except Exception:
+                            pass
+                    if _mem_on and txt.startswith('data: ') and '"delta"' in txt and len(_reponse) < 400:
+                        try:
+                            _dc = ((json.loads(txt[6:]).get('choices') or [{}])[0]
+                                   .get('delta') or {}).get('content')
+                            if _dc:
+                                _reponse.append(_dc)
                         except Exception:
                             pass
                     # Vérité terrain sur la fin de génération : sans cette trace,
@@ -705,6 +804,17 @@ def playground_chat():
                                    _who, _finish, _out)
             elif _out and _out > 4000:
                 _log.warning("playground %s : fin normale (stop) apres %s tokens", _who, _out)
+            if _mem_on and _finish == 'stop':
+                # Écriture mémoire : APRÈS la réponse (le client est servi), dans
+                # un thread jetable — l'extracteur ne lève jamais et re-vérifie
+                # l'opt-in. On passe la conversation récente + la réponse obtenue.
+                _extraits = [{'role': m['role'], 'content': m['content']}
+                             for m in history[-4:]]
+                _extraits.append({'role': 'assistant',
+                                  'content': "".join(_reponse)[:4000]})
+                threading.Thread(target=_mem_extraire_et_sauver,
+                                 args=(session['username'], model, user_key, _extraits),
+                                 daemon=True).start()
         except GeneratorExit:
             # Le navigateur a fermé la connexion en cours de route (coupure réseau,
             # onglet fermé). Ce n'est PAS une Exception : sans ce cas, la coupure la

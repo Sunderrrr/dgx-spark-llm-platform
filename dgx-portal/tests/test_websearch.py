@@ -8,6 +8,7 @@ import unittest
 from unittest import mock
 
 import websearch
+import websearch_tools
 
 
 def _lire_avec(texte):
@@ -24,6 +25,51 @@ def _lire_avec(texte):
                     return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
         pages, _ = websearch.lire(['https://exemple.fr/a'])
     return pages[0]
+
+
+class DeclenchementTest(unittest.TestCase):
+    """La recherche ne part que sur une directive explicite de l'utilisateur.
+
+    Cinq versions « intelligentes » de ce seuil ont échoué en prod (recherches
+    subies) : ce test fige la règle stricte — le mot WEB/INTERNET/GOOGLE doit
+    être présent dans la demande, sinon on ne cherche pas.
+    """
+
+    def _pertinent(self, texte):
+        return websearch_tools._recherche_pertinente(
+            [{'role': 'user', 'content': texte}])
+
+    def test_directives_explicites(self):
+        for texte in (
+            "cherche sur internet pourquoi vLLM crash au boot",
+            "regarde sur le web les prix du DGX Spark",
+            "va voir sur internet ce que vaut le poste",
+            "lance une recherche web là-dessus",
+            "fais une recherche sur les ondes sonores",
+            "recherche web : dernières news llama.cpp",
+            "search the web for the vllm 0.28 release notes",
+            "google-le stp",
+        ):
+            self.assertTrue(self._pertinent(texte), texte)
+
+    def test_faux_positifs_jamais(self):
+        for texte in (
+            # « en ligne » décrit un état, pas une demande de chercher sur le web.
+            "je cherche à mettre mon site en ligne",
+            "regarde pourquoi mon serveur n'est plus en ligne",
+            "mon pod est en ligne mais la réponse est vide",
+            "il faut chercher la fuite en ligne 42 du fichier",
+            # « je cherche » décrit le but de l'utilisateur, pas un ordre à l'outil.
+            "je cherche pourquoi mon conteneur plante au démarrage",
+            "cherche dans le code la fonction qui nettoie ça",
+        ):
+            self.assertFalse(self._pertinent(texte), texte)
+
+    def test_le_code_colle_ne_declenche_rien(self):
+        # Un lien Google dans du code collé ne doit pas compter comme une
+        # directive (constaté : trois recherches vides sur « index (2).html »).
+        colle = "```html\n<link href=\"https://fonts.googleapis.com/css2?family=Inter\">\n```"
+        self.assertFalse(self._pertinent(colle + " corrige ce lien de police"))
 
 
 class UrlPubliqueTest(unittest.TestCase):

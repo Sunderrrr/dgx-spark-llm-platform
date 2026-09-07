@@ -523,8 +523,18 @@ class PertinenceRechercheTest(unittest.TestCase):
                   "fais une recherche sur les ondes sonores",
                   "lance une recherche web",
                   "recherche web : propagation du son",
-                  "renseigne-toi en ligne là-dessus"):
+                  # « en ligne » n'est plus une cible : il décrit un état plus
+                  # souvent qu'il ne désigne le web (« site en ligne »).
+                  "renseigne-toi sur internet là-dessus"):
             self.assertTrue(outils_web._recherche_pertinente(self._u(t)), t)
+
+    def test_mettre_en_ligne_ne_declenche_pas(self):
+        # 2026-09 : « en ligne » décrit un état ; « je cherche à mettre mon
+        # site en ligne » a ouvert une recherche web — c'est fini.
+        for t in ("je cherche à mettre mon site en ligne",
+                  "regarde pourquoi mon serveur n'est plus en ligne",
+                  "fais-moi un jeu d'échecs en ligne"):
+            self.assertFalse(outils_web._recherche_pertinente(self._u(t)), t)
 
     def test_la_directive_marche_meme_avec_un_fichier_colle(self):
         h = [{'role': 'user', 'content': "```html\n" + ("x" * 5000)

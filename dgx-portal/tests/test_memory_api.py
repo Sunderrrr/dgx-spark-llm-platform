@@ -100,10 +100,12 @@ class CsrfTest(MemoryApiBase):
 
 
 class OptInApiTest(MemoryApiBase):
-    def test_desactivee_par_defaut(self):
+    def test_activee_par_defaut(self):
+        # 2026-09 : défaut ON — un compte tout neuf a la mémoire activée, avec
+        # un graphe vide.
         self._login(self.USER)
         d = self.client.get('/api/memory').get_json()
-        self.assertFalse(d['enabled'])
+        self.assertTrue(d['enabled'])
         self.assertEqual(d['edges'], [])
 
     def test_activation_persiste(self):

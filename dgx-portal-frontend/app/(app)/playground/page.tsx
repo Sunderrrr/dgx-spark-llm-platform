@@ -2859,6 +2859,10 @@ export default function PlaygroundPage() {
                 alignment="end"
                 width={480}
                 label={t("Réglages du playground")}
+                /* Pas d'autofocus : le focus automatique sur le premier champ
+                   faisait défiler la vue vers le popover et la barre de saisie
+                   quittait sa place. L'ouverture ne doit RIEN déplacer. */
+                hasAutoFocus={false}
                 content={
                   <VStack padding={4}>
                     <SettingsPanel

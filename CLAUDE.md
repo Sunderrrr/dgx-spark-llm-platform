@@ -273,6 +273,19 @@ Key facts and gotchas:
   tentative. Avec 3 auto-resume, la cause racine est ecrasee avant d'etre lue. Pour
   diagnostiquer, collecter `/logs` en continu dans un fichier pendant le demarrage.
 
+- **Qwen3.8-27B-Uncensored : passe de vLLM/FP8 a llama.cpp/GGUF, AVEC la vision
+  (2026-09-07).** Arch GGUF `qwen35` — connue des TROIS builds llama.cpp, donc aucun
+  pseudo-flag de binaire n'est necessaire. Servi en `Q8_0` (27,1 Gio) depuis
+  `local:qwen38-27b-gguf`, contexte natif **262 144** sur 4 slots (`kv_unified`),
+  et seulement **52 Go resident sur 121** : l'attention hybride (Gated DeltaNet
+  lineaire + attention complete, 65 couches / 4 tetes KV) garde un cache KV petit,
+  inutile de le quantifier. Depot `gated: auto` → le telechargement exige un token HF.
+- **Ce modele VOIT, contrairement au Flash-Next.** Son depot GGUF fournit
+  `mmproj-Qwen3.8-27B-Uncensored-f16.gguf` (931 Mo) ; avec `--mmproj` le serveur
+  annonce `{"vision": true, "video": true}` et decrit correctement une image envoyee
+  en base64 via LiteLLM (mesure : « C'est un cercle rouge » en 2,2 s). C'est la voie
+  qui manquait quand le mmproj de Flash-Next etait inaccessible.
+
 - **`auto-model` alias**: a virtual LiteLLM model (`AUTO_MODEL_NAME`, default
   `auto-model`) that always routes to the **currently-running** chat model, so
   clients wire it once and never rename on a model switch. Re-pointed on every

@@ -1,6 +1,8 @@
 "use client";
 
-import { Card } from "@astryxdesign/core/Card";
+// Pas de Card ici : ce panneau vit dans un Popover (la roue crantée du
+// playground) qui fournit déjà la surface — un Card en plus ferait un double
+// cadre. La composition reste un simple VStack, réutilisable ailleurs.
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Slider } from "@astryxdesign/core/Slider";
@@ -40,8 +42,7 @@ export function SettingsPanel({
   const plafond = contexte && contexte > 0 ? contexte : 131072;
   const t = useT();
   return (
-    <Card>
-      <VStack gap={4}>
+    <VStack gap={4}>
         <TextArea
           label={t("System prompt (optionnel)")}
           placeholder={t("Ex : Tu es un assistant concis et technique.")}
@@ -139,6 +140,5 @@ export function SettingsPanel({
           <SegmentedControlItem value="xhigh" label={t("Maximale")} />
         </SegmentedControl>
       </VStack>
-    </Card>
   );
 }

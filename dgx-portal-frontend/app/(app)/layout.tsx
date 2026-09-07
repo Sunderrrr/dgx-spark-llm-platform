@@ -12,7 +12,6 @@ import {
   SideNavItem,
   SideNavSection,
 } from "@astryxdesign/core/SideNav";
-import { NavIcon } from "@astryxdesign/core/NavIcon";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
@@ -23,7 +22,6 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import {
-  SparklesIcon,
   HomeIcon,
   ChatBubbleLeftRightIcon,
   MagnifyingGlassIcon,
@@ -223,7 +221,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           header={
             <SideNavHeading
               heading="Cronos"
-              icon={<NavIcon icon={<Icon icon={SparklesIcon} size="sm" />} />}
+              /* Le logo de l'onglet (favicon servi à la racine) aussi en
+                 haut à gauche, juste avant « Cronos ». alt vide : l'info est
+                 déjà portée par le texte du heading qui suit. */
+              icon={
+                // Favicon statique 26 Ko : next/image n'apporte rien ici.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src="/favicon.ico"
+                  alt=""
+                  style={{ width: "var(--spacing-5)", height: "var(--spacing-5)" }}
+                />
+              }
               headingHref="/"
             />
           }

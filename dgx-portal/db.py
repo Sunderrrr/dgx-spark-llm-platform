@@ -628,15 +628,6 @@ def init_db():
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
         ('default_key_duration', KEY_DURATION)
     )
-    ORNITH_ARGS = "--enable-auto-tool-choice --tool-call-parser qwen3_coder --dtype bfloat16 --max-model-len 262144 --gpu-memory-utilization 0.7 --max-num-seqs 8"
-    now = datetime.now().isoformat()
-    db.execute(
-        "INSERT OR IGNORE INTO model_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
-        ("ornith-35b-fp8", "deepreinforce-ai/Ornith-1.0-35B-FP8", ORNITH_ARGS, now)
-    )
-    # Always update the args of the pre-configured model
-    db.execute("UPDATE model_configs SET hf_model_id=?, vllm_args=? WHERE name=?",
-               ("deepreinforce-ai/Ornith-1.0-35B-FP8", ORNITH_ARGS, "ornith-35b-fp8"))
     db.commit()
     _detecte_base_reinitialisee(db)
     db.close()

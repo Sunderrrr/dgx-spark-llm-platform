@@ -234,31 +234,37 @@ Key facts and gotchas:
   `--chat-template-file` : nom de fichier SEUL, resolu a cote des poids
   (`_resolve_mmproj_tokens`) — ni chemin absolu, ni `..`, ni sous-dossier.
 
-- **K2-Horizon (`k2_horizon`) exige la nightly vLLM.** Le support a fusionne dans
-  vLLM `main` le 2026-09-03 (PR #55063) et n'est dans AUCUNE release : le registre
-  de 0.28.0 compte 378 architectures et ignore `K2HorizonForCausalLM` (verifie).
-  D'ou `--vllm-nightly` (`/root/venvs/vllm-nightly`, 0.28.1rc1.dev500, roue aarch64
-  officielle, 382 architectures) — opt-in, jamais par defaut, c'est une pre-release.
-- **`--trust-remote-code` : exception PAR MODELE, pas une ouverture.** Le flag reste
-  hors de `_BOOL_FLAGS` (RCE via le code du depot HF). `_TRUST_RC_MODELS` liste les
-  depots nommement approuves par l'operateur ; `_repo_id_of()` normalise un chemin de
-  snapshot du cache vers son identifiant, sinon approuver "org/nom" ne reconnaitrait
-  pas le meme modele reference par son chemin. Ajouter une entree est une decision de
-  securite : lancer ce modele execute le Python de son depot.
-- **Sur K2-Horizon, l'effort de raisonnement est un choix SERVEUR, pas par requete.**
-  `K2HorizonReasoningParser.__init__` lit `chat_template_kwargs.reasoning_effort`
-  (defaut `high`) et fige la paire de balises pour toute la vie du serveur :
-  `high` → `<ifm|think>`, `medium` → `<ifm|think_fast>`, `low` → `<ifm|think_faster>`.
-  Il n'accepte PAS `xhigh` (contrairement au Qwen3.8 servi par llama.cpp). Un
-  `reasoning_effort` par requete change bien la profondeur de reflexion, mais si la
-  valeur differe de celle du serveur les balises ne correspondent plus et la trace
-  reste dans `content` au lieu d'aller dans `message.reasoning`. D'ou l'ajout de
-  `--chat-template-kwargs` a l'allow-list vLLM : c'est le seul moyen de choisir
-  l'effort du serveur.
-- **KV de K2-Horizon : 192 Kio/token en bf16** (8 tetes KV x 128 x 2 x 48 couches),
-  96 Kio en fp8 — recoupe avec les chiffres de l'editeur (275 952 tokens pour
-  50,53 Gio). Les 524 288 tokens natifs ne tiennent QUE via `--kv-cache-dtype fp8`
-  (~48 Gio de KV) ; en bf16 le meme budget plafonne vers 330 000 tokens.
+- **K2-Horizon : servi, mesure, puis retire (2026-09-07).** Trace utile si le sujet
+  revient. Cote vLLM il exige la **nightly** (fusion dans `main` le 2026-09-03,
+  PR #55063 ; 0.28.0 lui est anterieure) — d'ou `--vllm-nightly`
+  (`/root/venvs/vllm-nightly`, 0.28.1rc1.dev500, roue aarch64, 382 architectures).
+  Il a bien tourne : `max_model_len 524288` effectif, cache KV fp8, NVFP4 sur noyau
+  `VLLM_CUTLASS`, 100 Go resident sur 121. **Piege GB10** : vLLM choisit par defaut
+  le backend d'attention FlashInfer, dont les chemins sont gardes par
+  `is_sm100a_supported()` — le GB10 est sm_121, la fonction renvoie **False**, et le
+  moteur echoue au profilage memoire sur un message trompeur ("FlashInfer backend is
+  not available") alors que le paquet EST installe et `has_flashinfer()` vrai. La
+  parade est `--attention-backend TRITON_ATTN` (ajoute a l'allow-list).
+  **Cote llama.cpp c'est mort pour l'instant** : ni l'amont ni le fork TurboQuant ne
+  connaissent `k2_horizon`, et la PR llama.cpp est encore ouverte (seul le fork
+  MBZUAI-IFM le supporte) — les GGUF Q4_K_M (22,4 Go) / Q8_0 (39,8 Go) existent mais
+  ne se chargeront pas.
+- **L'effort de raisonnement de K2-Horizon EST par requete** sur la nightly, contrairement
+  a ce qu'annonce le README de l'editeur (ecrit pour la dev388) : `serving.py` construit
+  `reasoning_parser_kwargs` a CHAQUE requete depuis ses `chat_template_kwargs`. Mesure :
+  `high`, `medium` et `low` separent tous les trois le raisonnement. Deux subtilites —
+  le template PRE-REMPLIT la balise ouvrante, donc un `max_tokens` trop bas coupe avant
+  la fermeture et tout retombe dans `content` (c'est ce qui m'a fait conclure a tort a une
+  panne) ; et `--default-chat-template-kwargs` (PAS `--chat-template-kwargs`, qui est le
+  flag llama.cpp) fixe le defaut serveur.
+- **LiteLLM RENOMME le champ de raisonnement, il ne le supprime pas.** vLLM renvoie
+  `message.reasoning` ; apres LiteLLM il s'appelle `reasoning_content` (et l'original
+  reste dans `provider_specific_fields.reasoning`). Chercher `reasoning` en sortie de
+  LiteLLM donne un faux negatif.
+- **Le tampon de logs du runner (`_logs`) est trop court pour diagnostiquer un echec
+  de demarrage vLLM** : ~27 lignes utiles, et `_start_process` le vide a chaque
+  tentative. Avec 3 auto-resume, la cause racine est ecrasee avant d'etre lue. Pour
+  diagnostiquer, collecter `/logs` en continu dans un fichier pendant le demarrage.
 
 - **`auto-model` alias**: a virtual LiteLLM model (`AUTO_MODEL_NAME`, default
   `auto-model`) that always routes to the **currently-running** chat model, so

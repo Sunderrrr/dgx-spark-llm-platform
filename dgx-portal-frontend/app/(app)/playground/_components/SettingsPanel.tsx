@@ -1,27 +1,33 @@
 "use client";
 
-// Pas de Card ici : ce panneau vit dans un Popover (la roue crantée du
-// playground) qui fournit déjà la surface — un Card en plus ferait un double
-// cadre. La composition reste un simple VStack, réutilisable ailleurs.
+// Panneau des réglages du playground, rendu dans le Popover ancré sur la roue
+// crantée : pas de Card ici (le popover fournit la surface — un Card en plus
+// ferait un double cadre). Sections titrées pour scander la lecture :
+// prompt système (persona + texte), génération, raisonnement.
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Slider } from "@astryxdesign/core/Slider";
 import { Switch } from "@astryxdesign/core/Switch";
-import { Button } from "@astryxdesign/core/Button";
 import { Text } from "@astryxdesign/core/Text";
+import { Selector } from "@astryxdesign/core/Selector";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import type { Settings } from "@/lib/types";
 import { useT } from "@/lib/i18n";
 
-// Presets de prompt système (personas) : appliqués en un clic au champ system.
-// Les prompts sont en anglais (instructions système), l'UI reste en français.
+// Personas : prompts système pré-écrits, choisis dans un menu déroulant plutôt
+// qu'en rangée de boutons. Les prompts sont en anglais (instructions système),
+// l'UI reste en français.
 const PERSONAS: { id: string; label: string; prompt: string }[] = [
   { id: "code", label: "Code", prompt: "You are a senior software engineer. Produce complete, runnable, idiomatic code. Prefer whole files over snippets and never elide parts of a file." },
-  { id: "redacteur", label: "Rédacteur", prompt: "You are a careful writer. Be clear, structured and concise. Favour short paragraphs and useful headings." },
-  { id: "traducteur", label: "Traducteur", prompt: "You are a professional translator. Preserve meaning, tone and formatting; output only the target language." },
+  { id: "redacteur", label: "Rédacteur", prompt: "You are a careful writer. Be clear, structured, and concise. Favour short paragraphs and useful headings." },
+  { id: "traducteur", label: "Traducteur", prompt: "You are a professional translator. Preserve meaning, tone, and formatting; output only the target language." },
   { id: "analyste", label: "Analyste", prompt: "You reason step by step and back your claims. Point out assumptions and edge cases." },
   { id: "socratic", label: "Socratique", prompt: "Instead of answering directly, ask guiding questions one at a time so the user reaches the answer themselves." },
 ];
+
+// Valeur du sélecteur quand un prompt libre (non persona) est en place : on
+// l'affiche comme option désactivée pour nommer l'état, pas pour être choisi.
+const CUSTOM = "__custom__";
 
 export function SettingsPanel({
   settings,
@@ -41,51 +47,54 @@ export function SettingsPanel({
 }) {
   const plafond = contexte && contexte > 0 ? contexte : 131072;
   const t = useT();
+
+  const personaActive = PERSONAS.find((p) => p.prompt === settings.system);
+  const personaValue = personaActive?.id ?? (settings.system ? CUSTOM : "");
+
+  const options: { value: string; label: string; disabled?: boolean }[] = [
+    { value: "", label: t("Aucun — conversation à nu") },
+    ...PERSONAS.map((p) => ({ value: p.id, label: t(p.label) })),
+  ];
+  if (personaValue === CUSTOM) {
+    // Un prompt libre est en place : on le montre comme état courant.
+    options.push({ value: CUSTOM, label: t("Personnalisé"), disabled: true });
+  }
+
   return (
     <VStack gap={4}>
+      <VStack gap={2}>
+        <Text type="supporting" color="secondary">{t("Prompt système")}</Text>
+        <Selector
+          label={t("Persona")}
+          size="sm"
+          placeholder={t("Aucun — conversation à nu")}
+          options={options}
+          value={personaValue}
+          onChange={(v) => {
+            const p = PERSONAS.find((x) => x.id === v);
+            onChange({ ...settings, system: p ? p.prompt : "" });
+            onProvenance?.(p ? "persona" : "manual");
+          }}
+        />
         <TextArea
           label={t("System prompt (optionnel)")}
+          isLabelHidden
           placeholder={t("Ex : Tu es un assistant concis et technique.")}
-          rows={2}
+          rows={3}
           value={settings.system}
           onChange={(value) => {
             onChange({ ...settings, system: value });
             onProvenance?.("manual");
           }}
         />
-        <VStack gap={1}>
-          <Text type="supporting" color="secondary">{t("Personas")}</Text>
-          {provenance === "skill" && settings.system ? (
-            <Text color="secondary" type="supporting">
-              {t("Le prompt système provient d'une compétence. Choisir un persona le remplacera.")}
-            </Text>
-          ) : null}
-          <HStack gap={2} vAlign="center" wrap="wrap">
-            {PERSONAS.map((p) => (
-              <Button
-                key={p.id}
-                label={t(p.label)}
-                variant={settings.system === p.prompt ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => {
-                  onChange({ ...settings, system: p.prompt });
-                  onProvenance?.("persona");
-                }}
-              />
-            ))}
-            {settings.system && (
-              <Button
-                label={t("Effacer le system prompt")}
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  onChange({ ...settings, system: "" });
-                  onProvenance?.("manual");
-                }}
-              />
-            )}
-          </HStack>
-        </VStack>
+        {provenance === "skill" && settings.system ? (
+          <Text color="secondary" type="supporting">
+            {t("Le prompt système provient d'une compétence. Choisir un persona le remplacera.")}
+          </Text>
+        ) : null}
+      </VStack>
+      <VStack gap={2}>
+        <Text type="supporting" color="secondary">{t("Génération")}</Text>
         <HStack gap={4} wrap="wrap">
           <Slider
             label={t("Température")}
@@ -120,6 +129,9 @@ export function SettingsPanel({
             }
           />
         </HStack>
+      </VStack>
+      <VStack gap={2}>
+        <Text type="supporting" color="secondary">{t("Raisonnement")}</Text>
         <Switch
           label={t("Afficher le raisonnement")}
           value={settings.reasoning}
@@ -140,5 +152,6 @@ export function SettingsPanel({
           <SegmentedControlItem value="xhigh" label={t("Maximale")} />
         </SegmentedControl>
       </VStack>
+    </VStack>
   );
 }

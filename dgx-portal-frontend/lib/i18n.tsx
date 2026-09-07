@@ -487,6 +487,11 @@ const EN: Record<string, string> = {
   "Moyenne": "Medium",
   "Maximale": "Max",
   "Réglages du playground": "Playground settings",
+  "Prompt système": "System prompt",
+  "Persona": "Persona",
+  "Aucun — conversation à nu": "None — plain conversation",
+  "Personnalisé": "Custom",
+  "Génération": "Generation",
   "Code Python": "Python code",
   "Génère une fonction, un script ou un test": "Generate a function, a script or a test",
   "Écris une fonction Python qui vérifie si un nombre est premier.":

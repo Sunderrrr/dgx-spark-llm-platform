@@ -234,6 +234,32 @@ Key facts and gotchas:
   `--chat-template-file` : nom de fichier SEUL, resolu a cote des poids
   (`_resolve_mmproj_tokens`) — ni chemin absolu, ni `..`, ni sous-dossier.
 
+- **K2-Horizon (`k2_horizon`) exige la nightly vLLM.** Le support a fusionne dans
+  vLLM `main` le 2026-09-03 (PR #55063) et n'est dans AUCUNE release : le registre
+  de 0.28.0 compte 378 architectures et ignore `K2HorizonForCausalLM` (verifie).
+  D'ou `--vllm-nightly` (`/root/venvs/vllm-nightly`, 0.28.1rc1.dev500, roue aarch64
+  officielle, 382 architectures) — opt-in, jamais par defaut, c'est une pre-release.
+- **`--trust-remote-code` : exception PAR MODELE, pas une ouverture.** Le flag reste
+  hors de `_BOOL_FLAGS` (RCE via le code du depot HF). `_TRUST_RC_MODELS` liste les
+  depots nommement approuves par l'operateur ; `_repo_id_of()` normalise un chemin de
+  snapshot du cache vers son identifiant, sinon approuver "org/nom" ne reconnaitrait
+  pas le meme modele reference par son chemin. Ajouter une entree est une decision de
+  securite : lancer ce modele execute le Python de son depot.
+- **Sur K2-Horizon, l'effort de raisonnement est un choix SERVEUR, pas par requete.**
+  `K2HorizonReasoningParser.__init__` lit `chat_template_kwargs.reasoning_effort`
+  (defaut `high`) et fige la paire de balises pour toute la vie du serveur :
+  `high` → `<ifm|think>`, `medium` → `<ifm|think_fast>`, `low` → `<ifm|think_faster>`.
+  Il n'accepte PAS `xhigh` (contrairement au Qwen3.8 servi par llama.cpp). Un
+  `reasoning_effort` par requete change bien la profondeur de reflexion, mais si la
+  valeur differe de celle du serveur les balises ne correspondent plus et la trace
+  reste dans `content` au lieu d'aller dans `message.reasoning`. D'ou l'ajout de
+  `--chat-template-kwargs` a l'allow-list vLLM : c'est le seul moyen de choisir
+  l'effort du serveur.
+- **KV de K2-Horizon : 192 Kio/token en bf16** (8 tetes KV x 128 x 2 x 48 couches),
+  96 Kio en fp8 — recoupe avec les chiffres de l'editeur (275 952 tokens pour
+  50,53 Gio). Les 524 288 tokens natifs ne tiennent QUE via `--kv-cache-dtype fp8`
+  (~48 Gio de KV) ; en bf16 le meme budget plafonne vers 330 000 tokens.
+
 - **`auto-model` alias**: a virtual LiteLLM model (`AUTO_MODEL_NAME`, default
   `auto-model`) that always routes to the **currently-running** chat model, so
   clients wire it once and never rename on a model switch. Re-pointed on every

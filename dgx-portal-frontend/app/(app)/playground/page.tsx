@@ -1327,7 +1327,45 @@ export default function PlaygroundPage() {
   // Permet de signaler qu'une compétence a écrasé le system prompt d'un persona.
   const [systemProvenance, setSystemProvenance] = useState<"persona" | "skill" | "manual">("manual");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Position du panneau de réglages : capturée sur le clic du bouton (rect du
+  // bouton → coin bas-gauche du panneau sous la roue crantée). Overlay FIXE :
+  // il ne touche jamais au flux, donc la page ne bouge pas d'un pixel.
+  const [settingsPos, setSettingsPos] = useState<{ top: number; right: number; maxH: number } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Fermeture du panneau réglages : clic extérieur ou Échap. AUCUN déplacement
+  // de focus à l'ouverture — le focus trap du composant Popover faisait
+  // défiler la page (bouton de fermeture sr-only révélé sous le panneau),
+  // d'où un chat « rappelé en bas » à chaque clic sur la roue.
+  const toggleSettings = (el: HTMLElement | null) => {
+    if (!isSettingsOpen && el) {
+      const r = el.getBoundingClientRect();
+      setSettingsPos({
+        top: r.bottom + 8,
+        right: window.innerWidth - r.right,
+        maxH: window.innerHeight - r.bottom - 48,
+      });
+    }
+    setIsSettingsOpen((v) => !v);
+  };
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const onDown = (e: PointerEvent) => {
+      const cible = e.target as HTMLElement | null;
+      // Le clic sur la roue elle-même passe par le toggle du bouton : ne pas
+      // fermer ici, sinon pointerdown ferme puis click rouvre (net nul).
+      if (cible?.closest(".playground-settings-panel")) return;
+      setIsSettingsOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsSettingsOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [isSettingsOpen]);
   // Recherche dans l'historique + conversations épinglées (star).
   const [histQuery, setHistQuery] = useState("");
   const [pinnedIds, setPinnedIds] = useState<string[]>(loadPinnedIds);
@@ -2848,15 +2886,15 @@ export default function PlaygroundPage() {
                 isDisabled={!currentId}
                 onClick={() => currentId && shareConversation(currentId)}
               />
-              {/* Réglages : petite boîte CENTRÉE (overlay) — rien ne se décale
-                  dans la page, contrairement au panneau en flux d'avant. */}
+              {/* Réglages : panneau ancré SOUS la roue crantée, en overlay
+                  fixe — la page ne bouge pas (voir toggleSettings). */}
               <Button
                 label={t("Réglages")}
                 variant="secondary"
                 size="sm"
                 icon={<Icon icon={Cog6ToothIcon} size="sm" />}
                 isIconOnly
-                onClick={() => setIsSettingsOpen((v) => !v)}
+                onClick={(e) => toggleSettings(e.currentTarget)}
               />
               <Button
                 label={t("Titrer automatiquement")}
@@ -3466,26 +3504,43 @@ export default function PlaygroundPage() {
               corbeille supprime SANS refermer, pour pouvoir faire le ménage
               d'affilée. La corbeille est un bouton FRÈRE de la ligne, pas un
               bouton imbriqué : aucun risque qu'un clic déclenche les deux. */}
-          {/* Réglages du playground : boîte centrée, contenu défilant —
-              une overlay ne touche jamais au flux de la page. */}
-          <Dialog isOpen={isSettingsOpen} onOpenChange={(o) => { if (!o) setIsSettingsOpen(false); }} width={560}>
-            <DialogHeader
-              title={t("Réglages du playground")}
-              hasDivider
-              onOpenChange={(o) => { if (!o) setIsSettingsOpen(false); }}
-            />
-            <VStack padding={3} gap={3}>
-              <VStack gap={3} height={470} isScrollable>
-                <SettingsPanel
-                  settings={settings}
-                  onChange={setSettings}
-                  contexte={modelLimits[model]}
-                  provenance={systemProvenance}
-                  onProvenance={setSystemProvenance}
-                />
-              </VStack>
-            </VStack>
-          </Dialog>
+          {/* Réglages du playground : overlay FIXE ancré sous la roue crantée.
+              Pas de focus trap, pas d'élément caché à révéler : ouvrir ne
+              déclenche AUCUN défilement — le chat reste exactement où il est. */}
+          {isSettingsOpen && settingsPos && (
+            <HStack
+              className="playground-settings-panel"
+              style={{ position: "fixed", top: settingsPos.top, right: settingsPos.right,
+                       width: 480, zIndex: 30 }}
+            >
+              <Card style={{ width: "100%" }}>
+                <VStack gap={2}>
+                  <HStack vAlign="center">
+                    <StackItem size="fill">
+                      <Text weight="semibold">{t("Réglages du playground")}</Text>
+                    </StackItem>
+                    <Button
+                      label={t("Fermer")}
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={XMarkIcon} size="sm" />}
+                      onClick={() => setIsSettingsOpen(false)}
+                    />
+                  </HStack>
+                  <VStack gap={3} style={{ overflowY: "auto", maxHeight: settingsPos.maxH }} isScrollable>
+                    <SettingsPanel
+                      settings={settings}
+                      onChange={setSettings}
+                      contexte={modelLimits[model]}
+                      provenance={systemProvenance}
+                      onProvenance={setSystemProvenance}
+                    />
+                  </VStack>
+                </VStack>
+              </Card>
+            </HStack>
+          )}
           <Dialog isOpen={historyOpen} onOpenChange={(o) => { if (!o) setHistoryOpen(false); }} width={560}>
             <DialogHeader
               title={t("Historique")}

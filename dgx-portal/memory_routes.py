@@ -69,10 +69,13 @@ def _mem_norm(name):
 
 
 def _mem_enabled(username):
-    """La mémoire est un opt-in : désactivée tant que l'utilisateur n'a rien demandé."""
+    """Mémoire ACTIVÉE par défaut (2026-09) : seule une désactivation explicite
+    (page Mémoire) la coupe. Pas de ligne de préférences = défaut appliqué."""
     row = get_db().execute(
         "SELECT memory_enabled FROM user_prefs WHERE username=?", (username,)).fetchone()
-    return bool(row and row['memory_enabled'])
+    if row is None:
+        return True
+    return bool(row['memory_enabled'])
 
 
 # Bornes de l'injection mémoire dans le chat : un graphe personnel dépasse
@@ -330,7 +333,7 @@ def _exec_memory_tool(name, args, username):
     jamais des arguments. Rien ne s'écrit si la mémoire n'est pas activée.
     """
     if not _mem_enabled(username):
-        return "La mémoire est désactivée pour ce compte (activable sur la page Mémoire).", False
+        return "La mémoire est désactivée pour ce compte (réglage sur la page Mémoire).", False
     if name == 'save_memory':
         return _mem_add_fact(username,
                              args.get('subject'), args.get('relation') or 'à propos de',

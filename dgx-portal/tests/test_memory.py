@@ -79,7 +79,8 @@ class NormalisationTest(MemoryTestBase):
 
 
 class OptInTest(MemoryTestBase):
-    """Rien ne s'écrit tant que l'utilisateur n'a pas activé la mémoire."""
+    """La mémoire est activée par défaut (2026-09) ; seule une coupure
+    explicite empêche l'écriture."""
 
     def test_outil_refuse_si_desactivee(self):
         memoire._mem_set_enabled(self.USER, False)
@@ -89,10 +90,12 @@ class OptInTest(MemoryTestBase):
         self.assertIn('désactivée', msg)
         self.assertEqual(memoire._mem_graph(self.USER)['edges'], [])
 
-    def test_desactivee_par_defaut(self):
+    def test_activee_par_defaut_sans_preferences(self):
+        # Un compte sans ligne de préférences a la mémoire ON — le défaut
+        # s'applique ; seule une désactivation explicite l'emporte.
         portal.get_db().execute("DELETE FROM user_prefs WHERE username=?", ('memtest-neuf',))
         portal.get_db().commit()
-        self.assertFalse(memoire._mem_enabled('memtest-neuf'))
+        self.assertTrue(memoire._mem_enabled('memtest-neuf'))
 
     def test_desactiver_n_efface_pas(self):
         memoire._mem_add_fact(self.USER, 'vLLM', 'utilise', 'Sert les modèles.')

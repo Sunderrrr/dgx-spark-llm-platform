@@ -416,14 +416,46 @@ def init_db():
     for col in ('theme_id', 'lang'):
         if col not in pref_cols:
             db.execute(f"ALTER TABLE user_prefs ADD COLUMN {col} TEXT")
-    # Mémoire : désactivée par défaut (opt-in). C'est de la donnée personnelle,
-    # donc personne n'en accumule sans l'avoir explicitement demandé.
+    # Mémoire : ACTIVÉE par défaut (2026-09, choix opérateur — portail
+    # multi-utilisateurs domestique). Le graphe reste strictement personnel :
+    # chacun ne lit et n'écrit que le sien, et le réglage sur la page Mémoire
+    # sert à le couper.
     if 'memory_enabled' not in pref_cols:
-        db.execute("ALTER TABLE user_prefs ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 0")
+        db.execute("ALTER TABLE user_prefs ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 1")
+    elif 'memory_enabled INTEGER NOT NULL DEFAULT 0' in (
+            db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='user_prefs'"
+                       ).fetchone()[0] or ''):
+        # Bases créées avant le basculement : la colonne porte DEFAULT 0.
+        # SQLite ne sait pas modifier un DEFAULT sur place — recopie de table.
+        # La garde sur la DDL rend la migration ONE-SHOT : après recopie elle
+        # porte DEFAULT 1 et ne rejoue jamais, donc un utilisateur qui coupe sa
+        # mémoire ensuite reste coupé, même après redémarrage.
+        db.execute('''
+            CREATE TABLE user_prefs_new (
+                username  TEXT PRIMARY KEY,
+                avatar_id TEXT,
+                theme_id  TEXT,
+                lang      TEXT,
+                onboarded INTEGER NOT NULL DEFAULT 0,
+                memory_enabled    INTEGER NOT NULL DEFAULT 1,
+                websearch_enabled INTEGER NOT NULL DEFAULT 1
+            )''')
+        db.execute('''
+            INSERT INTO user_prefs_new (username, avatar_id, theme_id, lang,
+                                        onboarded, memory_enabled, websearch_enabled)
+            SELECT username, avatar_id, theme_id, lang,
+                   onboarded, memory_enabled, websearch_enabled
+              FROM user_prefs''')
+        db.execute("DROP TABLE user_prefs")
+        db.execute("ALTER TABLE user_prefs_new RENAME TO user_prefs")
+        # « pour tous les users » : les comptes créés avant le basculement ont
+        # leur 0 d'origine (jamais un refus explicite, la fonctionnalité étant
+        # antérieure d'une semaine) — tous passés à 1, une seule fois.
+        db.execute("UPDATE user_prefs SET memory_enabled=1")
     # Prise en main affichée une fois par COMPTE (et non par navigateur) : le
     # nouvel arrivant la voit quel que soit le poste, et ne la revoit jamais.
     if 'websearch_enabled' not in pref_cols:
-        # Activée par défaut, contrairement à la mémoire : la recherche ne
+        # Activée par défaut, comme la mémoire depuis 2026-09 : la recherche ne
         # conserve rien sur l'utilisateur. Le réglage sert à la couper pour qui
         # ne veut pas que ses questions atteignent des moteurs externes.
         db.execute("ALTER TABLE user_prefs ADD COLUMN websearch_enabled INTEGER NOT NULL DEFAULT 1")

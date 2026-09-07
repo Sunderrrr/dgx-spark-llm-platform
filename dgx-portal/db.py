@@ -424,12 +424,17 @@ def init_db():
         db.execute("ALTER TABLE user_prefs ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 1")
     elif 'memory_enabled INTEGER NOT NULL DEFAULT 0' in (
             db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='user_prefs'"
-                       ).fetchone()[0] or ''):
-        # Bases créées avant le basculement : la colonne porte DEFAULT 0.
-        # SQLite ne sait pas modifier un DEFAULT sur place — recopie de table.
-        # La garde sur la DDL rend la migration ONE-SHOT : après recopie elle
-        # porte DEFAULT 1 et ne rejoue jamais, donc un utilisateur qui coupe sa
-        # mémoire ensuite reste coupé, même après redémarrage.
+                       ).fetchone()[0] or '') or str(next(
+                (r[4] for r in db.execute("PRAGMA table_info(user_prefs)")
+                 if r[1] == 'memory_enabled'), None)) == '0':
+        # Bases créées avant le basculement : la colonne porte DEFAULT 0 —
+        # visible dans la DDL quand la table l'a toujours eu dans son CREATE,
+        # et dans PRAGMA table_info (dflt_value) quand elle est arrivée par
+        # ALTER (la DDL de sqlite_master ne bouge alors pas). SQLite ne sait
+        # pas modifier un DEFAULT sur place — recopie de table. La garde rend
+        # la migration ONE-SHOT : après recopie le défaut vaut 1 et ne rejoue
+        # jamais, donc un utilisateur qui coupe sa mémoire ensuite reste coupé,
+        # même après redémarrage.
         db.execute('''
             CREATE TABLE user_prefs_new (
                 username  TEXT PRIMARY KEY,
@@ -440,18 +445,22 @@ def init_db():
                 memory_enabled    INTEGER NOT NULL DEFAULT 1,
                 websearch_enabled INTEGER NOT NULL DEFAULT 1
             )''')
-        db.execute('''
-            INSERT INTO user_prefs_new (username, avatar_id, theme_id, lang,
-                                        onboarded, memory_enabled, websearch_enabled)
-            SELECT username, avatar_id, theme_id, lang,
-                   onboarded, memory_enabled, websearch_enabled
-              FROM user_prefs''')
+        # Copier uniquement les colonnes qui EXISTENT (une base peut dater
+        # d'avant websearch_enabled) : les absentes prennent leur DEFAULT.
+        communes = [c for c in ('username', 'avatar_id', 'theme_id', 'lang',
+                                'onboarded', 'memory_enabled', 'websearch_enabled')
+                    if c in {r[1] for r in db.execute("PRAGMA table_info(user_prefs)")}]
+        cols = ', '.join(communes)
+        db.execute(f"INSERT INTO user_prefs_new ({cols}) SELECT {cols} FROM user_prefs")
         db.execute("DROP TABLE user_prefs")
         db.execute("ALTER TABLE user_prefs_new RENAME TO user_prefs")
         # « pour tous les users » : les comptes créés avant le basculement ont
         # leur 0 d'origine (jamais un refus explicite, la fonctionnalité étant
         # antérieure d'une semaine) — tous passés à 1, une seule fois.
         db.execute("UPDATE user_prefs SET memory_enabled=1")
+        # La table a été recréée avec TOUTES les colonnes : rafraîchir la liste
+        # pour que les ALTER conditionnels ci-dessous ne doublent rien.
+        pref_cols = {r[1] for r in db.execute("PRAGMA table_info(user_prefs)")}
     # Prise en main affichée une fois par COMPTE (et non par navigateur) : le
     # nouvel arrivant la voit quel que soit le poste, et ne la revoit jamais.
     if 'websearch_enabled' not in pref_cols:

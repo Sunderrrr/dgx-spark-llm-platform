@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
-import { Popover } from "@astryxdesign/core/Popover";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Card } from "@astryxdesign/core/Card";
 import { Toolbar } from "@astryxdesign/core/Toolbar";
@@ -2849,40 +2848,16 @@ export default function PlaygroundPage() {
                 isDisabled={!currentId}
                 onClick={() => currentId && shareConversation(currentId)}
               />
-              {/* Réglages : petit panneau ancré SOUS la roue crantée (pas un
-                  bloc pleine largeur qui pousse la conversation vers le bas).
-                  Contrôlé par isSettingsOpen ; clic extérieur = fermeture. */}
-              <Popover
-                isOpen={isSettingsOpen}
-                onOpenChange={setIsSettingsOpen}
-                placement="below"
-                alignment="end"
-                width={480}
-                label={t("Réglages du playground")}
-                /* Pas d'autofocus : le focus automatique sur le premier champ
-                   faisait défiler la vue vers le popover et la barre de saisie
-                   quittait sa place. L'ouverture ne doit RIEN déplacer. */
-                hasAutoFocus={false}
-                content={
-                  <VStack padding={4}>
-                    <SettingsPanel
-                      settings={settings}
-                      onChange={setSettings}
-                      contexte={modelLimits[model]}
-                      provenance={systemProvenance}
-                      onProvenance={setSystemProvenance}
-                    />
-                  </VStack>
-                }
-              >
-                <Button
-                  label={t("Réglages")}
-                  variant="secondary"
-                  size="sm"
-                  icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-                  isIconOnly
-                />
-              </Popover>
+              {/* Réglages : petite boîte CENTRÉE (overlay) — rien ne se décale
+                  dans la page, contrairement au panneau en flux d'avant. */}
+              <Button
+                label={t("Réglages")}
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={Cog6ToothIcon} size="sm" />}
+                isIconOnly
+                onClick={() => setIsSettingsOpen((v) => !v)}
+              />
               <Button
                 label={t("Titrer automatiquement")}
                 variant="secondary"
@@ -3491,6 +3466,26 @@ export default function PlaygroundPage() {
               corbeille supprime SANS refermer, pour pouvoir faire le ménage
               d'affilée. La corbeille est un bouton FRÈRE de la ligne, pas un
               bouton imbriqué : aucun risque qu'un clic déclenche les deux. */}
+          {/* Réglages du playground : boîte centrée, contenu défilant —
+              une overlay ne touche jamais au flux de la page. */}
+          <Dialog isOpen={isSettingsOpen} onOpenChange={(o) => { if (!o) setIsSettingsOpen(false); }} width={560}>
+            <DialogHeader
+              title={t("Réglages du playground")}
+              hasDivider
+              onOpenChange={(o) => { if (!o) setIsSettingsOpen(false); }}
+            />
+            <VStack padding={3} gap={3}>
+              <VStack gap={3} height={470} isScrollable>
+                <SettingsPanel
+                  settings={settings}
+                  onChange={setSettings}
+                  contexte={modelLimits[model]}
+                  provenance={systemProvenance}
+                  onProvenance={setSystemProvenance}
+                />
+              </VStack>
+            </VStack>
+          </Dialog>
           <Dialog isOpen={historyOpen} onOpenChange={(o) => { if (!o) setHistoryOpen(false); }} width={560}>
             <DialogHeader
               title={t("Historique")}

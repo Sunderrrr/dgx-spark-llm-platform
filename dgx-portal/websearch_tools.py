@@ -16,6 +16,7 @@ import time
 import requests
 
 import websearch
+import image_tools
 from db import get_db
 
 LITELLM_URL = os.environ.get('LITELLM_URL', 'http://litellm:4000')
@@ -209,8 +210,14 @@ def _texte_des_trouvailles(trouvailles):
     return ''.join(morceaux)[:40000]
 
 
-def _phase_outils(model, msgs, user_key, journal, trouvailles):
-    """Laisse le modèle chercher avant de répondre. Modifie `msgs` sur place.
+def _phase_outils(model, msgs, user_key, journal, trouvailles,
+                  web_ok=True, img_ok=False, username=''):
+    """Laisse le modèle chercher ou générer avant de répondre. Modifie `msgs`
+    sur place.
+
+    `web_ok` arme recherche_web/lire_pages, `img_ok` arme generer_image ; sans
+    aucun des deux, la phase ne démarre pas (on n'appelle pas le modèle avec
+    `tools: []` — certains templates le rendent muet).
 
     GÉNÉRATEUR : il rend des commentaires SSE au fur et à mesure. Sans eux, le
     client ne reçoit rien pendant toute la phase — plusieurs secondes de
@@ -222,6 +229,10 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles):
     ne produit aucun texte destiné à la lecture.
     """
     court = _contexte_outils(msgs)
+    _outils = ((_web_tools() if web_ok else []) +
+               (image_tools._outils_image() if img_ok else []))
+    if not _outils:
+        return
     _fin = time.monotonic() + DELAI_MAX_OUTILS
     for _ in range(MAX_TOURS_OUTILS):
         if time.monotonic() > _fin:
@@ -231,7 +242,7 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles):
         try:
             r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
                               headers={'Authorization': f'Bearer {user_key}'},
-                              json={'model': model, 'messages': court, 'tools': _web_tools(),
+                              json={'model': model, 'messages': court, 'tools': _outils,
                                     'tool_choice': 'auto', 'temperature': 0.2,
                                     'max_tokens': 1024,
                                     'chat_template_kwargs': {'enable_thinking': False}},
@@ -262,12 +273,23 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles):
                 args = json.loads(fn.get('arguments') or '{}')
             except Exception:
                 args = {}
-            # Une recherche ou une lecture prend plusieurs secondes. On dit au
-            # client CE QU'ON FAIT avant de le faire : sans ça l'attente est
-            # muette et personne ne sait ce qui se passe. Ça tient aussi le flux
-            # ouvert, sinon le proxy coupe avant le premier token.
-            yield "data: " + json.dumps({'cronos_web': _annonce(fn.get('name', ''), args)}) + "\n\n"
-            resultat = _exec_web_tool(fn.get('name', ''), args, journal)
+            # Une recherche, une lecture ou une génération d'image prend
+            # plusieurs secondes. On dit au client CE QU'ON FAIT avant de le
+            # faire : sans ça l'attente est muette et personne ne sait ce qui se
+            # passe. Ça tient aussi le flux ouvert, sinon le proxy coupe avant
+            # le premier token.
+            if fn.get('name') == 'generer_image':
+                yield "data: " + json.dumps({'cronos_web': image_tools._annonce_image(args)}) + "\n\n"
+                # GÉNÉRATEUR : battements SSE pendant la génération, texte
+                # final en valeur de retour.
+                resultat = yield from image_tools._exec_image_tool(args, username, journal)
+                # Une génération consomme presque tout le budget de la phase :
+                # on en rallonge un, sinon le tour du modèle final serait
+                # refusé par le délai juste après une image parfaitement réussie.
+                _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
+            else:
+                yield "data: " + json.dumps({'cronos_web': _annonce(fn.get('name', ''), args)}) + "\n\n"
+                resultat = _exec_web_tool(fn.get('name', ''), args, journal)
             yield "data: " + json.dumps({'cronos_web': journal[-1] if journal else {}}) + "\n\n"
 
             court.append({'role': 'tool', 'tool_call_id': appel.get('id', ''),

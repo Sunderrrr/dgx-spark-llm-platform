@@ -481,6 +481,11 @@ const EN: Record<string, string> = {
   "Max tokens": "Max tokens",
   "Top-p": "Top-p",
   "Afficher le raisonnement": "Show reasoning",
+  "Effort de raisonnement": "Reasoning effort",
+  "Par défaut": "Default",
+  "Basse": "Low",
+  "Moyenne": "Medium",
+  "Maximale": "Max",
   "Code Python": "Python code",
   "Génère une fonction, un script ou un test": "Generate a function, a script or a test",
   "Écris une fonction Python qui vérifie si un nombre est premier.":

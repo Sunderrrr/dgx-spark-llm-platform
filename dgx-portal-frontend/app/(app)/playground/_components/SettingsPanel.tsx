@@ -7,6 +7,7 @@ import { Slider } from "@astryxdesign/core/Slider";
 import { Switch } from "@astryxdesign/core/Switch";
 import { Button } from "@astryxdesign/core/Button";
 import { Text } from "@astryxdesign/core/Text";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import type { Settings } from "@/lib/types";
 import { useT } from "@/lib/i18n";
 
@@ -123,6 +124,20 @@ export function SettingsPanel({
           value={settings.reasoning}
           onChange={(checked) => onChange({ ...settings, reasoning: checked })}
         />
+        {/* Profondeur de réflexion (reasoning_effort, transmis via le chat
+            template). Chaque modèle valide ses propres valeurs — le Qwen3.8
+            actuel accepte xhigh (son défaut), medium et low ; si le template
+            refuse, le backend retente sans. '' = ne rien transmettre. */}
+        <SegmentedControl
+          label={t("Effort de raisonnement")}
+          value={settings.reasoningEffort || "default"}
+          onChange={(v) => onChange({ ...settings, reasoningEffort: v === "default" ? "" : String(v) })}
+        >
+          <SegmentedControlItem value="default" label={t("Par défaut")} />
+          <SegmentedControlItem value="low" label={t("Basse")} />
+          <SegmentedControlItem value="medium" label={t("Moyenne")} />
+          <SegmentedControlItem value="xhigh" label={t("Maximale")} />
+        </SegmentedControl>
       </VStack>
     </Card>
   );

@@ -234,29 +234,36 @@ Key facts and gotchas:
   `--chat-template-file` : nom de fichier SEUL, resolu a cote des poids
   (`_resolve_mmproj_tokens`) — ni chemin absolu, ni `..`, ni sous-dossier.
 
-- **K2-Horizon : servi, mesure, puis retire (2026-09-07).** Trace utile si le sujet
-  revient. Cote vLLM il exige la **nightly** (fusion dans `main` le 2026-09-03,
-  PR #55063 ; 0.28.0 lui est anterieure) — d'ou `--vllm-nightly`
-  (`/root/venvs/vllm-nightly`, 0.28.1rc1.dev500, roue aarch64, 382 architectures).
-  Il a bien tourne : `max_model_len 524288` effectif, cache KV fp8, NVFP4 sur noyau
-  `VLLM_CUTLASS`, 100 Go resident sur 121. **Piege GB10** : vLLM choisit par defaut
-  le backend d'attention FlashInfer, dont les chemins sont gardes par
-  `is_sm100a_supported()` — le GB10 est sm_121, la fonction renvoie **False**, et le
-  moteur echoue au profilage memoire sur un message trompeur ("FlashInfer backend is
-  not available") alors que le paquet EST installe et `has_flashinfer()` vrai. La
-  parade est `--attention-backend TRITON_ATTN` (ajoute a l'allow-list).
-  **Cote llama.cpp c'est mort pour l'instant** : ni l'amont ni le fork TurboQuant ne
-  connaissent `k2_horizon`, et la PR llama.cpp est encore ouverte (seul le fork
-  MBZUAI-IFM le supporte) — les GGUF Q4_K_M (22,4 Go) / Q8_0 (39,8 Go) existent mais
-  ne se chargeront pas.
-- **L'effort de raisonnement de K2-Horizon EST par requete** sur la nightly, contrairement
-  a ce qu'annonce le README de l'editeur (ecrit pour la dev388) : `serving.py` construit
-  `reasoning_parser_kwargs` a CHAQUE requete depuis ses `chat_template_kwargs`. Mesure :
-  `high`, `medium` et `low` separent tous les trois le raisonnement. Deux subtilites —
-  le template PRE-REMPLIT la balise ouvrante, donc un `max_tokens` trop bas coupe avant
-  la fermeture et tout retombe dans `content` (c'est ce qui m'a fait conclure a tort a une
-  panne) ; et `--default-chat-template-kwargs` (PAS `--chat-template-kwargs`, qui est le
-  flag llama.cpp) fixe le defaut serveur.
+- **K2-Horizon tourne sur llama.cpp, via le fork MBZUAI-IFM uniquement.** La PR
+  amont est encore OUVERTE : `libllama.so` de `llama-cpp-upstream` et du fork
+  TurboQuant contiennent **0** occurrence de `k2-horizon`, celui du fork
+  `/root/llama-cpp-k2horizon` (branche `model/K2Horizon`, compile GB10) en contient
+  **43**. Opt-in par `--llama-k2`. Servi en `Q8_0` (37,1 Gio) depuis
+  `local:k2-horizon-gguf`. Mesure au lancement : `n_slots = 4,
+  n_ctx_slot = 524288, kv_unified = true` — les 4 slots ont chacun le contexte
+  NATIF COMPLET, le cache unifie evite le decoupage. Resident : 99 Go sur 121, avec
+  `--cache-type-k q8_0 --cache-type-v q8_0` (96 Kio/token au lieu de 192 en f16 :
+  8 tetes KV x 128 x 2 x 48 couches).
+- **Le raisonnement de K2-Horizon EST separe par llama.cpp**, malgre ses balises
+  maison `<ifm|think>` que le parseur ne connait pas : le template PRE-REMPLIT la
+  balise ouvrante, llama.cpp traite donc la sortie comme deja "dans" la reflexion et
+  remplit `reasoning_content`. Mesure de bout en bout via LiteLLM : defaut 10,4 s /
+  229 tokens sans raisonnement, bouton Raisonnement 67,2 s / `reasoning_content` de
+  4 865 caracteres. **Piege de diagnostic** : sur une question triviale (17x23) le
+  modele ne pense presque pas et le champ ressort VIDE — ce n'est pas une panne de
+  separation, il faut une vraie question de raisonnement pour tester.
+  En revanche un `reasoning_effort` par requete (low/medium) fait **fuiter la balise
+  fermante** `</ifm|think_faster>` dans la reponse : le parseur est cale sur une
+  seule paire. Sur ce moteur, n'utiliser que le bouton Raisonnement (enable_thinking).
+- **`--llama-next` n'a jamais fonctionne avant 2026-09-07.** `_BOOL_FLAGS |=
+  set(_BIN_FLAGS)` n'alimentait que l'allow-list vLLM, donc un lancement llamacpp
+  portant ce drapeau etait refuse ("flag not allowed") AVANT d'atteindre `_build_cmd`
+  qui sait pourtant s'en servir. Les pseudo-flags de binaire sont desormais cloisonnes
+  par moteur (`_LLAMA_BIN_FLAGS` / `_VLLM_BIN_FLAGS`).
+- **Ne jamais compiler llama.cpp pendant qu'un modele 1M de contexte est charge.**
+  Un `cmake -j20` + un telechargement de 40 Go par-dessus les ~106 Go de
+  Qwen3.8-Flash-Next ont fait **redemarrer la machine** (2026-09-07). Sur memoire
+  unifiee il n'y a pas de cloison : liberer le modele d'abord, ou brider a `-j6`.
 - **LiteLLM RENOMME le champ de raisonnement, il ne le supprime pas.** vLLM renvoie
   `message.reasoning` ; apres LiteLLM il s'appelle `reasoning_content` (et l'original
   reste dans `provider_specific_fields.reasoning`). Chercher `reasoning` en sortie de

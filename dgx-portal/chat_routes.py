@@ -627,6 +627,14 @@ def playground_chat():
     max_tokens  = _num(data.get('max_tokens'), 1, 131072, 4096, int)
     top_p       = _num(data.get('top_p'), 0.0, 1.0, 1.0, float)
     reasoning   = bool(data.get('reasoning'))     # show the model's reasoning
+    # Profondeur de réflexion (chat_template_kwargs.reasoning_effort) : c'est le
+    # TEMPLATE du modèle qui valide — le Qwen3.8 servi aujourd'hui n'accepte que
+    # xhigh (défaut), medium et low, et rejette 'high' en 500 Jinja. On borne à
+    # cette liste, on ne transmet que si renseigné, et le fil de lecture retente
+    # une fois SANS effort si le template refuse (voir _lecteur).
+    effort_valide = str(data.get('reasoning_effort') or '').strip().lower()
+    if effort_valide not in ('low', 'medium', 'high', 'xhigh'):
+        effort_valide = None
 
     # The playground consumes the user's BUDGET → we use THEIR key
     # (shared by the account). LiteLLM thus applies the quota (429 if exceeded).
@@ -722,15 +730,30 @@ def playground_chat():
             _amont = {}
 
             def _lecteur():
+                def _ouvre(ctk):
+                    return requests.post(f"{LITELLM_URL}/v1/chat/completions",
+                                         headers={'Authorization': f'Bearer {user_key}'},
+                                         json={'model': model, 'messages': msgs, 'stream': True,
+                                               'temperature': temperature, 'max_tokens': max_tokens,
+                                               'top_p': top_p,
+                                               'stream_options': {'include_usage': True},
+                                               'chat_template_kwargs': ctk},
+                                         stream=True, timeout=(10, 300))
                 try:
-                    with requests.post(f"{LITELLM_URL}/v1/chat/completions",
-                                       headers={'Authorization': f'Bearer {user_key}'},
-                                       json={'model': model, 'messages': msgs, 'stream': True,
-                                             'temperature': temperature, 'max_tokens': max_tokens,
-                                             'top_p': top_p,
-                                             'stream_options': {'include_usage': True},
-                                             'chat_template_kwargs': {'enable_thinking': reasoning}},
-                                       stream=True, timeout=(10, 300)) as r:
+                    _ctk = {'enable_thinking': reasoning}
+                    if effort_valide:
+                        _ctk['reasoning_effort'] = effort_valide
+                    r = _ouvre(_ctk)
+                    if not r.ok and effort_valide and r.status_code == 500:
+                        # Le template de CE modèle rejette la valeur demandée
+                        # (chacun valide la sienne : le Qwen3.8 actuel n'accepte
+                        # que xhigh/medium/low). On retente une fois SANS effort
+                        # plutôt que de tuer le tour sur un 500 Jinja.
+                        r.close()
+                        _log.info("playground %s : reasoning_effort=%s refuse par le "
+                                  "modele — retente sans", _who, effort_valide)
+                        r = _ouvre({'enable_thinking': reasoning})
+                    with r:
                         if not r.ok:
                             _amont['statut'] = r.status_code
                             return

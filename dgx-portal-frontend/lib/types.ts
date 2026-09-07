@@ -47,4 +47,8 @@ export type Settings = {
   maxTokens: number;
   topP: number;
   reasoning: boolean;
+  /** Profondeur de réflexion (chat_template_kwargs.reasoning_effort). '' = la
+   *  valeur par défaut du template du modèle — les valeurs acceptées dépendent
+   *  du modèle : le backend retente sans si le template refuse. */
+  reasoningEffort: string;
 };

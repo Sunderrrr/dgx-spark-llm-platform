@@ -100,6 +100,9 @@ const DEFAULT_SETTINGS: Settings = {
   maxTokens: 131072,
   topP: 1,
   reasoning: false,
+  // Effort de réflexion : '' = laisser le template du modèle à sa valeur par
+  // défaut (les valeurs reconnues dépendent du modèle — ex. Qwen3.8 : xhigh).
+  reasoningEffort: "",
 };
 
 const ATTACH_ACCEPT =

@@ -211,6 +211,9 @@ export async function streamChat(
       max_tokens: settings.maxTokens,
       top_p: settings.topP,
       reasoning: settings.reasoning,
+      // '' (défaut du template) part en undefined : le backend ne transmet
+      // reasoning_effort au modèle que s'il est renseigné.
+      reasoning_effort: settings.reasoningEffort || undefined,
     }),
     signal,
   });

@@ -126,9 +126,11 @@ export async function fetchPlaygroundData(): Promise<PlaygroundData> {
   return res.json();
 }
 
-/** Une étape de recherche web, telle que le backend l'annonce au fil de l'eau. */
+/** Une étape de recherche web ou de génération d'image, telle que le backend
+ * l'annonce au fil de l'eau. */
 export type EtapeWeb = {
-  etape: "recherche" | "recherche_finie" | "lecture" | "lecture_finie" | "inconnue";
+  etape: "recherche" | "recherche_finie" | "lecture" | "lecture_finie"
+    | "generation" | "generation_finie" | "inconnue";
   outil: string;
   question?: string;
   urls?: string[];
@@ -137,6 +139,8 @@ export type EtapeWeb = {
   erreur?: string | null;
   sources?: { titre: string; url: string }[];
   echecs?: { url: string; raison: string }[];
+  /** Adresses des images produites (génération réussie). */
+  images?: string[];
 };
 
 export type StreamDelta = {

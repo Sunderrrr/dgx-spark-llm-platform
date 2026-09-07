@@ -93,6 +93,8 @@ services:
       LDAP_BIND_DN: cn=ldap,ou=users,dc=cronos,dc=lan
       LDAP_BIND_PW: ${LDAP_BIND_PW}
       LITELLM_URL: http://litellm:4001
+      # Surchargeable pour les tests (faux sidecar) ; défaut = sidecar image_net.
+      IMAGE_URL: ${IMAGE_URL:-http://image:8007}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       # Passerelle du réseau `default` plutôt que host.docker.internal : ce
       # dernier pointe la bridge docker0 (172.17.0.1), que ce conteneur

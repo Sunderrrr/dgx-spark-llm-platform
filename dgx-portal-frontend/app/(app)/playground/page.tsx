@@ -408,6 +408,14 @@ function libelleEtapeWeb(
         : t("{n} page(s) lue(s)").replace("{n}", String(e.lues ?? 0))
           + (rates ? t(", {n} inaccessible(s)").replace("{n}", String(rates)) : "")) };
     }
+    case "generation":
+      return { fini: false,
+        texte: `${outil} · ` + t("génération de l'image « {q} »")
+          .replace("{q}", e.question ?? "") };
+    case "generation_finie":
+      return { fini: true, texte: `${outil} · ` + (e.erreur
+        ? t("génération impossible : {e}").replace("{e}", e.erreur)
+        : t("{n} image(s) générée(s)").replace("{n}", String((e.images ?? []).length))) };
     default:
       return { texte: outil, fini: true };
   }

@@ -408,6 +408,9 @@ const EN: Record<string, string> = {
   "lecture impossible : {e}": "reading failed: {e}",
   "{n} page(s) lue(s)": "{n} page(s) read",
   ", {n} inaccessible(s)": ", {n} unreachable",
+  "génération de l'image « {q} »": "generating the image “{q}”",
+  "génération impossible : {e}": "image generation failed: {e}",
+  "{n} image(s) générée(s)": "{n} image(s) generated",
   "Plein écran": "Fullscreen",
   "Modification non appliquée": "Edit not applied",
   "Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.":

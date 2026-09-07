@@ -72,15 +72,23 @@ def _contexte_outils(msgs):
 # suite. Un mot isolé ne dit pas ce que quelqu'un veut.
 #
 # On exige donc une tournure qui ne peut vouloir dire qu'une chose : « cherche
-# sur internet », « fais une recherche web ». Une question d'actualité ne
-# déclenche plus rien toute seule — c'est un recul assumé, mais prévisible :
-# personne ne subit une recherche qu'il n'a pas demandée, et il suffit de
-# l'écrire pour l'obtenir.
+# sur internet », « fais une recherche ». Une question d'actualité ne déclenche
+# plus rien toute seule — c'est un recul assumé, mais prévisible : personne ne
+# subit une recherche qu'il n'a pas demandée, et il suffit de l'écrire pour
+# l'obtenir.
+#
+# 2026-09 : « en ligne » est sorti des cibles pour de bon — « je cherche à
+# mettre mon site en ligne » (19 caractères sous la fenêtre) ouvrait une
+# recherche, après le « jeu d'échecs en ligne » historique. La règle tient en
+# une phrase : une DEMANDE (« cherche sur internet », « fais une recherche »,
+# « google-le ») déclenche ; une DESCRIPTION de ce que l'utilisateur cherche
+# (« je cherche à… », « est en ligne ») ne déclenche pas.
 _DEMANDE_RECHERCHE = re.compile(
     r"(?:cherche|recherche|regarde|va voir|renseigne-toi|informe-toi)"
-    r"[^.!?\n]{0,30}?\b(?:sur (?:le )?(?:web|internet|net)|en ligne|sur google)"
-    r"|(?:fais|lance|effectue)[^.!?\n]{0,20}?\brecherche"
-    r"|recherche\s+web|web\s*search|search\s+the\s+web",
+    r"[^.!?\n]{0,30}?\b(?:sur (?:le )?(?:web|internet|net)|sur google)"
+    r"|(?:fais|lance|effectue)[^.!?\n]{0,20}?\brecherche\b"
+    r"|recherche\s+web|web\s*search|search\s+(?:the\s+)?web|search\s+online"
+    r"|google[-\s]?(?:le|la|it)\b",
     re.I)
 
 

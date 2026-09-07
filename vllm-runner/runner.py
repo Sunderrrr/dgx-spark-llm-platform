@@ -23,6 +23,12 @@ VLLM_BIN_027 = os.environ.get("VLLM_BIN_027", "/root/venvs/vllm-next/bin/vllm")
 # devient servable par vLLM et non plus seulement par llama.cpp. Toujours PAS de
 # Qwen4Exp. Opt-in via --vllm-028, comme les precedentes.
 VLLM_BIN_028 = os.environ.get("VLLM_BIN_028", "/root/venvs/vllm-028/bin/vllm")
+# vLLM nightly (main). Opt-in via --vllm-nightly, JAMAIS par defaut : c'est une
+# pre-release. Raison d'etre : K2-Horizon (arch `k2_horizon`) n'a ete fusionne dans
+# vLLM main que le 3 septembre 2026 (PR #55063) et n'est present dans AUCUNE
+# release — 0.28.0 lui est anterieure, son registre de 378 architectures ne connait
+# pas K2HorizonForCausalLM (verifie).
+VLLM_BIN_NIGHTLY = os.environ.get("VLLM_BIN_NIGHTLY", "/root/venvs/vllm-nightly/bin/vllm")
 LLAMA_BIN    = os.environ.get("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-server")
 # llama.cpp amont recent (0.3.0-dev, aout 2026), compile pour le GB10. Il apporte
 # `qwen4exp` (Qwen3.8-Flash-Next), absent des deux autres builds, tout en gardant
@@ -114,6 +120,7 @@ _BIN_FLAGS = {
     "--vllm-025": VLLM_BIN_025,
     "--vllm-027": VLLM_BIN_027,
     "--vllm-028": VLLM_BIN_028,
+    "--vllm-nightly": VLLM_BIN_NIGHTLY,
     "--llama-next": LLAMA_BIN_NEXT,
 }
 _BOOL_FLAGS |= set(_BIN_FLAGS)
@@ -122,7 +129,13 @@ _VALUE_FLAGS = {
     "--gpu-memory-utilization", "--max-num-seqs", "--kv-cache-dtype",
     "--max-num-batched-tokens", "--block-size", "--swap-space",
     "--quantization", "--tensor-parallel-size", "--pipeline-parallel-size",
-    "--reasoning-parser", "--limit-mm-per-prompt",
+    "--reasoning-parser",
+    # Effort de raisonnement AU NIVEAU SERVEUR. Sur K2-Horizon le parser fixe la
+    # paire de balises une fois pour toutes a la construction, depuis ce JSON
+    # (high|medium|low, defaut high) : sans ce flag l'operateur ne peut pas choisir
+    # autre chose que le defaut. Valeur = JSON de variables de template, comme pour
+    # llama.cpp ou il est deja admis — pas de chemin ni de code.
+    "--chat-template-kwargs", "--limit-mm-per-prompt",
     "--uvicorn-log-level",
     # Speculative decoding (MTP / draft model): a compact JSON value, e.g.
     # {"method":"mtp","num_speculative_tokens":1}. Passed as argv to vLLM (never
@@ -192,6 +205,29 @@ _DS4_VALUE_FLAGS = {
 }
 
 
+# Modeles de chat NOMMEMENT approuves pour --trust-remote-code. Le flag reste
+# absent de _BOOL_FLAGS (RCE via le code du depot HF) : ceci est une exception par
+# modele, pas une ouverture. Y inscrire un modele est une decision de securite —
+# lancer ce modele execute le code Python de son depot.
+_TRUST_RC_MODELS = {
+    # K2-Horizon (arch `k2_horizon`) : sa config passe par `auto_map` vers
+    # configuration_k2_horizon.py, vLLM ne peut pas la lire sans. Approuve par
+    # l'operateur le 2026-09-07, pour ce depot precis.
+    "primitive-ai/K2-Horizon-MoVA-36B-A4B-NVFP4",
+}
+
+
+def _repo_id_of(hf_id):
+    """Depot HF correspondant a `hf_id`, qu'il soit donne par identifiant ou par
+    chemin de snapshot du cache (.../models--org--nom/snapshots/<sha>).
+
+    Sans cela, approuver "org/nom" ne reconnaitrait pas le meme modele reference
+    par son chemin de cache — et l'exception echouerait de facon incomprehensible.
+    """
+    m = re.search(r'models--([^/]+?)--(.+?)/snapshots/', hf_id or '')
+    return f"{m.group(1)}/{m.group(2)}" if m else (hf_id or '')
+
+
 def _flags_for(engine):
     if engine == "llamacpp":
         return _LLAMA_BOOL_FLAGS, _LLAMA_VALUE_FLAGS
@@ -241,14 +277,21 @@ def _resolve_gguf(hf_id):
     return max(candidates)[2]
 
 
-def _validate_vllm_args(extra, engine="vllm"):
-    """Return (ok, tokens_or_error_message). The allowlist depends on the engine."""
+def _validate_vllm_args(extra, engine="vllm", hf_id=""):
+    """Return (ok, tokens_or_error_message). The allowlist depends on the engine.
+
+    `hf_id` ne sert qu'a --trust-remote-code : ce flag n'est accepte pour un modele
+    de chat que si le depot figure dans _TRUST_RC_MODELS (l'OCR, lui, le porte deja
+    dans son propre allowlist).
+    """
     bool_flags, value_flags = _flags_for(engine)
     tokens = extra.split()
     i = 0
     while i < len(tokens):
         tok = tokens[i]
         if tok in bool_flags:
+            i += 1
+        elif tok == "--trust-remote-code" and _repo_id_of(hf_id) in _TRUST_RC_MODELS:
             i += 1
         elif tok in value_flags:
             if i + 1 >= len(tokens) or tokens[i + 1].startswith("--"):
@@ -629,7 +672,7 @@ def launch():
     if engine != "vllm" and not os.path.exists(_ENGINE_BIN[engine]):
         return jsonify({"error": f"engine {engine} not installed on this machine"}), 400
 
-    ok, result = _validate_vllm_args(extra, engine)
+    ok, result = _validate_vllm_args(extra, engine, hf_id)
     if not ok:
         return jsonify({"error": result}), 400
     extra_tokens = result
@@ -1046,7 +1089,8 @@ def _watchdog():
             if _auto_retries >= MAX_AUTO_RETRIES:
                 continue
             eng = last.get("engine", "vllm")
-            ok, extra_tokens = _validate_vllm_args(last.get("vllm_args", ""), eng)
+            ok, extra_tokens = _validate_vllm_args(last.get("vllm_args", ""), eng,
+                                                   last.get("hf_model_id", ""))
             if not ok:
                 _append(f"[runner] auto-resume impossible, invalid args: {extra_tokens}")
                 _auto_retries = MAX_AUTO_RETRIES
@@ -1063,7 +1107,8 @@ if __name__ == "__main__":
     _resume = _load_last_launch()
     if _resume:
         _eng = _resume.get("engine", "vllm")
-        ok, extra_tokens = _validate_vllm_args(_resume.get("vllm_args", ""), _eng)
+        ok, extra_tokens = _validate_vllm_args(_resume.get("vllm_args", ""), _eng,
+                                               _resume.get("hf_model_id", ""))
         if ok:
             with _lock:
                 _append("[runner] resuming the last model at service startup…")

@@ -47,6 +47,7 @@ from support import (GUARDED_TOOLS, SUPPORT_SYSTEM, TOOL_LABELS, _clean_reply,
 from vllm_health import effective_ctx, get_running_models
 from websearch_tools import (_phase_outils, _recherche_pertinente,
                              _texte_des_trouvailles, websearch_active)
+from image_tools import _image_demandee, image_disponible
 
 _log = logging.getLogger('app')
 
@@ -662,6 +663,10 @@ def playground_chat():
     # génération ne commence.
     _web_ok = (data.get('web') is not False and _recherche_pertinente(history)
                and websearch_active(session['username']))
+    # Outil image : même barre que la recherche — demande EXPLICITE seulement.
+    # La maintenance bloque comme pour la page Image (les admins passent).
+    _img_ok = (_image_demandee(history) and image_disponible()
+               and maintenance_block_sse() is None)
 
     # Le plafond de sortie S'AJOUTE au prompt dans la fenêtre de contexte : au-delà,
     # vLLM refuse la requête (400 ContextWindowExceededError) au lieu de répondre.
@@ -696,10 +701,12 @@ def playground_chat():
         # prefixe possible, rien n'est jamais reutilise d'un tour a l'autre).
         # Vu en prod le 22/08 : conversation de 68 kio, 502 a 15 s pile.
         yield ": ouverture\n\n"
-        if _web_ok:
+        if _web_ok or _img_ok:
             yield ": recherche\n\n"
             _journal, _trouvailles = [], []
-            for _etape in _phase_outils(model, msgs, user_key, _journal, _trouvailles):
+            for _etape in _phase_outils(model, msgs, user_key, _journal,
+                                        _trouvailles, web_ok=_web_ok,
+                                        img_ok=_img_ok, username=_who):
                 yield _etape
             # Réinjection EN TEXTE, dans le dernier message de l'utilisateur.
             _txt = _texte_des_trouvailles(_trouvailles)

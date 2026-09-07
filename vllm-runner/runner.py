@@ -37,6 +37,11 @@ LLAMA_BIN    = os.environ.get("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-serv
 # seul le fork TurboQuant sait lire, l'amont attend `ssm_f_a`. Basculer par
 # defaut casserait ce modele en silence.
 LLAMA_BIN_NEXT = os.environ.get("LLAMA_BIN_NEXT", "/root/llama-cpp-upstream/build/bin/llama-server")
+# Fork MBZUAI-IFM branche model/K2Horizon, compile pour le GB10. Seul build qui
+# connaisse l'architecture `k2_horizon` : la PR llama.cpp est encore OUVERTE, ni
+# l'amont ni le fork TurboQuant ne la lisent (verifie). Opt-in par --llama-k2 et
+# jamais par defaut : c'est une branche de dev, pas une release.
+LLAMA_BIN_K2 = os.environ.get("LLAMA_BIN_K2", "/root/llama-cpp-k2horizon/build/bin/llama-server")
 # ds4 engine: DGX Spark-specific "multi-tensor" NVFP4 GGUF (DeepSeek-V4-Flash).
 # Neither vLLM nor stock llama.cpp can load this format.
 DS4_BIN      = os.environ.get("DS4_BIN", "/root/ds4-nvfp4-spark/ds4-server")
@@ -122,8 +127,14 @@ _BIN_FLAGS = {
     "--vllm-028": VLLM_BIN_028,
     "--vllm-nightly": VLLM_BIN_NIGHTLY,
     "--llama-next": LLAMA_BIN_NEXT,
+    "--llama-k2": LLAMA_BIN_K2,
 }
-_BOOL_FLAGS |= set(_BIN_FLAGS)
+# Chaque pseudo-flag n'est admis que pour SON moteur : proposer --vllm-028 a un
+# lancement llama.cpp n'a aucun sens, et l'accepter ferait pointer llama.cpp vers
+# un binaire vLLM. Le decoupage vit ici, les allow-lists s'en servent plus bas.
+_LLAMA_BIN_FLAGS = {f for f in _BIN_FLAGS if f.startswith("--llama-")}
+_VLLM_BIN_FLAGS  = set(_BIN_FLAGS) - _LLAMA_BIN_FLAGS
+_BOOL_FLAGS |= _VLLM_BIN_FLAGS
 _VALUE_FLAGS = {
     "--tool-call-parser", "--dtype", "--max-model-len",
     "--gpu-memory-utilization", "--max-num-seqs", "--kv-cache-dtype",
@@ -180,6 +191,10 @@ _LLAMA_BOOL_FLAGS = {
     # client like OpenCode retries the same over-long request → crash).
     "--context-shift", "--no-context-shift",
 }
+# Sans cette ligne les pseudo-flags de binaire etaient refuses par la validation
+# AVANT d'atteindre _start_process : --llama-next etait donc inutilisable depuis
+# toujours ("flag not allowed"), quand bien meme _build_cmd sait s'en servir.
+_LLAMA_BOOL_FLAGS |= _LLAMA_BIN_FLAGS
 _LLAMA_VALUE_FLAGS = {
     "--ctx-size", "--n-gpu-layers", "--parallel", "--threads", "--threads-batch",
     "--batch-size", "--ubatch-size", "--cache-type-k", "--cache-type-v",

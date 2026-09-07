@@ -638,4 +638,48 @@ def init_db():
     db.execute("UPDATE model_configs SET hf_model_id=?, vllm_args=? WHERE name=?",
                ("deepreinforce-ai/Ornith-1.0-35B-FP8", ORNITH_ARGS, "ornith-35b-fp8"))
     db.commit()
+    _detecte_base_reinitialisee(db)
     db.close()
+
+
+# ── Détecteur de base réinitialisée ─────────────────────────────────────────
+# Le 04/09/2026, le contenu de portal.db a été réinitialisé sans cause
+# identifiée et personne ne l'a vu pendant trois jours : l'application
+# « fonctionne » tout aussi bien sur une base vide. Marqueur compagnon sur le
+# VOLUME (survit au conteneur, meurt avec les données) : présent = la base a
+# déjà contenu des comptes. Marqueur présent + base redevenue vide → critique
+# + email d'alerte infra.
+DB_RESET_MARKER = os.path.join(os.path.dirname(DB_PATH), '.db_initialized')
+
+
+def _detecte_base_reinitialisee(db):
+    """Appelée à chaque init_db() : alerte si une base connue comme peuplée
+    est redevenue vide. Le marqueur n'est créé qu'UNE FOIS la base peuplée
+    (au moins un compte connu), jamais sur une installation vierge — un
+    démarrage d'usine ne doit pas alerter."""
+    try:
+        vide = (
+            db.execute("SELECT COUNT(*) FROM user_sources").fetchone()[0] == 0
+            and db.execute("SELECT COUNT(*) FROM local_users").fetchone()[0] == 0
+            and db.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 0
+        )
+        marqueur_present = os.path.exists(DB_RESET_MARKER)
+        if vide and marqueur_present:
+            detail = ("portal.db est vide alors que le marqueur "
+                      f"{DB_RESET_MARKER} atteste d'une base déjà peuplée — "
+                      "réinitialisation suspectée (volume mal monté, db effacée).")
+            print('[db] CRITIQUE : ' + detail)
+            try:
+                # Import tardif : notify dépend de config, pas de db — mais ne
+                # pas alourdir l'import du noyau pour un chemin d'alerte rare.
+                from notify import notify_infra_alert_email
+                notify_infra_alert_email("Portal database appears to have been reset", detail)
+            except Exception as exc:
+                print(f'[db] email anti-reset impossible : {exc}')
+            return
+        if not vide and not marqueur_present:
+            with open(DB_RESET_MARKER, 'w') as fh:
+                fh.write(datetime.now().isoformat() + '\n')
+    except Exception as exc:
+        # Ne JAMAIS faire échouer le démarrage sur le détecteur lui-même.
+        print(f'[db] détecteur anti-reset inopéré : {exc}')

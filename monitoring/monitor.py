@@ -58,6 +58,39 @@ SERVICES = [
 BACKUP_DIR = "/var/backups/cronos"
 BACKUP_MAX_AGE_H = 26  # cronos-backup tourne à 03:00 → < 26 h = toujours frais
 
+# Intégrité des données : le 04/09/2026 le contenu de portal.db a été
+# réinitialisé et personne ne l'a vu pendant trois jours. On garde un
+# FILIGRANE du volume de données vu et on alerte si le compteur chute sous
+# 40 % — un utilisateur qui supprime ses propres conversations peut déclencher
+# un faux positif (un email), un reset silencieux coûte trois jours.
+PORTAL_DB = "/var/lib/docker/volumes/ai-platform_portal_data/_data/portal.db"
+DATA_DROP_RATIO = 0.4   # alerte sous 40 % du filigrane
+DATA_FLOOR = 20         # jamais d'alerte tant que le filigrane est < 20
+
+
+def _data_intact(watermark):
+    """(up, detail, compteurs) : conversations + jobs média vs filigrane."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(f"file:{PORTAL_DB}?mode=ro", uri=True, timeout=5)
+        conv = conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+        jobs = sum(conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                   for t in ("image_jobs", "music_jobs", "video_jobs"))
+        conn.close()
+    except Exception as exc:
+        # Illisible : c'est le rôle des sondes conteneur de le signaler.
+        return True, f"db illisible ({exc})", {"conversations": None, "jobs": None}
+    wm_conv = max(int(watermark.get("conversations") or 0), conv)
+    wm_jobs = max(int(watermark.get("jobs") or 0), jobs)
+    pertes = []
+    if wm_conv >= DATA_FLOOR and conv < wm_conv * DATA_DROP_RATIO:
+        pertes.append(f"conversations {conv} << filigrane {wm_conv}")
+    if wm_jobs >= DATA_FLOOR and jobs < wm_jobs * DATA_DROP_RATIO:
+        pertes.append(f"jobs média {jobs} << filigrane {wm_jobs}")
+    detail = ("; ".join(pertes) if pertes
+              else f"conversations={conv}, jobs={jobs}")
+    return (not pertes), detail, {"conversations": conv, "jobs": jobs}
+
 
 def _backup_fresh():
     """(up, detail) : le dump portal le plus récent doit dater de < 26 h."""
@@ -112,7 +145,7 @@ def _container_up(name):
         return False
 
 
-def probe():
+def probe(watermark=None):
     """Retourne {clé: {"up": bool, "detail": str}}."""
     state = {}
     for key, kind, target, expect in SERVICES:
@@ -131,6 +164,10 @@ def probe():
     # rétablissement au retour).
     bu, bdetail = _backup_fresh()
     state["backup"] = {"up": bu, "detail": bdetail}
+    # Intégrité des données : le filigrane (mémorisé dans le state) alimente
+    # la détection de chute massive — même mécanisme sticky que les services.
+    du, ddetail, compteurs = _data_intact(watermark or {})
+    state["donnees"] = {"up": du, "detail": ddetail, **compteurs}
     return state
 
 
@@ -216,8 +253,20 @@ def main():
         print("test email sent" if ok else "test email FAILED")
         return 0 if ok else 1
 
-    cur = probe()
+    state = _load_state(args.state)
+    prev_down = set(state.get("down", []))
+    wm = state.get("data_watermark") or {}
+
+    cur = probe(wm)
     down = {k: v for k, v in cur.items() if not v["up"]}
+    # Filigrane : jamais décroissant (max entre vu et mémorisé) — une lecture
+    # impossible (conteneur arrêté) ne réinitialise donc pas la référence.
+    d = cur.get("donnees", {})
+    wm = {
+        "conversations": max(int(wm.get("conversations") or 0),
+                             int(d.get("conversations") or 0)),
+        "jobs": max(int(wm.get("jobs") or 0), int(d.get("jobs") or 0)),
+    }
 
     if args.list:
         for key, v in cur.items():
@@ -228,12 +277,9 @@ def main():
         print("DOWN services:", ", ".join(down) if down else "none (all up)")
         return 0
 
-    state = _load_state(args.state)
-    prev_down = set(state.get("down", []))
-
     # --init : mémorise l'état sans envoyer (évite un burst au déploiement).
     if args.init:
-        _save_state(args.state, {"down": sorted(down)})
+        _save_state(args.state, {"down": sorted(down), "data_watermark": wm})
         print(f"init: {sorted(down) if down else 'all up'}")
         return 0
 
@@ -249,7 +295,7 @@ def main():
               {k: cur[k] for k in recovered})
         print(f"recovery sent for: {recovered}")
 
-    _save_state(args.state, {"down": sorted(down)})
+    _save_state(args.state, {"down": sorted(down), "data_watermark": wm})
     return 0
 
 

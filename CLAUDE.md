@@ -365,7 +365,10 @@ sur l'hôte (accès au socket docker + au `.env` 600).
   sonde le **cœur** toujours-up (vllm-runner `:8001`, conteneurs traefik /
   litellm / litellm-postgres / dgx-portal / dgx-portal-frontend) et envoie un
   email d'alerte à `ADMIN_EMAIL` quand un service tombe, puis un email de
-  rétablissement. État **sticky** dans `/var/lib/cronos-monitor/state.json`
+  rétablissement. **Intégrité des données** : un filigrane conversations/jobs
+  média est mémorisé dans l'état sticky ; une chute sous 40 % du filigrane
+  (reset de la base — arrivé le 04/09/2026, resté invisible 3 jours) déclenche
+  la même alerte. État **sticky** dans `/var/lib/cronos-monitor/state.json`
   (1 alerte par incident). Les sidecars média (vLLM `:8000`, OCR/voix/musique/
   image/ComfyUI) sont **on-demand** : non sondés pour éviter les faux positifs.
   Le moniteur sonde aussi la **fraîcheur du dump portal** (`/var/backups/cronos/portal-*.db`
@@ -376,6 +379,11 @@ sur l'hôte (accès au socket docker + au `.env` 600).
   `pg_dump -Fc` de la base LiteLLM (sans mot de passe : auth de confiance dans
   le conteneur). Destination `/var/backups/cronos/`, rétention 14 fichiers
   (`--keep`). **Ces dumps contiennent les données de la DB — jamais poussés.**
+  Après le dump, **purge des fichiers orphelins** du volume portal
+  (image_files/music_files dont plus aucun job ne référence le préfixe, grâce
+  de 7 jours ; `--no-purge`, `--purge-dry-run`). Le portail écrit aussi un
+  marqueur `.db_initialized` dès que la base est peuplée : marqueur présent +
+  base vide au démarrage → alerte infra (cf. `db._detecte_base_reinitialisee`).
   Restauration : `docker cp` du `.db`/`.dump` puis ouverture/`pg_restore`.
 
 Endpoints de santé (côté portail) :

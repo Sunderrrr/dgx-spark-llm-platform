@@ -130,12 +130,20 @@ _VALUE_FLAGS = {
     "--max-num-batched-tokens", "--block-size", "--swap-space",
     "--quantization", "--tensor-parallel-size", "--pipeline-parallel-size",
     "--reasoning-parser",
-    # Effort de raisonnement AU NIVEAU SERVEUR. Sur K2-Horizon le parser fixe la
-    # paire de balises une fois pour toutes a la construction, depuis ce JSON
-    # (high|medium|low, defaut high) : sans ce flag l'operateur ne peut pas choisir
-    # autre chose que le defaut. Valeur = JSON de variables de template, comme pour
-    # llama.cpp ou il est deja admis — pas de chemin ni de code.
-    "--chat-template-kwargs", "--limit-mm-per-prompt",
+    # Choix du noyau d'attention. Necessaire sur GB10 : vLLM prefere FLASHINFER,
+    # mais la capability de cette carte est sm_121 et les chemins FlashInfer requis
+    # sont gardes par `is_sm100a_supported()` — qui renvoie False ici. Le moteur
+    # echoue alors au profilage memoire sur "FlashInfer backend is not available",
+    # alors que le paquet EST installe. TRITON_ATTN est l'alternative annoncee par
+    # le moteur lui-meme dans ses backends potentiels.
+    "--attention-backend",
+    # Valeurs par defaut des variables de template, fusionnees SOUS celles de
+    # chaque requete. Sur K2-Horizon elles fixent le `reasoning_effort` par defaut
+    # (high|medium|low), donc la paire de balises que le parser attend quand le
+    # client n'en demande pas. Attention : cote vLLM le flag s'appelle
+    # --default-chat-template-kwargs ; --chat-template-kwargs est celui de
+    # llama.cpp et fait echouer `vllm serve` avec "unrecognized arguments".
+    "--default-chat-template-kwargs", "--limit-mm-per-prompt",
     "--uvicorn-log-level",
     # Speculative decoding (MTP / draft model): a compact JSON value, e.g.
     # {"method":"mtp","num_speculative_tokens":1}. Passed as argv to vLLM (never
@@ -210,10 +218,9 @@ _DS4_VALUE_FLAGS = {
 # modele, pas une ouverture. Y inscrire un modele est une decision de securite —
 # lancer ce modele execute le code Python de son depot.
 _TRUST_RC_MODELS = {
-    # K2-Horizon (arch `k2_horizon`) : sa config passe par `auto_map` vers
-    # configuration_k2_horizon.py, vLLM ne peut pas la lire sans. Approuve par
-    # l'operateur le 2026-09-07, pour ce depot precis.
-    "primitive-ai/K2-Horizon-MoVA-36B-A4B-NVFP4",
+    # Vide : aucune exception active. K2-Horizon y a figure le 2026-09-07 puis en a
+    # ete retire avec le modele — garder une approbation pour un modele qu'on ne
+    # sert plus elargit la surface sans rien apporter.
 }
 
 

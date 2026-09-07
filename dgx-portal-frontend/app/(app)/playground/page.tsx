@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Popover } from "@astryxdesign/core/Popover";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Card } from "@astryxdesign/core/Card";
 import { Toolbar } from "@astryxdesign/core/Toolbar";
@@ -2848,14 +2849,36 @@ export default function PlaygroundPage() {
                 isDisabled={!currentId}
                 onClick={() => currentId && shareConversation(currentId)}
               />
-              <Button
-                label={t("Réglages")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-                isIconOnly
-                onClick={() => setIsSettingsOpen((v) => !v)}
-              />
+              {/* Réglages : petit panneau ancré SOUS la roue crantée (pas un
+                  bloc pleine largeur qui pousse la conversation vers le bas).
+                  Contrôlé par isSettingsOpen ; clic extérieur = fermeture. */}
+              <Popover
+                isOpen={isSettingsOpen}
+                onOpenChange={setIsSettingsOpen}
+                placement="below"
+                alignment="end"
+                width={480}
+                label={t("Réglages du playground")}
+                content={
+                  <VStack padding={4}>
+                    <SettingsPanel
+                      settings={settings}
+                      onChange={setSettings}
+                      contexte={modelLimits[model]}
+                      provenance={systemProvenance}
+                      onProvenance={setSystemProvenance}
+                    />
+                  </VStack>
+                }
+              >
+                <Button
+                  label={t("Réglages")}
+                  variant="secondary"
+                  size="sm"
+                  icon={<Icon icon={Cog6ToothIcon} size="sm" />}
+                  isIconOnly
+                />
+              </Popover>
               <Button
                 label={t("Titrer automatiquement")}
                 variant="secondary"
@@ -2888,17 +2911,6 @@ export default function PlaygroundPage() {
       }
       content={
         <LayoutContent padding={0} isScrollable={false}>
-          {isSettingsOpen && (
-            <VStack padding={4}>
-              <SettingsPanel
-                settings={settings}
-                onChange={setSettings}
-                contexte={modelLimits[model]}
-                provenance={systemProvenance}
-                onProvenance={setSystemProvenance}
-              />
-            </VStack>
-          )}
           {/* VStack (flex column) gives ChatLayout the flex parent its own flex:1
               needs to fill the remaining height — LayoutContent renders display:block,
               so without this wrapper ChatLayout's flex:1 is a no-op.

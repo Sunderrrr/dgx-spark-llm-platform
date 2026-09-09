@@ -299,7 +299,8 @@ export default function HomePage() {
                 </HStack>
               </VStack>
               <HStack gap={2} wrap="wrap">
-                <Button label={t("Lancer une conversation")} variant="primary" icon={<Icon icon={ChatBubbleLeftRightIcon} size="sm" />} href="/playground" />
+                {/* « Lancer une conversation » retiré : l'accès rapide est
+                    déjà dans la barre latérale. */}
                 <Button label={t("Mes clés API")} variant="secondary" icon={<Icon icon={KeyIcon} size="sm" />} onClick={() => openSettings("keys")} />
               </HStack>
             </HStack>
@@ -403,13 +404,8 @@ export default function HomePage() {
                                 {t("Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.").replace("{model}", data.auto_model)}
                               </Text>
                             )}
-                            <StackItem size="fill" />
-                            <Button
-                              label={t("Créer une clé API")}
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => openSettings("keys")}
-                            />
+                            {/* « Créer une clé API » retiré : déjà en haut à
+                                droite de la page. */}
                           </>
                         ) : (
                           <>
@@ -538,18 +534,8 @@ export default function HomePage() {
                           <Text type="supporting" color="secondary">{t("Contexte sortie")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_out)}</Text>
                         </VStack>
-                        {data.modelhealth.model && (
-                          <VStack gap={1} hAlign="start">
-                            <Text type="supporting" color="secondary">{t("Accès rapide")}</Text>
-                            <Button
-                              label={t("Discuter avec le modèle actif")}
-                              variant="secondary"
-                              size="sm"
-                              icon={<Icon icon={ChatBubbleLeftRightIcon} size="sm" />}
-                              href={`/playground?model=${encodeURIComponent(data.modelhealth.model)}`}
-                            />
-                          </VStack>
-                        )}
+                        {/* Accès rapide retiré : déjà couvert par les
+                            boutons en haut de la page. */}
                       </HStack>
                     )}
 
@@ -631,15 +617,14 @@ export default function HomePage() {
               <Card>
                 <VStack gap={2} height="100%">
                   <HStack gap={2} vAlign="center">
-                    <Icon icon={KeyIcon} size="sm" />
-                    <Text weight="semibold">{t("Mes clés API")}</Text>
+                    <Icon icon={CircleStackIcon} size="sm" />
+                    <Text weight="semibold">{t("Usage des quotas")}</Text>
                   </HStack>
-                  <Text type="supporting" color="secondary">{t("Crée des clés personnelles pour accéder aux modèles via l'API OpenAI-compatible.")}</Text>
-                  <Text type="supporting" color="secondary">
-                    {t("Limite :")} {who?.is_admin ? t("Illimitée (admin)") : `${data?.budget_tokens ?? "—"} tokens / ${data?.budget_duration ?? "—"}`}
-                  </Text>
-                  {!who?.is_admin && data && (
+                  {data && (
                     <VStack gap={2}>
+                      <Text type="supporting" color="secondary">
+                        {t("Ta consommation de tokens sur la fenêtre de budget « {duration} ».").replace("{duration}", data.budget_duration)}
+                      </Text>
                       <ProgressBar
                         label={t("Quota consommé")}
                         value={data.budget_used}
@@ -650,19 +635,21 @@ export default function HomePage() {
                       />
                       <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
                         <Text type="supporting" color="secondary">
+                          {t("Utilisé :")} <Text hasTabularNumbers weight="semibold">{data.budget_used.toLocaleString("fr-FR")}</Text> {t("tokens")}
+                        </Text>
+                        <Text type="supporting" color="secondary">
                           {t("Restant :")} <Text hasTabularNumbers weight="semibold">{data.budget_remaining.toLocaleString("fr-FR")}</Text> {t("tokens")}
                         </Text>
-                        <Button
-                          label={t("Demander plus de budget")}
-                          variant="secondary"
-                          size="sm"
-                          href="/request"
-                        />
                       </HStack>
+                      {who?.is_admin ? (
+                        <Text type="supporting" color="secondary">{t("Limite :")} {t("Illimitée (admin)")}</Text>
+                      ) : (
+                        <HStack hAlign="end">
+                          <Button label={t("Demander plus de budget")} variant="secondary" size="sm" href="/request" />
+                        </HStack>
+                      )}
                     </VStack>
                   )}
-                  <StackItem size="fill" />
-                  <Button label={t("Gérer mes clés")} variant="secondary" onClick={() => openSettings("keys")} />
                 </VStack>
               </Card>
               {(data?.usage_by_model?.length ?? 0) > 0 && (

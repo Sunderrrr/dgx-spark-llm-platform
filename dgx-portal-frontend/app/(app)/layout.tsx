@@ -81,7 +81,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // Demandes en attente (badge de la sidebar). Poll léger pour rester à jour
   // sans charger l'app — pas un compteur temps réel critique.
-  const [pendingCount, setPendingCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState<{ model: number; budget: number }>({ model: 0, budget: 0 });
   // Prise en main : ouverte quand le compte ne l'a jamais vue. L'état vient du
   // serveur (colonne user_prefs.onboarded), pas du navigateur — elle suit donc
   // la personne d'un poste à l'autre, et ne revient jamais une fois passée.
@@ -185,8 +185,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     const tick = () =>
       fetch("/api/pending-count", { credentials: "include" })
-        .then((r) => (r.ok ? r.json() : { count: 0 }))
-        .then((d) => { if (!cancelled) setPendingCount(d?.count ?? 0); })
+        .then((r) => (r.ok ? r.json() : { model: 0, budget: 0 }))
+        .then((d) => { if (!cancelled) setPendingCount({ model: d?.model ?? 0, budget: d?.budget ?? 0 }); })
         .catch(() => {});
     tick();
     const id = setInterval(tick, 30000);
@@ -290,9 +290,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 isSelected={item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)}
                 endContent={
-                  pendingCount > 0 && (item.href === "/request" || item.href === "/admin")
-                    ? <Badge label={String(pendingCount)} variant="info" />
-                    : undefined
+                  /* Badges SÉPARÉS : « Demander un modèle » ne compte que les
+                     demandes de modèles ; « Admin » porte la file de traitement
+                     (modèles + budgets). Un total mélangé affichait « 1 » sur
+                     la demande de modèle pour une demande de budget. */
+                  item.href === "/request" && pendingCount.model > 0
+                    ? <Badge label={String(pendingCount.model)} variant="info" />
+                    : item.href === "/admin" && pendingCount.model + pendingCount.budget > 0
+                      ? <Badge label={String(pendingCount.model + pendingCount.budget)} variant="info" />
+                      : undefined
                 }
               />
             ))}

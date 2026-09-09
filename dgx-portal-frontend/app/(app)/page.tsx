@@ -621,7 +621,17 @@ export default function HomePage() {
                     <Icon icon={CircleStackIcon} size="sm" />
                     <Text weight="semibold">{t("Usage des quotas")}</Text>
                   </HStack>
-                  {data && (
+                  {data && (who?.is_admin ? (
+                    /* Admin = illimité : PAS de mécanique de quota ici (jauge,
+                       pourcentage, restant, date de reset) — elles n'ont pas de
+                       sens sans enveloppe et suggéraient un plafond fictif. */
+                    <VStack gap={2}>
+                      <Text type="supporting" color="secondary">{t("Limite :")} {t("Illimitée (admin)")}</Text>
+                      <Text type="supporting" color="secondary">
+                        {t("Utilisé :")} <Text hasTabularNumbers weight="semibold">{data.budget_used.toLocaleString("fr-FR")}</Text> {t("tokens")}
+                      </Text>
+                    </VStack>
+                  ) : (
                     <VStack gap={2}>
                       <HStack gap={2} vAlign="center" wrap="wrap">
                         <Text type="supporting" color="secondary">
@@ -653,29 +663,25 @@ export default function HomePage() {
                           {t("Nouveau quota le {date} (UTC).").replace("{date}", data.budget_reset_at)}
                         </Text>
                       )}
-                      {who?.is_admin ? (
-                        <Text type="supporting" color="secondary">{t("Limite :")} {t("Illimitée (admin)")}</Text>
-                      ) : (
-                        <HStack hAlign="end">
-                          {/* Vraie demande de budget (budget_requests + notif
-                             admin), PAS un lien vers la page « demande de
-                             modèle » : le premier clic envoyait les gens
-                             demander un modèle LLM au lieu de tokens. */}
-                          <Button
-                            label={data.budget_request_pending ? t("Demande en cours d'examen") : t("Demander plus de budget")}
-                            variant="secondary"
-                            size="sm"
-                            isDisabled={data.budget_request_pending}
-                            onClick={async () => {
-                              await postForm("/keys", csrf, { action: "request_budget", reason: "Demande depuis la page d'accueil (quota bientôt épuisé)" });
-                              setData((d) => (d ? { ...d, budget_request_pending: true } : d));
-                              showToast({ body: t("Demande envoyée à l'admin.") });
-                            }}
-                          />
-                        </HStack>
-                      )}
+                      <HStack hAlign="end">
+                        {/* Vraie demande de budget (budget_requests + notif
+                           admin), PAS un lien vers la page « demande de
+                           modèle » : le premier clic envoyait les gens
+                           demander un modèle LLM au lieu de tokens. */}
+                        <Button
+                          label={data.budget_request_pending ? t("Demande en cours d'examen") : t("Demander plus de budget")}
+                          variant="secondary"
+                          size="sm"
+                          isDisabled={data.budget_request_pending}
+                          onClick={async () => {
+                            await postForm("/keys", csrf, { action: "request_budget", reason: "Demande depuis la page d'accueil (quota bientôt épuisé)" });
+                            setData((d) => (d ? { ...d, budget_request_pending: true } : d));
+                            showToast({ body: t("Demande envoyée à l'admin.") });
+                          }}
+                        />
+                      </HStack>
                     </VStack>
-                  )}
+                  ))}
                 </VStack>
               </Card>
               {(data?.usage_by_model?.length ?? 0) > 0 && (

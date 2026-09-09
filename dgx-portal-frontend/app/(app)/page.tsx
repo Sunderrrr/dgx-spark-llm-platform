@@ -293,10 +293,8 @@ export default function HomePage() {
               <VStack gap={1}>
                 <Heading level={1}>{t("Bonjour")}{firstName ? `, ${firstName}` : ""}</Heading>
                 <Text type="supporting" color="secondary">{t("Ton accès self-service à l'inférence LLM sur DGX Spark.")}</Text>
-                <HStack gap={2} wrap="wrap">
-                  <Button label={t("Explorer les modèles")} variant="ghost" size="sm" icon={<Icon icon={MagnifyingGlassIcon} size="sm" />} href="/search" />
-                  <Button label={t("Demander un modèle")} variant="ghost" size="sm" icon={<Icon icon={PaperAirplaneIcon} size="sm" />} href="/request" />
-                </HStack>
+                {/* Boutons « Explorer les modèles » / « Demander un modèle »
+                    retirés : déjà en cartes plus bas sur cette page. */}
               </VStack>
               <HStack gap={2} wrap="wrap">
                 {/* « Lancer une conversation » retiré : l'accès rapide est

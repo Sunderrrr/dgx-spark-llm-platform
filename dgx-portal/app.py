@@ -678,12 +678,16 @@ def _index_data():
     # portail (override local → groupe → défaut), utilisé en repli si le
     # compte n'existe pas encore côté LiteLLM. Sans ça, une limite accordée
     # par l'admin n'était jamais reflétée sur la carte d'utilisation.
-    effective = _litellm_user_info(session['username']).get('max_budget')
+    _litellm_ui = _litellm_user_info(session['username'])
+    effective = _litellm_ui.get('max_budget')
     if effective is None:
         mu = db.execute("SELECT * FROM local_users WHERE username=?",
                         (session['username'],)).fetchone()
         effective = _local_user_effective_budget(mu) if mu else default_budget
     budget_used, budget_remaining = _budget_remaining(session['username'], effective, budget_duration)
+    # Date du prochain reset de l'enveloppe : affichée à l'utilisateur pour
+    # qu'il sache QUAND il récupère du quota (sinon « dépassé » semble éternel).
+    budget_reset_at = (_litellm_ui.get('budget_reset_at') or '')[:16].replace('T', ' ')
     return dict(running_models=running, my_requests=my_requests,
                 public_api_url=PUBLIC_API_URL, auto_model=AUTO_MODEL_NAME,
                 usage=user_hourly(session['username']),
@@ -692,10 +696,11 @@ def _index_data():
                 sidecar_metrics=metrics,
                 modelhealth=vllm_health(),
                 active_users=_active_users() if session.get('is_admin') else None,
-                budget_tokens=f"{default_budget:,.0f}".replace(',', ' '),
+                budget_tokens=f"{effective:,.0f}".replace(',', ' '),
                 budget_duration=budget_duration,
                 budget_used=budget_used,
-                budget_remaining=budget_remaining)
+                budget_remaining=budget_remaining,
+                budget_reset_at=budget_reset_at)
 
 
 @app.route('/')

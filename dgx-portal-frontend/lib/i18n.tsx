@@ -36,6 +36,8 @@ const EN: Record<string, string> = {
   "Quota dépassé": "Quota exceeded",
   "Presque épuisé": "Nearly exhausted",
   "Nouveau quota le {date} (UTC).": "New quota on {date} (UTC).",
+  "Demande en cours d'examen": "Request under review",
+  "Demande envoyée à l'admin.": "Request sent to the admin.",
   "Demander plus de budget": "Request more budget",
   "Annulé": "Cancelled",
   "Génération annulée.": "Generation cancelled.",

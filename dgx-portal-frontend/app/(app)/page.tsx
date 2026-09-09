@@ -32,7 +32,8 @@ import {
   ExclamationTriangleIcon,
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
-import { getJSON } from "@/lib/api";
+import { getJSON, postForm } from "@/lib/api";
+import { useCsrf } from "@/lib/useCsrf";
 import { fetchConversations, relativeTime } from "@/lib/conversations";
 import type { Conversation } from "@/lib/types";
 import { useWhoami } from "@/lib/whoami";
@@ -173,6 +174,7 @@ type HomeData = {
   budget_used: number;
   budget_remaining: number;
   budget_reset_at: string;
+  budget_request_pending: boolean;
 };
 
 
@@ -198,6 +200,7 @@ export default function HomePage() {
   const t = useT();
   const { open: openSettings } = useSettingsDialog();
   const showToast = useToast();
+  const csrf = useCsrf();
   const [data, setData] = useState<HomeData | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
@@ -654,7 +657,21 @@ export default function HomePage() {
                         <Text type="supporting" color="secondary">{t("Limite :")} {t("Illimitée (admin)")}</Text>
                       ) : (
                         <HStack hAlign="end">
-                          <Button label={t("Demander plus de budget")} variant="secondary" size="sm" href="/request" />
+                          {/* Vraie demande de budget (budget_requests + notif
+                             admin), PAS un lien vers la page « demande de
+                             modèle » : le premier clic envoyait les gens
+                             demander un modèle LLM au lieu de tokens. */}
+                          <Button
+                            label={data.budget_request_pending ? t("Demande en cours d'examen") : t("Demander plus de budget")}
+                            variant="secondary"
+                            size="sm"
+                            isDisabled={data.budget_request_pending}
+                            onClick={async () => {
+                              await postForm("/keys", csrf, { action: "request_budget", reason: "Demande depuis la page d'accueil (quota bientôt épuisé)" });
+                              setData((d) => (d ? { ...d, budget_request_pending: true } : d));
+                              showToast({ body: t("Demande envoyée à l'admin.") });
+                            }}
+                          />
                         </HStack>
                       )}
                     </VStack>

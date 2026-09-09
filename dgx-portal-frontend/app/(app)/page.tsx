@@ -20,7 +20,6 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import {
   KeyIcon,
   MagnifyingGlassIcon,
-  PaperAirplaneIcon,
   MoonIcon,
   CpuChipIcon,
   CircleStackIcon,
@@ -680,17 +679,9 @@ export default function HomePage() {
                   <Button label={t("Explorer les modèles")} variant="secondary" href="/search" />
                 </VStack>
               </Card>
-              <Card>
-                <VStack gap={2} height="100%">
-                  <HStack gap={2} vAlign="center">
-                    <Icon icon={PaperAirplaneIcon} size="sm" />
-                    <Text weight="semibold">{t("Demander un modèle")}</Text>
-                  </HStack>
-                  <Text type="supporting" color="secondary">{t("Tu connais un modèle que tu veux tester ? Envoie une demande à l'admin.")}</Text>
-                  <StackItem size="fill" />
-                  <Button label={t("Faire une demande")} variant="secondary" href="/request" />
-                </VStack>
-              </Card>
+              {/* Carte « Demander un modèle » retirée : la section
+                  « Mes dernières demandes » juste en dessous porte déjà le
+                  bouton et l'historique. */}
             </Grid>
 
             {data && (

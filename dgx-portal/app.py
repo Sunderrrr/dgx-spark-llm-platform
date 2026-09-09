@@ -700,7 +700,12 @@ def _index_data():
                 budget_duration=budget_duration,
                 budget_used=budget_used,
                 budget_remaining=budget_remaining,
-                budget_reset_at=budget_reset_at)
+                budget_reset_at=budget_reset_at,
+                # La carte d'accueil désactive le bouton « Demander plus de
+                # budget » tant qu'une demande est en attente (anti double-post).
+                budget_request_pending=bool(db.execute(
+                    "SELECT 1 FROM budget_requests WHERE username=? AND status='pending'",
+                    (session['username'],)).fetchone()))
 
 
 @app.route('/')

@@ -172,6 +172,7 @@ type HomeData = {
   budget_duration: string;
   budget_used: number;
   budget_remaining: number;
+  budget_reset_at: string;
 };
 
 
@@ -619,9 +620,15 @@ export default function HomePage() {
                   </HStack>
                   {data && (
                     <VStack gap={2}>
-                      <Text type="supporting" color="secondary">
-                        {t("Ta consommation de tokens sur la fenêtre de budget « {duration} ».").replace("{duration}", data.budget_duration)}
-                      </Text>
+                      <HStack gap={2} vAlign="center" wrap="wrap">
+                        <Text type="supporting" color="secondary">
+                          {t("Ta consommation de tokens sur la fenêtre de budget « {duration} ».").replace("{duration}", data.budget_duration)}
+                        </Text>
+                        {data.budget_remaining <= 0 && <Badge label={t("Quota dépassé")} variant="error" />}
+                        {data.budget_remaining > 0 && data.budget_used > 0
+                          && (data.budget_used / (data.budget_used + data.budget_remaining)) >= 0.85
+                          && <Badge label={t("Presque épuisé")} variant="warning" />}
+                      </HStack>
                       <ProgressBar
                         label={t("Quota consommé")}
                         value={data.budget_used}
@@ -638,6 +645,11 @@ export default function HomePage() {
                           {t("Restant :")} <Text hasTabularNumbers weight="semibold">{data.budget_remaining.toLocaleString("fr-FR")}</Text> {t("tokens")}
                         </Text>
                       </HStack>
+                      {data.budget_reset_at && (
+                        <Text type="supporting" color="secondary">
+                          {t("Nouveau quota le {date} (UTC).").replace("{date}", data.budget_reset_at)}
+                        </Text>
+                      )}
                       {who?.is_admin ? (
                         <Text type="supporting" color="secondary">{t("Limite :")} {t("Illimitée (admin)")}</Text>
                       ) : (

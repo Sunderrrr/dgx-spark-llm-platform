@@ -890,6 +890,11 @@ export default function AdminPage() {
 
 const BUDGET_PRESETS = [10000000, 50000000, 100000000];
 
+/** « 10M » plutôt que « 10 000 000 » sur les boutons : lisible d'un coup
+    d'œil. Les montants qui ne tombent pas juste restent en clair. */
+const fmtCompact = (n: number) =>
+  n >= 1_000_000 && n % 1_000_000 === 0 ? `${Math.round(n / 1_000_000)}M` : Math.round(n).toLocaleString("fr-FR");
+
 function BudgetSetForm({ rows }: { rows: SpendRow[] }) {
   /** Redéfinir le plafond d'un compte : montant EXACT (pas un ajout) — sert
      à BAISSER un quota (200M → 50M) autant qu'à le hausser. L'utilisateur se
@@ -903,7 +908,6 @@ function BudgetSetForm({ rows }: { rows: SpendRow[] }) {
   const [busy, setBusy] = useState(false);
   const fmt = (n: number) => Math.round(n).toLocaleString("fr-FR");
   const sel = rows.find((r) => r.username === user);
-  const actuel = sel ? (sel.unlimited ? t("Illimitée (admin)") : fmt(sel.max_budget || 0)) : "";
   return (
     <Card>
       <VStack gap={2}>
@@ -918,19 +922,19 @@ function BudgetSetForm({ rows }: { rows: SpendRow[] }) {
           placeholder={t("Choisir un compte")}
           options={rows.map((r) => ({
             value: r.username,
-            label: `${r.username} · ${r.unlimited ? t("illimité") : fmt(r.max_budget || 0)}`,
+            label: `${r.username} · ${r.unlimited ? t("illimité") : fmtCompact(r.max_budget || 0)}`,
           }))}
           value={user}
           onChange={setUser}
         />
         {sel && (
           <Text type="supporting" color="secondary">
-            {t("Plafond actuel :")} {actuel}
+            {t("Plafond actuel :")} {sel ? (sel.unlimited ? t("Illimitée (admin)") : fmtCompact(sel.max_budget || 0)) : ""}
           </Text>
         )}
         <HStack gap={1}>
           {[50000000, 100000000, 200000000].map((v) => (
-            <Button key={v} label={fmt(v)} variant="secondary" size="sm" onClick={() => setBudget(String(v))} />
+            <Button key={v} label={fmtCompact(v)} variant="secondary" size="sm" onClick={() => setBudget(String(v))} />
           ))}
         </HStack>
         <HStack gap={2} vAlign="end">
@@ -984,7 +988,7 @@ function BudgetApproveForm({ onApprove, fullname, currentBudget }: {
             <Text type="supporting" color="secondary">{t("Montant à ajouter")}</Text>
             <HStack gap={1}>
               {BUDGET_PRESETS.map((v) => (
-                <Button key={v} label={`+${fmt(v)}`} variant="secondary" size="sm" onClick={() => setAmount(String(v))} />
+                <Button key={v} label={`+${fmtCompact(v)}`} variant="secondary" size="sm" onClick={() => setAmount(String(v))} />
               ))}
               <TextInput label={t("Montant (tokens)")} isLabelHidden value={amount} onChange={setAmount} placeholder={t("Autre montant...")} size="sm" />
             </HStack>

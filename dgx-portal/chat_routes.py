@@ -33,7 +33,7 @@ from auth import login_required
 from config import AUTO_MODEL_NAME, LITELLM_URL
 from conversation_routes import MSG_MAX_CHARS
 from db import get_db
-from guards import _chat_rate_limited, _sse_msg, maintenance_block_sse
+from guards import _chat_rate_limited, _sse_msg, maintenance_block_sse, quota_depasse_message
 from litellm_client import _litellm_user_info, get_user_keys, litellm_headers
 # La mémoire (graphe de connaissances par utilisateur) vit dans son blueprint :
 # le chat n'en utilise que la lecture (injection au system) et l'écriture
@@ -645,6 +645,11 @@ def playground_chat():
                                  "playground runs on your account budget."),
                         mimetype='text/event-stream')
     user_key = keys[0]['key']
+    # Garde de quota AVANT tout : sur la comptabilité fiable (SpendLogs), pas
+    # seulement le compteur LiteLLM (voir guards.quota_depasse_message).
+    _quota_msg = quota_depasse_message(session['username'])
+    if _quota_msg:
+        return Response(_sse_msg(_quota_msg), mimetype='text/event-stream')
     history = _history_for_model(history, system, _playground_model_limits().get(model))
     # Mémoire (opt-in, par utilisateur) : ce que l'assistant sait déjà de la
     # personne est injecté au SYSTEM, sinon le modèle répond « je ne connais

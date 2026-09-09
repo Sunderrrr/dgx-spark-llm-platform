@@ -10,12 +10,55 @@ Ne depend que de flask, du noyau (db) et du temps.
 import threading
 import time
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 import json
 
 from flask import Response, jsonify, request, session
 
-from db import get_db, maintenance_active
+from config import KEY_DURATION
+from db import get_db, get_setting, maintenance_active
+
+
+# ── Garde de quota (comptabilité fiable SpendLogs) ───────────────────────────
+# Le 429 natif de LiteLLM ne suffit pas : son compteur interne a été écrasé
+# pendant des semaines par les resets quotidiens et sa sync DB est capricieuse
+# (lbozier : 242 M de tokens réels sur 7 j contre 1,3 M comptés, 2026-09-09 —
+# il « dépassait » son quota sans jamais être bloqué). Le portail juge donc
+# AVANT l'appel modèle sur SpendLogs — la même source que la carte
+# d'utilisation : ce que l'utilisateur voit dépassé est réellement appliqué.
+_QUOTA_CACHE = {}          # username -> (horodatage, verdict)
+_QUOTA_CACHE_TTL = 30      # s : un tour d'agrégat Postgres par compte suffit
+
+
+def quota_depasse_message(username):
+    """Message si le compte a épuisé son enveloppe, sinon None (la passe)."""
+    now = time.time()
+    hit = _QUOTA_CACHE.get(username)
+    if hit and now - hit[0] < _QUOTA_CACHE_TTL:
+        return hit[1]
+    msg = None
+    try:
+        from litellm_client import _litellm_user_info
+        from stats import _real_tokens_by_user
+        ui = _litellm_user_info(username)
+        effective = ui.get('max_budget')
+        if effective:
+            duree = get_setting('default_key_duration', KEY_DURATION)
+            jours = int(''.join(c for c in str(duree) if c.isdigit()) or 7)
+            since = datetime.utcnow() - timedelta(days=jours)
+            used = int(_real_tokens_by_user(since).get(username, 0) or 0)
+            if used >= int(effective):
+                ra = (ui.get('budget_reset_at') or '')[:16].replace('T', ' ')
+                reset = f" Nouveau quota le {ra} (UTC)." if ra else ""
+                msg = ("Quota dépassé : tu as épuisé ton budget de tokens pour "
+                       "la période en cours." + reset +
+                       " Tu peux demander plus à l'admin (accueil → "
+                       "« Demander plus de budget »).")
+    except Exception:
+        msg = None                       # ne JAMAIS bloquer sur une panne interne
+    _QUOTA_CACHE[username] = (now, msg)
+    return msg
 
 
 def maintenance_block_json():

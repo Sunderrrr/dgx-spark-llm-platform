@@ -73,6 +73,29 @@ import { DictateButton } from "../_components/DictateButton";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
 import { type EtapeWeb, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
+
+/** Notices système du serveur (cronos_notice) : msgid français + arguments.
+ * Traduites au rendu dans la langue de l'interface — le contrat i18n
+ * (français = clé) s'applique comme pour le reste de l'UI ; le serveur
+ * n'écrit jamais de phrase, donc pas de langue côté backend. */
+function texteNotice(
+  notice: { id: string; reset?: string; status?: number },
+  t: (fr: string) => string,
+): string {
+  switch (notice.id) {
+    case "quota_exceeded": {
+      let texte = t("Quota dépassé : tu as épuisé ton budget de tokens pour la période en cours.");
+      if (notice.reset) texte += " " + t("Nouveau quota le {date} (UTC).").replace("{date}", notice.reset);
+      return texte + " " + t("Tu peux demander plus à l'admin (accueil → « Demander plus de budget »).");
+    }
+    case "no_api_key":
+      return t("Crée d'abord une clé API (page Mes clés API) — le playground consomme le budget de ton compte.");
+    case "model_error":
+      return t("Erreur modèle ({status}).").replace("{status}", String(notice.status ?? ""));
+    default:
+      return notice.id;
+  }
+}
 import {
   fetchConversations,
   persistConversation,
@@ -2047,6 +2070,12 @@ export default function PlaygroundPage() {
         (delta) => {
           if (delta.usage) usage = delta.usage;
           if (delta.truncated) tronque = true;
+          if (delta.notice) {
+            // Notice système (quota dépassé…) : traduite ICI selon la langue
+            // de l'interface, pas côté serveur.
+            acc += (acc ? "\n\n" : "") + texteNotice(delta.notice, t);
+            updateLast();
+          }
           if (delta.webStep) {
             const e = delta.webStep;
             // Une étape « finie » remplace son annonce, elle ne s'ajoute pas.

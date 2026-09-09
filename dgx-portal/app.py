@@ -673,7 +673,17 @@ def _index_data():
     ).fetchall()
     default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
     budget_duration = get_setting('default_key_duration', KEY_DURATION)
-    budget_used, budget_remaining = _budget_remaining(session['username'], default_budget, budget_duration)
+    # L'enveloppe qui bloque RÉELLEMENT vit chez LiteLLM (elle porte les
+    # accords admin qui ne touchent que ce compte). Elle prime sur le calcul
+    # portail (override local → groupe → défaut), utilisé en repli si le
+    # compte n'existe pas encore côté LiteLLM. Sans ça, une limite accordée
+    # par l'admin n'était jamais reflétée sur la carte d'utilisation.
+    effective = _litellm_user_info(session['username']).get('max_budget')
+    if effective is None:
+        mu = db.execute("SELECT * FROM local_users WHERE username=?",
+                        (session['username'],)).fetchone()
+        effective = _local_user_effective_budget(mu) if mu else default_budget
+    budget_used, budget_remaining = _budget_remaining(session['username'], effective, budget_duration)
     return dict(running_models=running, my_requests=my_requests,
                 public_api_url=PUBLIC_API_URL, auto_model=AUTO_MODEL_NAME,
                 usage=user_hourly(session['username']),

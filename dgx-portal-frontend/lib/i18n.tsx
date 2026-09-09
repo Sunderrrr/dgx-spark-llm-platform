@@ -32,6 +32,7 @@ const EN: Record<string, string> = {
   "Utilisé :": "Used:",
   "Usage des quotas": "Quota usage",
   "Ta consommation de tokens sur la fenêtre de budget « {duration} ».": "Your token consumption over the « {duration} » budget window.",
+  "Nouveau total :": "New total:",
   "Demander plus de budget": "Request more budget",
   "Annulé": "Cancelled",
   "Génération annulée.": "Generation cancelled.",

@@ -64,8 +64,12 @@ ADMIN_EMAIL   = os.environ.get('ADMIN_EMAIL', '')
 ADMIN_URL     = os.environ.get('ADMIN_URL', '')
 # Fenêtre d'anti-spam pour les demandes « lancer une catégorie média » (secondes).
 MEDIA_REQUEST_COOLDOWN_S = int(os.environ.get('MEDIA_REQUEST_COOLDOWN_S', '1800'))
-KEY_BUDGET    = float(os.environ.get('KEY_MAX_BUDGET', '0.002'))
-KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '1d')
+# Budget de compte par défaut : 200 M tokens / semaine (2026-09-08, choix
+# opérateur — auparavant 0,002 « dollar-ish » hérité d'un essai LiteLLM, puis
+# 60 M/jour). Ces défauts ne servent qu'aux installations vierges : les valeurs
+# vivent dans la table settings et sont éditables dans l'Admin.
+KEY_BUDGET    = float(os.environ.get('KEY_MAX_BUDGET', '200000000'))
+KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '7d')
 
 # Public URL of the OpenAI-compatible API, shown to users.
 PUBLIC_API_URL = os.environ.get('PUBLIC_API_URL', 'https://api.cronos.website/v1')

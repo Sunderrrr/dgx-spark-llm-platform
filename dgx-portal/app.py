@@ -916,20 +916,25 @@ def api_modelhealth():
 @app.route('/api/pending-count')
 @login_required
 def api_pending_count():
-    """Nombre de demandes (modèle + budget) en attente — badge de la sidebar."""
+    """Badges de la sidebar : demandes de MODÈLE et de BUDGET, séparées.
+
+    Un total unique mélangé collait le même chiffre sur « Demander un modèle »
+    et sur « Admin » : une simple demande de budget affichait « 1 » sur la
+    demande de modèle (bug signalé le 2026-09-08)."""
     db = get_db()
     if session.get('is_admin'):
-        n = db.execute(
-            "SELECT (SELECT COUNT(*) FROM model_requests WHERE status='pending')"
-            " + (SELECT COUNT(*) FROM budget_requests WHERE status='pending')"
-        ).fetchone()[0]
+        model = db.execute(
+            "SELECT COUNT(*) FROM model_requests WHERE status='pending'").fetchone()[0]
+        budget = db.execute(
+            "SELECT COUNT(*) FROM budget_requests WHERE status='pending'").fetchone()[0]
     else:
-        n = db.execute(
-            "SELECT (SELECT COUNT(*) FROM model_requests WHERE status='pending' AND username=?)"
-            " + (SELECT COUNT(*) FROM budget_requests WHERE status='pending' AND username=?)",
-            (session['username'], session['username']),
-        ).fetchone()[0]
-    return jsonify({'count': int(n or 0)})
+        model = db.execute(
+            "SELECT COUNT(*) FROM model_requests WHERE status='pending' AND username=?",
+            (session['username'],)).fetchone()[0]
+        budget = db.execute(
+            "SELECT COUNT(*) FROM budget_requests WHERE status='pending' AND username=?",
+            (session['username'],)).fetchone()[0]
+    return jsonify({'model': int(model or 0), 'budget': int(budget or 0)})
 
 
 # Catégories média sur lesquelles un utilisateur peut demander le lancement d'un

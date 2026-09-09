@@ -20,6 +20,7 @@ import type { TableColumn } from "@astryxdesign/core/Table";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Banner } from "@astryxdesign/core/Banner";
 import { useToast } from "@astryxdesign/core/Toast";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import {
   PlayIcon,
   StopIcon,
@@ -266,7 +267,7 @@ export default function AdminPage() {
       renderCell: (r) =>
         r.status === "pending" ? (
           <HStack gap={1}>
-            <BudgetApproveForm currentBudget={r.current_budget} onApprove={(amount, days) => act(`/admin/budget/approve/${r.id}`, { amount, grant_days: days })} />
+            <BudgetApproveForm fullname={r.fullname} currentBudget={r.current_budget} onApprove={(amount, days) => act(`/admin/budget/approve/${r.id}`, { amount, grant_days: days })} />
             <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => act(`/admin/budget/reject/${r.id}`)} />
           </HStack>
         ) : null,
@@ -856,7 +857,7 @@ export default function AdminPage() {
                   ))}
                 </VStack>
               )}
-              <BudgetSetForm />
+              <BudgetSetForm rows={data?.spend_data ?? []} />
             </VStack>
 
             <UserLookup
@@ -887,66 +888,143 @@ export default function AdminPage() {
   );
 }
 
-function BudgetSetForm() {
+const BUDGET_PRESETS = [10000000, 50000000, 100000000];
+
+function BudgetSetForm({ rows }: { rows: SpendRow[] }) {
   /** Redéfinir le plafond d'un compte : montant EXACT (pas un ajout) — sert
-     à BAISSER un quota (200M → 50M) autant qu'à le hausser. */
+     à BAISSER un quota (200M → 50M) autant qu'à le hausser. L'utilisateur se
+     CHOISIT dans une liste (avec son plafond actuel affiché) : pas de nom à
+     taper au hasard. */
   const t = useT();
   const csrf = useCsrf();
   const showToast = useToast();
   const [user, setUser] = useState("");
   const [budget, setBudget] = useState("");
   const [busy, setBusy] = useState(false);
+  const fmt = (n: number) => Math.round(n).toLocaleString("fr-FR");
+  const sel = rows.find((r) => r.username === user);
+  const actuel = sel ? (sel.unlimited ? t("Illimitée (admin)") : fmt(sel.max_budget || 0)) : "";
   return (
-    <HStack gap={2} vAlign="end" wrap="wrap">
-      <TextInput label={t("Utilisateur")} value={user} onChange={setUser} placeholder="lbozier" size="sm" />
-      <TextInput label={t("Nouveau plafond (tokens)")} value={budget} onChange={setBudget} placeholder="50000000" size="sm" />
-      <Button
-        label={t("Redéfinir")}
-        variant="secondary"
-        size="sm"
-        isDisabled={!user || !budget || busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            await postForm(`/admin/users/${encodeURIComponent(user.trim())}/budget/set`, csrf, { budget: budget.trim() });
-            showToast({ body: t("Budget redéfini.") });
-            setBudget("");
-          } finally {
-            setBusy(false);
-          }
-        }}
-      />
-    </HStack>
+    <Card>
+      <VStack gap={2}>
+        <Text weight="semibold">{t("Redéfinir le plafond d'un compte")}</Text>
+        <Text type="supporting" color="secondary">
+          {t("Montant exact (pas un ajout) — sert aussi à baisser un quota. La fenêtre de reset reste celle du portail.")}
+        </Text>
+        <Selector
+          label={t("Utilisateur")}
+          hasSearch
+          searchPlaceholder={t("Rechercher...")}
+          placeholder={t("Choisir un compte")}
+          options={rows.map((r) => ({
+            value: r.username,
+            label: `${r.username} · ${r.unlimited ? t("illimité") : fmt(r.max_budget || 0)}`,
+          }))}
+          value={user}
+          onChange={setUser}
+        />
+        {sel && (
+          <Text type="supporting" color="secondary">
+            {t("Plafond actuel :")} {actuel}
+          </Text>
+        )}
+        <HStack gap={1}>
+          {[50000000, 100000000, 200000000].map((v) => (
+            <Button key={v} label={fmt(v)} variant="secondary" size="sm" onClick={() => setBudget(String(v))} />
+          ))}
+        </HStack>
+        <HStack gap={2} vAlign="end">
+          <TextInput label={t("Nouveau plafond (tokens)")} value={budget} onChange={setBudget} placeholder="50000000" size="sm" />
+          <Button
+            label={t("Redéfinir")}
+            variant="primary"
+            size="sm"
+            isDisabled={!user || !budget || busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await postForm(`/admin/users/${encodeURIComponent(user.trim())}/budget/set`, csrf, { budget: budget.trim() });
+                showToast({ body: t("Budget redéfini.") });
+                setBudget("");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
+        </HStack>
+      </VStack>
+    </Card>
   );
 }
 
-function BudgetApproveForm({ onApprove, currentBudget }: { onApprove: (amount: string, days: string) => void; currentBudget: number | null }) {
+function BudgetApproveForm({ onApprove, fullname, currentBudget }: {
+  onApprove: (amount: string, days: string) => void;
+  fullname: string;
+  currentBudget: number | null;
+}) {
+  /** UN bouton par demande : « Approuver » ouvre un dialog avec montants en
+     un clic (+10M/+50M/+100M), une durée en segments (Permanente/1j/3j/7j/30j)
+     et l'aperçu du résultat AVANT de confirmer. Plus aucun champ à deviner. */
   const t = useT();
+  const [isOpen, setIsOpen] = useState(false);
   const [amount, setAmount] = useState("");
-  const [days, setDays] = useState("");
-  const total = (currentBudget || 0) + (parseFloat(amount) || 0);
+  const [days, setDays] = useState("permanent");
+  const fmt = (n: number) => Math.round(n).toLocaleString("fr-FR");
+  const base = currentBudget || 0;
+  const total = base + (parseFloat(amount) || 0);
+  // eslint-disable-next-line react-hooks/purity -- aperçu « retour à la base le … » : la date est par nature relative à maintenant, recalculée à chaque ouverture du dialog
+  const expire = days === "permanent" ? null : new Date(Date.now() + parseInt(days, 10) * 86400000);
   return (
-    <VStack gap={0}>
-      <HStack gap={1}>
-        <TextInput label="Tokens" isLabelHidden value={amount} onChange={setAmount} placeholder={t("tokens")} size="sm" />
-        {/* Durée du boost : vide = permanente. N jours = le supplément
-           disparaît à l'échéance (le portail ramène le plafond à sa base). */}
-        <TextInput label="Jours" isLabelHidden value={days} onChange={setDays} placeholder={t("jours")} size="sm" />
-        <Button
-          label={t("Approuver")}
-          variant="ghost"
-          size="sm"
-          isIconOnly
-          icon={<Icon icon={CheckIcon} size="sm" />}
-          isDisabled={!amount}
-          onClick={() => onApprove(amount, days)}
-        />
-      </HStack>
-      {amount && (
-        <Text type="supporting" color="secondary">
-          {t("Nouveau total :")} {Math.round(total).toLocaleString("fr-FR")}
-        </Text>
-      )}
-    </VStack>
+    <>
+      <Button label={t("Approuver")} variant="ghost" size="sm" onClick={() => setIsOpen(true)} />
+      <Dialog isOpen={isOpen} onOpenChange={setIsOpen} purpose="form">
+        <DialogHeader title={t("Accorder des tokens")} subtitle={`${fullname} — ${t("Actuel :")} ${fmt(base)}`} />
+        <VStack gap={3}>
+          <VStack gap={1}>
+            <Text type="supporting" color="secondary">{t("Montant à ajouter")}</Text>
+            <HStack gap={1}>
+              {BUDGET_PRESETS.map((v) => (
+                <Button key={v} label={`+${fmt(v)}`} variant="secondary" size="sm" onClick={() => setAmount(String(v))} />
+              ))}
+              <TextInput label={t("Montant (tokens)")} isLabelHidden value={amount} onChange={setAmount} placeholder={t("Autre montant...")} size="sm" />
+            </HStack>
+          </VStack>
+          <VStack gap={1}>
+            <Text type="supporting" color="secondary">{t("Durée du supplément")}</Text>
+            <SegmentedControl value={days} onChange={setDays} label={t("Durée du supplément")} size="sm">
+              <SegmentedControlItem value="permanent" label={t("Permanente")} />
+              <SegmentedControlItem value="1" label={t("1 j")} />
+              <SegmentedControlItem value="3" label={t("3 j")} />
+              <SegmentedControlItem value="7" label={t("7 j")} />
+              <SegmentedControlItem value="30" label={t("30 j")} />
+            </SegmentedControl>
+          </VStack>
+          {amount && (
+            <Text type="supporting" color="secondary">
+              {days === "permanent"
+                ? `${t("Nouveau total :")} ${fmt(total)}`
+                : t("Nouveau total : {total} — retour à {base} le {date} UTC.")
+                    .replace("{total}", fmt(total))
+                    .replace("{base}", fmt(base))
+                    .replace("{date}", expire ? expire.toISOString().slice(0, 16).replace("T", " ") : "")}
+            </Text>
+          )}
+          <HStack gap={2} hAlign="end">
+            <Button label={t("Annuler")} variant="ghost" size="sm" onClick={() => setIsOpen(false)} />
+            <Button
+              label={t("Confirmer")}
+              variant="primary"
+              size="sm"
+              isDisabled={!amount}
+              onClick={() => {
+                onApprove(amount, days === "permanent" ? "" : days);
+                setIsOpen(false);
+                setAmount("");
+              }}
+            />
+          </HStack>
+        </VStack>
+      </Dialog>
+    </>
   );
 }

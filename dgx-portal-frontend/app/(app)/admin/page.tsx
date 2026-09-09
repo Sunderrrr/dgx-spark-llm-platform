@@ -264,7 +264,7 @@ export default function AdminPage() {
       renderCell: (r) =>
         r.status === "pending" ? (
           <HStack gap={1}>
-            <BudgetApproveForm onApprove={(amount) => act(`/admin/budget/approve/${r.id}`, { amount })} />
+            <BudgetApproveForm currentBudget={r.current_budget} onApprove={(amount) => act(`/admin/budget/approve/${r.id}`, { amount })} />
             <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => act(`/admin/budget/reject/${r.id}`)} />
           </HStack>
         ) : null,
@@ -871,21 +871,29 @@ export default function AdminPage() {
   );
 }
 
-function BudgetApproveForm({ onApprove }: { onApprove: (amount: string) => void }) {
+function BudgetApproveForm({ onApprove, currentBudget }: { onApprove: (amount: string) => void; currentBudget: number | null }) {
   const t = useT();
   const [amount, setAmount] = useState("");
+  const total = (currentBudget || 0) + (parseFloat(amount) || 0);
   return (
-    <HStack gap={1}>
-      <TextInput label="Tokens" isLabelHidden value={amount} onChange={setAmount} placeholder={t("tokens")} size="sm" />
-      <Button
-        label={t("Approuver")}
-        variant="ghost"
-        size="sm"
-        isIconOnly
-        icon={<Icon icon={CheckIcon} size="sm" />}
-        isDisabled={!amount}
-        onClick={() => onApprove(amount)}
-      />
-    </HStack>
+    <VStack gap={0}>
+      <HStack gap={1}>
+        <TextInput label="Tokens" isLabelHidden value={amount} onChange={setAmount} placeholder={t("tokens")} size="sm" />
+        <Button
+          label={t("Approuver")}
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          icon={<Icon icon={CheckIcon} size="sm" />}
+          isDisabled={!amount}
+          onClick={() => onApprove(amount)}
+        />
+      </HStack>
+      {amount && (
+        <Text type="supporting" color="secondary">
+          {t("Nouveau total :")} {Math.round(total).toLocaleString("fr-FR")}
+        </Text>
+      )}
+    </VStack>
   );
 }

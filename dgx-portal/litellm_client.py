@@ -95,14 +95,23 @@ def _infos_cles(cles):
 
 def _ensure_litellm_user(username, max_budget, budget_duration):
     """Create/update the LiteLLM user with an ACCOUNT budget, shared by all
-    their keys (user_id). Does not overwrite the budget if the user already exists —
-    only the amount may have been adjusted by an admin.
+    their keys (user_id). If the user already exists WITH a budget, hands off —
+    only the amount may have been adjusted by an admin. An existing user
+    WITHOUT any budget (accounts predating the feature, or users created by
+    side paths) is repaired with the default — otherwise it stays uncapped
+    forever (trou réel trouvé le 2026-09-08).
     """
     body = {"user_id": username, "metadata": {"created_by": "dgx-portal"}}
     try:
         # /user/info already exists? otherwise we create it with the default budget.
         info = _litellm_user_info(username)
         if info.get('exists'):
+            if info.get('max_budget') is None:
+                # Répare : compte existant mais jamais doté d'un budget.
+                requests.post(f"{LITELLM_URL}/user/update", headers=litellm_headers(),
+                              json={"user_id": username,
+                                    "max_budget": float(max_budget),
+                                    "budget_duration": budget_duration}, timeout=8)
             return True
         body["max_budget"] = float(max_budget)
         body["budget_duration"] = budget_duration
@@ -132,11 +141,17 @@ def _litellm_user_info(username):
     return out
 
 
-def litellm_update_user_budget(username, new_max_budget):
+def litellm_update_user_budget(username, new_max_budget, budget_duration=None):
+    """Met à jour l'enveloppe du compte. `budget_duration` est REPASSÉ à
+    chaque update : un /user/update qui ne le porte pas laisse le compte sans
+    fenêtre de reset (le montant serait un plafond à vie, jamais remis à zéro).
+    None = garder la durée existante du compte (ne pas envoyer le champ)."""
+    payload = {'user_id': username, 'max_budget': float(new_max_budget)}
+    if budget_duration:
+        payload['budget_duration'] = budget_duration
     try:
         r = requests.post(f"{LITELLM_URL}/user/update", headers=litellm_headers(),
-                          json={'user_id': username, 'max_budget': float(new_max_budget)},
-                          timeout=5)
+                          json=payload, timeout=5)
         return r.ok
     except Exception:
         return False

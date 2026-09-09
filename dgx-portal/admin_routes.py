@@ -797,11 +797,24 @@ def approve_budget(req_id):
     except ValueError:
         flash("Le montant à ajouter doit être un nombre positif.", "warning")
         return redirect(url_for('admin.admin'))
+    if amount_val > 1_000_000_000_000:
+        # Garde-fou : un montant aberrant (typo « 6666726666666 ») rend le
+        # compte illimité de facto — c'est arrivé sur ce serveur sans que
+        # personne ne le voie. Au-delà d'1e12 tokens, c'est une erreur de
+        # saisie, on refuse.
+        flash("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.",
+              "warning")
+        return redirect(url_for('admin.admin'))
     # Budget at the ACCOUNT level: we increment the LiteLLM user's envelope.
     info = _litellm_user_info(breq['username'])
     current_budget = info.get('max_budget') or 0
     new_budget = current_budget + amount_val
-    if not litellm_update_user_budget(breq['username'], new_budget):
+    # La fenêtre de reset accompagne toujours la mise à jour : sans elle le
+    # montant devient un plafond à vie, jamais remis à zéro. On aligne sur le
+    # défaut global (hebdomadaire depuis le 2026-09-08).
+    grant_duration = get_setting('default_key_duration', KEY_DURATION)
+    if not litellm_update_user_budget(breq['username'], new_budget,
+                                      budget_duration=grant_duration):
         flash("Erreur lors de la mise à jour du budget sur LiteLLM.", "danger")
         return redirect(url_for('admin.admin'))
     db.execute(
@@ -811,7 +824,9 @@ def approve_budget(req_id):
     db.commit()
     add_notification(breq['username'], 'request',
                      f"Budget accordé : +{amount_val:,.0f} tokens.".replace(',', ' '))
-    flash(f"+{amount_val:,.0f} tokens accordés à {breq['fullname']} (nouveau total : {new_budget:,.0f}).".replace(',', ' '), "success")
+    _fmt = lambda n: f"{n:,.0f}".replace(',', ' ')  # noqa: E731
+    flash(f"+{_fmt(amount_val)} tokens accordés à {breq['fullname']} "
+          f"(nouveau total : {_fmt(new_budget)} / {grant_duration}).", "success")
     return redirect(url_for('admin.admin'))
 
 @bp.route('/admin/budget/reject/<int:req_id>', methods=['POST'])

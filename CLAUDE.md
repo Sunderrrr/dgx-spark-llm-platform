@@ -307,6 +307,18 @@ Login order (`login()` in `dgx-portal/app.py`):
 - **Local user management** is admin-only: create users, assign groups with
   quota/admin rights, hashed passwords. Budget precedence: user override → group
   → global default (`get_setting('default_key_budget')`).
+- **Token quotas are ENFORCED by LiteLLM, not by the portal.** The blocking
+  envelope is the LiteLLM *user* object (`max_budget` + `budget_duration`,
+  shared across all of the account's keys via `user_id`); models are priced at
+  1/token (`input_cost_per_token: 1` in `_litellm_upsert`), so LiteLLM's `spend`
+  counts TOKENS and returns 429 `ExceededBudget` past the cap. Gotchas
+  (2026-09-08 audit): accounts created before the budget feature had NO
+  envelope and stayed unlimited (`_ensure_litellm_user` now repairs
+  `max_budget=None`); a `user/update` without `budget_duration` turns the cap
+  into a lifetime ceiling — every budget write carries the duration (weekly
+  since 2026-09-08, default 200M tokens/week); grant amounts > 1e12 tokens are
+  rejected (a typo'd approval once set 6.7e12 = de-facto unlimited); the home
+  card reads the LiteLLM envelope so admin grants are reflected immediately.
 - **Sessions are server-revocable** via a `user_sessions` registry in SQLite:
   the signed cookie carries only a random `sid`; a row lets an admin kill a
   session at will (`POST /admin/users/<username>/revoke-sessions`), revoke on

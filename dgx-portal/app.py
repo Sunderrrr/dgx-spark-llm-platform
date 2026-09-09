@@ -647,6 +647,34 @@ def _budget_remaining(username, default_budget, duration):
     return used, remaining
 
 
+def _quota_depasse(username):
+    """Message si le compte a épuisé son enveloppe, sinon None.
+
+    Garde d'entrée du playground, EN PLUS du 429 natif de LiteLLM : le
+    compteur interne de LiteLLM s'est révélé deux fois infidèle (resets
+    quotidiens qui effaçaient la semaine, sync DB capricieuse — lbozier à
+    242 M réels pour 1,3 M comptés le 2026-09-09). Ici on juge sur
+    SpendLogs, la même source que la carte d'utilisation : l'utilisateur
+    voit « dépassé » exactement quand il est bloqué."""
+    try:
+        _ui = _litellm_user_info(username)
+        effective = _ui.get('max_budget')
+        if not effective:
+            return None                       # pas d'enveloppe (admin) : passe
+        duration = get_setting('default_key_duration', KEY_DURATION)
+        used, remaining = _budget_remaining(username, effective, duration)
+        if remaining > 0:
+            return None
+        _ra = (_ui.get('budget_reset_at') or '')[:16].replace('T', ' ')
+        _reset = f" Nouveau quota le {_ra} (UTC)." if _ra else ""
+        return ("Quota dépassé : tu as épuisé ton budget de tokens "
+                "pour la période en cours." + _reset +
+                " Tu peux demander plus à l'admin (accueil → "
+                "« Demander plus de budget »).")
+    except Exception:
+        return None                           # jamais bloquer sur une panne interne
+
+
 def _index_data():
     running = [{'name': m, 'kind': 'chat', 'exposed': True} for m in get_running_models()]
     metrics = {}

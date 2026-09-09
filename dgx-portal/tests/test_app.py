@@ -13,6 +13,7 @@ import io
 import os
 import time
 import unittest
+from unittest.mock import patch
 
 import app as portal
 # Le chat a quitte le monolithe pour chat_routes.py (28/08) : on le vise dans
@@ -24,6 +25,8 @@ import support as assistance
 # Ces symboles ont quitte le monolithe pour websearch_tools.py (28/08) : on les
 # vise dans leur module proprietaire plutot que de faire de app.py une facade.
 import websearch_tools as outils_web
+
+import admin_routes
 
 
 class SafeNextTest(unittest.TestCase):
@@ -834,6 +837,105 @@ class PendingCountRouteTest(unittest.TestCase):
             s["is_admin"] = True
         self.assertEqual(c.get("/api/pending-count").get_json(),
                          {'model': 1, 'budget': 1})
+
+
+class BudgetGrantsTest(unittest.TestCase):
+    """Subventions temporaires (boost N jours) + redéfinition du plafond."""
+
+    def setUp(self):
+        portal.app.config["TESTING"] = True
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute("DELETE FROM budget_requests")
+            db.execute("DELETE FROM budget_grants")
+            db.execute(
+                "INSERT INTO budget_requests (username, fullname, key_alias, current_budget, reason, status, created_at) "
+                "VALUES ('demo','D','(compte)',200000000,'plus svp','pending','2025-01-01')")
+            db.commit()
+            self.req_id = portal.get_db().execute(
+                "SELECT id FROM budget_requests").fetchone()['id']
+
+    def _login(self, c, admin=True):
+        with c.session_transaction() as s:
+            s["username"] = "boss"
+            s["auth_at"] = int(time.time())
+            s["is_admin"] = admin
+            s["csrf"] = "test-csrf"
+
+    def test_approve_temporaire_creer_subvention(self):
+        """Approuver avec durée : plafond boosté + ligne budget_grants."""
+        with patch.object(admin_routes, '_litellm_user_info', return_value={'max_budget': 200000000}), \
+             patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
+            c = portal.app.test_client()
+            self._login(c)
+            r = c.post(f"/admin/budget/approve/{self.req_id}", data={"amount": "50000000", "grant_days": "3", "csrf_token": "test-csrf"})
+            self.assertEqual(r.status_code, 302)
+        args = up.call_args
+        self.assertEqual(args.args[1], 250000000)          # 200M + 50M
+        with portal.app.app_context():
+            g = portal.get_db().execute("SELECT * FROM budget_grants").fetchone()
+            self.assertIsNotNone(g)
+            self.assertEqual(g['username'], 'demo')
+            self.assertEqual(g['base_budget'], 200000000)  # retour à la base…
+            self.assertEqual(g['current_budget'], 250000000)
+
+    def test_expiration_revient_a_la_base(self):
+        """À l'échéance : le compte est ramené au plafond de base."""
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute(
+                "INSERT INTO budget_grants (username, base_budget, current_budget, expires_at, created_at, updated_at) "
+                "VALUES ('demo', 200000000, 250000000, '2020-01-01T00:00:00', '2020-01-01', '2020-01-01')")
+            db.commit()
+        with portal.app.app_context(), \
+             patch.object(admin_routes, '_litellm_user_info', return_value={'max_budget': 250000000}), \
+             patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
+            ramenes = admin_routes.revert_expired_grants()
+        self.assertEqual(ramenes, 1)
+        args = up.call_args
+        self.assertEqual(args.args[1], 200000000)          # …à la base, pas autre chose
+        with portal.app.app_context():
+            self.assertIsNone(portal.get_db().execute("SELECT * FROM budget_grants").fetchone())
+
+    def test_expiration_necrase_pas_une_decision_admin(self):
+        """Si l'admin a redéfini le plafond entre-temps, on n'écrase pas."""
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute(
+                "INSERT INTO budget_grants (username, base_budget, current_budget, expires_at, created_at, updated_at) "
+                "VALUES ('demo', 200000000, 250000000, '2020-01-01T00:00:00', '2020-01-01', '2020-01-01')")
+            db.commit()
+        with portal.app.app_context(), \
+             patch.object(admin_routes, '_litellm_user_info', return_value={'max_budget': 50000000}), \
+             patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
+            ramenes = admin_routes.revert_expired_grants()
+        self.assertEqual(ramenes, 0)
+        up.assert_not_called()                             # la décision admin fait foi
+
+    def test_redefinir_le_plafond_a_la_baisse(self):
+        """/budget/set définit un montant EXACT : 200M → 50M, et purge les boosts."""
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute(
+                "INSERT INTO budget_grants (username, base_budget, current_budget, expires_at, created_at, updated_at) "
+                "VALUES ('demo', 200000000, 250000000, '2099-01-01T00:00:00', '2025-01-01', '2025-01-01')")
+            db.commit()
+        with patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
+            c = portal.app.test_client()
+            self._login(c)
+            r = c.post("/admin/users/demo/budget/set", data={"budget": "50000000", "csrf_token": "test-csrf"})
+            self.assertEqual(r.status_code, 302)
+        args = up.call_args
+        self.assertEqual(args.args[1], 50000000)           # montant exact, pas +
+        with portal.app.app_context():
+            self.assertIsNone(portal.get_db().execute("SELECT * FROM budget_grants").fetchone())
+
+    def test_redefinir_refuse_les_montants_irrealistes(self):
+        with patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
+            c = portal.app.test_client()
+            self._login(c)
+            c.post("/admin/users/demo/budget/set", data={"budget": "6666726666666", "csrf_token": "test-csrf"})
+            up.assert_not_called()                         # typo illimitante refusée
 
 
 class BudgetPeriodTest(unittest.TestCase):

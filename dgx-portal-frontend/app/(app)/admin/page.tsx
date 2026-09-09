@@ -33,7 +33,7 @@ import {
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { getJSON, postFormJSON, ForbiddenError } from "@/lib/api";
+import { getJSON, postForm, postFormJSON, ForbiddenError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { UserLookup } from "./_components/UserLookup";
@@ -54,6 +54,7 @@ type BudgetRequest = {
   created_at: string;
   granted_amount: number | null;
 };
+type BudgetGrant = { username: string; base_budget: number; current_budget: number; expires_at: string };
 type SpendRow = { username: string; tokens: number; max_budget: number | null; unlimited: boolean; key_count: number };
 type AuditRow = { id: number; username: string; action: string; detail: string; created_at: string };
 type UsageRow = { username: string; c: number; last: string };
@@ -70,6 +71,7 @@ type AdminData = {
   v_status: VStatus;
   init_logs: string[];
   budget_reqs: BudgetRequest[];
+  budget_grants: BudgetGrant[];
   default_key_budget: number;
   default_key_duration: string;
   maintenance_mode: boolean;
@@ -264,7 +266,7 @@ export default function AdminPage() {
       renderCell: (r) =>
         r.status === "pending" ? (
           <HStack gap={1}>
-            <BudgetApproveForm currentBudget={r.current_budget} onApprove={(amount) => act(`/admin/budget/approve/${r.id}`, { amount })} />
+            <BudgetApproveForm currentBudget={r.current_budget} onApprove={(amount, days) => act(`/admin/budget/approve/${r.id}`, { amount, grant_days: days })} />
             <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => act(`/admin/budget/reject/${r.id}`)} />
           </HStack>
         ) : null,
@@ -841,6 +843,20 @@ export default function AdminPage() {
               <Card padding={0}>
                 <Table<BudgetRequest & Record<string, unknown>> data={data?.budget_reqs ?? []} columns={budgetColumns} idKey="id" density="balanced" dividers="rows" />
               </Card>
+              {(data?.budget_grants?.length ?? 0) > 0 && (
+                <VStack gap={1}>
+                  {data!.budget_grants.map((g) => (
+                    <Text key={g.username} type="supporting" color="secondary">
+                      {t("Boost temporaire — {user} : {total} tokens jusqu'au {date} UTC (retour à {base}).")
+                        .replace("{user}", g.username)
+                        .replace("{total}", Math.round(g.current_budget).toLocaleString("fr-FR"))
+                        .replace("{date}", g.expires_at.slice(0, 16).replace("T", " "))
+                        .replace("{base}", Math.round(g.base_budget).toLocaleString("fr-FR"))}
+                    </Text>
+                  ))}
+                </VStack>
+              )}
+              <BudgetSetForm />
             </VStack>
 
             <UserLookup
@@ -871,14 +887,51 @@ export default function AdminPage() {
   );
 }
 
-function BudgetApproveForm({ onApprove, currentBudget }: { onApprove: (amount: string) => void; currentBudget: number | null }) {
+function BudgetSetForm() {
+  /** Redéfinir le plafond d'un compte : montant EXACT (pas un ajout) — sert
+     à BAISSER un quota (200M → 50M) autant qu'à le hausser. */
+  const t = useT();
+  const csrf = useCsrf();
+  const showToast = useToast();
+  const [user, setUser] = useState("");
+  const [budget, setBudget] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <HStack gap={2} vAlign="end" wrap="wrap">
+      <TextInput label={t("Utilisateur")} value={user} onChange={setUser} placeholder="lbozier" size="sm" />
+      <TextInput label={t("Nouveau plafond (tokens)")} value={budget} onChange={setBudget} placeholder="50000000" size="sm" />
+      <Button
+        label={t("Redéfinir")}
+        variant="secondary"
+        size="sm"
+        isDisabled={!user || !budget || busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await postForm(`/admin/users/${encodeURIComponent(user.trim())}/budget/set`, csrf, { budget: budget.trim() });
+            showToast({ body: t("Budget redéfini.") });
+            setBudget("");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+    </HStack>
+  );
+}
+
+function BudgetApproveForm({ onApprove, currentBudget }: { onApprove: (amount: string, days: string) => void; currentBudget: number | null }) {
   const t = useT();
   const [amount, setAmount] = useState("");
+  const [days, setDays] = useState("");
   const total = (currentBudget || 0) + (parseFloat(amount) || 0);
   return (
     <VStack gap={0}>
       <HStack gap={1}>
         <TextInput label="Tokens" isLabelHidden value={amount} onChange={setAmount} placeholder={t("tokens")} size="sm" />
+        {/* Durée du boost : vide = permanente. N jours = le supplément
+           disparaît à l'échéance (le portail ramène le plafond à sa base). */}
+        <TextInput label="Jours" isLabelHidden value={days} onChange={setDays} placeholder={t("jours")} size="sm" />
         <Button
           label={t("Approuver")}
           variant="ghost"
@@ -886,7 +939,7 @@ function BudgetApproveForm({ onApprove, currentBudget }: { onApprove: (amount: s
           isIconOnly
           icon={<Icon icon={CheckIcon} size="sm" />}
           isDisabled={!amount}
-          onClick={() => onApprove(amount)}
+          onClick={() => onApprove(amount, days)}
         />
       </HStack>
       {amount && (

@@ -197,6 +197,15 @@ def init_db():
             created_at      TEXT NOT NULL,
             updated_at      TEXT
         );
+        CREATE TABLE IF NOT EXISTS budget_grants (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            username       TEXT NOT NULL,
+            base_budget    REAL NOT NULL,
+            current_budget REAL NOT NULL,
+            expires_at     TEXT NOT NULL,
+            created_at     TEXT NOT NULL,
+            updated_at     TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS announcements (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             kind       TEXT NOT NULL,

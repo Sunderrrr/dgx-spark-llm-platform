@@ -1255,6 +1255,34 @@ with app.app_context():
                 (time.time(), time.time() - LOGIN_WINDOW))
     _db.commit()
 
+def _start_grant_reaper():
+    """Thread démon : ramène les plafonds expirés à leur base (toutes les 60 s).
+
+    Les subventions temporaires (budget_grants) vivent côté LiteLLM : sans
+    ce balayage, un supplément accordé « pour 3 jours » resterait la limite
+    pour toujours dès que personne ne charge le portail. Le premier tour au
+    démarrage rattrape les échéances manquées pendant une coupure."""
+    import threading
+
+    def _loop():
+        # Import local : le thread démarre à l'import d'app.py, AVANT que le
+        # module des routes admin (monté plus bas) ne soit chargé.
+        from admin_routes import revert_expired_grants
+        while True:
+            try:
+                with app.app_context():
+                    ramenes = revert_expired_grants()
+                    if ramenes:
+                        app.logger.info("Subventions budgétaires expirées ramenées à la base : %s", ramenes)
+            except Exception:
+                app.logger.exception("reaper budget_grants")
+            time.sleep(60)
+
+    threading.Thread(target=_loop, daemon=True, name='budget-grant-reaper').start()
+
+
+_start_grant_reaper()
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
 

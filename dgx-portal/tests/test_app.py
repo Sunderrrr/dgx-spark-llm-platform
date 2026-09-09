@@ -825,12 +825,15 @@ class PendingCountRouteTest(unittest.TestCase):
         with c.session_transaction() as s:
             s["username"] = "demo"
             s["auth_at"] = int(time.time())
-        # Utilisateur non-admin : uniquement ses propres demandes en attente.
-        self.assertEqual(c.get("/api/pending-count").get_json()["count"], 1)
-        # Admin : toutes (demo pending + other pending) = 2.
+        # Utilisateur non-admin : uniquement SES demandes, et par TYPE —
+        # une demande de budget ne doit jamais allumer le badge « modèle ».
+        self.assertEqual(c.get("/api/pending-count").get_json(),
+                         {'model': 1, 'budget': 0})
+        # Admin : toutes (demo pending + other pending), par type.
         with c.session_transaction() as s:
             s["is_admin"] = True
-        self.assertEqual(c.get("/api/pending-count").get_json()["count"], 2)
+        self.assertEqual(c.get("/api/pending-count").get_json(),
+                         {'model': 1, 'budget': 1})
 
 
 class BudgetPeriodTest(unittest.TestCase):

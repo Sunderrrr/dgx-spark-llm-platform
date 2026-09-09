@@ -31,13 +31,16 @@ _QUOTA_CACHE = {}          # username -> (horodatage, verdict)
 _QUOTA_CACHE_TTL = 30      # s : un tour d'agrégat Postgres par compte suffit
 
 
-def quota_depasse_message(username):
-    """Message si le compte a épuisé son enveloppe, sinon None (la passe)."""
+def quota_depasse_reset(username):
+    """Date du prochain reset si le compte a épuisé son enveloppe, sinon None.
+
+    On renvoie la DONNÉE (date), pas un texte : la phrase vit côté frontend,
+    traduite dans la langue de l'interface (contrat i18n : msgid français)."""
     now = time.time()
     hit = _QUOTA_CACHE.get(username)
     if hit and now - hit[0] < _QUOTA_CACHE_TTL:
         return hit[1]
-    msg = None
+    reset = None
     try:
         from litellm_client import _litellm_user_info
         from stats import _real_tokens_by_user
@@ -49,16 +52,11 @@ def quota_depasse_message(username):
             since = datetime.utcnow() - timedelta(days=jours)
             used = int(_real_tokens_by_user(since).get(username, 0) or 0)
             if used >= int(effective):
-                ra = (ui.get('budget_reset_at') or '')[:16].replace('T', ' ')
-                reset = f" Nouveau quota le {ra} (UTC)." if ra else ""
-                msg = ("Quota dépassé : tu as épuisé ton budget de tokens pour "
-                       "la période en cours." + reset +
-                       " Tu peux demander plus à l'admin (accueil → "
-                       "« Demander plus de budget »).")
+                reset = (ui.get('budget_reset_at') or '')[:16].replace('T', ' ')
     except Exception:
-        msg = None                       # ne JAMAIS bloquer sur une panne interne
-    _QUOTA_CACHE[username] = (now, msg)
-    return msg
+        reset = None                     # ne JAMAIS bloquer sur une panne interne
+    _QUOTA_CACHE[username] = (now, reset)
+    return reset
 
 
 def maintenance_block_json():
@@ -170,6 +168,13 @@ def _read_uploaded_image(field='image'):
 def _sse_msg(text):
     """A single SSE 'content' message + end of stream (safe JSON escaping)."""
     payload = json.dumps({'choices': [{'delta': {'content': text}}]})
+    return f"data: {payload}\n\ndata: [DONE]\n\n"
+
+
+def _sse_notice(nid, **args):
+    """Notice système STRUCTURÉE (ex. quota dépassé) : le frontend la traduit
+    dans la langue de l'interface — le serveur n'écrit jamais de phrase."""
+    payload = json.dumps({'cronos_notice': {'id': nid, **args}})
     return f"data: {payload}\n\ndata: [DONE]\n\n"
 
 

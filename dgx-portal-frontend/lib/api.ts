@@ -151,6 +151,9 @@ export type StreamDelta = {
   truncated?: boolean;
   /** Étape de recherche web : ce que le modèle est en train de chercher ou lire. */
   webStep?: EtapeWeb;
+  /** Notice système STRUCTURÉE (quota dépassé, erreur modèle…) : traduite au
+     rendu dans la langue de l'interface — le serveur n'envoie jamais de phrase. */
+  notice?: { id: string; reset?: string; status?: number };
 };
 
 export type ToolCallEvent = {
@@ -166,6 +169,7 @@ type SSEPayload = {
   usage?: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number };
   choices?: { delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }[];
   cronos_web?: EtapeWeb;
+  cronos_notice?: { id: string; reset?: string; status?: number };
   tool_call?: ToolCallEvent;
 };
 
@@ -228,6 +232,7 @@ export async function streamChat(
     if (json.choices?.[0]?.finish_reason === "length") onDelta({ truncated: true });
     // Recherche web : événement à part, jamais mêlé au texte de la réponse.
     if (json.cronos_web) onDelta({ webStep: json.cronos_web });
+    if (json.cronos_notice) onDelta({ notice: json.cronos_notice });
     const delta = json.choices?.[0]?.delta;
     if (delta?.reasoning_content) onDelta({ reasoningChunk: delta.reasoning_content });
     if (delta?.content) onDelta({ contentChunk: delta.content });

@@ -33,7 +33,8 @@ from auth import login_required
 from config import AUTO_MODEL_NAME, LITELLM_URL
 from conversation_routes import MSG_MAX_CHARS
 from db import get_db
-from guards import _chat_rate_limited, _sse_msg, maintenance_block_sse, quota_depasse_message
+from guards import (_chat_rate_limited, _sse_msg, _sse_notice,
+                    maintenance_block_sse, quota_depasse_reset)
 from litellm_client import _litellm_user_info, get_user_keys, litellm_headers
 # La mémoire (graphe de connaissances par utilisateur) vit dans son blueprint :
 # le chat n'en utilise que la lecture (injection au system) et l'écriture
@@ -641,15 +642,15 @@ def playground_chat():
     # (shared by the account). LiteLLM thus applies the quota (429 if exceeded).
     keys = get_user_keys(session['username'])
     if not keys:
-        return Response(_sse_msg("Create an API key first (My API keys page) — the "
-                                 "playground runs on your account budget."),
-                        mimetype='text/event-stream')
+        return Response(_sse_notice('no_api_key'), mimetype='text/event-stream')
     user_key = keys[0]['key']
     # Garde de quota AVANT tout : sur la comptabilité fiable (SpendLogs), pas
-    # seulement le compteur LiteLLM (voir guards.quota_depasse_message).
-    _quota_msg = quota_depasse_message(session['username'])
-    if _quota_msg:
-        return Response(_sse_msg(_quota_msg), mimetype='text/event-stream')
+    # seulement le compteur LiteLLM (voir guards.quota_depasse_reset). L'événement
+    # est STRUCTURÉ (cronos_notice) : le frontend traduit dans la langue de l'UI.
+    _quota_reset = quota_depasse_reset(session['username'])
+    if _quota_reset is not None:
+        return Response(_sse_notice('quota_exceeded', reset=_quota_reset),
+                        mimetype='text/event-stream')
     history = _history_for_model(history, system, _playground_model_limits().get(model))
     # Mémoire (opt-in, par utilisateur) : ce que l'assistant sait déjà de la
     # personne est injecté au SYSTEM, sinon le modèle répond « je ne connais
@@ -846,23 +847,16 @@ def playground_chat():
             if _amont.get('statut'):
                 # Statut releve dans le fil : le generateur ne voit plus la reponse
                 # HTTP elle-meme, seulement ce que le fil lui en rapporte.
+                # Notices STRUCTURÉES : le frontend traduit (FR/EN) au rendu.
                 if _amont['statut'] == 429:
-                    # Le 429 est le quota LiteLLM du compte : on dit QUOI, et
-                    # surtout QUAND ça se libère — sans la date, « dépassé »
-                    # semble éternel et l'utilisateur n'a aucun recours visible.
                     _reset = ''
                     try:
-                        _ra = (_litellm_user_info(_who).get('budget_reset_at') or '')[:16].replace('T', ' ')
-                        if _ra:
-                            _reset = f" Nouveau quota le {_ra} (UTC)."
+                        _reset = (_litellm_user_info(_who).get('budget_reset_at') or '')[:16].replace('T', ' ')
                     except Exception:
                         pass
-                    yield _sse_msg("Quota dépassé : tu as épuisé ton budget de tokens "
-                                   "pour la période en cours." + _reset +
-                                   " Tu peux demander plus à l'admin (accueil → "
-                                   "« Demander plus de budget »).")
+                    yield _sse_notice('quota_exceeded', reset=_reset)
                 else:
-                    yield _sse_msg(f"Erreur modèle ({_amont['statut']}).")
+                    yield _sse_notice('model_error', status=_amont['statut'])
                 return
             if _finish is None:
                 # Le flux amont s'est fermé SANS annoncer de fin. Pour `iter_lines`

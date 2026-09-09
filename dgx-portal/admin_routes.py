@@ -13,7 +13,7 @@ import os
 import re
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from flask import (Blueprint, Response, flash, jsonify, redirect, request,
@@ -150,6 +150,11 @@ def api_admin():
         'voice_cfgs': [dict(r) for r in voice_cfgs],
         'image_model_ids': sorted(IMAGE_MODEL_IDS),
         'budget_reqs': [dict(r) for r in budget_reqs],
+        # Subventions TEMPORAIRES en cours : l'admin voit ce qui reviendra au
+        # plafond de base, et quand.
+        'budget_grants': [dict(r) for r in db.execute(
+            "SELECT * FROM budget_grants WHERE expires_at > ? ORDER BY expires_at",
+            (datetime.utcnow().isoformat(),)).fetchall()],
         'default_key_budget': get_setting('default_key_budget', KEY_BUDGET),
         'default_key_duration': get_setting('default_key_duration', KEY_DURATION),
         **probed,
@@ -808,15 +813,59 @@ def approve_budget(req_id):
     # Budget at the ACCOUNT level: we increment the LiteLLM user's envelope.
     info = _litellm_user_info(breq['username'])
     current_budget = info.get('max_budget') or 0
-    new_budget = current_budget + amount_val
     # La fenêtre de reset accompagne toujours la mise à jour : sans elle le
     # montant devient un plafond à vie, jamais remis à zéro. On aligne sur le
     # défaut global (hebdomadaire depuis le 2026-09-08).
     grant_duration = get_setting('default_key_duration', KEY_DURATION)
-    if not litellm_update_user_budget(breq['username'], new_budget,
-                                      budget_duration=grant_duration):
-        flash("Erreur lors de la mise à jour du budget sur LiteLLM.", "danger")
-        return redirect(url_for('admin.admin'))
+    # « durée » : vide = permanent (l'ancien comportement) ; N jours = le
+    # supplément N'EST PAS une nouvelle limite à vie — un reaper ramène le
+    # compte à son plafond de base à l'échéance.
+    grant = db.execute(
+        "SELECT * FROM budget_grants WHERE username=? AND expires_at > ?",
+        (breq['username'], datetime.utcnow().isoformat())).fetchone()
+    duree = request.form.get('grant_days', '').strip()
+    expires_at = None
+    if duree:
+        try:
+            jours = int(duree)
+            if not 1 <= jours <= 365:
+                raise ValueError
+        except ValueError:
+            flash("Durée de la subvention : nombre de jours entre 1 et 365 (vide = permanent).", "warning")
+            return redirect(url_for('admin.admin'))
+        expires_at = (datetime.utcnow() + timedelta(days=jours)).isoformat()
+    if expires_at:
+        # Subvention TEMPORAIRE : le plafond de base est figé UNE fois (au
+        # premier boost) ; un 2e boost pendant la période s'empile dessus,
+        # l'échéance revient quand même au MÊME plafond de base.
+        base = grant['base_budget'] if grant else current_budget
+        new_budget = (grant['current_budget'] if grant else base) + amount_val
+        if not litellm_update_user_budget(breq['username'], new_budget,
+                                          budget_duration=grant_duration):
+            flash("Erreur lors de la mise à jour du budget sur LiteLLM.", "danger")
+            return redirect(url_for('admin.admin'))
+        now_iso = datetime.utcnow().isoformat()
+        if grant:
+            db.execute(
+                "UPDATE budget_grants SET current_budget=?, expires_at=?, updated_at=? WHERE id=?",
+                (new_budget, expires_at, now_iso, grant['id']))
+        else:
+            db.execute(
+                "INSERT INTO budget_grants (username, base_budget, current_budget, expires_at, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (breq['username'], base, new_budget, expires_at, now_iso, now_iso))
+    else:
+        new_budget = current_budget + amount_val
+        if not litellm_update_user_budget(breq['username'], new_budget,
+                                          budget_duration=grant_duration):
+            flash("Erreur lors de la mise à jour du budget sur LiteLLM.", "danger")
+            return redirect(url_for('admin.admin'))
+        if grant:
+            # Hausse PERMANENTE pendant une subvention : elle doit survivre à
+            # l'échéance, donc elle relève le plafond de base lui-même.
+            db.execute("UPDATE budget_grants SET base_budget=?, current_budget=?, updated_at=? WHERE id=?",
+                       (grant['base_budget'] + amount_val, grant['current_budget'] + amount_val,
+                        datetime.utcnow().isoformat(), grant['id']))
     db.execute(
         "UPDATE budget_requests SET status='approved', granted_amount=?, updated_at=? WHERE id=?",
         (amount_val, datetime.now().isoformat(), req_id)
@@ -825,9 +874,77 @@ def approve_budget(req_id):
     add_notification(breq['username'], 'request',
                      f"Budget accordé : +{amount_val:,.0f} tokens.".replace(',', ' '))
     _fmt = lambda n: f"{n:,.0f}".replace(',', ' ')  # noqa: E731
-    flash(f"+{_fmt(amount_val)} tokens accordés à {breq['fullname']} "
-          f"(nouveau total : {_fmt(new_budget)} / {grant_duration}).", "success")
+    if expires_at:
+        flash(f"+{_fmt(amount_val)} tokens accordés à {breq['fullname']} "
+              f"(total temporaire : {_fmt(new_budget)}, retour à {_fmt(grant['base_budget'] if grant else current_budget)} "
+              f"le {expires_at[:16].replace('T', ' ')} UTC).", "success")
+    else:
+        flash(f"+{_fmt(amount_val)} tokens accordés à {breq['fullname']} "
+              f"(nouveau total : {_fmt(new_budget)} / {grant_duration}).", "success")
     return redirect(url_for('admin.admin'))
+
+
+@bp.route('/admin/users/<username>/budget/set', methods=['POST'])
+@admin_required
+def set_user_budget(username):
+    """Redéfinir le plafond d'un compte (montant EXACT, pas un ajout).
+
+    Permet de BAISSER un quota (200M → 50M) comme de le hausser. Toute
+    subvention temporaire en cours est écrasée : la décision admin fait foi.
+    """
+    db = get_db()
+    raw = request.form.get('budget', '').strip()
+    try:
+        value = float(raw)
+        if value < 0:
+            raise ValueError
+    except ValueError:
+        flash("Budget : nombre positif attendu (tokens).", "warning")
+        return redirect(url_for('admin.admin'))
+    if value > 1_000_000_000_000:
+        # Même garde-fou que l'approbation : au-delà d'1e12 tokens c'est une
+        # typo qui rend le compte illimité de facto.
+        flash("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.", "warning")
+        return redirect(url_for('admin.admin'))
+    grant_duration = get_setting('default_key_duration', KEY_DURATION)
+    if not litellm_update_user_budget(username, value, budget_duration=grant_duration):
+        flash("Erreur lors de la mise à jour du budget sur LiteLLM.", "danger")
+        return redirect(url_for('admin.admin'))
+    db.execute("DELETE FROM budget_grants WHERE username=?", (username,))
+    db.commit()
+    log_audit(session.get('username', '?'), 'budget_set', f'{username}={value:.0f}')
+    _fmt = lambda n: f"{n:,.0f}".replace(',', ' ')  # noqa: E731
+    flash(f"Budget de {username} redéfini à {_fmt(value)} tokens / {grant_duration}.", "success")
+    return redirect(url_for('admin.admin'))
+
+
+def revert_expired_grants():
+    """Ramène à leur plafond de base les comptes dont la subvention a expiré.
+
+    Retourne le nombre de comptes ramenés. Appelé par le reaper (thread du
+    portail, toutes les 60 s) et une fois au démarrage : après une coupure,
+    l'échéance manquée est rattrapée à la minute du boot.
+    """
+    db = get_db()
+    now = datetime.utcnow().isoformat()
+    rows = db.execute("SELECT * FROM budget_grants WHERE expires_at <= ?", (now,)).fetchall()
+    if not rows:
+        return 0
+    grant_duration = get_setting('default_key_duration', KEY_DURATION)
+    ramenes = 0
+    for g in rows:
+        info = _litellm_user_info(g['username'])
+        actuel = info.get('max_budget')
+        if actuel is None or abs(actuel - g['current_budget']) < 1:
+            # Personne n'a touché au plafond depuis le boost : on revient à la base.
+            if litellm_update_user_budget(g['username'], g['base_budget'],
+                                          budget_duration=grant_duration):
+                ramenes += 1
+        # Sinon l'admin est intervenu entre-temps : la subvention est simplement
+        # oubliée, on n'écrase PAS sa décision.
+        db.execute("DELETE FROM budget_grants WHERE id=?", (g['id'],))
+    db.commit()
+    return ramenes
 
 @bp.route('/admin/budget/reject/<int:req_id>', methods=['POST'])
 @admin_required

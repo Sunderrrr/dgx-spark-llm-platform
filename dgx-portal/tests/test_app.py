@@ -1057,7 +1057,8 @@ class MediaCancelTest(unittest.TestCase):
 
 
 class ShareConversationTest(unittest.TestCase):
-    """Partage d'une conversation : création d'un lien public en lecture seule."""
+    """Partage d'une conversation : lien en lecture seule, RÉSERVÉ AUX CONNECTÉS
+    (exigence du 2026-09-09 : un lien qui fuit ne montre rien à un anonyme)."""
 
     CSRF = "test-csrf"
 
@@ -1101,8 +1102,50 @@ class ShareConversationTest(unittest.TestCase):
         self.assertEqual(view.status_code, 200)
         self.assertIn("Bonjour", view.get_data(as_text=True))
 
+    def test_partage_accepte_le_json(self):
+        """Le playground envoie du JSON (sendJSON), pas du form : accepté."""
+        with portal.app.app_context():
+            portal.get_db().execute(
+                "INSERT INTO conversations (username,client_id,title,model,messages,updated_at) "
+                "VALUES ('demo','c1','Titre','m1','[{\"role\":\"user\",\"content\":\"Bonjour\"}]','2025-01-01')")
+            portal.get_db().commit()
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = "demo"
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+        r = c.post("/conversations/share", json={"client_id": "c1"},
+                   headers={"X-CSRFToken": self.CSRF})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()["ok"])
+
+    def test_vue_anonyme_renvoie_vers_login(self):
+        """Anonyme + token valide → redirection login, JAMAIS la conversation."""
+        with portal.app.app_context():
+            portal.get_db().execute(
+                "INSERT INTO conversations (username,client_id,title,model,messages,updated_at) "
+                "VALUES ('demo','c1','Titre','m1','[{\"role\":\"user\",\"content\":\"Bonjour\"}]','2025-01-01')")
+            portal.get_db().commit()
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = "demo"
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+        r = c.post("/conversations/share", data={"client_id": "c1"}, headers={"X-CSRFToken": self.CSRF})
+        token = r.get_json()["token"]
+        anon = portal.app.test_client()
+        view = anon.get(f"/c/{token}", follow_redirects=False)
+        self.assertIn(view.status_code, (301, 302))
+        self.assertIn("/login", view.headers.get("Location", ""))
+
     def test_vue_inconnue_404(self):
-        self.assertEqual(portal.app.test_client().get("/c/nimportequoi").status_code, 404)
+        # Connecté + token inconnu → 404. (Anonyme, c'est une redirection login
+        # qui prime : on ne révèle même pas l'existence du lien.)
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = "demo"
+            s["auth_at"] = int(time.time())
+        self.assertEqual(c.get("/c/nimportequoi").status_code, 404)
 
 
 class AuditLogTest(unittest.TestCase):

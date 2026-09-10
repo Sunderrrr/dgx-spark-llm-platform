@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { useToast } from "@astryxdesign/core/Toast";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Card } from "@astryxdesign/core/Card";
 import { Toolbar } from "@astryxdesign/core/Toolbar";
@@ -36,6 +37,7 @@ import {
   ChatComposerDrawer,
   ChatComposerInput,
 } from "@astryxdesign/core/Chat";
+import StarSolidIcon from "@heroicons/react/24/solid/StarIcon";
 import {
   PaperClipIcon,
   Cog6ToothIcon,
@@ -1950,18 +1952,43 @@ export default function PlaygroundPage() {
     setRenamingId(null);
   }
 
+  const showToast = useToast();
+
   async function shareConversation(id: string) {
     if (!csrf) return;
     try {
-      const res = await sendJSON<{ ok: boolean; token: string }>("/conversations/share", csrf, { client_id: id });
-      if (res?.ok && res.token) {
-        const url = `${window.location.origin}/c/${res.token}`;
-        await navigator.clipboard.writeText(url);
-        setShared(true);
-        setTimeout(() => setShared(false), 2500);
+      const res = await sendJSON<{ ok: boolean; token: string; error?: string }>("/conversations/share", csrf, { client_id: id });
+      if (!res?.ok || !res.token) {
+        showToast({ body: t("Partage impossible :") + " " + (res?.error || "erreur"), type: "error" });
+        return;
       }
+      const url = `${window.location.origin}/c/${res.token}`;
+      // navigator.clipboard exige un contexte sécurisé (HTTPS) : sur le LAN en
+      // HTTP il n'existe pas — on retombe sur execCommand, puis en dernier
+      // recours on AFFICHE le lien plutôt que d'échouer en silence.
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (!ok) {
+          window.prompt(t("Copiez le lien de partage :"), url);
+          setShared(true);
+          setTimeout(() => setShared(false), 2500);
+          return;
+        }
+      }
+      setShared(true);
+      showToast({ body: t("Lien de partage copié (lecture seule, réservé aux connectés).") });
+      setTimeout(() => setShared(false), 2500);
     } catch {
-      /* lien non copié : silencieux */
+      showToast({ body: t("Partage impossible : le serveur n'a pas répondu."), type: "error" });
     }
   }
 
@@ -3635,7 +3662,7 @@ export default function PlaygroundPage() {
                         variant="ghost"
                         size="sm"
                         isIconOnly
-                        icon={<Icon icon={StarIcon} size="sm" />}
+                        icon={<Icon icon={pinnedIds.includes(conv.id) ? StarSolidIcon : StarIcon} size="sm" color={pinnedIds.includes(conv.id) ? "accent" : "inherit"} />}
                         onClick={() => togglePinned(conv.id)}
                       />
                       <Button

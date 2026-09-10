@@ -115,7 +115,9 @@ def conversations_share():
     """Crée un lien de partage en lecture seule d'une conversation. On duplique
     l'instantané dans conversation_shares : le partage ne révèle que ce qui a été
     partagé et survit à la suppression de l'original."""
-    client_id = request.form.get('client_id', '').strip()[:64]
+    # Le playground envoie du JSON (sendJSON) ; on accepte aussi le form.
+    data = request.get_json(silent=True) or request.form
+    client_id = str(data.get('client_id', '')).strip()[:64]
     if not client_id:
         return jsonify({'ok': False, 'error': 'id manquant'}), 400
     db = get_db()
@@ -133,9 +135,11 @@ def conversations_share():
 
 
 @bp.route('/c/<token>')
+@login_required
 def share_view(token):
-    """Vue publique, lecture seule, d'une conversation partagée (page HTML
-    minimale, sans dépendance frontend). Le jeton est opaque et à usage unique
+    """Vue lecture seule d'une conversation partagée, RÉSERVÉE AUX CONNECTÉS :
+    un lien qui fuit (forum, capture) ne montre rien à un anonyme, il est
+    renvoyé vers la page de connexion. Le jeton reste opaque et à usage unique
     de fait (on ne liste jamais les liens)."""
     db = get_db()
     row = db.execute(

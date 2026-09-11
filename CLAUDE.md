@@ -286,6 +286,24 @@ Key facts and gotchas:
   en base64 via LiteLLM (mesure : « C'est un cercle rouge » en 2,2 s). C'est la voie
   qui manquait quand le mmproj de Flash-Next etait inaccessible.
 
+- **`--kv-unified` change le sens de `--ctx-size` sur llama.cpp.** Sans lui les slots
+  sont CLOISONNES et chacun recoit `ctx-size / parallel` ; avec lui ils partagent un
+  reservoir unique et **chacun peut adresser le contexte ENTIER**. Piege : llama.cpp
+  l'active par defaut quand le nombre de slots est automatique et le DESACTIVE des
+  qu'on passe `--parallel` — il faut alors le redemander explicitement. Mesure :
+  `--ctx-size 1048576 --parallel 4` donne `n_ctx_slot = 262144, kv_unified = false`,
+  la ou `--ctx-size 524288 --parallel 6 --kv-unified` donne
+  `n_ctx_slot = 524288, kv_unified = true`. Consequence pratique : le nombre de
+  sessions n'entre PAS dans le cout memoire en mode unifie, seules les sessions se
+  disputent le reservoir. `effective_ctx()` en tient compte depuis 2026-09-11 — avant,
+  il divisait toujours et le tableau de bord annoncait 58 254 la ou le moteur servait
+  524 288.
+- **Ne PAS quantifier le cache KV de Flash-Next.** Mesure du 2026-09-11 :
+  `--cache-type-k q4_0 --cache-type-v q4_0` fait tomber le debit a **0,2 tok/s**
+  contre **34 tok/s** en `f16` — environ 170x plus lent, et ce n'est pas un artefact
+  de demarrage (le debit revient immediatement au retour en f16). Le gain memoire ne
+  compense en rien.
+
 - **`auto-model` alias**: a virtual LiteLLM model (`AUTO_MODEL_NAME`, default
   `auto-model`) that always routes to the **currently-running** chat model, so
   clients wire it once and never rename on a model switch. Re-pointed on every

@@ -130,5 +130,41 @@ class SanteLlamacppTest(unittest.TestCase):
         self.assertEqual(_sante('llamacpp', repos + "llamacpp:n_decode_total 1030\n")['tps'], 0.0)
 
 
+class ContexteEffectifTest(unittest.TestCase):
+    """`--ctx-size` de llama.cpp est un TOTAL... sauf en cache unifie.
+
+    Le tableau de bord annoncait 58 254 / 29 127 la ou le moteur servait
+    524 288 par slot : la division par `--parallel` ne s'applique pas quand les
+    slots partagent un reservoir unique.
+    """
+
+    def test_sans_parallel_le_contexte_est_entier(self):
+        self.assertEqual(vllm_health.effective_ctx("--ctx-size 524288", "llamacpp"), 524288)
+
+    def test_parallel_seul_divise_le_contexte(self):
+        # Sans --kv-unified, llama.cpp cloisonne : chaque slot a sa tranche.
+        self.assertEqual(
+            vllm_health.effective_ctx("--ctx-size 1048576 --parallel 4", "llamacpp"), 262144)
+
+    def test_kv_unified_annule_la_division(self):
+        self.assertEqual(
+            vllm_health.effective_ctx("--ctx-size 524288 --parallel 6 --kv-unified",
+                                      "llamacpp"), 524288)
+
+    def test_no_kv_unified_retablit_la_division(self):
+        self.assertEqual(
+            vllm_health.effective_ctx("--ctx-size 524288 --parallel 2 --no-kv-unified",
+                                      "llamacpp"), 262144)
+
+    def test_la_repartition_affichee_suit(self):
+        """256k en entree ET 256k en sortie, ce que l'operateur a demande."""
+        e, s_ = vllm_health.ctx_split(
+            "--ctx-size 524288 --parallel 6 --kv-unified --n-predict 262144", "llamacpp")
+        self.assertEqual((e, s_), (262144, 262144))
+
+    def test_vllm_nest_pas_concerne(self):
+        self.assertEqual(vllm_health.effective_ctx("--max-model-len 32768", "vllm"), 32768)
+
+
 if __name__ == '__main__':
     unittest.main()

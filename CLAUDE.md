@@ -201,6 +201,14 @@ Key facts and gotchas:
   il ne survit pas au passage par LiteLLM — verifie sur flux reel. Le TTFT affiché
   est donc **mesuré par le portail** (depart de la requete → premier token du delta),
   ce qui est de toute façon le delai reellement subi. Ne pas rebrancher `timings`.
+- **Le debit llama.cpp = `Δn_decode_total / Δt x requests_processing`.** Le facteur
+  n'est PAS optionnel : `n_decode_total` compte des PAS de decodage, et llama.cpp
+  batche les slots actifs, donc un pas produit un token PAR SLOT. Sans multiplier,
+  le tableau de bord divisait le debit reel par le nombre de sessions — mesure du
+  2026-09-11 : **17,4 affiche pour 69,5 tok/s reellement delivres** a 4 sessions.
+  Verifie a 1, 2 et 4 sessions (34,0 / 50,5 / 69,5 calcules contre 33,9 / 50,5 /
+  69,5 mesures cote clients). Piege : `n_busy_slots_per_decode` a l'air fait pour
+  ca, mais c'est une moyenne depuis le demarrage (~1,7 en permanence) — inutilisable.
 - **Le debit llama.cpp se lit sur `n_decode_total`, et sur rien d'autre.** Mesure
   faite sur ce serveur : **pendant** une generation, la jauge
   `predicted_tokens_seconds` vaut 0 et `tokens_predicted_total` n'avance pas —
@@ -303,6 +311,15 @@ Key facts and gotchas:
   contre **34 tok/s** en `f16` — environ 170x plus lent, et ce n'est pas un artefact
   de demarrage (le debit revient immediatement au retour en f16). Le gain memoire ne
   compense en rien.
+
+- **LiteLLM ne bride pas le debit** (verifie le 2026-09-11, suite a un doute) :
+  33,0 tok/s en non-stream et 33,3 en streaming a travers le proxy, contre 32,2 en
+  direct et 34 annonces par le moteur ; aucun `tpm`/`rpm` sur les 50 cles ni dans
+  `config.yaml`. Un debit percu plus bas via l'API a deux causes reelles : le
+  playground mesure A PARTIR DU PREMIER TOKEN (`gen = te - tf`, TTFT exclu) alors
+  qu'un client qui chronometre de bout en bout l'inclut — sur un prompt long,
+  28,8 tok/s hors TTFT contre 6,2 TTFT compris ; et la concurrence, chaque session
+  tombant a ~18 tok/s quand 4 tournent (pour 70 tok/s cumules).
 
 - **`auto-model` alias**: a virtual LiteLLM model (`AUTO_MODEL_NAME`, default
   `auto-model`) that always routes to the **currently-running** chat model, so

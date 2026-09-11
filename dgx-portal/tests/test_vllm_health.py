@@ -96,7 +96,11 @@ class SanteLlamacppTest(unittest.TestCase):
 
     def test_debit_lu_sur_n_decode_total_le_seul_a_avancer(self):
         """Pendant une generation la jauge vaut 0 et tokens_predicted_total ne
-        bouge pas : seul n_decode_total avance, et il agrege tous les slots."""
+        bouge pas : seul n_decode_total avance.
+
+        Ses PAS de decodage se multiplient par le nombre de slots actifs pour
+        donner des tokens (cf. DebitAgregeTest) : 30 pas/s sur 2 slots = 60 tok/s.
+        """
         vllm_health._llama_tps.update(t=0.0, dec=None)
         base = ("llamacpp:tokens_predicted_total 39080\n"
                 "llamacpp:tokens_predicted_seconds_total 1235.5\n"
@@ -106,7 +110,7 @@ class SanteLlamacppTest(unittest.TestCase):
         _sante('llamacpp', base + "llamacpp:n_decode_total 1000\n")
         time.sleep(1.05)
         tps = _sante('llamacpp', base + "llamacpp:n_decode_total 1030\n")['tps']
-        self.assertTrue(25 < tps < 35, tps)      # ~30 tokens en ~1 s
+        self.assertTrue(52 < tps < 68, tps)      # 30 pas/s x 2 slots
 
     def test_debit_retombe_a_zero_quand_personne_ne_genere(self):
         """Compteur immobile entre deux releves = plus personne ne genere.
@@ -164,6 +168,54 @@ class ContexteEffectifTest(unittest.TestCase):
 
     def test_vllm_nest_pas_concerne(self):
         self.assertEqual(vllm_health.effective_ctx("--max-model-len 32768", "vllm"), 32768)
+
+
+class DebitAgregeTest(unittest.TestCase):
+    """`n_decode_total` compte des PAS de decodage, pas des tokens.
+
+    llama.cpp batche les slots : un pas produit un token par slot actif. Le
+    tableau de bord affichait donc le debit divise par le nombre de sessions —
+    17,4 tok/s la ou les clients en recevaient 69,5.
+    """
+
+    def _metrics(self, decode, processing):
+        return ("llamacpp:tokens_predicted_total 1000\n"
+                "llamacpp:tokens_predicted_seconds_total 30\n"
+                "llamacpp:predicted_tokens_seconds 0\n"
+                "llamacpp:requests_deferred 0\n"
+                "llamacpp:n_decode_total %s\n"
+                "llamacpp:requests_processing %s\n" % (decode, processing))
+
+    def _mesure(self, pas_par_seconde, sessions):
+        vllm_health._llama_tps.update(t=0.0, dec=None)
+        _sante('llamacpp', self._metrics(1000, sessions))
+        time.sleep(1.05)
+        d = _sante('llamacpp', self._metrics(1000 + pas_par_seconde * 1.05, sessions))
+        return d['tps']
+
+    def test_une_seule_session_reste_inchangee(self):
+        self.assertTrue(30 < self._mesure(34, 1) < 38)
+
+    def test_quatre_sessions_multiplient_le_debit(self):
+        """4 sessions a ~17 pas/s = ~69 tok/s delivres, pas 17."""
+        tps = self._mesure(17, 4)
+        self.assertTrue(60 < tps < 76, tps)
+
+    def test_au_repos_le_debit_est_nul(self):
+        vllm_health._llama_tps.update(t=0.0, dec=None)
+        _sante('llamacpp', self._metrics(1000, 0))
+        time.sleep(1.05)
+        self.assertEqual(_sante('llamacpp', self._metrics(1000, 0))['tps'], 0.0)
+
+    def test_fin_de_generation_ne_tombe_pas_a_zero(self):
+        """Fenetre a cheval sur la fin : des tokens produits, plus aucun slot actif.
+
+        Sans le garde-fou le produit vaudrait zero et le debit clignoterait.
+        """
+        vllm_health._llama_tps.update(t=0.0, dec=None)
+        _sante('llamacpp', self._metrics(1000, 1))
+        time.sleep(1.05)
+        self.assertTrue(_sante('llamacpp', self._metrics(1030, 0))['tps'] > 0)
 
 
 if __name__ == '__main__':

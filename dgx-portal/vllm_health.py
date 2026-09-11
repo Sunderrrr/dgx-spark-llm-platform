@@ -128,18 +128,24 @@ def _vllm_health_uncached():
         # n'avance PAS — llama.cpp ne les met a jour qu'a la fin de la requete.
         # Les lire donnait donc 0 tok/s pendant toute la generation, puis un
         # chiffre fige entre deux : exactement le "compteur statique" constate.
-        # `n_decode_total` est le seul a avancer en continu (+33/s mesure, soit
-        # la vitesse reelle), et il compte les pas de decodage de TOUS les slots :
-        # le debit obtenu est celui de l'ensemble des sessions simultanees, pas
-        # d'une seule conversation.
+        # `n_decode_total` est le seul a avancer en continu pendant la generation.
+        # MAIS il compte des PAS DE DECODAGE, pas des tokens : llama.cpp batche les
+        # slots actifs, donc un pas produit un token PAR SLOT actif. Le lire tel quel
+        # divisait le debit affiche par le nombre de sessions — mesure du 2026-09-11 :
+        # 17,4 affiche pour 69,5 reellement delivres aux clients a 4 sessions.
+        # `requests_processing` est le facteur correct, verifie a 1, 2 et 4 sessions
+        # (34,0 / 50,5 / 69,5 contre 33,9 / 50,5 / 69,5 reels). Attention :
+        # `n_busy_slots_per_decode` a l'air fait pour ca mais c'est une moyenne
+        # depuis le demarrage (1,7 en permanence), elle ne convient pas.
         dec = _prom_sum(text, 'llamacpp:n_decode_total') or 0.0
         p_t, p_dec = _llama_tps['t'], _llama_tps['dec']
         if p_dec is not None and now > p_t and dec >= p_dec:
-            # Rien de genere depuis le dernier releve => 0. C'est la verite quand
-            # personne n'utilise le modele, et c'est desormais lisible : le chiffre
-            # bouge a la seconde pendant une generation, donc un 0 au repos ne
-            # cache plus le debit, il dit juste qu'il ne se passe rien.
-            tps = round((dec - p_dec) / (now - p_t), 1)
+            pas = (dec - p_dec) / (now - p_t)
+            # Rien de genere depuis le dernier releve => 0, la verite quand personne
+            # n'utilise le modele. Le `max(..., 1)` couvre la fenetre qui chevauche la
+            # FIN d'une generation : des tokens ont ete produits alors que le compteur
+            # de slots est deja retombe a zero, sans lui on afficherait 0 a tort.
+            tps = round(pas * max(running_now, 1), 1) if pas > 0 else 0.0
         else:
             tps = 0.0        # premier releve du process : rien a comparer
         _llama_tps.update(t=now, dec=dec)

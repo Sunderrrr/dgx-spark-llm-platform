@@ -187,6 +187,10 @@ _OCR_VALUE_FLAGS = _VALUE_FLAGS | {"--logits_processors", "--mm-processor-cache-
 _LLAMA_BOOL_FLAGS = {
     "--no-mmap", "--mlock", "--jinja", "--cont-batching",
     "--no-kv-offload", "--metrics", "--no-warmup",
+    # KV unifié : un seul buffer partagé par les slots. Sans lui, --parallel N
+    # DIVISE le contexte (262k/8 = 32k par session) ; avec, chaque session peut
+    # monter jusqu'au pool complet quand les autres sont inoccupées.
+    "--kv-unified", "--no-kv-unified",
     # Truncates old tokens when a slot is full instead of ERRORing (otherwise a
     # client like OpenCode retries the same over-long request → crash).
     "--context-shift", "--no-context-shift",

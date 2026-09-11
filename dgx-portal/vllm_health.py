@@ -239,11 +239,21 @@ def effective_ctx(args, engine='vllm'):
     Careful with llama.cpp: --ctx-size is the TOTAL context split across the slots,
     so a request only gets ctx-size ÷ --parallel. vLLM/ds4: --max-model-len
     / --ctx are already per request.
+
+    SAUF en cache unifie : les slots partagent alors un reservoir unique et chacun
+    peut adresser le contexte ENTIER — diviser sous-estimerait d'autant. llama.cpp
+    active ce mode par defaut quand le nombre de slots est automatique, et le
+    desactive des qu'on passe --parallel, a moins de redemander --kv-unified.
+    Mesure : `--ctx-size 524288 --parallel 6 --kv-unified` annonce
+    n_ctx_slot = 524288, alors que la division affichait 87381.
     """
     ctx = ctx_of(args, engine)
     if ctx is None:
         return None
     if engine == 'llamacpp':
+        jetons = (args or '').split()
+        if '--kv-unified' in jetons and '--no-kv-unified' not in jetons:
+            return ctx
         par = _arg_int(args, 'parallel', 1) or 1
         return ctx // par
     return ctx

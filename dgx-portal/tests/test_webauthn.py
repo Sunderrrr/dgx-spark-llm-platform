@@ -88,7 +88,8 @@ class WebAuthnTestCase(unittest.TestCase):
         with portal.app.app_context():
             db = portal.get_db()
             for t in ("user_security", "webauthn_credentials", "pending_webauthn",
-                      "user_sessions", "user_sources", "local_users"):
+                      "user_sessions", "user_sources", "local_users",
+                      "login_attempts"):
                 db.execute(f"DELETE FROM {t}")
             db.commit()
 
@@ -227,6 +228,42 @@ class WebAuthnTestCase(unittest.TestCase):
         data = c.get("/api/security").get_json()
         self.assertFalse(data["enabled"])
         self.assertEqual(data["credentials"], [])
+
+    def test_reverification_compte_les_echecs_et_verrouille_le_compte(self):
+        """Les tentatives depuis les Réglages comptent dans le MÊME verrou que
+        /login : sans cela, une session détournée pouvait tester des mots de
+        passe à la vitesse du réseau (le compteur de /login n'avançait pas)."""
+        c = self._client("eve")
+        codes = [c.post("/api/security/toggle",
+                        json={"enabled": True, "password": "mauvais"},
+                        headers={"X-CSRFToken": "tok"}).status_code
+                 for _ in range(6)]
+        self.assertEqual(codes, [401] * 6)        # 6 échecs = seuil
+        r = c.post("/api/security/toggle", json={"enabled": True, "password": "mauvais"},
+                   headers={"X-CSRFToken": "tok"})
+        self.assertEqual(r.status_code, 429)      # verrouillé
+        self.assertIn("Trop de tentatives", r.get_json()["error"])
+        # Le compteur est celui du COMPTE : /login est verrouillé lui aussi,
+        # même avec le BON mot de passe.
+        anon = portal.app.test_client()
+        with anon.session_transaction() as s:
+            s["csrf"] = "tok"
+        rl = anon.post("/login", data={"username": "eve", "password": "pw",
+                                       "csrf_token": "tok"})
+        self.assertEqual(rl.status_code, 401)
+
+    def test_reverification_reussie_remet_le_compteur_a_zero(self):
+        c = self._client("eve")
+        for _ in range(3):
+            c.post("/api/security/toggle", json={"enabled": True, "password": "mauvais"},
+                   headers={"X-CSRFToken": "tok"})
+        r = c.post("/api/security/toggle", json={"enabled": False, "password": "pw"},
+                   headers={"X-CSRFToken": "tok"})
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        with portal.app.app_context():
+            row = portal.get_db().execute(
+                "SELECT fails FROM login_attempts WHERE key=?", ("user:eve",)).fetchone()
+        self.assertIsNone(row, "le compteur doit repartir de zéro après succès")
 
     def test_toggle_requiert_cle_et_mot_de_passe(self):
         c = self._client("eve")

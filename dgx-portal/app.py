@@ -756,10 +756,25 @@ def healthz():
 def prom_metrics():
     """Exposition Prometheus (texte) — pour scraper avec Grafana.
 
-    Publique par choix : c'est le standard pour un pull de métriques, et on le
-    branche sur le réseau LAN/netbird (jamais exposé sur l'internet). Reprend le
-    payload du runner sans dupliquer la collecte (déjà mise en cache côté lui).
+    Publique par choix sur le réseau LAN/netbird : c'est le standard pour un
+    pull de métriques. En revanche elle ne doit PAS sortir sur l'internet, et
+    elle y était pourtant joignable : le rewrite catch-all du frontend relaie
+    `/:path*` vers Flask, donc /metrics était servi à `dgx.cronos.website`
+    (CPU/RAM/GPU/température/modèle en ligne à qui le demandait).
+
+    Garde retenue : une requête qui traverse l'edge Cloudflare porte toujours
+    l'en-tête `Cf-Connecting-Ip` (posé par Cloudflare, normalisé par le plugin
+    Traefik) → on refuse. Un scrape LAN/netbird, lui, arrive sans cet en-tête.
+    Reprend le payload du runner sans dupliquer la collecte (déjà mise en cache
+    côté lui).
+
+    Limite connue : un client qui atteindrait l'origine en direct (hors
+    Cloudflare) n'envoie pas cet en-tête ; c'est le contournement d'edge connu,
+    qui se traite au niveau du routeur, pas ici.
     """
+    if request.headers.get('Cf-Connecting-Ip'):
+        return Response("metrics: accès réservé au réseau local\n", status=403,
+                        mimetype='text/plain')
     m = runner_metrics() or {}
     ram = m.get('ram') or {}
     gpu = m.get('gpu') or {}

@@ -672,7 +672,9 @@ class GardeDesRoutesTest(unittest.TestCase):
         'healthz':            "liveness publique (healthcheck / sonde) : ne renvoie "
                               "que {ok, time}, rien d'interné",
         'prom_metrics':       "métriques Prometheus (texte) pour Grafana : publique "
-                              "par choix (pull), réseau LAN/netbird uniquement",
+                              "par choix (pull), mais REFUSÉE (403) dès que la requête "
+                              "traverse l'edge Cloudflare (en-tête Cf-Connecting-Ip) — "
+                              "cf. test_metrics_refuse_via_cloudflare",
         'conversations.share_view': "vue publique, lecture seule, d'une conversation "
                                     "partagée (jeton opaque) : contenu échappé",
     }
@@ -966,9 +968,10 @@ class BudgetPeriodTest(unittest.TestCase):
 
 
 class PromMetricsTest(unittest.TestCase):
-    """/metrics (Prometheus) : exposition publique, texte, toujours 200."""
+    """/metrics (Prometheus) : texte pour un scrape LAN — et REFUSÉ dès que la
+    requête arrive par l'edge Cloudflare (le rewrite du frontend l'exposait)."""
 
-    def test_metriques_publiques(self):
+    def test_metriques_publiques_sur_le_lan(self):
         c = portal.app.test_client()
         r = c.get("/metrics")
         self.assertEqual(r.status_code, 200)
@@ -976,6 +979,17 @@ class PromMetricsTest(unittest.TestCase):
         self.assertIn("cronos_cpu_pct", body)
         self.assertIn("cronos_model_online", body)
         self.assertIn("cronos_gpu_util_pct", body)
+
+    def test_metrics_refuse_via_cloudflare(self):
+        """Cloudflare pose Cf-Connecting-Ip sur TOUTE requête qui traverse
+        l'edge : sa présence prouve que l'appel vient d'internet (dgx.cronos.website)
+        et non du LAN/netbird, donc on ne sert pas les métriques de l'hôte."""
+        c = portal.app.test_client()
+        r = c.get("/metrics", headers={"Cf-Connecting-Ip": "203.0.113.7"})
+        self.assertEqual(r.status_code, 403)
+        body = r.get_data(as_text=True)
+        self.assertNotIn("cronos_cpu_pct", body)
+        self.assertNotIn("cronos_gpu_util_pct", body)
 
 
 class MediaCancelTest(unittest.TestCase):
@@ -1302,3 +1316,78 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
                        json={"messages": [{"role": "assistant", "content": "Réponse"}]})
             self.assertEqual(r.status_code, 200)
             self.assertEqual(r.get_json()["summary"], "Résumé du contexte")
+
+
+class SupportBillingTest(unittest.TestCase):
+    """L'assistant Support consomme le GPU AU NOM de l'utilisateur : il doit
+    passer par SA clé (celle qui porte le quota LiteLLM), jamais par la clé
+    master — sinon le budget est contourné et la consommation n'apparaît dans
+    aucun compte (audit sécurité)."""
+
+    CSRF = "test-csrf"
+
+    class _FakeStream:
+        """Réponse SSE minimale : un fragment de texte, puis [DONE]."""
+
+        ok = True
+        status_code = 200
+
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+        def iter_lines(self, decode_unicode=False):
+            yield 'data: {"choices":[{"delta":{"content":"Bonjour"}}]}'
+            yield "data: [DONE]"
+
+    def _client(self, username="demo"):
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = username
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+        return c
+
+    def test_support_utilise_la_cle_de_l_utilisateur(self):
+        import unittest.mock as mock
+        vus = []
+
+        def _post(url, headers=None, json=None, timeout=None, stream=False):
+            vus.append(headers or {})
+            return self._FakeStream()
+
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
+             mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
+             mock.patch.object(chat.requests, "post", side_effect=_post):
+            r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
+                                    json={"messages": [{"role": "user", "content": "Salut"}]})
+            self.assertEqual(r.status_code, 200)
+            r.get_data(as_text=True)      # force l'exécution du générateur SSE
+        self.assertTrue(vus, "aucun appel au modèle n'a été fait")
+        self.assertEqual(vus[0].get("Authorization"), "Bearer sk-user-123")
+
+    def test_support_sans_cle_notifie_et_n_appelle_pas_le_modele(self):
+        import unittest.mock as mock
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "get_user_keys", return_value=[]), \
+             mock.patch.object(chat.requests, "post", side_effect=AssertionError("appel modèle interdit")):
+            r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
+                                    json={"messages": [{"role": "user", "content": "Salut"}]})
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("no_api_key", r.get_data(as_text=True))
+
+    def test_support_quota_depasse_notifie(self):
+        import unittest.mock as mock
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
+             mock.patch.object(chat, "quota_depasse_reset", return_value=3600), \
+             mock.patch.object(chat.requests, "post", side_effect=AssertionError("appel modèle interdit")):
+            r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
+                                    json={"messages": [{"role": "user", "content": "Salut"}]})
+            self.assertEqual(r.status_code, 200)
+            body = r.get_data(as_text=True)
+            self.assertIn("quota_exceeded", body)
+            self.assertIn("3600", body)

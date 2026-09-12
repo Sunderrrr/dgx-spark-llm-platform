@@ -1,4 +1,5 @@
 import type { PlaygroundData, Settings } from "./types";
+import type { CronosNotice } from "./notices";
 
 function redirectToLogin(): never {
   if (typeof window !== "undefined") {
@@ -260,13 +261,19 @@ export async function streamOcr(
   });
 }
 
-/** Reads the SSE stream from /support/chat: text and tool invocations (ChatToolCalls). */
+/** Reads the SSE stream from /support/chat: text and tool invocations (ChatToolCalls).
+ *
+ * `onNotice` reçoit les notices système du serveur (cronos_notice) : le Support
+ * tourne sur la clé API de l'utilisateur, donc sur son budget, et peut donc
+ * répondre « pas de clé » ou « quota dépassé » — exactement comme le playground.
+ * Sans ce rappel, ces refus se traduisaient par une réponse vide. */
 export async function streamSupportChat(
   csrf: string,
   messages: { role: string; content: string }[],
   signal: AbortSignal,
   onChunk: (content: string) => void,
   onToolCall?: (event: ToolCallEvent) => void,
+  onNotice?: (notice: CronosNotice) => void,
 ): Promise<void> {
   const res = await authFetch("/support/chat", {
     method: "POST",
@@ -278,5 +285,6 @@ export async function streamSupportChat(
     const content = json.choices?.[0]?.delta?.content;
     if (content) onChunk(content);
     if (json.tool_call) onToolCall?.(json.tool_call);
+    if (json.cronos_notice) onNotice?.(json.cronos_notice);
   });
 }

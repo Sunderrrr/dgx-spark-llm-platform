@@ -338,6 +338,11 @@ servers and skills you configure in Settings — with the guardrail that once
 third-party tool output has entered the conversation, privileged tools are refused
 for the rest of the turn.
 
+It runs on **your** API key, hence on your token budget (the same rule as the
+playground): if the account has no key yet, the assistant answers by asking you to
+create one on *My API keys* rather than silently doing nothing, and a spent budget
+stops it until the quota resets.
+
 ### Find a model
 
 Live search over the Hugging Face Hub (no local cache), filterable by task

@@ -35,7 +35,7 @@ from conversation_routes import MSG_MAX_CHARS
 from db import get_db
 from guards import (_chat_rate_limited, _sse_msg, _sse_notice,
                     maintenance_block_sse, quota_depasse_reset)
-from litellm_client import _litellm_user_info, get_user_keys, litellm_headers
+from litellm_client import _litellm_user_info, get_user_keys
 # La mémoire (graphe de connaissances par utilisateur) vit dans son blueprint :
 # le chat n'en utilise que la lecture (injection au system) et l'écriture
 # (extraction post-tour) — jamais de route HTTP entre les deux.
@@ -107,6 +107,20 @@ def support_chat():
     username = session['username']
     fullname = session.get('fullname', username)
     is_admin = session.get('is_admin', False)
+    # L'assistant Support consomme le GPU AU NOM de l'utilisateur → on passe par
+    # SA clé, comme le playground : LiteLLM applique alors l'enveloppe de quota
+    # du compte (429 au-delà) et les tokens apparaissent dans SpendLogs, donc
+    # dans sa consommation. Avant ce correctif la route tournait sur la clé
+    # master : quota contourné, tokens jamais attribués à personne, et la garde
+    # de quota ci-dessous — qui lit SpendLogs — restait donc inopérante.
+    keys = get_user_keys(username)
+    if not keys:
+        return Response(_sse_notice('no_api_key'), mimetype='text/event-stream')
+    user_key = keys[0]['key']
+    _quota_reset = quota_depasse_reset(username)
+    if _quota_reset is not None:
+        return Response(_sse_notice('quota_exceeded', reset=_quota_reset),
+                        mimetype='text/event-stream')
     last_user = next((m['content'] for m in reversed(history) if m['role'] == 'user'), '')
     ctx = _support_context(username, is_admin, user_msg=last_user)
     msgs = [{'role': 'system', 'content': SUPPORT_SYSTEM + "\n\n### CONTEXTE\n" + ctx}] + history
@@ -121,7 +135,9 @@ def support_chat():
             body['tool_choice'] = 'auto'
         if stream:
             body['stream'] = True
-        return requests.post(f"{LITELLM_URL}/v1/chat/completions", headers=litellm_headers(),
+        # Clé de l'utilisateur (résolue plus haut) : c'est elle qui porte le quota.
+        return requests.post(f"{LITELLM_URL}/v1/chat/completions",
+                             headers={'Authorization': f'Bearer {user_key}'},
                              json=body, timeout=180, stream=stream)
 
     def _run_turn(with_tools):
@@ -341,7 +357,7 @@ def support_chat():
             yield "data: [DONE]\n\n"
 
     def gen():
-        _rid = _inflight_start(username)   # live "who's using the model" — support uses the master key, so SpendLogs never attributes it
+        _rid = _inflight_start(username)   # live "who's using the model"
         try:
             yield from _gen_inner()
         finally:

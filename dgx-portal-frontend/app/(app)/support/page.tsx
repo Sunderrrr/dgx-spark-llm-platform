@@ -35,6 +35,8 @@ import { getJSON, streamSupportChat } from "@/lib/api";
 import type { ToolCallEvent } from "@/lib/api";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 import { useT } from "@/lib/i18n";
+import { texteNotice } from "@/lib/notices";
+import type { CronosNotice } from "@/lib/notices";
 
 type ChatMsg = {
   role: "user" | "assistant";
@@ -117,6 +119,15 @@ export default function SupportPage() {
         return copy;
       });
     };
+    // Refus système du serveur (aucune clé API créée, quota épuisé) : le Support
+    // tourne sur la clé de l'utilisateur, donc sur son budget, comme le
+    // playground. On affiche la raison telle quelle — sinon il ne verrait
+    // qu'une réponse vide, sans savoir quoi corriger.
+    let notice = "";
+    const onNotice = (n: CronosNotice) => {
+      notice = texteNotice(n, t);
+      updateLast(notice, true);
+    };
     const onToolCall = (event: ToolCallEvent) => {
       const item: ChatToolCallItem = {
         key: event.id,
@@ -141,8 +152,9 @@ export default function SupportPage() {
           updateLast(acc);
         },
         onToolCall,
+        onNotice,
       );
-      if (!acc) updateLast(t("Pas de réponse."), true);
+      if (!acc && !notice) updateLast(t("Pas de réponse."), true);
     } catch {
       updateLast(t("Erreur réseau — réessaie."), true);
     } finally {

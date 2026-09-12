@@ -40,7 +40,7 @@ const EN: Record<string, string> = {
   "Demande envoyée à l'admin.": "Request sent to the admin.",
   "Quota dépassé : tu as épuisé ton budget de tokens pour la période en cours.": "Quota exceeded: you have used up your token budget for the current period.",
   "Tu peux demander plus à l'admin (accueil → « Demander plus de budget »).": "You can request more from the admin (home → \"Request more budget\").",
-  "Crée d'abord une clé API (page Mes clés API) — le playground consomme le budget de ton compte.": "Create an API key first (My API keys page) — the playground runs on your account budget.",
+  "Crée d'abord une clé API (page Mes clés API) : cet assistant consomme le budget de ton compte.": "Create an API key first (My API keys page) — this assistant runs on your account budget.",
   "Erreur modèle ({status}).": "Model error ({status}).",
   "Boost temporaire — {user} : {total} tokens jusqu'au {date} UTC (retour à {base}).": "Temporary boost — {user}: {total} tokens until {date} UTC (back to {base}).",
   "Accorder des tokens": "Grant tokens",

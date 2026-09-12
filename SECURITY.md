@@ -117,6 +117,14 @@ the *host*:
 Published ports are filtered in `DOCKER-USER`: `4001` (API) from the LAN and the
 Netbird VPN, `5000` (frontend) from Traefik only.
 
+`GET /metrics` (Prometheus text: CPU, RAM, GPU, temperature, model online) is
+for a LAN/Netbird scrape and is **refused with a 403 as soon as the request
+carries `Cf-Connecting-Ip`**, i.e. whenever it came through the public edge —
+Cloudflare sets that header on every request that traverses it, while a local
+scrape arrives without it. This matters because the frontend's catch-all rewrite
+(`/:path*` → `dgx-portal:5000`) made every Flask route reachable from
+`dgx.cronos.website`, including this one.
+
 ### 2.4 Session and request integrity
 
 - Cookies: `HttpOnly` + `SameSite=Lax` + `Secure` behind TLS.
@@ -156,6 +164,15 @@ GPU-heavy routes do not go through a LiteLLM key, so token budgets do not cap
 them. A per-account sliding window does, in separate buckets: `rl-media`
 (video / OCR / voice / image / music), `rl-support` and `rl-playground`.
 
+The Support assistant, however, *does* bill the account: it calls LiteLLM with
+the **user's own key**, not the master key, so token budgets do apply to it and
+its usage appears in `SpendLogs` like the playground's. A wrong password during
+a security-settings re-verification (`/api/security/remove`,
+`/api/security/toggle`) feeds the **same** `login_attempts` counter as `/login`
+(`user:<name>`), so an attacker holding a stolen session cannot brute-force the
+account password at network speed from the settings page, and the lockout is
+shared in both directions.
+
 ### 2.7 Maintenance mode
 
 A database flag, enforced twice. Inside the portal, chat and media routes check
@@ -171,6 +188,14 @@ Sidecars run with `--cap-drop ALL --no-new-privileges`, non-root where the
 upstream image allows it, models mounted read-only. `dgx-portal` and
 `dgx-portal-frontend` are non-root with dropped capabilities. Base images are
 digest-pinned.
+
+The frontend's own dependency tree is kept at its patched versions rather than
+its original ones: `next` 16.3.5 (16.3.0 carried the AVIF-decoding RCE
+advisories), `sharp` 0.35.4 and `js-yaml` 4.3.2 — `npm audit` reports **0
+vulnerabilities** (2026-09-13). Those three were proven unreachable in this
+deployment anyway (remote image URLs are rejected, local ones are replayed
+in-process without visitor cookies, and every file route is `@login_required`;
+output is negotiated as `image/webp`), but the upgrade removes the question.
 
 > **Never set `--memory` on a sidecar.** On unified memory a container memory cap
 > also caps GPU memory and breaks CUDA loading. This is an availability control
@@ -217,9 +242,25 @@ accounts is a security parameter — keep it small.
   it is *not* silenced (doing so would mean forgoing digest-pinning). The
   residual risk is only keys that already hit the log — rotate them; the
   portal never puts a key in a URL again.
-- **HSTS (resolved).** The Cloudflare edge previously overrode the origin's HSTS
-  with `max-age=0`; it is now `max-age=31536000; includeSubDomains` (set in the
-  Cloudflare dashboard, verified on `/` and `/login`).
+- **HSTS: in place on the portal, still missing on the API (measured
+  2026-09-13).** `dgx.cronos.website` answers
+  `strict-transport-security: max-age=31536000; includeSubDomains`, but
+  `api.cronos.website` sends **no HSTS header at all** — the previous claim that
+  HSTS was "resolved" only ever covered the portal. The fix belongs in the
+  **Cloudflare zone setting** (SSL/TLS → Edge Certificates → HSTS), which covers
+  both hostnames in one toggle; it must *not* be done by adding a Traefik
+  middleware to `/opt/traefik/dynamic/routes.yml`, since that file is rewritten
+  by `traefik-manager-agent` and a hand edit would silently disappear.
+- **Two containers run from a floating `:latest` tag.** Neither is started from
+  `docker-compose.yml` (both are `docker run`, `unless-stopped`), so no
+  declarative file pins them: `ghcr.io/chr0nzz/traefik-manager-agent` (running
+  digest `sha256:39796546cd1584a2ac6381e3e0f9aed4aaad1b8bf3a1cf08ca1fb540f31dbc81`)
+  and `ghcr.io/finsys/hawser` (running digest
+  `sha256:526a31f81c92ec750e60fc5da0d7551bbcf8441f1effc0b9741ccb2b2b594131`).
+  A `:latest` tag only moves when someone pulls, so the exposure is not a silent
+  auto-update but an unpinned rebuild: pinning means recreating both containers
+  by digest, which for the Traefik config agent is a worse trade than the risk
+  it removes. Revisit at the next maintenance window.
 - **The historical monolith.** `dgx-portal/app.py` was a single 7 200-line file
   holding auth, budgets, admin and media proxying, which made it hard to
   guarantee no route had lost a guard. It is now a wiring facade over a shared

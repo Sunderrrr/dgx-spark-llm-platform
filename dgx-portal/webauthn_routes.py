@@ -37,7 +37,7 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-from auth import _apply_session, login_required
+from auth import _apply_session, _login_fail, _login_locked, _login_reset, login_required
 from config import WEBAUTHN_ORIGIN, WEBAUTHN_REQUIRE_UV, WEBAUTHN_RP_ID, WEBAUTHN_RP_NAME
 from db import get_db
 from local_users import _local_user_auth
@@ -133,6 +133,32 @@ def _verify_password(username: str, password: str) -> bool:
     from auth import ldap_authenticate
     ok2, _, _ = ldap_authenticate(username, password)
     return ok2
+
+
+def _verify_password_locked(username: str, password: str):
+    """Re-verification PROTEGEE par le verrou de login — (ok, reponse_erreur).
+
+    Sans ce garde-fou, une session detournee (cookie + jeton CSRF vivent dans la
+    meme session) permettait d'essayer des mots de passe a la vitesse du reseau
+    via /api/security/* : le compteur de /login n'etait jamais incremente, donc
+    le verrou 6 echecs / 15 min ne se declenchait jamais, et un mot de passe
+    trouve donnait le mot de passe REUTILISABLE du compte (plus la possibilite
+    de desenregistrer ses passkeys).
+
+    Le compteur est celui du COMPTE (`user:<nom>`), partage avec /login : les
+    tentatives faites depuis les Reglages verrouillent aussi la page de
+    connexion, et inversement. Les echecs sont donc bornes globalement, quel
+    que soit le chemin emprunte.
+    """
+    ukey = f"user:{username}"
+    wait = _login_locked(ukey)
+    if wait:
+        return False, ({"error": f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min."}, 429)
+    if _verify_password(username, password):
+        _login_reset(ukey)
+        return True, None
+    _login_fail(ukey)
+    return False, ({"error": "Mot de passe incorrect."}, 401)
 
 
 # ── Flux d'enregistrement (ajout d'une cle) ───────────────────────────────────
@@ -304,8 +330,9 @@ def security_remove():
     password = data.get("password", "")
     if not cred_id or not password:
         return jsonify({"error": "Champs manquants."}), 400
-    if not _verify_password(username, password):
-        return jsonify({"error": "Mot de passe incorrect."}), 401
+    ok, err = _verify_password_locked(username, password)
+    if not ok:
+        return jsonify(err[0]), err[1]
     db = get_db()
     db.execute("DELETE FROM webauthn_credentials WHERE username=? AND credential_id=?",
                (username, cred_id))
@@ -327,8 +354,9 @@ def security_toggle():
     password = data.get("password", "")
     if not password:
         return jsonify({"error": "Mot de passe requis."}), 400
-    if not _verify_password(username, password):
-        return jsonify({"error": "Mot de passe incorrect."}), 401
+    ok, err = _verify_password_locked(username, password)
+    if not ok:
+        return jsonify(err[0]), err[1]
     if enabled:
         n = get_db().execute("SELECT COUNT(*) c FROM webauthn_credentials WHERE username=?",
                              (username,)).fetchone()["c"]

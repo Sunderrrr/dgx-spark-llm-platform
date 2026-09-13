@@ -1013,6 +1013,8 @@ const EN: Record<string, string> = {
   // — Login (continued) —
   "Session expirée — recharge la page et réessaie.": "Session expired — reload the page and try again.",
   "Identifiants incorrects.": "Incorrect credentials.",
+  "Accès révoqué pour ce compte. Contacte un administrateur.":
+    "Access revoked for this account. Contact an administrator.",
 
   // — Settings: MCP / Skills (continued) —
   "Serveur MCP mis à jour": "MCP server updated",
@@ -1213,6 +1215,70 @@ const EN: Record<string, string> = {
   "Réponse pas utile": "Unhelpful answer",
   "Un commentaire ? (facultatif)": "A comment? (optional)",
   "Merci, c'est noté.": "Thanks, noted.",
+
+  // ── Sécurité : sessions actives + changement de mot de passe ──
+  "Double authentification, sessions actives et mot de passe de ton compte.":
+    "Two-factor authentication, active sessions, and your account password.",
+  "Sessions actives": "Active sessions",
+  "Les appareils connectés à ton compte — révoque ceux que tu ne reconnais pas.":
+    "Devices signed in to your account — revoke the ones you don't recognise.",
+  "Révoquer les autres sessions": "Revoke other sessions",
+  "Session révoquée.": "Session revoked.",
+  "Sessions révoquées.": "Sessions revoked.",
+  "Cet appareil": "This device",
+  "Aucune session active": "No active sessions",
+  "Les sessions apparaîtront ici.": "Sessions will appear here.",
+  "Expire": "Expires",
+  "Le mot de passe sert au login et à confirmer les actions sensibles.":
+    "The password is used to sign in and to confirm sensitive actions.",
+  "Mot de passe actuel": "Current password",
+  "Confirmer le nouveau mot de passe": "Confirm new password",
+  "Changer le mot de passe": "Change password",
+  "Mot de passe modifié.": "Password changed.",
+  "Les deux nouveaux mots de passe ne correspondent pas.": "The two new passwords don't match.",
+  "Compte LDAP/SSO : le mot de passe est géré dans l'annuaire, pas ici.":
+    "LDAP/SSO account: the password is managed in your directory, not here.",
+
+  // ── Admin : blocage, détail de compte, suppression ──
+  "Bloquer…": "Block…",
+  "Bloquer": "Block",
+  "Débloquer": "Unblock",
+  "Bloqué": "Blocked",
+  "Bloquer ce compte": "Block this account",
+  "Le compte sera refusé au login, quelle que soit la source d'authentification, et ses sessions actives seront révoquées.":
+    "The account will be refused at sign-in whatever its authentication source, and its active sessions will be revoked.",
+  "Compte bloqué.": "Account blocked.",
+  "Compte bloqué — {n} session(s) révoquée(s).": "Account blocked — {n} session(s) revoked.",
+  "Compte débloqué.": "Account unblocked.",
+  "verrouillé après trop d'échecs, {n} min": "locked after too many failures, {n} min",
+  "Dernières actions de ce compte": "Recent actions by this account",
+  "Détails du compte": "Account details",
+  "Dernière source": "Last source",
+  "Dernière activité": "Last activity",
+  "par": "by",
+  "Surcharge utilisateur": "User override",
+  "Quota effectif": "Effective quota",
+  "Dépensé (LiteLLM)": "Spent (LiteLLM)",
+  "Aucun profil LiteLLM": "No LiteLLM profile",
+  "Fenêtre de budget": "Budget window",
+  "Sans nom": "Unnamed",
+  "Conversations": "Conversations",
+  "Révoquer toutes ses sessions": "Revoke all sessions",
+  "Supprimer ce compte": "Delete this account",
+  "Cette action est définitive : elle révoque les clés API et les sessions du compte, supprime son enveloppe LiteLLM ET ses données personnelles (mémoires, conversations, préférences, passkeys).":
+    "This action is permanent: it revokes the account's API keys and sessions, deletes its LiteLLM envelope AND its personal data (memories, conversations, preferences, passkeys).",
+  "Tapez DELETE pour confirmer": "Type DELETE to confirm",
+  "Supprimer définitivement": "Delete permanently",
+  "Compte supprimé.": "Account deleted.",
+  // Purge d'un compte d'annuaire (LDAP/SSO) : données effacées, accès conservé.
+  "Purger les données…": "Purge data…",
+  "Purger les données": "Purge data",
+  "Purger": "Purge",
+  "Données du compte purgées.": "Account data purged.",
+  "Cette action efface DÉFINITIVEMENT les données du compte : mémoires, conversations, liens de partage, préférences et clés API.":
+    "This action PERMANENTLY erases the account's data: memories, conversations, share links, preferences and API keys.",
+  "Elle ne retire pas l'accès : un compte LDAP/SSO peut se reconnecter et repartira d'un compte vide. Pour retirer l'accès, utilise Bloquer.":
+    "It does not remove access: an LDAP/SSO account can sign in again and will start from an empty account. To remove access instead, use Block.",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

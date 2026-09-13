@@ -45,3 +45,11 @@ jobs:
         run: npx tsc --noEmit
       - name: Lint
         run: npx eslint .
+      # Une clé i18n manquante ne casse RIEN : le texte retombe silencieusement
+      # sur le français, donc l'utilisateur anglophone lit du français sans que
+      # personne ne s'en aperçoive. Ce contrôle rend l'oubli bruyant — c'est tout
+      # son intérêt, il n'a pas besoin d'être exhaustif. Tourne sur python3, déjà
+      # présent sur le runner, et analyse l'arbre depuis la racine du dépôt.
+      - name: i18n coverage
+        working-directory: .
+        run: python3 scripts/check-i18n.py

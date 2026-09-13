@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Pre-push safety gate for Cronos.
 #
-# Two checks, both must pass before code leaves the box:
+# Three checks, all must pass before code leaves the box:
 #   1. Secret scan — refuses to push a diff that adds a secret file
 #      (.env, DEBUG_USERS.txt, private keys…) or a secret-looking value.
 #   2. Test suite  — runs the backend tests in a throwaway container.
+#   3. i18n coverage — every t("…") string has its English translation, and no
+#      screen formats its numbers/dates with a hardcoded locale.
 #
 # Usage:
 #   ./scripts/pre-push-check.sh              # scan @{u}..HEAD, run tests
@@ -93,6 +95,19 @@ else
     fail "Tests FAILED — push aborted."
     exit 1
   fi
+fi
+
+# ── 3. Couverture i18n ────────────────────────────────────────────────────────
+# Une clé de traduction manquante ne casse RIEN : le texte retombe silencieusement
+# sur le français et l'utilisateur anglophone lit du français. Un contrôle local
+# qui prend une seconde vaut mieux que de le découvrir en production ; il tourne
+# aussi en CI, mais autant l'attraper avant le push.
+info "Contrôle de couverture i18n (scripts/check-i18n.py)…"
+if python3 scripts/check-i18n.py; then
+  ok "i18n couvert"
+else
+  fail "Traductions manquantes ou locale figée — push annulé."
+  exit 1
 fi
 
 ok "Pre-push gate GREEN — safe to push"

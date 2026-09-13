@@ -13,6 +13,7 @@ sont refuses pour le reste du tour.
 """
 import json
 import re
+import secrets
 import time
 from datetime import datetime
 
@@ -59,11 +60,13 @@ SUPPORT_SYSTEM = (
     "révoquer une clé, demander du budget/un modèle, lancer/arrêter). Pour toute "
     "question de dépannage, d'information ou d'explication, réponds DIRECTEMENT en "
     "texte, SANS appeler d'outil (tu as déjà les logs et l'état dans le contexte).\n"
-    "- Confirme TOUJOURS avec l'utilisateur avant une action destructive ou "
-    "impactante (revoke_api_key, stop_model, launch_model qui coupe le modèle "
-    "actif) : demande « tu confirmes ? » et n'appelle l'outil qu'après un oui.\n"
-    "- create_api_key et request_* peuvent être faits directement si la demande est "
-    "claire.\n"
+    "- Les actions SENSIBLES (revoke_api_key, launch_model, stop_model) te "
+    "répondent « NON EXÉCUTÉ : en attente de confirmation » : c'est normal. Le "
+    "système affiche alors un bouton Confirmer à l'utilisateur, et l'action ne "
+    "part qu'à son clic. Ne la rappelle pas, ne la présente jamais comme faite, "
+    "et n'invente pas son résultat : dis en une phrase ce qui va se passer s'il "
+    "confirme.\n"
+    "- create_api_key et request_* s'exécutent directement.\n"
     "- Quand tu crées une clé, AFFICHE la clé complète une seule fois à l'utilisateur "
     "(c'est sa nouvelle clé) et rappelle-lui de la copier.\n"
     "Règles générales :\n"
@@ -169,6 +172,25 @@ def _support_context(username, is_admin, user_msg=''):
     if breqs:
         lines.append("Demandes de budget de l'utilisateur : "
                      + ", ".join(r['status'] for r in breqs))
+
+    # ── Trace récente des actions de l'utilisateur (diagnostic) ─────
+    # Le contexte décrivait le compte et la plateforme, mais rien de ce que
+    # l'utilisateur venait de FAIRE : à « ça marchait hier et plus maintenant »,
+    # l'assistant n'avait aucune matière et répondait à côté. `audit_log` est
+    # déjà indexée par utilisateur et contient les échecs de lancement, les
+    # créations/révocations de clés, les bascules de maintenance. Borné à 5
+    # lignes et tronqué : c'est un indice, pas un journal.
+    try:
+        acts = db.execute("SELECT action, detail, created_at FROM audit_log "
+                          "WHERE username=? ORDER BY id DESC LIMIT 5",
+                          (username,)).fetchall()
+        if acts:
+            lines.append("Ses dernières actions (plus récente d'abord) :\n"
+                         + "\n".join("  - {} : {}".format(
+                             (r['created_at'] or '')[:16].replace('T', ' '),
+                             (r['detail'] or r['action'] or '')[:160]) for r in acts))
+    except Exception:
+        pass
 
     # ── Server logs (troubleshooting, ADMINS ONLY) ───
     # The is_admin guard is not cosmetic: the two other accesses to these
@@ -320,6 +342,65 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
 # or skill text) has entered the context: destructive
 # (key revocation) or global server-scope (the GPU is shared).
 GUARDED_TOOLS = {'revoke_api_key', 'launch_model', 'stop_model'}
+
+# ── Confirmation des actions sensibles ───────────────────────────────────────
+# Le prompt demande au modèle de faire confirmer ces actions, mais un prompt
+# n'est pas un contrôle : rien n'empêchait le modèle d'appeler revoke_api_key
+# de lui-même. Désormais l'exécution passe par ici — le modèle DÉPOSE une
+# demande, l'utilisateur clique, et c'est le clic qui exécute. Le jeton n'est
+# jamais donné au modèle, donc une injection indirecte (MCP, page web, texte
+# d'une skill) ne peut pas le rejouer.
+PENDING_TTL = 600      # 10 min : au-delà, la demande est périmée
+PENDING_MAX = 5        # demandes en attente conservées par utilisateur
+
+
+def creer_action_en_attente(username, tool, args, label, target):
+    """Dépose une demande de confirmation et retourne son jeton (opaque)."""
+    token = secrets.token_urlsafe(24)
+    db = get_db()
+    # Purge au passage : une demande périmée n'a plus de sens, et la table ne
+    # doit pas devenir un journal (elle ne contient que des intentions).
+    db.execute("DELETE FROM pending_actions WHERE created_at < ?",
+               (time.time() - PENDING_TTL,))
+    db.execute("DELETE FROM pending_actions WHERE username=? AND status='pending' "
+               "AND token NOT IN (SELECT token FROM pending_actions WHERE username=? "
+               "ORDER BY created_at DESC LIMIT ?)",
+               (username, username, PENDING_MAX))
+    db.execute("INSERT INTO pending_actions "
+               "(token, username, tool, args, label, target, created_at, status) "
+               "VALUES (?,?,?,?,?,?,?, 'pending')",
+               (token, username, tool, json.dumps(args or {}), label, target, time.time()))
+    db.commit()
+    return token
+
+
+def action_en_attente(username, token):
+    """La demande de CET utilisateur, si elle est encore valable (sinon None)."""
+    if not token:
+        return None
+    row = get_db().execute(
+        "SELECT token, username, tool, args, label, target, created_at, status "
+        "FROM pending_actions WHERE token=? AND username=?", (token, username)).fetchone()
+    if not row or row['status'] != 'pending':
+        return None
+    if time.time() - (row['created_at'] or 0) > PENDING_TTL:
+        return None
+    return row
+
+
+def cloturer_action(username, token, statut):
+    """Clôt la demande et dit si c'est NOUS qui l'avons fait.
+
+    C'est ce qui garantit l'usage unique : le UPDATE est conditionné à
+    `status='pending'`, donc deux clics simultanés (ou un double envoi) ne
+    donnent qu'un seul `rowcount = 1` — l'autre n'exécute rien.
+    """
+    db = get_db()
+    cur = db.execute(
+        "UPDATE pending_actions SET status=? WHERE token=? AND username=? AND status='pending'",
+        (statut, token, username))
+    db.commit()
+    return cur.rowcount == 1
 
 
 def _support_tool_target(name, args):

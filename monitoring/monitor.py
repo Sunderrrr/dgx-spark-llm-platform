@@ -287,7 +287,8 @@ def main():
 
     # --init : mémorise l'état sans envoyer (évite un burst au déploiement).
     if args.init:
-        _save_state(args.state, {"down": sorted(down), "data_watermark": wm})
+        _save_state(args.state, {"down": sorted(down), "data_watermark": wm,
+                                 "backup": cur.get("backup") or {}})
         print(f"init: {sorted(down) if down else 'all up'}")
         return 0
 
@@ -303,7 +304,12 @@ def main():
               {k: cur[k] for k in recovered})
         print(f"recovery sent for: {recovered}")
 
-    _save_state(args.state, {"down": sorted(down), "data_watermark": wm})
+    # L'état écrit est reconstruit ici, pas recopié de `cur` : on n'y garde que
+    # le sticky (`down`) et le filigrane. `backup` est ajouté explicitement parce
+    # que c'est le SEUL canal par lequel le portail peut afficher la fraîcheur du
+    # dump — `/var/backups/cronos` est en 0700 root, le conteneur n'y voit rien.
+    _save_state(args.state, {"down": sorted(down), "data_watermark": wm,
+                             "backup": cur.get("backup") or {}})
     return 0
 
 

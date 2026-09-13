@@ -440,6 +440,24 @@ non-admin traffic everywhere without stopping any backend. Per-user consumption 
 a **search box** — look up a single account to see its LiteLLM quota/spend plus its
 media usage (untracked by LiteLLM, since none of it goes through a public API key).
 
+A **platform status** card sits at the top of the page: free disk space, the age
+of the last portal backup, the incidents the host monitor currently has open, the
+served model with the uptime the portal *observed*, and the portal's own counters.
+It answers the questions you ask during an incident without a shell on the host.
+The backup figures come from the host monitor's state file (mounted read-only)
+because `/var/backups/cronos` is root-only — deliberately, those dumps contain the
+whole database. When a figure cannot be read the card says so instead of showing a
+reassuring green dot.
+
+Actions report **what actually happened**. A refused stop, a quota LiteLLM
+rejected or a model that failed to register is an error message with a matching
+HTTP status, never a green toast; a launch whose runner did not answer in time is
+reported as *uncertain* ("check the state before relaunching") rather than as a
+failure, because retrying would kill a model that is still loading. Destructive
+actions — stopping the served model, launching another one, deleting a catalog
+entry, toggling maintenance — ask for confirmation first, and the buttons are
+locked while a request is in flight so a double-click cannot fire twice.
+
 ### Users
 
 A dedicated page to manage accounts: create users with a hashed password, assign
@@ -461,6 +479,14 @@ The two are not interchangeable, and the interface says so: **deleting** a local
 account removes its access *and* erases its data, while **purging** an LDAP/SSO
 account erases its data only — that account can sign in again and will simply
 start from an empty account. Removing access is what **blocking** is for.
+
+The portal refuses to leave itself without a local administrator: an admin cannot
+disable or demote **themselves** (the role is re-read on every request, so the loss
+of access would be immediate and there would be no session left to undo it), and the
+**last** active local admin cannot be removed — not by deleting the account, not by
+disabling it, and not by deleting the group that carries its rights. Admin rights
+come from `local_users.is_admin` *or* from the group, which is why removing a group
+is checked too.
 
 ---
 

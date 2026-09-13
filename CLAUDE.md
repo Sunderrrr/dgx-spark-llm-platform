@@ -300,9 +300,13 @@ Key facts and gotchas:
   reste dans `provider_specific_fields.reasoning`). Chercher `reasoning` en sortie de
   LiteLLM donne un faux negatif.
 - **Le tampon de logs du runner (`_logs`) est trop court pour diagnostiquer un echec
-  de demarrage vLLM** : ~27 lignes utiles, et `_start_process` le vide a chaque
-  tentative. Avec 3 auto-resume, la cause racine est ecrasee avant d'etre lue. Pour
-  diagnostiquer, collecter `/logs` en continu dans un fichier pendant le demarrage.
+  de demarrage**, et `_start_process` le vide a chaque tentative : avec 3 auto-resume,
+  la cause racine etait ecrasee avant d'etre lue. Depuis le 2026-09-13 le runner ecrit
+  **un journal par demarrage** dans `/var/lib/vllm-runner/logs/<horodatage>-<moteur>-<modele>.log`
+  (20 Mo et 12 fichiers maximum, dossier 0750 `vllmrunner`, non expose par HTTP —
+  lecture par shell). Le code est **inerte jusqu'au prochain redemarrage du runner** :
+  ne PAS le redemarrer pour l'activer, cela tuerait le modele servi. En attendant, la
+  methode manuelle reste valable : collecter `/logs` en continu pendant le demarrage.
 
 - **Qwen3.8-27B-Uncensored : passe de vLLM/FP8 a llama.cpp/GGUF, AVEC la vision
   (2026-09-07).** Arch GGUF `qwen35` — connue des TROIS builds llama.cpp, donc aucun
@@ -380,11 +384,20 @@ Login order (`login()` in `dgx-portal/app.py`):
   counts TOKENS and returns 429 `ExceededBudget` past the cap. Gotchas
   (2026-09-08 audit): accounts created before the budget feature had NO
   envelope and stayed unlimited (`_ensure_litellm_user` now repairs
-  `max_budget=None`); a `user/update` without `budget_duration` turns the cap
-  into a lifetime ceiling — every budget write carries the duration (weekly
-  since 2026-09-08, default 200M tokens/week); grant amounts > 1e12 tokens are
-  rejected (a typo'd approval once set 6.7e12 = de-facto unlimited); the home
-  card reads the LiteLLM envelope so admin grants are reflected immediately.
+  `max_budget=None`); grant amounts > 1e12 tokens are rejected (a typo'd
+  approval once set 6.7e12 = de-facto unlimited); the home card reads the
+  LiteLLM envelope so admin grants are reflected immediately.
+  **Correction mesurée le 2026-09-13** : un `user/update` SANS `budget_duration`
+  **conserve** la durée existante (`budget_duration: '7d'` et `budget_reset_at`
+  intacts après l'appel, vérifié sur un compte jetable). Le gotcha du 2026-09-08
+  (« la durée disparaît, le plafond devient viager ») ne valait donc que pour un
+  compte qui n'en avait JAMAIS eu. La discipline reste — **toute écriture de
+  quota transmet la durée** (`default_key_duration`, hebdomadaire, défaut
+  200 M tokens/semaine) — parce qu'elle couvre ce second cas sans qu'on ait à se
+  souvenir lequel des deux s'applique. Autre mesure du même jour : `max_budget: 0`
+  reste `0.0` côté LiteLLM, donc **0 plafonne réellement à zéro** et non
+  « lève la limite » — `/admin/users/<nom>/budget/set` refuse désormais 0 ou
+  négatif (400) et renvoie vers le blocage de compte.
 - **Sessions are server-revocable** via a `user_sessions` registry in SQLite:
   the signed cookie carries only a random `sid`; a row lets an admin kill a
   session at will (`POST /admin/users/<username>/revoke-sessions`), revoke on
@@ -466,6 +479,53 @@ Login order (`login()` in `dgx-portal/app.py`):
   l'effacer) et chaque tour TERMINÉ y est écrit puis passé à l'extraction mémoire —
   un tour interrompu (onglet fermé, bouton Arrêter, erreur modèle) n'est ni
   sauvegardé ni exploité pour la mémoire (`_fin_support`, drapeau « fini »).
+
+---
+
+## Admin — contrat des actions (2026-09-13)
+
+Une vingtaine de routes d'admin répondaient `flash(...)` + `redirect(...)`. Le
+flash n'est rendu par **aucun** template (l'UI est Next.js, `get_flashed_messages`
+n'existe pas dans le dépôt), et surtout la réponse HTML d'une redirection faisait
+échouer `res.json()` côté client : le `catch` de `act()` traitait ce non-JSON comme
+un succès. Un arrêt refusé, un quota non appliqué, un enregistrement LiteLLM raté
+s'affichaient donc comme réussis. **Règle : toute action d'admin répond du JSON**
+avec un statut honnête.
+
+- `{"ok": true}` (200) ou `{"ok": false, "error": "phrase en français"}` avec
+  **400** (refus), **404** (introuvable), **409** (`needs_confirm`, ou garde
+  « dernier admin »), **502** (amont injoignable), **507** (mémoire), **403**.
+  Un `warning` accompagne un succès partiel (ex. catalogue mis à jour mais
+  LiteLLM non déregistré) — jamais à la place d'une erreur.
+- Le **doute n'est pas un échec** : `runner_launch`/`runner_stop` renvoient
+  `(ok, motif, incertain)`. Un délai dépassé donne **202** + `incertain: true`
+  (« vérifie l'état avant de relancer ») et **pas d'alerte infra** : alerter
+  ferait recliquer, donc tuer un modèle en cours de chargement.
+- Côté interface, `postFormJSON` (`lib/api.ts`) ne vérifie **pas** le statut
+  HTTP — d'où l'échec silencieux. `act()` utilise `authFetch` pour lire le code,
+  et traite comme échec tout non-JSON, tout 4xx/5xx et tout `ok: false`.
+- **Garde « dernier admin local » (étendue le 2026-09-13)** : elle existait sur la
+  suppression et le blocage, pas sur la MODIFICATION du compte — un POST suffisait
+  à se rétrograder ou se désactiver, et l'état du compte étant relu à chaque
+  requête, la perte d'accès était immédiate. Elle couvre aussi la suppression d'un
+  **groupe** et le retrait de son droit d'admin (les droits viennent de
+  `local_users.is_admin` OU du groupe). Piège que `_dernier_admin_local` ne voit
+  pas : un groupe dont **deux** membres tiennent leurs droits — pris un par un,
+  chacun voit l'autre comme admin. D'où `_admins_locaux_apres(simulation)`, qui
+  compte les admins après retrait.
+- **`GET /admin/platform`** (admin) expose disque, fraîcheur du dump, incidents du
+  moniteur, modèle servi (+ uptime observé), compteurs du portail. Seul l'**état du
+  moniteur hôte** (`/var/lib/cronos-monitor`, 0644) est monté, en lecture seule :
+  `/var/backups/cronos` est en **0700 root** et les dumps en 0600 — c'est voulu, ils
+  contiennent la base entière — donc c'est le moniteur (root) qui recopie nom, âge
+  et nombre de dumps dans son état, et le portail lit ça. `readable: false` ≠
+  « tout va bien » : l'interface affiche « illisible ».
+- `log_audit` ne doit pas être muet : un échec d'écriture part sur la sortie
+  d'erreur (les journaux du conteneur le montrent). L'historique garde 5000 lignes
+  (500 se recyclaient en quelques jours).
+- `/api/admin` borne ses listes (200 dernières demandes) mais calcule ses
+  **compteurs en SQL** sur la table entière : la page est rafraîchie toutes les
+  8 s, elle ne doit pas transporter tout l'historique.
 
 ---
 

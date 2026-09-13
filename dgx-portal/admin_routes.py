@@ -23,8 +23,8 @@ from werkzeug.security import generate_password_hash
 from announcements import _announce_launch, add_announcement
 from auth import (USERNAME_RE,
                   _revoke_user_sessions,
-                  admin_required, bloquer_compte, debloque_compte, est_bloque,
-                  is_admin_username, ldap_lookup_email,
+                  admin_required, bloquer_compte, completer_origine_session,
+                  debloque_compte, est_bloque, is_admin_username, ldap_lookup_email,
                   login_required)
 from config import (ADMIN_EMAIL, KEY_BUDGET, KEY_DURATION, RUNNER_URL,
                     SMTP_HOST, SMTP_PASS, SMTP_USER)
@@ -909,6 +909,11 @@ def admin_user_detail(username):
     for k in (get_user_keys(username) or []):
         cles.append({'alias': k.get('key_alias'), 'created_at': k.get('created_at'),
                      'spend': k.get('spend', 0)})
+    # La ligne du sid appelant est la sienne : si l'admin ouvre son propre
+    # compte, elle se complète comme en self-service (session ouverte avant
+    # l'ajout des colonnes IP/user-agent). Celle d'un AUTRE compte n'est jamais
+    # touchée — on n'écrirait pas l'IP de l'admin dans la session d'autrui.
+    completer_origine_session()
     sid_courant = session.get('sid')
     now = datetime.now().timestamp()
     sessions = []

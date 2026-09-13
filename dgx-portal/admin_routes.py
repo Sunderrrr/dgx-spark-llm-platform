@@ -23,19 +23,22 @@ from werkzeug.security import generate_password_hash
 from announcements import _announce_launch, add_announcement
 from auth import (USERNAME_RE,
                   _revoke_user_sessions,
-                  admin_required, is_admin_username, ldap_lookup_email,
+                  admin_required, bloquer_compte, debloque_compte, est_bloque,
+                  is_admin_username, ldap_lookup_email,
                   login_required)
 from config import (ADMIN_EMAIL, KEY_BUDGET, KEY_DURATION, RUNNER_URL,
                     SMTP_HOST, SMTP_PASS, SMTP_USER)
 from db import add_notification, get_db, get_setting, log_audit, maintenance_active, set_setting
 from litellm_client import (_litellm_user_info, _register_litellm_model,
                             _unregister_litellm_model,
-                            litellm_update_user_budget)
+                            get_user_keys, litellm_update_user_budget)
 from local_users import (_local_group, _local_user_effective_budget,
                          _local_user_is_admin, _parse_budget,
-                         _sync_local_user_budget)
+                         _sync_local_user_budget, password_policy_error)
 from notify import (notify_infra_alert_email, notify_maintenance_email,
                     send_test_email, send_user_email)
+from user_lifecycle import (compter_donnees, deprovisionner_compte,
+                            prevenir_mot_de_passe_change)
 from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       _image_launch, _mem_guard, _music_launch, _ocr_launch,
                       _runner_headers, _sidecar_action, _sidecar_start_json,
@@ -483,6 +486,16 @@ def delete_model_cfg(mid):
     db.commit()
     if row:
         _unregister_litellm_model(row['name'])
+        # Le fil d'annonces est un « quoi de neuf », pas un journal : garder
+        # « modèle X ajouté » pour un modèle qu'on vient de retirer annonce aux
+        # utilisateurs quelque chose qui n'existe plus. Le fait reste consigné
+        # dans l'audit, seul le fil est nettoyé.
+        retires = db.execute("DELETE FROM announcements WHERE kind='model_add' AND a=?",
+                             (row['name'],)).rowcount
+        db.commit()
+        log_audit(session.get('username'), 'model.delete',
+                  f"{row['name']} — retiré du catalogue LiteLLM, "
+                  f"{retires} annonce(s) retirée(s)")
     flash("Modèle supprimé (retiré de LiteLLM).", "success")
     return redirect(url_for('admin.admin'))
 
@@ -523,6 +536,15 @@ def api_admin_users():
     managed = {u['username']: u for u in db.execute("SELECT * FROM local_users").fetchall()}
     recorded = {r['username']: r for r in db.execute("SELECT * FROM user_sources").fetchall()}
     spend = {s['username']: s for s in (admin_get_user_consumption() or [])}
+    blocked = {b['username']: b for b in db.execute("SELECT * FROM blocked_users").fetchall()}
+    # Verrouillage anti-force-brute en cours : la clé est composite
+    # ('ip|compte' ou 'user:compte'), on rattache au compte par le suffixe.
+    locked = {}
+    now = datetime.now().timestamp()
+    for r in db.execute("SELECT key, locked_until FROM login_attempts WHERE locked_until > ?",
+                        (now,)).fetchall():
+        compte = r['key'].split('|')[-1].removeprefix('user:')
+        locked[compte] = max(locked.get(compte, 0), int((r['locked_until'] - now) // 60) + 1)
 
     names = set(managed) | set(recorded) | set(spend)
     out = []
@@ -579,6 +601,13 @@ def api_admin_users():
             'spend': (sp['spend'] if sp else 0),
             'key_count': (sp['key_count'] if sp else 0),
             'last_seen': recorded[name]['last_seen'] if name in recorded else None,
+            # État de refus et verrouillage : sans eux, la page ne peut pas
+            # distinguer un compte bloqué d'un compte simplement inactif — or
+            # c'est exactement ce qu'un admin vient vérifier.
+            'blocked': blocked.get(name) is not None,
+            'block_reason': (blocked[name]['reason'] if name in blocked else None),
+            'blocked_at': (blocked[name]['blocked_at'] if name in blocked else None),
+            'locked_minutes': locked.get(name, 0),
         })
     groups = db.execute("SELECT name, max_budget, is_admin FROM user_groups ORDER BY name").fetchall()
     return jsonify({'users': out, 'groups': [dict(g) for g in groups],
@@ -609,8 +638,9 @@ def admin_users_create():
     password = request.form.get('password', '')
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Identifiant invalide (a-z, 0-9, . _ - , max 64)."}), 400
-    if len(password) < 8:
-        return jsonify({'ok': False, 'error': "Mot de passe : 8 caractères minimum."}), 400
+    pw_err = password_policy_error(password, username)
+    if pw_err:
+        return jsonify({'ok': False, 'error': pw_err}), 400
     db = get_db()
     if db.execute("SELECT 1 FROM local_users WHERE username=?", (username,)).fetchone():
         return jsonify({'ok': False, 'error': "Cet utilisateur existe déjà."}), 409
@@ -629,10 +659,16 @@ def admin_users_create():
          datetime.now().isoformat()))
     db.commit()
     row = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
-    _sync_local_user_budget(username, row)
+    quota_ok = _sync_local_user_budget(username, row)
     log_audit(session.get('username'), 'user.create',
-              f"création de {username}" + (f" (groupe {group})" if group else ""))
-    return jsonify({'ok': True})
+              f"création de {username}" + (f" (groupe {group})" if group else "")
+              + ('' if quota_ok else ' — QUOTA NON APPLIQUÉ'))
+    # Un quota qui n'a pas pu être écrit côté LiteLLM, c'est un compte de fait
+    # illimité : le dire, au lieu de laisser croire à une création complète.
+    return jsonify({'ok': True} if quota_ok else {
+        'ok': True,
+        'warning': "Compte créé, mais son quota n'a PAS pu être appliqué sur LiteLLM : "
+                   "le compte est sans plafond tant que le budget n'est pas redéfini."})
 
 @bp.route('/admin/users/update/<int:uid>', methods=['POST'])
 @admin_required
@@ -644,8 +680,9 @@ def admin_users_update(uid):
     sets, vals = [], []
     password = request.form.get('password', '')
     if password:
-        if len(password) < 8:
-            return jsonify({'ok': False, 'error': "Mot de passe : 8 caractères minimum."}), 400
+        pw_err = password_policy_error(password, row['username'])
+        if pw_err:
+            return jsonify({'ok': False, 'error': pw_err}), 400
         sets.append("password_hash=?"); vals.append(generate_password_hash(password))
     if 'group' in request.form:
         group = request.form.get('group', '').strip() or None
@@ -669,11 +706,26 @@ def admin_users_update(uid):
     updated = db.execute("SELECT * FROM local_users WHERE id=?", (uid,)).fetchone()
     # Verrouiller un compte (enabled=0) révoque immédiatement ses sessions :
     # il perd son accès sans attendre l'expiration HTTP.
+    revoquees = 0
     if 'enabled' in request.form and not updated['enabled']:
-        _revoke_user_sessions(updated['username'])
-    _sync_local_user_budget(updated['username'], updated)
-    log_audit(session.get('username'), 'user.update', f"mise à jour de {updated['username']}")
-    return jsonify({'ok': True})
+        revoquees = _revoke_user_sessions(updated['username'])
+    if password:
+        # Changer le mot de passe doit fermer les AUTRES sessions : sans ça,
+        # un changement motivé par un doute sur un cookie volé ne protégeait
+        # de rien, l'ancienne session continuant de valider.
+        revoquees = max(revoquees, _revoke_user_sessions(updated['username']))
+    quota_ok = _sync_local_user_budget(updated['username'], updated)
+    log_audit(session.get('username'), 'user.update',
+              f"mise à jour de {updated['username']}"
+              + (f" — mot de passe changé par l'admin, {revoquees} session(s) fermée(s)"
+                 if password else '')
+              + ('' if quota_ok else ' — QUOTA NON APPLIQUÉ'))
+    if password:
+        prevenir_mot_de_passe_change(updated['username'], par_admin=session.get('username'))
+    return jsonify({'ok': True} if quota_ok else {
+        'ok': True,
+        'warning': "Modifications enregistrées, mais le quota n'a PAS pu être appliqué "
+                   "sur LiteLLM : redéfinis le budget du compte."})
 
 
 @bp.route('/admin/users/<username>/revoke-sessions', methods=['POST'])
@@ -683,19 +735,234 @@ def admin_revoke_sessions(username):
     cookie volé devient inutilisable immédiatement)."""
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
-    _revoke_user_sessions(username)
-    return jsonify({'ok': True})
+    n = _revoke_user_sessions(username)
+    # Une révocation est une action de sécurité : elle se journalise comme les
+    # autres. Elle ne l'était pas, seule la désactivation l'était.
+    log_audit(session.get('username'), 'session.revoke',
+              f"{username} — {n} session(s) révoquée(s)")
+    return jsonify({'ok': True, 'revoked': n})
+
+def _corps():
+    """Corps de requête, formulaire OU JSON.
+
+    L'Admin envoie du formulaire (postForm) et la nouvelle interface JSON
+    (fetch) : lire uniquement request.form faisait ignorer silencieusement un
+    `confirm=DELETE` pourtant envoyé, et la route répondait 409 sans fin.
+    """
+    data = request.get_json(silent=True)
+    if isinstance(data, dict):
+        return data
+    return request.form
+
+
+def _dernier_admin_local(username):
+    """Vrai si `username` est le dernier administrateur LOCAL actif.
+
+    Le portail n'aurait alors plus personne pour l'administrer en local —
+    les admins du répertoire (LDAP/SSO) dépendent d'un annuaire externe, ce
+    qui n'est pas une raison pour se couper soi-même la main.
+    """
+    db = get_db()
+    for r in db.execute("SELECT * FROM local_users WHERE enabled=1").fetchall():
+        if r['username'] != username and _local_user_is_admin(r):
+            return False
+    return True
+
 
 @bp.route('/admin/users/delete/<int:uid>', methods=['POST'])
 @admin_required
 def admin_users_delete(uid):
+    """Supprime un compte : retire TOUT son accès, puis purge ses données.
+
+    Avant le 2026-09-13 cette route ne faisait qu'un DELETE dans local_users :
+    les clés API du compte restaient valides (LiteLLM les valide lui-même) et
+    sa session navigateur survivait jusqu'à 12 h. Trois garde-fous sont
+    ajoutés avec le reste :
+    - pas d'auto-suppression (l'admin se couperait l'accès en pleine action) ;
+    - pas de suppression du dernier administrateur local ;
+    - `confirm=DELETE` exigé : l'opération emporte les données personnelles
+      (mémoire, conversations, partages, préférences) et ne doit pas partir
+      d'un POST accidentel.
+    """
     db = get_db()
-    name = db.execute("SELECT username FROM local_users WHERE id=?", (uid,)).fetchone()
+    row = db.execute("SELECT * FROM local_users WHERE id=?", (uid,)).fetchone()
+    if not row:
+        return jsonify({'ok': False, 'error': "Utilisateur introuvable."}), 404
+    username = row['username']
+    moi = session.get('username')
+    if username == moi:
+        return jsonify({'ok': False,
+                        'error': "Tu ne peux pas supprimer ton propre compte."}), 400
+    if _local_user_is_admin(row) and _dernier_admin_local(username):
+        return jsonify({'ok': False,
+                        'error': "Dernier administrateur local : nomme un autre "
+                                 "administrateur avant de supprimer celui-ci."}), 400
+    donnees = compter_donnees(username)
+    if (_corps().get('confirm') or '').strip().upper() != 'DELETE':
+        return jsonify({'ok': False, 'needs_confirm': True, 'donnees': donnees,
+                        'error': "Confirmation requise : cette suppression emporte "
+                                 "les accès ET les données du compte."}), 409
+    # La ligne locale d'abord : elle porte l'accès, et tout ce qui suit la
+    # concerne (clés, enveloppe, données) sans dépendre d'elle.
     db.execute("DELETE FROM local_users WHERE id=?", (uid,))
     db.commit()
-    if name:
-        log_audit(session.get('username'), 'user.delete', f"suppression de {name['username']}")
-    return jsonify({'ok': True})
+    rapport = deprovisionner_compte(username, moi)
+    reponse = {'ok': True, 'purged': rapport}
+    # L'accès API est la moitié du problème : si LiteLLM n'a pas répondu, des
+    # clés peuvent encore fonctionner, et l'admin doit le savoir tout de suite
+    # plutôt que de le découvrir dans le journal d'audit.
+    if rapport['keys_failed'] or not rapport['litellm_user']:
+        reponse['warning'] = (
+            f"{rapport['keys_failed']} clé(s) n'ont pas pu être révoquées et/ou "
+            "l'enveloppe LiteLLM n'a pas pu être supprimée (service injoignable) : "
+            "vérifie les clés de ce compte dans LiteLLM avant de le considérer comme parti.")
+    return jsonify(reponse)
+
+
+@bp.route('/admin/users/<username>/purge', methods=['POST'])
+@admin_required
+def admin_user_purge(username):
+    """Efface les DONNÉES d'un compte sans ligne locale (compte d'annuaire).
+
+    Un compte LDAP/SSO n'existe pas dans `local_users` : la route de
+    suppression, qui part d'un identifiant local, ne peut donc rien pour lui —
+    et ses conversations, sa mémoire, ses préférences et ses clés restaient en
+    base indéfiniment après son départ. Cette route les efface, sans toucher à
+    son accès : le BLOCAGE reste le levier d'offboarding, car un compte
+    d'annuaire peut se reconnecter et retrouverait alors un compte vide.
+    """
+    if not USERNAME_RE.match(username):
+        return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
+    if username == session.get('username'):
+        return jsonify({'ok': False,
+                        'error': "Tu ne peux pas purger ton propre compte."}), 400
+    db = get_db()
+    if db.execute("SELECT 1 FROM local_users WHERE username=?", (username,)).fetchone():
+        return jsonify({'ok': False,
+                        'error': "Ce compte est local : utilise la suppression, "
+                                 "qui retire aussi l'accès."}), 400
+    if (_corps().get('confirm') or '').strip().upper() != 'DELETE':
+        return jsonify({'ok': False, 'needs_confirm': True,
+                        'donnees': compter_donnees(username),
+                        'error': "Confirmation requise : cette opération efface "
+                                 "définitivement les données du compte."}), 409
+    rapport = deprovisionner_compte(username, session.get('username'),
+                                    action='user.purge')
+    return jsonify({'ok': True, 'purged': rapport})
+
+
+@bp.route('/admin/users/<username>/block', methods=['POST'])
+@admin_required
+def admin_user_block(username):
+    """Refuse un compte à la connexion, quelle que soit sa source.
+
+    C'est le SEUL levier du portail pour un compte LDAP/SSO : il n'a pas de
+    ligne dans local_users, donc pas d'`enabled` à basculer, et révoquer ses
+    sessions ne servait à rien — il se reconnectait aussitôt. Le blocage est
+    réversible et ne touche pas à son état local : débloquer rend le compte
+    exactement tel qu'il était.
+    """
+    if not USERNAME_RE.match(username):
+        return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
+    if username == session.get('username'):
+        return jsonify({'ok': False, 'error': "Tu ne peux pas bloquer ton propre compte."}), 400
+    if est_bloque(username):
+        return jsonify({'ok': True, 'revoked_sessions': 0, 'deja_bloque': True})
+    row = get_db().execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
+    if row is not None and _local_user_is_admin(row) and _dernier_admin_local(username):
+        return jsonify({'ok': False,
+                        'error': "Dernier administrateur local : nomme un autre "
+                                 "administrateur avant de bloquer celui-ci."}), 400
+    raison = (_corps().get('reason') or '').strip()[:200] or None
+    n = bloquer_compte(username, raison, session.get('username'))
+    return jsonify({'ok': True, 'revoked_sessions': n})
+
+
+@bp.route('/admin/users/<username>/unblock', methods=['POST'])
+@admin_required
+def admin_user_unblock(username):
+    if not USERNAME_RE.match(username):
+        return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
+    n = debloque_compte(username, session.get('username'))
+    return jsonify({'ok': True, 'debloque': bool(n)})
+
+
+@bp.route('/admin/users/<username>/detail')
+@admin_required
+def admin_user_detail(username):
+    """Tout ce que le portail sait d'un compte, en une réponse.
+
+    La page Users liste ; cette vue répond aux questions qu'on se pose
+    vraiment devant un compte : que consomme-t-il, a-t-il des clés, combien de
+    souvenirs, d'où s'est-il connecté, et qu'a-t-on fait de lui. Les valeurs
+    des clés ne sortent JAMAIS d'ici : seul leur alias est renvoyé.
+    """
+    if not USERNAME_RE.match(username):
+        return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
+    db = get_db()
+    mu = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
+    rs = db.execute("SELECT * FROM user_sources WHERE username=?", (username,)).fetchone()
+    bl = db.execute("SELECT * FROM blocked_users WHERE username=?", (username,)).fetchone()
+    litellm = _litellm_user_info(username)
+    donnees = compter_donnees(username)
+    cles = []
+    for k in (get_user_keys(username) or []):
+        cles.append({'alias': k.get('key_alias'), 'created_at': k.get('created_at'),
+                     'spend': k.get('spend', 0)})
+    sid_courant = session.get('sid')
+    now = datetime.now().timestamp()
+    sessions = []
+    for r in db.execute(
+            "SELECT sid, auth_at, created_at, expires_at, ip, user_agent FROM user_sessions "
+            "WHERE username=? AND revoked=0 AND expires_at > ? "
+            "ORDER BY created_at DESC LIMIT 20", (username, now)).fetchall():
+        sessions.append({
+            # Jamais le sid complet : c'est le secret du cookie de session.
+            'id': (r['sid'] or '')[:12],
+            'created_at': r['created_at'], 'expires_at': r['expires_at'],
+            'ip': r['ip'], 'user_agent': r['user_agent'],
+            'current': bool(sid_courant and r['sid'] == sid_courant),
+        })
+    # Actions EFFECTUÉES par ce compte (audit_log.username est l'acteur, la
+    # cible est dans `detail`) : c'est la lecture utile pour un compte admin.
+    audit = [{'action': r['action'], 'detail': r['detail'], 'at': r['created_at']}
+             for r in db.execute(
+                 "SELECT action, detail, created_at FROM audit_log WHERE username=? "
+                 "ORDER BY id DESC LIMIT 20", (username,)).fetchall()]
+    last_source = rs['last_source'] if rs else None
+    if mu is not None:
+        role = 'admin' if ((last_source in ('sso', 'ldap') and rs['last_is_admin'])
+                           or _local_user_is_admin(mu)) else 'user'
+    else:
+        role = 'admin' if (rs and rs['last_is_admin']) else 'user'
+    return jsonify({
+        'ok': True,
+        'username': username,
+        'fullname': (mu['fullname'] if mu else None) or (rs['fullname'] if rs else None),
+        'sources': (rs['sources'] if rs else '') or '',
+        'last_source': last_source,
+        'last_seen': rs['last_seen'] if rs else None,
+        'local': mu is not None,
+        'enabled': bool(mu['enabled']) if mu is not None else True,
+        'group': mu['group_name'] if mu else None,
+        'max_budget': mu['max_budget'] if mu else None,
+        'effective_budget': _local_user_effective_budget(mu) if mu else litellm['max_budget'],
+        'role': role,
+        'blocked': {'blocked': bl is not None,
+                    'reason': bl['reason'] if bl else None,
+                    'at': bl['blocked_at'] if bl else None,
+                    'by': bl['blocked_by'] if bl else None},
+        'litellm': {'exists': bool(litellm.get('exists')),
+                    'max_budget': litellm.get('max_budget'),
+                    'spend': litellm.get('spend', 0),
+                    'budget_duration': litellm.get('budget_reset_at') or None},
+        'keys': cles,
+        'memory_facts': donnees['memory_facts'],
+        'conversations': donnees['conversations'],
+        'sessions': sessions,
+        'audit': audit,
+        'donnees': donnees,
+    })
 
 @bp.route('/admin/groups/create', methods=['POST'])
 @admin_required
@@ -722,11 +989,27 @@ def admin_groups_create():
 @admin_required
 def admin_groups_delete(name):
     db = get_db()
+    membres = db.execute("SELECT * FROM local_users WHERE group_name=?", (name,)).fetchall()
     db.execute("UPDATE local_users SET group_name=NULL WHERE group_name=?", (name,))
     db.execute("DELETE FROM user_groups WHERE name=?", (name,))
     db.commit()
-    log_audit(session.get('username'), 'group.delete', f"suppression du groupe {name}")
-    return jsonify({'ok': True})
+    # Les membres perdent le quota du groupe : leur NOUVEAU plafond effectif
+    # (override personnel, sinon défaut global) doit être réécrit côté LiteLLM.
+    # La création de groupe le faisait, la suppression non — les membres
+    # gardaient donc en silence une enveloppe parfois plus généreuse que le
+    # défaut, c'est-à-dire un quota fantôme.
+    echecs = []
+    for m in membres:
+        if m['max_budget'] is not None:
+            continue                     # plafond personnel : rien à propager
+        frais = db.execute("SELECT * FROM local_users WHERE username=?",
+                           (m['username'],)).fetchone()
+        if frais and not _sync_local_user_budget(m['username'], frais):
+            echecs.append(m['username'])
+    log_audit(session.get('username'), 'group.delete',
+              f"suppression du groupe {name} — {len(membres)} membre(s) rebasculé(s) "
+              f"sur le défaut" + (f", QUOTA NON APPLIQUÉ pour {', '.join(echecs)}" if echecs else ""))
+    return jsonify({'ok': True, 'membres': len(membres), 'echecs_quota': echecs})
 
 @bp.route('/admin/maintenance/toggle', methods=['POST'])
 @admin_required

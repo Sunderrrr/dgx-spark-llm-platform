@@ -15,13 +15,16 @@ import time
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request, session
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from auth import login_required
 from config import AVATAR_IDS, AVATAR_LABELS, KEY_BUDGET, LANGS, THEME_IDS
 from conversation_routes import CONVERSATIONS_MAX
-from db import get_db, get_setting
+from db import get_db, get_setting, log_audit
 from guards import CHAT_RATE_MAX, CHAT_RATE_WINDOW, _chat_rate_limited
 from litellm_client import _litellm_user_info
+from local_users import password_policy_error
+from user_lifecycle import prevenir_mot_de_passe_change
 from mcp_client import MCPClient, MCPError
 from mcp_client import invalidate_tools as _invalidate_mcp_tools
 from mcp_client import validate_mcp_url
@@ -296,3 +299,136 @@ def skills_route():
         db.execute("DELETE FROM skills WHERE id=? AND username=?", (skill_id, username))
         db.commit()
     return ('', 204)
+
+
+# ── Compte : sessions ouvertes et mot de passe ──────────────────────────────
+# Ajouté le 2026-09-13. Le portail savait révoquer les sessions d'un compte
+# (côté admin) mais l'utilisateur ne pouvait ni les VOIR, ni couper celle d'un
+# appareil perdu ; et un compte local ne pouvait pas changer son mot de passe
+# sans passer par un administrateur — alors que le réflexe, après un doute, est
+# de le changer soi-même tout de suite.
+
+def _mes_sessions(username):
+    """Sessions actives du compte, la plus récente d'abord.
+
+    Le sid complet ne sort JAMAIS : c'est le secret du cookie de session, et
+    le renvoyer au navigateur le remettrait dans une réponse JSON, donc dans
+    les journaux de quiconque écoute. On n'expose que 12 caractères, largement
+    assez pour désigner une session de façon unique.
+    """
+    now = time.time()
+    sid_courant = session.get('sid')
+    out = []
+    for r in get_db().execute(
+            "SELECT sid, created_at, expires_at, ip, user_agent FROM user_sessions "
+            "WHERE username=? AND revoked=0 AND expires_at > ? "
+            "ORDER BY created_at DESC LIMIT 50", (username, now)).fetchall():
+        out.append({
+            'id': (r['sid'] or '')[:12],
+            'created_at': r['created_at'],
+            'expires_at': r['expires_at'],
+            'ip': r['ip'],
+            'user_agent': r['user_agent'],
+            'current': bool(sid_courant and r['sid'] == sid_courant),
+        })
+    return out
+
+
+def _compte_local(username):
+    return get_db().execute(
+        "SELECT 1 FROM local_users WHERE username=?", (username,)).fetchone() is not None
+
+
+@bp.route('/api/account/sessions')
+@login_required
+def api_account_sessions():
+    username = session['username']
+    return jsonify({'sessions': _mes_sessions(username),
+                    'local_account': _compte_local(username)})
+
+
+@bp.route('/api/account/sessions/revoke', methods=['POST'])
+@login_required
+def api_account_sessions_revoke():
+    """Révoque une de SES sessions (`id`), ou toutes les autres (`all`).
+
+    Le périmètre est le compte appelant, vérifié en SQL : un identifiant de
+    session appartenant à quelqu'un d'autre ne peut pas être visé, même en le
+    devinant.
+    """
+    username = session['username']
+    corps = request.get_json(silent=True) or request.form
+    db = get_db()
+    if corps.get('all') in (True, '1', 'true', 'on'):
+        n = db.execute(
+            "UPDATE user_sessions SET revoked=1 WHERE username=? AND sid<>? AND revoked=0",
+            (username, session.get('sid'))).rowcount
+        db.commit()
+        log_audit(username, 'account.sessions.revoke',
+                  f"{n} autre(s) session(s) fermée(s) par l'utilisateur")
+        return jsonify({'ok': True, 'revoked': n})
+
+    ident = (corps.get('id') or '').strip()
+    if len(ident) < 8:
+        return jsonify({'ok': False, 'error': "Identifiant de session invalide."}), 400
+    lignes = db.execute(
+        "SELECT sid FROM user_sessions WHERE username=? AND revoked=0 AND sid LIKE ?",
+        (username, ident + '%')).fetchall()
+    if not lignes:
+        return jsonify({'ok': False, 'error': "Session introuvable (déjà fermée ?)."}), 404
+    if len(lignes) > 1:
+        # 12 caractères de token_urlsafe(32) : une collision ici signifie un
+        # identifiant tronqué, on refuse plutôt que de fermer au hasard.
+        return jsonify({'ok': False,
+                        'error': "Identifiant de session ambigu, réessaie."}), 409
+    cible = lignes[0]['sid']
+    db.execute("UPDATE user_sessions SET revoked=1 WHERE sid=?", (cible,))
+    db.commit()
+    courant = bool(session.get('sid') == cible)
+    log_audit(username, 'account.sessions.revoke',
+              "fermeture de la session courante" if courant else f"fermeture de la session {ident}")
+    return jsonify({'ok': True, 'revoked': 1, 'current': courant})
+
+
+@bp.route('/api/account/password', methods=['POST'])
+@login_required
+def api_account_password():
+    """Changement de mot de passe en autonomie (comptes locaux seulement).
+
+    Un compte LDAP/SSO n'a pas de mot de passe ici : il vit dans l'annuaire,
+    et le portail ne doit pas laisser croire le contraire.
+    """
+    username = session['username']
+    corps = request.get_json(silent=True) or request.form
+    actuel = corps.get('current') or ''
+    nouveau = corps.get('new') or ''
+    db = get_db()
+    row = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
+    if row is None:
+        return jsonify({'ok': False, 'error': "Compte géré par l'annuaire (LDAP/SSO) : "
+                                              "le mot de passe se change là-bas."}), 400
+    if not check_password_hash(row['password_hash'], actuel):
+        # Journalisé : une rafale de ces échecs sur un compte connecté est le
+        # signe d'une session volée, pas d'une faute de frappe.
+        log_audit(username, 'account.password.echec', 'mot de passe actuel incorrect')
+        return jsonify({'ok': False, 'error': "Mot de passe actuel incorrect."}), 400
+    if check_password_hash(row['password_hash'], nouveau):
+        return jsonify({'ok': False,
+                        'error': "Le nouveau mot de passe est identique à l'actuel."}), 400
+    err = password_policy_error(nouveau, username)
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+    db.execute("UPDATE local_users SET password_hash=? WHERE username=?",
+               (generate_password_hash(nouveau), username))
+    db.commit()
+    # Un changement de mot de passe ferme les AUTRES sessions : c'est
+    # précisément ce qu'on attend quand on le change par précaution. La
+    # session courante survit — se faire déconnecter par sa propre action est
+    # le genre de détail qui pousse à ne plus jamais changer de mot de passe.
+    n = db.execute(
+        "UPDATE user_sessions SET revoked=1 WHERE username=? AND sid<>? AND revoked=0",
+        (username, session.get('sid'))).rowcount
+    db.commit()
+    log_audit(username, 'account.password', f'mot de passe changé, {n} session(s) fermée(s)')
+    prevenir_mot_de_passe_change(username)
+    return jsonify({'ok': True})

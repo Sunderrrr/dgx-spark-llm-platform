@@ -37,9 +37,10 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-from auth import _apply_session, _login_fail, _login_locked, _login_reset, login_required
+from auth import (_apply_session, _login_fail, _login_locked, _login_reset,
+                   est_bloque, login_required)
 from config import WEBAUTHN_ORIGIN, WEBAUTHN_REQUIRE_UV, WEBAUTHN_RP_ID, WEBAUTHN_RP_NAME
-from db import get_db
+from db import get_db, log_audit
 from local_users import _local_user_auth
 
 bp = Blueprint("webauthn", __name__)
@@ -274,6 +275,14 @@ def finish_login(nonce: str, credential):
     except Exception:
         _pending_clear(nonce)
         return {"error": "Vérification de la clé échouée."}, 401
+    # Un blocage posé PENDANT les quelques minutes du défi doit faire échouer
+    # la seconde étape : la passkey prouve l'identité, elle ne vaut pas
+    # autorisation. Le contrôle de app.py a eu lieu avant le défi, celui-ci
+    # ferme la fenêtre entre les deux.
+    if est_bloque(username):
+        _pending_clear(nonce)
+        log_audit(username, 'login.refuse', 'compte bloqué pendant le défi passkey')
+        return {"error": "Accès révoqué pour ce compte."}, 403
     db = get_db()
     db.execute("UPDATE webauthn_credentials SET sign_count=? WHERE username=? AND credential_id=?",
                (ver.new_sign_count, username, cred_id))

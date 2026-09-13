@@ -6,9 +6,11 @@ Description=Empeche le conteneur OCR d'ouvrir une connexion vers le portail
 # environnement LITELLM_MASTER_KEY, RUNNER_TOKEN, LDAP_BIND_PW, OIDC_CLIENT_SECRET,
 # SECRET_KEY et SMTP_PASSWORD.
 #
-# Audit du 24/08 : sur 108 routes du portail, 7 sont publiques et AUCUNE ne
-# renvoie de donnee (flux de connexion, CSRF, forwardAuth) — l'exploitabilite
-# immediate est donc nulle. Ce blocage est de la defense en profondeur : le jour
+# Recompte le 2026-09-13 : sur 146 routes du portail, 11 sont sans garde — le flux
+# de connexion, le CSRF, le forwardAuth, /healthz, /metrics (refuse en 403 des que
+# la requete traverse l'edge Cloudflare) et la vue partagee d'une conversation.
+# Deux renvoient donc des donnees, mais aucune donnee de compte — l'exploitabilite
+# immediate reste nulle. Ce blocage est de la defense en profondeur : le jour
 # ou une route non authentifiee ou une SSRF apparait, elle ne doit pas etre
 # joignable depuis du code de modele tiers.
 #

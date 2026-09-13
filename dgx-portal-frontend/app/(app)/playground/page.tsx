@@ -64,7 +64,7 @@ import {
   ArrowsPointingOutIcon,
   BoltIcon,
 } from "@heroicons/react/24/outline";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 import { useWhoami } from "@/lib/whoami";
 import { useCsrf } from "@/lib/useCsrf";
 import { useSettingsDialog } from "@/lib/settings-dialog";
@@ -460,10 +460,10 @@ function contenuCloture(content: string): string {
 }
 
 /** Le fichier que ce message laisse inachevé, s'il y en a un. */
-function fichierInacheve(content: string): string | null {
+function fichierInacheve(content: string, t: (s: string) => string): string | null {
   const fences = content.match(/```/g);
   if (!fences || fences.length % 2 === 0) return null;
-  const arts = parseArtifacts(contenuCloture(content), false).artifacts;
+  const arts = parseArtifacts(contenuCloture(content), false, t).artifacts;
   const dernier = arts[arts.length - 1];
   return dernier && dernier.kind === "code" ? dernier.title : null;
 }
@@ -873,12 +873,13 @@ function convTitleFallback(msgs: ExportConversation["messages"], fallback: strin
   return (first.slice(0, 80).trim() || fallback);
 }
 
-/** Conversation → Markdown lisible, exporté en .md. */
-function convAsMarkdown(conv: ExportConversation): string {
-  const lines = [`# ${conv.title}`, "", `_Modèle : ${conv.model || "—"}_`, "", "---", ""];
+/** Conversation → Markdown lisible, exporté en .md.
+ *  `t` est passé en paramètre : fonction de module, un hook ne s'y appelle pas. */
+function convAsMarkdown(conv: ExportConversation, t: (s: string) => string): string {
+  const lines = [`# ${conv.title}`, "", `_${t("Modèle :")} ${conv.model || "—"}_`, "", "---", ""];
   for (const m of conv.messages) {
     if (m.hidden) continue;
-    lines.push(m.role === "user" ? "**Vous :**" : "**Assistant :**");
+    lines.push(m.role === "user" ? `**${t("Vous :")}**` : `**${t("Assistant :")}**`);
     lines.push("", m.content, "");
   }
   return lines.join("\n");
@@ -951,7 +952,9 @@ function openCodeFence(content: string): { lang: string; body: string; start: nu
   return { lang: first || "text", body: rest.slice(nl + 1), start };
 }
 
-function parseArtifacts(content: string, allowDoc: boolean): { prose: string; artifacts: Artifact[] } {
+/** `t` est passé en paramètre (fonction de module) : le titre de repli des
+ *  artefacts sans nom suit la langue affichée, y compris au téléchargement. */
+function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => string): { prose: string; artifacts: Artifact[] } {
   const text = content.trim();
   // Un message qui contient un vrai bloc de code est un FICHIER, jamais un
   // document : le prendre pour un document renvoyait tout le message — question
@@ -999,7 +1002,11 @@ function parseArtifacts(content: string, allowDoc: boolean): { prose: string; ar
       // la condition n'était jamais vraie et une page HTML sans nom annoncé
       // ressortait toujours en « fichier-2.html ».
       if (info?.ext === "html" && n === 1) title = "index.html";
-      else title = info ? `fichier-${n + 1}.${info.ext}` : `fichier-${n + 1}.txt`;
+      // Nom de repli traduit : un fichier téléchargé ne doit pas garder un nom
+      // français en mode anglais.
+      else title = info
+        ? t("fichier-{n}.{ext}").replace("{n}", String(n + 1)).replace("{ext}", info.ext)
+        : t("fichier-{n}.txt").replace("{n}", String(n + 1));
     }
     artifacts.push({ kind: "code", title, lang: lang || "text", content: body });
     prose += content.slice(lastIndex, m.index);
@@ -1091,8 +1098,9 @@ function estFragment(
 }
 
 // Titre attribué faute de mieux (« fichier-2.html ») : le modèle n'a pas nommé
-// son bloc.
-const TITRE_GENERIQUE = /^fichier-\d+\.[a-z0-9]{1,6}$/i;
+// son bloc. Les deux formes — française et anglaise — existent, le nom est
+// fabriqué dans la langue affichée (parseArtifacts reçoit t).
+const TITRE_GENERIQUE = /^(?:fichier|file)-\d+\.[a-z0-9]{1,6}$/i;
 
 /** Les fichiers pour lesquels CE message ne contient qu'un extrait.
  *
@@ -1101,12 +1109,12 @@ const TITRE_GENERIQUE = /^fichier-\d+\.[a-z0-9]{1,6}$/i;
  *  - le bloc n'est pas nommé du tout (« voici la partie corrigée ») alors qu'un
  *    fichier bien plus gros du même langage existe déjà → extrait anonyme.
  */
-function fragmentsDuMessage(messages: ChatMsg[], index: number): string[] {
+function fragmentsDuMessage(messages: ChatMsg[], index: number, t: (s: string) => string): string[] {
   const m = messages[index];
   if (!m || m.role !== "assistant") return [];
-  const avant = fichiersJusqua(messages, index - 1);
+  const avant = fichiersJusqua(messages, index - 1, t);
   const noms: string[] = [];
-  for (const a of parseArtifacts(contenuCloture(m.content), false).artifacts) {
+  for (const a of parseArtifacts(contenuCloture(m.content), false, t).artifacts) {
     if (a.kind !== "code") continue;
     if (estFragment(avant.get(a.title), a.content)) { noms.push(a.title); continue; }
     if (!TITRE_GENERIQUE.test(a.title)) continue;
@@ -1144,6 +1152,7 @@ function fragmentsDuMessage(messages: ChatMsg[], index: number): string[] {
 function fichiersJusqua(
   messages: ChatMsg[],
   index: number,
+  t: (s: string) => string,
 ): Map<string, { content: string; lang: string }> {
   const fichiers = new Map<string, { content: string; lang: string }>();
   // Le fichier laissé en plan par le message précédent : une reprise le complète
@@ -1176,8 +1185,8 @@ function fichiersJusqua(
       inacheve = reponseIncomplete(fusion) ? inacheve : null;
       continue;
     }
-    inacheve = fichierInacheve(m.content);
-    const arts = parseArtifacts(contenuCloture(m.content), false).artifacts;
+    inacheve = fichierInacheve(m.content, t);
+    const arts = parseArtifacts(contenuCloture(m.content), false, t).artifacts;
     for (const [rang, a] of arts.entries()) {
       if (a.kind !== "code") continue;
       // Le bloc que la coupure a laissé ouvert est la version EN COURS d'écriture,
@@ -1217,11 +1226,11 @@ function fichiersJusqua(
  * Ce message ne contient que la fin du fichier : ce qu'il faut montrer, c'est le
  * fichier entier reconstitué, pas la moitié qu'il transporte.
  */
-function fusionDuMessage(messages: ChatMsg[], index: number): Artifact[] {
+function fusionDuMessage(messages: ChatMsg[], index: number, t: (s: string) => string): Artifact[] {
   const m = messages[index];
   if (!m || m.role !== "assistant" || !estReprise(messages[index - 1])) return [];
-  const avant = fichiersJusqua(messages, index - 1);
-  const apres = fichiersJusqua(messages, index);
+  const avant = fichiersJusqua(messages, index - 1, t);
+  const apres = fichiersJusqua(messages, index, t);
   const out: Artifact[] = [];
   for (const [titre, f] of apres) {
     const a = avant.get(titre);
@@ -1232,15 +1241,16 @@ function fusionDuMessage(messages: ChatMsg[], index: number): Artifact[] {
   return out;
 }
 
-/** Ce message laisse-t-il un fichier inachevé, reprises comprises ? */
-function fichierLaisseOuvert(messages: ChatMsg[], index: number): boolean {
+/** Ce message laisse-t-il un fichier inachevé, reprises comprises ?
+ *  (`t` juste pour traverser vers fusionDuMessage : seul le contenu compte ici.) */
+function fichierLaisseOuvert(messages: ChatMsg[], index: number, t: (s: string) => string): boolean {
   const m = messages[index];
   if (!m || m.role !== "assistant") return false;
   // Une reprise commence AU MILIEU d'un bloc : elle n'a pas de fence ouvrante, donc
   // son compte de fences est toujours impair. S'y fier relançait une reprise après
   // l'autre alors que le fichier était refermé. Seul le fichier reconstitué décide.
   if (estReprise(messages[index - 1])) {
-    const fusion = fusionDuMessage(messages, index);
+    const fusion = fusionDuMessage(messages, index, t);
     return fusion.length ? fusion.some((f) => reponseIncomplete(f.content)) : false;
   }
   return reponseIncomplete(m.content);
@@ -1276,22 +1286,22 @@ function abandonDeclare(content: string): boolean {
   return ABANDON_DECLARE.test(content) || ABANDON_DECLARE_ALT.some((r) => r.test(content));
 }
 
-function messageIncomplet(messages: ChatMsg[], index: number): boolean {
+function messageIncomplet(messages: ChatMsg[], index: number, t: (s: string) => string): boolean {
   const m = messages[index];
   if (!m || m.role !== "assistant") return false;
-  return fichierLaisseOuvert(messages, index) || abandonDeclare(m.content);
+  return fichierLaisseOuvert(messages, index, t) || abandonDeclare(m.content);
 }
 
 
 /** Les modifications d'un message, avec le résultat et les échecs éventuels. */
-function appliquerEdits(messages: ChatMsg[], index: number): {
+function appliquerEdits(messages: ChatMsg[], index: number, t: (s: string) => string): {
   fichiers: Artifact[];
   echecs: string[];
 } {
   const edits = parseEdits(messages[index]?.content ?? "");
   if (!edits.length) return { fichiers: [], echecs: [] };
-  const avant = fichiersJusqua(messages, index - 1);
-  const apres = fichiersJusqua(messages, index);
+  const avant = fichiersJusqua(messages, index - 1, t);
+  const apres = fichiersJusqua(messages, index, t);
   const echecs: string[] = [];
   const touches = new Map<string, Artifact>();
   for (const e of edits) {
@@ -1322,6 +1332,7 @@ type QueuedMsg = { content: string; text: string; attachmentCount?: number; ts: 
 
 export default function PlaygroundPage() {
   const t = useT();
+  const numLocale = useLocale();
   const { open: openSettings } = useSettingsDialog();
   const csrf = useCsrf();
   const [runningModels, setRunningModels] = useState<string[]>([]);
@@ -1916,7 +1927,7 @@ export default function PlaygroundPage() {
   function exportConversation(conv: ExportConversation, fmt: "md" | "json") {
     const name = slugify(convTitleFallback(conv.messages, t("Conversation")));
     if (fmt === "json") downloadText(`${name}.json`, convAsJson(conv), "application/json");
-    else downloadText(`${name}.md`, convAsMarkdown(conv), "text/markdown");
+    else downloadText(`${name}.md`, convAsMarkdown(conv, t), "text/markdown");
   }
 
   // Lien de partage en lecture seule : on crée l'instantané puis on copie l'URL.
@@ -1977,7 +1988,7 @@ export default function PlaygroundPage() {
     if (!files) return;
     for (const file of Array.from(files)) {
       if (file.size > MAX_ATTACHMENT_BYTES) {
-        window.alert(`« ${file.name} » dépasse 96 Ko — trop gros pour le contexte.`);
+        window.alert(t("« {name} » dépasse 96 Ko — trop gros pour le contexte.").replace("{name}", file.name));
         continue;
       }
       const reader = new FileReader();
@@ -2064,7 +2075,7 @@ export default function PlaygroundPage() {
               settings.system.trim(),
               alreadyAsked ? "" : ASK_INSTRUCTION,
               NAME_INSTRUCTION,
-              fichiersJusqua(nextMessages, nextMessages.length - 1).size ? REWRITE_INSTRUCTION : "",
+              fichiersJusqua(nextMessages, nextMessages.length - 1, t).size ? REWRITE_INSTRUCTION : "",
               INTEGRALITE_INSTRUCTION,
             ]
         ).filter(Boolean).join("\n\n"),
@@ -2154,7 +2165,7 @@ export default function PlaygroundPage() {
     // A clarifying question is never a document/file artifact — leave the panel closed.
     const produced = parseAsk(acc)
       ? []
-      : parseArtifacts(contenuCloture(acc), isDocTask(lastUser?.content ?? "")).artifacts;
+      : parseArtifacts(contenuCloture(acc), isDocTask(lastUser?.content ?? ""), t).artifacts;
     if (produced.length) {
       const lastArt = produced[produced.length - 1];
       // A code file opens on its own; a document opens automatically only if the
@@ -2200,7 +2211,7 @@ export default function PlaygroundPage() {
         return;
       }
     }
-    if (!wasAborted && messageIncomplet(finalMessages, finalMessages.length - 1)) {
+    if (!wasAborted && messageIncomplet(finalMessages, finalMessages.length - 1, t)) {
       if (reprisesRef.current < MAX_REPRISES_AUTO) {
         reprisesRef.current += 1;
         setReprise(reprisesRef.current);
@@ -2208,7 +2219,7 @@ export default function PlaygroundPage() {
         // REFERMÉ mais abrégé de l'aveu du modèle : le prolonger produirait du
         // contenu après la dernière ligne d'un fichier déjà clos — c'est une
         // réécriture complète qu'il faut demander.
-        const suite = fichierLaisseOuvert(finalMessages, finalMessages.length - 1)
+        const suite = fichierLaisseOuvert(finalMessages, finalMessages.length - 1, t)
           ? PROMPT_REPRISE_COMPLET
           : PROMPT_INTEGRAL;
         void runStream([...finalMessages, {
@@ -2474,7 +2485,7 @@ export default function PlaygroundPage() {
   // état : rien à synchroniser, donc rien à désynchroniser.
   const dernierFini =
     streaming && !isNarrow && lastMsg?.role === "assistant" && !streamingDocActive
-      ? (parseArtifacts(lastMsg.content ?? "", false).artifacts.slice(-1)[0] ?? null)
+      ? (parseArtifacts(lastMsg.content ?? "", false, t).artifacts.slice(-1)[0] ?? null)
       : null;
   const epingle = liveCode ? null : (dernierFini ?? artifact);
   const showLive = showLiveDoc || !!liveCode;
@@ -3077,20 +3088,20 @@ export default function PlaygroundPage() {
                         // Fence jamais refermée : on la referme, sinon le fichier
                         // coupé reste du code brut au milieu de la bulle.
                         streamingThis ? contenuAffiche : contenuCloture(contenuAffiche),
-                        !streamingThis && isDocTask(messages[i - 1]?.content ?? ""))
+                        !streamingThis && isDocTask(messages[i - 1]?.content ?? ""), t)
                     : null;
                   // Message de reprise : il ne porte que la fin du fichier.
                   const suite = m.role === "assistant" && !streamingThis
-                    ? fusionDuMessage(messages, i)
+                    ? fusionDuMessage(messages, i, t)
                     : [];
                   // Un message peut ne contenir que des MODIFICATIONS : le fichier
                   // à montrer est alors le résultat, pas ce que le message contient.
                   const modifs = m.role === "assistant" && !streamingThis
-                    ? appliquerEdits(messages, i)
+                    ? appliquerEdits(messages, i, t)
                     : { fichiers: [], echecs: [] };
                   // Le modèle a renvoyé « la partie corrigée » au lieu du fichier.
                   const fragments = m.role === "assistant" && !streamingThis
-                    ? fragmentsDuMessage(messages, i)
+                    ? fragmentsDuMessage(messages, i, t)
                     : [];
                   // Le flux a cassé APRÈS avoir livré du texte : ce n'est pas une
                   // heuristique, c'est une erreur constatée. Sans ce signalement, la
@@ -3347,7 +3358,7 @@ export default function PlaygroundPage() {
                           )}
                           {/* Coupé par le plafond de tokens : sans ce message, la
                               réponse s'arrête en plein mot et rien ne l'explique. */}
-                          {(m.truncated || coupeReseau || (!streamingThis && messageIncomplet(messages, i))) && !streamingThis && (
+                          {(m.truncated || coupeReseau || (!streamingThis && messageIncomplet(messages, i, t))) && !streamingThis && (
                             <Banner
                               status="warning"
                               title={t("Réponse coupée")}
@@ -3782,14 +3793,14 @@ export default function PlaygroundPage() {
                   <StatusDot variant="accent" label={t("Entrée (prompt)")} />
                   <Text type="supporting">{t("Entrée (prompt)")}</Text>
                   <StackItem size="fill" />
-                  <Text type="supporting" color="secondary" hasTabularNumbers>{inTokens.toLocaleString("fr-FR")} {t("tokens")}</Text>
+                  <Text type="supporting" color="secondary" hasTabularNumbers>{inTokens.toLocaleString(numLocale)} {t("tokens")}</Text>
                 </HStack>
                 <HStack gap={2} vAlign="center">
                   <StatusDot variant="neutral" label={t("Sortie (généré)")} />
                   <Text type="supporting">{t("Sortie (généré)")}</Text>
                   <StackItem size="fill" />
                   <Text type="supporting" color="secondary" hasTabularNumbers>
-                    {ioTokens ? `${outTokens.toLocaleString("fr-FR")} ${t("tokens")}` : "—"}
+                    {ioTokens ? `${outTokens.toLocaleString(numLocale)} ${t("tokens")}` : "—"}
                   </Text>
                 </HStack>
               </VStack>
@@ -3813,7 +3824,7 @@ export default function PlaygroundPage() {
                 {model && <Badge label={model} variant="info" />}
                 <Badge label={`${Math.round((used / (max || 1)) * 100)} % ${t("contexte")}`} variant="info" />
                 {convTokens > 0 && (
-                  <Badge label={`${convTokens.toLocaleString("fr-FR")} ${t("tokens")}`} variant="info" />
+                  <Badge label={`${convTokens.toLocaleString(numLocale)} ${t("tokens")}`} variant="info" />
                 )}
               </HStack>
               {settings.system ? (

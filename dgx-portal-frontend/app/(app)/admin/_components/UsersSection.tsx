@@ -37,7 +37,7 @@ import {
   ArchiveBoxXMarkIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON, postFormJSON, sendJSON } from "@/lib/api";
-import { useT, useLang } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { SessionsList, type AccountSession } from "../../_components/SessionsList";
 
@@ -127,10 +127,9 @@ function Tile({ icon, value, label, locale }: { icon: typeof UsersIcon; value: n
 
 export function UsersSection({ csrf }: { csrf: string }) {
   const t = useT();
-  const { lang } = useLang();
   const isNarrow = useIsNarrow();
   const showToast = useToast();
-  const numLocale = lang === "fr" ? "fr-FR" : "en-US";
+  const numLocale = useLocale();
   const [data, setData] = useState<UsersData | null>(null);
 
   // Toolbar state: free-text search + auth-source filter.
@@ -207,16 +206,16 @@ export function UsersSection({ csrf }: { csrf: string }) {
   );
 
   // Comme act(), mais vers les nouvelles routes JSON ({confirm, reason}…) —
-  // les erreurs {ok:false, error} s'affichent telles quelles (messages
-  // français côté serveur, pensés pour l'utilisateur). Retourne la réponse
-  // ou null, à l'appelant de choisir son toast de succès.
+  // les erreurs {ok:false, error} passent par t() comme dans act() : une
+  // phrase serveur inconnue retombe sur elle-même (fallback silencieux).
+  // Retourne la réponse ou null, à l'appelant de choisir son toast de succès.
   const actJSON = useCallback(
     async <T extends { ok?: boolean; error?: string }>(url: string, body?: unknown): Promise<T | null> => {
       if (!csrf) return null;
       try {
         const res = await sendJSON<T>(url, csrf, body);
         if (res && res.ok === false) {
-          showToast({ body: res.error || t("Échec de l'action."), type: "error" });
+          showToast({ body: res.error ? t(res.error) : t("Échec de l'action."), type: "error" });
           return null;
         }
         return res;
@@ -581,7 +580,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
                   <HStack gap={2} vAlign="center">
                     <Text weight="semibold">{g.name}</Text>
                     <Text type="supporting" color="secondary">
-                      {g.max_budget != null ? `${fmtBudget(g.max_budget)} / j` : t("quota par défaut")}
+                      {g.max_budget != null ? `${fmtBudget(g.max_budget)} ${t("/ j")}` : t("quota par défaut")}
                       {g.is_admin ? ` · ${t("admin")}` : ""}
                     </Text>
                   </HStack>
@@ -824,13 +823,13 @@ export function UsersSection({ csrf }: { csrf: string }) {
                     <HStack hAlign="between">
                       <Text type="supporting" color="secondary">{t("Quota effectif")}</Text>
                       <Text hasTabularNumbers>
-                        {detail.effective_budget != null ? `${fmtBudget(detail.effective_budget)} ${t("tokens")}` : "—"}
+                        {detail.effective_budget != null ? `${fmtBudget(detail.effective_budget)} ${t(detail.effective_budget > 1 ? "tokens" : "token")}` : "—"}
                       </Text>
                     </HStack>
                     <HStack hAlign="between">
                       <Text type="supporting" color="secondary">{t("Dépensé (LiteLLM)")}</Text>
                       <Text hasTabularNumbers>
-                        {detail.litellm?.exists ? `${fmtBudget(detail.litellm.spend ?? 0)} ${t("tokens")}` : t("Aucun profil LiteLLM")}
+                        {detail.litellm?.exists ? `${fmtBudget(detail.litellm.spend ?? 0)} ${t((detail.litellm.spend ?? 0) > 1 ? "tokens" : "token")}` : t("Aucun profil LiteLLM")}
                       </Text>
                     </HStack>
                     {detail.litellm?.budget_duration ? (
@@ -863,7 +862,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
                             description={k.created_at ? <Timestamp value={k.created_at} format="date_time" /> : undefined}
                             endContent={
                               <Text type="supporting" color="secondary" hasTabularNumbers>
-                                {`${Math.round(k.spend ?? 0).toLocaleString(numLocale)} ${t("tokens")}`}
+                                {`${Math.round(k.spend ?? 0).toLocaleString(numLocale)} ${t(Math.round(k.spend ?? 0) > 1 ? "tokens" : "token")}`}
                               </Text>
                             }
                           />

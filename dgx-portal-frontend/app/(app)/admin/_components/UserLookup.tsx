@@ -7,7 +7,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
-import { useT, useLang } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 
 // Everything is already loaded on the admin side: we make NO new network
 // call, we aggregate per user what the page received. Goal: replace the tables
@@ -35,8 +35,7 @@ export function UserLookup({
   spend: SpendRow[]; ocr: UsageRow[]; video: UsageRow[]; voice: UsageRow[]; requests: ReqRow[];
 }) {
   const t = useT();
-  const { lang } = useLang();
-  const numLocale = lang === "fr" ? "fr-FR" : "en-US";
+  const numLocale = useLocale();
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
 

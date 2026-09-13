@@ -46,7 +46,7 @@ import { KeysContent } from "../keys/_components/KeysContent";
 import { MemoryContent } from "../memory/_components/MemoryContent";
 import { useThemeMode } from "../../theme-provider";
 import { THEMES, type ThemeId } from "@/lib/themes";
-import { useLang, useT, type Lang } from "@/lib/i18n";
+import { useLang, useT, useLocale, type Lang } from "@/lib/i18n";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { ActivityHeatmap, type ActivityDay } from "./ActivityHeatmap";
 import { SecurityContent } from "./SecurityContent";
@@ -140,8 +140,10 @@ const SECTION_TITLES: Record<Section, string> = {
 // Constant dialog size, whatever the displayed section.
 const DIALOG_HEIGHT = "min(86vh, 700px)";
 
-function fmt(n: number) {
-  return Math.round(n).toLocaleString("fr-FR");
+// La locale est passée par le composant : le formatage suit la langue
+// affichée et un helper hors composant ne peut pas appeler de hook.
+function fmt(n: number, numLocale: string) {
+  return Math.round(n).toLocaleString(numLocale);
 }
 
 /** 12,400 → "12 k": the top tiles must stay readable. */
@@ -173,6 +175,7 @@ export function SettingsDialog({
   const { mode, setMode, themeId, setThemeId } = useThemeMode();
   const { lang, setLang } = useLang();
   const t = useT();
+  const numLocale = useLocale();
   const isNarrow = useIsNarrow();
   const [section, setSection] = useState<Section>("account");
   // When opening with a requested section (e.g. "keys" from the home page),
@@ -497,8 +500,8 @@ export function SettingsDialog({
                       <Text weight="semibold">{t("Insights d'activité")}</Text>
                       <VStack gap={1}>
                         {[
-                          ["Total période", fmt(act.total)],
-                          ["Pic journalier", act.peak_day ? `${new Date(act.peak_day + "T00:00:00").toLocaleDateString("fr-FR")} — ${fmt(act.peak)}` : "—"],
+                          ["Total période", fmt(act.total, numLocale)],
+                          ["Pic journalier", act.peak_day ? `${new Date(act.peak_day + "T00:00:00").toLocaleDateString(numLocale)} — ${fmt(act.peak, numLocale)}` : "—"],
                           ["Jours actifs", String(act.active_days)],
                         ].map(([l, v]) => (
                           <HStack key={l} hAlign="between" gap={3}>
@@ -512,8 +515,8 @@ export function SettingsDialog({
                       <Text weight="semibold">{t("Répartition tokens")}</Text>
                       <VStack gap={1}>
                         {[
-                          ["Entrée (prompt)", fmt(act.prompt)],
-                          ["Sortie (généré)", fmt(act.completion)],
+                          ["Entrée (prompt)", fmt(act.prompt, numLocale)],
+                          ["Sortie (généré)", fmt(act.completion, numLocale)],
                           ["Clés API actives", String(acct.key_count)],
                         ].map(([l, v]) => (
                           <HStack key={l} hAlign="between" gap={3}>
@@ -539,7 +542,7 @@ export function SettingsDialog({
                               {t("Consommé aujourd'hui")}
                             </Text>
                             <Text type="supporting" color="secondary" hasTabularNumbers>
-                              {fmt(acct.spend)} / {fmt(acct.max_budget || 0)} tokens
+                              {fmt(acct.spend, numLocale)} / {fmt(acct.max_budget || 0, numLocale)} tokens
                             </Text>
                           </HStack>
                           <ProgressBar
@@ -591,7 +594,7 @@ export function SettingsDialog({
                           <HStack gap={3} vAlign="center" width="50%">
                             {pourcent === null ? (
                               <Badge
-                                label={l.unlimited ? t("Illimité") : `${fmt(l.max ?? 0)} ${l.unit}`}
+                                label={l.unlimited ? t("Illimité") : `${fmt(l.max ?? 0, numLocale)} ${l.unit}`}
                                 variant={l.unlimited ? "warning" : "neutral"}
                               />
                             ) : (

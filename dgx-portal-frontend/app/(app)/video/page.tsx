@@ -20,7 +20,7 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { FilmIcon, MoonIcon, ArrowPathIcon, StopIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
@@ -50,6 +50,7 @@ const STATUS_SHORT: Record<string, string> = {
 
 export default function VideoPage() {
   const t = useT();
+  const numLocale = useLocale();
   const csrf = useCsrf();
   const showToast = useToast();
   const [image, setImage] = useState<File | null>(null);
@@ -345,7 +346,7 @@ export default function VideoPage() {
                       key={h.prompt_id}
                       label={h.prompt}
                       labelLines={1}
-                      description={new Date(h.created_at).toLocaleString("fr-FR")}
+                      description={new Date(h.created_at).toLocaleString(numLocale)}
                       startContent={<FilmIcon width={20} height={20} />}
                       endContent={
                         <HStack gap={2} vAlign="center">

@@ -288,6 +288,37 @@ def ctx_split(vllm_args, engine='vllm'):
 
 _SEARCH_PAGE_SIZE = 48
 
+# Tâches HF proposées par l'interface. Servent d'allow-list : un filtre inconnu
+# fait répondre 400 à HF, ce qui n'est PAS une panne de HF et ne doit donc pas
+# être présenté comme telle (cf. HfIndisponible).
+HF_TASKS = ('text-generation', 'text2text-generation', 'conversational',
+            'feature-extraction', 'text-to-image', 'text-to-video',
+            'image-to-text')
+
+
+class HfIndisponible(Exception):
+    """Hugging Face n'a pas répondu exploitablement.
+
+    Distinct d'une recherche sans résultat : le portail doit pouvoir le dire.
+    Avant, toute exception était avalée et renvoyait `[]`, donc « HF est
+    injoignable » s'affichait comme « aucun modèle ne correspond » — l'utilisateur
+    concluait que son modèle n'existe pas."""
+
+
+def _hf_models(params, timeout=8):
+    """Un appel HF, qui LÈVE au lieu de renvoyer une liste vide (cf. ci-dessus)."""
+    try:
+        r = requests.get('https://huggingface.co/api/models', params=params, timeout=timeout)
+    except requests.RequestException as e:
+        raise HfIndisponible(f"HF injoignable ({type(e).__name__})") from e
+    if not r.ok:
+        raise HfIndisponible(f"HF a répondu {r.status_code}")
+    try:
+        return r.json()
+    except ValueError as e:
+        raise HfIndisponible("réponse HF illisible") from e
+
+
 def search_hf_models(query, task='text-generation', gb10_only=True, skip=0):
     """HF search. By default, restricted to models tagged `gb10` — that is,
     the ones actually tested on DGX Spark. Multiple `filter` = AND on the HF API side.
@@ -295,22 +326,43 @@ def search_hf_models(query, task='text-generation', gb10_only=True, skip=0):
     Paginated (skip, page of _SEARCH_PAGE_SIZE): the gb10 tag alone already returns
     80+ models for text-generation, invisible beyond the old fixed
     limit of 24 with no way to go further — reported in real use.
+
+    `full=true` ajoute `gated` (mesuré : +85 Kio, même temps de réponse). Ce champ
+    vaut la dépense : un dépôt gated exige un jeton HF et fait échouer le
+    téléchargement APRÈS le clic sur « Lancer » — c'est exactement ce qui est
+    arrivé au mmproj de Flash-Next. Le voir dans les résultats évite de le
+    découvrir au lancement.
     """
     filters = [task] if task else []
     if gb10_only:
         filters.append(GB10_TAG)
+    out = _hf_models({'search': query, 'filter': filters, 'limit': _SEARCH_PAGE_SIZE,
+                      'skip': max(0, int(skip)), 'sort': 'downloads', 'direction': -1,
+                      'full': 'true'})
+    for m in out:
+        m['engine'] = guess_engine(m)
+        # `siblings` (la liste des fichiers du dépôt) pesait 58 % de la réponse —
+        # mesuré : 51 Kio sur 87 pour 39 modèles — et AUCUN écran ne s'en sert
+        # (l'engine se déduit des `tags`, pas des fichiers). Le retirer allège
+        # chaque recherche de plus de moitié, sur 48 modèles × ~15 fichiers.
+        # `_id` (identifiant interne de Hugging Face) part avec, même raison.
+        m.pop('siblings', None)
+        m.pop('_id', None)
+    return out
+
+
+def hf_modele_hors_gb10(query, task='text-generation'):
+    """Y a-t-il des modèles pour cette recherche SANS le filtre gb10 ?
+
+    Sert à ne pas laisser l'utilisateur devant un « aucun résultat » trompeur :
+    quand le filtre GB10 ne donne rien mais que HF en connaît, l'interface peut
+    le dire et proposer de décocher le filtre. Renvoie True, False, ou None
+    quand on ne sait pas — un doute ne doit pas s'afficher comme un « non ».
+    """
+    if not query:
+        return None
     try:
-        r = requests.get(
-            'https://huggingface.co/api/models',
-            params={'search': query, 'filter': filters, 'limit': _SEARCH_PAGE_SIZE,
-                    'skip': max(0, int(skip)), 'sort': 'downloads', 'direction': -1},
-            timeout=8
-        )
-        if r.ok:
-            out = r.json()
-            for m in out:
-                m['engine'] = guess_engine(m)
-            return out
-    except Exception:
-        pass
-    return []
+        return bool(_hf_models({'search': query, 'limit': 1,
+                                'filter': [task] if task else []}))
+    except HfIndisponible:
+        return None

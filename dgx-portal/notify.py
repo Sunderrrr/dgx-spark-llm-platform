@@ -136,8 +136,15 @@ def _send(to_email, subject, heading, rows=None, body=None, footnote=None,
 # ── Discord (inchangé) ──────────────────────────────────────────────────────
 
 def notify_discord(model_id, username, fullname, reason):
+    """True si le webhook a été appelé ET a répondu 2xx.
+
+    La fonction ne renvoyait rien : l'appelant ne pouvait donc pas dire à
+    l'utilisateur si l'admin avait réellement été prévenu, et `bool(None)`
+    annonçait « non prévenu » même quand le message était bien parti. Les trois
+    cas d'échec (webhook non configuré, réseau, réponse en erreur) valent False.
+    """
     if not DISCORD_WH:
-        return
+        return False
     payload = {"embeds": [{
         "title": "🤖 Nouvelle demande de modèle — DGX Spark",
         "color": 0x76B900,
@@ -150,9 +157,9 @@ def notify_discord(model_id, username, fullname, reason):
         "timestamp": datetime.utcnow().isoformat()
     }]}
     try:
-        requests.post(DISCORD_WH, json=payload, timeout=5)
+        return requests.post(DISCORD_WH, json=payload, timeout=5).ok
     except Exception:
-        pass
+        return False
 
 
 def notify_budget_discord(username, fullname, key_alias, current_budget, reason):

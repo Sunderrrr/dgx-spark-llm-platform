@@ -189,9 +189,9 @@ from comfyui_client import (  # noqa: E402
 
 # Sonde vLLM (sante, debit, contexte) + recherche HF : cf. vllm_health.py
 from vllm_health import (  # noqa: E402
-    GB10_TAG, _CTX_FLAG, _SEARCH_PAGE_SIZE, _SEQS_FLAG, _prom_sum, ctx_of, ctx_split,
-    effective_ctx,
-    guess_engine, max_seqs_of, search_hf_models, vllm_health,
+    GB10_TAG, HF_TASKS, HfIndisponible, _CTX_FLAG, _SEARCH_PAGE_SIZE, _SEQS_FLAG,
+    _prom_sum, ctx_of, ctx_split, effective_ctx, guess_engine, hf_modele_hors_gb10,
+    max_seqs_of, search_hf_models, vllm_health,
 )
 
 # Notifications (mail admin, webhook Discord) : cf. notify.py
@@ -1220,6 +1220,12 @@ app.register_blueprint(chat_bp)
 @app.route('/api/search')
 @login_required
 def api_search():
+    """Recherche de modèles sur Hugging Face.
+
+    Le contrat est le même que celui des actions d'admin : la réponse dit ce qui
+    s'est réellement passé. Une panne de HF renvoie 502 avec `ok: false` — jamais
+    une liste vide, qui se lit « ton modèle n'existe pas ».
+    """
     query = request.args.get('q', '').strip()
     task  = request.args.get('task', 'text-generation')
     gb10  = request.args.get('all') != '1'
@@ -1227,9 +1233,27 @@ def api_search():
         skip = max(0, int(request.args.get('skip', 0)))
     except ValueError:
         skip = 0
-    results = search_hf_models(query, task, gb10_only=gb10, skip=skip) if (query or gb10) else []
-    return jsonify({'results': results, 'query': query, 'task': task, 'gb10_only': gb10,
-                    'skip': skip, 'page_size': _SEARCH_PAGE_SIZE})
+    # Un filtre inconnu fait répondre 400 à HF : c'est une erreur d'appel, pas
+    # une panne — on le dit, plutôt que de la déguiser en « aucun résultat ».
+    if task and task not in HF_TASKS:
+        return jsonify({'ok': False, 'results': [], 'error': f"Tâche inconnue : {task}."}), 400
+    try:
+        results = search_hf_models(query, task, gb10_only=gb10, skip=skip) if (query or gb10) else []
+    except HfIndisponible as e:
+        # `code` en plus de `error` : le portail est FR-first, mais l'interface peut
+        # traduire ce cas-là (l'anglais n'a de sens que s'il est complet), et le
+        # détail technique reste joint pour qui doit diagnostiquer.
+        return jsonify({'ok': False, 'results': [], 'code': 'hf_indisponible',
+                        'error': f"Hugging Face n'a pas répondu ({e}). Réessaie dans un instant."}), 502
+    # Filtre GB10 + aucun résultat : la question suivante de l'utilisateur est
+    # « est-ce que ça existe ailleurs ? ». On y répond (True/False/None = on ne
+    # sait pas, et alors l'interface ne dit rien).
+    hors_gb10 = None
+    if gb10 and query and not results:
+        hors_gb10 = hf_modele_hors_gb10(query, task)
+    return jsonify({'ok': True, 'results': results, 'query': query, 'task': task,
+                    'gb10_only': gb10, 'skip': skip, 'page_size': _SEARCH_PAGE_SIZE,
+                    'hors_gb10': hors_gb10})
 
 
 RANKING_LABELS = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours',
@@ -1257,19 +1281,24 @@ def request_model():
     # the POST action below remains used (postForm from request/page.tsx).
     if request.method != 'POST':
         return ('', 204)
-    model_id = request.form['model_id'].strip()
-    reason   = request.form.get('reason', '').strip()
+    # JSON d'abord (sendJSON), formulaire en repli : la route a longtemps été
+    # appelée en form-encodé et rien ne justifie de casser ce chemin.
+    donnees = request.get_json(silent=True) or request.form
+    model_id = (donnees.get('model_id') or '').strip()
+    reason   = (donnees.get('reason') or '').strip()
     if not model_id:
-        flash("L'identifiant du modèle est requis.", "warning")
-        return ('', 204)
+        return jsonify({'ok': False, 'code': 'identifiant_requis',
+                        'error': "L'identifiant du modèle est requis."}), 400
     db = get_db()
     existing = db.execute(
         "SELECT id FROM model_requests WHERE username=? AND model_id=? AND status='pending'",
         (session['username'], model_id)
     ).fetchone()
     if existing:
-        flash("Tu as déjà une demande en attente pour ce modèle.", "warning")
-        return ('', 204)
+        # Avant : flash() + 204. Le flash n'est rendu par aucun template, donc
+        # la page annonçait « Demande envoyée ! » sans qu'aucune ligne n'existe.
+        return jsonify({'ok': False, 'code': 'deja_en_attente',
+                        'error': f"Tu as déjà une demande en attente pour « {model_id} »."}), 409
     db.execute(
         "INSERT INTO model_requests (username, fullname, model_id, reason, status, created_at) "
         "VALUES (?,?,?,?,?,?)",
@@ -1277,10 +1306,16 @@ def request_model():
          datetime.now().isoformat())
     )
     db.commit()
-    notify_discord(model_id, session['username'], session['fullname'], reason)
-    notify_email(model_id, session['username'], session['fullname'], reason)
-    flash(f"Demande envoyée pour « {model_id} » !", "success")
-    return ('', 204)
+    discord_ok = notify_discord(model_id, session['username'], session['fullname'], reason)
+    email_ok = notify_email(model_id, session['username'], session['fullname'], reason)
+    # La demande EST enregistrée : un échec de notification est un avertissement,
+    # pas une erreur — mais il doit se voir (l'admin est prévenu par ces canaux).
+    reponse = {'ok': True, 'message': f"Demande envoyée pour « {model_id} » !",
+               'discord_sent': bool(discord_ok), 'email_sent': bool(email_ok)}
+    if not (discord_ok or email_ok):
+        reponse['warning'] = ("Demande enregistrée, mais l'admin n'a pu être prévenu "
+                              "(ni Discord ni email).")
+    return jsonify(reponse)
 
 # Usage par sidecar (administration) : cf. stats.py
 

@@ -98,7 +98,7 @@ flowchart LR
 | **vllm-runner** | Daemon driving **one** chat model process (start/stop/logs; engines `vllm` / `llamacpp` / `ds4`) with auto-resume, plus scoped start/stop/recreate of every media sidecar | `8001` | systemd service on the host |
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
 | **OCR container** | vLLM serving an OCR-capable VLM (baidu/Unlimited-OCR by default, chandra-ocr-2 also supported), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
-| **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports; 12.5 GB per UNET instead of 21 GB for the INT8 build) | `8188`, host-restricted | systemd service on the host |
+| **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports; measured on disk: 11.7 GiB ≈ 12.5 GB per UNET, two UNET variants) | `8188`, host-restricted | systemd service on the host |
 | **Image container** | Text-to-image (diffusers). FLUX.2 Klein 4B by default, 35 diffusion steps per image (`IMAGE_STEPS`) | internal only | Docker container, own network + GPU slice |
 | **Music container** | Text-to-music (diffusers, MiniMax-Music3 & co) | internal only | Docker container, own network + GPU slice |
 | **ASR container** | Whisper (`large-v3-turbo` by default) for Playground dictation | internal only | Docker container, own network + GPU slice |
@@ -381,11 +381,13 @@ tokens. Requests land in Admin with the requester and their reason.
 
 ### Home
 
-Every currently-running backend, each card labelled with what it does and the chat
-card advertising the `auto-model` tip; a **Server state** panel with live CPU/RAM/GPU,
-active-model health (tok/s, queue, TTFT, requests served, in/out context) and a
-**Media services** strip folding sidecar activity metrics in next to it; plus your
-own hourly usage chart. Sidecars are clearly marked "not exposed by the API".
+Every backend the API can serve, each card labelled with what it does and the chat
+card advertising the `auto-model` tip; a **Server status** panel with live CPU/RAM/GPU
+and the active model's health (throughput, sessions, TTFT, requests served — `—` on
+llama.cpp, which keeps no request counter — plus in/out context); a **Media services**
+block that only appears while an OCR, video or voice sidecar is running; and your own
+hourly token usage over the last 24 h. A backend that is not running is labelled
+"Available from the app, not exposed via the API."
 
 ### Leaderboard
 

@@ -16,6 +16,9 @@ export type Whoami = {
   lang: string;
   onboarded: boolean;
   maintenance_mode: boolean;
+  // Compte à mot de passe local (false = LDAP/SSO : le mot de passe se gère
+  // dans l'annuaire, pas dans le portail).
+  local_account: boolean;
 };
 
 const WhoamiContext = createContext<{

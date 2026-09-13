@@ -30,6 +30,16 @@ export default function LoginPage() {
   const [bg, setBg] = useState(BACKGROUNDS[0]);
 
   useEffect(() => {
+    // Refus renvoyé par le retour SSO : le drapeau d'URL est lu côté client,
+    // pas via useSearchParams (qui exigerait une frontière Suspense au
+    // prérendu, pour une page entièrement statique).
+    if (new URLSearchParams(window.location.search).get("refus") === "bloque") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setError(t("Accès révoqué pour ce compte. Contacte un administrateur."));
+    }
+  }, [t]);
+
+  useEffect(() => {
     // Chosen client-side after mount (not in the SSR render) to avoid
     // a hydration mismatch — a random draw would differ between server and client.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -97,6 +107,12 @@ export default function LoginPage() {
         window.location.assign("/");
       } else if (res.status === 400) {
         setError(t("Session expirée — recharge la page et réessaie."));
+      } else if (res.status === 403) {
+        // Compte bloqué par un administrateur : le serveur envoie le message
+        // exact. Sans cette branche, l'intéressé lisait « identifiants
+        // incorrects » et réessayait un mot de passe qui était bon.
+        const body = await res.json().catch(() => null);
+        setError(body?.error || t("Accès révoqué pour ce compte. Contacte un administrateur."));
       } else {
         setError(t("Identifiants incorrects."));
       }

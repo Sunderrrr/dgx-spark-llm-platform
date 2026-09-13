@@ -297,6 +297,34 @@ output is negotiated as `image/webp`), but the upgrade removes the question.
 > that looks like a hardening one, and it must not be "fixed". See
 > [`CLAUDE.md`](CLAUDE.md).
 
+One host path is mounted into `dgx-portal` **read-only**: `/var/lib/cronos-monitor`,
+the host monitor's state file, which holds current incidents and the backup figures
+the Admin card displays. The backup directory itself (`/var/backups/cronos`, `0700
+root`, dumps `0600`) is deliberately **not** mounted, and the monitor — which runs as
+root — copies only the file name, age and count into its world-readable state. So the
+container can report *that* a backup exists and how old it is without ever being able
+to read one. If the mount is missing the API answers `readable: false`, which the
+interface renders as "unreadable" — never as "fine".
+
+### 2.9 Admin actions report what actually happened
+
+Every admin action answers JSON (`{ok, error?, warning?}`) with an honest status
+code: 400 refusal, 404 unknown, 409 `needs_confirm` or "last administrator", 502
+upstream unreachable, 507 memory guard, 403 forbidden. This replaced
+`flash(...)` + `redirect(...)`, whose flashed message no template rendered and
+whose HTML body made the Next.js client's `res.json()` throw — the `catch` then
+treated the failure as a success, so a refused model stop or an unapplied quota
+could be shown as done. A `warning` accompanies a partial success (catalogue
+updated, LiteLLM deregistration failed) and is never used in place of an error.
+
+An **uncertain** outcome is reported as such: when the runner does not answer
+within its timeout, the response is `202` with `incertain: true` and *no*
+infrastructure alert, because an alert would invite a retry that kills a model
+still loading. Related availability control: the portal refuses to leave itself
+without a local administrator (self-demotion/self-disable, and removal of the last
+active local admin or of the group carrying its rights). The role is re-read on
+every request, so that loss would be immediate and unrecoverable from the UI.
+
 ---
 
 ## 3. Accepted risks

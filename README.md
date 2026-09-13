@@ -508,7 +508,7 @@ is checked too.
 |---|---|
 | ![Find a model](assets/search.png) | ![Request a model](assets/request.png) |
 
-![Admin — the unified backend row, a type-filtered catalog, and live model logs](assets/admin.png)
+![Admin — the platform status card, the unified backend row, and live model logs](assets/admin.png)
 
 > **Refreshing these screenshots** — nothing here is hand-made: the whole set is
 > captured by `scripts/screenshots.py`, in **English** and in the **dark theme**,

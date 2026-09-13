@@ -462,7 +462,11 @@ known account with a badge for each authentication source — **Local**, **LDAP*
 > than publishing an "Administrators only" page). The five media pages are the
 > one exception: they are only worth shooting **while one of those models is
 > loaded**, since an idle page just says "no model is available" — the script
-> skips them by default and keeps the published image.
+> skips them by default and keeps the published image. Naming the page explicitly
+> overrides that: with the model up, `python scripts/screenshots.py ocr` (same for
+> `voice`, `video`, `image`, `music`) takes the shot, and `--verify --install`
+> puts it in place. To take all five in one go, start each sidecar from Admin,
+> shoot it, stop it, and move to the next.
 >
 > | Page | Route | File |
 > |---|---|---|

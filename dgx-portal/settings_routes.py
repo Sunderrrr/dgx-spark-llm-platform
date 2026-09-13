@@ -17,7 +17,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from auth import login_required
+from auth import completer_origine_session, login_required
 from config import AVATAR_IDS, AVATAR_LABELS, KEY_BUDGET, LANGS, THEME_IDS
 from conversation_routes import CONVERSATIONS_MAX
 from db import get_db, get_setting, log_audit
@@ -318,6 +318,9 @@ def _mes_sessions(username):
     """
     now = time.time()
     sid_courant = session.get('sid')
+    # Une session ouverte avant l'ajout des colonnes n'a ni IP ni user-agent :
+    # on la complète ici, tant que c'est bien la sienne.
+    completer_origine_session()
     out = []
     for r in get_db().execute(
             "SELECT sid, created_at, expires_at, ip, user_agent FROM user_sessions "

@@ -86,7 +86,7 @@ export function SessionsList({
         <ListItem
           key={s.id}
           startContent={<Icon icon={ComputerDesktopIcon} size="sm" color="secondary" />}
-          label={describeUserAgent(s.user_agent)}
+          label={s.user_agent ? describeUserAgent(s.user_agent) : t("Appareil inconnu")}
           description={
             <VStack gap={0}>
               {/* Chaîne complète tronquée sur une ligne : le Text tronqué
@@ -94,6 +94,15 @@ export function SessionsList({
               {s.user_agent ? (
                 <Text type="supporting" color="secondary" maxLines={1}>
                   {s.user_agent}
+                </Text>
+              ) : null}
+              {/* Session ouverte avant que le portail ne note l'IP et le
+                  navigateur : un tiret seul laissait croire à un appareil
+                  exotique au lieu d'un trou dans les données. Le porteur
+                  complète sa propre ligne en ouvrant cette liste. */}
+              {!s.user_agent && !s.ip ? (
+                <Text type="supporting" color="secondary">
+                  {t("Origine non enregistrée : session ouverte avant que le portail ne note l'IP et le navigateur.")}
                 </Text>
               ) : null}
               <HStack gap={1} vAlign="center">

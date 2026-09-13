@@ -552,6 +552,29 @@ def _apply_session(username, fullname, is_admin, via_sso=False):
     session['sid'] = sid
 
 
+def completer_origine_session():
+    """Complète l'IP et le user-agent de la session COURANTE s'ils manquent.
+
+    Les sessions ouvertes avant l'ajout de ces colonnes (2026-09-13) n'en ont
+    aucun : l'intéressé voyait un tiret à la place de « ce navigateur, cette
+    IP », c'est-à-dire exactement l'information qui permet de repérer une
+    session qu'on ne reconnaît pas. On ne complète QUE la ligne dont le sid est
+    celui du cookie appelant — donc la sienne — et seulement si la valeur est
+    absente : écraser une IP déjà notée effacerait la trace qu'on veut garder,
+    et un cookie volé réécrirait sa propre origine.
+    """
+    sid, username = session.get('sid'), session.get('username')
+    if not sid or not username:
+        return 0
+    db = get_db()
+    n = db.execute(
+        "UPDATE user_sessions SET ip=?, user_agent=? WHERE sid=? AND username=? "
+        "AND (ip IS NULL OR user_agent IS NULL)",
+        (_client_ip(), (request.headers.get('User-Agent') or '')[:400], sid, username)).rowcount
+    db.commit()
+    return n
+
+
 def _revoke_current_session():
     """Révoque la session courante (logout) : le sid en base passe à revoked,
     la demande suivante la considérera expirée."""

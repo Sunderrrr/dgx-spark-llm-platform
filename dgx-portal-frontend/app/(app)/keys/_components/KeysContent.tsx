@@ -27,7 +27,7 @@ import {
   type IntegrationTool,
   type ModelLimit,
 } from "@/lib/integrationSnippets";
-import { useT, useLang } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 
 type DiscordStatus = { linkable: boolean; dm_enabled: boolean; linked: boolean; discord_name: string };
 type ApiKey = { key_alias: string; key: string; created_at: string; spend: number };
@@ -45,10 +45,7 @@ type KeysData = {
 
 export function KeysContent() {
   const t = useT();
-  const { lang } = useLang();
-  // The thousands separator follows the UI language (space in French,
-  // comma in English) instead of being hardcoded to fr-FR.
-  const numLocale = lang === "fr" ? "fr-FR" : "en-US";
+  const numLocale = useLocale();
   const csrf = useCsrf();
   const showToast = useToast();
   const [data, setData] = useState<KeysData | null>(null);
@@ -134,7 +131,7 @@ export function KeysContent() {
         </HStack>
       ),
     },
-    { key: "spend", header: t("Dépensé"), renderCell: (row) => `${Math.round(row.spend || 0).toLocaleString("fr-FR")} tokens` },
+    { key: "spend", header: t("Dépensé"), renderCell: (row) => `${Math.round(row.spend || 0).toLocaleString(numLocale)} tokens` },
     {
       key: "actions" as keyof ApiKey,
       header: "",
@@ -181,7 +178,7 @@ export function KeysContent() {
         <Card>
           <VStack gap={2}>
             <Text type="supporting" color="secondary">
-              Endpoint : {data.public_api_url} — compatible OpenAI.
+              {t("Endpoint :")} {data.public_api_url} {t("— compatible OpenAI.")}
             </Text>
             {data.account.unlimited ? (
               <HStack>
@@ -298,8 +295,9 @@ export function KeysContent() {
                 derniers onglets débordent hors du cadre et sont inatteignables. */}
             <HStack width="100%" style={{ overflowX: "auto" }}>
               <TabList value={tool} onChange={(v) => setTool(v as IntegrationTool)}>
-                {INTEGRATION_TOOLS.map((t) => (
-                  <Tab key={t.value} value={t.value} label={t.label} />
+                {/* `tool` : ne pas masquer la fonction de traduction `t`. */}
+                {INTEGRATION_TOOLS.map((tool) => (
+                  <Tab key={tool.value} value={tool.value} label={t(tool.label)} />
                 ))}
               </TabList>
             </HStack>

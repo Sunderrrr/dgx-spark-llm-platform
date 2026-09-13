@@ -36,7 +36,18 @@ export async function authFetch(input: string, init?: RequestInit): Promise<Resp
 export async function getJSON<T>(url: string): Promise<T> {
   const res = await authFetch(url);
   if (res.status === 403) throw new ForbiddenError(url);
-  if (!res.ok) throw new Error(`Échec du chargement (${url}).`);
+  if (!res.ok) {
+    // Le serveur dit POURQUOI (Hugging Face injoignable, tâche inconnue…).
+    // Jeter ce message obligeait l'interface à afficher « Échec du chargement »,
+    // qui n'apprend rien et fait passer une panne amont pour un bug du portail.
+    const corps = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
+    const err = new Error(corps?.error || `Échec du chargement (${url}).`) as Error & { code?: string };
+    // `code` voyage avec l'erreur : c'est lui qui permet à un écran de traduire
+    // un refus ou une panne amont stable (le portail répond en français, cf.
+    // CLAUDE.md § i18n) au lieu d'afficher une phrase française en mode anglais.
+    if (corps?.code) err.code = corps.code;
+    throw err;
+  }
   return res.json();
 }
 

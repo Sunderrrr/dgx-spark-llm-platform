@@ -11,7 +11,9 @@ export const INTEGRATION_TOOLS = [
   { value: "langchain", label: "LangChain Agent" },
   { value: "python", label: "Python SDK" },
   { value: "curl", label: "cURL" },
-  { value: "env", label: "Env vars" },
+  // « env » est le seul libellé non nom-propre de la liste : un msgid français
+  // comme le reste (les autres outils gardent leur nom propre).
+  { value: "env", label: "Variables d'env." },
 ] as const;
 
 export type IntegrationTool = (typeof INTEGRATION_TOOLS)[number]["value"];
@@ -26,7 +28,11 @@ const BUILDERS: Record<IntegrationTool, (base: string, key: string, model: strin
     // être la RACINE, pas le chemin OpenAI-compatible qui sert aux autres outils.
     const root = base.replace(/\/v1\/?$/, "");
     const lim = limits[m];
-    const ctx = lim ? `\n# Contexte du modèle : ${lim.context.toLocaleString("fr-FR")} tokens (sortie max ${lim.output.toLocaleString("fr-FR")}).` : "";
+    // Nombres SANS séparateur de milliers, volontairement : ce texte part dans un
+    // fichier de configuration recopié par l'utilisateur, il ne doit donc pas
+    // dépendre de la langue du navigateur (c'était le dernier `fr-FR` figé du
+    // dépôt, mais un extrait de config n'est pas un affichage d'interface).
+    const ctx = lim ? `\n# Contexte du modèle : ${lim.context} tokens (sortie max ${lim.output}).` : "";
     return `# Claude Code — https://claude.com/claude-code
 # Installation : npm install -g @anthropic-ai/claude-code
 

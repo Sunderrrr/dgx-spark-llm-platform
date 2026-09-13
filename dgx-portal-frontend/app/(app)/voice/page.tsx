@@ -29,7 +29,7 @@ import {
 import { Selector } from "@astryxdesign/core/Selector";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
-import { useT, useLang } from "@/lib/i18n";
+import { useT, useLang, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
@@ -68,6 +68,7 @@ const WAVE_BARS = Array.from({ length: 40 }, (_, i) => ({
 
 export default function VoicePage() {
   const t = useT();
+  const numLocale = useLocale();
   const { lang: uiLang } = useLang();
   const csrf = useCsrf();
   const showToast = useToast();
@@ -471,7 +472,7 @@ export default function VoicePage() {
                         key={h.id}
                         label={h.text}
                         labelLines={1}
-                        description={new Date(h.created_at).toLocaleString("fr-FR")}
+                        description={new Date(h.created_at).toLocaleString(numLocale)}
                         startContent={<SpeakerWaveIcon width={20} height={20} />}
                         onClick={() => setCurrentId(h.id)}
                         isSelected={h.id === currentId}

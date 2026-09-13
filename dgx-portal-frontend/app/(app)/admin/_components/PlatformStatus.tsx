@@ -6,7 +6,7 @@ import { Card } from "@astryxdesign/core/Card";
 import { Text } from "@astryxdesign/core/Text";
 import { Badge } from "@astryxdesign/core/Badge";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { useT, useLang } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 
 /** Réponse de GET /admin/platform (admin-only, implémenté côté portail).
  * Toutes les clés sont toujours présentes ; une valeur inconnue vaut null —
@@ -53,8 +53,7 @@ function StatusRow({ label, dotVariant, dotLabel, value }: {
 
 export function PlatformStatus({ status }: { status: PlatformStatusData | null }) {
   const t = useT();
-  const { lang } = useLang();
-  const numLocale = lang === "fr" ? "fr-FR" : "en-US";
+  const numLocale = useLocale();
   const fmt = (n: number, digits = 1) => new Intl.NumberFormat(numLocale, { maximumFractionDigits: digits }).format(n);
 
   // Disque : alerte quand l'espace libre devient bas OU que le remplissage

@@ -1,7 +1,7 @@
 "use client";
 
 import { Text } from "@astryxdesign/core/Text";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 
 export type ActivityDay = { date: string; tokens: number };
 
@@ -11,6 +11,7 @@ export type ActivityDay = { date: string; tokens: number };
  *  light/dark mode. */
 export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
   const translate = useT();
+  const numLocale = useLocale();
   if (!days.length) return null;
 
   const CELL = 11;
@@ -60,7 +61,7 @@ export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
             opacity={opacity[lvl]}
             stroke="var(--color-border)"
             strokeWidth={lvl === 0 ? 1 : 0}>
-            <title>{`${new Date(d.date + "T00:00:00").toLocaleDateString("fr-FR")} — ${d.tokens.toLocaleString("fr-FR")} tokens`}</title>
+            <title>{`${new Date(d.date + "T00:00:00").toLocaleDateString(numLocale)} — ${d.tokens.toLocaleString(numLocale)} tokens`}</title>
           </rect>
         );
       })}

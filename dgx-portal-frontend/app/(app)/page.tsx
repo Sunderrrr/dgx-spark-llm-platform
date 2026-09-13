@@ -38,7 +38,7 @@ import { fetchConversations, relativeTime } from "@/lib/conversations";
 import type { Conversation } from "@/lib/types";
 import { useWhoami } from "@/lib/whoami";
 import { UsageChart } from "./_components/UsageChart";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 import { useSettingsDialog } from "@/lib/settings-dialog";
 
 type SysMetrics = {
@@ -103,8 +103,11 @@ function sidecarLines(
   kind: "ocr" | "video" | "voice",
   sm: SidecarMetric,
   t: (s: string) => string,
+  numLocale: string,
 ): [string, string][] {
-  const num = (n: number) => n.toLocaleString();
+  // La locale suit la langue affichée ; passée par le composant car un helper
+  // hors composant ne peut pas appeler de hook.
+  const num = (n: number) => n.toLocaleString(numLocale);
   const lines: [string, string][] = [[t("Aujourd'hui"), num(sm.count_today)]];
   if (kind === "ocr") {
     if (sm.chars_per_s != null) lines.push([t("Débit"), `≈ ${num(sm.chars_per_s)} c/s`]);
@@ -198,6 +201,7 @@ const buildRequestColumns = (t: (s: string) => string): TableColumn<ModelRequest
 
 export default function HomePage() {
   const t = useT();
+  const numLocale = useLocale();
   const { open: openSettings } = useSettingsDialog();
   const showToast = useToast();
   const csrf = useCsrf();
@@ -315,7 +319,7 @@ export default function HomePage() {
                     return (
                       <ClickableCard
                         key={c.kind}
-                        label={KIND_OPEN[c.kind].label}
+                        label={t(KIND_OPEN[c.kind].label)}
                         variant="muted"
                         href={KIND_OPEN[c.kind].href}
                       >
@@ -446,7 +450,7 @@ export default function HomePage() {
                       <VStack gap={0}>
                         <Text maxLines={1} weight="semibold">{c.title || t("Conversation")}</Text>
                         <Text type="supporting" color="secondary">
-                          {c.model || ""}{c.model ? " · " : ""}{relativeTime(c.ts)}
+                          {c.model || ""}{c.model ? " · " : ""}{relativeTime(c.ts, t)}
                         </Text>
                       </VStack>
                     </ClickableCard>
@@ -552,7 +556,7 @@ export default function HomePage() {
                                 <Text weight="semibold">{t(KIND_NAME[k])}</Text>
                               </HStack>
                               <HStack gap={5} wrap="wrap">
-                                {sidecarLines(k, data.sidecar_metrics[k]!, t).map(([label, value]) => (
+                                {sidecarLines(k, data.sidecar_metrics[k]!, t, numLocale).map(([label, value]) => (
                                   <VStack key={label} gap={0}>
                                     <Text type="supporting" color="secondary">{label}</Text>
                                     <Text weight="semibold" hasTabularNumbers>{value}</Text>
@@ -577,7 +581,7 @@ export default function HomePage() {
                                 variant={u.live ? "success" : "neutral"}
                                 label={u.live
                                   ? `${u.username} · ${t("en direct")}`
-                                  : `${u.username} · ${u.requests} req · ${Math.round(u.tokens).toLocaleString("fr-FR")} tok`}
+                                  : `${u.username} · ${u.requests} req · ${Math.round(u.tokens).toLocaleString(numLocale)} tok`}
                               />
                             ))}
                           </HStack>
@@ -598,7 +602,7 @@ export default function HomePage() {
                       <VStack gap={0}>
                         <Text type="supporting" color="secondary">{t("Tokens · 24 h")}</Text>
                         <Text size="xl" weight="bold" hasTabularNumbers>
-                          {Math.round(data.usage.total).toLocaleString("fr-FR")}
+                          {Math.round(data.usage.total).toLocaleString(numLocale)}
                         </Text>
                       </VStack>
                       <VStack gap={0}>
@@ -628,7 +632,7 @@ export default function HomePage() {
                     <VStack gap={2}>
                       <Text type="supporting" color="secondary">{t("Limite :")} {t("Illimitée (admin)")}</Text>
                       <Text type="supporting" color="secondary">
-                        {t("Utilisé :")} <Text hasTabularNumbers weight="semibold">{data.budget_used.toLocaleString("fr-FR")}</Text> {t("tokens")}
+                        {t("Utilisé :")} <Text hasTabularNumbers weight="semibold">{data.budget_used.toLocaleString(numLocale)}</Text> {t("tokens")}
                       </Text>
                     </VStack>
                   ) : (
@@ -652,10 +656,10 @@ export default function HomePage() {
                       />
                       <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
                         <Text type="supporting" color="secondary">
-                          {t("Utilisé :")} <Text hasTabularNumbers weight="semibold">{data.budget_used.toLocaleString("fr-FR")}</Text> {t("tokens")}
+                          {t("Utilisé :")} <Text hasTabularNumbers weight="semibold">{data.budget_used.toLocaleString(numLocale)}</Text> {t("tokens")}
                         </Text>
                         <Text type="supporting" color="secondary">
-                          {t("Restant :")} <Text hasTabularNumbers weight="semibold">{data.budget_remaining.toLocaleString("fr-FR")}</Text> {t("tokens")}
+                          {t("Restant :")} <Text hasTabularNumbers weight="semibold">{data.budget_remaining.toLocaleString(numLocale)}</Text> {t("tokens")}
                         </Text>
                       </HStack>
                       {data.budget_reset_at && (
@@ -674,7 +678,9 @@ export default function HomePage() {
                           size="sm"
                           isDisabled={data.budget_request_pending}
                           onClick={async () => {
-                            await postForm("/keys", csrf, { action: "request_budget", reason: "Demande depuis la page d'accueil (quota bientôt épuisé)" });
+                            // La raison part en base et se réaffiche brute (colonne
+                            // « Raison », file admin) : msgid traduit côté client.
+                            await postForm("/keys", csrf, { action: "request_budget", reason: t("Demande depuis la page d'accueil (quota bientôt épuisé)") });
                             setData((d) => (d ? { ...d, budget_request_pending: true } : d));
                             showToast({ body: t("Demande envoyée à l'admin.") });
                           }}
@@ -696,7 +702,7 @@ export default function HomePage() {
                       {data!.usage_by_model.slice(0, 6).map((m) => (
                         <HStack key={m.model} hAlign="between" vAlign="center" gap={2}>
                           <Text type="supporting" maxLines={1}>{m.model}</Text>
-                          <Text hasTabularNumbers weight="semibold">{m.tokens.toLocaleString("fr-FR")} {t("tokens")}</Text>
+                          <Text hasTabularNumbers weight="semibold">{m.tokens.toLocaleString(numLocale)} {t("tokens")}</Text>
                         </HStack>
                       ))}
                     </VStack>

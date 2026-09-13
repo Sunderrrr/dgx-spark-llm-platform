@@ -83,10 +83,11 @@ export async function migrateLegacyConversations(csrf: string): Promise<boolean>
   return true;
 }
 
-export function relativeTime(ts: number): string {
+/** `t` est passé en paramètre : fonction de module, un hook ne s'y appelle pas. */
+export function relativeTime(ts: number, t: (s: string) => string): string {
   const s = (Date.now() - ts) / 1000;
-  if (s < 60) return "à l'instant";
+  if (s < 60) return t("à l'instant");
   if (s < 3600) return `${Math.floor(s / 60)} min`;
   if (s < 86400) return `${Math.floor(s / 3600)} h`;
-  return `${Math.floor(s / 86400)} j`;
+  return `${Math.floor(s / 86400)} ${t("j")}`;
 }

@@ -38,6 +38,10 @@ const EN: Record<string, string> = {
   "Nouveau quota le {date} (UTC).": "New quota on {date} (UTC).",
   "Demande en cours d'examen": "Request under review",
   "Demande envoyée à l'admin.": "Request sent to the admin.",
+  // Raison par défaut du bouton « Demander plus de budget » : le msgid part en
+  // base et se réaffiche tel quel (colonne « Raison » chez l'utilisateur et
+  // dans la file admin), d'où une clé traduite comme une chaîne d'affichage.
+  "Demande depuis la page d'accueil (quota bientôt épuisé)": "Request from the home page (quota nearly exhausted)",
   "Quota dépassé : tu as épuisé ton budget de tokens pour la période en cours.": "Quota exceeded: you have used up your token budget for the current period.",
   "Tu peux demander plus à l'admin (accueil → « Demander plus de budget »).": "You can request more from the admin (home → \"Request more budget\").",
   "Crée d'abord une clé API (page Mes clés API) : cet assistant consomme le budget de ton compte.": "Create an API key first (My API keys page) — this assistant runs on your account budget.",
@@ -70,6 +74,10 @@ const EN: Record<string, string> = {
   "jours": "days",
   "Continuer": "Continue",
   "Conversation": "Conversation",
+  // Temps relatif des cartes « Conversations récentes » (lib/conversations.ts :
+  // t y est passé en paramètre, ces clés sont atteintes par variable).
+  "à l'instant": "just now",
+  "j": "d",
   "Document": "Document",
   "OCR": "OCR",
   "Section": "Section",
@@ -103,6 +111,9 @@ const EN: Record<string, string> = {
   "Supprimer cette image": "Delete this image",
   "Notifications": "Notifications",
   "Aucune notification": "No notifications",
+  // Type de notification venu du serveur (layout.tsx) ; le type brut reste le
+  // repli pour tout type inconnu, et "Image"/"Musique" existent déjà ailleurs.
+  "Demande": "Request",
   "Rechercher une conversation": "Search conversations",
   "Épingler": "Pin",
   "Désépingler": "Unpin",
@@ -507,8 +518,14 @@ const EN: Record<string, string> = {
   "Afficher": "Show",
   "Dépensé": "Spent",
   "tokens": "tokens",
+  // Singulier pour « 1 token » : le pluriel se choisit au rendu, avec le motif
+  // déjà en place dans le dépôt (t(n > 1 ? "tokens" : "token")).
+  "token": "token",
   "Révoquer": "Revoke",
   "Intégrations": "Integrations",
+  // Onglet d'intégration : seul libellé non nom-propre de la liste (les autres
+  // outils gardent leur nom propre). Le `value` reste "env", lui, technique.
+  "Variables d'env.": "Env vars",
   "Masquer la clé": "Hide key",
   "Révéler la clé": "Reveal key",
   "Clé créée !": "Key created!",
@@ -519,6 +536,18 @@ const EN: Record<string, string> = {
   "Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.":
     "Chat live with an active model — advanced settings, attachments, streaming replies, on your account budget.",
   "Rien à exporter.": "Nothing to export.",
+  // Export Markdown d'une conversation (convAsMarkdown reçoit t en paramètre) ;
+  // « Assistant : » s'écrit pareil dans les deux langues, la clé reste visible
+  // pour le traducteur.
+  "Modèle :": "Model:",
+  "Vous :": "You:",
+  "Assistant :": "Assistant:",
+  // Titre de repli d'un artefact sans nom : un fichier téléchargé ne doit pas
+  // garder un nom français en mode anglais (parseArtifacts reçoit t).
+  "fichier-{n}.txt": "file-{n}.txt",
+  "fichier-{n}.{ext}": "file-{n}.{ext}",
+  // Pièce jointe trop grosse pour le contexte (handleFiles).
+  "« {name} » dépasse 96 Ko — trop gros pour le contexte.": "« {name} » exceeds 96 KB — too large for the context.",
   "Erreur réseau.": "Network error.",
   "Le modèle n'a renvoyé aucune réponse.": "The model returned no response.",
   "Écris ton message… (Entrée pour envoyer, Maj+Entrée = saut de ligne)":
@@ -557,6 +586,13 @@ const EN: Record<string, string> = {
   "Résumer": "Summarise",
   "Condense un texte en points clés": "Condense a text into key points",
   "Résume ce texte en 3 points : ": "Summarise this text in 3 points: ",
+  // Noms des compétences de base (lib/skills.ts) : des msgid français traduits
+  // à l'affichage ; "Résumer", "Expliquer", "Analyser des logs" et "Code"
+  // existent déjà au-dessus.
+  "Rédiger": "Write",
+  "Traduire": "Translate",
+  "Imaginer": "Brainstorm",
+  "Relire": "Proofread",
   "Comment puis-je vous aider aujourd'hui ?": "How can I help you today?",
   "Tapez / pour appeler une compétence": "Type / to call a skill",
   "Résumez un document, générez une image, écrivez du code…":
@@ -703,6 +739,8 @@ const EN: Record<string, string> = {
   "Détails (optionnel)": "Details (optional)",
   "Publier": "Publish",
   "Logs —": "Logs —",
+  // Titre des cartes de logs : {v} = nom du modèle servi ou type en majuscules.
+  "Logs — {v}": "Logs — {v}",
   "aucun modèle": "no model",
   "Demandes en attente": "Pending requests",
   "Lancées": "Launched",
@@ -972,6 +1010,10 @@ const EN: Record<string, string> = {
   "La vidéo n'a pas de catalogue : un seul workflow ComfyUI figé, démarré et arrêté depuis la ligne « Backends » ci-dessus.":
     "Video has no catalog: a single fixed ComfyUI workflow, started and stopped from the “Backends” row above.",
   "Ajouter un modèle voix": "Add a voice model",
+  // Variantes du sélecteur « Ajouter un modèle voix » (le value repo_id ne
+  // change pas : seule l'étiquette est traduite).
+  "Qwen3-TTS 1.7B (10 langues)": "Qwen3-TTS 1.7B (10 languages)",
+  "Qwen3-TTS 0.6B (10 langues)": "Qwen3-TTS 0.6B (10 languages)",
   "Nom (ex: chatterbox-turbo)": "Name (e.g. chatterbox-turbo)",
   "Variante": "Variant",
   "Utilisation voix par utilisateur": "Voice usage per user",
@@ -1082,6 +1124,8 @@ const EN: Record<string, string> = {
   "Aucun groupe": "No group",
   "Groupe": "Group",
   "Quota / j": "Quota / day",
+  // Suffixe « par jour » collé après un nombre (carte d'un groupe).
+  "/ j": "/ d",
   "hérité": "inherited",
   "Actif": "Active",
   "Désactivé": "Disabled",
@@ -1337,6 +1381,32 @@ const EN: Record<string, string> = {
 
   // Recherche utilisateur (Admin) : exemple générique, jamais de vrai compte.
   "ex : jdoe": "e.g. jdoe",
+
+  // Recherche de modèles Hugging Face. Les tâches étaient écrites en anglais
+  // dans le code : elles n'étaient donc pas traduisibles et restaient en anglais
+  // même en français. Elles sont désormais des msgid français comme le reste.
+  "Génération de texte": "Text generation",
+  "Texte vers texte": "Text to text",
+  "Plongements (embeddings)": "Embeddings",
+  "Texte vers image": "Text to image",
+  "Texte vers vidéo": "Text to video",
+  "Image vers texte": "Image to text",
+  "Accès restreint": "Gated access",
+  "Recherche impossible.": "Search failed.",
+  "Résultats indisponibles.": "Results unavailable.",
+  // Panne amont de Hugging Face (`code: hf_indisponible`). Le message du serveur
+  // porte le détail technique mais reste en français : l'écran affiche cette
+  // phrase traduite à la place, et le détail reste dans les journaux du portail.
+  "Hugging Face ne répond pas. Réessaie dans un instant.":
+    "Hugging Face is not responding. Try again in a moment.",
+  "Aucun modèle GB10 ne correspond, mais il y en a sur tout Hugging Face : décoche le filtre ci-dessus.":
+    "No GB10-tagged model matches, but Hugging Face does have some — clear the filter above.",
+  "Hugging Face ne connaît aucun modèle pour cette recherche.":
+    "Hugging Face knows no model for this search.",
+  "Tu as déjà une demande en attente pour ce modèle.":
+    "You already have a pending request for this model.",
+  "L'identifiant du modèle est requis.": "The model id is required.",
+  "Partage impossible :": "Sharing failed:",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({
@@ -1364,4 +1434,19 @@ export function useLang() {
 export function useT() {
   const { lang } = useContext(I18nContext);
   return useCallback((fr: string) => (lang === "en" ? EN[fr] ?? fr : fr), [lang]);
+}
+
+/** Locale de formatage (nombres, dates, heures) qui SUIT la langue affichée.
+ *
+ *  Le contrat i18n ne porte pas que sur le texte : `toLocaleString("fr-FR")`
+ *  écrit en dur affichait « 1 234 » et « 13/09/2026 » à un lecteur anglophone,
+ *  qui attend « 1,234 » et « 9/13/2026 ». Une vingtaine d'endroits le faisaient ;
+ *  quelques composants avaient déjà la bonne formule (`lang === "fr" ? … : …`),
+ *  reprise ici une fois pour toutes. À utiliser via `const numLocale = useLocale()`.
+ *  Dans un helper hors composant, passer la valeur en paramètre : un hook ne
+ *  s'appelle que depuis un composant.
+ */
+export function useLocale(): string {
+  const { lang } = useContext(I18nContext);
+  return lang === "fr" ? "fr-FR" : "en-US";
 }

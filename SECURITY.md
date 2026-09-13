@@ -52,7 +52,9 @@ compromise matters most: it holds `LITELLM_MASTER_KEY`, `RUNNER_TOKEN`,
 environment.
 
 The sidecars themselves are **not** multi-homed: each sits on its own network
-and can reach neither LiteLLM, nor Postgres, nor Traefik, nor each other.
+and can reach neither LiteLLM, nor Postgres, nor Traefik — nor each other, with
+one deliberate exception: `searxng` and `crawl4ai` share `web_net` (the portal
+mediates between them, but at L3 either can open connections to the other).
 
 ---
 
@@ -72,7 +74,10 @@ is refused. The exclusions are deliberate, and each is commented in the source:
 
 The daemon runs **non-root** (`vllmrunner`), requires a Bearer token compared with
 `hmac.compare_digest`, and its ports are firewalled to localhost plus the docker
-bridge.
+bridge. Spawned engines inherit an **explicit minimal environment** (PATH, HOME,
+HF_HOME, PYTHONUNBUFFERED, two vLLM perf knobs) instead of `**os.environ`, so the
+root environment's secrets never reach the model process, `/logs` or `/stream`;
+`HF_TOKEN` is passed through only when set.
 
 ### 2.2 Sidecar control — no docker socket, anywhere
 
@@ -85,7 +90,11 @@ host-side.
 For the **voice** sidecar there is no free-form argv at all: the single variable
 (`repo_id`) is checked against a closed allowlist in both `runner.py` and the
 script. The **image** sidecar is the same shape, with per-model inference
-settings baked into the wrapper.
+settings baked into the wrapper. The **ASR** sidecar (dictation) is the same
+shape again: its model id must match a closed `case` list in `asr-recreate.sh`
+(`whisper-large-v3-turbo`, `-large-v3`, `-medium`, `-small`), and the dictation
+route runs on that one shared ASR model — no LiteLLM key, so it is rate-limited
+like the other GPU-heavy routes instead of budget-capped.
 
 **The one exception is `hawser`** (`ghcr.io/finsys/hawser`, systemd
 `hawser-restrict.service`), the Docker control-plane agent used to drive the
@@ -113,9 +122,23 @@ the *host*:
   traverses iptables. Only the portal's listening port is dropped — the filter is
   stateless, and blocking everything would kill the responses of the legitimate
   portal → OCR flow.
+  **Caveat (checked 2026-09-13): the filter is not armed right now.** The rule is
+  keyed to the OCR container's current address on `ocr_net` and is (re)armed by
+  `ocr-recreate.sh` at each OCR launch, while the boot-time service is a silent
+  no-op when the container is absent — and an exited container leaves the ebtables
+  table empty, as today (OCR down for the last 10 days, all chains empty). While
+  the sidecar is down nothing can reach the portal from it anyway, but between
+  launches the OCR → portal path is *not* filtered. Documented, not repaired:
+  whether re-arming belongs in the service itself or stays launch-scoped is the
+  operator's call, to settle at the next OCR launch.
 
-Published ports are filtered in `DOCKER-USER`: `4001` (API) from the LAN and the
-Netbird VPN, `5000` (frontend) from Traefik only.
+Published ports are filtered in `DOCKER-USER` by
+`cronos-docker-restrict.service`: the frontend (published `5000→3000`) accepts
+Traefik's host only — the unit filters container-side dport `3000`, since
+DOCKER-USER sees traffic after DNAT, so a rule on `5000` would match nothing —
+and the Traefik dashboard `8080` and the manager agent `8090` are
+Netbird/manager-host only. **LiteLLM has no published port at all** (verified
+2026-09-13: empty `PortBindings`); it is reachable only over the docker networks.
 
 `GET /metrics` (Prometheus text: CPU, RAM, GPU, temperature, model online) is
 for a LAN/Netbird scrape and is **refused with a 403 as soon as the request
@@ -157,6 +180,11 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
 - Web search resolves every URL and checks it is public **before** the crawler
   sees it (`websearch.url_publique`). The network cannot do this on its own: a
   hostile page can redirect anywhere.
+- The playground's HTML preview renders model-generated markup in an iframe
+  `sandbox`ed **without** `allow-same-origin` (`playground/page.tsx`), so the
+  frame's origin stays opaque: generated scripts can neither read session cookies
+  nor call the API with the user's rights. No CSP is layered on top — that
+  attribute is the control, and adding `allow-same-origin` would void it.
 
 ### 2.6 Resource abuse
 
@@ -185,6 +213,12 @@ which of two concurrent clicks wins) and expires after 10 minutes; critically it
 result, a crawled page, a skill's text) cannot replay it. The pre-existing rule
 still stands on top: once third-party tool output has entered a turn, the guarded
 tools are refused for the rest of that turn.
+
+Two residual facts about the feedback channel: `support_feedback` has **no
+retention** — rows accumulate until someone prunes them — and its only visibility
+is the admin-only aggregate `GET /admin/support/feedback` (per-user counts plus
+the last 50 entries), so a 👎 comment must be treated as operator-readable data,
+not as a private message.
 
 ### 2.7 Maintenance mode
 
@@ -230,12 +264,16 @@ running arbitrary Python from a Hugging Face repository.
 Mitigations: only an admin can point the catalogue at a repo; the container is
 alone on `ocr_net`; it has a dedicated HF cache isolated from the runner's;
 `cap-drop ALL` and `no-new-privileges` apply; and `cronos-ocr-restrict.service`
-prevents it from opening a connection to the portal.
+prevents it from opening a connection to the portal — *when armed*, which it
+currently is not (see the caveat in [§2.3](#23-network-isolation)).
 
 Residual risk: it still shares a network *segment* with the portal, and the
-portal holds the master credentials. An audit of all 108 routes found 7
-unauthenticated ones, all by design and none returning data — so today there is
-nothing to reach. The control above exists for the day that stops being true.
+portal holds the master credentials. A fresh audit of the live URL map
+(2026-09-13) counts 146 routes, 11 unauthenticated, every one on the guard test's
+documented allowlist (login flow, CSRF, forwardAuth, liveness `/healthz`, the
+LAN-scraped `/metrics`) and none returning account or conversation data — so
+today there is nothing to reach. The control above exists for the day that stops
+being true.
 
 ### 3.2 "Admin-only means safe"
 

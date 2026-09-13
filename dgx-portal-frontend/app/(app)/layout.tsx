@@ -74,6 +74,14 @@ const NAV_ITEMS = [
   { href: "/support", label: "Support", icon: LifebuoyIcon },
 ];
 
+// Type de notification venu du serveur → libellé affiché (traduit au rendu) ;
+// le type brut reste le repli pour tout type futur inconnu.
+const NOTIF_KIND_LABEL: Record<string, string> = {
+  request: "Demande",
+  image: "Image",
+  music: "Musique",
+};
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { mode, setMode } = useThemeMode();
@@ -357,7 +365,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           ) : (
             notifs.map((n) => (
               <HStack key={n.id} gap={2} vAlign="center">
-                {!n.seen && <StatusDot variant="accent" label={n.kind} />}
+                {!n.seen && <StatusDot variant="accent" label={t(NOTIF_KIND_LABEL[n.kind] ?? n.kind)} />}
                 <VStack gap={0}>
                   <Text weight={n.seen ? undefined : "semibold"}>{n.title}</Text>
                   <Text type="supporting" color="secondary">

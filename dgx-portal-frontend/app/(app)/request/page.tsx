@@ -15,7 +15,7 @@ import { Link } from "@astryxdesign/core/Link";
 import { useToast } from "@astryxdesign/core/Toast";
 import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { postForm } from "@/lib/api";
+import { sendJSON } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 function RequestForm() {
@@ -32,13 +32,39 @@ function RequestForm() {
     if (!modelId.trim() || !csrf) return;
     setIsSubmitting(true);
     try {
-      await postForm("/request", csrf, { model_id: modelId.trim(), reason });
+      const r = await sendJSON<{
+        ok: boolean; message?: string; error?: string; warning?: string; code?: string;
+      }>("/request", csrf, { model_id: modelId.trim(), reason });
+      if (!r.ok) {
+        // Refus du serveur (demande déjà en attente, identifiant vide…). On
+        // RESTE sur la page : renvoyer à l'accueil ferait croire à une demande
+        // enregistrée — c'est exactement ce que faisait l'ancien 204 muet.
+        showToast({ body: messageRefus(r), type: "error" });
+        return;
+      }
+      // Le message de succès est construit ici (et non repris du serveur) pour
+      // rester traduisible ; l'avertissement, lui, vient du serveur : il décrit
+      // un échec qu'il est seul à connaître.
       showToast({ body: t("Demande envoyée !"), type: "info" });
+      if (r.warning) showToast({ body: r.warning, type: "error" });
       router.push("/");
     } catch {
       showToast({ body: t("Erreur lors de l'envoi de la demande."), type: "error" });
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  /** Les refus stables portent un `code` : on les traduit. Le texte du serveur
+   * (français) ne sert que de repli pour les cas non prévus côté client. */
+  function messageRefus(r: { error?: string; code?: string }): string {
+    switch (r.code) {
+      case "deja_en_attente":
+        return t("Tu as déjà une demande en attente pour ce modèle.");
+      case "identifiant_requis":
+        return t("L'identifiant du modèle est requis.");
+      default:
+        return r.error || t("Erreur lors de l'envoi de la demande.");
     }
   }
 
@@ -82,7 +108,7 @@ function RequestForm() {
               </VStack>
             </Card>
             <Text type="supporting" color="secondary">
-              Tu ne connais pas l&apos;ID exact ? <Link href="/search">{t("Cherche sur HuggingFace →")}</Link>
+              {t("Tu ne connais pas l'ID exact ? ")}<Link href="/search">{t("Cherche sur HuggingFace →")}</Link>
             </Text>
           </VStack>
         </LayoutContent>

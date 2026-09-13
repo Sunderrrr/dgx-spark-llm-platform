@@ -38,7 +38,7 @@ function SkillRow({
     <HStack gap={2} vAlign="center">
       <StackItem size="fill">
         <ClickableCard
-          label={skill.name}
+          label={t(skill.name)}
           variant={cardVariant(index === selectedIndex)}
           onClick={() => onSelect(skill)}>
           <HStack gap={2} vAlign="center" wrap="wrap">

@@ -20,7 +20,7 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { MusicalNoteIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon, StopIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
@@ -57,6 +57,7 @@ const WAVE_BARS = Array.from({ length: 48 }, (_, i) => ({
 
 export default function MusicPage() {
   const t = useT();
+  const numLocale = useLocale();
   const csrf = useCsrf();
   const showToast = useToast();
   const [prompt, setPrompt] = useState("");
@@ -399,7 +400,7 @@ export default function MusicPage() {
                           label={h.prompt}
                           labelLines={1}
                           description={
-                            `${new Date(h.created_at).toLocaleString("fr-FR")} · ${h.duration_s}s` +
+                            `${new Date(h.created_at).toLocaleString(numLocale)} · ${h.duration_s}s` +
                             ((h.count ?? 1) > 1 ? ` · ${h.count} ${t("versions")}` : "")
                           }
                           startContent={<MusicalNoteIcon width={20} height={20} />}

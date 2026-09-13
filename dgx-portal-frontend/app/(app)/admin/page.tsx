@@ -35,7 +35,7 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { authFetch, getJSON, postForm, ForbiddenError } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { UserLookup } from "./_components/UserLookup";
 import { EmailConfig } from "./_components/EmailConfig";
@@ -127,6 +127,7 @@ const REQ_STATUS_LABEL: Record<string, string> = { pending: "En attente", done: 
 
 export default function AdminPage() {
   const t = useT();
+  const numLocale = useLocale();
   const csrf = useCsrf();
   const showToast = useToast();
   const [data, setData] = useState<AdminData | null>(null);
@@ -327,7 +328,7 @@ export default function AdminPage() {
   const budgetColumns: TableColumn<BudgetRequest & Record<string, unknown>>[] = [
     { key: "fullname", header: t("Utilisateur"), renderCell: (r) => `${r.fullname} (${r.username})` },
     { key: "key_alias", header: t("Clé") },
-    { key: "current_budget", header: t("Budget actuel"), renderCell: (r) => (r.current_budget ? Math.round(r.current_budget).toLocaleString("fr-FR") : "—") },
+    { key: "current_budget", header: t("Budget actuel"), renderCell: (r) => (r.current_budget ? Math.round(r.current_budget).toLocaleString(numLocale) : "—") },
     { key: "reason", header: t("Raison"), renderCell: (r) => r.reason || "—" },
     { key: "created_at", header: t("Date"), renderCell: (r) => r.created_at.slice(0, 16).replace("T", " ") },
     {
@@ -337,7 +338,7 @@ export default function AdminPage() {
         r.status === "pending" ? (
           <Badge label={t("En attente")} variant="warning" />
         ) : r.status === "approved" ? (
-          <Badge label={`+${Math.round(r.granted_amount || 0).toLocaleString("fr-FR")} ✓`} variant="success" />
+          <Badge label={`+${Math.round(r.granted_amount || 0).toLocaleString(numLocale)} ✓`} variant="success" />
         ) : (
           <Badge label={t("Refusé")} variant="error" />
         ),
@@ -744,8 +745,8 @@ export default function AdminPage() {
                         value={newVoice.repo_id}
                         onChange={(v) => setNewVoice((s) => ({ ...s, repo_id: v ?? "Qwen3-TTS-12Hz-1.7B-Base" }))}
                         options={[
-                          { value: "Qwen3-TTS-12Hz-1.7B-Base", label: "Qwen3-TTS 1.7B (10 langues)" },
-                          { value: "Qwen3-TTS-12Hz-0.6B-Base", label: "Qwen3-TTS 0.6B (10 langues)" },
+                          { value: "Qwen3-TTS-12Hz-1.7B-Base", label: t("Qwen3-TTS 1.7B (10 langues)") },
+                          { value: "Qwen3-TTS-12Hz-0.6B-Base", label: t("Qwen3-TTS 0.6B (10 langues)") },
                           { value: "chatterbox-multilingual", label: "Chatterbox Multilingual (0.5B)" },
                           { value: "chatterbox-turbo", label: "Chatterbox Turbo (350M, EN)" },
                           { value: "chatterbox", label: "Chatterbox Original (0.5B, EN)" },
@@ -859,8 +860,8 @@ export default function AdminPage() {
                   <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
                     <Text weight="semibold">
                       {logKind === "llm"
-                        ? `Logs — ${data?.v_status.model || t("aucun modèle")}`
-                        : `Logs — ${logKind.toUpperCase()}`}
+                        ? t("Logs — {v}").replace("{v}", data?.v_status.model || t("aucun modèle"))
+                        : t("Logs — {v}").replace("{v}", logKind.toUpperCase())}
                     </Text>
                     <SegmentedControl label={t("Logs à afficher")} value={logKind} onChange={(v) => { setSidecarLogs([]); setLogKind(v as typeof logKind); }}>
                       <SegmentedControlItem value="llm" label={t("LLM")} />
@@ -968,9 +969,9 @@ export default function AdminPage() {
                     <Text key={g.username} type="supporting" color="secondary">
                       {t("Boost temporaire — {user} : {total} tokens jusqu'au {date} UTC (retour à {base}).")
                         .replace("{user}", g.username)
-                        .replace("{total}", Math.round(g.current_budget).toLocaleString("fr-FR"))
+                        .replace("{total}", Math.round(g.current_budget).toLocaleString(numLocale))
                         .replace("{date}", g.expires_at.slice(0, 16).replace("T", " "))
-                        .replace("{base}", Math.round(g.base_budget).toLocaleString("fr-FR"))}
+                        .replace("{base}", Math.round(g.base_budget).toLocaleString(numLocale))}
                     </Text>
                   ))}
                 </VStack>
@@ -1021,8 +1022,8 @@ const BUDGET_PRESETS = [10000000, 50000000, 100000000];
 
 /** « 10M » plutôt que « 10 000 000 » sur les boutons : lisible d'un coup
     d'œil. Les montants qui ne tombent pas juste restent en clair. */
-const fmtCompact = (n: number) =>
-  n >= 1_000_000 && n % 1_000_000 === 0 ? `${Math.round(n / 1_000_000)}M` : Math.round(n).toLocaleString("fr-FR");
+const fmtCompact = (n: number, numLocale: string) =>
+  n >= 1_000_000 && n % 1_000_000 === 0 ? `${Math.round(n / 1_000_000)}M` : Math.round(n).toLocaleString(numLocale);
 
 function BudgetSetForm({ rows, actionDisabled }: { rows: SpendRow[]; actionDisabled?: boolean }) {
   /** Redéfinir le plafond d'un compte : montant EXACT (pas un ajout) — sert
@@ -1030,6 +1031,7 @@ function BudgetSetForm({ rows, actionDisabled }: { rows: SpendRow[]; actionDisab
      CHOISIT dans une liste (avec son plafond actuel affiché) : pas de nom à
      taper au hasard. */
   const t = useT();
+  const numLocale = useLocale();
   const csrf = useCsrf();
   const showToast = useToast();
   const [user, setUser] = useState("");
@@ -1050,19 +1052,19 @@ function BudgetSetForm({ rows, actionDisabled }: { rows: SpendRow[]; actionDisab
           placeholder={t("Choisir un compte")}
           options={rows.map((r) => ({
             value: r.username,
-            label: `${r.username} · ${r.unlimited ? t("illimité") : fmtCompact(r.max_budget || 0)}`,
+            label: `${r.username} · ${r.unlimited ? t("illimité") : fmtCompact(r.max_budget || 0, numLocale)}`,
           }))}
           value={user}
           onChange={setUser}
         />
         {sel && (
           <Text type="supporting" color="secondary">
-            {t("Plafond actuel :")} {sel.unlimited ? t("Illimitée (admin)") : fmtCompact(sel.max_budget || 0)}
+            {t("Plafond actuel :")} {sel.unlimited ? t("Illimitée (admin)") : fmtCompact(sel.max_budget || 0, numLocale)}
           </Text>
         )}
         <HStack gap={1}>
           {[50000000, 100000000, 200000000].map((v) => (
-            <Button key={v} label={fmtCompact(v)} variant="secondary" size="sm" onClick={() => setBudget(String(v))} />
+            <Button key={v} label={fmtCompact(v, numLocale)} variant="secondary" size="sm" onClick={() => setBudget(String(v))} />
           ))}
         </HStack>
         <HStack gap={2} vAlign="end">
@@ -1101,10 +1103,11 @@ function BudgetApproveForm({ onApprove, fullname, currentBudget, isDisabled }: {
      un clic (+10M/+50M/+100M), une durée en segments (Permanente/1j/3j/7j/30j)
      et l'aperçu du résultat AVANT de confirmer. Plus aucun champ à deviner. */
   const t = useT();
+  const numLocale = useLocale();
   const [isOpen, setIsOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [days, setDays] = useState("permanent");
-  const fmt = (n: number) => Math.round(n).toLocaleString("fr-FR");
+  const fmt = (n: number) => Math.round(n).toLocaleString(numLocale);
   const base = currentBudget || 0;
   const total = base + (parseFloat(amount) || 0);
   // eslint-disable-next-line react-hooks/purity -- aperçu « retour à la base le … » : la date est par nature relative à maintenant, recalculée à chaque ouverture du dialog
@@ -1119,7 +1122,7 @@ function BudgetApproveForm({ onApprove, fullname, currentBudget, isDisabled }: {
             <Text type="supporting" color="secondary">{t("Montant à ajouter")}</Text>
             <HStack gap={1}>
               {BUDGET_PRESETS.map((v) => (
-                <Button key={v} label={`+${fmtCompact(v)}`} variant="secondary" size="sm" onClick={() => setAmount(String(v))} />
+                <Button key={v} label={`+${fmtCompact(v, numLocale)}`} variant="secondary" size="sm" onClick={() => setAmount(String(v))} />
               ))}
               <TextInput label={t("Montant (tokens)")} isLabelHidden value={amount} onChange={setAmount} placeholder={t("Autre montant...")} size="sm" />
             </HStack>

@@ -23,7 +23,7 @@ import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, sendJSON } from "@/lib/api";
 import { createPasskey } from "@/lib/webauthn";
 import { useWhoami } from "@/lib/whoami";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 import { SessionsList, type AccountSession } from "./SessionsList";
 
 type Cred = { id: number; credential_id: string; label: string; created_at: number };
@@ -36,6 +36,7 @@ function supportsWebAuthn(): boolean {
 
 export function SecurityContent() {
   const t = useT();
+  const numLocale = useLocale();
   const csrf = useCsrf();
   const showToast = useToast();
   const { who } = useWhoami();
@@ -136,6 +137,9 @@ export function SecurityContent() {
 
   /** Révoque une session précise (les erreurs du serveur sont affichées
    * telles quelles : messages français pensés pour l'utilisateur). */
+  /** Révoque une session précise. `t(res.error || …)` comme dans l'enregistrement
+   * de clé : une phrase serveur libre retombe sur elle-même (fallback silencieux),
+   * une clé connue est traduite — même motif aux trois handlers ci-dessous. */
   async function revokeSession(id: string) {
     if (!csrf || sessBusy) return;
     setSessBusy(id);
@@ -143,7 +147,7 @@ export function SecurityContent() {
       const res = await sendJSON<{ ok: boolean; error?: string }>(
         "/api/account/sessions/revoke", csrf, { id });
       if (!res.ok) {
-        showToast({ body: res.error || t("Échec."), type: "error" });
+        showToast({ body: t(res.error || "Échec."), type: "error" });
         return;
       }
       showToast({ body: t("Session révoquée."), type: "info" });
@@ -163,7 +167,7 @@ export function SecurityContent() {
       const res = await sendJSON<{ ok: boolean; error?: string }>(
         "/api/account/sessions/revoke", csrf, { all: true });
       if (!res.ok) {
-        showToast({ body: res.error || t("Échec."), type: "error" });
+        showToast({ body: t(res.error || "Échec."), type: "error" });
         return;
       }
       showToast({ body: t("Sessions révoquées."), type: "info" });
@@ -186,7 +190,7 @@ export function SecurityContent() {
       const res = await sendJSON<{ ok: boolean; error?: string }>(
         "/api/account/password", csrf, { current: pwCurrent, new: pwNew });
       if (!res.ok) {
-        setPwMsg({ status: "error", text: res.error || t("Échec.") });
+        setPwMsg({ status: "error", text: t(res.error || "Échec.") });
         return;
       }
       setPwCurrent("");
@@ -260,7 +264,7 @@ export function SecurityContent() {
                   key={c.id}
                   startContent={<Icon icon={KeyIcon} size="sm" color="secondary" />}
                   label={t(c.label)}
-                  description={new Date(c.created_at * 1000).toLocaleDateString()}
+                  description={new Date(c.created_at * 1000).toLocaleDateString(numLocale)}
                   endContent={
                     <Button
                       label={t("Supprimer")}

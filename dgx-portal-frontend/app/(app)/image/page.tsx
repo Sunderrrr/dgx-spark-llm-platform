@@ -22,7 +22,7 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { PhotoIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
@@ -72,6 +72,7 @@ const STATUS_SHORT: Record<string, string> = {
 
 export default function ImagePage() {
   const t = useT();
+  const numLocale = useLocale();
   const csrf = useCsrf();
   const showToast = useToast();
   const [prompt, setPrompt] = useState("");
@@ -474,7 +475,7 @@ export default function ImagePage() {
                           label={h.prompt}
                           labelLines={1}
                           description={
-                            new Date(h.created_at).toLocaleString("fr-FR") +
+                            new Date(h.created_at).toLocaleString(numLocale) +
                             ((h.count ?? 1) > 1 ? ` · ${h.count} ${t("images")}` : "")
                           }
                           startContent={<PhotoIcon width={20} height={20} />}

@@ -18,8 +18,9 @@ It provides:
   (local / LDAP / SSO) shown at a glance;
 - **Cronos**, an AI support assistant that answers questions *and* performs
   self-service actions (create a key, request budget, request a model…);
-- a **runner** that launches/stops one vLLM model on the GPU on demand and
-  auto-resumes it after a crash or reboot;
+- a **runner** that launches/stops one chat model on the GPU on demand —
+  vLLM, llama.cpp or ds4 engine, chosen per model — and auto-resumes it after
+  a crash or reboot;
 - always-on media sidecars — **OCR**, **video**, **image**, **music**, **voice
   cloning** and **dictation** — served alongside the main chat model and streamed
   into the portal, never exposed as separate public UIs;
@@ -94,11 +95,11 @@ flowchart LR
 | **litellm-postgres** | LiteLLM database (keys, spend logs) | `5432` (internal) | Docker container |
 | **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, playground, media pages, support, find-a-model, leaderboard, admin, users (keys and memory live in the Settings dialog) | `5000` | Docker container (non-root) |
 | **dgx-portal** | Backend (Flask): LDAP/OIDC auth, sessions, JSON API, business logic | internal only | Docker container (non-root) |
-| **vllm-runner** | Daemon driving **one** vLLM process (start/stop/logs) with auto-resume, plus scoped start/stop/recreate of every media sidecar | `8001` | systemd service on the host |
+| **vllm-runner** | Daemon driving **one** chat model process (start/stop/logs; engines `vllm` / `llamacpp` / `ds4`) with auto-resume, plus scoped start/stop/recreate of every media sidecar | `8001` | systemd service on the host |
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
-| **OCR container** | vLLM serving an OCR-capable VLM (datalab-to/chandra-ocr-2 by default), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
+| **OCR container** | vLLM serving an OCR-capable VLM (baidu/Unlimited-OCR by default, chandra-ocr-2 also supported), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
 | **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports; 12.5 GB per UNET instead of 21 GB for the INT8 build) | `8188`, host-restricted | systemd service on the host |
-| **Image container** | Text-to-image (diffusers). FLUX.2 Klein 4B by default — distilled to 4 steps, ~4–5 s per 1024×1024 image | internal only | Docker container, own network + GPU slice |
+| **Image container** | Text-to-image (diffusers). FLUX.2 Klein 4B by default, 35 diffusion steps per image (`IMAGE_STEPS`) | internal only | Docker container, own network + GPU slice |
 | **Music container** | Text-to-music (diffusers, MiniMax-Music3 & co) | internal only | Docker container, own network + GPU slice |
 | **ASR container** | Whisper (`large-v3-turbo` by default) for Playground dictation | internal only | Docker container, own network + GPU slice |
 | **Voice container** | Zero-shot voice cloning. Two interchangeable engines: **Qwen3-TTS** (default, Apache 2.0, 10 languages, 3 s cloning) or **Chatterbox** (MIT) | internal only | Docker container, own network + GPU slice |
@@ -169,7 +170,7 @@ The backend reads them all in one place, [`config.py`](dgx-portal/config.py).
 | `OIDC_METADATA_URL` / `OIDC_REDIRECT_URI` / `OIDC_LOGOUT_URL` | OIDC endpoints |
 | `OIDC_ADMIN_GROUP` | Group granting the admin role (default `adm_cronos`) |
 | `SESSION_COOKIE_SECURE` | `1` behind an HTTPS proxy (Traefik), `0` for plain-HTTP LAN |
-| `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Default per-account budget |
+| `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Default per-account budget (default 200 M tokens / week) |
 | `DISCORD_WEBHOOK_URL`, `SMTP_*`, `ADMIN_EMAIL` | Request notifications |
 
 > `.env` is **gitignored** — no secret is committed. `.env.example` holds only placeholders.
@@ -194,6 +195,10 @@ Two methods, handled by [`auth.py`](dgx-portal/auth.py):
   The counter is keyed **per IP and per username**: rotating source IPs can't
   dodge the threshold, since all attempts against one account feed the same
   counter regardless of origin.
+- **Passkey 2FA (WebAuthn/FIDO2)** — optional per account (Settings ▸ Security),
+  local and LDAP accounts only: registration and login challenges are single-use,
+  and removing a passkey or switching 2FA off requires a password
+  re-verification.
 
 Local accounts managed by an admin ([`local_users.py`](dgx-portal/local_users.py))
 [local_users.py](dgx-portal/local_users.py) sit between the two: a hashed,
@@ -213,15 +218,16 @@ Session hardening: `HttpOnly` + `SameSite=Lax` cookies + `Secure` behind TLS.
 ## Token budget model
 
 Budgets are enforced **per account** (a LiteLLM *user*), shared across all of that
-user's keys — creating extra keys does not raise the cap. Weighted in
-`litellm/config.yaml`:
+user's keys — creating extra keys does not raise the cap. Pricing is set at model
+registration time by [`litellm_client.py`](dgx-portal/litellm_client.py), not in
+`litellm/config.yaml`: prompt and generated tokens both count 1 budget unit each.
 
-- `output_cost_per_token: 1` → 1 generated token = 1 budget unit;
-- `input_cost_per_token: 0.1` → prompt tokens count **10× less**.
-
-Default: **60,000,000 weighted tokens/day** per account (editable in
-**Admin → token limit**, no restart). Admins are uncapped. Over budget → HTTP
-`429 budget_exceeded`. The portal shows a banner once an account passes 85%.
+Default: **200,000,000 tokens/week** per account (`KEY_MAX_BUDGET` /
+`KEY_BUDGET_DURATION`, editable in **Admin → token limit**, no restart). Admins
+are uncapped. Over budget → HTTP `429 budget_exceeded`; the portal shows a banner
+once an account passes 85%. Approving a token request grants a preset or custom
+amount as a time-limited boost that stacks and reverts to the exact base cap at
+expiry.
 
 ---
 
@@ -236,6 +242,10 @@ curl https://api.cronos.website/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"auto-model","messages":[{"role":"user","content":"Hello!"}]}'
 ```
+
+Claude-native clients can use the Anthropic-compatible
+**`POST https://api.cronos.website/v1/messages`** instead — same keys, same
+budgets.
 
 ### The `auto-model` alias
 
@@ -262,7 +272,7 @@ the Python SDK, cURL and env vars — key and endpoint pre-filled, with
 |---|---|---|
 | [API keys](#api-keys) | Settings ▸ API keys | create/revoke keys, see spend, copy integration snippets |
 | [Playground](#playground) | `/playground` | streaming chat with the active model, attachments, dictation, web search |
-| [Memory](#memory) | Settings ▸ Memory | opt-in knowledge graph of what the assistant knows about you |
+| [Memory](#memory) | Settings ▸ Memory | knowledge graph of what the assistant knows about you — on by default, opt out any time |
 | [Media pages](#media-pages) | `/ocr` `/video` `/image` `/music` `/voice` | OCR, video, image, music and voice cloning |
 | [Support](#support-cronos) | `/support` | an assistant that can act on your account |
 | [Find a model](#find-a-model) | `/search` | live Hugging Face search, GB10-tested first |
@@ -296,17 +306,23 @@ finds the links, crawl4ai reads the pages, and the progress of each step is show
 live. See [`websearch_tools.py`](dgx-portal/websearch_tools.py) and the rules in
 [`CLAUDE.md`](CLAUDE.md).
 
+Conversations can be **pinned** (per browser) and **shared** — a read-only
+snapshot served at a `/c/<token>` link, visible to logged-in users. On request
+("draw…"), the model can also generate an image through the image sidecar, the
+same tool mechanism as web search.
+
 ### Memory
 
-An opt-in knowledge graph of what the assistant has learned about you. Facts are
+A knowledge graph of what the assistant has learned about you, built as you
+chat. Facts are
 stored as triples (subject, relation, object) in SQLite rather than as a flat
 list, so "what do you know about X?" resolves to a node's neighbourhood instead of
 injecting everything; traversal is a recursive CTE, so no graph database is
 involved. Writing the same subject+relation again supersedes the older fact.
 
-**Off by default** — this is personal data: nothing is recorded until the user
-enables it, the page shows every stored fact, and nobody else can read it, admins
-included.
+**On by default** — it is personal data, so the page shows every stored fact, a
+switch in Settings ▸ Memory turns recording off, and nobody else can read your
+graph, admins included.
 
 ### Media pages
 
@@ -314,9 +330,9 @@ included.
   toggle to visualize every detected region as bounding boxes over the source
   image; keeps your last 20 results.
 - **Video** — turn a text description, with or without a reference image, into a
-  short video with synced audio (MiniMax H3); keeps your last 3 results.
-- **Image** — text-to-image; the default model is distilled to 4 steps, so a
-  1024×1024 image lands in about 5 seconds.
+  short video with synced audio (MiniMax H3); keeps your last 10 results.
+- **Image** — text-to-image; the backend runs 35 diffusion steps per image by
+  default (`IMAGE_STEPS`).
 - **Music** — text-to-music, same shape as the image page.
 - **Voice** — record a sample straight from your microphone (1 min max, with
   playback before you commit) or upload one, give it any text, and get that text
@@ -405,11 +421,11 @@ known account with a badge for each authentication source — **Local**, **LDAP*
 |---|---|
 | ![OCR](assets/ocr.png) | ![Voice](assets/voice.png) |
 
-| Video generation — text- or image-driven, MiniMax H3 | Image generation — FLUX.2 Klein, 4 steps |
+| Video generation — text- or image-driven, MiniMax H3 | Image generation — FLUX.2 Klein |
 |---|---|
 | ![Video](assets/video.png) | ![Image](assets/image.png) |
 
-| Music generation | Memory — the opt-in knowledge graph |
+| Music generation | Memory — the knowledge graph the assistant keeps about you |
 |---|---|
 | ![Music](assets/music.png) | ![Memory](assets/memory.png) |
 
@@ -417,12 +433,34 @@ known account with a badge for each authentication source — **Local**, **LDAP*
 |---|---|
 | ![Find a model](assets/search.png) | ![Request a model](assets/request.png) |
 
-![Admin — the unified backend row, a type-filtered catalog, and live vLLM logs](assets/admin.png)
+![Admin — the unified backend row, a type-filtered catalog, and live model logs](assets/admin.png)
 
-> **Refreshing these screenshots** — the UI is bilingual; capture them with the
-> interface in **English** (Settings → Appearance → Language → English). Shoot each
-> page below and save it under `assets/` with the exact filename, replacing the
-> existing file:
+> **Refreshing these screenshots** — nothing here is hand-made: the whole set is
+> captured by `scripts/screenshots.py`, in **English** and in the **dark theme**,
+> with the dedicated **`demo`** account (a plain, non-admin account created by
+> `scripts/create-demo-account.py` — a screenshot must never expose a real
+> person's dashboard). One command per step:
+>
+> ```bash
+> python scripts/screenshots.py            # capture (1600×1000 at 2× → 3200×2000)
+> python scripts/screenshots.py --verify   # size, dark theme, expected content, privacy
+> python scripts/screenshots.py --install  # copy the fresh files into assets/
+> ```
+>
+> Run them from the repository root. Beyond Python 3 they need `playwright`
+> (plus `playwright install chromium`), `pillow` and `tesseract`, which `--verify`
+> uses to read the text of each PNG.
+>
+> The verification is not decorative: it OCRs each final PNG and **fails** if an
+> email address, an API key, a private IP or another account's name is visible.
+> `/admin` carries the notification address near the top and the per-user budget
+> requests further down, so that page is captured at a fixed scroll position —
+> and `/admin`, like `/users`, needs `is_admin` granted to the demo account for
+> the few minutes of the shoot (the script refuses and deletes the file rather
+> than publishing an "Administrators only" page). The five media pages are the
+> one exception: they are only worth shooting **while one of those models is
+> loaded**, since an idle page just says "no model is available" — the script
+> skips them by default and keeps the published image.
 >
 > | Page | Route | File |
 > |---|---|---|
@@ -442,7 +480,7 @@ known account with a badge for each authentication source — **Local**, **LDAP*
 > The **Users** page (`/users`) and the **Leaderboard** (`/ranking`) are deliberately
 > *not* published here — they list internal usernames (and, for the leaderboard,
 > per-user consumption), so `assets/users.png` and `assets/ranking.png` are
-> gitignored.
+> gitignored (they are still refreshed locally, for the operator's own use).
 
 ---
 
@@ -531,6 +569,7 @@ tokens/day, not request rate on a single GPU.
 ├── dgx-portal/                # Flask backend — see the module map below
 ├── dgx-portal-frontend/       # Next.js + Astryx UI (owns the public port 5000)
 ├── vllm-runner/runner.py      # model lifecycle daemon + scoped sidecar control
+├── monitoring/                # host monitors: health alerts + daily DB dumps (systemd timers)
 ├── ocr/ · voice/ · voice-qwen/ · asr/ · image-gen/   # sidecar images and host wrappers
 └── systemd/                   # host units (runner, firewalls, ComfyUI, recreate scripts)
 ```
@@ -539,7 +578,7 @@ tokens/day, not request rate on a single GPU.
 
 The backend was a single 7 200-line file; it is now a shared core, a set of
 clients, and one blueprint per feature. [`app.py`](dgx-portal/app.py) is a wiring
-facade of ~870 lines: it creates the Flask app, sets security headers and the CSP,
+facade of ~1 300 lines: it creates the Flask app, sets security headers and the CSP,
 keeps the handful of routes that other modules reach by name (`index`, `login`,
 `logout`, the OAuth callbacks), registers every blueprint and boots the schema.
 
@@ -575,6 +614,7 @@ keeps the handful of routes that other modules reach by name (`index`, `login`,
 | [`ocr_routes.py`](dgx-portal/ocr_routes.py) · [`voice_routes.py`](dgx-portal/voice_routes.py) · [`asr_routes.py`](dgx-portal/asr_routes.py) | OCR · voice cloning · dictation |
 | [`image_routes.py`](dgx-portal/image_routes.py) · [`music_routes.py`](dgx-portal/music_routes.py) · [`video_routes.py`](dgx-portal/video_routes.py) | the generation pages |
 | [`preview_routes.py`](dgx-portal/preview_routes.py) · [`discord_routes.py`](dgx-portal/discord_routes.py) | sandboxed HTML preview · Discord account linking |
+| [`webauthn_routes.py`](dgx-portal/webauthn_routes.py) | `/api/security/*` — passkey registration, login challenge, 2FA toggle |
 
 Also under `dgx-portal/`: `workflows/` (ComfyUI API-format templates for video),
 `tests/`, `requirements.txt` and a non-root `Dockerfile` with no published port.

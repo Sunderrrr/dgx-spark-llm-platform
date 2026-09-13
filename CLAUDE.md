@@ -62,9 +62,11 @@ table. Scale the ceremony to the risk.
 ## GB10 gotchas
 
 - **Unified memory is shared.** GPU allocations count against the same 128 GB as
-  system RAM. Only **one chat model** runs at a time; OCR, video (ComfyUI), ASR
-  and voice are separate always-on sidecars, each with its own slice. If a launch
-  OOMs, **stop a sidecar from Admin** — don't shrink the chat model's context.
+  system RAM. Only **one chat model** runs at a time; OCR, video (ComfyUI), ASR,
+  voice, image and music are separate **on-demand** sidecars (started at first
+  use, absent from memory when idle — hence not probed by the monitor, see
+  below). If a launch OOMs, **stop a sidecar from Admin** — don't shrink the
+  chat model's context.
 - **`docker run --memory` on a sidecar caps GPU memory too** → CUDA load fails.
   Never set it.
 - **Build for GB10** (CUDA 13, sm_121):
@@ -175,8 +177,10 @@ Key facts and gotchas:
   **without restarting the runner**: the path is resolved at each spawn, the env var
   only at import.
 - **Engine versions are opt-in pseudo-flags**, never a default swap: `--vllm-025`,
-  `--vllm-027`, `--vllm-028`, `--llama-next` pick a specific binary for THAT launch
-  (`_BIN_FLAGS` in `runner.py`). Added 2026-08-29: vLLM **0.28.0**
+  `--vllm-027`, `--vllm-028`, `--vllm-nightly`, `--llama-next`, `--llama-k2` pick
+  a specific binary for THAT launch (`_BIN_FLAGS` in `runner.py`, split per engine
+  into `_LLAMA_BIN_FLAGS` / `_VLLM_BIN_FLAGS`, so a llama.cpp launch cannot be
+  pointed at a vLLM binary). Added 2026-08-29: vLLM **0.28.0**
   (`/root/venvs/vllm-028`, torch 2.13 cu130, sm_121 verified — adds BailingMoeV3, so
   Ling-3.0 is now servable by vLLM too) and llama.cpp **0.3.0-dev upstream**
   (`/root/llama-cpp-upstream`, built for GB10 — adds `qwen4exp`, i.e.
@@ -214,11 +218,11 @@ Key facts and gotchas:
   `predicted_tokens_seconds` vaut 0 et `tokens_predicted_total` n'avance pas —
   llama.cpp ne les met a jour qu'a la **fin** de chaque requete. Les lire donnait
   0 tok/s pendant toute la generation puis un chiffre fige entre deux. Seul
-  `n_decode_total` avance en continu ; `vllm_health` en fait un `Δdecode / Δtemps`.
-  Il compte les pas de decodage de **tous les slots**, donc le chiffre est le debit
-  **agrege de toutes les sessions** (mesure : 34 tok/s a 1 session, 20,9 tok/s au
-  total a 3 — `n_busy_slots_per_decode` ≈ 1, llama.cpp alterne les slots au lieu de
-  les batcher, la concurrence ne multiplie donc pas le debit, elle le partage).
+  `n_decode_total` avance en continu ; `vllm_health` en tire le debit affiche,
+  `Δn_decode_total / Δt × requests_processing` depuis 74bc0af — voir la puce
+  precedente pour le pourquoi (un pas produit un token par slot ACTIF) et les
+  mesures. Piege : `n_busy_slots_per_decode` a l'air fait pour ca, mais c'est une
+  moyenne depuis le demarrage (~1,7 en permanence) — inutilisable.
 - **llama.cpp n'a aucun compteur de requetes.** `n_decode_total` compte des tokens ;
   l'afficher en « requetes servies » annoncait 39 303 requetes pour 39 303 tokens.
   `'requests'` est donc `None` pour cet engine et l'interface montre « — ».
@@ -242,16 +246,21 @@ Key facts and gotchas:
   `--chat-template-file` : nom de fichier SEUL, resolu a cote des poids
   (`_resolve_mmproj_tokens`) — ni chemin absolu, ni `..`, ni sous-dossier.
 
-- **K2-Horizon tourne sur llama.cpp, via le fork MBZUAI-IFM uniquement.** La PR
-  amont est encore OUVERTE : `libllama.so` de `llama-cpp-upstream` et du fork
-  TurboQuant contiennent **0** occurrence de `k2-horizon`, celui du fork
-  `/root/llama-cpp-k2horizon` (branche `model/K2Horizon`, compile GB10) en contient
-  **43**. Opt-in par `--llama-k2`. Servi en `Q8_0` (37,1 Gio) depuis
-  `local:k2-horizon-gguf`. Mesure au lancement : `n_slots = 4,
-  n_ctx_slot = 524288, kv_unified = true` — les 4 slots ont chacun le contexte
-  NATIF COMPLET, le cache unifie evite le decoupage. Resident : 99 Go sur 121, avec
-  `--cache-type-k q8_0 --cache-type-v q8_0` (96 Kio/token au lieu de 192 en f16 :
-  8 tetes KV x 128 x 2 x 48 couches).
+- **K2-Horizon : llama.cpp via le fork MBZUAI-IFM, ou vLLM nightly.** La PR
+  llama.cpp est encore OUVERTE : dans les builds du 2026-09-13, `libllama.so` de
+  `llama-cpp-upstream` et du fork TurboQuant contiennent **0** occurrence de
+  `k2-horizon`, celui du fork `/root/llama-cpp-k2horizon` (branche `model/K2Horizon`,
+  compile GB10) en contient **3** — compte du jour, pas le meme binaire qu'au moment
+  des 43 d'origine (rebases successifs de la branche) ; il reste le seul build
+  llama.cpp qui lise l'arche. Cote vLLM, `k2_horizon` est fusionne dans main depuis
+  le 03/09 (PR #55063) mais absent de toute release : `--vllm-nightly` sait donc le
+  servir aussi. Opt-in `--llama-k2` ou `--vllm-nightly`, jamais par defaut. L'entree
+  `k2-horizon-36b` est toujours au catalogue (`--llama-k2` epingle dans ses args) ;
+  servi en `Q8_0` (37,1 Gio) depuis `local:k2-horizon-gguf`. Mesure au lancement :
+  `n_slots = 4, n_ctx_slot = 524288, kv_unified = true` — les 4 slots ont chacun le
+  contexte NATIF COMPLET, le cache unifie evite le decoupage. Resident : 99 Go sur
+  121, avec `--cache-type-k q8_0 --cache-type-v q8_0` (96 Kio/token au lieu de 192
+  en f16 : 8 tetes KV x 128 x 2 x 48 couches).
 - **Le raisonnement de K2-Horizon EST separe par llama.cpp**, malgre ses balises
   maison `<ifm|think>` que le parseur ne connait pas : le template PRE-REMPLIT la
   balise ouvrante, llama.cpp traite donc la sortie comme deja "dans" la reflexion et
@@ -382,7 +391,12 @@ Login order (`login()` in `dgx-portal/app.py`):
   unique (`UPDATE … WHERE status='pending'`), TTL 10 min, et **jamais placé dans le
   contexte du modèle** — c'est ce qui le rend insensible à une injection indirecte.
   Ne pas « simplifier » en réexécutant l'outil dans la boucle : c'est exactement la
-  faille que ce détour ferme (le prompt seul ne contraignait rien).
+  faille que ce détour ferme (le prompt seul ne contraignait rien). Deux
+  comportements connexes : le fil de discussion est conservé côté serveur
+  (`support_thread`, 40 derniers messages, `POST /support/thread/clear` pour
+  l'effacer) et chaque tour TERMINÉ y est écrit puis passé à l'extraction mémoire —
+  un tour interrompu (onglet fermé, bouton Arrêter, erreur modèle) n'est ni
+  sauvegardé ni exploité pour la mémoire (`_fin_support`, drapeau « fini »).
 
 ---
 

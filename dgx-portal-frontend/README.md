@@ -3,7 +3,8 @@
 The web UI for **Cronos**, the DGX Spark self-service LLM platform. Built with
 **Next.js 16** (App Router) and Meta's **Astryx** design system (React +
 StyleX). It owns the platform's public port (`:5000`) and covers every page:
-home, playground, OCR, video, voice, keys, search, ranking, request, support, admin, login.
+home, playground, OCR, video, image, music, voice, memory, keys, search,
+ranking, request, support, users, admin, login.
 
 Flask (`../dgx-portal/`) remains the authority for everything that matters —
 LDAP/OIDC auth, sessions, CSRF, the database, budgets, model launching. This
@@ -15,20 +16,26 @@ logic of its own.
 Three different mechanisms, depending on what's being called, because a
 naive one-size-fits-all proxy doesn't work here:
 
-- **`proxy.ts`** (Next.js 16's `middleware.ts` replacement) rewrites any
-  non-GET/HEAD request to `/login`, `/keys`, or `/request` straight to Flask,
-  *before* Next's own router runs. Those three paths collide with real
-  Next.js pages, so without this a POST to them would silently hit Next's own
-  cached page markup instead of ever reaching Flask — the bug that motivated
-  this file existing at all. `proxy.ts` also stamps a fresh nonce into the CSP
-  header on every request (`script-src 'nonce-...' 'strict-dynamic'`), which
-  is why every page here is forced to render dynamically (see
-  `app/layout.tsx`'s `export const dynamic`).
+- **`proxy.ts`** (Next.js 16's `middleware.ts` replacement) routes by METHOD,
+  not by path: every non-GET/HEAD request is rewritten straight to Flask
+  *before* Next's own router runs — except the four SSE paths below, which
+  have their own Route Handlers. Without this, a POST to a path that is also
+  a page (`/login`, `/keys`, `/request`) would silently hit Next's own cached
+  page markup instead of ever reaching Flask — the bug that motivated this
+  file existing at all. `proxy.ts` also denies `/internal/*` outright (404) —
+  that prefix is Traefik's forwardAuth channel and is never called through
+  the public frontend — and sets the security headers on Next-served pages:
+  a per-request nonce CSP (`script-src 'nonce-...' 'strict-dynamic'`, which
+  is why every page here is forced to render dynamically, see
+  `app/layout.tsx`'s `export const dynamic`), plus HSTS,
+  `X-Content-Type-Options`, `X-Frame-Options: DENY` and `Referrer-Policy`,
+  matching what Flask sets on its own responses.
 - **`next.config.ts`**'s `rewrites().fallback` catches everything else that
   isn't a known Next.js route — the `/api/*` JSON endpoints, admin action
   routes, etc. — and forwards it to Flask as-is.
 - **Dedicated Route Handlers** (`app/playground/chat/route.ts`,
-  `app/support/chat/route.ts`, `app/admin/runner/stream/route.ts`) exist
+  `app/support/chat/route.ts`, `app/admin/runner/stream/route.ts`,
+  `app/api/ocr/extract/route.ts`) exist
   because both mechanisms above were confirmed — by timing actual SSE chunk
   arrivals — to buffer a streamed response entirely before forwarding it,
   even though Flask streams token-by-token correctly. These manually pipe
@@ -117,11 +124,11 @@ app/
 │   │                              #   mic recording or file upload; page adapts to the loaded
 │   │                              #   engine; audio served by Flask at /voice/audio/<job id>
 │   ├── support/                   # streaming chat with the Cronos assistant (tool-calling)
-│   ├── keys/, search/, ranking/, request/, admin/
+│   ├── image/, music/, memory/      # generation pages + the memory graph
+│   ├── keys/, search/, ranking/, request/, users/, admin/
 │   └── _components/
 │       ├── SettingsDialog.tsx     # account/usage/keys/appearance/MCP/skills, incl. the language toggle
 │       └── DictateButton.tsx      # mic → transcription button, shown on Playground/Voice/Video
-├── api/transcribe/...            # (via Flask) speech-to-text for dictation, served by the ASR sidecar
 ├── api/ocr/extract/route.ts       # SSE proxy for the OCR multipart upload (see above)
 ├── playground/chat/route.ts       # SSE proxy (see above)
 ├── support/chat/route.ts          # SSE proxy
@@ -138,9 +145,17 @@ lib/
 ├── useCsrf.ts
 ├── conversations.ts   # server-persisted Playground chat history (Flask /api/conversations,
 │                       #   /conversations); one-time migration from the old localStorage version
+├── notices.ts       # cronos_notice server notices → translated UI text
+├── integrationSnippets.ts   # ready-to-paste client configs for the keys panel
+├── webauthn.ts      # browser-side passkey ceremony (Settings ▸ Security)
+├── whoami.tsx       # authenticated-identity context (sidebar, home, admin gating)
+├── skills.ts        # Claude-style skills: a /alias that preps a prompt (+ system prompt)
+├── astryx-fr.json   # French strings for Astryx's own components
+├── csrf.tsx · themes.ts · settings-dialog.tsx · useIsNarrow.ts ·
+│   useStickToBottom.ts   # small shared utilities (CSRF context, palettes, layout hooks)
 └── types.ts
-proxy.ts           # method-based routing to Flask + nonce CSP (see above)
-next.config.ts      # CSP base policy, fallback rewrite, output: standalone
+proxy.ts           # method-based routing to Flask + nonce CSP + security headers (see above)
+next.config.ts      # fallback rewrite + proxy limits, output: standalone (CSP lives in proxy.ts)
 ```
 
 ## Deployment

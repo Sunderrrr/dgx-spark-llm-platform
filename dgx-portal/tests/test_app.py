@@ -638,11 +638,11 @@ class TrouvaillesTest(unittest.TestCase):
 class GardeDesRoutesTest(unittest.TestCase):
     """Toute route du portail est authentifiée, sauf une liste explicite.
 
-    Audit du 24/08 : 108 routes, 7 publiques, aucun oubli. Ce test fige ce
-    résultat. Il ne lit PAS le source — il parcourt le `url_map` de Flask et
-    interroge le marqueur `_garde` posé par login_required/admin_required, donc
-    il voit aussi une route enregistrée autrement que par un `@app.route`
-    littéral.
+    Recompte le 2026-09-13 sur le `url_map` vivant : 146 routes, 11 sans garde,
+    aucun oubli. Ce test fige ce résultat. Il ne lit PAS le source — il parcourt
+    le `url_map` de Flask et interroge le marqueur `_garde` posé par
+    login_required/admin_required, donc il voit aussi une route enregistrée
+    autrement que par un `@app.route` littéral.
 
     Le vrai risque couvert n'est pas l'état actuel du code mais son futur : le
     conteneur OCR exécute du code de modèle tiers (`--trust-remote-code`) et

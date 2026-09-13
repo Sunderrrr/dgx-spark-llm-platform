@@ -358,6 +358,38 @@ Key facts and gotchas:
 
 ---
 
+## Recherche Hugging Face (page `/search`)
+
+`search_hf_models` (`vllm_health.py`) interroge l'API HF en direct, sans cache.
+Trois choses mesurées le 2026-09-13, à ne pas « simplifier » :
+
+- **Une panne de HF doit se dire.** La fonction avalait TOUTE exception pour
+  renvoyer `[]`, donc « HF est injoignable » s'affichait comme « aucun modèle ne
+  correspond » : l'utilisateur concluait que son modèle n'existe pas. Elle lève
+  `HfIndisponible` et `/api/search` répond **502** + `{ok:false,error}`. Un
+  **filtre de tâche inconnu** fait répondre 400 à HF — c'est une erreur d'appel,
+  pas une panne : la route valide `task` contre `HF_TASKS` et répond 400.
+- **`full=true` vaut ses 85 Kio** (mesuré : 38 → 123 Kio, même temps de réponse
+  ~0,16 s). Il apporte `gated`, affiché en badge : un dépôt gated exige un jeton
+  HF et échoue APRÈS le clic sur « Lancer » — c'est ce qui est arrivé au mmproj
+  de Flash-Next. Il n'apporte **pas** la taille du modèle (`safetensors` reste
+  nul même avec `full`), donc pas de « combien de paramètres » sur les cartes.
+- **Le filtre GB10 fabrique de faux « aucun résultat ».** Le cas fréquent n'est
+  pas « ce modèle n'existe pas » mais « il n'est pas taggé gb10 ». Quand le
+  filtre ne donne rien, la route redemande HF **sans** le filtre (`hf_modele_hors_gb10`)
+  et renvoie `hors_gb10` : `True`/`False`, ou **`None` quand on ne sait pas** —
+  un doute ne s'affiche pas comme un « non ». Coût : un appel de plus, ~0,15 s,
+  uniquement dans le cas vide.
+- **Piège de nommage, à ne pas « corriger » :** le paramètre de requête qui
+  désactive le filtre s'appelle **`all=1`** (`gb10 = request.args.get('all') != '1'`)
+  alors que le champ de **réponse** s'appelle **`gb10_only`**. Le frontend envoie
+  bien `all`, la réponse bien `gb10_only` — les deux sont corrects et cohérents
+  entre eux ; un `gb10_only=1` en requête est **silencieusement ignoré** (donc
+  testé comme le cas par défaut), ce qui mène à une fausse conclusion en
+  vérification. Le contrat d'entrée : `q`, `task`, `all`, `skip`.
+
+---
+
 ## Auth & users
 
 Login order (`login()` in `dgx-portal/app.py`):
@@ -651,9 +683,14 @@ et le bouton Admin/test email reflète un échec d'envoi (`send_test_email` /
 
 - **Backend tests** run in a throwaway Docker image (never touches real data):
   `./dgx-portal/run-tests.sh` (all) or `./dgx-portal/run-tests.sh test_app`.
-- **Pre-push gate**: `./scripts/pre-push-check.sh` — runs the test suite and scans
-  the diff for secrets. **Green is required before any push.** It's also wired as
-  a git `pre-push` hook. Run it with **`< /dev/null`**: as a hook it reads the ref
+  (Le script passait le module **deux fois** — « tests.test_app test_app » — donc
+  toute exécution ciblée finissait sur `FAILED (errors=1)` à cause d'un module
+  introuvable, un faux échec au bout d'une commande que cette doc recommande. Les
+  arguments d'unittest sont maintenant choisis avant l'`exec`.)
+- **Pre-push gate**: `./scripts/pre-push-check.sh` — scans the diff for secrets,
+  runs the test suite, puis `scripts/check-i18n.py` (traductions + locales figées).
+  **Green is required before any push.** It's also wired as a git `pre-push` hook.
+  Run it with **`< /dev/null`**: as a hook it reads the ref
   lines from stdin, so with stdin left open (e.g. straight after a heredoc in the
   same command) it blocks forever on `read` instead of running anything.
 - **CI** (`.github/workflows/ci.yml`) runs the backend tests + frontend
@@ -669,6 +706,26 @@ et le bouton Admin/test email reflète un échec d'envoi (`send_test_email` /
 UI strings are **French-as-msgid**; English lives in `lib/i18n.tsx`. A missing EN
 key silently falls back to French. When you add a `t("…")` string, add its EN
 translation in the same commit. Don't add a duplicate key (TS error).
+
+- **Le formatage suit la langue, pas seulement le texte.** `toLocaleString("fr-FR")`
+  écrit en dur affichait « 1 234 » et « 13/09/2026 » à un lecteur anglophone. La
+  convention est `const numLocale = useLocale()` (`lib/i18n.tsx`), qui vaut
+  `fr-FR` ou `en-US`. Dans un helper hors composant, la locale se passe en
+  paramètre — un hook ne s'appelle pas là.
+- **Les libellés écrits en anglais dans le code étaient intraduisibles** : les
+  tâches de la recherche HF l'étaient, donc elles restaient en anglais même en
+  français. Un libellé affiché est un msgid français, comme le reste.
+- **`python3 scripts/check-i18n.py`** (lancé par la CI) échoue sur une chaîne
+  `t("…")` sans traduction et sur une locale figée. Il *rapporte* sans échouer les
+  clés qu'il ne voit jamais utilisées : `t(variable)` est invisible à l'analyse
+  statique, donc cette liste contient des faux positifs — **ne pas s'en servir
+  pour supprimer des clés**.
+- **Les messages du serveur sont en français**, y compris en mode anglais (le
+  portail est FR-first). Pour un refus *stable* et fréquent, la réponse porte un
+  `code` (`deja_en_attente`, `identifiant_requis`) que l'interface traduit ;
+  `error` ne sert que de repli. `getJSON` remonte désormais l'`error` du serveur
+  au lieu d'un « Échec du chargement » générique qui faisait passer une panne
+  amont pour un bug du portail.
 
 ---
 

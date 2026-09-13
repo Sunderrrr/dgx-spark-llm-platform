@@ -411,10 +411,20 @@ Live search over the Hugging Face Hub (no local cache), filterable by task
 including text/image/video generation, defaulting to models tagged as tested on
 GB10; paginated rather than capped at the first page.
 
+Each result says which engine would serve it (GGUF → llama.cpp, safetensors →
+vLLM) and flags a **gated** repository: those need a Hugging Face token and fail
+*after* you press Launch, so it is worth knowing before. When the GB10 filter
+returns nothing, the page checks Hugging Face without it and says so — a model
+that exists but isn't tagged is not a model that doesn't exist. And if Hugging
+Face itself doesn't answer, that is reported as such (502) rather than shown as
+an empty result list.
+
 ### Request a model
 
 A short form to ask an admin for a model that isn't in the catalog, or for more
-tokens. Requests land in Admin with the requester and their reason.
+tokens. Requests land in Admin with the requester and their reason. A duplicate
+request is refused with a message that says so — the form used to announce
+"Request sent!" whether or not anything had been recorded.
 
 ### Home
 

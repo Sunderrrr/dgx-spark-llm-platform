@@ -99,11 +99,14 @@ cat <<EOF
 $(log "Bootstrap complete")
 Next steps:
   1. Edit  $REPO_DIR/.env  and fill the remaining secrets:
-       LLDAP_ADMIN_PASSWORD, OIDC_CLIENT_ID/SECRET, AUTHENTIK_LITELLM_*,
+       LDAP_BIND_PW, OIDC_CLIENT_ID/SECRET, AUTHENTIK_LITELLM_*,
        SMTP_*, ADMIN_EMAIL, DISCORD_WEBHOOK_URL
   2. Start the stack:      cd $REPO_DIR && docker compose up -d
   3. Open the portal on :5000  →  Admin  →  launch a model from the catalog.
 
-Firewall note: 4001 (API) is opened to your LAN/VPN and 5000 (portal) to
-Traefik only. Adjust systemd/cronos-docker-restrict.service for your network.
+Firewall note: the portal's 5000 (published to container 3000) is open to
+Traefik only, and LiteLLM publishes NO port at all — the API is reachable
+solely through https://api.cronos.website, which keeps the maintenance
+forwardAuth in the path. Adjust systemd/cronos-docker-restrict.service for
+your network.
 EOF

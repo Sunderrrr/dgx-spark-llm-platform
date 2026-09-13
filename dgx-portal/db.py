@@ -10,6 +10,7 @@ portail, donc tout le monde peut l'importer sans risque de cycle.
 """
 import os
 import sqlite3
+import time
 from datetime import datetime
 
 from flask import g
@@ -276,7 +277,13 @@ def init_db():
             auth_at    REAL NOT NULL,
             expires_at REAL NOT NULL,
             revoked    INTEGER NOT NULL DEFAULT 0,
-            created_at REAL NOT NULL
+            created_at REAL NOT NULL,
+            -- IP et user-agent d'ouverture : sans eux, personne — ni
+            -- l'utilisateur ni l'admin — ne peut distinguer « ma session de ce
+            -- matin » d'un cookie volé, donc la liste des sessions n'aurait
+            -- aucune valeur de diagnostic.
+            ip         TEXT,
+            user_agent TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_user_sessions_username ON user_sessions(username);
         -- WebAuthn (2FA par passkey) : clés enregistrées + flag d'activation +
@@ -401,6 +408,10 @@ def init_db():
         CREATE TABLE IF NOT EXISTS conversation_shares (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             token TEXT NOT NULL UNIQUE,
+            -- Propriétaire du partage : sans lui, supprimer un compte laissait
+            -- derrière lui des liens publics vers le contenu de ses
+            -- conversations, sans aucun moyen de les retrouver.
+            username TEXT,
             title TEXT NOT NULL,
             model TEXT NOT NULL,
             messages TEXT NOT NULL,
@@ -573,6 +584,17 @@ def init_db():
             last_source TEXT,
             last_seen  TEXT
         );
+        -- Comptes refusés à la connexion, QUELLE QUE SOIT leur source.
+        -- `local_users.enabled` ne couvre que les comptes locaux : un compte
+        -- LDAP ou SSO n'a aucune ligne ici, donc sans cette table un partant
+        -- dont le compte annuaire survit pouvait se reconnecter indéfiniment —
+        -- on ne pouvait que révoquer ses sessions, qu'il rouvrait aussitôt.
+        CREATE TABLE IF NOT EXISTS blocked_users (
+            username   TEXT PRIMARY KEY,
+            reason     TEXT,
+            blocked_by TEXT,
+            blocked_at TEXT NOT NULL
+        );
         -- Live in-flight in-app model requests (Playground/Support), one row per
         -- active request; powers the real-time "who's using the model" panel.
         CREATE TABLE IF NOT EXISTS inflight_requests (
@@ -673,6 +695,38 @@ def init_db():
     us_cols = {r[1] for r in db.execute("PRAGMA table_info(user_sources)")}
     if 'last_is_admin' not in us_cols:
         db.execute("ALTER TABLE user_sources ADD COLUMN last_is_admin INTEGER")
+    # Migration : IP et user-agent des sessions ouvertes AVANT leur ajout. Les
+    # lignes existantes gardent NULL — la liste des sessions affichera
+    # « inconnu » pour elles, ce qui est exact.
+    share_cols = {r[1] for r in db.execute("PRAGMA table_info(conversation_shares)")}
+    if 'username' not in share_cols:
+        # Les partages créés avant la colonne restent sans propriétaire : ils
+        # sont antérieurs au suivi, on ne peut pas les attribuer rétroactivement.
+        db.execute("ALTER TABLE conversation_shares ADD COLUMN username TEXT")
+    sess_cols = {r[1] for r in db.execute("PRAGMA table_info(user_sessions)")}
+    for col in ('ip', 'user_agent'):
+        if col not in sess_cols:
+            db.execute(f"ALTER TABLE user_sessions ADD COLUMN {col} TEXT")
+    # ── Balayage d'hygiène ──────────────────────────────────────────────────
+    # Trois tables ne faisaient que croître et personne ne les nettoyait : les
+    # sessions terminées, les compteurs d'échecs de connexion dont la fenêtre
+    # est morte depuis longtemps, et les défis WebAuthn abandonnés (TTL 5 min).
+    # Rien d'ACTIF n'est touché : une session encore valide est conservée, et le
+    # journal d'audit ne l'est jamais — c'est la trace des actions d'admin.
+    # Sans ce balayage, la table des sessions doublait à chaque déploiement et
+    # la lecture d'une session (à CHAQUE requête gardée) restait un scan.
+    now = time.time()
+    for requete, args in (
+            ("DELETE FROM user_sessions WHERE expires_at < ?", (now - 30 * 86400,)),
+            ("DELETE FROM login_attempts WHERE first_at < ?", (now - 7 * 86400,)),
+            ("DELETE FROM pending_webauthn WHERE expires_at < ?", (now,)),
+    ):
+        try:
+            db.execute(requete, args)
+        except sqlite3.Error:
+            # Table absente d'une base antérieure : le balayage n'est pas une
+            # raison de faire échouer un démarrage.
+            pass
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
         ('default_key_budget', str(KEY_BUDGET))

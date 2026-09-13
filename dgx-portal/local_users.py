@@ -43,13 +43,52 @@ def _local_user_auth(username, password):
     return True, _local_user_is_admin(row), (row['fullname'] or username)
 
 def _sync_local_user_budget(username, row):
-    """Propagates the local account's effective quota to LiteLLM (create + update)."""
+    """Propagates the local account's effective quota to LiteLLM (create + update).
+
+    Renvoie False si l'enveloppe n'a PAS pu être écrite. L'ancienne version
+    avalait l'exception : l'admin voyait « compte créé » alors que le quota
+    n'existait pas côté LiteLLM, c'est-à-dire un compte de fait illimité. Un
+    échec de quota est un échec de sécurité, il doit remonter à l'appelant.
+    """
     try:
         eff = _local_user_effective_budget(row)
         _ensure_litellm_user(username, eff, get_setting('default_key_duration', KEY_DURATION))
-        litellm_update_user_budget(username, eff)
-    except Exception:
-        pass
+        return bool(litellm_update_user_budget(username, eff))
+    except Exception as exc:                                     # noqa: BLE001
+        print(f'[local_users] quota NON appliqué pour {username} : {exc}')
+        return False
+
+
+# Mots de passe refusés même s'ils font 8 caractères : ce sont les premiers
+# essayés par un bourrage d'identifiants, et un compte local n'a pas forcément
+# de second facteur pour rattraper le coup (la passkey est optionnelle).
+_MOTS_DE_PASSE_INTERDITS = {
+    'password', 'password1', 'password123', 'motdepasse', 'motdepasse1',
+    '12345678', '123456789', '1234567890', 'azertyui', 'azertyuiop',
+    'qwertyui', 'qwertyuiop', 'admin123', 'administrateur', 'changeme',
+    'cronos123', 'dgxspark', 'iloveyou', 'soleil123', '00000000',
+}
+
+
+def password_policy_error(password, username=None):
+    """None si le mot de passe est acceptable, sinon le message à afficher.
+
+    Règle volontairement courte : longueur minimale + refus des évidences.
+    Pas de rotation forcée ni d'exigence de classes de caractères — elles
+    poussent aux mots de passe prévisibles (« Ete2026! ») sans rien apporter.
+    """
+    if not password or len(password) < 8:
+        return 'Mot de passe trop court (8 caractères minimum).'
+    p = password.lower()
+    if p in _MOTS_DE_PASSE_INTERDITS:
+        return 'Ce mot de passe est trop courant : choisis-en un autre.'
+    if username:
+        u = username.lower()
+        if len(u) >= 4 and u in p:
+            return "Le mot de passe ne doit pas contenir l'identifiant."
+    if len(set(password)) < 4:
+        return 'Mot de passe trop répétitif (trop peu de caractères différents).'
+    return None
 
 def _record_user_source(username, source, fullname=None, is_admin=None):
     """Records that a user logged in via `source` (local/ldap/

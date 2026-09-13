@@ -284,6 +284,13 @@ Key facts and gotchas:
   portant ce drapeau etait refuse ("flag not allowed") AVANT d'atteindre `_build_cmd`
   qui sait pourtant s'en servir. Les pseudo-flags de binaire sont desormais cloisonnes
   par moteur (`_LLAMA_BIN_FLAGS` / `_VLLM_BIN_FLAGS`).
+- **Tout build lourd se borne en memoire tant que le modele est charge.** Le
+  meme raisonnement que pour llama.cpp vaut pour l'image du frontend : son
+  `next build` tourne pendant que le modele occupe ~105 Gio des 121, et un
+  build non borne peut pousser le noyau a echanger — l'OOM-killer designant
+  alors le plus gros RSS, c'est-a-dire le modele SERVI. Le Dockerfile borne donc
+  le tas (`ARG NODE_HEAP_MB`, defaut 2560) : un plafond transforme un risque non
+  borne en echec de build borne. Relever via `--build-arg NODE_HEAP_MB=…`.
 - **Ne jamais compiler llama.cpp pendant qu'un modele 1M de contexte est charge.**
   Un `cmake -j20` + un telechargement de 40 Go par-dessus les ~106 Go de
   Qwen3.8-Flash-Next ont fait **redemarrer la machine** (2026-09-07). Sur memoire
@@ -358,6 +365,14 @@ Login order (`login()` in `dgx-portal/app.py`):
 - **Local user management** is admin-only: create users, assign groups with
   quota/admin rights, hashed passwords. Budget precedence: user override → group
   → global default (`get_setting('default_key_budget')`).
+  Politique de mot de passe (`local_users.password_policy_error`, partagée par la
+  création admin et le changement en autonomie) : 8 caractères minimum, refus des
+  mots de passe les plus courants, du nom de compte contenu dans le mot de passe,
+  et des suites trop répétitives. Pas de rotation forcée ni de classes de
+  caractères : elles poussent aux mots de passe prévisibles (« Ete2026! »).
+  Supprimer un **groupe** resynchronise désormais ses membres sur leur nouveau
+  plafond effectif (la création le faisait, pas la suppression : les membres
+  gardaient un quota fantôme, parfois plus généreux que le défaut).
 - **Token quotas are ENFORCED by LiteLLM, not by the portal.** The blocking
   envelope is the LiteLLM *user* object (`max_budget` + `budget_duration`,
   shared across all of the account's keys via `user_id`); models are priced at
@@ -375,6 +390,53 @@ Login order (`login()` in `dgx-portal/app.py`):
   session at will (`POST /admin/users/<username>/revoke-sessions`), revoke on
   logout, and drop a locked account's sessions instantly (`enabled=0`).
   Sessions predating the registry expire by age only (no mass logout).
+  Chaque ligne porte aussi l'**IP et le user-agent** d'ouverture (2026-09-13) :
+  sans eux, personne ne peut distinguer « ma session de ce matin » d'un cookie
+  volé, donc la liste des sessions n'aurait aucune valeur.
+- **L'état du compte est RELU à chaque requête gardée** (`auth.etat_compte`
+  appelée depuis `login_required`/`admin_required`, 2026-09-13). Le cookie ne
+  portait qu'un nom et un rôle recopiés à la connexion : supprimer, désactiver,
+  bloquer ou rétrograder un compte n'avait donc **aucun effet avant l'expiration
+  du cookie** (12 h). Deux règles à ne pas « simplifier » :
+  - pour un compte **local**, le portail fait autorité sur le rôle (il possède
+    `local_users`) ;
+  - pour un compte **d'annuaire**, le rôle se lit sur le dernier login consigné
+    (`user_sources.last_is_admin`) et **on ne déduit JAMAIS une révocation d'une
+    donnée absente**. La première version du correctif traitait un compte sans
+    ligne locale ni source consignée comme supprimé et **déconnectait tout le
+    monde** (44 tests rouges d'un coup) — un enregistrement manquant n'est pas
+    une preuve d'absence.
+- **Blocage (`blocked_users`) : le seul levier pour un compte LDAP/SSO.** Ces
+  comptes n'ont pas de ligne dans `local_users`, donc pas d'`enabled` à
+  basculer ; révoquer leurs sessions ne servait à rien, ils se reconnectaient.
+  `POST /admin/users/<username>/block` les refuse au login quelle que soit la
+  source et coupe leurs sessions ; `unblock` rend le compte exactement comme
+  avant (aucun état local modifié). Le refus est contrôlé **après** vérification
+  des identifiants (un compte bloqué ne doit pas servir à énumérer les comptes),
+  et aussi dans `finish_login` WebAuthn : la passkey prouve l'identité, elle ne
+  vaut pas autorisation.
+- **Supprimer un compte = le déprovisionner** (`user_lifecycle.py`, 2026-09-13).
+  Avant, la route ne faisait qu'un `DELETE` dans `local_users` : les clés API
+  restaient valides (LiteLLM les valide lui-même, le portail n'est pas dans le
+  chemin) et la session survivait jusqu'à 12 h. Désormais : sessions révoquées,
+  **clés révoquées** (`api_keys` garde la valeur en clair, c'est le seul endroit
+  d'où on peut la retrouver), **enveloppe LiteLLM supprimée** (`POST /user/delete
+  {"user_ids": [...]}`, vérifié) — sinon un compte recréé sous le même nom hérite
+  de la dépense —, puis purge des données (mémoire, conversations, partages,
+  préférences, passkeys, jobs média). `confirm=DELETE` exigé ; auto-suppression
+  et suppression du dernier admin local refusées. Si LiteLLM est injoignable, la
+  suppression aboutit mais la réponse **et** l'audit nomment les clés non
+  révoquées — un échec de sécurité ne doit jamais être silencieux.
+  `audit_log` n'est PAS purgé : c'est la trace des actions d'admin.
+  Corollaire : un compte **d'annuaire** n'a pas de ligne locale, donc la route de
+  suppression (clé sur un id local) ne peut rien pour lui — ses données
+  resteraient en base après son départ. `POST /admin/users/<username>/purge`
+  les efface (`action='user.purge'` dans l'audit, pour distinguer les deux
+  gestes). Purger n'est PAS déprovisionner : le compte peut se reconnecter et
+  repart d'un compte vide, l'offboarding reste le **blocage**.
+  Piège lié : `_sync_local_user_budget` avalait ses exceptions, donc « compte
+  créé » pouvait vouloir dire « quota jamais appliqué, compte illimité ». Il
+  renvoie maintenant False et les routes le disent.
 - **2FA par passkey (WebAuthn/FIDO2, non-TOTP)** : optionnelle par utilisateur
   (Réglages → Mon compte → Sécurité), clés dans `webauthn_credentials` +
   flag `user_security.enabled`. Portée par choix produit : local + LDAP

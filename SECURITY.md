@@ -165,6 +165,54 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
   except an explicitly documented public list (login flow, CSRF token,
   forwardAuth). It reads the live route table, not the source, so a route
   registered any other way is still caught.
+- **A session is re-checked against the account on every guarded request**
+  (`auth.etat_compte`, 2026-09-13). The signed cookie only ever carried a name
+  and a role copied at sign-in, so before this, deleting, disabling, blocking or
+  demoting an account had **no effect until the cookie expired** (12 h): a
+  departed user kept portal access, and a demoted admin kept admin rights. A
+  stale session is now dropped on its next request and the event is written to
+  the audit log. The role is authoritative for a local account (the portal owns
+  `local_users`) and follows the last recorded directory login for LDAP/SSO;
+  the code deliberately never *infers* a revocation from an absent record,
+  because a missing row is not evidence that an account is gone.
+- **Blocking an account works whatever its authentication source**
+  (`blocked_users`). Local accounts have `enabled`; LDAP/SSO accounts have no
+  local row at all, so the only previous option was revoking their sessions —
+  which they simply re-established by logging in again. The refusal is evaluated
+  *after* the credentials are verified, so a blocked account cannot be used to
+  enumerate accounts, and it is also enforced in the WebAuthn second step: a
+  passkey proves identity, it does not grant authorisation.
+- **Deleting an account revokes its API access, not just its row.** Deleting a
+  local user used to run one `DELETE` on `local_users`; the account's LiteLLM
+  keys stayed valid (LiteLLM validates them itself, the portal is not in the API
+  path) and its browser session survived up to 12 h. Deletion now revokes the
+  sessions, revokes every key, deletes the LiteLLM user envelope and purges the
+  personal data (memory, conversations, share links, preferences, passkeys),
+  requires an explicit `confirm=DELETE`, refuses self-deletion and refuses to
+  remove the last local administrator. If LiteLLM is unreachable the deletion
+  still completes — a stuck account is worse — but the response and the audit
+  entry name the keys that could **not** be revoked: a silent security failure
+  was the defect being fixed. `audit_log` itself is retained on purpose. An
+  LDAP/SSO account has no local row at all, so that route cannot reach it:
+  `POST /admin/users/<username>/purge` erases its data (memories, conversations,
+  share links, preferences, keys) without touching its access — for those
+  accounts blocking is the offboarding control, and the interface states the
+  difference rather than leaving it to be discovered.
+- **Sessions carry their origin.** Each `user_sessions` row records the creation
+  time, IP and user-agent, and an account can list and revoke its own sessions
+  from Settings → Security (`/api/account/sessions*`) — a stolen cookie is
+  otherwise indistinguishable from a legitimate one. The session id is never
+  returned in full: only a 12-character fingerprint, and revocation is scoped in
+  SQL to the calling account, so guessing another user's identifier cannot close
+  their session.
+- **Local passwords have a policy** (`local_users.password_policy_error`): 8
+  characters minimum, the most common passwords refused, the login name refused
+  inside the password, and low-diversity strings refused. No forced rotation and
+  no character-class requirement — they push users towards predictable passwords
+  without adding entropy. Changing a password (self-service, or by an admin)
+  closes every **other** session of that account, which is the point of changing
+  it after a compromise; a failure of the current-password check is logged, since
+  a burst of those on a live session is a signal, not a typo.
 
 ### 2.5 Input validation
 
@@ -269,7 +317,7 @@ currently is not (see the caveat in [§2.3](#23-network-isolation)).
 
 Residual risk: it still shares a network *segment* with the portal, and the
 portal holds the master credentials. A fresh audit of the live URL map
-(2026-09-13) counts 146 routes, 11 unauthenticated, every one on the guard test's
+(2026-09-13) counts 153 routes, 11 unauthenticated, every one on the guard test's
 documented allowlist (login flow, CSRF, forwardAuth, liveness `/healthz`, the
 LAN-scraped `/metrics`) and none returning account or conversation data — so
 today there is nothing to reach. The control above exists for the day that stops
@@ -312,6 +360,17 @@ accounts is a security parameter — keep it small.
   auto-update but an unpinned rebuild: pinning means recreating both containers
   by digest, which for the Traefik config agent is a worse trade than the risk
   it removes. Revisit at the next maintenance window.
+- **The account-lifecycle gaps, closed on 2026-09-13.** Reviewing user management
+  turned up four holes that had been there from the start, all of the same shape —
+  a security-relevant action that only *looked* complete: deleting an account left
+  its API keys valid and its session alive; an LDAP/SSO account could not be
+  blocked at all; demoting an admin took effect only at cookie expiry; and a quota
+  that failed to reach LiteLLM was swallowed silently, leaving an uncapped account
+  reported as created. §2.4 describes what replaced each. What remains open by
+  choice: the lockout stays a fixed 15-minute window on both the IP and the
+  account key rather than growing with repeats — a progressive lockout would let
+  anyone extend a known account's outage, so the active lockout is surfaced to the
+  admin instead.
 - **The historical monolith.** `dgx-portal/app.py` was a single 7 200-line file
   holding auth, budgets, admin and media proxying, which made it hard to
   guarantee no route had lost a guard. It is now a wiring facade over a shared

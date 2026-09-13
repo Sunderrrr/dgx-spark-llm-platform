@@ -157,6 +157,23 @@ def litellm_update_user_budget(username, new_max_budget, budget_duration=None):
         return False
 
 
+def delete_litellm_user(username):
+    """Supprime l'enveloppe LiteLLM du compte (budget + dépense cumulée).
+
+    À n'appeler qu'APRÈS la révocation de ses clés : l'objet utilisateur ne
+    porte aucune autorisation en lui-même, mais le laisser en place faisait
+    hériter à un compte recréé sous le même nom la dépense du précédent — un
+    nouveau collègue pouvait donc démarrer au-dessus de son quota.
+    Vérifié le 2026-09-13 : /user/delete accepte {"user_ids": [...]} et répond 200.
+    """
+    try:
+        r = requests.post(f"{LITELLM_URL}/user/delete", headers=litellm_headers(),
+                          json={'user_ids': [username]}, timeout=8)
+        return r.ok
+    except Exception:
+        return False
+
+
 def create_litellm_key(alias, username, is_admin=False):
     payload = {
         "key_alias": alias,

@@ -205,11 +205,46 @@ Local accounts managed by an admin ([`local_users.py`](dgx-portal/local_users.py
 [local_users.py](dgx-portal/local_users.py) sit between the two: a hashed,
 admin-managed account system checked before LDAP/SSO.
 
+**Account state is re-read on every request, never frozen at login.** A session
+carries a name and a role copied at sign-in; each guarded request re-checks the
+account before serving, so deleting, disabling, blocking or demoting an account
+takes effect immediately instead of at cookie expiry (`SESSION_MAX_AGE`, 12 h by
+default). For a **local** account the portal is the authority on the role, since
+it owns `local_users`; for a directory account the role follows the last login
+recorded — LDAP cannot be queried per request, and the portal never *infers* a
+demotion from a record that is merely absent.
+
+**Blocking** (`Users → Bloquer`, `blocked_users` table) refuses an account at
+login whatever its authentication source, and revokes its open sessions. It is
+the only lever that works for an **LDAP/SSO** account, which has no local row to
+disable — before it, the only option was revoking sessions, and the account
+simply logged in again. It is reversible and leaves the local account untouched.
+
+**Deleting an account is a deprovisioning, not a row removal.** It revokes the
+sessions, revokes every API key on LiteLLM, deletes the LiteLLM user envelope
+(budget *and* accumulated spend — otherwise an account re-created under the same
+name inherits the previous one's spend) and purges the personal data: memory,
+conversations, share links, preferences, passkeys, media jobs. It requires an
+explicit `confirm=DELETE`, refuses self-deletion and refuses to remove the last
+local administrator. If LiteLLM is unreachable the deletion still goes through —
+better an account gone from the portal than a stuck one — but the response **and**
+the audit trail name the keys that could not be revoked. `audit_log` is kept on
+purpose: it is the record of admin actions and outlives the account.
+
 Sessions are **server-revocable**: the signed cookie carries only a random
-`sid`, and a `user_sessions` row (same SQLite) lets an admin kill any active
-session at will (`POST /admin/users/<username>/revoke-sessions`), revoke on
-logout, and instantly drop a locked account's sessions (`enabled=0`). Sessions
+`sid`, and a `user_sessions` row (same SQLite) records its creation time, IP and
+user-agent. An admin can kill any active session (`POST
+/admin/users/<username>/revoke-sessions`), and every account sees **its own**
+sessions under **Settings → Security** and can close one or all the others
+(`GET /api/account/sessions`, `POST /api/account/sessions/revoke`). Sessions
 predating the registry expire by age only, so the migration logs nobody out.
+
+A local account can also **change its own password** (Settings → Security,
+`POST /api/account/password`): it requires the current password, enforces the
+policy (`local_users.password_policy_error` — 8 characters minimum, common
+passwords and the login name refused), and closes every *other* session while
+keeping the current one. Directory accounts are told their password lives in the
+directory rather than shown a form that cannot work.
 
 Session hardening: `HttpOnly` + `SameSite=Lax` cookies + `Secure` behind TLS.
 `ProxyFix` trusts Traefik's `X-Forwarded-*` headers.
@@ -272,6 +307,7 @@ the Python SDK, cURL and env vars — key and endpoint pre-filled, with
 | Feature | Where | In one line |
 |---|---|---|
 | [API keys](#api-keys) | Settings ▸ API keys | create/revoke keys, see spend, copy integration snippets |
+| [Account security](#authentication--accounts) | Settings ▸ Security | passkeys, active sessions (IP, device), change your own password |
 | [Playground](#playground) | `/playground` | streaming chat with the active model, attachments, dictation, web search |
 | [Memory](#memory) | Settings ▸ Memory | knowledge graph of what the assistant knows about you — on by default, opt out any time |
 | [Media pages](#media-pages) | `/ocr` `/video` `/image` `/music` `/voice` | OCR, video, image, music and voice cloning |
@@ -281,7 +317,7 @@ the Python SDK, cURL and env vars — key and endpoint pre-filled, with
 | [Home](#home) | `/` | running backends, live server state, your usage |
 | [Leaderboard](#leaderboard) | `/ranking` | weighted spend ranking |
 | [Admin](#admin) | `/admin` | models, sidecars, catalog, quotas, maintenance |
-| [Users](#users) | `/users` | local accounts, groups, quotas, auth sources |
+| [Users](#users) | `/users` | accounts, groups, quotas, auth sources, blocking, detail view |
 
 ### API keys
 
@@ -406,11 +442,25 @@ media usage (untracked by LiteLLM, since none of it goes through a public API ke
 
 ### Users
 
-A dedicated page to manage local accounts: create users with a hashed password,
-assign them to **groups** carrying a default quota and admin right, override a
-per-user quota, enable/disable, toggle admin, or reset a password. It lists every
-known account with a badge for each authentication source — **Local**, **LDAP**,
-**SSO** or **External** — recorded per login and cumulative.
+A dedicated page to manage accounts: create users with a hashed password, assign
+them to **groups** carrying a default quota and admin right, override a per-user
+quota, enable/disable, toggle admin, or reset a password. It lists every known
+account with a badge for each authentication source — **Local**, **LDAP**, **SSO**
+or **External** — recorded per login and cumulative, plus the current state:
+blocked, or locked out after too many failures.
+
+Each account opens a **detail view** (`GET /admin/users/<username>/detail`):
+effective role and budget, the LiteLLM spend, the API keys (alias, creation date,
+spend — never the key itself), how many memories and conversations it holds, its
+active sessions with IP and user-agent, and the admin actions it performed. From
+there an admin can **block/unblock** an account, delete it, or — for an account
+that only exists in the directory — **purge its data**. Deleting and purging both
+ask for the word `DELETE` to be typed after showing what will be lost.
+
+The two are not interchangeable, and the interface says so: **deleting** a local
+account removes its access *and* erases its data, while **purging** an LDAP/SSO
+account erases its data only — that account can sign in again and will simply
+start from an empty account. Removing access is what **blocking** is for.
 
 ---
 

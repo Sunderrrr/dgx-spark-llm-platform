@@ -128,8 +128,10 @@ def conversations_share():
         return jsonify({'ok': False, 'error': 'conversation introuvable'}), 404
     token = secrets.token_urlsafe(24)
     db.execute(
-        "INSERT INTO conversation_shares (token, title, model, messages, created_at) VALUES (?,?,?,?,?)",
-        (token, row['title'], row['model'], row['messages'], datetime.now().isoformat()))
+        "INSERT INTO conversation_shares (token, username, title, model, messages, created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (token, session['username'], row['title'], row['model'], row['messages'],
+         datetime.now().isoformat()))
     db.commit()
     return jsonify({'ok': True, 'token': token})
 

@@ -17,6 +17,7 @@ coup (le modèle qui écrit ce script ne voit pas les images).
 Usage (les trois modes s'enchaînent : capturer, vérifier, installer) :
     python screenshots.py                 # capture toutes les pages
     python screenshots.py playground      # une seule page
+    python screenshots.py --media         # les pages média dont le modèle tourne
     python screenshots.py --verify        # contrôle les PNG déjà produits
     python screenshots.py --install       # copie les PNG validés dans assets/
 
@@ -122,6 +123,19 @@ def log(msg):
     print(f"  {msg}", flush=True)
 
 
+def media_prets(page):
+    """Backends média réellement chargés, vus par le portail lui-même.
+
+    `/api/health` est la bonne source : les sidecars sont on-demand, donc leur
+    absence est un état normal et non une panne, et c'est le portail qui sait
+    lequel répond (celui qu'affiche l'Admin)."""
+    return page.evaluate("""() => fetch('/api/health').then(r => r.json())
+        .then(d => Object.entries(d.services || {})
+          .filter(([k, v]) => ['ocr', 'voice', 'video', 'image', 'music'].includes(k)
+                            && v && v.ready)
+          .map(([k]) => k))""")
+
+
 def login(page):
     """Attend l'hydratation React AVANT de remplir : sinon les champs sont
     réécrits par le premier rendu client et le bouton reste désactivé."""
@@ -150,25 +164,24 @@ def prep(page):
             return res.status;
         }""", [token])
         log(f"clé API créée (HTTP {st})")
-    # Idempotent : sans ce filtre, chaque exécution réempile les mêmes
-    # souvenirs (le graphe a atteint 37 faits au lieu de 5 avant correction).
-    # `?expired=1` : le graphe visible ne montre que les faits valides, or un fait
-    # qu'on vient de poser peut être aussitôt remplacé par ce que le modèle extrait
-    # d'une conversation — sans cette option le script le reposerait à chaque
-    # exécution et la table enflerait (37 faits observés avant correction).
-    known = page.evaluate("""() => fetch('/api/memory?expired=1').then(r => r.json())
-        .then(d => (d.edges || d.facts || []).map(e => (e.fact || e.label || '').trim()))""")
-    added = 0
+    # Déterministe plutôt qu'idempotent : on purge puis on réécrit les cinq
+    # faits. Un simple « n'ajoute que s'il manque » laissait le graphe dériver —
+    # le modèle extrait ses propres souvenirs des conversations de capture, et le
+    # compte finissait avec 37 faits (ou 8, ou 5) selon l'historique des
+    # exécutions. Or la page Mémoire est publiée : elle doit montrer la même chose
+    # à chaque prise de vue.
+    page.evaluate("""async ([tok]) => {
+        await fetch('/api/memory/purge', {method: 'POST',
+            headers: {'X-CSRFToken': tok, 'Content-Type': 'application/json'},
+            body: JSON.stringify({})});
+    }""", [token])
     for subj, rel, fact in MEM_FACTS:
-        if fact in known:
-            continue
         page.evaluate("""async ([tok, subj, rel, fact]) => {
             await fetch('/api/memory/facts', {method: 'POST',
                 headers: {'X-CSRFToken': tok, 'Content-Type': 'application/json'},
                 body: JSON.stringify({subject: subj, relation: rel, fact: fact})});
         }""", [token, subj, rel, fact])
-        added += 1
-    log(f"souvenirs : {added} ajouté(s), {len(known)} déjà présent(s)")
+    log(f"mémoire purgée puis réécrite : {len(MEM_FACTS)} faits")
     return token
 
 
@@ -234,6 +247,16 @@ def main():
         page.on("pageerror", lambda e: errors.append(str(e)))
         login(page)
         token = prep(page)
+        if "--media" in sys.argv:
+            prets = media_prets(page)
+            if prets:
+                log(f"backends média chargés : {', '.join(prets)}")
+                only = sorted(set(only) | set(prets))
+            else:
+                log("aucun backend média n'est chargé — rien à capturer. Démarre-en un "
+                    "depuis Admin (ou attends qu'un utilisateur s'en serve), puis relance")
+                log("  les cinq pages resteront sur leur capture publiée.")
+                pages = []
         for name, route in pages:
             if name in SKIP_REFRESH and not only:
                 log(f"{name} : ignorée (aucun modèle média chargé — capture publiée conservée)")
@@ -364,7 +387,7 @@ if "--install" in sys.argv:
     for name, _ in PAGES:
         # Ne jamais écraser une capture publiée par une prise de vue qu'on n'a
         # pas voulue : les pages média ne sont installées que si on les nomme.
-        if name in SKIP_REFRESH and name not in noms:
+        if name in SKIP_REFRESH and name not in noms and "--media" not in sys.argv:
             print(f"  conservé : assets/{name}.png (page média, non recapturée)")
             continue
         src = f"{OUT}/{name}.png"

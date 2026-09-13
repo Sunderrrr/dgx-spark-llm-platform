@@ -93,7 +93,13 @@ def _data_intact(watermark):
 
 
 def _backup_fresh():
-    """(up, detail) : le dump portal le plus récent doit dater de < 26 h."""
+    """(up, detail, info) : le dump portal le plus récent doit dater de < 26 h.
+
+    `info` (nom, âge, nombre de dumps) est recopié dans l'état sticky pour que le
+    PORTAIL puisse l'afficher : c'est le seul canal lisible par le conteneur, où
+    `/var/backups/cronos` est en 0700 root et les dumps en 0600 — c'est voulu,
+    ils contiennent la base entière. Le moniteur, lui, tourne en root.
+    """
     import glob
     import time
     try:
@@ -101,12 +107,14 @@ def _backup_fresh():
     except Exception:
         files = []
     if not files:
-        return False, "no portal backup found"
+        return False, "no portal backup found", {"latest": None, "age_hours": None, "count": 0}
     latest = max(files, key=os.path.getmtime)
     age_h = (time.time() - os.path.getmtime(latest)) / 3600
+    info = {"latest": os.path.basename(latest), "age_hours": round(age_h, 1),
+            "count": len(files)}
     if age_h > BACKUP_MAX_AGE_H:
-        return False, f"last backup {age_h:.0f}h old (> {BACKUP_MAX_AGE_H}h)"
-    return True, os.path.basename(latest)
+        return False, f"last backup {age_h:.0f}h old (> {BACKUP_MAX_AGE_H}h)", info
+    return True, os.path.basename(latest), info
 
 
 def _load_env(path=ENV_FILE):
@@ -162,8 +170,8 @@ def probe(watermark=None):
     # Sauvegarde nocturne : elle doit être fraîche, sinon c'est un incident —
     # on passe par le même mécanisme sticky (1 alerte par incident, email de
     # rétablissement au retour).
-    bu, bdetail = _backup_fresh()
-    state["backup"] = {"up": bu, "detail": bdetail}
+    bu, bdetail, binfo = _backup_fresh()
+    state["backup"] = {"up": bu, "detail": bdetail, **binfo}
     # Intégrité des données : le filigrane (mémorisé dans le state) alimente
     # la détection de chute massive — même mécanisme sticky que les services.
     du, ddetail, compteurs = _data_intact(watermark or {})

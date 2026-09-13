@@ -320,18 +320,28 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
                              (mname,)).fetchone()
             if not cfg:
                 return f"Modèle « {mname} » introuvable dans le catalogue.", False
-            ok, _motif = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
-                               cfg['engine'] or 'vllm')
+            ok, motif, incertain = runner_launch(cfg['hf_model_id'], cfg['name'],
+                                                 cfg['vllm_args'] or '',
+                                                 cfg['engine'] or 'vllm')
+            # L'annonce n'est plus faite ici : _suivre_lancement l'emet quand le
+            # modele SERT vraiment (accepter n'est pas servir).
             if ok:
-                _announce_launch(cfg['name'])
-            return (f"Lancement de « {mname} » demandé (démarrage en cours)." if ok
-                    else "Runner injoignable."), ok
+                return f"Lancement de « {mname} » demandé (démarrage en cours).", True
+            if incertain:
+                return (f"Le runner n'a pas répondu dans le délai : le lancement de "
+                        f"« {mname} » est peut-être en cours. Vérifie l'état avant de "
+                        f"relancer."), False
+            return f"Lancement refusé : {motif}", False
 
         if name == 'stop_model':
             if not is_admin:
                 return "Action réservée aux admins.", False
-            ok = runner_stop()
-            return ("Modèle arrêté." if ok else "Runner injoignable."), ok
+            ok, motif, incertain = runner_stop()
+            if ok:
+                return "Modèle arrêté.", True
+            if incertain:
+                return "Le runner n'a pas répondu dans le délai : l'arrêt est peut-être en cours.", False
+            return f"Échec de l'arrêt : {motif}", False
 
         return f"Outil inconnu : {name}", False
     except Exception as e:

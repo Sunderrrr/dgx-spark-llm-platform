@@ -260,8 +260,10 @@ Key facts and gotchas:
   servir aussi. Opt-in `--llama-k2` ou `--vllm-nightly`, jamais par defaut. L'entree
   `k2-horizon-36b` a ete **retiree du catalogue le 2026-09-13** (Admin -> supprimer,
   ce qui la deregistre aussi de LiteLLM) ; le savoir ci-dessous est conserve pour le
-  jour ou il faudrait la resservir. Les poids `Q8_0` (37,1 Gio) restent sur le disque,
-  en `local:k2-horizon-gguf`. Mesure au lancement :
+  jour ou il faudrait la resservir. Les poids `Q8_0` (37,1 Gio) ont ete
+  **supprimes du disque** le meme jour : resservir ce modele demande de les
+  retelecharger depuis `primitive-ai`. Mesure faite avant la suppression, au
+  lancement :
   `n_slots = 4, n_ctx_slot = 524288, kv_unified = true` — les 4 slots ont chacun le
   contexte NATIF COMPLET, le cache unifie evite le decoupage. Resident : 99 Go sur
   121, avec `--cache-type-k q8_0 --cache-type-v q8_0` (96 Kio/token au lieu de 192

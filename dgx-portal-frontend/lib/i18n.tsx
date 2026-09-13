@@ -1198,6 +1198,21 @@ const EN: Record<string, string> = {
   "Ouvrir le chat": "Open chat",
   "Ouvrir la génération d'image": "Open image generation",
   "Ouvrir la génération musicale": "Open music generation",
+  // ── Support : accueil dynamique, confirmation d'action sensible,
+  //    arrêt du flux, fil restauré et votes ──
+  "Pourquoi le modèle est-il arrêté ?": "Why is the model stopped?",
+  "Diagnostique l'arrêt et propose de le relancer": "Diagnoses the outage and offers to relaunch it",
+  "Pourquoi le modèle est-il arrêté ? Peux-tu le relancer ?": "Why is the model stopped? Can you relaunch it?",
+  "Comment créer ma clé API ?": "How do I create my API key?",
+  "L'assistant te la crée et t'explique comment l'utiliser": "The assistant creates it for you and explains how to use it",
+  "Comment créer ma clé API ? Peux-tu le faire pour moi ?": "How do I create my API key? Can you do it for me?",
+  "Cette action sensible n'a pas encore été exécutée : elle attend ta confirmation.":
+    "This sensitive action has not run yet — it is waiting for your confirmation.",
+  "Réponse interrompue.": "Response interrupted.",
+  "Réponse utile": "Helpful answer",
+  "Réponse pas utile": "Unhelpful answer",
+  "Un commentaire ? (facultatif)": "A comment? (optional)",
+  "Merci, c'est noté.": "Thanks, noted.",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

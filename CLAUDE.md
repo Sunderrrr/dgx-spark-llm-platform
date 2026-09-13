@@ -374,6 +374,15 @@ Login order (`login()` in `dgx-portal/app.py`):
   not root.
 - **`docker exec` heredoc gotcha**: `docker exec ... python3 - << 'PY'` produces
   no output in this harness. Write the script to a file, `docker cp` it in, run it.
+- **Les actions sensibles du Support ne s'exécutent PAS dans la boucle de chat.**
+  `revoke_api_key`, `launch_model` et `stop_model` (`GUARDED_TOOLS`) y déposent une
+  demande dans `pending_actions` et le modèle reçoit « NON EXÉCUTÉ : en attente de
+  confirmation ». Le seul chemin d'exécution est `POST /support/confirm`, déclenché
+  par le bouton Confirmer de l'interface : jeton opaque, lié au compte, à usage
+  unique (`UPDATE … WHERE status='pending'`), TTL 10 min, et **jamais placé dans le
+  contexte du modèle** — c'est ce qui le rend insensible à une injection indirecte.
+  Ne pas « simplifier » en réexécutant l'outil dans la boucle : c'est exactement la
+  faille que ce détour ferme (le prompt seul ne contraignait rien).
 
 ---
 

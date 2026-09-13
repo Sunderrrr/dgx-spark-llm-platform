@@ -173,6 +173,19 @@ a security-settings re-verification (`/api/security/remove`,
 account password at network speed from the settings page, and the lockout is
 shared in both directions.
 
+The assistant's **sensitive actions are confirmed out of band.** Revoking an API
+key or starting/stopping the model on the shared GPU used to rely on a prompt
+instruction ("always ask the user first"), which is not a control — a model could
+call the tool on its own. The chat loop now refuses to execute them: it records a
+pending action and the interface renders a Confirmer/Annuler button, with
+`/support/confirm` as the only execution path. The token is opaque, bound to the
+account, single-use (a conditional `UPDATE ... WHERE status='pending'` decides
+which of two concurrent clicks wins) and expires after 10 minutes; critically it is
+**never placed in the model's context**, so an indirect prompt injection (an MCP
+result, a crawled page, a skill's text) cannot replay it. The pre-existing rule
+still stands on top: once third-party tool output has entered a turn, the guarded
+tools are refused for the rest of that turn.
+
 ### 2.7 Maintenance mode
 
 A database flag, enforced twice. Inside the portal, chat and media routes check

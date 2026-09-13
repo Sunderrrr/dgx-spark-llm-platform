@@ -258,8 +258,10 @@ Key facts and gotchas:
   llama.cpp qui lise l'arche. Cote vLLM, `k2_horizon` est fusionne dans main depuis
   le 03/09 (PR #55063) mais absent de toute release : `--vllm-nightly` sait donc le
   servir aussi. Opt-in `--llama-k2` ou `--vllm-nightly`, jamais par defaut. L'entree
-  `k2-horizon-36b` est toujours au catalogue (`--llama-k2` epingle dans ses args) ;
-  servi en `Q8_0` (37,1 Gio) depuis `local:k2-horizon-gguf`. Mesure au lancement :
+  `k2-horizon-36b` a ete **retiree du catalogue le 2026-09-13** (Admin -> supprimer,
+  ce qui la deregistre aussi de LiteLLM) ; le savoir ci-dessous est conserve pour le
+  jour ou il faudrait la resservir. Les poids `Q8_0` (37,1 Gio) restent sur le disque,
+  en `local:k2-horizon-gguf`. Mesure au lancement :
   `n_slots = 4, n_ctx_slot = 524288, kv_unified = true` — les 4 slots ont chacun le
   contexte NATIF COMPLET, le cache unifie evite le decoupage. Resident : 99 Go sur
   121, avec `--cache-type-k q8_0 --cache-type-v q8_0` (96 Kio/token au lieu de 192

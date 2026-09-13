@@ -1125,3 +1125,29 @@ def update_request(req_id):
                 flash(f"Modèle « {name} » ajouté au catalogue et routé par LiteLLM — vérifie ses args vLLM puis lance-le.{routed}", "success")
     db.commit()
     return redirect(url_for('admin.admin'))
+
+
+@bp.route('/admin/support/feedback')
+@admin_required
+def admin_support_feedback():
+    """Retours utilisateurs sur le Support (pouce haut/bas + commentaires).
+
+    Sert à savoir QUELLES réponses échouent : sans cela, le prompt du Support ne
+    se corrigeait qu'à l'intuition. Agrégat + derniers retours négatifs (les plus
+    utiles pour corriger), borné.
+    """
+    db = get_db()
+    tot = db.execute("SELECT COUNT(*) c, SUM(CASE WHEN vote>0 THEN 1 ELSE 0 END) p "
+                     "FROM support_feedback").fetchone()
+    par_user = db.execute(
+        "SELECT username, COUNT(*) c, SUM(CASE WHEN vote>0 THEN 1 ELSE 0 END) p "
+        "FROM support_feedback GROUP BY username ORDER BY c DESC LIMIT 20").fetchall()
+    recents = db.execute(
+        "SELECT username, vote, comment, question, answer, model, created_at "
+        "FROM support_feedback ORDER BY id DESC LIMIT 50").fetchall()
+    return jsonify({
+        'total': tot['c'] or 0,
+        'positifs': tot['p'] or 0,
+        'par_utilisateur': [dict(r) for r in par_user],
+        'recents': [dict(r) for r in recents],
+    })

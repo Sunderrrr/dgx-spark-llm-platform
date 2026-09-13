@@ -622,6 +622,50 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_mem_edges_user ON memory_edges(username, src_id);
         CREATE INDEX IF NOT EXISTS idx_mem_nodes_user ON memory_nodes(username, name_norm);
+
+        -- Confirmation des actions sensibles du Support. Le modele ne decide
+        -- JAMAIS seul d'une revocation de cle ou d'un arret de modele : il depose
+        -- ici une demande, l'interface affiche un bouton, et l'action n'est
+        -- executee qu'au clic (voir chat_routes.support_confirm). Le jeton n'est
+        -- jamais transmis au modele — une injection indirecte ne peut donc pas le
+        -- rejouer — et il est a USAGE UNIQUE, borne dans le temps.
+        CREATE TABLE IF NOT EXISTS pending_actions (
+            token       TEXT PRIMARY KEY,
+            username    TEXT NOT NULL,
+            tool        TEXT NOT NULL,
+            args        TEXT NOT NULL,
+            label       TEXT,
+            target      TEXT,
+            created_at  REAL NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'pending'   -- pending | done | cancelled
+        );
+        CREATE INDEX IF NOT EXISTS idx_pending_user ON pending_actions(username, created_at);
+
+        -- Retour utilisateur sur une reponse du Support (pouce haut/bas +
+        -- commentaire libre). Sert a savoir QUELLES reponses echouent : sans
+        -- cela, on ne corrige le prompt qu'a l'intuition.
+        CREATE TABLE IF NOT EXISTS support_feedback (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            username    TEXT NOT NULL,
+            vote        INTEGER NOT NULL,                 -- 1 = utile, -1 = pas utile
+            comment     TEXT,
+            question    TEXT,
+            answer      TEXT,
+            model       TEXT,
+            created_at  TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_support_feedback_user ON support_feedback(username, id);
+
+        -- Fil de discussion du Support, conserve cote serveur pour qu'un
+        -- rechargement de page ne perde pas la conversation. Table DEDIEE : le
+        -- Support n'a rien a faire dans l'historique du playground (prompt
+        -- systeme, outils et intentions differents), donc surtout pas dans
+        -- `conversations`, que le playground liste et rejoue.
+        CREATE TABLE IF NOT EXISTS support_thread (
+            username    TEXT PRIMARY KEY,
+            messages    TEXT NOT NULL,
+            updated_at  REAL NOT NULL
+        );
     ''')
     # Migration: remember the admin status of the last observed login (local/
     # LDAP/SSO). The Users page uses it to show the effective role with the

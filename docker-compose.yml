@@ -148,6 +148,11 @@ services:
       # ComfyUI's video output, read-only: lets the portal serve past videos
       # from disk even when the video sidecar (ComfyUI) is stopped to free the GPU.
       - /root/ComfyUI/output:/comfyui-output:ro
+      # État du moniteur hôte (lecture seule) : incidents en cours et fraîcheur du
+      # dernier dump du portail, mesurée en root par le moniteur. Le dossier des
+      # dumps lui-même n'est PAS monté — il est en 0700 root et les dumps en 0600,
+      # et c'est voulu : ils contiennent la base entière.
+      - /var/lib/cronos-monitor:/var/lib/cronos-monitor:ro
       # Même jeton, côté appelant.
       - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
     extra_hosts:

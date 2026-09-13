@@ -334,6 +334,81 @@ def _append(line):
         del _logs[:500]
 
 
+# --- Journal de démarrage sur disque ---------------------------------------
+# Le tampon mémoire seul ne suffit pas à diagnostiquer un échec de démarrage :
+# ~2000 lignes, et `_start_process` le vide à CHAQUE tentative, si bien qu'avec
+# les 3 auto-résumes la cause racine était écrasée avant d'être lue (constat
+# consigné le 2026-09-13). On double donc le flux d'un fichier PAR DÉMARRAGE.
+#
+# Règle absolue : ce journal ne doit JAMAIS empêcher un lancement. Toute erreur
+# (disque plein, dossier absent, droits) laisse `journal = None` et le modèle
+# démarre comme avant. Le runner tourne en `vllmrunner` : ce dossier lui
+# appartient, il est créé hors service (aucun redémarrage nécessaire).
+LOG_DIR = os.environ.get("RUNNER_LOG_DIR", "/var/lib/vllm-runner/logs")
+_LOG_MAX_BYTES = 20 * 1024 * 1024
+_LOG_KEEP = 12
+
+
+class _Journal:
+    """Fichier de démarrage borné en taille, silencieux en cas d'échec.
+
+    Une classe plutôt qu'un descripteur nu : il faut retenir les octets déjà
+    écrits pour s'arrêter à la borne sans `tell()` à chaque ligne, et cesser
+    définitivement d'écrire si le disque refuse — sans jamais lever, puisque
+    l'appelant est la boucle qui lit la sortie du moteur.
+    """
+
+    def __init__(self, chemin):
+        self.chemin = chemin
+        self._f = open(chemin, "w", encoding="utf-8", errors="replace")
+        self._ecrits = 0
+        self._ouvert = True
+
+    def ecrire(self, ligne):
+        if not self._ouvert:
+            return
+        try:
+            self._f.write(ligne + "\n")
+            self._ecrits += len(ligne) + 1
+            if self._ecrits > _LOG_MAX_BYTES:
+                self._f.write(f"[runner] journal tronqué à {_LOG_MAX_BYTES // 1024 ** 2} Mo\n")
+                self._fermer()
+        except Exception:
+            self._fermer()
+
+    def _fermer(self):
+        self._ouvert = False
+        try:
+            self._f.close()
+        except Exception:
+            pass
+
+
+def _elague_journaux():
+    """Ne garde que les derniers démarrages (le disque est partagé avec les poids)."""
+    try:
+        fichiers = [os.path.join(LOG_DIR, f) for f in os.listdir(LOG_DIR)
+                    if f.endswith(".log")]
+        fichiers.sort(key=lambda p: os.stat(p).st_mtime, reverse=True)
+        for vieux in fichiers[_LOG_KEEP:]:
+            os.remove(vieux)
+    except Exception:
+        pass
+
+
+def _ouvre_journal(name, engine):
+    """Ouvre le journal de CE démarrage, ou None si ce n'est pas possible."""
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        propre = re.sub(r"[^A-Za-z0-9._-]", "_", name or "modele")[:60] or "modele"
+        chemin = os.path.join(LOG_DIR, f"{time.strftime('%Y%m%d-%H%M%S')}-{engine}-{propre}.log")
+        journal = _Journal(chemin)
+        _elague_journaux()
+        return journal
+    except Exception:
+        return None
+
+
 def _save_last_launch(hf_id, name, extra_tokens, engine="vllm"):
     try:
         with open(STATE_FILE, "w") as f:
@@ -424,12 +499,14 @@ def _wait_mem_release(timeout=60, settle=4.0):
     time.sleep(settle)            # small margin for the driver
 
 
-def _reader(proc):
+def _reader(proc, journal=None):
     global _status, _proc, _model, _auto_retries
     try:
         for raw in proc.stdout:
             line = raw.rstrip()
             _append(line)
+            if journal is not None:
+                journal.ecrire(line)
             # vLLM is ready when it prints "Application startup complete"
             # (only touch the global status if this process is still the active one —
             # otherwise an old reader thread, still draining a process killed by
@@ -439,6 +516,8 @@ def _reader(proc):
                 _auto_retries = 0  # this launch worked, restart with a fresh retry budget
     except Exception as e:
         _append(f"[runner] read interrupted: {e}")
+        if journal is not None:
+            journal.ecrire(f"[runner] read interrupted: {e}")
     proc.wait()
     with _lock:
         if proc is _proc and _status != "stopped":
@@ -600,6 +679,13 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     _model  = name
     _engine = engine
     _status = "starting"
+    # Journal sur disque du démarrage : c'est le SEUL endroit où survivra la
+    # cause racine d'un échec, puisque ce clear() efface le tampon mémoire à
+    # chaque tentative (y compris à chaque auto-résume).
+    journal = _ouvre_journal(name, engine)
+    if journal is not None:
+        journal.ecrire(f"[runner] {time.strftime('%Y-%m-%dT%H:%M:%S')} démarrage "
+                       f"{engine} — {name} ({hf_id})")
 
     # The previous model was just killed: wait for the driver to release the
     # unified memory, otherwise the new process OOMs at startup.
@@ -630,8 +716,12 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
 
     cmd = _build_cmd(hf_id, name, extra_tokens, engine, bin_override=bin_override)
     _append(f"[runner] ({engine}) $ {' '.join(cmd)}")
+    if journal is not None:
+        journal.ecrire(f"$ {' '.join(cmd)}")
     if model_env:
         _append(f"[runner] model-specific env: {model_env}")
+        if journal is not None:
+            journal.ecrire(f"[runner] model-specific env: {model_env}")
 
     # Explicit minimal env rather than **os.environ — avoids leaking the full
     # root environment (assorted secrets) into /logs and /stream.
@@ -668,7 +758,7 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
         env=env,
         start_new_session=True,   # new process group → killpg works
     )
-    threading.Thread(target=_reader, args=(_proc,), daemon=True).start()
+    threading.Thread(target=_reader, args=(_proc, journal), daemon=True).start()
     threading.Thread(target=_health_watch, args=(_proc,), daemon=True).start()
     # Always persist the state (manual, boot resume, watchdog) so last_model.json
     # stays present as long as the model is meant to run.

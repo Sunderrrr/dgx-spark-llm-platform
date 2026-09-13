@@ -9,15 +9,17 @@ url_for('admin') du projet — TOUS situes dans ce bloc, verifie avant de bouger
 sont requalifies en url_for('admin.admin'). Pas d'url_prefix : /admin et toutes
 les autres URL restent identiques au caractere pres.
 """
+import json
 import os
 import re
 import sqlite3
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 import requests
-from flask import (Blueprint, Response, flash, jsonify, redirect, request,
-                   session, stream_with_context, url_for)
+from flask import (Blueprint, Response, jsonify, request,
+                   session, stream_with_context)
 from werkzeug.security import generate_password_hash
 
 from announcements import _announce_launch, add_announcement
@@ -42,10 +44,10 @@ from user_lifecycle import (compter_donnees, deprovisionner_compte,
 from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       _image_launch, _mem_guard, _music_launch, _ocr_launch,
                       _runner_headers, _sidecar_action, _sidecar_start_json,
-                      _sidecar_status, _voice_launch, get_image_model,
-                      get_music_model, get_ocr_model, get_voice_model,
-                      runner_launch, runner_logs, runner_metrics, runner_status,
-                      runner_stop)
+                      _sidecar_status, _sidecar_stop_json, _voice_launch,
+                      asr_model_name, get_image_model, get_music_model,
+                      get_ocr_model, get_voice_model, runner_launch, runner_logs,
+                      runner_metrics, runner_status, runner_stop)
 from stats import (_active_users, admin_get_ocr_usage,
                    admin_get_user_consumption, admin_get_video_usage,
                    admin_get_voice_usage, user_hourly)
@@ -93,16 +95,25 @@ def admin():
 @admin_required
 def api_admin():
     db = get_db()
-    all_reqs    = db.execute("SELECT * FROM model_requests ORDER BY created_at DESC").fetchall()
+    # Listes BORNÉES : elles grandissaient avec tout l'historique (chaque demande
+    # de chaque compte, depuis toujours) et partaient entières au navigateur à
+    # chaque rafraîchissement de 8 s. Les COMPTEURS, eux, restent exacts : ils se
+    # calculent en SQL sur la table entière, pas sur la page affichée.
+    all_reqs    = db.execute("SELECT * FROM model_requests ORDER BY created_at DESC LIMIT 200").fetchall()
     model_cfgs  = db.execute("SELECT * FROM model_configs ORDER BY name").fetchall()
     ocr_cfgs    = db.execute("SELECT * FROM ocr_configs ORDER BY name").fetchall()
     voice_cfgs  = db.execute("SELECT * FROM voice_configs ORDER BY name").fetchall()
-    budget_reqs = db.execute("SELECT * FROM budget_requests ORDER BY created_at DESC").fetchall()
+    budget_reqs = db.execute("SELECT * FROM budget_requests ORDER BY created_at DESC LIMIT 200").fetchall()
     stats = {
-        'pending':  sum(1 for r in all_reqs if r['status'] == 'pending'),
-        'done':     sum(1 for r in all_reqs if r['status'] == 'done'),
-        'rejected': sum(1 for r in all_reqs if r['status'] == 'rejected'),
-        'budget_pending': sum(1 for r in budget_reqs if r['status'] == 'pending'),
+        'pending':  db.execute("SELECT COUNT(*) AS n FROM model_requests "
+                               "WHERE status='pending'").fetchone()['n'],
+        'done':     db.execute("SELECT COUNT(*) AS n FROM model_requests "
+                               "WHERE status='done'").fetchone()['n'],
+        'rejected': db.execute("SELECT COUNT(*) AS n FROM model_requests "
+                               "WHERE status='rejected'").fetchone()['n'],
+        'budget_pending': db.execute("SELECT COUNT(*) AS n FROM budget_requests "
+                                     "WHERE status='pending'").fetchone()['n'],
+        'requests_shown': len(all_reqs),
     }
     # These probes are all independent network round-trips (runner,
     # sidecars, LiteLLM DB). In series, the page waited for their SUM; in
@@ -117,6 +128,10 @@ def api_admin():
         'voice_status': lambda: _sidecar_status('voice'),
         'voice_model_name': get_voice_model,
         'asr_status': lambda: _sidecar_status('asr'),
+        # Modèle dictée RÉELLEMENT chargé (lu sur le sidecar) : l'onglet Dictée
+        # affichait « whisper-large-v3-turbo » en dur — vrai aujourd'hui, faux
+        # au premier changement de modèle. None quand rien n'est servi.
+        'asr_model_name': asr_model_name,
         'image_status': lambda: _sidecar_status('image'),
         'image_model_name': lambda: get_image_model(),
         'music_status': lambda: _sidecar_status('music'),
@@ -164,6 +179,144 @@ def api_admin():
     })
 
 
+# --- État de la plateforme -------------------------------------------------
+# Ce que le MONITEUR HÔTE surveille déjà mais que personne ne pouvait LIRE : son
+# seul canal est l'email, donc hors panne l'administrateur ne savait ni quand la
+# dernière sauvegarde avait eu lieu, ni combien d'espace restait, sans ouvrir un
+# shell. Les deux chemins sont montés en lecture seule dans le conteneur et les
+# dumps sont en 0600 root : on ne lit que des NOMS et des dates, jamais un
+# contenu de dump.
+_BACKUP_DIR = os.environ.get('BACKUP_DIR', '/var/backups/cronos')
+_MONITOR_STATE = os.environ.get('MONITOR_STATE', '/var/lib/cronos-monitor/state.json')
+_SEUIL_SAUVEGARDE_H = 26      # le dump tourne à 03:00 : au-delà de 26 h, il est en retard
+
+
+def _etat_disque():
+    """Espace du volume de données — même système de fichiers que l'hôte."""
+    try:
+        st = os.statvfs('/app/data')
+        total = st.f_frsize * st.f_blocks
+        libre = st.f_frsize * st.f_bavail
+        return {'free_gb': round(libre / 1024 ** 3, 1),
+                'total_gb': round(total / 1024 ** 3, 1),
+                'used_pct': round(100 * (total - libre) / total, 1) if total else None}
+    except Exception:                                            # noqa: BLE001
+        return {'free_gb': None, 'total_gb': None, 'used_pct': None}
+
+
+def _etat_sauvegarde():
+    """Fraîcheur du dernier dump du portail (nom + date, jamais le contenu).
+
+    La source normale est l'**état du moniteur hôte**, qui tourne en root toutes
+    les 5 min et y recopie ce qu'il a mesuré : `/var/backups/cronos` est en 0700
+    root et les dumps en 0600 (ils contiennent la base entière), donc le conteneur
+    ne peut PAS les lister. On garde la lecture directe du dossier en repli : si
+    le montage existe et est lisible un jour, elle sert ; sinon `readable: false`,
+    que l'interface affiche « illisible » — jamais « tout va bien ».
+    """
+    try:
+        with open(_MONITOR_STATE, encoding='utf-8') as f:
+            sauvegarde = (json.load(f) or {}).get('backup') or {}
+        if sauvegarde.get('latest'):
+            age = sauvegarde.get('age_hours')
+            return {'latest': sauvegarde['latest'], 'age_hours': age,
+                    'fresh': bool(sauvegarde.get('up')) if age is not None else None,
+                    'count': sauvegarde.get('count'), 'readable': True}
+    except Exception:                                            # noqa: BLE001
+        pass
+    try:
+        noms = [n for n in os.listdir(_BACKUP_DIR)
+                if n.startswith('portal-') and n.endswith('.db')]
+        if not noms:
+            return {'latest': None, 'age_hours': None, 'fresh': False,
+                    'count': 0, 'readable': True}
+        mtimes = {n: os.stat(os.path.join(_BACKUP_DIR, n)).st_mtime for n in noms}
+        dernier = max(mtimes, key=mtimes.get)
+        age = (time.time() - mtimes[dernier]) / 3600
+        return {'latest': dernier, 'age_hours': round(age, 1),
+                'fresh': age <= _SEUIL_SAUVEGARDE_H, 'count': len(noms), 'readable': True}
+    except Exception:                                            # noqa: BLE001
+        return {'latest': None, 'age_hours': None, 'fresh': None,
+                'count': None, 'readable': False}
+
+
+def _etat_moniteur():
+    """Incidents en cours selon l'état sticky du moniteur hôte."""
+    try:
+        with open(_MONITOR_STATE, encoding='utf-8') as f:
+            etat = json.load(f)
+        down = etat.get('down') or []
+        if isinstance(down, dict):
+            down = [k for k, v in down.items() if v]
+        return {'readable': True,
+                'active_incidents': sorted(str(i) for i in down),
+                'since': datetime.fromtimestamp(
+                    os.stat(_MONITOR_STATE).st_mtime).isoformat(timespec='seconds')}
+    except Exception:                                            # noqa: BLE001
+        return {'readable': False, 'active_incidents': None, 'since': None}
+
+
+def _etat_modele():
+    """Modèle servi + depuis quand, d'après ce que le PORTAIL a observé."""
+    st = runner_status()
+    nom, statut = st.get('model'), st.get('status')
+    uptime = None
+    if statut == 'running':
+        try:
+            observe = json.loads(get_setting('model_servi', '') or '{}')
+            if observe.get('nom') == nom and observe.get('depuis'):
+                uptime = max(0, int(time.time() - float(observe['depuis'])))
+        except Exception:                                        # noqa: BLE001
+            uptime = None
+    return {'name': nom, 'status': statut, 'uptime_s': uptime}
+
+
+def _etat_portail():
+    db = get_db()
+    taille = None
+    try:
+        chemin = db.execute("PRAGMA database_list").fetchone()[2]
+        taille = round(os.path.getsize(chemin) / 1024 ** 2, 1) if chemin else None
+    except Exception:                                            # noqa: BLE001
+        taille = None
+    maintenant = datetime.utcnow().isoformat()
+    return {
+        'db_mb': taille,
+        'active_sessions': db.execute(
+            "SELECT COUNT(*) AS n FROM user_sessions WHERE expires_at > ?",
+            (time.time(),)).fetchone()['n'],
+        'local_users': db.execute(
+            "SELECT COUNT(*) AS n FROM local_users WHERE enabled=1").fetchone()['n'],
+        'active_keys': db.execute(
+            "SELECT COUNT(*) AS n FROM api_keys").fetchone()['n'],
+        'budget_grants': db.execute(
+            "SELECT COUNT(*) AS n FROM budget_grants WHERE expires_at > ?",
+            (maintenant,)).fetchone()['n'],
+        'audit_entries': db.execute("SELECT COUNT(*) AS n FROM audit_log").fetchone()['n'],
+    }
+
+
+@bp.route('/admin/platform')
+@admin_required
+def admin_platform():
+    """État de la PLATEFORME (disque, sauvegarde, incidents, modèle servi).
+
+    Distinct de `/api/health`, qui ne répond que « les services répondent-ils » :
+    ici on répond aux questions qu'on se pose pendant un incident — reste-t-il de
+    la place, la sauvegarde de cette nuit a-t-elle eu lieu, quels incidents le
+    moniteur a-t-il ouverts, depuis quand le modèle tourne-t-il.
+    """
+    return jsonify({
+        'disk': _etat_disque(),
+        'backup': _etat_sauvegarde(),
+        'monitor': _etat_moniteur(),
+        'model': _etat_modele(),
+        'portal': _etat_portail(),
+        'maintenance': maintenance_active(),
+        'checked_at': int(time.time()),
+    })
+
+
 @bp.route('/admin/model/launch', methods=['POST'])
 @admin_required
 def launch_model():
@@ -172,24 +325,33 @@ def launch_model():
     cfg  = db.execute("SELECT * FROM model_configs WHERE name=?", (name,)).fetchone()
     if not cfg:
         return jsonify({'ok': False, 'error': "Modèle introuvable."}), 404
-    ok, motif = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
-                              cfg['engine'] or 'vllm')
+    ok, motif, incertain = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
+                                         cfg['engine'] or 'vllm')
     if ok:
-        _announce_launch(cfg['name'])
+        # L'annonce « tel modele remplace tel autre » ne part plus ici mais depuis
+        # _suivre_lancement, quand le modele SERT reellement : accepter n'est pas
+        # servir, et annoncer un modele qui ne demarrera jamais est un mensonge
+        # visible par tous les utilisateurs.
         log_audit(session.get('username'), 'model.launch', f"lancement de {name}")
     else:
-        notify_infra_alert_email(
-            "Chat model launch failed", f"{name}: {motif or 'launch refused'}")
         log_audit(session.get('username'), 'model.launch_échec',
-                  f"lancement refusé de {name} : {motif}")
+                  f"lancement de {name} : {motif}"
+                  + (" (délai dépassé, issue inconnue)" if incertain else " (refusé)"))
+        # Pas d'alerte infra sur un DOUTE : le lancement est peut-etre en cours.
+        # Un faux « echec de lancement » habitue l'administrateur a ignorer les
+        # alertes — et l'invite a relancer, ce qui tue un modele en chargement.
+        if not incertain:
+            notify_infra_alert_email(
+                "Chat model launch failed", f"{name}: {motif or 'launch refused'}")
     # Réponse JSON, pas une redirection : `act()` côté frontend lit {ok, error} et
     # traite toute réponse NON-JSON comme un succès (son propre commentaire le dit).
     # Cette route redirigeait, donc un lancement refusé s'affichait comme réussi et
     # l'administrateur ne voyait « rien se passer ». Constaté le 04/09 : deux
     # tentatives refusées en 400, aucune trace à l'écran.
-    return jsonify({'ok': bool(ok),
-                    'error': None if ok else (motif or "Lancement refusé par le runner.")}), \
-           (200 if ok else 502)
+    if ok:
+        return _json_ok(f"Lancement de {name} accepté — chargement en cours.")
+    return _json_erreur(motif or "Lancement refusé par le runner.",
+                        202 if incertain else 502, incertain=incertain)
 
 @bp.route('/api/announcements')
 @login_required
@@ -215,27 +377,57 @@ def api_announcements_seen():
     db.commit()
     return {'ok': True}
 
+def _json_ok(message=None, **extra):
+    """Succes d'action d'admin : {ok: true} + champs libres."""
+    corps = {'ok': True}
+    if message:
+        corps['message'] = message
+    corps.update(extra)
+    return jsonify(corps)
+
+
+def _json_erreur(message, code=400, **extra):
+    """Refus d'action d'admin : {ok: false, error} + champs libres.
+
+    Contrat UNIQUE de toutes les actions d'admin. Une vingtaine de routes
+    repondaient auparavant `flash(...)` + `redirect(...)` : le flash n'est rendu
+    par AUCUN template (l'interface est Next.js ; `get_flashed_messages` n'existe
+    nulle part dans le depot) et le corps HTML de la redirection faisait echouer
+    `res.json()` cote client, dont le `catch` concluait « action effectuee ».
+    Consequence mesuree : un arret du modele refuse s'affichait comme reussi,
+    tout comme un echec d'enregistrement LiteLLM ou un budget refuse. Le
+    lancement de modele avait ete corrige ainsi le 04/09 ; le correctif n'avait
+    jamais ete generalise a ses voisines.
+    """
+    corps = {'ok': False, 'error': message}
+    corps.update(extra)
+    return jsonify(corps), code
+
+
 @bp.route('/admin/announce', methods=['POST'])
 @admin_required
 def admin_announce():
     title = request.form.get('title', '').strip()[:120]
     body  = request.form.get('body', '').strip()[:600]
     if not title:
-        flash("Titre requis pour l'annonce.", "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Titre requis pour l'annonce.")
     add_announcement('site', title, body)
     log_audit(session.get('username'), 'announce', f"annonce : {title}")
-    flash("Annonce publiée — elle s'affichera à l'ouverture du site.", "success")
-    return redirect(url_for('admin.admin'))
+    return _json_ok("Annonce publiée — elle s'affichera à l'ouverture du site.")
 
 @bp.route('/admin/model/stop', methods=['POST'])
 @admin_required
 def stop_model():
-    ok = runner_stop()
+    ok, motif, incertain = runner_stop()
     log_audit(session.get('username'), 'model.stop',
-              "arrêt du modèle de chat" if ok else "échec de l'arrêt du modèle de chat")
-    flash("Modèle arrêté." if ok else "Runner vLLM inaccessible.", "success" if ok else "danger")
-    return redirect(url_for('admin.admin'))
+              "arrêt du modèle de chat" if ok else f"échec de l'arrêt : {motif}")
+    if ok:
+        return _json_ok("Modèle arrêté.")
+    # `incertain` = le runner n'a pas repondu dans le delai, l'arret est
+    # peut-etre en cours. On le dit tel quel plutot que d'affirmer un echec :
+    # un operateur qui croit a un echec reclique.
+    return _json_erreur(motif or "Échec de l'arrêt du modèle.", 202 if incertain else 502,
+                        incertain=incertain)
 
 @bp.route('/admin/ocr/start', methods=['POST'])
 @admin_required
@@ -245,9 +437,7 @@ def start_ocr():
 @bp.route('/admin/ocr/stop', methods=['POST'])
 @admin_required
 def stop_ocr():
-    ok = _sidecar_action('ocr', 'stop')
-    flash("OCR arrêté." if ok else "Échec de l'arrêt OCR.", "success" if ok else "danger")
-    return redirect(url_for('admin.admin'))
+    return _sidecar_stop_json('ocr')
 
 @bp.route('/admin/video/start', methods=['POST'])
 @admin_required
@@ -257,9 +447,7 @@ def start_video():
 @bp.route('/admin/video/stop', methods=['POST'])
 @admin_required
 def stop_video():
-    ok = _sidecar_action('video', 'stop')
-    flash("Vidéo arrêtée." if ok else "Échec de l'arrêt vidéo.", "success" if ok else "danger")
-    return redirect(url_for('admin.admin'))
+    return _sidecar_stop_json('video')
 
 @bp.route('/admin/ocr/catalog/add', methods=['POST'])
 @admin_required
@@ -268,26 +456,28 @@ def add_ocr_cfg():
     hf_id = request.form.get('hf_model_id', '').strip()
     args  = request.form.get('vllm_args', '').strip()
     if not name or not hf_id:
-        flash("Nom et HF model ID requis.", "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Nom et HF model ID requis.")
     db = get_db()
     try:
         db.execute("INSERT INTO ocr_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
                    (name, hf_id, args, datetime.now().isoformat()))
         db.commit()
-        flash(f"Modèle OCR {name} ajouté au catalogue.", "success")
     except sqlite3.IntegrityError:
-        flash("Un modèle OCR avec ce nom existe déjà.", "danger")
-    return redirect(url_for('admin.admin'))
+        return _json_erreur("Un modèle OCR avec ce nom existe déjà.", 409)
+    log_audit(session.get('username'), 'ocr.catalog.add', f"{name} ({hf_id})")
+    return _json_ok(f"Modèle OCR {name} ajouté au catalogue.")
 
 @bp.route('/admin/ocr/catalog/delete/<int:cid>', methods=['POST'])
 @admin_required
 def delete_ocr_cfg(cid):
     db = get_db()
+    row = db.execute("SELECT name FROM ocr_configs WHERE id=?", (cid,)).fetchone()
+    if not row:
+        return _json_erreur("Modèle OCR introuvable.", 404)
     db.execute("DELETE FROM ocr_configs WHERE id=?", (cid,))
     db.commit()
-    flash("Modèle OCR supprimé du catalogue.", "success")
-    return redirect(url_for('admin.admin'))
+    log_audit(session.get('username'), 'ocr.catalog.delete', row['name'])
+    return _json_ok("Modèle OCR supprimé du catalogue.")
 
 @bp.route('/admin/ocr/catalog/launch', methods=['POST'])
 @admin_required
@@ -316,9 +506,7 @@ def start_voice():
 @bp.route('/admin/voice/stop', methods=['POST'])
 @admin_required
 def stop_voice():
-    ok = _sidecar_action('voice', 'stop')
-    flash("Voix arrêtée." if ok else "Échec de l'arrêt voix.", "success" if ok else "danger")
-    return redirect(url_for('admin.admin'))
+    return _sidecar_stop_json('voice')
 
 @bp.route('/admin/asr/start', methods=['POST'])
 @admin_required
@@ -328,9 +516,7 @@ def start_asr():
 @bp.route('/admin/asr/stop', methods=['POST'])
 @admin_required
 def stop_asr():
-    ok = _sidecar_action('asr', 'stop')
-    flash("Dictée arrêtée." if ok else "Échec de l'arrêt de la dictée.", "success" if ok else "danger")
-    return redirect(url_for('admin.admin'))
+    return _sidecar_stop_json('asr')
 
 @bp.route('/admin/image/start', methods=['POST'])
 @admin_required
@@ -340,10 +526,7 @@ def start_image():
 @bp.route('/admin/image/stop', methods=['POST'])
 @admin_required
 def stop_image():
-    ok = _sidecar_action('image', 'stop')
-    flash("Génération d'image arrêtée." if ok else "Échec de l'arrêt de l'image.",
-          "success" if ok else "danger")
-    return redirect(url_for('admin.admin'))
+    return _sidecar_stop_json('image')
 
 @bp.route('/admin/image/launch', methods=['POST'])
 @admin_required
@@ -371,10 +554,7 @@ def start_music():
 @bp.route('/admin/music/stop', methods=['POST'])
 @admin_required
 def stop_music():
-    ok = _sidecar_action('music', 'stop')
-    flash("Génération musicale arrêtée." if ok else "Échec de l'arrêt de la musique.",
-          "success" if ok else "danger")
-    return redirect(url_for('admin.admin'))
+    return _sidecar_stop_json('music')
 
 @bp.route('/admin/music/launch', methods=['POST'])
 @admin_required
@@ -400,26 +580,28 @@ def add_voice_cfg():
     name    = re.sub(r'[^a-zA-Z0-9_-]', '-', request.form.get('name', '').strip())[:40]
     repo_id = request.form.get('repo_id', '').strip()
     if not name or repo_id not in VOICE_REPO_IDS:
-        flash("Nom et variante requis.", "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Nom et variante requis (variante hors liste autorisée).")
     db = get_db()
     try:
         db.execute("INSERT INTO voice_configs (name, repo_id, added_at) VALUES (?,?,?)",
                    (name, repo_id, datetime.now().isoformat()))
         db.commit()
-        flash(f"Modèle voix {name} ajouté au catalogue.", "success")
     except sqlite3.IntegrityError:
-        flash("Un modèle voix avec ce nom existe déjà.", "danger")
-    return redirect(url_for('admin.admin'))
+        return _json_erreur("Un modèle voix avec ce nom existe déjà.", 409)
+    log_audit(session.get('username'), 'voice.catalog.add', f"{name} ({repo_id})")
+    return _json_ok(f"Modèle voix {name} ajouté au catalogue.")
 
 @bp.route('/admin/voice/catalog/delete/<int:cid>', methods=['POST'])
 @admin_required
 def delete_voice_cfg(cid):
     db = get_db()
+    row = db.execute("SELECT name FROM voice_configs WHERE id=?", (cid,)).fetchone()
+    if not row:
+        return _json_erreur("Modèle voix introuvable.", 404)
     db.execute("DELETE FROM voice_configs WHERE id=?", (cid,))
     db.commit()
-    flash("Modèle voix supprimé du catalogue.", "success")
-    return redirect(url_for('admin.admin'))
+    log_audit(session.get('username'), 'voice.catalog.delete', row['name'])
+    return _json_ok("Modèle voix supprimé du catalogue.")
 
 @bp.route('/admin/voice/catalog/launch', methods=['POST'])
 @admin_required
@@ -427,16 +609,22 @@ def launch_voice_cfg():
     name = request.form.get('voice_name', '').strip()
     cfg = get_db().execute("SELECT * FROM voice_configs WHERE name=?", (name,)).fetchone()
     if not cfg:
-        flash("Modèle voix introuvable.", "danger")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Modèle voix introuvable.", 404)
+    # Même garde mémoire que l'OCR, l'image et la musique : recréer le conteneur
+    # voix recharge un modèle (~15 Go), et cette route était la SEULE des quatre
+    # à ne pas la poser — sur mémoire unifiée, un OOM tue le plus gros RSS,
+    # c'est-à-dire le modèle de chat servi.
+    err = _mem_guard('voice')
+    if err:
+        return _json_erreur(err, 507)
     ok, detail = _voice_launch(cfg['repo_id'])
     log_audit(session.get('username'), 'voice.launch',
               f"relance voix {cfg['repo_id']}" if ok else f"échec relance voix : {detail}")
     if not ok:
         notify_infra_alert_email("Voice model launch failed", f"{name}: {detail}")
-    flash(f"Relance voix avec {name} en cours…" if ok else f"Échec de la relance voix : {detail}",
-          "success" if ok else "danger")
-    return redirect(url_for('admin.admin'))
+    if ok:
+        return _json_ok(f"Relance voix avec {name} en cours…")
+    return _json_erreur(f"Échec de la relance voix : {detail}", 502)
 
 @bp.route('/admin/model/add', methods=['POST'])
 @admin_required
@@ -448,56 +636,97 @@ def add_model_cfg():
     if engine not in ('vllm', 'llamacpp', 'ds4'):
         engine = 'vllm'
     if not name or not hf_id:
-        flash("Nom et HF model ID requis.", "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Nom et HF model ID requis.")
+    # Pas de validation de forme sur hf_id ici, volontairement : `local:<nom>`
+    # (GGUF local) est un identifiant legitime, que la regex « org/nom » de
+    # l'image et de la musique refuserait. Le runner garde sa propre garde de
+    # forme avant de construire argv.
     db = get_db()
     try:
         db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, engine, added_at) "
                    "VALUES (?,?,?,?,?)",
                    (name, hf_id, args, engine, datetime.now().isoformat()))
         db.commit()
-        add_announcement('model_add', name)
-        ok = _register_litellm_model(name, args, engine)
-        flash(f"Modèle {name} ajouté ({engine}) et routé par LiteLLM." if ok
-              else f"Modèle {name} ajouté (⚠ enregistrement LiteLLM échoué).", "success" if ok else "warning")
     except sqlite3.IntegrityError:
-        flash("Un modèle avec ce nom existe déjà.", "danger")
-    return redirect(url_for('admin.admin'))
+        return _json_erreur("Un modèle avec ce nom existe déjà.", 409)
+    add_announcement('model_add', name)
+    ok = _register_litellm_model(name, args, engine)
+    log_audit(session.get('username'), 'model.add',
+              f"{name} ({engine}, {hf_id})" + ('' if ok else " — enregistrement LiteLLM ÉCHOUÉ"))
+    if ok:
+        return _json_ok(f"Modèle {name} ajouté ({engine}) et routé par LiteLLM.")
+    return _json_ok(f"Modèle {name} ajouté ({engine}).",
+                    warning="Enregistrement LiteLLM échoué : le modèle n'est pas routé.")
 
 @bp.route('/admin/model/edit/<int:mid>', methods=['POST'])
 @admin_required
 def edit_model_cfg(mid):
+    """Modifie les args vLLM/llama.cpp d'une entrée du catalogue.
+
+    Les args ne sont PAS validés ici : l'allow-list des flags vit dans le runner,
+    qui la vérifie de toute façon au lancement (`_BOOL_FLAGS`, `_BIN_FLAGS`). La
+    dupliquer ici créerait une seconde source de verité qui divergerait.
+    """
     args = request.form.get('vllm_args', '').strip()
     db = get_db()
+    row = db.execute("SELECT name, engine FROM model_configs WHERE id=?", (mid,)).fetchone()
+    if not row:
+        return _json_erreur("Modèle introuvable dans le catalogue.", 404)
     db.execute("UPDATE model_configs SET vllm_args=? WHERE id=?", (args, mid))
     db.commit()
-    row = db.execute("SELECT name, engine FROM model_configs WHERE id=?", (mid,)).fetchone()
-    if row:
-        _register_litellm_model(row['name'], args, row['engine'] or 'vllm')
-    flash("Args du modèle mis à jour (routage LiteLLM rafraîchi).", "success")
-    return redirect(url_for('admin.admin'))
+    # Le resultat d'enregistrement etait IGNORÉ et la route annoncait
+    # « routage LiteLLM rafraîchi » sans condition : or LiteLLM applique les
+    # limites par requete (max_input/max_output via ctx_split) issues de CETTE
+    # entree — un echec silencieux laissait donc un routage faux.
+    ok = _register_litellm_model(row['name'], args, row['engine'] or 'vllm')
+    log_audit(session.get('username'), 'model.edit',
+              f"{row['name']} — args mis à jour" + ('' if ok else " — routage LiteLLM ÉCHOUÉ"))
+    if ok:
+        return _json_ok("Args du modèle mis à jour (routage LiteLLM rafraîchi).")
+    return _json_ok("Args du modèle mis à jour.",
+                    warning="Rafraîchissement LiteLLM échoué : les limites de contexte "
+                            "annoncées par la passerelle peuvent être fausses.")
 
 @bp.route('/admin/model/delete/<int:mid>', methods=['POST'])
 @admin_required
 def delete_model_cfg(mid):
     db = get_db()
     row = db.execute("SELECT name FROM model_configs WHERE id=?", (mid,)).fetchone()
+    if not row:
+        return _json_erreur("Modèle introuvable dans le catalogue.", 404)
+    nom = row['name']
+    # Retirer du catalogue le modele ACTUELLEMENT SERVI n'arrete pas le moteur,
+    # mais detruit la configuration qui permet de le relancer (args, moteur) et
+    # laisse last_model.json pointer sur une entree disparue — le runner
+    # relancerait alors au prochain demarrage un modele que le portail ne sait
+    # plus relancer a la main. On demande donc une confirmation explicite.
+    if nom in (get_running_models() or []) and request.form.get('confirm') != '1':
+        return _json_erreur(
+            f"{nom} est le modèle actuellement servi. Le retirer du catalogue ne "
+            f"l'arrête pas, mais tu perdras de quoi le relancer. Confirme pour continuer.",
+            409, needs_confirm=True)
     db.execute("DELETE FROM model_configs WHERE id=?", (mid,))
     db.commit()
-    if row:
-        _unregister_litellm_model(row['name'])
-        # Le fil d'annonces est un « quoi de neuf », pas un journal : garder
-        # « modèle X ajouté » pour un modèle qu'on vient de retirer annonce aux
-        # utilisateurs quelque chose qui n'existe plus. Le fait reste consigné
-        # dans l'audit, seul le fil est nettoyé.
-        retires = db.execute("DELETE FROM announcements WHERE kind='model_add' AND a=?",
-                             (row['name'],)).rowcount
-        db.commit()
-        log_audit(session.get('username'), 'model.delete',
-                  f"{row['name']} — retiré du catalogue LiteLLM, "
-                  f"{retires} annonce(s) retirée(s)")
-    flash("Modèle supprimé (retiré de LiteLLM).", "success")
-    return redirect(url_for('admin.admin'))
+    # Le resultat etait ignore : l'interface annoncait « retiré de LiteLLM » meme
+    # quand l'entree y survivait, et une entree LiteLLM sans ligne de catalogue
+    # est un routage que plus aucun ecran ne permet de nettoyer.
+    deregistre = _unregister_litellm_model(nom)
+    # Le fil d'annonces est un « quoi de neuf », pas un journal : garder
+    # « modèle X ajouté » pour un modèle qu'on vient de retirer annonce aux
+    # utilisateurs quelque chose qui n'existe plus. Le fait reste consigné
+    # dans l'audit, seul le fil est nettoyé.
+    retires = db.execute("DELETE FROM announcements WHERE kind='model_add' AND a=?",
+                         (nom,)).rowcount
+    db.commit()
+    log_audit(session.get('username'), 'model.delete',
+              f"{nom} — retiré du catalogue, LiteLLM "
+              f"{'dérégistré' if deregistre else 'NON DÉRÉGISTRÉ'}, "
+              f"{retires} annonce(s) retirée(s)")
+    if deregistre:
+        return _json_ok(f"{nom} supprimé du catalogue et retiré de LiteLLM.")
+    return _json_ok(f"{nom} supprimé du catalogue.",
+                    warning="L'entrée LiteLLM n'a pas pu être retirée : elle survit sans "
+                            "ligne de catalogue. Vérifie la passerelle.")
 
 @bp.route('/admin/settings', methods=['POST'])
 @admin_required
@@ -509,15 +738,18 @@ def update_settings():
         if budget_val <= 0:
             raise ValueError
     except ValueError:
-        flash("Le nombre de tokens par défaut doit être un nombre positif.", "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Le nombre de tokens par défaut doit être un nombre positif.")
     if not re.match(r'^\d+[smhd]$', duration):
-        flash("Durée invalide (ex: 1d, 7d, 30d, 12h).", "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Durée invalide (ex: 1d, 7d, 30d, 12h).")
+    ancien = get_setting('default_key_budget', None)
     set_setting('default_key_budget', budget_val)
     set_setting('default_key_duration', duration)
-    flash(f"Limite globale mise à jour : {budget_val:,.0f} tokens / {duration}.".replace(',', ' '), "success")
-    return redirect(url_for('admin.admin'))
+    # Le plafond GLOBAL n'etait pas audite, alors qu'il s'applique a tout compte
+    # sans override ni groupe : c'est l'action la plus large de la page.
+    log_audit(session.get('username'), 'settings.budget',
+              f"plafond global {ancien} → {budget_val:.0f} tokens / {duration}")
+    return _json_ok(f"Limite globale mise à jour : {budget_val:,.0f} tokens / {duration}."
+                    .replace(',', ' '))
 
 # ── Local user management (admin) ───────────────────────────────────────────
 
@@ -695,9 +927,19 @@ def admin_users_update(uid):
             return jsonify({'ok': False, 'error': err}), 400
         sets.append("max_budget=?"); vals.append(budget)
     if 'is_admin' in request.form:
-        sets.append("is_admin=?"); vals.append(int(request.form.get('is_admin') in ('1', 'true', 'on')))
+        nouveau_admin = int(request.form.get('is_admin') in ('1', 'true', 'on'))
+        if not nouveau_admin:
+            refus = _refus_retrait_admin(row, "rétrograder")
+            if refus:
+                return _json_erreur(refus, 409)
+        sets.append("is_admin=?"); vals.append(nouveau_admin)
     if 'enabled' in request.form:
-        sets.append("enabled=?"); vals.append(int(request.form.get('enabled') in ('1', 'true', 'on')))
+        nouvel_actif = int(request.form.get('enabled') in ('1', 'true', 'on'))
+        if not nouvel_actif:
+            refus = _refus_retrait_admin(row, "désactiver")
+            if refus:
+                return _json_erreur(refus, 409)
+        sets.append("enabled=?"); vals.append(nouvel_actif)
     if 'fullname' in request.form:
         sets.append("fullname=?"); vals.append(request.form.get('fullname', '').strip()[:120] or None)
     if sets:
@@ -714,7 +956,17 @@ def admin_users_update(uid):
         # un changement motivé par un doute sur un cookie volé ne protégeait
         # de rien, l'ancienne session continuant de valider.
         revoquees = max(revoquees, _revoke_user_sessions(updated['username']))
-    quota_ok = _sync_local_user_budget(updated['username'], updated)
+    # La resynchronisation du quota etait INCONDITIONNELLE : renommer un compte,
+    # changer son mot de passe ou corriger son nom reecrivait l'enveloppe LiteLLM
+    # a partir de local_users — ce qui EFFACAIT une subvention en cours, puisque
+    # budget_grants ne vit que cote LiteLLM. Le reaper constatait ensuite la
+    # derive, concluait « l'admin est intervenu entre-temps » et supprimait la
+    # ligne : le compte perdait son quota sans que personne ne soit prevenu.
+    recharge = request.form.get('enabled') in ('1', 'true', 'on')
+    if {'group', 'max_budget'} & set(request.form.keys()) or recharge:
+        quota_ok = _sync_local_user_budget(updated['username'], updated)
+    else:
+        quota_ok = True
     log_audit(session.get('username'), 'user.update',
               f"mise à jour de {updated['username']}"
               + (f" — mot de passe changé par l'admin, {revoquees} session(s) fermée(s)"
@@ -767,6 +1019,58 @@ def _dernier_admin_local(username):
         if r['username'] != username and _local_user_is_admin(r):
             return False
     return True
+
+
+def _admins_locaux_apres(simulation):
+    """Compte les admins locaux actifs APRÈS un retrait simulé.
+
+    `simulation` = {username: (is_admin, group_name)} des comptes dont l'état
+    change. Nécessaire pour le cas que `_dernier_admin_local` ne peut pas voir :
+    un groupe dont DEUX membres tiennent leurs droits d'administration. Pris un
+    par un, chacun voit l'autre comme admin et conclut qu'il peut partir ; les
+    retirer tous les deux n'en laisse aucun.
+    """
+    db = get_db()
+    n = 0
+    for r in db.execute("SELECT * FROM local_users WHERE enabled=1").fetchall():
+        etat = simulation.get(r['username'])
+        if etat is None:
+            if _local_user_is_admin(r):
+                n += 1
+            continue
+        is_admin, group_name = etat
+        if is_admin:
+            n += 1
+            continue
+        g = _local_group(group_name) if group_name else None
+        if g and g['is_admin']:
+            n += 1
+    return n
+
+
+def _refus_retrait_admin(row, action):
+    """Motif de refus si retirer les droits d'admin de `row` est interdit.
+
+    Deux cas, même raison : le portail deviendrait inadministrable en local.
+    - se désactiver ou se rétrograder SOI-MÊME échappe à toute réparation : plus
+      aucune session d'administration ne subsiste ;
+    - retirer le DERNIER admin local laisse la plateforme aux seuls admins du
+      répertoire, qui dépendent d'un annuaire externe.
+
+    La suppression et le blocage ont cette garde ; la MODIFICATION ne l'avait
+    pas, alors qu'un seul POST y suffisait — et la revalidation de l'état du
+    compte à chaque requête rend la perte d'accès immédiate (plus besoin
+    d'attendre l'expiration du cookie).
+    """
+    if not _local_user_is_admin(row):
+        return None
+    if row['username'] == session.get('username'):
+        return (f"Tu ne peux pas te {action} toi-même : tu perdrais immédiatement "
+                f"l'accès à l'administration. Demande-le à un autre administrateur.")
+    if _admins_locaux_apres({row['username']: (0, None)}) == 0:
+        return (f"{row['username']} est le dernier administrateur local actif : le "
+                f"portail n'aurait plus personne pour l'administrer en local.")
+    return None
 
 
 @bp.route('/admin/users/delete/<int:uid>', methods=['POST'])
@@ -980,6 +1284,18 @@ def admin_groups_create():
         return jsonify({'ok': False, 'error': err}), 400
     is_admin = request.form.get('is_admin') in ('1', 'true', 'on')
     db = get_db()
+    # Cas symetrique de la suppression : modifier un groupe existant pour lui
+    # RETIRER le droit d'admin (upsert ON CONFLICT) fait perdre leurs droits a
+    # ses membres — sans passer par la suppression. Meme garde.
+    ancien = _local_group(name)
+    if ancien and ancien['is_admin'] and not is_admin:
+        membres = db.execute("SELECT * FROM local_users WHERE group_name=?", (name,)).fetchall()
+        if any(_local_user_is_admin(m) for m in membres) and \
+                _admins_locaux_apres({m['username']: (0, None) for m in membres}) == 0:
+            return _json_erreur(
+                f"Retirer le droit d'administration du groupe {name} laisserait le "
+                f"portail sans aucun administrateur local. Ajoute un autre "
+                f"administrateur local d'abord.", 409)
     db.execute("INSERT INTO user_groups (name, max_budget, is_admin, created_at) VALUES (?,?,?,?) "
                "ON CONFLICT(name) DO UPDATE SET max_budget=excluded.max_budget, is_admin=excluded.is_admin",
                (name, budget, int(is_admin), datetime.now().isoformat()))
@@ -995,6 +1311,17 @@ def admin_groups_create():
 def admin_groups_delete(name):
     db = get_db()
     membres = db.execute("SELECT * FROM local_users WHERE group_name=?", (name,)).fetchall()
+    # Un groupe peut PORTER les droits d'administration de ses membres
+    # (user_groups.is_admin) : le supprimer peut donc laisser le portail sans
+    # aucun administrateur local, exactement comme retrograder le dernier. La
+    # suppression du groupe ne verifiait rien.
+    groupe = _local_group(name)
+    if groupe and groupe['is_admin'] and any(_local_user_is_admin(m) for m in membres):
+        if _admins_locaux_apres({m['username']: (0, None) for m in membres}) == 0:
+            return _json_erreur(
+                f"Le groupe {name} porte les droits d'administration de ses membres et "
+                f"aucun administrateur local ne subsisterait après sa suppression. "
+                f"Ajoute un autre administrateur local d'abord.", 409)
     db.execute("UPDATE local_users SET group_name=NULL WHERE group_name=?", (name,))
     db.execute("DELETE FROM user_groups WHERE name=?", (name,))
     db.commit()
@@ -1031,10 +1358,19 @@ def toggle_maintenance():
     # destinataires, pas les utilisateurs bloqués.
     sent = notify_maintenance_email(now_on, session.get('username', ''),
                                     session.get('fullname', ''))
-    flash("Mode maintenance activé." if now_on else "Mode maintenance désactivé.", "success")
+    # L'audit manquait sur la bascule : c'est pourtant l'action qui coupe l'acces
+    # a tout le monde, et « qui a active la maintenance a 3 h du matin » etait
+    # jusqu'ici sans reponse en base.
+    log_audit(session.get('username'), 'maintenance',
+              'activé' if now_on else 'désactivé')
+    # Le flash « email non envoyé » n'etait rendu par personne : l'avertissement
+    # SMTP documente comme visible par l'operateur ne l'etait pas. Il part
+    # desormais dans la reponse JSON, donc dans le bandeau de l'interface.
+    avert = None
     if all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]) and not sent:
-        flash("L'email d'alerte n'a pas pu être envoyé — vérifie la config SMTP.", "warning")
-    return redirect(url_for('admin.admin'))
+        avert = "L'email d'alerte n'a pas pu être envoyé — vérifie la config SMTP."
+    return _json_ok("Mode maintenance activé." if now_on else "Mode maintenance désactivé.",
+                    maintenance_mode=now_on, warning=avert)
 
 @bp.route('/admin/email/config')
 @admin_required
@@ -1081,23 +1417,19 @@ def approve_budget(req_id):
     db = get_db()
     breq = db.execute("SELECT * FROM budget_requests WHERE id=?", (req_id,)).fetchone()
     if not breq or breq['status'] != 'pending':
-        flash("Demande introuvable ou déjà traitée.", "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Demande introuvable ou déjà traitée.", 404)
     try:
         amount_val = float(amount)
         if amount_val <= 0:
             raise ValueError
     except ValueError:
-        flash("Le montant à ajouter doit être un nombre positif.", "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Le montant à ajouter doit être un nombre positif.")
     if amount_val > 1_000_000_000_000:
         # Garde-fou : un montant aberrant (typo « 6666726666666 ») rend le
         # compte illimité de facto — c'est arrivé sur ce serveur sans que
         # personne ne le voie. Au-delà d'1e12 tokens, c'est une erreur de
         # saisie, on refuse.
-        flash("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.",
-              "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.")
     # Budget at the ACCOUNT level: we increment the LiteLLM user's envelope.
     info = _litellm_user_info(breq['username'])
     current_budget = info.get('max_budget') or 0
@@ -1119,8 +1451,8 @@ def approve_budget(req_id):
             if not 1 <= jours <= 365:
                 raise ValueError
         except ValueError:
-            flash("Durée de la subvention : nombre de jours entre 1 et 365 (vide = permanent).", "warning")
-            return redirect(url_for('admin.admin'))
+            return _json_erreur("Durée de la subvention : nombre de jours entre 1 et 365 "
+                                "(vide = permanent).")
         expires_at = (datetime.utcnow() + timedelta(days=jours)).isoformat()
     if expires_at:
         # Subvention TEMPORAIRE : le plafond de base est figé UNE fois (au
@@ -1130,8 +1462,7 @@ def approve_budget(req_id):
         new_budget = (grant['current_budget'] if grant else base) + amount_val
         if not litellm_update_user_budget(breq['username'], new_budget,
                                           budget_duration=grant_duration):
-            flash("Erreur lors de la mise à jour du budget sur LiteLLM.", "danger")
-            return redirect(url_for('admin.admin'))
+            return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 502)
         now_iso = datetime.utcnow().isoformat()
         if grant:
             db.execute(
@@ -1146,8 +1477,7 @@ def approve_budget(req_id):
         new_budget = current_budget + amount_val
         if not litellm_update_user_budget(breq['username'], new_budget,
                                           budget_duration=grant_duration):
-            flash("Erreur lors de la mise à jour du budget sur LiteLLM.", "danger")
-            return redirect(url_for('admin.admin'))
+            return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 502)
         if grant:
             # Hausse PERMANENTE pendant une subvention : elle doit survivre à
             # l'échéance, donc elle relève le plafond de base lui-même.
@@ -1161,15 +1491,21 @@ def approve_budget(req_id):
     db.commit()
     add_notification(breq['username'], 'request',
                      f"Budget accordé : +{amount_val:,.0f} tokens.".replace(',', ' '))
+    # Accorder un budget n'etait PAS audite : c'est pourtant l'action qui a le
+    # plus riche passe d'incidents sur cette machine (la typo a 6,7e12 tokens),
+    # et « qui a augmente le quota de qui » doit avoir une reponse en base.
+    log_audit(session.get('username'), 'budget.approve',
+              f"{breq['username']} +{amount_val:.0f} tokens"
+              + (f" (temporaire, retour à {grant['base_budget'] if grant else current_budget:.0f} "
+                 f"le {expires_at[:16]})" if expires_at else " (permanent)"))
     _fmt = lambda n: f"{n:,.0f}".replace(',', ' ')  # noqa: E731
     if expires_at:
-        flash(f"+{_fmt(amount_val)} tokens accordés à {breq['fullname']} "
-              f"(total temporaire : {_fmt(new_budget)}, retour à {_fmt(grant['base_budget'] if grant else current_budget)} "
-              f"le {expires_at[:16].replace('T', ' ')} UTC).", "success")
-    else:
-        flash(f"+{_fmt(amount_val)} tokens accordés à {breq['fullname']} "
-              f"(nouveau total : {_fmt(new_budget)} / {grant_duration}).", "success")
-    return redirect(url_for('admin.admin'))
+        return _json_ok(f"+{_fmt(amount_val)} tokens accordés à {breq['fullname']} "
+                        f"(total temporaire : {_fmt(new_budget)}, retour à "
+                        f"{_fmt(grant['base_budget'] if grant else current_budget)} "
+                        f"le {expires_at[:16].replace('T', ' ')} UTC).")
+    return _json_ok(f"+{_fmt(amount_val)} tokens accordés à {breq['fullname']} "
+                    f"(nouveau total : {_fmt(new_budget)} / {grant_duration}).")
 
 
 @bp.route('/admin/users/<username>/budget/set', methods=['POST'])
@@ -1179,31 +1515,36 @@ def set_user_budget(username):
 
     Permet de BAISSER un quota (200M → 50M) comme de le hausser. Toute
     subvention temporaire en cours est écrasée : la décision admin fait foi.
+
+    0 est REFUSÉ. Mesuré sur cette instance : `user/update` avec `max_budget: 0`
+    laisse bien 0 en base (LiteLLM ne l'interprète pas comme « illimité »), donc
+    le compte est réellement plafonné à zéro token — un « je mets 0 pour lever
+    la limite » coupe l'accès. Le blocage fait le même effet, en réversible et
+    avec un motif consigné.
     """
     db = get_db()
     raw = request.form.get('budget', '').strip()
     try:
         value = float(raw)
-        if value < 0:
+        if value <= 0:
             raise ValueError
     except ValueError:
-        flash("Budget : nombre positif attendu (tokens).", "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur(
+            "Budget : nombre strictement positif attendu (tokens). Pour couper "
+            "l'accès d'un compte, utilise le blocage du compte — réversible et "
+            "tracé ; un budget de 0 le plafonne réellement à zéro token.")
     if value > 1_000_000_000_000:
         # Même garde-fou que l'approbation : au-delà d'1e12 tokens c'est une
         # typo qui rend le compte illimité de facto.
-        flash("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.", "warning")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.")
     grant_duration = get_setting('default_key_duration', KEY_DURATION)
     if not litellm_update_user_budget(username, value, budget_duration=grant_duration):
-        flash("Erreur lors de la mise à jour du budget sur LiteLLM.", "danger")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 502)
     db.execute("DELETE FROM budget_grants WHERE username=?", (username,))
     db.commit()
     log_audit(session.get('username', '?'), 'budget_set', f'{username}={value:.0f}')
     _fmt = lambda n: f"{n:,.0f}".replace(',', ' ')  # noqa: E731
-    flash(f"Budget de {username} redéfini à {_fmt(value)} tokens / {grant_duration}.", "success")
-    return redirect(url_for('admin.admin'))
+    return _json_ok(f"Budget de {username} redéfini à {_fmt(value)} tokens / {grant_duration}.")
 
 
 def revert_expired_grants():
@@ -1225,9 +1566,19 @@ def revert_expired_grants():
         actuel = info.get('max_budget')
         if actuel is None or abs(actuel - g['current_budget']) < 1:
             # Personne n'a touché au plafond depuis le boost : on revient à la base.
-            if litellm_update_user_budget(g['username'], g['base_budget'],
-                                          budget_duration=grant_duration):
-                ramenes += 1
+            if not litellm_update_user_budget(g['username'], g['base_budget'],
+                                              budget_duration=grant_duration):
+                # La ligne NE DOIT PAS disparaître : elle porte l'échéance ET le
+                # plafond de base, donc la seule raison de retenter au prochain
+                # passage. La supprimer malgré l'échec transformait une
+                # subvention TEMPORAIRE en hausse permanente, en silence — une
+                # minute de LiteLLM injoignable suffisait, et personne ne
+                # pouvait plus savoir qu'un retour était dû.
+                log_audit('reaper', 'budget.grant_revert_echec',
+                          f"{g['username']} : retour au plafond de base non appliqué "
+                          f"(LiteLLM injoignable ?), nouvelle tentative au prochain passage")
+                continue
+            ramenes += 1
         # Sinon l'admin est intervenu entre-temps : la subvention est simplement
         # oubliée, on n'écrase PAS sa décision.
         db.execute("DELETE FROM budget_grants WHERE id=?", (g['id'],))
@@ -1239,15 +1590,17 @@ def revert_expired_grants():
 def reject_budget(req_id):
     db = get_db()
     breq = db.execute("SELECT username FROM budget_requests WHERE id=?", (req_id,)).fetchone()
+    if not breq:
+        return _json_erreur("Demande introuvable.", 404)
     db.execute(
         "UPDATE budget_requests SET status='rejected', updated_at=? WHERE id=?",
         (datetime.now().isoformat(), req_id)
     )
     db.commit()
-    if breq and breq['username']:
+    if breq['username']:
         add_notification(breq['username'], 'request', "Ta demande de budget a été refusée.")
-    flash("Demande rejetée.", "success")
-    return redirect(url_for('admin.admin'))
+    log_audit(session.get('username'), 'budget.reject', breq['username'] or '?')
+    return _json_ok("Demande rejetée.")
 
 @bp.route('/admin/runner/logs')
 @admin_required
@@ -1377,42 +1730,63 @@ def _add_model_to_catalog(db, hf_id):
 def update_request(req_id):
     status = request.form.get('status')
     if status not in ('pending', 'done', 'rejected'):
-        flash("Statut invalide.", "danger")
-        return redirect(url_for('admin.admin'))
+        return _json_erreur("Statut invalide.")
     db = get_db()
     req = db.execute("SELECT username, model_id FROM model_requests WHERE id=?", (req_id,)).fetchone()
+    if not req:
+        return _json_erreur("Demande introuvable.", 404)
+
+    nom, deja, routage_ok = None, False, True
+    if status == 'done' and req['model_id']:
+        # On ENREGISTRE d'abord, on annonce ensuite. La demande etait marquee
+        # « Lancé ✓ » et l'email « ton modèle est disponible » partait AVANT de
+        # savoir si l'enregistrement LiteLLM avait abouti ; l'echec ne sortait que
+        # dans un flash que l'interface ne rendait pas. Le demandeur apprenait
+        # donc qu'il pouvait utiliser un modele qui n'etait pas route.
+        nom, deja = _add_model_to_catalog(db, req['model_id'])
+        cfg = db.execute("SELECT vllm_args, engine FROM model_configs WHERE name=?", (nom,)).fetchone()
+        routage_ok = _register_litellm_model(
+            nom, cfg['vllm_args'] if cfg else DEFAULT_VLLM_ARGS,
+            (cfg['engine'] if cfg else 'vllm') or 'vllm')
+        if not routage_ok:
+            db.commit()          # le catalogue, lui, est bien a jour
+            log_audit(session.get('username'), 'request.routage_echec',
+                      f"demande #{req_id} ({nom}) : catalogue OK, LiteLLM non enregistré")
+            return _json_erreur(
+                f"Le modèle « {nom} » est dans le catalogue, mais son enregistrement "
+                f"LiteLLM a échoué : la demande reste EN ATTENTE et le demandeur n'est "
+                f"pas prévenu (il ne pourrait pas l'utiliser). Réessaie.", 502)
+
     db.execute("UPDATE model_requests SET status=?, updated_at=? WHERE id=?",
                (status, datetime.now().isoformat(), req_id))
-    # Notification in-app au demandeur (cloche) — l'email reste le canal de fond.
-    if req and req['username']:
+    db.commit()
+
+    if req['username']:
         if status == 'done':
-            add_notification(req['username'], 'request', f"Ton modèle est disponible : {req['model_id'] or 'demande validée'}.")
+            add_notification(req['username'], 'request',
+                             f"Ton modèle est disponible : {req['model_id'] or 'demande validée'}.")
         elif status == 'rejected':
             add_notification(req['username'], 'request', "Ta demande de modèle a été refusée.")
-    # Approving a request = adding it to the launchable catalog (like seeded models).
-    if status == 'done':
-        req = db.execute("SELECT username, model_id FROM model_requests WHERE id=?", (req_id,)).fetchone()
-        if req and req['model_id']:
-            # Notifies the requester by email that their model is available.
-            email = ldap_lookup_email(req['username'])
-            if email:
-                send_user_email(email, "[Cronos] Ton modèle est disponible",
-                                f"Bonne nouvelle — le modèle que tu as demandé est validé et "
-                                f"disponible sur la plateforme Cronos :\n\n  {req['model_id']}\n\n"
-                                f"Tu peux l'utiliser via l'API / le Playground une fois lancé.\n"
-                                f"https://dgx.cronos.website/\n")
-            name, existed = _add_model_to_catalog(db, req['model_id'])
-            cfg = db.execute("SELECT vllm_args, engine FROM model_configs WHERE name=?", (name,)).fetchone()
-            ok = _register_litellm_model(name, cfg['vllm_args'] if cfg else DEFAULT_VLLM_ARGS,
-                                         (cfg['engine'] if cfg else 'vllm') or 'vllm')
-            routed = "" if ok else " (⚠ enregistrement LiteLLM échoué — à vérifier)"
-            if existed:
-                flash(f"Modèle déjà dans le catalogue sous « {name} ».{routed}", "info")
-            else:
-                add_announcement('model_add', name)
-                flash(f"Modèle « {name} » ajouté au catalogue et routé par LiteLLM — vérifie ses args vLLM puis lance-le.{routed}", "success")
-    db.commit()
-    return redirect(url_for('admin.admin'))
+
+    log_audit(session.get('username'), 'request.status',
+              f"demande #{req_id} → {status}" + (f" ({nom})" if nom else ""))
+
+    if status != 'done' or not req['model_id']:
+        return _json_ok("Demande mise à jour.")
+
+    # Notifies the requester by email that their model is available.
+    email = ldap_lookup_email(req['username'])
+    if email:
+        send_user_email(email, "[Cronos] Ton modèle est disponible",
+                        f"Bonne nouvelle — le modèle que tu as demandé est validé et "
+                        f"disponible sur la plateforme Cronos :\n\n  {req['model_id']}\n\n"
+                        f"Tu peux l'utiliser via l'API / le Playground une fois lancé.\n"
+                        f"https://dgx.cronos.website/\n")
+    if deja:
+        return _json_ok(f"Modèle déjà dans le catalogue sous « {nom} ».")
+    add_announcement('model_add', nom)
+    return _json_ok(f"Modèle « {nom} » ajouté au catalogue et routé par LiteLLM — "
+                    f"vérifie ses args vLLM puis lance-le.")
 
 
 @bp.route('/admin/support/feedback')

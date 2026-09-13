@@ -10,6 +10,7 @@ portail, donc tout le monde peut l'importer sans risque de cycle.
 """
 import os
 import sqlite3
+import sys
 import time
 from datetime import datetime
 
@@ -26,18 +27,28 @@ def log_audit(username, action, detail):
 
     `action` est un libellé court et stable (ex. « launch », « stop »,
     « user.create ») ; `detail` la description lisible. On journalise l'acteur
-    (`username`) et l'horodatage, jamais de secret."""
+    (`username`) et l'horodatage, jamais de secret.
+
+    Un échec d'écriture ne doit pas casser l'action en cours, mais il ne doit
+    pas non plus être INVISIBLE : un audit muet est indiscernable d'une action
+    qui n'a pas eu lieu. Il part donc sur la sortie d'erreur, où les journaux du
+    conteneur le montrent.
+    """
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
         c.execute("INSERT INTO audit_log (username, action, detail, created_at) VALUES (?,?,?,?)",
                   (username or 'système', action, detail, datetime.now().isoformat()))
         # On ne garde que l'historique récent (les actions sensibles sont rares).
+        # 500 lignes se recyclaient en quelques jours sur cette machine (les
+        # verrouillages de compte et les révocations de session y écrivent aussi,
+        # pas seulement les lancements de modèle) : « qui a fait quoi la semaine
+        # dernière » devenait sans réponse au moment précis où on la posait.
         c.execute("""DELETE FROM audit_log WHERE id NOT IN (
-            SELECT id FROM audit_log ORDER BY id DESC LIMIT 500)""")
+            SELECT id FROM audit_log ORDER BY id DESC LIMIT 5000)""")
         c.commit()
         c.close()
-    except Exception:
-        pass
+    except Exception as exc:                                     # noqa: BLE001
+        print(f"[audit] écriture impossible ({action}) : {exc}", file=sys.stderr)
 
 
 def add_notification(username, kind, title, max_per_user=50):

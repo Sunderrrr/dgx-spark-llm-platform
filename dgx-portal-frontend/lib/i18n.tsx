@@ -1013,6 +1013,9 @@ const EN: Record<string, string> = {
   // — Login (continued) —
   "Session expirée — recharge la page et réessaie.": "Session expired — reload the page and try again.",
   "Identifiants incorrects.": "Incorrect credentials.",
+  "Appareil inconnu": "Unknown device",
+  "Origine non enregistrée : session ouverte avant que le portail ne note l'IP et le navigateur.":
+    "Origin not recorded: this session was opened before the portal started recording the IP and browser.",
   "Accès révoqué pour ce compte. Contacte un administrateur.":
     "Access revoked for this account. Contact an administrator.",
 

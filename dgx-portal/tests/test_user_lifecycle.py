@@ -539,6 +539,46 @@ class AutoServiceTest(BaseComptes):
         self.assertEqual(r.status_code, 400)
 
 
+class OrigineSessionTest(BaseComptes):
+    """Une session ouverte avant l'ajout des colonnes IP/user-agent n'en a
+    aucune : son porteur doit pouvoir la compléter en ouvrant sa liste, sinon il
+    ne peut pas reconnaître ses propres sessions (un tiret ne dit rien)."""
+
+    def test_une_session_sans_origine_se_complete_a_la_lecture(self):
+        sid = secrets.token_urlsafe(32)
+        c = self._client(CIBLE, sid=sid, ip=None, user_agent=None)
+        self.assertEqual(c.get('/api/account/sessions').status_code, 200)
+        with portal.app.app_context():
+            row = portal.get_db().execute(
+                "SELECT ip, user_agent FROM user_sessions WHERE sid=?", (sid,)).fetchone()
+        self.assertTrue(row['ip'])
+        self.assertTrue(row['user_agent'])
+
+    def test_une_origine_deja_notee_n_est_jamais_ecrasee(self):
+        sid = secrets.token_urlsafe(32)
+        c = self._client(CIBLE, sid=sid, ip='203.0.113.9', user_agent='Ancien/1.0')
+        self.assertEqual(c.get('/api/account/sessions').status_code, 200)
+        with portal.app.app_context():
+            row = portal.get_db().execute(
+                "SELECT ip, user_agent FROM user_sessions WHERE sid=?", (sid,)).fetchone()
+        # C'est précisément la trace qu'on veut garder : un cookie volé ne doit
+        # pas pouvoir réécrire sa propre origine en se présentant.
+        self.assertEqual((row['ip'], row['user_agent']), ('203.0.113.9', 'Ancien/1.0'))
+
+    def test_la_vue_admin_ne_touche_pas_la_session_d_un_autre(self):
+        autrui = secrets.token_urlsafe(32)
+        self._client(CIBLE, sid=autrui, ip=None, user_agent=None)
+        admin = self._client(ADMIN, is_admin=True)
+        self.assertEqual(admin.get(f'/admin/users/{CIBLE}/detail').status_code, 200)
+        with portal.app.app_context():
+            row = portal.get_db().execute(
+                "SELECT ip FROM user_sessions WHERE sid=?", (autrui,)).fetchone()
+        # Y écrire l'IP de l'admin ferait dire à la ligne « cette session vient
+        # de l'admin » — un mensonge dans la seule vue qui sert à repérer une
+        # session inconnue.
+        self.assertIsNone(row['ip'])
+
+
 class PolitiqueMotDePasseTest(unittest.TestCase):
     """Règles de mot de passe, testées directement : elles servent à la fois à
     la création par un admin et au changement en autonomie."""

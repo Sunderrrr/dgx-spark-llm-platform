@@ -98,7 +98,7 @@ export function UserLookup({
             label={t("Identifiant à rechercher")}
             value={query}
             onChange={(v) => { setQuery(v); setPicked(null); }}
-            placeholder="mboitel"
+            placeholder={t("ex : jdoe")}
           />
           {q && matches.length === 0 && (
             <Text type="supporting" color="secondary">{t("Aucun utilisateur ne correspond.")}</Text>

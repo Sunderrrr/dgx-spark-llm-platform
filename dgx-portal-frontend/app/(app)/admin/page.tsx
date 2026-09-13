@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { Center } from "@astryxdesign/core/Center";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
@@ -34,11 +34,12 @@ import {
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { getJSON, postForm, postFormJSON, ForbiddenError } from "@/lib/api";
+import { authFetch, getJSON, postForm, ForbiddenError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { UserLookup } from "./_components/UserLookup";
 import { EmailConfig } from "./_components/EmailConfig";
+import { PlatformStatus, type PlatformStatusData } from "./_components/PlatformStatus";
 
 type ModelCfg = { id: number; name: string; hf_model_id: string; engine: string; vllm_args: string };
 type OcrCfg = { id: number; name: string; hf_model_id: string; vllm_args: string };
@@ -82,6 +83,9 @@ type AdminData = {
   voice_status: string;
   voice_model_name: string | null;
   asr_status: string;
+  /** Ajouté en parallèle côté portail ; absent sur l'ancien backend — la
+      ligne n'est simplement pas affichée tant que le champ manque. */
+  asr_model_name?: string | null;
   image_status: string;
   image_model_name: string | null;
   image_model_ids: string[];
@@ -92,6 +96,18 @@ type AdminData = {
 };
 
 type CatalogKind = "llm" | "ocr" | "voice" | "video" | "image" | "music";
+
+/** Résultat d'une action admin, tel que le backend le répond désormais :
+ * {ok: false, error} sur refus, {ok: true, message?, warning?} sinon. */
+type ActResult = { ok: boolean; error?: string; warning?: string };
+
+/** Les quatre actions destructrices/impactantes qui exigent une confirmation
+ * explicite avant le POST (cf. ConfirmActionDialog plus bas). */
+type ConfirmAction =
+  | { kind: "stop-model" }
+  | { kind: "launch"; name: string }
+  | { kind: "delete-model"; id: number; name: string }
+  | { kind: "maintenance" };
 
 const MAX_LOG_LINES = 600;
 
@@ -118,8 +134,9 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   // Which model's logs the admin is viewing. "llm" is the live SSE stream
-  // (the chat model); the sidecars are fetched on demand + polled.
-  const [logKind, setLogKind] = useState<"llm" | "ocr" | "voice" | "image" | "music" | "video">("llm");
+  // (the chat model); the sidecars are fetched on demand + polled. "asr" is
+  // the dictation sidecar, served by the same /admin/sidecar-logs route.
+  const [logKind, setLogKind] = useState<"llm" | "ocr" | "voice" | "asr" | "image" | "music" | "video">("llm");
   const [sidecarLogs, setSidecarLogs] = useState<string[]>([]);
   const [newModel, setNewModel] = useState({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
   const [newOcr, setNewOcr] = useState({ name: "", hf_model_id: "", vllm_args: "" });
@@ -128,6 +145,14 @@ export default function AdminPage() {
   const [announce, setAnnounce] = useState({ title: "", body: "" });
   const [settings, setSettings] = useState({ budget: "", duration: "" });
   const [musicModel, setMusicModel] = useState("MiniMaxAI/MiniMax-Music3");
+  const [platform, setPlatform] = useState<PlatformStatusData | null>(null);
+  // Verrou d'in-flight : pendant une action (un lancement tient la requête
+  // 10-60 s), TOUS les boutons d'action de la page se désactivent — un second
+  // clic pendant ce temps ne peut plus partir en double. Le ref doublonne
+  // l'état React pour blinder la fenêtre de rendu entre deux clics.
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
   // Texte affiché dans le visualiseur de logs, et suivi automatique du bas —
   // même comportement que le panneau du Playground : on colle au bas tant que
@@ -170,22 +195,32 @@ export default function AdminPage() {
     getJSON<AdminData>("/api/admin")
       .then((d) => {
         setData(d);
-        if (amorce) setLogs(d.init_logs);
-        setSettings({ budget: String(d.default_key_budget), duration: d.default_key_duration });
+        if (amorce) {
+          setLogs(d.init_logs);
+          // Le formulaire des quotas par défaut n'est pré-rempli qu'À LA
+          // PREMIÈRE charge : le resynchroniser à chaque tour de poll
+          // écrasait la saisie de l'admin sous ses doigts, et c'est la valeur
+          // périmée qui partait au clic sur « Appliquer ».
+          setSettings({ budget: String(d.default_key_budget), duration: d.default_key_duration });
+        }
       })
       .catch((e) => {
         if (e instanceof ForbiddenError) setForbidden(true);
       });
-  }
-
-  useEffect(() => { refresh(true); }, []);
-  // Journal d'audit : chargé une fois à l'ouverture (les actions sensibles sont
-  // rares, pas besoin de polling rapproché).
-  useEffect(() => {
+    // Journal d'audit + relevé plateforme : dans la même boucle de
+    // rafraîchissement (8 s, et après chaque action via act()), pour que le
+    // journal montre l'action qui vient d'être posée au lieu d'un instantané
+    // du chargement de la page. Deux requêtes de plus par tour, locales et
+    // légères — le compromis assumé de l'écran d'admin.
     getJSON<AuditRow[]>("/admin/audit")
       .then((d) => setAudit(d ?? []))
       .catch(() => {});
-  }, []);
+    getJSON<PlatformStatusData>("/admin/platform")
+      .then((d) => setPlatform(d))
+      .catch(() => setPlatform(null));
+  }
+
+  useEffect(() => { refresh(true); }, []);
   // Re-poll admin data every 8s; stops once access is known forbidden to
   // avoid hammering a 403.
   useEffect(() => {
@@ -224,22 +259,68 @@ export default function AdminPage() {
     return () => { alive = false; clearInterval(id); };
   }, [logKind, forbidden]);
 
-  async function act(url: string, params: Record<string, string> = {}) {
-    if (!csrf) return;
-    // Some routes (sidecar startup) return { ok, error } with a non-2xx
-    // status on refusal (insufficient memory, etc.). We read that result
-    // instead of always showing "done" — the real bug that made an OCR/video
-    // launch look successful while it was actually OOMing.
-    let errMsg: string | null = null;
+  // Le contrat backend (généralisé à TOUTES les routes d'action admin) :
+  // JSON {ok: boolean, error?, message?, warning?} avec un code HTTP honnête
+  // (200 ok, 400 refus, 404 introuvable, 409 à confirmer, 502 amont, 507
+  // mémoire). On ne déclare donc la victoire QUE sur un 2xx portant un JSON
+  // qui ne dit pas ok:false ; un corps non-JSON, un 4xx/5xx ou ok:false sont
+  // des échecs. Auparavant, le catch assimilait « JSON illisible » à un
+  // succès : un arrêt refusé s'affichait comme effectué. Les phrases du
+  // serveur (error/message/warning) sont du français libre, pas des clés
+  // i18n — elles s'affichent telles quelles.
+  async function act(url: string, params: Record<string, string> = {}): Promise<ActResult> {
+    if (!csrf || busyRef.current) return { ok: false };
+    busyRef.current = true;
+    setBusy(true);
+    let result: ActResult = { ok: false };
     try {
-      const res = await postFormJSON<{ ok?: boolean; error?: string }>(url, csrf, params);
-      if (res && res.ok === false) errMsg = res.error ? t(res.error) : t("Échec de l'action.");
+      // authFetch (et non postFormJSON) pour lire le code HTTP : le JSON seul
+      // ne suffit pas à distinguer un refus (400/502…) d'un succès.
+      const res = await authFetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
+        body: new URLSearchParams(params).toString(),
+      });
+      const body = await res.json().catch(() => null) as (ActResult & { message?: string }) | null;
+      const warning = typeof body?.warning === "string" ? body.warning : undefined;
+      if (res.status === 403) {
+        // Admin rétrogradé en cours de session : « accès refusé », jamais un
+        // succès. (authFetch ne lève pas sur 403 — seul 401 redirige.)
+        showToast({ body: t("Accès refusé."), type: "error" });
+      } else if (res.status >= 400 || !body || body.ok === false) {
+        const errMsg = body?.error ?? t("Échec de l'action.");
+        showToast({ body: errMsg, type: "error" });
+        result = { ok: false, error: errMsg, warning };
+      } else {
+        // Le serveur fournit souvent une phrase utile (« Lancement de X
+        // accepté — chargement en cours. ») : on l'affiche de préférence.
+        showToast({ body: body.message ?? t("Action effectuée."), type: "info" });
+        result = { ok: true, warning };
+      }
     } catch {
-      // Non-JSON response (older redirect routes) → treated as OK.
+      // Erreur réseau (pas de réponse du tout) : échec, évidemment.
+      showToast({ body: t("Échec de l'action."), type: "error" });
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
-    showToast(errMsg ? { body: errMsg, type: "error" } : { body: t("Action effectuée."), type: "info" });
     refresh();
+    return result;
   }
+
+  // Les quatre confirmations passent par un seul dialog (ConfirmActionDialog) :
+  // le clic sur le bouton d'action n'ouvre QUE le dialog, le POST ne part
+  // qu'à la confirmation. Pour la suppression, `confirm=1` accompagne le POST
+  // confirmé (le backend l'exige pour retirer l'entrée du modèle actuellement
+  // servi — la confirmation UI est justement ce consentement).
+  function runConfirmedAction(action: ConfirmAction) {
+    if (action.kind === "stop-model") act("/admin/model/stop");
+    else if (action.kind === "launch") act("/admin/model/launch", { model_name: action.name });
+    else if (action.kind === "delete-model") act(`/admin/model/delete/${action.id}`, { confirm: "1" });
+    else act("/admin/maintenance/toggle");
+  }
+
+  const actionDisabled = busy || !csrf;
 
   const st = data?.v_status.status;
 
@@ -267,8 +348,8 @@ export default function AdminPage() {
       renderCell: (r) =>
         r.status === "pending" ? (
           <HStack gap={1}>
-            <BudgetApproveForm fullname={r.fullname} currentBudget={r.current_budget} onApprove={(amount, days) => act(`/admin/budget/approve/${r.id}`, { amount, grant_days: days })} />
-            <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => act(`/admin/budget/reject/${r.id}`)} />
+            <BudgetApproveForm fullname={r.fullname} currentBudget={r.current_budget} isDisabled={actionDisabled} onApprove={(amount, days) => act(`/admin/budget/approve/${r.id}`, { amount, grant_days: days })} />
+            <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act(`/admin/budget/reject/${r.id}`)} />
           </HStack>
         ) : null,
     },
@@ -285,8 +366,8 @@ export default function AdminPage() {
       header: t("Action"),
       renderCell: (r) => (
         <HStack gap={1}>
-          {r.status !== "done" && <Button label={t("Lancé")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={CheckIcon} size="sm" />} onClick={() => act(`/admin/update/${r.id}`, { status: "done" })} />}
-          {r.status !== "rejected" && <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => act(`/admin/update/${r.id}`, { status: "rejected" })} />}
+          {r.status !== "done" && <Button label={t("Lancé")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={CheckIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act(`/admin/update/${r.id}`, { status: "done" })} />}
+          {r.status !== "rejected" && <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act(`/admin/update/${r.id}`, { status: "rejected" })} />}
         </HStack>
       ),
     },
@@ -330,6 +411,11 @@ export default function AdminPage() {
               <Text type="supporting" color="secondary">{t("Pilotage des modèles, quotas de tokens et demandes des utilisateurs.")}</Text>
             </VStack>
 
+            {/* Widget de bord de commande (disque, sauvegarde, moniteur, modèle
+                servi, compteurs) : rafraîchi par le même poll de 8 s que le
+                reste de la page — les données descendent, pas de second timer. */}
+            <PlatformStatus status={platform} />
+
             {data && (
               <Banner
                 status={data.maintenance_mode ? "warning" : "info"}
@@ -342,7 +428,8 @@ export default function AdminPage() {
                     label={data.maintenance_mode ? t("Désactiver") : t("Activer")}
                     variant={data.maintenance_mode ? "secondary" : "primary"}
                     size="sm"
-                    onClick={() => act("/admin/maintenance/toggle")}
+                    isDisabled={actionDisabled}
+                    onClick={() => setConfirmAction({ kind: "maintenance" })}
                   />
                 }
               />
@@ -368,7 +455,17 @@ export default function AdminPage() {
                           <Text weight="semibold">{t("LLM")}</Text>
                         </HStack>
                         {(st === "running" || st === "starting") && (
-                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/model/stop")} />
+                          // Arrêter le modèle servi coupe TOUTES les générations
+                          // en cours : ça mérite un dialog, pas un clic direct.
+                          <Button
+                            label={t("Arrêter")}
+                            variant="secondary"
+                            size="sm"
+                            isIconOnly
+                            icon={<Icon icon={StopIcon} size="sm" />}
+                            isDisabled={actionDisabled}
+                            onClick={() => setConfirmAction({ kind: "stop-model" })}
+                          />
                         )}
                       </HStack>
                       <Text type="supporting" color="secondary" wordBreak="break-all">
@@ -387,9 +484,9 @@ export default function AdminPage() {
                           <Text weight="semibold">OCR</Text>
                         </HStack>
                         {data.ocr_status === "running" || data.ocr_status === "starting" ? (
-                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/ocr/stop")} />
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/ocr/stop")} />
                         ) : (
-                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/ocr/start")} />
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/ocr/start")} />
                         )}
                       </HStack>
                       <Text type="supporting" color="secondary" wordBreak="break-all">
@@ -408,12 +505,13 @@ export default function AdminPage() {
                           <Text weight="semibold">{t("Vidéo")}</Text>
                         </HStack>
                         {data.video_status === "running" || data.video_status === "starting" ? (
-                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/video/stop")} />
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/video/stop")} />
                         ) : (
-                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/video/start")} />
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/video/start")} />
                         )}
                       </HStack>
-                      <Text type="supporting" color="secondary" wordBreak="break-all">MiniMax H3</Text>
+                      {/* La vidéo est un workflow ComfyUI figé : la charge
+                          n'expose aucun nom de modèle, on n'en invente pas. */}
                     </VStack>
                   </Card>
                   <Card>
@@ -427,9 +525,9 @@ export default function AdminPage() {
                           <Text weight="semibold">{t("Voix")}</Text>
                         </HStack>
                         {data.voice_status === "running" || data.voice_status === "starting" ? (
-                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/voice/stop")} />
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/voice/stop")} />
                         ) : (
-                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/voice/start")} />
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/voice/start")} />
                         )}
                       </HStack>
                       <Text type="supporting" color="secondary" wordBreak="break-all">
@@ -448,12 +546,17 @@ export default function AdminPage() {
                           <Text weight="semibold">{t("Dictée")}</Text>
                         </HStack>
                         {data.asr_status === "running" || data.asr_status === "starting" ? (
-                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/asr/stop")} />
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/asr/stop")} />
                         ) : (
-                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/asr/start")} />
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/asr/start")} />
                         )}
                       </HStack>
-                      <Text type="supporting" color="secondary" wordBreak="break-all">whisper-large-v3-turbo</Text>
+                      {/* Le nom du modèle asr n'est fourni que si le backend le
+                          rapporte (asr_model_name, ajouté en parallèle) : sans
+                          lui, pas de ligne du tout — jamais de nom codé en dur. */}
+                      {data.asr_model_name && (
+                        <Text type="supporting" color="secondary" wordBreak="break-all">{data.asr_model_name}</Text>
+                      )}
                     </VStack>
                   </Card>
                   <Card>
@@ -467,9 +570,9 @@ export default function AdminPage() {
                           <Text weight="semibold">{t("Image")}</Text>
                         </HStack>
                         {data.image_status === "running" || data.image_status === "starting" ? (
-                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/image/stop")} />
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/image/stop")} />
                         ) : (
-                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/image/start")} />
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/image/start")} />
                         )}
                       </HStack>
                       <Text type="supporting" color="secondary" wordBreak="break-all">
@@ -488,9 +591,9 @@ export default function AdminPage() {
                           <Text weight="semibold">{t("Musique")}</Text>
                         </HStack>
                         {data.music_status === "running" || data.music_status === "starting" ? (
-                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} onClick={() => act("/admin/music/stop")} />
+                          <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/music/stop")} />
                         ) : (
-                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/music/start")} />
+                          <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/music/start")} />
                         )}
                       </HStack>
                       <Text type="supporting" color="secondary" wordBreak="break-all">
@@ -529,8 +632,17 @@ export default function AdminPage() {
                           {cfg.hf_model_id}
                         </Text>
                         <HStack gap={2}>
-                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/model/launch", { model_name: cfg.name })} />
-                          <Button label={t("Supprimer")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => act(`/admin/model/delete/${cfg.id}`)} />
+                          {/* Lancer = charger le modèle en mémoire (minutes,
+                              grosse emprise mémoire) et Supprimer = retirer
+                              l'entrée (du catalogue ET du routage LiteLLM) :
+                              les deux passent par une confirmation. */}
+                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => setConfirmAction({ kind: "launch", name: cfg.name })} />
+                          <ArgsEditForm
+                            cfg={cfg}
+                            isDisabled={actionDisabled}
+                            onSubmit={(params) => act(`/admin/model/edit/${cfg.id}`, params)}
+                          />
+                          <Button label={t("Supprimer")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => setConfirmAction({ kind: "delete-model", id: cfg.id, name: cfg.name })} />
                         </HStack>
                       </VStack>
                     </Card>
@@ -561,6 +673,7 @@ export default function AdminPage() {
                           await act("/admin/model/add", newModel);
                           setNewModel({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
                         }}
+                        isDisabled={actionDisabled}
                       />
                     </VStack>
                   </Card>
@@ -577,8 +690,8 @@ export default function AdminPage() {
                           {cfg.hf_model_id}
                         </Text>
                         <HStack gap={2}>
-                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/ocr/catalog/launch", { ocr_name: cfg.name })} />
-                          <Button label={t("Supprimer")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => act(`/admin/ocr/catalog/delete/${cfg.id}`)} />
+                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/ocr/catalog/launch", { ocr_name: cfg.name })} />
+                          <Button label={t("Supprimer")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act(`/admin/ocr/catalog/delete/${cfg.id}`)} />
                         </HStack>
                       </VStack>
                     </Card>
@@ -598,6 +711,7 @@ export default function AdminPage() {
                           await act("/admin/ocr/catalog/add", newOcr);
                           setNewOcr({ name: "", hf_model_id: "", vllm_args: "" });
                         }}
+                        isDisabled={actionDisabled}
                       />
                     </VStack>
                   </Card>
@@ -614,8 +728,8 @@ export default function AdminPage() {
                           {cfg.repo_id}
                         </Text>
                         <HStack gap={2}>
-                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/voice/catalog/launch", { voice_name: cfg.name })} />
-                          <Button label={t("Supprimer")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => act(`/admin/voice/catalog/delete/${cfg.id}`)} />
+                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/voice/catalog/launch", { voice_name: cfg.name })} />
+                          <Button label={t("Supprimer")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act(`/admin/voice/catalog/delete/${cfg.id}`)} />
                         </HStack>
                       </VStack>
                     </Card>
@@ -647,6 +761,7 @@ export default function AdminPage() {
                           await act("/admin/voice/catalog/add", newVoice);
                           setNewVoice({ name: "", repo_id: "Qwen3-TTS-12Hz-1.7B-Base" });
                         }}
+                        isDisabled={actionDisabled}
                       />
                     </VStack>
                   </Card>
@@ -663,7 +778,7 @@ export default function AdminPage() {
                           {mid === data.image_model_name ? t("Modèle actif") : t("diffusers · text-to-image")}
                         </Text>
                         <HStack gap={2}>
-                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} onClick={() => act("/admin/image/launch", { model_id: mid })} />
+                          <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/image/launch", { model_id: mid })} />
                         </HStack>
                       </VStack>
                     </Card>
@@ -700,6 +815,7 @@ export default function AdminPage() {
                         variant="primary"
                         size="sm"
                         icon={<Icon icon={PlayIcon} size="sm" />}
+                        isDisabled={actionDisabled}
                         onClick={() => act("/admin/music/launch", { model_id: musicModel.trim() })}
                       />
                     </VStack>
@@ -710,7 +826,6 @@ export default function AdminPage() {
               {data && catalogKind === "video" && (
                 <Card>
                   <VStack gap={1}>
-                    <Text weight="semibold">MiniMax H3</Text>
                     <Text type="supporting" color="secondary">
                       {t("La vidéo n'a pas de catalogue : un seul workflow ComfyUI figé, démarré et arrêté depuis la ligne « Backends » ci-dessus.")}
                     </Text>
@@ -729,6 +844,7 @@ export default function AdminPage() {
                       variant="secondary"
                       size="sm"
                       icon={<Icon icon={MegaphoneIcon} size="sm" />}
+                      isDisabled={actionDisabled}
                       onClick={async () => {
                         await act("/admin/announce", announce);
                         setAnnounce({ title: "", body: "" });
@@ -750,6 +866,7 @@ export default function AdminPage() {
                       <SegmentedControlItem value="llm" label={t("LLM")} />
                       <SegmentedControlItem value="ocr" label="OCR" />
                       <SegmentedControlItem value="voice" label={t("Voix")} />
+                      <SegmentedControlItem value="asr" label={t("Dictée")} />
                       <SegmentedControlItem value="image" label={t("Image")} />
                       <SegmentedControlItem value="music" label={t("Musique")} />
                       <SegmentedControlItem value="video" label={t("Vidéo")} />
@@ -830,6 +947,7 @@ export default function AdminPage() {
                     variant="secondary"
                     size="sm"
                     icon={<Icon icon={CheckIcon} size="sm" />}
+                    isDisabled={actionDisabled}
                     onClick={() => act("/admin/settings", { default_key_budget: settings.budget, default_key_duration: settings.duration })}
                   />
                 </HStack>
@@ -857,7 +975,7 @@ export default function AdminPage() {
                   ))}
                 </VStack>
               )}
-              <BudgetSetForm rows={data?.spend_data ?? []} />
+              <BudgetSetForm rows={data?.spend_data ?? []} actionDisabled={actionDisabled} />
             </VStack>
 
             <UserLookup
@@ -866,6 +984,17 @@ export default function AdminPage() {
               video={data?.video_usage ?? []}
               voice={data?.voice_usage ?? []}
               requests={data?.requests ?? []}
+            />
+
+            {/* Une seule instance pour les quatre confirmations (arrêt modèle,
+                lancement, suppression catalogue, maintenance) : contenu piloté
+                par confirmAction. */}
+            <ConfirmActionDialog
+              action={confirmAction}
+              maintenanceActive={!!data?.maintenance_mode}
+              isDisabled={actionDisabled}
+              onClose={() => setConfirmAction(null)}
+              onConfirm={runConfirmedAction}
             />
 
             <VStack gap={2}>
@@ -895,7 +1024,7 @@ const BUDGET_PRESETS = [10000000, 50000000, 100000000];
 const fmtCompact = (n: number) =>
   n >= 1_000_000 && n % 1_000_000 === 0 ? `${Math.round(n / 1_000_000)}M` : Math.round(n).toLocaleString("fr-FR");
 
-function BudgetSetForm({ rows }: { rows: SpendRow[] }) {
+function BudgetSetForm({ rows, actionDisabled }: { rows: SpendRow[]; actionDisabled?: boolean }) {
   /** Redéfinir le plafond d'un compte : montant EXACT (pas un ajout) — sert
      à BAISSER un quota (200M → 50M) autant qu'à le hausser. L'utilisateur se
      CHOISIT dans une liste (avec son plafond actuel affiché) : pas de nom à
@@ -906,7 +1035,6 @@ function BudgetSetForm({ rows }: { rows: SpendRow[] }) {
   const [user, setUser] = useState("");
   const [budget, setBudget] = useState("");
   const [busy, setBusy] = useState(false);
-  const fmt = (n: number) => Math.round(n).toLocaleString("fr-FR");
   const sel = rows.find((r) => r.username === user);
   return (
     <Card>
@@ -929,7 +1057,7 @@ function BudgetSetForm({ rows }: { rows: SpendRow[] }) {
         />
         {sel && (
           <Text type="supporting" color="secondary">
-            {t("Plafond actuel :")} {sel ? (sel.unlimited ? t("Illimitée (admin)") : fmtCompact(sel.max_budget || 0)) : ""}
+            {t("Plafond actuel :")} {sel.unlimited ? t("Illimitée (admin)") : fmtCompact(sel.max_budget || 0)}
           </Text>
         )}
         <HStack gap={1}>
@@ -943,7 +1071,7 @@ function BudgetSetForm({ rows }: { rows: SpendRow[] }) {
             label={t("Redéfinir")}
             variant="primary"
             size="sm"
-            isDisabled={!user || !budget || busy}
+            isDisabled={!user || !budget || busy || actionDisabled}
             onClick={async () => {
               setBusy(true);
               try {
@@ -961,10 +1089,13 @@ function BudgetSetForm({ rows }: { rows: SpendRow[] }) {
   );
 }
 
-function BudgetApproveForm({ onApprove, fullname, currentBudget }: {
+function BudgetApproveForm({ onApprove, fullname, currentBudget, isDisabled }: {
   onApprove: (amount: string, days: string) => void;
   fullname: string;
   currentBudget: number | null;
+  /** Pendant une action page entière (ou sans jeton CSRF) : ni l'ouverture du
+      dialog ni sa confirmation ne doivent partir. */
+  isDisabled?: boolean;
 }) {
   /** UN bouton par demande : « Approuver » ouvre un dialog avec montants en
      un clic (+10M/+50M/+100M), une durée en segments (Permanente/1j/3j/7j/30j)
@@ -980,7 +1111,7 @@ function BudgetApproveForm({ onApprove, fullname, currentBudget }: {
   const expire = days === "permanent" ? null : new Date(Date.now() + parseInt(days, 10) * 86400000);
   return (
     <>
-      <Button label={t("Approuver")} variant="ghost" size="sm" onClick={() => setIsOpen(true)} />
+      <Button label={t("Approuver")} variant="ghost" size="sm" isDisabled={isDisabled} onClick={() => setIsOpen(true)} />
       <Dialog isOpen={isOpen} onOpenChange={setIsOpen} purpose="form">
         <DialogHeader title={t("Accorder des tokens")} subtitle={`${fullname} — ${t("Actuel :")} ${fmt(base)}`} />
         <VStack gap={3}>
@@ -1019,11 +1150,134 @@ function BudgetApproveForm({ onApprove, fullname, currentBudget }: {
               label={t("Confirmer")}
               variant="primary"
               size="sm"
-              isDisabled={!amount}
+              isDisabled={!amount || isDisabled}
               onClick={() => {
                 onApprove(amount, days === "permanent" ? "" : days);
                 setIsOpen(false);
                 setAmount("");
+              }}
+            />
+          </HStack>
+        </VStack>
+      </Dialog>
+    </>
+  );
+}
+
+/** Dialog de confirmation pour les quatre actions à conséquence (arrêt du
+ * modèle servi, lancement, suppression catalogue, bascule maintenance). Une
+ * phrase de conséquence, un bouton de confirmation (destructive pour ce qui
+ * coupe/détruit, primary pour le lancement), un bouton Annuler — le POST ne
+ * part qu'au clic sur Confirmer. */
+function ConfirmActionDialog({ action, maintenanceActive, isDisabled, onClose, onConfirm }: {
+  action: ConfirmAction | null;
+  maintenanceActive: boolean;
+  isDisabled: boolean;
+  onClose: () => void;
+  onConfirm: (action: ConfirmAction) => void;
+}) {
+  const t = useT();
+  if (!action) return null;
+  let title: string;
+  let body: string;
+  let confirmLabel: string;
+  let confirmVariant: "primary" | "secondary" | "destructive";
+  if (action.kind === "stop-model") {
+    title = t("Arrêter le modèle servi ?");
+    body = t("Le modèle va être coupé : toutes les générations en cours, pour tous les utilisateurs, seront interrompues.");
+    confirmLabel = t("Arrêter");
+    confirmVariant = "destructive";
+  } else if (action.kind === "launch") {
+    title = t("Lancer {name} ?").replace("{name}", action.name);
+    body = t("Le modèle sera chargé en mémoire unifiée — le lancement peut prendre plusieurs minutes.");
+    confirmLabel = t("Lancer");
+    confirmVariant = "primary";
+  } else if (action.kind === "delete-model") {
+    title = t("Supprimer {name} du catalogue ?").replace("{name}", action.name);
+    body = t("L'entrée sera retirée du catalogue et du routage LiteLLM (ça n'arrête pas un modèle en cours).");
+    confirmLabel = t("Supprimer");
+    confirmVariant = "destructive";
+  } else if (maintenanceActive) {
+    title = t("Désactiver le mode maintenance ?");
+    body = t("Le trafic non-admin vers les routes de génération sera de nouveau accepté.");
+    confirmLabel = t("Désactiver");
+    confirmVariant = "secondary";
+  } else {
+    title = t("Activer le mode maintenance ?");
+    body = t("Le trafic non-admin vers les routes de génération sera refusé ; les admins gardent l'accès.");
+    confirmLabel = t("Activer");
+    confirmVariant = "secondary";
+  }
+  return (
+    <Dialog isOpen onOpenChange={(o) => { if (!o) onClose(); }} purpose="form">
+      <DialogHeader title={title} />
+      <VStack gap={3}>
+        <Text type="supporting" color="secondary">{body}</Text>
+        <HStack gap={2} hAlign="end">
+          <Button label={t("Annuler")} variant="ghost" size="sm" onClick={onClose} />
+          <Button
+            label={confirmLabel}
+            variant={confirmVariant}
+            size="sm"
+            isDisabled={isDisabled}
+            onClick={() => { onConfirm(action); onClose(); }}
+          />
+        </HStack>
+      </VStack>
+    </Dialog>
+  );
+}
+
+/** Rendre les args d'une entrée du catalogue modifiables (POST
+ * /admin/model/edit/<id>) : ils étaient figés à la création. Nom, HF ID et
+ * moteur s'affichent en lecture seule — ce sont eux qui identifient l'entrée,
+ * la route ne change que les args. Le champ `warning` du backend (routage
+ * LiteLLM non rafraîchi) est montré quand il est présent. */
+function ArgsEditForm({ cfg, isDisabled, onSubmit }: {
+  cfg: ModelCfg;
+  isDisabled: boolean;
+  onSubmit: (params: Record<string, string>) => Promise<ActResult>;
+}) {
+  const t = useT();
+  const showToast = useToast();
+  const [isOpen, setIsOpen] = useState(false);
+  const [args, setArgs] = useState(cfg.vllm_args);
+  return (
+    <>
+      <Button
+        label={t("Args")}
+        variant="secondary"
+        size="sm"
+        isDisabled={isDisabled}
+        onClick={() => { setArgs(cfg.vllm_args); setIsOpen(true); }}
+      />
+      <Dialog isOpen={isOpen} onOpenChange={setIsOpen} purpose="form">
+        <DialogHeader title={t("Modifier les args du moteur")} subtitle={`${cfg.name} · ${cfg.hf_model_id} · ${cfg.engine}`} />
+        <VStack gap={3}>
+          <Text type="supporting" color="secondary">{t("Seuls les args du moteur changent ; l'entrée reste identifiée par son nom et son HF ID.")}</Text>
+          <TextInput label={t("Args du moteur")} value={args} onChange={setArgs} size="sm" />
+          <HStack gap={2} hAlign="end">
+            <Button label={t("Annuler")} variant="ghost" size="sm" onClick={() => setIsOpen(false)} />
+            <Button
+              label={t("Enregistrer")}
+              variant="primary"
+              size="sm"
+              isDisabled={isDisabled}
+              onClick={async () => {
+                const res = await onSubmit({
+                  name: cfg.name,
+                  hf_model_id: cfg.hf_model_id,
+                  vllm_args: args,
+                  engine: cfg.engine,
+                });
+                if (res.ok) {
+                  setIsOpen(false);
+                  // Les args sont enregistrés mais LiteLLM n'a pas suivi :
+                  // l'entrée reste routée avec d'anciennes limites de contexte.
+                  if (res.warning) showToast({ body: res.warning, type: "error" });
+                }
+                // En échec, le dialog reste ouvert (l'erreur est déjà toastée
+                // par act()) : l'admin peut corriger et renvoyer.
               }}
             />
           </HStack>

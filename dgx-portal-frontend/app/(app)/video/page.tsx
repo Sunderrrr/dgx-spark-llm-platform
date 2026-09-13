@@ -59,6 +59,7 @@ export default function VideoPage() {
   const [promptId, setPromptId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [videoName, setVideoName] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const dictation = useDictation({ value: prompt, onChange: setPrompt, csrf });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -85,7 +86,14 @@ export default function VideoPage() {
   useEffect(() => {
     fetch("/api/home", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setAvailable(!!d?.running_models?.some((m: RunningModel) => m.kind === "video")))
+      .then((d) => {
+        // On retient le nom RÉELLEMENT servi, pour le titre : il était écrit en
+        // dur (« MiniMax H3 »), donc vrai tant que le workflow ComfyUI ne change
+        // pas — et faux le jour où il change, sans que rien ne le signale.
+        const modele = d?.running_models?.find((m: RunningModel) => m.kind === "video");
+        setAvailable(!!modele);
+        setVideoName(modele?.name ?? null);
+      })
       .catch(() => setAvailable(null));
   }, []);
 
@@ -198,7 +206,9 @@ export default function VideoPage() {
           <VStack hAlign="center" width="100%">
           <VStack gap={5} maxWidth={720} width="100%">
             <VStack gap={1}>
-              <Heading level={1}>{t("Génération vidéo — MiniMax H3")}</Heading>
+              <Heading level={1}>
+                {videoName ? `${t("Génération vidéo")} — ${videoName}` : t("Génération vidéo")}
+              </Heading>
               <Text type="supporting" color="secondary">
                 {t("Une description, avec ou sans image de référence, → une courte vidéo avec audio synchronisé. Génère localement sur le GPU, compte 5 à 10 minutes selon la charge.")}
               </Text>

@@ -66,9 +66,9 @@ flowchart LR
   CF -->|forwardAuth: maintenance gate| AC[/internal/authcheck/]
   AC -->|checked against| P
   CF -->|:5000| F[dgx-portal-frontend]
-  CF -->|:4001| L[LiteLLM]
+  CF -->|api.cronos.website · no published port| L[LiteLLM]
   F -->|internal docker network| P[dgx-portal]
-  P -->|LDAP / OIDC auth| IDP[LLDAP · Authentik]
+  P -->|LDAP / OIDC auth| IDP[Authentik · LDAP outpost + OIDC]
   P -->|issues keys + budgets| L
   P -->|:8001 · Bearer token| R[vllm-runner]
   R -->|launch / stop| V[vLLM · :8000]
@@ -122,8 +122,9 @@ longer has a published port.
 
 ## Quick start
 
-Prerequisites: a DGX Spark (or any CUDA host), a reachable LLDAP server, and outbound
-internet for pulling images and model weights.
+Prerequisites: a DGX Spark (or any CUDA host), a reachable LDAP directory
+(Authentik's LDAP outpost here) plus an OIDC provider, and outbound internet for
+pulling images and model weights.
 
 ```bash
 # One-shot bootstrap: installs Docker, Python/pipx, vLLM, clones the repo,
@@ -157,7 +158,7 @@ The backend reads them all in one place, [`config.py`](dgx-portal/config.py).
 | `WEBUI_SECRET_KEY` | Flask session signing key |
 | `LITELLM_MASTER_KEY` | LiteLLM master key (gateway admin) |
 | `POSTGRES_PASSWORD` | LiteLLM database password |
-| `LLDAP_ADMIN_PASSWORD` | LDAP bind (user/group lookup, notification emails) |
+| `LDAP_BIND_PW` | Password of the LDAP bind account (`LDAP_BIND_DN`) used to look users and groups up |
 | `RUNNER_TOKEN` | Bearer token between `dgx-portal` and `vllm-runner` (also used for the sidecar control routes) |
 | `OCR_URL` | Internal URL of the OCR vLLM container (default `http://ocr:8000/v1`) |
 | `VOICE_URL` | Internal URL of the voice container (default `http://voice:8004`) |
@@ -189,7 +190,7 @@ Two methods, handled by [`auth.py`](dgx-portal/auth.py):
 - **OIDC SSO (Authentik)** — primary. "Sign in with Cronos SSO". Flow:
   `/login/sso` → Authentik → `/api/oauth2-redirect`. Admin comes from the `groups`
   claim (`adm_cronos`), falling back to an LDAP lookup by username if absent.
-- **LDAP (LLDAP)** — username/password fallback: direct bind, injection-escaped,
+- **LDAP (Authentik)** — username/password fallback: direct bind, injection-escaped,
   empty-password binds rejected, with brute-force lockout (6 fails / 15 min)
   persisted in SQLite so it survives a redeploy and is shared across workers.
   The counter is keyed **per IP and per username**: rotating source IPs can't

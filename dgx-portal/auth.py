@@ -11,6 +11,7 @@ enregistrees sur l'application dans app.py, donc rien a passer ici.
 """
 import os
 import time
+from datetime import datetime
 from functools import wraps
 
 import hmac
@@ -26,7 +27,8 @@ from ldap3.utils.dn import escape_rdn
 
 from config import (LDAP_BASE, LDAP_BIND_DN, LDAP_BIND_PW,
                     LDAP_LOGIN_ATTR, LDAP_URI, LDAP_USERS_DN)
-from db import DB_PATH, get_db
+from db import DB_PATH, get_db, log_audit
+from local_users import _local_user_is_admin
 
 _API_FETCH_PATHS = ('/playground/chat', '/support/chat', '/admin/runner/stream')
 
@@ -68,10 +70,107 @@ def _session_expired():
     return False
 
 
+# ── État COURANT du compte ──────────────────────────────────────────────────
+# Le cookie de session ne porte qu'un nom et un rôle recopiés à la connexion.
+# Sans relecture, supprimer un compte, le désactiver, le bloquer ou le
+# rétrograder n'avait AUCUN effet avant l'expiration du cookie (12 h par
+# défaut) : le porteur gardait son accès, y compris administrateur. Ces
+# fonctions sont appelées à chaque requête gardée.
+
+def est_bloque(username):
+    """Compte refusé à la connexion, quelle que soit sa source."""
+    if not username:
+        return False
+    return get_db().execute(
+        "SELECT 1 FROM blocked_users WHERE username=?", (username,)).fetchone() is not None
+
+
+def etat_compte(username):
+    """(valide, is_admin, raison) relu en base, jamais celui figé au login.
+
+    `is_admin` vaut **None** quand le portail n'a pas de source d'autorité sur
+    le rôle : l'appelant garde alors celui porté par la session. On ne déduit
+    jamais une rétrogradation d'une donnée absente — inventer un « pas admin »
+    à partir d'une ligne manquante casserait un administrateur légitime.
+
+    `raison` ('bloque', 'desactive') sert au journal d'audit et au diagnostic
+    admin — jamais à la réponse HTTP : dire « ce compte est bloqué » à qui
+    présente le bon mot de passe reste une information à ne pas donner à un
+    tiers qui teste des identifiants.
+    """
+    db = get_db()
+    if est_bloque(username):
+        return False, False, 'bloque'
+    row = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
+    if row is not None:
+        # Compte local : le portail est seul maître du rôle et de l'état.
+        if not row['enabled']:
+            return False, False, 'desactive'
+        return True, _local_user_is_admin(row), None
+    # Compte LDAP/SSO : aucune ligne locale, et on ne peut pas interroger
+    # l'annuaire à chaque requête (un bind LDAP par appel). Le rôle se lit donc
+    # sur le dernier login consigné ; s'il n'y en a pas, on n'a pas d'avis.
+    src = db.execute(
+        "SELECT last_is_admin FROM user_sources WHERE username=?", (username,)).fetchone()
+    return True, (bool(src['last_is_admin']) if src is not None else None), None
+
+
+def _revalide_session():
+    """Jette la session si le compte n'est plus valide, sinon rafraîchit le rôle.
+
+    Retourne True si la session tient. Un changement de rôle est réécrit dans
+    le cookie : c'est le SEUL endroit qui fait autorité sur is_admin.
+    """
+    username = session.get('username')
+    if not username:
+        return True
+    valide, is_admin, raison = etat_compte(username)
+    if not valide:
+        # Une seule ligne d'audit par session invalidée : session.clear()
+        # remplace le cookie, donc les requêtes suivantes n'ont plus de nom.
+        log_audit(username, 'session.invalidee', f'compte {raison} — session fermée')
+        session.clear()
+        return False
+    if is_admin is not None and bool(session.get('is_admin')) != is_admin:
+        log_audit(username, 'session.role_rafraichi',
+                  f'is_admin {bool(session.get("is_admin"))} -> {is_admin}')
+        session['is_admin'] = is_admin
+    return True
+
+
+def bloquer_compte(username, raison, par):
+    """Refuse le compte à la connexion et coupe ses sessions ouvertes.
+
+    Seul mécanisme du portail qui vaille pour un compte LDAP/SSO : il n'a pas
+    de ligne dans local_users, donc pas d'`enabled` à basculer.
+    """
+    db = get_db()
+    db.execute(
+        "INSERT INTO blocked_users (username, reason, blocked_by, blocked_at) VALUES (?,?,?,?) "
+        "ON CONFLICT(username) DO UPDATE SET reason=excluded.reason, "
+        "blocked_by=excluded.blocked_by, blocked_at=excluded.blocked_at",
+        (username, (raison or None), (par or '?'), datetime.now().isoformat()))
+    db.commit()
+    revoquees = _revoke_user_sessions(username)
+    log_audit(par, 'user.block',
+              f'{username}' + (f' — motif : {raison}' if raison else '')
+              + f' — {revoquees} session(s) révoquée(s)')
+    return revoquees
+
+
+def debloque_compte(username, par):
+    db = get_db()
+    n = db.execute("DELETE FROM blocked_users WHERE username=?", (username,)).rowcount
+    db.commit()
+    if n:
+        log_audit(par, 'user.unblock', username)
+    return n
+
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if _session_expired():
+        if _session_expired() or not _revalide_session():
             session.clear()
         if 'username' not in session:
             if _is_api_request():
@@ -87,7 +186,7 @@ def login_required(f):
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if _session_expired():
+        if _session_expired() or not _revalide_session():
             session.clear()
         if 'username' not in session:
             if _is_api_request():
@@ -362,6 +461,11 @@ def _login_fail(key):
     else:
         fails, first_at = row['fails'] + 1, row['first_at']
     locked_until = now + LOGIN_LOCK if fails >= LOGIN_MAX_FAILS else 0
+    if locked_until:
+        # Un verrouillage est un événement de sécurité : il doit rester une
+        # trace côté admin (le compteur, lui, expire au bout de la fenêtre).
+        log_audit(key.split('|')[-1] if '|' in key else key, 'login.verrouillage',
+                  f'{key} — {fails} échecs, verrouillé {int(LOGIN_LOCK // 60)} min')
     db.execute(
         "INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,?,?,?) "
         "ON CONFLICT(key) DO UPDATE SET fails=excluded.fails, first_at=excluded.first_at, "
@@ -440,9 +544,10 @@ def _apply_session(username, fullname, is_admin, via_sso=False):
     sid = secrets.token_urlsafe(32)
     db = get_db()
     db.execute(
-        "INSERT INTO user_sessions (sid, username, auth_at, expires_at, revoked, created_at) "
-        "VALUES (?, ?, ?, ?, 0, ?)",
-        (sid, username, session['auth_at'], session['auth_at'] + SESSION_MAX_AGE, time.time()))
+        "INSERT INTO user_sessions (sid, username, auth_at, expires_at, revoked, created_at, ip, user_agent) "
+        "VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
+        (sid, username, session['auth_at'], session['auth_at'] + SESSION_MAX_AGE, time.time(),
+         _client_ip(), (request.headers.get('User-Agent') or '')[:400]))
     db.commit()
     session['sid'] = sid
 
@@ -456,11 +561,14 @@ def _revoke_current_session():
     db = get_db()
     db.execute("UPDATE user_sessions SET revoked=1 WHERE sid=?", (sid,))
     db.commit()
+    return 1
 
 
 def _revoke_user_sessions(username):
     """Révoque toutes les sessions actives d'un compte (verrouillage, admin).
     Ne lève pas si le compte n'a pas de session en base."""
     db = get_db()
-    db.execute("UPDATE user_sessions SET revoked=1 WHERE username=?", (username,))
+    n = db.execute(
+        "UPDATE user_sessions SET revoked=1 WHERE username=? AND revoked=0", (username,)).rowcount
     db.commit()
+    return n

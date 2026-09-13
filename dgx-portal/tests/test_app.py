@@ -638,8 +638,10 @@ class TrouvaillesTest(unittest.TestCase):
 class GardeDesRoutesTest(unittest.TestCase):
     """Toute route du portail est authentifiée, sauf une liste explicite.
 
-    Recompte le 2026-09-13 sur le `url_map` vivant : 146 routes, 11 sans garde,
-    aucun oubli. Ce test fige ce résultat. Il ne lit PAS le source — il parcourt
+    Recompte le 2026-09-13 sur le `url_map` vivant : 153 routes, 11 sans garde,
+    aucun oubli (146 avant les six routes de gestion des comptes ajoutées ce
+    jour-là : blocage, déblocage, détail, sessions et mot de passe en
+    autonomie — toutes gardées). Ce test fige ce résultat. Il ne lit PAS le source — il parcourt
     le `url_map` de Flask et interroge le marqueur `_garde` posé par
     login_required/admin_required, donc il voit aussi une route enregistrée
     autrement que par un `@app.route` littéral.
@@ -840,6 +842,47 @@ class PendingCountRouteTest(unittest.TestCase):
             s["is_admin"] = True
         self.assertEqual(c.get("/api/pending-count").get_json(),
                          {'model': 1, 'budget': 1})
+
+
+class AnnonceModeleSupprimeTest(unittest.TestCase):
+    """Le fil d'annonces est un « quoi de neuf », pas un journal : retirer un
+    modèle du catalogue doit retirer l'annonce qui l'a présenté."""
+
+    def setUp(self):
+        portal.app.config["TESTING"] = True
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute("DELETE FROM model_configs WHERE name='ztest-modele'")
+            db.execute("DELETE FROM announcements WHERE a='ztest-modele'")
+            db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, engine, added_at) "
+                       "VALUES ('ztest-modele','org/modele','','llamacpp','2026-09-13')")
+            db.execute("INSERT INTO announcements (kind, a, b, created_at) "
+                       "VALUES ('model_add','ztest-modele','','2026-09-13')")
+            db.commit()
+            self.mid = portal.get_db().execute(
+                "SELECT id FROM model_configs WHERE name='ztest-modele'").fetchone()['id']
+
+    def test_suppression_retire_aussi_l_annonce(self):
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = "boss"
+            s["auth_at"] = int(time.time())
+            s["is_admin"] = True
+            s["csrf"] = "test-csrf"
+        with patch.object(admin_routes, '_unregister_litellm_model', return_value=True):
+            r = c.post(f"/admin/model/delete/{self.mid}",
+                       headers={'X-CSRFToken': 'test-csrf'})
+        self.assertEqual(r.status_code, 302)
+        with portal.app.app_context():
+            db = portal.get_db()
+            annonces = db.execute("SELECT COUNT(*) FROM announcements "
+                                  "WHERE kind='model_add' AND a='ztest-modele'").fetchone()[0]
+            configs = db.execute("SELECT COUNT(*) FROM model_configs WHERE id=?",
+                                 (self.mid,)).fetchone()[0]
+            trace = db.execute("SELECT action FROM audit_log ORDER BY id DESC").fetchone()[0]
+        self.assertEqual(annonces, 0)
+        self.assertEqual(configs, 0)
+        self.assertEqual(trace, 'model.delete')
 
 
 class BudgetGrantsTest(unittest.TestCase):

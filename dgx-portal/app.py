@@ -79,7 +79,7 @@ from auth import (  # noqa: E402
     _apply_session, _client_ip, _csrf_protect, _ensure_csrf,
     _inject_csrf, _is_admin_group, _login_fail, _login_locked,
     _login_reset, _revoke_current_session, _revoke_user_sessions,
-    is_admin_username,
+    est_bloque, is_admin_username,
     ldap_authenticate, ldap_lookup_admin, ldap_lookup_email,
     ldap_resolve_sso_identity,
 )
@@ -107,7 +107,7 @@ from config import (  # noqa: E402
 
 
 from db import (  # noqa: E402  (cf. commentaire plus bas)
-    DB_PATH, _spend_conn, close_db, get_db, get_setting, init_db,
+    DB_PATH, _spend_conn, close_db, get_db, get_setting, init_db, log_audit,
     maintenance_active, notification_unread, set_setting,
 )
 
@@ -372,6 +372,27 @@ def api_config():
 
 
 
+def _refus_si_bloque(username):
+    """Refuse un compte bloqué, APRÈS vérification des identifiants.
+
+    Placé après, et non avant : il faut présenter un mot de passe valide pour
+    apprendre qu'on est bloqué, donc un compte bloqué ne sert pas à énumérer
+    les comptes existants. Et l'intéressé reçoit un message qui dit la vérité,
+    au lieu d'un « identifiants incorrects » qui l'enverrait réessayer sans
+    fin. Le blocage est posé par un admin (Users → Bloquer) : c'est le SEUL
+    levier pour un compte LDAP/SSO, qui n'a aucune ligne dans local_users.
+    """
+    if not est_bloque(username):
+        return None
+    log_audit(username, 'login.refuse', 'compte bloqué par un administrateur')
+    message = "Accès révoqué pour ce compte. Contacte un administrateur."
+    flash(message, "danger")
+    # Corps JSON en plus du statut : la page de connexion affiche le message
+    # tel quel, sinon un compte bloqué croirait à une faute de frappe et
+    # réessaierait indéfiniment.
+    return (jsonify({'ok': False, 'error': message, 'blocked': True}), 403)
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if 'username' in session:
@@ -397,6 +418,9 @@ def login():
         # before LDAP so as not to depend on its availability.
         l_ok, l_admin, l_name = _local_user_auth(username, password)
         if l_ok:
+            refus = _refus_si_bloque(username)
+            if refus:
+                return refus
             _login_reset(key); _login_reset(ukey)
             _record_user_source(username, 'local', l_name, l_admin)
             if _webauthn_enabled(username):
@@ -409,6 +433,9 @@ def login():
             return redirect(_safe_next(request.args.get('next')))
         ok, is_admin, fullname = ldap_authenticate(username, password)
         if ok:
+            refus = _refus_si_bloque(username)
+            if refus:
+                return refus
             _login_reset(key); _login_reset(ukey)
             _record_user_source(username, 'ldap', fullname, is_admin)
             if _webauthn_enabled(username):
@@ -527,6 +554,12 @@ def oauth_callback():
         # claim is treated as a secondary signal only when present.
         is_admin = is_admin or any(g == OIDC_ADMIN_GROUP or _is_admin_group(g) for g in groups)
 
+    if _refus_si_bloque(username):
+        # Le mot de passe n'entre pas en jeu ici : l'identité est prouvée par
+        # l'annuaire, mais le refus du portail fait foi. Le drapeau d'URL porte
+        # le message jusqu'à la page de connexion, qui est rendue par Next.js
+        # (un flash Flask n'y serait affiché nulle part).
+        return redirect(url_for('login', refus='bloque'))
     nxt = session.pop('sso_next', None)
     _record_user_source(username, 'sso', fullname, is_admin)
     _apply_session(username, fullname, is_admin, via_sso=True)
@@ -920,6 +953,13 @@ def api_whoami():
                      # Absence de ligne user_prefs = compte qui n'a jamais rien
                      # réglé, donc jamais vu la prise en main.
                      'onboarded': bool(pref['onboarded']) if pref else False,
+                     # L'interface ne propose le changement de mot de passe
+                     # que pour un compte local : un compte d'annuaire n'en a
+                     # pas ici, et lui montrer un formulaire inopérant serait
+                     # pire que de ne rien montrer.
+                     'local_account': get_db().execute(
+                         "SELECT 1 FROM local_users WHERE username=?",
+                         (session.get('username'),)).fetchone() is not None,
                      'maintenance_mode': maintenance_active()})
 
 

@@ -61,8 +61,11 @@ table. Scale the ceremony to the risk.
 
 ## GB10 gotchas
 
-- **Unified memory is shared.** GPU allocations count against the same 128 GB as
-  system RAM. Only **one chat model** runs at a time; OCR, video (ComfyUI), ASR,
+- **Unified memory is shared.** GPU allocations count against the same pool as
+  system RAM. "128 GB" is the vendor figure; the kernel reports **121.6 GiB**
+  (130.6 GB) usable, and that is the number `free` prints — the measurements in
+  this file quote it (« 99 Go sur 121 »), so a headroom calculation must not mix
+  the two. Only **one chat model** runs at a time; OCR, video (ComfyUI), ASR,
   voice, image and music are separate **on-demand** sidecars (started at first
   use, absent from memory when idle — hence not probed by the monitor, see
   below). If a launch OOMs, **stop a sidecar from Admin** — don't shrink the

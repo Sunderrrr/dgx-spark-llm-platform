@@ -15,7 +15,7 @@ import re
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 from flask import (Blueprint, Response, jsonify, request,
@@ -250,8 +250,13 @@ def _etat_moniteur():
             down = [k for k, v in down.items() if v]
         return {'readable': True,
                 'active_incidents': sorted(str(i) for i in down),
+                # Horodatage AVEC son fuseau : le conteneur tourne en UTC et
+                # `fromtimestamp` seul produisait un « 21:46:31 » que rien ne
+                # distinguait d'une heure locale — soit 2 h de décalage pour un
+                # lecteur français. C'est la date de la dernière SONDUE du
+                # moniteur (il réécrit son état à chaque passage, toutes les 5 min).
                 'since': datetime.fromtimestamp(
-                    os.stat(_MONITOR_STATE).st_mtime).isoformat(timespec='seconds')}
+                    os.stat(_MONITOR_STATE).st_mtime, timezone.utc).isoformat(timespec='seconds')}
     except Exception:                                            # noqa: BLE001
         return {'readable': False, 'active_incidents': None, 'since': None}
 

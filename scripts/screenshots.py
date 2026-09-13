@@ -92,7 +92,8 @@ SENSIBLE = (r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}"
 # serait une régression. On garde donc la capture publiée tant qu'aucun modèle
 # média n'est chargé ; `screenshots.py ocr` force la prise de vue quand l'un
 # d'eux tourne.
-SKIP_REFRESH = {"ocr", "voice", "video", "image", "music"}
+MEDIA = {"ocr", "voice", "video", "image", "music"}
+SKIP_REFRESH = MEDIA          # une page média ne se capture qu'avec son backend
 
 # Pages internes : jamais publiées (elles listent des comptes, cf. .gitignore),
 # donc contrôlées pour la forme mais pas pour la confidentialité.
@@ -340,6 +341,12 @@ def verify(folder="assets"):
         r"|Administrators only|does not have the rights|Traceback"
         r"|\b(aabdou|bmaziane|ccrespy|cestienne|fgerber|kflorentin|lbozier|mboitel"
         r"|mbouchet|mpigeon|nlerou|teych|yidjahurtos|zolan|Bozier|Boitel)\b", re.I)
+    # Les marqueurs ci-dessus ne suffisent pas pour les pages média : une page
+    # dont le backend est éteint affiche quand même son titre (« OCR »), donc une
+    # capture VIDE les passerait tous en annonçant « Ask an admin to start… ».
+    # C'est précisément la capture à ne pas publier, on la refuse nommément.
+    vide = re.compile(r"Ask an admin to (?:add|start|launch) an? \w+ model"
+                      r"|Demande à un admin (?:d'ajouter|de démarrer)", re.I)
     ko = 0
     for name, marks in expected.items():
         path = f"{folder}/{name}.png"
@@ -367,6 +374,9 @@ def verify(folder="assets"):
         for m in marks:
             if not re.search(m, txt, re.I):
                 problems.append(f"contenu attendu absent ({m})")
+        if name in MEDIA and vide.search(txt):
+            problems.append("page média SANS backend chargé (état vide) : "
+                            "démarre le sidecar puis refais la capture")
         if problems:
             ko += 1
             print(f"  {name:<10} ✗ " + " ; ".join(problems))

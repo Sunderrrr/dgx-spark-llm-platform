@@ -347,12 +347,20 @@ def verify(folder="assets"):
     # C'est précisément la capture à ne pas publier, on la refuse nommément.
     vide = re.compile(r"Ask an admin to (?:add|start|launch) an? \w+ model"
                       r"|Demande à un admin (?:d'ajouter|de démarrer)", re.I)
+    # Pages média dont la capture publiée ne montrait que l'état vide : retirées
+    # du dépôt (README → Screenshots). Absentes = normal, pas un échec ; dès
+    # qu'une nouvelle capture existe, elle passe les mêmes contrôles que les
+    # autres, garde anti-état-vide comprise.
+    retirees = {"voice", "music"}
     ko = 0
     for name, marks in expected.items():
         path = f"{folder}/{name}.png"
         if not os.path.exists(path):
-            print(f"  {name:<10} ABSENT")
-            ko += 1
+            if name in retirees:
+                print(f"  {name:<10} · retirée (capture d'état vide) — non publiée")
+            else:
+                print(f"  {name:<10} ABSENT")
+                ko += 1
             continue
         im = Image.open(path)
         g = im.convert("L").resize((160, 100))

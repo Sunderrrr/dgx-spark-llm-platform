@@ -872,7 +872,11 @@ class AnnonceModeleSupprimeTest(unittest.TestCase):
         with patch.object(admin_routes, '_unregister_litellm_model', return_value=True):
             r = c.post(f"/admin/model/delete/{self.mid}",
                        headers={'X-CSRFToken': 'test-csrf'})
-        self.assertEqual(r.status_code, 302)
+        # Contrat JSON : plus de redirection. Le `flash` n'était rendu par aucun
+        # template et la réponse HTML de la redirection passait pour un succès
+        # côté interface (son `catch` traitait le non-JSON comme « ok »).
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()['ok'])
         with portal.app.app_context():
             db = portal.get_db()
             annonces = db.execute("SELECT COUNT(*) FROM announcements "
@@ -915,7 +919,8 @@ class BudgetGrantsTest(unittest.TestCase):
             c = portal.app.test_client()
             self._login(c)
             r = c.post(f"/admin/budget/approve/{self.req_id}", data={"amount": "50000000", "grant_days": "3", "csrf_token": "test-csrf"})
-            self.assertEqual(r.status_code, 302)
+            self.assertEqual(r.status_code, 200)
+            self.assertTrue(r.get_json()['ok'])
         args = up.call_args
         self.assertEqual(args.args[1], 250000000)          # 200M + 50M
         with portal.app.app_context():
@@ -970,7 +975,8 @@ class BudgetGrantsTest(unittest.TestCase):
             c = portal.app.test_client()
             self._login(c)
             r = c.post("/admin/users/demo/budget/set", data={"budget": "50000000", "csrf_token": "test-csrf"})
-            self.assertEqual(r.status_code, 302)
+            self.assertEqual(r.status_code, 200)
+            self.assertTrue(r.get_json()['ok'])
         args = up.call_args
         self.assertEqual(args.args[1], 50000000)           # montant exact, pas +
         with portal.app.app_context():

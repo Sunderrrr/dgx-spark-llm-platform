@@ -52,8 +52,17 @@ def _sync_local_user_budget(username, row):
     """
     try:
         eff = _local_user_effective_budget(row)
-        _ensure_litellm_user(username, eff, get_setting('default_key_duration', KEY_DURATION))
-        return bool(litellm_update_user_budget(username, eff))
+        # La durée accompagne TOUJOURS l'écriture : la docstring de
+        # litellm_update_user_budget affirme qu'un update sans durée conserve
+        # celle du compte, et la mesure du 2026-09-13 le confirme sur cette
+        # version (7d et budget_reset_at inchangés après un update sans le
+        # champ). Mais un compte qui n'a JAMAIS eu de durée resterait alors sans
+        # fenêtre de remise à zéro, c'est-à-dire avec un plafond à vie — le
+        # gotcha consigné le 2026-09-08. Écrire la durée partout évite d'avoir à
+        # se souvenir de laquelle des deux lectures s'applique.
+        duree = get_setting('default_key_duration', KEY_DURATION)
+        _ensure_litellm_user(username, eff, duree)
+        return bool(litellm_update_user_budget(username, eff, budget_duration=duree))
     except Exception as exc:                                     # noqa: BLE001
         print(f'[local_users] quota NON appliqué pour {username} : {exc}')
         return False

@@ -206,16 +206,44 @@ def revoke_litellm_key(key_value):
 # pouvoir l'importer sans cycle. Il vit desormais ici, avec le reste du
 # client LiteLLM, et sidecars l'importe normalement.
 
-def _litellm_model_id(name):
-    """LiteLLM id of the model carrying this model_name, or None."""
+def _litellm_model_entry(name):
+    """(id, entree complete) de l'entree LiteLLM portant ce model_name.
+
+    L'entree complete sert a RESTAURER le modele si sa recreation echoue (voir
+    _litellm_upsert) : « supprimer puis recreer » laisse, en cas d'echec de la
+    creation, un modele qui servait disparaitre du routage.
+    """
     try:
         r = requests.get(f"{LITELLM_URL}/model/info", headers=litellm_headers(), timeout=5)
         for m in r.json().get('data', []):
             if m.get('model_name') == name:
-                return m.get('model_info', {}).get('id')
+                return m.get('model_info', {}).get('id'), m
     except Exception:
         pass
-    return None
+    return None, None
+
+def _litellm_model_id(name):
+    """LiteLLM id of the model carrying this model_name, or None."""
+    return _litellm_model_entry(name)[0]
+
+def _restaurer_modele(entree):
+    """Reinstalle une entree LiteLLM telle qu'elle etait (best effort).
+
+    `model_info` est filtre : LiteLLM refuse a la creation les champs qu'il
+    genere lui-meme (`id`, `db_model`). Renvoie True si la restauration a ete
+    acceptee.
+    """
+    info = {k: v for k, v in (entree.get('model_info') or {}).items()
+            if k not in ('id', 'db_model')}
+    corps = {'model_name': entree.get('model_name'),
+             'litellm_params': entree.get('litellm_params') or {},
+             'model_info': info}
+    try:
+        r = requests.post(f"{LITELLM_URL}/model/new", headers=litellm_headers(),
+                          json=corps, timeout=8)
+        return r.status_code < 300
+    except Exception:
+        return False
 
 def _model_upstream(name, engine):
     """Name actually expected by the backend on :8000 for this model.
@@ -264,13 +292,25 @@ def _litellm_upsert(public_name, upstream, max_input, max_output):
         },
     }
     try:
-        existing = _litellm_model_id(public_name)
+        existing, entree_avant = _litellm_model_entry(public_name)
         if existing:
             requests.post(f"{LITELLM_URL}/model/delete", headers=litellm_headers(),
                           json={"id": existing}, timeout=5)
         r = requests.post(f"{LITELLM_URL}/model/new", headers=litellm_headers(),
                           json=body, timeout=8)
-        return r.status_code < 300
+        if r.status_code < 300:
+            return True
+        # La creation a echoue APRES la suppression : sans restauration, un modele
+        # qui repondait disparait du routage (l'ancienne entree etait supprimee
+        # d'abord, pour ne pas laisser deux entrees du meme nom). On remet donc
+        # l'ancienne — capturee AVANT la suppression, sinon il n'y a plus rien a
+        # restaurer.
+        if existing and entree_avant:
+            restaure = _restaurer_modele(entree_avant)
+            _log.warning("LiteLLM : création de « %s » refusée (HTTP %s) — entrée "
+                         "précédente %s", public_name, r.status_code,
+                         "restaurée" if restaure else "PERDUE")
+        return False
     except Exception:
         return False
 
@@ -297,12 +337,22 @@ def _point_auto_model(name, vllm_args, engine='vllm'):
     return _litellm_upsert(AUTO_MODEL_NAME, _model_upstream(name, engine), max_input, max_output)
 
 def _unregister_litellm_model(name):
+    """Retire l'entree LiteLLM de ce modele. Renvoie True si elle n'existe plus.
+
+    Elle ne renvoyait RIEN (et avalait ses exceptions) : l'appelant annoncait
+    « retiré de LiteLLM » sans jamais savoir si c'etait vrai, et une entree
+    LiteLLM sans ligne de catalogue est un routage qu'aucun ecran ne permet plus
+    de nettoyer. Renvoyer False = « je n'ai pas pu », a charge de l'appelant de
+    le dire.
+    """
     if not LITELLM_KEY:
-        return
+        return False
     mid = _litellm_model_id(name)
-    if mid:
-        try:
-            requests.post(f"{LITELLM_URL}/model/delete", headers=litellm_headers(),
+    if not mid:
+        return True                      # rien a retirer : c'est le resultat voulu
+    try:
+        r = requests.post(f"{LITELLM_URL}/model/delete", headers=litellm_headers(),
                           json={"id": mid}, timeout=5)
-        except Exception:
-            pass
+        return r.status_code < 300
+    except Exception:
+        return False

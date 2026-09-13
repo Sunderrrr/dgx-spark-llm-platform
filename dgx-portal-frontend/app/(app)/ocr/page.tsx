@@ -31,7 +31,7 @@ import { useCsrf } from "@/lib/useCsrf";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { streamOcr } from "@/lib/api";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 
 type HistoryItem = { id: number; text: string; created_at: string; has_image: boolean };
 type RunningModel = { name: string; kind: "chat" | "ocr" | "video"; exposed: boolean };
@@ -180,6 +180,7 @@ const LABEL_COLOR: Record<string, string> = {
 
 export default function OcrPage() {
   const t = useT();
+  const numLocale = useLocale();
   const csrf = useCsrf();
   const showToast = useToast();
   const isNarrow = useIsNarrow();
@@ -381,7 +382,7 @@ export default function OcrPage() {
                             key={h.id}
                             label={ocrPreviewText(h.text) || t("(vide)")}
                             labelLines={1}
-                            description={new Date(h.created_at).toLocaleString("fr-FR")}
+                            description={new Date(h.created_at).toLocaleString(numLocale)}
                             startContent={
                               h.has_image ? (
                                 // eslint-disable-next-line @next/next/no-img-element

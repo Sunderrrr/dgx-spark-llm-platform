@@ -14,7 +14,7 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { ChartBarIcon } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, useLocale } from "@/lib/i18n";
 
 type RankRow = {
   rank: number;
@@ -47,6 +47,7 @@ const MEDALS: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 
 export default function RankingPage() {
   const t = useT();
+  const numLocale = useLocale();
   const [period, setPeriod] = useState("day");
   const [data, setData] = useState<RankingData | null>(null);
 
@@ -100,7 +101,7 @@ export default function RankingPage() {
                         endContent={
                           <VStack gap={0} align="end">
                             <Text weight="bold" hasTabularNumbers>
-                              {Math.round(r.tokens).toLocaleString("fr-FR")}
+                              {Math.round(r.tokens).toLocaleString(numLocale)}
                             </Text>
                             {r.delta == null ? (
                               <Text type="supporting" color="secondary">

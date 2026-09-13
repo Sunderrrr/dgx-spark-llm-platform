@@ -10,6 +10,7 @@ outil privilégié intégré.
 import ast
 import builtins
 import io
+import json
 import os
 import time
 import unittest
@@ -1361,6 +1362,7 @@ class SupportBillingTest(unittest.TestCase):
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
              mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
+             mock.patch.object(chat, "_fin_support"), \
              mock.patch.object(chat.requests, "post", side_effect=_post):
             r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
                                     json={"messages": [{"role": "user", "content": "Salut"}]})
@@ -1373,6 +1375,7 @@ class SupportBillingTest(unittest.TestCase):
         import unittest.mock as mock
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[]), \
+             mock.patch.object(chat, "_fin_support"), \
              mock.patch.object(chat.requests, "post", side_effect=AssertionError("appel modèle interdit")):
             r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
                                     json={"messages": [{"role": "user", "content": "Salut"}]})
@@ -1384,6 +1387,7 @@ class SupportBillingTest(unittest.TestCase):
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
              mock.patch.object(chat, "quota_depasse_reset", return_value=3600), \
+             mock.patch.object(chat, "_fin_support"), \
              mock.patch.object(chat.requests, "post", side_effect=AssertionError("appel modèle interdit")):
             r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
                                     json={"messages": [{"role": "user", "content": "Salut"}]})
@@ -1391,3 +1395,332 @@ class SupportBillingTest(unittest.TestCase):
             body = r.get_data(as_text=True)
             self.assertIn("quota_exceeded", body)
             self.assertIn("3600", body)
+
+
+class SupportSensibleActionsTest(unittest.TestCase):
+    """Les actions sensibles du Support ne s'exécutent QUE sur confirmation.
+
+    Avant : la consigne « demande toujours confirmation » vivait dans le prompt,
+    et rien côté serveur n'empêchait le modèle de révoquer une clé ou d'arrêter
+    le modèle servi de sa propre initiative. Désormais la boucle de chat DÉPOSE
+    une demande, l'interface affiche un bouton, et /support/confirm est le seul
+    chemin d'exécution — jeton opaque, lié à l'utilisateur, à usage unique.
+    """
+
+    CSRF = "test-csrf"
+
+    class _Flux:
+        """Flux SSE simulé (les appels successifs reçoivent des frames différents)."""
+
+        ok = True
+        status_code = 200
+
+        def __init__(self, frames):
+            self.frames = frames
+
+        def close(self):
+            pass
+
+        def iter_lines(self, decode_unicode=False):
+            yield from self.frames
+
+    @staticmethod
+    def _frame_outil(name, args, call_id="call_1"):
+        delta = {"tool_calls": [{"index": 0, "id": call_id,
+                                 "function": {"name": name,
+                                              "arguments": json.dumps(args)}}]}
+        return "data: " + json.dumps({"choices": [{"delta": delta}]})
+
+    @staticmethod
+    def _frame_texte(texte):
+        return "data: " + json.dumps({"choices": [{"delta": {"content": texte}}]})
+
+    def _client(self, username="demo"):
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = username
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+        return c
+
+    def _nettoyer(self):
+        with portal.app.app_context():
+            db = portal.get_db()
+            for t in ("pending_actions", "support_feedback", "support_thread",
+                      "audit_log", "login_attempts"):
+                db.execute(f"DELETE FROM {t}")
+            db.commit()
+
+    def setUp(self):
+        self._nettoyer()
+
+    tearDown = setUp
+
+    def _creer_demande(self, username="demo", tool="revoke_api_key",
+                       args=None, label="Révocation de clé", target="test"):
+        with portal.app.app_context():
+            return assistance.creer_action_en_attente(username, tool, args or {"alias": "test"},
+                                                      label, target)
+
+    def test_action_sensible_non_executee_sans_confirmation(self):
+        import unittest.mock as mock
+        frames = [[self._frame_outil("revoke_api_key", {"alias": "test"}), "data: [DONE]"],
+                  [self._frame_texte("Je peux révoquer cette clé — confirme ci-dessous."),
+                   "data: [DONE]"]]
+        appels = {"n": 0}
+
+        def _post(url, headers=None, json=None, timeout=None, stream=False):
+            i = min(appels["n"], len(frames) - 1)
+            appels["n"] += 1
+            return self._Flux(frames[i])
+
+        # `_fin_support` est neutralisé : c'est un thread lancé après la réponse
+        # (fil sauvé + extraction mémoire) qui rappelle requests.post une fois le
+        # tour fini et volerait une frame simulée au test suivant.
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
+             mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
+             mock.patch.object(chat, "requests") as mock_requests, \
+             mock.patch.object(chat, "_fin_support"), \
+             mock.patch.object(chat, "_exec_support_tool") as exec_tool:
+            mock_requests.post.side_effect = _post
+            r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
+                                    json={"messages": [{"role": "user", "content": "révoque ma clé test"}]})
+            self.assertEqual(r.status_code, 200)
+            body = r.get_data(as_text=True)
+        # Rien n'a été exécuté, et l'interface reçoit de quoi afficher le bouton.
+        exec_tool.assert_not_called()
+        self.assertIn("cronos_confirm", body)
+        self.assertIn("revoke_api_key", body)
+        with portal.app.app_context():
+            row = portal.get_db().execute(
+                "SELECT tool, args, status, target FROM pending_actions WHERE username=?",
+                ("demo",)).fetchone()
+        self.assertIsNotNone(row, "la demande de confirmation doit être enregistrée")
+        self.assertEqual(row["tool"], "revoke_api_key")
+        self.assertEqual(row["status"], "pending")
+        self.assertEqual(row["target"], "test")
+        self.assertIn("test", row["args"])
+
+    def test_confirmation_execute_une_seule_fois(self):
+        import unittest.mock as mock
+        tok = self._creer_demande()
+        c = self._client()
+        with mock.patch.object(chat, "_exec_support_tool",
+                               return_value=("Clé « test » révoquée.", True)) as exec_tool:
+            r = c.post("/support/confirm", headers={"X-CSRFToken": self.CSRF}, json={"token": tok})
+            self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+            self.assertTrue(r.get_json()["ok"])
+            self.assertIn("révoquée", r.get_json()["message"])
+            # Deuxième clic (ou rejeu) : la demande n'est plus « pending ».
+            r2 = c.post("/support/confirm", headers={"X-CSRFToken": self.CSRF}, json={"token": tok})
+            self.assertEqual(r2.status_code, 404)
+            self.assertEqual(exec_tool.call_count, 1)
+
+    def test_annulation_n_execute_rien(self):
+        import unittest.mock as mock
+        tok = self._creer_demande()
+        c = self._client()
+        with mock.patch.object(chat, "_exec_support_tool") as exec_tool:
+            r = c.post("/support/confirm", headers={"X-CSRFToken": self.CSRF},
+                       json={"token": tok, "cancel": True})
+            self.assertEqual(r.status_code, 200)
+            self.assertTrue(r.get_json()["ok"])
+            exec_tool.assert_not_called()
+        with portal.app.app_context():
+            st = portal.get_db().execute("SELECT status FROM pending_actions WHERE token=?",
+                                         (tok,)).fetchone()["status"]
+        self.assertEqual(st, "cancelled")
+
+    def test_jeton_d_un_autre_compte_refuse(self):
+        tok = self._creer_demande(username="bob")
+        with patch.object(chat, "_exec_support_tool", return_value=("jamais", False)) as exec_tool:
+            r = self._client("demo").post("/support/confirm",
+                                          headers={"X-CSRFToken": self.CSRF}, json={"token": tok})
+            self.assertEqual(r.status_code, 404)
+            exec_tool.assert_not_called()
+
+    def test_jeton_inconnu_refuse(self):
+        r = self._client().post("/support/confirm", headers={"X-CSRFToken": self.CSRF},
+                                json={"token": "n-importe-quoi"})
+        self.assertEqual(r.status_code, 404)
+        r2 = self._client().post("/support/confirm", headers={"X-CSRFToken": self.CSRF}, json={})
+        self.assertEqual(r2.status_code, 400)
+
+    def test_une_action_non_sensible_n_est_pas_retardee(self):
+        """create_api_key s'exécute directement : pas de bouton pour le non destructif."""
+        import unittest.mock as mock
+        frames = [[self._frame_outil("create_api_key", {"alias": "ma-cle"}), "data: [DONE]"],
+                  [self._frame_texte("C'est fait."), "data: [DONE]"]]
+        appels = {"n": 0}
+
+        def _post(url, headers=None, json=None, timeout=None, stream=False):
+            i = min(appels["n"], len(frames) - 1)
+            appels["n"] += 1
+            return self._Flux(frames[i])
+
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
+             mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
+             mock.patch.object(chat, "requests") as mock_requests, \
+             mock.patch.object(chat, "_exec_support_tool",
+                               return_value=("Clé créée.", True)) as exec_tool:
+            mock_requests.post.side_effect = _post
+            r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
+                                    json={"messages": [{"role": "user", "content": "crée une clé"}]})
+            self.assertEqual(r.status_code, 200)
+            self.assertNotIn("cronos_confirm", r.get_data(as_text=True))
+        self.assertEqual(exec_tool.call_count, 1)
+
+    def test_contexte_contient_les_actions_recentes(self):
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute("INSERT INTO audit_log (username, action, detail, created_at) "
+                       "VALUES (?,?,?,?)",
+                       ("demo", "model.launch_échec", "lancement de laguna (OOM)", "2026-09-13T10:00"))
+            db.commit()
+            ctx = assistance._support_context("demo", False)
+        self.assertIn("laguna (OOM)", ctx)
+        self.assertIn("Ses dernières actions", ctx)
+
+    def test_feedback_enregistre(self):
+        c = self._client()
+        r = c.post("/support/feedback", headers={"X-CSRFToken": self.CSRF},
+                   json={"vote": -1, "comment": "réponse à côté", "question": "ma clé ?",
+                         "answer": "je ne sais pas", "model": "fake"})
+        self.assertEqual(r.status_code, 200)
+        with portal.app.app_context():
+            row = portal.get_db().execute(
+                "SELECT username, vote, comment, question FROM support_feedback").fetchone()
+        self.assertEqual(row["vote"], -1)
+        self.assertEqual(row["username"], "demo")
+        self.assertEqual(row["comment"], "réponse à côté")
+        self.assertEqual(row["question"], "ma clé ?")
+
+    def test_fil_support_conserve_et_efface(self):
+        c = self._client()
+        self.assertEqual(c.get("/api/support/thread").get_json()["messages"], [])
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute("INSERT INTO support_thread (username, messages, updated_at) VALUES (?,?,?)",
+                       ("demo", json.dumps([{"role": "user", "content": "bonjour"}]), time.time()))
+            db.commit()
+        self.assertEqual(c.get("/api/support/thread").get_json()["messages"][0]["content"], "bonjour")
+        r = c.post("/support/thread/clear", headers={"X-CSRFToken": self.CSRF})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(c.get("/api/support/thread").get_json()["messages"], [])
+
+
+class SupportInjectionGuardTest(unittest.TestCase):
+    """Contenu externe (MCP/skill) lu → les actions sensibles sont refusées.
+
+    Ce garde-fou préexistait à la confirmation par jeton, et la boucle de chat a
+    été modifiée juste à côté : sans ce test, une régression passerait inaperçue.
+    """
+
+    CSRF = "test-csrf"
+
+    class _Flux:
+        ok = True
+        status_code = 200
+
+        def __init__(self, frames):
+            self.frames = frames
+
+        def close(self):
+            pass
+
+        def iter_lines(self, decode_unicode=False):
+            yield from self.frames
+
+    @staticmethod
+    def _outil(name, args, call_id="call_1"):
+        delta = {"tool_calls": [{"index": 0, "id": call_id,
+                                 "function": {"name": name, "arguments": json.dumps(args)}}]}
+        return "data: " + json.dumps({"choices": [{"delta": delta}]})
+
+    @staticmethod
+    def _texte(t):
+        return "data: " + json.dumps({"choices": [{"delta": {"content": t}}]})
+
+    def test_action_sensible_refusee_apres_contenu_externe(self):
+        import unittest.mock as mock
+        frames = [
+            [self._outil("mcp_serveur_outil", {}), "data: [DONE]"],       # lecture externe
+            [self._outil("revoke_api_key", {"alias": "prod"}, "call_2"), "data: [DONE]"],
+            [self._texte("Je ne peux pas faire ça dans ce tour."), "data: [DONE]"],
+        ]
+        n = {"i": 0}
+
+        def _post(url, headers=None, json=None, timeout=None, stream=False):
+            i = min(n["i"], len(frames) - 1)
+            n["i"] += 1
+            return self._Flux(frames[i])
+
+        routing = {"mcp_serveur_outil": {"kind": "mcp", "server_id": 1,
+                                         "server_name": "srv", "tool_name": "outil"}}
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = "demo"
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user"}]), \
+             mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
+             mock.patch.object(chat, "_user_extra_tools", return_value=([], routing)), \
+             mock.patch.object(chat, "_exec_mcp_tool", return_value=("texte d'un tiers", True)), \
+             mock.patch.object(chat, "requests") as mock_requests, \
+             mock.patch.object(chat, "_fin_support"), \
+             mock.patch.object(chat, "_exec_support_tool") as exec_tool:
+            mock_requests.post.side_effect = _post
+            r = c.post("/support/chat", headers={"X-CSRFToken": self.CSRF},
+                       json={"messages": [{"role": "user", "content": "résume cette page"}]})
+            body = r.get_data(as_text=True)
+        # Ni exécution, ni proposition de confirmation : le refus est net.
+        exec_tool.assert_not_called()
+        self.assertNotIn("cronos_confirm", body)
+        # Le corps SSE est du JSON : les accents y sont échappés (\u00e9), on
+        # vérifie donc la partie ASCII du message.
+        self.assertIn("Action bloqu", body)
+        with portal.app.app_context():
+            n_pending = portal.get_db().execute(
+                "SELECT COUNT(*) c FROM pending_actions WHERE username='demo'").fetchone()["c"]
+        self.assertEqual(n_pending, 0)
+
+
+class SupportFinDeTourTest(unittest.TestCase):
+    """Fin de tour du Support : le fil est conservé, une réponse COUPÉE ne l'est pas.
+
+    Le fil sert à reprendre la conversation après un rechargement de page : le
+    figer sur une réponse interrompue ferait réapparaître une phrase tronquée à
+    chaque visite, et l'extraction mémoire en tirerait des faits faux.
+    """
+
+    def _nettoyer(self):
+        with portal.app.app_context():
+            db = portal.get_db()
+            for t in ("support_thread", "audit_log"):
+                db.execute(f"DELETE FROM {t}")
+            db.commit()
+
+    setUp = _nettoyer
+    tearDown = _nettoyer
+
+    HIST = [{"role": "user", "content": "question"}, {"role": "assistant", "content": "réponse"}]
+
+    def _fil(self):
+        with portal.app.app_context():
+            row = portal.get_db().execute(
+                "SELECT messages FROM support_thread WHERE username='demo'").fetchone()
+        return json.loads(row["messages"]) if row else None
+
+    def test_reponse_complete_sauve_le_fil(self):
+        chat._fin_support_corps("demo", self.HIST, "réponse finale", "fake", "sk-x",
+                                False, portal.app)
+        fil = self._fil()
+        self.assertEqual([m["content"] for m in fil], ["question", "réponse", "réponse finale"])
+
+    def test_reponse_interrompue_ne_sauve_rien(self):
+        chat._fin_support("demo", self.HIST, ["réponse à moitié écri"], "fake", "sk-x",
+                          False, False, portal.app)
+        self.assertIsNone(self._fil(), "une réponse coupée ne doit pas devenir le fil")

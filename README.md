@@ -343,6 +343,15 @@ playground): if the account has no key yet, the assistant answers by asking you 
 create one on *My API keys* rather than silently doing nothing, and a spent budget
 stops it until the quota resets.
 
+Sensitive actions — revoking a key, launching or stopping the model on the GPU —
+are **never executed on the model's word**: it files a request, the chat shows a
+**Confirmer / Annuler** button, and only your click runs it (single-use token,
+expires after 10 minutes, bound to your account). The assistant also keeps your
+last conversation server-side so a page reload does not lose it, remembers durable
+facts about you when the memory feature is on, sees your recent platform actions
+when diagnosing a problem, and offers 👍/👎 feedback on its answers (collected
+at `GET /admin/support/feedback`, admin-only).
+
 ### Find a model
 
 Live search over the Hugging Face Hub (no local cache), filterable by task

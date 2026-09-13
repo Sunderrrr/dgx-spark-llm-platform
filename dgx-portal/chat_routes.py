@@ -24,6 +24,7 @@ import queue
 import re
 import threading
 import time
+from datetime import datetime
 
 import requests
 from flask import (Blueprint, Response, current_app, jsonify, request, session,
@@ -32,7 +33,7 @@ from flask import (Blueprint, Response, current_app, jsonify, request, session,
 from auth import login_required
 from config import AUTO_MODEL_NAME, LITELLM_URL
 from conversation_routes import MSG_MAX_CHARS
-from db import get_db
+from db import get_db, log_audit
 from guards import (_chat_rate_limited, _sse_msg, _sse_notice,
                     maintenance_block_sse, quota_depasse_reset)
 from litellm_client import _litellm_user_info, get_user_keys
@@ -44,7 +45,8 @@ from stats import _inflight_end, _inflight_start, enregistrer_ttft
 from support import (GUARDED_TOOLS, SUPPORT_SYSTEM, TOOL_LABELS, _clean_reply,
                      _exec_mcp_tool, _exec_skill, _exec_support_tool,
                      _sse_tool_event, _support_context, _support_tool_target,
-                     _support_tools, _user_extra_tools)
+                     _support_tools, _user_extra_tools, action_en_attente,
+                     cloturer_action, creer_action_en_attente)
 from vllm_health import effective_ctx, get_running_models
 from websearch_tools import (_phase_outils, _recherche_pertinente,
                              _texte_des_trouvailles, websearch_active)
@@ -80,6 +82,17 @@ def _sse_chunks(text, done=True):
         yield _sse_text(text[i:i + chunk_chars])
     if done:
         yield "data: [DONE]\n\n"
+
+
+def _sse_confirm_event(token, tool, label, target):
+    """Demande de confirmation d'une action sensible (jeton opaque).
+
+    Le jeton reste côté client ET serveur : il n'est jamais placé dans le
+    contexte du modèle, donc une injection indirecte ne peut pas le rejouer.
+    """
+    payload = json.dumps({'cronos_confirm': {'token': token, 'tool': tool,
+                                             'label': label, 'target': target}})
+    return f"data: {payload}\n\n"
 
 
 @bp.route('/support/chat', methods=['POST'])
@@ -123,6 +136,15 @@ def support_chat():
                         mimetype='text/event-stream')
     last_user = next((m['content'] for m in reversed(history) if m['role'] == 'user'), '')
     ctx = _support_context(username, is_admin, user_msg=last_user)
+    # Mémoire (opt-in, par utilisateur) : le Support ne l'utilisait pas, donc il
+    # reposait les mêmes questions à chaque session (« tu as des clés ? ») alors
+    # que le graphe de faits existe. Cadré comme des données, borné, et re-vérifié
+    # à l'écriture côté extraction.
+    _mem_on = memoire._mem_enabled(username)
+    if _mem_on:
+        _memctx = memoire._mem_inject_context(username)
+        if _memctx:
+            ctx += "\n\n" + _memctx
     msgs = [{'role': 'system', 'content': SUPPORT_SYSTEM + "\n\n### CONTEXTE\n" + ctx}] + history
     extra_tools, extra_routing = _user_extra_tools(username)
     tools = _support_tools(is_admin) + extra_tools
@@ -253,6 +275,12 @@ def support_chat():
                  for s in tool_acc.values() if s['name']]
         return content, calls, 200
 
+    _reponse = []      # texte du modèle, pour l'écriture mémoire et la sauvegarde du fil
+    # Une réponse INTERROMPUE (onglet fermé, « Arrêter », erreur modèle) ne doit
+    # ni être conservée comme fil de discussion, ni servir de matière à
+    # l'extraction mémoire : on ne mémorise que ce qui a été jusqu'au bout.
+    _etat = {'fini': False}
+
     def _gen_inner():
         # SSE comment emitted BEFORE any work: it forces the response
         # headers to be written immediately. Without it, /support/chat
@@ -279,6 +307,10 @@ def support_chat():
             untrusted_seen = False
             for _ in range(4):  # loop: the model can chain tool calls
                 content, tcs, status = yield from _run_turn(use_tools)
+                # Texte du tour, conservé pour l'écriture mémoire et la
+                # sauvegarde du fil (le client, lui, reçoit le flux).
+                if content:
+                    _reponse.append(content)
                 if status == TRANSPORT_ERR:
                     yield from _sse_chunks(
                         "Le service de modèle est momentanément injoignable. Réessaie dans un instant.",
@@ -297,6 +329,8 @@ def support_chat():
                 if not tcs:
                     if not streamed_any:
                         yield from _sse_chunks("(réponse vide)", done=False)
+                    else:
+                        _etat['fini'] = True     # réponse complète (cf. _fin_support)
                     yield "data: [DONE]\n\n"
                     return
                 # The model calls tools → we run them server-side then loop again.
@@ -334,6 +368,23 @@ def support_chat():
                                      "été lu. Explique-le à l'utilisateur et invite-le à "
                                      "faire l'action lui-même depuis l'interface."})
                         continue
+                    # Action sensible (révocation de clé, arrêt/lancement de
+                    # modèle) : le modèle ne l'exécute JAMAIS. Il enregistre une
+                    # demande, l'interface affiche Confirmer/Annuler, et c'est le
+                    # clic qui exécute (route /support/confirm). Le jeton n'entre
+                    # pas dans son contexte : une injection indirecte ne peut donc
+                    # pas le rejouer, contrairement à une consigne de prompt.
+                    if not route and fname in GUARDED_TOOLS:
+                        tok = creer_action_en_attente(username, fname, a, label, target)
+                        yield _sse_confirm_event(tok, fname, label, target)
+                        msgs.append({'role': 'tool', 'tool_call_id': tc.get('id'),
+                                     'content': "NON EXÉCUTÉ : l'action est en attente de "
+                                     "la confirmation de l'utilisateur dans l'interface "
+                                     "(bouton « Confirmer » affiché ci-dessous). Ne la "
+                                     "rappelle pas et n'affirme pas qu'elle est faite : "
+                                     "explique en une phrase ce qui va se passer et "
+                                     "termine ta réponse."})
+                        continue
                     if route:
                         untrusted_seen = True
                     yield _sse_tool_event(tc_id, label, target, 'running')
@@ -350,6 +401,9 @@ def support_chat():
                 yield from _sse_chunks("Le modèle est occupé, réessaie dans un instant.", done=False)
             elif not content.strip():
                 yield from _sse_chunks("Peux-tu reformuler ta demande ?", done=False)
+            else:
+                _reponse.append(content)
+                _etat['fini'] = True             # réponse complète (cf. _fin_support)
             yield "data: [DONE]\n\n"
         except Exception:
             yield from _sse_chunks("Le modèle n'a pas répondu à temps. Réessaie dans un instant.",
@@ -362,9 +416,148 @@ def support_chat():
             yield from _gen_inner()
         finally:
             _inflight_end(_rid)
+            _fin_support(username, history, _reponse, model, user_key, _mem_on,
+                         _etat['fini'], current_app._get_current_object())
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _fin_support(username, history, reponse, model, user_key, mem_on, fini, app):
+    """Après le tour de Support : sauve le fil et extrait les faits durables.
+
+    Best effort et HORS requête (thread daemon) : le client est déjà servi, un
+    échec ne doit rien lui changer. On lui passe l'objet app explicitement — le
+    fil vit hors contexte Flask, où `get_db()` lèverait « Working outside of
+    application context » (bug déjà rencontré côté playground, invisible car
+    l'exception était avalée).
+    """
+    texte = "".join(reponse).strip()
+    if not texte:
+        return
+    if not fini:
+        # Réponse interrompue (onglet fermé, bouton Arrêter, erreur modèle) : on
+        # garde le tour précédent plutôt que de figer une réponse coupée en plein
+        # mot, et on n'en tire aucun fait durable pour la mémoire.
+        _log.info("support %s : reponse interrompue, fil et memoire non mis a jour", username)
+        return
+    # Le corps est séparé du lancement du thread : les tests peuvent l'appeler
+    # directement, sans course avec un thread daemon.
+    threading.Thread(target=_fin_support_corps,
+                     args=(username, history, texte, model, user_key, mem_on, app),
+                     daemon=True).start()
+
+
+def _fin_support_corps(username, history, texte, model, user_key, mem_on, app):
+    """Corps du travail de fin de tour (hors requête, appelable en test)."""
+    extraits = [{'role': m['role'], 'content': m['content']} for m in history[-4:]]
+    extraits.append({'role': 'assistant', 'content': texte[:4000]})
+    try:
+        with app.app_context():
+            db = get_db()
+            fil = [{'role': m['role'], 'content': m['content']} for m in history]
+            fil.append({'role': 'assistant', 'content': texte[:8000]})
+            db.execute(
+                "INSERT INTO support_thread (username, messages, updated_at) VALUES (?,?,?) "
+                "ON CONFLICT(username) DO UPDATE SET messages=excluded.messages, "
+                "updated_at=excluded.updated_at",
+                (username, json.dumps(fil[-40:], ensure_ascii=False), time.time()))
+            db.commit()
+    except Exception as e:
+        _log.warning("support %s : fil non sauvegarde (%s)", username, e)
+    if mem_on:
+        try:
+            _mem_extraire_et_sauver(username, model, user_key, extraits, app)
+        except Exception as e:
+            _log.warning("support %s : extraction memoire echouee (%s)", username, e)
+
+
+@bp.route('/support/confirm', methods=['POST'])
+@login_required
+def support_confirm():
+    """Exécute (ou annule) une action sensible que le modèle a PROPOSÉE.
+
+    C'est le seul chemin d'exécution pour revoke_api_key / launch_model /
+    stop_model depuis le Support : la boucle de chat ne les exécute plus
+    elle-même. Le jeton est à usage unique et lié à l'utilisateur, donc ni un
+    rejeu ni un autre compte ne peuvent déclencher l'action.
+    """
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    if not token:
+        return jsonify({'error': 'Demande inconnue.'}), 400
+    username = session['username']
+    act = action_en_attente(username, token)
+    if not act:
+        return jsonify({'error': "Cette demande a expiré (ou a déjà été traitée)."}), 404
+    label = act['label'] or act['tool']
+    if data.get('cancel'):
+        cloturer_action(username, token, 'cancelled')
+        log_audit(username, 'support.action_annulee', label)
+        return jsonify({'ok': True, 'message': f"Action annulée : {label}."})
+    # Usage unique : le UPDATE conditionnel tranche un double clic.
+    if not cloturer_action(username, token, 'done'):
+        return jsonify({'error': "Cette demande a déjà été traitée."}), 409
+    try:
+        args = json.loads(act['args'] or '{}')
+    except Exception:
+        args = {}
+    res, ok = _exec_support_tool(act['tool'], args, username,
+                                 session.get('fullname'), session.get('is_admin', False))
+    log_audit(username, f"support.{act['tool']}", f"{label} — {'ok' if ok else 'échec'}")
+    return jsonify({'ok': bool(ok), 'message': res})
+
+
+@bp.route('/api/support/thread', methods=['GET'])
+@login_required
+def support_thread_get():
+    """Fil de discussion du Support, pour qu'un rechargement ne le perde pas."""
+    row = get_db().execute("SELECT messages, updated_at FROM support_thread WHERE username=?",
+                           (session['username'],)).fetchone()
+    if not row:
+        return jsonify({'messages': []})
+    try:
+        msgs = json.loads(row['messages'] or '[]')
+    except Exception:
+        msgs = []
+    return jsonify({'messages': msgs, 'updated_at': row['updated_at']})
+
+
+@bp.route('/support/thread/clear', methods=['POST'])
+@login_required
+def support_thread_clear():
+    """« Nouvelle conversation » : on efface le fil conservé."""
+    db = get_db()
+    db.execute("DELETE FROM support_thread WHERE username=?", (session['username'],))
+    db.commit()
+    return jsonify({'ok': True})
+
+
+@bp.route('/support/feedback', methods=['POST'])
+@login_required
+def support_feedback():
+    """Pouce haut/bas sur une réponse (et commentaire libre optionnel).
+
+    Sert à savoir QUELLES réponses échouent — sans cela, le prompt ne se corrige
+    qu'à l'intuition. Borné en taille, jamais de secret attendu ici.
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        vote = 1 if int(data.get('vote') or 0) > 0 else -1
+    except Exception:
+        return jsonify({'error': 'Vote invalide.'}), 400
+    db = get_db()
+    db.execute("INSERT INTO support_feedback (username, vote, comment, question, answer, model, created_at) "
+               "VALUES (?,?,?,?,?,?,?)",
+               (session['username'], vote,
+                str(data.get('comment') or '')[:1000],
+                str(data.get('question') or '')[:2000],
+                str(data.get('answer') or '')[:4000],
+                str(data.get('model') or '')[:80],
+                datetime.now().isoformat()))
+    db.commit()
+    log_audit(session['username'], 'support.feedback', 'utile' if vote > 0 else 'pas utile')
+    return jsonify({'ok': True})
 
 
 # ── Playground: direct chat with the model, streaming ────────────────────────

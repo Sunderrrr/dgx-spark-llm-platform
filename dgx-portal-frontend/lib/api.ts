@@ -166,11 +166,25 @@ export type ToolCallEvent = {
   error?: string;
 };
 
+/** Action sensible proposée par l'assistant Support (trame `cronos_confirm`
+ * du flux /support/chat : révocation de clé, lancement/arrêt du modèle).
+ * RIEN n'est exécuté tant que l'utilisateur n'a pas cliqué : le jeton opaque,
+ * à usage unique et lié au compte, ne part qu'au POST /support/confirm — il
+ * n'entre jamais dans le contexte du modèle, donc une injection indirecte ne
+ * peut pas le rejouer (contrairement à une consigne de prompt). */
+export type SupportConfirmRequest = {
+  token: string;
+  tool: string;
+  label: string;
+  target?: string | null;
+};
+
 type SSEPayload = {
   usage?: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number };
   choices?: { delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }[];
   cronos_web?: EtapeWeb;
   cronos_notice?: { id: string; reset?: string; status?: number };
+  cronos_confirm?: SupportConfirmRequest;
   tool_call?: ToolCallEvent;
 };
 
@@ -261,12 +275,19 @@ export async function streamOcr(
   });
 }
 
-/** Reads the SSE stream from /support/chat: text and tool invocations (ChatToolCalls).
+/** Reads the SSE stream from /support/chat: text, tool invocations (ChatToolCalls),
+ * notices système (cronos_notice) et demandes de confirmation d'action sensible
+ * (cronos_confirm).
  *
  * `onNotice` reçoit les notices système du serveur (cronos_notice) : le Support
  * tourne sur la clé API de l'utilisateur, donc sur son budget, et peut donc
  * répondre « pas de clé » ou « quota dépassé » — exactement comme le playground.
- * Sans ce rappel, ces refus se traduisaient par une réponse vide. */
+ * Sans ce rappel, ces refus se traduisaient par une réponse vide.
+ *
+ * `onConfirm` reçoit les demandes de confirmation (cronos_confirm) : le modèle
+ * a demandé une action SENSIBLE (révocation de clé, lancement/arrêt du modèle),
+ * rien n'est exécuté — l'interface affiche Confirmer/Annuler et c'est le clic
+ * (confirmSupportAction) qui tranche. */
 export async function streamSupportChat(
   csrf: string,
   messages: { role: string; content: string }[],
@@ -274,6 +295,7 @@ export async function streamSupportChat(
   onChunk: (content: string) => void,
   onToolCall?: (event: ToolCallEvent) => void,
   onNotice?: (notice: CronosNotice) => void,
+  onConfirm?: (request: SupportConfirmRequest) => void,
 ): Promise<void> {
   const res = await authFetch("/support/chat", {
     method: "POST",
@@ -286,5 +308,35 @@ export async function streamSupportChat(
     if (content) onChunk(content);
     if (json.tool_call) onToolCall?.(json.tool_call);
     if (json.cronos_notice) onNotice?.(json.cronos_notice);
+    if (json.cronos_confirm) onConfirm?.(json.cronos_confirm);
   });
+}
+
+/** Confirme (`cancel: false`) ou annule (`cancel: true`) une action sensible
+ * proposée par l'assistant Support (POST /support/confirm, jeton à usage
+ * unique). 200 → {ok, message} ; 404/409/400 → {error} (demande expirée, déjà
+ * traitée ou invalide) : sendJSON ne lève pas sur ces statuts, l'appelant lit
+ * ok/error/message. Seule exception : une erreur réseau, qui propage. */
+export function confirmSupportAction(
+  csrf: string,
+  token: string,
+  cancel: boolean,
+): Promise<{ ok?: boolean; message?: string; error?: string }> {
+  return sendJSON("/support/confirm", csrf, { token, cancel });
+}
+
+/** Pouce haut/bas sur une réponse du Support (commentaire facultatif pour le
+ * 👎). question/réponse/model accompagnent le vote pour repérer les réponses
+ * qui échouent ; l'échec du POST ne doit jamais casser le chat. */
+export function sendSupportFeedback(
+  csrf: string,
+  payload: {
+    vote: 1 | -1;
+    comment?: string;
+    question?: string;
+    answer?: string;
+    model?: string;
+  },
+): Promise<{ ok?: boolean; error?: string }> {
+  return sendJSON("/support/feedback", csrf, payload);
 }

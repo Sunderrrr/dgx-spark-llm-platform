@@ -923,7 +923,7 @@ const EN: Record<string, string> = {
   "Aucun modèle vidéo n'est disponible": "No video model is available",
   "Demande à un admin de démarrer un modèle vidéo pour utiliser cette page.":
     "Ask an admin to start a video model to use this page.",
-  "Génération vidéo — MiniMax H3": "Video generation — MiniMax H3",
+  "Génération vidéo": "Video generation",
   "Une description, avec ou sans image de référence, → une courte vidéo avec audio synchronisé. Génère localement sur le GPU, compte 5 à 10 minutes selon la charge.":
     "A description, with or without a reference image, → a short video with synced audio. Generates locally on the GPU, allow 5 to 10 minutes depending on load.",
   "Image de référence (optionnel)": "Reference image (optional)",
@@ -1282,6 +1282,61 @@ const EN: Record<string, string> = {
     "This action PERMANENTLY erases the account's data: memories, conversations, share links, preferences and API keys.",
   "Elle ne retire pas l'accès : un compte LDAP/SSO peut se reconnecter et repartira d'un compte vide. Pour retirer l'accès, utilise Bloquer.":
     "It does not remove access: an LDAP/SSO account can sign in again and will start from an empty account. To remove access instead, use Block.",
+
+  // Admin : actions et confirmations (contrat {ok, error} du backend ; les
+  // phrases renvoyées par le serveur s'affichent telles quelles, sans clé).
+  "Accès refusé.": "Access denied.",
+  "Arrêter le modèle servi ?": "Stop the served model?",
+  "Le modèle va être coupé : toutes les générations en cours, pour tous les utilisateurs, seront interrompues.":
+    "The model will be shut down: every in-flight generation, for every user, will be interrupted.",
+  "Lancer {name} ?": "Launch {name}?",
+  "Le modèle sera chargé en mémoire unifiée — le lancement peut prendre plusieurs minutes.":
+    "The model will be loaded into unified memory — launching can take several minutes.",
+  "Supprimer {name} du catalogue ?": "Delete {name} from the catalogue?",
+  "L'entrée sera retirée du catalogue et du routage LiteLLM (ça n'arrête pas un modèle en cours).":
+    "The entry will be removed from the catalogue and from LiteLLM routing (this does not stop a running model).",
+  "Activer le mode maintenance ?": "Enable maintenance mode?",
+  "Désactiver le mode maintenance ?": "Disable maintenance mode?",
+  "Le trafic non-admin vers les routes de génération sera refusé ; les admins gardent l'accès.":
+    "Non-admin traffic to the generation routes will be refused; admins keep access.",
+  "Le trafic non-admin vers les routes de génération sera de nouveau accepté.":
+    "Non-admin traffic to the generation routes will be accepted again.",
+  "Modifier les args du moteur": "Edit engine args",
+  "Seuls les args du moteur changent ; l'entrée reste identifiée par son nom et son HF ID.":
+    "Only the engine args change; the entry keeps its name and HF ID.",
+
+  // Admin : carte « État de la plateforme » (GET /admin/platform).
+  "État de la plateforme": "Platform status",
+  "Relevé indisponible — impossible de lire l'état de la plateforme.": "Status unavailable — could not read the platform state.",
+  "Vérifié à {time}": "Checked at {time}",
+  "Maintenance": "Maintenance",
+  "Disque": "Disk",
+  "Espace disque faible": "Low disk space",
+  "Espace disque suffisant": "Disk space OK",
+  "{v} Go libre": "{v} GB free",
+  "{v} Go sur {w} Go libres": "{v} GB of {w} GB free",
+  "Sauvegarde": "Backup",
+  "sauvegarde illisible": "backup unreadable",
+  "Sauvegarde en retard": "Backup overdue",
+  "Sauvegarde récente": "Recent backup",
+  "il y a {h} h": "{h} h ago",
+  "âge inconnu": "unknown age",
+  "archives": "archives",
+  "Moniteur": "Monitor",
+  "état non lisible": "state not readable",
+  "incident(s) actif(s)": "active incident(s)",
+  "aucun incident": "no incidents",
+  "Modèle servi": "Served model",
+  "en service depuis {u}": "up for {u}",
+  "état inconnu": "unknown state",
+  "Portail": "Portal",
+  "base {v} Mo": "DB {v} MB",
+  "sessions actives": "active sessions",
+  "comptes locaux": "local users",
+  "clés actives": "active keys",
+
+  // Recherche utilisateur (Admin) : exemple générique, jamais de vrai compte.
+  "ex : jdoe": "e.g. jdoe",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

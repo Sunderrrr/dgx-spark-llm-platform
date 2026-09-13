@@ -7,6 +7,14 @@ FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e16
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Plafond de tas pour le build (défaut 2,5 Gio). Sur cette machine, le modèle
+# de chat servi occupe déjà ~105 Gio des 121 : un build non borné peut pousser
+# le noyau à échanger, et l'OOM-killer désigne alors le plus gros RSS — c'est-
+# à-dire le modèle en cours de service, ce qui est interdit. Une borne
+# transforme un risque non borné en échec de build borné. Relever la valeur
+# (docker build --build-arg NODE_HEAP_MB=4096) si le build manque de mémoire.
+ARG NODE_HEAP_MB=2560
+ENV NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB}
 RUN npm run build
 
 FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS runner

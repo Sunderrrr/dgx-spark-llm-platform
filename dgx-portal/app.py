@@ -259,7 +259,7 @@ from chat_routes import bp as chat_bp  # noqa: E402
 # ── Statistiques de consommation (base LiteLLM Postgres) ─────────────────────
 # Statistiques (agregats, classements, utilisateurs actifs) : cf. stats.py
 from stats import (  # noqa: E402
-    _account_activity, _active_users, _inflight_end, _inflight_start,
+    RANKING_METRICS, _account_activity, _active_users, _inflight_end, _inflight_start,
     _real_tokens_by_user, _tokens_by_model,
     ranking_full, user_hourly,
 )
@@ -1270,9 +1270,17 @@ def api_ranking():
     period = request.args.get('period', 'day')
     if period not in RANKING_PERIODS:
         period = 'day'
-    data = ranking_full(period, me=session['username'])
-    return jsonify({'rows': data['rows'], 'active_count': data['active_count'], 'period': period,
-                     'period_label': RANKING_LABELS[period], 'prev_label': RANKING_PREV_LABELS[period]})
+    # La metrique est validee ici comme la periode : un classement sur autre
+    # chose que l'entree, le genere ou leur somme n'existe pas, et retomber sur
+    # le total vaut mieux que repondre une erreur a une page qui s'ouvre.
+    metric = request.args.get('metric', 'total')
+    if metric not in RANKING_METRICS:
+        metric = 'total'
+    data = ranking_full(period, me=session['username'], metric=metric)
+    return jsonify({'rows': data['rows'], 'active_count': data['active_count'],
+                    'period': period, 'metric': metric,
+                    'total': data['total'], 'avg': data['avg'], 'has_prev': data['has_prev'],
+                    'period_label': RANKING_LABELS[period], 'prev_label': RANKING_PREV_LABELS[period]})
 
 @app.route('/request', methods=['GET', 'POST'])
 @login_required

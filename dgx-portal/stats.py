@@ -31,6 +31,9 @@ from vllm_health import vllm_health
 # Pseudo-keys that don't correspond to a user (admin/health calls).
 _NON_USER_KEYS = {'litellm_proxy_master_key', 'None', ''}
 
+# Ce sur quoi un classement peut porter : les deux ensemble, ou l'un des deux.
+RANKING_METRICS = ('total', 'completion', 'prompt')
+
 
 def _real_tokens_by_user(since_utc=None):
     """Real tokens (prompt + generated) per user, from SpendLogs. If
@@ -495,21 +498,36 @@ def _key_user_map(conn):
     _key_user_map_cache.update(t=time.time(), v=mapping)
     return mapping
 
-def _series_for(usernames):
-    """username -> stable color class (alphabetical order, 8 slots + 'other')."""
-    out = {}
-    for i, u in enumerate(sorted(usernames)):
-        out[u] = f"s{i+1}" if i < 8 else "other"
-    return out
+def _comptes_connus():
+    """Comptes qui existent vraiment : locaux, ou consignes comme source de login.
 
-def _spark_points(spark, w=88, h=24):
-    """Points of an SVG polyline (normalized on its own max)."""
-    n = len(spark)
-    if n < 2:
-        return ''
-    mx = max(spark) or 1
-    return ' '.join(
-        f"{(j/(n-1)*w):.1f},{(h - 1 - (v/mx)*(h-2)):.1f}" for j, v in enumerate(spark))
+    Sert a distinguer une PERSONNE d'un residu. Les cles creees pour un test — ou
+    supprimees a la main — laissent des lignes de consommation au nom d'un compte
+    qui n'existe nulle part : les classer parmi les utilisateurs leur donne un
+    rang, et un jour une medaille. Mesure du 2026-09-14 : `zz-pwtest`, residu
+    d'un test de politique de mot de passe (15 requetes, 8 633 tokens), figurait
+    au classement public.
+
+    Meme precaution que `auth.etat_compte` : si la base locale est illisible on
+    renvoie None et l'appelant ne conclut RIEN. Une donnee absente n'est pas une
+    preuve d'absence — mieux vaut une ligne de trop qu'un vrai compte demasque
+    comme un residu.
+    """
+    try:
+        db = get_db()
+        noms = {r['username'] for r in db.execute('SELECT username FROM local_users')}
+        noms |= {r['username'] for r in db.execute('SELECT DISTINCT username FROM user_sources')}
+        return noms
+    except Exception:
+        return None
+
+def _valeur_metrique(prompt, completion, metric):
+    """Le chiffre sur lequel on CLASSE : l'entree, le genere, ou les deux."""
+    if metric == 'completion':
+        return completion or 0
+    if metric == 'prompt':
+        return prompt or 0
+    return (prompt or 0) + (completion or 0)
 
 # Arithmétique de mois pour les périodes « 12 derniers mois » et « depuis le
 # début » : timedelta ne connaît pas les mois (durées inégales), et on évite
@@ -536,13 +554,27 @@ def _month_buckets(start, end):
             m = 1; y += 1
     return out
 
-def ranking_full(period='day', me=None):
-    """Enriched ranking: real tokens consumed (prompt + generated), delta vs
-    the previous period, prompt/generated split, and a trend sparkline, per
-    user.
+def ranking_full(period='day', me=None, metric='total'):
+    """Classement enrichi : tokens reellement consommes, part du total de la
+    periode, delta vs la periode precedente, repartition entree/genere et
+    tendance, par compte.
+
+    `metric` choisit ce qui est CLASSE : 'total' (entree + genere), 'completion'
+    (genere) ou 'prompt' (entree). Le choix n'est pas cosmetique — mesure du
+    2026-09-14 sur 30 jours : le 1er concentrait 32,2 % du total mais seulement
+    0,46 % du genere. Un classement « total » classe donc surtout ceux qui
+    ENVOIENT du contexte, et l'ordre change vraiment quand on classe le genere
+    (ccrespy sort du top 5, nlerou y entre).
+
+    Les lignes qui ne correspondent a aucun compte (`inconnu`, residus de cles
+    de test) sortent du classement : ni rang ni medaille, et elles ne comptent
+    pas dans les comptes actifs. Elles restent dans le TOTAL de la periode, qui
+    decrit la plateforme — pas le classement.
     """
+    metric = metric if metric in RANKING_METRICS else 'total'
     conn = _spend_conn()
-    empty = {'period': period, 'rows': [], 'active_count': 0}
+    empty = {'period': period, 'metric': metric, 'rows': [], 'active_count': 0,
+             'total': 0, 'avg': 0, 'has_prev': period != 'all'}
     if not conn:
         return empty
     UTC = ZoneInfo('UTC')
@@ -584,6 +616,7 @@ def ranking_full(period='day', me=None):
         cur_start_utc = cur_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         prev_start_utc = prev_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         umap = _key_user_map(conn)
+        connus = _comptes_connus()
         cur = conn.cursor()
         if bucket_kind == 'hour':
             bexpr = "EXTRACT(HOUR FROM ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::int"
@@ -591,7 +624,9 @@ def ranking_full(period='day', me=None):
             bexpr = "date_trunc('month', ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::date"
         else:
             bexpr = "((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s)::date"
-        # Current period: per bucket + key (real tokens + prompt/generated split)
+        # Periode courante : par bucket ET par cle. Les DEUX compteurs sont
+        # ramenes, pas seulement leur somme : c'est ce qui permet de classer sur
+        # l'entree, le genere, ou les deux.
         cur.execute(
             f'SELECT {bexpr} AS b, api_key, SUM(prompt_tokens), SUM(completion_tokens) '
             'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s GROUP BY b, api_key',
@@ -601,40 +636,68 @@ def ranking_full(period='day', me=None):
             if api_key in _NON_USER_KEYS:
                 continue
             u = umap.get(api_key, 'inconnu')
+            p, c = prompt or 0, comp or 0
             a = agg.setdefault(u, {'tokens': 0, 'prompt': 0, 'completion': 0, 'spark': {}})
-            tok = (prompt or 0) + (comp or 0)
-            a['tokens'] += tok; a['prompt'] += prompt or 0; a['completion'] += comp or 0
-            if tok:
-                a['spark'][b] = a['spark'].get(b, 0) + tok
-        # Previous period: total per key (for the delta) — real tokens.
-        # « Depuis le début » n'a rien avant lui : on saute la requête, le delta
-        # restera absent (None) plutôt que d'afficher un +∞ trompeur.
-        cur.execute('SELECT api_key, SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
-                    'FROM "LiteLLM_SpendLogs" '
-                    'WHERE "startTime" >= %s AND "startTime" < %s GROUP BY api_key',
-                    (prev_start_utc, cur_start_utc)) if period != 'all' else None
+            a['tokens'] += p + c; a['prompt'] += p; a['completion'] += c
+            # La tendance suit la metrique affichee, pas le total : une courbe de
+            # contexte n'a pas la meme forme qu'une courbe de generation.
+            v = _valeur_metrique(p, c, metric)
+            if v:
+                a['spark'][b] = a['spark'].get(b, 0) + v
+        # Periode precedente, meme metrique : un delta compare ce qui est
+        # comparable. « Depuis le debut » n'a rien avant lui — on saute la
+        # requete, et `has_prev` previent l'interface qu'il n'y a pas de delta a
+        # afficher. L'ancienne version, elle, affichait « nouveau » sur TOUTES
+        # les lignes de cette periode : faute de distinguer « pas de periode
+        # precedente » de « compte absent la periode d'avant ».
         prev = {}
-        for api_key, toks in (cur.fetchall() if period != 'all' else []):
-            if api_key in _NON_USER_KEYS:
-                continue
-            u = umap.get(api_key, 'inconnu')
-            prev[u] = prev.get(u, 0) + (toks or 0)
-        items = sorted([(u, a) for u, a in agg.items() if a['tokens'] > 0],
-                       key=lambda x: x[1]['tokens'], reverse=True)
-        series = _series_for([u for u, _ in items])
-        top = items[0][1]['tokens'] if items else 0
-        rows = []
-        for i, (u, a) in enumerate(items):
+        if period != 'all':
+            cur.execute('SELECT api_key, SUM(COALESCE(prompt_tokens,0)), SUM(COALESCE(completion_tokens,0)) '
+                        'FROM "LiteLLM_SpendLogs" '
+                        'WHERE "startTime" >= %s AND "startTime" < %s GROUP BY api_key',
+                        (prev_start_utc, cur_start_utc))
+            for api_key, p, c in cur.fetchall():
+                if api_key in _NON_USER_KEYS:
+                    continue
+                u = umap.get(api_key, 'inconnu')
+                prev[u] = prev.get(u, 0) + _valeur_metrique(p, c, metric)
+        # La metrique se calcule UNE fois par compte : elle sert au tri, au
+        # total, a la part et au delta.
+        for a in agg.values():
+            a['value'] = _valeur_metrique(a['prompt'], a['completion'], metric)
+
+        def est_residu(u):
+            """Ligne qui n'est le compte de personne — voir `_comptes_connus`."""
+            return u == 'inconnu' or (connus is not None and u not in connus)
+
+        def ligne(u, a, rang):
             pv = prev.get(u, 0)
-            delta = ((a['tokens'] - pv) / pv * 100) if pv > 0 else None
-            spark = [a['spark'].get(b, 0) for b in buckets]
-            rows.append({
-                'rank': i + 1, 'username': u, 'series': series[u], 'is_me': u == me,
-                'tokens': a['tokens'], 'prompt': int(a['prompt']), 'completion': int(a['completion']),
-                'delta': delta, 'bar_pct': (a['tokens'] / top * 100) if top else 0,
-                'spark_pts': _spark_points(spark),
-            })
-        return {'period': period, 'rows': rows, 'active_count': len(rows)}
+            residu = est_residu(u)
+            return {
+                'rank': rang, 'username': u, 'is_me': u == me,
+                'is_unattributed': residu,
+                'value': int(a['value']),                 # ce sur quoi on classe
+                'tokens': int(a['tokens']),
+                'prompt': int(a['prompt']), 'completion': int(a['completion']),
+                'share_pct': (a['value'] / total * 100) if total else 0,
+                # Pas de delta sur une ligne non attribuee : son « +290 919 % » du
+                # mois ne compare rien d'utile, et un residu n'a pas d'histoire.
+                'delta': None if residu or not pv else (a['value'] - pv) / pv * 100,
+                'trend': [a['spark'].get(b, 0) for b in buckets],
+            }
+
+        actifs = [(u, a) for u, a in agg.items() if a['value'] > 0 and not est_residu(u)]
+        autres = [(u, a) for u, a in agg.items() if a['value'] > 0 and est_residu(u)]
+        actifs.sort(key=lambda x: x[1]['value'], reverse=True)
+        autres.sort(key=lambda x: x[1]['value'], reverse=True)
+        total = sum(a['value'] for _, a in actifs + autres)
+        total_actifs = sum(a['value'] for _, a in actifs)
+        rows = [ligne(u, a, i + 1) for i, (u, a) in enumerate(actifs)]
+        rows += [ligne(u, a, None) for u, a in autres]
+        return {'period': period, 'metric': metric, 'rows': rows,
+                'active_count': len(actifs), 'total': round(total),
+                'avg': round(total_actifs / len(actifs)) if actifs else 0,
+                'has_prev': period != 'all'}
     except Exception:
         return empty
     finally:

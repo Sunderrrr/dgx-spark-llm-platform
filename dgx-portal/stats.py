@@ -208,7 +208,7 @@ def _compte_existe(nom):
 # Pas plus de 180 s non plus : au-dela, le panneau garde des noms partis depuis
 # longtemps. C'est le garde-fou sur l'activite du moteur qui borne vraiment —
 # moteur au repos, panneau vide, quelle que soit la fenetre.
-def _active_users(window_s=180):
+def _active_users(window_s=1800):
     """Users who queried the model recently, from two sources merged:
       - LiteLLM SpendLogs over the last `window_s` s (attributed by API key → user)
         — recent COMPLETED requests;
@@ -216,6 +216,14 @@ def _active_users(window_s=180):
         streaming) — SpendLogs only writes at request end, so this shows the
         current user in real time. Such users are marked `live`.
     Feeds the admin "who's using the model" panel on the home page.
+
+    Fenetre par defaut de 30 MINUTES, et pas 2 : mesure du 2026-09-14, une requete
+    agentique a dure 3 min 17 s et le moteur est reste 44 minutes sans qu'aucune
+    ligne ne soit ecrite, alors que deux sessions travaillaient. Sur 2 minutes, le
+    panneau affichait donc « personne » pendant qu'un GPU tournait a plein — le
+    pire des message puisque l'admin en conclut que la machine est libre. On
+    elargit donc, et chaque nom porte son AGE (`derniere_s`) : « il y a 40 min »
+    ne se confond pas avec « il y a 4 s ».
     """
     # Le panneau doit refleter l'activite REELLE. Sans ce garde-fou il gardait des
     # noms affiches pendant toute la fenetre alors que plus rien ne tournait :
@@ -301,10 +309,17 @@ def _active_users(window_s=180):
                         age = None
                     if age is not None and (a['derniere_s'] is None or age < a['derniere_s']):
                         a['derniere_s'] = max(0.0, age)
-                if en_cours > 0:
-                    # Le moteur traite quelque chose et cet utilisateur vient d'emettre :
-                    # c'est lui (ou l'un d'eux). Le registre in-flight ne voit que le
-                    # portail, donc sans ca un client API n'etait JAMAIS marque « live ».
+                if en_cours > 0 and a['derniere_s'] is not None and a['derniere_s'] < 15:
+                    # Le moteur traite quelque chose ET cet utilisateur vient
+                    # d'emettre : c'est lui (ou l'un d'eux). Le registre in-flight
+                    # ne voit que le portail, donc sans ca un client API n'etait
+                    # JAMAIS marque « live ».
+                    #
+                    # Le seuil de 15 s est essentiel depuis que la fenetre est
+                    # passee a 30 min : sans lui, `en_cours > 0` allumait « live »
+                    # pour tout le monde a la fois, y compris pour un compte dont
+                    # la derniere requete datait de 40 minutes. Le doute n'est pas
+                    # une preuve d'activite.
                     a['live'] = True
         except Exception:
             pass

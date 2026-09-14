@@ -558,7 +558,17 @@ const EN: Record<string, string> = {
   "Température": "Temperature",
   "Max tokens": "Max tokens",
   "Top-p": "Top-p",
-  "Afficher le raisonnement": "Show reasoning",
+  "Activer la réflexion du modèle (plus lent, plus coûteux)":
+    "Let the model think first (slower, more expensive)",
+  "Cette conversation n'a pas pu être chargée.":
+    "This conversation could not be loaded.",
+  "Conversation non enregistrée — elle disparaîtra au rechargement.":
+    "Conversation not saved — it will be gone after a reload.",
+  "Copie impossible depuis ce navigateur.":
+    "Copying is not available in this browser.",
+  "« {name} » : seuls les fichiers texte sont acceptés.":
+    "« {name} »: only text files are accepted.",
+  "« {name} » n'a pas pu être lu.": "« {name} » could not be read.",
   "Effort de raisonnement": "Reasoning effort",
   "Par défaut": "Default",
   "Basse": "Low",

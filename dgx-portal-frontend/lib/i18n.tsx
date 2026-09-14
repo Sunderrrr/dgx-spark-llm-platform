@@ -753,6 +753,7 @@ const EN: Record<string, string> = {
   "la plus ancienne depuis {d}": "oldest started {d}",
   "ingestion du prompt {a} / {b} tokens": "reading the prompt {a} / {b} tokens",
   "Ces requêtes sont anonymes jusqu'à leur fin : LiteLLM n'écrit la ligne qu'une fois la requête terminée.": "These requests stay anonymous until they finish: LiteLLM only writes its row once a request is over.",
+  "en cours depuis {d}": "running for {d}",
   "Aucun de ces comptes n'a émis à l'instant : les sessions en cours ne sont pas encore attribuées.": "None of these accounts has just sent anything: the running sessions are not attributed yet.",
   "débit global {n} tok/s": "overall {n} tok/s",
   "activité inconnue": "activity unknown",

@@ -361,5 +361,93 @@ class CumulTokensGeneresTest(unittest.TestCase):
         self.assertEqual(db.ecritures, [])
 
 
+_SLOTS_OCCUPES = [
+    {'id': 0, 'id_task': 279, 'is_processing': True,
+     'n_prompt_tokens': 22000, 'n_prompt_tokens_processed': 18000},
+    {'id': 1, 'id_task': 915, 'is_processing': False, 'n_prompt_tokens': 0,
+     'n_prompt_tokens_processed': 0},
+    {'id': 2, 'id_task': 1334, 'is_processing': True,
+     'n_prompt_tokens': 5000, 'n_prompt_tokens_processed': 5000},
+    {'id': 3, 'id_task': 11, 'is_processing': False, 'n_prompt_tokens': 0,
+     'n_prompt_tokens_processed': 0},
+]
+
+
+def _avec_slots(slots):
+    """Fait repondre /slots comme llama.cpp, en laissant /metrics au texte donne."""
+    def _get(url, **k):
+        if url.endswith('/slots'):
+            return types.SimpleNamespace(json=lambda: slots)
+        return types.SimpleNamespace(text=_METRICS_LLAMA_COMPLET)
+    return _get
+
+
+class SlotsActifsTest(unittest.TestCase):
+    """Pendant une requete, le moteur est la SEULE source d'activite.
+
+    LiteLLM n'ecrit sa ligne qu'a la fin : mesure du 2026-09-14, 44 minutes sans
+    la moindre ligne alors que deux sessions travaillaient, donc un panneau qui
+    annoncait « personne » pendant que le GPU tournait. Ces tests fixent ce que le
+    portail sait dire malgre ca — et ce qu'il refuse d'inventer.
+    """
+
+    def setUp(self):
+        vllm_health._slots_taches.clear()
+        vllm_health._vllm_health_cache['t'] = 0.0
+
+    def _activite(self, slots):
+        with mock.patch.object(vllm_health.requests, 'get', side_effect=_avec_slots(slots)):
+            return vllm_health._slots_activite()
+
+    def test_seules_les_sessions_en_traitement_comptent(self):
+        a = self._activite(_SLOTS_OCCUPES)
+        self.assertEqual(a['busy'], 2)
+        self.assertEqual(a['total'], 4)
+
+    def test_l_ingestion_du_prompt_est_sommee(self):
+        """« ou en est le prompt » : 23 000 des 27 000 tokens ingeres."""
+        a = self._activite(_SLOTS_OCCUPES)
+        self.assertEqual(a['prompt_ingere'], 27000)
+        self.assertEqual(a['prompt_traite'], 23000)
+
+    def test_l_age_est_suivi_par_identifiant_de_tache(self):
+        """llama.cpp donne un id de tache, pas une heure de depart."""
+        self._activite(_SLOTS_OCCUPES)
+        self.assertIsNotNone(self._activite(_SLOTS_OCCUPES)['plus_ancien_s'])
+        # Tache vue il y a 10 minutes : c'est l'age qui doit ressortir.
+        vllm_health._slots_taches[279] = time.time() - 600
+        a = self._activite(_SLOTS_OCCUPES)
+        self.assertTrue(598 < a['plus_ancien_s'] < 604, a['plus_ancien_s'])
+
+    def test_une_tache_terminee_sort_du_suivi(self):
+        """Sinon la table des taches grossirait sans fin."""
+        self._activite(_SLOTS_OCCUPES)
+        self.assertIn(279, vllm_health._slots_taches)
+        self._activite([s for s in _SLOTS_OCCUPES if s['id'] != 0])
+        self.assertNotIn(279, vllm_health._slots_taches)
+        self.assertIn(1334, vllm_health._slots_taches)
+
+    def test_moteur_sans_slots_renvoie_none_et_pas_zero(self):
+        """vLLM n'expose pas /slots, et une panne de sonde n'est pas « personne »."""
+        with mock.patch.object(vllm_health.requests, 'get',
+                               side_effect=RuntimeError('injoignable')):
+            self.assertIsNone(vllm_health._slots_activite())
+
+    def test_la_sante_porte_l_activite_des_slots(self):
+        def _get(url, **k):
+            if url.endswith('/slots'):
+                return types.SimpleNamespace(json=lambda: _SLOTS_OCCUPES)
+            return types.SimpleNamespace(text=_METRICS_LLAMA_COMPLET)
+        ligne = {'engine': 'llamacpp'}
+        faux_db = types.SimpleNamespace(
+            execute=lambda *a, **k: types.SimpleNamespace(fetchone=lambda: ligne))
+        vllm_health._vllm_health_cache['t'] = 0.0
+        with mock.patch.object(vllm_health, 'get_running_models', return_value=['m']), \
+             mock.patch.object(vllm_health, 'get_db', return_value=faux_db), \
+             mock.patch.object(vllm_health.requests, 'get', side_effect=_get):
+            h = vllm_health.vllm_health()
+        self.assertEqual(h['slots']['busy'], 2)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -66,6 +66,15 @@ type ModelHealth = {
   tps_moyen?: number | null;
   tokens_prompt?: number | null;
   tps_prefill?: number | null;
+  // Activité en vol vue par le MOTEUR (llama.cpp /slots). Absente pour vLLM, qui
+  // n'expose pas /slots : l'absence ne doit pas se lire « personne ne travaille ».
+  slots?: {
+    busy: number;
+    total: number;
+    plus_ancien_s: number | null;
+    prompt_ingere: number;
+    prompt_traite: number;
+  } | null;
 } | null;
 
 interface ModelRequest extends Record<string, unknown> {
@@ -226,6 +235,10 @@ export default function HomePage() {
   const showToast = useToast();
   const csrf = useCsrf();
   const [data, setData] = useState<HomeData | null>(null);
+  // Session en cours vue par le moteur (rafraîchie chaque seconde avec le reste
+  // de modelhealth) : sert à distinguer « rien ne tourne » de « ça tourne mais
+  // aucune identité n'est encore journalisée ».
+  const slots = data?.modelhealth?.slots ?? null;
   const [loadError, setLoadError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [recentConvs, setRecentConvs] = useState<Conversation[]>([]);
@@ -630,7 +643,7 @@ export default function HomePage() {
                     {who?.is_admin && data.active_users && (
                       <VStack gap={2}>
                         <HStack gap={2} wrap="wrap">
-                          <Text type="supporting" color="secondary">{t("Qui utilise le modèle · 2 dernières min · visible admin uniquement")}</Text>
+                          <Text type="supporting" color="secondary">{t("Qui utilise le modèle · 30 dernières minutes · visible admin uniquement")}</Text>
                           {/* Débit GLOBAL du moteur, jamais par personne : l'admin voit
                               QUI travaille ici, et la vitesse à laquelle la machine
                               sert tout le monde à la fois. */}
@@ -643,8 +656,33 @@ export default function HomePage() {
                             </Text>
                           )}
                         </HStack>
+                        {/* Activité EN VOL. LiteLLM n'écrit sa ligne qu'à la fin d'une
+                            requête : mesuré le 14/09, 44 minutes sans écriture alors que
+                            deux sessions travaillaient, donc un panneau vide qui laissait
+                            croire que la machine était libre. Le moteur, lui, sait décrire
+                            ces sessions — occupées, depuis quand, où en est le prompt. */}
+                        {slots && slots.busy > 0 && (
+                          <Text type="supporting" color="secondary" hasTabularNumbers>
+                            {t("{n} session(s) en cours sur le moteur").replace("{n}", String(slots.busy))}
+                            {slots.total ? ` / ${slots.total}` : ""}
+                            {slots.plus_ancien_s != null
+                              ? " · " + t("la plus ancienne depuis {d}").replace("{d}", ageDepuis(slots.plus_ancien_s, t))
+                              : ""}
+                            {slots.prompt_ingere > slots.prompt_traite
+                              ? " · " + t("ingestion du prompt {a} / {b} tokens")
+                                  .replace("{a}", slots.prompt_traite.toLocaleString(numLocale))
+                                  .replace("{b}", slots.prompt_ingere.toLocaleString(numLocale))
+                              : ""}
+                          </Text>
+                        )}
                         {data.active_users.length === 0 ? (
-                          <Text type="supporting" color="secondary">{t("Personne n'utilise le modèle en ce moment.")}</Text>
+                          slots && slots.busy > 0 ? (
+                            <Text type="supporting" color="secondary">
+                              {t("Ces requêtes sont anonymes jusqu'à leur fin : LiteLLM n'écrit la ligne qu'une fois la requête terminée.")}
+                            </Text>
+                          ) : (
+                            <Text type="supporting" color="secondary">{t("Personne n'utilise le modèle en ce moment.")}</Text>
+                          )
                         ) : (
                           <HStack gap={2} wrap="wrap">
                             {data.active_users.map((u) => (
@@ -652,10 +690,8 @@ export default function HomePage() {
                                 key={u.username}
                                 variant={u.live ? "success" : "neutral"}
                                 // L'âge est ce qui distingue « il génère là » d'« il a
-                                // fini il y a une heure » : le drapeau `live` s'allume
-                                // dès que le moteur travaille, donc pour tout le monde
-                                // à la fois (mesuré : trois comptes marqués « en
-                                // direct » avec 11 h, 32 min et 4 min d'écart).
+                                // fini il y a une heure » : un drapeau seul ne le dit
+                                // pas, et sur 30 minutes la différence est énorme.
                                 label={[
                                   u.username,
                                   ageDepuis(u.derniere_s, t),
@@ -666,6 +702,12 @@ export default function HomePage() {
                               />
                             ))}
                           </HStack>
+                        )}
+                        {slots && slots.busy > 0 && data.active_users.length > 0
+                          && !data.active_users.some((u) => u.live) && (
+                          <Text type="supporting" color="secondary">
+                            {t("Aucun de ces comptes n'a émis à l'instant : les sessions en cours ne sont pas encore attribuées.")}
+                          </Text>
                         )}
                       </VStack>
                     )}

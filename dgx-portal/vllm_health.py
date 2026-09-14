@@ -57,6 +57,59 @@ def _prom_sum(text, metric):
 
 _vllm_health_cache = {'t': 0.0, 'v': None}
 
+# llama.cpp expose /slots : quel slot traite, quel identifiant de tache, et ou en
+# est l'ingestion du prompt. C'est la SEULE source d'activite disponible PENDANT
+# une requete — LiteLLM n'ecrit sa ligne qu'a la fin (mesure du 2026-09-14 : 44
+# minutes sans la moindre ligne alors que deux sessions travaillaient), et le
+# moteur, lui, ne connait pas l'identite du client. On affiche donc ce qu'il sait
+# vraiment plutot que « personne n'utilise le modele ».
+_SLOTS_URL = VLLM_API.rsplit('/v1', 1)[0] + '/slots'
+# llama.cpp ne dit pas DEPUIS QUAND une tache tourne, seulement son identifiant :
+# on retient l'instant ou chaque identifiant est apparu. Cela donne « cette
+# session travaille depuis 12 min » et permet de distinguer une requete bloquee
+# d'une machine simplement lente.
+_slots_taches = {}
+
+
+def _slots_activite():
+    """Ce que le moteur fait maintenant, session par session.
+
+    Retourne None quand le moteur ne publie pas /slots (vLLM) ou ne repond pas :
+    l'interface n'affiche alors rien plutot qu'un zero qui voudrait dire
+    « personne », alors que c'est « je ne sais pas ».
+    """
+    try:
+        slots = requests.get(_SLOTS_URL, timeout=4).json()
+    except Exception:
+        return None
+    if not isinstance(slots, list):
+        return None
+    now = time.time()
+    actifs = [s for s in slots if s.get('is_processing')]
+    vus, plus_ancien, ingere, traite = set(), None, 0, 0
+    for s in actifs:
+        t = s.get('id_task')
+        if t is None:
+            continue
+        vus.add(t)
+        debut = _slots_taches.get(t, now)
+        _slots_taches[t] = debut
+        age = now - debut
+        plus_ancien = age if plus_ancien is None else max(plus_ancien, age)
+        ingere += int(s.get('n_prompt_tokens') or 0)
+        traite += int(s.get('n_prompt_tokens_processed') or 0)
+    # Menage : une tache qui n'est plus traitee sort du suivi, sinon la table
+    # grossirait sans fin (elle vit en memoire, un redemarrage la vide).
+    for t in [t for t in _slots_taches if t not in vus]:
+        _slots_taches.pop(t, None)
+    return {
+        'busy': len(actifs),
+        'total': len(slots),
+        'plus_ancien_s': round(plus_ancien) if plus_ancien is not None else None,
+        'prompt_ingere': ingere,
+        'prompt_traite': traite,
+    }
+
 def vllm_health():
     """Health of the active model (throughput tok/s, in-flight/queued requests, average TTFT).
     Cached ~4 s → a single /metrics scrape even with multiple polls.
@@ -217,6 +270,10 @@ def _vllm_health_uncached():
         'tps_moyen': compteurs['tps_moyen'],
         'tokens_prompt': compteurs['entree'],
         'tps_prefill': compteurs['tps_prefill'],
+        # Activite en vol, session par session (cf. _slots_activite) : c'est ce
+        # qui permet de dire « 2 sessions travaillent depuis 12 min » quand
+        # aucune identite n'est encore journalisee.
+        'slots': _slots_activite(),
     }
 
 

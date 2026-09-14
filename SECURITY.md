@@ -294,8 +294,8 @@ output is negotiated as `image/webp`), but the upgrade removes the question.
 
 > **Never set `--memory` on a sidecar.** On unified memory a container memory cap
 > also caps GPU memory and breaks CUDA loading. This is an availability control
-> that looks like a hardening one, and it must not be "fixed". See
-> [`CLAUDE.md`](CLAUDE.md).
+> that looks like a hardening one, and it must not be "fixed". See `CLAUDE.md`,
+> the operating guide kept on the machine (not published).
 
 One host path is mounted into `dgx-portal` **read-only**: `/var/lib/cronos-monitor`,
 the host monitor's state file, which holds current incidents and the backup figures

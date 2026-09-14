@@ -53,7 +53,12 @@ Two companion documents:
 | Document | For |
 |---|---|
 | [`SECURITY.md`](SECURITY.md) | threat model, controls, accepted risks — operators and auditors |
-| [`CLAUDE.md`](CLAUDE.md) | operating guide: golden rules, GB10 gotchas, reboot runbook, test gate |
+
+> An operating guide named `CLAUDE.md` (golden rules, GB10 gotchas, reboot runbook,
+> test gate) is kept **on the machine**, read there by the operator and by the agents
+> working in this checkout. It is deliberately **not published**, so the bare
+> `` `CLAUDE.md` `` mentions you will see in comments and elsewhere in this README
+> point at a file that exists on the box but not in this repository.
 
 ---
 
@@ -179,7 +184,8 @@ The backend reads them all in one place, [`config.py`](dgx-portal/config.py).
 > `docker-compose.yml` reads `BACKEND_URL` to reach Flask internally; the default
 > (`http://dgx-portal:5000`) matches the compose service name and rarely needs changing.
 > Note that `host.docker.internal` is **pinned to a fixed address** there rather than
-> using `host-gateway` — see the networking gotcha in [`CLAUDE.md`](CLAUDE.md).
+> using `host-gateway` — see the networking gotcha in `CLAUDE.md` (local guide,
+> kept on the machine and not published).
 
 ---
 
@@ -341,7 +347,7 @@ Deliberately self-hosted (Whisper on the GPU) rather than the browser's
 **Web search** is available on explicit request ("search the web for…"): SearXNG
 finds the links, crawl4ai reads the pages, and the progress of each step is shown
 live. See [`websearch_tools.py`](dgx-portal/websearch_tools.py) and the rules in
-[`CLAUDE.md`](CLAUDE.md).
+`CLAUDE.md` (local guide, kept on the machine and not published).
 
 Conversations can be **pinned** (per browser) and **shared** — a read-only
 snapshot served at a `/c/<token>` link, visible to logged-in users. On request
@@ -586,7 +592,8 @@ is checked too.
 ## Operations
 
 Day-to-day runbook — reboot recovery, the test gate, model-serving gotchas — lives
-in [`CLAUDE.md`](CLAUDE.md). The essentials:
+in `CLAUDE.md`, the operating guide kept on the machine (not published). The
+essentials:
 
 ### Launch a model
 
@@ -663,7 +670,7 @@ tokens/day, not request rate on a single GPU.
 ├── setup.sh                   # generates .env with random secrets
 ├── docker-compose.yml         # postgres + litellm + portal + frontend + search sidecars
 ├── .env.example               # placeholders (no real secrets)
-├── README.md · SECURITY.md · CLAUDE.md
+├── README.md · SECURITY.md
 ├── litellm/config.yaml        # models, token pricing, model_info
 ├── dgx-portal/                # Flask backend — see the module map below
 ├── dgx-portal-frontend/       # Next.js + Astryx UI (owns the public port 5000)
@@ -722,8 +729,8 @@ Also under `dgx-portal/`: `workflows/` (ComfyUI API-format templates for video),
 
 Next.js 16 + Astryx. `app/(app)/` holds the pages, `lib/` the data helpers and the
 i18n dictionary, `proxy.ts` the per-request nonce CSP and method-based routing, and
-`lib/sseProxy.ts` the streaming relay to Flask. It has its own `README.md`,
-`CLAUDE.md` and `AGENTS.md` — start there for UI work.
+`lib/sseProxy.ts` the streaming relay to Flask. It has its own `README.md` and
+`AGENTS.md` — start there for UI work.
 
 > The `/usr/local/sbin/*-recreate.sh` wrappers and `/etc/sudoers.d/vllmrunner-*`
 > live on the host (root-owned). Their tracked sources are `ocr/ocr-recreate.sh`,

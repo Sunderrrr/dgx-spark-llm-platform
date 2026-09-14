@@ -40,7 +40,7 @@ import {
   MusicalNoteIcon,
 } from "@heroicons/react/24/outline";
 import { useThemeMode } from "../theme-provider";
-import { useCsrf } from "@/lib/useCsrf";
+import { useCsrf, useCsrfRefresh } from "@/lib/useCsrf";
 import { useWhoami } from "@/lib/whoami";
 import { SettingsDialog } from "./_components/SettingsDialog";
 import { OnboardingDialog } from "./_components/OnboardingDialog";
@@ -105,6 +105,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [notifs, setNotifs] = useState<NotificationItem[]>([]);
   const [notifUnread, setNotifUnread] = useState(0);
   const csrf = useCsrf();
+  const refreshCsrf = useCsrfRefresh();
 
   // Opens the Settings dialog, optionally on a specific tab. Used by the gear
   // (no argument) and by the home page's "API keys" buttons.
@@ -117,14 +118,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // site log us out. So we submit a real form rather than a fetch, so the
   // browser NAVIGATES and follows the final redirect — including to
   // Authentik's end-session under SSO, which a fetch would silently swallow.
-  function logout() {
+  //
+  // Le jeton est redemandé juste avant : c'est le seul POST dont l'échec est un
+  // cul-de-sac (l'utilisateur voit une page « Bad Request » en anglais et ne peut
+  // plus se déconnecter). Le provider le fetch au montage du document, et rien ne
+  // garantit qu'il n'a pas changé depuis — constaté après un login SSO. Une requête
+  // de plus au moment de partir vaut mieux qu'une déconnexion impossible.
+  async function logout() {
+    let jeton = csrf;
+    try {
+      jeton = await refreshCsrf();
+    } catch {
+      // Réseau en vrac : on poste le jeton connu plutôt que de bloquer l'utilisateur.
+    }
     const form = document.createElement("form");
     form.method = "POST";
     form.action = "/logout";
     const field = document.createElement("input");
     field.type = "hidden";
     field.name = "csrf_token";
-    field.value = csrf;
+    field.value = jeton;
     form.appendChild(field);
     document.body.appendChild(form);
     form.submit();

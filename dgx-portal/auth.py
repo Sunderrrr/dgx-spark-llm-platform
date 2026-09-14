@@ -517,18 +517,31 @@ def _client_ip():
 # ── Ouverture de session ──
 
 def _apply_session(username, fullname, is_admin, via_sso=False):
+    # Le jeton CSRF du client est REPRIS, pas remplacé : c'est lui qui garde la
+    # valeur que la page détient déjà en mémoire.
+    #
+    # `session.clear()` l'efface, et le régénérer ici (ce que faisait le code
+    # jusqu'au 2026-09-14) changeait le jeton DANS LE DOS du navigateur : la page
+    # continuait d'envoyer l'ancien, et tout POST gardé répondait 400 « CSRF token
+    # manquant ou invalide ». Symptôme rapporté : « je me déconnecte après un login
+    # SSO et j'obtiens Bad Request ». Un rechargement complet (ce que fait
+    # `/login` après un login local) masquait le problème ; le SSO, dont le retour
+    # ne repasse pas toujours par un document neuf, l'exposait.
+    #
+    # Pourquoi reprendre le jeton ne relâche rien : il vit dans un cookie SIGNÉ et
+    # HttpOnly, donc ni lisible ni forgeable par une page — le fixation CSRF
+    # suppose un attaquant capable d'imposer une valeur, ce que la signature
+    # interdit. La protection contre la fixation de session reste assurée par le
+    # `sid` neuf créé plus bas, qui est le vrai identifiant révocable.
+    #
+    # S'il n'y a pas encore de jeton (navigateur neuf, cookie absent), on en crée
+    # un : la session ne doit jamais partir sans, sinon plusieurs requêtes
+    # parallèles en fabriqueraient chacune un et la dernière à poser son cookie
+    # gagnerait — le jeton mémorisé par la page ne correspondrait plus. C'est la
+    # course que ce bloc évitait déjà, et il continue de l'éviter.
+    csrf = session.get('csrf')
     session.clear()
-    # session.clear() also erases 'csrf' (set up by _csrf_protect in
-    # before_request, before the view calls _apply_session). Without
-    # regenerating it here, the session leaves without a CSRF token: the first
-    # subsequent request regenerates it via _csrf_protect, but if several requests
-    # go out in parallel right after login (real case: the frontend
-    # home page fires several fetches on mount), each
-    # can independently regenerate a different token — the last response
-    # to set its cookie "wins", and a token grabbed by a losing
-    # request no longer matches the actually-stored cookie → 400 CSRF
-    # invalid. Fixing it here eliminates the race window.
-    session['csrf'] = secrets.token_urlsafe(32)
+    session['csrf'] = csrf or secrets.token_urlsafe(32)
     session['username'] = username
     session['fullname'] = fullname
     session['is_admin'] = is_admin

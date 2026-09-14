@@ -257,6 +257,20 @@ class CompteursCumulesTest(unittest.TestCase):
         s = _sante('llamacpp', _METRICS_LLAMA_COMPLET)
         self.assertEqual(s['tps_moyen'], 13.3)
 
+    def test_pas_de_moyenne_sur_un_compteur_qui_vient_de_repartir(self):
+        """Compteur neuf : la moyenne porterait sur quelques minutes à peine.
+
+        Mesuré le 2026-09-14 : remise à zéro, 47 tokens et 192 s de génération →
+        « 0,2 tok/s ». Le seuil de 300 s évite d'afficher ce chiffre vide de sens ;
+        le total cumulé, lui, reste juste.
+        """
+        neuf = ("llamacpp:tokens_predicted_total 47\n"
+                "llamacpp:tokens_predicted_seconds_total 192.443\n"
+                "llamacpp:requests_processing 1\n")
+        self.assertIsNone(_sante('llamacpp', neuf)['tps_moyen'])
+        au_dessus = neuf.replace('192.443', '310.0')
+        self.assertEqual(_sante('llamacpp', au_dessus)['tps_moyen'], 0.2)
+
     def test_vllm_na_pas_de_moyenne_a_inventer(self):
         """vLLM ne publie pas de secondes de génération : None, pas un faux chiffre."""
         s = _sante('vllm', _metrics_vllm())
@@ -313,8 +327,12 @@ class CumulTokensGeneresTest(unittest.TestCase):
         self._cumul(db, 100)
         self.assertEqual(self._cumul(db, 150), 150)
 
-    def test_une_relance_archive_le_lancement_precedent(self):
-        """Compteur qui repart en arrière = le moteur a redémarré."""
+    def test_une_remise_a_zero_archive_la_valeur_deja_comptee(self):
+        """Compteur qui repart en arrière : le moteur a redémarré OU remis son
+        cache à zéro — mesuré le 2026-09-14, `tokens_predicted_total` de 158 864 à
+        47 avec le MÊME pid, pendant que `prompt_tokens_total` ne bougeait pas.
+        Les deux cas demandent le même traitement : le travail déjà fait reste dû.
+        """
         db = _FausseDb()
         self._cumul(db, 150)
         self.assertEqual(self._cumul(db, 20), 170)

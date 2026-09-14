@@ -699,11 +699,36 @@ const EN: Record<string, string> = {
   "Cherche sur HuggingFace →": "Search on HuggingFace →",
 
   // — Leaderboard —
-  "Qui consomme le plus, en tokens réellement consommés (prompt + généré).":
-    "Who consumes the most, in real tokens used (prompt + generated).",
   "Période": "Period",
-  "Consommation": "Consumption",
   "Aucune consommation sur cette période.": "No consumption over this period.",
+  "Tokens réellement consommés sur la période, par compte.":
+    "Real tokens used over the period, per account.",
+  "Rang": "Rank",
+  "Compte": "Account",
+  "Part du total": "Share of total",
+  "Tendance": "Trend",
+  "Activité sur la période": "Activity over the period",
+  "Évolution": "Change",
+  "Évolution vs {p}": "Change vs {p}",
+  "Total": "Total",
+  "Généré": "Generated",
+  "Entrée": "Input",
+  "Métrique": "Metric",
+  "dont {n} générés": "{n} of it generated",
+  "Votre position": "Your rank",
+  "sur {n} comptes actifs": "across {n} active accounts",
+  "Vous n'avez rien consommé sur cette période.": "You have not used anything over this period.",
+  "tokens au total": "tokens in total",
+  "en moyenne par compte": "on average per account",
+  "Classement indisponible.": "Leaderboard unavailable.",
+  "La consommation n'a pas pu être lue. Réessaie dans un instant.":
+    "Consumption could not be read. Try again in a moment.",
+  "Total = entrée + généré.": "Total = input + generated.",
+  "« Depuis le début » n'a pas de période précédente : aucune évolution à afficher.":
+    "\"Since the beginning\" has no previous period: no change to show.",
+  "Les lignes non attribuées ne correspondent à aucun compte (clés supprimées ou de test) : elles consomment sans être classées.":
+    "Unattributed rows match no account (deleted or test keys): they consume without being ranked.",
+  "Clés non attribuées": "Unattributed keys",
 
   // — Admin —
   "Administration": "Administration",
@@ -1119,9 +1144,6 @@ const EN: Record<string, string> = {
   "Mois": "Month",
   "compte actif": "active account",
   "comptes actifs": "active accounts",
-  "nouveau": "new",
-  "Delta vs": "Delta vs",
-  "Total = tokens prompt + générés.": "Total = prompt + generated tokens.",
   "Aujourd'hui": "Today",
   "Source": "Source",
   "Externe": "External",

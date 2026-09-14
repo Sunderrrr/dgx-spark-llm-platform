@@ -14,8 +14,16 @@ Ce callback note l'ouverture au DEPART et la retire a la fin. Trois regles :
 
 - une erreur ici ne doit **jamais** faire echouer une requete : tout est
   encapsule, l'incident part sur la sortie d'erreur et la requete continue ;
-- l'ecriture se fait **hors de la boucle d'evenements** : sqlite est bloquant, et
-  bloquer la boucle du proxy pour un confort d'affichage serait absurde ;
+- **les hooks SYNCHRONES sont ceux qui comptent** : dans cette version de LiteLLM,
+  `async_log_pre_api_call` est bien declare par `CustomLogger` mais **jamais
+  appele** (verifie dans le paquet installe : la seule occurrence est sa
+  definition). Le pre-appel part de `litellm.input_callback`, et l'evenement de
+  succes de `litellm.callbacks` — deux listes qui invoquent `log_pre_api_call` /
+  `log_success_event`, les methodes SYNCHRONES. Une classe qui n'implemente que
+  les variantes asynchrones ne recoit donc **rien**, et c'est exactement ce qui
+  s'est produit le 2026-09-14 : la table existait, restait vide, et aucune erreur
+  n'etait levee. L'ecriture synchrone coute ~1 ms (deux instructions) : c'est le
+  prix a payer pour etre appele ;
 - le fichier est partage avec le portail, qui le monte en **lecture seule** : un
   seul ecrivain (ici), et rien de ce cote ne peut alterer le portail.
 
@@ -104,8 +112,27 @@ def _retire(kwargs):
 
 
 class ActiviteEnVol(CustomLogger):
-    """Hooks LiteLLM : ouverture au depart, retrait a la fin (succes ou echec)."""
+    """Hooks LiteLLM : ouverture au depart, retrait a la fin (succes ou echec).
 
+    Les methodes SYNCHRONES sont les seules que cette version appelle (voir
+    l'en-tete) ; les asynchrones sont conservees pour les chemins qui les
+    utilisent encore, et les deux passent par les memes fonctions `_enregistre` /
+    `_retire`, donc une seule logique d'ecriture.
+    """
+
+    # ── Chemins reellement empruntes par le proxy ──────────────────────────
+    def log_pre_api_call(self, model=None, messages=None, kwargs=None):
+        self._sur(_enregistre, kwargs)
+
+    def log_success_event(self, kwargs=None, response_obj=None,
+                          start_time=None, end_time=None):
+        self._sur(_retire, kwargs)
+
+    def log_failure_event(self, kwargs=None, response_obj=None,
+                          start_time=None, end_time=None):
+        self._sur(_retire, kwargs)
+
+    # ── Variantes asynchrones (autres versions / autres chemins) ───────────
     async def async_log_pre_api_call(self, model, messages, kwargs):
         await self._hors_boucle(_enregistre, kwargs)
 
@@ -114,6 +141,14 @@ class ActiviteEnVol(CustomLogger):
 
     async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
         await self._hors_boucle(_retire, kwargs)
+
+    @staticmethod
+    def _sur(fn, kwargs):
+        """Appel synchrone : une erreur d'ecriture ne doit pas remonter."""
+        try:
+            fn(kwargs)
+        except Exception as e:                        # noqa: BLE001 — jamais fatal
+            print('cronos_inflight: %s: %s' % (type(e).__name__, e), file=sys.stderr)
 
     @staticmethod
     async def _hors_boucle(fn, kwargs):

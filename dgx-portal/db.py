@@ -613,6 +613,18 @@ def init_db():
             username   TEXT NOT NULL,
             started_at REAL NOT NULL
         );
+        -- Compteurs du moteur conservés d'un lancement à l'autre : les métriques
+        -- de llama.cpp/vLLM repartent de zéro à chaque démarrage, donc « tokens
+        -- générés » retombait à 0 à chaque relance. `base` = total des lancements
+        -- terminés, `dernier` = dernière valeur vue du lancement en cours ; une
+        -- relance se reconnaît à un compteur qui REPART EN ARRIÈRE (il est
+        -- monotone, il ne peut pas baisser autrement). Cf. stats.cumuler_tokens_generes.
+        CREATE TABLE IF NOT EXISTS model_counters (
+            model   TEXT PRIMARY KEY,
+            base    INTEGER NOT NULL DEFAULT 0,
+            dernier INTEGER NOT NULL DEFAULT 0,
+            maj     REAL
+        );
         -- ── Mémoire : graphe de connaissances par utilisateur ────────────────
         -- Un sujet dont le modèle a appris quelque chose (« vLLM », « DGX
         -- Spark »). `name_norm` est la forme normalisée qui sert à retrouver le

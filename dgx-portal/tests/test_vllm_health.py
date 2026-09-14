@@ -12,6 +12,7 @@ import unittest
 from unittest import mock
 
 import vllm_health
+import stats
 
 
 def _metrics_vllm(gen="1000", succes=("42", "8"), ttft=("12.5", "50")):
@@ -216,6 +217,130 @@ class DebitAgregeTest(unittest.TestCase):
         _sante('llamacpp', self._metrics(1000, 1))
         time.sleep(1.05)
         self.assertTrue(_sante('llamacpp', self._metrics(1030, 0))['tps'] > 0)
+
+
+_METRICS_LLAMA_COMPLET = (
+    "llamacpp:tokens_predicted_total 158729\n"
+    "llamacpp:tokens_predicted_seconds_total 11921.9\n"
+    "llamacpp:n_decode_total 132689\n"
+    "llamacpp:prompt_tokens_total 1815000\n"
+    "llamacpp:prompt_tokens_seconds 248.062\n"
+    "llamacpp:predicted_tokens_seconds 0\n"
+    "llamacpp:requests_processing 4\n"
+    "llamacpp:requests_deferred 0\n")
+
+
+class CompteursCumulesTest(unittest.TestCase):
+    """Ce que le moteur sait dire du travail déjà fait.
+
+    Le débit instantané ne suffit pas : mesuré le 2026-09-14, 4 requêtes en
+    cours, `n_decode_total` qui avance d'UN pas en 6 s (le modèle ingérait des
+    contextes d'entrée) et un prefill à 248 tok/s. L'écran annonçait donc
+    « 0 tok/s » alors que le GPU travaillait. D'où la moyenne exacte depuis le
+    démarrage, et les compteurs d'entrée.
+    """
+
+    def test_les_compteurs_du_moteur_sont_exposes(self):
+        with mock.patch('stats.cumuler_tokens_generes', return_value=999999):
+            s = _sante('llamacpp', _METRICS_LLAMA_COMPLET)
+        self.assertEqual(s['tokens_generated'], 158729)
+        self.assertEqual(s['tokens_prompt'], 1815000)
+        self.assertEqual(s['tps_prefill'], 248.1)
+        self.assertEqual(s['tokens_generated_total'], 999999)
+
+    def test_la_moyenne_est_exacte_et_pas_echantillonnee(self):
+        """158 729 tokens en 11 921,9 s de génération = 13,3 tok/s.
+
+        Le rapport de deux compteurs du moteur : aucune approximation liée à la
+        fréquence de sonde du portail, contrairement au débit instantané.
+        """
+        s = _sante('llamacpp', _METRICS_LLAMA_COMPLET)
+        self.assertEqual(s['tps_moyen'], 13.3)
+
+    def test_vllm_na_pas_de_moyenne_a_inventer(self):
+        """vLLM ne publie pas de secondes de génération : None, pas un faux chiffre."""
+        s = _sante('vllm', _metrics_vllm())
+        self.assertIsNone(s['tps_moyen'])
+        self.assertEqual(s['tokens_generated'], 1000)
+
+    def test_un_echec_du_cumul_ne_casse_pas_la_sante(self):
+        with mock.patch('stats.cumuler_tokens_generes', side_effect=RuntimeError('db')):
+            s = _sante('llamacpp', _METRICS_LLAMA_COMPLET)
+        self.assertIsNone(s['tokens_generated_total'])
+        self.assertEqual(s['tokens_generated'], 158729)
+
+
+class _FauxCurseur:
+    def __init__(self, row):
+        self.row = row
+
+    def fetchone(self):
+        return self.row
+
+
+class _FausseDb:
+    """Socle minimal : une ligne lue, et les écritures mémorisées pour les compter."""
+
+    def __init__(self, row=None):
+        self.row = row
+        self.ecritures = []
+
+    def execute(self, sql, params=()):
+        if sql.strip().upper().startswith('SELECT'):
+            return _FauxCurseur(self.row)
+        self.ecritures.append(params)
+        self.row = {'base': params[1], 'dernier': params[2]}
+        return _FauxCurseur(None)
+
+    def commit(self):
+        pass
+
+
+class CumulTokensGeneresTest(unittest.TestCase):
+    """« Garder les tokens générés » : le compteur du moteur repart de zéro à
+    chaque relance, le cumul ne doit donc pas retomber avec lui — et surtout ne
+    jamais compter deux fois le même lancement."""
+
+    def _cumul(self, db, valeur):
+        with mock.patch.object(stats, 'get_db', return_value=db):
+            return stats.cumuler_tokens_generes('modele', valeur)
+
+    def test_premier_releve(self):
+        self.assertEqual(self._cumul(_FausseDb(), 100), 100)
+
+    def test_deux_releves_du_meme_lancement_ne_doublent_pas(self):
+        db = _FausseDb()
+        self._cumul(db, 100)
+        self.assertEqual(self._cumul(db, 150), 150)
+
+    def test_une_relance_archive_le_lancement_precedent(self):
+        """Compteur qui repart en arrière = le moteur a redémarré."""
+        db = _FausseDb()
+        self._cumul(db, 150)
+        self.assertEqual(self._cumul(db, 20), 170)
+        self.assertEqual(self._cumul(db, 30), 180)
+
+    def test_le_cumul_ne_recule_jamais(self):
+        db = _FausseDb()
+        valeurs = [500, 800, 12, 40, 3, 60]
+        cumuls = [self._cumul(db, v) for v in valeurs]
+        self.assertEqual(cumuls, sorted(cumuls), cumuls)
+
+    def test_aucune_ecriture_quand_rien_ne_bouge(self):
+        """Au repos la sonde tourne à 1 s : pas une écriture SQLite par seconde."""
+        db = _FausseDb()
+        self._cumul(db, 100)
+        self.assertEqual(len(db.ecritures), 1)
+        self._cumul(db, 100)
+        self._cumul(db, 100)
+        self.assertEqual(len(db.ecritures), 1)
+
+    def test_sans_modele_ni_valeur_rien_n_est_tente(self):
+        db = _FausseDb()
+        with mock.patch.object(stats, 'get_db', return_value=db):
+            self.assertIsNone(stats.cumuler_tokens_generes('', 100))
+            self.assertIsNone(stats.cumuler_tokens_generes('modele', None))
+        self.assertEqual(db.ecritures, [])
 
 
 if __name__ == '__main__':

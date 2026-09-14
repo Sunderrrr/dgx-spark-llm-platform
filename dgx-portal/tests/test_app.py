@@ -17,6 +17,9 @@ import unittest
 from unittest.mock import patch
 
 import app as portal
+# _apply_session vit dans auth.py : c'est lui qui décide du sort du jeton CSRF
+# au moment d'ouvrir une session (voir CsrfApresConnexionTest).
+import auth
 # Le chat a quitte le monolithe pour chat_routes.py (28/08) : on le vise dans
 # son module proprietaire.
 import chat_routes as chat
@@ -371,6 +374,58 @@ class CsrfLazyTest(unittest.TestCase):
     def test_post_sans_session_refuse(self):
         client = portal.app.test_client()
         self.assertEqual(client.post('/logout', data={'csrf_token': 'inventé'}).status_code, 400)
+
+
+class CsrfApresConnexionTest(unittest.TestCase):
+    """Régression du 2026-09-14 : ouvrir une session REMPLAÇAIT le jeton CSRF.
+
+    Le navigateur garde celui qu'il a mémorisé au chargement de la page ; à partir
+    de là, tout POST gardé partait avec l'ancien et recevait « 400 Bad Request —
+    CSRF token manquant ou invalide ». Signalé sur la DÉCONNEXION après un login
+    SSO, c'est-à-dire l'endroit où l'utilisateur se retrouve sans aucun moyen de
+    sortir. Le jeton vit dans un cookie signé et HttpOnly : le reprendre ne
+    rouvre pas la fixation CSRF, et le `sid` neuf continue d'assurer la protection
+    contre la fixation de session.
+    """
+
+    def test_le_jeton_du_client_survit_a_l_ouverture_de_session(self):
+        from flask import session as session_flask
+
+        with portal.app.test_request_context('/'):
+            session_flask['csrf'] = 'jeton-que-le-navigateur-connait'
+            auth._apply_session('demo', 'demo', False, via_sso=True)
+            self.assertEqual(session_flask['csrf'], 'jeton-que-le-navigateur-connait')
+
+    def test_un_jeton_est_cree_quand_il_en_manque(self):
+        from flask import session as session_flask
+
+        with portal.app.test_request_context('/'):
+            session_flask.clear()
+            auth._apply_session('demo', 'demo', False)
+            self.assertTrue(session_flask.get('csrf'))
+
+    def test_la_deconnexion_accepte_le_jeton_du_client(self):
+        """Le chemin complet du symptôme : session SSO, jeton du client, POST."""
+        client = portal.app.test_client()
+        with client.session_transaction() as s:
+            s['csrf'] = 'jeton-du-client'
+            s['username'] = 'demo'
+            s['fullname'] = 'demo'
+            s['is_admin'] = False
+            s['sso'] = True
+            s['auth_at'] = int(time.time())
+        reponse = client.post('/logout', data={'csrf_token': 'jeton-du-client'})
+        self.assertEqual(reponse.status_code, 302)
+
+    def test_la_deconnexion_refuse_toujours_un_jeton_invente(self):
+        """Le correctif ne doit pas transformer la garde en passoire."""
+        client = portal.app.test_client()
+        with client.session_transaction() as s:
+            s['csrf'] = 'jeton-du-client'
+            s['username'] = 'demo'
+            s['auth_at'] = int(time.time())
+        self.assertEqual(
+            client.post('/logout', data={'csrf_token': 'inventé'}).status_code, 400)
 
 
 class ClientIpTest(unittest.TestCase):

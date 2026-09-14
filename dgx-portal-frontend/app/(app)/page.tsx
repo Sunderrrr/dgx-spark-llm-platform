@@ -549,7 +549,7 @@ export default function HomePage() {
                           </HStack>
                         </VStack>
                         <VStack gap={0}>
-                          <Text type="supporting" color="secondary">{t("Débit décodé")}</Text>
+                          <Text type="supporting" color="secondary">{t("Tokens générés")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{data.modelhealth.tps ?? "—"} tok/s</Text>
                           {/* Débit INSTANTANÉ, donc il tombe à 0 dès que le moteur
                               ingère un long contexte d'entrée : 4 requêtes en cours
@@ -560,6 +560,23 @@ export default function HomePage() {
                           {data.modelhealth.tps_moyen != null && (
                             <Text type="supporting" color="secondary" hasTabularNumbers>
                               {t("moyenne {n} tok/s").replace("{n}", String(data.modelhealth.tps_moyen))}
+                            </Text>
+                          )}
+                        </VStack>
+                        {/* Le pendant du débit de génération, côté ENTRÉE. Un client
+                            agentique relit des contextes énormes : le moteur passe
+                            l'essentiel de son temps en prefill, donc ce chiffre
+                            explique les 0 tok/s affichés à gauche. */}
+                        <VStack gap={0}>
+                          <Text type="supporting" color="secondary">{t("Prefill")}</Text>
+                          <Text weight="semibold" hasTabularNumbers>
+                            {data.modelhealth.tps_prefill != null
+                              ? `${data.modelhealth.tps_prefill} tok/s` : "—"}
+                          </Text>
+                          {data.modelhealth.tokens_prompt != null && (
+                            <Text type="supporting" color="secondary" hasTabularNumbers>
+                              {t("{n} tokens d'entrée").replace(
+                                "{n}", data.modelhealth.tokens_prompt.toLocaleString(numLocale))}
                             </Text>
                           )}
                         </VStack>
@@ -584,34 +601,6 @@ export default function HomePage() {
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Contexte sortie")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_out)}</Text>
-                        </VStack>
-                        {/* Compteurs cumulés. Le total est conservé d'un lancement à
-                            l'autre du moteur : sans cela il retombait à zéro à chaque
-                            relance, effaçant l'historique de la machine. */}
-                        <VStack gap={0}>
-                          <Text type="supporting" color="secondary">{t("Tokens générés")}</Text>
-                          <Text weight="semibold" hasTabularNumbers>
-                            {(data.modelhealth.tokens_generated_total
-                              ?? data.modelhealth.tokens_generated)?.toLocaleString(numLocale) ?? "—"}
-                          </Text>
-                          {data.modelhealth.tokens_generated_total != null
-                            && data.modelhealth.tokens_generated != null && (
-                            <Text type="supporting" color="secondary" hasTabularNumbers>
-                              {t("dont {n} depuis ce lancement").replace(
-                                "{n}", data.modelhealth.tokens_generated.toLocaleString(numLocale))}
-                            </Text>
-                          )}
-                        </VStack>
-                        <VStack gap={0}>
-                          <Text type="supporting" color="secondary">{t("Entrée traitée")}</Text>
-                          <Text weight="semibold" hasTabularNumbers>
-                            {data.modelhealth.tokens_prompt?.toLocaleString(numLocale) ?? "—"}
-                          </Text>
-                          {data.modelhealth.tps_prefill != null && (
-                            <Text type="supporting" color="secondary" hasTabularNumbers>
-                              {t("prefill {n} tok/s").replace("{n}", String(data.modelhealth.tps_prefill))}
-                            </Text>
-                          )}
                         </VStack>
                         {/* Accès rapide retiré : déjà couvert par les
                             boutons en haut de la page. */}

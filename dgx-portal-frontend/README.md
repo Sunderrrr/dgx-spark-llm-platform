@@ -93,7 +93,7 @@ props first, then plain `style={{}}`/`className` with CSS custom properties
 entirely from Astryx components (`AppShell`, `SideNav`, `Layout`, `Stack`,
 `Grid`, …) — no bare `<div>` for structure. Before adding UI, `npx astryx
 build "<idea>"` finds the closest existing template/block instead of
-hand-rolling it. Full conventions are in `AGENTS.md` / `CLAUDE.md`.
+hand-rolling it. Full conventions are in `AGENTS.md`.
 
 The UI supports **English and French**, toggled from Settings → Appearance
 (persisted to `localStorage` and synced to the account's saved preference via

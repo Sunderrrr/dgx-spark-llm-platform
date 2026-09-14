@@ -98,6 +98,39 @@ class ActiviteEnVolTest(unittest.TestCase):
         asyncio.run(hooks.async_log_success_event(_kwargs(), None, None, None))
         self.assertEqual(self._lignes(), [])
 
+    def test_les_hooks_SYNCHRONES_ecrivent_et_retirent(self):
+        """Ce sont eux que cette version de LiteLLM appelle reellement.
+
+        Regression du 2026-09-14 : la classe n'implementait que les variantes
+        asynchrones. Or `async_log_pre_api_call` est declare par `CustomLogger`
+        mais jamais invoque par le proxy (verifie dans le paquet installe) : le
+        pre-appel part de `litellm.input_callback` et le succes de
+        `litellm.callbacks`, qui appellent les methodes SYNCHRONES. Consequence
+        observee en production : table creee, table vide, aucune erreur — un
+        silence parfait. Ce test est la garde qui manquait.
+        """
+        hooks = self.mod.ActiviteEnVol()
+        hooks.log_pre_api_call(model='auto-model', messages=[], kwargs=_kwargs())
+        self.assertEqual(len(self._lignes()), 1)
+
+        # L'echec retire aussi : une requete refusee ne doit pas laisser un nom
+        # affiche comme « en cours » jusqu'a la peremption.
+        hooks.log_failure_event(kwargs=_kwargs())
+        self.assertEqual(self._lignes(), [])
+
+        hooks.log_pre_api_call(model='auto-model', messages=[], kwargs=_kwargs())
+        hooks.log_success_event(kwargs=_kwargs(), response_obj=None,
+                                start_time=None, end_time=None)
+        self.assertEqual(self._lignes(), [])
+
+    def test_les_hooks_synchrones_ne_sont_pas_fatals(self):
+        """Meme garantie que pour l'asynchrone : jamais d'exception remontee."""
+        hooks = self.mod.ActiviteEnVol()
+        with mock.patch.object(self.mod, '_ouvre', side_effect=RuntimeError('disque plein')):
+            hooks.log_pre_api_call(model='m', messages=[], kwargs=_kwargs())
+            hooks.log_success_event(kwargs=_kwargs())
+            hooks.log_failure_event(kwargs=_kwargs())
+
 
 if __name__ == '__main__':
     unittest.main()

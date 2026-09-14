@@ -31,7 +31,20 @@ export type Conversation = {
   model: string;
   // `hidden` est conservé : une réponse à des questions doit rester cachée
   // après rechargement, sinon les index se décalent et le rendu change.
-  messages: { role: Role; content: string; hidden?: boolean }[];
+  messages: {
+    role: Role;
+    content: string;
+    hidden?: boolean;
+    // Conservés côté serveur, donc utiles à l'affichage après rechargement :
+    // sans eux, une réponse coupée repassait pour complète (voir persist()).
+    isError?: boolean;
+    truncated?: boolean;
+  }[];
+  // Liste d'historique BORNÉE : au-delà d'un budget d'octets, le serveur ne
+  // transporte que les métadonnées et marque la conversation. Elle se recharge
+  // à l'unité à l'ouverture (`fetchConversation`) — sans ce drapeau, une
+  // conversation lourde s'ouvrirait sur un fil vide.
+  messagesOmis?: boolean;
 };
 
 export type PlaygroundData = {

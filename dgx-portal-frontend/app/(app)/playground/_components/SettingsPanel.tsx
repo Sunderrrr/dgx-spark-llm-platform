@@ -132,8 +132,13 @@ export function SettingsPanel({
       </VStack>
       <VStack gap={2}>
         <Text type="supporting" color="secondary">{t("Raisonnement")}</Text>
+        {/* Le libellé disait « Afficher le raisonnement » : ce n'est pas un
+            affichage mais un DÉCLENCHEUR — la valeur part en
+            `chat_template_kwargs.enable_thinking`, donc le modèle se met à
+            réfléchir avant de répondre (temps d'attente et facture en hausse).
+            Un interrupteur qui change le coût doit le dire. */}
         <Switch
-          label={t("Afficher le raisonnement")}
+          label={t("Activer la réflexion du modèle (plus lent, plus coûteux)")}
           value={settings.reasoning}
           onChange={(checked) => onChange({ ...settings, reasoning: checked })}
         />

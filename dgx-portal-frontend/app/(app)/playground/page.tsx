@@ -80,6 +80,7 @@ import { type EtapeWeb, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/
 import { texteNotice } from "@/lib/notices";
 
 import {
+  fetchConversation,
   fetchConversations,
   persistConversation,
   removeConversation,
@@ -115,6 +116,13 @@ const ATTACH_ACCEPT =
   ".md,.markdown,.txt,.text,.log,.logs,.err,.error,.out,.json,.jsonl,.csv,.tsv,.yaml,.yml,.toml,.ini,.conf,.cfg,.env,.py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.sh,.bash,.sql,.html,.css,.xml,.diff,.patch";
 
 const MAX_ATTACHMENT_BYTES = 96 * 1024;
+
+/** Extensions que l'attribut `accept` ne fait que SUGGÉRER : un sélecteur de
+ *  fichiers laisse toujours passer « Tous les fichiers », et un glisser-déposer
+ *  n'en tient aucun compte. Sans ce contrôle, une image était lue en TEXTE
+ *  (`readAsText`) et son contenu binaire partait dans le prompt sous forme de
+ *  mojibake, sans le moindre avertissement. */
+const ATTACH_EXTENSIONS = ATTACH_ACCEPT.split(",").map((e) => e.trim().toLowerCase());
 
 // Something the assistant produced worth showing in the side panel (canvas/
 // artifact style) and copying in one click: a code "file" or a long "document"
@@ -748,6 +756,41 @@ function downloadText(filename: string, content: string, mime: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Copie du texte, avec repli là où `navigator.clipboard` n'existe pas.
+ *
+ * L'API Clipboard exige un CONTEXTE SÉCURISÉ : sur le LAN en HTTP
+ * (`http://dgx.cronos.lan`) elle est `undefined`. Le `?.` des boutons Copier
+ * avalait donc l'appel sans rien faire — bouton visible, clic sans effet, aucun
+ * message. On retombe sur `execCommand`, puis on le DIT si ça échoue encore
+ * (`onEchec`) : un échec silencieux est le seul résultat inacceptable ici.
+ */
+async function copierTexte(texte: string, onEchec?: () => void): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(texte);
+      return true;
+    }
+  } catch {
+    /* on essaie le repli */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = texte;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    if (ok) return true;
+  } catch {
+    /* on le dit plus bas */
+  }
+  onEchec?.();
+  return false;
 }
 
 // ── Export & partage d'une conversation ─────────────────────────────────────
@@ -1516,6 +1559,11 @@ export default function PlaygroundPage() {
   // Première erreur d'exécution remontée par l'aperçu (vide = la page tourne).
   const [erreurApercu, setErreurApercu] = useState("");
   const [currentId, setCurrentId] = useState<string | null>(null);
+  // Miroir de `currentId` : la fin d'un flux s'exécute dans sa propre closure et
+  // doit savoir si l'utilisateur regarde TOUJOURS la même conversation (voir
+  // plus bas, « le fil a-t-il changé pendant la génération »).
+  const currentIdRef = useRef<string | null>(null);
+  useEffect(() => { currentIdRef.current = currentId; }, [currentId]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
   // Découpage entrée/sortie de la DERNIÈRE génération (mesure exacte remontée
@@ -1633,7 +1681,14 @@ export default function PlaygroundPage() {
       // `hidden` fait partie du message : sans lui, une réponse à des questions
       // redevenait un message ordinaire au rechargement, décalant les index et
       // changeant le rendu de la conversation.
-      messages: msgs.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })),
+      // `truncated` et `isError` voyagent aussi, et le serveur les conserve :
+      // sans eux, une réponse coupée en plein fichier repassait pour COMPLÈTE
+      // après un rechargement — plus de bandeau, plus de bouton « Continuer »,
+      // alors que le fichier restait inachevé à l'écran.
+      messages: msgs.map((m) => ({
+        role: m.role, content: m.content, hidden: m.hidden,
+        truncated: m.truncated, isError: m.isError,
+      })),
     };
     // Optimistic on the UI side, then server save in the background: the
     // list must not wait for the network round-trip to update.
@@ -1641,7 +1696,13 @@ export default function PlaygroundPage() {
       const rest = prev.filter((c) => c.id !== item.id);
       return [item, ...rest];
     });
-    if (csrf) void persistConversation(csrf, item);
+    // Un enregistrement refusé (413, base indisponible) ne doit pas se traduire
+    // par un historique qui se vide en silence : on le DIT.
+    if (csrf) {
+      void persistConversation(csrf, item).then((ok) => {
+        if (!ok) showToast({ body: t("Conversation non enregistrée — elle disparaîtra au rechargement."), type: "error" });
+      });
+    }
     return item.id;
   }
 
@@ -1747,6 +1808,27 @@ export default function PlaygroundPage() {
   }
 
   function selectConversation(conv: Conversation) {
+    // La liste d'historique est BORNÉE : au-delà d'un budget d'octets, le
+    // serveur n'a transporté que les métadonnées (`messages_omis`). On va
+    // chercher le contenu au moment où on l'ouvre vraiment — sans ce détour, la
+    // conversation s'ouvrirait sur un fil vide, ce qui est pire que la latence
+    // qu'on économise.
+    if (conv.messagesOmis) {
+      void fetchConversation(conv.id).then((complete) => {
+        if (complete) {
+          setConversations((prev) => prev.map((c) => (c.id === complete.id ? complete : c)));
+          appliquerConversation(complete);
+        } else {
+          showToast({ body: t("Cette conversation n'a pas pu être chargée."), type: "error" });
+        }
+      });
+      return;
+    }
+    appliquerConversation(conv);
+  }
+
+  /** Applique une conversation au fil affiché (ouverture depuis l'historique). */
+  function appliquerConversation(conv: Conversation) {
     // Idem : ouvrir une conversation ne la modifie pas, donc ne doit pas la
     // faire remonter ni réécrire celle qu'on quitte.
     setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })));
@@ -1836,8 +1918,15 @@ export default function PlaygroundPage() {
       if (!title) return;
       setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title } : c)));
       setTabs((prev) => prev.map((t) => (t.id === tabId || t.currentId === convId ? { ...t, title, currentId: convId } : t)));
-      // eslint-disable-next-line react-hooks/purity -- handler async
-      const item: Conversation = { id: convId, title, ts: Date.now(), model: titleModel, messages: msgs.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })) };
+      const item: Conversation = {
+        id: convId, title,
+        // eslint-disable-next-line react-hooks/purity -- handler async
+        ts: Date.now(), model: titleModel,
+        messages: msgs.map((m) => ({
+          role: m.role, content: m.content, hidden: m.hidden,
+          truncated: m.truncated, isError: m.isError,
+        })),
+      };
       void persistConversation(csrf, item);
     } catch {
       // silencieux : on garde le titre provisoire (début du prompt)
@@ -1984,21 +2073,59 @@ export default function PlaygroundPage() {
     }
   }
 
+  /** Lit un fichier TEXTE en pièce jointe (contenu intégré au message).
+   *
+   *  Trois refus explicites, parce qu'ils étaient tous les trois silencieux :
+   *  un binaire (image, PDF, archive) partait en mojibake vers le modèle ; un
+   *  fichier trop gros était annoncé par un `alert()` natif bloquant ; et un
+   *  échec de lecture (`FileReader.onerror`, fichier disparu, disque) ne disait
+   *  rien du tout. Le refus est un message dans l'interface, pas une console.
+   */
   function handleFiles(files: FileList | null) {
     if (!files) return;
     for (const file of Array.from(files)) {
+      const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+      if (!ATTACH_EXTENSIONS.includes(ext)) {
+        showToast({ body: t("« {name} » : seuls les fichiers texte sont acceptés.").replace("{name}", file.name), type: "error" });
+        continue;
+      }
       if (file.size > MAX_ATTACHMENT_BYTES) {
-        window.alert(t("« {name} » dépasse 96 Ko — trop gros pour le contexte.").replace("{name}", file.name));
+        showToast({ body: t("« {name} » dépasse 96 Ko — trop gros pour le contexte.").replace("{name}", file.name), type: "error" });
         continue;
       }
       const reader = new FileReader();
       reader.onload = () => {
         setAttachments((prev) => [...prev, { name: file.name, content: String(reader.result) }]);
       };
+      reader.onerror = () => {
+        showToast({ body: t("« {name} » n'a pas pu être lu.").replace("{name}", file.name), type: "error" });
+      };
       reader.readAsText(file);
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
+
+  // Glisser-déposer sur la PAGE : sans handler, le navigateur navigue vers le
+  // fichier déposé et le fil de discussion disparaît. On accepte le dépôt
+  // partout dans la conversation. La ref évite de réabonner à chaque rendu.
+  const handleFilesRef = useRef<(f: FileList | null) => void>(() => {});
+  useEffect(() => { handleFilesRef.current = handleFiles; });
+  useEffect(() => {
+    function surDepot(e: DragEvent) {
+      if (!e.dataTransfer?.files?.length) return;
+      e.preventDefault();
+      handleFilesRef.current(e.dataTransfer.files);
+    }
+    function surSurvol(e: DragEvent) {
+      if (e.dataTransfer?.types?.includes("Files")) e.preventDefault();
+    }
+    window.addEventListener("dragover", surSurvol);
+    window.addEventListener("drop", surDepot);
+    return () => {
+      window.removeEventListener("dragover", surSurvol);
+      window.removeEventListener("drop", surDepot);
+    };
+  }, []);
 
   async function runStream(nextMessages: ChatMsg[]) {
     if (!model) {
@@ -2158,7 +2285,15 @@ export default function PlaygroundPage() {
         isError,
       });
     }
-    setMessages(finalMessages);
+    // Le FIL a-t-il changé pendant la génération ? Charger une autre conversation
+    // depuis l'historique (ou changer d'onglet) n'est pas bloqué — c'est
+    // légitime — mais la fin du flux réécrivait alors `messages` ET `currentId`
+    // avec les valeurs capturées au DÉPART : on revenait brutalement à l'ancienne
+    // conversation, la réponse partielle ajoutée par-dessus, et l'onglet actif
+    // gardait le titre de l'autre. On enregistre TOUJOURS la réponse au bon
+    // endroit (aucune perte), on ne repeint l'écran que si on y est encore.
+    const memeFil = currentIdRef.current === currentId;
+    if (memeFil) setMessages(finalMessages);
     // If the assistant wrote a file, or wrote a document in reply to a document
     // task, surface the last one in the side panel automatically.
     const lastUser = [...nextMessages].reverse().find((mm) => mm.role === "user");
@@ -2166,7 +2301,7 @@ export default function PlaygroundPage() {
     const produced = parseAsk(acc)
       ? []
       : parseArtifacts(contenuCloture(acc), isDocTask(lastUser?.content ?? ""), t).artifacts;
-    if (produced.length) {
+    if (produced.length && memeFil) {
       const lastArt = produced[produced.length - 1];
       // A code file opens on its own; a document opens automatically only if the
       // user was already watching it being written live (otherwise it stays a
@@ -2175,18 +2310,20 @@ export default function PlaygroundPage() {
     }
     liveDocOpenRef.current = false;
     const total = usage?.total_tokens;
-    if (total) {
+    if (total && memeFil) {
       setCtxUsed(total);
       setConvTokens((p) => p + total);
     }
-    if (typeof usage?.prompt_tokens === "number" || typeof usage?.completion_tokens === "number") {
+    if (memeFil && (typeof usage?.prompt_tokens === "number" || typeof usage?.completion_tokens === "number")) {
       setIoTokens({ prompt: usage?.prompt_tokens ?? 0, completion: usage?.completion_tokens ?? 0 });
     }
     const savedId = persist(finalMessages, currentId, model);
-    setCurrentId(savedId ?? null);
-    // L'onglet actif porte immédiatement cette conversation (avant même que
-    // l'auto-titre ne réponde), pour que fermer/commuter reste cohérent.
-    setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, currentId: savedId ?? null } : t)));
+    if (memeFil) {
+      setCurrentId(savedId ?? null);
+      // L'onglet actif porte immédiatement cette conversation (avant même que
+      // l'auto-titre ne réponde), pour que fermer/commuter reste cohérent.
+      setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, currentId: savedId ?? null } : t)));
+    }
     // (Auto-titre à la fermeture uniquement — on analyse la conversation complète
     // pour un titre d'historique fiable ; voir closeTab.)
     setStreaming(false);
@@ -2643,6 +2780,13 @@ export default function PlaygroundPage() {
   const onMenuKeyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   useEffect(() => {
     onMenuKeyRef.current = (e: KeyboardEvent) => {
+      // Aucune compétence ne correspond au filtre : ce n'est pas une commande,
+      // c'est un message qui COMMENCE par « / » (un chemin de fichier, une
+      // commande d'un autre outil…). Le menu n'est alors qu'une ligne « créer un
+      // skill », et Entrée ouvrait le créateur EN VIDANT LE CHAMP : le message
+      // écrit était détruit sans un mot. On ne touche plus au clavier dans ce
+      // cas — Entrée envoie, comme pour n'importe quel message.
+      if (!skillHits.length) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
         e.stopPropagation();
@@ -2652,17 +2796,24 @@ export default function PlaygroundPage() {
         e.stopPropagation();
         setSkillSel((s) => Math.max(s - 1, 0));
       } else if (e.key === "Escape") {
-        e.preventDefault();
+        // Échap ne vide JAMAIS le champ : il servait à « fermer » le menu, mais
+        // le menu n'a pas d'état propre (il suit le texte du champ), donc la
+        // touche effaçait tout ce qui était écrit. On la laisse au compositeur.
         e.stopPropagation();
-        setInput("");
       } else if (e.key === "Enter") {
-        e.preventDefault();
-        e.stopPropagation();
         const sel = Math.min(skillSel, menuRows - 1);
-        if (sel === 0) openSkillCreator();
-        else {
+        if (sel === 0) {
+          // La ligne « créer un skill » n'est atteignable au clavier que par ↑/↓
+          // quand des compétences existent : on ne l'ouvre plus par accident.
+          e.preventDefault();
+          e.stopPropagation();
+          openSkillCreator();
+        } else {
           const s = skillHits[sel - 1];
-          if (s) selectSkill(s);
+          if (!s) return;
+          e.preventDefault();
+          e.stopPropagation();
+          selectSkill(s);
         }
       }
     };
@@ -2785,7 +2936,12 @@ export default function PlaygroundPage() {
         isStopShown={streaming}
         onStop={stop}
         placeholder={placeholderText}
-        input={<ChatComposerInput value={input} onChange={handleInput} onSubmit={send} />}
+        input={<ChatComposerInput value={input} onChange={handleInput} onSubmit={send}
+                                  // Coller ou déposer un fichier dans le champ :
+                                  // le composant appelle `onFiles` — la page ne la
+                                  // passait pas, donc l'événement était avalé sans
+                                  // rien dire (`preventDefault()` inconditionnel).
+                                  onFiles={(files) => handleFiles(files as unknown as FileList)} />}
         drawer={
           attachments.length ? (
             <ChatComposerDrawer count={attachments.length} label={t("Fichiers joints")}>
@@ -2916,6 +3072,10 @@ export default function PlaygroundPage() {
                 size="sm"
                 icon={<Icon icon={PlusIcon} size="sm" />}
                 isIconOnly
+                // `newConversation` sort tant qu'une réponse se génère : un
+                // bouton actif au clic muet laissait croire à une panne. On dit
+                // l'indisponibilité au lieu de l'ignorer — comme « Nouvel onglet ».
+                isDisabled={streaming}
                 onClick={newConversation}
               />
               <Button
@@ -3018,6 +3178,9 @@ export default function PlaygroundPage() {
                       label={t("Fermer")}
                       variant="ghost"
                       size="sm"
+                      // Fermer un onglet en pleine génération était refusé en
+                      // silence par `closeTab` : on le montre.
+                      isDisabled={streaming}
                       isIconOnly
                       icon={<Icon icon={XMarkIcon} size="sm" />}
                       onClick={() => closeTab(tb.id)}
@@ -3204,7 +3367,8 @@ export default function PlaygroundPage() {
                                     size="sm"
                                     isIconOnly
                                     icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                    onClick={() => navigator.clipboard?.writeText(m.content)}
+                                    onClick={() => void copierTexte(m.content, () =>
+                                      showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))}
                                   />
                                   {canRegenerateThis && (
                                     <Button
@@ -3236,7 +3400,8 @@ export default function PlaygroundPage() {
                                     size="sm"
                                     isIconOnly
                                     icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                    onClick={() => navigator.clipboard?.writeText(m.content)}
+                                    onClick={() => void copierTexte(m.content, () =>
+                                      showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))}
                                   />
                                 </HStack>
                               ) : undefined
@@ -3472,7 +3637,8 @@ export default function PlaygroundPage() {
                           onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
                         <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
                           icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                          onClick={() => navigator.clipboard?.writeText(panelContent)} />
+                          onClick={() => void copierTexte(panelContent, () =>
+                            showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))} />
                         <Button label={t("Fermer")} variant="ghost" size="sm" isIconOnly
                           icon={<Icon icon={XMarkIcon} size="sm" />}
                           onClick={() => { setArtifact(null); setLiveDocOpen(false); }} />
@@ -3762,7 +3928,8 @@ export default function PlaygroundPage() {
                   variant="secondary"
                   size="sm"
                   icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                  onClick={() => navigator.clipboard?.writeText(summary)}
+                  onClick={() => void copierTexte(summary, () =>
+                    showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))}
                 />
               </HStack>
             </VStack>
@@ -3885,7 +4052,8 @@ export default function PlaygroundPage() {
                               onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
                             <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
                               icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                              onClick={() => navigator.clipboard?.writeText(panelContent)} />
+                              onClick={() => void copierTexte(panelContent, () =>
+                            showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))} />
                           </>
                         )}
                       </HStack>

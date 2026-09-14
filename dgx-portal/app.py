@@ -33,6 +33,15 @@ app.config.update(
     # largest legitimate uploads (OCR/video image 15 MB); beyond that Werkzeug
     # returns 413 without parsing anything.
     MAX_CONTENT_LENGTH=16 * 1024 * 1024,
+    # Werkzeug 3.1 plafonne À 500 Ko la mémoire d'UN champ de formulaire
+    # (`MAX_FORM_MEMORY_SIZE`), indépendamment de MAX_CONTENT_LENGTH. Or les
+    # conversations s'enregistrent en form-data (`POST /conversations`, champ
+    # `messages`) avec un plafond voulu de 2 Mo : toute conversation un peu
+    # longue était donc refusée en 413 AVANT d'atteindre la route, et le
+    # frontend avalant l'échec, elle disparaissait simplement au rechargement.
+    # 4 Mo couvre CONV_MAX_CHARS (2 M) plus la marge de sérialisation, tout en
+    # restant très en dessous de MAX_CONTENT_LENGTH.
+    MAX_FORM_MEMORY_SIZE=4 * 1024 * 1024,
 )
 
 # LDAP identifier validation regex (defense in depth against

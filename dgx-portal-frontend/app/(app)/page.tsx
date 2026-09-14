@@ -197,7 +197,9 @@ type HomeData = {
   sysmetrics: SysMetrics;
   sidecar_metrics: Partial<Record<"ocr" | "video" | "voice", SidecarMetric>>;
   modelhealth: ModelHealth;
-  active_users: { username: string; requests: number; tokens: number; live?: boolean; derniere_s?: number | null }[] | null;
+  // `en_vol` vient du callback LiteLLM : c'est la seule attribution CONSTATÉE
+  // pendant une requête (les autres reposent sur une déduction depuis le moteur).
+  active_users: { username: string; requests: number; tokens: number; live?: boolean; derniere_s?: number | null; en_vol?: boolean; depuis_s?: number | null }[] | null;
   usage: { has_data: boolean; total: number; active_keys: number; points: { hour: number; tokens: number }[] } | null;
   usage_by_model: { model: string; tokens: number }[];
   my_requests: ModelRequest[];
@@ -694,10 +696,14 @@ export default function HomePage() {
                                 // pas, et sur 30 minutes la différence est énorme.
                                 label={[
                                   u.username,
-                                  ageDepuis(u.derniere_s, t),
+                                  // Attribution CONSTATÉE par LiteLLM (requête en
+                                  // cours) plutôt que déduite : on affiche sa durée.
+                                  u.en_vol
+                                    ? t("en cours depuis {d}").replace("{d}", ageDepuis(u.depuis_s ?? 0, t))
+                                    : ageDepuis(u.derniere_s, t),
                                   u.live ? t("en direct") : null,
-                                  `${u.requests} ${t("req")}`,
-                                  `${Math.round(u.tokens).toLocaleString(numLocale)} ${t("tok")}`,
+                                  u.en_vol ? null : `${u.requests} ${t("req")}`,
+                                  u.en_vol ? null : `${Math.round(u.tokens).toLocaleString(numLocale)} ${t("tok")}`,
                                 ].filter(Boolean).join(" · ")}
                               />
                             ))}

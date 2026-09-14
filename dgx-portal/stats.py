@@ -10,6 +10,7 @@ Les donnees viennent de deux sources melangees a dessein : la base LiteLLM
 celles en cours — LiteLLM n'ecrit sa ligne qu'a la fin, donc sans ce registre un
 utilisateur en pleine generation resterait invisible.
 """
+import os
 import re
 import requests
 import secrets
@@ -208,6 +209,69 @@ def _compte_existe(nom):
 # Pas plus de 180 s non plus : au-dela, le panneau garde des noms partis depuis
 # longtemps. C'est le garde-fou sur l'activite du moteur qui borne vraiment —
 # moteur au repos, panneau vide, quelle que soit la fenetre.
+def _compte_depuis_alias(alias):
+    """Nom de compte devine depuis l'alias d'une cle API, ou '' si douteux.
+
+    Alias de la forme « mpigeon-1783112817 » ou « Opencode-Omarchy » : on ne
+    devine RIEN, on ne retient un morceau que s'il correspond a un compte connu —
+    sinon on prefere afficher la cle que d'inventer un nom. Regle partagee avec
+    SpendLogs : une seule logique de resolution, donc un seul endroit ou se
+    tromper.
+    """
+    for morceau in re.split(r'[-_]', alias or ''):
+        if morceau and _compte_existe(morceau):
+            return morceau
+    return ''
+
+
+# Fichier ecrit par le callback LiteLLM `cronos_inflight` et monte ici en LECTURE
+# SEULE. Il contient les requetes EN COURS, c'est-a-dire la seule source capable de
+# nommer quelqu'un PENDANT qu'il genere : LiteLLM n'ecrit sa ligne SpendLogs qu'a
+# la fin (mesure du 2026-09-14 : 44 minutes sans la moindre ligne pendant que deux
+# sessions travaillaient). Absent => on se rabat sur les lignes finies ; l'ecriture
+# se fait cote LiteLLM, le portail ne fait que lire.
+_EN_VOL_DB = os.environ.get('CRONOS_INFLIGHT_DB', '/run/cronos/inflight.db')
+
+
+def _en_vol():
+    """Requetes en cours : {compte: age_en_secondes}.
+
+    Ne leve jamais et ne devine rien : c'est un confort d'affichage, pas une
+    dependance. Un fichier absent ou illisible donne {} — et l'interface sait deja
+    dire « sessions occupees, identites pas encore journalisees ».
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect('file:%s?mode=ro' % _EN_VOL_DB, uri=True, timeout=2)
+        maintenant = time.time()
+        out = {}
+        for alias, user_id, debut in conn.execute('SELECT alias, user_id, debut FROM en_vol'):
+            # user_id est le compte pour les cles creees par le portail, mais une
+            # cle creee ailleurs peut porter n'importe quoi : on valide, comme
+            # pour l'alias.
+            u = _compte_depuis_alias(alias)
+            if not u and user_id and _compte_existe(str(user_id)):
+                u = str(user_id)
+            if not u:
+                continue
+            try:
+                age = max(0.0, maintenant - float(debut))
+            except (TypeError, ValueError):
+                age = 0.0
+            if u not in out or age > out[u]:
+                # La PLUS ANCIENNE requete de ce compte gagne : c'est elle qui
+                # porte l'information utile (« cette session tourne depuis 40
+                # min »). Garder la plus recente ferait disparaitre une requete
+                # bloquee derriere un aller-retour de deux secondes.
+                out[u] = age
+        return out
+    except Exception:
+        return {}
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def _active_users(window_s=1800):
     """Users who queried the model recently, from two sources merged:
       - LiteLLM SpendLogs over the last `window_s` s (attributed by API key → user)
@@ -282,13 +346,7 @@ def _active_users(window_s=1800):
                 # avant l'ajout de metadata.user) n'a pas cette correspondance.
                 u = umap.get(api_key) or (col_user or '').strip()
                 if not u and alias:
-                    # Alias de la forme « mpigeon-1783112817 » ou « laptop-mboitel » :
-                    # on ne devine RIEN, on ne retient que s'il correspond a un compte
-                    # connu — sinon on prefere afficher la cle que d'inventer un nom.
-                    for morceau in re.split(r'[-_]', alias):
-                        if morceau and _compte_existe(morceau):
-                            u = morceau
-                            break
+                    u = _compte_depuis_alias(alias)
                 if not u:
                     u = f"cle {str(api_key)[:8]}…"
                 a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
@@ -334,6 +392,24 @@ def _active_users(window_s=1800):
         a['derniere_s'] = 0.0
         if a['requests'] == 0:
             a['requests'] = n
+    # Requetes EN COURS, telles que LiteLLM les a notees a leur depart. C'est la
+    # seule source qui nomme un utilisateur PENDANT qu'il genere : le drapeau
+    # `live` pose plus haut repose sur « le moteur travaille et ce compte vient
+    # d'emettre », donc sur une deduction, alors qu'ici c'est constate. `depuis_s`
+    # dit depuis combien de temps la requete tourne — une requete de 40 minutes
+    # n'est pas la meme chose qu'un aller-retour d'une seconde.
+    for u, age in _en_vol().items():
+        a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
+                               'live': False, 'derniere_s': None})
+        a['live'] = True
+        a['en_vol'] = True
+        a['depuis_s'] = age
+        a['derniere_s'] = 0.0
+    # Champs toujours presents : l'interface ne doit pas distinguer trois formes
+    # de dictionnaire selon la source qui a cree l'entree.
+    for a in agg.values():
+        a.setdefault('en_vol', False)
+        a.setdefault('depuis_s', None)
     return sorted(agg.values(), key=lambda x: (x['live'], x['requests']), reverse=True)
 
 def _account_activity(username, days=182):

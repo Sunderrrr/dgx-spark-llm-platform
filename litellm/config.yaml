@@ -31,3 +31,11 @@ litellm_settings:
   # llama.cpp et libère le slot).
   num_retries: 0
   request_timeout: 300
+  # Qui utilise le modele MAINTENANT. LiteLLM n'ecrit SpendLogs qu'a la fin d'une
+  # requete et n'expose aucune liste de requetes en vol : le panneau admin du
+  # portail ne pouvait donc nommer personne pendant une generation (mesure du
+  # 2026-09-14 : 44 minutes sans la moindre ligne alors que deux sessions
+  # travaillaient). Ce callback note l'ouverture au depart et la retire a la fin,
+  # dans un petit SQLite que le portail monte en lecture seule. Il ne peut pas
+  # faire echouer une requete : toute erreur est tracee puis ignoree.
+  callbacks: ["cronos_inflight.en_vol"]

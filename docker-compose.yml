@@ -49,7 +49,14 @@ services:
     # le forwardAuth de maintenance — que l'ancien port publié court-circuitait.
     volumes:
       - ./litellm/config.yaml:/app/config.yaml
+      # Activité EN VOL (qui génère maintenant) : petit SQLite écrit par le
+      # callback `cronos_inflight`, lu par le portail. Le module est monté à part
+      # pour rester lisible, et PYTHONPATH=/app le rend importable.
+      - ./dgx-portal/litellm_inflight.py:/app/cronos_inflight.py:ro
+      - ./runtime:/run/cronos
     environment:
+      PYTHONPATH: /app
+      CRONOS_INFLIGHT_DB: /run/cronos/inflight.db
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       # Coupe l'UI d'admin (/ui, /sso) : elle était publiquement joignable via
@@ -145,6 +152,10 @@ services:
       SESSION_COOKIE_SECURE: "1"
     volumes:
       - portal_data:/app/data
+      # Activité en vol du proxy, en LECTURE SEULE : LiteLLM est le seul écrivain,
+      # et un portail compromis ne doit pas pouvoir toucher ce que le proxy écrit
+      # (ni l'inverse). Absent = le panneau se rabat sur les seules lignes finies.
+      - ./runtime:/run/cronos:ro
       # ComfyUI's video output, read-only: lets the portal serve past videos
       # from disk even when the video sidecar (ComfyUI) is stopped to free the GPU.
       - /root/ComfyUI/output:/comfyui-output:ro

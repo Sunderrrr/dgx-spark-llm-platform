@@ -6,6 +6,10 @@ requetes annoncees pour 39 303 tokens generes). Corriger cela ne devait rien
 changer a vLLM, qui publie un vrai compteur de requetes : ces tests figent la
 frontiere pour que le chemin vLLM ne parte pas avec le prochain nettoyage.
 """
+import os
+import shutil
+import sqlite3
+import tempfile
 import time
 import types
 import unittest
@@ -447,6 +451,66 @@ class SlotsActifsTest(unittest.TestCase):
              mock.patch.object(vllm_health.requests, 'get', side_effect=_get):
             h = vllm_health.vllm_health()
         self.assertEqual(h['slots']['busy'], 2)
+
+
+class EnVolStatsTest(unittest.TestCase):
+    """Lecture des requetes EN COURS ecrites par le callback LiteLLM.
+
+    Ce fichier est la seule attribution CONSTATEE : sans lui, le panneau ne peut
+    dire que ce que le moteur voit (des sessions occupees) et ce que SpendLogs a
+    deja vu (des requetes finies). Il est aussi, par construction, un fichier qui
+    peut manquer ou etre illisible — d'ou ces tests.
+    """
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp()
+        self.chemin = os.path.join(self.dossier, 'inflight.db')
+        self._avant = stats._EN_VOL_DB
+        stats._EN_VOL_DB = self.chemin
+
+    def tearDown(self):
+        stats._EN_VOL_DB = self._avant
+        shutil.rmtree(self.dossier, ignore_errors=True)
+
+    def _ecrit(self, lignes):
+        conn = sqlite3.connect(self.chemin)
+        conn.execute('CREATE TABLE IF NOT EXISTS en_vol (cle TEXT PRIMARY KEY, alias TEXT, '
+                     'user_id TEXT, modele TEXT, debut REAL NOT NULL)')
+        for cle, alias, user_id, age in lignes:
+            conn.execute('INSERT INTO en_vol VALUES (?,?,?,?,?)',
+                         (cle, alias, user_id, 'm', time.time() - age))
+        conn.commit()
+        conn.close()
+
+    def test_un_alias_connu_donne_le_compte(self):
+        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'nlerou'):
+            self._ecrit([('c1', 'Opencode-nlerou', '', 12)])
+            actifs = stats._en_vol()
+        self.assertEqual(list(actifs), ['nlerou'])
+        self.assertTrue(11 < actifs['nlerou'] < 15, actifs)
+
+    def test_un_alias_inconnu_ne_devine_aucun_nom(self):
+        """Mieux vaut ne rien afficher qu'un nom invente."""
+        with mock.patch.object(stats, '_compte_existe', return_value=False):
+            self._ecrit([('c1', 'Opencode-Omarchy', 'personne-connu', 5)])
+            self.assertEqual(stats._en_vol(), {})
+
+    def test_le_user_id_sert_de_repli(self):
+        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'cestienne'):
+            self._ecrit([('c1', '', 'cestienne', 3)])
+            self.assertEqual(list(stats._en_vol()), ['cestienne'])
+
+    def test_la_plus_ancienne_requete_gagne(self):
+        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'nlerou'):
+            self._ecrit([('c1', 'nlerou-1', '', 2), ('c2', 'nlerou-2', '', 300)])
+            self.assertTrue(stats._en_vol()['nlerou'] > 290)
+
+    def test_fichier_absent_ou_illisible_ne_leve_pas(self):
+        self.assertEqual(stats._en_vol(), {})          # absent
+        with open(self.chemin, 'w') as f:
+            f.write('ceci n est pas une base sqlite')
+        with mock.patch.object(stats, '_compte_existe', return_value=True):
+            self.assertEqual(stats._en_vol(), {})      # illisible
 
 
 if __name__ == '__main__':

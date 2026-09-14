@@ -248,7 +248,15 @@ def _compteurs_llamacpp(text, modele, generes):
         prefill = _prom_sum(text, 'llamacpp:prompt_tokens_seconds')
         compteurs = {
             'generes': int(generes) if generes else 0,
-            'tps_moyen': round(generes / secondes, 1) if secondes > 0 else None,
+            # Seuil de 300 s de génération cumulée — un CHOIX, pas une mesure :
+            # sur quelques dizaines de secondes la moyenne ne veut rien dire.
+            # Ce n'est pas théorique : mesuré le 2026-09-14, le compteur du
+            # moteur est reparti à zéro (cache KV remis à zéro, même pid), et la
+            # « moyenne » est tombée à 47 tokens / 192,4 s = 0,2 tok/s. L'afficher
+            # serait pire que ne rien afficher, donc l'interface masque la ligne
+            # tant que le moteur n'a pas généré cinq minutes depuis sa remise à
+            # zéro. Le total cumulé, lui, reste juste dans tous les cas.
+            'tps_moyen': round(generes / secondes, 1) if secondes >= 300 else None,
             'entree': int(entree) if entree is not None else None,
             'tps_prefill': round(prefill, 1) if prefill else None,
         }

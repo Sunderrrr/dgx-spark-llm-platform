@@ -127,21 +127,30 @@ def _inflight_snapshot():
     return out
 
 
-# ── Cumul des tokens générés, à travers les relances du moteur ──────────────
+# ── Cumul des tokens générés, à travers les remises à zéro du moteur ────────
 # Les compteurs de llama.cpp et de vLLM repartent de zéro à chaque démarrage :
 # « tokens générés » retombait donc à 0 à chaque changement de modèle ou
 # redémarrage, effaçant l'historique de la machine. On conserve la dernière
 # valeur vue pour chaque modèle, et on l'archive quand le compteur REPART EN
-# ARRIÈRE — seule signature fiable d'une relance, un tel compteur étant monotone.
+# ARRIÈRE — un tel compteur étant monotone, une baisse ne peut être qu'une
+# remise à zéro, et le travail déjà fait reste dû.
+#
+# MESURE du 2026-09-14, à ne pas simplifier en « c'est une relance » :
+# `tokens_predicted_total` est passé de 158 864 à 47 et `n_decode_total` de
+# 132 694 à 271 **sans que le processus change** (même pid, 7 h 56 de vie,
+# NRestarts=0), pendant que `prompt_tokens_total` restait à 174 932. Ce n'est
+# donc pas seulement un redémarrage : une remise à zéro du cache KV produit la
+# même signature. Peu importe la cause — dans les deux cas le cumul doit
+# continuer de croître, et c'est ce que fait l'archivage.
 #
 # Ce que le chiffre vaut exactement : il est exact au pas d'échantillonnage près.
 # La dernière observation date d'au plus une période de sonde (/api/modelhealth à
 # 1 s quand un tableau de bord est ouvert, /api/home à 5 s sinon), donc on perd au
-# pire les tokens générés pendant ces quelques secondes avant la relance. Pour un
-# chiffre comptable, la référence est côté LiteLLM — SUM(completion_tokens) sur
-# SpendLogs valait 21 984 293 au 2026-09-14, et couvre toute la plateforme.
+# pire les tokens générés pendant ces quelques secondes avant la remise à zéro.
+# Pour un chiffre comptable, la référence est côté LiteLLM — SUM(completion_tokens)
+# sur SpendLogs valait 21 984 293 au 2026-09-14, et couvre toute la plateforme.
 def cumuler_tokens_generes(modele, valeur):
-    """Total des tokens générés par ce modèle, relances comprises.
+    """Total des tokens générés par ce modèle, remises à zéro comprises.
 
     Retourne None si le modèle n'est pas connu ou si la base est injoignable :
     l'appelant affiche alors le compteur du lancement en cours, jamais un zéro
@@ -157,9 +166,9 @@ def cumuler_tokens_generes(modele, valeur):
         if row is None:
             base = 0
         elif valeur >= row['dernier']:
-            base = row['base']                      # même lancement, rien à archiver
+            base = row['base']                      # compteur toujours en cours
         else:
-            base = row['base'] + row['dernier']     # relance : on archive le précédent
+            base = row['base'] + row['dernier']     # remise à zéro : on archive le précédent
         # On n'écrit que si quelque chose change : au repos (compteur figé), la
         # sonde à 1 s ne doit pas produire une écriture SQLite par seconde.
         if row is None or valeur != row['dernier'] or base != row['base']:

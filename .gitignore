@@ -55,3 +55,7 @@ secrets/
 # barre couvre aussi dgx-portal-frontend/CLAUDE.md. À ne pas confondre avec
 # dgx-portal-frontend/public/avatars/claude.svg, qui est une image et reste suivi.
 CLAUDE.md
+
+# État d'exécution partagé entre conteneurs (activité en vol du proxy, lue par le
+# portail). Contient des alias de clés API et des noms de comptes : jamais dans git.
+runtime/

@@ -127,6 +127,53 @@ def _inflight_snapshot():
     return out
 
 
+# ── Cumul des tokens générés, à travers les relances du moteur ──────────────
+# Les compteurs de llama.cpp et de vLLM repartent de zéro à chaque démarrage :
+# « tokens générés » retombait donc à 0 à chaque changement de modèle ou
+# redémarrage, effaçant l'historique de la machine. On conserve la dernière
+# valeur vue pour chaque modèle, et on l'archive quand le compteur REPART EN
+# ARRIÈRE — seule signature fiable d'une relance, un tel compteur étant monotone.
+#
+# Ce que le chiffre vaut exactement : il est exact au pas d'échantillonnage près.
+# La dernière observation date d'au plus une période de sonde (/api/modelhealth à
+# 1 s quand un tableau de bord est ouvert, /api/home à 5 s sinon), donc on perd au
+# pire les tokens générés pendant ces quelques secondes avant la relance. Pour un
+# chiffre comptable, la référence est côté LiteLLM — SUM(completion_tokens) sur
+# SpendLogs valait 21 984 293 au 2026-09-14, et couvre toute la plateforme.
+def cumuler_tokens_generes(modele, valeur):
+    """Total des tokens générés par ce modèle, relances comprises.
+
+    Retourne None si le modèle n'est pas connu ou si la base est injoignable :
+    l'appelant affiche alors le compteur du lancement en cours, jamais un zéro
+    qui ferait croire à une remise à zéro.
+    """
+    if not modele or valeur is None:
+        return None
+    valeur = int(valeur)
+    try:
+        db = get_db()
+        row = db.execute("SELECT base, dernier FROM model_counters WHERE model=?",
+                         (modele,)).fetchone()
+        if row is None:
+            base = 0
+        elif valeur >= row['dernier']:
+            base = row['base']                      # même lancement, rien à archiver
+        else:
+            base = row['base'] + row['dernier']     # relance : on archive le précédent
+        # On n'écrit que si quelque chose change : au repos (compteur figé), la
+        # sonde à 1 s ne doit pas produire une écriture SQLite par seconde.
+        if row is None or valeur != row['dernier'] or base != row['base']:
+            db.execute(
+                "INSERT INTO model_counters (model, base, dernier, maj) VALUES (?,?,?,?) "
+                "ON CONFLICT(model) DO UPDATE SET base=excluded.base, "
+                "dernier=excluded.dernier, maj=excluded.maj",
+                (modele, base, valeur, time.time()))
+            db.commit()
+        return base + valeur
+    except Exception:
+        return None
+
+
 def _compte_existe(nom):
     """Ce nom correspond-il a un compte connu de la plateforme ?
 
@@ -202,11 +249,13 @@ def _active_users(window_s=180):
             cur.execute('SELECT api_key, COUNT(*), '
                         'SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)), '
                         'MAX(COALESCE("user", \'\')), '
-                        'MAX(COALESCE(metadata->>\'user_api_key_alias\', \'\')) '
+                        'MAX(COALESCE(metadata->>\'user_api_key_alias\', \'\')), '
+                        'MAX(COALESCE("endTime", "startTime")) '
                         'FROM "LiteLLM_SpendLogs" '
                         'WHERE "startTime" >= %s AND COALESCE("endTime", "startTime") >= %s '
                         'GROUP BY api_key', (large, since))
-            for api_key, cnt, toks, col_user, alias in cur.fetchall():
+            maintenant = datetime.now(ZoneInfo('UTC')).replace(tzinfo=None)
+            for api_key, cnt, toks, col_user, alias, dernier in cur.fetchall():
                 if api_key in _NON_USER_KEYS:
                     continue
                 # Trois sources d'attribution, de la plus fiable a la plus faible.
@@ -225,9 +274,24 @@ def _active_users(window_s=180):
                             break
                 if not u:
                     u = f"cle {str(api_key)[:8]}…"
-                a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0, 'live': False})
+                a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
+                                       'live': False, 'derniere_s': None})
                 a['requests'] += int(cnt or 0)
                 a['tokens'] += int(toks or 0)
+                # Age de la derniere activite. C'est CE chiffre qui repond a la
+                # question de l'admin (« qui genere la, maintenant ? ») : le drapeau
+                # `live` est volontairement grossier (il s'allume des que le moteur
+                # travaille, donc pour tout le monde a la fois des qu'il y a du
+                # trafic), et deux utilisateurs affiches identiques peuvent avoir
+                # une minute d'ecart. On garde le minimum, donc l'activite la plus
+                # recente de cet utilisateur.
+                if dernier is not None:
+                    try:
+                        age = (maintenant - dernier).total_seconds()
+                    except TypeError:
+                        age = None
+                    if age is not None and (a['derniere_s'] is None or age < a['derniere_s']):
+                        a['derniere_s'] = max(0.0, age)
                 if en_cours > 0:
                     # Le moteur traite quelque chose et cet utilisateur vient d'emettre :
                     # c'est lui (ou l'un d'eux). Le registre in-flight ne voit que le
@@ -239,8 +303,11 @@ def _active_users(window_s=180):
             conn.close()
     # Merge live in-flight in-app requests (real time).
     for u, n in inflight.items():
-        a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0, 'live': False})
+        a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
+                               'live': False, 'derniere_s': None})
         a['live'] = True
+        # Requete en cours : c'est l'instant present, par definition.
+        a['derniere_s'] = 0.0
         if a['requests'] == 0:
             a['requests'] = n
     return sorted(agg.values(), key=lambda x: (x['live'], x['requests']), reverse=True)

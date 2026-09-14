@@ -183,6 +183,20 @@ def _vllm_health_uncached():
             ctx_in, ctx_out = ctx_split(row['vllm_args'], engine)
     except Exception:
         pass
+    # Compteurs cumulés. llama.cpp publie de quoi calculer une moyenne EXACTE
+    # depuis son démarrage ; vLLM ne donne que des totaux, donc pas de moyenne.
+    if engine == 'llamacpp':
+        compteurs, cumul = _compteurs_llamacpp(text, running[0], gen)
+    else:
+        entree_v = _prom_sum(text, 'vllm:prompt_tokens_total')
+        compteurs = {'generes': int(gen) if gen else 0, 'tps_moyen': None,
+                     'entree': int(entree_v) if entree_v is not None else None,
+                     'tps_prefill': None}
+        try:
+            from stats import cumuler_tokens_generes
+            cumul = cumuler_tokens_generes(running[0], compteurs['generes'])
+        except Exception:
+            cumul = None
     return {
         'up': True,
         'model': running[0],
@@ -197,7 +211,58 @@ def _vllm_health_uncached():
         'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else ttft_mesure_s,
         'requests': (int(_prom_sum(text, M['requests']) or 0)
                      if M.get('requests') else None),
+        # Compteurs cumulés depuis le DÉMARRAGE du moteur (cf. _compteurs_llamacpp).
+        'tokens_generated': compteurs['generes'],
+        'tokens_generated_total': cumul,
+        'tps_moyen': compteurs['tps_moyen'],
+        'tokens_prompt': compteurs['entree'],
+        'tps_prefill': compteurs['tps_prefill'],
     }
+
+
+def _compteurs_llamacpp(text, modele, generes):
+    """Compteurs cumulés du moteur, et cumul conservé à travers ses relances.
+
+    Trois lectures, toutes exactes parce qu'elles viennent de compteurs du moteur
+    et non d'un échantillonnage par le portail :
+
+    - `tokens_predicted_total` : tokens générés depuis le démarrage ;
+    - `tokens_predicted_seconds_total` : secondes passées à générer. Leur
+      RAPPORT est donc une vraie moyenne de décodage depuis le démarrage
+      (158 729 / 11 921,9 = 13,3 tok/s sur ce serveur), stable là où le débit
+      instantané saute de 0 à 1,3 puis retombe — c'est ce qui manquait pour
+      répondre à « les tokens par seconde décodés » ;
+    - `prompt_tokens_total` + la jauge `prompt_tokens_seconds` : le travail
+      d'ENTRÉE. C'est ce qui explique l'écran « 0 tok/s » alors que le GPU
+      travaille : mesuré le 2026-09-14, 4 requêtes en cours, `n_decode_total`
+      qui avance d'UN pas en 6 s, et un prefill à 248 tok/s. Un modèle agentique
+      relit des contextes énormes, donc il passe l'essentiel de son temps en
+      entrée ; afficher « 0 » sans le dire est exact mais trompeur.
+    """
+    vides = {'generes': None, 'tps_moyen': None, 'entree': None, 'tps_prefill': None}
+    if not modele:
+        return vides, None
+    try:
+        secondes = _prom_sum(text, 'llamacpp:tokens_predicted_seconds_total') or 0.0
+        entree = _prom_sum(text, 'llamacpp:prompt_tokens_total')
+        prefill = _prom_sum(text, 'llamacpp:prompt_tokens_seconds')
+        compteurs = {
+            'generes': int(generes) if generes else 0,
+            'tps_moyen': round(generes / secondes, 1) if secondes > 0 else None,
+            'entree': int(entree) if entree is not None else None,
+            'tps_prefill': round(prefill, 1) if prefill else None,
+        }
+    except Exception:
+        return vides, None
+    # Le cumul qui SURVIT à une relance : c'est ce que veut dire « garder les
+    # tokens générés ». Un échec de lecture ne doit pas priver d'affichage : on
+    # rend le compteur du lancement en cours, sans cumul.
+    try:
+        from stats import cumuler_tokens_generes
+        cumul = cumuler_tokens_generes(modele, compteurs['generes'])
+    except Exception:
+        cumul = None
+    return compteurs, cumul
 
 # HF tag carried by models actually tested on DGX Spark / GB10.
 GB10_TAG = 'gb10'

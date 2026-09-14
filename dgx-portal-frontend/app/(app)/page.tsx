@@ -58,6 +58,14 @@ type ModelHealth = {
   max_seqs: number | null;
   ctx_in: number | null;
   ctx_out: number | null;
+  // Compteurs cumulés du moteur. Absents quand le moteur est arrêté ou que ses
+  // métriques sont injoignables : l'affichage retombe alors sur « — », jamais
+  // sur un zéro qui ferait croire à une remise à zéro du compteur.
+  tokens_generated?: number | null;
+  tokens_generated_total?: number | null;
+  tps_moyen?: number | null;
+  tokens_prompt?: number | null;
+  tps_prefill?: number | null;
 } | null;
 
 interface ModelRequest extends Record<string, unknown> {
@@ -87,6 +95,18 @@ type SidecarMetric = {
 function fmtCtx(n: number | null): string {
   if (n == null) return "—";
   return n >= 1024 ? `${Math.round(n / 1024)}k` : `${n}`;
+}
+
+// Depuis quand cet utilisateur n'a rien demandé au modèle ? Le panneau admin
+// répond « qui utilise le modèle en temps réel » : un nom sans âge ne le dit pas
+// (« live » s'allume pour tout le monde dès que le moteur travaille), alors que
+// « il y a 4 s » contre « il y a 41 min » se lit d'un coup d'œil.
+function ageDepuis(secondes: number | null | undefined, t: (s: string) => string): string {
+  if (secondes == null) return t("activité inconnue");
+  if (secondes < 5) return t("à l'instant");
+  if (secondes < 60) return t("il y a {n} s").replace("{n}", String(Math.round(secondes)));
+  if (secondes < 3600) return t("il y a {n} min").replace("{n}", String(Math.round(secondes / 60)));
+  return t("il y a {n} h").replace("{n}", String(Math.round(secondes / 3600)));
 }
 
 // ms → readable duration: "850 ms", "4.2 s", "3 min 12 s".
@@ -168,7 +188,7 @@ type HomeData = {
   sysmetrics: SysMetrics;
   sidecar_metrics: Partial<Record<"ocr" | "video" | "voice", SidecarMetric>>;
   modelhealth: ModelHealth;
-  active_users: { username: string; requests: number; tokens: number; live?: boolean }[] | null;
+  active_users: { username: string; requests: number; tokens: number; live?: boolean; derniere_s?: number | null }[] | null;
   usage: { has_data: boolean; total: number; active_keys: number; points: { hour: number; tokens: number }[] } | null;
   usage_by_model: { model: string; tokens: number }[];
   my_requests: ModelRequest[];
@@ -514,8 +534,19 @@ export default function HomePage() {
                           </HStack>
                         </VStack>
                         <VStack gap={0}>
-                          <Text type="supporting" color="secondary">{t("Débit")}</Text>
+                          <Text type="supporting" color="secondary">{t("Débit décodé")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{data.modelhealth.tps ?? "—"} tok/s</Text>
+                          {/* Débit INSTANTANÉ, donc il tombe à 0 dès que le moteur
+                              ingère un long contexte d'entrée : 4 requêtes en cours
+                              et un seul pas de décodage en 6 s, mesuré le 14/09.
+                              La moyenne depuis le lancement donne le repère qui
+                              manque, et elle est exacte (rapport de deux compteurs
+                              du moteur, pas un échantillonnage du portail). */}
+                          {data.modelhealth.tps_moyen != null && (
+                            <Text type="supporting" color="secondary" hasTabularNumbers>
+                              {t("moyenne {n} tok/s").replace("{n}", String(data.modelhealth.tps_moyen))}
+                            </Text>
+                          )}
                         </VStack>
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Sessions")}</Text>
@@ -538,6 +569,34 @@ export default function HomePage() {
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Contexte sortie")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_out)}</Text>
+                        </VStack>
+                        {/* Compteurs cumulés. Le total est conservé d'un lancement à
+                            l'autre du moteur : sans cela il retombait à zéro à chaque
+                            relance, effaçant l'historique de la machine. */}
+                        <VStack gap={0}>
+                          <Text type="supporting" color="secondary">{t("Tokens générés")}</Text>
+                          <Text weight="semibold" hasTabularNumbers>
+                            {(data.modelhealth.tokens_generated_total
+                              ?? data.modelhealth.tokens_generated)?.toLocaleString(numLocale) ?? "—"}
+                          </Text>
+                          {data.modelhealth.tokens_generated_total != null
+                            && data.modelhealth.tokens_generated != null && (
+                            <Text type="supporting" color="secondary" hasTabularNumbers>
+                              {t("dont {n} depuis ce lancement").replace(
+                                "{n}", data.modelhealth.tokens_generated.toLocaleString(numLocale))}
+                            </Text>
+                          )}
+                        </VStack>
+                        <VStack gap={0}>
+                          <Text type="supporting" color="secondary">{t("Entrée traitée")}</Text>
+                          <Text weight="semibold" hasTabularNumbers>
+                            {data.modelhealth.tokens_prompt?.toLocaleString(numLocale) ?? "—"}
+                          </Text>
+                          {data.modelhealth.tps_prefill != null && (
+                            <Text type="supporting" color="secondary" hasTabularNumbers>
+                              {t("prefill {n} tok/s").replace("{n}", String(data.modelhealth.tps_prefill))}
+                            </Text>
+                          )}
                         </VStack>
                         {/* Accès rapide retiré : déjà couvert par les
                             boutons en haut de la page. */}
@@ -570,7 +629,20 @@ export default function HomePage() {
 
                     {who?.is_admin && data.active_users && (
                       <VStack gap={2}>
-                        <Text type="supporting" color="secondary">{t("Qui utilise le modèle · 2 dernières min · visible admin uniquement")}</Text>
+                        <HStack gap={2} wrap="wrap">
+                          <Text type="supporting" color="secondary">{t("Qui utilise le modèle · 2 dernières min · visible admin uniquement")}</Text>
+                          {/* Débit GLOBAL du moteur, jamais par personne : l'admin voit
+                              QUI travaille ici, et la vitesse à laquelle la machine
+                              sert tout le monde à la fois. */}
+                          {data.modelhealth && (
+                            <Text type="supporting" color="secondary" hasTabularNumbers>
+                              {t("débit global {n} tok/s").replace("{n}", String(data.modelhealth.tps ?? "—"))}
+                              {data.modelhealth.tps_moyen != null
+                                ? " · " + t("moyenne {n} tok/s").replace("{n}", String(data.modelhealth.tps_moyen))
+                                : ""}
+                            </Text>
+                          )}
+                        </HStack>
                         {data.active_users.length === 0 ? (
                           <Text type="supporting" color="secondary">{t("Personne n'utilise le modèle en ce moment.")}</Text>
                         ) : (
@@ -579,9 +651,18 @@ export default function HomePage() {
                               <Badge
                                 key={u.username}
                                 variant={u.live ? "success" : "neutral"}
-                                label={u.live
-                                  ? `${u.username} · ${t("en direct")}`
-                                  : `${u.username} · ${u.requests} req · ${Math.round(u.tokens).toLocaleString(numLocale)} tok`}
+                                // L'âge est ce qui distingue « il génère là » d'« il a
+                                // fini il y a une heure » : le drapeau `live` s'allume
+                                // dès que le moteur travaille, donc pour tout le monde
+                                // à la fois (mesuré : trois comptes marqués « en
+                                // direct » avec 11 h, 32 min et 4 min d'écart).
+                                label={[
+                                  u.username,
+                                  ageDepuis(u.derniere_s, t),
+                                  u.live ? t("en direct") : null,
+                                  `${u.requests} ${t("req")}`,
+                                  `${Math.round(u.tokens).toLocaleString(numLocale)} ${t("tok")}`,
+                                ].filter(Boolean).join(" · ")}
                               />
                             ))}
                           </HStack>

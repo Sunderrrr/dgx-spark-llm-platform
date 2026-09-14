@@ -47,7 +47,7 @@ from support import (GUARDED_TOOLS, SUPPORT_SYSTEM, TOOL_LABELS, _clean_reply,
                      _sse_tool_event, _support_context, _support_tool_target,
                      _support_tools, _user_extra_tools, action_en_attente,
                      cloturer_action, creer_action_en_attente)
-from vllm_health import effective_ctx, get_running_models
+from vllm_health import ctx_split, effective_ctx, get_running_models
 from websearch_tools import (_phase_outils, _recherche_pertinente,
                              _texte_des_trouvailles, websearch_active)
 from image_tools import _image_demandee, image_disponible
@@ -62,6 +62,10 @@ bp = Blueprint('chat', __name__)
 # support tools). We flag it with a sentinel that cannot collide with a real
 # HTTP status code.
 TRANSPORT_ERR = -1
+
+# Silence maximal toléré côté assistant Support pendant l'ouverture d'un tour.
+# Le proxy du frontend coupe après 60 s sans AUCUN octet (IDLE_TIMEOUT_MS).
+_SUPPORT_PING_S = 8
 
 def _sse_text(text):
     """A single SSE frame carrying a text fragment, as-is."""
@@ -182,7 +186,31 @@ def support_chat():
         its tag (truncated reasoning).
         """
         try:
-            r = _chat(with_tools, stream=True)
+            # Le POST bloque jusqu'au PREMIER OCTET d'en-tête, c'est-à-dire
+            # jusqu'à la fin du préchargement du contexte : plusieurs dizaines de
+            # secondes sur un long fil. Le `: ping` ci-dessous, lui, n'est évalué
+            # qu'À L'ARRIVÉE d'une ligne — donc jamais pendant ce silence, que le
+            # proxy du frontend coupe au bout de 60 s sans octet. On ouvre donc la
+            # requête dans un fil et on bat la mesure en attendant : c'est
+            # exactement le remède déjà appliqué au playground, qui manquait ici.
+            boite = {}
+
+            def _ouvre():
+                try:
+                    boite['r'] = _chat(with_tools, stream=True)
+                except Exception as e:              # noqa: BLE001
+                    boite['e'] = e
+
+            fil = threading.Thread(target=_ouvre, daemon=True)
+            fil.start()
+            while fil.is_alive():
+                fil.join(_SUPPORT_PING_S)
+                if fil.is_alive():
+                    yield ": ping\n\n"
+            if 'e' in boite:
+                # Connectivity failure, not a model error (see TRANSPORT_ERR).
+                raise boite['e']
+            r = boite['r']
         except Exception:
             # Connectivity failure, not a model error (see TRANSPORT_ERR).
             return '', [], TRANSPORT_ERR
@@ -542,9 +570,15 @@ def support_feedback():
     qu'à l'intuition. Borné en taille, jamais de secret attendu ici.
     """
     data = request.get_json(silent=True) or {}
+    # Un vote DOIT être exprimé. Avant, `int(data.get('vote') or 0) > 0` faisait
+    # d'un corps vide ou d'un `vote: 0` un avis NÉGATIF enregistré en 200 : la
+    # route inventait « pas utile » à partir d'une absence. Le 400 annoncé par le
+    # commentaire ne se déclenchait que sur une valeur non convertible.
     try:
-        vote = 1 if int(data.get('vote') or 0) > 0 else -1
-    except Exception:
+        vote = int(data.get('vote'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Vote invalide.'}), 400
+    if vote not in (1, -1):
         return jsonify({'error': 'Vote invalide.'}), 400
     db = get_db()
     db.execute("INSERT INTO support_feedback (username, vote, comment, question, answer, model, created_at) "
@@ -575,6 +609,36 @@ def _playground_model_limits():
     if running and model_limits.get(running[0]):
         model_limits[AUTO_MODEL_NAME] = model_limits[running[0]]
     return model_limits
+
+
+def _playground_input_limit(model):
+    """Ce qu'un PROMPT peut réellement peser, pour ce modèle.
+
+    `effective_ctx` décrit la FENÊTRE d'une requête — prompt ET génération. La
+    limite d'ENTRÉE est plus basse dès que le moteur réserve une marge de sortie :
+    mesuré sur le modèle servi, fenêtre 262 144 mais entrée annoncée 196 608
+    (`ctx_split`, la même source que LiteLLM). Borner l'historique sur la fenêtre
+    laissait donc passer des prompts d'environ 250 k tokens : la requête partait
+    en 400 « context window exceeded » au lieu d'être raccourcie, alors que le
+    curseur affichait encore de la marge. `None` = on ne sait pas → l'appelant
+    retombe sur la fenêtre.
+    """
+    row = get_db().execute(
+        "SELECT vllm_args, engine FROM model_configs WHERE name=?", (model,)).fetchone()
+    if row is None:
+        running = get_running_models()
+        if model != AUTO_MODEL_NAME or not running:
+            return None
+        row = get_db().execute(
+            "SELECT vllm_args, engine FROM model_configs WHERE name=?",
+            (running[0],)).fetchone()
+        if row is None:
+            return None
+    try:
+        entree = ctx_split(row['vllm_args'], row['engine'] or 'vllm')[0]
+    except Exception:                                # noqa: BLE001
+        return None
+    return entree or None
 
 
 # ── JSON API for the Next.js/Astryx frontend driver (same origin, via Traefik) ───
@@ -843,8 +907,12 @@ def playground_chat():
     # xhigh (défaut), medium et low, et rejette 'high' en 500 Jinja. On borne à
     # cette liste, on ne transmet que si renseigné, et le fil de lecture retente
     # une fois SANS effort si le template refuse (voir _lecteur).
+    # `high` a été RETIRÉ de la liste : le modèle servi le refuse (500 mesuré),
+    # donc l'accepter ne pouvait produire qu'un aller-retour perdu payé deux fois
+    # en préchargement, l'effort demandé étant de toute façon ignoré. L'interface
+    # ne l'a jamais proposé (Par défaut / Basse / Moyenne / Maximale).
     effort_valide = str(data.get('reasoning_effort') or '').strip().lower()
-    if effort_valide not in ('low', 'medium', 'high', 'xhigh'):
+    if effort_valide not in ('low', 'medium', 'xhigh'):
         effort_valide = None
 
     # The playground consumes the user's BUDGET → we use THEIR key
@@ -860,7 +928,9 @@ def playground_chat():
     if _quota_reset is not None:
         return Response(_sse_notice('quota_exceeded', reset=_quota_reset),
                         mimetype='text/event-stream')
-    history = _history_for_model(history, system, _playground_model_limits().get(model))
+    history = _history_for_model(history, system,
+                                 _playground_input_limit(model)
+                                 or _playground_model_limits().get(model))
     # Mémoire (opt-in, par utilisateur) : ce que l'assistant sait déjà de la
     # personne est injecté au SYSTEM, sinon le modèle répond « je ne connais
     # rien de vous » alors que le graphe existe. Borné (voir _mem_inject_context)
@@ -916,6 +986,11 @@ def playground_chat():
         # prefixe possible, rien n'est jamais reutilise d'un tour a l'autre).
         # Vu en prod le 22/08 : conversation de 68 kio, 502 a 15 s pile.
         yield ": ouverture\n\n"
+        # Le chrono du TTFT part ICI, avant la phase outils : c'est le délai
+        # réellement subi par la personne qui a posé la question. Il était pris
+        # après la recherche (juste avant le POST final), donc une demande qui
+        # passait 40 s à chercher et à lire annonçait « TTFT 1,2 s ».
+        _t0 = time.monotonic()
         if _web_ok or _img_ok:
             yield ": recherche\n\n"
             _journal, _trouvailles = [], []
@@ -1001,7 +1076,6 @@ def playground_chat():
                         pass
 
             _fil = threading.Thread(target=_lecteur, daemon=True)
-            _t0 = time.monotonic()
             _ttft_vu = False
             _reponse = []      # texte complet du modèle, pour l'extraction mémoire
             _fil.start()
@@ -1077,6 +1151,12 @@ def playground_chat():
                                    "apres %s octets — reponse coupee", _who, _octets)
                 yield ("data: " + json.dumps({'choices': [{'delta': {},
                        'finish_reason': 'length'}]}) + "\n\n")
+                # `[DONE]` MANQUAIT ici, alors que les trois autres chemins de fin
+                # l'envoient. Un client qui attend la sentinelle (le cas de tout
+                # client compatible OpenAI) restait pendu sur un flux pourtant
+                # terminé. Le frontend du portail, lui, s'arrête à la fermeture de
+                # la connexion — c'est pour ça que le défaut n'avait jamais été vu.
+                yield "data: [DONE]\n\n"
             elif _finish != 'stop':
                 _log.warning("playground %s : finish_reason=%s, %s tokens produits",
                                    _who, _finish, _out)

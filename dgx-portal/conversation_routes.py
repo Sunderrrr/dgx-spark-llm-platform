@@ -31,6 +31,22 @@ bp = Blueprint('conversations', __name__)
 MSG_MAX_CHARS  = 400_000
 CONV_MAX_CHARS = 2_000_000
 CONVERSATIONS_MAX = 30           # per user — beyond that, we purge the oldest
+# Ce que `GET /api/conversations` accepte de transporter. Le rognage à la
+# sauvegarde (CONV_MAX_CHARS, 2 M par conversation) protège la BASE, pas le
+# réseau : 30 conversations pleines font ~60 Mo de JSON, chargés à CHAQUE
+# ouverture du playground. On sert donc les métadonnées de toutes les
+# conversations, les messages des plus récentes tant qu'on tient dans le budget,
+# et `messages_omis` pour les autres — que `GET /api/conversations/<id>` rend à
+# la demande quand on en ouvre une.
+LISTE_MAX_OCTETS = 8_000_000
+
+
+def _messages_json(row):
+    try:
+        messages = json.loads(row['messages'])
+    except Exception:
+        return None
+    return messages if isinstance(messages, list) else None
 
 
 @bp.route('/api/conversations')
@@ -39,15 +55,42 @@ def api_conversations():
     rows = get_db().execute(
         "SELECT client_id, title, model, messages, updated_at FROM conversations "
         "WHERE username=? ORDER BY updated_at DESC", (session['username'],))
-    out = []
+    out, octets = [], 0
     for r in rows:
-        try:
-            messages = json.loads(r['messages'])
-        except Exception:
+        messages = _messages_json(r)
+        if messages is None:
             continue
-        out.append({'id': r['client_id'], 'title': r['title'], 'model': r['model'],
-                    'ts': r['updated_at'], 'messages': messages})
+        item = {'id': r['client_id'], 'title': r['title'], 'model': r['model'],
+                'ts': r['updated_at']}
+        # La PREMIÈRE conversation est toujours servie en entier, même si elle
+        # dépasse le budget à elle seule : un écran qui s'ouvre sur un fil vide
+        # serait pire que la latence qu'on cherche à éviter.
+        if not out or octets + len(r['messages']) <= LISTE_MAX_OCTETS:
+            item['messages'] = messages
+            octets += len(r['messages'])
+        else:
+            item['messages'] = []
+            item['messages_omis'] = True
+        out.append(item)
     return jsonify({'conversations': out})
+
+
+@bp.route('/api/conversations/<client_id>')
+@login_required
+def api_conversation(client_id):
+    """Une conversation ENTIÈRE, à la demande (voir LISTE_MAX_OCTETS)."""
+    row = get_db().execute(
+        "SELECT client_id, title, model, messages, updated_at FROM conversations "
+        "WHERE username=? AND client_id=?",
+        (session['username'], client_id)).fetchone()
+    if row is None:
+        return jsonify({'ok': False, 'error': 'conversation introuvable'}), 404
+    messages = _messages_json(row)
+    if messages is None:
+        return jsonify({'ok': False, 'error': 'conversation illisible'}), 500
+    return jsonify({'ok': True, 'conversation': {
+        'id': row['client_id'], 'title': row['title'], 'model': row['model'],
+        'ts': row['updated_at'], 'messages': messages}})
 
 
 @bp.route('/conversations', methods=['POST'])
@@ -86,7 +129,16 @@ def conversations_route():
                      **({'isError': True} if m.get('isError') else {}),
                      **({'truncated': True} if m.get('truncated') else {})}
                     for m in messages if m.get('role') in ('user', 'assistant')][-60:]
-        while len(json.dumps(messages)) > CONV_MAX_CHARS and len(messages) > 1:
+        # Rognage INCRÉMENTAL : re-sérialiser 2 Mo à chaque message retiré coûtait
+        # jusqu'à 60 sérialisations par sauvegarde, dans le fil de gunicorn. On
+        # mesure une fois, puis on décrémente de la taille du message retiré.
+        total = len(json.dumps(messages, ensure_ascii=False))
+        while total > CONV_MAX_CHARS and len(messages) > 1:
+            retire = messages.pop(0)
+            total -= len(json.dumps(retire, ensure_ascii=False)) + 2
+        # Filet : si l'approximation s'est trompée, on termine par la mesure
+        # exacte. Elle ne s'exécute qu'en cas d'écart, jamais dans le cas courant.
+        while len(json.dumps(messages, ensure_ascii=False)) > CONV_MAX_CHARS and len(messages) > 1:
             messages.pop(0)
         db.execute(
             "INSERT INTO conversations (username, client_id, title, model, messages, updated_at) "
@@ -161,6 +213,14 @@ def share_view(token):
     for m in messages:
         role = m.get('role')
         if role not in ('user', 'assistant'):
+            continue
+        # Les messages CACHÉS ne sortent pas du partage : ce sont les réponses
+        # aux cartes de questions et les consignes internes de reprise
+        # (```edit, « continue », protocole d'édition). L'export Markdown du
+        # playground les saute déjà ; la page de partage, elle, les montrait —
+        # le destinataire d'un lien voyait donc des prompts que l'auteur ne voit
+        # même pas dans son propre fil.
+        if m.get('hidden'):
             continue
         content = html.escape(m.get('content', '')).replace('\n', '<br>')
         who = "Vous" if role == 'user' else "Assistant"

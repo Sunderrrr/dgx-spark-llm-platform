@@ -9,8 +9,10 @@ websearch.py ; ce module-ci est la couche qui la presente au modele sous forme
 d'outils et qui orchestre le tour d'appel.
 """
 import json
+import logging
 import os
 import re
+import threading
 import time
 
 import requests
@@ -42,6 +44,23 @@ DELAI_MAX_OUTILS = 60
 OUTILS_MSG_MAX = 1500      # par message
 OUTILS_TOTAL_MAX = 8000    # au total
 OUTILS_DERNIERS = 6        # nombre de messages relus
+# Ce qui s'ajoute ensuite à `court` (les résultats d'outils) n'était borné par
+# RIEN : `OUTILS_TOTAL_MAX` ne vaut que pour la conversation de départ, et chaque
+# tour empilait jusqu'à 4 résultats de 20 000 caractères, repostés EN ENTIER au
+# tour suivant. Le prompt du 2e tour atteignait ~88 000 caractères, celui du 3e
+# davantage — un préchargement de plusieurs dizaines de secondes, sans un octet
+# envoyé au client pendant ce temps. On borne donc par résultat ET au total.
+OUTILS_RESULTAT_PROMPT = 6000   # par résultat d'outil (le digest suffit pour décider)
+OUTILS_PROMPT_MAX = 40000       # au total dans `court`
+# Un outil de recherche est SYNCHRONE et peut bloquer très longtemps :
+# `lire_pages` attend `websearch.TIMEOUT_LECTURE` par page (90 s), alors que le
+# proxy du frontend coupe au bout de 60 s SANS AUCUN OCTET (IDLE_TIMEOUT_MS). Le
+# résultat était donc perdu et l'utilisateur voyait « Erreur réseau » alors que
+# la lecture avait abouti. On exécute l'outil dans un fil et on émet un
+# commentaire SSE en attendant — même remède que la génération d'image.
+BATTEMENT_OUTIL_S = 8
+
+_log = logging.getLogger('app')
 
 
 def _contexte_outils(msgs):
@@ -194,6 +213,62 @@ def _exec_web_tool(nom, args, journal):
     return "Outil inconnu."
 
 
+def _borner_prompt_outils(court):
+    """Ramène `court` sous OUTILS_PROMPT_MAX en retirant les PLUS ANCIENS outils.
+
+    On retire un tour COMPLET — le message assistant qui porte les `tool_calls`
+    ET les messages `tool` qui lui répondent : un appel sans réponse fait échouer
+    le gabarit de chat de certains modèles. La conversation d'origine (`court`
+    avant tout ajout) n'est jamais touchée : elle est déjà bornée.
+    """
+    def _taille(msgs):
+        return sum(len(str(m.get('content') or '')) for m in msgs)
+
+    total = _taille(court)
+    while total > OUTILS_PROMPT_MAX:
+        idx = next((i for i, m in enumerate(court)
+                    if m.get('role') == 'assistant' and m.get('tool_calls')), None)
+        if idx is None:
+            break
+        fin = idx + 1
+        while fin < len(court) and court[fin].get('role') == 'tool':
+            fin += 1
+        total -= _taille(court[idx:fin])
+        del court[idx:fin]
+
+
+def _exec_web_tool_avec_battements(nom, args, journal):
+    """GÉNÉRATEUR : exécute un outil web en battant la mesure pendant l'attente.
+
+    Rend (valeur de retour du générateur) le texte destiné au modèle, exactement
+    comme `_exec_web_tool`. Entre-temps il émet `": battement"` toutes les
+    BATTEMENT_OUTIL_S secondes : sans ça une lecture de pages lente ne produit
+    aucun octet pendant tout son déroulement et le proxy du frontend abandonne
+    (60 s d'inactivité), alors que le travail, lui, aboutit.
+    """
+    boite = {}
+
+    def _run():
+        try:
+            boite['r'] = _exec_web_tool(nom, args, journal)
+        except Exception as e:                      # noqa: BLE001
+            # Une exception ici est une VRAIE panne (crawl4ai injoignable,
+            # réponse illisible) : on la remonte à l'appelant, qui la dit au
+            # client et au modèle. L'avaler, c'était laisser l'utilisateur
+            # devant une réponse sortie de la mémoire du modèle, sans un mot.
+            boite['e'] = e
+
+    fil = threading.Thread(target=_run, daemon=True)
+    fil.start()
+    while fil.is_alive():
+        fil.join(BATTEMENT_OUTIL_S)
+        if fil.is_alive():
+            yield ": battement\n\n"
+    if 'e' in boite:
+        raise boite['e']
+    return boite.get('r', '')
+
+
 def _texte_des_trouvailles(trouvailles):
     """Ce que la recherche a ramené, en texte simple.
 
@@ -238,6 +313,7 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
         if time.monotonic() > _fin:
             journal.append({'etape': 'delai', 'outil': 'recherche',
                             'erreur': "Recherche interrompue : trop longue."})
+            yield "data: " + json.dumps({'cronos_web': journal[-1]}) + "\n\n"
             return
         try:
             r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
@@ -247,10 +323,29 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
                                     'max_tokens': 1024,
                                     'chat_template_kwargs': {'enable_thinking': False}},
                               timeout=120)
-            if not r.ok:
-                return
+        except Exception as e:                      # noqa: BLE001
+            # Panne de transport (LiteLLM injoignable, délai dépassé) : on le DIT.
+            # Le silence total était le pire des cas — l'utilisateur avait demandé
+            # une recherche et recevait une réponse d'apparence normale.
+            _log.warning("outils %s : appel de decision injoignable (%s)", username, e)
+            yield "data: " + json.dumps({'cronos_web': {
+                'etape': 'recherche_finie', 'outil': 'litellm', 'nombre': 0,
+                'erreur': "assistant injoignable"}}) + "\n\n"
+            return
+        if not r.ok:
+            _log.warning("outils %s : decision d'outil refusee (HTTP %s)",
+                         username, r.status_code)
+            yield "data: " + json.dumps({'cronos_web': {
+                'etape': 'recherche_finie', 'outil': 'litellm', 'nombre': 0,
+                'erreur': f"assistant en erreur ({r.status_code})"}}) + "\n\n"
+            return
+        try:
             choix = (r.json().get('choices') or [{}])[0]
-        except Exception:
+        except Exception:                           # noqa: BLE001
+            _log.warning("outils %s : reponse de decision illisible", username)
+            yield "data: " + json.dumps({'cronos_web': {
+                'etape': 'recherche_finie', 'outil': 'litellm', 'nombre': 0,
+                'erreur': "réponse illisible"}}) + "\n\n"
             return
         message = choix.get('message') or {}
         appels = message.get('tool_calls') or []
@@ -289,9 +384,23 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
                 _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
             else:
                 yield "data: " + json.dumps({'cronos_web': _annonce(fn.get('name', ''), args)}) + "\n\n"
-                resultat = _exec_web_tool(fn.get('name', ''), args, journal)
+                # GÉNÉRATEUR : battements SSE pendant l'exécution (une lecture de
+                # pages peut prendre 90 s), texte final en valeur de retour.
+                try:
+                    resultat = yield from _exec_web_tool_avec_battements(
+                        fn.get('name', ''), args, journal)
+                except Exception as e:              # noqa: BLE001
+                    _log.warning("outils %s : %s a leve (%s)", username,
+                                 fn.get('name', ''), e)
+                    journal.append({'etape': 'recherche_finie', 'outil': 'recherche',
+                                    'nombre': 0, 'erreur': "outil en panne"})
+                    yield "data: " + json.dumps({'cronos_web': journal[-1]}) + "\n\n"
+                    resultat = ("La recherche a échoué (outil en panne). Dis-le "
+                                "tel quel à l'utilisateur.")
             yield "data: " + json.dumps({'cronos_web': journal[-1] if journal else {}}) + "\n\n"
 
             court.append({'role': 'tool', 'tool_call_id': appel.get('id', ''),
-                          'name': fn.get('name', ''), 'content': resultat[:20000]})
+                          'name': fn.get('name', ''),
+                          'content': resultat[:OUTILS_RESULTAT_PROMPT]})
             trouvailles.append((fn.get('name', ''), resultat[:20000]))
+            _borner_prompt_outils(court)

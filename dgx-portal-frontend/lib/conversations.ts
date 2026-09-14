@@ -1,5 +1,5 @@
 import type { Conversation } from "./types";
-import { getJSON, postForm } from "./api";
+import { authFetch, getJSON, postForm } from "./api";
 
 // The history now lives server-side (`conversations` table): it follows
 // the user from one machine or browser to another. localStorage now
@@ -21,6 +21,8 @@ type ApiConversation = {
     isError?: boolean;
     truncated?: boolean;
   }[];
+  /** Vrai quand le serveur a laissé les messages de côté (budget de la liste). */
+  messages_omis?: boolean;
 };
 
 export async function fetchConversations(): Promise<Conversation[]> {
@@ -35,23 +37,66 @@ export async function fetchConversations(): Promise<Conversation[]> {
       ts: Date.parse(c.ts) || Date.now(),
       model: c.model,
       messages: c.messages,
+      messagesOmis: c.messages_omis === true,
     }));
   } catch {
     return [];
   }
 }
 
-export async function persistConversation(csrf: string, conv: Conversation): Promise<void> {
+/** Une conversation ENTIÈRE, à la demande.
+ *
+ * `GET /api/conversations` borne ce qu'il transporte (30 conversations pleines
+ * faisaient ~60 Mo, chargés à chaque ouverture du playground) : au-delà, il ne
+ * renvoie que les métadonnées avec `messages_omis`. C'est ce chemin qui rend le
+ * contenu quand on ouvre vraiment la conversation.
+ */
+export async function fetchConversation(id: string): Promise<Conversation | null> {
   try {
-    await postForm("/conversations", csrf, {
-      action: "save",
-      id: String(conv.id),
-      title: conv.title,
-      model: conv.model || "",
-      messages: JSON.stringify(conv.messages),
-    });
+    const data = await getJSON<{ ok: boolean; conversation: ApiConversation }>(
+      `/api/conversations/${encodeURIComponent(id)}`);
+    const c = data?.conversation;
+    if (!c) return null;
+    return {
+      id: c.id,
+      title: c.title,
+      ts: Date.parse(c.ts) || Date.now(),
+      model: c.model,
+      messages: c.messages,
+    };
   } catch {
-    // A save failure must never interrupt the conversation.
+    return null;
+  }
+}
+
+/** Enregistre la conversation ; rend `false` si l'enregistrement a échoué.
+ *
+ * L'échec ne doit pas interrompre la conversation — mais il ne doit pas non plus
+ * être INVISIBLE : `postForm` ne lève pas sur un 413, et une sauvegarde refusée
+ * (le cas de toute conversation dépassant la limite de champ de formulaire de
+ * Werkzeug, corrigé côté serveur) faisait disparaître l'historique au
+ * rechargement sans le moindre indice. L'appelant prévient l'utilisateur.
+ */
+export async function persistConversation(csrf: string, conv: Conversation): Promise<boolean> {
+  try {
+    // `postForm` ne rend ni le statut ni le corps : un 413 (champ de formulaire
+    // trop gros) ou un `{ok:false}` passaient donc totalement inaperçus.
+    const res = await authFetch("/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
+      body: new URLSearchParams({
+        action: "save",
+        id: String(conv.id),
+        title: conv.title,
+        model: conv.model || "",
+        messages: JSON.stringify(conv.messages),
+      }).toString(),
+    });
+    if (!res.ok) return false;
+    const corps = (await res.json().catch(() => ({ ok: true }))) as { ok?: boolean };
+    return corps?.ok !== false;
+  } catch {
+    return false;
   }
 }
 

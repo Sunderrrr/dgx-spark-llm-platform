@@ -53,6 +53,17 @@ def api_transcribe():
                 detail = r.json().get('detail', '')
             except Exception:
                 pass
+            # Le CODE DU SIDECAR est repris, il n'est plus écrasé en 502. Un
+            # enregistrement trop court, un format illisible ou un fichier trop
+            # gros sont des ERREURS D'ENTRÉE (400/413) : les présenter comme une
+            # panne de service faisait croire à une indisponibilité, et un client
+            # qui réessaie automatiquement rejouait une requête qui ne pouvait
+            # pas marcher. 503 (modèle non chargé) et 5xx restent des pannes.
+            statut = r.status_code
+            if 400 <= statut < 500:
+                return jsonify({'error': detail or "Enregistrement refusé."}), statut
+            if statut == 503:
+                return jsonify({'error': detail or "Modèle de transcription non chargé."}), 503
             return jsonify({'error': detail or "Échec de la transcription."}), 502
         return jsonify({'text': r.json().get('text', '')})
     except requests.exceptions.Timeout:

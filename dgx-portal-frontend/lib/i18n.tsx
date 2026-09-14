@@ -670,18 +670,27 @@ const EN: Record<string, string> = {
   "Ma clé API renvoie une erreur 401, pourquoi ?": "My API key returns a 401 error, why?",
 
   // — Search for a model —
-  "Explore le catalogue Hugging Face et demande le lancement d'un modèle sur le DGX.":
-    "Browse the Hugging Face catalog and request that a model be launched on the DGX.",
+  "Recherche en direct dans tout Hugging Face. Demande ensuite le lancement du modèle sur le DGX.":
+    "Live search across all of Hugging Face. Then request the model be launched on the DGX.",
   "Recherche": "Search",
-  "Nom de modèle, ex: Qwen, Llama, Mistral...": "Model name, e.g. Qwen, Llama, Mistral...",
+  "Nom de modèle, ex: Qwen, Ornith, Mistral...": "Model name, e.g. Qwen, Ornith, Mistral...",
   "Tâche": "Task",
+  "Toutes les tâches": "All tasks",
   "Chercher": "Search",
   "Charger plus": "Load more",
-  "Tout Hugging Face": "All of Hugging Face",
-  "Seuls les modèles testés sur DGX Spark / GB10 sont affichés. Décoche pour élargir à tout Hugging Face.":
-    "Only models tested on DGX Spark / GB10 are shown. Uncheck to widen to all of Hugging Face.",
-  "Recherche élargie à tout Hugging Face — ces modèles ne sont pas garantis de tourner sur le GB10.":
-    "Search widened to all of Hugging Face — these models are not guaranteed to run on the GB10.",
+  "Seulement testés sur DGX Spark (GB10)": "Only tested on DGX Spark (GB10)",
+  "Filtre actif : seuls les modèles portant le tag GB10 — testés sur DGX Spark — sont affichés.":
+    "Filter on: only models tagged GB10 — tested on DGX Spark — are shown.",
+  "Toutes les tâches, tout le catalogue. Le tag GB10 est signalé par un badge quand le modèle le porte.":
+    "All tasks, the whole catalog. A GB10 badge marks the models that carry the tag.",
+  "Sans jeton Hugging Face, les dépôts à accès restreint n'apparaissent pas dans les résultats.":
+    "Without a Hugging Face token, gated repositories do not show up in the results.",
+  "La recherche porte sur le nom du dépôt, pas sur sa description : vérifie l'orthographe.":
+    "The search matches the repository name, not its description: check the spelling.",
+  "Chercher sur Hugging Face": "Search on Hugging Face",
+  "modèles affichés": "models shown",
+  "résultats pour": "results for",
+  "les plus téléchargés de Hugging Face": "the most downloaded on Hugging Face",
   "Tape un nom de modèle pour explorer Hugging Face.": "Type a model name to explore Hugging Face.",
   "Demander": "Request",
 

@@ -413,17 +413,36 @@ at `GET /admin/support/feedback`, admin-only).
 
 ### Find a model
 
-Live search over the Hugging Face Hub (no local cache), filterable by task
-including text/image/video generation, defaulting to models tagged as tested on
-GB10; paginated rather than capped at the first page.
+Live search over the **whole** Hugging Face Hub (no local cache): every query is a
+fresh call to `huggingface.co/api/models`, so the catalogue can never be stale.
+With no query typed the page lists the most-downloaded models, which is the honest
+way to "browse the catalogue".
+
+**No filter is applied unless you ask for one.** Both filters used to be on by
+default and quietly hid models that exist: a task filter (`text-generation`) and
+the `gb10` tag, which only a handful of models carry. A model tagged solely
+`image-text-to-text` — `ornith-ai/Ornith-1.5-9B`, reported in real use — was
+therefore unfindable, and the page looked broken. The GB10 tag is now an opt-in
+switch, and a `GB10` badge marks the models that carry it. Pagination uses Hugging
+Face's own `Link: rel="next"` header, so "Load more" only appears when there
+really is a next page.
 
 Each result says which engine would serve it (GGUF → llama.cpp, safetensors →
 vLLM) and flags a **gated** repository: those need a Hugging Face token and fail
-*after* you press Launch, so it is worth knowing before. When the GB10 filter
-returns nothing, the page checks Hugging Face without it and says so — a model
+*after* you press Launch, so it is worth knowing before. A token configured in
+`./secrets/hf_token` (read-only, 0600, owned by the portal user) is sent as a
+bearer header: gated and private repositories then show up, and the anonymous rate
+limit (500 requests / 5 min per IP) stops being a concern for a search box that
+queries on every keystroke. The token's value never leaves the server — only
+whether one is configured, which the page says when none is.
+
+An empty result is explained rather than left bare: Hugging Face matches the
+**repository name**, not the description, so a typo (`orith1.5` for `Ornith-1.5`)
+returns nothing — the page says so and offers a link to Hugging Face itself. When
+the GB10 filter returns nothing it also checks without the filter, because a model
 that exists but isn't tagged is not a model that doesn't exist. And if Hugging
-Face itself doesn't answer, that is reported as such (502) rather than shown as
-an empty result list.
+Face itself doesn't answer, that is reported as such (502) rather than shown as an
+empty result list.
 
 ### Request a model
 

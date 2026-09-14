@@ -166,6 +166,16 @@ services:
       - /var/lib/cronos-monitor:/var/lib/cronos-monitor:ro
       # Même jeton, côté appelant.
       - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
+      # Jeton Hugging Face, FACULTATIF, en lecture seule : il fait apparaître les
+      # dépôts à accès restreint dans la recherche de modèles et relève la limite
+      # anonyme de l'API (500 requêtes / 5 min par IP). Le portail ne renvoie
+      # jamais sa valeur, seulement sa présence (`vllm_health.hf_jeton_present`).
+      # Il appartient à l'utilisateur du conteneur (uid 10001) et reste en 0600 :
+      # personne d'autre sur la machine ne peut le lire. Fichier absent → le
+      # portail cherche en anonyme, sans erreur (un `docker compose up` sur un
+      # dépôt fraîchement cloné crée un DOSSIER à la place : `open()` échoue, et
+      # c'est traité comme « pas de jeton »).
+      - ./secrets/hf_token:/run/secrets/hf_token:ro
     extra_hosts:
       # Épinglé sur la passerelle du réseau `default`, PAS sur `host-gateway`.
       # `host-gateway` désigne la passerelle de l'interface qui porte la route par

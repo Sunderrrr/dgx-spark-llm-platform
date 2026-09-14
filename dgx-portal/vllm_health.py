@@ -10,6 +10,7 @@ get_running_models est venu avec : c'est une sonde vLLM, elle etait rangee dans
 _vllm_health_uncached lit model_configs pour connaitre max-num-seqs et la
 fenetre de contexte du modele actif : d'ou la dependance a get_db.
 """
+import os
 import re
 import time
 
@@ -420,10 +421,46 @@ _SEARCH_PAGE_SIZE = 48
 
 # Tâches HF proposées par l'interface. Servent d'allow-list : un filtre inconnu
 # fait répondre 400 à HF, ce qui n'est PAS une panne de HF et ne doit donc pas
-# être présenté comme telle (cf. HfIndisponible).
+# être présenté comme telle (cf. HfIndisponible). Une tâche VIDE est permise :
+# c'est le défaut, cf. search_hf_models_page.
 HF_TASKS = ('text-generation', 'text2text-generation', 'conversational',
             'feature-extraction', 'text-to-image', 'text-to-video',
             'image-to-text')
+
+# Jeton Hugging Face, OPTIONNEL, relu à chaque appel (le fichier peut être monté
+# après le démarrage du portail). Sans lui l'API publique répond quand même, mais
+# deux choses manquent, mesurées le 2026-09-14 :
+#   - les dépôts à accès restreint (`gated`) n'apparaissent pas dans la recherche ;
+#   - la limite anonyme est de 500 requêtes / 5 min par IP (en-tête
+#     `ratelimit-policy` de HF) — une recherche qui interroge HF à chaque frappe
+#     peut l'atteindre, et un 429 s'afficherait alors comme un échec de recherche.
+# Le jeton vit dans ./secrets/hf_token (0600, git-ignoré) et est monté en LECTURE
+# SEULE dans le portail. Il n'est JAMAIS renvoyé par une route ni journalisé :
+# seule sa présence l'est (`hf_jeton_present`).
+HF_TOKEN_FILE = os.environ.get('CRONOS_HF_TOKEN_FILE', '/run/secrets/hf_token')
+
+
+def _hf_token():
+    """Le jeton HF, ou ''. Jamais renvoyé, jamais écrit dans un journal."""
+    jeton = (os.environ.get('HF_TOKEN')
+             or os.environ.get('HUGGING_FACE_HUB_TOKEN') or '').strip()
+    if jeton:
+        return jeton
+    try:
+        with open(HF_TOKEN_FILE, encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        return ''
+
+
+def hf_jeton_present():
+    """Y a-t-il un jeton HF ? L'interface peut le dire, la valeur ne sort pas."""
+    return bool(_hf_token())
+
+
+def _hf_headers():
+    jeton = _hf_token()
+    return {'Authorization': f'Bearer {jeton}'} if jeton else {}
 
 
 class HfIndisponible(Exception):
@@ -435,27 +472,58 @@ class HfIndisponible(Exception):
     concluait que son modèle n'existe pas."""
 
 
-def _hf_models(params, timeout=8):
-    """Un appel HF, qui LÈVE au lieu de renvoyer une liste vide (cf. ci-dessus)."""
+def _hf_page(params, timeout=8):
+    """Un appel HF → (données, y a-t-il une page suivante). LÈVE au lieu de renvoyer vide.
+
+    `has_more` vient de l'en-tête `Link` de HF (`rel="next"`), qui fait foi.
+    Côté interface, l'ancienne heuristique (« la page est pleine donc il y en a
+    d'autres ») affichait un bouton « Charger plus » qui pouvait ne rien donner,
+    et surtout en cachait un quand la dernière page était pleine.
+    """
     try:
-        r = requests.get('https://huggingface.co/api/models', params=params, timeout=timeout)
+        r = requests.get('https://huggingface.co/api/models', params=params,
+                         headers=_hf_headers(), timeout=timeout)
     except requests.RequestException as e:
         raise HfIndisponible(f"HF injoignable ({type(e).__name__})") from e
     if not r.ok:
+        # Un jeton présent mais refusé n'est pas une panne de HF : le dire
+        # permet de comprendre qu'il faut le remplacer, pas attendre.
+        if r.status_code in (401, 403) and _hf_token():
+            raise HfIndisponible("jeton Hugging Face refusé")
         raise HfIndisponible(f"HF a répondu {r.status_code}")
     try:
-        return r.json()
+        data = r.json()
     except ValueError as e:
         raise HfIndisponible("réponse HF illisible") from e
+    try:
+        suivant = 'rel="next"' in (r.headers.get('Link') or '')
+    except (TypeError, AttributeError):
+        suivant = False
+    return data, suivant
 
 
-def search_hf_models(query, task='text-generation', gb10_only=True, skip=0):
-    """HF search. By default, restricted to models tagged `gb10` — that is,
-    the ones actually tested on DGX Spark. Multiple `filter` = AND on the HF API side.
+def _hf_models(params, timeout=8):
+    """Un appel HF, qui LÈVE au lieu de renvoyer une liste vide (cf. ci-dessus)."""
+    return _hf_page(params, timeout)[0]
 
-    Paginated (skip, page of _SEARCH_PAGE_SIZE): the gb10 tag alone already returns
-    80+ models for text-generation, invisible beyond the old fixed
-    limit of 24 with no way to go further — reported in real use.
+
+def search_hf_models_page(query, task=None, gb10_only=False, skip=0):
+    """Recherche HF → (modèles, page suivante ?).
+
+    **Aucun filtre par défaut : on cherche dans TOUT Hugging Face.** Deux filtres
+    étaient appliqués d'office et rendaient introuvables des modèles qui existent
+    (signalé le 2026-09-14, l'opérateur ne trouvait pas « Ornith-1.5 ») :
+
+      - `task` valait `text-generation` : un dépôt taggé seulement
+        `image-text-to-text` (`Ornith-1.5`, un Qwen3.5 multimodal) ou pas taggé du
+        tout était invisible ;
+      - le tag `gb10` ne marque que les modèles testés sur DGX Spark — une poignée
+        de dépôts — donc tout le reste disparaissait sans que rien ne le dise.
+        C'est un filtre utile, mais un filtre qu'on DEMANDE.
+
+    Le tri reste par téléchargements décroissants : sans requête, la page montre
+    donc les modèles les plus utilisés de Hugging Face (ou de la tâche choisie),
+    ce qui est la façon la plus honnête d'« explorer le catalogue ».
 
     `full=true` ajoute `gated` (mesuré : +85 Kio, même temps de réponse). Ce champ
     vaut la dépense : un dépôt gated exige un jeton HF et fait échouer le
@@ -463,12 +531,14 @@ def search_hf_models(query, task='text-generation', gb10_only=True, skip=0):
     arrivé au mmproj de Flash-Next. Le voir dans les résultats évite de le
     découvrir au lancement.
     """
-    filters = [task] if task else []
-    if gb10_only:
-        filters.append(GB10_TAG)
-    out = _hf_models({'search': query, 'filter': filters, 'limit': _SEARCH_PAGE_SIZE,
-                      'skip': max(0, int(skip)), 'sort': 'downloads', 'direction': -1,
-                      'full': 'true'})
+    filters = ([task] if task else []) + ([GB10_TAG] if gb10_only else [])
+    params = {'search': query, 'limit': _SEARCH_PAGE_SIZE, 'skip': max(0, int(skip)),
+              'sort': 'downloads', 'direction': -1, 'full': 'true'}
+    # `filter` vide et `filter` absent ne veulent pas dire la même chose côté HF
+    # (plusieurs `filter` = ET) : on omet la clé au lieu d'envoyer une liste vide.
+    if filters:
+        params['filter'] = filters
+    out, has_more = _hf_page(params)
     for m in out:
         m['engine'] = guess_engine(m)
         # `siblings` (la liste des fichiers du dépôt) pesait 58 % de la réponse —
@@ -478,10 +548,15 @@ def search_hf_models(query, task='text-generation', gb10_only=True, skip=0):
         # `_id` (identifiant interne de Hugging Face) part avec, même raison.
         m.pop('siblings', None)
         m.pop('_id', None)
-    return out
+    return out, has_more
 
 
-def hf_modele_hors_gb10(query, task='text-generation'):
+def search_hf_models(query, task=None, gb10_only=False, skip=0):
+    """La liste seule — le même appel que `search_hf_models_page`, sans `has_more`."""
+    return search_hf_models_page(query, task, gb10_only, skip)[0]
+
+
+def hf_modele_hors_gb10(query, task=None):
     """Y a-t-il des modèles pour cette recherche SANS le filtre gb10 ?
 
     Sert à ne pas laisser l'utilisateur devant un « aucun résultat » trompeur :
@@ -491,8 +566,10 @@ def hf_modele_hors_gb10(query, task='text-generation'):
     """
     if not query:
         return None
+    params = {'search': query, 'limit': 1}
+    if task:
+        params['filter'] = [task]
     try:
-        return bool(_hf_models({'search': query, 'limit': 1,
-                                'filter': [task] if task else []}))
+        return bool(_hf_models(params))
     except HfIndisponible:
         return None

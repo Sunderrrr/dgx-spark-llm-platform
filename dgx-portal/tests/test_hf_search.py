@@ -21,6 +21,8 @@ Et `POST /request`, qui répondait `flash()` + 204 en TOUS les cas (y compris
 « tu as déjà une demande en attente ») : la page annonçait « Demande envoyée ! »
 sans qu'aucune ligne n'existe. Il répond désormais du JSON avec un statut honnête.
 """
+import os
+import tempfile
 import time
 import unittest
 from unittest.mock import MagicMock, patch
@@ -34,11 +36,12 @@ import vllm_health
 from vllm_health import HfIndisponible, hf_modele_hors_gb10, search_hf_models
 
 
-def _reponse(payload, status=200):
+def _reponse(payload, status=200, headers=None):
     r = MagicMock()
     r.ok = 200 <= status < 300
     r.status_code = status
     r.json.return_value = payload
+    r.headers = headers or {}
     return r
 
 
@@ -129,13 +132,78 @@ class RechercheHfTest(unittest.TestCase):
         # réponse, mesuré) et rien ne le lit : il ne doit pas ressortir d'ici.
         self.assertNotIn('siblings', out[0])
 
-    def test_le_filtre_gb10_est_transmis(self):
+    def test_le_filtre_gb10_est_transmis_et_jamais_impose(self):
         with patch.object(vllm_health.requests, 'get',
                           return_value=_reponse([dict(MODELE)])) as get:
+            search_hf_models('qwen', None, gb10_only=True)
+            self.assertEqual(get.call_args.kwargs['params']['filter'], [vllm_health.GB10_TAG])
+            # Sans le demander, AUCUN filtre : c'est le correctif du 2026-09-14.
+            search_hf_models('qwen', None, gb10_only=False)
+            self.assertNotIn('filter', get.call_args.kwargs['params'])
+            # Une tâche reste possible, mais elle s'ajoute au lieu de remplacer :
+            # plusieurs `filter` = ET côté HF.
             search_hf_models('qwen', 'text-generation', gb10_only=True)
-            self.assertIn(vllm_health.GB10_TAG, get.call_args.kwargs['params']['filter'])
-            search_hf_models('qwen', 'text-generation', gb10_only=False)
-            self.assertNotIn(vllm_health.GB10_TAG, get.call_args.kwargs['params']['filter'])
+            self.assertEqual(sorted(get.call_args.kwargs['params']['filter']),
+                             sorted(['text-generation', vllm_health.GB10_TAG]))
+
+    def test_la_recherche_par_defaut_couvre_tout_hugging_face(self):
+        """Le cas signalé : « ornith-1.5 » (4 dépôts, dont les GGUF) n'est taggé
+        ni `gb10` ni seulement `text-generation`. Les deux filtres d'office le
+        rendaient introuvable, et rien ne le disait."""
+        with patch.object(vllm_health.requests, 'get',
+                          return_value=_reponse([dict(MODELE)])) as get:
+            search_hf_models('ornith-1.5')
+        params = get.call_args.kwargs['params']
+        self.assertEqual(params['search'], 'ornith-1.5')
+        self.assertNotIn('filter', params)
+        self.assertEqual(params['sort'], 'downloads')
+
+    def test_has_more_vient_de_l_en_tete_link_de_hf(self):
+        """La page pleine ne PROUVE pas qu'il y en a d'autres : `Link` le dit."""
+        lien = {'Link': '<https://huggingface.co/api/models?search=q&skip=48>; rel="next"'}
+        with patch.object(vllm_health.requests, 'get',
+                          return_value=_reponse([dict(MODELE)], headers=lien)):
+            _, more = vllm_health.search_hf_models_page('q')
+        self.assertTrue(more)
+        with patch.object(vllm_health.requests, 'get',
+                          return_value=_reponse([dict(MODELE)])):
+            _, more = vllm_health.search_hf_models_page('q')
+        self.assertFalse(more)
+
+    def test_le_jeton_hf_part_en_entete_et_ne_sort_jamais(self):
+        with tempfile.TemporaryDirectory() as d:
+            chemin = os.path.join(d, 'hf_token')
+            with patch.dict(os.environ, {'HF_TOKEN': ''}), \
+                 patch.object(vllm_health, 'HF_TOKEN_FILE', chemin):
+                # Pas de fichier : recherche anonyme, aucun en-tête d'autorisation.
+                self.assertFalse(vllm_health.hf_jeton_present())
+                with patch.object(vllm_health.requests, 'get',
+                                  return_value=_reponse([dict(MODELE)])) as get:
+                    search_hf_models('qwen')
+                self.assertEqual(get.call_args.kwargs['headers'], {})
+                # Jeton présent : il part en en-tête, et seule sa PRÉSENCE est dite.
+                with open(chemin, 'w', encoding='utf-8') as f:
+                    f.write('hf_jeton_de_test\n')
+                self.assertTrue(vllm_health.hf_jeton_present())
+                with patch.object(vllm_health.requests, 'get',
+                                  return_value=_reponse([dict(MODELE)])) as get:
+                    search_hf_models('qwen')
+                self.assertEqual(get.call_args.kwargs['headers'],
+                                 {'Authorization': 'Bearer hf_jeton_de_test'})
+
+    def test_un_jeton_refuse_se_distingue_d_une_panne(self):
+        """401 avec un jeton = « remplace-le », pas « HF est en panne »."""
+        r = _reponse({'error': 'invalid token'}, status=401)
+        with patch.object(vllm_health, '_hf_token', return_value='hf_perime'), \
+             patch.object(vllm_health.requests, 'get', return_value=r):
+            with self.assertRaises(HfIndisponible) as ctx:
+                search_hf_models('qwen')
+        self.assertIn('jeton', str(ctx.exception))
+        with patch.object(vllm_health, '_hf_token', return_value=''), \
+             patch.object(vllm_health.requests, 'get', return_value=r):
+            with self.assertRaises(HfIndisponible) as ctx:
+                search_hf_models('qwen')
+        self.assertIn('401', str(ctx.exception))
 
     def test_hors_gb10_repond_vrai_faux_ou_doute(self):
         with patch.object(vllm_health.requests, 'get', return_value=_reponse([dict(MODELE)])):
@@ -186,12 +254,35 @@ class ApiSearchTest(CompteDeTest):
         self.assertTrue(corps['ok'])
         self.assertEqual(len(corps['results']), 1)
         self.assertEqual(corps['results'][0]['engine'], 'llamacpp')
+        # Sans filtre : la réponse le dit, et `hf_token` n'est qu'un booléen.
+        self.assertFalse(corps['gb10_only'])
+        self.assertIn('hf_token', corps)
+        self.assertIsInstance(corps['hf_token'], bool)
+
+    def test_la_recherche_sans_filtre_est_le_defaut_de_la_route(self):
+        with patch.object(vllm_health.requests, 'get',
+                          return_value=_reponse([dict(MODELE)])) as get:
+            self.c.get('/api/search?q=ornith-1.5')
+        self.assertNotIn('filter', get.call_args.kwargs['params'])
+        # `all=1` (l'ancien paramètre qui désactivait le filtre) reste accepté :
+        # il ne doit pas, lui non plus, réintroduire un filtre.
+        with patch.object(vllm_health.requests, 'get',
+                          return_value=_reponse([dict(MODELE)])) as get:
+            self.c.get('/api/search?q=ornith-1.5&all=1')
+        self.assertNotIn('filter', get.call_args.kwargs['params'])
+        # Et une recherche VIDE explore le catalogue (les plus téléchargés)
+        # au lieu de ne rien renvoyer.
+        with patch.object(vllm_health.requests, 'get',
+                          return_value=_reponse([dict(MODELE)])) as get:
+            corps = self.c.get('/api/search').get_json()
+        self.assertEqual(get.call_count, 1)
+        self.assertEqual(len(corps['results']), 1)
 
     def test_filtre_gb10_vide_signale_que_ca_existe_ailleurs(self):
-        # 1er appel (filtré gb10) : rien. 2e appel (sans filtre) : un modèle.
+        # 1er appel (filtré gb10, DEMANDÉ) : rien. 2e appel (sans filtre) : un modèle.
         with patch.object(vllm_health.requests, 'get',
                           side_effect=[_reponse([]), _reponse([dict(MODELE)])]):
-            r = self.c.get('/api/search?q=ornith')
+            r = self.c.get('/api/search?q=ornith&gb10=1')
         corps = r.get_json()
         self.assertTrue(corps['ok'])
         self.assertEqual(corps['results'], [])
@@ -200,7 +291,7 @@ class ApiSearchTest(CompteDeTest):
     def test_pas_de_second_appel_quand_le_filtre_trouve_quelque_chose(self):
         with patch.object(vllm_health.requests, 'get',
                           return_value=_reponse([dict(MODELE)])) as get:
-            r = self.c.get('/api/search?q=qwen')
+            r = self.c.get('/api/search?q=qwen&gb10=1')
         self.assertEqual(get.call_count, 1)
         self.assertIsNone(r.get_json()['hors_gb10'])
 

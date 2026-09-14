@@ -748,6 +748,8 @@ const EN: Record<string, string> = {
   "Limite de tokens par défaut (nouvelles clés)": "Default token limit (new keys)",
   "Tokens générés": "Generated tokens",
   "Débit décodé": "Decode rate",
+  "Prefill": "Prefill",
+  "{n} tokens d'entrée": "{n} input tokens",
   "Qui utilise le modèle · 30 dernières minutes · visible admin uniquement": "Who is using the model · last 30 minutes · admin only",
   "{n} session(s) en cours sur le moteur": "{n} session(s) running on the engine",
   "la plus ancienne depuis {d}": "oldest started {d}",

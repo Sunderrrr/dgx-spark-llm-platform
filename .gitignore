@@ -49,3 +49,9 @@ secrets/
 
 # Machine-private security notes (operator-specific; never commit)
 .machine/
+
+# Guide d'exploitation (CLAUDE.md) : lu depuis le disque par l'opérateur et les
+# agents qui travaillent dans le dépôt, mais il ne se publie pas. Le motif sans
+# barre couvre aussi dgx-portal-frontend/CLAUDE.md. À ne pas confondre avec
+# dgx-portal-frontend/public/avatars/claude.svg, qui est une image et reste suivi.
+CLAUDE.md

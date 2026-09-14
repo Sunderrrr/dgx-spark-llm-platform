@@ -190,8 +190,8 @@ from comfyui_client import (  # noqa: E402
 # Sonde vLLM (sante, debit, contexte) + recherche HF : cf. vllm_health.py
 from vllm_health import (  # noqa: E402
     GB10_TAG, HF_TASKS, HfIndisponible, _CTX_FLAG, _SEARCH_PAGE_SIZE, _SEQS_FLAG,
-    _prom_sum, ctx_of, ctx_split, effective_ctx, guess_engine, hf_modele_hors_gb10,
-    max_seqs_of, search_hf_models, vllm_health,
+    _prom_sum, ctx_of, ctx_split, effective_ctx, guess_engine, hf_jeton_present,
+    hf_modele_hors_gb10, max_seqs_of, search_hf_models_page, vllm_health,
 )
 
 # Notifications (mail admin, webhook Discord) : cf. notify.py
@@ -1227,8 +1227,15 @@ def api_search():
     une liste vide, qui se lit « ton modèle n'existe pas ».
     """
     query = request.args.get('q', '').strip()
-    task  = request.args.get('task', 'text-generation')
-    gb10  = request.args.get('all') != '1'
+    task  = request.args.get('task', '').strip()
+    # Le filtre GB10 est désormais OPT-IN (2026-09-14). Il était appliqué d'office,
+    # et comme le tag `gb10` ne marque qu'une poignée de modèles testés sur DGX
+    # Spark, tout le reste de Hugging Face était invisible — l'opérateur en a
+    # conclu que la recherche ne marchait pas (il cherchait Ornith-1.5, qui n'est
+    # pas taggé). Un filtre qu'on n'a pas demandé ne doit pas décider des résultats.
+    # `all=1`, l'ancien paramètre qui désactivait le filtre, reste accepté pour ne
+    # pas casser un lien ou un client existant — il ne fait plus rien.
+    gb10  = request.args.get('gb10') == '1'
     try:
         skip = max(0, int(request.args.get('skip', 0)))
     except ValueError:
@@ -1238,7 +1245,7 @@ def api_search():
     if task and task not in HF_TASKS:
         return jsonify({'ok': False, 'results': [], 'error': f"Tâche inconnue : {task}."}), 400
     try:
-        results = search_hf_models(query, task, gb10_only=gb10, skip=skip) if (query or gb10) else []
+        results, has_more = search_hf_models_page(query, task, gb10_only=gb10, skip=skip)
     except HfIndisponible as e:
         # `code` en plus de `error` : le portail est FR-first, mais l'interface peut
         # traduire ce cas-là (l'anglais n'a de sens que s'il est complet), et le
@@ -1253,7 +1260,10 @@ def api_search():
         hors_gb10 = hf_modele_hors_gb10(query, task)
     return jsonify({'ok': True, 'results': results, 'query': query, 'task': task,
                     'gb10_only': gb10, 'skip': skip, 'page_size': _SEARCH_PAGE_SIZE,
-                    'hors_gb10': hors_gb10})
+                    'has_more': has_more, 'hors_gb10': hors_gb10,
+                    # Présence du jeton, JAMAIS sa valeur : elle dit à l'interface
+                    # si les dépôts à accès restreint peuvent apparaître.
+                    'hf_token': hf_jeton_present()})
 
 
 RANKING_LABELS = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours',

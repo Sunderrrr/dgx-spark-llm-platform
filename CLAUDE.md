@@ -693,6 +693,15 @@ et le bouton Admin/test email reflète un échec d'envoi (`send_test_email` /
   Run it with **`< /dev/null`**: as a hook it reads the ref
   lines from stdin, so with stdin left open (e.g. straight after a heredoc in the
   same command) it blocks forever on `read` instead of running anything.
+- **`$HOME` can be EMPTY in an agent shell, and then `git`/`gh` look in `/.config`
+  instead of `/root`.** Symptom: `gh auth status` answers "not logged into any
+  GitHub hosts" and `git push` fails with `could not read Username` **while the
+  operator is logged in** (verified 2026-09-14). The credentials are in
+  `/root/.config/gh/hosts.yml` and the helper is scoped to the URL — so the
+  unscoped `git config --get-all credential.helper` prints nothing even when it
+  IS configured; check `git config --get-all 'credential.https://github.com.helper'`.
+  Fix: prefix the command with `HOME=/root` (setup and push alike), or run
+  `HOME=/root gh auth setup-git` once to write the helper into `/root/.gitconfig`.
 - **CI** (`.github/workflows/ci.yml`) runs the backend tests + frontend
   `tsc --noEmit` + eslint on every push/PR. A green check is the merge bar.
 - **Frontend**: `cd dgx-portal-frontend && npx tsc --noEmit && npx eslint .` before

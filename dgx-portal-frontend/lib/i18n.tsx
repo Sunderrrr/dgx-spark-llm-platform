@@ -516,6 +516,7 @@ const EN: Record<string, string> = {
   "Alias": "Alias",
   "Clé": "Key",
   "Afficher": "Show",
+  "Masquer": "Hide",
   "Dépensé": "Spent",
   "tokens": "tokens",
   // Singulier pour « 1 token » : le pluriel se choisit au rendu, avec le motif

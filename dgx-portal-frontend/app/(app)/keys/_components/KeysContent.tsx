@@ -235,9 +235,7 @@ export function KeysContent() {
       key: "key",
       header: t("Clé"),
       width: proportional(5, { minWidth: 180 }),
-      renderCell: (row) => {
-        const estRevelee = revealed.has(row.key);
-        return (
+      renderCell: (row) => (
         <HStack gap={2} vAlign="center" width="100%">
           {/* `StackItem size="fill"` apporte flex:1 + min-width:0. Sans ce reset,
               un élément flex refuse de rétrécir sous son contenu : la clé
@@ -245,18 +243,20 @@ export function KeysContent() {
               sur une ligne (tronquée avec infobulle) ; RÉVÉLÉE elle se déroule
               sur deux lignes au lieu d'être coupée — sinon « Afficher » ne
               montrerait pas la clé, ce qui serait absurde. Le bouton copier
-              rend de toute façon la valeur entière sans rien révéler. */}
+              rend de toute façon la valeur entière sans rien révéler. Le
+              libellé du bouton suit son ÉTAT : « Masquer » une fois révélée,
+              sans quoi un lecteur d'écran annonce l'inverse de ce qu'il fait. */}
           <StackItem size="fill">
-            <Text type="code" hasTabularNumbers maxLines={estRevelee ? 0 : 1} wordBreak="break-all">
-              {estRevelee ? row.key : `${row.key.slice(0, 10)}…${row.key.slice(-4)}`}
+            <Text type="code" hasTabularNumbers maxLines={revealed.has(row.key) ? 0 : 1} wordBreak="break-all">
+              {revealed.has(row.key) ? row.key : `${row.key.slice(0, 10)}…${row.key.slice(-4)}`}
             </Text>
           </StackItem>
           <Button
-            label={t("Afficher")}
+            label={revealed.has(row.key) ? t("Masquer") : t("Afficher")}
             variant="ghost"
             size="sm"
             isIconOnly
-            icon={<Icon icon={estRevelee ? EyeSlashIcon : EyeIcon} size="sm" />}
+            icon={<Icon icon={revealed.has(row.key) ? EyeSlashIcon : EyeIcon} size="sm" />}
             onClick={() =>
               setRevealed((prev) => {
                 const next = new Set(prev);
@@ -275,8 +275,7 @@ export function KeysContent() {
             onClick={() => copyKey(row.key, row.key_alias)}
           />
         </HStack>
-        );
-      },
+      ),
     },
     {
       key: "last_active",

@@ -32,7 +32,7 @@ import {
   ExclamationTriangleIcon,
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
-import { getJSON, postForm } from "@/lib/api";
+import { authFetch, getJSON } from "@/lib/api";
 import { useCsrf } from "@/lib/useCsrf";
 import { fetchConversations, relativeTime } from "@/lib/conversations";
 import type { Conversation } from "@/lib/types";
@@ -798,9 +798,29 @@ export default function HomePage() {
                           onClick={async () => {
                             // La raison part en base et se réaffiche brute (colonne
                             // « Raison », file admin) : msgid traduit côté client.
-                            await postForm("/keys", csrf, { action: "request_budget", reason: t("Demande depuis la page d'accueil (quota bientôt épuisé)") });
-                            setData((d) => (d ? { ...d, budget_request_pending: true } : d));
-                            showToast({ body: t("Demande envoyée à l'admin.") });
+                            // Le verdict du serveur est LU : `postForm` ne rend ni
+                            // statut ni corps, donc un refus (demande déjà en
+                            // attente, 409) s'affichait ici comme un envoi réussi.
+                            const raison = t("Demande depuis la page d'accueil (quota bientôt épuisé)");
+                            try {
+                              const res = await authFetch("/keys", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
+                                body: new URLSearchParams({ action: "request_budget", reason: raison }).toString(),
+                              });
+                              const r = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; code?: string };
+                              if (!res.ok || r.ok === false) {
+                                showToast({
+                                  body: r.code ? t(r.code) : r.error ? t(r.error) : t("L'action a échoué."),
+                                  type: "error",
+                                });
+                                return;
+                              }
+                              setData((d) => (d ? { ...d, budget_request_pending: true } : d));
+                              showToast({ body: t("Demande envoyée à l'admin.") });
+                            } catch {
+                              showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
+                            }
                           }}
                         />
                       </HStack>

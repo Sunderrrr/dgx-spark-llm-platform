@@ -34,7 +34,7 @@ import {
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { authFetch, getJSON, postForm, ForbiddenError } from "@/lib/api";
+import { authFetch, getJSON, postFormVerifie, ForbiddenError } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { UserLookup } from "./_components/UserLookup";
@@ -1077,7 +1077,18 @@ function BudgetSetForm({ rows, actionDisabled }: { rows: SpendRow[]; actionDisab
             onClick={async () => {
               setBusy(true);
               try {
-                await postForm(`/admin/users/${encodeURIComponent(user.trim())}/budget/set`, csrf, { budget: budget.trim() });
+                // Le verdict est LU : la route refuse explicitement (400) un
+                // plafond absurde (0, négatif, > 1e12 — le trou d'un montant
+                // tapé 6.7e12). Avec `postForm` seul, ce refus s'affichait
+                // « Budget redéfini. ».
+                const res = await postFormVerifie(
+                  `/admin/users/${encodeURIComponent(user.trim())}/budget/set`,
+                  csrf, { budget: budget.trim() },
+                );
+                if (!res.ok) {
+                  showToast({ body: res.error ? t(res.error) : t("L'action a échoué."), type: "error" });
+                  return;
+                }
                 showToast({ body: t("Budget redéfini.") });
                 setBudget("");
               } finally {

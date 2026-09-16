@@ -1484,6 +1484,46 @@ const EN: Record<string, string> = {
     "You already have a pending request for this model.",
   "L'identifiant du modèle est requis.": "The model id is required.",
   "Partage impossible :": "Sharing failed:",
+
+  // ── Clés API : copie directe, dates, renommage ──
+  "Copier la clé": "Copy key",
+  "Clé « {alias} » copiée.": "Key “{alias}” copied.",
+  "Créée le": "Created",
+  "Jamais utilisée": "Never used",
+  "Nouveau nom pour la clé « {alias} » :": "New name for key “{alias}”:",
+  "Clé renommée.": "Key renamed.",
+  "alias_deja_utilise": "You already have a key with that name.",
+
+  // ── Budget : la période, pas la journée ──
+  "Consommé sur la période": "Used this period",
+  "Remis à zéro le {date}.": "Resets on {date}.",
+
+  // ── Suppression de compte et source du mot de passe ──
+  "Supprimer mon compte": "Delete my account",
+  "Supprimer définitivement mon compte": "Permanently delete my account",
+  "Effacer mes données": "Erase my data",
+  "Ton mot de passe": "Your password",
+  "La suppression a échoué.": "Deletion failed.",
+  "Ton compte est supprimé. Tu vas être déconnecté…":
+    "Your account is deleted. You are being signed out…",
+  "Cela supprime ton compte, tes clés API, tes conversations et ta mémoire. C'est définitif.":
+    "This deletes your account, your API keys, your conversations, and your memory. It cannot be undone.",
+  "Cela efface tes données du portail (clés, conversations, mémoire, préférences). Ton compte, lui, appartient à l'annuaire : il continue d'exister.":
+    "This erases your portal data (keys, conversations, memory, preferences). The account itself belongs to the directory and keeps existing.",
+  "Tes données du portail sont effacées. Ton compte, lui, existe toujours dans l'annuaire : demande à un administrateur de le bloquer si tu pars.":
+    "Your portal data has been erased. The account itself still exists in the directory — ask an administrator to block it if you are leaving.",
+  "Compte SSO : la double authentification se règle chez ton fournisseur d'identité, pas ici.":
+    "SSO account: two-factor authentication is managed by your identity provider, not here.",
+  "Compte LDAP : ton mot de passe est celui de l'annuaire. Le portail ne le stocke pas, il le vérifie auprès de l'annuaire — change-le depuis ton administrateur.":
+    "LDAP account: your password is the directory's. The portal does not store it, it verifies it against the directory — change it through your administrator.",
+  "Compte SSO : ton mot de passe appartient au fournisseur d'identité, qui seul peut le changer. Le portail n'en connaît aucun.":
+    "SSO account: your password belongs to the identity provider, which alone can change it. The portal knows none.",
+  "Le portail n'a pas de mot de passe pour ce compte : il se connecte par l'annuaire (LDAP ou SSO), où le mot de passe se change.":
+    "The portal has no password for this account: it signs in through the directory (LDAP or SSO), where the password is changed.",
+
+  // ── Suppression d'une conversation refusée par le serveur ──
+  "Suppression impossible — la conversation est conservée.":
+    "Could not delete — the conversation is kept.",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

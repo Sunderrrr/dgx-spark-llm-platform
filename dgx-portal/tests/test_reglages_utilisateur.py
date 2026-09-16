@@ -18,26 +18,63 @@ import unittest
 from unittest.mock import patch
 
 import app as portal
+from werkzeug.security import generate_password_hash
 
 
 class _BaseReglages(unittest.TestCase):
     CSRF = "test-csrf"
 
-    def _client(self, username="demo"):
+    def _client(self, username="demo", is_admin=False):
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["username"] = username
             s["auth_at"] = int(time.time())
             s["fullname"] = "Compte de test"
-            s["is_admin"] = False
+            s["is_admin"] = is_admin
             s["csrf"] = self.CSRF
         return c
 
     def _post(self, client, url, data):
         return client.post(url, data=data, headers={"X-CSRFToken": self.CSRF})
 
+    def _json_post(self, client, url, data):
+        return client.post(url, json=data, headers={"X-CSRFToken": self.CSRF})
+
     def _db(self):
         return portal.app.app_context()
+
+    def _insere_local(self, username, password="Motdepasse1!", is_admin=0, enabled=1):
+        """Crée le compte LOCAL que les routes lisent (`local_users`)."""
+        with self._db():
+            db = portal.get_db()
+            db.execute("DELETE FROM local_users WHERE username=?", (username,))
+            db.execute(
+                "INSERT INTO local_users (username, password_hash, fullname, is_admin, "
+                "group_name, max_budget, enabled, created_at) VALUES (?,?,?,?,NULL,NULL,?,?)",
+                (username, generate_password_hash(password), "Compte de test", is_admin,
+                 enabled, "2026-09-14T00:00:00"))
+            db.commit()
+
+    def _insere_source(self, username, sources):
+        with self._db():
+            db = portal.get_db()
+            db.execute("DELETE FROM user_sources WHERE username=?", (username,))
+            db.execute(
+                "INSERT INTO user_sources (username, sources, fullname, last_source, last_seen, "
+                "last_is_admin) VALUES (?,?,?,?,?,NULL)",
+                (username, sources, "Compte de test", sources.split(",")[0], "2026-09-14T00:00:00"))
+            db.commit()
+
+    def _nettoie(self, username):
+        with self._db():
+            db = portal.get_db()
+            for table in ("local_users", "user_sources", "api_keys", "user_sessions",
+                          "user_prefs", "login_attempts"):
+                try:
+                    db.execute(f"DELETE FROM {table} WHERE username=?", (username,))
+                except Exception:
+                    pass
+            db.commit()
 
 
 class ClesApiTest(_BaseReglages):
@@ -232,6 +269,309 @@ class ApparenceTest(_BaseReglages):
                 "SELECT theme_id, lang FROM user_prefs WHERE username='demo'").fetchone()
         self.assertEqual(ligne["theme_id"], theme)
         self.assertEqual(ligne["lang"], "fr")
+
+
+class RenommageCleTest(_BaseReglages):
+    """`action=rename` : l'alias est ce qui permet de retrouver sa clé."""
+
+    def _insere_cle(self, valeur="sk-ren-1", alias="poste-test", user="demo"):
+        with self._db():
+            db = portal.get_db()
+            db.execute("DELETE FROM api_keys WHERE key_value=?", (valeur,))
+            db.execute(
+                "INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) "
+                "VALUES (?,?,?,?)", (user, alias, valeur, "2026-09-14T00:00:00"))
+            db.commit()
+
+    def _alias(self, valeur):
+        with self._db():
+            ligne = portal.get_db().execute(
+                "SELECT key_alias FROM api_keys WHERE key_value=?", (valeur,)).fetchone()
+        return ligne["key_alias"] if ligne else None
+
+    def test_renommage_reussi_des_deux_cotes(self):
+        """Portail ET LiteLLM : sinon les deux vues divergent."""
+        self._insere_cle()
+        c = self._client()
+        appels = []
+        with patch.object(portal, "renommer_cle_litellm",
+                          side_effect=lambda k, a: appels.append((k, a)) or True):
+            r = self._post(c, "/keys", {"action": "rename", "key": "sk-ren-1",
+                                        "key_name": "portable-nora"})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()["ok"])
+        self.assertEqual(self._alias("sk-ren-1"), "portable-nora")
+        self.assertEqual(appels, [("sk-ren-1", "portable-nora")],
+                         "l'alias doit aussi partir chez LiteLLM")
+
+    def test_renommage_dune_cle_dun_autre_compte_refuse(self):
+        self._insere_cle(valeur="sk-autrui-ren", user="autre")
+        c = self._client("demo")
+        with patch.object(portal, "renommer_cle_litellm", return_value=True) as faux:
+            r = self._post(c, "/keys", {"action": "rename", "key": "sk-autrui-ren",
+                                        "key_name": "a-moi"})
+        self.assertEqual(r.status_code, 404)
+        faux.assert_not_called()
+        self.assertEqual(self._alias("sk-autrui-ren"), "poste-test")
+
+    def test_litellm_injoignable_garde_l_ancien_nom(self):
+        """Un renommage à moitié fait serait pire que pas de renommage."""
+        self._insere_cle()
+        c = self._client()
+        with patch.object(portal, "renommer_cle_litellm", return_value=False):
+            r = self._post(c, "/keys", {"action": "rename", "key": "sk-ren-1",
+                                        "key_name": "portable-nora"})
+        self.assertEqual(r.status_code, 502)
+        self.assertFalse(r.get_json()["ok"])
+        self.assertEqual(self._alias("sk-ren-1"), "poste-test",
+                         "le portail ne doit pas renommer si LiteLLM a refusé")
+
+    def test_alias_deja_pris_refuse(self):
+        self._insere_cle(valeur="sk-a", alias="portable")
+        self._insere_cle(valeur="sk-b", alias="bureau")
+        c = self._client()
+        with patch.object(portal, "renommer_cle_litellm", return_value=True) as faux:
+            r = self._post(c, "/keys", {"action": "rename", "key": "sk-b",
+                                        "key_name": "portable"})
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.get_json()["code"], "alias_deja_utilise")
+        faux.assert_not_called()
+
+    def test_nom_vide_refuse(self):
+        self._insere_cle()
+        c = self._client()
+        with patch.object(portal, "renommer_cle_litellm", return_value=True) as faux:
+            r = self._post(c, "/keys", {"action": "rename", "key": "sk-ren-1",
+                                        "key_name": "   "})
+        self.assertEqual(r.status_code, 400)
+        faux.assert_not_called()
+        self.assertEqual(self._alias("sk-ren-1"), "poste-test")
+
+    def test_nom_assaini_et_borne(self):
+        """Un alias de 4000 caractères casserait l'affichage de la liste."""
+        self._insere_cle()
+        c = self._client()
+        with patch.object(portal, "renommer_cle_litellm", return_value=True):
+            r = self._post(c, "/keys", {"action": "rename", "key": "sk-ren-1",
+                                        "key_name": "mon portable " + "x" * 100})
+        self.assertEqual(r.status_code, 200)
+        alias = self._alias("sk-ren-1")
+        self.assertLessEqual(len(alias), 40)
+        self.assertNotIn(" ", alias)
+        self.assertTrue(alias.startswith("mon-portable"))
+
+
+class SourceMotDePasseTest(_BaseReglages):
+    """Qui détient le mot de passe : la question qui décide de ce qu'on affiche."""
+
+    def test_compte_local(self):
+        self._insere_local("zz-gestion-local")
+        with self._db():
+            info = portal.gestion_mot_de_passe("zz-gestion-local")
+        self.assertEqual(info["gestion"], "portail")
+        self.assertTrue(info["passkey"])
+        self._nettoie("zz-gestion-local")
+
+    def test_compte_ldap(self):
+        self._insere_source("zz-gestion-ldap", "ldap")
+        with self._db():
+            info = portal.gestion_mot_de_passe("zz-gestion-ldap")
+        self.assertEqual(info["gestion"], "annuaire-ldap")
+        self.assertTrue(info["passkey"], "la 2FA reste possible pour un compte LDAP")
+        self._nettoie("zz-gestion-ldap")
+
+    def test_compte_sso(self):
+        self._insere_source("zz-gestion-sso", "sso")
+        with self._db():
+            info = portal.gestion_mot_de_passe("zz-gestion-sso")
+        self.assertEqual(info["gestion"], "fournisseur-sso")
+        self.assertFalse(info["passkey"],
+                         "un compte SSO n'a pas de mot de passe vérifiable ici")
+        self._nettoie("zz-gestion-sso")
+
+    def test_compte_sans_source_connue(self):
+        """Donnée absente ≠ absence de mot de passe : on ne devine pas."""
+        self._nettoie("zz-gestion-inconnu")
+        with self._db():
+            info = portal.gestion_mot_de_passe("zz-gestion-inconnu")
+        self.assertEqual(info["gestion"], "inconnu")
+        self.assertFalse(info["local"])
+
+    def test_local_et_sso_le_local_fait_autorite(self):
+        """Les sources sont CUMULATIVES : annoncer « SSO » serait faux."""
+        self._insere_local("zz-gestion-mixte")
+        self._insere_source("zz-gestion-mixte", "local,sso")
+        with self._db():
+            info = portal.gestion_mot_de_passe("zz-gestion-mixte")
+        self.assertEqual(info["gestion"], "portail")
+        self._nettoie("zz-gestion-mixte")
+
+
+class SecuriteCompteTest(_BaseReglages):
+    """`/api/security` : dire pourquoi une passkey n'est pas proposable."""
+
+    def test_sso_refuse_la_verification_sans_compter_d_echec(self):
+        """Un compte SSO qui essaie son mot de passe ne doit pas se verrouiller."""
+        self._insere_source("zz-sec-sso", "sso")
+        c = self._client("zz-sec-sso")
+        with self._db():
+            db = portal.get_db()
+            db.execute("DELETE FROM login_attempts WHERE key=?", ("user:zz-sec-sso",))
+            db.commit()
+        r = self._json_post(c, "/api/security/toggle", {"enabled": True, "password": "peu-importe"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("SSO", r.get_json()["error"])
+        with self._db():
+            n = portal.get_db().execute(
+                "SELECT COUNT(*) FROM login_attempts WHERE key=?", ("user:zz-sec-sso",)).fetchone()[0]
+        self.assertEqual(n, 0, "le compteur d'échecs partagé avec /login ne doit pas bouger")
+        self._nettoie("zz-sec-sso")
+
+    def test_le_payload_dit_la_source(self):
+        self._insere_local("zz-sec-local")
+        self._nettoie("zz-sec-local")
+        self._insere_local("zz-sec-local")
+        c = self._client("zz-sec-local")
+        r = c.get("/api/security")
+        self.assertEqual(r.status_code, 200)
+        corps = r.get_json()
+        self.assertEqual(corps["password_managed_by"], "portail")
+        self.assertTrue(corps["passkey_possible"])
+
+    def test_whoami_porte_la_source(self):
+        self._insere_local("zz-sec-who")
+        c = self._client("zz-sec-who")
+        corps = c.get("/api/whoami").get_json()
+        self.assertEqual(corps["password_managed_by"], "portail")
+        self.assertTrue(corps["local_account"])
+        self._nettoie("zz-sec-who")
+
+
+class SuppressionCompteTest(_BaseReglages):
+    """`/api/account/delete` : partir soi-même, sans mentir sur ce qui reste."""
+
+    def _patch_litellm(self):
+        return patch.multiple(
+            "litellm_client",
+            delete_litellm_user=lambda u: True,
+            revoke_litellm_key=lambda k: True,
+        )
+
+    def test_sans_confirmation_refuse(self):
+        self._insere_local("zz-del-1")
+        c = self._client("zz-del-1")
+        r = self._json_post(c, "/api/account/delete", {"password": "Motdepasse1!"})
+        self.assertEqual(r.status_code, 409)
+        self.assertTrue(r.get_json()["needs_confirm"])
+        with self._db():
+            self.assertIsNotNone(portal.get_db().execute(
+                "SELECT 1 FROM local_users WHERE username='zz-del-1'").fetchone())
+        self._nettoie("zz-del-1")
+
+    def test_compte_local_sans_mot_de_passe_refuse(self):
+        self._insere_local("zz-del-2")
+        c = self._client("zz-del-2")
+        r = self._json_post(c, "/api/account/delete", {"confirm": "DELETE"})
+        self.assertEqual(r.status_code, 400)
+        self._nettoie("zz-del-2")
+
+    def test_mot_de_passe_incorrect_refuse(self):
+        self._insere_local("zz-del-3")
+        c = self._client("zz-del-3")
+        with patch("auth.ldap_authenticate", return_value=(False, None, None)):
+            r = self._json_post(c, "/api/account/delete",
+                                {"confirm": "DELETE", "password": "faux"})
+        self.assertEqual(r.status_code, 401)
+        with self._db():
+            self.assertIsNotNone(portal.get_db().execute(
+                "SELECT 1 FROM local_users WHERE username='zz-del-3'").fetchone())
+        self._nettoie("zz-del-3")
+
+    def test_suppression_reussie_retire_l_acces(self):
+        self._insere_local("zz-del-4")
+        with self._db():
+            db = portal.get_db()
+            db.execute("INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, "
+                       "created_at) VALUES ('zz-del-4','cle','sk-del-4','2026-09-14')")
+            db.commit()
+        c = self._client("zz-del-4")
+        with self._patch_litellm():
+            r = self._json_post(c, "/api/account/delete",
+                                {"confirm": "DELETE", "password": "Motdepasse1!"})
+        self.assertEqual(r.status_code, 200)
+        corps = r.get_json()
+        self.assertTrue(corps["ok"])
+        self.assertTrue(corps["deleted"])
+        with self._db():
+            db = portal.get_db()
+            self.assertIsNone(db.execute(
+                "SELECT 1 FROM local_users WHERE username='zz-del-4'").fetchone())
+            self.assertIsNone(db.execute(
+                "SELECT 1 FROM api_keys WHERE username='zz-del-4'").fetchone())
+        self._nettoie("zz-del-4")
+
+    def test_dernier_admin_local_refuse(self):
+        """Se couper la main laisserait le portail sans administrateur local."""
+        self._insere_local("zz-del-admin", is_admin=1)
+        with self._db():
+            db = portal.get_db()
+            # Aucun autre admin local actif : c'est la situation visée.
+            db.execute("UPDATE local_users SET is_admin=0 WHERE username<>'zz-del-admin'")
+            db.commit()
+        c = self._client("zz-del-admin", is_admin=True)
+        with self._patch_litellm():
+            r = self._json_post(c, "/api/account/delete",
+                                {"confirm": "DELETE", "password": "Motdepasse1!"})
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("administrateur", r.get_json()["error"])
+        with self._db():
+            self.assertIsNotNone(portal.get_db().execute(
+                "SELECT 1 FROM local_users WHERE username='zz-del-admin'").fetchone())
+        self._nettoie("zz-del-admin")
+
+    def test_compte_d_annuaire_purge_mais_ne_pretend_pas_supprimer(self):
+        """Le compte vit dans l'annuaire : le portail ne peut pas le supprimer."""
+        self._insere_source("zz-del-ldap", "ldap")
+        with self._db():
+            db = portal.get_db()
+            db.execute("INSERT OR REPLACE INTO user_prefs (username, lang) VALUES ('zz-del-ldap','fr')")
+            db.commit()
+        c = self._client("zz-del-ldap")
+        with self._patch_litellm():
+            r = self._json_post(c, "/api/account/delete", {"confirm": "DELETE"})
+        self.assertEqual(r.status_code, 200)
+        corps = r.get_json()
+        self.assertTrue(corps["ok"])
+        self.assertFalse(corps["deleted"],
+                         "un compte d'annuaire n'est pas supprimé par le portail")
+        with self._db():
+            self.assertIsNone(portal.get_db().execute(
+                "SELECT 1 FROM user_prefs WHERE username='zz-del-ldap'").fetchone())
+        self._nettoie("zz-del-ldap")
+
+
+class BudgetAffichageTest(_BaseReglages):
+    """`/api/settings` : la consommation est celle de la PÉRIODE, et elle le dit."""
+
+    def test_le_payload_porte_la_date_de_remise_a_zero(self):
+        faux = {"exists": True, "spend": 42, "max_budget": 100,
+                "budget_reset_at": "2026-09-20T00:00:00"}
+        c = self._client()
+        with patch("settings_routes._litellm_user_info", return_value=faux):
+            r = c.get("/api/settings")
+        self.assertEqual(r.status_code, 200)
+        acct = r.get_json()["account"]
+        self.assertEqual(acct["budget_reset_at"], "2026-09-20T00:00:00")
+        self.assertTrue(acct["budget_duration"],
+                        "la durée de l'enveloppe doit accompagner le plafond")
+
+    def test_sans_enveloppe_la_date_reste_absente(self):
+        """Pas de date inventée quand LiteLLM n'en donne pas."""
+        faux = {"exists": False, "spend": 0, "max_budget": None, "budget_reset_at": ""}
+        c = self._client()
+        with patch("settings_routes._litellm_user_info", return_value=faux):
+            r = c.get("/api/settings")
+        self.assertIsNone(r.get_json()["account"]["budget_reset_at"])
 
 
 if __name__ == "__main__":

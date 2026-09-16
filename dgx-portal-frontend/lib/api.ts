@@ -74,15 +74,47 @@ export async function sendJSON<T = { ok: boolean; error?: string }>(
 /**
  * Submits a form to an existing Flask route (classic POST,
  * form-encoded) by reusing its already-tested logic — no new
- * mutation endpoint on the backend. Flask responds with a redirect
- * automatically followed by fetch; we ignore that HTML body.
+ * mutation endpoint on the backend.
+ *
+ * ATTENTION — le commentaire d'origine disait « we ignore that HTML body », et
+ * c'était le piège : `postForm` ne disait RIEN du résultat, ni statut ni corps.
+ * Trois bugs de production en sont venus (historique de conversation tronqué en
+ * 413, « Clé créée ! » sur une création échouée, avatar refusé), donc le
+ * `Response` est désormais RENDU. Pour une action dont le résultat compte,
+ * lis le statut ou passe par `postFormVerifie` ; si tu n'as pas besoin de
+ * savoir, l'utilisateur non plus — mais alors ne lui affiche pas « c'est fait ».
  */
-export async function postForm(url: string, csrf: string, data: Record<string, string>): Promise<void> {
-  await authFetch(url, {
+export async function postForm(url: string, csrf: string, data: Record<string, string>): Promise<Response> {
+  return authFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
     body: new URLSearchParams(data).toString(),
   });
+}
+
+/**
+ * Verdict d'une action form-encodée.
+ *
+ * `ok: false` couvre les trois façons d'échouer, y compris celle qui trompait le
+ * plus : une réponse NON-JSON (redirection HTML, page d'erreur) est un échec, et
+ * non un succès par défaut. Le `code` d'un refus stable est remonté tel quel,
+ * pour que l'interface le traduise (cf. CLAUDE.md § i18n).
+ */
+export async function postFormVerifie(
+  url: string,
+  csrf: string,
+  data: Record<string, string>,
+): Promise<{ ok: boolean; error?: string; code?: string }> {
+  try {
+    const res = await postForm(url, csrf, data);
+    const corps = (await res.json().catch(() => null)) as
+      { ok?: boolean; error?: string; code?: string } | null;
+    if (!res.ok) return { ok: false, error: corps?.error, code: corps?.code };
+    if (corps && corps.ok === false) return { ok: false, error: corps.error, code: corps.code };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Le serveur n'a pas répondu — réessaie." };
+  }
 }
 
 /**

@@ -670,29 +670,62 @@ class NotificationMotDePasseTest(unittest.TestCase):
             self.assertFalse(user_lifecycle.prevenir_mot_de_passe_change(CIBLE))
 
     def test_annuaire_injoignable_ne_leve_pas(self):
-        with patch.object(user_lifecycle, 'SMTP_HOST', 'smtp.zoho.com'), \
-             patch('auth.ldap_lookup_email', side_effect=RuntimeError('annuaire HS')):
-            self.assertFalse(user_lifecycle.prevenir_mot_de_passe_change(CIBLE))
+        with patch('auth.ldap_lookup_email', side_effect=RuntimeError('annuaire HS')):
+            self.assertFalse(
+                user_lifecycle._envoyer_notification_mot_de_passe(CIBLE))
 
     def test_sans_adresse_connue_rien_ne_part(self):
-        with patch.object(user_lifecycle, 'SMTP_HOST', 'smtp.zoho.com'), \
-             patch('auth.ldap_lookup_email', return_value=None), \
+        with patch('auth.ldap_lookup_email', return_value=None), \
              patch('notify.send_user_email') as envoi:
-            self.assertFalse(user_lifecycle.prevenir_mot_de_passe_change(CIBLE))
+            self.assertFalse(
+                user_lifecycle._envoyer_notification_mot_de_passe(CIBLE))
         self.assertFalse(envoi.called)
 
     def test_envoi_au_bon_destinataire_et_message_distinct(self):
-        with patch.object(user_lifecycle, 'SMTP_HOST', 'smtp.zoho.com'), \
-             patch('auth.ldap_lookup_email', return_value='quelqu-un@example.com'), \
+        with patch('auth.ldap_lookup_email', return_value='quelqu-un@example.com'), \
              patch('notify.send_user_email', return_value=True) as envoi:
-            self.assertTrue(user_lifecycle.prevenir_mot_de_passe_change(CIBLE))
-            self.assertTrue(user_lifecycle.prevenir_mot_de_passe_change(
+            self.assertTrue(
+                user_lifecycle._envoyer_notification_mot_de_passe(CIBLE))
+            self.assertTrue(user_lifecycle._envoyer_notification_mot_de_passe(
                 CIBLE, par_admin=ADMIN))
         self.assertEqual(envoi.call_args_list[0][0][0], 'quelqu-un@example.com')
         # Le message dit QUI a changé le mot de passe : c'est toute la valeur
         # de la notification pour la personne qui la reçoit.
         self.assertIn("Ton mot de passe", envoi.call_args_list[0][0][2])
         self.assertIn("Un administrateur", envoi.call_args_list[1][0][2])
+
+    def test_la_reponse_n_attend_pas_l_annuaire(self):
+        """Défaut mesuré le 2026-09-16 : 3,2 s de réponse à cause du bind LDAP.
+
+        Le changement de mot de passe était déjà écrit en base, mais le clic
+        restait suspendu le temps que l'annuaire (muet) veuille bien expirer.
+        La notification est maintenant confiée à un fil : on vérifie ici que
+        l'appel rend la main tout de suite, même quand la recherche d'adresse
+        est lente, puis on attend le fil pour vérifier que l'email part quand
+        même — un correctif de latence qui perdrait la notification serait pire
+        que le mal.
+        """
+        import time as _time
+        vus = []
+
+        def _lent(_user):
+            _time.sleep(1.5)
+            return 'quelqu-un@example.com'
+
+        with patch.object(user_lifecycle, 'SMTP_HOST', 'smtp.zoho.com'), \
+             patch('auth.ldap_lookup_email', side_effect=_lent), \
+             patch('notify.send_user_email',
+                   side_effect=lambda *a, **k: vus.append(a) or True):
+            t0 = _time.time()
+            self.assertTrue(user_lifecycle.prevenir_mot_de_passe_change(CIBLE))
+            ecoule = _time.time() - t0
+            self.assertLess(ecoule, 0.5,
+                            f"la réponse a attendu l'annuaire ({ecoule:.2f} s)")
+            for _ in range(60):                       # jusqu'à ~3 s
+                if vus:
+                    break
+                _time.sleep(0.05)
+        self.assertTrue(vus, "la notification doit finir par partir malgré le fil")
 
 
 class BalayageHygieneTest(BaseComptes):

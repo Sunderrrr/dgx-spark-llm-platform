@@ -52,6 +52,12 @@ def get_user_keys(username):
             'spend': depuis_litellm.get('spend', 0),
             'max_budget': depuis_litellm.get('max_budget'),
             'budget_reset_at': depuis_litellm.get('budget_reset_at'),
+            # Dernier appel avec cette clé (colonne `last_active` de LiteLLM).
+            # Elle manquait : on ne pouvait pas distinguer la clé utilisée ce
+            # matin de celle créée il y a six mois et jamais employée — donc pas
+            # savoir laquelle révoquer sans risque. `None` = jamais utilisée
+            # d'après LiteLLM, ce qui est une information, pas une absence.
+            'last_active': depuis_litellm.get('last_active'),
         })
     return result
 
@@ -82,11 +88,19 @@ def _infos_cles(cles):
         return {}
     try:
         cur = conn.cursor()
-        cur.execute('SELECT token, spend, max_budget, budget_reset_at '
+        cur.execute('SELECT token, spend, max_budget, budget_reset_at, last_active '
                     'FROM "LiteLLM_VerificationToken" WHERE token = ANY(%s)',
                     (list(par_hash),))
-        return {par_hash[t]: {'spend': sp or 0, 'max_budget': mb, 'budget_reset_at': br or ''}
-                for t, sp, mb, br in cur.fetchall() if t in par_hash}
+        # `last_active` peut être NULL (clé jamais utilisée) : on garde le None,
+        # l'interface en fait « Jamais utilisée ». Le type varie selon la version
+        # de LiteLLM (timestamp ou texte) : on accepte les deux — une exception
+        # ici ferait tomber TOUT le bloc dans le `except`, donc afficherait 0
+        # dépensé pour des clés qui ont consommé.
+        return {par_hash[t]: {'spend': sp or 0, 'max_budget': mb,
+                              'budget_reset_at': br or '',
+                              'last_active': (la.isoformat() if hasattr(la, 'isoformat')
+                                              else (str(la) if la else None))}
+                for t, sp, mb, br, la in cur.fetchall() if t in par_hash}
     except Exception as e:                                   # noqa: BLE001
         _log.warning("infos cles : lecture LiteLLM impossible (%s)", type(e).__name__)
         return {}
@@ -198,6 +212,27 @@ def revoke_litellm_key(key_value):
                       headers=litellm_headers(),
                       json={"keys": [key_value]}, timeout=5)
     return r.ok
+
+
+def renommer_cle_litellm(key_value, nouvel_alias):
+    """Met à jour l'alias de la clé CHEZ LiteLLM, pas seulement dans le portail.
+
+    L'alias est dupliqué : le portail en garde une copie (`api_keys.key_alias`)
+    pour lister les clés sans interroger LiteLLM, et LiteLLM affiche le sien
+    dans son propre tableau de bord. N'en mettre à jour qu'un des deux ferait
+    diverger les deux vues — le portail montrerait « portable-nora » là où
+    l'admin lirait encore « cle-27 ».
+
+    La clé part dans le CORPS de la requête, jamais dans l'URL : c'est la règle
+    qui a fait abandonner `/key/info` (cf. `_infos_cles`, fuite constatée dans
+    les journaux du proxy le 23/08).
+    """
+    try:
+        r = requests.post(f"{LITELLM_URL}/key/update", headers=litellm_headers(),
+                          json={"key": key_value, "key_alias": nouvel_alias}, timeout=5)
+        return r.ok
+    except Exception:
+        return False
 
 
 # ── Enregistrement des modeles dans LiteLLM ──────────────────────────────────

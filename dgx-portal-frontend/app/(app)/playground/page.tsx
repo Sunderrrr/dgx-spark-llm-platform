@@ -1812,7 +1812,19 @@ export default function PlaygroundPage() {
 
   function deleteConversation(id: string) {
     setConversations((prev) => prev.filter((c) => c.id !== id));
-    if (csrf) void removeConversation(csrf, id);
+    if (csrf) {
+      // La suppression est optimiste à l'écran, mais un refus du serveur est
+      // DIT : sinon la conversation revenait au rechargement, comme si le clic
+      // n'avait rien fait.
+      void removeConversation(csrf, id).then((ok) => {
+        if (!ok) {
+          showToast({
+            body: t("Suppression impossible — la conversation est conservée."),
+            type: "error",
+          });
+        }
+      });
+    }
     if (id === currentId) setCurrentId(null);
   }
 

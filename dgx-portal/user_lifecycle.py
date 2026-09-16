@@ -22,6 +22,7 @@ plus : la purge des orphelins du script de sauvegarde s'en charge, avec sa
 grâce de 7 jours — supprimer les jobs suffit à les rendre orphelins.
 """
 import sqlite3
+import threading
 
 from config import SMTP_HOST
 from db import get_db, log_audit
@@ -177,18 +178,12 @@ def deprovisionner_compte(username, par, purge=True, action='user.delete'):
     return rapport
 
 
-def prevenir_mot_de_passe_change(username, par_admin=None):
-    """Prévient l'intéressé que son mot de passe vient de changer.
+def _envoyer_notification_mot_de_passe(username, par_admin=None):
+    """Le travail réel de la notification (adresse, puis email).
 
-    C'est ce qui donne sa valeur au changement en autonomie : quelqu'un dont le
-    compte est pris reste aveugle tant que personne ne lui dit que le mot de
-    passe a bougé. Best-effort assumé — sans SMTP configuré (ou sans adresse
-    connue pour un compte purement local), il ne se passe rien et le changement
-    aboutit quand même : une notification ne doit jamais faire échouer l'action
-    qu'elle rapporte.
+    Séparé de `prevenir_mot_de_passe_change` pour être testable sans fil : c'est
+    ici que l'annuaire est interrogé, et c'est cette partie qui peut être lente.
     """
-    if not SMTP_HOST:
-        return False
     try:
         from auth import ldap_lookup_email
         from notify import send_user_email
@@ -211,3 +206,29 @@ def prevenir_mot_de_passe_change(username, par_admin=None):
     except Exception as exc:                                     # noqa: BLE001
         print(f'[user_lifecycle] notification de mot de passe non envoyée : {exc}')
         return False
+
+
+def prevenir_mot_de_passe_change(username, par_admin=None):
+    """Prévient l'intéressé que son mot de passe vient de changer, HORS du chemin.
+
+    C'est ce qui donne sa valeur au changement en autonomie : quelqu'un dont le
+    compte est pris reste aveugle tant que personne ne lui dit que le mot de
+    passe a bougé. Best-effort assumé — sans SMTP configuré (ou sans adresse
+    connue pour un compte purement local), il ne se passe rien et le changement
+    aboutit quand même : une notification ne doit jamais faire échouer l'action
+    qu'elle rapporte.
+
+    Elle ne doit pas la RETARDER non plus. Mesuré le 2026-09-16 : la réponse à
+    `POST /api/account/password` mettait **3,2 s**, parce que l'adresse se
+    cherche par un bind LDAP (`ldap_lookup_email`) et que l'annuaire ne répond
+    pas — alors que le changement, lui, était déjà écrit en base. Le clic restait
+    donc suspendu sur un travail qui ne le concerne pas. La notification part
+    maintenant dans un fil démon : elle ne peut ni échouer bruyamment, ni faire
+    attendre. Renvoie False seulement quand il n'y a rien à faire (pas de SMTP).
+    """
+    if not SMTP_HOST:
+        return False
+    threading.Thread(target=_envoyer_notification_mot_de_passe,
+                     args=(username, par_admin),
+                     name='notif-mot-de-passe', daemon=True).start()
+    return True

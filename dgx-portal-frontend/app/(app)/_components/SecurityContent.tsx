@@ -27,8 +27,50 @@ import { useT, useLocale } from "@/lib/i18n";
 import { SessionsList, type AccountSession } from "./SessionsList";
 
 type Cred = { id: number; credential_id: string; label: string; created_at: number };
-type SecurityState = { enabled: boolean; credentials: Cred[] };
-type SessionsState = { sessions: AccountSession[]; local_account?: boolean };
+type SecurityState = {
+  enabled: boolean;
+  credentials: Cred[];
+  password_managed_by?: string;
+  passkey_possible?: boolean;
+};
+type SessionsState = {
+  sessions: AccountSession[];
+  local_account?: boolean;
+  password_managed_by?: string;
+  passkey_possible?: boolean;
+};
+
+/** D'où vient le mot de passe, et ce qu'on peut en dire.
+ *
+ * Les sources du portail sont CUMULATIVES (`user_sources`) : un compte peut
+ * être local ET avoir servi en SSO. On ne devine donc pas « SSO » à partir de
+ * l'absence de ligne locale — on lit ce que le serveur répond, et quand il ne
+ * sait pas, on le dit au lieu de proposer un formulaire qui échouera.
+ */
+function motDePasseInfo(gestion: string | undefined) {
+  switch (gestion) {
+    case "portail":
+      return { local: true, passkey: true, note: "" };
+    case "annuaire-ldap":
+      return {
+        local: false,
+        passkey: true,
+        note: "Compte LDAP : ton mot de passe est celui de l'annuaire. Le portail ne le stocke pas, il le vérifie auprès de l'annuaire — change-le depuis ton administrateur.",
+      };
+    case "fournisseur-sso":
+      return {
+        local: false,
+        passkey: false,
+        note: "Compte SSO : ton mot de passe appartient au fournisseur d'identité, qui seul peut le changer. Le portail n'en connaît aucun.",
+      };
+    default:
+      return {
+        local: false,
+        passkey: false,
+        note: "Le portail n'a pas de mot de passe pour ce compte : il se connecte par l'annuaire (LDAP ou SSO), où le mot de passe se change.",
+      };
+  }
+}
 
 function supportsWebAuthn(): boolean {
   return typeof window !== "undefined" && !!window.PublicKeyCredential && !!navigator.credentials;
@@ -208,9 +250,55 @@ export function SecurityContent() {
   const credentials = sec?.credentials ?? [];
   const sessions = sess?.sessions ?? [];
   const otherSessions = sessions.filter((s) => !s.current);
-  // Compte local → formulaire ; LDAP/SSO → simple note. Le /api/whoami porte
-  // le drapeau (défaut : on suppose local tant que rien ne dit le contraire).
-  const localAccount = who?.local_account ?? sess?.local_account ?? true;
+  // Source du mot de passe : dite par le serveur (`/api/whoami` puis
+  // `/api/account/sessions` en repli). Tant qu'on ne sait pas, on n'affiche PAS
+  // le formulaire : l'ancien `?? true` supposait « compte local » par défaut et
+  // montrait donc un changeur de mot de passe à un compte SSO — le serveur le
+  // refusait ensuite, mais après coup.
+  const gestion = who?.password_managed_by ?? sess?.password_managed_by;
+  const info = motDePasseInfo(gestion);
+  const passkeyPossible = who?.passkey_possible ?? sess?.passkey_possible ?? info.passkey;
+  // Suppression de compte : deux gestes distincts selon qui détient le compte.
+  const [suppression, setSuppression] = useState(false);
+  const [confirmSuppression, setConfirmSuppression] = useState("");
+  const [mdpSuppression, setMdpSuppression] = useState("");
+  const [suppressionBusy, setSuppressionBusy] = useState(false);
+  const [suppressionMsg, setSuppressionMsg] = useState<string | null>(null);
+
+  /** Supprime le compte (local) ou efface ses données (compte d'annuaire).
+   *
+   * Le serveur exécute `deprovisionner_compte` — le même chemin que la
+   * suppression par un admin — puis coupe les sessions : on ne peut donc pas
+   * rester connecté après. On l'annonce, puis on repart sur /login. */
+  async function supprimerCompte() {
+    if (!csrf || suppressionBusy) return;
+    setSuppressionBusy(true);
+    setSuppressionMsg(null);
+    try {
+      const res = await sendJSON<{
+        ok: boolean; deleted?: boolean; error?: string; warning?: string;
+      }>("/api/account/delete", csrf, {
+        confirm: confirmSuppression.trim(),
+        password: mdpSuppression,
+      });
+      if (!res.ok) {
+        setSuppressionMsg(t(res.error || "La suppression a échoué."));
+        return;
+      }
+      setSuppressionMsg(
+        res.deleted
+          ? t("Ton compte est supprimé. Tu vas être déconnecté…")
+          : t("Tes données du portail sont effacées. Ton compte, lui, existe toujours dans l'annuaire : demande à un administrateur de le bloquer si tu pars.")
+          + (res.warning ? ` ${res.warning}` : ""),
+      );
+      // Session déjà révoquée côté serveur : rester ici n'aurait aucun sens.
+      window.setTimeout(() => window.location.assign("/login"), res.deleted ? 2500 : 6000);
+    } catch {
+      setSuppressionMsg(t("Le serveur n'a pas répondu — réessaie."));
+    } finally {
+      setSuppressionBusy(false);
+    }
+  }
 
   return (
     <VStack gap={3}>
@@ -223,17 +311,29 @@ export function SecurityContent() {
 
       <Card>
         <VStack gap={3}>
-          <Switch
-            label={t("Exiger une clé de sécurité au login")}
-            value={enabled}
-            isDisabled={!credentials.length && !enabled}
-            onChange={(v) => setPendingAction({ kind: "toggle", enabled: v })}
-          />
-          <Text type="supporting" color="secondary">
-            {enabled
-              ? t("Ta clé sera demandée après le mot de passe (local ou LDAP).")
-              : t("Une fois activée, la clé est exigée à chaque connexion.")}
-          </Text>
+          {passkeyPossible ? (
+            <>
+              <Switch
+                label={t("Exiger une clé de sécurité au login")}
+                value={enabled}
+                isDisabled={!credentials.length && !enabled}
+                onChange={(v) => setPendingAction({ kind: "toggle", enabled: v })}
+              />
+              <Text type="supporting" color="secondary">
+                {enabled
+                  ? t("Ta clé sera demandée après le mot de passe (local ou LDAP).")
+                  : t("Une fois activée, la clé est exigée à chaque connexion.")}
+              </Text>
+            </>
+          ) : (
+            /* Le portail ne peut pas re-vérifier un mot de passe SSO, or c'est
+               ce que la 2FA exige pour être modifiée : proposer l'interrupteur
+               ne mènerait qu'à « Mot de passe incorrect », ce qui est faux. */
+            <Banner
+              status="info"
+              title={t("Compte SSO : la double authentification se règle chez ton fournisseur d'identité, pas ici.")}
+            />
+          )}
         </VStack>
       </Card>
 
@@ -241,14 +341,16 @@ export function SecurityContent() {
         <VStack gap={3}>
           <HStack hAlign="between" vAlign="center">
             <Text weight="semibold">{t("Clés de sécurité")}</Text>
-            <Button
-              label={t("Ajouter une clé")}
-              variant="primary"
-              size="sm"
-              icon={<Icon icon={PlusIcon} size="sm" />}
-              isLoading={busy}
-              onClick={addKey}
-            />
+            {passkeyPossible && (
+              <Button
+                label={t("Ajouter une clé")}
+                variant="primary"
+                size="sm"
+                icon={<Icon icon={PlusIcon} size="sm" />}
+                isLoading={busy}
+                onClick={addKey}
+              />
+            )}
           </HStack>
 
           {credentials.length === 0 ? (
@@ -329,7 +431,7 @@ export function SecurityContent() {
               {t("Le mot de passe sert au login et à confirmer les actions sensibles.")}
             </Text>
           </VStack>
-          {localAccount ? (
+          {info.local ? (
             <VStack gap={3}>
               {pwMsg && <Banner status={pwMsg.status} title={pwMsg.text} />}
               <TextInput
@@ -372,9 +474,74 @@ export function SecurityContent() {
               </HStack>
             </VStack>
           ) : (
+            <Banner status="info" title={t(info.note)} />
+          )}
+        </VStack>
+      </Card>
+
+      {/* Quitter la plateforme — le geste manquait complètement : il fallait
+          passer par un administrateur pour supprimer son propre compte. */}
+      <Card>
+        <VStack gap={3}>
+          <VStack gap={0}>
+            <Text weight="semibold">{t("Supprimer mon compte")}</Text>
             <Text type="supporting" color="secondary">
-              {t("Compte LDAP/SSO : le mot de passe est géré dans l'annuaire, pas ici.")}
+              {info.local
+                ? t("Cela supprime ton compte, tes clés API, tes conversations et ta mémoire. C'est définitif.")
+                : t("Cela efface tes données du portail (clés, conversations, mémoire, préférences). Ton compte, lui, appartient à l'annuaire : il continue d'exister.")}
             </Text>
+          </VStack>
+          {suppressionMsg ? <Banner status="info" title={suppressionMsg} /> : null}
+          {suppression ? (
+            <VStack gap={3}>
+              <TextInput
+                label={t("Tapez DELETE pour confirmer")}
+                value={confirmSuppression}
+                onChange={setConfirmSuppression}
+              />
+              {info.local && (
+                <TextInput
+                  label={t("Ton mot de passe")}
+                  type="password"
+                  value={mdpSuppression}
+                  onChange={setMdpSuppression}
+                  onKeyDown={(e: React.KeyboardEvent) => {
+                    if (e.key === "Enter") supprimerCompte();
+                  }}
+                />
+              )}
+              <HStack gap={2}>
+                <Button
+                  label={info.local ? t("Supprimer définitivement mon compte") : t("Effacer mes données")}
+                  variant="primary"
+                  size="sm"
+                  isLoading={suppressionBusy}
+                  isDisabled={confirmSuppression.trim() !== "DELETE"
+                    || (info.local && !mdpSuppression)}
+                  onClick={supprimerCompte}
+                />
+                <Button
+                  label={t("Annuler")}
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setSuppression(false);
+                    setConfirmSuppression("");
+                    setMdpSuppression("");
+                  }}
+                />
+              </HStack>
+            </VStack>
+          ) : (
+            <HStack>
+              <Button
+                label={t("Supprimer mon compte")}
+                variant="secondary"
+                size="sm"
+                icon={<Icon icon={TrashIcon} size="sm" />}
+                onClick={() => setSuppression(true)}
+              />
+            </HStack>
           )}
         </VStack>
       </Card>

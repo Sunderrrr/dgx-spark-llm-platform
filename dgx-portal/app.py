@@ -165,7 +165,8 @@ from guards import (  # noqa: E402
 # Client LiteLLM (cles, budgets, comptes) : cf. litellm_client.py
 from litellm_client import (  # noqa: E402
     _ensure_litellm_user, _infos_cles, _litellm_user_info, create_litellm_key,
-    get_user_keys, litellm_headers, litellm_update_user_budget, revoke_litellm_key,
+    get_user_keys, litellm_headers, litellm_update_user_budget, renommer_cle_litellm,
+    revoke_litellm_key,
 )
 
 # get_running_models / _rm_cache : cf. vllm_health.py
@@ -226,7 +227,7 @@ from auth import (  # noqa: E402
 from local_users import (  # noqa: E402
     _local_group, _local_user_auth, _local_user_effective_budget,
     _local_user_is_admin, _parse_budget, _record_user_source,
-    _sync_local_user_budget,
+    _sync_local_user_budget, gestion_mot_de_passe,
 )
 
 # ── Discord account linking (OAuth2 "identify") ──────────────────────────────
@@ -954,6 +955,10 @@ def api_whoami():
     pref = get_db().execute(
         "SELECT avatar_id, theme_id, lang, onboarded FROM user_prefs WHERE username=?",
         (session.get('username'),)).fetchone()
+    # Qui détient le mot de passe de ce compte : le portail, l'annuaire LDAP, le
+    # fournisseur SSO, ou personne qu'on sache. L'interface s'en sert pour
+    # montrer le bon formulaire — ou pour dire où le mot de passe se change.
+    gestion = gestion_mot_de_passe(session.get('username'))
     return jsonify({'username': session.get('username'), 'fullname': session.get('fullname'),
                      'is_admin': bool(session.get('is_admin')),
                      'avatar_id': pref['avatar_id'] if pref else None,
@@ -962,13 +967,13 @@ def api_whoami():
                      # Absence de ligne user_prefs = compte qui n'a jamais rien
                      # réglé, donc jamais vu la prise en main.
                      'onboarded': bool(pref['onboarded']) if pref else False,
-                     # L'interface ne propose le changement de mot de passe
-                     # que pour un compte local : un compte d'annuaire n'en a
-                     # pas ici, et lui montrer un formulaire inopérant serait
-                     # pire que de ne rien montrer.
-                     'local_account': get_db().execute(
-                         "SELECT 1 FROM local_users WHERE username=?",
-                         (session.get('username'),)).fetchone() is not None,
+                     # `local_account` reste pour les appelants existants ;
+                     # `password_managed_by` dit la même chose en plus précis
+                     # (un compte peut être local ET s'être connecté en SSO).
+                     'local_account': gestion['local'],
+                     'password_managed_by': gestion['gestion'],
+                     'auth_sources': gestion['sources'],
+                     'passkey_possible': gestion['passkey'],
                      'maintenance_mode': maintenance_active()})
 
 
@@ -1146,6 +1151,44 @@ def keys():
                    (k, session['username']))
         db.commit()
         return jsonify({'ok': True})
+    if action == 'rename':
+        k = request.form.get('key')
+        raw_name = request.form.get('key_name', '').strip()
+        db = get_db()
+        # Même vérification d'appartenance que la révocation : sans elle, on
+        # renommerait la clé de quelqu'un d'autre en soumettant sa valeur.
+        owns = db.execute(
+            "SELECT key_alias FROM api_keys WHERE key_value=? AND username=?",
+            (k, session['username'])
+        ).fetchone()
+        if not owns:
+            return jsonify({'ok': False, 'error': "Clé introuvable sur ce compte."}), 404
+        # Mêmes règles que la création, sinon un alias de 4000 caractères ou
+        # plein de sauts de ligne casserait l'affichage de la liste.
+        alias = re.sub(r'[^a-zA-Z0-9_-]', '-', raw_name)[:40]
+        if not alias:
+            return jsonify({'ok': False, 'error': "Le nom doit contenir au moins un "
+                                                  "caractère (lettres, chiffres, - ou _)."}), 400
+        # Un alias déjà porté par une AUTRE de tes clés rendrait la liste
+        # ambiguë : c'est exactement ce que l'alias sert à éviter.
+        doublon = db.execute(
+            "SELECT 1 FROM api_keys WHERE username=? AND key_alias=? AND key_value<>?",
+            (session['username'], alias, k)
+        ).fetchone()
+        if doublon:
+            return jsonify({'ok': False, 'code': 'alias_deja_utilise',
+                            'error': "Tu as déjà une clé nommée ainsi."}), 409
+        # LiteLLM d'abord : si on renommait seulement chez nous, sa console
+        # continuerait d'afficher l'ancien nom, et l'admin ne saurait plus à qui
+        # appartient une clé donnée.
+        if not renommer_cle_litellm(k, alias):
+            return jsonify({'ok': False,
+                            'error': "Le nom n'a PAS pu être changé : LiteLLM n'a pas "
+                                     "répondu. La clé est intacte, réessaie."}), 502
+        db.execute("UPDATE api_keys SET key_alias=? WHERE key_value=? AND username=?",
+                   (alias, k, session['username']))
+        db.commit()
+        return jsonify({'ok': True, 'key_alias': alias})
     if action == 'request_budget':
         reason  = request.form.get('reason', '').strip()
         current = _litellm_user_info(session['username']).get('max_budget')

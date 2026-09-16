@@ -17,7 +17,10 @@ import { TabList, Tab } from "@astryxdesign/core/TabList";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { useToast } from "@astryxdesign/core/Toast";
-import { PlusIcon, TrashIcon, EyeIcon, EyeSlashIcon, KeyIcon } from "@heroicons/react/24/outline";
+import {
+  PlusIcon, TrashIcon, EyeIcon, EyeSlashIcon, KeyIcon,
+  ClipboardDocumentIcon, PencilIcon,
+} from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { authFetch, getJSON } from "@/lib/api";
 import { copierTexte } from "@/lib/copier";
@@ -31,7 +34,15 @@ import {
 import { useT, useLocale } from "@/lib/i18n";
 
 type DiscordStatus = { linkable: boolean; dm_enabled: boolean; linked: boolean; discord_name: string };
-type ApiKey = { key_alias: string; key: string; created_at: string; spend: number };
+type ApiKey = {
+  key_alias: string;
+  key: string;
+  created_at: string;
+  // `last_active` vient de LiteLLM (dernier appel avec cette clé) : c'est ce qui
+  // permet de repérer une clé oubliée sans avoir à la révoquer à l'aveugle.
+  last_active: string | null;
+  spend: number;
+};
 type Account = { spend: number; max_budget: number; budget_reset_at: string | null; unlimited: boolean; has_pending: boolean };
 type KeysData = {
   user_keys: ApiKey[];
@@ -138,6 +149,38 @@ export function KeysContent() {
     await actionKeys({ action: "revoke", key }, t("Clé révoquée."));
   }
 
+  /** Copie la clé SANS la révéler.
+   *
+   * Il fallait auparavant afficher la clé, la sélectionner à la souris puis la
+   * copier — trois gestes, et la clé restait à l'écran (celle du voisin de
+   * bureau, d'une capture d'écran, d'un partage de fenêtre). Le bouton
+   * « Afficher » sert à LIRE une clé, pas à la copier.
+   */
+  function copyKey(key: string, alias: string) {
+    void copierTexte(key, () =>
+      showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }),
+    ).then((ok) => {
+      if (ok) {
+        showToast({
+          body: t("Clé « {alias} » copiée.").replace("{alias}", alias),
+          type: "info",
+        });
+      }
+    });
+  }
+
+  /** Renomme une clé : l'alias est ce qui permet de s'y retrouver quand on en a
+   *  plusieurs (une par machine) — il devait être choisi une fois pour toutes. */
+  async function renameKey(key: string, alias: string) {
+    const nouveau = window.prompt(
+      t("Nouveau nom pour la clé « {alias} » :").replace("{alias}", alias), alias,
+    );
+    if (nouveau === null) return;
+    const propre = nouveau.trim();
+    if (!propre || propre === alias) return;
+    await actionKeys({ action: "rename", key, key_name: propre }, t("Clé renommée."));
+  }
+
   async function requestBudget() {
     const ok = await actionKeys(
       { action: "request_budget", reason: budgetReason },
@@ -189,15 +232,47 @@ export function KeysContent() {
               })
             }
           />
+          <Button
+            label={t("Copier la clé")}
+            variant="ghost"
+            size="sm"
+            isIconOnly
+            icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+            onClick={() => copyKey(row.key, row.key_alias)}
+          />
         </HStack>
       ),
+    },
+    {
+      key: "created_at",
+      header: t("Créée le"),
+      renderCell: (row) => (row.created_at ? new Date(row.created_at).toLocaleDateString(numLocale) : "—"),
+    },
+    {
+      key: "last_active",
+      header: t("Dernière utilisation"),
+      // Jamais utilisée = information utile, pas une case vide : c'est
+      // exactement la clé qu'on peut révoquer sans rien casser.
+      renderCell: (row) => (row.last_active
+        ? new Date(row.last_active).toLocaleDateString(numLocale)
+        : t("Jamais utilisée")),
     },
     { key: "spend", header: t("Dépensé"), renderCell: (row) => `${Math.round(row.spend || 0).toLocaleString(numLocale)} tokens` },
     {
       key: "actions" as keyof ApiKey,
       header: "",
       renderCell: (row) => (
-        <Button label={t("Révoquer")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => revokeKey(row.key, row.key_alias)} />
+        <HStack gap={1} vAlign="center">
+          <Button
+            label={t("Renommer")}
+            variant="ghost"
+            size="sm"
+            isIconOnly
+            icon={<Icon icon={PencilIcon} size="sm" />}
+            onClick={() => renameKey(row.key, row.key_alias)}
+          />
+          <Button label={t("Révoquer")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => revokeKey(row.key, row.key_alias)} />
+        </HStack>
       ),
     },
   ];

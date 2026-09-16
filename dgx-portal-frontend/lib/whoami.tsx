@@ -19,6 +19,16 @@ export type Whoami = {
   // Compte à mot de passe local (false = LDAP/SSO : le mot de passe se gère
   // dans l'annuaire, pas dans le portail).
   local_account: boolean;
+  /** Qui détient le mot de passe : 'portail' | 'annuaire-ldap' |
+   *  'fournisseur-sso' | 'inconnu'. Plus précis que `local_account`, parce que
+   *  les sources sont CUMULATIVES : un compte local qui s'est aussi connecté en
+   *  SSO a bien un mot de passe ici. */
+  password_managed_by?: string;
+  /** Sources d'authentification consignées ('local', 'ldap', 'sso'). */
+  auth_sources?: string[];
+  /** Ajouter/retirer une passkey exige une re-vérification par mot de passe :
+   *  impossible pour un compte SSO (portée produit : local + LDAP). */
+  passkey_possible?: boolean;
 };
 
 const WhoamiContext = createContext<{

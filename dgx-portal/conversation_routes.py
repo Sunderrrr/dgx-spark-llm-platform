@@ -255,13 +255,15 @@ def settings_appearance():
     db = get_db()
     if theme_id is not None:
         if theme_id not in THEME_IDS:
-            return jsonify({'ok': False, 'error': 'Thème inconnu.'})
+            # 400 et pas 200 : un refus qui part avec le statut du succès oblige
+            # chaque appelant à penser à lire le corps — celui-ci ne le faisait pas.
+            return jsonify({'ok': False, 'error': 'Thème inconnu.'}), 400
         db.execute("INSERT INTO user_prefs (username, theme_id) VALUES (?,?) "
                    "ON CONFLICT(username) DO UPDATE SET theme_id=excluded.theme_id",
                    (session['username'], theme_id))
     if lang is not None:
         if lang not in LANGS:
-            return jsonify({'ok': False, 'error': 'Langue inconnue.'})
+            return jsonify({'ok': False, 'error': 'Langue inconnue.'}), 400
         db.execute("INSERT INTO user_prefs (username, lang) VALUES (?,?) "
                    "ON CONFLICT(username) DO UPDATE SET lang=excluded.lang",
                    (session['username'], lang))
@@ -274,12 +276,14 @@ def settings_appearance():
 def settings_avatar():
     avatar_id = request.form.get('avatar_id', '')
     if avatar_id not in AVATAR_IDS:
-        flash("Avatar invalide.", "danger")
-        return ('', 204)
+        # `flash` n'est rendu par AUCUN template (l'interface est Next.js) : un
+        # avatar refusé laissait l'écran montrer le nouveau choix jusqu'au
+        # rechargement, sans un mot. On répond ce que l'appelant peut lire.
+        return jsonify({'ok': False, 'error': 'Avatar inconnu.'}), 400
     db = get_db()
     db.execute(
         "INSERT INTO user_prefs (username, avatar_id) VALUES (?,?) "
         "ON CONFLICT(username) DO UPDATE SET avatar_id=excluded.avatar_id",
         (session['username'], avatar_id))
     db.commit()
-    return ('', 204)
+    return jsonify({'ok': True})

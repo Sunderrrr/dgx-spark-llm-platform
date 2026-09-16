@@ -19,7 +19,8 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { useToast } from "@astryxdesign/core/Toast";
 import { PlusIcon, TrashIcon, EyeIcon, EyeSlashIcon, KeyIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { getJSON, postForm } from "@/lib/api";
+import { authFetch, getJSON } from "@/lib/api";
+import { copierTexte } from "@/lib/copier";
 import {
   INTEGRATION_TOOLS,
   buildSnippet,
@@ -58,48 +59,108 @@ export function KeysContent() {
   const [selectedModel, setSelectedModel] = useState("");
   const [tool, setTool] = useState<IntegrationTool>("opencode");
   const [discord, setDiscord] = useState<DiscordStatus | null>(null);
+  const [erreurChargement, setErreurChargement] = useState("");
+  const [enCours, setEnCours] = useState(false);
 
   function refresh() {
-    getJSON<KeysData>("/api/keys").then((d) => {
-      setData(d);
-      if (!selectedKey && d.user_keys.length) setSelectedKey(d.user_keys[0].key);
-      // Default: the virtual "auto-model" (follows the currently-running model).
-      if (!selectedModel) setSelectedModel(d.auto_model || d.running_models[0] || "");
-    });
+    getJSON<KeysData>("/api/keys")
+      .then((d) => {
+        setErreurChargement("");
+        setData(d);
+        if (!selectedKey && d.user_keys.length) setSelectedKey(d.user_keys[0].key);
+        // Default: the virtual "auto-model" (follows the currently-running model).
+        if (!selectedModel) setSelectedModel(d.auto_model || d.running_models[0] || "");
+      })
+      // Avant : pas de `catch`, donc une requête en échec laissait l'onglet
+      // presque vide (juste le titre) sans le moindre mot d'explication.
+      .catch((e: Error) => setErreurChargement(e.message));
     getJSON<DiscordStatus>("/api/discord/status").then(setDiscord).catch(() => {});
+  }
+
+  /** Exécute une action du formulaire et ne dit « c'est fait » que si c'est vrai.
+   *
+   * Les quatre actions de cet onglet passaient par `postForm`, qui ne rend NI le
+   * statut NI le corps de la réponse : tout échec (LiteLLM injoignable, clé
+   * introuvable, demande déjà en attente — refusée en 409) s'affichait comme un
+   * succès. La révocation était le pire cas : la clé restait valide alors que
+   * l'utilisateur la croyait morte.
+   */
+  async function actionKeys(
+    corps: Record<string, string>,
+    succes: string,
+    apres?: (r: { key_alias?: string; key?: string }) => void,
+  ): Promise<boolean> {
+    if (!csrf) return false;
+    setEnCours(true);
+    try {
+      const res = await authFetch("/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
+        body: new URLSearchParams(corps).toString(),
+      });
+      const r = (await res.json().catch(() => ({}))) as {
+        ok?: boolean; error?: string; code?: string; key_alias?: string; key?: string;
+      };
+      if (!res.ok || r.ok === false) {
+        // Un refus stable porte un `code` (ex. `deja_en_attente`) : l'interface
+        // le traduit, la phrase du serveur ne sert que de repli.
+        const msg = r.code ? t(r.code) : r.error;
+        showToast({ body: msg ? t(msg) : t("L'action a échoué."), type: "error" });
+        return false;
+      }
+      apres?.(r);
+      showToast({ body: succes, type: "info" });
+      refresh();
+      return true;
+    } catch {
+      showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
+      return false;
+    } finally {
+      setEnCours(false);
+    }
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- should only run on mount
   useEffect(refresh, []);
 
   async function createKey() {
-    if (!csrf) return;
-    await postForm("/keys", csrf, { action: "create", key_name: keyName });
-    setKeyName("");
-    showToast({ body: t("Clé créée !"), type: "info" });
-    refresh();
+    await actionKeys({ action: "create", key_name: keyName }, t("Clé créée !"), (r) => {
+      setKeyName("");
+      // On montre la clé neuve tout de suite : c'est le seul moment où on la
+      // voit sans cliquer sur « Afficher », et c'est ce qu'on veut copier.
+      if (r.key) setRevealed((prev) => new Set(prev).add(r.key as string));
+    });
   }
 
-  async function revokeKey(key: string) {
-    if (!csrf) return;
-    await postForm("/keys", csrf, { action: "revoke", key });
-    showToast({ body: t("Clé révoquée."), type: "info" });
-    refresh();
+  async function revokeKey(key: string, alias: string) {
+    // Révocation = perte définitive : on demande confirmation, avec le nom.
+    if (!window.confirm(t("Révoquer la clé « {alias} » ? Les programmes qui l'utilisent cesseront de fonctionner.").replace("{alias}", alias))) return;
+    await actionKeys({ action: "revoke", key }, t("Clé révoquée."));
   }
 
   async function requestBudget() {
-    if (!csrf) return;
-    await postForm("/keys", csrf, { action: "request_budget", reason: budgetReason });
-    setBudgetReason("");
-    setShowBudgetForm(false);
-    showToast({ body: t("Demande de tokens envoyée !"), type: "info" });
-    refresh();
+    const ok = await actionKeys(
+      { action: "request_budget", reason: budgetReason },
+      t("Demande de tokens envoyée !"),
+    );
+    if (ok) {
+      setBudgetReason("");
+      setShowBudgetForm(false);
+    }
   }
 
   async function unlinkDiscord() {
     if (!csrf) return;
-    await postForm("/discord/unlink", csrf, {});
-    showToast({ body: t("Compte Discord délié."), type: "info" });
+    try {
+      const res = await authFetch("/discord/unlink", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
+        body: "",
+      });
+      showToast({ body: res.ok ? t("Compte Discord délié.") : t("Le déliage a échoué."), type: res.ok ? "info" : "error" });
+    } catch {
+      showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
+    }
     refresh();
   }
 
@@ -136,7 +197,7 @@ export function KeysContent() {
       key: "actions" as keyof ApiKey,
       header: "",
       renderCell: (row) => (
-        <Button label={t("Révoquer")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => revokeKey(row.key)} />
+        <Button label={t("Révoquer")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => revokeKey(row.key, row.key_alias)} />
       ),
     },
   ];
@@ -170,9 +231,20 @@ export function KeysContent() {
             placeholder={t("Nom (ex: mon-laptop)")}
             size="sm"
           />
-          <Button label={t("Nouvelle clé")} variant="primary" size="sm" icon={<Icon icon={PlusIcon} size="sm" />} onClick={createKey} />
+          <Button label={t("Nouvelle clé")} variant="primary" size="sm" icon={<Icon icon={PlusIcon} size="sm" />} onClick={createKey} isLoading={enCours} />
         </HStack>
       </HStack>
+
+      {erreurChargement && (
+        <Card>
+          <HStack hAlign="between" vAlign="center" gap={3}>
+            <Text type="supporting" color="secondary">
+              {t("Impossible de charger tes clés :")} {erreurChargement}
+            </Text>
+            <Button label={t("Réessayer")} variant="secondary" size="sm" onClick={refresh} />
+          </HStack>
+        </Card>
+      )}
 
       {data && (
         <Card>
@@ -324,7 +396,8 @@ export function KeysContent() {
               code={snippetAffiche}
               onCopy={() => {
                 if (!snippetReel) return;
-                void navigator.clipboard?.writeText(snippetReel).catch(() => {});
+                void copierTexte(snippetReel, () =>
+                  showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }));
               }}
               language={snippetLanguage(tool)}
               width="100%"

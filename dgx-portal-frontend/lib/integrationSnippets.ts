@@ -57,7 +57,10 @@ claude${ctx}
     const modelDef = lim
       ? `"${m}": {\n          "name": "${m}",\n          "limit": { "context": ${lim.context}, "output": ${lim.output} }\n        }`
       : `"${m}": { "name": "${m}" }`;
-    return `# ~/.config/opencode/opencode.json
+    // `//` et non `#` : opencode lit un JSONC, où `#` n'est PAS un commentaire —
+    // l'utilisateur qui recopiait l'extrait tel quel obtenait un fichier refusé
+    // (« invalid character '#' looking for beginning of value »).
+    return `// ~/.config/opencode/opencode.json
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {

@@ -137,3 +137,60 @@ def _parse_budget(raw):
         return v, None
     except ValueError:
         return None, "Quota invalide."
+
+
+# ── D'où vient le mot de passe d'un compte ───────────────────────────────────
+# Le portail connaît TROIS chemins de connexion (local_users → LDAP → SSO) et
+# les consigne de façon CUMULATIVE dans `user_sources` : un même compte peut
+# avoir une ligne locale ET s'être connecté en SSO. Annoncer « compte SSO » à
+# quelqu'un qui possède aussi un mot de passe local serait donc faux — et lui
+# cacher un formulaire qui fonctionne serait pire que de l'afficher.
+#
+# Règle de vérité, dans cet ordre :
+#   1. une ligne `local_users` → le portail détient le hash, il fait autorité ;
+#   2. sinon `ldap` → le mot de passe vit dans l'annuaire (bind LDAP) ;
+#   3. sinon `sso`  → il vit chez le fournisseur d'identité ;
+#   4. sinon → on ne SAIT PAS, et on le dit.
+# L'absence de source consignée n'est pas une preuve d'absence : c'est déjà la
+# règle d'`auth.etat_compte`, et l'inverse avait déconnecté tout le monde.
+GESTION_PORTAIL = 'portail'
+GESTION_LDAP = 'annuaire-ldap'
+GESTION_SSO = 'fournisseur-sso'
+GESTION_INCONNUE = 'inconnu'
+
+
+def gestion_mot_de_passe(username):
+    """{'gestion', 'sources', 'local'} : qui détient le mot de passe du compte.
+
+    Sert à l'interface, qui ne montre le formulaire de changement que si
+    `gestion == 'portail'` et dit où le changer sinon. Le serveur refuse de
+    toute façon (`/api/account/password` ne touche que `local_users`) — mais un
+    formulaire qui échoue après coup n'est pas une réponse acceptable.
+    """
+    db = get_db()
+    local = db.execute("SELECT 1 FROM local_users WHERE username=?",
+                       (username,)).fetchone() is not None
+    row = db.execute("SELECT sources FROM user_sources WHERE username=?",
+                     (username,)).fetchone()
+    sources = sorted(s for s in ((row['sources'] if row else '') or '').split(',') if s)
+    if local:
+        gestion = GESTION_PORTAIL
+    elif 'ldap' in sources:
+        gestion = GESTION_LDAP
+    elif 'sso' in sources:
+        gestion = GESTION_SSO
+    else:
+        gestion = GESTION_INCONNUE
+    return {'gestion': gestion, 'sources': sources, 'local': local,
+            'passkey': gestion in (GESTION_PORTAIL, GESTION_LDAP)}
+
+
+def passkey_possible(username):
+    """La double authentification par passkey est-elle proposable ?
+
+    Ajouter, retirer une clé ou basculer la 2FA exige une RE-VÉRIFICATION par
+    mot de passe (`/api/security/*`). Un compte SSO n'en a aucun que le portail
+    puisse vérifier : lui montrer l'interrupteur ne mènerait qu'à « Mot de passe
+    incorrect », ce qui est faux. Portée produit : local + LDAP.
+    """
+    return gestion_mot_de_passe(username)['passkey']

@@ -18,13 +18,13 @@ from flask import Blueprint, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from auth import completer_origine_session, login_required
-from config import AVATAR_IDS, AVATAR_LABELS, KEY_BUDGET, LANGS, THEME_IDS
+from config import AVATAR_IDS, AVATAR_LABELS, KEY_BUDGET, KEY_DURATION, LANGS, THEME_IDS
 from conversation_routes import CONVERSATIONS_MAX
 from db import get_db, get_setting, log_audit
 from guards import CHAT_RATE_MAX, CHAT_RATE_WINDOW, _chat_rate_limited
 from litellm_client import _litellm_user_info
-from local_users import password_policy_error
-from user_lifecycle import prevenir_mot_de_passe_change
+from local_users import gestion_mot_de_passe, password_policy_error
+from user_lifecycle import compter_donnees, deprovisionner_compte, prevenir_mot_de_passe_change
 from mcp_client import MCPClient, MCPError
 from mcp_client import invalidate_tools as _invalidate_mcp_tools
 from mcp_client import validate_mcp_url
@@ -70,6 +70,13 @@ def api_settings():
             'spend': acct.get('spend') or 0,
             'max_budget': acct.get('max_budget'),
             'unlimited': bool(session.get('is_admin')),
+            # `spend` est la consommation de la PÉRIODE d'enveloppe (LiteLLM
+            # remet le compteur à zéro à `budget_reset_at`), pas celle du jour :
+            # l'onglet « Mon compte » l'appelait « Consommé aujourd'hui » et
+            # laissait donc croire à un compteur quotidien. On transmet la date
+            # de remise à zéro et la durée pour que l'interface puisse le dire.
+            'budget_reset_at': acct.get('budget_reset_at') or None,
+            'budget_duration': get_setting('default_key_duration', KEY_DURATION),
             'key_count': db.execute("SELECT COUNT(*) c FROM api_keys WHERE username=?",
                                      (username,)).fetchone()['c'],
             'mcp_count': len(servers),
@@ -338,16 +345,18 @@ def _mes_sessions(username):
 
 
 def _compte_local(username):
-    return get_db().execute(
-        "SELECT 1 FROM local_users WHERE username=?", (username,)).fetchone() is not None
+    return gestion_mot_de_passe(username)['local']
 
 
 @bp.route('/api/account/sessions')
 @login_required
 def api_account_sessions():
     username = session['username']
+    gestion = gestion_mot_de_passe(username)
     return jsonify({'sessions': _mes_sessions(username),
-                    'local_account': _compte_local(username)})
+                    'local_account': gestion['local'],
+                    'password_managed_by': gestion['gestion'],
+                    'passkey_possible': gestion['passkey']})
 
 
 @bp.route('/api/account/sessions/revoke', methods=['POST'])
@@ -435,3 +444,70 @@ def api_account_password():
     log_audit(username, 'account.password', f'mot de passe changé, {n} session(s) fermée(s)')
     prevenir_mot_de_passe_change(username)
     return jsonify({'ok': True})
+
+
+@bp.route('/api/account/delete', methods=['POST'])
+@login_required
+def api_account_delete():
+    """Suppression de SON compte, décidée par l'intéressé.
+
+    Deux cas, et les confondre serait le mensonge le plus coûteux de cet écran :
+
+    - compte LOCAL : le portail détient la ligne `local_users`, il peut donc
+      tout retirer — clés révoquées chez LiteLLM, enveloppe supprimée, sessions
+      coupées, données purgées. On passe par `deprovisionner_compte`, le MÊME
+      chemin que la suppression par un admin : une seconde implémentation
+      finirait par diverger (c'est exactement ce qui avait laissé des clés
+      vivantes après une suppression).
+    - compte d'ANNUAIRE (LDAP/SSO) : le portail ne PEUT PAS supprimer le
+      compte, qui vit dans l'annuaire ou chez le fournisseur d'identité. Il
+      efface ce qu'il détient (données, préférences, clés) et le DIT : l'accès
+      se retire côté annuaire, par un administrateur (blocage).
+
+    Preuves exigées : `confirm=DELETE` (irréversible) et, pour un compte local,
+    le mot de passe — vérifié par `_verify_password_locked`, donc soumis au même
+    verrou 6 essais / 15 min que la page de connexion, sans quoi une session
+    détournée pourrait tester des mots de passe à la vitesse du réseau. Un
+    compte d'annuaire n'a aucun mot de passe que le portail puisse vérifier : la
+    session en cours est la seule preuve disponible, et l'interface le dit.
+    """
+    from webauthn_routes import _verify_password_locked   # import tardif : évite un cycle
+    username = session['username']
+    corps = request.get_json(silent=True) or request.form
+    if (corps.get('confirm') or '').strip().upper() != 'DELETE':
+        return jsonify({'ok': False, 'needs_confirm': True,
+                        'donnees': compter_donnees(username),
+                        'error': "Confirmation requise : cette suppression est définitive."}), 409
+
+    db = get_db()
+    local = gestion_mot_de_passe(username)['local']
+    if local:
+        # Même garde que côté admin, mais ici l'auto-suppression est le but :
+        # elle n'est refusée que si elle emporterait le DERNIER admin local.
+        from admin_routes import _dernier_admin_local
+        if session.get('is_admin') and _dernier_admin_local(username):
+            return jsonify({'ok': False,
+                            'error': "Tu es le dernier administrateur local : nomme un "
+                                     "autre administrateur avant de supprimer ton compte."}), 409
+        motdepasse = corps.get('password') or ''
+        if not motdepasse:
+            return jsonify({'ok': False,
+                            'error': "Mot de passe requis pour supprimer ton compte."}), 400
+        ok, err = _verify_password_locked(username, motdepasse)
+        if not ok:
+            return jsonify(err[0]), err[1]
+        # La ligne locale d'abord : elle porte l'accès, le reste (clés,
+        # enveloppe, données) s'en passe.
+        db.execute("DELETE FROM local_users WHERE username=?", (username,))
+        db.commit()
+        rapport = deprovisionner_compte(username, username, action='account.self_delete')
+        reponse = {'ok': True, 'deleted': True, 'purged': rapport}
+        if rapport['keys_failed'] or not rapport['litellm_user']:
+            reponse['warning'] = (
+                f"{rapport['keys_failed']} clé(s) n'ont pas pu être révoquées et/ou "
+                "l'enveloppe LiteLLM n'a pas pu être supprimée (service injoignable) : "
+                "préviens un administrateur, ces clés peuvent encore fonctionner.")
+        return jsonify(reponse)
+
+    rapport = deprovisionner_compte(username, username, action='account.self_purge')
+    return jsonify({'ok': True, 'deleted': False, 'purged': rapport})

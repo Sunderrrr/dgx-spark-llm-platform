@@ -41,7 +41,7 @@ from auth import (_apply_session, _login_fail, _login_locked, _login_reset,
                    est_bloque, login_required)
 from config import WEBAUTHN_ORIGIN, WEBAUTHN_REQUIRE_UV, WEBAUTHN_RP_ID, WEBAUTHN_RP_NAME
 from db import get_db, log_audit
-from local_users import _local_user_auth
+from local_users import GESTION_SSO, _local_user_auth, gestion_mot_de_passe, passkey_possible
 
 bp = Blueprint("webauthn", __name__)
 
@@ -152,6 +152,15 @@ def _verify_password_locked(username: str, password: str):
     que soit le chemin emprunte.
     """
     ukey = f"user:{username}"
+    # Compte SSO : aucun mot de passe que le portail puisse vérifier. Le dire
+    # AVANT le compteur d'échecs est délibéré : sinon un utilisateur SSO qui
+    # essaie son mot de passe d'identité (le seul qu'il ait) accumule des échecs
+    # sur `user:<nom>` — le compteur étant partagé avec /login, il finissait par
+    # se verrouiller lui-même la page de connexion, pour une action impossible
+    # dès le départ.
+    if gestion_mot_de_passe(username)['gestion'] == GESTION_SSO:
+        return False, ({"error": "Compte SSO : aucun mot de passe n'est géré par le "
+                                 "portail, la vérification est impossible."}, 400)
     wait = _login_locked(ukey)
     if wait:
         return False, ({"error": f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min."}, 429)
@@ -300,6 +309,10 @@ def api_security():
     creds = _stored_credentials(username)
     return jsonify({
         "enabled": _webauthn_enabled(username),
+        # L'interface doit pouvoir DIRE d'où vient le mot de passe, et donc si
+        # un formulaire de changement (ou l'ajout d'une passkey) a un sens ici.
+        "password_managed_by": gestion_mot_de_passe(username)["gestion"],
+        "passkey_possible": passkey_possible(username),
         "credentials": [{
             "id": c["id"],
             "credential_id": c["credential_id"],

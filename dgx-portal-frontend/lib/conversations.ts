@@ -1,5 +1,5 @@
 import type { Conversation } from "./types";
-import { authFetch, getJSON, postForm } from "./api";
+import { authFetch, getJSON, postFormVerifie } from "./api";
 
 // The history now lives server-side (`conversations` table): it follows
 // the user from one machine or browser to another. localStorage now
@@ -100,12 +100,15 @@ export async function persistConversation(csrf: string, conv: Conversation): Pro
   }
 }
 
-export async function removeConversation(csrf: string, id: string): Promise<void> {
-  try {
-    await postForm("/conversations", csrf, { action: "delete", id: String(id) });
-  } catch {
-    // same
-  }
+/** Supprime la conversation ; rend `false` si le serveur a refusé.
+ *
+ * Elle était avalée (`postForm` dans un `try {} catch {}` vide) : la
+ * conversation disparaissait de la liste, puis RÉAPPARAISSAIT au rechargement
+ * sans un mot d'explication. Une suppression qui n'a pas eu lieu doit se dire.
+ */
+export async function removeConversation(csrf: string, id: string): Promise<boolean> {
+  const res = await postFormVerifie("/conversations", csrf, { action: "delete", id: String(id) });
+  return res.ok;
 }
 
 /** Migrates the old version's history (localStorage) to the server once,

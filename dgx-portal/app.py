@@ -1097,6 +1097,12 @@ def keys():
     # GET /keys: the page itself is rendered by the Next.js frontend
     # (data via /api/keys) — only the POST actions below remain
     # used (postForm("/keys", ...) from app/(app)/keys/page.tsx).
+    # POST : actions de l'onglet « Clés API ». Elles répondent du JSON avec un
+    # statut HONNÊTE, comme les actions d'admin (cf. CLAUDE.md) : cette route
+    # répondait `('', 204)` après un `flash(...)`, or AUCUN template ne rend les
+    # flash — l'interface annonçait donc « Clé créée ! » / « Clé révoquée. »
+    # quoi qu'il arrive. Le cas grave était la révocation : LiteLLM injoignable,
+    # la clé restait VALIDE et l'utilisateur la croyait morte.
     if request.method != 'POST':
         return ('', 204)
     action = request.form.get('action')
@@ -1107,17 +1113,20 @@ def keys():
         else:
             alias = f"{session['username']}-{int(time.time())}"
         new_key = create_litellm_key(alias, session['username'], is_admin=session.get('is_admin', False))
-        if new_key:
-            db = get_db()
-            db.execute(
-                "INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) VALUES (?,?,?,?)",
-                (session['username'], alias, new_key, datetime.now().isoformat())
-            )
-            db.commit()
-            flash("Clé créée !", "success")
-        else:
-            flash("Erreur lors de la création de la clé.", "danger")
-    elif action == 'revoke':
+        if not new_key:
+            return jsonify({'ok': False,
+                            'error': "La clé n'a pas pu être créée : le service de clés "
+                                     "(LiteLLM) n'a pas répondu. Réessaie dans un instant."}), 502
+        db = get_db()
+        db.execute(
+            "INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) VALUES (?,?,?,?)",
+            (session['username'], alias, new_key, datetime.now().isoformat())
+        )
+        db.commit()
+        # La valeur repart vers l'interface : c'est le seul instant où on la voit
+        # sans cliquer sur « Afficher ».
+        return jsonify({'ok': True, 'key_alias': alias, 'key': new_key})
+    if action == 'revoke':
         k = request.form.get('key')
         db = get_db()
         # Verifies the key really belongs to the logged-in user BEFORE
@@ -1128,15 +1137,16 @@ def keys():
             (k, session['username'])
         ).fetchone()
         if not owns:
-            flash("Clé introuvable.", "danger")
-        elif revoke_litellm_key(k):
-            db.execute("DELETE FROM api_keys WHERE key_value=? AND username=?",
-                       (k, session['username']))
-            db.commit()
-            flash("Clé révoquée.", "success")
-        else:
-            flash("Erreur lors de la révocation.", "danger")
-    elif action == 'request_budget':
+            return jsonify({'ok': False, 'error': "Clé introuvable sur ce compte."}), 404
+        if not revoke_litellm_key(k):
+            return jsonify({'ok': False,
+                            'error': "La clé n'a PAS pu être révoquée : LiteLLM n'a pas "
+                                     "répondu. Elle est encore valide, réessaie."}), 502
+        db.execute("DELETE FROM api_keys WHERE key_value=? AND username=?",
+                   (k, session['username']))
+        db.commit()
+        return jsonify({'ok': True})
+    if action == 'request_budget':
         reason  = request.form.get('reason', '').strip()
         current = _litellm_user_info(session['username']).get('max_budget')
         db = get_db()
@@ -1145,8 +1155,10 @@ def keys():
             (session['username'],)
         ).fetchone()
         if existing:
-            flash("Tu as déjà une demande en attente.", "warning")
-            return ('', 204)
+            # `code` : refus stable et fréquent, que l'interface traduit
+            # (cf. CLAUDE.md § i18n) plutôt que d'afficher la phrase française.
+            return jsonify({'ok': False, 'code': 'deja_en_attente',
+                            'error': "Tu as déjà une demande en attente."}), 409
         db.execute(
             "INSERT INTO budget_requests (username, fullname, key_alias, current_budget, reason, status, created_at) "
             "VALUES (?,?,?,?,?,?,?)",
@@ -1156,8 +1168,8 @@ def keys():
         db.commit()
         notify_budget_discord(session['username'], session['fullname'], '(compte)', current, reason)
         notify_budget_email(session['username'], session['fullname'], '(compte)', current, reason)
-        flash("Demande de tokens envoyée !", "success")
-    return ('', 204)
+        return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': "Action inconnue."}), 400
 
 
 @app.route('/api/keys')

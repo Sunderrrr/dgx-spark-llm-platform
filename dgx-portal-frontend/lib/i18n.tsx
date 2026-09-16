@@ -564,6 +564,21 @@ const EN: Record<string, string> = {
     "This conversation could not be loaded.",
   "Conversation non enregistrée — elle disparaîtra au rechargement.":
     "Conversation not saved — it will be gone after a reload.",
+  "L'action a échoué.": "The action failed.",
+  "Le serveur n'a pas répondu — réessaie.": "The server did not respond — try again.",
+  "Le déliage a échoué.": "Unlinking failed.",
+  "Impossible de charger tes clés :": "Could not load your keys:",
+  "Révoquer la clé « {alias} » ? Les programmes qui l'utilisent cesseront de fonctionner.":
+    "Revoke the key \u00ab {alias} \u00bb? Programs using it will stop working.",
+  "Champs requis manquants :": "Missing required fields:",
+  "le nom": "the name",
+  "l'URL": "the URL",
+  "la description": "the description",
+  "les instructions": "the instructions",
+  "Supprimer le serveur MCP « {nom} » ? Son secret sera perdu.":
+    "Delete the MCP server \u00ab {nom} \u00bb? Its secret will be lost.",
+  "Supprimer la compétence « {nom} » ?": "Delete the skill \u00ab {nom} \u00bb?",
+  "deja_en_attente": "You already have a pending request.",
   "Copie impossible depuis ce navigateur.":
     "Copying is not available in this browser.",
   "« {name} » : seuls les fichiers texte sont acceptés.":

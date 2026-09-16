@@ -41,7 +41,7 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { getJSON, postForm, postFormJSON } from "@/lib/api";
+import { authFetch, getJSON, postFormJSON } from "@/lib/api";
 import { KeysContent } from "../keys/_components/KeysContent";
 import { MemoryContent } from "../memory/_components/MemoryContent";
 import { useThemeMode } from "../../theme-provider";
@@ -222,8 +222,46 @@ export function SettingsDialog({
     onOpenChange(false);
   }
 
+  /** Envoie un formulaire de réglage et rend un verdict exploitable.
+   *
+   * Plusieurs actions de ce dialogue partaient « à l'aveugle » : `void
+   * postForm(...)` pour le thème, la langue et l'avatar, un `await
+   * postFormJSON(...)` dont on ignorait le `ok` pour l'interrupteur MCP, un
+   * `postForm` sans statut pour les suppressions. Une préférence refusée restait
+   * donc affichée comme appliquée jusqu'au rechargement, et une suppression
+   * ratée s'annonçait comme réussie.
+   */
+  async function envoyerForm(url: string, corps: Record<string, string>): Promise<boolean> {
+    if (!csrf) return false;
+    try {
+      const res = await authFetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
+        body: new URLSearchParams(corps).toString(),
+      });
+      if (res.ok) return true;
+      const r = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      showToast({
+        body: r.code ? t(r.code) : r.error ? t(r.error) : t("L'action a échoué."),
+        type: "error",
+      });
+      return false;
+    } catch {
+      showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
+      return false;
+    }
+  }
+
   async function saveMcp() {
-    if (!csrf || !mcpForm.name.trim() || !mcpForm.url.trim()) return;
+    if (!csrf) return;
+    // Avant : `return` muet. Le bouton « Enregistrer le serveur » ne faisait
+    // donc RIEN tant que le nom ou l'URL manquait, sans dire lequel.
+    const manquants = [!mcpForm.name.trim() && t("le nom"), !mcpForm.url.trim() && t("l'URL")]
+      .filter(Boolean) as string[];
+    if (manquants.length) {
+      showToast({ body: `${t("Champs requis manquants :")} ${manquants.join(", ")}.`, type: "error" });
+      return;
+    }
     setIsSaving(true);
     try {
       const result = await postFormJSON<{ ok: boolean; error?: string; tool_count?: number }>("/mcp", csrf, {
@@ -256,24 +294,40 @@ export function SettingsDialog({
   }
 
   async function toggleMcp(id: number, enabled: boolean) {
-    if (!csrf) return;
-    setData((prev) =>
-      prev
-        ? { ...prev, mcp_servers: prev.mcp_servers.map((s) => (s.id === id ? { ...s, enabled: enabled ? 1 : 0 } : s)) }
-        : prev,
-    );
-    await postFormJSON("/mcp", csrf, { action: "toggle", id: String(id), enabled: enabled ? "1" : "0" });
+    const basculer = (v: boolean) =>
+      setData((prev) =>
+        prev
+          ? { ...prev, mcp_servers: prev.mcp_servers.map((s) => (s.id === id ? { ...s, enabled: v ? 1 : 0 } : s)) }
+          : prev,
+      );
+    basculer(enabled);                    // application immédiate, sans attendre le réseau
+    if (!(await envoyerForm("/mcp", { action: "toggle", id: String(id), enabled: enabled ? "1" : "0" }))) {
+      // Le résultat était ignoré : un refus laissait l'interrupteur basculé,
+      // donc l'écran affirmait un état que le serveur n'avait pas enregistré.
+      basculer(!enabled);
+    }
   }
 
-  async function deleteMcp(id: number) {
-    if (!csrf) return;
-    await postForm("/mcp", csrf, { action: "delete", id: String(id) });
-    showToast({ body: t("Serveur MCP supprimé."), type: "info" });
+  async function deleteMcp(id: number, nom: string) {
+    // Suppression définitive (URL + secret) en un clic : on confirme.
+    if (!window.confirm(t("Supprimer le serveur MCP « {nom} » ? Son secret sera perdu.").replace("{nom}", nom))) return;
+    if (await envoyerForm("/mcp", { action: "delete", id: String(id) })) {
+      showToast({ body: t("Serveur MCP supprimé."), type: "info" });
+    }
     refresh();
   }
 
   async function saveSkill() {
-    if (!csrf || !skillForm.name.trim() || !skillForm.description.trim() || !skillForm.instructions.trim()) return;
+    if (!csrf) return;
+    const manquants = [
+      !skillForm.name.trim() && t("le nom"),
+      !skillForm.description.trim() && t("la description"),
+      !skillForm.instructions.trim() && t("les instructions"),
+    ].filter(Boolean) as string[];
+    if (manquants.length) {
+      showToast({ body: `${t("Champs requis manquants :")} ${manquants.join(", ")}.`, type: "error" });
+      return;
+    }
     setIsSaving(true);
     try {
       const result = await postFormJSON("/skills", csrf, {
@@ -298,28 +352,36 @@ export function SettingsDialog({
     }
   }
 
-  async function deleteSkill(id: number) {
-    if (!csrf) return;
-    await postForm("/skills", csrf, { action: "delete", id: String(id) });
-    showToast({ body: t("Compétence supprimée."), type: "info" });
+  async function deleteSkill(id: number, nom: string) {
+    if (!window.confirm(t("Supprimer la compétence « {nom} » ?").replace("{nom}", nom))) return;
+    if (await envoyerForm("/skills", { action: "delete", id: String(id) })) {
+      showToast({ body: t("Compétence supprimée."), type: "info" });
+    }
     refresh();
   }
 
   async function selectTheme(id: ThemeId) {
+    const precedent = themeId;
     setThemeId(id);            // applied immediately, without waiting for the network
-    if (csrf) void postForm("/settings/appearance", csrf, { theme_id: id });
+    // …mais si le serveur refuse, on REVIENT au thème précédent : garder un
+    // choix non enregistré ferait croire qu'il tient, jusqu'au rechargement.
+    if (!(await envoyerForm("/settings/appearance", { theme_id: id }))) setThemeId(precedent);
   }
 
   async function selectLang(l: Lang) {
+    const precedent = lang;
     setLang(l);
-    if (csrf) void postForm("/settings/appearance", csrf, { lang: l });
+    if (!(await envoyerForm("/settings/appearance", { lang: l }))) setLang(precedent);
   }
 
   async function selectAvatar(avatarId: string) {
-    if (!csrf) return;
-    await postForm("/settings/avatar", csrf, { avatar_id: avatarId });
+    const precedent = data?.avatar_id ?? null;
     setData((prev) => (prev ? { ...prev, avatar_id: avatarId } : prev));
-    onAvatarChange?.(avatarId);
+    if (await envoyerForm("/settings/avatar", { avatar_id: avatarId })) {
+      onAvatarChange?.(avatarId);
+    } else {
+      setData((prev) => (prev ? { ...prev, avatar_id: precedent } : prev));
+    }
   }
 
   const acct = data?.account;
@@ -818,7 +880,7 @@ export function SettingsDialog({
                                   size="sm"
                                   isIconOnly
                                   icon={<Icon icon={TrashIcon} size="sm" />}
-                                  onClick={() => deleteMcp(s.id)}
+                                  onClick={() => deleteMcp(s.id, s.name)}
                                 />
                               </HStack>
                             </HStack>
@@ -957,7 +1019,7 @@ export function SettingsDialog({
                                 size="sm"
                                 isIconOnly
                                 icon={<Icon icon={TrashIcon} size="sm" />}
-                                onClick={() => deleteSkill(s.id)}
+                                onClick={() => deleteSkill(s.id, s.name)}
                               />
                             </HStack>
                           </HStack>

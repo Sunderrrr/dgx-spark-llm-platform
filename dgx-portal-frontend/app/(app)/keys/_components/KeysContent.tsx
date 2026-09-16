@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
@@ -11,7 +11,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Badge } from "@astryxdesign/core/Badge";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
-import { Table } from "@astryxdesign/core/Table";
+import { Table, proportional, pixel } from "@astryxdesign/core/Table";
 import type { TableColumn } from "@astryxdesign/core/Table";
 import { TabList, Tab } from "@astryxdesign/core/TabList";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
@@ -207,22 +207,56 @@ export function KeysContent() {
     refresh();
   }
 
+  // Les largeurs sont OBLIGATOIRES : sans `width`, Astryx partage la largeur en
+  // parts ÉGALES (1/n) et sans minimum. Dans les 706 px du panneau de réglages,
+  // six colonnes faisaient 118 px chacune et chaque rangée 177 px de haut — la
+  // clé se repliait sur quatre lignes et les boutons s'empilaient. On fixe donc
+  // la part ET le plancher de chaque colonne, et la date de création passe sous
+  // l'alias pour rendre à la clé la place qu'elle réclame.
   const columns: TableColumn<ApiKey & Record<string, unknown>>[] = [
-    { key: "key_alias", header: t("Alias") },
+    {
+      key: "key_alias",
+      header: t("Alias"),
+      width: proportional(3, { minWidth: 120 }),
+      renderCell: (row) => (
+        <VStack gap={0}>
+          {/* 40 caractères possibles : sans troncature, un alias long faisait
+              trois lignes et déformait la rangée. L'infobulle le rend en entier. */}
+          <Text weight="semibold" maxLines={1}>{row.key_alias || "—"}</Text>
+          {row.created_at && (
+            <Text type="supporting" color="secondary">
+              {`${t("Créée le")} ${new Date(row.created_at).toLocaleDateString(numLocale)}`}
+            </Text>
+          )}
+        </VStack>
+      ),
+    },
     {
       key: "key",
       header: t("Clé"),
-      renderCell: (row) => (
-        <HStack gap={2} vAlign="center">
-          <Text type="code" hasTabularNumbers>
-            {revealed.has(row.key) ? row.key : `${row.key.slice(0, 10)}…${row.key.slice(-4)}`}
-          </Text>
+      width: proportional(5, { minWidth: 180 }),
+      renderCell: (row) => {
+        const estRevelee = revealed.has(row.key);
+        return (
+        <HStack gap={2} vAlign="center" width="100%">
+          {/* `StackItem size="fill"` apporte flex:1 + min-width:0. Sans ce reset,
+              un élément flex refuse de rétrécir sous son contenu : la clé
+              poussait les deux boutons hors de la cellule. Masquée elle tient
+              sur une ligne (tronquée avec infobulle) ; RÉVÉLÉE elle se déroule
+              sur deux lignes au lieu d'être coupée — sinon « Afficher » ne
+              montrerait pas la clé, ce qui serait absurde. Le bouton copier
+              rend de toute façon la valeur entière sans rien révéler. */}
+          <StackItem size="fill">
+            <Text type="code" hasTabularNumbers maxLines={estRevelee ? 0 : 1} wordBreak="break-all">
+              {estRevelee ? row.key : `${row.key.slice(0, 10)}…${row.key.slice(-4)}`}
+            </Text>
+          </StackItem>
           <Button
             label={t("Afficher")}
             variant="ghost"
             size="sm"
             isIconOnly
-            icon={<Icon icon={revealed.has(row.key) ? EyeSlashIcon : EyeIcon} size="sm" />}
+            icon={<Icon icon={estRevelee ? EyeSlashIcon : EyeIcon} size="sm" />}
             onClick={() =>
               setRevealed((prev) => {
                 const next = new Set(prev);
@@ -241,26 +275,24 @@ export function KeysContent() {
             onClick={() => copyKey(row.key, row.key_alias)}
           />
         </HStack>
-      ),
-    },
-    {
-      key: "created_at",
-      header: t("Créée le"),
-      renderCell: (row) => (row.created_at ? new Date(row.created_at).toLocaleDateString(numLocale) : "—"),
+        );
+      },
     },
     {
       key: "last_active",
       header: t("Dernière utilisation"),
+      width: proportional(4, { minWidth: 110 }),
       // Jamais utilisée = information utile, pas une case vide : c'est
       // exactement la clé qu'on peut révoquer sans rien casser.
       renderCell: (row) => (row.last_active
         ? new Date(row.last_active).toLocaleDateString(numLocale)
         : t("Jamais utilisée")),
     },
-    { key: "spend", header: t("Dépensé"), renderCell: (row) => `${Math.round(row.spend || 0).toLocaleString(numLocale)} tokens` },
+    { key: "spend", header: t("Dépensé"), width: proportional(2, { minWidth: 80 }), renderCell: (row) => `${Math.round(row.spend || 0).toLocaleString(numLocale)} tokens` },
     {
       key: "actions" as keyof ApiKey,
       header: "",
+      width: pixel(88),
       renderCell: (row) => (
         <HStack gap={1} vAlign="center">
           <Button

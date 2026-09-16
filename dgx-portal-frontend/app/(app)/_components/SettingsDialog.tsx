@@ -69,6 +69,9 @@ type Account = {
   is_admin: boolean;
   spend: number;
   max_budget: number | null;
+  // Fin de la période d'enveloppe LiteLLM : c'est là que `spend` repart à zéro.
+  budget_reset_at: string | null;
+  budget_duration: string;
   unlimited: boolean;
   key_count: number;
   mcp_count: number;
@@ -601,7 +604,7 @@ export function SettingsDialog({
                         <VStack gap={2}>
                           <HStack hAlign="between">
                             <Text type="supporting" color="secondary">
-                              {t("Consommé aujourd'hui")}
+                              {t("Consommé sur la période")}
                             </Text>
                             <Text type="supporting" color="secondary" hasTabularNumbers>
                               {fmt(acct.spend, numLocale)} / {fmt(acct.max_budget || 0, numLocale)} tokens
@@ -613,6 +616,17 @@ export function SettingsDialog({
                             value={Math.min(pct, 100)}
                             variant={pct >= 90 ? "error" : pct >= 70 ? "warning" : "success"}
                           />
+                          {/* Le compteur repart à zéro à la date de remise à
+                              zéro de l'enveloppe LiteLLM (hebdomadaire par
+                              défaut). L'afficher évite de croire à un quota
+                              quotidien qui ne remonte jamais. */}
+                          {acct.budget_reset_at ? (
+                            <Text type="supporting" color="secondary">
+                              {t("Remis à zéro le {date}.").replace(
+                                "{date}", new Date(acct.budget_reset_at).toLocaleDateString(numLocale),
+                              )}
+                            </Text>
+                          ) : null}
                         </VStack>
                       )}
                     </Card>

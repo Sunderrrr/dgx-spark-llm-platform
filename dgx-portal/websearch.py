@@ -132,6 +132,38 @@ def url_publique(url):
     return True, None
 
 
+def cible_interne(url):
+    """L'URL vise-t-elle une adresse interne, de façon CERTAINE ?
+
+    Sert au contrôle APRÈS lecture, sur l'URL finale rendue par le crawler
+    (`redirected_url`) : `url_publique` ne voit que les graines, donc une page
+    publique qui redirige vers `http://<service interne>` est bien allée y
+    chercher son contenu — crawl4ai valide les graines « before fetching », et
+    rien après (vérifié dans son `api.py`).
+
+    Différence voulue avec `url_publique` : ici l'IGNORANCE ne refuse pas. Cette
+    URL vient du crawler, pas de l'utilisateur ; un schéma inattendu ou un nom
+    qui ne résout pas chez nous ne prouve rien, et refuser ferait disparaître des
+    pages légitimes. On ne rejette que ce qu'on sait interne.
+    """
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    host = p.hostname or ''
+    if p.scheme not in ('http', 'https') or not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return _is_blocked_ip(host)
+    except ValueError:
+        pass
+    try:
+        return any(_is_blocked_ip(i[4][0]) for i in socket.getaddrinfo(host, None))
+    except socket.gaierror:
+        return False
+
+
 def nettoyer(texte):
     """Retire les lignes de bandeau et les préfixes parasites. Retourne le texte."""
     sorties = []
@@ -214,6 +246,18 @@ def lire(urls, max_cars=MAX_CARS_PAGE):
                 md = item.get('markdown')
                 if isinstance(md, dict):
                     md = md.get('fit_markdown') or md.get('raw_markdown') or ''
+                # Contrôle APRÈS lecture : la graine était publique, mais le
+                # crawler a pu suivre une redirection vers une adresse interne.
+                # Le contenu d'un service interne n'a rien à faire dans le
+                # contexte du modèle — on jette la page entière (le markdown
+                # n'est même pas conservé).
+                finale = item.get('redirected_url')
+                if isinstance(finale, str) and cible_interne(finale):
+                    resultats[item.get('url', '')] = {
+                        'ok': False,
+                        'erreur': "Redirection vers une adresse interne, page refusée.",
+                    }
+                    continue
                 resultats[item.get('url', '')] = {
                     'ok': bool(item.get('success')),
                     'markdown': (md or '')[:max_cars],
@@ -230,7 +274,9 @@ def lire(urls, max_cars=MAX_CARS_PAGE):
         info = resultats.get(u) or next((v for k, v in resultats.items()
                                          if k.rstrip('/') == u.rstrip('/')), None)
         if not info or not info['ok']:
-            pages.append({'url': u, 'erreur': "Page illisible."})
+            # `results` peut porter un motif (refus après redirection) : le
+            # perdre afficherait « Page illisible. » pour une page bien lue.
+            pages.append({'url': u, 'erreur': (info or {}).get('erreur') or "Page illisible."})
             continue
         propre = nettoyer(info['markdown'])
         souci = _trop_pauvre(propre)

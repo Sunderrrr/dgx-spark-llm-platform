@@ -9,25 +9,25 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@astryxdesign/cli": "^0.1.8",
+    "@astryxdesign/cli": "^0.6.1",
     "@astryxdesign/core": "^0.1.8",
-    "@astryxdesign/theme-neutral": "^0.1.8",
+    "@astryxdesign/theme-neutral": "^0.6.1",
     "@heroicons/react": "^2.2.0",
     "@stylexjs/stylex": "^0.19.0",
-    "katex": "^0.16.47",
+    "katex": "^0.18.7",
     "next": "^16.3.5",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "sharp": "^0.35.4"
   },
   "devDependencies": {
     "@types/katex": "^0.16.8",
-    "@types/node": "^20",
+    "@types/node": "^26",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.11",
-    "typescript": "^5"
+    "eslint": "^10",
+    "eslint-config-next": "16.3.5",
+    "typescript": "^7"
   },
   "allowScripts": {
     "@astryxdesign/cli@0.1.8": true,

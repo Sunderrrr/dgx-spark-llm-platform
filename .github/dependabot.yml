@@ -52,6 +52,14 @@ updates:
         update-types: ["version-update:semver-minor", "version-update:semver-patch"]
       - dependency-name: "@astryxdesign/theme-neutral"
         update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+      # Les TYPES de Node suivent le RUNTIME, ils ne le précèdent pas :
+      # l'image est `node:20-slim` (épinglée par digest, cf. Dockerfile). Des
+      # `@types/node` 26 compiler sur un Node 20 feraient accepter par `tsc` des
+      # API absentes à l'exécution — une divergence que la CI ne voit pas, puis-
+      # qu'elle se contente de vérifier que le code actuel compile. Le jour où le
+      # runtime bouge, les deux se mettent à jour dans le même commit.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Actions du workflow : une action tierce compromise s'exécute avec le jeton
   # du dépôt — d'où l'épinglage par SHA, que Dependabot sait maintenir.

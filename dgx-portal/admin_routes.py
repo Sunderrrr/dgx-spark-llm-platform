@@ -801,16 +801,17 @@ def api_admin_users():
         last_source = rs['last_source'] if rs else None
         last_is_admin = rs['last_is_admin'] if rs else None
         local_admin = _local_user_is_admin(mu) if mu else None
-        # Effective role: the directory (SSO/LDAP) wins over the local record.
-        # A local account that logs in via SSO gets the SSO groups' admin right
-        # (last_source='sso'), not its local_users flag.
+        # Rôle EFFECTIF, tel qu'il est réellement APPLIQUÉ aux requêtes. Une seule
+        # autorité, et c'est le portail : dès qu'une ligne `local_users` existe,
+        # `auth.etat_compte` tranche sur elle seule (`_local_user_is_admin`) et
+        # réécrit `session['is_admin']` — quel que soit `last_source`. La page
+        # Users affirmait l'inverse (« l'annuaire gagne ») : un compte local admin
+        # retiré de `cn=adm_cronos` restait admin à l'usage, sans aucun signal
+        # pour l'opérateur qui venait de faire le geste. On affiche donc ce qui
+        # s'applique, et le commentaire dit la même chose que auth.py.
         if mu is not None:
-            if last_source in ('sso', 'ldap') and last_is_admin is not None:
-                effective_admin = bool(last_is_admin)
-                role_source = last_source
-            else:
-                effective_admin = local_admin
-                role_source = 'local'
+            effective_admin = local_admin
+            role_source = 'local'
         else:
             # External account: the directory is the only source of rights.
             effective_admin = bool(last_is_admin) if last_is_admin is not None else None
@@ -1245,8 +1246,9 @@ def admin_user_detail(username):
                  "ORDER BY id DESC LIMIT 20", (username,)).fetchall()]
     last_source = rs['last_source'] if rs else None
     if mu is not None:
-        role = 'admin' if ((last_source in ('sso', 'ldap') and rs['last_is_admin'])
-                           or _local_user_is_admin(mu)) else 'user'
+        # Même autorité unique que la liste (et que `auth.etat_compte`) : la
+        # ligne locale tranche, l'annuaire ne s'y ajoute pas.
+        role = 'admin' if _local_user_is_admin(mu) else 'user'
     else:
         role = 'admin' if (rs and rs['last_is_admin']) else 'user'
     return jsonify({

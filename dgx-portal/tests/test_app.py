@@ -127,24 +127,41 @@ class LoginLockoutParUserTest(unittest.TestCase):
                                 headers={'X-CSRFToken': 'test-csrf',
                                          'Cf-Connecting-Ip': ip})
 
+    def test_identifiant_invalide_n_ecrit_rien_et_ne_verrouille_pas(self):
+        """Un identifiant hors format est refusé AVANT toute écriture en base.
+
+        `username` vient d'un formulaire non authentifié et sert de clé à
+        `login_attempts` : sans filtre, un nom neuf de 4 Mo écrivait ~8 Mo de
+        lignes par requête (clé différente à chaque fois, donc jamais verrouillé)
+        et la table n'est purgée qu'au démarrage.
+        """
+        r = self._login('198.51.100.250', 'x' * 300)
+        self.assertEqual(r.status_code, 401)
+        with portal.app.test_request_context():
+            row = portal.get_db().execute(
+                "SELECT 1 FROM login_attempts WHERE key LIKE 'user:x%'").fetchone()
+            self.assertIsNone(row, "rien ne doit être écrit pour un identifiant refusé")
+
     def test_botnet_ip_rotatives_verrouille_le_user(self):
-        u = 'bob@cible'
+        # Nom d'utilisateur conforme au format accepté partout (USERNAME_RE) :
+        # c'est le compteur par compte qu'on éprouve, pas le filtre d'entrée.
+        u = 'bob.cible'
         for i in range(portal.LOGIN_MAX_FAILS - 1):  # seuil - 1, IPs toutes différentes
             self.assertEqual(self._login(f'198.51.100.{i+1}', u).status_code, 401)
         with portal.app.test_request_context():
             row = portal.get_db().execute(
-                "SELECT fails FROM login_attempts WHERE key=?", ('user:bob@cible',)).fetchone()
+                "SELECT fails FROM login_attempts WHERE key=?", ('user:bob.cible',)).fetchone()
             self.assertIsNotNone(row)
             self.assertEqual(row['fails'], portal.LOGIN_MAX_FAILS - 1)
-            self.assertEqual(portal._login_locked('user:bob@cible'), 0)
+            self.assertEqual(portal._login_locked('user:bob.cible'), 0)
         # Le seuil est atteint sur le compte → verrouillé, même depuis une IP neuve,
         # et la tentative suivante est bloquée AVANT d'être comptée.
         self.assertEqual(self._login('203.0.113.201', u).status_code, 401)
         with portal.app.test_request_context():
-            self.assertGreater(portal._login_locked('user:bob@cible'), 0)
+            self.assertGreater(portal._login_locked('user:bob.cible'), 0)
             self._login('203.0.113.202', u)
             row = portal.get_db().execute(
-                "SELECT fails FROM login_attempts WHERE key=?", ('user:bob@cible',)).fetchone()
+                "SELECT fails FROM login_attempts WHERE key=?", ('user:bob.cible',)).fetchone()
             self.assertEqual(row['fails'], portal.LOGIN_MAX_FAILS)
 
 

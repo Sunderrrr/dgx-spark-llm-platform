@@ -270,6 +270,12 @@ def finish_login(nonce: str, credential):
         return {"error": "Clé invalide."}, 400
     row = _credential_row(username, cred_id)
     if not row:
+        # Le défi est à USAGE UNIQUE : les deux autres sorties le consomment,
+        # pas celle-ci — il restait donc valide jusqu'à son TTL (5 min) après une
+        # première tentative infructueuse. Pas de rejeu possible pour autant
+        # (`sign_count` vérifié et mis à jour), mais un défi ouvert ne doit pas
+        # survivre à l'échec qui l'a utilisé.
+        _pending_clear(nonce)
         return {"error": "Clé inconnue pour ce compte."}, 401
     try:
         ver = verify_authentication_response(
@@ -325,6 +331,31 @@ def api_security():
 @bp.route("/api/security/register/begin", methods=["POST"])
 @login_required
 def security_register_begin():
+    # Re-vérification du mot de passe AVANT de créer quoi que ce soit.
+    #
+    # Sans elle, un simple cookie volé suffisait à enregistrer SA clé : le défi
+    # s'obtient avec le cookie seul (`/api/csrf` est public et rend le jeton de
+    # la session en cours), `finish_registration` active alors la 2FA
+    # (`_set_enabled(username, True)`) avec pour seule clé celle du voleur, et
+    # la victime se retrouve dans un compte où son mot de passe correct ne suffit
+    # plus et où elle ne peut produire aucune assertion — récupération par un
+    # admin uniquement, et destructrice. `security_remove` et `security_toggle`
+    # exigeaient déjà ce mot de passe ; l'ajout d'une clé, non, alors que c'est
+    # l'opération qui CRÉE la condition de verrouillage.
+    #
+    # Effet de bord voulu : la portée « local + LDAP » de la 2FA, jusqu'ici
+    # seulement affichée par l'interface (`passkey_possible`), est enfin
+    # appliquée par le serveur — un compte SSO reçoit 400 « Compte SSO ».
+    data = request.get_json(silent=True) or {}
+    motdepasse = data.get("password") or ""
+    if not motdepasse:
+        # Champ absent = requête incomplète, pas un mot de passe faux : répondre
+        # 401 ici consommerait une tentative du verrou partagé avec /login pour
+        # une requête qui n'a rien tenté.
+        return jsonify({"error": "Mot de passe requis pour ajouter une clé."}), 400
+    ok, err = _verify_password_locked(session["username"], motdepasse)
+    if not ok:
+        return jsonify(err[0]), err[1]
     return jsonify(start_registration(session["username"]))
 
 

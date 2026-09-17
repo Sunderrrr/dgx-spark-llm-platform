@@ -23,7 +23,8 @@ from conversation_routes import CONVERSATIONS_MAX
 from db import get_db, get_setting, log_audit
 from guards import CHAT_RATE_MAX, CHAT_RATE_WINDOW, _chat_rate_limited
 from litellm_client import _litellm_user_info
-from local_users import gestion_mot_de_passe, password_policy_error
+from local_users import (GESTION_LDAP, GESTION_PORTAIL, gestion_mot_de_passe,
+                         password_policy_error)
 from user_lifecycle import compter_donnees, deprovisionner_compte, prevenir_mot_de_passe_change
 from mcp_client import MCPClient, MCPError
 from mcp_client import invalidate_tools as _invalidate_mcp_tools
@@ -344,10 +345,6 @@ def _mes_sessions(username):
     return out
 
 
-def _compte_local(username):
-    return gestion_mot_de_passe(username)['local']
-
-
 @bp.route('/api/account/sessions')
 @login_required
 def api_account_sessions():
@@ -480,7 +477,8 @@ def api_account_delete():
                         'error': "Confirmation requise : cette suppression est définitive."}), 409
 
     db = get_db()
-    local = gestion_mot_de_passe(username)['local']
+    gestion = gestion_mot_de_passe(username)
+    local = gestion['local']
     if local:
         # Même garde que côté admin, mais ici l'auto-suppression est le but :
         # elle n'est refusée que si elle emporterait le DERNIER admin local.
@@ -489,6 +487,19 @@ def api_account_delete():
             return jsonify({'ok': False,
                             'error': "Tu es le dernier administrateur local : nomme un "
                                      "autre administrateur avant de supprimer ton compte."}), 409
+
+    # Vérification du mot de passe : on l'exige dès que le portail SAIT le
+    # vérifier, c'est-à-dire pour un compte du portail ET pour un compte LDAP —
+    # `_verify_password_locked` interroge l'annuaire. L'ancien test (`if local:`)
+    # ne couvrait que les comptes locaux : pour un compte d'annuaire, la seule
+    # preuve demandée était le cookie, alors que la suppression emporte les clés
+    # API et l'enveloppe LiteLLM. Le commentaire qui justifiait ce trou
+    # (« un compte d'annuaire n'a aucun mot de passe que le portail puisse
+    # vérifier ») n'était vrai que pour le SSO, où `_verify_password_locked`
+    # répond de lui-même 400. Un compte d'origine inconnue (`inconnu`) garde le
+    # comportement d'avant : exiger un mot de passe que personne ne peut vérifier
+    # rendrait la sortie impossible.
+    if gestion['gestion'] in (GESTION_PORTAIL, GESTION_LDAP):
         motdepasse = corps.get('password') or ''
         if not motdepasse:
             return jsonify({'ok': False,
@@ -496,6 +507,8 @@ def api_account_delete():
         ok, err = _verify_password_locked(username, motdepasse)
         if not ok:
             return jsonify(err[0]), err[1]
+
+    if local:
         # La ligne locale d'abord : elle porte l'accès, le reste (clés,
         # enveloppe, données) s'en passe.
         db.execute("DELETE FROM local_users WHERE username=?", (username,))

@@ -8,6 +8,12 @@
 #
 # Rythme hebdomadaire et lots groupés : ce dépôt a peu de dépendances directes,
 # et une PR par paquet mineur noierait les vraies alertes.
+#
+# RÈGLE apprise le 2026-09-17 : un lot ne contient QUE des mineures et des
+# correctifs (`update-types`). Le premier lot npm groupait tout et proposait
+# d'un coup React 19.3, eslint 10, TypeScript 7, KaTeX 0.18 et Astryx 0.6 — que
+# `npm ci` refuse d'installer, donc une PR ni relisable ni fusionnable. Une
+# majeure est un chantier : elle mérite sa propre PR, avec sa propre CI.
 version: 2
 
 updates:
@@ -21,6 +27,7 @@ updates:
     groups:
       portail-python:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # Interface Next.js
   - package-ecosystem: npm
@@ -32,12 +39,18 @@ updates:
     groups:
       frontend-npm:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
     ignore:
       # Astryx est le système de design : une mineure peut changer le rendu de
-      # 153 composants. On veut bien une PR pour une MAJEURE ou un correctif,
-      # mais pas être réveillé chaque semaine par une 0.x — les montées de cette
-      # dépendance se décident et se vérifient à la main (`npx astryx upgrade`).
+      # 153 composants. On veut bien une PR pour un CORRECTIF, mais pas être
+      # réveillé chaque semaine par une 0.x — les montées de cette dépendance se
+      # décident et se vérifient à la main (`npx astryx upgrade`). Les MAJEURES
+      # restent proposées, hors lot, justement pour qu'elles aient leur PR.
       - dependency-name: "@astryxdesign/core"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: "@astryxdesign/cli"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: "@astryxdesign/theme-neutral"
         update-types: ["version-update:semver-minor", "version-update:semver-patch"]
 
   # Actions du workflow : une action tierce compromise s'exécute avec le jeton
@@ -51,3 +64,4 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        update-types: ["minor", "patch"]

@@ -481,7 +481,9 @@ class SuppressionCompteTest(_BaseReglages):
         with patch("auth.ldap_authenticate", return_value=(False, None, None)):
             r = self._json_post(c, "/api/account/delete",
                                 {"confirm": "DELETE", "password": "faux"})
-        self.assertEqual(r.status_code, 401)
+        # 400 : le portail répond « la confirmation est fausse », pas « tu n'es
+        # pas authentifié » — un 401 ferait déconnecter l'utilisateur.
+        self.assertEqual(r.status_code, 400)
         with self._db():
             self.assertIsNotNone(portal.get_db().execute(
                 "SELECT 1 FROM local_users WHERE username='zz-del-3'").fetchone())
@@ -550,7 +552,7 @@ class SuppressionCompteTest(_BaseReglages):
             faux = self._json_post(c, "/api/account/delete",
                                    {"confirm": "DELETE", "password": "MauvaisMotDePasse1!"})
         self.assertEqual(sans.status_code, 400, sans.get_data(as_text=True))
-        self.assertEqual(faux.status_code, 401, faux.get_data(as_text=True))
+        self.assertEqual(faux.status_code, 400, faux.get_data(as_text=True))
         with self._db():
             self.assertIsNotNone(portal.get_db().execute(
                 "SELECT 1 FROM user_prefs WHERE username='zz-del-ldap'").fetchone(),

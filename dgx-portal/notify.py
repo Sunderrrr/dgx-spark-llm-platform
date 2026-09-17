@@ -57,7 +57,7 @@ def _rows_html(rows):
     return "".join(cells)
 
 
-def _render_html(subject, heading, rows, body, footnote, cta_url=None):
+def _render_html(heading, rows, body, footnote, cta_url=None):
     rows_html = _rows_html(rows) if rows else ""
     body_html = (
         f'<p style="margin:16px 0 0;font-size:14px;line-height:1.6;color:#374151;">'
@@ -84,6 +84,7 @@ def _render_html(subject, heading, rows, body, footnote, cta_url=None):
  <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0f172a;">{_esc(heading)}</h1>
  <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;">{rows_html}</table>
  {body_html}
+ {footnote_html}
  {cta_html}
 </td></tr>
 <tr><td style="padding:16px 30px;background:#f9fafb;border-top:1px solid #eef0f2;color:#9ca3af;font-size:12px;">
@@ -95,7 +96,7 @@ def _render_html(subject, heading, rows, body, footnote, cta_url=None):
 </body></html>"""
 
 
-def _email_parts(subject, heading, rows, body, footnote, cta_url=None):
+def _email_parts(heading, rows, body, footnote, cta_url=None):
     text = [heading, ""]
     if rows:
         text.extend(f"{label}: {value if value is not None else '—'}"
@@ -106,7 +107,7 @@ def _email_parts(subject, heading, rows, body, footnote, cta_url=None):
         text.extend(["", footnote])
     text.extend(["", "— Cronos · DGX platform"])
     return ("\n".join(text),
-            _render_html(subject, heading, rows, body, footnote, cta_url))
+            _render_html(heading, rows, body, footnote, cta_url))
 
 
 def _send(to_email, subject, heading, rows=None, body=None, footnote=None,
@@ -118,8 +119,10 @@ def _send(to_email, subject, heading, rows=None, body=None, footnote=None,
     msg['Subject'] = subject
     msg['From'] = _sender()
     msg['To'] = to_email
-    text, html_body = _email_parts(subject, heading, rows, body, footnote,
-                                   cta_url)
+    # `subject` ne sert qu'à l'en-tête SMTP ci-dessus : il n'est ni dans le
+    # HTML ni dans le texte alternatif, donc il ne traverse plus ces deux
+    # fonctions (paramètre mort depuis toujours).
+    text, html_body = _email_parts(heading, rows, body, footnote, cta_url)
     msg.attach(MIMEText(text, 'plain'))
     msg.attach(MIMEText(html_body, 'html'))
     try:

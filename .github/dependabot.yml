@@ -60,6 +60,27 @@ updates:
       # runtime bouge, les deux se mettent à jour dans le même commit.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # TypeScript 7 et ESLint 10 sont BLOQUÉS EN AMONT, pas par notre code —
+      # mesuré le 2026-09-17 sur les deux PR (#6, #8) : les deux échouent à
+      # l'étape Lint, jamais à l'installation ni au type-check.
+      #   - #6 : `npx tsc --noEmit` passe avec TypeScript 7.0.2 (0 erreur), mais
+      #     `typescript-eslint` — fourni par `eslint-config-next` — LÈVE à
+      #     l'import dès `typescript` majeur ≥ 7 (« typescript-eslint does not
+      #     support TS 7.0 », suivi en amont : typescript-eslint#10940).
+      #   - #8 : ESLint 10 retire `context.getFilename()` ; le
+      #     `eslint-plugin-react` fourni par `eslint-config-next` l'appelle
+      #     encore, et la DERNIÈRE version publiée (7.37.5) déclare toujours
+      #     `eslint: ^3 … ^9.7` — aucun correctif disponible en aval.
+      # Les livrer demanderait de remplacer le lint de Next.js par une
+      # configuration maison : ce n'est pas une montée de dépendance, c'est un
+      # chantier à part entière (et il retirerait des règles qu'on veut garder).
+      # POUR REPRENDRE : retirer les deux `ignore` ci-dessous, puis
+      # `npm i -D typescript@^7 eslint@^10 && npx tsc --noEmit && npx eslint .` —
+      # si le lint passe, la montée est mûre ; sinon, remettre l'ignore.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
 
   # Actions du workflow : une action tierce compromise s'exécute avec le jeton
   # du dépôt — d'où l'épinglage par SHA, que Dependabot sait maintenir.

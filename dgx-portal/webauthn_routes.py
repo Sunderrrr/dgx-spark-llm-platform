@@ -127,7 +127,10 @@ def _pending_clear(nonce) -> None:
     db.commit()
 
 
-def _verify_password(username: str, password: str) -> bool:
+def _verify_password(username: str, password: str, gestion: str) -> bool:
+    # `gestion` est FOURNI par l'appelant : `_verify_password_locked` l'a déjà
+    # calculé (deux SELECT) pour son propre test SSO, et le recalculer ici
+    # doublait ces lectures à chaque re-vérification sensible.
     """Re-vérification par mot de passe, contre la source qui le DÉTIENT.
 
     `login()` essaie le local PUIS l'annuaire, et cet ordre y est voulu : un
@@ -144,7 +147,6 @@ def _verify_password(username: str, password: str) -> bool:
     l'annuaire, un compte `annuaire` ne consulte plus le local, et `inconnu`
     (rien ne fait autorité) garde l'ordre de `login()`.
     """
-    gestion = gestion_mot_de_passe(username)['gestion']
     if gestion == GESTION_PORTAIL:
         return _local_user_auth(username, password)[0]
     from auth import ldap_authenticate
@@ -177,13 +179,14 @@ def _verify_password_locked(username: str, password: str):
     # sur `user:<nom>` — le compteur étant partagé avec /login, il finissait par
     # se verrouiller lui-même la page de connexion, pour une action impossible
     # dès le départ.
-    if gestion_mot_de_passe(username)['gestion'] == GESTION_SSO:
+    gestion = gestion_mot_de_passe(username)['gestion']
+    if gestion == GESTION_SSO:
         return False, ({"error": "Compte SSO : aucun mot de passe n'est géré par le "
                                  "portail, la vérification est impossible."}, 400)
     wait = _login_locked(ukey)
     if wait:
         return False, ({"error": f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min."}, 429)
-    if _verify_password(username, password):
+    if _verify_password(username, password, gestion):
         _login_reset(ukey)
         return True, None
     _login_fail(ukey)
@@ -337,12 +340,15 @@ def finish_login(nonce: str, credential):
 def api_security():
     username = session["username"]
     creds = _stored_credentials(username)
+    gestion = gestion_mot_de_passe(username)
     return jsonify({
         "enabled": _webauthn_enabled(username),
         # L'interface doit pouvoir DIRE d'où vient le mot de passe, et donc si
         # un formulaire de changement (ou l'ajout d'une passkey) a un sens ici.
-        "password_managed_by": gestion_mot_de_passe(username)["gestion"],
-        "passkey_possible": passkey_possible(username),
+        # Une seule lecture de la source (deux SELECT) pour les deux champs :
+        # `passkey_possible` ne fait que relire `gestion_mot_de_passe`.
+        "password_managed_by": gestion["gestion"],
+        "passkey_possible": gestion["passkey"],
         "credentials": [{
             "id": c["id"],
             "credential_id": c["credential_id"],

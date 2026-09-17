@@ -521,27 +521,6 @@ def _safe_next(target):
 
 
 
-@app.context_processor
-def inject_budget_alert():
-    """In-app banner when the account budget exceeds 85% (non-admins)."""
-    if 'username' not in session or session.get('is_admin'):
-        return {}
-    if hasattr(g, '_budget_alert'):
-        return {'budget_alert': g._budget_alert}
-    alert = None
-    try:
-        info = _litellm_user_info(session['username'])
-        if info['exists'] and info['max_budget']:
-            pct = (info['spend'] or 0) / info['max_budget'] * 100
-            if pct >= 85:
-                alert = {'pct': round(pct),
-                         'remaining': max(info['max_budget'] - (info['spend'] or 0), 0)}
-    except Exception:
-        pass
-    g._budget_alert = alert
-    return {'budget_alert': alert}
-
-
 @app.route('/login/sso')
 def login_sso():
     if not OIDC_ENABLED:
@@ -1013,7 +992,6 @@ def api_modelhealth():
     capteurs des sidecars) et reste a 5 s ; seul le debit temps reel avait
     besoin d'un rythme rapide, d'ou cet endpoint minimal.
     """
-    from vllm_health import vllm_health
     return jsonify(vllm_health())
 
 
@@ -1250,12 +1228,16 @@ def api_keys():
     running = get_running_models()
     model_limits[AUTO_MODEL_NAME] = (model_limits.get(running[0]) if running else None) \
         or {'context': 262144, 'output': 131072}
+    # Une seule lecture du réglage et UN appel à `_budget_remaining` : la même
+    # réponse les répétait trois et deux fois.
+    duree = get_setting('default_key_duration', KEY_DURATION)
+    budget_used, budget_remaining = _budget_remaining(session['username'], default_budget, duree)
     return jsonify({
         'user_keys': get_user_keys(session['username']),
         'budget_tokens': f"{default_budget:,.0f}".replace(',', ' '),
-        'budget_duration': get_setting('default_key_duration', KEY_DURATION),
-        'budget_used': _budget_remaining(session['username'], default_budget, get_setting('default_key_duration', KEY_DURATION))[0],
-        'budget_remaining': _budget_remaining(session['username'], default_budget, get_setting('default_key_duration', KEY_DURATION))[1],
+        'budget_duration': duree,
+        'budget_used': budget_used,
+        'budget_remaining': budget_remaining,
         'account': account,
         'model_limits': model_limits,
         'running_models': running,

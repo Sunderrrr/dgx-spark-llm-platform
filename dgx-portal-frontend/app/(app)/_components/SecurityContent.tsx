@@ -129,8 +129,18 @@ export function SecurityContent() {
   async function enregistrerCle() {
     setBusy(true);
     try {
-      const begin = await sendJSON<{ publicKey: Record<string, unknown>; nonce: string }>(
-        "/api/security/register/begin", csrf, { password: pw });
+      const begin = await sendJSON<{
+        publicKey?: Record<string, unknown>; nonce?: string; error?: string;
+      }>("/api/security/register/begin", csrf, { password: pw });
+      // `begin` peut ÉCHOUER (mot de passe faux, compte SSO, plafond d'essais) :
+      // sans ce test, `createPasskey(undefined)` levait un TypeError et le
+      // message du serveur était remplacé par un « Échec de l'enregistrement »
+      // générique — constaté en test navigateur. `sendJSON` ne lève pas sur un
+      // 4xx, donc c'est bien ici que le refus se lit.
+      if (!begin?.publicKey || !begin.nonce) {
+        showToast({ body: t(begin?.error || "Échec de l'enregistrement de la clé."), type: "error" });
+        return;
+      }
       const credential = await createPasskey(begin.publicKey);
       const res = await sendJSON<{ ok: boolean; error?: string }>(
         "/api/security/register/finish", csrf,

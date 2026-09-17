@@ -48,9 +48,11 @@ export function AskQuestion({
   // en a un. Les deux peuvent coexister.
   const effective = (i: number) =>
     [...chosen[i], otherOpen[i] ? otherText[i].trim() : ""].filter(Boolean).join(" + ");
-  const currentAnswered = effective(step) !== "";
-  const allAnswered = questions.every((_, i) => effective(i) !== "");
   const isLast = step === questions.length - 1;
+  const currentAnswered = effective(step) !== "";
+  // `allAnswered` n'est lu que sur la DERNIÈRE étape (bouton Envoyer) : le
+  // calculer à chaque étape reparcourait toutes les questions pour rien.
+  const allAnswered = isLast && questions.every((_, i) => effective(i) !== "");
 
   // Bascule : recliquer une option la retire.
   const toggleOption = (opt: string) => {

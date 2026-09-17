@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -214,7 +214,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  // Cloche : liste + badge des non-lues à l'ouverture, rafraîchi à l'ouverture.
+  // Le jeton CSRF est lu dans une REF, pas capturé : le GET /api/notifications
+  // n'en a pas besoin, mais le POST /seen si. En le mettant dans les dépendances
+  // du useCallback, `loadNotifs` était recréé quand `csrf` passait de "" au
+  // jeton, ce qui relançait l'effet de montage : la liste était chargée DEUX
+  // fois à chaque ouverture de page, pour rien.
+  const csrfRef = useRef(csrf);
+  useEffect(() => { csrfRef.current = csrf; }, [csrf]);
   const loadNotifs = useCallback((markSeen: boolean) => {
     fetch("/api/notifications", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { items: [], unread: 0 }))
@@ -223,11 +229,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         setNotifUnread(d?.unread ?? 0);
         if (markSeen && (d?.unread ?? 0) > 0) {
           setNotifUnread(0);
-          fetch("/api/notifications/seen", { method: "POST", credentials: "include", headers: { "X-CSRFToken": csrf } }).catch(() => {});
+          fetch("/api/notifications/seen", { method: "POST", credentials: "include", headers: { "X-CSRFToken": csrfRef.current } }).catch(() => {});
         }
       })
       .catch(() => {});
-  }, [csrf]);
+  }, []);
   useEffect(() => { loadNotifs(false); }, [loadNotifs]);
 
   const isDark = mode === "dark" || (mode === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);

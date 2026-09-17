@@ -500,7 +500,7 @@ def api_memory_export():
 def api_memory_export_md():
     """Télécharge la mémoire sous forme Markdown lisible par un humain."""
     doc = _mem_export_doc(session['username'])
-    lines = [f"# Ce que Cronos sait de moi", "",
+    lines = ["# Ce que Cronos sait de moi", "",
              f"> Exporté le {doc['exported_at'][:19].replace('T', ' ')} — "
              f"{len(doc['edges'])} fait(s), {len(doc['nodes'])} sujet(s).", ""]
     # Regrouper les faits par sujet (libellé du nœud source).

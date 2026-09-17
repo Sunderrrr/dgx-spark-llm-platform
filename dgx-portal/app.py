@@ -91,6 +91,16 @@ def _security_headers(resp):
     return resp
 
 
+# ── Surface de ré-export, à NE PAS « nettoyer » ──────────────────────────────
+# Les blocs `from <module> import (...)` qui suivent (lignes ~100 à 335)
+# ramènent ici les noms que le monolithe portait avant l'extraction en modules :
+# app.py reste le point d'entrée WSGI (`gunicorn app:app`) ET le module que les
+# scripts d'exploitation importent (`scripts/create-demo-account.py` fait
+# `import app as portal`). pyflakes les signale « imported but unused » puisque
+# app.py ne s'en sert pas lui-même : c'est attendu, et les retirer casserait un
+# `from app import <nom>` hors dépôt sans rien apporter au comportement.
+
+
 # ── CSRF protection (per-session token) ──────────────────────────────────────
 # Each session carries a token; every unsafe request (POST/PUT/PATCH/DELETE)
 # must send it back via the hidden `csrf_token` field (forms) or the
@@ -195,7 +205,7 @@ from announcements import _announce_launch, add_announcement  # noqa: E402
 from sidecars import (  # noqa: E402
     _drop_log_noise, _image_launch, _mem_guard, _music_launch, _ocr_launch,
     _runner_headers, _sidecar_action, _sidecar_proc_status, _sidecar_start_json,
-    VOICE_REPO_IDS, _sidecar_status, _voice_launch, asr_is_up, get_image_model,
+    VOICE_REPO_IDS, _sidecar_status, _voice_launch, get_image_model,
     get_music_model,
     get_ocr_model, get_voice_model, image_ready, music_ready, runner_launch,
     runner_logs, runner_metrics, runner_status, runner_stop,

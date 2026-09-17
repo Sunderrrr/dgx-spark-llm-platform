@@ -16,8 +16,8 @@ from comfyui_client import (
 )
 from db import get_db
 from guards import (
-    _ALLOWED_IMAGE_TYPES, _MAX_UPLOAD_BYTES, _read_uploaded_image,
-    maintenance_block_json, media_rate_block,
+    _read_uploaded_image,
+    media_block_json,
 )
 
 bp = Blueprint('video', __name__)
@@ -27,12 +27,9 @@ VIDEO_HISTORY_LIMIT = 10
 @bp.route('/api/video/generate', methods=['POST'])
 @login_required
 def api_video_generate():
-    blocked = maintenance_block_json()
-    if blocked:
-        return blocked
-    limited = media_rate_block()
-    if limited:
-        return limited
+    refus = media_block_json()
+    if refus:
+        return refus
     # Optional image: absent → text-only generation (T2V). Provided but
     # invalid (wrong format/too heavy) → always a 400 error, as
     # before — only the total ABSENCE of the field switches to T2V.

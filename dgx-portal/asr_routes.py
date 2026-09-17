@@ -6,14 +6,11 @@ C'est cette frontiere mal placee qui rendait la section non extractible.
 
 asr_is_up() est reimporte par app.py : le tableau de bord des sidecars s'en sert.
 """
-import time
-
 import requests
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request
 
 from auth import login_required
 from config import ASR_URL
-from db import get_db
 from sidecars import asr_is_up
 from guards import _MAX_VOICE_UPLOAD_BYTES, maintenance_block_json, media_rate_block
 

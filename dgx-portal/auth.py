@@ -18,16 +18,15 @@ import hmac
 import ipaddress
 import re
 import secrets
-import sqlite3
 
-from flask import abort, flash, g, redirect, request, session, url_for
+from flask import abort, flash, redirect, request, session, url_for
 from ldap3 import ALL, SIMPLE, Connection, Server
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 
 from config import (LDAP_BASE, LDAP_BIND_DN, LDAP_BIND_PW,
                     LDAP_LOGIN_ATTR, LDAP_URI, LDAP_USERS_DN)
-from db import DB_PATH, get_db, log_audit
+from db import get_db, log_audit
 from local_users import _local_user_is_admin
 
 _API_FETCH_PATHS = ('/playground/chat', '/support/chat', '/admin/runner/stream')
@@ -288,9 +287,9 @@ def _local_user_admin(username):
             return False
         if row['is_admin']:
             return True
-        g = get_db().execute(
+        groupe = get_db().execute(
             "SELECT is_admin FROM user_groups WHERE name=?", (row['group_name'],)).fetchone()
-        return bool(g and g['is_admin'])
+        return bool(groupe and groupe['is_admin'])
     except Exception:
         return False
 

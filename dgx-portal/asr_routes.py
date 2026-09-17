@@ -11,7 +11,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import login_required
 from config import ASR_URL
-from sidecars import asr_is_up
+from sidecars import asr_is_up, motif_refus
 from guards import _MAX_VOICE_UPLOAD_BYTES, maintenance_block_json, media_rate_block
 
 bp = Blueprint('asr', __name__)
@@ -45,11 +45,7 @@ def api_transcribe():
                           files={'audio': ('rec.wav', data, 'audio/wav')},
                           data={'language': language}, timeout=180)
         if not r.ok:
-            detail = ''
-            try:
-                detail = r.json().get('detail', '')
-            except Exception:
-                pass
+            detail = motif_refus(r)
             # Le CODE DU SIDECAR est repris, il n'est plus écrasé en 502. Un
             # enregistrement trop court, un format illisible ou un fichier trop
             # gros sont des ERREURS D'ENTRÉE (400/413) : les présenter comme une

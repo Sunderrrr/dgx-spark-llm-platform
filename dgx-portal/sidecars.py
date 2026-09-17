@@ -176,6 +176,20 @@ def get_music_model():
         pass
     return None
 
+def motif_refus(r):
+    """Motif de refus d'une réponse du runner, `''` s'il n'y a rien à lire.
+
+    Le runner répond `{"detail": "..."}` quand il refuse un lancement ; le reste
+    du temps son corps n'est pas du JSON. Sept appels recopiaient ce
+    `try/except` — une seule définition suffit, et l'échec silencieux y est
+    explicite au lieu d'être répété sept fois.
+    """
+    try:
+        return r.json().get('detail', '') or ''
+    except Exception:                                    # noqa: BLE001
+        return ''
+
+
 def _runner_headers():
     return {'Authorization': f'Bearer {RUNNER_TOKEN}'}
 
@@ -509,12 +523,7 @@ def _ocr_launch(hf_id, args):
     try:
         r = requests.post(f"{RUNNER_URL}/ocr/launch", headers=_runner_headers(),
                           json={'hf_model_id': hf_id, 'vllm_args': args or ''}, timeout=90)
-        detail = ''
-        try:
-            detail = r.json().get('detail', '')
-        except Exception:
-            pass
-        return r.ok, detail
+        return r.ok, motif_refus(r)
     except Exception as e:
         return False, str(e)
 
@@ -526,12 +535,7 @@ def _voice_launch(repo_id):
     try:
         r = requests.post(f"{RUNNER_URL}/voice/launch", headers=_runner_headers(),
                           json={'repo_id': repo_id}, timeout=90)
-        detail = ''
-        try:
-            detail = r.json().get('detail', '')
-        except Exception:
-            pass
-        return r.ok, detail
+        return r.ok, motif_refus(r)
     except Exception as e:
         return False, str(e)
 
@@ -547,12 +551,7 @@ def _image_launch(model_id):
     try:
         r = requests.post(f"{RUNNER_URL}/image/launch", headers=_runner_headers(),
                           json={'model_id': model_id}, timeout=180)
-        detail = ''
-        try:
-            detail = r.json().get('detail', '')
-        except Exception:
-            pass
-        return r.ok, detail
+        return r.ok, motif_refus(r)
     except Exception as e:
         return False, str(e)
 
@@ -565,12 +564,7 @@ def _music_launch(model_id):
     try:
         r = requests.post(f"{RUNNER_URL}/music/launch", headers=_runner_headers(),
                           json={'model_id': model_id}, timeout=180)
-        detail = ''
-        try:
-            detail = r.json().get('detail', '')
-        except Exception:
-            pass
-        return r.ok, detail
+        return r.ok, motif_refus(r)
     except Exception as e:
         return False, str(e)
 

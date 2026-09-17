@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Enveloppe de `<Markdown>` qui referme le filtre d'URL de la dépendance.
+ * Enveloppe de `<Markdown>` qui referme deux trous de la dépendance : son filtre
+ * d'URL, et le rendu des maths.
  *
  * `sanitizeUrl` d'Astryx 0.1.8 (`dist/Markdown/Markdown.js:413`) teste
  * `/^(javascript|data|vbscript):/i` sur `url.trim()`. Or `trim()` ne retire que
@@ -21,10 +22,16 @@
  * (`xjse4m1` couleur d'accent, `x1bvjpef`), et passe par le `LinkProvider` de
  * l'application. Aucun changement visuel, et les liens externes conservent
  * `target="_blank"` + `rel="noopener noreferrer"`.
+ *
+ * Les maths (`$…$`, `$$…$$`, `\(…\)`) sont préparées ici, avant le parseur :
+ * cf. `lib/maths.tsx` pour la raison — le parseur coupe le texte à chaque
+ * antislash, donc un plugin par nœud ne peut plus voir la formule.
  */
+import { useMemo } from "react";
 import { Markdown } from "@astryxdesign/core/Markdown";
 import { Link } from "@astryxdesign/core/Link";
 import type { ComponentProps, ReactNode } from "react";
+import { pluginMaths, protegerMaths, type Formule } from "./maths";
 
 /** Schémas jamais légitimes dans une réponse de modèle. */
 const SCHEMA_DANGEREUX = /^(?:javascript|data|vbscript|file):/i;
@@ -53,7 +60,21 @@ function LienSur({ href, children }: { href: string; children: ReactNode }) {
   );
 }
 
-/** `<Markdown>` avec le filtre d'URL corrigé. */
-export function MarkdownSur(props: ComponentProps<typeof Markdown>) {
-  return <Markdown {...props} components={{ ...props.components, link: LienSur }} />;
+/** `<Markdown>` avec le filtre d'URL corrigé et les maths rendues. */
+export function MarkdownSur({ children, inlinePlugins, ...props }: ComponentProps<typeof Markdown>) {
+  const { texte, formules } = useMemo(() => {
+    if (typeof children !== "string") return { texte: children, formules: [] as Formule[] };
+    return protegerMaths(children);
+  }, [children]);
+
+  const plugins = useMemo(
+    () => [...(formules.length ? [pluginMaths(formules)] : []), ...(inlinePlugins ?? [])],
+    [formules, inlinePlugins],
+  );
+
+  return (
+    <Markdown {...props} inlinePlugins={plugins} components={{ ...props.components, link: LienSur }}>
+      {texte}
+    </Markdown>
+  );
 }

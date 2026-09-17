@@ -48,7 +48,12 @@ services:
     # l'accès externe se fait par https://api.cronos.website, qui applique en plus
     # le forwardAuth de maintenance — que l'ancien port publié court-circuitait.
     volumes:
-      - ./litellm/config.yaml:/app/config.yaml
+      # La config du proxy est en LECTURE SEULE : LiteLLM la lit au démarrage et
+      # ne l'écrit jamais (ses modèles vivent dans Postgres, `store_model_in_db:
+      # true`). En écriture, c'était un chemin de persistance pour un proxy
+      # compromis — `/run/cronos` étant monté en écriture juste à côté, il
+      # pouvait y déposer un greffon et le faire charger au redémarrage suivant.
+      - ./litellm/config.yaml:/app/config.yaml:ro
       # Activité EN VOL (qui génère maintenant) : petit SQLite écrit par le
       # callback `cronos_inflight`, lu par le portail. Le module est monté à part
       # pour rester lisible, et PYTHONPATH=/app le rend importable.

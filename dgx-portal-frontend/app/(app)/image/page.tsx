@@ -36,9 +36,9 @@ const BATCH_CHOICES = [1, 2, 3, 4];
 // Formats de sortie proposés à la génération. Le sidecar encode (PNG/JPEG/WebP),
 // le portail stocke/sert l'extension correspondante. jpeg -> .jpg à la sortie.
 const FORMATS = [
-  { value: "png", label: "PNG", ext: "png" },
-  { value: "jpeg", label: "JPEG", ext: "jpg" },
-  { value: "webp", label: "WebP", ext: "webp" },
+  { value: "png", label: "PNG" },
+  { value: "jpeg", label: "JPEG" },
+  { value: "webp", label: "WebP" },
 ] as const;
 type ImageFormat = (typeof FORMATS)[number]["value"];
 

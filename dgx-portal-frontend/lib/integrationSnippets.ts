@@ -18,7 +18,7 @@ export const INTEGRATION_TOOLS = [
 
 export type IntegrationTool = (typeof INTEGRATION_TOOLS)[number]["value"];
 
-export function maskKey(k: string): string {
+function maskKey(k: string): string {
   return k.slice(0, 6) + "••••••••••••••••" + k.slice(-4);
 }
 

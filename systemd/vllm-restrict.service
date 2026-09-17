@@ -4,19 +4,31 @@ Description=Restrict vLLM (8000), vllm-runner (8001) and ComfyUI (8188) to local
 # if it precedes our port DROPs, lets any VPN peer reach the unauthenticated
 # model API (:8000) and ComfyUI (:8188). We run after it and insert a wt0 DROP
 # for those ports at the TOP of INPUT so it is evaluated first (audit H1, 2026-08-12).
+#
+# MESURE DU 2026-09-17 : le `-C … || -I INPUT 1` d'origine ne REPARE pas l'ordre.
+# La règle existant déjà (plus bas), le test `-C` réussissait et rien n'était
+# réinséré ; or netbird réinstalle son ACCEPT général en position 1 à chaque
+# (re)démarrage. Constat : ACCEPT `-i wt0` en règle 1 (491 000 paquets) et notre
+# DROP en règle 14 (0 paquet) — jamais évalué, donc un pair du VPN atteignait
+# `:8000` sans authentification (HTTP 200 sur /v1/models). D'où les deux
+# correctifs : la règle est SUPPRIMÉE puis RÉINSÉRÉE en tête à chaque exécution,
+# et `PartOf=netbird.service` fait rejouer l'unité quand netbird redémarre —
+# c'est la cause même de la dérive.
 After=network.target docker.service netbird.service
 Wants=netbird.service
+PartOf=netbird.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/sh -c '\
-iptables -C INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP 2>/dev/null || iptables -I INPUT 1 -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP; \
+iptables -D INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP 2>/dev/null || true; \
 for PORT in 8000 8001 8188; do \
   iptables -C INPUT -p tcp --dport $PORT -j DROP 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -j DROP; \
   iptables -C INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT; \
   iptables -C INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT; \
-done'
+done; \
+iptables -I INPUT 1 -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP'
 ExecStop=/bin/sh -c '\
 iptables -D INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP 2>/dev/null || true; \
 for PORT in 8000 8001 8188; do \

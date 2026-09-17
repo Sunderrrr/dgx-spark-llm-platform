@@ -1,24 +1,9 @@
 "use client";
 
-import { ProgressBar } from "@astryxdesign/core/ProgressBar";
-import { useT } from "@/lib/i18n";
-
+/** Format court des tokens : 1 234 -> « 1,2k ». Utilisé par le volet du
+ *  Playground. Le composant `ContextMeter` qui vivait ici a été supprimé le
+ *  2026-09-17 : plus personne ne le rendait, le même affichage ayant été réécrit
+ *  en ligne dans page.tsx. */
 export function fmtK(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, "")}k` : `${n}`;
-}
-
-export function ContextMeter({ used, max }: { used: number; max: number }) {
-  const t = useT();
-  const variant = used / max >= 0.95 ? "error" : used / max >= 0.8 ? "warning" : "accent";
-  return (
-    <ProgressBar
-      label={t("Utilisation du contexte")}
-      value={used}
-      max={max}
-      variant={variant}
-      isLabelHidden
-      hasValueLabel
-      formatValueLabel={() => `${fmtK(used)} / ${fmtK(max)} tokens`}
-    />
-  );
 }

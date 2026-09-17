@@ -1,0 +1,53 @@
+# Veille des dépendances (Dependabot).
+#
+# Pourquoi : la CI vérifie que le code compile et que les tests passent, mais
+# elle ne dit RIEN d'une CVE publiée dans une bibliothèque déjà installée. Sans
+# veille, la seule façon de l'apprendre est un audit manuel — c'est exactement
+# ce qui a laissé passer le contournement de `sanitizeUrl` d'Astryx 0.1.8.
+# Dependabot ouvre une PR par mise à jour ; c'est la CI qui juge.
+#
+# Rythme hebdomadaire et lots groupés : ce dépôt a peu de dépendances directes,
+# et une PR par paquet mineur noierait les vraies alertes.
+version: 2
+
+updates:
+  # Portail Flask
+  - package-ecosystem: pip
+    directory: /dgx-portal
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      portail-python:
+        patterns: ["*"]
+
+  # Interface Next.js
+  - package-ecosystem: npm
+    directory: /dgx-portal-frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      frontend-npm:
+        patterns: ["*"]
+    ignore:
+      # Astryx est le système de design : une mineure peut changer le rendu de
+      # 153 composants. On veut bien une PR pour une MAJEURE ou un correctif,
+      # mais pas être réveillé chaque semaine par une 0.x — les montées de cette
+      # dépendance se décident et se vérifient à la main (`npx astryx upgrade`).
+      - dependency-name: "@astryxdesign/core"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+
+  # Actions du workflow : une action tierce compromise s'exécute avec le jeton
+  # du dépôt — d'où l'épinglage par SHA, que Dependabot sait maintenir.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]

@@ -1219,7 +1219,13 @@ def _non_stream(messages, model, max_tokens, temperature=0.2):
         content = (data.get('choices') or [{}])[0].get('message', {}).get('content', '') or ''
         return content.strip(), None
     except Exception as exc:                    # noqa: BLE001
-        return None, str(exc)
+        # Le détail (`requests` y met l'URL et le port internes de LiteLLM) reste
+        # dans les journaux : il finissait dans la réponse HTTP, donc dans
+        # l'interface. L'utilisateur, lui, n'a besoin que de savoir que ça n'a pas
+        # répondu — la cause exploitable ne le regarde pas.
+        _log.warning("titre/résumé : appel LiteLLM échoué : %r", exc)
+        return None, "Le modèle n'a pas répondu."
+
 
 
 @bp.route('/api/playground/title', methods=['POST'])

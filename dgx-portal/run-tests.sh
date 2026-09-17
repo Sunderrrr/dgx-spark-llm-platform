@@ -19,7 +19,7 @@ else
   set -- discover -s tests
 fi
 exec docker run --rm \
-  -e SECRET_KEY=test-secret \
+  -e SECRET_KEY=test-secret-0123456789abcdef0123456789abcdef \
   -e LITELLM_MASTER_KEY=sk-test \
   --entrypoint python ai-platform-dgx-portal \
   -m unittest "$@" -v

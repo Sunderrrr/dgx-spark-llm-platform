@@ -9,7 +9,7 @@ C'est la gestion normale de comptes, en base, par l'administrateur.
 """
 from datetime import datetime
 
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import KEY_BUDGET, KEY_DURATION
 from db import get_db, get_setting
@@ -33,12 +33,24 @@ def _local_user_is_admin(row):
     g = _local_group(row['group_name'])
     return bool(row['is_admin']) or bool(g['is_admin'] if g else 0)
 
+# Hash jetable pour égaliser le temps de réponse (cf. oracle d'énumération).
+_HASH_FACTICE = generate_password_hash('mot-de-passe-factice')
+
+
 def _local_user_auth(username, password):
     """(ok, is_admin, fullname) against local_users, HASHED password (werkzeug).
     """
     row = get_db().execute(
         "SELECT * FROM local_users WHERE username=? AND enabled=1", (username,)).fetchone()
-    if not row or not check_password_hash(row['password_hash'], password):
+    if row is None:
+        # Compte inexistant : on paie QUAND MÊME le coût du KDF. Le `or` de la
+        # version précédente court-circuitait avant `check_password_hash`, donc
+        # le temps de réponse de /login distinguait « compte local existant » de
+        # « inexistant » (oracle d'énumération gratuit, sans déclencher le
+        # verrou : corps et statut identiques).
+        check_password_hash(_HASH_FACTICE, password or '')
+        return False, False, None
+    if not check_password_hash(row['password_hash'], password):
         return False, False, None
     return True, _local_user_is_admin(row), (row['fullname'] or username)
 

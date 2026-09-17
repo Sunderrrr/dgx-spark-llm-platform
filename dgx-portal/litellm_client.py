@@ -14,15 +14,12 @@ a importer l'application (ce qui recreerait un cycle).
 import hashlib
 import logging
 import sqlite3
-import time
-from datetime import datetime
 
 import requests
 
 from config import (AUTO_MODEL_NAME, KEY_BUDGET, KEY_DURATION, LITELLM_KEY,
                     LITELLM_URL, VLLM_API_BASE)
-from db import DB_PATH, _spend_conn, get_db, get_setting
-from discord_notify import _discord_announce
+from db import DB_PATH, _spend_conn, get_setting
 from vllm_health import ctx_split
 
 _log = logging.getLogger('app')

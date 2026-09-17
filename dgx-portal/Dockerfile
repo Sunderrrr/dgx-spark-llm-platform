@@ -4,9 +4,14 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 # Utilisateur non-root (uid fixe pour matcher les permissions du volume /app/data).
-RUN mkdir -p /app/data \
+# `/home/portal` est créé parce que `useradd -r` ne le fait pas et que gunicorn 26
+# y place son « control server » (`$HOME/.gunicorn/gunicorn.ctl`) : sans ce
+# dossier, chaque démarrage écrit `[ERROR] Control server error: [Errno 13] …`
+# dans les journaux. L'application sert quand même (vérifié), mais une erreur au
+# démarrage ne doit pas devenir du bruit habituel.
+RUN mkdir -p /app/data /home/portal \
  && groupadd -r portal && useradd -r -u 10001 -g portal portal \
- && chown -R portal:portal /app
+ && chown -R portal:portal /app /home/portal
 USER portal
 EXPOSE 5000
 # 4 workers × 16 threads = 64 requêtes simultanées (contre 32 avant le 04/08).

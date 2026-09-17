@@ -168,7 +168,12 @@ def _verify_password_locked(username: str, password: str):
         _login_reset(ukey)
         return True, None
     _login_fail(ukey)
-    return False, ({"error": "Mot de passe incorrect."}, 401)
+    # 400 et NON 401 : la session est parfaitement valide, c'est la
+    # CONFIRMATION qui est fausse. Le client interprète un 401 comme « session
+    # expirée » et renvoie l'utilisateur à /login (`authFetch`) : se tromper de
+    # mot de passe en ajoutant une clé le DÉCONNECTAIT donc, au lieu de lui
+    # afficher « Mot de passe incorrect. » — constaté en test navigateur.
+    return False, ({"error": "Mot de passe incorrect."}, 400)
 
 
 # ── Flux d'enregistrement (ajout d'une cle) ───────────────────────────────────

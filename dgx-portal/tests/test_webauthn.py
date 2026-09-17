@@ -170,7 +170,7 @@ class WebAuthnTestCase(unittest.TestCase):
         self.assertEqual(sans.status_code, 400, sans.get_data(as_text=True))
         faux = c.post("/api/security/register/begin", json={"password": "mauvais"},
                       headers={"X-CSRFToken": "tok"})
-        self.assertEqual(faux.status_code, 401, faux.get_data(as_text=True))
+        self.assertEqual(faux.status_code, 400, faux.get_data(as_text=True))
         # La double authentification n'a pas bougé.
         self.assertFalse(c.get("/api/security").get_json()["enabled"])
         # Et avec le bon mot de passe, l'enregistrement se fait.
@@ -245,7 +245,9 @@ class WebAuthnTestCase(unittest.TestCase):
         # Mauvais mot de passe → 401.
         r = c.post("/api/security/remove", json={"credential_id": cred_id, "password": "bad"},
                    headers={"X-CSRFToken": "tok"})
-        self.assertEqual(r.status_code, 401)
+        # 400 : la session est valide, la confirmation ne l'est pas. Un 401 ferait
+        # déconnecter l'utilisateur par le client au lieu de lui montrer l'erreur.
+        self.assertEqual(r.status_code, 400)
         # Bon mot de passe → supprimé + désactivé (dernière clé).
         r = c.post("/api/security/remove", json={"credential_id": cred_id, "password": "pw"},
                    headers={"X-CSRFToken": "tok"})
@@ -263,7 +265,7 @@ class WebAuthnTestCase(unittest.TestCase):
                         json={"enabled": True, "password": "mauvais"},
                         headers={"X-CSRFToken": "tok"}).status_code
                  for _ in range(6)]
-        self.assertEqual(codes, [401] * 6)        # 6 échecs = seuil
+        self.assertEqual(codes, [400] * 6)        # 6 échecs = seuil (400 = confirmation fausse)
         r = c.post("/api/security/toggle", json={"enabled": True, "password": "mauvais"},
                    headers={"X-CSRFToken": "tok"})
         self.assertEqual(r.status_code, 429)      # verrouillé

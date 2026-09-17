@@ -170,7 +170,10 @@ class MCPClient:
         # refuse toute redirection plutôt que de la suivre. L'IP est en plus
         # épinglée (cf. _post) pour fermer la fenêtre de DNS-rebinding.
         r = self._post(json=payload)
-        if r.is_redirect or r.status_code in (301, 302, 303, 307, 308):
+        # `Response.is_redirect` = présence d'un `Location` ET statut dans
+        # (301, 302, 303, 307, 308) : le test explicite qui suivait rejouait donc
+        # exactement la même condition.
+        if r.is_redirect:
             raise MCPError("Le serveur MCP a répondu par une redirection, refusée.")
         if r.status_code >= 400:
             raise MCPError(f"Le serveur MCP a renvoyé une erreur ({r.status_code}).")

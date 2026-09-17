@@ -74,10 +74,23 @@ def _real_tokens_by_user(since_utc=None):
 # ("Sessions X/Y") with nobody in the "who's using" panel until it finishes —
 # this registry fills that gap live. One row per active request; a staleness
 # sweep drops rows a crashed worker never deleted.
+_TOKENS_BY_MODEL_CACHE = {}
+_TOKENS_BY_MODEL_TTL = 30.0
+
+
 def _tokens_by_model(since_utc=None):
     """Tokens réels par modèle (chat), depuis `since_utc` (naive UTC). Sert au
     « usage par modèle » du dashboard — voir ce qui consomme le GPU, au-delà de la
-    répartition par utilisateur."""
+    répartition par utilisateur.
+
+    Mis en cache 30 s comme `user_hourly` : `/api/home` est interrogé toutes les
+    5 s et ce `GROUP BY` balaie TOUTE la table `LiteLLM_SpendLogs` (50 000 lignes
+    au 2026-09-14). La valeur est un cumul, elle ne bouge pas à la seconde.
+    """
+    cle = since_utc.isoformat() if since_utc is not None else ''
+    hit = _TOKENS_BY_MODEL_CACHE.get(cle)
+    if hit and time.time() - hit[0] < _TOKENS_BY_MODEL_TTL:
+        return hit[1]
     conn = _spend_conn()
     if not conn:
         return []
@@ -91,8 +104,10 @@ def _tokens_by_model(since_utc=None):
             params.append(since_utc)
         q += ' GROUP BY model ORDER BY 2 DESC'
         cur.execute(q, params)
-        return [{'model': model or 'inconnu', 'tokens': int(toks or 0)}
-                for model, toks in cur.fetchall()]
+        resultat = [{'model': model or 'inconnu', 'tokens': int(toks or 0)}
+                    for model, toks in cur.fetchall()]
+        _TOKENS_BY_MODEL_CACHE[cle] = (time.time(), resultat)
+        return resultat
     except Exception:
         return []
     finally:
@@ -175,7 +190,11 @@ def cumuler_tokens_generes(modele, valeur):
             base = row['base'] + row['dernier']     # remise à zéro : on archive le précédent
         # On n'écrit que si quelque chose change : au repos (compteur figé), la
         # sonde à 1 s ne doit pas produire une écriture SQLite par seconde.
-        if row is None or valeur != row['dernier'] or base != row['base']:
+        # `base != row['base']` était un troisième terme jamais décisif : si les
+        # deux premiers sont faux, c'est que `valeur == row['dernier']`, donc la
+        # branche « compteur en cours » a été prise et `base` vaut déjà
+        # `row['base']`.
+        if row is None or valeur != row['dernier']:
             db.execute(
                 "INSERT INTO model_counters (model, base, dernier, maj) VALUES (?,?,?,?) "
                 "ON CONFLICT(model) DO UPDATE SET base=excluded.base, "

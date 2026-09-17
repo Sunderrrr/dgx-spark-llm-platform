@@ -15,22 +15,31 @@ from config import KEY_BUDGET, KEY_DURATION
 from db import get_db, get_setting
 from litellm_client import _ensure_litellm_user, litellm_update_user_budget
 
-def _local_group(name):
+def _local_group(name, groupes=None):
+    """Ligne du groupe `name`, ou None.
+
+    `groupes` (nom → ligne) évite un SELECT par appel quand l'appelant a déjà
+    chargé la table : `/api/admin/users` parcourt tous les comptes et appelait
+    cette fonction DEUX fois par compte (droits + quota effectif), soit 2N
+    requêtes pour une table qu'il lit de toute façon en entier.
+    """
     if not name:
         return None
+    if groupes is not None:
+        return groupes.get(name)
     return get_db().execute("SELECT * FROM user_groups WHERE name=?", (name,)).fetchone()
 
-def _local_user_effective_budget(row):
+def _local_user_effective_budget(row, groupes=None):
     """Effective quota: user override → group quota → global default."""
     if row['max_budget'] is not None:
         return row['max_budget']
-    g = _local_group(row['group_name'])
+    g = _local_group(row['group_name'], groupes)
     if g and g['max_budget'] is not None:
         return g['max_budget']
     return float(get_setting('default_key_budget', KEY_BUDGET))
 
-def _local_user_is_admin(row):
-    g = _local_group(row['group_name'])
+def _local_user_is_admin(row, groupes=None):
+    g = _local_group(row['group_name'], groupes)
     return bool(row['is_admin']) or bool(g['is_admin'] if g else 0)
 
 # Hash jetable pour égaliser le temps de réponse (cf. oracle d'énumération).

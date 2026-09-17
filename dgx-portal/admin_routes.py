@@ -4,10 +4,13 @@ Extrait de app.py le 28/08 — dernier gros bloc du monolithe, 48 routes. Il
 regroupe deux bannieres qui n'en formaient qu'une en pratique : la gestion des
 modeles et sidecars, et celle des comptes.
 
-Sur les endpoints : la vue `admin` devient `admin.admin`, et les 34
-url_for('admin') du projet — TOUS situes dans ce bloc, verifie avant de bouger —
-sont requalifies en url_for('admin.admin'). Pas d'url_prefix : /admin et toutes
-les autres URL restent identiques au caractere pres.
+Pas d'url_prefix : toutes les URL restent identiques au caractere pres. La vue
+`admin` (GET /admin, 204) a ete SUPPRIMEE le 2026-09-17 : elle n'existait plus
+que comme cible des `url_for('admin')` des routes d'action, et ces routes
+repondent toutes du JSON depuis le 2026-09-13 — plus un seul `url_for('admin')`
+n'existe. Verifie en direct avant de la retirer : https://dgx.cronos.website/admin
+repond `text/html` (c'est la page Next.js qui sert /admin), donc l'endpoint Flask
+etait inatteignable.
 """
 import json
 import os
@@ -81,16 +84,6 @@ def system_stats():
 def admin_consumption():
     return jsonify({'users': admin_get_user_consumption()})
 
-@bp.route('/admin')
-@admin_required
-def admin():
-    # The page itself is rendered by the Next.js frontend (data via
-    # /api/admin) — this endpoint only stays registered because url_for
-    # ('admin') is used throughout admin/*.py action routes as a redirect
-    # target after a POST (approve/reject/launch/etc.).
-    return ('', 204)
-
-
 @bp.route('/api/admin')
 @admin_required
 def api_admin():
@@ -104,13 +97,18 @@ def api_admin():
     ocr_cfgs    = db.execute("SELECT * FROM ocr_configs ORDER BY name").fetchall()
     voice_cfgs  = db.execute("SELECT * FROM voice_configs ORDER BY name").fetchall()
     budget_reqs = db.execute("SELECT * FROM budget_requests ORDER BY created_at DESC LIMIT 200").fetchall()
+    # Un SEUL balayage pour les trois compteurs de `model_requests` : la page
+    # admin rappelle /api/admin toutes les 8 s, et quatre COUNT(*) sur la même
+    # table la faisaient lire quatre fois. `SUM(<condition>)` compte exactement
+    # comme un COUNT filtré ; `or 0` couvre la table vide (SUM rend NULL là où
+    # COUNT rendait 0).
+    compte = db.execute(
+        "SELECT SUM(status='pending') AS pending, SUM(status='done') AS done, "
+        "SUM(status='rejected') AS rejected FROM model_requests").fetchone()
     stats = {
-        'pending':  db.execute("SELECT COUNT(*) AS n FROM model_requests "
-                               "WHERE status='pending'").fetchone()['n'],
-        'done':     db.execute("SELECT COUNT(*) AS n FROM model_requests "
-                               "WHERE status='done'").fetchone()['n'],
-        'rejected': db.execute("SELECT COUNT(*) AS n FROM model_requests "
-                               "WHERE status='rejected'").fetchone()['n'],
+        'pending':  compte['pending'] or 0,
+        'done':     compte['done'] or 0,
+        'rejected': compte['rejected'] or 0,
         'budget_pending': db.execute("SELECT COUNT(*) AS n FROM budget_requests "
                                      "WHERE status='pending'").fetchone()['n'],
         'requests_shown': len(all_reqs),
@@ -783,6 +781,12 @@ def api_admin_users():
         compte = r['key'].split('|')[-1].removeprefix('user:')
         locked[compte] = max(locked.get(compte, 0), int((r['locked_until'] - now) // 60) + 1)
 
+    # La table des groupes est petite et etait DEJA lue apres la boucle
+    # (pour la reponse) : on la charge ici et on la passe aux helpers, ce qui
+    # supprime les 2 SELECT par compte de `_local_group`.
+    groups = db.execute("SELECT name, max_budget, is_admin FROM user_groups "
+                        "ORDER BY name").fetchall()
+    groupes = {g['name']: g for g in groups}
     names = set(managed) | set(recorded) | set(spend)
     out = []
     for name in sorted(names):
@@ -800,7 +804,7 @@ def api_admin_users():
         rs = recorded.get(name)
         last_source = rs['last_source'] if rs else None
         last_is_admin = rs['last_is_admin'] if rs else None
-        local_admin = _local_user_is_admin(mu) if mu else None
+        local_admin = _local_user_is_admin(mu, groupes) if mu else None
         # Rôle EFFECTIF, tel qu'il est réellement APPLIQUÉ aux requêtes. Une seule
         # autorité, et c'est le portail : dès qu'une ligne `local_users` existe,
         # `auth.etat_compte` tranche sur elle seule (`_local_user_is_admin`) et
@@ -820,7 +824,10 @@ def api_admin_users():
         # via the directory (SSO/LDAP) is effectively managed by Authentik, even
         # if a historical local_users row still exists (edit actions remain
         # available because the row exists, but its rights/budget are delegated).
-        managed_by = 'repertoire' if (mu is not None and last_source in ('sso', 'ldap')) else ('local' if mu is not None else 'repertoire')
+        # Un compte d'annuaire reste « géré par l'annuaire » même si une ligne
+        # locale historique subsiste ; sans ligne locale, l'annuaire est la
+        # seule autorité possible.
+        managed_by = 'repertoire' if (mu is None or last_source in ('sso', 'ldap')) else 'local'
         out.append({
             'username': name,
             'fullname': fullname,
@@ -834,7 +841,8 @@ def api_admin_users():
             'effective_admin': effective_admin,
             'role_source': role_source,
             'last_source': last_source,
-            'effective_budget': _local_user_effective_budget(mu) if mu else (sp['max_budget'] if sp else None),
+            'effective_budget': (_local_user_effective_budget(mu, groupes) if mu
+                                 else (sp['max_budget'] if sp else None)),
             'unlimited': (sp['unlimited'] if sp else False),
             'spend': (sp['spend'] if sp else 0),
             'key_count': (sp['key_count'] if sp else 0),
@@ -847,7 +855,6 @@ def api_admin_users():
             'blocked_at': (blocked[name]['blocked_at'] if name in blocked else None),
             'locked_minutes': locked.get(name, 0),
         })
-    groups = db.execute("SELECT name, max_budget, is_admin FROM user_groups ORDER BY name").fetchall()
     return jsonify({'users': out, 'groups': [dict(g) for g in groups],
                     'default_budget': float(get_setting('default_key_budget', KEY_BUDGET))})
 

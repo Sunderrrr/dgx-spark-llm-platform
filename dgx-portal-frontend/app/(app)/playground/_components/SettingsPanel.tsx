@@ -12,6 +12,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { Selector } from "@astryxdesign/core/Selector";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import type { Settings } from "@/lib/types";
+import { useMemo } from "react";
 import { useT } from "@/lib/i18n";
 
 // Personas : prompts système pré-écrits, choisis dans un menu déroulant plutôt
@@ -51,14 +52,19 @@ export function SettingsPanel({
   const personaActive = PERSONAS.find((p) => p.prompt === settings.system);
   const personaValue = personaActive?.id ?? (settings.system ? CUSTOM : "");
 
-  const options: { value: string; label: string; disabled?: boolean }[] = [
-    { value: "", label: t("Aucun — conversation à nu") },
-    ...PERSONAS.map((p) => ({ value: p.id, label: t(p.label) })),
-  ];
-  if (personaValue === CUSTOM) {
-    // Un prompt libre est en place : on le montre comme état courant.
-    options.push({ value: CUSTOM, label: t("Personnalisé"), disabled: true });
-  }
+  // Reconstruit à chaque rendu (dont ceux du flux), alors qu'il ne dépend que de
+  // la langue et du persona sélectionné.
+  const options = useMemo(() => {
+    const o: { value: string; label: string; disabled?: boolean }[] = [
+      { value: "", label: t("Aucun — conversation à nu") },
+      ...PERSONAS.map((p) => ({ value: p.id, label: t(p.label) })),
+    ];
+    if (personaValue === CUSTOM) {
+      // Un prompt libre est en place : on le montre comme état courant.
+      o.push({ value: CUSTOM, label: t("Personnalisé"), disabled: true });
+    }
+    return o;
+  }, [t, personaValue]);
 
   return (
     <VStack gap={4}>

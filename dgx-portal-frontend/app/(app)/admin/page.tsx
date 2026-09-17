@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { Center } from "@astryxdesign/core/Center";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
@@ -161,7 +161,12 @@ export default function AdminPage() {
   // une flèche apparaît pour redescendre et réactiver le suivi. `active` est
   // toujours vrai ici (contrairement au Playground où il ne suit que pendant
   // le flux) : les logs continuent d'arriver tant que la page est ouverte.
-  const logText = (logKind === "llm" ? logs : sidecarLogs).join("\n");
+  // Le join de jusqu'à 600 lignes était refait à CHAQUE rendu — y compris une
+  // frappe sans rapport ou un poll inchangé.
+  const logText = useMemo(
+    () => (logKind === "llm" ? logs : sidecarLogs).join("\n"),
+    [logKind, logs, sidecarLogs],
+  );
   const {
     setRef: attachLogsScroller,
     showButton: showLogsJump,

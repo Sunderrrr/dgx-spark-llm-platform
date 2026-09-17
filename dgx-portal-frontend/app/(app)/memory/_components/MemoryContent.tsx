@@ -72,6 +72,10 @@ export function MemoryContent() {
 
   // Chargement au montage : la mise à jour d'état a lieu APRÈS l'await, jamais
   // dans le corps de l'effet.
+  // Le corps de `load()` est repris ici plutôt qu'appelé : `void load()` fait
+  // lever `react-hooks/set-state-in-effect` (la règle ne voit pas que l'état est
+  // posé APRÈS l'await, donc elle croit à un setState synchrone dans l'effet) —
+  // et une suppression de règle ici masquerait un vrai avertissement plus tard.
   useEffect(() => {
     getJSON<MemGraph>("/api/memory")
       .then(setGraph)

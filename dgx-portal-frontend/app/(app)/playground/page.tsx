@@ -467,15 +467,6 @@ function contenuCloture(content: string): string {
   return fences && fences.length % 2 === 1 ? content + "\n```" : content;
 }
 
-/** Le fichier que ce message laisse inachevé, s'il y en a un. */
-function fichierInacheve(content: string, t: (s: string) => string): string | null {
-  const fences = content.match(/```/g);
-  if (!fences || fences.length % 2 === 0) return null;
-  const arts = parseArtifacts(contenuCloture(content), false, t).artifacts;
-  const dernier = arts[arts.length - 1];
-  return dernier && dernier.kind === "code" ? dernier.title : null;
-}
-
 /** Ce qu'il faut recoller au fichier : le message de reprise, sans son emballage.
  *
  * Une reprise commence AU MILIEU du bloc. Trois formes vues en vrai :
@@ -1168,8 +1159,17 @@ function fichiersJusqua(
       inacheve = reponseIncomplete(fusion) ? inacheve : null;
       continue;
     }
-    inacheve = fichierInacheve(m.content, t);
+    // Un SEUL parse par message (l'ancien `fichierInacheve` reparsait le même
+    // contenu juste avant) : `fichiersJusqua` est rappelé pour chaque message à
+    // chaque rendu, donc le doublon coûtait quadratique par token reçu, et
+    // `fusionDuMessage`/`appliquerEdits` l'appellent aussi deux fois par message.
+    const fences = m.content.match(/```/g);
     const arts = parseArtifacts(contenuCloture(m.content), false, t).artifacts;
+    const dernierArt = arts[arts.length - 1];
+    // Le fichier que ce message laisse inachevé, s'il y en a un : fences impaires
+    // (bloc non refermé) et dernier artefact de type code.
+    inacheve = (fences && fences.length % 2 === 1 && dernierArt && dernierArt.kind === "code")
+      ? dernierArt.title : null;
     for (const [rang, a] of arts.entries()) {
       if (a.kind !== "code") continue;
       // Le bloc que la coupure a laissé ouvert est la version EN COURS d'écriture,
@@ -1297,18 +1297,6 @@ function appliquerEdits(messages: ChatMsg[], index: number, t: (s: string) => st
     touches.set(cle, { kind: "code", title: cle, lang: f.lang, content: f.content });
   }
   return { fichiers: [...touches.values()], echecs };
-}
-
-function estimateTokens(
-  settings: Settings,
-  input: string,
-  messages: ChatMsg[],
-  attachments: Attachment[],
-): number {
-  let chars = settings.system.length + input.length;
-  for (const m of messages) chars += m.content.length;
-  for (const a of attachments) chars += a.content.length;
-  return Math.round(chars / 4);
 }
 
 type QueuedMsg = { content: string; text: string; attachmentCount?: number; ts: number };
@@ -2308,7 +2296,14 @@ export default function PlaygroundPage() {
         return;
       }
     }
-    if (!wasAborted && messageIncomplet(finalMessages, finalMessages.length - 1, t)) {
+    // `messageIncomplet` ci-dessous évalue déjà `fichierLaisseOuvert` : on garde
+    // son résultat au lieu de le recalculer deux lignes plus bas (chaque appel
+    // relit tout le message, reprises comprises).
+    const dernierIdx = finalMessages.length - 1;
+    const laisseOuvert = !wasAborted
+      && fichierLaisseOuvert(finalMessages, dernierIdx, t);
+    if (!wasAborted
+        && (laisseOuvert || abandonDeclare(finalMessages[dernierIdx]?.content ?? ""))) {
       if (reprisesRef.current < MAX_REPRISES_AUTO) {
         reprisesRef.current += 1;
         setReprise(reprisesRef.current);
@@ -2316,9 +2311,7 @@ export default function PlaygroundPage() {
         // REFERMÉ mais abrégé de l'aveu du modèle : le prolonger produirait du
         // contenu après la dernière ligne d'un fichier déjà clos — c'est une
         // réécriture complète qu'il faut demander.
-        const suite = fichierLaisseOuvert(finalMessages, finalMessages.length - 1, t)
-          ? PROMPT_REPRISE_COMPLET
-          : PROMPT_INTEGRAL;
+        const suite = laisseOuvert ? PROMPT_REPRISE_COMPLET : PROMPT_INTEGRAL;
         void runStream([...finalMessages, {
           role: "user", content: suite,
           // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
@@ -2529,37 +2522,49 @@ export default function PlaygroundPage() {
 
 
   const max = modelLimits[model] || 32768;
-  const used = Math.max(ctxUsed, estimateTokens(settings, input, messages, attachments));
+  // Une seule somme de caractères et une seule estimation par rendu :
+  // `estimateTokens` était appelé DEUX fois avec les mêmes arguments, et la
+  // décomposition ci-dessous refaisait une troisième fois la même somme.
+  let contentChars = input.length;
+  for (const m of messages) contentChars += m.content.length;
+  for (const a of attachments) contentChars += a.content.length;
+  const estTokens = Math.round((settings.system.length + contentChars) / 4);
   // Entrée / sortie : la fenêtre se remplit de tokens d'ENTRÉE (prompt : system
   // + historique + message + fichiers) et de tokens de SORTIE (la réponse
   // générée). Mesure exacte de la dernière génération (usage LiteLLM) quand elle
   // existe ; sinon estimation chars/4 de l'entrée courante.
-  const inTokens = ioTokens?.prompt ?? estimateTokens(settings, input, messages, attachments);
+  const used = Math.max(ctxUsed, estTokens);
+  const inTokens = ioTokens?.prompt ?? estTokens;
   const outTokens = ioTokens?.completion ?? 0;
   // Décomposition du contenu pour « Fenêtre de contexte » : prompt système vs
-  // messages/fichiers (même estimation chars/4 que estimateTokens). Le backend
-  // ne fournit pas le décompte par segment, on estime donc la part relative —
-  // assez fidèle pour visualiser ce qui occupe la fenêtre.
+  // messages/fichiers (même estimation chars/4). Le backend ne fournit pas le
+  // décompte par segment, on estime donc la part relative — assez fidèle pour
+  // visualiser ce qui occupe la fenêtre.
   const systemTokens = Math.round(settings.system.length / 4);
-  let contentChars = input.length;
-  for (const m of messages) contentChars += m.content.length;
-  for (const a of attachments) contentChars += a.content.length;
   const contentTokens = Math.round(contentChars / 4);
   const totalEstimate = Math.max(1, systemTokens + contentTokens);
   const sysPct = Math.round((systemTokens / totalEstimate) * 100);
   const msgPct = 100 - sysPct;
   const ctxLevel: "accent" | "warning" | "error" =
-    used / (max || 1) >= 0.95 ? "error" : used / (max || 1) >= 0.8 ? "warning" : "accent";
+    used / max >= 0.95 ? "error" : used / max >= 0.8 ? "warning" : "accent";
 
   // Liste d'historique : recherche par titre + épinglées en tête, puis récentes.
   const q = histQuery.trim().toLowerCase();
-  const visibleConvs = conversations
-    .filter((c) => !q || (c.title || "").toLowerCase().includes(q))
-    .sort((a, b) => {
-      const pa = pinnedIds.includes(a.id) ? 0 : 1;
-      const pb = pinnedIds.includes(b.id) ? 0 : 1;
-      return pa - pb || ((b.ts ?? 0) - (a.ts ?? 0));
-    });
+  // `filter().sort()` sur toutes les conversations était refait à CHAQUE rendu,
+  // donc à chaque token reçu, alors que la liste n'est lue que dans la boîte
+  // « Historique » : on ne la calcule que lorsqu'elle est ouverte.
+  const visibleConvs = useMemo(
+    () => (historyOpen
+      ? conversations
+          .filter((c) => !q || (c.title || "").toLowerCase().includes(q))
+          .sort((a, b) => {
+            const pa = pinnedIds.includes(a.id) ? 0 : 1;
+            const pb = pinnedIds.includes(b.id) ? 0 : 1;
+            return pa - pb || ((b.ts ?? 0) - (a.ts ?? 0));
+          })
+      : []),
+    [historyOpen, conversations, q, pinnedIds],
+  );
   const lastMsg = messages[messages.length - 1];
   // While a document is being streamed, the chat shows a card (not the raw text)
   // and the side panel can show a live view of the document being written.
@@ -3925,7 +3930,7 @@ export default function PlaygroundPage() {
                     {fmtK(used)} / {fmtK(max)} {t("tokens")}
                   </Text>
                 </HStack>
-                <ProgressBar label={t("Utilisation du contexte")} isLabelHidden value={used} max={max || 1} variant={ctxLevel} />
+                <ProgressBar label={t("Utilisation du contexte")} isLabelHidden value={used} max={max} variant={ctxLevel} />
               </VStack>
               {/* Entrée / sortie : le contexte n'est pas un bloc opaque — on sépare
                   ce qui le remplit (prompt) de ce qui est produit (réponse). */}
@@ -3964,7 +3969,7 @@ export default function PlaygroundPage() {
               </VStack>
               <HStack gap={2} vAlign="center" wrap="wrap">
                 {model && <Badge label={model} variant="info" />}
-                <Badge label={`${Math.round((used / (max || 1)) * 100)} % ${t("contexte")}`} variant="info" />
+                <Badge label={`${Math.round((used / max) * 100)} % ${t("contexte")}`} variant="info" />
                 {convTokens > 0 && (
                   <Badge label={`${convTokens.toLocaleString(numLocale)} ${t("tokens")}`} variant="info" />
                 )}

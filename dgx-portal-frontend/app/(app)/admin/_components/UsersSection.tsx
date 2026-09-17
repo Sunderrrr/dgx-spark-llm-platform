@@ -238,13 +238,18 @@ export function UsersSection({ csrf }: { csrf: string }) {
   const groups = data?.groups ?? [];
 
   // Overview counters for the stat tiles.
-  const stats = useMemo(() => ({
-    total: users.length,
-    local: users.filter((u) => u.managed).length,
-    ldap: users.filter((u) => u.sources.includes("ldap")).length,
-    sso: users.filter((u) => u.sources.includes("sso")).length,
-    admins: users.filter((u) => u.effective_admin).length,
-  }), [users]);
+  const stats = useMemo(() => {
+    // Un SEUL parcours : quatre `filter` complets sur la même liste, en plus de
+    // celui de `filtered`, faisaient cinq lectures pour une seule information.
+    let local = 0, ldap = 0, sso = 0, admins = 0;
+    for (const u of users) {
+      if (u.managed) local++;
+      if (u.sources.includes("ldap")) ldap++;
+      if (u.sources.includes("sso")) sso++;
+      if (u.effective_admin) admins++;
+    }
+    return { total: users.length, local, ldap, sso, admins };
+  }, [users]);
 
   // Apply search + source filter.
   const filtered = useMemo(() => {

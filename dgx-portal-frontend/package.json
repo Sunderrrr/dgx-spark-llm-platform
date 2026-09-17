@@ -27,7 +27,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
-    "typescript": "^5"
+    "typescript": "^7"
   },
   "allowScripts": {
     "@astryxdesign/cli@0.1.8": true,

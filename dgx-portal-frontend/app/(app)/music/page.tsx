@@ -19,7 +19,7 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
 import { MusicalNoteIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon, StopIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { postFormData } from "@/lib/api";
+import { authFetch, postFormData } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
@@ -132,8 +132,10 @@ export default function MusicPage() {
       loadHistory();
       // La composition peut durer plusieurs minutes : on interroge le statut
       // plutôt que de tenir une requête HTTP ouverte tout du long.
+      stopPolling();
       pollRef.current = setInterval(async () => {
         const r = await fetch(`/api/music/status/${res.job_id}`, { credentials: "include" });
+        if (!r.ok) return;              // 401/page HTML : ne pas lever dans l'intervalle
         const st = await r.json();
         if (typeof st.count === "number") setJobCount(st.count);
         if (typeof st.done_count === "number") setDoneCount(st.done_count);
@@ -168,11 +170,14 @@ export default function MusicPage() {
     if (!jobId) return;
     setCancelling(true);
     try {
-      await fetch(`/api/music/cancel/${jobId}`, {
+      const r = await authFetch(`/api/music/cancel/${jobId}`, {
         method: "POST",
-        credentials: "include",
         headers: { "X-CSRFToken": csrf },
       });
+      if (!r.ok) {
+        showToast({ body: t("Impossible d'annuler."), type: "error" });
+        return;
+      }
       setStatus("cancelled");
       stopPolling();
       loadHistory();

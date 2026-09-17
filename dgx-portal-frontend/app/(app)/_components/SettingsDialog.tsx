@@ -291,6 +291,13 @@ export function SettingsDialog({
       } else {
         showToast({ body: result.error ? t(result.error) : t("Échec de la connexion au serveur MCP."), type: "error" });
       }
+    } catch {
+      // `postFormJSON` ne teste pas le statut et fait `res.json()` : un corps
+      // non-JSON (413 du plafond de formulaire, page HTML 502, 500 gunicorn)
+      // rejetait la promesse. Le `finally` rendait la main au bouton et
+      // l'utilisateur ne voyait STRICTEMENT RIEN, alors que rien n'était
+      // enregistré. Le motif est celui d'`envoyerForm`, juste au-dessus.
+      showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
     } finally {
       setIsSaving(false);
     }
@@ -350,6 +357,10 @@ export function SettingsDialog({
       setEditingSkillId(null);
       showToast({ body: wasEdit ? t("Compétence mise à jour.") : t("Compétence enregistrée."), type: "info" });
       refresh();
+    } catch {
+      // Même trou que `saveMcp` : sans `catch`, un 413/502 muet laissait croire
+      // à un enregistrement qui n'avait pas eu lieu.
+      showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
     } finally {
       setIsSaving(false);
     }
@@ -959,6 +970,11 @@ export function SettingsDialog({
                         />
                         <TextInput
                           label={t("Autorisation (optionnel)")}
+                          // Un jeton Bearer se masque comme un mot de passe : il
+                          // restait lisible en clair pendant la saisie (partage
+                          // d'écran, capture). Il n'est jamais re-servi par le
+                          // serveur (`/api/settings` n'expose que `has_auth`).
+                          type="password"
                           value={mcpForm.auth}
                           onChange={(v) => setMcpForm((f) => ({ ...f, auth: v }))}
                           placeholder={t("Bearer token ou secret")}

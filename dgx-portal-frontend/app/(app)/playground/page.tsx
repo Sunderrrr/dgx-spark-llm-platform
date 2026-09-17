@@ -17,7 +17,9 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
-import { Markdown, type MarkdownInlinePlugin } from "@astryxdesign/core/Markdown";
+import { type MarkdownInlinePlugin } from "@astryxdesign/core/Markdown";
+// Enveloppe qui referme le filtre d'URL de la dépendance (cf. lib/markdown.tsx).
+import { MarkdownSur as Markdown } from "@/lib/markdown";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
@@ -792,11 +794,22 @@ function savePinnedIds(ids: string[]) {
 // XSS : `trust` reste à false (jamais activé) — KaTeX échappe l'HTML de sortie,
 // donc un `$…$` contenant du contenu hostile ne peut pas s'injecter dans le DOM.
 // Ne jamais passer `trust: true` ici, même pour du « joli » rendu.
+//
+// Le repli est ÉCHAPPÉ, et ça compte : `throwOnError: false` ne couvre que les
+// ParseError de KaTeX. Une autre exception — mesuré : `RangeError: Maximum call
+// stack size exceeded` sur 5000 accolades imbriquées — remontait dans le
+// `catch`, qui renvoyait alors l'expression BRUTE dans `dangerouslySetInnerHTML`.
+// Une balise écrite dans une réponse du modèle ressortait donc vivante ; seule
+// la CSP l'arrêtait. On échappe les cinq caractères qui comptent en HTML.
+function echapperHtml(s: string) {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
 function renderMath(expr: string) {
   try {
     return katex.renderToString(expr, { throwOnError: false, output: "html", displayMode: false });
   } catch {
-    return expr;
+    return echapperHtml(expr);
   }
 }
 const MATH_PLUGINS: MarkdownInlinePlugin[] = [
@@ -1579,6 +1592,8 @@ export default function PlaygroundPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    // Garde d'ATTENTE, pas de bouton mort : l'effet se rejoue dès que le jeton
+    // arrive (dépendance `csrf`), donc rien à signaler à l'utilisateur.
     if (!csrf) return;
     let annule = false;
     (async () => {
@@ -1888,7 +1903,10 @@ export default function PlaygroundPage() {
   // Auto-titre déclenché à la première réponse : résumé court généré par le
   // modèle, propagé en direct à l'historique + l'onglet, sans rechargement.
   async function autoTitle(convId: string, msgs: ChatMsg[], tabId: string, modelForTitle?: string) {
-    if (!csrf) return;
+    if (!csrf) {
+      showToast({ body: t("Session incomplète — recharge la page."), type: "error" });
+      return;
+    }
     const titleModel = modelForTitle || model;
     try {
       const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model: titleModel, messages: msgs });
@@ -2014,7 +2032,10 @@ export default function PlaygroundPage() {
   const showToast = useToast();
 
   async function shareConversation(id: string) {
-    if (!csrf) return;
+    if (!csrf) {
+      showToast({ body: t("Session incomplète — recharge la page."), type: "error" });
+      return;
+    }
     try {
       const res = await sendJSON<{ ok: boolean; token: string; error?: string }>("/conversations/share", csrf, { client_id: id });
       if (!res?.ok || !res.token) {
@@ -2656,8 +2677,22 @@ export default function PlaygroundPage() {
   // formée et ne rien faire — mauvaise version de bibliothèque, méthode
   // inexistante — et aucune analyse du texte ne peut le voir. Seule l'exécution
   // le dit, et c'est l'aperçu qui exécute.
+  // Fenêtres d'aperçu légitimes. L'iframe a une origine OPAQUE (sandbox sans
+  // allow-same-origin), donc `e.origin` vaut « null » et ne prouve rien : sans
+  // contrôle de `e.source`, n'importe quelle fenêtre ayant une référence sur
+  // cette page (cadre, `window.opener`) pouvait injecter un faux message
+  // d'erreur — affiché dans un Banner, puis renvoyé au modèle par « Corriger ».
+  // Un WeakSet couvre les DEUX iframes d'aperçu (elles ne sont pas forcément
+  // montées exclusivement selon la mise en page) et ne retient rien.
+  const apercuWindows = useRef(new WeakSet<Window>());
+  const refApercu = useCallback((el: HTMLIFrameElement | null) => {
+    const w = el?.contentWindow;
+    if (w) apercuWindows.current.add(w);
+  }, []);
+
   useEffect(() => {
     function surMessage(e: MessageEvent) {
+      if (!e.source || !apercuWindows.current.has(e.source as Window)) return;
       const d = e.data as { cronosPreviewError?: unknown } | null;
       const msg = d && typeof d.cronosPreviewError === "string" ? d.cronosPreviewError : null;
       if (!msg) return;
@@ -3669,6 +3704,7 @@ export default function PlaygroundPage() {
                      `allow-scripts`, il annule le bac à sable et un HTML généré
                      deviendrait du code exécuté dans notre propre origine. */
                   <iframe
+                    ref={refApercu}
                     title={panelTitle}
                     src={previewUrl}
                     sandbox="allow-scripts allow-forms allow-modals allow-popups"
@@ -4064,6 +4100,7 @@ export default function PlaygroundPage() {
                     /* Même aperçu isolé qu'en volet : le plein écran sert
                        justement à REGARDER la page, pas à relire son code. */
                     <iframe
+                      ref={refApercu}
                       title={panelTitle}
                       src={previewUrl}
                       sandbox="allow-scripts allow-forms allow-modals allow-popups"

@@ -1,6 +1,5 @@
 "use client";
 
-import { Text } from "@astryxdesign/core/Text";
 import { useT, useLocale } from "@/lib/i18n";
 
 export type ActivityDay = { date: string; tokens: number };
@@ -69,11 +68,3 @@ export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
   );
 }
 
-export function HeatmapLegend() {
-  const t = useT();
-  return (
-    <Text type="supporting" color="secondary">
-      {t("Moins → Plus")}
-    </Text>
-  );
-}

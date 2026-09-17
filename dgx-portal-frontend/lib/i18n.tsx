@@ -1306,6 +1306,8 @@ const EN: Record<string, string> = {
     "Confirm with your password to delete the key.",
   "Confirme avec ton mot de passe pour changer la double authentification.":
     "Confirm with your password to change two-factor authentication.",
+  "Confirme avec ton mot de passe pour ajouter une clé.":
+    "Confirm with your password to add a key.",
   "Confirmer": "Confirm",
   "Clé supprimée.": "Key deleted.",
   "Double authentification mise à jour.": "Two-factor authentication updated.",
@@ -1525,6 +1527,13 @@ const EN: Record<string, string> = {
   // ── Suppression d'une conversation refusée par le serveur ──
   "Suppression impossible — la conversation est conservée.":
     "Could not delete — the conversation is kept.",
+  "Suppression impossible.": "Could not delete.",
+  "Image trop lourde : 15 Mo maximum.":
+    "Image too large: 15 MB maximum.",
+  // Boutons inertes quand le jeton CSRF n'a pas pu être obtenu (CsrfProvider a
+  // épuisé ses deux tentatives) : le dire plutôt que de ne rien faire.
+  "Session incomplète — recharge la page.":
+    "Incomplete session — reload the page.",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

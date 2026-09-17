@@ -101,7 +101,12 @@ export function KeysContent() {
     succes: string,
     apres?: (r: { key_alias?: string; key?: string }) => void,
   ): Promise<boolean> {
-    if (!csrf) return false;
+    if (!csrf) {
+      // Sans message, le bouton devenait un no-op muet quand les deux tentatives
+      // de `CsrfProvider` avaient échoué.
+      showToast({ body: t("Session incomplète — recharge la page."), type: "error" });
+      return false;
+    }
     setEnCours(true);
     try {
       const res = await authFetch("/keys", {

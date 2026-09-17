@@ -13,7 +13,7 @@ import json
 import secrets
 from datetime import datetime
 
-from flask import Blueprint, Response, abort, flash, jsonify, request, session
+from flask import Blueprint, Response, abort, jsonify, request, session
 
 from auth import login_required
 from config import AVATAR_IDS, LANGS, THEME_IDS

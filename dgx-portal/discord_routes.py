@@ -12,9 +12,7 @@ un blueprint prefixe ses endpoints de son nom. Les CHEMINS, eux, ne changent
 pas — pas d'url_prefix — donc l'URL de rappel enregistree chez Discord reste
 valable.
 """
-import re
 import secrets
-import time
 from datetime import datetime
 from urllib.parse import urlencode
 

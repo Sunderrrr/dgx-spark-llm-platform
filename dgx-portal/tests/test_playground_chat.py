@@ -839,9 +839,9 @@ class DicteeTest(_BasePlayground):
 
             def json(self):
                 return {'text': 'bonjour le monde'}
-        with patch.object(chat.requests, 'post', return_value=_R()) as post:
+        with patch.object(chat.requests, 'post', return_value=_R()):
             import asr_routes
-            with patch.object(asr_routes.requests, 'post', return_value=_R()) as p2:
+            with patch.object(asr_routes.requests, 'post', return_value=_R()):
                 r = self._envoie()
         self.assertIn(r.status_code, (200,))
         self.assertEqual(r.get_json()['text'], 'bonjour le monde')

@@ -372,9 +372,6 @@ class ImportMarkdownTest(MemoryApiBase):
                              headers={'X-CSRFToken': self.csrf,
                                       'Content-Type': 'text/plain; charset=utf-8'})
         self.assertEqual(r.status_code, 200, r.get_json())
-        faits = {e['subject']: [f['fact'] for f in self.client.get('/api/memory').get_json()['edges']
-                                if f['subject'] == e['subject']]
-                 for e in self.client.get('/api/memory').get_json()['edges']}
         all_facts = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
         self.assertTrue(any('communicates primarily in French' in f for f in all_facts))
         self.assertTrue(any('dyslexia' in f for f in all_facts))

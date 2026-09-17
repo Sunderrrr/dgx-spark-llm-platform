@@ -18,11 +18,10 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 from auth import login_required
 from db import DB_PATH, add_notification, get_db
 from config import IMAGE_URL
-from sidecars import get_image_model, image_ready
+from sidecars import image_ready
 
 _log = logging.getLogger('app')
-from guards import (maintenance_block_json, media_job_done, media_job_slot,
-                    media_rate_block)
+from guards import media_block_json, media_job_done, media_job_slot
 
 bp = Blueprint('image', __name__)
 
@@ -110,12 +109,9 @@ def _image_worker(prompt_id, username, prompt_text, count, fmt='png',
 @bp.route('/api/image/generate', methods=['POST'])
 @login_required
 def api_image_generate():
-    blocked = maintenance_block_json()
-    if blocked:
-        return blocked
-    limited = media_rate_block()
-    if limited:
-        return limited
+    refus = media_block_json()
+    if refus:
+        return refus
     prompt_text = request.form.get('prompt', '').strip()
     if not prompt_text:
         return jsonify({'error': "Un prompt texte est requis."}), 400

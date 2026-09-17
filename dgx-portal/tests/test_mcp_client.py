@@ -7,7 +7,6 @@ ensuite contacter, depuis le réseau docker qui héberge litellm
 comportement de la liste noire.
 """
 
-import ipaddress
 import socket
 import unittest
 from unittest import mock

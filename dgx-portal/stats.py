@@ -577,7 +577,6 @@ def ranking_full(period='day', me=None, metric='total'):
              'total': 0, 'avg': 0, 'has_prev': period != 'all'}
     if not conn:
         return empty
-    UTC = ZoneInfo('UTC')
     try:
         now_local = datetime.now(ZoneInfo(LOCAL_TZ))
         today = now_local.date()

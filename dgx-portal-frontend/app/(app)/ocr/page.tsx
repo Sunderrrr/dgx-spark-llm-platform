@@ -30,6 +30,7 @@ import {
 import { useCsrf } from "@/lib/useCsrf";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { streamOcr } from "@/lib/api";
+import { copierTexte } from "@/lib/copier";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
 import { useT, useLocale } from "@/lib/i18n";
 
@@ -238,8 +239,22 @@ export default function OcrPage() {
 
   const isChandra = !!ocrModel?.toLowerCase().includes("chandra");
 
+  // Le serveur refuse au-delà de 15 Mo (garde applicatif) et Flask au-delà de
+  // 16 Mo ; le proxy, lui, laisse passer jusqu'à 20 Mo. Une image de 17 Mo
+  // recevait donc une erreur de taille qui n'était pas du SSE, et l'OCR
+  // affichait un résultat VIDE sans message — l'utilisateur en concluait que
+  // son image ne contenait pas de texte. On refuse ici, en le disant.
+  const TAILLE_MAX_OCTETS = 15 * 1024 * 1024;
+
   async function extract() {
     if (!image || !csrf) return;
+    if (image.size > TAILLE_MAX_OCTETS) {
+      showToast({
+        body: t("Image trop lourde : 15 Mo maximum."),
+        type: "error",
+      });
+      return;
+    }
     setIsLoading(true);
     setText("");
     setResultView("text");
@@ -259,7 +274,11 @@ export default function OcrPage() {
 
   function copyResult() {
     // We copy the Markdown (readable, tables included), not the model's raw HTML.
-    navigator.clipboard.writeText(markdown || text).then(() => showToast({ body: t("Copié."), type: "info" }));
+    // `navigator.clipboard` est ABSENT hors contexte sécurisé (LAN en HTTP,
+    // cf. lib/copier.ts) : l'appel non optionnel d'avant jetait un TypeError
+    // synchrone dans le clic — le bouton paraissait inerte, sans aucun message.
+    void copierTexte(markdown || text, () =>
+      showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }));
   }
 
   // Side-by-side on desktop, stacked on mobile.

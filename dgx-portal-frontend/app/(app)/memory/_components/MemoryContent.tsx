@@ -93,8 +93,22 @@ export function MemoryContent() {
   }, [graph.edges]);
 
   async function toggle(enabled: boolean) {
-    const r = await sendJSON<{ ok: boolean; enabled: boolean }>("/api/memory/enabled", csrf, { enabled });
-    setGraph((g) => ({ ...g, enabled: r.enabled }));
+    // `sendJSON` ne contrôle PAS le statut HTTP et rend `{}` sur un corps non
+    // JSON : un 500/502 faisait donc `r.enabled === undefined`, l'interrupteur
+    // s'affichait « désactivé » et le message annonçait un changement qui n'avait
+    // pas eu lieu. On ne bouge l'état qu'après un `ok` explicite.
+    let r: { ok?: boolean; enabled?: boolean; error?: string };
+    try {
+      r = await sendJSON<{ ok: boolean; enabled: boolean }>("/api/memory/enabled", csrf, { enabled });
+    } catch {
+      showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
+      return;
+    }
+    if (!r?.ok) {
+      showToast({ body: r?.error ?? t("L'action a échoué."), type: "error" });
+      return;
+    }
+    setGraph((g) => ({ ...g, enabled: !!r.enabled }));
     showToast({
       body: r.enabled
         ? t("Mémoire activée.")
@@ -129,12 +143,33 @@ export function MemoryContent() {
   }
 
   async function forget(id: number) {
-    await sendJSON(`/api/memory/facts/${id}`, csrf, undefined, "DELETE");
+    try {
+      const r = await sendJSON<{ ok?: boolean; error?: string }>(
+        `/api/memory/facts/${id}`, csrf, undefined, "DELETE");
+      if (!r?.ok) {
+        showToast({ body: r?.error ?? t("Suppression impossible."), type: "error" });
+        return;
+      }
+    } catch {
+      showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
+      return;
+    }
     void load();
   }
 
   async function purge() {
-    const r = await sendJSON<{ ok: boolean; deleted: number }>("/api/memory/purge", csrf);
+    let r: { ok?: boolean; deleted?: number; error?: string };
+    try {
+      r = await sendJSON<{ ok: boolean; deleted: number }>("/api/memory/purge", csrf);
+    } catch {
+      showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
+      return;
+    }
+    // Sans ce test, une panne affichait « Mémoire effacée — undefined informations ».
+    if (!r?.ok) {
+      showToast({ body: r?.error ?? t("L'action a échoué."), type: "error" });
+      return;
+    }
     showToast({ body: `${t("Mémoire effacée")} — ${r.deleted} ${t("informations")}`, type: "info" });
     void load();
   }

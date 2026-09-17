@@ -19,7 +19,7 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
 import { FilmIcon, MoonIcon, ArrowPathIcon, StopIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { postFormData } from "@/lib/api";
+import { authFetch, postFormData } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
@@ -121,8 +121,14 @@ export default function VideoPage() {
       }
       setPromptId(res.prompt_id);
       loadHistory();
+      // L'intervalle précédent doit mourir avant d'armer le nouveau (sinon un
+      // orphelin interroge le vieux job indéfiniment, même après démontage).
+      stopPolling();
       pollRef.current = setInterval(async () => {
         const r = await fetch(`/api/video/status/${res.prompt_id}`, { credentials: "include" });
+        // `r.json()` sur un 401 ou une page HTML lève dans un callback
+        // d'intervalle : rejet silencieux, statut bloqué sur « en cours ».
+        if (!r.ok) return;
         const st = await r.json();
         if (st.status === "done" || st.status === "error") {
           stopPolling();
@@ -156,11 +162,16 @@ export default function VideoPage() {
     if (!promptId) return;
     setCancelling(true);
     try {
-      await fetch(`/api/video/cancel/${promptId}`, {
+      // `fetch` ne rejette que sur erreur RÉSEAU : sans `res.ok`, un refus du
+      // serveur s'affichait comme une annulation réussie.
+      const r = await authFetch(`/api/video/cancel/${promptId}`, {
         method: "POST",
-        credentials: "include",
         headers: { "X-CSRFToken": csrf },
       });
+      if (!r.ok) {
+        showToast({ body: t("Impossible d'annuler."), type: "error" });
+        return;
+      }
       setStatus("cancelled");
       stopPolling();
       loadHistory();

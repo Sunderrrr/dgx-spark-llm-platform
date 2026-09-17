@@ -29,6 +29,7 @@ import {
 import { Selector } from "@astryxdesign/core/Selector";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
+import { copierTexte } from "@/lib/copier";
 import { useT, useLang, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
@@ -162,7 +163,10 @@ export default function VoicePage() {
   }
 
   function copyText(s: string) {
-    navigator.clipboard?.writeText(s).then(() => showToast({ body: t("Copié."), type: "info" }));
+    // Hors contexte sécurisé (LAN en HTTP) `navigator.clipboard` est absent :
+    // le `?.` avalait alors la copie sans le moindre message.
+    void copierTexte(s, () =>
+      showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }));
   }
 
   useEffect(loadHistory, []);

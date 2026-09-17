@@ -29,26 +29,34 @@ from sidecars import motif_refus
 
 bp = Blueprint('voice', __name__)
 
-_voice_langs_cache = {'t': 0.0, 'v': {}}
-_voice_engine_cache = {'t': 0.0, 'v': 'chatterbox'}
+_voice_info_cache = {'t': 0.0, 'v': None}   # v = None quand le dernier appel a échoué
+
+def _voice_model_info():
+    """Corps de `/api/model-info` du sidecar voix, mis en cache 30 s.
+
+    UNE seule fonction parce que `get_voice_engine` et `get_voice_languages`
+    interrogeaient la MÊME URL avec deux caches 30 s indépendants : la page voix
+    appelle les deux, donc chaque cache froid coûtait deux GET identiques.
+    """
+    now = time.time()
+    if now - _voice_info_cache['t'] < 30:
+        return _voice_info_cache['v']
+    v = None
+    try:
+        r = requests.get(f"{VOICE_URL}/api/model-info", timeout=3)
+        if r.ok:
+            v = r.json()
+    except Exception:
+        pass
+    _voice_info_cache.update(t=now, v=v)
+    return v
 
 def get_voice_engine():
     """Voice engine currently served: 'chatterbox' or 'qwen3-tts'. Both
     share the container name and port; only this field, announced by
     /api/model-info, says which one answers — and thus which protocol to speak.
     """
-    now = time.time()
-    if now - _voice_engine_cache['t'] < 30:
-        return _voice_engine_cache['v']
-    v = 'chatterbox'
-    try:
-        r = requests.get(f"{VOICE_URL}/api/model-info", timeout=3)
-        if r.ok:
-            v = r.json().get('engine') or 'chatterbox'
-    except Exception:
-        pass
-    _voice_engine_cache.update(t=now, v=v)
-    return v
+    return (_voice_model_info() or {}).get('engine') or 'chatterbox'
 
 def get_voice_languages():
     """Languages actually accepted by the loaded Chatterbox variant.
@@ -57,18 +65,7 @@ def get_voice_languages():
     than a constant — otherwise the page would offer languages the
     backend would refuse (or, worse, silently generate in English).
     """
-    now = time.time()
-    if now - _voice_langs_cache['t'] < 30:
-        return _voice_langs_cache['v']
-    v = {}
-    try:
-        r = requests.get(f"{VOICE_URL}/api/model-info", timeout=3)
-        if r.ok:
-            v = r.json().get('supported_languages') or {}
-    except Exception:
-        pass
-    _voice_langs_cache.update(t=now, v=v)
-    return v
+    return (_voice_model_info() or {}).get('supported_languages') or {}
 
 # Internal container (dedicated voice_net network, cf. README "Security"), never
 # a published port. Unlike OCR/video, generation is SYNCHRONOUS on the
@@ -222,8 +219,11 @@ def api_voice_generate():
     # Keeps only the VOICE_HISTORY_LIMIT most recent per user — also purges
     # the corresponding audio files, otherwise VOICE_AUDIO_DIR grows
     # indefinitely (same reasoning as OCR_IMAGES_DIR).
+    # `id` est demandé ici pour que la suppression réutilise CES lignes : la
+    # sous-requête `NOT IN (… ORDER BY id DESC LIMIT …)` était sinon évaluée deux
+    # fois (une pour lister les fichiers, une dans le DELETE).
     stale = db.execute(
-        "SELECT audio_path FROM voice_jobs WHERE username=? AND id NOT IN ("
+        "SELECT id, audio_path FROM voice_jobs WHERE username=? AND id NOT IN ("
         "  SELECT id FROM voice_jobs WHERE username=? ORDER BY id DESC LIMIT ?)",
         (username, username, VOICE_HISTORY_LIMIT)).fetchall()
     for row in stale:
@@ -231,10 +231,9 @@ def api_voice_generate():
             os.remove(os.path.join(VOICE_AUDIO_DIR, row['audio_path']))
         except OSError:
             pass
-    db.execute("""DELETE FROM voice_jobs WHERE username=? AND id NOT IN (
-                     SELECT id FROM voice_jobs WHERE username=?
-                     ORDER BY id DESC LIMIT ?)""",
-               (username, username, VOICE_HISTORY_LIMIT))
+    if stale:
+        db.execute("DELETE FROM voice_jobs WHERE id IN (%s)"
+                   % ','.join('?' * len(stale)), [r['id'] for r in stale])
     db.commit()
     job_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()['id']
     return jsonify({'id': job_id})

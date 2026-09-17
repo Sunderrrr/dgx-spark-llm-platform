@@ -478,9 +478,10 @@ def init_db():
             )''')
         # Copier uniquement les colonnes qui EXISTENT (une base peut dater
         # d'avant websearch_enabled) : les absentes prennent leur DEFAULT.
+        colonnes = {r[1] for r in db.execute("PRAGMA table_info(user_prefs)")}
         communes = [c for c in ('username', 'avatar_id', 'theme_id', 'lang',
                                 'onboarded', 'memory_enabled', 'websearch_enabled')
-                    if c in {r[1] for r in db.execute("PRAGMA table_info(user_prefs)")}]
+                    if c in colonnes]
         cols = ', '.join(communes)
         db.execute(f"INSERT INTO user_prefs_new ({cols}) SELECT {cols} FROM user_prefs")
         db.execute("DROP TABLE user_prefs")

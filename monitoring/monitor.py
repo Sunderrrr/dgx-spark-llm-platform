@@ -157,15 +157,11 @@ def probe(watermark=None):
     """Retourne {clé: {"up": bool, "detail": str}}."""
     state = {}
     for key, kind, target, expect in SERVICES:
-        if kind == "http":
-            try:
-                detail = target
-            except Exception:
-                detail = target
-            up = _http_up(target, expect)
-        else:
-            detail = target
-            up = _container_up(target)
+        # `detail` valait `target` dans les DEUX branches d'un try/except qui
+        # n'enveloppait qu'une affectation : il ne protegeait rien et
+        # s'executait a chaque sonde (toutes les 5 min).
+        detail = target
+        up = _http_up(target, expect) if kind == "http" else _container_up(target)
         state[key] = {"up": up, "detail": detail}
     # Sauvegarde nocturne : elle doit être fraîche, sinon c'est un incident —
     # on passe par le même mécanisme sticky (1 alerte par incident, email de

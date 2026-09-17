@@ -4,6 +4,7 @@ Le réseau interdit déjà au crawler d'atteindre l'hôte ; ces tests couvrent l
 dernière barrière, celle que le réseau ne pose pas : aucune URL privée ne doit
 être transmise au crawler, quelle que soit la façon dont elle est écrite.
 """
+import socket
 import unittest
 from unittest import mock
 
@@ -276,3 +277,76 @@ class ReglagesExtractionTest(unittest.TestCase):
         # L'élagage par pertinence est volontairement ABSENT : il supprimait les
         # blocs de code des pages de documentation.
         self.assertNotIn('content_filter', vus['markdown_generator']['params'])
+
+class RedirectionInterneTest(unittest.TestCase):
+    """Une graine publique peut rediriger vers l'intérieur : on refuse la PAGE.
+
+    Pourquoi ce test existe : crawl4ai ne valide que les URLs de DÉPART
+    (`_normalize_and_validate_seeds` → `validate_url_destination`, commenté
+    « before fetching » dans son `api.py`). Son navigateur suit donc une
+    redirection sans que personne ne revérifie la destination, et le contenu
+    d'un service interne reviendrait dans le contexte du modèle. On contrôle
+    l'URL FINALE (`redirected_url`), que son `handle_crawl_request` sérialise
+    bien puisqu'il renvoie `result.model_dump()`.
+    """
+
+    def _pages(self, resultats):
+        def faux_post(url, **kw):
+            r = mock.Mock(); r.raise_for_status = lambda: None
+            r.json = lambda: {'results': resultats}
+            return r
+        def resout(h, *a, **k):
+            if h == 'exemple.fr':
+                return [(2, 1, 6, '', ('93.184.216.34', 0))]
+            if h == 'litellm':
+                return [(2, 1, 6, '', ('172.19.0.5', 0))]
+            raise socket.gaierror('introuvable')
+
+        with mock.patch('websearch.requests.post', side_effect=faux_post), \
+             mock.patch('websearch.socket.getaddrinfo', side_effect=resout):
+            pages, _ = websearch.lire(['https://exemple.fr/a'])
+        return pages[0]
+
+    def test_redirection_vers_une_adresse_interne_refusee(self):
+        page = self._pages([{'url': 'https://exemple.fr/a', 'success': True,
+                             'redirected_url': 'http://127.0.0.1:8001/status',
+                             'markdown': {'raw_markdown': 'contenu interne ' * 30},
+                             'metadata': {'title': 't'}}])
+        self.assertNotIn('contenu', page)
+        self.assertIn('interne', page.get('erreur', ''))
+
+    def test_redirection_vers_un_service_du_reseau_docker_refusee(self):
+        page = self._pages([{'url': 'https://exemple.fr/a', 'success': True,
+                             'redirected_url': 'http://litellm:4001/health',
+                             'markdown': {'raw_markdown': 'contenu interne ' * 30},
+                             'metadata': {'title': 't'}}])
+        self.assertNotIn('contenu', page)
+        self.assertIn('interne', page.get('erreur', ''))
+
+    def test_redirection_publique_conservee(self):
+        page = self._pages([{'url': 'https://exemple.fr/a', 'success': True,
+                             'redirected_url': 'https://exemple.fr/a/',
+                             'markdown': {'raw_markdown': 'article normal ' * 30},
+                             'metadata': {'title': 't'}}])
+        self.assertIn('contenu', page)
+
+    def test_absence_de_redirected_url_change_rien(self):
+        """Comportement précédent : un crawler qui ne dit rien n'est pas suspect."""
+        page = self._pages([{'url': 'https://exemple.fr/a', 'success': True,
+                             'markdown': {'raw_markdown': 'article normal ' * 30},
+                             'metadata': {'title': 't'}}])
+        self.assertIn('contenu', page)
+
+    def test_ignorance_ne_vaut_pas_refus(self):
+        """Nom qui ne résout pas chez nous : on ne jette PAS la page."""
+        self.assertFalse(websearch.cible_interne('https://nom-inconnu-zz.test/x'))
+        self.assertFalse(websearch.cible_interne('pas une url'))
+        self.assertFalse(websearch.cible_interne(''))
+        self.assertTrue(websearch.cible_interne('http://169.254.169.254/latest/'))
+
+    def test_redirection_non_resoluble_conservee(self):
+        page = self._pages([{'url': 'https://exemple.fr/a', 'success': True,
+                             'redirected_url': 'https://autre-nom-zz.test/a',
+                             'markdown': {'raw_markdown': 'article normal ' * 30},
+                             'metadata': {'title': 't'}}])
+        self.assertIn('contenu', page)

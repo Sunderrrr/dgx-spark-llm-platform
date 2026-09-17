@@ -489,6 +489,28 @@ class SuppressionCompteTest(_BaseReglages):
                 "SELECT 1 FROM local_users WHERE username='zz-del-3'").fetchone())
         self._nettoie("zz-del-3")
 
+    def test_un_compte_local_n_interroge_pas_l_annuaire(self):
+        """Le refus d'un mot de passe local ne doit pas ATTENDRE l'annuaire.
+
+        Mesuré le 2026-09-17 en production : `POST /api/security/register/begin`
+        mettait **13 s** à refuser un mot de passe faux, parce que la
+        vérification locale échouée enchaînait sur un bind LDAP sur un annuaire
+        muet — et le refus est le cas FRÉQUENT. Le worker gunicorn restait
+        immobilisé tout ce temps (quatre fautes de frappe simultanées suffisaient
+        à figer le portail). Le test verrouille l'intention sans dépendre d'une
+        horloge : l'annuaire ne doit même pas être appelé.
+        """
+        self._insere_local("zz-del-5")
+        c = self._client("zz-del-5")
+        with patch("auth.ldap_authenticate") as annuaire:
+            r = self._json_post(c, "/api/account/delete",
+                                {"confirm": "DELETE", "password": "faux"})
+        self.assertEqual(r.status_code, 400)
+        self.assertFalse(annuaire.called,
+                         "un compte dont le PORTAIL detient le mot de passe ne doit "
+                         "pas interroger l'annuaire")
+        self._nettoie("zz-del-5")
+
     def test_suppression_reussie_retire_l_acces(self):
         self._insere_local("zz-del-4")
         with self._db():

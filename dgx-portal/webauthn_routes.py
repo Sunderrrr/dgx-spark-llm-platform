@@ -41,7 +41,8 @@ from auth import (_apply_session, _login_fail, _login_locked, _login_reset,
                    est_bloque, login_required)
 from config import WEBAUTHN_ORIGIN, WEBAUTHN_REQUIRE_UV, WEBAUTHN_RP_ID, WEBAUTHN_RP_NAME
 from db import get_db, log_audit
-from local_users import GESTION_SSO, _local_user_auth, gestion_mot_de_passe, passkey_possible
+from local_users import (GESTION_LDAP, GESTION_PORTAIL, GESTION_SSO, _local_user_auth,
+                          gestion_mot_de_passe, passkey_possible)
 
 bp = Blueprint("webauthn", __name__)
 
@@ -127,13 +128,31 @@ def _pending_clear(nonce) -> None:
 
 
 def _verify_password(username: str, password: str) -> bool:
-    """Re-verification par mot de passe (local puis LDAP) — meme ordre que login()."""
-    ok, _, _ = _local_user_auth(username, password)
-    if ok:
-        return True
+    """Re-vérification par mot de passe, contre la source qui le DÉTIENT.
+
+    `login()` essaie le local PUIS l'annuaire, et cet ordre y est voulu : un
+    compte d'annuaire dont une ligne locale subsiste doit pouvoir entrer avec
+    son mot de passe d'annuaire. Ici la question est autre — on confirme une
+    action sensible — et `gestion_mot_de_passe` dit déjà qui fait autorité.
+
+    Interroger l'annuaire pour un compte dont le PORTAIL détient le mot de passe
+    n'était pas seulement inutile : mesuré le 2026-09-17 sur
+    `/api/security/register/begin`, un mot de passe faux coûtait **13 s** de
+    worker gunicorn quand l'annuaire est muet — et le refus est justement le cas
+    FRÉQUENT. Avec quatre workers, quatre fautes de frappe simultanées
+    immobilisaient donc le portail. Un compte `portail` ne consulte plus
+    l'annuaire, un compte `annuaire` ne consulte plus le local, et `inconnu`
+    (rien ne fait autorité) garde l'ordre de `login()`.
+    """
+    gestion = gestion_mot_de_passe(username)['gestion']
+    if gestion == GESTION_PORTAIL:
+        return _local_user_auth(username, password)[0]
     from auth import ldap_authenticate
-    ok2, _, _ = ldap_authenticate(username, password)
-    return ok2
+    if gestion == GESTION_LDAP:
+        return ldap_authenticate(username, password)[0]
+    if _local_user_auth(username, password)[0]:
+        return True
+    return ldap_authenticate(username, password)[0]
 
 
 def _verify_password_locked(username: str, password: str):

@@ -17,11 +17,8 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
-import { type MarkdownInlinePlugin } from "@astryxdesign/core/Markdown";
 // Enveloppe qui referme le filtre d'URL de la dépendance (cf. lib/markdown.tsx).
 import { MarkdownSur as Markdown } from "@/lib/markdown";
-import katex from "katex";
-import "katex/dist/katex.min.css";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
@@ -788,47 +785,11 @@ function savePinnedIds(ids: string[]) {
   }
 }
 
-// Math/LaTeX inline : rendu via KaTeX dans le Markdown. Le parseur Astryx n'a
-// pas de nœud « math en bloc » — on couvre `$...$` et `\(...\)` (inline). Les
-// blocs `$$...$$` restent du texte brut (limitation connue).
-// XSS : `trust` reste à false (jamais activé) — KaTeX échappe l'HTML de sortie,
-// donc un `$…$` contenant du contenu hostile ne peut pas s'injecter dans le DOM.
-// Ne jamais passer `trust: true` ici, même pour du « joli » rendu.
-//
-// Le repli est ÉCHAPPÉ, et ça compte : `throwOnError: false` ne couvre que les
-// ParseError de KaTeX. Une autre exception — mesuré : `RangeError: Maximum call
-// stack size exceeded` sur 5000 accolades imbriquées — remontait dans le
-// `catch`, qui renvoyait alors l'expression BRUTE dans `dangerouslySetInnerHTML`.
-// Une balise écrite dans une réponse du modèle ressortait donc vivante ; seule
-// la CSP l'arrêtait. On échappe les cinq caractères qui comptent en HTML.
-function echapperHtml(s: string) {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
-}
-function renderMath(expr: string) {
-  try {
-    return katex.renderToString(expr, { throwOnError: false, output: "html", displayMode: false });
-  } catch {
-    return echapperHtml(expr);
-  }
-}
-const MATH_PLUGINS: MarkdownInlinePlugin[] = [
-  // Convention KaTeX : `$...$` inline sans espace juste après `$` ni avant le
-  // `$` fermant, pour ne pas confondre avec des montants (`$5 and $10`) ou du
-  // texte mis entre dollars. KaTeX échoue sans lever d'erreur → retour au texte.
-  {
-    pattern: /\$(?!\s)([^$\n]+?)(?<!\s)\$/g,
-    render: (m, key) => (
-      <span key={key} className="cronos-inline-math" dangerouslySetInnerHTML={{ __html: renderMath(m[1]) }} />
-    ),
-  },
-  {
-    pattern: /\\\(([\s\S]+?)\\\)/g,
-    render: (m, key) => (
-      <span key={key} className="cronos-inline-math" dangerouslySetInnerHTML={{ __html: renderMath(m[1]) }} />
-    ),
-  },
-];
+// Math/LaTeX : le rendu vit désormais dans `lib/maths.tsx`, appelé par
+// `MarkdownSur` (cf. `lib/markdown.tsx`). Il ne pouvait pas rester ici : un
+// `inlinePlugins` s'applique PAR NŒUD de texte, et le parseur coupe le texte à
+// chaque antislash — la formule n'était donc jamais reconnue. La protection du
+// LaTeX se fait maintenant AVANT le parseur.
 // Snippets / prompts réutilisables, sauvegardés par l'utilisateur (navigateur).
 type Snippet = { id: string; label: string; content: string };
 const SNIPPET_KEY = "cronos.snippets";
@@ -3461,7 +3422,7 @@ export default function PlaygroundPage() {
                               <Markdown>{m.reasoning}</Markdown>
                             </Collapsible>
                           ) : null}
-                          {bodyText.trim() ? <Markdown inlinePlugins={MATH_PLUGINS}>{bodyText}</Markdown> : null}
+                          {bodyText.trim() ? <Markdown>{bodyText}</Markdown> : null}
                           <AskQuestion
                             questions={ask.questions}
                             answered={!isLast}
@@ -3481,7 +3442,7 @@ export default function PlaygroundPage() {
                               <Markdown isStreaming={streamingThis}>{m.reasoning}</Markdown>
                             </Collapsible>
                           ) : null}
-                          <Markdown isStreaming={streamingThis} inlinePlugins={MATH_PLUGINS}>{bodyText || " "}</Markdown>
+                          <Markdown isStreaming={streamingThis}>{bodyText || " "}</Markdown>
                           {/* Une modification dont l'ancre n'existe pas dans le
                               fichier ne s'applique PAS. On le dit, plutôt que de
                               laisser croire que la correction est faite. */}
@@ -3722,7 +3683,7 @@ export default function PlaygroundPage() {
                       d'artefact épinglé, mais bien un fichier à afficher. */}
                   {panelIsCode
                     ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped maxHeight="100%" />
-                    : <Markdown isStreaming={showLive} inlinePlugins={MATH_PLUGINS}>{panelContent || " "}</Markdown>}
+                    : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                 </VStack>
                 )}
                 {showPanelJump && (
@@ -4111,7 +4072,7 @@ export default function PlaygroundPage() {
                   <LayoutContent ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable>
                     {panelIsCode
                       ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped maxHeight="100%" />
-                      : <Markdown isStreaming={showLive} inlinePlugins={MATH_PLUGINS}>{panelContent || " "}</Markdown>}
+                      : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                   </LayoutContent>
                   )
                 }

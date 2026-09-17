@@ -22,7 +22,7 @@ from flask import (Blueprint, Response, jsonify, request,
                    session, stream_with_context)
 from werkzeug.security import generate_password_hash
 
-from announcements import _announce_launch, add_announcement
+from announcements import add_announcement
 from auth import (USERNAME_RE,
                   _revoke_user_sessions,
                   admin_required, bloquer_compte, completer_origine_session,
@@ -43,7 +43,7 @@ from user_lifecycle import (compter_donnees, deprovisionner_compte,
                             prevenir_mot_de_passe_change)
 from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       _image_launch, _mem_guard, _music_launch, _ocr_launch,
-                      _runner_headers, _sidecar_action, _sidecar_start_json,
+                      _runner_headers, _sidecar_start_json,
                       _sidecar_status, _sidecar_stop_json, _voice_launch,
                       asr_model_name, get_image_model, get_music_model,
                       get_ocr_model, get_voice_model, runner_launch, runner_logs,
@@ -1689,13 +1689,6 @@ def _model_slug(hf_id):
 # Name of the virtual model that always routes to the current chat model (re-pointed
 # on each launch). Clients wire it once and no longer need to change the
 # model name on each switch.
-
-# Enregistrement des modeles dans LiteLLM : cf. litellm_client.py
-from litellm_client import (  # noqa: E402
-    _litellm_upsert, _point_auto_model, _register_litellm_model,
-    _unregister_litellm_model,
-)
-
 def hf_engine_for(hf_id):
     """Queries the Hub to know whether the model is GGUF (→ llama.cpp) or
     safetensors (→ vLLM). On network failure, we fall back on vLLM.

@@ -24,7 +24,6 @@ y sont verrouillées, toutes vérifiées en lecture du code avant correction :
    en silence), et la resynchronisation du quota était inconditionnelle — donc
    un simple changement de nom effaçait une subvention en cours.
 """
-import secrets
 import time
 import unittest
 from unittest.mock import patch
@@ -141,7 +140,7 @@ class ContratJsonTest(BaseAdmin):
                        (time.time(),))
             db.commit()
         with patch.object(admin_routes, 'runner_launch',
-                          return_value=(False, 'flag not allowed: --x', False)) as lance, \
+                          return_value=(False, 'flag not allowed: --x', False)), \
              patch.object(admin_routes, 'notify_infra_alert_email') as alerte:
             r = self._post(c, '/admin/model/launch', {'model_name': 'ztest-modele'})
         self.assertEqual(r.status_code, 502)

@@ -14,11 +14,11 @@ import time
 
 import requests
 
-from config import DISCORD_API, DISCORD_BOT_TOKEN, DISCORD_WH
+from config import DISCORD_API, DISCORD_BOT_TOKEN
 # DB_PATH en plus de get_db : la diffusion part dans un FIL, qui n'a pas de
 # contexte Flask et ouvre donc sa propre connexion (meme raison que les jobs
 # image/video — cf. la docstring de get_db).
-from db import DB_PATH, get_db, get_setting
+from db import DB_PATH, get_setting
 
 # Distinct from the admin webhook above: here the *bot* sends a private message
 # to each user who opted in by linking their Discord account. A DM needs a mutual

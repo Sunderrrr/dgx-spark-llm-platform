@@ -199,7 +199,6 @@ class WebAuthnTestCase(unittest.TestCase):
 
     def test_login_sans_2fa_redirige(self):
         # eve sans 2FA : login normal.
-        c = self._client("eve")
         lc = self._client()
         r = lc.post("/login", data={"username": "eve", "password": "pw"},
                     headers={"X-CSRFToken": "tok"})

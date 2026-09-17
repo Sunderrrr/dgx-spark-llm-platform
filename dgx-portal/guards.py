@@ -65,6 +65,17 @@ def maintenance_block_json():
     return jsonify({'error': "Mode maintenance en cours — réessaie plus tard."}), 503
 
 
+def media_block_json():
+    """Les DEUX refus qui ouvrent toute génération média : maintenance, puis débit.
+
+    Renvoie la réponse à retourner, ou None quand la requête peut continuer.
+    Les quatre routes média (image, musique, vidéo, voix) répétaient ces quatre
+    lignes à l'identique ; l'ORDRE — la maintenance d'abord — est une décision,
+    qui n'a donc plus qu'un seul endroit où être relue.
+    """
+    return maintenance_block_json() or media_rate_block()
+
+
 CHAT_RATE_MAX    = 20    # requests allowed…
 CHAT_RATE_WINDOW = 60    # …per 60 s window and per user
 

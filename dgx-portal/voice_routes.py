@@ -24,8 +24,7 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 from auth import login_required
 from config import VOICE_URL
 from db import get_db
-from sidecars import get_voice_model
-from guards import _MAX_VOICE_UPLOAD_BYTES, maintenance_block_json, media_rate_block
+from guards import _MAX_VOICE_UPLOAD_BYTES, media_block_json
 
 bp = Blueprint('voice', __name__)
 
@@ -85,8 +84,6 @@ def _wav_duration_ms(audio_bytes):
     real-time factor (audio produced / generation time). None if unreadable
     (engine returning another format), in which case the factor is simply omitted.
     """
-    import io as _io
-    import wave as _wave
     try:
         with _wave.open(_io.BytesIO(audio_bytes), 'rb') as w:
             frames, rate = w.getnframes(), w.getframerate()
@@ -200,12 +197,9 @@ def voice_clone(reference_bytes, reference_mime, text, language='en', ref_text='
 @bp.route('/api/voice/generate', methods=['POST'])
 @login_required
 def api_voice_generate():
-    blocked = maintenance_block_json()
-    if blocked:
-        return blocked
-    limited = media_rate_block()
-    if limited:
-        return limited
+    refus = media_block_json()
+    if refus:
+        return refus
     ref_bytes, err_or_mime = _read_uploaded_audio()
     if ref_bytes is None:
         return jsonify({'error': err_or_mime}), 400

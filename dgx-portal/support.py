@@ -17,7 +17,6 @@ import secrets
 import time
 from datetime import datetime
 
-from announcements import _announce_launch
 from db import get_db
 from litellm_client import (_litellm_user_info, create_litellm_key,
                             get_user_keys, revoke_litellm_key)

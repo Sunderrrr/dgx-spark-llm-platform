@@ -17,9 +17,8 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 from auth import login_required
 from config import MUSIC_URL
 from db import DB_PATH, add_notification, get_db
-from sidecars import get_music_model, music_ready
-from guards import (maintenance_block_json, media_job_done, media_job_slot,
-                    media_rate_block)
+from sidecars import music_ready
+from guards import media_block_json, media_job_done, media_job_slot
 
 bp = Blueprint('music', __name__)
 
@@ -101,12 +100,9 @@ def _music_worker(job_id, username, prompt, lyrics, duration, count):
 @bp.route('/api/music/generate', methods=['POST'])
 @login_required
 def api_music_generate():
-    blocked = maintenance_block_json()
-    if blocked:
-        return blocked
-    limited = media_rate_block()
-    if limited:
-        return limited
+    refus = media_block_json()
+    if refus:
+        return refus
     prompt = request.form.get('prompt', '').strip()
     if not prompt:
         return jsonify({'error': "Une description musicale est requise."}), 400

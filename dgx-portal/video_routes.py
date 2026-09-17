@@ -75,7 +75,8 @@ def api_video_status(prompt_id):
     # logged-in user could query another's status/video
     # just by knowing their prompt_id.
     owned = get_db().execute(
-        "SELECT status FROM video_jobs WHERE prompt_id=? AND username=?",
+        "SELECT status, created_at, duration_ms FROM video_jobs "
+        "WHERE prompt_id=? AND username=?",
         (prompt_id, session['username'])).fetchone()
     if not owned:
         abort(404)
@@ -97,12 +98,11 @@ def api_video_status(prompt_id):
         # (on the first "done"). Approx. to the polling period (~5 s), which
         # is negligible on a several-minute generation.
         if st['status'] == 'done':
-            row = get_db().execute(
-                "SELECT created_at, duration_ms FROM video_jobs WHERE prompt_id=? AND username=?",
-                (prompt_id, session['username'])).fetchone()
-            if row and row['duration_ms'] is None and row['created_at']:
+            # `created_at`/`duration_ms` viennent de la ligne DÉJÀ lue pour le
+            # contrôle IDOR : ils ne sont pas touchés par l'UPDATE ci-dessus.
+            if owned['duration_ms'] is None and owned['created_at']:
                 try:
-                    dur = int((datetime.now() - datetime.fromisoformat(row['created_at'])).total_seconds() * 1000)
+                    dur = int((datetime.now() - datetime.fromisoformat(owned['created_at'])).total_seconds() * 1000)
                     if 0 < dur < 3600000:  # safety bound (< 1 h)
                         get_db().execute(
                             "UPDATE video_jobs SET duration_ms=? WHERE prompt_id=? AND username=? AND duration_ms IS NULL",

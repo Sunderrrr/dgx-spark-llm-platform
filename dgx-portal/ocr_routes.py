@@ -186,19 +186,23 @@ def api_ocr_extract():
         # Purges the images of rows that fall out of the history window,
         # otherwise OCR_IMAGES_DIR grows indefinitely (no other reference
         # to these files once the row is deleted).
+        # On liste TOUTES les lignes hors fenêtre (le DELETE en supprimait
+        # autant, y compris celles sans image), et on ne retire un fichier que
+        # lorsqu'il y en a un : la sous-requête était sinon évaluée deux fois.
         stale = db.execute(
-            """SELECT image_path FROM ocr_jobs WHERE username=? AND image_path IS NOT NULL
+            """SELECT id, image_path FROM ocr_jobs WHERE username=?
                AND id NOT IN (SELECT id FROM ocr_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
             (username, username, OCR_HISTORY_LIMIT)).fetchall()
         for row in stale:
+            if not row['image_path']:
+                continue
             try:
                 os.remove(os.path.join(OCR_IMAGES_DIR, row['image_path']))
             except OSError:
                 pass
-        db.execute("""DELETE FROM ocr_jobs WHERE username=? AND id NOT IN (
-                         SELECT id FROM ocr_jobs WHERE username=?
-                         ORDER BY id DESC LIMIT ?)""",
-                   (username, username, OCR_HISTORY_LIMIT))
+        if stale:
+            db.execute("DELETE FROM ocr_jobs WHERE id IN (%s)"
+                       % ','.join('?' * len(stale)), [r['id'] for r in stale])
         db.commit()
 
     return Response(stream_with_context(ocr_extract_stream(data, err_or_mime, instruction, _persist)),

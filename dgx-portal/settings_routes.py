@@ -421,7 +421,9 @@ def api_account_password():
         # signe d'une session volée, pas d'une faute de frappe.
         log_audit(username, 'account.password.echec', 'mot de passe actuel incorrect')
         return jsonify({'ok': False, 'error': "Mot de passe actuel incorrect."}), 400
-    if check_password_hash(row['password_hash'], nouveau):
+    # `actuel` vient d'être VALIDÉ : comparer les deux chaînes répond à la même
+    # question qu'un second `check_password_hash`, sans repayer un KDF scrypt.
+    if nouveau == actuel:
         return jsonify({'ok': False,
                         'error': "Le nouveau mot de passe est identique à l'actuel."}), 400
     err = password_policy_error(nouveau, username)

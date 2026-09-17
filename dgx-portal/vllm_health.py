@@ -145,7 +145,6 @@ _METRIC_NAMES = {
         # (cf. plus bas). La jauge elle-meme ne sert plus : elle vaut 0 pendant
         # la generation, le debit est tire de n_decode_total.
         'speed':    'llamacpp:predicted_tokens_seconds',
-        'gen_sec':  'llamacpp:tokens_predicted_seconds_total',
         'ttft_sum': None,   # cf. plus bas : le TTFT vient d'une mesure reelle
         'ttft_cnt': None,   #   relevee par chat_routes, pas de /metrics.
     },
@@ -173,7 +172,7 @@ def _vllm_health_uncached():
     running_now = int(_prom_sum(text, M['running']) or 0)
     tps = None
     # If the engine publishes its own speed (llama.cpp), we take it directly.
-    speed_metric = M.get('speed')
+    speed_metric = M.get('speed')  # présence = ce moteur publie son propre débit
     if speed_metric:
         # Debit INSTANTANE, agrege sur toutes les sessions.
         #

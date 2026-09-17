@@ -20,19 +20,33 @@ from db import get_db
 
 bp = Blueprint('preview', __name__)
 
-_PREVIEW_TTL = 3600     # 1 h : le temps de regarder, pas de stocker
-_PREVIEW_MAX = 200
+_PREVIEW_TTL = 3600             # 1 h : le temps de regarder, pas de stocker
+_PREVIEW_MAX = 40               # plafond PAR COMPTE (voir _preview_purge)
+_PREVIEW_MAX_TOTAL = 400        # borne de la table entière (une page = jusqu'à 400 ko)
 
 
-def _preview_purge():
-    """Drop expired previews and cap the table at _PREVIEW_MAX newest rows.
-    Runs on each create; SQLite makes the purge + the cap one transaction,
-    so no unsynchronised-mutation crash under several workers."""
+def _preview_purge(username):
+    """Purge les aperçus périmés et plafonne, PAR COMPTE puis au global.
+
+    Le plafond était global : les 200 aperçus les plus récents, tous comptes
+    confondus. Un compte qui enchaîne les générations — ce que fait précisément
+    une session de travail sur le playground — évinçait donc les aperçus des
+    AUTRES, dont l'iframe se mettait à répondre 404 (« aperçu introuvable ») au
+    milieu d'une conversation. Le plafond par compte ne peut plus evincer que
+    ses propres aperçus ; le plafond global reste, lui, une borne de taille pour
+    la base (une page peut peser 400 ko).
+
+    Executé à chaque création ; SQLite fait la purge et les plafonds dans la
+    même transaction, donc pas de course entre workers gunicorn."""
     db = get_db()
     db.execute("DELETE FROM previews WHERE created_at < ?", (time.time() - _PREVIEW_TTL,))
+    db.execute("""DELETE FROM previews WHERE username=? AND id NOT IN (
+                     SELECT id FROM previews WHERE username=?
+                     ORDER BY created_at DESC LIMIT ?)""",
+               (username, username, _PREVIEW_MAX))
     db.execute("""DELETE FROM previews WHERE id NOT IN (
                      SELECT id FROM previews ORDER BY created_at DESC LIMIT ?)""",
-               (_PREVIEW_MAX,))
+               (_PREVIEW_MAX_TOTAL,))
     db.commit()
 
 
@@ -43,7 +57,7 @@ def playground_preview_create():
     html = str(data.get('html', ''))[:MSG_MAX_CHARS]
     if not html.strip():
         return jsonify({'ok': False, 'error': 'vide'}), 400
-    _preview_purge()
+    _preview_purge(session['username'])
     pid = secrets.token_urlsafe(18)
     db = get_db()
     db.execute("INSERT INTO previews (id, username, html, created_at) VALUES (?,?,?,?)",

@@ -105,12 +105,15 @@ def conversations_route():
         model = request.form.get('model', '').strip()[:80]
         raw = request.form.get('messages', '[]')
         if not client_id:
-            return jsonify({'ok': False, 'error': 'id manquant'})
+            # 400 et pas 200 : `postFormVerifie` lit le corps ET le statut, mais
+            # un `ok:false` en 200 trahit le contrat (cf. CLAUDE.md) — une
+            # sauvegarde refusée se lisait comme une sauvegarde faite.
+            return jsonify({'ok': False, 'error': 'id manquant'}), 400
         try:
             messages = json.loads(raw)
             assert isinstance(messages, list)
         except Exception:
-            return jsonify({'ok': False, 'error': 'messages invalides'})
+            return jsonify({'ok': False, 'error': 'messages invalides'}), 400
         # Bornes de taille : une conversation ne doit pas gonfler la base sans
         # limite. MAIS 20 000 caractères par message coupaient un fichier généré
         # d'à peine 7 000 tokens (~28 000 caractères) : au retour dans
@@ -155,10 +158,18 @@ def conversations_route():
         db.commit()
         return jsonify({'ok': True})
     if action == 'delete':
-        db.execute("DELETE FROM conversations WHERE username=? AND client_id=?",
-                   (username, request.form.get('id', '')))
+        cur = db.execute("DELETE FROM conversations WHERE username=? AND client_id=?",
+                         (username, request.form.get('id', '')))
         db.commit()
-    return ('', 204)
+        # `deleted` = le nombre de SES lignes supprimées. Un identifiant inconnu
+        # — y compris celui d'un AUTRE compte — vaut 0 : la réponse ne dit donc
+        # pas lequel des deux cas c'est (aucun oracle d'existence), mais elle ne
+        # prétend plus avoir supprimé quelque chose. On ne répond plus 204 :
+        # `postFormVerifie` lit un 204 comme un succès, donc une suppression qui
+        # n'avait rien supprimé s'affichait comme faite (trouvé par
+        # tests/test_autorisation_croisee.py).
+        return jsonify({'ok': True, 'deleted': cur.rowcount})
+    return jsonify({'ok': False, 'error': f"Action inconnue : {action!r}"}), 400
 
 
 @bp.route('/conversations/share', methods=['POST'])

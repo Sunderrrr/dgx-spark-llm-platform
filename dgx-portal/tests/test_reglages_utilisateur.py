@@ -529,8 +529,16 @@ class SuppressionCompteTest(_BaseReglages):
                 "SELECT 1 FROM local_users WHERE username='zz-del-admin'").fetchone())
         self._nettoie("zz-del-admin")
 
-    def test_compte_d_annuaire_purge_mais_ne_pretend_pas_supprimer(self):
-        """Le compte vit dans l'annuaire : le portail ne peut pas le supprimer."""
+    def test_compte_d_annuaire_exige_le_mot_de_passe(self):
+        """Un compte LDAP ne se purge pas sur le seul cookie.
+
+        Le portail SAIT vérifier un mot de passe LDAP (`_verify_password_locked`
+        interroge l'annuaire) : la justification d'origine (« un compte
+        d'annuaire n'a aucun mot de passe que le portail puisse vérifier ») ne
+        valait que pour le SSO. La suppression emporte clés API et enveloppe
+        LiteLLM : elle exige donc la même preuve qu'en local. Ici l'annuaire est
+        injoignable depuis les tests → refus, et RIEN n'est purgé.
+        """
         self._insere_source("zz-del-ldap", "ldap")
         with self._db():
             db = portal.get_db()
@@ -538,16 +546,39 @@ class SuppressionCompteTest(_BaseReglages):
             db.commit()
         c = self._client("zz-del-ldap")
         with self._patch_litellm():
+            sans = self._json_post(c, "/api/account/delete", {"confirm": "DELETE"})
+            faux = self._json_post(c, "/api/account/delete",
+                                   {"confirm": "DELETE", "password": "MauvaisMotDePasse1!"})
+        self.assertEqual(sans.status_code, 400, sans.get_data(as_text=True))
+        self.assertEqual(faux.status_code, 401, faux.get_data(as_text=True))
+        with self._db():
+            self.assertIsNotNone(portal.get_db().execute(
+                "SELECT 1 FROM user_prefs WHERE username='zz-del-ldap'").fetchone(),
+                "un refus ne doit rien effacer")
+        self._nettoie("zz-del-ldap")
+
+    def test_compte_sso_purge_toujours_sans_mot_de_passe(self):
+        """Le compte SSO, lui, n'a aucun mot de passe vérifiable : on ne le bloque pas.
+
+        Exiger une preuve impossible rendrait la sortie du portail inatteignable.
+        """
+        self._insere_source("zz-del-sso", "sso")
+        with self._db():
+            db = portal.get_db()
+            db.execute("INSERT OR REPLACE INTO user_prefs (username, lang) VALUES ('zz-del-sso','fr')")
+            db.commit()
+        c = self._client("zz-del-sso")
+        with self._patch_litellm():
             r = self._json_post(c, "/api/account/delete", {"confirm": "DELETE"})
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         corps = r.get_json()
         self.assertTrue(corps["ok"])
         self.assertFalse(corps["deleted"],
                          "un compte d'annuaire n'est pas supprimé par le portail")
         with self._db():
             self.assertIsNone(portal.get_db().execute(
-                "SELECT 1 FROM user_prefs WHERE username='zz-del-ldap'").fetchone())
-        self._nettoie("zz-del-ldap")
+                "SELECT 1 FROM user_prefs WHERE username='zz-del-sso'").fetchone())
+        self._nettoie("zz-del-sso")
 
 
 class BudgetAffichageTest(_BaseReglages):

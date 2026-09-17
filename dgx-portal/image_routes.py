@@ -4,6 +4,7 @@ Blueprint sans url_prefix : les chemins restent identiques au caractere pres,
 donc le frontend n'a rien a changer. Cf. memory_routes.py pour le raisonnement
 complet sur les endpoints.
 """
+import logging
 import os
 import re
 import secrets
@@ -18,6 +19,8 @@ from auth import login_required
 from db import DB_PATH, add_notification, get_db
 from config import IMAGE_URL
 from sidecars import get_image_model, image_ready
+
+_log = logging.getLogger('app')
 from guards import (maintenance_block_json, media_job_done, media_job_slot,
                     media_rate_block)
 
@@ -225,7 +228,11 @@ def api_image_delete(prompt_id, idx):
             try:
                 os.remove(path)
             except Exception as exc:
-                return jsonify({'error': str(exc)}), 500
+                # `str(exc)` d'un `os.remove` porte le chemin ABSOLU du volume
+                # (arborescence interne) et partait dans la réponse HTTP. Le
+                # journal garde le détail, l'utilisateur reçoit une phrase.
+                _log.warning("suppression image %s/%s échouée : %r", safe, idx, exc)
+                return jsonify({'error': "Suppression impossible."}), 500
             return jsonify({'ok': True})
     return jsonify({'ok': True})
 

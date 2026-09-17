@@ -5,8 +5,24 @@ from urllib.parse import urlparse
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+_SECRET_FAIBLES = {'changeme', 'secret', 'dev', 'test', 'password', 'changeme!'}
+
 app = Flask(__name__)
-app.secret_key = os.environ['SECRET_KEY']
+
+# La clé de signature des cookies de session est le secret le plus critique du
+# portail : le cookie Flask est SIGNÉ mais pas chiffré, donc qui connaît la clé
+# fabrique `{'username': 'admin', 'is_admin': True}` et se fait passer pour lui.
+# `os.environ[...]` échouait déjà si la variable manquait, mais acceptait
+# n'importe quelle valeur — y compris le `changeme` de `.env.example`, avec
+# lequel une session forgée est acceptée (vérifié sur une app jetable). On
+# refuse donc au démarrage, bruyamment, plutôt qu'à l'exploitation.
+_SECRET_KEY = os.environ['SECRET_KEY']
+if len(_SECRET_KEY) < 32 or _SECRET_KEY.strip().lower() in _SECRET_FAIBLES:
+    raise RuntimeError(
+        "SECRET_KEY absente ou non aléatoire : il faut au moins 32 caractères "
+        "aléatoires (elle est générée par setup.sh dans .env — ne jamais "
+        "recopier la valeur d'exemple).")
+app.secret_key = _SECRET_KEY
 
 # Behind Traefik (TLS terminated at the proxy, forwarded as HTTP to the container):
 # trust the X-Forwarded-* headers so Flask knows the real
@@ -410,6 +426,15 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip().lower()
         password = request.form.get('password', '')
+        # Borné AVANT de construire les clés de verrou : `key`/`ukey` sont
+        # écrites en base (`login_attempts`) dès l'échec, et `username` vient
+        # d'un formulaire non authentifié. Sans ce filtre, un identifiant neuf
+        # de 4 Mo (le plafond du champ) écrivait ~8 Mo de lignes par requête,
+        # avec une clé différente à chaque fois — donc jamais verrouillé — et la
+        # table n'est purgée qu'au démarrage. Le format est celui accepté
+        # partout ailleurs (USERNAME_RE) : 64 caractères au plus.
+        if not USERNAME_RE.match(username):
+            return ('', 401)
         ip  = _client_ip()
         key = f"{ip}|{username}"
         ukey = f"user:{username}"
@@ -688,34 +713,6 @@ def _budget_remaining(username, default_budget, duration):
     remaining = max(0, int(default_budget - used))
     _BUDGET_CACHE[username] = (now, (used, remaining))
     return used, remaining
-
-
-def _quota_depasse(username):
-    """Message si le compte a épuisé son enveloppe, sinon None.
-
-    Garde d'entrée du playground, EN PLUS du 429 natif de LiteLLM : le
-    compteur interne de LiteLLM s'est révélé deux fois infidèle (resets
-    quotidiens qui effaçaient la semaine, sync DB capricieuse — lbozier à
-    242 M réels pour 1,3 M comptés le 2026-09-09). Ici on juge sur
-    SpendLogs, la même source que la carte d'utilisation : l'utilisateur
-    voit « dépassé » exactement quand il est bloqué."""
-    try:
-        _ui = _litellm_user_info(username)
-        effective = _ui.get('max_budget')
-        if not effective:
-            return None                       # pas d'enveloppe (admin) : passe
-        duration = get_setting('default_key_duration', KEY_DURATION)
-        used, remaining = _budget_remaining(username, effective, duration)
-        if remaining > 0:
-            return None
-        _ra = (_ui.get('budget_reset_at') or '')[:16].replace('T', ' ')
-        _reset = f" Nouveau quota le {_ra} (UTC)." if _ra else ""
-        return ("Quota dépassé : tu as épuisé ton budget de tokens "
-                "pour la période en cours." + _reset +
-                " Tu peux demander plus à l'admin (accueil → "
-                "« Demander plus de budget »).")
-    except Exception:
-        return None                           # jamais bloquer sur une panne interne
 
 
 def _index_data():

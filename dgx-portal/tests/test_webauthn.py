@@ -113,9 +113,14 @@ class WebAuthnTestCase(unittest.TestCase):
                 s["auth_at"] = int(time.time())
         return c
 
-    def _register(self, c, username, label="Ma clé"):
-        """Enregistre une passkey via l'API (retourne (fake, nonce de login))."""
-        begin = c.post("/api/security/register/begin", headers={"X-CSRFToken": "tok"})
+    def _register(self, c, username, label="Ma clé", password="pw"):
+        """Enregistre une passkey via l'API (retourne (fake, nonce de login)).
+
+        Le mot de passe est exigé par `register/begin` : sans lui, un cookie volé
+        suffisait à poser SA clé et à activer la 2FA, enfermant la victime hors
+        de son compte (constat d'audit du 2026-09-17)."""
+        begin = c.post("/api/security/register/begin",
+                       json={"password": password}, headers={"X-CSRFToken": "tok"})
         self.assertEqual(begin.status_code, 200, begin.get_data(as_text=True))
         pk = begin.get_json()["publicKey"]
         fake = FakeAuthenticator()
@@ -152,6 +157,26 @@ class WebAuthnTestCase(unittest.TestCase):
         self.assertTrue(data["enabled"])
         self.assertEqual(len(data["credentials"]), 1)
         self.assertEqual(data["credentials"][0]["label"], "Ma clé")
+
+    def test_enregistrement_exige_le_mot_de_passe(self):
+        """Un cookie seul ne doit PAS pouvoir poser une clé (verrouillage du compte).
+
+        `register/begin` active la 2FA dès la première clé : sans re-vérification,
+        un voleur de cookie enregistrait la sienne et la victime ne pouvait plus
+        se connecter — récupération par un admin, destructrice."""
+        c = self._client("eve")
+        sans = c.post("/api/security/register/begin", json={},
+                      headers={"X-CSRFToken": "tok"})
+        self.assertEqual(sans.status_code, 400, sans.get_data(as_text=True))
+        faux = c.post("/api/security/register/begin", json={"password": "mauvais"},
+                      headers={"X-CSRFToken": "tok"})
+        self.assertEqual(faux.status_code, 401, faux.get_data(as_text=True))
+        # La double authentification n'a pas bougé.
+        self.assertFalse(c.get("/api/security").get_json()["enabled"])
+        # Et avec le bon mot de passe, l'enregistrement se fait.
+        bon = c.post("/api/security/register/begin", json={"password": "pw"},
+                     headers={"X-CSRFToken": "tok"})
+        self.assertEqual(bon.status_code, 200, bon.get_data(as_text=True))
 
     def test_register_finish_sans_nonce_refuse(self):
         c = self._client("eve")

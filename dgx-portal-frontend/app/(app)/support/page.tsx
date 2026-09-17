@@ -5,7 +5,7 @@ import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
-import { Markdown } from "@astryxdesign/core/Markdown";
+import { MarkdownSur as Markdown } from "@/lib/markdown";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { Card } from "@astryxdesign/core/Card";
@@ -13,6 +13,7 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Button } from "@astryxdesign/core/Button";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { Banner } from "@astryxdesign/core/Banner";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import {
   ClipboardDocumentIcon,
@@ -52,6 +53,7 @@ import {
 import type { SupportConfirmRequest, ToolCallEvent } from "@/lib/api";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 import { useT } from "@/lib/i18n";
+import { copierTexte } from "@/lib/copier";
 import { texteNotice } from "@/lib/notices";
 import type { CronosNotice } from "@/lib/notices";
 
@@ -142,6 +144,10 @@ export default function SupportPage() {
   const [confirmingToken, setConfirmingToken] = useState<string | null>(null);
   // Pouce haut/bas, par index de message.
   const [feedback, setFeedback] = useState<Record<number, FeedbackUi>>({});
+  // Cette page n'a pas de système de toast : un échec qui n'a pas de place dans
+  // le fil (jeton CSRF absent, copie impossible) s'affiche ici. Sans cela, ces
+  // boutons étaient des no-ops MUETS.
+  const [erreurUi, setErreurUi] = useState<string | null>(null);
 
   // The welcome message depends on the language, known only after the first
   // render (read from localStorage then /api/whoami) — impossible to freeze
@@ -173,7 +179,10 @@ export default function SupportPage() {
   }, []);
 
   async function runStream(nextMessages: ChatMsg[]) {
-    if (!csrf) return;
+    if (!csrf) {
+      setErreurUi(t("Session incomplète — recharge la page."));
+      return;
+    }
     // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
     const startTs = Date.now();
     // La réponse remplacée repart à zéro : son vote aussi (régénération).
@@ -306,7 +315,10 @@ export default function SupportPage() {
   }
 
   async function nouvelleConversation() {
-    if (!csrf) return;
+    if (!csrf) {
+      setErreurUi(t("Session incomplète — recharge la page."));
+      return;
+    }
     // Un flux en cours réécrirait dans le fil juste après le reset : on le coupe.
     abortRef.current?.abort();
     setMessages([]);
@@ -327,7 +339,10 @@ export default function SupportPage() {
   }
 
   async function sendFeedback(i: number, vote: 1 | -1, comment?: string) {
-    if (!csrf) return;
+    if (!csrf) {
+      setErreurUi(t("Session incomplète — recharge la page."));
+      return;
+    }
     const msg = messages[i];
     if (msg?.role !== "assistant") return;
     // question = le dernier message utilisateur précédant cette réponse.
@@ -430,6 +445,9 @@ export default function SupportPage() {
                     ))}
                   </Grid>
                 )}
+                {erreurUi ? (
+                  <Banner status="error" title={erreurUi} isDismissable onDismiss={() => setErreurUi(null)} />
+                ) : null}
                 <ChatComposer
                   value={input}
                   onChange={setInput}
@@ -495,7 +513,8 @@ export default function SupportPage() {
                                     size="sm"
                                     isIconOnly
                                     icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                    onClick={() => navigator.clipboard?.writeText(m.content)}
+                                    onClick={() => void copierTexte(m.content, () =>
+                                      setErreurUi(t("Copie impossible depuis ce navigateur.")))}
                                   />
                                 )}
                                 {canRegenerateThis && (

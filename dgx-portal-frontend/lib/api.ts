@@ -233,6 +233,13 @@ type SSEPayload = {
 
 /** Reads an SSE stream (packets `data: {...}\n\n`) and invokes onEvent per received packet. */
 async function readSSE(res: Response, onEvent: (payload: SSEPayload) => void): Promise<void> {
+  // Un corps non-SSE (413 « trop gros », page HTML d'erreur du proxy, JSON de
+  // refus) ne contient aucune ligne `data:` : la fonction rendait donc la main
+  // SANS RIEN DIRE, et l'écran affichait un résultat vide. Cas mesuré : une
+  // image de 17 Mo passe le proxy (20 Mo) mais dépasse le plafond de Flask
+  // (16 Mo) → « aucun texte détecté » au lieu d'une erreur de taille.
+  // Les trois appelants ont déjà un `catch` qui affiche le message.
+  if (!res.ok) throw new Error(`Erreur ${res.status}`);
   if (!res.body) return;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

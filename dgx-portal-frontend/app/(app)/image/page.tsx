@@ -21,7 +21,7 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useToast } from "@astryxdesign/core/Toast";
 import { PhotoIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { postFormData } from "@/lib/api";
+import { authFetch, postFormData } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
@@ -131,6 +131,11 @@ export default function ImagePage() {
     if (opts?.batch !== undefined) setBatch(b);
     if (opts?.format !== undefined) setFormat(f);
     if (opts?.size !== undefined) setSize(sz.value);
+    // Un intervalle PRÉCÉDENT doit mourir ici : sinon il devient orphelin et,
+    // quand son job se termine, c'est le NOUVEAU qu'il éteint — l'ancien
+    // continuerait d'interroger le statut et l'historique indéfiniment, même
+    // après avoir quitté la page.
+    stopPolling();
     setStatus("pending");
     setPromptId(null);
     setJobCount(b);
@@ -155,6 +160,10 @@ export default function ImagePage() {
       loadHistory();
       pollRef.current = setInterval(async () => {
         const r = await fetch(`/api/image/status/${res.prompt_id}`, { credentials: "include" });
+        // Sans ce test, une session expirée (401) ou une page HTML faisait
+        // lever `r.json()` dans un callback d'intervalle : rejet silencieux, et
+        // le statut restait bloqué sur « en cours ».
+        if (!r.ok) return;
         const st = await r.json();
         if (typeof st.count === "number") setJobCount(st.count);
         if (typeof st.done_count === "number") setDoneCount(st.done_count);
@@ -208,11 +217,17 @@ export default function ImagePage() {
     if (!promptId) return;
     setCancelling(true);
     try {
-      await fetch(`/api/image/cancel/${promptId}`, {
+      // `fetch` ne rejette QUE sur erreur réseau : sans lire `res.ok`, un 404
+      // (job inconnu) ou un 500 s'affichait « Génération annulée. » alors que la
+      // génération continuait de consommer le GPU.
+      const r = await authFetch(`/api/image/cancel/${promptId}`, {
         method: "POST",
-        credentials: "include",
         headers: { "X-CSRFToken": csrf },
       });
+      if (!r.ok) {
+        showToast({ body: t("Impossible d'annuler."), type: "error" });
+        return;
+      }
       setStatus("cancelled");
       stopPolling();
       loadHistory();
@@ -227,14 +242,22 @@ export default function ImagePage() {
   // Galerie : ouvre la visionneuse, retire une image du disque et de l'affichage.
   function viewImage(id: string, idx: number) { setViewer({ promptId: id, idx }); }
   async function deleteImage(id: string, idx: number) {
+    // La vignette n'est retirée qu'APRÈS confirmation du serveur : elle
+    // réapparaissait au rechargement alors que l'utilisateur la croyait
+    // détruite (404 sur un job qui n'est pas le sien, 500 sur un `os.remove`
+    // en échec côté Flask).
     try {
-      await fetch(`/api/image/delete/${id}/${idx}`, {
+      const r = await authFetch(`/api/image/delete/${id}/${idx}`, {
         method: "POST",
-        credentials: "include",
         headers: { "X-CSRFToken": csrf },
       });
+      if (!r.ok) {
+        showToast({ body: t("Suppression impossible."), type: "error" });
+        return;
+      }
     } catch {
-      /* suppression déjà-tentée : on masque quand même */
+      showToast({ body: t("Suppression impossible."), type: "error" });
+      return;
     }
     setDeletedImgs((prev) => new Set(prev).add(`${id}:${idx}`));
     setViewer(null);

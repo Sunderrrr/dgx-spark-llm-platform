@@ -96,7 +96,11 @@ export function SecurityContent() {
   // Ré-vérification requise pour toute suppression / bascule : on mémorise
   // l'action en attente, puis on demande le mot de passe.
   const [pendingAction, setPendingAction] = useState<{
-    kind: "toggle" | "remove";
+    // « register » passe par le MÊME dialogue que les deux autres : ajouter une
+    // clé est l'action qui ACTIVE la double authentification, et le serveur exige
+    // désormais le mot de passe (un cookie volé suffisait à poser SA clé et à
+    // enfermer la victime hors de son compte).
+    kind: "toggle" | "remove" | "register";
     enabled?: boolean;
     credential_id?: string;
   } | null>(null);
@@ -111,15 +115,22 @@ export function SecurityContent() {
     load();
   }, [load]);
 
-  async function addKey() {
+  /** Demande le mot de passe, puis enregistre réellement la clé (cf. confirmPassword). */
+  function addKey() {
     if (!supportsWebAuthn()) {
       showToast({ body: t("Ce navigateur ne supporte pas les clés de sécurité."), type: "error" });
       return;
     }
+    setPw("");
+    setPendingAction({ kind: "register" });
+  }
+
+  /** Crée la passkey — appelé une fois le mot de passe fourni. */
+  async function enregistrerCle() {
     setBusy(true);
     try {
       const begin = await sendJSON<{ publicKey: Record<string, unknown>; nonce: string }>(
-        "/api/security/register/begin", csrf);
+        "/api/security/register/begin", csrf, { password: pw });
       const credential = await createPasskey(begin.publicKey);
       const res = await sendJSON<{ ok: boolean; error?: string }>(
         "/api/security/register/finish", csrf,
@@ -147,6 +158,15 @@ export function SecurityContent() {
     if (!pendingAction || !pw) return;
     setBusy(true);
     try {
+      if (pendingAction.kind === "register") {
+        // L'ajout de clé n'appelle pas le serveur ici : `enregistrerCle` fait le
+        // flux WebAuthn complet (begin → createPasskey → finish) avec ce mot de
+        // passe, gère ses messages et recharge l'état. Le dialogue se ferme
+        // avant, quel que soit le résultat.
+        setPendingAction(null);
+        await enregistrerCle();
+        return;
+      }
       let res: { ok: boolean; error?: string };
       if (pendingAction.kind === "remove" && pendingAction.credential_id) {
         res = await sendJSON<{ ok: boolean; error?: string }>(
@@ -499,7 +519,7 @@ export function SecurityContent() {
                 value={confirmSuppression}
                 onChange={setConfirmSuppression}
               />
-              {info.local && (
+              {info.passkey && (
                 <TextInput
                   label={t("Ton mot de passe")}
                   type="password"
@@ -517,7 +537,7 @@ export function SecurityContent() {
                   size="sm"
                   isLoading={suppressionBusy}
                   isDisabled={confirmSuppression.trim() !== "DELETE"
-                    || (info.local && !mdpSuppression)}
+                    || (info.passkey && !mdpSuppression)}
                   onClick={supprimerCompte}
                 />
                 <Button
@@ -554,7 +574,9 @@ export function SecurityContent() {
               <Text weight="semibold">
                 {pendingAction.kind === "remove"
                   ? t("Confirme avec ton mot de passe pour supprimer la clé.")
-                  : t("Confirme avec ton mot de passe pour changer la double authentification.")}
+                  : pendingAction.kind === "register"
+                    ? t("Confirme avec ton mot de passe pour ajouter une clé.")
+                    : t("Confirme avec ton mot de passe pour changer la double authentification.")}
               </Text>
             </HStack>
             <TextInput

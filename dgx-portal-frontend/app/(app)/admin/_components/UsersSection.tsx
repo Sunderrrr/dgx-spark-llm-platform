@@ -9,7 +9,6 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Avatar } from "@astryxdesign/core/Avatar";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Table } from "@astryxdesign/core/Table";
 import type { TableColumn } from "@astryxdesign/core/Table";
@@ -38,8 +37,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { getJSON, postFormJSON, sendJSON } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
-import { avatarSrc } from "@/lib/avatar-genere";
-import { useMouvementReduit } from "@/lib/use-mouvement-reduit";
+import { UserAvatar } from "@/lib/user-avatar";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { SessionsList, type AccountSession } from "../../_components/SessionsList";
 
@@ -132,7 +130,6 @@ function Tile({ icon, value, label, locale }: { icon: typeof UsersIcon; value: n
 export function UsersSection({ csrf }: { csrf: string }) {
   const t = useT();
   const isNarrow = useIsNarrow();
-  const mouvementReduit = useMouvementReduit();
   const showToast = useToast();
   const numLocale = useLocale();
   const [data, setData] = useState<UsersData | null>(null);
@@ -424,8 +421,9 @@ export function UsersSection({ csrf }: { csrf: string }) {
   const columns: TableColumn<LocalUser & Record<string, unknown>>[] = [
     { key: "username", header: t("Utilisateur"), renderCell: (u) => (
         <HStack gap={2} vAlign="center">
-          <Avatar
-            src={avatarSrc(u.avatar_id, u.username, !mouvementReduit)}
+          <UserAvatar
+            avatarId={u.avatar_id}
+            username={u.username}
             name={u.fullname || u.username}
             size="sm"
           />
@@ -789,9 +787,10 @@ export function UsersSection({ csrf }: { csrf: string }) {
                 <VStack gap={4}>
                   {/* Identité, rôle, sources, dernière activité */}
                   <HStack gap={3} vAlign="center">
-                    <Avatar
-                      src={avatarSrc(detailUser?.avatar_id, detailUser?.username || detail.username || "", !mouvementReduit)}
-                      name={detail.fullname || detail.username || detailUser?.username || "?"}
+                    <UserAvatar
+                      avatarId={detailUser?.avatar_id}
+                      username={detailUser?.username || detail.username}
+                      name={detail.fullname || detail.username || detailUser?.username}
                       size="md"
                     />
                     <VStack gap={0}>

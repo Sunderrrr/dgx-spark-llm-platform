@@ -287,8 +287,8 @@ def settings_appearance():
 def settings_avatar():
     avatar_id = request.form.get('avatar_id', '')
     if not avatar_id or avatar_id == 'genere':
-        # AVATAR GÉNÉRÉ : l'image est fabriquée à partir du pseudo (cf.
-        # lib/avatar-genere.ts), donc il n'y a rien à stocker — `NULL` est le
+        # AVATAR GÉNÉRÉ : l'image est fabriquée à partir du pseudo (blobatar,
+        # cf. lib/user-avatar.tsx), donc il n'y a rien à stocker — `NULL` est le
         # choix « pas de logo », et c'est le DÉFAUT de tout compte.
         avatar_id = None
     elif avatar_id not in AVATAR_IDS:

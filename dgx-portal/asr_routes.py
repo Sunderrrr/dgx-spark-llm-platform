@@ -12,7 +12,8 @@ from flask import Blueprint, jsonify, request
 from auth import login_required
 from config import ASR_URL
 from sidecars import asr_is_up, motif_refus
-from guards import _MAX_VOICE_UPLOAD_BYTES, maintenance_block_json, media_rate_block
+from guards import (_MAX_VOICE_UPLOAD_BYTES, dictation_rate_block,
+                    maintenance_block_json)
 
 bp = Blueprint('asr', __name__)
 
@@ -28,9 +29,11 @@ def api_transcribe():
     if blocked:
         return blocked
     # Dictation is an expensive GPU endpoint (up to 180 s per call against the
-    # shared ASR model) that has no LiteLLM key/budget — bound it like the other
-    # media routes (guards.media_rate_block documents "video/OCR/voice/dictation").
-    limited = media_rate_block()
+    # shared ASR model) that has no LiteLLM key/budget, so it needs its own
+    # bound — but NOT the media one: the client re-transcribes every second
+    # while the user speaks (guards.dictation_rate_block explains the 429 that
+    # cost the users 20 s of speech).
+    limited = dictation_rate_block()
     if limited:
         return limited
     f = request.files.get('audio')

@@ -21,7 +21,8 @@ from auth import completer_origine_session, login_required
 from config import AVATAR_IDS, AVATAR_LABELS, KEY_BUDGET, KEY_DURATION, LANGS, THEME_IDS
 from conversation_routes import CONVERSATIONS_MAX
 from db import get_db, get_setting, log_audit
-from guards import CHAT_RATE_MAX, CHAT_RATE_WINDOW, _chat_rate_limited
+from guards import (ASR_RATE_MAX, CHAT_RATE_MAX, CHAT_RATE_WINDOW,
+                    _chat_rate_limited)
 from litellm_client import _litellm_user_info
 from local_users import (GESTION_LDAP, GESTION_PORTAIL, gestion_mot_de_passe,
                          password_policy_error)
@@ -127,6 +128,10 @@ def _account_limits(username, acct, servers, skills):
          'desc': f"Maximum {CHAT_RATE_MAX} messages par minute.",
          'used': _rate_used(username, 'rl-playground'), 'max': CHAT_RATE_MAX,
          'unit': 'messages / min', 'unlimited': False},
+        {'key': 'rate-dictee', 'label': "Dictées vocales",
+         'desc': f"Maximum {ASR_RATE_MAX} transcriptions par minute.",
+         'used': _rate_used(username, 'rl-asr'), 'max': ASR_RATE_MAX,
+         'unit': 'transcriptions / min', 'unlimited': False},
         {'key': 'conversations', 'label': "Conversations enregistrées",
          'desc': "Au-delà, les plus anciennes sont supprimées automatiquement.",
          'used': n_conv, 'max': CONVERSATIONS_MAX, 'unit': 'conversations', 'unlimited': False},

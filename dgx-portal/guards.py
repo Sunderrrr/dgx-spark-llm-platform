@@ -79,33 +79,61 @@ def media_block_json():
 CHAT_RATE_MAX    = 20    # requests allowed…
 CHAT_RATE_WINDOW = 60    # …per 60 s window and per user
 
-def _chat_rate_limited(username, bucket):
-    """Returns the number of seconds to wait, or 0 if the request can pass."""
+def _chat_rate_limited(username, bucket, max_requetes=None, fenetre=None):
+    """Returns the number of seconds to wait, or 0 if the request can pass.
+
+    Le plafond et la fenêtre sont des PARAMÈTRES depuis le 2026-09-22 : la
+    dictée n'appelle pas l'ASR au rythme d'un utilisateur qui clique, mais
+    toutes les secondes (cf. `dictation_rate_block`), et un plafond unique ne
+    peut pas décrire les deux usages."""
+    max_requetes = CHAT_RATE_MAX if max_requetes is None else max_requetes
+    fenetre = CHAT_RATE_WINDOW if fenetre is None else fenetre
     now = time.time()
     key = f"{bucket}|{username}"
     db = get_db()
     row = db.execute("SELECT fails, first_at FROM login_attempts WHERE key=?", (key,)).fetchone()
-    if not row or now - row['first_at'] > CHAT_RATE_WINDOW:
+    if not row or now - row['first_at'] > fenetre:
         db.execute("INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,1,?,0) "
                    "ON CONFLICT(key) DO UPDATE SET fails=1, first_at=excluded.first_at",
                    (key, now))
         db.commit()
         return 0
-    if row['fails'] >= CHAT_RATE_MAX:
-        return max(1, int(CHAT_RATE_WINDOW - (now - row['first_at'])))
+    if row['fails'] >= max_requetes:
+        return max(1, int(fenetre - (now - row['first_at'])))
     db.execute("UPDATE login_attempts SET fails=fails+1 WHERE key=?", (key,))
     db.commit()
     return 0
 
 
 def media_rate_block():
-    """Rate guard for the expensive GPU endpoints (video/OCR/voice/dictation).
+    """Rate guard for the expensive GPU endpoints (video/OCR/voice/image/music).
     None goes through a LiteLLM key: the token budget therefore doesn't cap
     them, and each holds a gunicorn thread for up to 180 s while
     saturating the shared GPU. We bound the number of calls per user, as
     for chat, via the same sliding bucket.
     """
     wait = _chat_rate_limited(session['username'], 'rl-media')
+    if wait:
+        return jsonify({'error': f"Trop de requêtes. Réessaie dans {wait} s."}), 429
+    return None
+
+
+# ── Dictée (ASR) : un budget à son rythme, pas celui des médias ──────────────
+# La dictée n'est PAS un appel média isolé : `useDictation` (frontend)
+# retranscrit tout l'audio capté depuis le début TOUTES LES SECONDES pendant que
+# l'utilisateur parle (POLL_MS = 1000), plus une passe finale. Partager la
+# fenêtre de 20/min des médias la condamnait donc au 429 au bout d'environ 20 s
+# de parole — constaté le 2026-09-22 (« Trop de requêtes. Réessaie dans 36 s. »)
+# et la dictée cessait de s'écrire. Son budget suit son rythme réel (~1 req/s)
+# avec 25 % de marge : une longue dictée ne le touche jamais, un client qui
+# martèle le trouve tout de suite.
+ASR_RATE_MAX    = 75    # transcriptions allowed…
+ASR_RATE_WINDOW = 60    # …per 60 s window and per user
+
+
+def dictation_rate_block():
+    """Garde de débit de `/api/transcribe` (bucket distinct de `rl-media`)."""
+    wait = _chat_rate_limited(session['username'], 'rl-asr', ASR_RATE_MAX, ASR_RATE_WINDOW)
     if wait:
         return jsonify({'error': f"Trop de requêtes. Réessaie dans {wait} s."}), 429
     return None

@@ -417,6 +417,28 @@ class DetailTest(BaseComptes):
         self.assertEqual(users[CIBLE]['block_reason'], 'départ')
         self.assertFalse(users[ADMIN]['blocked'])
 
+    def test_liste_des_comptes_porte_l_avatar(self):
+        """La liste d'admin porte l'avatar, comme le reste de l'interface.
+
+        L'écran d'admin y affiche la pp : logo de marque choisi, ou avatar généré
+        quand `avatar_id` est nul. Sans ce champ, l'admin voyait des initiales là
+        où l'intéressé voit sa pp — et l'interface ne pouvait pas le deviner.
+        """
+        admin = self._client(ADMIN, is_admin=True)
+        users = {u['username']: u for u in admin.get('/api/admin/users').get_json()['users']}
+        self.assertIn('avatar_id', users[CIBLE])
+        self.assertIsNone(users[CIBLE]['avatar_id'], "aucun logo choisi : avatar généré")
+
+        with portal.app.app_context():
+            db = portal.get_db()
+            logo = portal.AVATAR_IDS[0]
+            db.execute("INSERT INTO user_prefs (username, avatar_id) VALUES (?,?) "
+                       "ON CONFLICT(username) DO UPDATE SET avatar_id=excluded.avatar_id",
+                       (CIBLE, logo))
+            db.commit()
+        users = {u['username']: u for u in admin.get('/api/admin/users').get_json()['users']}
+        self.assertEqual(users[CIBLE]['avatar_id'], logo)
+
 
 class AutoServiceTest(BaseComptes):
     """Ce que l'utilisateur peut faire pour lui-même."""

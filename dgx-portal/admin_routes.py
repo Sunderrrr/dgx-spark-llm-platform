@@ -772,6 +772,10 @@ def api_admin_users():
     recorded = {r['username']: r for r in db.execute("SELECT * FROM user_sources").fetchall()}
     spend = {s['username']: s for s in (admin_get_user_consumption() or [])}
     blocked = {b['username']: b for b in db.execute("SELECT * FROM blocked_users").fetchall()}
+    # Avatar choisi (NULL = avatar généré depuis le pseudo) : l'admin voyait des
+    # initiales là où l'intéressé voit sa pp.
+    avatars = {a['username']: a['avatar_id'] for a in
+               db.execute("SELECT username, avatar_id FROM user_prefs").fetchall()}
     # Verrouillage anti-force-brute en cours : la clé est composite
     # ('ip|compte' ou 'user:compte'), on rattache au compte par le suffixe.
     locked = {}
@@ -831,6 +835,7 @@ def api_admin_users():
         out.append({
             'username': name,
             'fullname': fullname,
+            'avatar_id': avatars.get(name),
             'sources': sorted(srcs),
             'managed': bool(mu),
             'managed_by': managed_by,

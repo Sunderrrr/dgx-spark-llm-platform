@@ -18,6 +18,7 @@ import { Switch } from "@astryxdesign/core/Switch";
 import { Divider } from "@astryxdesign/core/Divider";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { SelectableCard } from "@astryxdesign/core/SelectableCard";
+import { avatarGenere, avatarSrc } from "@/lib/avatar-genere";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
@@ -170,7 +171,8 @@ export function SettingsDialog({
 }: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  onAvatarChange?: (avatarId: string) => void;
+  /** `null` = avatar généré depuis le pseudo (aucun logo choisi). */
+  onAvatarChange?: (avatarId: string | null) => void;
   initialSection?: Section;
 }) {
   const csrf = useCsrf();
@@ -390,9 +392,12 @@ export function SettingsDialog({
 
   async function selectAvatar(avatarId: string) {
     const precedent = data?.avatar_id ?? null;
-    setData((prev) => (prev ? { ...prev, avatar_id: avatarId } : prev));
+    // `""` (choix « généré ») se normalise en `null` : c'est ainsi que le reste
+    // de l'application représente « aucun logo choisi », et donc l'avatar généré.
+    const normalise = avatarId || null;
+    setData((prev) => (prev ? { ...prev, avatar_id: normalise } : prev));
     if (await envoyerForm("/settings/avatar", { avatar_id: avatarId })) {
-      onAvatarChange?.(avatarId);
+      onAvatarChange?.(normalise);
     } else {
       setData((prev) => (prev ? { ...prev, avatar_id: precedent } : prev));
     }
@@ -457,11 +462,8 @@ export function SettingsDialog({
               </VStack>
               <Divider />
               <HStack padding={3} gap={2} vAlign="center">
-                {data?.avatar_id ? (
-                  <Avatar src={`/avatars/${data.avatar_id}.svg`} name={acct?.fullname || ""} size="sm" />
-                ) : (
-                  <Avatar name={acct?.fullname || ""} size="sm" />
-                )}
+                <Avatar src={avatarSrc(data?.avatar_id, acct?.username || "")}
+                        name={acct?.fullname || ""} size="sm" />
                 <VStack gap={0}>
                   <Text type="supporting" weight="semibold" maxLines={1}>
                     {acct?.fullname || ""}
@@ -527,11 +529,8 @@ export function SettingsDialog({
               {section === "account" && acct && (
                 <VStack gap={5}>
                   <VStack gap={2} hAlign="center">
-                    {data?.avatar_id ? (
-                      <Avatar src={`/avatars/${data.avatar_id}.svg`} name={acct.fullname} size="xl" />
-                    ) : (
-                      <Avatar name={acct.fullname} size="xl" />
-                    )}
+                    <Avatar src={avatarSrc(data?.avatar_id, acct.username)}
+                            name={acct.fullname} size="xl" />
                     <Heading level={2}>{acct.fullname}</Heading>
                     <HStack gap={2} vAlign="center">
                       <Text type="supporting" color="secondary">
@@ -812,9 +811,22 @@ export function SettingsDialog({
               {section === "avatar" && (
                 <VStack gap={3}>
                   <Text type="supporting" color="secondary">
-                    {t("Choisis un avatar parmi les logos proposés — pas d'import d'image personnelle.")}
+                    {t("Par défaut, ton avatar est créé à partir de ton pseudo. Tu peux aussi choisir un logo de marque d'IA — pas d'import d'image personnelle.")}
                   </Text>
                   <Grid columns={{ minWidth: 110, max: 5 }} gap={3}>
+                    <SelectableCard
+                      key="genere"
+                      label={t("Généré depuis mon pseudo")}
+                      isSelected={!data?.avatar_id}
+                      onChange={() => selectAvatar("")}
+                      padding={3}>
+                      <VStack gap={2} hAlign="center">
+                        <Avatar src={avatarGenere(data?.account?.username || "")} name={acct?.fullname || ""} size="lg" />
+                        <Text type="supporting" color="secondary">
+                          {t("Généré depuis mon pseudo")}
+                        </Text>
+                      </VStack>
+                    </SelectableCard>
                     {data?.avatars.map((a) => (
                       <SelectableCard
                         key={a.id}

@@ -263,8 +263,9 @@ const EN: Record<string, string> = {
   "Prune": "Plum",
 
   // — Personalization —
-  "Choisis un avatar parmi les logos proposés — pas d'import d'image personnelle.":
-    "Pick an avatar from the logos below — no personal image upload.",
+  "Par défaut, ton avatar est créé à partir de ton pseudo. Tu peux aussi choisir un logo de marque d'IA — pas d'import d'image personnelle.":
+    "Your avatar is generated from your username by default. You can also pick an AI brand logo — no personal image upload.",
+  "Généré depuis mon pseudo": "Generated from my username",
 
   // — MCP —
   "Connecte un serveur MCP distant en HTTPS : ses outils deviennent utilisables par l'assistant Support.":

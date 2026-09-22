@@ -103,12 +103,15 @@ function grille(aleatoire: () => number, caracteres: string, accent: string): st
         const x = marge + c * pas + pas / 2;
         const y = marge + ligne * pas + pas / 2;
         const ch = caracteres[i++ % caracteres.length];
-        cellules += `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}">${echappe(ch)}</text>`;
+        // `dy` sur chaque texte, et NON sur le groupe : mesuré dans Chromium,
+        // `dy` posé sur un `<g>` n'est pas hérité par ses `<text>` (le glyphe
+        // remonte alors de 0,35 em, la grille se tasse vers le haut).
+        cellules += `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" dy=".35em">${echappe(ch)}</text>`;
       }
     }
   }
   return `<g font-family="${FONTS}" font-size="${(pas * 0.82).toFixed(1)}" `
-    + `text-anchor="middle" dy=".35em" fill="${accent}" fill-opacity="0.28">${cellules}</g>`;
+    + `text-anchor="middle" fill="${accent}" fill-opacity="0.28">${cellules}</g>`;
 }
 
 // Le même pseudo revient à chaque rendu (liste d'admin rechargée toutes les 8 s,

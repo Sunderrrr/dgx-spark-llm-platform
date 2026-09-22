@@ -344,6 +344,11 @@ Includes **dictation** — a mic button transcribes what you say into the compos
 Deliberately self-hosted (Whisper on the GPU) rather than the browser's
 `SpeechRecognition` API, which in Chrome ships the audio to Google's servers.
 
+Two effects hang off the composer: its border lights up while the model is
+working, and a colour glow rises from the field while dictation is listening
+(both from [libraries.dev](https://libraries.dev), MIT). They are decorative —
+`pointer-events: none`, and motion is dropped under `prefers-reduced-motion`.
+
 **Web search** is available on explicit request ("search the web for…"): SearXNG
 finds the links, crawl4ai reads the pages, and the progress of each step is shown
 live. See [`websearch_tools.py`](dgx-portal/websearch_tools.py) and the rules in

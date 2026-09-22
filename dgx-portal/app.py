@@ -1340,6 +1340,16 @@ def api_ranking():
     if metric not in RANKING_METRICS:
         metric = 'total'
     data = ranking_full(period, me=session['username'], metric=metric)
+    # La pp de chaque ligne. Le classement ne nommait que des comptes ; une pp
+    # se reconnait plus vite qu'un pseudo, et la liste d'admin la montrait deja.
+    # UNE lecture pour toute la page (et non une par ligne) : `user_prefs` est
+    # petite, mais la page se rafraichit souvent. Une ligne absente de la table
+    # garde `None`, c'est-a-dire l'avatar généré depuis le pseudo — le defaut de
+    # tout compte, cf. /api/whoami.
+    avatars = {nom: av for nom, av in get_db().execute(
+        "SELECT username, avatar_id FROM user_prefs").fetchall()}
+    for ligne in data['rows']:
+        ligne['avatar_id'] = avatars.get(ligne.get('username'))
     return jsonify({'rows': data['rows'], 'active_count': data['active_count'],
                     'period': period, 'metric': metric,
                     'total': data['total'], 'avg': data['avg'], 'has_prev': data['has_prev'],

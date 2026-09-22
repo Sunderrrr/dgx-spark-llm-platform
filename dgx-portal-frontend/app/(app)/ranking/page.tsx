@@ -12,6 +12,7 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Table, proportional, pixel } from "@astryxdesign/core/Table";
+import { UserAvatar } from "@/lib/user-avatar";
 import type { TableColumn } from "@astryxdesign/core/Table";
 import { ChartBarIcon } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
@@ -28,6 +29,8 @@ import { useT, useLocale } from "@/lib/i18n";
 interface RankRow extends Record<string, unknown> {
   rank: number | null;
   username: string;
+  /** Le logo de marque choisi, ou null pour l'avatar généré depuis le pseudo. */
+  avatar_id?: string | null;
   is_me: boolean;
   is_unattributed: boolean;
   value: number;
@@ -165,6 +168,11 @@ export default function RankingPage() {
       width: proportional(2),
       renderCell: (r) => (
         <HStack gap={2} vAlign="center">
+          {/* Pas de pp pour les clés non attribuées : ce ne sont pas des
+              comptes, et une créature inventée leur prêterait un visage. */}
+          {!r.is_unattributed && (
+            <UserAvatar avatarId={r.avatar_id} username={r.username} size="sm" />
+          )}
           <Text weight={r.is_me ? "bold" : undefined} color={r.is_unattributed ? "secondary" : undefined}>
             {r.username === "inconnu" ? t("Clés non attribuées") : r.username}
           </Text>

@@ -20,7 +20,6 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { Avatar } from "@astryxdesign/core/Avatar";
 import {
   HomeIcon,
   ChatBubbleLeftRightIcon,
@@ -42,8 +41,7 @@ import {
 import { useThemeMode } from "../theme-provider";
 import { useCsrf, useCsrfRefresh } from "@/lib/useCsrf";
 import { useWhoami } from "@/lib/whoami";
-import { avatarSrc } from "@/lib/avatar-genere";
-import { useMouvementReduit } from "@/lib/use-mouvement-reduit";
+import { UserAvatar } from "@/lib/user-avatar";
 import { SettingsDialog } from "./_components/SettingsDialog";
 import { OnboardingDialog } from "./_components/OnboardingDialog";
 import { useT } from "@/lib/i18n";
@@ -88,7 +86,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { mode, setMode } = useThemeMode();
   const { who, setWho } = useWhoami();
-  const mouvementReduit = useMouvementReduit();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // Demandes en attente (badge de la sidebar). Poll léger pour rester à jour
   // sans charger l'app — pas un compteur temps réel critique.
@@ -270,8 +267,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <HStack padding={2} gap={2} vAlign="center" hAlign="between" wrap="wrap">
               <HStack gap={2} vAlign="center" wrap="wrap">
                 {/* Toujours rendu : sans logo choisi, c'est l'avatar généré depuis le pseudo. */}
-                <Avatar
-                  src={avatarSrc(who?.avatar_id, who?.username || "", !mouvementReduit)}
+                <UserAvatar
+                  avatarId={who?.avatar_id}
+                  username={who?.username}
                   name={who?.fullname}
                   size="sm"
                 />

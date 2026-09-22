@@ -2,6 +2,11 @@ import type { Metadata } from "next";
 import "@astryxdesign/core/reset.css";
 import "@astryxdesign/core/astryx.css";
 import "@astryxdesign/theme-neutral/theme.css";
+// Le mouvement des blobatars (la pp par défaut) vit dans une feuille de style :
+// sans cet import, `animate` ne ferait rien du tout et les pp resteraient
+// figées — sans erreur ni avertissement. Elle porte aussi la règle
+// `prefers-reduced-motion`, qui les remet à l'arrêt.
+import "blobatar/motion.css";
 import "./globals.css";
 import { ThemeProvider } from "./theme-provider";
 import { WhoamiProvider } from "@/lib/whoami";

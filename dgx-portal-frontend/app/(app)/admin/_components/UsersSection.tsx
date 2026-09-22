@@ -39,6 +39,7 @@ import {
 import { getJSON, postFormJSON, sendJSON } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
 import { avatarSrc } from "@/lib/avatar-genere";
+import { useMouvementReduit } from "@/lib/use-mouvement-reduit";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { SessionsList, type AccountSession } from "../../_components/SessionsList";
 
@@ -131,6 +132,7 @@ function Tile({ icon, value, label, locale }: { icon: typeof UsersIcon; value: n
 export function UsersSection({ csrf }: { csrf: string }) {
   const t = useT();
   const isNarrow = useIsNarrow();
+  const mouvementReduit = useMouvementReduit();
   const showToast = useToast();
   const numLocale = useLocale();
   const [data, setData] = useState<UsersData | null>(null);
@@ -422,7 +424,11 @@ export function UsersSection({ csrf }: { csrf: string }) {
   const columns: TableColumn<LocalUser & Record<string, unknown>>[] = [
     { key: "username", header: t("Utilisateur"), renderCell: (u) => (
         <HStack gap={2} vAlign="center">
-          <Avatar src={avatarSrc(u.avatar_id, u.username)} name={u.fullname || u.username} size="sm" />
+          <Avatar
+            src={avatarSrc(u.avatar_id, u.username, !mouvementReduit)}
+            name={u.fullname || u.username}
+            size="sm"
+          />
           <VStack gap={0}>
             <Text weight="semibold">{u.username}</Text>
             {u.fullname ? <Text type="supporting" color="secondary">{u.fullname}</Text> : null}
@@ -784,7 +790,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
                   {/* Identité, rôle, sources, dernière activité */}
                   <HStack gap={3} vAlign="center">
                     <Avatar
-                      src={avatarSrc(detailUser?.avatar_id, detailUser?.username || detail.username || "")}
+                      src={avatarSrc(detailUser?.avatar_id, detailUser?.username || detail.username || "", !mouvementReduit)}
                       name={detail.fullname || detail.username || detailUser?.username || "?"}
                       size="md"
                     />

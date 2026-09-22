@@ -89,7 +89,7 @@ function echappe(s: string): string {
 }
 
 /** Grille 5×5 symétrique (moitié gauche tirée, moitié droite recopiée). */
-function grille(aleatoire: () => number, caracteres: string, accent: string): string {
+function grille(aleatoire: () => number, caracteres: string, accent: string, anime: boolean): string {
   const cote = 5;
   const marge = 5;
   const pas = (100 - 2 * marge) / cote;
@@ -103,16 +103,48 @@ function grille(aleatoire: () => number, caracteres: string, accent: string): st
         const x = marge + c * pas + pas / 2;
         const y = marge + ligne * pas + pas / 2;
         const ch = caracteres[i++ % caracteres.length];
+        // Le retard est NÉGATIF : l'animation démarre en plein cycle, donc la
+        // vague est déjà répartie sur la grille au premier rendu (un retard
+        // positif ferait s'allumer les lettres les unes après les autres).
+        // Il suit la diagonale (ligne + colonne), d'où une vague qui balaie
+        // l'avatar au lieu de clignoter d'un bloc.
+        const delai = anime ? ` style="animation-delay:-${((ligne + c) % 6) * 0.7}s"` : "";
+        const classe = anime ? ` class="v"` : "";
         // `dy` sur chaque texte, et NON sur le groupe : mesuré dans Chromium,
         // `dy` posé sur un `<g>` n'est pas hérité par ses `<text>` (le glyphe
         // remonte alors de 0,35 em, la grille se tasse vers le haut).
-        cellules += `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" dy=".35em">${echappe(ch)}</text>`;
+        cellules += `<text${classe}${delai} x="${x.toFixed(1)}" y="${y.toFixed(1)}" dy=".35em">${echappe(ch)}</text>`;
       }
     }
   }
   return `<g font-family="${FONTS}" font-size="${(pas * 0.82).toFixed(1)}" `
     + `text-anchor="middle" fill="${accent}" fill-opacity="0.28">${cellules}</g>`;
 }
+
+/**
+ * Les trois mouvements de l'avatar, en CSS et en SMIL DANS le document SVG.
+ *
+ * Mesuré dans Chromium : dans une data-URI chargée comme `src` d'<img>, les
+ * animations CSS et SMIL tournent (le script, lui, est interdit) — donc la pp
+ * s'anime sans un octet de JavaScript ni de réseau. En revanche
+ * `prefers-reduced-motion` n'y est PAS évalué : c'est `avatarGenere(pseudo,
+ * false)` qui sert la variante fixe à qui a demandé moins de mouvement.
+ *
+ * Le dégradé tourne lentement (SMIL sur `gradientTransform`), les lettres de la
+ * grille s'allument en vague (CSS) et le monogramme respire. L'amplitude de la
+ * vague est volontairement franche : à 24 px une variation discrète ne se voit
+ * pas — mesuré, la première version ne changeait que 6 pixels sur 128
+ * échantillonnés, c'est-à-dire rien à l'œil. Les périodes restent longues
+ * (3,6 s et 5,4 s), donc ça vit sans clignoter.
+ */
+const ANIMATION = `<style>@keyframes vague{0%,100%{opacity:.06}50%{opacity:.66}}`
+  + `@keyframes souffle{0%,100%{opacity:1}50%{opacity:.7}}`
+  + `.v{animation:vague 3.6s ease-in-out infinite}`
+  + `.m{animation:souffle 5.4s ease-in-out infinite}</style>`;
+
+const ROTATION = (duree: string) =>
+  `<animateTransform attributeName="gradientTransform" type="rotate" `
+  + `from="0 0.5 0.5" to="360 0.5 0.5" dur="${duree}" repeatCount="indefinite"/>`;
 
 // Le même pseudo revient à chaque rendu (liste d'admin rechargée toutes les 8 s,
 // barre latérale à chaque page) : la data-URI est calculée une fois par pseudo.
@@ -121,10 +153,12 @@ function grille(aleatoire: () => number, caracteres: string, accent: string): st
 const CACHE = new Map<string, string>();
 const CACHE_MAX = 500;
 
-/** Data-URI de l'avatar généré pour ce pseudo. */
-export function avatarGenere(pseudo: string): string {
+/** Data-URI de l'avatar généré pour ce pseudo. `anime: false` rend la variante
+ *  fixe, pour qui a demandé moins de mouvement (`prefers-reduced-motion`). */
+export function avatarGenere(pseudo: string, anime = true): string {
   const cle = (pseudo || "?").trim().toLowerCase() || "?";
-  const connu = CACHE.get(cle);
+  const cache = `${cle}|${anime ? "anime" : "fixe"}`;
+  const connu = CACHE.get(cache);
   if (connu) return connu;
 
   const h = empreinte(cle);
@@ -135,16 +169,19 @@ export function avatarGenere(pseudo: string): string {
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="128" height="128">`
     + `<defs><linearGradient id="f" x1="0" y1="0" x2="1" y2="1">`
     + `<stop offset="0" stop-color="${pal.a}"/><stop offset="1" stop-color="${pal.b}"/>`
-    + `</linearGradient></defs>`
+    + (anime ? ROTATION("26s") : "")
+    + `</linearGradient>`
+    + (anime ? ANIMATION : "")
+    + `</defs>`
     + `<rect width="100" height="100" fill="url(#f)"/>`
-    + grille(aleatoire, lettres(cle), pal.accent)
-    + `<text x="50" y="50" font-family="${FONTS}" font-size="46" font-weight="700" `
+    + grille(aleatoire, lettres(cle), pal.accent, anime)
+    + `<text${anime ? ` class="m"` : ""} x="50" y="50" font-family="${FONTS}" font-size="46" font-weight="700" `
     + `letter-spacing="-1" text-anchor="middle" dy=".35em" fill="${pal.encre}">${mono}</text>`
     + `</svg>`;
   const uri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
   if (CACHE.size >= CACHE_MAX) CACHE.clear();
-  CACHE.set(cle, uri);
+  CACHE.set(cache, uri);
   return uri;
 }
 
@@ -153,6 +190,6 @@ export function avatarGenere(pseudo: string): string {
  * Un seul point de décision, pour que les appelants n'aient pas à savoir ce que
  * « pas de logo » veut dire.
  */
-export function avatarSrc(avatarId: string | null | undefined, pseudo: string): string {
-  return avatarId ? `/avatars/${avatarId}.svg` : avatarGenere(pseudo);
+export function avatarSrc(avatarId: string | null | undefined, pseudo: string, anime = true): string {
+  return avatarId ? `/avatars/${avatarId}.svg` : avatarGenere(pseudo, anime);
 }

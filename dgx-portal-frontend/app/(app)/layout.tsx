@@ -42,6 +42,7 @@ import {
 import { useThemeMode } from "../theme-provider";
 import { useCsrf, useCsrfRefresh } from "@/lib/useCsrf";
 import { useWhoami } from "@/lib/whoami";
+import { avatarSrc } from "@/lib/avatar-genere";
 import { SettingsDialog } from "./_components/SettingsDialog";
 import { OnboardingDialog } from "./_components/OnboardingDialog";
 import { useT } from "@/lib/i18n";
@@ -266,7 +267,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           footer={
             <HStack padding={2} gap={2} vAlign="center" hAlign="between" wrap="wrap">
               <HStack gap={2} vAlign="center" wrap="wrap">
-                {who?.avatar_id && <Avatar src={`/avatars/${who.avatar_id}.svg`} name={who.fullname} size="sm" />}
+                {/* Toujours rendu : sans logo choisi, c'est l'avatar généré depuis le pseudo. */}
+                <Avatar src={avatarSrc(who?.avatar_id, who?.username || "")} name={who?.fullname} size="sm" />
                 <Text type="supporting" color="secondary" maxLines={1}>
                   {who?.fullname || ""}
                 </Text>

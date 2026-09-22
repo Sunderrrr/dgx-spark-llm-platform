@@ -242,6 +242,40 @@ class AvatarTest(_BaseReglages):
         self.assertIsNotNone(ligne)
         self.assertEqual(ligne["avatar_id"], avatars[0])
 
+    def test_avatar_genere_remet_a_null(self):
+        """Le choix « avatar généré » (valeur vide) doit revenir en arrière.
+
+        C'est `NULL` qui veut dire « aucun logo choisi, donc avatar créé à
+        partir du pseudo » : sans ce retour possible, un compte qui avait pris
+        un logo de marque ne pouvait plus jamais revenir à l'avatar par défaut —
+        et la valeur vide n'était même pas acceptée (400).
+        """
+        with self._db():
+            avatars = portal.AVATAR_IDS
+        c = self._client()
+        self.assertEqual(self._post(c, "/settings/avatar", {"avatar_id": avatars[0]}).status_code, 200)
+        with self._db():
+            assert portal.get_db().execute(
+                "SELECT avatar_id FROM user_prefs WHERE username='demo'"
+            ).fetchone()["avatar_id"] == avatars[0]
+        r = self._post(c, "/settings/avatar", {"avatar_id": ""})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()["ok"])
+        with self._db():
+            ligne = portal.get_db().execute(
+                "SELECT avatar_id FROM user_prefs WHERE username='demo'").fetchone()
+        self.assertIsNone(ligne["avatar_id"])
+
+    def test_avatar_genere_accepte_en_toutes_lettres(self):
+        """`genere` est accepté comme synonyme de la valeur vide."""
+        c = self._client()
+        r = self._post(c, "/settings/avatar", {"avatar_id": "genere"})
+        self.assertEqual(r.status_code, 200)
+        with self._db():
+            ligne = portal.get_db().execute(
+                "SELECT avatar_id FROM user_prefs WHERE username='demo'").fetchone()
+        self.assertIsNone(ligne["avatar_id"])
+
 
 class ApparenceTest(_BaseReglages):
     """`POST /settings/appearance` : le refus portait le statut du succès."""

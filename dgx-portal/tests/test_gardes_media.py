@@ -122,5 +122,60 @@ class DebitTest(_BaseMedia):
         self.assertEqual(r.status_code, 503, r.get_data(as_text=True))
 
 
+class DicteeTest(_BaseMedia):
+    """La dictée a son PROPRE budget, calé sur son rythme réel (~1 req/s).
+
+    Avant le 2026-09-22 elle partageait `rl-media` (20/min) : l'utilisateur qui
+    parlait 20 s recevait « Trop de requêtes. Réessaie dans 36 s. » et sa dictée
+    cessait de s'écrire. Ces tests verrouillent les deux moitiés de la
+    correction — le nouveau plafond suffit à une longue dictée, et il ne mange
+    plus le quota des routes média.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._vider('rl-asr')
+
+    def tearDown(self):
+        self._vider('rl-asr')
+        super().tearDown()
+
+    def _vider(self, bucket):
+        with self._db():
+            db = portal.get_db()
+            db.execute("DELETE FROM login_attempts WHERE key LIKE ?", (f"{bucket}|%",))
+            db.commit()
+
+    def test_une_longue_dictee_ne_declenche_pas_de_429(self):
+        """61 transcriptions = 60 s de parole + la passe finale : le plafond
+        média (20/min) refusait la 21e, celui-ci doit toutes les accepter."""
+        c = self._client("demo")
+        codes = [self._post(c, '/api/transcribe').status_code for _ in range(61)]
+        self.assertNotIn(429, codes, codes)
+        # Le refus vient de la validation d'entrée (aucun audio fourni), donc la
+        # garde a bien été franchie : c'est ce qu'on veut prouver.
+        self.assertTrue(all(code == 400 for code in codes), codes)
+
+    def test_le_plafond_de_dictee_finit_par_refuser(self):
+        from guards import ASR_RATE_MAX
+        c = self._client("demo")
+        codes = [self._post(c, '/api/transcribe').status_code
+                 for _ in range(ASR_RATE_MAX + 1)]
+        self.assertNotIn(429, codes[:ASR_RATE_MAX], codes)
+        self.assertEqual(codes[ASR_RATE_MAX], 429, codes)
+        self.assertIn("Trop de requêtes",
+                      self._post(c, '/api/transcribe').get_json()['error'])
+
+    def test_la_dictee_ne_consomme_pas_le_quota_media(self):
+        """Les deux budgets sont séparés : dicter ne doit pas empêcher de
+        générer une image (et inversement)."""
+        c = self._client("demo")
+        for _ in range(25):
+            self._post(c, '/api/transcribe')
+        # Le quota média est intact : la route passe la garde et échoue sur son
+        # entrée (400), jamais en 429.
+        self.assertEqual(self._post(c, '/api/image/generate').status_code, 400)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -169,3 +169,38 @@ dialog::backdrop {
   /* Purement décoratif : ne doit pas intercepter les clics sur les messages. */
   pointer-events: none;
 }
+
+/* Playground — intégration du halo de voix et du faisceau de bordure, tous deux
+   accrochés à la carte du composeur. Deux réglages, tous deux MESURÉS, que les
+   librairies ne peuvent pas deviner :
+
+   1. ELLES LISENT LE RAYON SUR LEUR PREMIER ENFANT, et retombent sur 16 px s'il
+      n'en a pas. La racine du composeur Astryx est transparente et carrée
+      (`border-radius: 0`) : la lumière et le faisceau se dessinaient donc avec
+      des coins de 16 px au milieu d'une carte qui en fait 28. On recopie sur
+      cette racine le rayon de la carte — invisible, puisqu'elle n'a ni fond ni
+      bordure — pour que la détection soit exacte. La variable privée d'Astryx
+      vient en premier (c'est CELLE de la carte) ; `--radius-chat` et la valeur
+      de repli de la librairie suivent si elle disparaît. */
+.astryx-chat-composer {
+  border-radius: var(--_chat-composer-radius, var(--radius-chat, 1rem));
+}
+
+/* 2. LES DEUX ENVELOPPES POSENT `overflow: hidden`, où elles bornent leur
+      lumière : l'ombre de la carte tombe dans cette enveloppe et se faisait
+      couper net (mesuré : 15 lignes de blanc pur sous le composeur, contre un
+      dégradé continu sans enveloppe). Or chaque calque se découpe DÉJÀ lui-même
+      (`clip-path: inset(0 round …)` pour le halo, `inset(0px round 16px)` pour
+      le faisceau, vérifié calque par calque) : le rognage de l'enveloppe est
+      donc redondant, et on le lève. Vérifié après coup : l'ombre revient
+      (228→248→255) et la lumière ne fuit pas hors des coins (253,8 contre 254,0
+      avec le rognage).
+
+      L'attribut de la librairie est dans le sélecteur à dessein : sa propre
+      règle `[data-voice-beam="…"] { overflow: hidden }` a la MÊME spécificité
+      qu'une classe, et sa feuille est injectée à l'exécution, donc APRÈS
+      globals.css — elle gagnait. Avec deux sélecteurs, la nôtre passe. */
+[data-beam].composeur-cadre,
+[data-voice-beam].composeur-halo {
+  overflow: visible;
+}

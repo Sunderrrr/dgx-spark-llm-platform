@@ -71,6 +71,9 @@ import { useDictation } from "@/lib/useDictation";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { DictateButton } from "../_components/DictateButton";
+import { BorderBeam } from "border-beam";
+import { VoiceBeam } from "voice-glow";
+import { useThemeMode } from "../../theme-provider";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
 import { type EtapeWeb, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
@@ -1304,6 +1307,10 @@ type QueuedMsg = { content: string; text: string; attachmentCount?: number; ts: 
 export default function PlaygroundPage() {
   const t = useT();
   const numLocale = useLocale();
+  // Les deux effets du composeur (faisceau de bordure, halo de voix) peignent
+  // selon le fond : on leur donne le mode de l'APPLICATION, pas `auto`, car
+  // Astryx ne pose `data-theme` que pour le sombre (cf. ThinkingIndicator).
+  const { mode } = useThemeMode();
   const { open: openSettings } = useSettingsDialog();
   const csrf = useCsrf();
   const [runningModels, setRunningModels] = useState<string[]>([]);
@@ -2908,6 +2915,10 @@ export default function PlaygroundPage() {
           </VStack>
         </Card>
       )}
+      {/* Le faisceau ne tourne QUE pendant que le modele travaille : au repos
+          le composeur reste sobre, c'est ce qui en fait un signal et pas un
+          ornement. */}
+      <BorderBeam active={streaming} theme={mode === "system" ? "auto" : mode}>
       <ChatComposer
         value={input}
         onChange={handleInput}
@@ -2915,12 +2926,26 @@ export default function PlaygroundPage() {
         isStopShown={streaming}
         onStop={stop}
         placeholder={placeholderText}
-        input={<ChatComposerInput value={input} onChange={handleInput} onSubmit={send}
+        input={
+          // Le halo de voix est DANS le champ (et le faisceau autour du
+          // composeur) pour une raison mecanique : les deux librairies lisent le
+          // rayon de bordure sur leur PREMIER ENFANT, et le champ en a un
+          // (10 px), le composeur aussi (12 px). Imbriques, l'un des deux ne
+          // trouverait plus rien et il faudrait recopier un nombre a la main.
+          // `processing` prend le relais quand le micro est coupe mais que
+          // Whisper travaille encore : le halo balaie au lieu de monter.
+          <VoiceBeam stream={dictation.stream}
+                     active={dictation.isRecording || dictation.isTranscribing}
+                     processing={dictation.isTranscribing}
+                     theme={mode === "system" ? "auto" : mode}>
+          <ChatComposerInput value={input} onChange={handleInput} onSubmit={send}
                                   // Coller ou déposer un fichier dans le champ :
                                   // le composant appelle `onFiles` — la page ne la
                                   // passait pas, donc l'événement était avalé sans
                                   // rien dire (`preventDefault()` inconditionnel).
-                                  onFiles={(files) => handleFiles(files as unknown as FileList)} />}
+                                  onFiles={(files) => handleFiles(files as unknown as FileList)} />
+          </VoiceBeam>
+        }
         drawer={
           attachments.length ? (
             <ChatComposerDrawer count={attachments.length} label={t("Fichiers joints")}>
@@ -2979,6 +3004,7 @@ export default function PlaygroundPage() {
           )
         }
       />
+      </BorderBeam>
       {/* Menu des compétences : affiché dès qu'on tape « / » (pour en
           sélectionner une) juste sous le champ. */}
       {slashQuery !== null && (

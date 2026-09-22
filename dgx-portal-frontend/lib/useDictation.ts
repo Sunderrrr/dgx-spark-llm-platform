@@ -27,6 +27,10 @@ export function useDictation({ value, onChange, csrf }: Options) {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Le flux micro courant, tenu par le Recorder : c'est ce que le halo de voix
+  // analyse (`voice-glow`). Null dès que la dictée s'arrête, pour que le halo
+  // disparaisse avec elle — la transcription, elle, continue (`isTranscribing`).
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
   const recorderRef = useRef<Recorder | null>(null);
   // Text present before dictation started: each pass replaces the
@@ -113,6 +117,7 @@ export function useDictation({ value, onChange, csrf }: Options) {
     runRef.current += 1;
     recorderRef.current?.cancel();
     recorderRef.current = null;
+    setStream(null);
     setIsRecording(false);
     setIsTranscribing(false);
   }, []);
@@ -122,6 +127,7 @@ export function useDictation({ value, onChange, csrf }: Options) {
     if (isRecording) {
       const rec = recorderRef.current;
       recorderRef.current = null;
+      setStream(null);
       setIsRecording(false);
       if (!rec) return;
       const run = runRef.current;
@@ -139,7 +145,9 @@ export function useDictation({ value, onChange, csrf }: Options) {
       return;
     }
     try {
-      recorderRef.current = await startRecording();
+      const rec = await startRecording();
+      recorderRef.current = rec;
+      setStream(rec.stream);
       baseRef.current = valueRef.current;
       setIsRecording(true);
     } catch {
@@ -147,7 +155,7 @@ export function useDictation({ value, onChange, csrf }: Options) {
     }
   }, [isRecording, transcribe]);
 
-  return { available, isRecording, isTranscribing, error, toggle, cancel };
+  return { available, isRecording, isTranscribing, stream, error, toggle, cancel };
 }
 
 export type Dictation = ReturnType<typeof useDictation>;

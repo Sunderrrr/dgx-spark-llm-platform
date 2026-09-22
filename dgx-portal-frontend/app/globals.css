@@ -47,39 +47,6 @@ dialog::backdrop {
   }
 }
 
-/* Vague de trois points pour ThinkingIndicator — CSS brut, comme le reste de ce
-   fichier (pas de compilateur StyleX pour le code applicatif, cf. AGENTS.md).
-   Les trois points montent et redescendent EN DÉCALÉ : la vague traverse la
-   ligne. Le point au repos est légèrement réduit, pour que le sommet se voie
-   sans épaissir le point lui-même. */
-@keyframes thinking-dot-wave {
-  0%,
-  100% {
-    transform: translateY(0) scale(0.7);
-    opacity: 0.35;
-  }
-  50% {
-    transform: translateY(-4px) scale(1);
-    opacity: 1;
-  }
-}
-.thinking-dot {
-  display: inline-block;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--color-text-secondary);
-  animation: thinking-dot-wave 1.3s var(--ease-standard, ease-in-out) infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  /* Image FIXE représentative plutôt qu'une animation ralentie : une vague
-     ralentie ne se lit plus comme une vague. */
-  .thinking-dot {
-    animation: none;
-    opacity: 0.7;
-  }
-}
-
 /* Placeholder de génération vidéo : occupe la place exacte de la vidéo à
    venir pendant le rendu. Même raison que ci-dessus pour le CSS brut. */
 @keyframes video-generating-sweep {

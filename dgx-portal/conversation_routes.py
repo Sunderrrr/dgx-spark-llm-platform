@@ -286,7 +286,12 @@ def settings_appearance():
 @login_required
 def settings_avatar():
     avatar_id = request.form.get('avatar_id', '')
-    if avatar_id not in AVATAR_IDS:
+    if not avatar_id or avatar_id == 'genere':
+        # AVATAR GÉNÉRÉ : l'image est fabriquée à partir du pseudo (cf.
+        # lib/avatar-genere.ts), donc il n'y a rien à stocker — `NULL` est le
+        # choix « pas de logo », et c'est le DÉFAUT de tout compte.
+        avatar_id = None
+    elif avatar_id not in AVATAR_IDS:
         # `flash` n'est rendu par AUCUN template (l'interface est Next.js) : un
         # avatar refusé laissait l'écran montrer le nouveau choix jusqu'au
         # rechargement, sans un mot. On répond ce que l'appelant peut lire.

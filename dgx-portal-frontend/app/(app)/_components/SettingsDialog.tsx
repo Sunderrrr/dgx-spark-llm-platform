@@ -814,19 +814,23 @@ export function SettingsDialog({
                     {t("Par défaut, ton avatar est créé à partir de ton pseudo. Tu peux aussi choisir un logo de marque d'IA — pas d'import d'image personnelle.")}
                   </Text>
                   <Grid columns={{ minWidth: 110, max: 5 }} gap={3}>
-                    <SelectableCard
-                      key="genere"
-                      label={t("Généré depuis mon pseudo")}
-                      isSelected={!data?.avatar_id}
-                      onChange={() => selectAvatar("")}
-                      padding={3}>
-                      <VStack gap={2} hAlign="center">
-                        <Avatar src={avatarGenere(data?.account?.username || "")} name={acct?.fullname || ""} size="lg" />
-                        <Text type="supporting" color="secondary">
-                          {t("Généré depuis mon pseudo")}
-                        </Text>
-                      </VStack>
-                    </SelectableCard>
+                    {/* Attend les réglages : avant, le pseudo est inconnu et le
+                        monogramme afficherait « ? » le temps de la requête. */}
+                    {data && (
+                      <SelectableCard
+                        key="genere"
+                        label={t("Généré depuis mon pseudo")}
+                        isSelected={!data.avatar_id}
+                        onChange={() => selectAvatar("")}
+                        padding={3}>
+                        <VStack gap={2} hAlign="center">
+                          <Avatar src={avatarGenere(data.account?.username || "")} name={acct?.fullname || ""} size="lg" />
+                          <Text type="supporting" color="secondary">
+                            {t("Généré depuis mon pseudo")}
+                          </Text>
+                        </VStack>
+                      </SelectableCard>
+                    )}
                     {data?.avatars.map((a) => (
                       <SelectableCard
                         key={a.id}

@@ -47,6 +47,30 @@ dialog::backdrop {
   }
 }
 
+/* Libellé de ThinkingIndicator : la MÊME vague que la grille de l'avatar
+   généré, lettre par lettre — c'est ce qui fait que le texte accompagne
+   l'orbe au lieu de rester figé à côté. Opacité seule, sans translation : des
+   lettres qui montent et descendent rendent le mot pénible à lire. */
+@keyframes thinking-lettre {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.thinking-lettre {
+  display: inline-block;
+  animation: thinking-lettre 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-lettre {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* Placeholder de génération vidéo : occupe la place exacte de la vidéo à
    venir pendant le rendu. Même raison que ci-dessus pour le CSS brut. */
 @keyframes video-generating-sweep {

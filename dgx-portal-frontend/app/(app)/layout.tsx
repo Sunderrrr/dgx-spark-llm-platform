@@ -43,6 +43,7 @@ import { useThemeMode } from "../theme-provider";
 import { useCsrf, useCsrfRefresh } from "@/lib/useCsrf";
 import { useWhoami } from "@/lib/whoami";
 import { avatarSrc } from "@/lib/avatar-genere";
+import { useMouvementReduit } from "@/lib/use-mouvement-reduit";
 import { SettingsDialog } from "./_components/SettingsDialog";
 import { OnboardingDialog } from "./_components/OnboardingDialog";
 import { useT } from "@/lib/i18n";
@@ -87,6 +88,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { mode, setMode } = useThemeMode();
   const { who, setWho } = useWhoami();
+  const mouvementReduit = useMouvementReduit();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // Demandes en attente (badge de la sidebar). Poll léger pour rester à jour
   // sans charger l'app — pas un compteur temps réel critique.
@@ -268,7 +270,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <HStack padding={2} gap={2} vAlign="center" hAlign="between" wrap="wrap">
               <HStack gap={2} vAlign="center" wrap="wrap">
                 {/* Toujours rendu : sans logo choisi, c'est l'avatar généré depuis le pseudo. */}
-                <Avatar src={avatarSrc(who?.avatar_id, who?.username || "")} name={who?.fullname} size="sm" />
+                <Avatar
+                  src={avatarSrc(who?.avatar_id, who?.username || "", !mouvementReduit)}
+                  name={who?.fullname}
+                  size="sm"
+                />
                 <Text type="supporting" color="secondary" maxLines={1}>
                   {who?.fullname || ""}
                 </Text>

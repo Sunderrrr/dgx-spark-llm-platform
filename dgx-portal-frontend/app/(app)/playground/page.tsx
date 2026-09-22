@@ -2915,10 +2915,26 @@ export default function PlaygroundPage() {
           </VStack>
         </Card>
       )}
-      {/* Le faisceau ne tourne QUE pendant que le modele travaille : au repos
-          le composeur reste sobre, c'est ce qui en fait un signal et pas un
-          ornement. */}
-      <BorderBeam active={streaming} theme={mode === "system" ? "auto" : mode}>
+      {/* Deux effets, deux signaux, UN SEUL hôte : la carte du composeur.
+          Le faisceau tourne pendant que le modèle travaille, le halo monte avec
+          la voix pendant la dictée — au repos, le composeur reste sobre, c'est
+          ce qui en fait des signaux et pas des ornements.
+
+          Les deux enveloppent la carte, et non le champ de saisie : c'est le
+          « chat input » de la librairie (sa lumière naît du bord bas de son
+          hôte) et le seul élément qui ait une surface et un rayon. Le champ,
+          lui, est un ruban transparent de 30 px sans rayon : la lumière y
+          flottait au-dessus du texte, avec les coins de 16 px du repli de la
+          librairie dans une carte qui en fait 28. Les deux réglages qui
+          restaient (rayon détecté, ombre rognée par `overflow: hidden`) sont
+          dans globals.css, mesurés. */}
+      <BorderBeam active={streaming} theme={mode === "system" ? "auto" : mode}
+                  className="composeur-cadre">
+      <VoiceBeam stream={dictation.stream}
+                 active={dictation.isRecording || dictation.isTranscribing}
+                 processing={dictation.isTranscribing}
+                 theme={mode === "system" ? "auto" : mode}
+                 className="composeur-halo">
       <ChatComposer
         value={input}
         onChange={handleInput}
@@ -2927,24 +2943,12 @@ export default function PlaygroundPage() {
         onStop={stop}
         placeholder={placeholderText}
         input={
-          // Le halo de voix est DANS le champ (et le faisceau autour du
-          // composeur) pour une raison mecanique : les deux librairies lisent le
-          // rayon de bordure sur leur PREMIER ENFANT, et le champ en a un
-          // (10 px), le composeur aussi (12 px). Imbriques, l'un des deux ne
-          // trouverait plus rien et il faudrait recopier un nombre a la main.
-          // `processing` prend le relais quand le micro est coupe mais que
-          // Whisper travaille encore : le halo balaie au lieu de monter.
-          <VoiceBeam stream={dictation.stream}
-                     active={dictation.isRecording || dictation.isTranscribing}
-                     processing={dictation.isTranscribing}
-                     theme={mode === "system" ? "auto" : mode}>
           <ChatComposerInput value={input} onChange={handleInput} onSubmit={send}
                                   // Coller ou déposer un fichier dans le champ :
                                   // le composant appelle `onFiles` — la page ne la
                                   // passait pas, donc l'événement était avalé sans
                                   // rien dire (`preventDefault()` inconditionnel).
                                   onFiles={(files) => handleFiles(files as unknown as FileList)} />
-          </VoiceBeam>
         }
         drawer={
           attachments.length ? (
@@ -3004,6 +3008,7 @@ export default function PlaygroundPage() {
           )
         }
       />
+      </VoiceBeam>
       </BorderBeam>
       {/* Menu des compétences : affiché dès qu'on tape « / » (pour en
           sélectionner une) juste sous le champ. */}

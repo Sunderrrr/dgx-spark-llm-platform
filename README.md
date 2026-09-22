@@ -464,7 +464,9 @@ hourly token usage over the last 24 h. A backend that is not running is labelled
 ### Leaderboard
 
 Ranks users by weighted spend (day/week/month), colorblind-safe palette, from
-LiteLLM's Postgres spend logs.
+LiteLLM's Postgres spend logs. Each row carries the account's avatar next to its
+name (the generated one unless a brand logo was chosen); unattributed API keys
+get none, because they are not accounts.
 
 ### Admin
 

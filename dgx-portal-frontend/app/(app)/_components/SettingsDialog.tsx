@@ -18,8 +18,7 @@ import { Switch } from "@astryxdesign/core/Switch";
 import { Divider } from "@astryxdesign/core/Divider";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { SelectableCard } from "@astryxdesign/core/SelectableCard";
-import { avatarGenere, avatarSrc } from "@/lib/avatar-genere";
-import { useMouvementReduit } from "@/lib/use-mouvement-reduit";
+import { UserAvatar } from "@/lib/user-avatar";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
@@ -179,7 +178,6 @@ export function SettingsDialog({
   const csrf = useCsrf();
   const showToast = useToast();
   const { mode, setMode, themeId, setThemeId } = useThemeMode();
-  const mouvementReduit = useMouvementReduit();
   const { lang, setLang } = useLang();
   const t = useT();
   const numLocale = useLocale();
@@ -464,8 +462,8 @@ export function SettingsDialog({
               </VStack>
               <Divider />
               <HStack padding={3} gap={2} vAlign="center">
-                <Avatar src={avatarSrc(data?.avatar_id, acct?.username || "", !mouvementReduit)}
-                        name={acct?.fullname || ""} size="sm" />
+                <UserAvatar avatarId={data?.avatar_id} username={acct?.username}
+                            name={acct?.fullname} size="sm" />
                 <VStack gap={0}>
                   <Text type="supporting" weight="semibold" maxLines={1}>
                     {acct?.fullname || ""}
@@ -531,8 +529,8 @@ export function SettingsDialog({
               {section === "account" && acct && (
                 <VStack gap={5}>
                   <VStack gap={2} hAlign="center">
-                    <Avatar src={avatarSrc(data?.avatar_id, acct.username, !mouvementReduit)}
-                            name={acct.fullname} size="xl" />
+                    <UserAvatar avatarId={data?.avatar_id} username={acct.username}
+                                name={acct.fullname} size="xl" />
                     <Heading level={2}>{acct.fullname}</Heading>
                     <HStack gap={2} vAlign="center">
                       <Text type="supporting" color="secondary">
@@ -826,9 +824,9 @@ export function SettingsDialog({
                         onChange={() => selectAvatar("")}
                         padding={3}>
                         <VStack gap={2} hAlign="center">
-                          <Avatar
-                            src={avatarGenere(data.account?.username || "", !mouvementReduit)}
-                            name={acct?.fullname || ""}
+                          <UserAvatar
+                            username={data.account?.username}
+                            name={acct?.fullname}
                             size="lg"
                           />
                           <Text type="supporting" color="secondary">

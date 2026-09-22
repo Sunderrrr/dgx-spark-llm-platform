@@ -37,6 +37,7 @@ import { useCsrf } from "@/lib/useCsrf";
 import { fetchConversations, relativeTime } from "@/lib/conversations";
 import type { Conversation } from "@/lib/types";
 import { useWhoami } from "@/lib/whoami";
+import { UserAvatar } from "@/lib/user-avatar";
 import { UsageChart } from "./_components/UsageChart";
 import { useT, useLocale } from "@/lib/i18n";
 import { useSettingsDialog } from "@/lib/settings-dialog";
@@ -333,7 +334,13 @@ export default function HomePage() {
           <VStack gap={6}>
             <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
               <VStack gap={1}>
-                <Heading level={1}>{t("Bonjour")}{firstName ? `, ${firstName}` : ""}</Heading>
+                {/* La pp juste à droite du bonjour : c'est l'endroit où on se
+                    reconnaît en arrivant, et à 48 px le blobatar bouge de façon
+                    lisible (à 24 px, la respiration se devine). */}
+                <HStack gap={3} vAlign="center" wrap="wrap">
+                  <Heading level={1}>{t("Bonjour")}{firstName ? `, ${firstName}` : ""}</Heading>
+                  <UserAvatar avatarId={who?.avatar_id} username={who?.username} name={who?.fullname} size="lg" />
+                </HStack>
                 <Text type="supporting" color="secondary">{t("Ton accès self-service à l'inférence LLM sur DGX Spark.")}</Text>
                 {/* Boutons « Explorer les modèles » / « Demander un modèle »
                     retirés : déjà en cartes plus bas sur cette page. */}

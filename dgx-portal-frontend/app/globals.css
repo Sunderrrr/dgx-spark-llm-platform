@@ -47,18 +47,19 @@ dialog::backdrop {
   }
 }
 
-/* Wave dots for ThinkingIndicator — plain CSS since this app has no StyleX
-   compiler wired up (Astryx ships pre-compiled; app code can't call
-   stylex.create()/keyframes() at runtime, see AGENTS.md). */
+/* Vague de trois points pour ThinkingIndicator — CSS brut, comme le reste de ce
+   fichier (pas de compilateur StyleX pour le code applicatif, cf. AGENTS.md).
+   Les trois points montent et redescendent EN DÉCALÉ : la vague traverse la
+   ligne. Le point au repos est légèrement réduit, pour que le sommet se voie
+   sans épaissir le point lui-même. */
 @keyframes thinking-dot-wave {
   0%,
-  60%,
   100% {
-    transform: translateY(0);
+    transform: translateY(0) scale(0.7);
     opacity: 0.35;
   }
-  30% {
-    transform: translateY(-3px);
+  50% {
+    transform: translateY(-4px) scale(1);
     opacity: 1;
   }
 }
@@ -68,12 +69,14 @@ dialog::backdrop {
   height: 4px;
   border-radius: 50%;
   background: var(--color-text-secondary);
-  animation: thinking-dot-wave 1.8s infinite;
-  animation-timing-function: var(--ease-standard, ease-in-out);
+  animation: thinking-dot-wave 1.3s var(--ease-standard, ease-in-out) infinite;
 }
 @media (prefers-reduced-motion: reduce) {
+  /* Image FIXE représentative plutôt qu'une animation ralentie : une vague
+     ralentie ne se lit plus comme une vague. */
   .thinking-dot {
-    animation-duration: 3s;
+    animation: none;
+    opacity: 0.7;
   }
 }
 

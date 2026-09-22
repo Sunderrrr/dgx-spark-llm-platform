@@ -52,10 +52,12 @@ export function ThinkingIndicator({ fixedLabel }: { fixedLabel?: string }) {
       <Text type="supporting" color="secondary">
         {label}
       </Text>
-      <span style={{ display: "inline-flex", gap: 2, alignItems: "flex-end" }}>
+      {/* Décalage court (≈ 1/9 du cycle) : les trois points forment une vague
+          qui se déplace, au lieu de monter et descendre ensemble. */}
+      <span style={{ display: "inline-flex", gap: 2, alignItems: "center" }}>
         <span className="thinking-dot" style={{ animationDelay: "0s" }} />
-        <span className="thinking-dot" style={{ animationDelay: "0.25s" }} />
-        <span className="thinking-dot" style={{ animationDelay: "0.5s" }} />
+        <span className="thinking-dot" style={{ animationDelay: "0.14s" }} />
+        <span className="thinking-dot" style={{ animationDelay: "0.28s" }} />
       </span>
     </HStack>
   );

@@ -872,6 +872,40 @@ class HealthRouteTest(unittest.TestCase):
             self.assertFalse(body["services"]["runner"]["reachable"])
             self.assertFalse(body["ok"])
 
+    def test_litellm_joignable_meme_quand_health_exige_une_cle(self):
+        """LiteLLM >= 1.102 répond 401 sur `/health` (clé exigée) : le portail ne
+        doit pas en conclure que le proxy est tombé. Régression du 2026-09-24 —
+        la montée 1.92 → 1.102.1 a fait afficher « LiteLLM injoignable » sur le
+        tableau de bord alors que le proxy servait les requêtes."""
+        import unittest.mock as mock
+
+        class Reponse:
+            def __init__(self, code):
+                self.status_code = code
+
+        def faux_get(url, timeout=None):
+            if url.endswith("/health"):          # 1.102 : authentifié
+                return Reponse(401)
+            if url.endswith("/health/liveliness"):  # public, la vraie sonde
+                return Reponse(200)
+            return Reponse(200)                   # runner /status, etc.
+
+        with mock.patch.object(portal.requests, "get", side_effect=faux_get), \
+                mock.patch.object(portal, "get_running_models", return_value=["m"]), \
+                mock.patch.object(portal, "comfyui_is_up", return_value=False), \
+                mock.patch.object(portal, "get_ocr_model", return_value=None), \
+                mock.patch.object(portal, "get_voice_model", return_value=None), \
+                mock.patch.object(portal, "image_ready", return_value=False), \
+                mock.patch.object(portal, "music_ready", return_value=False):
+            c = portal.app.test_client()
+            with c.session_transaction() as s:
+                s["username"] = "demo"
+                s["auth_at"] = int(time.time())
+            body = c.get("/api/health").get_json()
+        self.assertTrue(body["services"]["litellm"]["reachable"])
+        self.assertTrue(body["services"]["runner"]["reachable"])
+        self.assertTrue(body["ok"])
+
 
 class PendingCountRouteTest(unittest.TestCase):
     """/api/pending-count : badge sidebar (demandes modèle + budget en attente)."""

@@ -382,7 +382,20 @@ def effective_ctx(args, engine='vllm'):
     desactive des qu'on passe --parallel, a moins de redemander --kv-unified.
     Mesure : `--ctx-size 524288 --parallel 6 --kv-unified` annonce
     n_ctx_slot = 524288, alors que la division affichait 87381.
+
+    DEPUIS llama.cpp 0.5.0 (`--kv-unified-per-slot N`) la fenetre par session se
+    DECLARE, et c'est alors elle qui fait foi : le moteur plafonne le slot a N et
+    dimensionne le reservoir a n_parallel x N. Ni la division ni la regle
+    « unifie » ci-dessus ne s'appliquent alors. Mesure du 2026-09-25 sur
+    Flash-Next : `--ctx-size 1048576 --parallel 4 --kv-unified
+    --kv-unified-per-slot 262144` sert 262144 par session (le moteur l'annonce
+    sur /props), la ou la regle « unifie » aurait annonce 1048576 — cinq fois la
+    limite reelle d'un prompt, que le client n'aurait decouvert qu'a l'echec.
     """
+    if engine == 'llamacpp':
+        par_slot = _arg_int(args, 'kv-unified-per-slot', 0) or 0
+        if par_slot > 0:
+            return par_slot
     ctx = ctx_of(args, engine)
     if ctx is None:
         return None

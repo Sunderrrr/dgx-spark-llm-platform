@@ -31,13 +31,18 @@ docker rm -f asr >/dev/null 2>&1 || true
 #   modèle (CUDA out of memory au démarrage). La protection anti-bombe de
 #   décompression est assurée dans le code (contrôle d'en-tête avant décodage,
 #   server.py) et par le plafond d'octets, pas par le cgroup.
-# Le cache HF reste en écriture pour permettre le téléchargement à froid du
-#   modèle au premier démarrage (déploiement sans étape manuelle).
+# Le cache HF est DÉDIÉ à l'ASR (`/root/.cache/huggingface-asr`), et reste en
+#   écriture pour permettre le téléchargement à froid du modèle au premier
+#   démarrage (déploiement sans étape manuelle). Il ne monte donc plus le cache
+#   partagé `HF_HOME` du runner : ce conteneur reçoit des octets utilisateur
+#   bruts et tourne en root, donc pouvoir ÉCRIRE dans les poids que le runner
+#   relira au prochain lancement était un chemin d'empoisonnement de modèle.
+#   Le modèle whisper y est recopié une fois (`cp -a`), sans re-téléchargement.
 exec docker run -d --name asr --restart unless-stopped \
   --network ai-platform_asr_net --gpus all --shm-size=2g \
   --pids-limit 512 \
   --security-opt no-new-privileges --cap-drop ALL \
-  -v /root/.cache/huggingface:/app/hf_cache \
+  -v /root/.cache/huggingface-asr:/app/hf_cache \
   -e HF_HOME=/app/hf_cache \
   -e ASR_MODEL="$MODEL" \
   whisper-asr:turbo-cu130

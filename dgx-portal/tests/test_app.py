@@ -1439,6 +1439,54 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             self.assertEqual(r.get_json()["summary"], "Résumé du contexte")
 
+    def test_maintenance_arrete_le_titre_et_le_resume(self):
+        """En maintenance, ces deux routes doivent refuser AVANT d'appeler le modèle.
+
+        Elles appelaient LiteLLM sans aucune garde : le chat répondait le message
+        de maintenance pendant que l'auto-titre partait quand même (mesuré : 30
+        appels → 30×200 avec de vrais appels). Un modèle en cours de libération
+        était donc sollicité exactement pendant la fenêtre qu'on veut protéger.
+        """
+        import unittest.mock as mock
+        from db import set_setting
+        with portal.app.app_context():
+            set_setting('maintenance_mode', '1')
+        try:
+            with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+                 mock.patch.object(chat, "_non_stream") as non_stream:
+                c = portal.app.test_client()
+                self._login(c)
+                for route in ("/api/playground/title", "/api/playground/summarize"):
+                    r = c.post(route, headers={"X-CSRFToken": self.CSRF},
+                               json={"messages": [{"role": "user", "content": "Bonjour"}]})
+                    self.assertEqual(r.status_code, 503, route)
+                # La garde passe AVANT l'appel : rien n'est parti à LiteLLM.
+                non_stream.assert_not_called()
+        finally:
+            with portal.app.app_context():
+                set_setting('maintenance_mode', '0')
+
+    def test_plafond_de_debit_s_applique_au_titre(self):
+        """Sans plafond, une boucle côté client tenait les threads gunicorn.
+
+        Le plafond est PROPRE à la route (`rl-titre`), pas partagé avec le chat :
+        le partager diviserait par deux le budget de messages de l'utilisateur,
+        puisque le titre part après chaque premier message.
+        """
+        import unittest.mock as mock
+        import guards
+        c = portal.app.test_client()
+        # Compte dédié : le bucket est en SQLite et partagé par le processus de
+        # test, les tests voisins du fichier consomment déjà `rl-titre`.
+        self._login(c, username="plafond-titre")
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "_non_stream", return_value=("Titre", None)), \
+             mock.patch.object(guards, "CHAT_RATE_MAX", 2):
+            codes = [c.post("/api/playground/title", headers={"X-CSRFToken": self.CSRF},
+                            json={"messages": [{"role": "user", "content": "Bonjour"}]}).status_code
+                     for _ in range(3)]
+        self.assertEqual(codes, [200, 200, 429])
+
 
 class SupportBillingTest(unittest.TestCase):
     """L'assistant Support consomme le GPU AU NOM de l'utilisateur : il doit
@@ -1806,6 +1854,60 @@ class SupportInjectionGuardTest(unittest.TestCase):
         with portal.app.app_context():
             n_pending = portal.get_db().execute(
                 "SELECT COUNT(*) c FROM pending_actions WHERE username='demo'").fetchone()["c"]
+        self.assertEqual(n_pending, 0)
+
+    def test_creation_de_cle_refusee_apres_contenu_externe(self):
+        """`create_api_key` n'est pas destructif, mais il DÉLIVRE un secret.
+
+        Il s'exécute donc directement dans le cas normal (choix produit, cf.
+        `test_une_action_non_sensible_n_est_pas_retardee`) — sauf après lecture
+        d'un contenu externe : sinon une page hostile faisait créer une clé au
+        nom de l'utilisateur connecté, et sa valeur entrait dans le contexte du
+        modèle (donc dans le fil conservé) sans que personne ne l'ait demandée.
+        """
+        import unittest.mock as mock
+        frames = [
+            [self._outil("mcp_serveur_outil", {}), "data: [DONE]"],        # lecture externe
+            [self._outil("create_api_key", {"alias": "ma-cle"}, "call_2"), "data: [DONE]"],
+            [self._texte("Je ne crée pas de clé dans ce tour."), "data: [DONE]"],
+        ]
+        n = {"i": 0}
+
+        def _post(url, headers=None, json=None, timeout=None, stream=False):
+            i = min(n["i"], len(frames) - 1)
+            n["i"] += 1
+            return self._Flux(frames[i])
+
+        routing = {"mcp_serveur_outil": {"kind": "mcp", "server_id": 1,
+                                         "server_name": "srv", "tool_name": "outil"}}
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = "demo"
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+        with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
+             mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user"}]), \
+             mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
+             mock.patch.object(chat, "_user_extra_tools", return_value=([], routing)), \
+             mock.patch.object(chat, "_exec_mcp_tool", return_value=("texte d'un tiers", True)), \
+             mock.patch.object(chat, "requests") as mock_requests, \
+             mock.patch.object(chat, "_fin_support"), \
+             mock.patch.object(chat, "_exec_support_tool") as exec_tool:
+            mock_requests.post.side_effect = _post
+            r = c.post("/support/chat", headers={"X-CSRFToken": self.CSRF},
+                       json={"messages": [{"role": "user", "content": "résume cette page"}]})
+            body = r.get_data(as_text=True)
+        # Ni exécution, ni proposition de confirmation : le refus est net.
+        exec_tool.assert_not_called()
+        self.assertNotIn("cronos_confirm", body)
+        self.assertIn("Action bloqu", body)
+        with portal.app.app_context():
+            db = portal.get_db()
+            n_cles = db.execute(
+                "SELECT COUNT(*) c FROM api_keys WHERE username='demo'").fetchone()["c"]
+            n_pending = db.execute(
+                "SELECT COUNT(*) c FROM pending_actions WHERE username='demo'").fetchone()["c"]
+        self.assertEqual(n_cles, 0, "aucune clé ne doit avoir été créée")
         self.assertEqual(n_pending, 0)
 
 

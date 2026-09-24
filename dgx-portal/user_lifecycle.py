@@ -30,10 +30,16 @@ from db import get_db, log_audit
 # Tables rattachées à un compte, purgées à sa suppression. `local_users` n'y
 # est pas : la route de suppression l'efface explicitement, par identifiant,
 # ce qui est la seule façon sûre de viser la bonne ligne.
+#
+# `blocked_users` n'y est pas non plus, et c'est un CHOIX : purger efface des
+# DONNÉES, bloquer décide d'un ACCÈS. Les confondre faisait qu'une purge —
+# le geste normal au départ d'un salarié d'annuaire, qui n'a pas de ligne
+# locale — DÉBLOQUAIT le compte en silence : il redevenait connectable, avec
+# accès plateforme et GPU. La route promet pourtant d'effacer « sans toucher à
+# son accès », et la doc dit que l'offboarding reste le blocage.
 TABLES_PURGEES = (
     'announcement_state',
     'api_keys',
-    'blocked_users',
     'budget_grants',
     'budget_requests',
     'conversation_shares',

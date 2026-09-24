@@ -72,9 +72,17 @@ is refused. The exclusions are deliberate, and each is commented in the source:
 | `--download-dir`, `--chat-template`, `--tokenizer` | arbitrary file read, and Jinja2 template injection through the chat template |
 | `--model`, `--host`, `--port`, `--api-key` | forced by the runner; overriding them would move or expose the endpoint |
 
-The daemon runs **non-root** (`vllmrunner`), requires a Bearer token compared with
-`hmac.compare_digest`, and its ports are firewalled to localhost plus the docker
-bridge. Spawned engines inherit an **explicit minimal environment** (PATH, HOME,
+The daemon runs **non-root** (`vllmrunner`) and requires a Bearer token compared
+with `hmac.compare_digest`. Its own port (`:8001`) and the served engine's
+(`:8000`) are normally firewalled to localhost plus the docker bridge by
+`systemd/vllm-restrict.service`. **As of 2026-09-24 that unit is deliberately
+left stopped**, at the operator's request, so a workstation can talk to the raw
+vLLM API (`:8000`, which takes no key) over the private LAN/overlay; `:8001`
+stays token-protected. This is an accepted, documented risk — recorded in the
+operator-private `.machine/security-accepted-risks.md` — and it is reversible at
+any time with `systemctl start vllm-restrict.service`. (`:8188` is not listening
+while ComfyUI is stopped.)
+Spawned engines inherit an **explicit minimal environment** (PATH, HOME,
 HF_HOME, PYTHONUNBUFFERED, two vLLM perf knobs) instead of `**os.environ`, so the
 root environment's secrets never reach the model process, `/logs` or `/stream`;
 `HF_TOKEN` is passed through only when set.

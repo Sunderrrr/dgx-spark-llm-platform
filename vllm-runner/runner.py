@@ -200,6 +200,14 @@ _LLAMA_BOOL_FLAGS = {
 # toujours ("flag not allowed"), quand bien meme _build_cmd sait s'en servir.
 _LLAMA_BOOL_FLAGS |= _LLAMA_BIN_FLAGS
 _LLAMA_VALUE_FLAGS = {
+    # 0.5.0 : `--ctx-size` dimensionne le cache KV PAR SLOT (mesure du
+    # 2026-09-25 : 4 slots prives de 262k = 4 M de tokens de cache, ~124 Gio,
+    # OOM, la ou l'ancien binaire tenait dans 109 Gio pour le meme service).
+    # `--kv-unified-per-slot N` declare la fenetre PAR SESSION et laisse le
+    # reservoir se dimensionner a n_parallel x N : c'est la facon de demander
+    # 4 x 256k avec ce binaire. Le portail lit ce drapeau pour annoncer la
+    # bonne limite d'entree (cf. `effective_ctx`).
+    "--kv-unified-per-slot",
     "--ctx-size", "--n-gpu-layers", "--parallel", "--threads", "--threads-batch",
     "--batch-size", "--ubatch-size", "--cache-type-k", "--cache-type-v",
     "--n-predict", "--rope-scaling", "--rope-freq-base", "--rope-freq-scale",

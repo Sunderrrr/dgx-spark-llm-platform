@@ -165,6 +165,34 @@ class ContexteEffectifTest(unittest.TestCase):
             vllm_health.effective_ctx("--ctx-size 524288 --parallel 2 --no-kv-unified",
                                       "llamacpp"), 262144)
 
+    def test_kv_unified_per_slot_declare_la_fenetre(self):
+        """llama.cpp 0.5.0 : le plafond par session DECLARE fait foi.
+
+        Mesure du 2026-09-25 (Flash-Next) : avec `--ctx-size 1048576 --parallel 4
+        --kv-unified --kv-unified-per-slot 262144` le moteur sert 262144 par
+        session — c'est ce qu'il annonce sur /props. La regle « unifie » ci-dessus
+        aurait annonce 1048576, soit cinq fois la limite reelle d'un prompt : le
+        client ne l'aurait decouvert qu'a l'echec de sa requete.
+        """
+        self.assertEqual(
+            vllm_health.effective_ctx(
+                "--ctx-size 1048576 --parallel 4 --kv-unified "
+                "--kv-unified-per-slot 262144", "llamacpp"), 262144)
+        e, s_ = vllm_health.ctx_split(
+            "--ctx-size 1048576 --parallel 4 --kv-unified "
+            "--kv-unified-per-slot 262144 --n-predict 65536", "llamacpp")
+        self.assertEqual((e, s_), (196608, 65536))
+
+    def test_kv_unified_per_slot_sans_ctx_size(self):
+        """Le plafond suffit a lui seul : le moteur dimensionne alors le reservoir.
+
+        Sans `--ctx-size`, la formule par defaut ne trouve rien et retombait sur
+        32 768 — un plafond declare doit repondre avant elle.
+        """
+        self.assertEqual(
+            vllm_health.effective_ctx(
+                "--parallel 4 --kv-unified --kv-unified-per-slot 131072", "llamacpp"), 131072)
+
     def test_la_repartition_affichee_suit(self):
         """256k en entree ET 256k en sortie, ce que l'operateur a demande."""
         e, s_ = vllm_health.ctx_split(

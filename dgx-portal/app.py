@@ -918,7 +918,13 @@ def api_health():
     on-demand : leur absence n'invalide pas la santé globale."""
     chat = get_running_models()
     runner_up = _service_reachable(f"{RUNNER_URL}/status")
-    litellm_up = _service_reachable(f"{LITELLM_URL}/health", expect=(200,))
+    # `/health/liveliness` et pas `/health` : depuis LiteLLM 1.102 (montée du
+    # 2026-09-24) `/health` exige une clé d'API et répond 401 sans elle — la
+    # sonde annonçait donc « LiteLLM injoignable » alors que le proxy tournait.
+    # `liveliness` est publique, ne coûte rien et ne sonde pas les modèles
+    # amont, ce qui correspond exactement à ce que ce drapeau signifie ici :
+    # « joignable ».
+    litellm_up = _service_reachable(f"{LITELLM_URL}/health/liveliness", expect=(200,))
     return jsonify({
         'ok': bool(runner_up and litellm_up),
         'services': {

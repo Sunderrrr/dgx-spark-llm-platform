@@ -8,6 +8,25 @@ Type=oneshot
 # Tourne en root : accès au socket docker (dump des conteneurs).
 ExecStart=/usr/bin/python3 /root/ai-platform/monitoring/backup.py --dir /var/backups/cronos
 TimeoutStartSec=300
+# Durcissement (2026-09-24) : voir cronos-monitor.service. Ici l'écriture se
+# limite aux dumps (`/var/backups/cronos`) ; le dump PostgreSQL transite par le
+# démon docker, donc le CLI n'a besoin d'aucune capacité.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/backups/cronos /root/.docker
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target

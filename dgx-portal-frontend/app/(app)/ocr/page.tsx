@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
-import { Markdown } from "@astryxdesign/core/Markdown";
+import { MarkdownSur as Markdown } from "@/lib/markdown";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
 import { FileInput } from "@astryxdesign/core/FileInput";

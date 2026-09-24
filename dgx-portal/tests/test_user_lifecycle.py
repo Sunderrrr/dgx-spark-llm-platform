@@ -349,6 +349,14 @@ class PurgeCompteAnnuaireTest(BaseComptes):
     def test_purge_efface_les_donnees_sans_toucher_a_l_acces(self):
         self._donnees(ANNUAIRE)
         admin = self._client(ADMIN, is_admin=True)
+        # On BLOQUE d'abord : c'est l'état d'ACCÈS qui doit survivre à la purge.
+        # Sans ce blocage préalable, le test passait à côté du défaut —
+        # `blocked_users` figurait dans les tables purgées, donc le geste normal
+        # au départ d'un salarié d'annuaire (blocage puis purge) rendait le
+        # compte de nouveau connectable, en silence et sans le dire dans l'audit.
+        self.assertEqual(
+            self._post(admin, f'/admin/users/{ANNUAIRE}/block',
+                       json={'reason': 'parti'}).status_code, 200)
         r = self._post(admin, f'/admin/users/{ANNUAIRE}/purge', json={'confirm': 'DELETE'})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()['purged']['memory_facts'], 1)
@@ -362,9 +370,9 @@ class PurgeCompteAnnuaireTest(BaseComptes):
         # geste, et un compte d'annuaire peut revenir.
         self.assertEqual(trace, 'user.purge')
         with portal.app.app_context():
-            # Purger n'est pas bloquer : le compte d'annuaire peut se
-            # reconnecter (et repartira alors d'un compte vide).
-            self.assertFalse(portal.est_bloque(ANNUAIRE))
+            # Purger n'est pas débloquer : la purge n'efface que des DONNÉES,
+            # le blocage reste le levier d'offboarding.
+            self.assertTrue(portal.est_bloque(ANNUAIRE))
 
     def test_sans_confirmation_refuse(self):
         admin = self._client(ADMIN, is_admin=True)
@@ -793,7 +801,12 @@ class PurgeInventaireTest(BaseComptes):
     """L'inventaire des tables purgées doit rester honnête : toute table qui
     porte un `username` et n'est pas dans la liste doit être un choix."""
 
-    NON_PURGEES_VOLONTAIREMENT = {'audit_log', 'local_users'}
+    # `audit_log` est la trace des actions d'admin, `local_users` est effacé
+    # explicitement par identifiant — et `blocked_users` est une décision
+    # d'ACCÈS, pas une donnée personnelle : le purger DÉBLOQUERAIT le compte
+    # (cf. le commentaire de `TABLES_PURGEES`). C'est le seul levier
+    # d'offboarding d'un compte d'annuaire, donc il survit à la purge.
+    NON_PURGEES_VOLONTAIREMENT = {'audit_log', 'local_users', 'blocked_users'}
 
     def test_toutes_les_tables_utilisateur_sont_couvertes(self):
         with portal.app.app_context():

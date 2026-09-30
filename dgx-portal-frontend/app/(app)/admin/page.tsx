@@ -86,6 +86,10 @@ type AdminData = {
   /** Ajouté en parallèle côté portail ; absent sur l'ancien backend — la
       ligne n'est simplement pas affichée tant que le champ manque. */
   asr_model_name?: string | null;
+  /** Cause de l'échec de chargement du modèle de dictée (« CUDA error: out of
+      memory », mesuré le 2026-10-01), publiée par le sidecar. Absent tant que
+      le chargement n'a pas échoué. */
+  asr_load_error?: string | null;
   image_status: string;
   image_model_name: string | null;
   image_model_ids: string[];
@@ -114,11 +118,15 @@ const MAX_LOG_LINES = 600;
 const SIDECAR_VARIANT: Record<string, "success" | "warning" | "neutral" | "error"> = {
   running: "success",
   starting: "warning",
+  // Le conteneur tourne mais son modèle n'a pas pu se charger : ce n'est ni
+  // « en ligne » ni « en cours de démarrage », et l'attente n'a pas de fin.
+  failed: "error",
   stopped: "neutral",
 };
 const SIDECAR_LABEL: Record<string, string> = {
   running: "En ligne",
   starting: "Démarrage…",
+  failed: "Échec du chargement",
   stopped: "Arrêté",
 };
 
@@ -551,7 +559,8 @@ export default function AdminPage() {
                           />
                           <Text weight="semibold">{t("Dictée")}</Text>
                         </HStack>
-                        {data.asr_status === "running" || data.asr_status === "starting" ? (
+                        {data.asr_status === "running" || data.asr_status === "starting"
+                         || data.asr_status === "failed" ? (
                           <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/asr/stop")} />
                         ) : (
                           <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/asr/start")} />
@@ -562,6 +571,22 @@ export default function AdminPage() {
                           lui, pas de ligne du tout — jamais de nom codé en dur. */}
                       {data.asr_model_name && (
                         <Text type="supporting" color="secondary" wordBreak="break-all">{data.asr_model_name}</Text>
+                      )}
+                      {/* Le conteneur tourne SANS modèle chargé : ce n'est pas un
+                          démarrage en cours mais un échec, et le sidecar en publie
+                          la cause (mémoire unifiée insuffisante le 2026-10-01).
+                          Le bouton reste « Arrêter » — le conteneur occupe le
+                          port — d'où le rappel de l'ordre : arrêter, libérer,
+                          relancer. */}
+                      {data.asr_load_error && (
+                        <>
+                          <Text type="supporting" color="secondary" wordBreak="break-all">
+                            {t("Le modèle de dictée n'a pas pu se charger :")} {data.asr_load_error}
+                          </Text>
+                          <Text type="supporting" color="secondary">
+                            {t("La mémoire est partagée avec le modèle de chat : libère de la mémoire, puis relance la dictée.")}
+                          </Text>
+                        </>
                       )}
                     </VStack>
                   </Card>

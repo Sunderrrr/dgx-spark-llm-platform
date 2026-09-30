@@ -1562,6 +1562,23 @@ export default function PlaygroundPage() {
   const dictation = useDictation({ value: input, onChange: setInput, csrf });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Rayon de la carte du composeur, en pixels, pour les deux effets qui
+  // l'enveloppent (halo de voix, faisceau de bordure).
+  //
+  // Les deux librairies savent le détecter toutes seules — mais sur leur
+  // PREMIER ENFANT, et le premier enfant de `border-beam` est sa PROPRE balise
+  // `<style>` (0 px) : mesuré le 2026-10-01, le faisceau se dessinait donc avec
+  // le repli de 16 px dans une carte de 28, coins visiblement plus carrés que
+  // le composeur. On lit le token plutôt que de figer « 28 » ici : c'est la
+  // même source de vérité que la carte (`--radius-chat`, `:root` dans
+  // astryx.css), donc un thème qui change les rayons suit.
+  const [rayonComposeur, setRayonComposeur] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    const px = parseFloat(getComputedStyle(document.documentElement)
+      .getPropertyValue("--radius-chat"));
+    if (Number.isFinite(px) && px > 0) setRayonComposeur(px);
+  }, []);
+
   useEffect(() => {
     // Garde d'ATTENTE, pas de bouton mort : l'effet se rejoue dès que le jeton
     // arrive (dépendance `csrf`), donc rien à signaler à l'utilisateur.
@@ -2940,15 +2957,22 @@ export default function PlaygroundPage() {
           hôte) et le seul élément qui ait une surface et un rayon. Le champ,
           lui, est un ruban transparent de 30 px sans rayon : la lumière y
           flottait au-dessus du texte, avec les coins de 16 px du repli de la
-          librairie dans une carte qui en fait 28. Les deux réglages qui
-          restaient (rayon détecté, ombre rognée par `overflow: hidden`) sont
-          dans globals.css, mesurés. */}
+          librairie dans une carte qui en fait 28.
+
+          `borderRadius` est fourni à la main (cf. `rayonComposeur`) : la
+          détection automatique des deux librairies lit leur PREMIER ENFANT, et
+          celui de `border-beam` est sa propre balise `<style>` — 0 px, donc le
+          repli de 16 px, coins visiblement plus carrés que la carte. Reste
+          `overflow: visible` dans globals.css, qui rend l'ombre de la carte
+          (leur enveloppe la rognait). */}
       <BorderBeam active={streaming} theme={mode === "system" ? "auto" : mode}
+                  borderRadius={rayonComposeur}
                   className="composeur-cadre">
       <VoiceBeam stream={dictation.stream}
                  active={dictation.isRecording || dictation.isTranscribing}
                  processing={dictation.isTranscribing}
                  theme={mode === "system" ? "auto" : mode}
+                 borderRadius={rayonComposeur}
                  className="composeur-halo">
       <ChatComposer
         value={input}

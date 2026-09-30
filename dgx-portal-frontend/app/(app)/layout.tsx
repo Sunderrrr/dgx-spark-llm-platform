@@ -46,6 +46,17 @@ import { SettingsDialog } from "./_components/SettingsDialog";
 import { OnboardingDialog } from "./_components/OnboardingDialog";
 import { useT } from "@/lib/i18n";
 import { SettingsDialogContext, type SettingsSection } from "@/lib/settings-dialog";
+/* Le logo, importé plutôt que pointé par son URL. `import` fait passer le fichier
+   par le pipeline d'actifs : le navigateur reçoit une URL
+   `/_next/static/media/favicon.<empreinte>.ico`, donc une URL NOUVELLE dès que le
+   fichier change (l'import rend un objet `StaticImageData`, d'où le `.src`).
+   Servi à la place depuis `/favicon.ico`, il gardait la même adresse d'une version
+   à l'autre et le navigateur resservait sa copie : mesuré le 2026-10-01, la requête
+   ne repartait même pas vers le serveur (aucun événement réseau visible) et
+   l'ancien logo noir restait affiché — une entrée en échec peut coller de la même
+   façon (vue une fois ; 10 essais sur 10 corrects ensuite). Le favicon de l'onglet,
+   lui, continue d'être servi à la racine. */
+import logoCronos from "@/app/favicon.ico";
 
 type NotificationItem = {
   id: number;
@@ -255,7 +266,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 // Favicon statique 26 Ko : next/image n'apporte rien ici.
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src="/favicon.ico"
+                  src={logoCronos.src}
                   alt=""
                   style={{ width: "var(--spacing-5)", height: "var(--spacing-5)" }}
                 />

@@ -192,15 +192,40 @@ dialog::backdrop {
   border-radius: var(--_chat-composer-radius, var(--radius-chat, 1rem));
 }
 
-/* 2. LES DEUX ENVELOPPES POSENT `overflow: hidden`, où elles bornent leur
-      lumière : l'ombre de la carte tombe dans cette enveloppe et se faisait
-      couper net (mesuré : 15 lignes de blanc pur sous le composeur, contre un
-      dégradé continu sans enveloppe). Or chaque calque se découpe DÉJÀ lui-même
-      (`clip-path: inset(0 round …)` pour le halo, `inset(0px round 16px)` pour
-      le faisceau, vérifié calque par calque) : le rognage de l'enveloppe est
-      donc redondant, et on le lève. Vérifié après coup : l'ombre revient
-      (228→248→255) et la lumière ne fuit pas hors des coins (253,8 contre 254,0
-      avec le rognage).
+/* 2. LES DEUX ENVELOPPES ROGNENT AU BORD DE LA CARTE, ET RÉÉMETTENT SON OMBRE.
+
+      Les deux librairies bornent leur lumière par `overflow: hidden` sur leur
+      racine. Une version précédente de cette feuille l'avait levé (`overflow:
+      visible`), au motif que chaque calque porte DÉJÀ son `clip-path: inset(0
+      round …)` et que le rognage faisait disparaître l'ombre de la carte (blanc
+      pur sous le composeur, mesuré). Le raisonnement était faux, et sa
+      vérification trop fine pour le montrer :
+
+      - un `clip-path` NE RETIENT PAS le flou de son propre élément. Micro-test
+        du 2026-10-01 : une boîte de 100x40 avec `inset(0 round 20px)` et
+        `blur(12px)` peint 17 px EN DEHORS de son clip. Seul l'`overflow` de
+        l'ANCÊTRE rogne un flou.
+      - libérées, les lumières repeignent donc hors de la carte, et la mesure le
+        voit : en dictée, 1 131 pixels dans les encoches carrées des coins et
+        jusqu'à 14 px au-delà du cadre. C'est ce que voyait l'utilisateur : « ça
+        dépasse du cadre et ça a des bords carrés » alors que la carte, elle,
+        arrondit à 28 px.
+      - la mesure d'alors (253,8 contre 254,0 dans les coins) comparait deux
+        valeurs déjà quasi blanches : elle ne pouvait pas voir le débordement.
+
+      Le rognage doit tomber SUR le bord : élargi de 8 px (`overflow-clip-margin`),
+      il laissait encore 1 016 px de lumière dans ces encoches — soit à peu près
+      autant qu'avant. On rogne donc au bord, avec le rayon de la carte, ce qui
+      rend aux deux animations exactement sa silhouette.
+
+      Contrepartie : l'ombre de la carte tombe dans l'enveloppe et disparaît
+      (mesuré : blanc pur, 255, sous le composeur). Or c'est elle qui détache du
+      fond la carte blanche sur une page blanche. Elle est donc réémise par
+      l'enveloppe ELLE-MÊME — un élément n'est jamais rogné par son propre
+      `overflow` — depuis le token d'élévation : l'ombre de la carte vient d'une
+      classe StyleX d'Astryx injectée à l'exécution, donc d'aucune feuille qu'on
+      puisse recopier, et un token suit le thème (sombre compris, via
+      `light-dark`). Une seule enveloppe la porte : les deux sont imbriquées.
 
       L'attribut de la librairie est dans le sélecteur à dessein : sa propre
       règle `[data-voice-beam="…"] { overflow: hidden }` a la MÊME spécificité
@@ -208,5 +233,12 @@ dialog::backdrop {
       globals.css — elle gagnait. Avec deux sélecteurs, la nôtre passe. */
 [data-beam].composeur-cadre,
 [data-voice-beam].composeur-halo {
-  overflow: visible;
+  overflow: hidden;
+  overflow: clip;
+  /* Le rayon du rognage : même token que la carte (cf. règle 1). */
+  border-radius: var(--_chat-composer-radius, var(--radius-chat, 1rem));
+}
+
+[data-beam].composeur-cadre {
+  box-shadow: var(--shadow-low);
 }

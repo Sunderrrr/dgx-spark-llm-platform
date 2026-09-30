@@ -1304,6 +1304,11 @@ function appliquerEdits(messages: ChatMsg[], index: number, t: (s: string) => st
 
 type QueuedMsg = { content: string; text: string; attachmentCount?: number; ts: number };
 
+// Panneau de réglages du playground : largeur voulue, et marge de sécurité avec le
+// bord de la fenêtre (= --spacing-2). Voir toggleSettings pour le bornage.
+const LARGEUR_PANNEAU_REGLAGES = 480;
+const MARGE_PANNEAU_REGLAGES = 8;
+
 export default function PlaygroundPage() {
   const t = useT();
   const numLocale = useLocale();
@@ -1333,7 +1338,7 @@ export default function PlaygroundPage() {
   // Position du panneau de réglages : capturée sur le clic du bouton (rect du
   // bouton → coin bas-gauche du panneau sous la roue crantée). Overlay FIXE :
   // il ne touche jamais au flux, donc la page ne bouge pas d'un pixel.
-  const [settingsPos, setSettingsPos] = useState<{ top: number; right: number; maxH: number } | null>(null);
+  const [settingsPos, setSettingsPos] = useState<{ top: number; right: number; maxH: number; largeur: number } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   // Fermeture du panneau réglages : clic extérieur ou Échap. AUCUN déplacement
   // de focus à l'ouverture — le focus trap du composant Popover faisait
@@ -1342,10 +1347,20 @@ export default function PlaygroundPage() {
   const toggleSettings = (el: HTMLElement | null) => {
     if (!isSettingsOpen && el) {
       const r = el.getBoundingClientRect();
+      // Le panneau est ancré à la roue, mais sa largeur ne peut pas dépasser la
+      // fenêtre : sous 768 px la barre latérale est repliée, la roue descend à
+      // ~250 px du bord gauche, et un panneau de 480 px ancré là partait 201 px
+      // HORS ÉCRAN — sans recours, un `position: fixed` ne défile pas. On borne
+      // donc la largeur à la fenêtre, puis le décalage droit pour que le bord
+      // gauche reste visible. Au-delà de ~1024 px la roue est assez à droite :
+      // les deux bornes sont inactives et le panneau garde sa taille nominale.
+      const largeur = Math.min(LARGEUR_PANNEAU_REGLAGES, window.innerWidth - 2 * MARGE_PANNEAU_REGLAGES);
       setSettingsPos({
         top: r.bottom + 8,
-        right: window.innerWidth - r.right,
+        right: Math.max(MARGE_PANNEAU_REGLAGES,
+          Math.min(window.innerWidth - r.right, window.innerWidth - largeur - MARGE_PANNEAU_REGLAGES)),
         maxH: window.innerHeight - r.bottom - 48,
+        largeur,
       });
     }
     setIsSettingsOpen((v) => !v);
@@ -3744,7 +3759,7 @@ export default function PlaygroundPage() {
             <HStack
               className="playground-settings-panel"
               style={{ position: "fixed", top: settingsPos.top, right: settingsPos.right,
-                       width: 480, zIndex: 30 }}
+                       width: settingsPos.largeur, zIndex: 30 }}
             >
               <Card style={{ width: "100%" }}>
                 <VStack gap={2}>

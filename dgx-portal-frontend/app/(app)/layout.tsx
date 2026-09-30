@@ -348,7 +348,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         />
       )}
-      {children}
+      {/* Les surcouches montées en permanence (onboarding, réglages, palette,
+          notifications) passent AVANT {children}. Raison mesurée : la page suspend au
+          rendu serveur (`loading.tsx`), donc tout ce qui la suit dans ce layout est
+          envoyé dans le flux AVANT elle et se retrouve inséré avant elle dans le DOM,
+          là où React attend l'ordre du JSX (le texte du tour d'accueil sortait à
+          l'octet 34 116 et celui de la page à 67 239). Ici, les deux ordres coïncident.
+          Attention : cela ne corrige PAS l'erreur d'hydratation React #418 observée sur
+          /playground, dont la cause est ailleurs — elle subsiste à taux inchangé après
+          ce déplacement (mesuré). Un <dialog> ouvert vit dans le « top layer » : sa
+          position dans le DOM ne change rien à son empilement. */}
       <OnboardingDialog
         isOpen={showOnboarding}
         prenom={who?.fullname?.split(" ")[0]}
@@ -402,6 +411,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </VStack>
       </Dialog>
+      {children}
     </AppShell>
     </SettingsDialogContext.Provider>
   );

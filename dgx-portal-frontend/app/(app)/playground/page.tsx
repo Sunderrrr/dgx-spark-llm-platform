@@ -3072,8 +3072,19 @@ export default function PlaygroundPage() {
         style={{ display: "none" }}
         onChange={(e) => handleFiles(e.target.files)}
       />
-      <HStack hAlign="between" gap={2}>
-        <Text type="supporting" color="secondary">{t("Fichiers texte uniquement. Les tokens comptent sur ton budget.")}</Text>
+      {/* L'indice de bas de composeur est réservé aux écrans LARGES. Mesuré au
+          gabarit 390 px : les boutons en occupent 236 des 326 px, il ne reste
+          que ~82 px au texte, qui s'y étale sur 5 lignes — la rangée monte à
+          100 px de haut, plus que la carte de saisie elle-même (94 px). Sur
+          bureau le même texte tient sur une ligne (338 px, rangée de 28 px).
+          Rien n'est perdu sur téléphone : le sélecteur de fichiers filtre déjà
+          par `accept`, et le budget du compte est affiché sur l'accueil.
+          `hAlign` suit, sinon la disparition du premier enfant ramènerait les
+          boutons à gauche. */}
+      <HStack hAlign={isNarrow ? "end" : "between"} gap={2}>
+        {!isNarrow && (
+          <Text type="supporting" color="secondary">{t("Fichiers texte uniquement. Les tokens comptent sur ton budget.")}</Text>
+        )}
         <HStack gap={2}>
           <Button
             label={t("Snippets")}

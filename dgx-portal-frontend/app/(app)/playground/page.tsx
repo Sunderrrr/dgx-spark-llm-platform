@@ -2962,9 +2962,10 @@ export default function PlaygroundPage() {
           `borderRadius` est fourni à la main (cf. `rayonComposeur`) : la
           détection automatique des deux librairies lit leur PREMIER ENFANT, et
           celui de `border-beam` est sa propre balise `<style>` — 0 px, donc le
-          repli de 16 px, coins visiblement plus carrés que la carte. Reste
-          `overflow: visible` dans globals.css, qui rend l'ombre de la carte
-          (leur enveloppe la rognait). */}
+          repli de 16 px, coins visiblement plus carrés que la carte. Le rognage
+          des deux enveloppes, lui, est réglé dans globals.css (`overflow: clip`
+          élargi de 8 px) : c'est lui, et non le `clip-path` des calques, qui
+          contient les lumières. */}
       <BorderBeam active={streaming} theme={mode === "system" ? "auto" : mode}
                   borderRadius={rayonComposeur}
                   className="composeur-cadre">

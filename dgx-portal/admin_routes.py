@@ -48,9 +48,10 @@ from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       _image_launch, _mem_guard, _music_launch, _ocr_launch,
                       _runner_headers, _sidecar_start_json,
                       _sidecar_status, _sidecar_stop_json, _voice_launch,
-                      asr_model_name, get_image_model, get_music_model,
-                      get_ocr_model, get_voice_model, runner_launch, runner_logs,
-                      runner_metrics, runner_status, runner_stop)
+                      asr_load_error, asr_model_name, get_image_model,
+                      get_music_model, get_ocr_model, get_voice_model,
+                      runner_launch, runner_logs, runner_metrics,
+                      runner_status, runner_stop)
 from stats import (_active_users, admin_get_ocr_usage,
                    admin_get_user_consumption, admin_get_video_usage,
                    admin_get_voice_usage, user_hourly)
@@ -130,6 +131,10 @@ def api_admin():
         # affichait « whisper-large-v3-turbo » en dur — vrai aujourd'hui, faux
         # au premier changement de modèle. None quand rien n'est servi.
         'asr_model_name': asr_model_name,
+        # POURQUOI la dictée n'est pas disponible quand le conteneur tourne
+        # pourtant : le sidecar publie la cause de l'échec de chargement
+        # (typiquement un CUDA out of memory). None s'il n'y a pas d'échec.
+        'asr_load_error': asr_load_error,
         'image_status': lambda: _sidecar_status('image'),
         'image_model_name': lambda: get_image_model(),
         'music_status': lambda: _sidecar_status('music'),

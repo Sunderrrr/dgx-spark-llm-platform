@@ -181,7 +181,13 @@ dialog::backdrop {
       cette racine le rayon de la carte — invisible, puisqu'elle n'a ni fond ni
       bordure — pour que la détection soit exacte. La variable privée d'Astryx
       vient en premier (c'est CELLE de la carte) ; `--radius-chat` et la valeur
-      de repli de la librairie suivent si elle disparaît. */
+      de repli de la librairie suivent si elle disparaît.
+
+      Ce filet ne suffit PAS au faisceau : son premier enfant est sa PROPRE
+      balise `<style>` (0 px), il retombait donc toujours sur 16 px — mesuré le
+      2026-10-01, coins visiblement plus carrés que la carte. Son rayon (et
+      celui du halo) est donc passé en prop depuis la page (cf.
+      `rayonComposeur`) ; la règle reste pour le premier rendu, avant l'effet. */
 .astryx-chat-composer {
   border-radius: var(--_chat-composer-radius, var(--radius-chat, 1rem));
 }

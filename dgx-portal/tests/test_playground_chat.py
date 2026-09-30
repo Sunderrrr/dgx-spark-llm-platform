@@ -895,6 +895,23 @@ class DicteeTest(_BasePlayground):
             self.assertFalse(self._client().get('/api/transcribe/available')
                              .get_json()['available'])
 
+    def test_chargement_echoue_se_distingue_d_un_demarrage(self):
+        """Un conteneur de dictée qui tourne sans modèle chargé, et qui publie
+        POURQUOI, n'est pas « en cours de démarrage » : l'admin affichait
+        « Démarrage… » indéfiniment (signalé le 2026-10-01). Sans cause
+        publiée, en revanche, rien ne permet de conclure à un échec — c'est le
+        comportement des autres sidecars, qui ne disent pas leurs erreurs."""
+        import sidecars
+        with patch.object(sidecars, '_sidecar_proc_status', return_value='running'), \
+             patch.object(sidecars, 'asr_is_up', return_value=False), \
+             patch.object(sidecars, 'asr_load_error',
+                          return_value='CUDA error: out of memory'):
+            self.assertEqual(sidecars._sidecar_status('asr'), 'failed')
+        with patch.object(sidecars, '_sidecar_proc_status', return_value='running'), \
+             patch.object(sidecars, 'asr_is_up', return_value=False), \
+             patch.object(sidecars, 'asr_load_error', return_value=None):
+            self.assertEqual(sidecars._sidecar_status('asr'), 'starting')
+
 
 if __name__ == '__main__':
     unittest.main()

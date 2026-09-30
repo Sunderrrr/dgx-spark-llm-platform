@@ -144,6 +144,19 @@ def asr_model_name():
     info = _asr_info()
     return info.get('type') if info.get('loaded') else None
 
+def asr_load_error():
+    """Raison de l'échec de chargement du modèle de dictée, ou None.
+
+    Le sidecar ASR démarre son serveur MÊME quand les poids n'ont pas pu être
+    chargés : mesuré le 2026-10-01, `CUDA error: out of memory` pendant
+    `model.to(device)` — la mémoire unifiée est partagée avec le modèle de chat.
+    Il répond alors `loaded: false` en publiant la cause, que personne ne
+    lisait : l'admin affichait « Démarrage… » indéfiniment. Une panne qui ne se
+    dit pas se lit comme une lenteur.
+    """
+    info = _asr_info()
+    return None if info.get('loaded') else (info.get('error') or None)
+
 def image_ready():
     try:
         r = requests.get(f"{IMAGE_URL}/health", timeout=3)
@@ -427,7 +440,14 @@ def _sidecar_status(kind):
              else image_ready() if kind == 'image'
              else music_ready() if kind == 'music'
              else False)
-    return 'running' if ready else 'starting'
+    if ready:
+        return 'running'
+    # Un chargement ÉCHOUÉ n'est pas un chargement en cours. Le sidecar de
+    # dictée dit POURQUOI il n'a rien chargé (cf. asr_load_error) : le montrer
+    # vaut mieux que d'attendre indéfiniment un « Démarrage… » qui n'arrivera
+    # jamais. Les autres sidecars ne publient pas de cause, donc pas d'état
+    # « failed » pour eux — ils gardent `starting`.
+    return 'failed' if kind == 'asr' and asr_load_error() else 'starting'
 
 def _mem_available_gb():
     """Actually allocatable memory (MemAvailable from /proc/meminfo), in GB.

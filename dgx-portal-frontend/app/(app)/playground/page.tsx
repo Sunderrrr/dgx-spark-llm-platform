@@ -270,6 +270,7 @@ Strict rules:
 - Do NOT add an "Other" option (the interface adds one).
 - The user can pick SEVERAL options for the same question, so write options that can be combined rather than mutually exclusive ones whenever that makes sense. Their answer may come back as "A + B".
 - Ask AT MOST ONCE. As soon as the user has answered, you MUST give your real, complete answer using their choices — NEVER reply with another ask block once they have answered.
+- The fence language MUST be \`ask\` — never \`json\` or anything else, or the user will not see clickable questions.
 - Only ask when it genuinely helps; otherwise just answer normally.`;
 
 // Le modèle pose autant de questions qu'il le juge utile — deux ou dix. Ces
@@ -277,6 +278,18 @@ Strict rules:
 // qui déraille ne doit pas produire un questionnaire interminable.
 const MAX_ASK_QUESTIONS = 20;
 const MAX_ASK_OPTIONS = 8;
+
+/** Corps d'un bloc de questions, quelle que soit l'étiquette de la fence.
+ *  Vu en prod le 2026-10-01 (MiMo) : le modèle range ses questions dans un bloc
+ *  ```json au lieu de ```ask. Le questionnaire sortait alors en « fichier-2.json »
+ *  dans le volet, et l'utilisateur n'avait rien sur quoi cliquer. On accepte donc
+ *  ```json ou une fence sans langage, mais SEULEMENT si le corps commence par
+ *  {"questions": [ — un vrai fichier JSON n'a aucune raison de commencer ainsi. */
+const RE_CORPS_QUESTIONS = /^\s*\{\s*"questions"\s*:\s*\[/;
+function estBlocQuestions(lang: string, corps: string): boolean {
+  const l = lang.toLowerCase();
+  return l === "ask" || ((l === "json" || l === "") && RE_CORPS_QUESTIONS.test(corps));
+}
 
 // One clarifying question + its proposed answers.
 type AskQ = { question: string; options: string[] };
@@ -775,7 +788,8 @@ function firstJsonValue(src: string): string | null {
 // La fence de fermeture est optionnelle : si le modèle l'oublie, on prend tout
 // ce qui suit plutôt que de ne rien reconnaître du tout.
 function parseAsk(content: string): AskBlock | null {
-  const m = content.match(/```ask\s*\n([\s\S]*?)(?:```|$)/);
+  const m = content.match(/```ask\s*\n([\s\S]*?)(?:```|$)/)
+    ?? content.match(/```(?:json)?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/);
   if (!m) return null;
   try {
     const body = m[1].trim();
@@ -1044,7 +1058,7 @@ function openCodeFence(content: string): { lang: string; body: string; start: nu
   if (nl < 0) return null;                               // l'info-string n'est pas finie
   const info = rest.slice(0, nl).trim();
   const first = info.split(/\s+/)[0] || "";
-  if (first === "ask") return null;                      // géré par parseAsk
+  if (estBlocQuestions(first, rest.slice(nl + 1))) return null;   // géré par parseAsk
   return { lang: first || "text", body: rest.slice(nl + 1), start };
 }
 
@@ -1073,7 +1087,7 @@ function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => st
     // ```ask et ```edit sont du PROTOCOLE, jamais des fichiers. `edit` ne posait pas
     // problème tant qu'un bloc non refermé n'était pas extrait ; depuis qu'on referme
     // les fences d'office, un bloc edit tronqué ressortait en « fichier-2.txt ».
-    if (first === "ask" || first === "edit") continue;
+    if (first === "edit" || estBlocQuestions(first, body)) continue;
     let lang = first;
     let title = "";
     if (first.includes(".")) { title = first; lang = first.split(".").pop() || ""; }
@@ -1229,7 +1243,7 @@ function fragmentsDuMessage(messages: ChatMsg[], index: number, t: (s: string) =
   if (!avant.size) return [];
   for (const f of m.content.matchAll(/```([^\n`]*)\n([\s\S]*?)```/g)) {
     const lang = (f[1].trim().split(/\s+/)[0] || "").toLowerCase();
-    if (lang === "ask" || lang === "edit") continue;
+    if (lang === "edit" || estBlocQuestions(lang, f[2])) continue;
     const corps = f[2];
     const candidat = [...avant.entries()].find(
       ([, fic]) => (!lang || fic.lang.toLowerCase() === lang) && estFragment(fic, corps));

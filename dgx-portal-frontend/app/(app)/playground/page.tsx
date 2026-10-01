@@ -1576,6 +1576,13 @@ export default function PlaygroundPage() {
   useEffect(() => {
     const px = parseFloat(getComputedStyle(document.documentElement)
       .getPropertyValue("--radius-chat"));
+    // Lecture du DOM au montage : `getComputedStyle` n'existe pas au rendu
+    // serveur, donc la valeur ne peut pas être dérivée pendant le rendu. Un seul
+    // setState, une seule fois, aucune cascade — c'est le cas « synchroniser
+    // depuis un système externe » que la règle vise à distinguer des boucles de
+    // rendu. (La directive doit précéder IMMÉDIATEMENT le code : placée avant les
+    // commentaires, elle ne désactivait que la première ligne de commentaire.)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (Number.isFinite(px) && px > 0) setRayonComposeur(px);
   }, []);
 

@@ -1,7 +1,18 @@
+# Rotation des journaux Docker (audit du 2026-10-02) : sans plafond, un journal
+# grossit jusqu'a remplir le disque. Constat hors compose (music 696 Mo, traefik
+# 172 Mo, aucun /etc/docker/daemon.json) et en croissance ici. L'ancre evite de
+# recopier quatre lignes six fois ; max-size est PAR conteneur, pas global.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
 
   # ─── Base de données LiteLLM ───────────────────────────────────────────────
   postgres:
+    logging: *logging
     image: postgres:15-alpine@sha256:cd17e2ac98240fce1541ad2a803b34009b4eea5aec8a832363cdc7eca62e722e
     container_name: litellm-postgres
     restart: unless-stopped
@@ -27,6 +38,7 @@ services:
 
   # ─── LiteLLM — API gateway + gestion des clés ─────────────────────────────
   litellm:
+    logging: *logging
     # Épinglé au digest (repro + anti supply-chain). Tag d'origine : main-stable,
     # version embarquée vérifiée : 1.102.1 (image du 2026-09-23).
     # Pour mettre à jour : docker pull ghcr.io/berriai/litellm:main-stable puis
@@ -94,6 +106,7 @@ services:
   # → Pour revenir à l'ancienne interface : remettre `ports: ["5000:5000"]`
   #   ici ET redonner à dgx-portal-frontend son port 3002 ci-dessous.
   dgx-portal:
+    logging: *logging
     build: ./dgx-portal
     container_name: dgx-portal
     restart: unless-stopped
@@ -230,6 +243,7 @@ services:
   # n'est pas une page Next connue est transmis en interne à dgx-portal:5000
   # (voir next.config.ts → rewrites().fallback).
   dgx-portal-frontend:
+    logging: *logging
     build: ./dgx-portal-frontend
     container_name: dgx-portal-frontend
     restart: unless-stopped
@@ -244,6 +258,7 @@ services:
   # Aucun `ports:` : ni l'un ni l'autre n'est joignable depuis l'extérieur, seul
   # dgx-portal les atteint sur web_net.
   searxng:
+    logging: *logging
     # Digest-pinné (repro + anti supply-chain). Pour mettre à jour :
     # docker pull searxng/searxng:latest puis remplacer le sha ci-dessous.
     image: searxng/searxng@sha256:11a9b34cdc0b1ec2b991470a2762ecb5a1a531898289fb51dcd015260450729e
@@ -268,6 +283,7 @@ services:
       - web_net
 
   crawl4ai:
+    logging: *logging
     # Digest-pinné (repro + anti supply-chain). Pour mettre à jour :
     # docker pull unclecode/crawl4ai:latest puis remplacer le sha ci-dessous.
     image: unclecode/crawl4ai@sha256:bd36741e7bdd35ddc1a05d9183e1d6d8cefb61dd640d944a25d026b76e917690

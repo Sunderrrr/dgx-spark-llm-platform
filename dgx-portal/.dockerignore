@@ -1,0 +1,36 @@
+# Ce qui ne doit JAMAIS entrer dans l'image du portail (audit du 2026-10-02).
+#
+# Le Dockerfile fait `COPY . .` : sans ce fichier, tout ce qui traîne dans le
+# dossier partait dans une image qui tourne en production. Rien de secret n'y
+# était présent au moment de l'audit, mais `portal.db`, un `.env` ou un dump
+# posés là par une commande de dépannage seraient partis sans que personne ne
+# le voie passer — et l'image reste lisible par tout conteneur du réseau Docker.
+#
+# NE PAS exclure `tests/` ni `run-tests.sh` : la suite tourne DANS l'image
+# (`run-tests.sh` construit l'image puis lance `unittest discover` dedans).
+# Les exclure casserait le garde-fou des routes, entre autres.
+
+.env
+.env.*
+secrets/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+data/
+runtime/
+*.pem
+*.key
+id_rsa*
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+*.log
+*.bak
+*.orig
+*.rej

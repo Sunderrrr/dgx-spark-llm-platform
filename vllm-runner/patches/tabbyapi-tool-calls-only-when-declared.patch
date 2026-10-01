@@ -1,0 +1,17 @@
+diff --git a/endpoints/OAI/utils/chat_completion.py b/endpoints/OAI/utils/chat_completion.py
+index 6c5aec7..dfe0669 100644
+--- a/endpoints/OAI/utils/chat_completion.py
++++ b/endpoints/OAI/utils/chat_completion.py
+@@ -684,7 +684,11 @@ async def _chat_stream_collector(
+     else:
+         tool_format = mc.tool_format
+         t_tool_start, t_tool_end = get_toolcall_tags(tool_format)
+-        use_tool = params.tool_choice != "none" and bool(t_tool_start)
++        # Cronos patch (2026-10-02): only parse tool calls when the request
++        # declares tools. MiMo sometimes emits <tool_call> on its own in the
++        # middle of a plain answer; parsing it swallowed the rest of the reply
++        # into a tool call nobody asked for, leaving an empty message.
++        use_tool = bool(params.tools) and params.tool_choice != "none" and bool(t_tool_start)
+ 
+         use_think = mc.reasoning and bool(mc.reasoning_start_token)
+ 

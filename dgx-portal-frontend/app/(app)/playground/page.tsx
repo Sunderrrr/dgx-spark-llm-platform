@@ -628,7 +628,16 @@ function tourAvorte(m: ChatMsg | undefined): boolean {
   // Au-delà, c'est une vraie réponse qui se trouve finir par « : » (une liste
   // introduite, par exemple) — pas un tour avorté.
   if (!t || t.length > 400 || t.includes("```")) return false;
-  return /[:：]$/.test(t);
+  if (/[:：]$/.test(t)) return true;
+  // Même chose, sous une autre forme : le NOM du fichier annoncé, puis rien.
+  // Mesuré le 2026-10-02 sur MiMo : « `roles/nginx_reverse_proxy/tasks/main.yml` »
+  // — 8 tokens, fin normale du modèle, et le rôle Ansible attendu n'arrive jamais.
+  // Exigé : une extension qui commence par une lettre, ET des backticks ou un
+  // dossier — sans quoi « 3.14 » ou « google.com » seraient refaits en boucle.
+  const derniere = t.split("\n").pop()!.trim();
+  const nu = derniere.replace(/^`(.*)`$/, "$1");
+  const chemin = /^[\w.\/-]*[\w-]\.[A-Za-z][A-Za-z0-9]{0,7}$/.test(nu) || BARE_FILES.test(nu);
+  return chemin && (nu !== derniere || nu.includes("/"));
 }
 
 /** Le texte du message, avec la fence jamais refermée refermée d'office.
@@ -726,6 +735,24 @@ function recoller(base: string, suite: string): string {
   // du code disparu, non.
   if (meilleur && base.length - meilleur.base <= RECOL_MAX_SUPPRIME) {
     return base.slice(0, meilleur.base) + suite.slice(meilleur.suite);
+  }
+  return raboutLigne(base, suite);
+}
+
+/** Raboute une suite qui RÉPÈTE la fin de la ligne coupée.
+ *
+ * Le plafond de tokens tombe au milieu d'une ligne, et le modèle reprend souvent
+ * le mot (ou la ligne) où il s'était arrêté : mesuré le 2026-10-01 sur MiMo,
+ * « p_del » + « del = sub.add_parser(…) » donnait « p_deldel », NameError au
+ * lancement. Le recollage par lignes ne voit rien (moins de 3 lignes communes).
+ * On cherche le plus long début de la suite qui termine déjà la ligne coupée ;
+ * 3 caractères au moins, pour ne pas rogner un caractère légitime par hasard. */
+function raboutLigne(base: string, suite: string): string {
+  const fin = base.slice(base.lastIndexOf("\n") + 1);
+  if (!fin.trim()) return base + suite;
+  const tete = suite.split("\n", 1)[0];
+  for (let k = Math.min(fin.length, tete.length); k >= 3; k--) {
+    if (fin.endsWith(tete.slice(0, k))) return base + suite.slice(k);
   }
   return base + suite;
 }
@@ -1338,8 +1365,12 @@ function fichiersJusqua(
       fichiers.set(inacheve!, { ...cible, content: fusion });
       // Une reprise peut être coupée à son tour. Son compte de fences ne dit rien
       // (elle commence au milieu d'un bloc) : c'est le fichier reconstitué qui
-      // décide s'il reste ouvert.
-      inacheve = reponseIncomplete(fusion) ? inacheve : null;
+      // décide s'il reste ouvert — OU le plafond de tokens lui-même. Le fichier
+      // reconstitué n'a plus de fences, et `reponseIncomplete` ne reconnaît alors
+      // qu'un HTML sans </html> : un script Python coupé par le plafond passait
+      // pour fini, et la reprise SUIVANTE était jetée — la fin du fichier
+      // disparaissait (mesuré le 2026-10-01 sur MiMo : fichier arrêté sur `p_del`).
+      inacheve = m.truncated || reponseIncomplete(fusion) ? inacheve : null;
       continue;
     }
     // Un SEUL parse par message (l'ancien `fichierInacheve` reparsait le même

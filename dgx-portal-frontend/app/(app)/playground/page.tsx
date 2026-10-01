@@ -22,6 +22,8 @@ import { MarkdownSur as Markdown } from "@/lib/markdown";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
+import { Thumbnail } from "@astryxdesign/core/Thumbnail";
+import { Lightbox } from "@astryxdesign/core/Lightbox";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
@@ -126,6 +128,77 @@ const MAX_ATTACHMENT_BYTES = 96 * 1024;
  *  (`readAsText`) et son contenu binaire partait dans le prompt sous forme de
  *  mojibake, sans le moindre avertissement. */
 const ATTACH_EXTENSIONS = ATTACH_ACCEPT.split(",").map((e) => e.trim().toLowerCase());
+
+/** Images : acceptées SEULEMENT si le modèle choisi les lit (`model_vision`).
+ *  Réduites dans le navigateur avant l'envoi — une photo de téléphone (4 000 px,
+ *  5 Mo) coûterait sinon des milliers de tokens de préchargement et dépasserait
+ *  la limite d'enregistrement des conversations. 1 568 px suffit à lire un texte
+ *  ou une capture d'écran. */
+const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp,.gif";
+const IMAGE_EXTENSIONS = IMAGE_ACCEPT.split(",");
+const IMAGE_COTE_MAX = 1568;
+const IMAGE_SOURCE_MAX_BYTES = 25 * 1024 * 1024;
+const IMAGES_PAR_MESSAGE = 4;
+/** Images rejouées au modèle par requête : les plus récentes (même borne que le serveur). */
+const IMAGES_MAX_REQUETE = 8;
+/** Budget images d'une conversation ENREGISTRÉE (caractères) : le serveur borne
+ *  la conversation à 2 M et le champ de formulaire à 4 Mo. Au-delà, les images
+ *  les plus anciennes ne sont plus conservées (le texte, lui, l'est). */
+const IMAGES_BUDGET_SAUVEGARDE = 1_500_000;
+/** Poids estimé d'une image dans la fenêtre de contexte, en caractères (~1 500 tokens). */
+const IMAGE_POIDS_CHARS = 1500 * 4;
+
+/** Réduit une image et la rend en JPEG `data:` (fond blanc sous la transparence). */
+async function reduireImage(file: File): Promise<string> {
+  const bmp = await createImageBitmap(file);
+  const echelle = Math.min(1, IMAGE_COTE_MAX / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bmp.width * echelle));
+  canvas.height = Math.max(1, Math.round(bmp.height * echelle));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close();
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+/** Ne garde les images que sur les messages les plus récents, dans la limite de `max`
+ *  images ou de `budget` caractères. Le texte n'est jamais touché. */
+function imagesRecentes<M extends { images?: string[] }>(msgs: M[], max: number, budget = Infinity): M[] {
+  let reste = max;
+  let poids = 0;
+  const out = [...msgs];
+  for (let i = out.length - 1; i >= 0; i--) {
+    const imgs = out[i].images;
+    if (!imgs?.length) continue;
+    const garde: string[] = [];
+    for (let k = imgs.length - 1; k >= 0 && reste > 0; k--) {
+      if (poids + imgs[k].length > budget) { reste = 0; break; }
+      garde.unshift(imgs[k]);
+      poids += imgs[k].length;
+      reste--;
+    }
+    out[i] = { ...out[i], images: garde.length ? garde : undefined };
+  }
+  return out;
+}
+
+/** Titre et résumé ne lisent que le texte : inutile d'y faire voyager des Mo d'images. */
+function sansImages(msgs: ChatMsg[]) {
+  return msgs.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden }));
+}
+
+/** Messages tels qu'ils sont enregistrés (drapeaux + images dans le budget). */
+function pourSauvegarde(msgs: ChatMsg[]) {
+  return imagesRecentes(
+    msgs.map((m) => ({
+      role: m.role, content: m.content, hidden: m.hidden,
+      truncated: m.truncated, isError: m.isError, images: m.images,
+    })),
+    Infinity, IMAGES_BUDGET_SAUVEGARDE);
+}
 
 // Something the assistant produced worth showing in the side panel (canvas/
 // artifact style) and copying in one click: a code "file" or a long "document"
@@ -1302,7 +1375,7 @@ function appliquerEdits(messages: ChatMsg[], index: number, t: (s: string) => st
   return { fichiers: [...touches.values()], echecs };
 }
 
-type QueuedMsg = { content: string; text: string; attachmentCount?: number; ts: number };
+type QueuedMsg = { content: string; text: string; attachmentCount?: number; images?: string[]; ts: number };
 
 // Panneau de réglages du playground : largeur voulue, et marge de sécurité avec le
 // bord de la fenêtre (= --spacing-2). Voir toggleSettings pour le bornage.
@@ -1320,6 +1393,9 @@ export default function PlaygroundPage() {
   const csrf = useCsrf();
   const [runningModels, setRunningModels] = useState<string[]>([]);
   const [modelLimits, setModelLimits] = useState<Record<string, number>>({});
+  const [modelVision, setModelVision] = useState<Record<string, boolean>>({});
+  // Image ouverte en grand depuis une bulle (null = fermé).
+  const [imageVue, setImageVue] = useState<{ srcs: string[]; index: number } | null>(null);
   // null = pas encore su. On n'affiche l'alerte qu'une fois la réponse reçue,
   // pour ne pas faire clignoter un avertissement au chargement.
   const [hasKey, setHasKey] = useState<boolean | null>(null);
@@ -1606,6 +1682,7 @@ export default function PlaygroundPage() {
       .then((data) => {
         setRunningModels(data.running_models);
         setModelLimits(data.model_limits);
+        setModelVision(data.model_vision ?? {});
         setHasKey(data.has_key);
         if (data.running_models.length) setModel(data.running_models[0]);
       })
@@ -1661,10 +1738,7 @@ export default function PlaygroundPage() {
       // sans eux, une réponse coupée en plein fichier repassait pour COMPLÈTE
       // après un rechargement — plus de bandeau, plus de bouton « Continuer »,
       // alors que le fichier restait inachevé à l'écran.
-      messages: msgs.map((m) => ({
-        role: m.role, content: m.content, hidden: m.hidden,
-        truncated: m.truncated, isError: m.isError,
-      })),
+      messages: pourSauvegarde(msgs),
     };
     // Optimistic on the UI side, then server save in the background: the
     // list must not wait for the network round-trip to update.
@@ -1868,7 +1942,7 @@ export default function PlaygroundPage() {
     if (busyTitle || !messages.length || !currentId) return;
     setBusyTitle(true);
     try {
-      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model, messages });
+      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model, messages: sansImages(messages) });
       const title = res?.title;
       const conv = conversations.find((c) => c.id === currentId);
       if (title && conv) {
@@ -1887,7 +1961,7 @@ export default function PlaygroundPage() {
     setSummary(t("Génération en cours…"));
     setSummaryOpen(true);
     try {
-      const res = await sendJSON<{ summary?: string; error?: string }>("/api/playground/summarize", csrf, { model, messages });
+      const res = await sendJSON<{ summary?: string; error?: string }>("/api/playground/summarize", csrf, { model, messages: sansImages(messages) });
       if (res.summary) setSummary(res.summary);
       else setSummary(res.error || t("Impossible de générer le résumé."));
     } catch {
@@ -1904,7 +1978,7 @@ export default function PlaygroundPage() {
     }
     const titleModel = modelForTitle || model;
     try {
-      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model: titleModel, messages: msgs });
+      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model: titleModel, messages: sansImages(msgs) });
       const title = res?.title;
       if (!title) return;
       setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title } : c)));
@@ -1913,10 +1987,7 @@ export default function PlaygroundPage() {
         id: convId, title,
         // eslint-disable-next-line react-hooks/purity -- handler async
         ts: Date.now(), model: titleModel,
-        messages: msgs.map((m) => ({
-          role: m.role, content: m.content, hidden: m.hidden,
-          truncated: m.truncated, isError: m.isError,
-        })),
+        messages: pourSauvegarde(msgs),
       };
       void persistConversation(csrf, item);
     } catch {
@@ -2077,8 +2148,28 @@ export default function PlaygroundPage() {
    */
   function handleFiles(files: FileList | null) {
     if (!files) return;
+    let nbImages = attachments.filter((a) => a.image).length;
     for (const file of Array.from(files)) {
       const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+      if (IMAGE_EXTENSIONS.includes(ext) || file.type.startsWith("image/")) {
+        if (!modelVision[model]) {
+          showToast({ body: t("« {name} » : ce modèle ne lit pas les images.").replace("{name}", file.name), type: "error" });
+          continue;
+        }
+        if (nbImages >= IMAGES_PAR_MESSAGE) {
+          showToast({ body: t("4 images au plus par message."), type: "error" });
+          continue;
+        }
+        if (file.size > IMAGE_SOURCE_MAX_BYTES) {
+          showToast({ body: t("« {name} » dépasse 25 Mo.").replace("{name}", file.name), type: "error" });
+          continue;
+        }
+        nbImages++;
+        reduireImage(file)
+          .then((url) => setAttachments((prev) => [...prev, { name: file.name, content: "", image: url }]))
+          .catch(() => showToast({ body: t("« {name} » n'a pas pu être lu.").replace("{name}", file.name), type: "error" }));
+        continue;
+      }
       if (!ATTACH_EXTENSIONS.includes(ext)) {
         showToast({ body: t("« {name} » : seuls les fichiers texte sont acceptés.").replace("{name}", file.name), type: "error" });
         continue;
@@ -2204,7 +2295,7 @@ export default function PlaygroundPage() {
       await streamChat(
         csrf,
         model,
-        nextMessages.map((m) => ({ role: m.role, content: m.content })),
+        imagesRecentes(nextMessages, IMAGES_MAX_REQUETE).map((m) => ({ role: m.role, content: m.content, images: m.images })),
         askSettings,
         controller.signal,
         (delta) => {
@@ -2388,18 +2479,28 @@ export default function PlaygroundPage() {
     // transcribed so far, and no still-in-flight pass will rewrite the
     // field once it's been cleared.
     dictation.cancel();
+    const fichiers = attachments.filter((f) => !f.image);
+    let images: string[] | undefined = attachments.flatMap((f) => (f.image ? [f.image] : []));
+    // Le modèle a pu changer depuis l'ajout : on ne part pas avec des images
+    // qu'il ne lirait pas (le serveur les retirerait de toute façon).
+    if (images.length && !modelVision[model]) {
+      showToast({ body: t("Ce modèle ne lit pas les images : elles n'ont pas été envoyées."), type: "error" });
+      images = [];
+    }
+    if (!images.length) images = undefined;
+    if (!text && !fichiers.length && !images) return;
     let full = text;
-    if (attachments.length) {
+    if (fichiers.length) {
       full =
         (text ? text + "\n\n" : "") +
-        attachments.map((f) => "```" + f.name + "\n" + f.content + "\n```").join("\n\n");
+        fichiers.map((f) => "```" + f.name + "\n" + f.content + "\n```").join("\n\n");
     }
-    const attachmentCount = attachments.length || undefined;
+    const attachmentCount = fichiers.length || undefined;
     // En pleine génération, le message passe en file d'attente (validé par le
     // bouton Envoyer de sa bulle) au lieu d'être silencieusement perdu.
     if (streaming) {
       // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
-      updateQueue([...queuedRef.current, { content: full, text, attachmentCount, ts: Date.now() }]);
+      updateQueue([...queuedRef.current, { content: full, text, attachmentCount, images, ts: Date.now() }]);
       setInput("");
       setAttachments([]);
       return;
@@ -2410,7 +2511,7 @@ export default function PlaygroundPage() {
       // nouvelle version.
       ...(editingIdx !== null ? messages.slice(0, editingIdx) : messages),
       // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
-      { role: "user", content: full, ts: Date.now(), attachmentCount },
+      { role: "user", content: full, ts: Date.now(), attachmentCount, images },
     ];
     setMessages(nextMessages);
     setInput("");
@@ -2449,7 +2550,7 @@ export default function PlaygroundPage() {
     const q = queuedRef.current;
     if (!q.length) return;
     updateQueue([]);
-    const msgs: ChatMsg[] = q.map((m) => ({ role: "user", content: m.content, ts: m.ts, attachmentCount: m.attachmentCount }));
+    const msgs: ChatMsg[] = q.map((m) => ({ role: "user", content: m.content, ts: m.ts, attachmentCount: m.attachmentCount, images: m.images }));
     const nextMessages = [...(base ?? messagesRef.current), ...msgs];
     setMessages(nextMessages);
     void runStream(nextMessages);
@@ -2563,7 +2664,7 @@ export default function PlaygroundPage() {
     if (!m || m.role !== "user") return;
     setEditingIdx(i);
     setInput(m.content);
-    setAttachments([]);
+    setAttachments((m.images ?? []).map((u, k) => ({ name: `image-${k + 1}.jpg`, content: "", image: u })));
   }
 
 
@@ -2573,7 +2674,8 @@ export default function PlaygroundPage() {
   // décomposition ci-dessous refaisait une troisième fois la même somme.
   let contentChars = input.length;
   for (const m of messages) contentChars += m.content.length;
-  for (const a of attachments) contentChars += a.content.length;
+  for (const a of attachments) contentChars += a.image ? IMAGE_POIDS_CHARS : a.content.length;
+  for (const m of messages) contentChars += (m.images?.length ?? 0) * IMAGE_POIDS_CHARS;
   const estTokens = Math.round((settings.system.length + contentChars) / 4);
   // Entrée / sortie : la fenêtre se remplit de tokens d'ENTRÉE (prompt : system
   // + historique + message + fichiers) et de tokens de SORTIE (la réponse
@@ -3000,19 +3102,38 @@ export default function PlaygroundPage() {
         drawer={
           attachments.length ? (
             <ChatComposerDrawer count={attachments.length} label={t("Fichiers joints")}>
-              {attachments.map((f, i) => (
-                <Token
-                  key={f.name + i}
-                  label={`${f.name} (${Math.ceil(f.content.length / 1024)} Ko)`}
-                  onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                />
-              ))}
+              <VStack gap={2}>
+                {attachments.some((f) => f.image) && (
+                  <HStack gap={1} wrap="wrap">
+                    {attachments.map((f, i) => f.image ? (
+                      <Thumbnail
+                        key={f.name + i}
+                        src={f.image}
+                        alt={f.name}
+                        label={f.name}
+                        onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                      />
+                    ) : null)}
+                  </HStack>
+                )}
+                {attachments.some((f) => !f.image) && (
+                  <HStack gap={1} wrap="wrap">
+                    {attachments.map((f, i) => f.image ? null : (
+                      <Token
+                        key={f.name + i}
+                        label={`${f.name} (${Math.ceil(f.content.length / 1024)} Ko)`}
+                        onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                      />
+                    ))}
+                  </HStack>
+                )}
+              </VStack>
             </ChatComposerDrawer>
           ) : undefined
         }
         footerActions={
           <Button
-            label={t("Joindre un fichier")}
+            label={modelVision[model] ? t("Joindre un fichier ou une image") : t("Joindre un fichier")}
             variant="ghost"
             size="sm"
             isIconOnly
@@ -3071,11 +3192,21 @@ export default function PlaygroundPage() {
           onDelete={deleteCustomSkill}
         />
       )}
+      {imageVue && (
+        <Lightbox
+          isOpen
+          onOpenChange={(o) => { if (!o) setImageVue(null); }}
+          media={imageVue.srcs.map((src, k) => ({ src, alt: t("Image jointe {n}").replace("{n}", String(k + 1)) }))}
+          index={imageVue.index}
+          onIndexChange={(index) => setImageVue((v) => (v ? { ...v, index } : v))}
+          hasZoom
+        />
+      )}
       <input
         ref={fileInputRef}
         type="file"
         multiple
-        accept={ATTACH_ACCEPT}
+        accept={modelVision[model] ? `${ATTACH_ACCEPT},${IMAGE_ACCEPT}` : ATTACH_ACCEPT}
         style={{ display: "none" }}
         onChange={(e) => handleFiles(e.target.files)}
       />
@@ -3477,6 +3608,19 @@ export default function PlaygroundPage() {
                           />
                         ) : undefined
                       }>
+                      {m.role === "user" && m.images?.length ? (
+                        <HStack gap={1} wrap="wrap">
+                          {m.images.map((src, k) => (
+                            <Thumbnail
+                              key={k}
+                              src={src}
+                              alt={t("Image jointe {n}").replace("{n}", String(k + 1))}
+                              label={t("Image jointe {n}").replace("{n}", String(k + 1))}
+                              onClick={() => setImageVue({ srcs: m.images ?? [], index: k })}
+                            />
+                          ))}
+                        </HStack>
+                      ) : null}
                       {/* Recherche web en cours : on dit ce qui est cherché et lu,
                           au fil de l'eau. Sans ça l'attente est muette pendant
                           des dizaines de secondes. */}
@@ -4079,7 +4223,9 @@ export default function PlaygroundPage() {
                   attachments.map((f, i) => (
                     <HStack key={i} gap={2} vAlign="center">
                       <Text type="supporting" color="secondary">{f.name}</Text>
-                      <Text type="supporting" color="secondary">{Math.ceil(f.content.length / 1024)} Ko</Text>
+                      <Text type="supporting" color="secondary">
+                        {f.image ? t("image") : `${Math.ceil(f.content.length / 1024)} Ko`}
+                      </Text>
                     </HStack>
                   ))
                 )}

@@ -10,6 +10,7 @@ encore ailleurs.
 """
 import html
 import json
+import re
 import secrets
 from datetime import datetime
 
@@ -30,6 +31,25 @@ bp = Blueprint('conversations', __name__)
 # surtout par conversation — c'est le total qui menace la base, pas un message.
 MSG_MAX_CHARS  = 400_000
 CONV_MAX_CHARS = 2_000_000
+# Images jointes à un message du playground (modèles qui les lisent). Le client
+# les réduit à 1 568 px de côté en JPEG avant l'envoi (~150-400 Ko) : la borne
+# ci-dessous n'arrête qu'un client qui ne l'aurait pas fait. Seules des URL
+# `data:` passent, jamais une adresse : le moteur irait sinon la chercher
+# lui-même sur le réseau interne (SSRF).
+IMAGE_DATA_URL = re.compile(r'data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}')
+IMAGES_PAR_MESSAGE = 4
+IMAGE_MAX_CHARS = 3_000_000
+
+
+def images_valides(m):
+    """Les images d'un message, filtrées : URL data: d'image, bornées."""
+    imgs = m.get('images') if isinstance(m, dict) else None
+    if not isinstance(imgs, list):
+        return []
+    return [u for u in imgs[:IMAGES_PAR_MESSAGE]
+            if isinstance(u, str) and len(u) <= IMAGE_MAX_CHARS and IMAGE_DATA_URL.fullmatch(u)]
+
+
 CONVERSATIONS_MAX = 30           # per user — beyond that, we purge the oldest
 # Ce que `GET /api/conversations` accepte de transporter. Le rognage à la
 # sauvegarde (CONV_MAX_CHARS, 2 M par conversation) protège la BASE, pas le
@@ -130,7 +150,12 @@ def conversations_route():
                      # repassait pour finie après un rechargement, et on ne
                      # pouvait plus diagnostiquer la cause a posteriori.
                      **({'isError': True} if m.get('isError') else {}),
-                     **({'truncated': True} if m.get('truncated') else {})}
+                     **({'truncated': True} if m.get('truncated') else {}),
+                     # Images jointes : sans elles, une conversation rechargée
+                     # perdait ce que le modèle avait vu. Comptées dans
+                     # CONV_MAX_CHARS comme le reste : une conversation trop
+                     # lourde perd ses plus anciens messages, images comprises.
+                     **({'images': imgs} if (imgs := images_valides(m)) and m.get('role') == 'user' else {})}
                     for m in messages if m.get('role') in ('user', 'assistant')][-60:]
         # Rognage INCRÉMENTAL : re-sérialiser 2 Mo à chaque message retiré coûtait
         # jusqu'à 60 sérialisations par sauvegarde, dans le fil de gunicorn. On

@@ -32,7 +32,7 @@ from flask import (Blueprint, Response, current_app, jsonify, request, session,
 
 from auth import login_required
 from config import AUTO_MODEL_NAME, LITELLM_URL
-from conversation_routes import MSG_MAX_CHARS
+from conversation_routes import MSG_MAX_CHARS, images_valides
 from db import get_db, log_audit
 from guards import (_chat_rate_limited, _sse_msg, _sse_notice,
                     maintenance_block_json, maintenance_block_sse,
@@ -623,6 +623,66 @@ def _playground_model_limits():
     return model_limits
 
 
+# Nombre d'images envoyées au modèle par requête, toutes conversations confondues :
+# chacune coûte un encodage complet au préchargement. Au-delà, on garde les plus
+# RÉCENTES — la question porte presque toujours sur la dernière.
+IMAGES_MAX_REQUETE = 8
+# Poids d'une image dans les estimations « caractères » de la fenêtre : ~1 500
+# tokens (image ~1 Mpx), au ratio pessimiste de 3 caractères par token.
+IMAGE_POIDS_CHARS = 1500 * 3
+
+
+def _modele_voit(vllm_args, engine):
+    """Le modèle de ce catalogue lit-il les images ? Lu dans SES arguments.
+
+    llama.cpp ne voit qu'avec un projecteur (`--mmproj`) ; TabbyAPI qu'avec
+    `--vision true`. vLLM charge la vision d'office sur un modèle multimodal,
+    mais rien dans les arguments ne le dit : on ne l'annonce que si l'entrée la
+    déclare (`--limit-mm-per-prompt`). Mieux vaut cacher un bouton qui aurait
+    marché que d'en montrer un qui partirait en erreur 400.
+    """
+    toks = (vllm_args or '').split()
+    if engine == 'llamacpp':
+        return '--mmproj' in toks
+    if engine == 'exllamav3':
+        return any(t == '--vision' and toks[i + 1:i + 2] == ['true'] for i, t in enumerate(toks))
+    return any(t.startswith('--limit-mm-per-prompt') for t in toks)
+
+
+def _playground_model_vision():
+    vision = {row['name']: _modele_voit(row['vllm_args'], row['engine'] or 'vllm')
+              for row in get_db().execute("SELECT name, vllm_args, engine FROM model_configs")}
+    running = get_running_models()
+    if running:
+        vision[AUTO_MODEL_NAME] = vision.get(running[0], False)
+    return vision
+
+
+def _poids(m):
+    """Poids d'un message dans les estimations de fenêtre (caractères)."""
+    return len(m.get('content') or '') + IMAGE_POIDS_CHARS * len(m.get('images') or ())
+
+
+def _msgs_api(msgs):
+    """Les messages au format de l'API : images en parties `image_url`.
+
+    En interne les images voyagent À CÔTÉ du texte (`images`), pour que tout ce
+    qui retouche `content` (versions périmées, résultats de recherche ajoutés au
+    dernier message) continue de travailler sur une chaîne.
+    """
+    out = []
+    for m in msgs:
+        imgs = m.get('images')
+        base = {k: v for k, v in m.items() if k != 'images'}
+        if imgs:
+            parts = [{'type': 'image_url', 'image_url': {'url': u}} for u in imgs]
+            if base.get('content'):
+                parts.append({'type': 'text', 'text': base['content']})
+            base['content'] = parts
+        out.append(base)
+    return out
+
+
 def _playground_input_limit(model):
     """Ce qu'un PROMPT peut réellement peser, pour ce modèle.
 
@@ -665,6 +725,9 @@ def api_playground_data():
     # AVANT la première question, et proposer d'aller créer la clé.
     return jsonify({'running_models': get_running_models(),
                      'model_limits': _playground_model_limits(),
+                     # Le bouton « Joindre » n'accepte les images que si le
+                     # modèle choisi sait les lire.
+                     'model_vision': _playground_model_vision(),
                      'has_key': bool(get_user_keys(session['username']))})
 
 
@@ -765,9 +828,9 @@ def _history_for_model(history, system, ctx):
     # ~3 caractères par token, volontairement pessimiste (le vrai ratio est ~4), et
     # on réserve de quoi répondre.
     budget = max(20_000, (ctx - 8192) * 3)
-    total = sum(len(m['content']) for m in history) + len(system or '')
+    total = sum(_poids(m) for m in history) + len(system or '')
     while len(history) > 2 and total > budget:
-        total -= len(history[0]['content'])
+        total -= _poids(history[0])
         history = history[1:]
     return history
 
@@ -887,8 +950,14 @@ def playground_chat():
     # Ce qui ne tient pas dans la fenêtre est écarté par MESSAGE, du plus ancien
     # au plus récent : perdre un vieux tour est réparable, amputer le dernier
     # fichier ne l'est pas.
-    history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:MSG_MAX_CHARS]}
-               for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')]
+    history = []
+    for m in data.get('messages', []):
+        if not isinstance(m, dict) or m.get('role') not in ('user', 'assistant'):
+            continue
+        h = {'role': m['role'], 'content': str(m.get('content', ''))[:MSG_MAX_CHARS]}
+        if m['role'] == 'user' and (imgs := images_valides(m)):
+            h['images'] = imgs
+        history.append(h)
     if not history:
         return Response(_sse_msg("Empty message."), mimetype='text/event-stream')
     blocked = maintenance_block_sse()
@@ -902,6 +971,19 @@ def playground_chat():
     if not running:
         return Response(_sse_msg("No model is currently running."), mimetype='text/event-stream')
     model = data.get('model') if data.get('model') in running else running[0]
+    # Images : retirées si CE modèle ne les lit pas (une conversation commencée
+    # sur un modèle qui voit, reprise sur un autre, ne part pas en 400), et
+    # bornées aux IMAGES_MAX_REQUETE plus récentes.
+    _voit = _playground_model_vision().get(model, False)
+    _reste_img = IMAGES_MAX_REQUETE if _voit else 0
+    for h in reversed(history):
+        if 'images' in h:
+            garde = h['images'][-_reste_img:] if _reste_img else []
+            _reste_img -= len(garde)
+            if garde:
+                h['images'] = garde
+            else:
+                del h['images']
 
     # Settings (bounded).
     system = str(data.get('system', '')).strip()[:4000]
@@ -974,7 +1056,7 @@ def playground_chat():
     if ctx:
         # ~3 caractères par token : volontairement PESSIMISTE (le vrai ratio est
         # plutôt 4). Mieux vaut se laisser un peu moins de place que de refuser.
-        approx_prompt = sum(len(str(m.get('content', ''))) for m in msgs) // 3
+        approx_prompt = sum(_poids(m) for m in msgs) // 3
         reste = ctx - approx_prompt - 512      # 512 : marge pour le gabarit de chat
         max_tokens = max(256, min(max_tokens, reste))
 
@@ -1042,7 +1124,7 @@ def playground_chat():
                 def _ouvre(ctk):
                     return requests.post(f"{LITELLM_URL}/v1/chat/completions",
                                          headers={'Authorization': f'Bearer {user_key}'},
-                                         json={'model': model, 'messages': msgs, 'stream': True,
+                                         json={'model': model, 'messages': _msgs_api(msgs), 'stream': True,
                                                'temperature': temperature, 'max_tokens': max_tokens,
                                                'top_p': top_p,
                                                'stream_options': {'include_usage': True},

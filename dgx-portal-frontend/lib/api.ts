@@ -268,7 +268,7 @@ async function readSSE(res: Response, onEvent: (payload: SSEPayload) => void): P
 export async function streamChat(
   csrf: string,
   model: string,
-  messages: { role: string; content: string }[],
+  messages: { role: string; content: string; images?: string[] }[],
   settings: Settings,
   signal: AbortSignal,
   onDelta: (delta: StreamDelta) => void,

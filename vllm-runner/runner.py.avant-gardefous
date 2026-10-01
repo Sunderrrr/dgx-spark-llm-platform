@@ -88,33 +88,6 @@ _ENGINE_BIN = {"vllm": VLLM_BIN, "llamacpp": LLAMA_BIN, "ds4": DS4_BIN}
 STATE_FILE = os.path.join(os.environ.get("HOME", "/var/lib/vllm-runner"), "last_model.json")
 MAX_AUTO_RETRIES = 3
 
-# --- Garde-fous memoire (2026-10-01, apres une boucle de plantages) -----------
-# Sur le GB10 la memoire GPU est prise dans la RAM systeme mais N'APPARAIT DANS
-# AUCUN PROCESSUS ni dans aucun cgroup : un modele de 26 Go n'y compte que 2 Go
-# d'anon (mesure). Le tueur OOM du noyau est donc aveugle a la vraie cause — le
-# 2026-10-01 il a tue 443 processus sans rien liberer, pendant que ~119 Go restaient
-# tenus par le pilote (bilan Mem-Info : 0,77 Go libre, presque rien en anon/cache),
-# et la machine a gele puis redemarre deux fois. Un MemoryMax sur l'unite serait
-# donc illusoire. Le seul signal fiable est MemAvailable, que la memoire GPU fait
-# bien baisser : c'est lui que surveillent les garde-fous ci-dessous.
-#
-# Plancher pour LANCER un modele : en dessous, la memoire de l'instance precedente
-# n'est pas rendue (le pilote la libere avec retard) et on s'empilerait dessus.
-MIN_FREE_TO_LAUNCH_GIB = float(os.environ.get("MIN_FREE_TO_LAUNCH_GIB", "30"))
-# Seuil critique PENDANT qu'un modele tourne : on tue nous-memes notre llama-server
-# avant que le noyau ne parte en OOM global et n'emporte toute la machine.
-CRITICAL_FREE_GIB = float(os.environ.get("CRITICAL_FREE_GIB", "2"))
-# Un modele doit tenir ce temps SANS interruption pour remettre le compteur
-# d'echecs a zero. Repondre en HTTP 200 ne suffit pas : dans la boucle du
-# 2026-10-01 le modele repondait, le compteur repartait a zero, puis il etait
-# tue une minute plus tard — MAX_AUTO_RETRIES n'etait donc jamais atteint.
-STABLE_SECONDS = int(os.environ.get("RESUME_STABLE_SECONDS", "600"))
-# Compteur d'echecs de reprise PERSISTE sur disque : en memoire vive il repartait
-# a zero a chaque redemarrage du service (OOMPolicy=stop redemarre le runner a
-# chaque OOM), ce qui rendait la boucle infinie, y compris a travers les reboots.
-RESUME_FAILS_FILE = os.path.join(os.environ.get("HOME", "/var/lib/vllm-runner"),
-                                 "resume_failures")
-
 app = Flask(__name__)
 
 _lock   = threading.Lock()
@@ -124,7 +97,6 @@ _engine = None        # engine of the current model: 'vllm' | 'llamacpp'
 _logs   = []
 _status = "stopped"   # stopped | starting | running | error
 _auto_retries = 0     # consecutive failed automatic relaunch attempts
-_running_since = None # instant ou le modele courant est passe "running"
 
 # ── Auth ─────────────────────────────────────────────────────────────────
 # Every route requires "Authorization: Bearer <RUNNER_TOKEN>".
@@ -560,58 +532,8 @@ def _wait_mem_release(timeout=60, settle=4.0):
     time.sleep(settle)            # small margin for the driver
 
 
-def _read_resume_fails():
-    try:
-        with open(RESUME_FAILS_FILE) as f:
-            return int(f.read().strip() or 0)
-    except Exception:
-        return 0
-
-
-def _write_resume_fails(n):
-    try:
-        with open(RESUME_FAILS_FILE, "w") as f:
-            f.write(str(int(n)))
-    except Exception:
-        pass
-
-
-def _launch_memory_ok(context):
-    """Attend que la memoire de l'instance precedente soit rendue, puis REFUSE de
-    lancer s'il reste moins de MIN_FREE_TO_LAUNCH_GIB. A appeler HORS du verrou :
-    l'attente peut durer une minute et bloquerait /status."""
-    _wait_mem_release()
-    free = _mem_available_gib()
-    if free is not None and free < MIN_FREE_TO_LAUNCH_GIB:
-        _append(f"[runner] {context} REFUSE : {free:.1f} GiB disponibles seulement "
-                f"(plancher {MIN_FREE_TO_LAUNCH_GIB:.0f}). La memoire d'un modele "
-                f"precedent n'a pas ete rendue — lancer maintenant ferait planter la machine.")
-        return False
-    return True
-
-
-def _memory_guard(proc):
-    """Tant que NOTRE modele tourne : si MemAvailable passe sous CRITICAL_FREE_GIB,
-    on le tue nous-memes. C'est la seule facon d'arriver avant le noyau, dont le
-    tueur OOM ne voit pas la memoire GPU et tuerait tout le reste a la place."""
-    while proc is _proc and proc.poll() is None:
-        free = _mem_available_gib()
-        if free is not None and free < CRITICAL_FREE_GIB:
-            _append(f"[runner] MEMOIRE CRITIQUE : {free:.1f} GiB disponibles — arret "
-                    f"force du modele pour eviter un OOM global de la machine.")
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-            return
-        time.sleep(0.5)
-
-
 def _reader(proc, journal=None):
-    global _status, _proc, _model, _auto_retries, _running_since
+    global _status, _proc, _model, _auto_retries
     try:
         for raw in proc.stdout:
             line = raw.rstrip()
@@ -624,7 +546,6 @@ def _reader(proc, journal=None):
             # /launch, could overwrite the status of the NEW process that is starting)
             if "Application startup complete" in line and proc is _proc:
                 _status = "running"
-                _running_since = time.time()
                 _auto_retries = 0  # this launch worked, restart with a fresh retry budget
     except Exception as e:
         _append(f"[runner] read interrupted: {e}")
@@ -641,14 +562,13 @@ def _health_watch(proc):
     """Flip the status to 'running' as soon as vLLM actually responds, without
     relying on logs: --uvicorn-log-level warning hides "Application startup
     complete", which left the status stuck on 'starting' while the model served."""
-    global _status, _auto_retries, _running_since
+    global _status, _auto_retries
     url = "http://127.0.0.1:8000/v1/models"
     while proc is _proc and proc.poll() is None:
         try:
             with urllib.request.urlopen(url, timeout=2) as r:
                 if r.status == 200 and proc is _proc:
                     _status = "running"
-                    _running_since = time.time()
                     _auto_retries = 0
                     return
         except Exception:
@@ -884,7 +804,6 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     )
     threading.Thread(target=_reader, args=(_proc, journal), daemon=True).start()
     threading.Thread(target=_health_watch, args=(_proc,), daemon=True).start()
-    threading.Thread(target=_memory_guard, args=(_proc,), daemon=True).start()
     # Always persist the state (manual, boot resume, watchdog) so last_model.json
     # stays present as long as the model is meant to run.
     _save_last_launch(hf_id, name, original_tokens, engine)
@@ -1331,52 +1250,27 @@ def _watchdog():
     the persisted state. Capped at MAX_AUTO_RETRIES consecutive attempts so it
     doesn't loop forever on a broken config."""
     global _auto_retries
-    desactive_annonce = False
     while True:
         time.sleep(10)
-        # Un modele qui tient STABLE_SECONDS sans interruption remet le compteur
-        # d'echecs a zero — et seulement lui (cf. STABLE_SECONDS).
-        if (_status == "running" and _running_since
-                and time.time() - _running_since >= STABLE_SECONDS
-                and _read_resume_fails()):
-            _write_resume_fails(0)
-            _auto_retries = 0
-            desactive_annonce = False
-            _append("[runner] model stable — auto-resume failure counter reset")
         last = _load_last_launch()
         if not last:
             continue
         with _lock:
             already_running = _proc is not None and _proc.poll() is None
             mid_launch = _status == "starting"
-        if already_running or mid_launch:
-            continue
-        fails = _read_resume_fails()
-        if fails >= MAX_AUTO_RETRIES:
-            if not desactive_annonce:
-                _append(f"[runner] auto-resume DESACTIVE apres {fails} echecs consecutifs "
-                        f"— relancer manuellement depuis l'Admin.")
-                desactive_annonce = True
-            continue
-        eng = last.get("engine", "vllm")
-        ok, extra_tokens = _validate_vllm_args(last.get("vllm_args", ""), eng,
-                                               last.get("hf_model_id", ""))
-        if not ok:
-            _append(f"[runner] auto-resume impossible, invalid args: {extra_tokens}")
-            _write_resume_fails(MAX_AUTO_RETRIES)
-            continue
-        # Attente/plancher memoire HORS du verrou. Un refus compte comme un echec :
-        # c'est ce qui finit par arreter une boucle au lieu de la nourrir.
-        if not _launch_memory_ok("auto-resume"):
-            _write_resume_fails(fails + 1)
-            continue
-        with _lock:
-            if _proc is not None and _proc.poll() is None:
-                continue          # lance entre-temps (Admin) : rien a faire
-            _write_resume_fails(fails + 1)
-            _auto_retries = fails + 1
-            attempt_msg = (f"[runner] model stopped unexpectedly — auto-resume "
-                           f"(attempt {fails + 1}/{MAX_AUTO_RETRIES})…")
+            if already_running or mid_launch:
+                continue
+            if _auto_retries >= MAX_AUTO_RETRIES:
+                continue
+            eng = last.get("engine", "vllm")
+            ok, extra_tokens = _validate_vllm_args(last.get("vllm_args", ""), eng,
+                                                   last.get("hf_model_id", ""))
+            if not ok:
+                _append(f"[runner] auto-resume impossible, invalid args: {extra_tokens}")
+                _auto_retries = MAX_AUTO_RETRIES
+                continue
+            _auto_retries += 1
+            attempt_msg = f"[runner] model stopped unexpectedly — auto-resume (attempt {_auto_retries}/{MAX_AUTO_RETRIES})…"
             _start_process(last["hf_model_id"], last["model_name"], extra_tokens, eng)
             _append(attempt_msg)  # after _start_process (which clears _logs) so it survives
 
@@ -1384,15 +1278,14 @@ def _watchdog():
 if __name__ == "__main__":
     threading.Thread(target=_watchdog, daemon=True).start()
 
-    # La reprise au demarrage est confiee au watchdog (premier passage ~10 s apres).
-    # Elle relancait le modele IMMEDIATEMENT, sans attendre que le pilote rende la
-    # memoire GPU de l'instance tuee : apres un OOM, le nouveau modele s'empilait
-    # dessus et replantait — boucle infinie, y compris a travers les reboots. Le
-    # watchdog applique, lui, l'attente memoire, le plancher et le compteur persiste.
-    # Le faire ici AUSSI ouvrirait une course : l'attente memoire peut durer une
-    # minute, pendant laquelle le watchdog lancerait une seconde instance.
-    if _load_last_launch():
-        _append("[runner] service started — the watchdog will resume the last model "
-                "once memory is confirmed free")
+    _resume = _load_last_launch()
+    if _resume:
+        _eng = _resume.get("engine", "vllm")
+        ok, extra_tokens = _validate_vllm_args(_resume.get("vllm_args", ""), _eng,
+                                               _resume.get("hf_model_id", ""))
+        if ok:
+            with _lock:
+                _append("[runner] resuming the last model at service startup…")
+                _start_process(_resume["hf_model_id"], _resume["model_name"], extra_tokens, _eng)
 
     app.run(host="0.0.0.0", port=8001, debug=False, threaded=True)

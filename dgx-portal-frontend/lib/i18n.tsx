@@ -1014,6 +1014,7 @@ const EN: Record<string, string> = {
   "« {name} » dépasse 25 Mo.": "\"{name}\" is larger than 25 MB.",
   "Ce modèle ne lit pas les images : elles n'ont pas été envoyées.": "This model can't read images: they were not sent.",
   "Image jointe {n}": "Attached image {n}",
+  "« {name} » est trop grande (plus de 2 Mo) et ce navigateur bloque sa réduction : réduis-la avant de la joindre.": "\"{name}\" is too large (over 2 MB) and this browser blocks resizing it: shrink it before attaching.",
   "image": "image",
   "Fichiers joints": "Attached files",
   "Fichiers texte uniquement. Les tokens comptent sur ton budget.":

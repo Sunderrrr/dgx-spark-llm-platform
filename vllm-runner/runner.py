@@ -42,6 +42,17 @@ LLAMA_BIN_NEXT = os.environ.get("LLAMA_BIN_NEXT", "/root/llama-cpp-upstream/buil
 # l'amont ni le fork TurboQuant ne la lisent (verifie). Opt-in par --llama-k2 et
 # jamais par defaut : c'est une branche de dev, pas une release.
 LLAMA_BIN_K2 = os.environ.get("LLAMA_BIN_K2", "/root/llama-cpp-k2horizon/build/bin/llama-server")
+# Fork Prism ML (branche `prism`), binaire VULKAN preconstruit pour aarch64. Seul
+# build qui lise le type de tenseur TERNAIRE `pq2_0` (id 142) : mesure du
+# 2026-10-01, 402 des 851 tenseurs du PQ2_0 de Ternary-Bonsai-2-27B le portent, et
+# `libggml-base.so` de nos trois autres builds ne connait que `q1_0`/`q2_0`.
+# L'amont et le fork TurboQuant echouent donc au chargement. Opt-in par
+# `--llama-prism` et jamais par defaut : ce n'est pas un binaire CUDA (la release
+# amont n'en publie pas pour Linux aarch64), il passe par le backend Vulkan —
+# `Vulkan0: NVIDIA GB10` d'apres `--list-devices`. Verifie avant adoption : les
+# noyaux existent des DEUX cotes (CPU `ggml_vec_dot_pq2_0_q8_0`, Vulkan 106
+# symboles `arr_dmmv_pq2_0_*`), donc un repli CPU reste possible.
+LLAMA_BIN_PRISM = os.environ.get("LLAMA_BIN_PRISM", "/root/llama-prism/llama-prism-b10743-adfffbe/llama-server")
 # ds4 engine: DGX Spark-specific "multi-tensor" NVFP4 GGUF (DeepSeek-V4-Flash).
 # Neither vLLM nor stock llama.cpp can load this format.
 DS4_BIN      = os.environ.get("DS4_BIN", "/root/ds4-nvfp4-spark/ds4-server")
@@ -135,6 +146,7 @@ _BIN_FLAGS = {
     "--vllm-nightly": VLLM_BIN_NIGHTLY,
     "--llama-next": LLAMA_BIN_NEXT,
     "--llama-k2": LLAMA_BIN_K2,
+    "--llama-prism": LLAMA_BIN_PRISM,
 }
 # Chaque pseudo-flag n'est admis que pour SON moteur : proposer --vllm-028 a un
 # lancement llama.cpp n'a aucun sens, et l'accepter ferait pointer llama.cpp vers

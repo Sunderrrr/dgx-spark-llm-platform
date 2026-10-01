@@ -7,6 +7,7 @@ evite depuis db.py.
 
 Ne depend que de flask, du noyau (db) et du temps.
 """
+import struct
 import threading
 import time
 from collections import defaultdict
@@ -91,16 +92,30 @@ def _chat_rate_limited(username, bucket, max_requetes=None, fenetre=None):
     now = time.time()
     key = f"{bucket}|{username}"
     db = get_db()
-    row = db.execute("SELECT fails, first_at FROM login_attempts WHERE key=?", (key,)).fetchone()
-    if not row or now - row['first_at'] > fenetre:
-        db.execute("INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,1,?,0) "
-                   "ON CONFLICT(key) DO UPDATE SET fails=1, first_at=excluded.first_at",
-                   (key, now))
-        db.commit()
+    # L'ACQUISITION est un seul UPSERT conditionnel depuis l'audit du 2026-10-02.
+    # Un SELECT suivi d'un UPDATE laissait passer N requêtes simultanées : toutes
+    # lisaient `fails` avant la première écriture. 64 threads gunicorn pouvaient
+    # donc franchir un plafond de 20 d'un coup, saturer le pool et le GPU — et le
+    # compteur doit de toute façon vivre en SQL, puisque les 4 workers ne peuvent
+    # pas se coordonner autrement. `rowcount` vaut 1 quand la requête a été
+    # comptée (fenêtre ouverte et plafond non atteint), 0 sinon : c'est la
+    # décision, prise par la base, pas par du code applicatif.
+    cur = db.execute(
+        "INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,1,?,0) "
+        "ON CONFLICT(key) DO UPDATE SET fails=fails+1 "
+        "WHERE login_attempts.first_at > ? AND login_attempts.fails < ?",
+        (key, now, now - fenetre, max_requetes))
+    compte = cur.rowcount
+    db.commit()
+    if compte:
         return 0
-    if row['fails'] >= max_requetes:
+    row = db.execute("SELECT first_at FROM login_attempts WHERE key=?", (key,)).fetchone()
+    if row and now - row['first_at'] <= fenetre:
         return max(1, int(fenetre - (now - row['first_at'])))
-    db.execute("UPDATE login_attempts SET fails=fails+1 WHERE key=?", (key,))
+    # Fenêtre expirée : la rouvrir. Deux requêtes simultanées peuvent la rouvrir
+    # toutes les deux et la seconde écrase la première — le seul effet est une
+    # requête non comptée, une fois par fenêtre.
+    db.execute("UPDATE login_attempts SET fails=1, first_at=? WHERE key=?", (now, key))
     db.commit()
     return 0
 
@@ -183,6 +198,65 @@ _MAX_VOICE_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB, reference sample
 _MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB, reference image
 _ALLOWED_IMAGE_TYPES = {'image/png', 'image/jpeg', 'image/webp'}
 
+# ── Borne de DÉCODAGE de l'image (audit du 2026-10-02) ───────────────────────
+# Le plafond d'octets ne borne que le fichier COMPRESSÉ : un PNG de quelques
+# centaines de Ko peut décrire 170 Mpx (un aplat se compresse ~1000:1) et faire
+# allouer ~0,7 Go au processus qui le décode — ComfyUI, un service HÔTE pour la
+# vidéo, ou le conteneur OCR. Sur une mémoire unifiée, l'OOM-killer vise le plus
+# gros RSS, c'est-à-dire le modèle servi. Les dimensions se lisent dans l'EN-TÊTE,
+# sans décoder : le portail n'a pas Pillow, et décoder pour mesurer serait déjà
+# la bombe. Un en-tête illisible est REFUSÉ (fail-closed) : laisser passer ce
+# qu'on ne sait pas mesurer n'annulerait pas seulement la garde, il suffirait
+# d'abîmer l'en-tête pour la contourner.
+MAX_IMAGE_PIXELS = 40_000_000  # ~40 Mpx
+
+
+def _dimensions_image(data, mime):
+    """(largeur, hauteur) lues dans l'en-tête PNG/JPEG/WebP, ou None."""
+    try:
+        if mime == 'image/png':
+            # Signature puis chunk IHDR : largeur/hauteur en u32 big-endian.
+            if data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR':
+                return None
+            return struct.unpack('>II', data[16:24])
+        if mime == 'image/jpeg':
+            # Parcours des segments jusqu'au marqueur SOF (0xC0-0xCF, sauf DHT,
+            # JPG et DAC qui partagent le préfixe).
+            i = 2
+            while i + 9 < len(data):
+                if data[i] != 0xFF:
+                    return None
+                marqueur = data[i + 1]
+                if marqueur == 0x01 or 0xD0 <= marqueur <= 0xD8:
+                    i += 2
+                    continue
+                taille = struct.unpack('>H', data[i + 2:i + 4])[0]
+                if marqueur in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                                0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    hauteur, largeur = struct.unpack('>HH', data[i + 5:i + 9])
+                    return largeur, hauteur
+                if marqueur == 0xDA:  # début des données : plus aucun SOF à venir
+                    return None
+                i += 2 + taille
+            return None
+        if mime == 'image/webp':
+            if data[:4] != b'RIFF' or data[8:12] != b'WEBP':
+                return None
+            format_webp = data[12:16]
+            if format_webp == b'VP8X':      # dimensions 24 bits, moins un
+                return (int.from_bytes(data[24:27], 'little') + 1,
+                        int.from_bytes(data[27:30], 'little') + 1)
+            if format_webp == b'VP8 ':      # lossy : 14 bits chacune
+                return (struct.unpack('<H', data[26:28])[0] & 0x3FFF,
+                        struct.unpack('<H', data[28:30])[0] & 0x3FFF)
+            if format_webp == b'VP8L':      # lossless : 14 bits empaquetés
+                bits = int.from_bytes(data[21:25], 'little')
+                return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+            return None
+    except (struct.error, IndexError):
+        return None
+    return None
+
 
 def _read_uploaded_image(field='image'):
     """Reads and validates an image file from the form. Returns (bytes, mime) or
@@ -196,6 +270,12 @@ def _read_uploaded_image(field='image'):
     data = f.read(_MAX_UPLOAD_BYTES + 1)
     if len(data) > _MAX_UPLOAD_BYTES:
         return None, "Image trop volumineuse (15 Mo max)."
+    dimensions = _dimensions_image(data, f.mimetype)
+    if dimensions is None:
+        return None, "Image illisible (en-tête PNG/JPEG/WebP non reconnu)."
+    if dimensions[0] * dimensions[1] > MAX_IMAGE_PIXELS:
+        return None, (f"Image trop grande : {dimensions[0]}×{dimensions[1]} pixels "
+                      f"({MAX_IMAGE_PIXELS // 1_000_000} Mpx max).")
     return data, f.mimetype
 
 

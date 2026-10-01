@@ -8,6 +8,33 @@
 # de services externes (LDAP, OIDC/Authentik, SMTP, Discord).
 set -e
 
+# ── Artefacts techniques dérivés de secrets, générés AVANT la garde sur .env ──
+# Ils sont volontairement au-dessus du « .env existe déjà » : relancer setup.sh
+# sur une installation en place doit pouvoir réparer un artefact manquant, sans
+# exiger de supprimer .env (ce qui régénérerait tous les secrets internes).
+
+# SearXNG lit TOUT le dossier monté (`./searxng:/etc/searxng`). Sans settings.yml,
+# l'image écrit le sien, qui n'active pas le format JSON que le portail demande :
+# la recherche web répond alors 403, sans message clair côté portail.
+mkdir -p searxng
+if [ ! -s searxng/settings.yml ]; then
+  sed "s|secret_key: \"changeme\"|secret_key: \"$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')\"|" \
+    searxng/settings.yml.example > searxng/settings.yml
+  chmod 600 searxng/settings.yml
+  echo "✓ searxng/settings.yml généré (format JSON activé, secret aléatoire, 0600)"
+fi
+
+# Jeton de service crawl4ai : il refuse d'écouter ailleurs qu'en loopback sans
+# credential, et le compose le monte depuis ./secrets/. Le fichier doit être
+# lisible par le conteneur NON privilégié → 0644 (un 0600 root le rendrait
+# illisible, et le conteneur refuserait de démarrer).
+mkdir -p secrets && chmod 700 secrets
+if [ ! -s secrets/crawl4ai_token ]; then
+  python3 -c "import secrets;print(secrets.token_urlsafe(32))" > secrets/crawl4ai_token
+  echo "✓ secrets/crawl4ai_token généré (0644, lisible par le conteneur)"
+fi
+chmod 644 secrets/crawl4ai_token
+
 if [ -f .env ]; then
   echo ".env existe déjà. Supprime-le si tu veux le regénérer."
   exit 0

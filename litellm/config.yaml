@@ -21,8 +21,13 @@ router_settings:
 
 litellm_settings:
   drop_params: true
-  default_max_budget: 2000000
-  default_budget_duration: "1d"
+  # Repli pour une clé créée SANS budget explicite (création à la main dans le
+  # tableau de bord LiteLLM). Il doit refléter la politique de la plateforme —
+  # dgx-portal/config.py, `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` — sinon deux
+  # chemins de création donnent deux plafonds différents selon qui crée la clé.
+  # Les clés créées par le portail, elles, portent toujours leur enveloppe.
+  default_max_budget: 200000000
+  default_budget_duration: "7d"
   # Anti « slots bloqués » : par défaut LiteLLM RÉESSAIE une requête qui
   # échoue/pend — sur un modèle mono-backend lent (llama.cpp, 4 slots), chaque
   # retry saisit un slot de plus, et quelques échecs suffisent à tout bloquer.

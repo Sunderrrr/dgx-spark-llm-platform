@@ -694,8 +694,8 @@ allowlists every launch flag, requires a Bearer token and runs non-root. No
 scoped `sudo` on root-owned wrapper scripts, each on its own docker network with no
 route to LiteLLM, Postgres or Traefik. Elevated host access does exist *around* the
 stack, and it is the operator's to review rather than something this repository
-grants: the `hawser` control-plane agent the runner is designed for (socket + a
-`HAWSER_TOKEN` + an IP allowlist; currently stopped), and one third-party edge
+grants: a third-party control-plane agent the runner is designed for (socket + a
+bearer token + an IP allowlist; currently stopped), and one third-party edge
 agent outside compose with root, a writable socket and part of the host
 filesystem. The second is the heaviest open item of the last audit — see
 [`SECURITY.md`](SECURITY.md) §2.2 and §3.3. The portal adds LDAP/SSO auth,

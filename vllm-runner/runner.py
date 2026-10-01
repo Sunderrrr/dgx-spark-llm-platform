@@ -54,6 +54,13 @@ MODELS_DIR   = os.environ.get("MODELS_DIR", "/root/models")
 # models that breaks in agentic use). Referenced by name only → no arbitrary path.
 TEMPLATES_DIR = os.environ.get("TEMPLATES_DIR", "/root/models/templates")
 RUNNER_TOKEN = os.environ["RUNNER_TOKEN"]  # required — no default, the service must fail at startup if absent
+# Un jeton VIDE passerait la comparaison avec une requête SANS en-tête
+# Authorization (`compare_digest("", "")` est vrai) : un `RUNNER_TOKEN=` dans
+# l'environnement transformait donc le daemon en service OUVERT, alors qu'il
+# possède le GPU et peut lancer n'importe quel modèle. On refuse au démarrage,
+# comme pour l'absence (audit du 2026-10-02). Le jeton en service en fait 46.
+if len(RUNNER_TOKEN) < 16:
+    raise SystemExit("RUNNER_TOKEN absent ou trop court (16 caracteres minimum)")
 
 ENGINES = ("vllm", "llamacpp", "ds4")
 _ENGINE_BIN = {"vllm": VLLM_BIN, "llamacpp": LLAMA_BIN, "ds4": DS4_BIN}
@@ -678,28 +685,13 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     """Launch the inference engine. Must be called with _lock already held."""
     global _proc, _model, _status, _engine
 
-    killed = bool(_proc and _proc.poll() is None)
-    if killed:
-        _append("[runner] Stopping previous model…")
-        _kill(_proc)
-
-    _logs.clear()
-    _model  = name
-    _engine = engine
-    _status = "starting"
-    # Journal sur disque du démarrage : c'est le SEUL endroit où survivra la
-    # cause racine d'un échec, puisque ce clear() efface le tampon mémoire à
-    # chaque tentative (y compris à chaque auto-résume).
-    journal = _ouvre_journal(name, engine)
-    if journal is not None:
-        journal.ecrire(f"[runner] {time.strftime('%Y-%m-%dT%H:%M:%S')} démarrage "
-                       f"{engine} — {name} ({hf_id})")
-
-    # The previous model was just killed: wait for the driver to release the
-    # unified memory, otherwise the new process OOMs at startup.
-    if killed:
-        _wait_mem_release()
-
+    # La commande est construite AVANT l'arrêt du modèle en cours (audit du
+    # 2026-10-02). `_build_cmd` valide et résout (modèle local, gabarit, mmproj)
+    # et peut ÉCHOUER : l'ordre précédent tuait donc le modèle SERVI avant de
+    # découvrir que la relance était impossible — une faute de saisie laissait la
+    # plateforme sans aucun modèle, alors que le runner n'en sert qu'un à la fois.
+    # Ici l'échec remonte avant tout arrêt et le service reste tel quel.
+    #
     # Kept for persistence (auto-resume): the pseudo-flags (e.g. --vllm-025) are
     # stripped from extra_tokens just below for execution, but an auto-resume
     # that lost them would relaunch on the wrong binary / without the necessary
@@ -723,6 +715,32 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
             bin_override = bin_path
 
     cmd = _build_cmd(hf_id, name, extra_tokens, engine, bin_override=bin_override)
+
+    killed = bool(_proc and _proc.poll() is None)
+    if killed:
+        _append("[runner] Stopping previous model…")
+        _kill(_proc)
+
+    _logs.clear()
+    _model  = name
+    _engine = engine
+    _status = "starting"
+    # Journal sur disque du démarrage : c'est le SEUL endroit où survivra la
+    # cause racine d'un échec, puisque ce clear() efface le tampon mémoire à
+    # chaque tentative (y compris à chaque auto-résume).
+    journal = _ouvre_journal(name, engine)
+    if journal is not None:
+        journal.ecrire(f"[runner] {time.strftime('%Y-%m-%dT%H:%M:%S')} démarrage "
+                       f"{engine} — {name} ({hf_id})")
+
+    # The previous model was just killed: wait for the driver to release the
+    # unified memory, otherwise the new process OOMs at startup.
+    if killed:
+        _wait_mem_release()
+
+    # Ici on ne fait que JOURNALISER la commande déjà construite plus haut (avant
+    # l'arrêt du modèle précédent) : la reconstruire ici après le kill était
+    # exactement le défaut corrigé le 2026-10-02.
     _append(f"[runner] ({engine}) $ {' '.join(cmd)}")
     if journal is not None:
         journal.ecrire(f"$ {' '.join(cmd)}")
@@ -791,6 +809,12 @@ def launch():
     # _start_process/_resolve_gguf (argv + path). No control chars / quotes.
     if not (_HF_ID_RE.fullmatch(hf_id) or _LOCAL_ID_RE.fullmatch(hf_id) or _ABS_PATH_RE.fullmatch(hf_id)):
         return jsonify({"error": "invalid hf_model_id"}), 400
+    # `_ABS_PATH_RE` autorise le POINT, donc `/models/../../etc/shadow` passait tel
+    # quel : le chemin part en argv de l'engine (`-m`), qui lit le fichier. Le
+    # runner ne l'ouvre pas lui-même, mais rien ne justifie d'accepter `..` dans un
+    # chemin qu'on prétend « absolu et borné » (audit du 2026-10-02).
+    if any(part == ".." for part in hf_id.split("/")):
+        return jsonify({"error": "invalid hf_model_id (.. refused)"}), 400
     if engine not in ENGINES:
         return jsonify({"error": f"unknown engine: {engine}"}), 400
     if engine != "vllm" and not os.path.exists(_ENGINE_BIN[engine]):
@@ -872,6 +896,14 @@ def ocr_launch():
     hf_id = (data.get("hf_model_id") or "").strip()
     if not hf_id:
         return jsonify({"ok": False, "detail": "hf_model_id missing"}), 400
+    # Même contrôle de FORME que /launch (audit du 2026-10-02) : sans lui, un
+    # `"hf_model_id": "--model=/chemin/local"` traversait jusqu'à `vllm serve`, qui
+    # l'interprète comme une OPTION — l'appelant pilotait donc l'argv du conteneur
+    # OCR au lieu d'un identifiant de dépôt, et le contrôle de forme de
+    # `_validate_vllm_args` se contournait par l'argument lui-même. Le catalogue du
+    # portail ne produit que des `org/name` (déjà validés par cette expression).
+    if not _HF_ID_RE.fullmatch(hf_id):
+        return jsonify({"ok": False, "detail": "invalid hf_model_id"}), 400
     ok, tokens_or_err = _validate_vllm_args(data.get("vllm_args", "") or "", engine="ocr")
     if not ok:
         return jsonify({"ok": False, "detail": tokens_or_err}), 400

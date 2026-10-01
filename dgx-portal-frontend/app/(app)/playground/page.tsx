@@ -3755,7 +3755,7 @@ export default function PlaygroundPage() {
                     ref={refApercu}
                     title={panelTitle}
                     src={previewUrl}
-                    sandbox="allow-scripts allow-forms allow-modals allow-popups"
+                    sandbox="allow-scripts allow-forms allow-popups"
                     style={{
                       flex: 1,
                       minHeight: 0,
@@ -4151,7 +4151,7 @@ export default function PlaygroundPage() {
                       ref={refApercu}
                       title={panelTitle}
                       src={previewUrl}
-                      sandbox="allow-scripts allow-forms allow-modals allow-popups"
+                      sandbox="allow-scripts allow-forms allow-popups"
                       style={{ width: "100%", height: "100%", border: "none",
                                background: "var(--color-background-surface)" }}
                     />

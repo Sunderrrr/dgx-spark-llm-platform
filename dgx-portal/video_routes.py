@@ -52,11 +52,32 @@ def api_video_generate():
     db.execute("INSERT INTO video_jobs (username, prompt_id, prompt, created_at, req_duration_s) VALUES (?,?,?,?,?)",
                (session['username'], prompt_id, prompt_text, datetime.now().isoformat(), int(duration)))
     # Keeps only the VIDEO_HISTORY_LIMIT most recent per user.
+    # Les FICHIERS partent avec les lignes (audit du 2026-10-02) : la table était
+    # purgée, jamais le disque, et `video_files` n'était balayé par AUCUN script de
+    # sauvegarde (ORPHAN_DIRS ne citait que l'image et la musique). Un job laisse
+    # 10 à 100 Mo, jamais récupérés, dans le volume qui porte aussi la base du
+    # portail — la seule borne était donc la taille du disque. On relève les
+    # identifiants AVANT le DELETE, puis on efface le cache local. Le balayage des
+    # orphelins (avec sa grâce de 7 jours) reste le filet de sécurité.
+    evinces = [r['prompt_id'] for r in db.execute(
+        """SELECT prompt_id FROM video_jobs WHERE username=? AND id NOT IN (
+                     SELECT id FROM video_jobs WHERE username=?
+                     ORDER BY id DESC LIMIT ?)""",
+        (session['username'], session['username'], VIDEO_HISTORY_LIMIT)).fetchall()]
     db.execute("""DELETE FROM video_jobs WHERE username=? AND id NOT IN (
                      SELECT id FROM video_jobs WHERE username=?
                      ORDER BY id DESC LIMIT ?)""",
                (session['username'], session['username'], VIDEO_HISTORY_LIMIT))
     db.commit()
+    for ancien in evinces:
+        chemin = _local_video_path(ancien)
+        try:
+            if chemin and os.path.isfile(chemin):
+                os.remove(chemin)
+        except OSError:
+            # Un fichier qu'on n'arrive pas à effacer ne doit pas faire échouer la
+            # génération en cours : le balayage des orphelins le reprendra.
+            pass
     return jsonify({'prompt_id': prompt_id})
 
 @bp.route('/api/video/history')

@@ -160,9 +160,16 @@ def _mem_add_fact(username, subject, relation, fact, obj=None, source='model', k
     précédent en le périmant au lieu de s'y ajouter : c'est ce qui empêche la
     mémoire d'accumuler des contradictions quand une information est mise à jour.
     """
-    subject = (subject or '').strip()
-    relation = (relation or '').strip()[:80]
-    fact = (fact or '').strip()[:MEM_MAX_FACT_LEN]
+    # Types vérifiés AVANT tout `.strip()` (audit du 2026-10-02) : ces fonctions
+    # reçoivent du JSON arbitraire (routes mémoire et outils du support), et
+    # `{"subject": 123}` remontait un AttributeError en 500. Le SUJET est en plus
+    # tronqué comme ses voisins : `_mem_norm` le parcourt caractère par caractère,
+    # donc un sujet de plusieurs Mo coûtait des secondes de CPU par requête.
+    subject = subject.strip()[:MEM_MAX_NAME_LEN] if isinstance(subject, str) else ''
+    relation = relation.strip()[:80] if isinstance(relation, str) else ''
+    fact = fact.strip()[:MEM_MAX_FACT_LEN] if isinstance(fact, str) else ''
+    obj = obj.strip()[:MEM_MAX_NAME_LEN] if isinstance(obj, str) else None
+    kind = kind if isinstance(kind, str) else 'sujet'
     if not subject or not fact:
         return "Sujet et fait sont obligatoires.", False
     db = get_db()
@@ -799,6 +806,16 @@ def api_memory_import_md():
     edges, aliases = _md_parse(text)
     if not edges:
         return jsonify({'ok': False, 'error': 'Aucun fait reconnu dans ce fichier.'}), 400
+    # Plafond sur le NOMBRE d'arêtes (audit du 2026-10-02) : le corps est borné en
+    # octets (IMPORT_MAX_BYTES = 5 Mio) mais une puce de deux caractères vaut une
+    # arête, donc 5 Mio de « - a » font plus d'un million d'arêtes — et chacune
+    # passe par `_mem_fact_exists` (normalisation + SELECT JOIN) AVANT que
+    # `_mem_add_fact` ne puisse opposer son plafond de MEM_MAX_FACTS. Le chemin
+    # JSON avait déjà sa borne, pas celui-ci.
+    if len(edges) > MEM_MAX_FACTS:
+        return jsonify({'ok': False, 'code': 'trop_de_faits',
+                        'error': f"Trop de faits dans ce fichier ({len(edges)} ; "
+                                 f"{MEM_MAX_FACTS} au maximum)."}), 400
 
     db = get_db()
     imported_facts = 0

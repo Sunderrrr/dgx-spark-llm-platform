@@ -421,11 +421,21 @@ def api_account_password():
     if row is None:
         return jsonify({'ok': False, 'error': "Compte géré par l'annuaire (LDAP/SSO) : "
                                               "le mot de passe se change là-bas."}), 400
-    if not check_password_hash(row['password_hash'], actuel):
+    # Vérification du mot de passe actuel PAR LE CONTRÔLE PARTAGÉ (audit du
+    # 2026-10-02) : c'était le seul site de vérification de mot de passe du
+    # portail qui n'alimentait pas `login_attempts`. Une session détournée
+    # (cookie + jeton CSRF vivent dans la même session) pouvait donc tester des
+    # mots de passe ici à la vitesse du réseau — sans 429, sans verrou — et un
+    # mot de passe trouvé est RÉUTILISABLE (annuaire partagé) en plus de
+    # permettre d'en fixer un nouveau. `webauthn_routes._verify_password_locked`
+    # applique le verrou du COMPTE, partagé avec /login, dans les deux sens.
+    from webauthn_routes import _verify_password_locked      # import tardif : cycle app <-> webauthn
+    ok, erreur = _verify_password_locked(username, actuel)
+    if not ok:
         # Journalisé : une rafale de ces échecs sur un compte connecté est le
         # signe d'une session volée, pas d'une faute de frappe.
         log_audit(username, 'account.password.echec', 'mot de passe actuel incorrect')
-        return jsonify({'ok': False, 'error': "Mot de passe actuel incorrect."}), 400
+        return jsonify(erreur[0]), erreur[1]
     # `actuel` vient d'être VALIDÉ : comparer les deux chaînes répond à la même
     # question qu'un second `check_password_hash`, sans repayer un KDF scrypt.
     if nouveau == actuel:

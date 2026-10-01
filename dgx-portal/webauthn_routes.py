@@ -108,6 +108,12 @@ def _pending_insert(nonce, username, kind, challenge, fullname=None, is_admin=No
 
 
 def _pending_get(nonce, kind=None):
+    # `nonce` vient d'un corps JSON dont le TYPE n'est pas garanti : une liste ou
+    # un objet faisait remonter un sqlite3.ProgrammingError en 500 sur une route
+    # PUBLIQUE (audit du 2026-10-02). Traiter un nonce non-chaîne comme absent est
+    # exactement ce que le flux sait déjà faire (défi introuvable/expiré).
+    if not isinstance(nonce, str) or not nonce:
+        return None
     db = get_db()
     row = db.execute("SELECT * FROM pending_webauthn WHERE nonce=?", (nonce,)).fetchone()
     if not row:
@@ -122,6 +128,8 @@ def _pending_get(nonce, kind=None):
 
 
 def _pending_clear(nonce) -> None:
+    if not isinstance(nonce, str) or not nonce:
+        return
     db = get_db()
     db.execute("DELETE FROM pending_webauthn WHERE nonce=?", (nonce,))
     db.commit()
@@ -249,7 +257,15 @@ def finish_registration(username: str, credential, nonce: str, label: str):
     transports_arr = (credential.get("response") or {}).get("transports") or []
     transports = json.dumps(transports_arr)
     db = get_db()
-    db.execute("DELETE FROM webauthn_credentials WHERE credential_id=?", (cred_id,))
+    # Le DELETE est SCOPÉ par compte (audit du 2026-10-02) : `credential_id` est
+    # globalement unique, et un identifiant fourni par le client suffisait à
+    # emporter la ligne d'un AUTRE compte. La victime ne perdait pas seulement sa
+    # clé : `user_security.enabled` restait à 1 sans aucune clé enregistrée, donc
+    # chaque connexion finissait en « aucune passkey » — un verrouillage
+    # définitif jusqu'à intervention d'un admin. Les deux autres accès à cette
+    # table étaient déjà scopés ; celui-ci était le seul à ne pas l'être.
+    db.execute("DELETE FROM webauthn_credentials WHERE username=? AND credential_id=?",
+               (username, cred_id))
     db.execute(
         "INSERT INTO webauthn_credentials "
         "(username, credential_id, public_key, sign_count, transports, label, created_at) "

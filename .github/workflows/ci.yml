@@ -18,6 +18,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Le moins coûteux en premier : trois fichiers doivent rester d'accord sur la
+  # version (package.json, son lockfile, l'entrée la plus récente du CHANGELOG),
+  # et un désaccord ne casse aucun test — il rend juste impossible de dire ce qui
+  # tourne en production. `release.sh --check` est le même code que celui qui
+  # publie, donc la vérification ne peut pas dériver de la publication.
+  version:
+    name: Version coherence (package ↔ CHANGELOG)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Check version coherence
+        run: ./scripts/release.sh --check
+
   backend:
     name: Backend tests (unittest, in Docker)
     runs-on: ubuntu-latest

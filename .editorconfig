@@ -1,0 +1,33 @@
+# Réglages d'éditeur partagés (VS Code, JetBrains, Sublime, Vim…).
+#
+# Pourquoi : le dépôt mélange Python (4 espaces), TypeScript/JSON/YAML (2
+# espaces) et des scripts shell. Sans ce fichier, chaque poste applique ses
+# propres réglages et un simple « enregistrer » reformate tout le fichier touché,
+# ce qui noie la vraie modification dans un diff illisible.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+[*.sh]
+indent_size = 2
+
+[*.{yml,yaml,json,jsonc,ts,tsx,js,jsx,css}]
+indent_size = 2
+
+[*.md]
+# Les deux espaces en fin de ligne sont une syntaxe Markdown (saut de ligne
+# forcé) : les supprimer changerait le rendu du README.
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

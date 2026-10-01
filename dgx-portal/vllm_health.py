@@ -342,8 +342,10 @@ def guess_engine(model):
     return 'vllm'
 
 # Both engines express context and concurrency with different flags.
-_CTX_FLAG  = {'vllm': 'max-model-len', 'llamacpp': 'ctx-size', 'ds4': 'ctx'}
-_SEQS_FLAG = {'vllm': 'max-num-seqs',  'llamacpp': 'parallel'}
+_CTX_FLAG  = {'vllm': 'max-model-len', 'llamacpp': 'ctx-size', 'ds4': 'ctx',
+              'exllamav3': 'max-seq-len'}
+_SEQS_FLAG = {'vllm': 'max-num-seqs',  'llamacpp': 'parallel',
+              'exllamav3': 'max-batch-size'}
 
 def _arg_int(args, flag, default=None):
     m = re.search(r'--' + re.escape(flag) + r'\s+(\d+)', args or '')
@@ -416,7 +418,7 @@ def ctx_split(vllm_args, engine='vllm'):
     --max-model-len. Cautious default of 32k if the context isn't declared.
     """
     slot = effective_ctx(vllm_args, engine) or 32768
-    if engine in ('llamacpp', 'ds4'):
+    if engine in ('llamacpp', 'ds4', 'exllamav3'):
         # --n-predict EST la limite de sortie du moteur quand l'admin la fixe :
         # on l'annonce telle quelle plutot que de la deviner. Sans ce drapeau, on
         # garde l'heuristique prudente (un tiers du slot, plafonne a 64k).

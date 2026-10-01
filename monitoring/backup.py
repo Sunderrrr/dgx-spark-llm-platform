@@ -33,7 +33,11 @@ KEEP = 14
 # sont épargnés : un job « running » écrit son fichier avant de finir.
 PORTAL_VOLUME = "/var/lib/docker/volumes/ai-platform_portal_data/_data"
 ORPHAN_DIRS = [("image_files", "image_jobs", "prompt_id"),
-               ("music_files", "music_jobs", "job_id")]
+               ("music_files", "music_jobs", "job_id"),
+               # video_files manquait (audit du 2026-10-02) : les vidéos
+               # s'accumulaient sans borne (10 à 100 Mo par job) alors que la
+               # table, elle, était bien purgée à 10 lignes par compte.
+               ("video_files", "video_jobs", "prompt_id")]
 ORPHAN_GRACE_DAYS = 7
 
 
@@ -119,8 +123,14 @@ def _purge_orphans(dest_dir, dry_run=False):
             continue
         for f in sorted(os.listdir(d)):
             pref = os.path.splitext(f.split("_")[0])[0]
+            complet = os.path.splitext(f)[0]
             chemin = os.path.join(d, f)
-            if pref in refs or not os.path.isfile(chemin):
+            # `video_files` nomme ses fichiers `<prompt_id>.mp4`, SANS suffixe :
+            # la comparaison sur le préfixe avant `_` (pensée pour
+            # `<prompt_id>_<index>.png`) ne suffit pas si un identifiant contient
+            # un souligné. On teste les DEUX formes — un faux « orphelin » ferait
+            # supprimer un fichier encore référencé.
+            if pref in refs or complet in refs or not os.path.isfile(chemin):
                 continue
             age_j = (time.time() - os.path.getmtime(chemin)) / 86400
             if age_j < ORPHAN_GRACE_DAYS:

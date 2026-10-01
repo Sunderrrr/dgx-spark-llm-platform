@@ -358,7 +358,12 @@ function parseEdits(content: string): FileEdit[] {
       try {
         obj = JSON.parse(repare);
       } catch {
-        obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
+        try {
+          obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
+        } catch {
+          // fermetures dépareillées (« } » au lieu de « ] »)
+          obj = JSON.parse(reparerFermetures(repare));
+        }
       }
     }
     const brut: unknown[] = Array.isArray(obj.edits) ? obj.edits : (obj.find ? [obj] : []);
@@ -375,6 +380,43 @@ function parseEdits(content: string): FileEdit[] {
   } catch {
     return [];
   }
+}
+
+/** Répare des fermetures DÉPAREILLÉES (« } » à la place de « ] », fermeture en
+ *  trop), en suivant la pile des ouvertures hors chaînes.
+ *  Vu en prod le 2026-10-01 (MiMo) : `"options": ["a", "b"}]}]}` — la liste
+ *  d'options fermée par une accolade. Ni la coupe (firstJsonValue) ni le
+ *  rééquilibrage (balanceJson) n'en venaient à bout, et tout le questionnaire
+ *  s'affichait en JSON brut au lieu de la carte de questions.
+ *  Règle : une fermeture qui ne correspond pas au sommet ferme d'abord ce qui
+ *  est réellement ouvert ; une fermeture sans ouverture est ignorée ; ce qui
+ *  reste ouvert à la fin est refermé. */
+function reparerFermetures(src: string): string {
+  const pile: string[] = [];
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of src) {
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; out += ch; continue; }
+    if (ch === "{" || ch === "[") { pile.push(ch === "{" ? "}" : "]"); out += ch; continue; }
+    if (ch === "}" || ch === "]") {
+      if (!pile.includes(ch)) continue;                    // fermeture orpheline
+      while (pile.length && pile[pile.length - 1] !== ch) out += pile.pop();
+      out += pile.pop();
+      continue;
+    }
+    out += ch;
+  }
+  if (inString) out += '"';
+  // Virgule pendante avant une fermeture (« "b",] ») : invalide en JSON.
+  return (out + pile.reverse().join("")).replace(/,\s*([}\]])/g, "$1");
 }
 
 // Referme un JSON tronqué en fin de chaîne. Un modèle ouvert de cette taille
@@ -803,7 +845,12 @@ function parseAsk(content: string): AskBlock | null {
       try {
         obj = JSON.parse(repare);
       } catch {
-        obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
+        try {
+          obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
+        } catch {
+          // fermetures dépareillées (« } » au lieu de « ] »)
+          obj = JSON.parse(reparerFermetures(repare));
+        }
       }
     }
     const raw: unknown[] = Array.isArray(obj.questions) ? obj.questions : (obj.question ? [obj] : []);

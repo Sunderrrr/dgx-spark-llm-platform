@@ -740,7 +740,9 @@ def delete_model_cfg(mid):
     else:
         ok_f, octets, motif = runner_delete_files(hf_id)
         if ok_f:
-            fichiers = (f"{octets / 2**30:.1f} Gio effacés du disque" if octets
+            taille = (f"{octets / 2**30:.1f} Gio" if octets >= 2**30
+                      else f"{max(1, round(octets / 2**20))} Mio")
+            fichiers = (f"{taille} effacés du disque" if octets
                         else "aucun fichier sur le disque")
         else:
             fichiers = f"fichiers NON effacés ({motif})"

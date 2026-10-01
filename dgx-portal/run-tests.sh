@@ -7,6 +7,13 @@
 #   ./dgx-portal/run-tests.sh test_app   # un seul module
 set -e
 cd "$(dirname "$0")/.."
+# Le nom de l'image construite dépend du nom du DOSSIER du clone
+# (`<projet>-dgx-portal`), et le `docker run` plus bas doit viser le même : sans
+# cet épinglage, la commande documentée dans le README (« git clone … puis
+# ./dgx-portal/run-tests.sh ») échoue partout ailleurs que dans un dossier nommé
+# « ai-platform », sur un « Unable to find image ». La CI épingle déjà ce nom
+# (.github/workflows/ci.yml), donc les deux suivent désormais la même règle.
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ai-platform}"
 docker compose build dgx-portal >/dev/null
 # Les arguments d'unittest se choisissent AVANT l'exec : `${1:+tests.$1}
 # ${1:-discover -s tests}` passait le module DEUX fois (« tests.test_app

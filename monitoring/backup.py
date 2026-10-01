@@ -32,6 +32,12 @@ KEEP = 14
 # fichier de plus de GRACE_DAYS jours) reprend l'espace. Les fichiers récents
 # sont épargnés : un job « running » écrit son fichier avant de finir.
 PORTAL_VOLUME = "/var/lib/docker/volumes/ai-platform_portal_data/_data"
+# Chemin INUTILISABLE par l'unité : le volume appartient à uid 10001 en 0700 et
+# cronos-backup tourne sans CAP_DAC_OVERRIDE, donc une lecture y renvoie EACCES
+# (que `os.path.isdir` traduisait en False, d'où une purge qui annonçait « 0
+# orphelin » sans rien faire). On passe par le conteneur, qui le monte ici :
+PORTAL_DATA_IN_CONTAINER = "/app/data"
+PORTAL_CONTAINER = "dgx-portal"
 ORPHAN_DIRS = [("image_files", "image_jobs", "prompt_id"),
                ("music_files", "music_jobs", "job_id"),
                # video_files manquait (audit du 2026-10-02) : les vidéos
@@ -103,11 +109,60 @@ def _retain(dest_dir, keep):
                 pass
 
 
+# Purge des orphelins, exécutée DANS le conteneur du portail : c'est le seul
+# propriétaire du volume média (uid 10001, 0700). Voir _purge_orphans.
+_PURGE_CODE = r'''
+import json, os, sys, time
+charge = json.load(sys.stdin)
+racine, grace, dry = charge["racine"], charge["grace"], charge["dry"]
+total = 0
+for dossier, refs in charge["refs"].items():
+    refs = set(refs)
+    d = os.path.join(racine, dossier)
+    if not os.path.isdir(d):
+        print(f"  {dossier} : répertoire absent")
+        continue
+    for f in sorted(os.listdir(d)):
+        # `video_files` nomme ses fichiers `<prompt_id>.mp4`, SANS suffixe : la
+        # comparaison sur le préfixe avant `_` (pensée pour `<prompt_id>_<index>.png`)
+        # ne suffit pas si un identifiant contient un souligné. On teste les DEUX
+        # formes — un faux « orphelin » ferait supprimer un fichier encore référencé.
+        pref = os.path.splitext(f.split("_")[0])[0]
+        complet = os.path.splitext(f)[0]
+        chemin = os.path.join(d, f)
+        if pref in refs or complet in refs or not os.path.isfile(chemin):
+            continue
+        age_j = (time.time() - os.path.getmtime(chemin)) / 86400
+        if age_j < grace:
+            continue
+        total += 1
+        if dry:
+            print(f"  orphelin (serait supprimé) : {dossier}/{f} ({age_j:.0f} j)")
+            continue
+        try:
+            os.remove(chemin)
+            print(f"  orphelin supprimé : {dossier}/{f} ({age_j:.0f} j)")
+        except OSError as exc:
+            print(f"  échec suppression {dossier}/{f} : {exc}")
+print(f"purge orphelins : {total} fichier(s) {'(dry-run)' if dry else 'supprimé(s)'}")
+'''
+
+
 def _purge_orphans(dest_dir, dry_run=False):
-    """Supprime les fichiers média dont plus aucun job ne référence le
-    préfixe. Le dump portal VIENT d'être fait : ses tables jobs sont la
-    référence exacte de ce qui est encore possédé (par n'importe quel
-    compte — un fichier référencé par autrui n'est pas un orphelin)."""
+    """Supprime les fichiers média dont plus aucun job ne référence le préfixe.
+
+    La référence est le DUMP qui vient d'être écrit, et non la base vivante : si
+    portal.db était réinitialisée (la panne que cette purge ne doit surtout pas
+    aggraver), la base vivante ne référencerait plus RIEN et tous les médias
+    seraient « orphelins ». Le dump, lui, garde l'état du dernier instant sain.
+
+    La suppression passe par `docker exec` : l'unité cronos-backup tourne avec
+    CapabilityBoundingSet vide et ProtectSystem=strict, alors que le volume média
+    appartient à uid 10001 en 0700. Depuis l'hôte, `os.path.isdir()` AVALAIT
+    l'EACCES et rendait False — la purge annonçait donc « 0 orphelin » chaque
+    nuit, sans jamais rien supprimer ni échouer. Le conteneur, lui, est chez lui.
+    """
+    import json
     import sqlite3
     dumps = glob.glob(os.path.join(dest_dir, "portal-*.db"))
     if not dumps:
@@ -115,37 +170,22 @@ def _purge_orphans(dest_dir, dry_run=False):
         return
     latest = max(dumps, key=os.path.getmtime)
     conn = sqlite3.connect(f"file:{latest}?mode=ro", uri=True)
-    total = 0
+    refs = {}
     for dossier, table, col in ORPHAN_DIRS:
-        refs = {r[0] for r in conn.execute(f"SELECT {col} FROM {table}")}
-        d = os.path.join(PORTAL_VOLUME, dossier)
-        if not os.path.isdir(d):
-            continue
-        for f in sorted(os.listdir(d)):
-            pref = os.path.splitext(f.split("_")[0])[0]
-            complet = os.path.splitext(f)[0]
-            chemin = os.path.join(d, f)
-            # `video_files` nomme ses fichiers `<prompt_id>.mp4`, SANS suffixe :
-            # la comparaison sur le préfixe avant `_` (pensée pour
-            # `<prompt_id>_<index>.png`) ne suffit pas si un identifiant contient
-            # un souligné. On teste les DEUX formes — un faux « orphelin » ferait
-            # supprimer un fichier encore référencé.
-            if pref in refs or complet in refs or not os.path.isfile(chemin):
-                continue
-            age_j = (time.time() - os.path.getmtime(chemin)) / 86400
-            if age_j < ORPHAN_GRACE_DAYS:
-                continue
-            total += 1
-            if dry_run:
-                print(f"orphelin (serait supprimé) : {dossier}/{f} ({age_j:.0f} j)")
-            else:
-                try:
-                    os.remove(chemin)
-                    print(f"orphelin supprimé : {dossier}/{f}")
-                except OSError as exc:
-                    print(f"échec suppression {f}: {exc}")
+        refs[dossier] = [str(r[0]) for r in conn.execute(f"SELECT {col} FROM {table}")]
     conn.close()
-    print(f"purge orphelins : {total} fichier(s) {'(dry-run)' if dry_run else 'supprimé(s)'}")
+    charge = json.dumps({"racine": PORTAL_DATA_IN_CONTAINER, "grace": ORPHAN_GRACE_DAYS,
+                         "dry": dry_run, "refs": refs})
+    r = subprocess.run(["docker", "exec", "-i", PORTAL_CONTAINER, "python3", "-c", _PURGE_CODE],
+                       input=charge.encode(), capture_output=True, timeout=300)
+    sortie = (r.stdout or b"").decode().rstrip()
+    if sortie:
+        print(sortie)
+    if r.returncode != 0:
+        # Un échec doit être VISIBLE : le silence précédent a coûté des mois
+        # d'accumulation de vidéos de 10 à 100 Mo.
+        print(f"purge orphelins : ÉCHEC ({r.returncode}) : "
+              f"{(r.stderr or b'').decode().strip()[:300]}")
 
 
 def main():

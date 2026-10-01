@@ -20,9 +20,14 @@
 *.woff2 binary
 *.pdf binary
 
-# Le verrou de dépendances est généré : il ne doit pas polluer les statistiques
-# de langage ni les revues de code (GitHub le replie dans les diffs).
-package-lock.json linguist-generated=true -diff
+# Le verrou de dépendances est généré : `linguist-generated=true` le replie dans
+# les diffs et le sort des statistiques de langage. En revanche PAS de `-diff` :
+# il rendait le fichier binaire pour Git, donc tout changement de version
+# INVISIBLE en revue. Mesuré le 2026-10-01 sur le correctif de `brace-expansion` :
+# la seule trace était « Bin 251602 -> 251628 bytes ». Or un verrou est justement
+# ce qu'un relecteur doit voir quand il bouge — c'est là qu'un paquet remplacé ou
+# une dépendance non voulue se repèrent.
+package-lock.json linguist-generated=true
 
 # `git archive` (tarball de release) n'a pas besoin de l'outillage de
 # développement : ni les modèles d'issues, ni la CI, ni les captures d'écran.

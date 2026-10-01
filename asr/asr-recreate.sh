@@ -35,7 +35,11 @@ docker rm -f asr >/dev/null 2>&1 || true
 #   bruts et tourne en root, donc pouvoir ÉCRIRE dans les poids que le runner
 #   relira au prochain lancement était un chemin d'empoisonnement de modèle.
 #   Le modèle whisper y est recopié une fois (`cp -a`), sans re-téléchargement.
+# Plafond de journaux identique aux services du compose (20 Mo × 5) : sans lui
+# le journal du conteneur grossit sans borne, et un `docker logs` en panique
+# devient illisible. Appliqué au prochain démarrage, pas de coupure ici.
 exec docker run -d --name asr --restart unless-stopped \
+  --log-opt max-size=20m --log-opt max-file=5 \
   --network ai-platform_asr_net --gpus all --shm-size=2g \
   --pids-limit 512 \
   --security-opt no-new-privileges --cap-drop ALL \

@@ -44,7 +44,11 @@ docker rm -f image >/dev/null 2>&1 || true
 # --cap-drop/--security-opt : ce conteneur reçoit un prompt utilisateur vers du
 #   code de modèle tiers, même durcissement que les autres sidecars.
 # Modèle monté en lecture seule ; seul dgx-portal atteint le port 8007 (image_net).
+# Plafond de journaux identique aux services du compose (20 Mo × 5) : sans lui
+# le journal du conteneur grossit sans borne, et un `docker logs` en panique
+# devient illisible. Appliqué au prochain démarrage, pas de coupure ici.
 exec docker run -d --name image --restart unless-stopped \
+  --log-opt max-size=20m --log-opt max-file=5 \
   --network ai-platform_image_net --gpus all --shm-size=2g \
   --pids-limit 512 \
   --security-opt no-new-privileges --cap-drop ALL \

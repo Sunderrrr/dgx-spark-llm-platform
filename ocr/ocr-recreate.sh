@@ -37,7 +37,11 @@ docker rm -f ocr >/dev/null 2>&1 || true
 # Pas d'`exec` : le filtre L2 doit etre repose APRES la creation. Docker
 # reattribue une IP a chaque recreation, et une regle epinglee sur l'ancienne ne
 # bloquerait plus rien SANS que rien ne le signale (echec silencieux).
+# Plafond de journaux identique aux services du compose (20 Mo × 5) : sans lui
+# le journal du conteneur grossit sans borne, et un `docker logs` en panique
+# devient illisible. Appliqué au prochain démarrage, pas de coupure ici.
 docker run -d --name ocr --restart unless-stopped \
+  --log-opt max-size=20m --log-opt max-file=5 \
   --network ai-platform_ocr_net --gpus all --shm-size=8g \
   --security-opt no-new-privileges --cap-drop ALL \
   -v "$OCR_CACHE":/root/.cache/huggingface \

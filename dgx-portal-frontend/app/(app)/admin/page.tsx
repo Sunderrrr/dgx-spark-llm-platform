@@ -309,6 +309,9 @@ export default function AdminPage() {
         // Le serveur fournit souvent une phrase utile (« Lancement de X
         // accepté — chargement en cours. ») : on l'affiche de préférence.
         showToast({ body: body.message ?? t("Action effectuée."), type: "info" });
+        // Succès PARTIEL (fichiers non effacés, LiteLLM non dérégistré…) : le
+        // serveur l'écrit dans `warning`, qui n'était affiché nulle part.
+        if (warning) showToast({ body: warning, type: "error" });
         result = { ok: true, warning };
       }
     } catch {
@@ -1237,8 +1240,8 @@ function ConfirmActionDialog({ action, maintenanceActive, isDisabled, onClose, o
     confirmLabel = t("Lancer");
     confirmVariant = "primary";
   } else if (action.kind === "delete-model") {
-    title = t("Supprimer {name} du catalogue ?").replace("{name}", action.name);
-    body = t("L'entrée sera retirée du catalogue et du routage LiteLLM (ça n'arrête pas un modèle en cours).");
+    title = t("Supprimer {name} ?").replace("{name}", action.name);
+    body = t("Le modèle sera retiré du catalogue et du routage LiteLLM, et ses fichiers seront effacés du disque (sauf s'ils servent à un autre modèle). Pour le retélécharger, il faudra le réinstaller. Un modèle en cours doit d'abord être arrêté.");
     confirmLabel = t("Supprimer");
     confirmVariant = "destructive";
   } else if (maintenanceActive) {

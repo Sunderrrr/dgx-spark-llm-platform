@@ -26,7 +26,7 @@ cascade.
 Usage :
     scripts/generer-favicon.py [chemin-du-logo.png]
 
-Sans argument : /home/mael/Images/dgx.png (le fichier du designer).
+Sans argument : ~/Images/dgx.png (le fichier du designer).
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from pathlib import Path
 
 from PIL import Image
 
-SOURCE_DEFAUT = Path("/home/mael/Images/dgx.png")
+SOURCE_DEFAUT = Path.home() / "Images" / "dgx.png"
 DESTINATION = Path(__file__).resolve().parent.parent / "dgx-portal-frontend" / "app" / "favicon.ico"
 
 # Tailles embarquées dans l'ICO : onglet (16/32), barre des tâches (48), et de

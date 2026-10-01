@@ -234,7 +234,7 @@ def _compte_existe(nom):
 def _compte_depuis_alias(alias):
     """Nom de compte devine depuis l'alias d'une cle API, ou '' si douteux.
 
-    Alias de la forme « mpigeon-1783112817 » ou « Opencode-Omarchy » : on ne
+    Alias de la forme « alice-1783112817 » ou « Opencode-Omarchy » : on ne
     devine RIEN, on ne retient un morceau que s'il correspond a un compte connu —
     sinon on prefere afficher la cle que d'inventer un nom. Regle partagee avec
     SpendLogs : une seule logique de resolution, donc un seul endroit ou se
@@ -337,7 +337,7 @@ def _active_users(window_s=1800):
             # Filtre sur endTime, PAS sur startTime. LiteLLM n'ecrit la ligne qu'a la
             # FIN de la requete : au moment ou elle devient visible, son startTime est
             # deja vieux de toute la duree de la generation. Mesure du 23/08 sur un
-            # client agentique (mpigeon via une cle API) : requetes de 100 a 124 s
+            # client agentique (un compte via une cle API) : requetes de 100 a 124 s
             # enchainees sans interruption, donc systematiquement hors d'une fenetre
             # de 120 s calee sur startTime — l'utilisateur etait invisible du panneau
             # « qui utilise le modele » alors qu'il saturait le GPU en continu.
@@ -583,7 +583,7 @@ def ranking_full(period='day', me=None, metric='total'):
     2026-09-14 sur 30 jours : le 1er concentrait 32,2 % du total mais seulement
     0,46 % du genere. Un classement « total » classe donc surtout ceux qui
     ENVOIENT du contexte, et l'ordre change vraiment quand on classe le genere
-    (ccrespy sort du top 5, nlerou y entre).
+    (un compte sort du top 5, un autre y entre).
 
     Les lignes qui ne correspondent a aucun compte (`inconnu`, residus de cles
     de test) sortent du classement : ni rang ni medaille, et elles ne comptent

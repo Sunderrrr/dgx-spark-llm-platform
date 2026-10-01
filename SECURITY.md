@@ -106,24 +106,24 @@ like the other GPU-heavy routes instead of budget-capped.
 
 **`docker.sock` is NOT mounted nowhere on this host — this section said it was,
 which was false, and the error is instructive: the claim was about *our* stack
-while the machine also runs containers started outside it.** Two containers mount
-it (verified 2026-10-02 with `docker inspect`):
+while the machine also runs containers started outside it.** Two third-party
+administration agents, both started outside `docker-compose.yml`, mount it
+(verified 2026-10-02 with `docker inspect`):
 
-- **`hawser`** (`ghcr.io/finsys/hawser`, systemd `hawser-restrict.service`), the
-  Docker control-plane agent used to drive the runner. It *does* mount
-  `/var/run/docker.sock` (plus host `/opt` and `/root`) — deliberate, not a
-  sidecar, and scoped down two ways: its HTTP API (`0.0.0.0:2376`) is firewalled
-  to exactly two admin hosts and it requires a bearer `HAWSER_TOKEN`. It is
-  **not currently running**.
-- **`arcane-edge-agent`** (`ghcr.io/getarcaneapp/agent:latest`), created
-  **2026-09-26** after the previous audit, by `docker run` (absent from
-  `docker-compose.yml`, from this document and from the accepted-risk note). It
-  mounts `/var/run/docker.sock:rw` **and** `/opt:/opt:rw`, runs as `User=0:0`,
-  with no `cap_drop` and no `no-new-privileges`. `/opt` holds the Traefik PKI
-  (`/opt/traefik/letsencrypt/acme.json`, 0600) and `dynamic/routes.yml`: that
-  container can therefore reach host root *and* rewrite TLS material and routing.
-  Nothing in the Cronos stack needs it. See §3.3 — it is the one open item here
-  that is an operator decision, not a code fix.
+- **A Docker control-plane agent** used to drive the runner. It *does* mount
+  `/var/run/docker.sock` (plus host configuration and home directories) —
+  deliberate, not a sidecar, and scoped down two ways: its HTTP API is reachable
+  on the LAN/overlay but firewalled to exactly two admin hosts, and it requires a
+  bearer token. It is **not currently running**.
+- **A second, generic container-management agent**, created **2026-09-26** after
+  the previous audit, by `docker run` (absent from `docker-compose.yml`, from this
+  document and from the accepted-risk note). It mounts `/var/run/docker.sock:rw`
+  **and** a host configuration directory read-write, runs as **root** (`uid 0`)
+  with no `cap_drop` and no `no-new-privileges`. That directory holds the Traefik
+  PKI (the ACME state file, `0600`) and the dynamic routing config: the container
+  can therefore reach host root *and* rewrite TLS material and routing. Nothing
+  in the Cronos stack needs it. See §3.3 — it is the one open item here that is
+  an operator decision, not a code fix.
 
 A compromise of either is host-root equivalent, so their tokens stay protected
 secrets and their mount lists stay minimal (see §3.2).
@@ -403,14 +403,13 @@ accounts is a security parameter — keep it small.
   HSTS was "resolved" only ever covered the portal. The fix belongs in the
   **Cloudflare zone setting** (SSL/TLS → Edge Certificates → HSTS), which covers
   both hostnames in one toggle; it must *not* be done by adding a Traefik
-  middleware to `/opt/traefik/dynamic/routes.yml`, since that file is rewritten
-  by `traefik-manager-agent` and a hand edit would silently disappear.
-- **Two containers run from a floating `:latest` tag.** Neither is started from
-  `docker-compose.yml` (both are `docker run`, `unless-stopped`), so no
-  declarative file pins them: `ghcr.io/chr0nzz/traefik-manager-agent` (running
-  digest `sha256:39796546cd1584a2ac6381e3e0f9aed4aaad1b8bf3a1cf08ca1fb540f31dbc81`)
-  and `ghcr.io/finsys/hawser` (running digest
-  `sha256:526a31f81c92ec750e60fc5da0d7551bbcf8441f1effc0b9741ccb2b2b594131`).
+  middleware to Traefik's dynamic routing file, since that file is rewritten by
+  an external Traefik configuration agent and a hand edit would silently
+  disappear.
+- **Two third-party administration containers run from a floating `:latest`
+  tag.** Neither is started from `docker-compose.yml` (both are `docker run`,
+  `unless-stopped`), so no declarative file pins them; one is a generic
+  container-management agent, the other an external Traefik configuration agent.
   A `:latest` tag only moves when someone pulls, so the exposure is not a silent
   auto-update but an unpinned rebuild: pinning means recreating both containers
   by digest, which for the Traefik config agent is a worse trade than the risk
@@ -433,65 +432,65 @@ accounts is a security parameter — keep it small.
   and the route-guard test above makes the invariant explicit rather than
   assumed.
 
-### 3.4 Audit du 2026-10-02 — corrigé, et ce qui reste à décider
+### 3.4 Audit of 2026-10-02 — fixed, and what is left to decide
 
-Un audit complet (code du portail, runner, sidecars, images, hôte, terrain) a
-produit les corrections ci-dessous. Elles vivent dans le dépôt, donc elles sont
-effectives au redéploiement ; les points « à décider » demandent une action
-d'opérateur et sont listés pour ne pas se perdre.
+A full audit (portal code, runner, sidecars, images, host, live system) produced
+the fixes below. They live in the repository, so they take effect on redeploy;
+the "to decide" items need operator action and are listed so they do not get
+lost.
 
-**Corrigé dans le portail.** Bloquer *ou* désactiver un compte révoque désormais
-ses clés API (LiteLLM valide les clés lui-même : une clé survivait à
-l'offboarding) ; le plafond de quota a maintenant une borne HAUTE sur *toutes* les
-routes, compte, groupe et réglages globaux compris (la typo à 6,7e12 n'était
-refusée que sur les approbations) ; changer le **groupe** d'un compte passe par la
-garde « dernier admin local », et un compte **bloqué** ne compte plus comme
-administrateur de secours ; la re-vérification du mot de passe dans
-`/api/account/password` passe par le verrou partagé avec `/login` (elle était le
-seul site sans compteur, donc testable à la vitesse du réseau) ; le `DELETE` des
-passkeys est scopé par compte (il pouvait emporter la clé d'un autre et
-verrouiller sa 2FA) ; le repli SSO sur l'adresse e-mail est refusé quand l'IdP
-déclare `email_verified: false` ; bornes d'écriture sur `reason`/`model_id` et sur
-l'import mémoire ; `lire_pages` n'ouvre plus que les URL réellement retournées par
-une recherche du même tour (canal d'exfiltration fermé) ; limiteur de débit rendu
-atomique ; garde anti-bombe de décompression sur les images ; suppression
-effective des fichiers vidéo (la table était purgée, pas le disque).
+**Fixed in the portal.** Blocking *or* disabling an account now revokes its API
+keys (LiteLLM validates keys itself: one survived offboarding); the quota cap now
+has a HIGH bound on *all* routes — accounts, groups and global settings included
+(the 6.7e12 typo was rejected only on approvals); changing an account's **group**
+goes through the "last local admin" guard, and a **blocked** account no longer
+counts as a fallback administrator; the password re-check in
+`/api/account/password` goes through the lock shared with `/login` (it was the
+only site without a counter, so testable at network speed); passkey `DELETE` is
+scoped per account (it could carry off another account's key and lock its 2FA);
+the SSO fallback to the email address is refused when the IdP declares
+`email_verified: false`; write bounds on `reason`/`model_id` and on memory
+import; `lire_pages` now opens only URLs actually returned by a search from the
+same turn (exfiltration channel closed); rate limiter made atomic;
+decompression-bomb guard on images; video files actually deleted (the table was
+purged, not the disk).
 
-**Corrigé côté infrastructure déclarative.** Rotation des journaux Docker sur les
-six services du compose, `.dockerignore` pour l'image du portail, `cronos-web-restrict`
-gagne un `DROP` en **FORWARD** (il ne filtrait qu'`INPUT`, or la SSRF aveugle du
-crawler passe par le forwarding vers le LAN).
+**Fixed in the declarative infrastructure.** Docker log rotation on the six
+compose services, `.dockerignore` for the portal image, `cronos-web-restrict`
+gains a **FORWARD** `DROP` (it only filtered `INPUT`, while the crawler's blind
+SSRF goes through forwarding to the LAN).
 
-**Corrigé dans `vllm-runner`, inerte jusqu'à son prochain redémarrage légitime**
-— qui tue le modèle servi : ne pas le redémarrer pour cela. La commande est
-construite *avant* l'arrêt du modèle courant (une relance invalide ne laisse plus
-la plateforme sans modèle), `RUNNER_TOKEN` vide ou trop court est refusé au
-démarrage (un jeton vide égalait une requête sans en-tête), contrôle de forme sur
-le `hf_model_id` de `/ocr/launch`, `..` refusé dans les chemins absolus.
+**Fixed in `vllm-runner`, inert until its next legitimate restart** — which kills
+the served model: do not restart it for this. The command is built *before* the
+current model is stopped (an invalid relaunch no longer leaves the platform
+without a model), an empty or too-short `RUNNER_TOKEN` is refused at startup (an
+empty token equalled a request with no header), shape check on the `hf_model_id`
+of `/ocr/launch`, `..` refused in absolute paths.
 
-**À décider (action opérateur, hors dépôt) :**
+**To decide (operator action, outside the repository):**
 
-1. **`arcane-edge-agent`** — voir §2.2 : socket Docker **et** `/opt` en écriture,
-   image `:latest`, `User=0:0`, hors compose. Le retirer (ou l'épingler et le
-   brider) est le point le plus lourd de l'audit.
-2. **`vllm-restrict` est actif mais inopérant.** netbird réinsère son
-   `-i wt0 -j ACCEPT` en tête d'`INPUT` *après* l'unité, donc le `DROP` des ports
-   8000/8001/8188 n'est jamais évalué (`iptables -L INPUT -n -v` : 281 K paquets
-   sur l'ACCEPT, 0 sur le DROP). Corriger par un `After=netbird.service` (ou un
-   `PostUp` netbird). `:8000` sans clé depuis le VPN est un risque *accepté* ;
-   `:8188` (ComfyUI, sans authentification) n'en fait pas partie.
-3. **LDAP en clair** (`ldap://…:389`) pour l'authentification du portail, avec
-   `mael ALL=(ALL) NOPASSWD: ALL` et `%adm_cronos ALL=(ALL) NOPASSWD:ALL` :
-   l'annuaire (ou le lien) donne root sans mot de passe.
-4. **Aucune rotation de journaux par défaut du démon** (`/etc/docker/daemon.json`
-   absent) : les conteneurs lancés par `docker run` (sidecars, traefik) gardent des
-   journaux non bornés — 696 Mo observés pour `music`. Le compose est couvert.
-5. **Le journal d'accès Traefik écrit les chaînes de requête** (une clé d'API
-   observée en clair), et le tableau de bord Traefik partage un unique basicAuth
-   apr1 sur tout le plan Netbird.
-6. **`install.sh` exécute `get.docker.com` sans vérification de signature.**
-7. **Pas de mises à jour de sécurité automatiques** (`unattended-upgrades` absent ;
-   machine à jour le 2026-10-02).
+1. **A third-party administration agent** — see §2.2: Docker socket **and** a
+   host configuration directory writable, `:latest` image, root container outside
+   compose. Removing it (or pinning and constraining it) is the heaviest point of
+   the audit.
+2. **`vllm-restrict` is active but ineffective.** netbird reinserts its
+   `-i wt0 -j ACCEPT` at the head of `INPUT` *after* the unit, so the `DROP` on
+   ports 8000/8001/8188 is never evaluated (`iptables -L INPUT -n -v`: 281 K
+   packets on the ACCEPT, 0 on the DROP). Fix with an `After=netbird.service` (or
+   a netbird `PostUp`). `:8000` with no key from the VPN is an *accepted* risk;
+   `:8188` (ComfyUI, unauthenticated) is not part of it.
+3. **Cleartext LDAP** (port 389, no TLS) for portal authentication, combined with
+   `sudoers` `NOPASSWD: ALL` rules for administration accounts and groups: the
+   directory (or the link) grants root without a password.
+4. **No default log rotation on the daemon** (`/etc/docker/daemon.json` absent):
+   containers started by `docker run` (sidecars, traefik) keep unbounded logs —
+   696 MB observed for `music`. The compose is covered.
+5. **The Traefik access log writes the query strings** (an API key observed in
+   clear), and the Traefik dashboard shares a single apr1 basicAuth across the
+   whole Netbird plane.
+6. **`install.sh` runs `get.docker.com` without signature verification.**
+7. **No automatic security updates** (`unattended-upgrades` absent; machine up to
+   date on 2026-10-02).
 
 ---
 

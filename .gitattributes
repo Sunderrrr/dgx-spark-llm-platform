@@ -1,0 +1,36 @@
+# Normalisation pour tous les contributeurs, quel que soit leur poste.
+#
+# Pourquoi : ce dépôt est déployé depuis un DGX sous Linux, mais il est aussi
+# édité depuis macOS et Windows. Sans cette règle, un fichier réécrit sous Windows
+# arrive avec des fins de ligne CRLF : `bash -n` refuse alors tous les scripts,
+# `git diff` montre le fichier entier comme modifié, et une unité systemd ou un
+# Dockerfile recopié tel quel échoue pour une raison invisible à l'œil.
+# `text=auto` normalise dans le dépôt et laisse Git choisir à l'extraction ;
+# les images et les polices sont explicitement binaires, sinon Git les
+# « répare » en traversant les octets et corrompt le fichier.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+
+# Le verrou de dépendances est généré : il ne doit pas polluer les statistiques
+# de langage ni les revues de code (GitHub le replie dans les diffs).
+package-lock.json linguist-generated=true -diff
+
+# `git archive` (tarball de release) n'a pas besoin de l'outillage de
+# développement : ni les modèles d'issues, ni la CI, ni les captures d'écran.
+.github/ export-ignore
+scripts/ export-ignore
+assets/ export-ignore
+CLAUDE.md export-ignore
+.dockerignore export-ignore
+.editorconfig export-ignore
+.gitattributes export-ignore
+SECURITY.md export-ignore

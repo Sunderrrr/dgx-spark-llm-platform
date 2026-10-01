@@ -1,5 +1,10 @@
 # Cronos — Self-Hosted LLM Platform
 
+[![CI](https://github.com/Sunderrrr/dgx-spark-llm-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Sunderrrr/dgx-spark-llm-platform/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Sunderrrr/dgx-spark-llm-platform?sort=semver)](https://github.com/Sunderrrr/dgx-spark-llm-platform/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Changelog](https://img.shields.io/badge/changelog-keep%20a%20changelog-informational)](CHANGELOG.md)
+
 A self-hosted LLM inference platform running on a single **NVIDIA DGX Spark**
 (GB10 Grace Blackwell, 128 GB unified memory, aarch64). It turns one GPU box into
 a small multi-user AI service with an OpenAI-compatible API, per-user keys and
@@ -21,13 +26,16 @@ It provides:
 - a **runner** that launches/stops one chat model on the GPU on demand —
   vLLM, llama.cpp or ds4 engine, chosen per model — and auto-resumes it after
   a crash or reboot;
-- always-on media sidecars — **OCR**, **video**, **image**, **music**, **voice
-  cloning** and **dictation** — served alongside the main chat model and streamed
-  into the portal, never exposed as separate public UIs;
+- **on-demand media sidecars** — **OCR**, **video**, **image**, **music**, **voice
+  cloning** and **dictation** — each started by the admin or the first user, and
+  streamed into the portal. They are never exposed as separate public UIs, and
+  they are absent from memory when idle: one GPU cannot hold the chat model and
+  several media models at once, so an unloaded page says so instead of failing;
 - an admin **maintenance mode** that blocks non-admin API/portal traffic without
   stopping any model, enforced both in the portal and at the edge (Traefik);
-- a UI available in **English and French**, switchable per account from Settings
-  → Appearance (English by default).
+- a UI available in **French and English**, switchable per account from Settings
+  → Appearance (French by default; the published screenshots are captured in
+  English, one of the reasons the screenshot script exists).
 
 ![Cronos portal — home dashboard](assets/dashboard.png)
 
@@ -46,13 +54,19 @@ It provides:
 - [Operations](#operations)
 - [Security](#security)
 - [Repository layout](#repository-layout)
+- [Versioning](#versioning)
+- [Contributing](#contributing)
 - [License](#license)
 
-Two companion documents:
+Companion documents:
 
 | Document | For |
 |---|---|
 | [`SECURITY.md`](SECURITY.md) | threat model, controls, accepted risks — operators and auditors |
+| [`CHANGELOG.md`](CHANGELOG.md) | what changed in each released version |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | how to work in this repository without breaking a live service |
+| [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) | the behaviour expected in issues and pull requests |
+| [`LICENSE`](LICENSE) | MIT |
 
 > An operating guide named `CLAUDE.md` (golden rules, GB10 gotchas, reboot runbook,
 > test gate) is kept **on the machine**, read there by the operator and by the agents
@@ -133,7 +147,9 @@ pulling images and model weights.
 
 ```bash
 # One-shot bootstrap: installs Docker, Python/pipx, vLLM, clones the repo,
-# generates .env, installs the systemd units and brings the stack up.
+# generates .env, installs the systemd units + firewall rules + media sidecar
+# wrappers, then PRINTS the next steps — it does not start the stack itself,
+# because the secrets below the bootstrap line still have to be filled in.
 curl -fsSL https://raw.githubusercontent.com/Sunderrrr/dgx-spark-llm-platform/master/install.sh | sudo bash
 ```
 
@@ -156,7 +172,10 @@ go to **Admin**, and launch a model from the catalog.
 
 `docker-compose.yml` injects these into `dgx-portal` / `litellm`. `install.sh`
 (via `setup.sh`) generates the random secrets; fill in the rest. See `.env.example`.
-The backend reads them all in one place, [`config.py`](dgx-portal/config.py).
+The backend reads its environment in [`config.py`](dgx-portal/config.py), with two
+exceptions worth knowing: `WEBUI_SECRET_KEY` is mapped to Flask's `SECRET_KEY` by
+`docker-compose.yml`, and `POSTGRES_PASSWORD` is never read by the backend at all —
+it belongs to Postgres and LiteLLM.
 
 | Variable | Purpose |
 |---|---|
@@ -181,8 +200,9 @@ The backend reads them all in one place, [`config.py`](dgx-portal/config.py).
 
 > `.env` is **gitignored** — no secret is committed. `.env.example` holds only placeholders.
 >
-> `docker-compose.yml` reads `BACKEND_URL` to reach Flask internally; the default
-> (`http://dgx-portal:5000`) matches the compose service name and rarely needs changing.
+> `next.config.ts` and `lib/sseProxy.ts` read `BACKEND_URL` to reach Flask
+> internally; the default (`http://dgx-portal:5000`) matches the compose service name
+> and rarely needs changing.
 > Note that `host.docker.internal` is **pinned to a fixed address** there rather than
 > using `host-gateway` — see the networking gotcha in `CLAUDE.md` (local guide,
 > kept on the machine and not published).
@@ -208,8 +228,8 @@ Two methods, handled by [`auth.py`](dgx-portal/auth.py):
   re-verification.
 
 Local accounts managed by an admin ([`local_users.py`](dgx-portal/local_users.py))
-[local_users.py](dgx-portal/local_users.py) sit between the two: a hashed,
-admin-managed account system checked before LDAP/SSO.
+sit between the two: a hashed, admin-managed account system checked before
+LDAP/SSO.
 
 **Account state is re-read on every request, never frozen at login.** A session
 carries a name and a role copied at sign-in; each guarded request re-checks the
@@ -264,12 +284,15 @@ user's keys — creating extra keys does not raise the cap. Pricing is set at mo
 registration time by [`litellm_client.py`](dgx-portal/litellm_client.py), not in
 `litellm/config.yaml`: prompt and generated tokens both count 1 budget unit each.
 
-Default: **200,000,000 tokens/week** per account (`KEY_MAX_BUDGET` /
-`KEY_BUDGET_DURATION`, editable in **Admin → token limit**, no restart). Admins
-are uncapped. Over budget → HTTP `429 budget_exceeded`; the portal shows a banner
-once an account passes 85%. Approving a token request grants a preset or custom
-amount as a time-limited boost that stacks and reverts to the exact base cap at
-expiry.
+Default on a running deployment: **200,000,000 tokens/week** per account
+(`KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION`, editable in **Admin → token limit**, no
+restart). `docker-compose.yml` deliberately overrides both for a **fresh install**
+(`0.002` / `1d`, i.e. a nearly exhausted test account) so a new box cannot be
+drained by accident before someone sets the real policy. Admins are uncapped. Over
+budget, LiteLLM answers **HTTP 429** and the playground turns it into a
+`quota_exceeded` notice; the portal shows a banner once an account passes 85%.
+Approving a token request grants a preset or custom amount as a time-limited boost
+that stacks and reverts to the exact base cap at expiry.
 
 ---
 
@@ -313,7 +336,7 @@ the Python SDK, cURL and env vars — key and endpoint pre-filled, with
 | Feature | Where | In one line |
 |---|---|---|
 | [API keys](#api-keys) | Settings ▸ API keys | create/revoke keys, see spend, copy integration snippets |
-| [Account security](#authentication--accounts) | Settings ▸ Security | passkeys, active sessions (IP, device), change your own password |
+| [Account security](#authentication) | Settings ▸ Security | passkeys, active sessions (IP, device), change your own password |
 | [Playground](#playground) | `/playground` | streaming chat with the active model, attachments, dictation, web search |
 | [Memory](#memory) | Settings ▸ Memory | knowledge graph of what the assistant knows about you — on by default, opt out any time |
 | [Media pages](#media-pages) | `/ocr` `/video` `/image` `/music` `/voice` | OCR, video, image, music and voice cloning |
@@ -569,7 +592,9 @@ is checked too.
 > uses to read the text of each PNG.
 >
 > The verification is not decorative: it OCRs each final PNG and **fails** if an
-> email address, an API key, a private IP or another account's name is visible.
+> email address, an API key or another account's name is visible (private IPs are
+> not searched for in the text — they are blurred *before* the capture, by the
+> same pass that blurs the text, so they never reach the pixel grid at all).
 > `/admin` carries the notification address near the top and the per-user budget
 > requests further down, so that page is captured at a fixed scroll position —
 > and `/admin`, like `/users`, needs `is_admin` granted to the demo account for
@@ -652,8 +677,8 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
 | Unit | Role |
 |---|---|
 | `vllm-runner.service` | The runner daemon (non-root `vllmrunner` user) |
-| `vllm-restrict.service` | iptables: host ports **8000**/**8001** limited to localhost + Docker bridge |
-| `cronos-docker-restrict.service` | DOCKER-USER rules: **4001** to LAN+VPN, **5000** to Traefik only |
+| `vllm-restrict.service` | iptables: host ports **8000**/**8001** limited to localhost + Docker bridge, and **8188** (ComfyUI) off the LAN |
+| `cronos-docker-restrict.service` | DOCKER-USER rules: the published frontend port (**5000** on the host → **3000** in the container) reachable from Traefik's host only, plus **8080**/**8090**. LiteLLM has no published port at all |
 | `cronos-web-restrict.service` | Drops new connections from the web-search network to the host |
 | `cronos-ocr-restrict.service` | Prevents the OCR container from opening a connection to the portal |
 | `cronos-traefik-boot.service` | One-shot at boot: waits for DNS, then restarts Traefik once (avoids the plugin/ACME race that 404s the site after a reboot) |
@@ -665,14 +690,17 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
 The gateway refuses any call without a valid key and enforces budgets; vLLM and the
 runner are firewalled to localhost plus the docker bridge, and the runner
 allowlists every launch flag, requires a Bearer token and runs non-root. No
-`docker.sock` is mounted by any sidecar — they are driven through scoped `sudo`
-on root-owned wrapper scripts, each on its own docker network with no route to
-LiteLLM, Postgres or Traefik. The one deliberate exception is the `hawser`
-control-plane agent, which mounts the socket for the runner but requires a
-`HAWSER_TOKEN` and is IP-firewalled to two admin hosts (see
-[`SECURITY.md`](SECURITY.md)). The portal adds LDAP/SSO auth, hardened cookies,
-CSRF, a persisted brute-force lockout and a per-request nonce CSP, and a test
-fails the build if any route loses its authentication guard.
+`docker.sock` is mounted by any sidecar **in this stack** — they are driven through
+scoped `sudo` on root-owned wrapper scripts, each on its own docker network with no
+route to LiteLLM, Postgres or Traefik. Elevated host access does exist *around* the
+stack, and it is the operator's to review rather than something this repository
+grants: the `hawser` control-plane agent the runner is designed for (socket + a
+`HAWSER_TOKEN` + an IP allowlist; currently stopped), and one third-party edge
+agent outside compose with root, a writable socket and part of the host
+filesystem. The second is the heaviest open item of the last audit — see
+[`SECURITY.md`](SECURITY.md) §2.2 and §3.3. The portal adds LDAP/SSO auth,
+hardened cookies, CSRF, a persisted brute-force lockout and a per-request nonce
+CSP, and a test fails the build if any route loses its authentication guard.
 
 **Full threat model, the complete list of controls, and the risks knowingly
 accepted (starting with OCR, the one sidecar allowed to execute third-party code)
@@ -681,8 +709,13 @@ are in [`SECURITY.md`](SECURITY.md).**
 ### Exposing the API publicly
 
 Path: `api.cronos.website` (**Cloudflare, proxied**) → **Traefik** →
-`http://dgx.cronos.lan:4001` (LiteLLM, internal HTTP — TLS terminated at the proxy).
-Only route to `4001`, never `8000`/`8001`. Consider a per-key rate limit (rpm/tpm) in
+`http://litellm:4001`. LiteLLM listens on **4001 inside the Docker network** and
+publishes **no host port at all**; Traefik is attached to the same compose network
+and reaches it by service name (the portal does the same, via `LITELLM_URL`). The
+host name `dgx.cronos.lan:4001` that this page used to give answers nothing — do
+not route to the host.
+Keep the route on `4001`, never to the runner (`8001`) or the engine (`8000`).
+Consider a per-key rate limit (rpm/tpm) in
 LiteLLM and a Cloudflare rate rule before opening to the internet — budgets cap
 tokens/day, not request rate on a single GPU.
 
@@ -697,12 +730,15 @@ tokens/day, not request rate on a single GPU.
 ├── docker-compose.yml         # postgres + litellm + portal + frontend + search sidecars
 ├── .env.example               # placeholders (no real secrets)
 ├── README.md · SECURITY.md
-├── litellm/config.yaml        # models, token pricing, model_info
+├── litellm/config.yaml        # proxy, router and callback settings (the model
+│                              #   catalog itself lives in the LiteLLM database)
 ├── dgx-portal/                # Flask backend — see the module map below
 ├── dgx-portal-frontend/       # Next.js + Astryx UI (owns the public port 5000)
 ├── vllm-runner/runner.py      # model lifecycle daemon + scoped sidecar control
 ├── monitoring/                # host monitors: health alerts + daily DB dumps (systemd timers)
-├── ocr/ · voice/ · voice-qwen/ · asr/ · image-gen/   # sidecar images and host wrappers
+├── needrestart/               # needrestart policy (keeps vllm-runner out of its restarts)
+├── ocr/ · voice/ · voice-qwen/ · asr/ · image-gen/ · music/   # sidecar images and host wrappers
+├── searxng/settings.yml.example  # web-search config template (setup.sh writes the real one)
 └── systemd/                   # host units (runner, firewalls, ComfyUI, recreate scripts)
 ```
 
@@ -710,7 +746,7 @@ tokens/day, not request rate on a single GPU.
 
 The backend was a single 7 200-line file; it is now a shared core, a set of
 clients, and one blueprint per feature. [`app.py`](dgx-portal/app.py) is a wiring
-facade of ~1 300 lines: it creates the Flask app, sets security headers and the CSP,
+facade of ~1 500 lines: it creates the Flask app, sets security headers and the CSP,
 keeps the handful of routes that other modules reach by name (`index`, `login`,
 `logout`, the OAuth callbacks), registers every blueprint and boots the schema.
 
@@ -732,9 +768,10 @@ keeps the handful of routes that other modules reach by name (`index`, `login`,
 | [`sidecars.py`](dgx-portal/sidecars.py) | the runner: launch/stop/logs, and every sidecar readiness probe |
 | [`comfyui_client.py`](dgx-portal/comfyui_client.py) | ComfyUI, for video |
 | [`mcp_client.py`](dgx-portal/mcp_client.py) | user-configured MCP servers |
-| [`websearch.py`](dgx-portal/websearch.py) · [`websearch_tools.py`](dgx-portal/websearch_tools.py) | SearXNG + crawl4ai, and the tool layer exposing them to the model |
+| [`websearch.py`](dgx-portal/websearch.py) · [`websearch_tools.py`](dgx-portal/websearch_tools.py) · [`image_tools.py`](dgx-portal/image_tools.py) | SearXNG + crawl4ai, and the tool layers that expose web search and image generation to the model |
+| [`litellm_inflight.py`](dgx-portal/litellm_inflight.py) | loaded BY LiteLLM, not by the portal: the callback that records in-flight requests, which is the only way to attribute a running request to an account |
 | [`notify.py`](dgx-portal/notify.py) · [`discord_notify.py`](dgx-portal/discord_notify.py) · [`announcements.py`](dgx-portal/announcements.py) | mail, Discord webhook and DMs, platform announcements |
-| [`stats.py`](dgx-portal/stats.py) · [`local_users.py`](dgx-portal/local_users.py) · [`support.py`](dgx-portal/support.py) | consumption aggregates · local accounts · the Support assistant's tools |
+| [`stats.py`](dgx-portal/stats.py) · [`local_users.py`](dgx-portal/local_users.py) · [`user_lifecycle.py`](dgx-portal/user_lifecycle.py) · [`support.py`](dgx-portal/support.py) | consumption aggregates · local accounts · account offboarding (sessions, keys, envelope, data) · the Support assistant's tools |
 
 **Route blueprints** — no `url_prefix`, so every path is unchanged:
 
@@ -764,6 +801,42 @@ i18n dictionary, `proxy.ts` the per-request nonce CSP and method-based routing, 
 > `systemd/image-recreate.sh` and `systemd/ocr-restrict.sh`; install with e.g.
 > `install -o root -g root -m 0755 ocr/ocr-recreate.sh /usr/local/sbin/`.
 
+## Versioning
+
+Versions are the **tags of this repository**, and [`CHANGELOG.md`](CHANGELOG.md) is
+the human-readable half of the same promise; both follow
+[Semantic Versioning](https://semver.org/). CI (`./scripts/release.sh --check`, job
+`version`) compares the changelog with
+[`dgx-portal-frontend/package.json`](dgx-portal-frontend/package.json), so a tag
+that does not match its entry cannot be published.
+
+While the major version is `0`, the **minor** carries breaking changes: anything
+that forces an operator to act — a service or volume in `docker-compose.yml`, a key
+in `.env`, an HTTP contract, the model/sidecar catalog format — bumps minor
+(`0.1.0` → `0.2.0`); everything else bumps patch. The major stays `0` while the
+deployment contract is still moving.
+
+```bash
+./scripts/release.sh --check      # what CI runs: version ↔ changelog
+./scripts/release.sh 0.2.0        # the changelog section must already exist
+```
+
+The second command bumps `package.json`, commits `chore(version): 0.2.0`, creates
+an **annotated** tag carrying that changelog section, and pushes branch + tag.
+Pushing the tag runs `.github/workflows/release.yml`, which publishes the GitHub
+release from the same section. Notes are written *before* the tag, never after: a
+release nobody can read is worse than no release.
+
+## Contributing
+
+Bug reports, feature requests and pull requests are welcome —
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the setup, the checks that must be green
+before a push (`./scripts/pre-push-check.sh`), the commit conventions, and the
+handful of platform rules that are easy to break from a distance (never restart a
+served model, never cap a sidecar's memory, deploy by rebuilding the image rather
+than restarting the container). Participation is covered by the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## License
 
-Licensed under MIT.
+MIT — see [`LICENSE`](LICENSE).

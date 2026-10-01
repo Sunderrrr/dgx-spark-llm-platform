@@ -525,6 +525,63 @@ class MetriquesEtAbandonTest(_BasePlayground):
 
 # ── 5. Phase outils : battement, bornes, erreurs visibles ────────────────────
 
+IMG = 'data:image/jpeg;base64,' + 'A' * 64
+
+
+class ImagesTest(_BasePlayground):
+    """Images jointes : envoyées en parties `image_url` aux SEULS modèles qui voient."""
+
+    def _envoye(self, msgs, voit=True):
+        vus = []
+        with patch.object(chat, '_playground_model_vision',
+                          return_value={'fake-model': voit}):
+            self._flux(self._corps(msgs), post=self._amont_unique(_FauxAmont([_fin()]), vus))
+        return vus[0]['json']['messages']
+
+    def test_image_envoyee_en_partie_image_url(self):
+        m = self._envoye([{'role': 'user', 'content': 'Que vois-tu ?', 'images': [IMG]}])
+        self.assertEqual(m[-1]['content'], [
+            {'type': 'image_url', 'image_url': {'url': IMG}},
+            {'type': 'text', 'text': 'Que vois-tu ?'}])
+
+    def test_modele_sans_vision_recoit_du_texte_seul(self):
+        m = self._envoye([{'role': 'user', 'content': 'Que vois-tu ?', 'images': [IMG]}], voit=False)
+        self.assertEqual(m[-1]['content'], 'Que vois-tu ?')
+
+    def test_une_adresse_n_est_jamais_relayee(self):
+        """Une URL http ferait aller chercher l'image par le moteur (SSRF)."""
+        m = self._envoye([{'role': 'user', 'content': 'x',
+                           'images': ['http://169.254.169.254/latest', 'data:text/html;base64,AAAA']}])
+        self.assertEqual(m[-1]['content'], 'x')
+
+    def test_seules_les_images_recentes_partent(self):
+        msgs = [{'role': 'user', 'content': f'q{i}', 'images': [IMG] * 4} for i in range(3)]
+        m = self._envoye(msgs)
+        nb = [sum(1 for p in x['content'] if p['type'] == 'image_url')
+              if isinstance(x['content'], list) else 0 for x in m]
+        self.assertEqual(nb, [0, 4, 4])
+
+    def test_vision_lue_dans_les_arguments(self):
+        self.assertTrue(chat._modele_voit('--ctx-size 8 --mmproj m.gguf', 'llamacpp'))
+        self.assertFalse(chat._modele_voit('--ctx-size 8', 'llamacpp'))
+        self.assertTrue(chat._modele_voit('--max-seq-len 8 --vision true', 'exllamav3'))
+        self.assertFalse(chat._modele_voit('--vision false', 'exllamav3'))
+        self.assertFalse(chat._modele_voit('--max-model-len 8', 'vllm'))
+        self.assertTrue(chat._modele_voit('--limit-mm-per-prompt {"image":2}', 'vllm'))
+
+    def test_images_conservees_a_la_sauvegarde(self):
+        c = self._client()
+        msgs = [{'role': 'user', 'content': 'a', 'images': [IMG, 'http://x/y.png']},
+                {'role': 'assistant', 'content': 'b', 'images': [IMG]}]
+        r = c.post('/conversations', data={'action': 'save', 'id': 'img-1', 'title': 't',
+                                           'messages': json.dumps(msgs)},
+                   headers={'X-CSRFToken': self.CSRF})
+        self.assertEqual(r.status_code, 200)
+        g = c.get('/api/conversations/img-1').get_json()['conversation']['messages']
+        self.assertEqual(g[0]['images'], [IMG])
+        self.assertNotIn('images', g[1])
+
+
 class PhaseOutilsTest(_BasePlayground):
 
     def test_battement_pendant_un_outil_long(self):

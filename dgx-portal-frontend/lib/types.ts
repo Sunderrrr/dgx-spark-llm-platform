@@ -10,6 +10,8 @@ export type ChatMsg = {
   ts?: number;
   isError?: boolean;
   attachmentCount?: number;
+  /** Images jointes (URL `data:`), envoyées au modèle s'il sait les lire. */
+  images?: string[];
   // Sent to the model but not rendered in the chat (e.g. the answers submitted
   // from a clarifying-question card, which the user doesn't want to see echoed).
   hidden?: boolean;
@@ -21,6 +23,8 @@ export type ChatMsg = {
 export type Attachment = {
   name: string;
   content: string;
+  /** Pièce jointe IMAGE : URL `data:` déjà réduite, `content` reste vide. */
+  image?: string;
 };
 
 export type Conversation = {
@@ -50,6 +54,8 @@ export type Conversation = {
 export type PlaygroundData = {
   running_models: string[];
   model_limits: Record<string, number>;
+  /** Modèles qui lisent les images (lu dans leurs arguments de lancement). */
+  model_vision?: Record<string, boolean>;
   /** Le playground consomme la clé de l'utilisateur : sans clé, rien ne part. */
   has_key: boolean;
 };

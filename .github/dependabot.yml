@@ -1,19 +1,32 @@
-# Veille des dépendances (Dependabot).
+# Veille des dépendances (Dependabot) — ALERTES ACTIVES, PR AUTOMATIQUES EN PAUSE.
 #
-# Pourquoi : la CI vérifie que le code compile et que les tests passent, mais
-# elle ne dit RIEN d'une CVE publiée dans une bibliothèque déjà installée. Sans
-# veille, la seule façon de l'apprendre est un audit manuel — c'est exactement
+# Pourquoi la veille : la CI vérifie que le code compile et que les tests passent,
+# mais elle ne dit RIEN d'une CVE publiée dans une bibliothèque déjà installée.
+# Sans veille, la seule façon de l'apprendre est un audit manuel — c'est exactement
 # ce qui a laissé passer le contournement de `sanitizeUrl` d'Astryx 0.1.8.
-# Dependabot ouvre une PR par mise à jour ; c'est la CI qui juge.
 #
-# Rythme hebdomadaire et lots groupés : ce dépôt a peu de dépendances directes,
-# et une PR par paquet mineur noierait les vraies alertes.
+# Pourquoi les PR sont en PAUSE (`open-pull-requests-limit: 0`, 2026-10-01) : le
+# dépôt doit garder UNE seule branche (`master`). Chaque PR Dependabot crée la
+# sienne, et trois branches dormaient sur le distant (deux Dependabot, une
+# ancienne) pour des mises à jour que personne n'avait relues. Le dépôt perdait sa
+# lisibilité pour un bénéfice que la CI apporte déjà : le job « Dependency audit »
+# (pip-audit + npm audit, advisory) tourne à chaque push et écrit ses résultats
+# dans le résumé du run. Les ALERTES Dependabot (onglet Security) restent actives :
+# c'est elles qui préviennent d'une CVE, sans créer de branche.
 #
-# RÈGLE apprise le 2026-09-17 : un lot ne contient QUE des mineures et des
-# correctifs (`update-types`). Le premier lot npm groupait tout et proposait
-# d'un coup React 19.3, eslint 10, TypeScript 7, KaTeX 0.18 et Astryx 0.6 — que
-# `npm ci` refuse d'installer, donc une PR ni relisable ni fusionnable. Une
-# majeure est un chantier : elle mérite sa propre PR, avec sa propre CI.
+# POUR REPRENDRE UNE MISE À JOUR : la faire à la main, dans un commit unique et
+# relisible — `npm audit fix` / `npm update <paquet>` côté frontend (le verrou est
+# désormais diffable, cf. `.gitattributes`), `pip install -U` + `pip freeze` côté
+# portail — puis pousser et laisser la CI juger. Pour réactiver les PR, remettre un
+# `open-pull-requests-limit` non nul ci-dessous (commencer à 1 : un lot à la fois,
+# jamais trois branches ouvertes en parallèle).
+#
+# RÈGLE apprise le 2026-09-17 (elle vaut pour toute reprise manuelle) : un lot ne
+# contient QUE des mineures et des correctifs (`update-types`). Le premier lot npm
+# groupait tout et proposait d'un coup React 19.3, eslint 10, TypeScript 7, KaTeX
+# 0.18 et Astryx 0.6 — que `npm ci` refuse d'installer, donc une PR ni relisable ni
+# fusionnable. Une majeure est un chantier : elle mérite sa propre PR, avec sa
+# propre CI.
 version: 2
 
 updates:
@@ -23,7 +36,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     groups:
       portail-python:
         patterns: ["*"]
@@ -35,7 +48,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     groups:
       frontend-npm:
         patterns: ["*"]
@@ -84,12 +97,16 @@ updates:
 
   # Actions du workflow : une action tierce compromise s'exécute avec le jeton
   # du dépôt — d'où l'épinglage par SHA, que Dependabot sait maintenir.
+  # En pause comme les autres (même raison : UNE branche), mais la veille reste :
+  # les actions tierces remontent, elles aussi, dans le graphe de dépendances et
+  # donc dans les alertes Dependabot. Une montée de SHA se fait à la main, et se
+  # relit en une ligne.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     groups:
       actions:
         patterns: ["*"]

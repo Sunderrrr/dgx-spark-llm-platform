@@ -64,19 +64,35 @@ BACKUP_MAX_AGE_H = 26  # cronos-backup tourne à 03:00 → < 26 h = toujours fra
 # 40 % — un utilisateur qui supprime ses propres conversations peut déclencher
 # un faux positif (un email), un reset silencieux coûte trois jours.
 PORTAL_DB = "/var/lib/docker/volumes/ai-platform_portal_data/_data/portal.db"
+# Conservé pour la documentation : c'est le chemin RÉEL de la base, mais l'unité
+# ne peut pas l'ouvrir (volume 0700 uid 10001, moniteur sans CAP_DAC_OVERRIDE).
+# Toute lecture doit passer par COMPTEURS_CODE, ci-dessous.
 DATA_DROP_RATIO = 0.4   # alerte sous 40 % du filigrane
 DATA_FLOOR = 20         # jamais d'alerte tant que le filigrane est < 20
+
+# Les compteurs sont lus DANS le conteneur du portail, pas sur ce chemin : depuis
+# le durcissement de l'unité (CapabilityBoundingSet vide) le moniteur n'a plus
+# CAP_DAC_OVERRIDE, et le volume appartient à uid 10001 en 0700. La sonde
+# renvoyait alors « db illisible » ET `up=True` — donc plus aucune alerte, ce qui
+# était précisément la panne qu'elle existe pour attraper (reset silencieux du
+# 04/09/2026, passé inaperçu trois jours). Le conteneur, lui, possède la base.
+COMPTEURS_CODE = (
+    "import sqlite3;c=sqlite3.connect('file:/app/data/portal.db?mode=ro',uri=True);"
+    "print(c.execute('SELECT COUNT(*) FROM conversations').fetchone()[0],"
+    "sum(c.execute('SELECT COUNT(*) FROM '+t).fetchone()[0]"
+    " for t in ('image_jobs','music_jobs','video_jobs')))"
+)
 
 
 def _data_intact(watermark):
     """(up, detail, compteurs) : conversations + jobs média vs filigrane."""
-    import sqlite3
+    import subprocess
     try:
-        conn = sqlite3.connect(f"file:{PORTAL_DB}?mode=ro", uri=True, timeout=5)
-        conv = conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
-        jobs = sum(conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-                   for t in ("image_jobs", "music_jobs", "video_jobs"))
-        conn.close()
+        r = subprocess.run(["docker", "exec", "dgx-portal", "python3", "-c", COMPTEURS_CODE],
+                           capture_output=True, text=True, timeout=15)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or "").strip()[:200] or f"docker exec rc={r.returncode}")
+        conv, jobs = (int(x) for x in r.stdout.split())
     except Exception as exc:
         # Illisible : c'est le rôle des sondes conteneur de le signaler.
         return True, f"db illisible ({exc})", {"conversations": None, "jobs": None}

@@ -138,10 +138,18 @@ def _revalide_session():
 
 
 def bloquer_compte(username, raison, par):
-    """Refuse le compte à la connexion et coupe ses sessions ouvertes.
+    """Refuse le compte à la connexion, coupe ses sessions ET ses clés API.
 
     Seul mécanisme du portail qui vaille pour un compte LDAP/SSO : il n'a pas
     de ligne dans local_users, donc pas d'`enabled` à basculer.
+
+    Les CLÉS font partie du blocage depuis l'audit du 2026-10-02 : LiteLLM
+    valide les clés lui-même et le portail n'est pas dans le chemin de l'API,
+    donc un compte bloqué gardait un accès `Bearer` complet (GPU partagé
+    consommé sur son enveloppe). Un blocage qui laisse une clé vivante n'a rien
+    révoqué. Contrepartie : « débloquer » ne restaure pas les clés.
+
+    Renvoie un rapport : {'sessions', 'keys_revoked', 'keys_failed', 'keys'}.
     """
     db = get_db()
     db.execute(
@@ -150,17 +158,28 @@ def bloquer_compte(username, raison, par):
         "blocked_by=excluded.blocked_by, blocked_at=excluded.blocked_at",
         (username, (raison or None), (par or '?'), datetime.now().isoformat()))
     db.commit()
+    # Le rôle d'admin est mis en cache 60 s pour /internal/authcheck : sans purge,
+    # une clé d'admin bloqué franchirait encore la maintenance pendant une minute.
+    _admin_username_cache.pop(username, None)
     revoquees = _revoke_user_sessions(username)
+    from user_lifecycle import revoquer_cles_compte        # import tardif : cycle auth <-> user_lifecycle
+    cles_ok, cles_ko, cles_total = revoquer_cles_compte(username, par, 'blocage du compte')
     log_audit(par, 'user.block',
               f'{username}' + (f' — motif : {raison}' if raison else '')
-              + f' — {revoquees} session(s) révoquée(s)')
-    return revoquees
+              + f' — {revoquees} session(s) révoquée(s), '
+              + f'{cles_ok}/{cles_total} clé(s) API révoquée(s)'
+              + (f', {cles_ko} ÉCHEC(S) À RÉVOQUER' if cles_ko else ''))
+    return {'sessions': revoquees, 'keys_revoked': cles_ok,
+            'keys_failed': cles_ko, 'keys': cles_total}
 
 
 def debloque_compte(username, par):
     db = get_db()
     n = db.execute("DELETE FROM blocked_users WHERE username=?", (username,)).rowcount
     db.commit()
+    # Même raison que dans bloquer_compte : le rôle en cache ne doit pas retarder
+    # le retour à la normale d'une minute.
+    _admin_username_cache.pop(username, None)
     if n:
         log_audit(par, 'user.unblock', username)
     return n
@@ -279,8 +298,15 @@ def _local_user_admin(username):
     admin list + LDAP, so an admin created through the local-users UI had a
     working web session (session['is_admin']) but their key was rejected (503)
     in maintenance mode — two sources of truth for "admin". This closes that gap.
+
+    Le BLOCAGE compte comme une perte d'admin (audit du 2026-10-02) : un compte
+    bloqué est refusé au login, mais son `enabled` reste à 1 — sans ce test, sa
+    clé API continuait de franchir la maintenance. `est_bloque` est le même
+    prédicat que celui du login, donc les deux chemins ne peuvent plus diverger.
     """
     try:
+        if est_bloque(username):
+            return False
         row = get_db().execute(
             "SELECT * FROM local_users WHERE username=? AND enabled=1", (username,)).fetchone()
         if not row:

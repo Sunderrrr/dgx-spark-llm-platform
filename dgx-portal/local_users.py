@@ -146,6 +146,16 @@ def _record_user_source(username, source, fullname=None, is_admin=None):
     except Exception:
         pass
 
+# Plafond de quota : la borne HAUTE manquait sur les chemins de compte et de
+# groupe (audit du 2026-10-02). `float()` accepte 1e300, donc un « quota » de
+# fait illimité passait par `/admin/users/create`, `/admin/users/update` et
+# `/admin/groups/create`, alors que la même équipe jugeait 1e12 nécessaire sur
+# les approbations et les subventions — un 6,7e12 tapé par erreur y avait déjà
+# été refusé. `inf` et `1e400` menaient en plus à un 500 : seul ValueError était
+# attrapé, pas l'OverflowError de `int(float('inf'))`.
+MAX_BUDGET = 1e12
+
+
 def _parse_budget(raw):
     """'' → None (will inherit from group/default); otherwise a positive integer or an error."""
     raw = (raw or '').strip().replace(' ', '')
@@ -153,10 +163,13 @@ def _parse_budget(raw):
         return None, None
     try:
         v = int(float(raw))
-        if v <= 0:
-            return None, "Le quota doit être un entier positif."
+        # `not (0 < v <= MAX)` et non deux comparaisons : NaN échoue toutes les
+        # comparaisons, donc il passait.
+        if not (0 < v <= MAX_BUDGET):
+            return None, (f"Le quota doit être un entier positif, "
+                          f"au plus {MAX_BUDGET:.0e} tokens.")
         return v, None
-    except ValueError:
+    except (ValueError, OverflowError):
         return None, "Quota invalide."
 
 

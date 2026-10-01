@@ -352,24 +352,63 @@ class CycleDeVieModeleTest(BaseAdmin):
             db.commit()
             return db.execute("SELECT id FROM model_configs WHERE name=?", (name,)).fetchone()['id']
 
-    def test_suppression_modele_servi_demande_confirmation(self):
+    def test_suppression_modele_servi_refusee(self):
+        """Ses poids sont lus par le moteur : on demande de l'arrêter d'abord,
+        et rien n'est touché — ni le catalogue, ni les fichiers."""
         mid = self._modele()
         c = self._client(ADMIN1)
-        with patch.object(admin_routes, 'get_running_models', return_value=['ztest-modele']):
-            r = self._post(c, f'/admin/model/delete/{mid}')
-        self.assertEqual(r.status_code, 409)
-        self.assertTrue(r.get_json()['needs_confirm'])
         with patch.object(admin_routes, 'get_running_models', return_value=['ztest-modele']), \
-             patch.object(admin_routes, '_unregister_litellm_model', return_value=True):
+             patch.object(admin_routes, 'runner_delete_files') as effacer:
             r = self._post(c, f'/admin/model/delete/{mid}', {'confirm': '1'})
+        self.assertEqual(r.status_code, 409)
+        effacer.assert_not_called()
+        with portal.app.app_context():
+            self.assertIsNotNone(portal.get_db().execute(
+                "SELECT 1 FROM model_configs WHERE id=?", (mid,)).fetchone())
+
+    def test_suppression_efface_les_fichiers(self):
+        mid = self._modele('ztest-modele3')
+        c = self._client(ADMIN1)
+        with patch.object(admin_routes, 'get_running_models', return_value=[]), \
+             patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
+             patch.object(admin_routes, 'runner_delete_files',
+                          return_value=(True, 3 * 2**30, '')) as effacer:
+            r = self._post(c, f'/admin/model/delete/{mid}')
         self.assertEqual(r.status_code, 200)
-        self.assertTrue(r.get_json()['ok'])
+        effacer.assert_called_once_with('org/modele')
+        self.assertIn('3.0 Gio', r.get_json()['message'])
+        self.assertNotIn('warning', r.get_json())
+
+    def test_fichiers_partages_conserves(self):
+        """Une autre entrée pointe sur les mêmes poids : on ne les efface pas."""
+        mid = self._modele('ztest-modele4')
+        self._modele('ztest-modele5')
+        c = self._client(ADMIN1)
+        with patch.object(admin_routes, 'get_running_models', return_value=[]), \
+             patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
+             patch.object(admin_routes, 'runner_delete_files') as effacer:
+            r = self._post(c, f'/admin/model/delete/{mid}')
+        self.assertEqual(r.status_code, 200)
+        effacer.assert_not_called()
+        self.assertIn('ztest-modele5', r.get_json()['warning'])
+
+    def test_echec_d_effacement_signale(self):
+        mid = self._modele('ztest-modele6')
+        c = self._client(ADMIN1)
+        with patch.object(admin_routes, 'get_running_models', return_value=[]), \
+             patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
+             patch.object(admin_routes, 'runner_delete_files',
+                          return_value=(False, 0, 'runner injoignable')):
+            r = self._post(c, f'/admin/model/delete/{mid}')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('runner injoignable', r.get_json()['warning'])
 
     def test_suppression_signale_l_echec_de_deregistration(self):
         mid = self._modele('ztest-modele2')
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'get_running_models', return_value=[]), \
-             patch.object(admin_routes, '_unregister_litellm_model', return_value=False):
+             patch.object(admin_routes, '_unregister_litellm_model', return_value=False), \
+             patch.object(admin_routes, 'runner_delete_files', return_value=(True, 0, '')):
             r = self._post(c, f'/admin/model/delete/{mid}')
         self.assertEqual(r.status_code, 200)
         self.assertIn('warning', r.get_json())

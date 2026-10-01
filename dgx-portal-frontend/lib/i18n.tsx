@@ -1434,6 +1434,8 @@ const EN: Record<string, string> = {
   "Le modèle sera chargé en mémoire unifiée — le lancement peut prendre plusieurs minutes.":
     "The model will be loaded into unified memory — launching can take several minutes.",
   "Supprimer {name} du catalogue ?": "Delete {name} from the catalogue?",
+  "Supprimer {name} ?": "Delete {name}?",
+  "Le modèle sera retiré du catalogue et du routage LiteLLM, et ses fichiers seront effacés du disque (sauf s'ils servent à un autre modèle). Pour le retélécharger, il faudra le réinstaller. Un modèle en cours doit d'abord être arrêté.": "The model will be removed from the catalogue and from LiteLLM routing, and its files will be erased from disk (unless another model uses them). To use it again it must be reinstalled. A running model must be stopped first.",
   "L'entrée sera retirée du catalogue et du routage LiteLLM (ça n'arrête pas un modèle en cours).":
     "The entry will be removed from the catalogue and from LiteLLM routing (this does not stop a running model).",
   "Activer le mode maintenance ?": "Enable maintenance mode?",

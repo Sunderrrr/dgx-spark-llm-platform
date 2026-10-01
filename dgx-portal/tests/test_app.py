@@ -975,7 +975,8 @@ class AnnonceModeleSupprimeTest(unittest.TestCase):
             s["auth_at"] = int(time.time())
             s["is_admin"] = True
             s["csrf"] = "test-csrf"
-        with patch.object(admin_routes, '_unregister_litellm_model', return_value=True):
+        with patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
+             patch.object(admin_routes, 'runner_delete_files', return_value=(True, 0, '')):
             r = c.post(f"/admin/model/delete/{self.mid}",
                        headers={'X-CSRFToken': 'test-csrf'})
         # Contrat JSON : plus de redirection. Le `flash` n'était rendu par aucun

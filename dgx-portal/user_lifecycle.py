@@ -128,6 +128,31 @@ def _revoquer_cles(username, revoke_litellm_key, log):
     return reussies, echouees, len(valeurs)
 
 
+def revoquer_cles_compte(username, par=None, motif=''):
+    """Révoque les clés API d'un compte et le CONSIGNE. Renvoie (ok, ko, total).
+
+    Pourquoi ce chemin séparé du déprovisionnement : bloquer un compte (ou le
+    désactiver) coupe l'accès au PORTAIL, pas celui à l'API. LiteLLM valide les
+    clés lui-même et le portail n'est pas dans le chemin de la requête, donc un
+    compte bloqué gardait une clé `Bearer` pleinement fonctionnelle — l'audit du
+    2026-10-02 l'a établi, et le geste que SECURITY.md §2.4 désigne comme
+    l'offboarding des comptes d'annuaire était donc incomplet.
+
+    On réutilise le chemin UNIQUE de révocation (`_revoquer_cles`, le même que
+    `deprovisionner_compte`) pour qu'il n'existe pas deux façons de révoquer.
+    Contrepartie assumée : « débloquer » ne restaure PAS les clés — le compte
+    retrouve son accès portail, l'utilisateur recrée une clé s'il en veut une.
+    """
+    from litellm_client import revoke_litellm_key
+
+    reussies, echouees, total = _revoquer_cles(username, revoke_litellm_key, print)
+    log_audit(par or '?', 'user.keys_revoked',
+              f'{username} — {reussies}/{total} clé(s) révoquée(s)'
+              + (f', {echouees} ÉCHEC(S) À RÉVOQUER' if echouees else '')
+              + (f' — {motif}' if motif else ''))
+    return reussies, echouees, total
+
+
 def purger_donnees(username):
     """Efface toutes les données rattachées au compte. Renvoie le décompte."""
     db = get_db()

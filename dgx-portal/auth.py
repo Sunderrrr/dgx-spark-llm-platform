@@ -354,7 +354,7 @@ def ldap_authenticate(username, password):
             conn.unbind()
             return False, False, username
         entry = conn.entries[0]
-        # displayName (ex. « Abdillah Abdou ») quand présent ; sinon cn, sinon
+        # displayName (ex. « Alice Dupont ») quand présent ; sinon cn, sinon
         # l'identifiant. Authentik stocke displayName base64 pour les accents,
         # ldap3 le décode déjà.
         if hasattr(entry, 'displayName') and getattr(entry, 'displayName'):

@@ -511,11 +511,11 @@ class EnVolStatsTest(unittest.TestCase):
         conn.close()
 
     def test_un_alias_connu_donne_le_compte(self):
-        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'nlefevre'):
-            self._ecrit([('c1', 'Opencode-nlefevre', '', 12)])
+        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'alice'):
+            self._ecrit([('c1', 'Opencode-alice', '', 12)])
             actifs = stats._en_vol()
-        self.assertEqual(list(actifs), ['nlefevre'])
-        self.assertTrue(11 < actifs['nlefevre'] < 15, actifs)
+        self.assertEqual(list(actifs), ['alice'])
+        self.assertTrue(11 < actifs['alice'] < 15, actifs)
 
     def test_un_alias_inconnu_ne_devine_aucun_nom(self):
         """Mieux vaut ne rien afficher qu'un nom invente."""
@@ -524,14 +524,14 @@ class EnVolStatsTest(unittest.TestCase):
             self.assertEqual(stats._en_vol(), {})
 
     def test_le_user_id_sert_de_repli(self):
-        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'cedurand'):
-            self._ecrit([('c1', '', 'cedurand', 3)])
-            self.assertEqual(list(stats._en_vol()), ['cedurand'])
+        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'bob'):
+            self._ecrit([('c1', '', 'bob', 3)])
+            self.assertEqual(list(stats._en_vol()), ['bob'])
 
     def test_la_plus_ancienne_requete_gagne(self):
-        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'nlefevre'):
-            self._ecrit([('c1', 'nlefevre-1', '', 2), ('c2', 'nlefevre-2', '', 300)])
-            self.assertTrue(stats._en_vol()['nlefevre'] > 290)
+        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'alice'):
+            self._ecrit([('c1', 'alice-1', '', 2), ('c2', 'alice-2', '', 300)])
+            self.assertTrue(stats._en_vol()['alice'] > 290)
 
     def test_fichier_absent_ou_illisible_ne_leve_pas(self):
         self.assertEqual(stats._en_vol(), {})          # absent

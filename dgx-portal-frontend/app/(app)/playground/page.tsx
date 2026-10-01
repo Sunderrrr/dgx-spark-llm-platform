@@ -133,7 +133,8 @@ const ATTACH_EXTENSIONS = ATTACH_ACCEPT.split(",").map((e) => e.trim().toLowerCa
  *  Réduites dans le navigateur avant l'envoi — une photo de téléphone (4 000 px,
  *  5 Mo) coûterait sinon des milliers de tokens de préchargement et dépasserait
  *  la limite d'enregistrement des conversations. 1 568 px suffit à lire un texte
- *  ou une capture d'écran. */
+ *  ou une capture d'écran. Voir `preparerImage` : une image déjà raisonnable
+ *  part telle quelle, sans passer par un canevas. */
 const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp,.gif";
 const IMAGE_EXTENSIONS = IMAGE_ACCEPT.split(",");
 const IMAGE_COTE_MAX = 1568;
@@ -148,13 +149,58 @@ const IMAGES_BUDGET_SAUVEGARDE = 1_500_000;
 /** Poids estimé d'une image dans la fenêtre de contexte, en caractères (~1 500 tokens). */
 const IMAGE_POIDS_CHARS = 1500 * 4;
 
-/** Réduit une image et la rend en JPEG `data:` (fond blanc sous la transparence). */
-async function reduireImage(file: File): Promise<string> {
+/** Taille au-delà de laquelle une image est réduite (le serveur refuse > ~2,2 Mo). */
+const IMAGE_ORIGINALE_MAX_BYTES = 2 * 1024 * 1024;
+
+function lireDataUrl(file: Blob): Promise<string> {
+  return new Promise((ok, ko) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result));
+    r.onerror = () => ko(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+/** Le canevas rend-il vraiment ce qu'on y dessine ?
+ *  Mesuré le 2026-10-01 : sur certains navigateurs (protections anti-pistage
+ *  par canevas), la relecture rend un canevas VIDE — l'image partait toute
+ *  noire, et le modèle décrivait avec aplomb une scène inventée. */
+function canevasFiable(): boolean {
+  try {
+    const c = document.createElement("canvas");
+    c.width = c.height = 4;
+    const ctx = c.getContext("2d");
+    if (!ctx) return false;
+    ctx.fillStyle = "rgb(255,0,0)";
+    ctx.fillRect(0, 0, 4, 4);
+    const [r, g, b, a] = ctx.getImageData(1, 1, 1, 1).data;
+    return r > 200 && g < 60 && b < 60 && a > 200;
+  } catch {
+    return false;
+  }
+}
+
+/** L'image à envoyer, en URL `data:`.
+ *  Une image déjà raisonnable part TELLE QUELLE (aucun canevas : rien à
+ *  abîmer). Seule une grande image est réduite à IMAGE_COTE_MAX en JPEG, et
+ *  seulement si le canevas est fiable ; sinon on refuse plutôt que d'envoyer
+ *  une image noire. */
+async function preparerImage(file: File): Promise<string> {
   const bmp = await createImageBitmap(file);
-  const echelle = Math.min(1, IMAGE_COTE_MAX / Math.max(bmp.width, bmp.height));
+  const { width, height } = bmp;
+  const typeOk = /^image\/(png|jpeg|webp|gif)$/.test(file.type);
+  if (typeOk && file.size <= IMAGE_ORIGINALE_MAX_BYTES && Math.max(width, height) <= IMAGE_COTE_MAX * 2) {
+    bmp.close();
+    return lireDataUrl(file);
+  }
+  if (!canevasFiable()) {
+    bmp.close();
+    throw new Error("canevas");
+  }
+  const echelle = Math.min(1, IMAGE_COTE_MAX / Math.max(width, height));
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bmp.width * echelle));
-  canvas.height = Math.max(1, Math.round(bmp.height * echelle));
+  canvas.width = Math.max(1, Math.round(width * echelle));
+  canvas.height = Math.max(1, Math.round(height * echelle));
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas");
   ctx.fillStyle = "white";
@@ -2165,9 +2211,14 @@ export default function PlaygroundPage() {
           continue;
         }
         nbImages++;
-        reduireImage(file)
+        preparerImage(file)
           .then((url) => setAttachments((prev) => [...prev, { name: file.name, content: "", image: url }]))
-          .catch(() => showToast({ body: t("« {name} » n'a pas pu être lu.").replace("{name}", file.name), type: "error" }));
+          .catch((e: unknown) => showToast({
+            body: (e instanceof Error && e.message === "canevas"
+              ? t("« {name} » est trop grande (plus de 2 Mo) et ce navigateur bloque sa réduction : réduis-la avant de la joindre.")
+              : t("« {name} » n'a pas pu être lu.")).replace("{name}", file.name),
+            type: "error",
+          }));
         continue;
       }
       if (!ATTACH_EXTENSIONS.includes(ext)) {

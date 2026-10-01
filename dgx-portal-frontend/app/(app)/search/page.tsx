@@ -230,7 +230,7 @@ export default function SearchPage() {
                       variant="secondary"
                       icon={<Icon icon={ArrowTopRightOnSquareIcon} size="sm" />}
                       onClick={() =>
-                        window.open(`https://huggingface.co/models?search=${encodeURIComponent(query)}`, "_blank")
+                        window.open(`https://huggingface.co/models?search=${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer")
                       }
                     />
                   ) : undefined
@@ -285,7 +285,7 @@ export default function SearchPage() {
                             variant="secondary"
                             size="sm"
                             icon={<Icon icon={ArrowTopRightOnSquareIcon} size="sm" />}
-                            onClick={() => window.open(`https://huggingface.co/${model.modelId}`, "_blank")}
+                            onClick={() => window.open(`https://huggingface.co/${model.modelId}`, "_blank", "noopener,noreferrer")}
                           />
                           <Button
                             label={t("Demander")}

@@ -20,6 +20,7 @@ type ApiConversation = {
     hidden?: boolean;
     isError?: boolean;
     truncated?: boolean;
+    images?: string[];
   }[];
   /** Vrai quand le serveur a laissé les messages de côté (budget de la liste). */
   messages_omis?: boolean;

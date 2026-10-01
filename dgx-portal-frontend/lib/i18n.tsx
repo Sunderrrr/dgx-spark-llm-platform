@@ -16,8 +16,13 @@ const EN: Record<string, string> = {
   "Emails de notification": "Notification emails",
   "SMTP configuré": "SMTP configured",
   "SMTP non configuré": "SMTP not configured",
-  "Envoi depuis no-reply@cronos.website via Zoho ; les notifications admin partent vers l'adresse ci-dessous.":
-    "Sent from no-reply@cronos.website via Zoho; admin notifications go to the address below.",
+  // {adresse} = adresse d'expédition, insérée APRÈS le montage : Cloudflare
+  // réécrit les adresses email du HTML serveur et casserait l'hydratation
+  // (cf. SENDER_ADDRESS dans EmailConfig.tsx). Le repli d'avant montage est un
+  // mot neutre, jamais une adresse.
+  "Envoi depuis {adresse} via Zoho ; les notifications admin partent vers l'adresse ci-dessous.":
+    "Sent from {adresse} via Zoho; admin notifications go to the address below.",
+  "le portail": "the portal",
   "Envoyer un test": "Send a test",
   "Email de test envoyé.": "Test email sent.",
   "Échec de l'envoi.": "Send failed.",

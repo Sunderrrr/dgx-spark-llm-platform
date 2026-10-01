@@ -72,6 +72,57 @@ describe, and starts the version line.
   account, blurs anything sensitive before capture and re-reads every final PNG
   by OCR to prove that no email, API key or other account's name made it in.
 
+### Fixed
+
+Deployment-path audit of 2026-10-01 (fresh-install rehearsal, read-only on the live
+box). Every item below was invisible on the running installation, whose state had
+been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
+
+- **`install.sh` deployed 4 of the 13 systemd units**, no media wrapper and not a
+  single sudoers rule: on a fresh install the admin could launch a model but no
+  media sidecar (`command not allowed`), and the `web_net`/`ocr` network isolation
+  the README describes was simply absent. It now installs every unit (monitor and
+  backup via their timers), the 7 `/usr/local/sbin` wrappers, the 4 scoped sudoers
+  files (validated with `visudo -c`), and grants `vllmrunner` the traversal ACL it
+  needs on `/root` — without it the unit could not even open `runner.py` and
+  `Restart=always` looped in silence.
+- **The orphan purge could not delete anything** (`monitoring/backup.py`): the unit
+  runs without `CAP_DAC_OVERRIDE` over a `0700` volume, and `os.path.isdir()`
+  swallowed the `EACCES`, so it reported *0 deleted* every night while videos of
+  10–100 MB accumulated. It now runs inside the portal container, which owns the
+  files, and prints failures instead of hiding them.
+- **The `portal.db` integrity probe was dead in silence** (`monitoring/monitor.py`):
+  it returned *db unreadable* **and** `up=True`, so the exact failure it exists to
+  catch (a silent reset, as on 2026-09-04) would no longer alert. Counters are read
+  inside the container.
+- **A fresh install handed every account a 0.002-token budget**: `docker-compose.yml`
+  still overrode `KEY_MAX_BUDGET`/`KEY_BUDGET_DURATION` with the values of the first
+  test account, defeating the code default of 200 M tokens/week.
+- **Web search was broken on a fresh install**: SearXNG's `settings.yml` is not
+  versioned (it holds a generated secret), so the image wrote its own — *without*
+  the `json` format the portal requires (403 otherwise). `setup.sh` now generates it
+  from `searxng/settings.yml.example`, and the template also fixes a latent YAML bug:
+  two `server:` blocks in one document do not merge, so `image_proxy: true` was
+  silently dropped by the second one.
+- **The crawl4ai service token was created by nothing**: the missing bind mount
+  became a *directory* in place of the token and the service refused to listen
+  outside loopback. `setup.sh` generates it (0644 — the container is unprivileged
+  and cannot read a root-owned 0600 file).
+- **`dgx-portal/run-tests.sh` failed outside a directory named `ai-platform`**, so
+  the command the README documents did not work on a fresh clone. The compose
+  project name is now pinned, as the CI already did.
+- **Deployed artifacts had drifted from the repository**: two recreate wrappers
+  (a lost `--cap-drop ALL`/`no-new-privileges`, a lost image digest), a sudoers file
+  that only existed on the machine, and a needrestart policy stored where a
+  `cp systemd/*` would have made it inert. All four are now tracked, installed by
+  `install.sh`, and identical on disk.
+- **README corrections**: the public API path (`http://dgx.cronos.lan:4001` answers
+  nothing — LiteLLM publishes no host port), `install.sh`'s scope, the
+  `litellm/config.yaml` description, the repository tree, three modules missing from
+  the backend map, and the `app.py` line count.
+- **Log rotation was half-applied**: `searxng` and `crawl4ai` had been left out of
+  the change that gave every other service a 20 MB × 5 cap; both were recreated.
+
 ### Security
 
 - Hardened containers (`cap_drop: ALL`, `no-new-privileges`, non-root portal),

@@ -20,9 +20,6 @@ esac
 
 docker rm -f asr >/dev/null 2>&1 || true
 
-# --memory : un décodage audio piégé (bombe de décompression) est ainsi tué
-#   dans le conteneur au lieu de déclencher l'OOM killer de l'hôte, qui viserait
-#   le plus gros consommateur (le modèle de chat).
 # --security-opt/--cap-drop : aligne ce conteneur, qui reçoit des octets
 #   utilisateur bruts, sur le durcissement du reste de la plateforme.
 # PAS de --memory ici : sur le GB10 la mémoire GPU est UNIFIÉE avec la RAM et

@@ -44,6 +44,11 @@ COPY server.py /app/server.py
 
 RUN mkdir -p /app/hf_cache
 
-EXPOSE 8005
+# 8004, comme le sidecar Chatterbox : le port est FIXE côté plateforme
+# (`VOICE_URL=http://voice:8004` dans config.py, et les deux moteurs sont des
+# remplaçants l'un de l'autre). Ce CMD n'est de toute façon jamais celui qui
+# tourne : `voice-qwen-recreate.sh` lance le conteneur avec ses propres
+# arguments, dont `--port 8004`. Annoncer 8005 ici ne faisait que semer le doute.
+EXPOSE 8004
 
-CMD ["python3", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8005"]
+CMD ["python3", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8004"]

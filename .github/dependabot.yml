@@ -12,7 +12,12 @@
 # lisibilité pour un bénéfice que la CI apporte déjà : le job « Dependency audit »
 # (pip-audit + npm audit, advisory) tourne à chaque push et écrit ses résultats
 # dans le résumé du run. Les ALERTES Dependabot (onglet Security) restent actives :
-# c'est elles qui préviennent d'une CVE, sans créer de branche.
+# c'est elles qui préviennent d'une CVE, sans créer de branche. Vérifié le
+# 2026-10-01 : elles étaient DÉSACTIVÉES sur le dépôt (404 sur
+# `/vulnerability-alerts`) — les activer est ce qui rend cette pause acceptable,
+# sinon mettre les PR en pause aurait supprimé la seule veille automatique.
+# Les CORRECTIFS de sécurité automatiques restent désactivés, à l'inverse, parce
+# qu'eux ouvrent une PR : l'alerte suffit, la correction se fait à la main.
 #
 # POUR REPRENDRE UNE MISE À JOUR : la faire à la main, dans un commit unique et
 # relisible — `npm audit fix` / `npm update <paquet>` côté frontend (le verrou est

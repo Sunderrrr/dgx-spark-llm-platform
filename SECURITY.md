@@ -87,10 +87,10 @@ HF_HOME, PYTHONUNBUFFERED, two vLLM perf knobs) instead of `**os.environ`, so th
 root environment's secrets never reach the model process, `/logs` or `/stream`;
 `HF_TOKEN` is passed through only when set.
 
-### 2.2 Sidecar control — no docker socket, anywhere
+### 2.2 Sidecar control — no docker socket in the path we control
 
-`docker.sock` is mounted **nowhere** in this stack. Sidecar lifecycle goes
-through narrowly scoped `sudo` rules (`/etc/sudoers.d/vllmrunner-*`) pointing at
+Sidecar lifecycle goes through narrowly scoped `sudo` rules
+(`/etc/sudoers.d/vllmrunner-*`) pointing at
 **root-owned wrapper scripts** that fix the image, network, mounts and hardening
 flags. The admin only ever controls the trailing arguments, revalidated
 host-side.
@@ -104,14 +104,29 @@ shape again: its model id must match a closed `case` list in `asr-recreate.sh`
 route runs on that one shared ASR model — no LiteLLM key, so it is rate-limited
 like the other GPU-heavy routes instead of budget-capped.
 
-**The one exception is `hawser`** (`ghcr.io/finsys/hawser`, systemd
-`hawser-restrict.service`), the Docker control-plane agent used to drive the
-runner. It *does* mount `/var/run/docker.sock` (plus host `/opt` and `/root`) —
-this is deliberate, not a sidecar, and it is scoped down two ways: its HTTP API
-(`0.0.0.0:2376`) is firewalled to exactly two admin hosts and it requires a
-bearer `HAWSER_TOKEN` before it will act. A compromise of `hawser` is host-root
-equivalent, so its token stays a protected secret and its allowlist stays
-minimal (see §3.2).
+**`docker.sock` is NOT mounted nowhere on this host — this section said it was,
+which was false, and the error is instructive: the claim was about *our* stack
+while the machine also runs containers started outside it.** Two containers mount
+it (verified 2026-10-02 with `docker inspect`):
+
+- **`hawser`** (`ghcr.io/finsys/hawser`, systemd `hawser-restrict.service`), the
+  Docker control-plane agent used to drive the runner. It *does* mount
+  `/var/run/docker.sock` (plus host `/opt` and `/root`) — deliberate, not a
+  sidecar, and scoped down two ways: its HTTP API (`0.0.0.0:2376`) is firewalled
+  to exactly two admin hosts and it requires a bearer `HAWSER_TOKEN`. It is
+  **not currently running**.
+- **`arcane-edge-agent`** (`ghcr.io/getarcaneapp/agent:latest`), created
+  **2026-09-26** after the previous audit, by `docker run` (absent from
+  `docker-compose.yml`, from this document and from the accepted-risk note). It
+  mounts `/var/run/docker.sock:rw` **and** `/opt:/opt:rw`, runs as `User=0:0`,
+  with no `cap_drop` and no `no-new-privileges`. `/opt` holds the Traefik PKI
+  (`/opt/traefik/letsencrypt/acme.json`, 0600) and `dynamic/routes.yml`: that
+  container can therefore reach host root *and* rewrite TLS material and routing.
+  Nothing in the Cronos stack needs it. See §3.3 — it is the one open item here
+  that is an operator decision, not a code fix.
+
+A compromise of either is host-root equivalent, so their tokens stay protected
+secrets and their mount lists stay minimal (see §3.2).
 
 ### 2.3 Network isolation
 
@@ -160,8 +175,12 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
 
 - Cookies: `HttpOnly` + `SameSite=Lax` + `Secure` behind TLS.
 - CSRF token per session, compared on bytes with `hmac.compare_digest` (a exotic
-  token yields a rejection, not a 500). Session and CSRF token are regenerated at
-  login.
+  token yields a rejection, not a 500). The **session id is regenerated at every
+  login**; the CSRF token is deliberately **carried over** (it lives in a signed,
+  HttpOnly cookie and is reused so that a session opened by SSO does not break
+  every POST of the browser that already holds the old one — see the 2026-09-14
+  note in `CLAUDE.md`). This paragraph said "session and CSRF token are
+  regenerated at login" until 2026-10-02; only the session is.
 - Brute-force lockout persisted in SQLite — so it is shared across gunicorn
   workers and survives a redeploy. Two classic bypasses closed at once.
 - `Cf-Connecting-Ip` is validated as a real IP address before being used as the
@@ -413,6 +432,66 @@ accounts is a security parameter — keep it small.
   core and route blueprints (see [README → Repository layout](README.md#repository-layout)),
   and the route-guard test above makes the invariant explicit rather than
   assumed.
+
+### 3.4 Audit du 2026-10-02 — corrigé, et ce qui reste à décider
+
+Un audit complet (code du portail, runner, sidecars, images, hôte, terrain) a
+produit les corrections ci-dessous. Elles vivent dans le dépôt, donc elles sont
+effectives au redéploiement ; les points « à décider » demandent une action
+d'opérateur et sont listés pour ne pas se perdre.
+
+**Corrigé dans le portail.** Bloquer *ou* désactiver un compte révoque désormais
+ses clés API (LiteLLM valide les clés lui-même : une clé survivait à
+l'offboarding) ; le plafond de quota a maintenant une borne HAUTE sur *toutes* les
+routes, compte, groupe et réglages globaux compris (la typo à 6,7e12 n'était
+refusée que sur les approbations) ; changer le **groupe** d'un compte passe par la
+garde « dernier admin local », et un compte **bloqué** ne compte plus comme
+administrateur de secours ; la re-vérification du mot de passe dans
+`/api/account/password` passe par le verrou partagé avec `/login` (elle était le
+seul site sans compteur, donc testable à la vitesse du réseau) ; le `DELETE` des
+passkeys est scopé par compte (il pouvait emporter la clé d'un autre et
+verrouiller sa 2FA) ; le repli SSO sur l'adresse e-mail est refusé quand l'IdP
+déclare `email_verified: false` ; bornes d'écriture sur `reason`/`model_id` et sur
+l'import mémoire ; `lire_pages` n'ouvre plus que les URL réellement retournées par
+une recherche du même tour (canal d'exfiltration fermé) ; limiteur de débit rendu
+atomique ; garde anti-bombe de décompression sur les images ; suppression
+effective des fichiers vidéo (la table était purgée, pas le disque).
+
+**Corrigé côté infrastructure déclarative.** Rotation des journaux Docker sur les
+six services du compose, `.dockerignore` pour l'image du portail, `cronos-web-restrict`
+gagne un `DROP` en **FORWARD** (il ne filtrait qu'`INPUT`, or la SSRF aveugle du
+crawler passe par le forwarding vers le LAN).
+
+**Corrigé dans `vllm-runner`, inerte jusqu'à son prochain redémarrage légitime**
+— qui tue le modèle servi : ne pas le redémarrer pour cela. La commande est
+construite *avant* l'arrêt du modèle courant (une relance invalide ne laisse plus
+la plateforme sans modèle), `RUNNER_TOKEN` vide ou trop court est refusé au
+démarrage (un jeton vide égalait une requête sans en-tête), contrôle de forme sur
+le `hf_model_id` de `/ocr/launch`, `..` refusé dans les chemins absolus.
+
+**À décider (action opérateur, hors dépôt) :**
+
+1. **`arcane-edge-agent`** — voir §2.2 : socket Docker **et** `/opt` en écriture,
+   image `:latest`, `User=0:0`, hors compose. Le retirer (ou l'épingler et le
+   brider) est le point le plus lourd de l'audit.
+2. **`vllm-restrict` est actif mais inopérant.** netbird réinsère son
+   `-i wt0 -j ACCEPT` en tête d'`INPUT` *après* l'unité, donc le `DROP` des ports
+   8000/8001/8188 n'est jamais évalué (`iptables -L INPUT -n -v` : 281 K paquets
+   sur l'ACCEPT, 0 sur le DROP). Corriger par un `After=netbird.service` (ou un
+   `PostUp` netbird). `:8000` sans clé depuis le VPN est un risque *accepté* ;
+   `:8188` (ComfyUI, sans authentification) n'en fait pas partie.
+3. **LDAP en clair** (`ldap://…:389`) pour l'authentification du portail, avec
+   `mael ALL=(ALL) NOPASSWD: ALL` et `%adm_cronos ALL=(ALL) NOPASSWD:ALL` :
+   l'annuaire (ou le lien) donne root sans mot de passe.
+4. **Aucune rotation de journaux par défaut du démon** (`/etc/docker/daemon.json`
+   absent) : les conteneurs lancés par `docker run` (sidecars, traefik) gardent des
+   journaux non bornés — 696 Mo observés pour `music`. Le compose est couvert.
+5. **Le journal d'accès Traefik écrit les chaînes de requête** (une clé d'API
+   observée en clair), et le tableau de bord Traefik partage un unique basicAuth
+   apr1 sur tout le plan Netbird.
+6. **`install.sh` exécute `get.docker.com` sans vérification de signature.**
+7. **Pas de mises à jour de sécurité automatiques** (`unattended-upgrades` absent ;
+   machine à jour le 2026-10-02).
 
 ---
 

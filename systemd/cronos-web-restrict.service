@@ -16,15 +16,38 @@ Type=oneshot
 RemainAfterExit=yes
 # Le sous-reseau n'est volontairement PAS epingle dans docker-compose.yml (le
 # figer force docker a recreer le reseau) : on le lit donc a chaud.
+#
+# DEUX filtres, pas un (audit du 2026-10-02). Le premier est l'INPUT historique
+# (crawl4ai n'atteint plus les ports de l'hote). Le second manquait : une page
+# hostile peut REDIRIGER le navigateur vers une adresse du LAN, et ce trafic la
+# ne passe pas par INPUT mais par FORWARD (masquerade) — il n'etait filtre par
+# RIEN, donc le crawler pouvait sonder 172.16.2.x ou le plan netbird. On coupe
+# donc les destinations privees depuis DOCKER-USER, le premier maillon de
+# FORWARD et le point que Docker documente pour ce genre de regle.
+#
+# Ce qui reste volontairement ouvert : le trafic INTERNE a web_net (crawl4ai ->
+# SearXNG, meme sous-reseau) et Internet (adresses publiques). Le RETURN sur le
+# sous-reseau lui-meme est insere AVANT les DROP — sans lui, la recherche web
+# serait morte (SearXNG est dans 172.16.0.0/12).
 ExecStart=/bin/sh -c '\
 SUB=$(docker network inspect ai-platform_web_net -f "{{range .IPAM.Config}}{{.Subnet}}{{end}}" 2>/dev/null); \
 [ -n "$SUB" ] || exit 0; \
 iptables -C INPUT -s "$SUB" -m conntrack --ctstate NEW -j DROP 2>/dev/null \
-  || iptables -I INPUT 1 -s "$SUB" -m conntrack --ctstate NEW -j DROP'
+  || iptables -I INPUT 1 -s "$SUB" -m conntrack --ctstate NEW -j DROP; \
+iptables -C DOCKER-USER -s "$SUB" -d "$SUB" -j RETURN 2>/dev/null \
+  || iptables -A DOCKER-USER -s "$SUB" -d "$SUB" -j RETURN; \
+for NET in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16; do \
+  iptables -C DOCKER-USER -s "$SUB" -d "$NET" -j DROP 2>/dev/null \
+    || iptables -A DOCKER-USER -s "$SUB" -d "$NET" -j DROP; \
+done'
 ExecStop=/bin/sh -c '\
 SUB=$(docker network inspect ai-platform_web_net -f "{{range .IPAM.Config}}{{.Subnet}}{{end}}" 2>/dev/null); \
 [ -n "$SUB" ] || exit 0; \
-iptables -D INPUT -s "$SUB" -m conntrack --ctstate NEW -j DROP 2>/dev/null || true'
+iptables -D INPUT -s "$SUB" -m conntrack --ctstate NEW -j DROP 2>/dev/null || true; \
+iptables -D DOCKER-USER -s "$SUB" -d "$SUB" -j RETURN 2>/dev/null || true; \
+for NET in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16; do \
+  iptables -D DOCKER-USER -s "$SUB" -d "$NET" -j DROP 2>/dev/null || true; \
+done'
 
 [Install]
 WantedBy=multi-user.target

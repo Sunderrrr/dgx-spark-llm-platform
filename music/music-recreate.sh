@@ -30,7 +30,11 @@ docker rm -f music >/dev/null 2>&1 || true
 #   téléchargé depuis HF, même durcissement que les autres sidecars.
 # Cache HF en écriture : le modèle se télécharge tout seul au premier démarrage,
 #   ce qui permet d'ajouter un modèle depuis l'admin sans passer par le shell.
+# Plafond de journaux identique aux services du compose (20 Mo × 5) : sans lui
+# le journal du conteneur grossit sans borne, et un `docker logs` en panique
+# devient illisible. Appliqué au prochain démarrage, pas de coupure ici.
 exec docker run -d --name music --restart unless-stopped \
+  --log-opt max-size=20m --log-opt max-file=5 \
   --network ai-platform_music_net --gpus all --shm-size=2g \
   --pids-limit 512 \
   --security-opt no-new-privileges --cap-drop ALL \

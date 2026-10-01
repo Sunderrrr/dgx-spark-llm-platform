@@ -33,7 +33,11 @@ docker rm -f voice >/dev/null 2>&1 || true
 # Durcissement : voir asr-recreate.sh. Ce conteneur décode lui aussi un fichier
 # audio fourni par l'utilisateur ; mêmes garde-fous (contrôle d'en-tête dans le
 # code). PAS de --memory : mémoire unifiée GB10, cf. asr-recreate.sh.
+# Plafond de journaux identique aux services du compose (20 Mo × 5) : sans lui
+# le journal du conteneur grossit sans borne, et un `docker logs` en panique
+# devient illisible. Appliqué au prochain démarrage, pas de coupure ici.
 exec docker run -d --name voice --restart unless-stopped \
+  --log-opt max-size=20m --log-opt max-file=5 \
   --network ai-platform_voice_net --gpus all --shm-size=4g \
   --pids-limit 512 \
   --security-opt no-new-privileges --cap-drop ALL \

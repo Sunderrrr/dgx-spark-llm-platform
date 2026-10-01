@@ -641,7 +641,7 @@ def add_model_cfg():
     hf_id  = request.form.get('hf_model_id', '').strip()
     args   = request.form.get('vllm_args', '').strip()
     engine = request.form.get('engine', 'vllm').strip().lower()
-    if engine not in ('vllm', 'llamacpp', 'ds4'):
+    if engine not in ('vllm', 'llamacpp', 'ds4', 'exllamav3'):
         engine = 'vllm'
     if not name or not hf_id:
         return _json_erreur("Nom et HF model ID requis.")

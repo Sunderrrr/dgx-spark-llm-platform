@@ -41,8 +41,15 @@ assets/ranking.png
 # Users page screenshot contains internal usernames (like the leaderboard)
 assets/users.png
 
-# Configuration SearXNG : contient un secret généré au premier démarrage.
-searxng/
+# Configuration SearXNG : settings.yml contient un secret généré au premier
+# démarrage, donc il ne se versionne pas. Le MODÈLE, lui, doit être versionné :
+# sans lui, un clone neuf laisse SearXNG écrire sa configuration par défaut —
+# qui n'active PAS le format JSON attendu par le portail — et la recherche web
+# répond 403 sans que rien ne le signale. Le motif exclut le CONTENU du dossier
+# (et non le dossier), sans quoi la négation qui suit n'aurait aucun effet :
+# git ne peut pas ré-inclure un fichier dont un dossier parent est exclu.
+searxng/*
+!searxng/settings.yml.example
 
 # Jetons de service générés localement (crawl4ai). Jamais dans git.
 secrets/

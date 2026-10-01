@@ -81,24 +81,56 @@ jobs:
         working-directory: .
         run: python3 scripts/check-i18n.py
 
-  # Veille dépendances : ADVISORY (`continue-on-error`). Le but est de rendre une
-  # vulnérabilité connue VISIBLE dans le run, pas de bloquer un push sur une
-  # annonce amont qui ne nous concerne peut-être pas — les deux écosystèmes sont
-  # figés par des lockfiles, donc l'analyse est reproductible. Dependabot
-  # (`.github/dependabot.yml`) ouvre en parallèle les PR de mise à jour.
+  # Veille dépendances : ADVISORY, et advisory jusqu'au bout.
+  #
+  # Deux leçons du 2026-10-01. D'abord, un avis amont ne concerne pas forcément ce
+  # dépôt et n'a souvent aucun correctif disponible : bloquant, il transforme une
+  # annonce en pipeline rouge permanent — et un rouge permanent n'est plus lu.
+  # Ensuite, `continue-on-error` posé sur le JOB ne suffisait pas : le run restait
+  # vert mais le job portait quand même une croix rouge, ce qui se lit comme un
+  # échec (c'est exactement ce qu'on voyait).
+  #
+  # Le signal est donc CONSERVÉ, mais ne rougit plus : chaque étape sort en 0, la
+  # sortie complète reste dans le journal, le résumé du run reprend les avis
+  # trouvés, et un `::warning::` les signale en jaune sur la page du run. La veille
+  # de fond reste les alertes Dependabot (onglet Security).
   dependencies:
     name: Dependency audit (advisory)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: pip-audit (portail)
         run: |
           python3 -m pip install --quiet pip-audit
-          pip-audit -r dgx-portal/requirements.txt
+          sortie=$(pip-audit -r dgx-portal/requirements.txt 2>&1) && etat=0 || etat=$?
+          printf '%s\n' "$sortie"
+          {
+            echo '## pip-audit — `dgx-portal/requirements.txt`'
+            echo
+            echo '```'
+            printf '%s\n' "$sortie"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$etat" != 0 ]; then
+            echo "::warning title=Dépendances Python::pip-audit signale un avis (advisory, non bloquant) — détails dans le résumé de ce run."
+          fi
+          exit 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: 20
       - name: npm audit (frontend)
         working-directory: dgx-portal-frontend
-        run: npm audit --package-lock-only --audit-level=high
+        run: |
+          sortie=$(npm audit --package-lock-only --audit-level=high 2>&1) && etat=0 || etat=$?
+          printf '%s\n' "$sortie"
+          {
+            echo '## npm audit — `dgx-portal-frontend`'
+            echo
+            echo '```'
+            printf '%s\n' "$sortie"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$etat" != 0 ]; then
+            echo "::warning title=Dépendances npm::npm audit signale un avis (advisory, non bloquant) — détails dans le résumé de ce run."
+          fi
+          exit 0

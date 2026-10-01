@@ -1,0 +1,90 @@
+name: Bug report
+description: Something in the portal, the frontend or a media service does not behave as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. A bug report that names the
+        page, the exact step and what you expected is worth ten that describe a
+        feeling — this platform has few users, so the report *is* the diagnosis.
+
+        **Do not put credentials, API keys, `.env` contents or personal data in
+        this issue.** This repository is public.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the platform is involved?
+      options:
+        - Portal (API, budgets, accounts, sessions)
+        - Frontend (a page in the web interface)
+        - Playground (chat, dictation, web search)
+        - Cronos assistant (/support)
+        - Memory
+        - A media page (OCR, voice, video, image, music)
+        - Model lifecycle (launch, stop, auto-resume, vllm-runner)
+        - Deployment (install, systemd, Docker, Traefik)
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The page or route, if any (for example `/playground` or `/admin`).
+      placeholder: "/playground"
+    validations:
+      required: false
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect instead?
+      placeholder: |
+        I clicked …, and … appeared.
+        I expected …
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps. If it is not reproducible, say so — an intermittent bug is still a bug.
+      placeholder: |
+        1. Sign in as a normal (non-admin) account
+        2. Open …
+        3. Send …
+    validations:
+      required: true
+  - type: dropdown
+    id: model
+    attributes:
+      label: Was a chat model loaded?
+      description: Several behaviours (media empty states, launch actions) depend on this.
+      options:
+        - "Yes"
+        - "No"
+        - "I don't know"
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: |
+        A screenshot, the browser console output, or the relevant container log
+        (`docker compose logs --tail=100 dgx-portal`). **Redact credentials.**
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues for the same problem.
+          required: true
+        - label: This report contains no credential, no API key and no personal data.
+          required: true

@@ -1,0 +1,59 @@
+name: Feature request
+description: Propose a capability, or a change to how the platform behaves
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a single-box platform: the GPU has one pool of memory shared by
+        the chat model and every media sidecar, so "add feature X" often means
+        "and decide what it takes memory away from". A request that says what it
+        replaces is much more likely to be built.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Portal (API, budgets, accounts, sessions)
+        - Frontend (a page in the web interface)
+        - Playground
+        - Cronos assistant (/support)
+        - Memory
+        - A media page (OCR, voice, video, image, music)
+        - Model lifecycle / runner
+        - Deployment and operations
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What can you not do today, and what do you do instead?
+      placeholder: |
+        When I …, I have to …, because …
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: Your idea, in as much or as little detail as you like.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including "do nothing" — sometimes the answer is that the current behaviour is right.
+    validations:
+      required: false
+  - type: textarea
+    id: cost
+    attributes:
+      label: Cost, if you know it
+      description: |
+        Extra memory or disk, a new sidecar, a new secret, a new port, a
+        migration. Anything that would have to be decided rather than just coded.
+    validations:
+      required: false

@@ -1008,6 +1008,13 @@ const EN: Record<string, string> = {
   "Supprimer cette conversation": "Delete this conversation",
   "Exporter en Markdown": "Export as Markdown",
   "Joindre un fichier": "Attach a file",
+  "Joindre un fichier ou une image": "Attach a file or an image",
+  "« {name} » : ce modèle ne lit pas les images.": "\"{name}\": this model can't read images.",
+  "4 images au plus par message.": "At most 4 images per message.",
+  "« {name} » dépasse 25 Mo.": "\"{name}\" is larger than 25 MB.",
+  "Ce modèle ne lit pas les images : elles n'ont pas été envoyées.": "This model can't read images: they were not sent.",
+  "Image jointe {n}": "Attached image {n}",
+  "image": "image",
   "Fichiers joints": "Attached files",
   "Fichiers texte uniquement. Les tokens comptent sur ton budget.":
     "Text files only. Tokens count against your budget.",

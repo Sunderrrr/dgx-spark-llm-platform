@@ -1,0 +1,29 @@
+# Installé par install.sh (§7c, mode 0440 exigé par sudo). Versionné depuis
+# l'audit du 2026-10-01 : il n'existait que sur la machine, donc une
+# reconstruction désarmait silencieusement Admin → Launch des sidecars média.
+#
+# Contrôle scoped des conteneurs OCR et voix (docker) et du service vidéo
+# ComfyUI (systemd), utilisé par vllm-runner (runner.py, routes /ocr/*,
+# /video/* et /voice/*) pour le start/stop/relance demandé depuis l'admin
+# dgx-portal. Commandes fixes (start/stop/status), sans argument variable ni
+# wildcard, sauf pour ocr-recreate.sh (hf_model_id + flags vLLM) et
+# voice-recreate.sh (repo_id) dont les arguments sont validés côté Python
+# (runner.py, _validate_vllm_args / liste blanche fermée pour repo_id) avant
+# l'appel sudo — voir chaque script pour le détail de pourquoi c'est sûr
+# même avec des arguments variables (jamais interprétés par un shell).
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/systemctl start comfyui.service
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/systemctl stop comfyui.service
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/systemctl is-active comfyui.service
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker start ocr
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker stop ocr
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker inspect ocr
+vllmrunner ALL=(root) NOPASSWD: /usr/local/sbin/ocr-recreate.sh *
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker start voice
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker stop voice
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker inspect voice
+vllmrunner ALL=(root) NOPASSWD: /usr/local/sbin/voice-recreate.sh *
+vllmrunner ALL=(root) NOPASSWD: /usr/local/sbin/voice-qwen-recreate.sh *
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker start asr
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker stop asr
+vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker inspect asr
+vllmrunner ALL=(root) NOPASSWD: /usr/local/sbin/asr-recreate.sh *

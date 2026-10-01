@@ -560,6 +560,20 @@ def oauth_callback():
     # token's own username.
     sub = (userinfo.get('sub') or '').strip()
     email = (userinfo.get('email') or '').strip().lower()
+    # Le repli sur l'adresse e-mail n'est autorisé que si l'IdP ne la déclare pas
+    # NON vérifiée (audit du 2026-10-02). `ldap_resolve_sso_identity` résout par
+    # `sub` d'abord et retombe sur `(mail=…)` : sur un IdP qui laisse un
+    # utilisateur poser l'adresse d'un collègue, ce repli ouvrait la session du
+    # collègue — or `session['username']` est la clé de propriété de TOUT (clés
+    # API, MCP, conversations, quota) et porte `is_admin` via `last_is_admin`.
+    # Le claim ABSENT laisse le comportement inchangé (beaucoup d'IdP ne
+    # l'envoient pas, et le refuser couperait la connexion SSO de tout le monde) ;
+    # seul un `false` EXPLICITE ferme le repli. Ce n'est donc pas un durcissement
+    # complet : `email_verified: true` exigé pour le repli reste à décider.
+    if userinfo.get('email_verified') is False and email:
+        log_audit('sso', 'sso.email_non_verifie',
+                  f'repli sur l\'adresse refusé pour sub={sub[:64]} (email_verified=false)')
+        email = ''
     username, is_admin, fullname = ldap_resolve_sso_identity(sub, email)
     if username is None:
         flash("SSO : identité non reconnue dans le répertoire.", "danger")
@@ -1181,7 +1195,11 @@ def keys():
         db.commit()
         return jsonify({'ok': True, 'key_alias': alias})
     if action == 'request_budget':
-        reason  = request.form.get('reason', '').strip()
+        # Borné à l'écriture (audit du 2026-10-02) : `/api/admin` relit les 200
+        # dernières demandes ENTIÈRES toutes les 8 s, donc un motif de 4 Mio
+        # (MAX_FORM_MEMORY_SIZE) faisait sérialiser des centaines de Mo par
+        # réponse — sur une mémoire unifiée où l'OOM-killer vise le modèle servi.
+        reason  = request.form.get('reason', '').strip()[:500]
         current = _litellm_user_info(session['username']).get('max_budget')
         db = get_db()
         existing = db.execute(
@@ -1371,8 +1389,13 @@ def request_model():
     # JSON d'abord (sendJSON), formulaire en repli : la route a longtemps été
     # appelée en form-encodé et rien ne justifie de casser ce chemin.
     donnees = request.get_json(silent=True) or request.form
-    model_id = (donnees.get('model_id') or '').strip()
-    reason   = (donnees.get('reason') or '').strip()
+    # Mêmes bornes que les routes voisines (`admin_routes` :1203, `settings_routes`
+    # :218) : le type est vérifié au passage, un JSON non-chaîne levait sinon un
+    # AttributeError en 500 (audit du 2026-10-02).
+    brut_id  = donnees.get('model_id')
+    brut_motif = donnees.get('reason')
+    model_id = (brut_id.strip() if isinstance(brut_id, str) else '')[:200]
+    reason   = (brut_motif.strip() if isinstance(brut_motif, str) else '')[:500]
     if not model_id:
         return jsonify({'ok': False, 'code': 'identifiant_requis',
                         'error': "L'identifiant du modèle est requis."}), 400

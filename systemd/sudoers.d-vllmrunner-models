@@ -1,0 +1,6 @@
+# Scoped sudo for erasing a chat model's weights when an admin deletes it from
+# the portal catalogue. The script revalidates both arguments (kind + id,
+# closed charset, no "..", no symlink, protected folders refused) and only ever
+# removes /root/models/<id> or the matching models--org--name HF cache folder.
+# Install to /etc/sudoers.d/vllmrunner-models (root:root, mode 0440).
+vllmrunner ALL=(root) NOPASSWD: /usr/local/sbin/model-files-rm.sh *

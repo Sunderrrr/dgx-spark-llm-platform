@@ -383,6 +383,26 @@ def runner_stop():
     except Exception as e:                                   # noqa: BLE001
         return False, f"runner injoignable ({type(e).__name__})", False
 
+def runner_delete_files(hf_model_id):
+    """Efface les poids d'un modele (via le runner). Renvoie (ok, octets, motif).
+
+    `ok` est vrai aussi quand il n'y avait RIEN a effacer (dossier deja absent) :
+    l'etat voulu — plus de fichiers — est atteint. Timeout large : un rm -rf de
+    100 Go sur ce disque prend quelques secondes, mais rien ne presse.
+    """
+    try:
+        r = requests.post(f"{RUNNER_URL}/models/delete-files", headers=_runner_headers(),
+                          json={'hf_model_id': hf_model_id}, timeout=620)
+        corps = r.json() if r.content else {}
+        if r.ok:
+            return True, int(corps.get('bytes') or 0), ''
+        if r.status_code == 404 and corps.get('absent'):
+            return True, 0, 'aucun fichier sur le disque'
+        return False, 0, corps.get('error') or f"HTTP {r.status_code}"
+    except Exception as e:                                   # noqa: BLE001
+        return False, 0, f"runner injoignable ({type(e).__name__})"
+
+
 _sidecar_proc_cache = {}
 
 def _sidecar_proc_status(kind):

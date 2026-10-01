@@ -60,6 +60,14 @@ jobs:
           cache-dependency-path: dgx-portal-frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
+      # `next-env.d.ts` est GÉNÉRÉ par Next et volontairement git-ignoré : il
+      # référence `.next/**`, qui n'existe pas dans un clone neuf. Sans lui, `tsc`
+      # ne connaît ni les types d'images (`import favicon from "@/app/favicon.ico"`)
+      # ni ceux des routes — le type-check échouait donc en CI, tout en passant sur
+      # nos machines où `next dev` avait déjà écrit le fichier. `next typegen` les
+      # produit sans lancer de build complet (~2 s), ce qui rend la CI reproductible.
+      - name: Generate Next types
+        run: npx next typegen
       - name: Type-check
         run: npx tsc --noEmit
       - name: Lint

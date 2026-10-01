@@ -37,13 +37,13 @@ from db import add_notification, get_db, get_setting, log_audit, maintenance_act
 from litellm_client import (_litellm_user_info, _register_litellm_model,
                             _unregister_litellm_model,
                             get_user_keys, litellm_update_user_budget)
-from local_users import (_local_group, _local_user_effective_budget,
+from local_users import (MAX_BUDGET, _local_group, _local_user_effective_budget,
                          _local_user_is_admin, _parse_budget,
                          _sync_local_user_budget, password_policy_error)
 from notify import (notify_infra_alert_email, notify_maintenance_email,
                     send_test_email, send_user_email)
 from user_lifecycle import (compter_donnees, deprovisionner_compte,
-                            prevenir_mot_de_passe_change)
+                            prevenir_mot_de_passe_change, revoquer_cles_compte)
 from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       _image_launch, _mem_guard, _music_launch, _ocr_launch,
                       _runner_headers, _sidecar_start_json,
@@ -743,10 +743,18 @@ def update_settings():
     duration = request.form.get('default_key_duration', '').strip()
     try:
         budget_val = float(budget)
-        if budget_val <= 0:
+        # `not (0 < v <= MAX_BUDGET)` plutôt que deux comparaisons : NaN échoue
+        # toutes les comparaisons, donc il passait les tests « <= 0 » et « > MAX »
+        # et se retrouvait écrit comme plafond global. La borne HAUTE manquait
+        # ici, sur la route la plus LARGE du portail — le plafond par défaut
+        # s'applique à tout compte sans override ni groupe (audit du 2026-10-02),
+        # et c'est exactement la faute de frappe à 6,7e12 que la garde des
+        # approbations avait été écrite pour empêcher.
+        if not (0 < budget_val <= MAX_BUDGET):
             raise ValueError
-    except ValueError:
-        return _json_erreur("Le nombre de tokens par défaut doit être un nombre positif.")
+    except (ValueError, OverflowError):
+        return _json_erreur("Le nombre de tokens par défaut doit être un nombre "
+                            f"positif, au plus {MAX_BUDGET:.0e}.")
     if not re.match(r'^\d+[smhd]$', duration):
         return _json_erreur("Durée invalide (ex: 1d, 7d, 30d, 12h).")
     ancien = get_setting('default_key_budget', None)
@@ -943,6 +951,18 @@ def admin_users_update(uid):
         group = request.form.get('group', '').strip() or None
         if group and not _local_group(group):
             return jsonify({'ok': False, 'error': "Groupe inconnu."}), 400
+        # Les droits d'admin viennent de `local_users.is_admin` OU du groupe
+        # (`_local_user_is_admin`). Changer de GROUPE est donc un retrait de
+        # droits comme un autre, et cette branche était la seule des trois à ne
+        # pas passer par la garde : un admin tenant ses droits de son groupe
+        # pouvait se l'envoyer à vide et perdre l'administration (audit du
+        # 2026-10-02). On simule l'état APRÈS le changement, pas seulement
+        # `is_admin`.
+        nouveau_groupe = _local_group(group) if group else None
+        if not (row['is_admin'] or (nouveau_groupe and nouveau_groupe['is_admin'])):
+            refus = _refus_retrait_admin(row, "retirer du groupe administrateur")
+            if refus:
+                return _json_erreur(refus, 409)
         sets.append("group_name=?"); vals.append(group)
     if 'max_budget' in request.form:
         budget, err = _parse_budget(request.form.get('max_budget'))
@@ -972,8 +992,16 @@ def admin_users_update(uid):
     # Verrouiller un compte (enabled=0) révoque immédiatement ses sessions :
     # il perd son accès sans attendre l'expiration HTTP.
     revoquees = 0
+    cles_ko = 0
     if 'enabled' in request.form and not updated['enabled']:
         revoquees = _revoke_user_sessions(updated['username'])
+        # Désactiver coupe l'accès au PORTAIL, pas celui à l'API : LiteLLM valide
+        # les clés lui-même et le portail n'est pas dans le chemin. Sans cette
+        # révocation, un compte « désactivé » gardait une clé fonctionnelle
+        # (audit du 2026-10-02) — le même trou que le blocage, sur l'autre
+        # chemin d'offboarding.
+        cles_ok, cles_ko, cles_total = revoquer_cles_compte(
+            updated['username'], session.get('username'), 'désactivation du compte')
     if password:
         # Changer le mot de passe doit fermer les AUTRES sessions : sans ça,
         # un changement motivé par un doute sur un cookie volé ne protégeait
@@ -994,13 +1022,23 @@ def admin_users_update(uid):
               f"mise à jour de {updated['username']}"
               + (f" — mot de passe changé par l'admin, {revoquees} session(s) fermée(s)"
                  if password else '')
+              + (f" — compte désactivé, {revoquees} session(s) fermée(s)"
+                 if 'enabled' in request.form and not updated['enabled'] else '')
+              + (f" — {cles_ko} clé(s) API NON révoquée(s)" if cles_ko else '')
               + ('' if quota_ok else ' — QUOTA NON APPLIQUÉ'))
     if password:
         prevenir_mot_de_passe_change(updated['username'], par_admin=session.get('username'))
-    return jsonify({'ok': True} if quota_ok else {
-        'ok': True,
-        'warning': "Modifications enregistrées, mais le quota n'a PAS pu être appliqué "
-                   "sur LiteLLM : redéfinis le budget du compte."})
+    avertissements = []
+    if not quota_ok:
+        avertissements.append("le quota n'a PAS pu être appliqué sur LiteLLM : "
+                              "redéfinis le budget du compte")
+    if cles_ko:
+        avertissements.append(f"{cles_ko} clé(s) API n'ont PAS pu être révoquées : "
+                              "vérifie côté LiteLLM avant de considérer ce compte comme parti")
+    if avertissements:
+        return jsonify({'ok': True,
+                        'warning': "Modifications enregistrées, mais " + " ; ".join(avertissements) + "."})
+    return jsonify({'ok': True})
 
 
 @bp.route('/admin/users/<username>/revoke-sessions', methods=['POST'])
@@ -1036,9 +1074,18 @@ def _dernier_admin_local(username):
     Le portail n'aurait alors plus personne pour l'administrer en local —
     les admins du répertoire (LDAP/SSO) dépendent d'un annuaire externe, ce
     qui n'est pas une raison pour se couper soi-même la main.
+
+    Un compte BLOQUÉ ne compte pas (audit du 2026-10-02) : il est refusé au login
+    même avec le bon mot de passe, donc il ne peut plus administrer quoi que ce
+    soit. Sans cette exclusion, bloquer les deux derniers admins locaux l'un
+    après l'autre passait — chacun voyait l'autre, encore `enabled=1`, comme un
+    recours — et la plateforme se retrouvait sans aucun administrateur local
+    joignable. Le chemin `enabled=0`, lui, se filtrait déjà tout seul.
     """
     db = get_db()
-    for r in db.execute("SELECT * FROM local_users WHERE enabled=1").fetchall():
+    for r in db.execute(
+            "SELECT * FROM local_users WHERE enabled=1 "
+            "AND username NOT IN (SELECT username FROM blocked_users)").fetchall():
         if r['username'] != username and _local_user_is_admin(r):
             return False
     return True
@@ -1055,7 +1102,9 @@ def _admins_locaux_apres(simulation):
     """
     db = get_db()
     n = 0
-    for r in db.execute("SELECT * FROM local_users WHERE enabled=1").fetchall():
+    for r in db.execute(
+            "SELECT * FROM local_users WHERE enabled=1 "
+            "AND username NOT IN (SELECT username FROM blocked_users)").fetchall():
         etat = simulation.get(r['username'])
         if etat is None:
             if _local_user_is_admin(r):
@@ -1201,8 +1250,19 @@ def admin_user_block(username):
                         'error': "Dernier administrateur local : nomme un autre "
                                  "administrateur avant de bloquer celui-ci."}), 400
     raison = (_corps().get('reason') or '').strip()[:200] or None
-    n = bloquer_compte(username, raison, session.get('username'))
-    return jsonify({'ok': True, 'revoked_sessions': n})
+    rapport = bloquer_compte(username, raison, session.get('username'))
+    reponse = {'ok': True,
+               'revoked_sessions': rapport['sessions'],
+               'revoked_keys': rapport['keys_revoked'],
+               'keys_total': rapport['keys']}
+    # Un échec de révocation ne doit JAMAIS être silencieux : une clé que LiteLLM
+    # a refusé de supprimer reste un accès vivant au GPU, et l'admin doit le
+    # savoir tout de suite (audit du 2026-10-02).
+    if rapport['keys_failed']:
+        reponse['warning'] = (f"{rapport['keys_failed']} clé(s) API n'ont PAS pu être "
+                              f"révoquées — vérifie côté LiteLLM avant de considérer "
+                              f"ce compte comme parti.")
+    return jsonify(reponse)
 
 
 @bp.route('/admin/users/<username>/unblock', methods=['POST'])

@@ -50,7 +50,7 @@ from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       _sidecar_status, _sidecar_stop_json, _voice_launch,
                       asr_load_error, asr_model_name, get_image_model,
                       get_music_model, get_ocr_model, get_voice_model,
-                      runner_launch, runner_logs, runner_metrics,
+                      runner_delete_files, runner_launch, runner_logs, runner_metrics,
                       runner_status, runner_stop)
 from stats import (_active_users, admin_get_ocr_usage,
                    admin_get_user_consumption, admin_get_video_usage,
@@ -698,21 +698,28 @@ def edit_model_cfg(mid):
 @bp.route('/admin/model/delete/<int:mid>', methods=['POST'])
 @admin_required
 def delete_model_cfg(mid):
+    """Retire un modele du catalogue ET efface ses fichiers du disque.
+
+    Avant le 2026-10-01 seule l'entree partait : les poids restaient (jusqu'a
+    100 Go chacun) sans plus aucun ecran pour les retrouver.
+    Les fichiers sont gardes quand une AUTRE entree (chat, OCR) pointe sur les
+    memes : effacer les poids d'un modele encore au catalogue le casserait.
+    """
     db = get_db()
-    row = db.execute("SELECT name FROM model_configs WHERE id=?", (mid,)).fetchone()
+    row = db.execute("SELECT name, hf_model_id FROM model_configs WHERE id=?", (mid,)).fetchone()
     if not row:
         return _json_erreur("Modèle introuvable dans le catalogue.", 404)
-    nom = row['name']
-    # Retirer du catalogue le modele ACTUELLEMENT SERVI n'arrete pas le moteur,
-    # mais detruit la configuration qui permet de le relancer (args, moteur) et
-    # laisse last_model.json pointer sur une entree disparue — le runner
-    # relancerait alors au prochain demarrage un modele que le portail ne sait
-    # plus relancer a la main. On demande donc une confirmation explicite.
-    if nom in (get_running_models() or []) and request.form.get('confirm') != '1':
+    nom, hf_id = row['name'], row['hf_model_id']
+    # Le modele SERVI : ses poids sont en cours de lecture par le moteur, et le
+    # runner relancerait au prochain demarrage un modele sans fichiers. On
+    # demande de l'arreter d'abord plutot que de laisser un etat a moitie fait.
+    if nom in (get_running_models() or []):
         return _json_erreur(
-            f"{nom} est le modèle actuellement servi. Le retirer du catalogue ne "
-            f"l'arrête pas, mais tu perdras de quoi le relancer. Confirme pour continuer.",
-            409, needs_confirm=True)
+            f"{nom} est le modèle actuellement servi : arrête-le d'abord, puis "
+            f"supprime-le (ses fichiers seront effacés du disque).", 409)
+    partage = [r['name'] for r in db.execute(
+        "SELECT name FROM model_configs WHERE hf_model_id=? AND id<>? "
+        "UNION SELECT name FROM ocr_configs WHERE hf_model_id=?", (hf_id, mid, hf_id))]
     db.execute("DELETE FROM model_configs WHERE id=?", (mid,))
     db.commit()
     # Le resultat etait ignore : l'interface annoncait « retiré de LiteLLM » meme
@@ -726,15 +733,29 @@ def delete_model_cfg(mid):
     retires = db.execute("DELETE FROM announcements WHERE kind='model_add' AND a=?",
                          (nom,)).rowcount
     db.commit()
+    avertissements = []
+    if partage:
+        fichiers = f"fichiers conservés (utilisés aussi par {', '.join(partage)})"
+        avertissements.append(f"Fichiers conservés : {', '.join(partage)} les utilise aussi.")
+    else:
+        ok_f, octets, motif = runner_delete_files(hf_id)
+        if ok_f:
+            fichiers = (f"{octets / 2**30:.1f} Gio effacés du disque" if octets
+                        else "aucun fichier sur le disque")
+        else:
+            fichiers = f"fichiers NON effacés ({motif})"
+            avertissements.append(f"Les fichiers n'ont pas pu être effacés : {motif}")
+    if not deregistre:
+        avertissements.append("L'entrée LiteLLM n'a pas pu être retirée : elle survit sans "
+                              "ligne de catalogue. Vérifie la passerelle.")
     log_audit(session.get('username'), 'model.delete',
               f"{nom} — retiré du catalogue, LiteLLM "
-              f"{'dérégistré' if deregistre else 'NON DÉRÉGISTRÉ'}, "
+              f"{'dérégistré' if deregistre else 'NON DÉRÉGISTRÉ'}, {fichiers}, "
               f"{retires} annonce(s) retirée(s)")
-    if deregistre:
-        return _json_ok(f"{nom} supprimé du catalogue et retiré de LiteLLM.")
-    return _json_ok(f"{nom} supprimé du catalogue.",
-                    warning="L'entrée LiteLLM n'a pas pu être retirée : elle survit sans "
-                            "ligne de catalogue. Vérifie la passerelle.")
+    message = f"{nom} supprimé : catalogue, LiteLLM, {fichiers}."
+    if avertissements:
+        return _json_ok(message, warning=" ".join(avertissements))
+    return _json_ok(message)
 
 @bp.route('/admin/settings', methods=['POST'])
 @admin_required

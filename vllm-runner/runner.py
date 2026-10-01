@@ -1052,6 +1052,49 @@ def stop():
     return jsonify({"status": "already_stopped"})
 
 
+@app.route("/models/delete-files", methods=["POST"])
+def delete_model_files():
+    """Efface du disque les poids d'un modele retire du catalogue.
+
+    Les fichiers appartiennent a root : l'effacement passe par
+    /usr/local/sbin/model-files-rm.sh (sudo scoped), qui revalide tout. Ici on
+    refuse en amont ce qui ne doit jamais l'atteindre : un id hors forme, un
+    chemin absolu (jamais efface a distance), et le modele SERVI ou en attente
+    de reprise — effacer ses poids sous un moteur qui les lit (mmap) ferait
+    tomber la generation, et le watchdog relancerait un modele sans fichiers.
+    """
+    data  = request.get_json(silent=True) or {}
+    hf_id = (data.get("hf_model_id") or "").strip()
+    if _LOCAL_ID_RE.fullmatch(hf_id):
+        kind, ident = "local", hf_id[len("local:"):]
+    elif _HF_ID_RE.fullmatch(hf_id):
+        kind, ident = "hf", hf_id
+    else:
+        return jsonify({"error": "hf_model_id invalide (local:<dossier> ou org/nom)"}), 400
+    if ".." in ident:
+        return jsonify({"error": "hf_model_id invalide (.. refusé)"}), 400
+    with _lock:
+        try:
+            with open(STATE_FILE) as f:
+                en_cours = (json.load(f) or {}).get("hf_model_id")
+        except (OSError, ValueError):
+            en_cours = None
+        if en_cours == hf_id:
+            return jsonify({"error": "modèle servi (ou en attente de reprise) : "
+                                     "arrête-le avant d'effacer ses fichiers"}), 409
+        ok, out = _sudo("/usr/local/sbin/model-files-rm.sh", kind, ident, timeout=600)
+    if not ok:
+        absent = "absent" in out
+        _append(f"[runner] Effacement des fichiers de {hf_id} : {'absents' if absent else 'ÉCHEC'} ({out[-200:]})")
+        return jsonify({"error": out[-300:] or "échec", "absent": absent}), 404 if absent else 500
+    try:
+        octets = int(out.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        octets = 0
+    _append(f"[runner] Fichiers de {hf_id} effacés ({octets / 2**30:.1f} Gio libérés).")
+    return jsonify({"status": "deleted", "bytes": octets})
+
+
 # ── OCR (docker container) / Video (ComfyUI systemd service) ────────────────
 # Two side services, always active alongside the main chat model (no start/stop
 # of the shared RAM/VRAM at play here, just start/stop of the service itself).

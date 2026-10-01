@@ -202,14 +202,34 @@ def _exec_web_tool(nom, args, journal):
         return json.dumps({'resultats': res}, ensure_ascii=False)
     if nom == 'lire_pages':
         urls = [str(u) for u in (args.get('urls') or [])][:websearch.MAX_PAGES]
+        # La consigne « n'utilise que les adresses des résultats » était dans la
+        # DESCRIPTION de l'outil, donc adressée au modèle — c'est-à-dire à
+        # l'entrée la moins fiable du système. Elle est ici APPLIQUÉE (audit du
+        # 2026-10-02) : seules les URL réellement retournées par une recherche du
+        # MÊME tour sont ouvrables. C'est le canal d'exfiltration qui disparaît
+        # (le modèle détient jusqu'à 8 000 caractères du contexte, qu'il pouvait
+        # placer dans une adresse et faire requêter par le crawler), et cela ferme
+        # du même coup l'ouverture d'une URL arbitraire. Le refus est EXPLICITE
+        # pour que le modèle se rabatte sur les extraits au lieu de réessayer.
+        connues = {s['url'] for entree in journal if entree.get('etape') == 'recherche_finie'
+                   for s in (entree.get('sources') or [])}
+        refusees = [u for u in urls if u not in connues]
+        urls = [u for u in urls if u in connues]
+        if not urls:
+            return ("Aucune de ces adresses ne vient d'une recherche de cette "
+                    "conversation : je ne peux ouvrir que les résultats affichés. "
+                    "Refusées : " + ", ".join(refusees[:4]))
         pages, err = websearch.lire(urls)
         journal.append({'etape': 'lecture_finie', 'outil': 'crawl4ai', 'urls': urls,
                         'lues': sum(1 for p in pages if p.get('contenu')), 'erreur': err,
+                        'refusees': refusees,
                         'echecs': [{'url': p['url'], 'raison': p['erreur']}
                                    for p in pages if p.get('erreur')]})
         if err:
             return f"La lecture a échoué : {err}"
-        return json.dumps({'pages': pages}, ensure_ascii=False)
+        suite = (" (adresses refusées, hors résultats de recherche : "
+                 + ", ".join(refusees[:4]) + ")") if refusees else ""
+        return json.dumps({'pages': pages}, ensure_ascii=False) + suite
     return "Outil inconnu."
 
 

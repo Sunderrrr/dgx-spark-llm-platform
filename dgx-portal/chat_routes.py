@@ -518,7 +518,12 @@ def support_confirm():
     rejeu ni un autre compte ne peuvent déclencher l'action.
     """
     data = request.get_json(silent=True) or {}
-    token = (data.get('token') or '').strip()
+    # Le TYPE n'est pas garanti (`{"token": 123}` levait un AttributeError en 500).
+    # Un jeton non-chaîne est traité comme absent : c'est le seul chemin
+    # d'exécution des outils gardés du Support, il ne doit pas répondre 500 sur
+    # une entrée malformée (audit du 2026-10-02).
+    jeton = data.get('token')
+    token = jeton.strip() if isinstance(jeton, str) else ''
     if not token:
         return jsonify({'error': 'Demande inconnue.'}), 400
     username = session['username']

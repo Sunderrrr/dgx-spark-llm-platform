@@ -30,7 +30,7 @@ def _charge(chemin_db):
     return litellm_inflight
 
 
-def _kwargs(cle='c1', alias='nlerou-1783330573', user_id='nlerou', modele='auto-model'):
+def _kwargs(cle='c1', alias='alice-1783330573', user_id='alice', modele='auto-model'):
     return {'litellm_call_id': cle, 'model': modele,
             'litellm_params': {'metadata': {'litellm_call_id': cle,
                                             'user_api_key_alias': alias,
@@ -53,15 +53,15 @@ class ActiviteEnVolTest(unittest.TestCase):
 
     def test_une_requete_ouverte_puis_fermee(self):
         self.assertEqual(self.mod._enregistre(_kwargs()), 1)
-        self.assertEqual(self._lignes(), [('c1', 'nlerou-1783330573', 'nlerou', 'auto-model')])
+        self.assertEqual(self._lignes(), [('c1', 'alice-1783330573', 'alice', 'auto-model')])
         self.assertEqual(self.mod._retire(_kwargs()), 1)
         self.assertEqual(self._lignes(), [])
 
     def test_deux_requetes_concurrentes_sont_independantes(self):
         """4 sessions sur ce moteur : retirer l'une ne doit pas toucher l'autre."""
-        self.mod._enregistre(_kwargs('c1', 'nlerou-1', 'nlerou'))
-        self.mod._enregistre(_kwargs('c2', 'cestienne-1', 'cestienne'))
-        self.mod._retire(_kwargs('c1', 'nlerou-1', 'nlerou'))
+        self.mod._enregistre(_kwargs('c1', 'alice-1', 'alice'))
+        self.mod._enregistre(_kwargs('c2', 'bob-1', 'bob'))
+        self.mod._retire(_kwargs('c1', 'alice-1', 'alice'))
         self.assertEqual([l[0] for l in self._lignes()], ['c2'])
 
     def test_une_ligne_perimee_est_balayee(self):

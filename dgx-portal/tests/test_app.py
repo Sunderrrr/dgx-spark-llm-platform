@@ -352,7 +352,7 @@ class OidcUsernameTest(unittest.TestCase):
     les données : elle doit passer le même filtre que le chemin LDAP."""
 
     def test_accepte_un_identifiant_normal(self):
-        for nom in ('mboitel', 'jean.dupont', 'a-b_c', 'x' * 64):
+        for nom in ('alice', 'jean.dupont', 'a-b_c', 'x' * 64):
             self.assertTrue(portal.USERNAME_RE.match(nom), nom)
 
     def test_rejette_les_identifiants_forges(self):
@@ -1352,7 +1352,7 @@ class NotificationsTest(unittest.TestCase):
             portal.get_db().execute("DELETE FROM notifications")
             portal.get_db().commit()
 
-    def _login(self, username="mael", is_admin=False):
+    def _login(self, username="alice", is_admin=False):
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["username"] = username
@@ -1363,8 +1363,8 @@ class NotificationsTest(unittest.TestCase):
 
     def test_liste_et_compteur(self):
         from db import add_notification
-        add_notification("mael", "image", "Génération image terminée (2/2).")
-        add_notification("mael", "request", "Budget accordé : +100 tokens.")
+        add_notification("alice", "image", "Génération image terminée (2/2).")
+        add_notification("alice", "request", "Budget accordé : +100 tokens.")
         c = self._login()
         data = c.get("/api/notifications").get_json()
         self.assertEqual(data["unread"], 2)
@@ -1373,7 +1373,7 @@ class NotificationsTest(unittest.TestCase):
 
     def test_marquage_lu(self):
         from db import add_notification
-        add_notification("mael", "image", "Génération image terminée (1/1).")
+        add_notification("alice", "image", "Génération image terminée (1/1).")
         c = self._login()
         self.assertEqual(c.get("/api/notifications").get_json()["unread"], 1)
         r = c.post("/api/notifications/seen", headers={"X-CSRFToken": "test-csrf"})

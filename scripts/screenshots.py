@@ -21,6 +21,13 @@ Usage (les trois modes s'enchaînent : capturer, vérifier, installer) :
     python screenshots.py --verify        # contrôle les PNG déjà produits
     python screenshots.py --install       # copie les PNG validés dans assets/
 
+Noms propres à censurer (jamais dans un dépôt public) : liste-les, un par ligne
+(« # » pour commenter), dans un fichier hors dépôt, et pointe-le par
+SHOTS_FORBIDDEN_FILE :
+    SHOTS_FORBIDDEN_FILE=/root/shots/noms-interdits.txt python screenshots.py --verify
+Variable absente ou fichier illisible → les motifs STRUCTURELS (email, clé
+`sk-…`, texte de refus) s'appliquent seuls, sans erreur.
+
 Prérequis : playwright + chromium (`playwright install chromium`), et le mot de
 passe du compte de démonstration dans SHOTS_PW_FILE (défaut
 /root/shots/demo-credentials, chmod 600, hors dépôt). Le compte se crée avec
@@ -30,9 +37,12 @@ retirer (le script refuse de capturer ces pages sans les droits et supprime le
 fichier : une page « Administrators only » ne doit pas finir dans la doc).
 
 Ce que la vérification garantit, image par image : 3200x2000, fond sombre,
-contenu attendu présent, et AUCUNE donnée personnelle (email, clé API, IP privée,
-nom d'un autre compte) — le contrôle se fait par OCR sur le PNG final, donc sur
-ce que le lecteur verra réellement.
+contenu attendu présent, et AUCUNE donnée personnelle dans ce que le lecteur
+verra — adresse e-mail, clé API, texte de refus d'accès, et les noms propres
+listés dans SHOTS_FORBIDDEN_FILE. Les IP privées, elles, ne sont pas recherchées
+APRÈS coup : elles sont floutées AVANT la prise de vue (`SENSIBLE`, plus bas),
+donc elles n'existent dans aucun pixel — c'est la seule façon fiable de ne pas
+les publier. Le contrôle, lui, se fait par OCR sur le PNG final.
 """
 import json
 import os
@@ -322,6 +332,27 @@ def _ocr(path):
         return open(f"{d}/t.txt").read()
 
 
+def _forbidden_re():
+    """Motifs « données personnelles » : structurels toujours actifs (adresse
+    e-mail, clé `sk-…`, texte de refus d'accès), plus les noms propres listés
+    dans le fichier pointé par SHOTS_FORBIDDEN_FILE (un motif par ligne, `#` en
+    commentaire). Variable absente ou fichier illisible → structurels seuls."""
+    motif = (r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|sk-[A-Za-z0-9_\-]{6,}"
+             r"|Administrators only|does not have the rights|Traceback")
+    chemin = os.environ.get("SHOTS_FORBIDDEN_FILE")
+    noms = []
+    if chemin:
+        try:
+            with open(chemin, encoding="utf-8") as f:
+                noms = [l.strip() for l in f
+                        if l.strip() and not l.strip().startswith("#")]
+        except OSError:
+            noms = []
+    if noms:
+        motif += r"|\b(" + "|".join(re.escape(n) for n in noms) + r")\b"
+    return re.compile(motif, re.I)
+
+
 def verify(folder="assets"):
     """Contrôle chaque capture publiée : taille, thème, contenu, données perso."""
     from PIL import Image
@@ -336,11 +367,7 @@ def verify(folder="assets"):
         "users": [r"User"],
         "ranking": [r"Leaderboard|Rank"],
     }
-    forbidden = re.compile(
-        r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|sk-[A-Za-z0-9_\-]{6,}"
-        r"|Administrators only|does not have the rights|Traceback"
-        r"|\b(aabdou|bmaziane|ccrespy|cestienne|fgerber|kflorentin|lbozier|mboitel"
-        r"|mbouchet|mpigeon|nlerou|teych|yidjahurtos|zolan|Bozier|Boitel)\b", re.I)
+    forbidden = _forbidden_re()
     # Les marqueurs ci-dessus ne suffisent pas pour les pages média : une page
     # dont le backend est éteint affiche quand même son titre (« OCR »), donc une
     # capture VIDE les passerait tous en annonçant « Ask an admin to start… ».

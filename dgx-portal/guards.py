@@ -24,7 +24,7 @@ from db import get_db, get_setting, maintenance_active
 # ── Garde de quota (comptabilité fiable SpendLogs) ───────────────────────────
 # Le 429 natif de LiteLLM ne suffit pas : son compteur interne a été écrasé
 # pendant des semaines par les resets quotidiens et sa sync DB est capricieuse
-# (lbozier : 242 M de tokens réels sur 7 j contre 1,3 M comptés, 2026-09-09 —
+# (un compte : 242 M de tokens réels sur 7 j contre 1,3 M comptés, 2026-09-09 —
 # il « dépassait » son quota sans jamais être bloqué). Le portail juge donc
 # AVANT l'appel modèle sur SpendLogs — la même source que la carte
 # d'utilisation : ce que l'utilisateur voit dépassé est réellement appliqué.

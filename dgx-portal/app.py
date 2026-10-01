@@ -552,7 +552,7 @@ def oauth_callback():
     # MCP servers, skills, conversations, LiteLLM quotas). It must therefore come
     # from an AUTHENTIC source, not from user-editable OIDC claims:
     # `preferred_username`/`nickname`/`email` are modifiable by the user in many
-    # IdPs, so trusting them would let an SSO account rename itself "mboitel" and
+    # IdPs, so trusting them would let an SSO account rename itself "someone-else" and
     # inherit that account. We resolve the canonical identity from the LDAP
     # directory, keyed on the immutable `sub` (Authentik → LDAP `uid`) with a
     # fallback to the verified unique `email` (→ LDAP `mail`). If the directory

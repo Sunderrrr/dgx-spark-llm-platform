@@ -79,8 +79,18 @@ RUNNER_TOKEN = os.environ["RUNNER_TOKEN"]  # required — no default, the servic
 if len(RUNNER_TOKEN) < 16:
     raise SystemExit("RUNNER_TOKEN absent ou trop court (16 caracteres minimum)")
 
-ENGINES = ("vllm", "llamacpp", "ds4")
-_ENGINE_BIN = {"vllm": VLLM_BIN, "llamacpp": LLAMA_BIN, "ds4": DS4_BIN}
+# Moteur ExLlamaV3, servi par TabbyAPI (API OpenAI). Ajoute le 2026-10-01 pour
+# MiMo-V2.6-Flash-RL en EXL3 2,27 bpw : 85 Gio pour les 309B, la seule version
+# complete de ce modele qui tienne sur le GB10 (le GGUF le plus petit fait 126 Go).
+# Pas de roue aarch64 publiee : exllamav3 est compile localement dans ce venv.
+EXL3_PY   = os.environ.get("EXL3_PY", "/root/venvs/exl3/bin/python")
+# Dossiers de liens symboliques que le runner republie a chaque lancement (cf.
+# _exl3_served_layout). Sous son HOME : c'est le seul endroit ou il peut ecrire.
+EXL3_RUN_DIR = os.path.join(os.environ.get("HOME", "/var/lib/vllm-runner"), "exl3")
+TABBY_DIR = os.environ.get("TABBY_DIR", "/root/tabbyAPI")
+ENGINES = ("vllm", "llamacpp", "ds4", "exllamav3")
+_ENGINE_BIN = {"vllm": VLLM_BIN, "llamacpp": LLAMA_BIN, "ds4": DS4_BIN,
+               "exllamav3": os.path.join(TABBY_DIR, "main.py")}
 
 # Persist the last successful launch so it can be resumed automatically after a
 # service restart (system update, reboot, crash) — except on a deliberate /stop,
@@ -315,7 +325,22 @@ def _repo_id_of(hf_id):
     return f"{m.group(1)}/{m.group(2)}" if m else (hf_id or '')
 
 
+# ── Whitelist exllamav3 (options de TabbyAPI) ───────────────────────────────
+# --host/--port/--disable-auth/--model-dir/--draft-model-dir sont poses par le
+# runner. Aucun drapeau prenant un CHEMIN (--config, dossiers lora/embeddings) :
+# les noms du modele et du drafter sont acceptes SEULS et resolus sous le dossier
+# `local:` controle (cf. _resolve_exl3_tokens), comme --mmproj.
+_EXL3_BOOL_FLAGS = set()          # TabbyAPI prend true/false en VALEUR
+_EXL3_VALUE_FLAGS = {
+    "--model-name", "--draft-model-name", "--max-seq-len", "--cache-size",
+    "--cache-mode", "--chunk-size", "--max-batch-size", "--vision", "--reasoning",
+    "--draft-mode", "--draft-num-tokens", "--draft-cache-mode", "--gpu-split-auto",
+}
+
+
 def _flags_for(engine):
+    if engine == "exllamav3":
+        return _EXL3_BOOL_FLAGS, _EXL3_VALUE_FLAGS
     if engine == "llamacpp":
         return _LLAMA_BOOL_FLAGS, _LLAMA_VALUE_FLAGS
     if engine == "ds4":
@@ -750,9 +775,90 @@ def _resolve_mmproj_tokens(tokens, hf_id):
     return out
 
 
+def _resolve_exl3_tokens(tokens, hf_id):
+    """Dossier `local:` du modele + verification des noms --model-name /
+    --draft-model-name : nom SEUL (ni separateur ni ".."), sous-dossier existant.
+    Meme garde que _resolve_gguf : le dossier reste strictement sous MODELS_DIR."""
+    if not hf_id.startswith("local:"):
+        raise ValueError("exllamav3 requires a local: model")
+    slug = re.sub(r'[^A-Za-z0-9._-]', '', hf_id[len("local:"):])
+    base = os.path.join(MODELS_DIR, slug)
+    _root = os.path.realpath(MODELS_DIR)
+    if slug in ("", ".", "..") or not os.path.realpath(base).startswith(_root + os.sep) \
+            or not os.path.isdir(base):
+        raise FileNotFoundError(f"local model \"{slug}\" not found in {MODELS_DIR}")
+    out = list(tokens)
+    for i, t in enumerate(out):
+        if t in ("--model-name", "--draft-model-name") and i + 1 < len(out):
+            raw = out[i + 1]
+            if not raw or "/" in raw or "\\" in raw or ".." in raw:
+                raise ValueError(f"invalid name for {t}")
+            if not os.path.isdir(os.path.join(base, raw)):
+                raise FileNotFoundError(f"{t} \"{raw}\" not found in {base}")
+    if "--model-name" not in out:
+        raise ValueError("exllamav3: --model-name is required")
+    return base, out
+
+
+def _exl3_served_layout(base, name, toks):
+    """Publie le modele SOUS SON NOM DE CATALOGUE pour TabbyAPI.
+
+    Le portail attend de /v1/models le nom du catalogue, et lui seul (llama.cpp le
+    donne via --alias, vLLM via --served-model-name). TabbyAPI, lui, liste les
+    NOMS DE DOSSIERS de --model-dir, et toutes ses requetes sont « admin » auth
+    coupee : il renvoyait donc le dossier du modele ET celui du drafter. Le portail
+    prenait le premier (le drafter), ne le trouvait pas au catalogue et retombait
+    sur le moteur `vllm` — sante fausse, et une quinzaine d'appelants de
+    get_running_models() perturbes. TabbyAPI nomme une entree d'apres le nom du
+    LIEN (path.name), pas sa cible : un dossier ne contenant qu'un lien
+    <catalogue> -> modele, et le drafter dans un dossier a part, suffisent.
+    """
+    alias = re.sub(r'[^A-Za-z0-9._-]', '', name or '')
+    if alias in ("", ".", ".."):
+        raise ValueError("invalid served model name")
+    out = list(toks)
+    mdir = os.path.join(EXL3_RUN_DIR, "model")
+    ddir = os.path.join(EXL3_RUN_DIR, "draft")
+    for d in (mdir, ddir):
+        shutil.rmtree(d, ignore_errors=True)
+        os.makedirs(d)
+    i = out.index("--model-name")
+    os.symlink(os.path.join(base, out[i + 1]), os.path.join(mdir, alias))
+    out[i + 1] = alias
+    if "--draft-model-name" in out:
+        j = out.index("--draft-model-name")
+        os.symlink(os.path.join(base, out[j + 1]), os.path.join(ddir, out[j + 1]))
+    return mdir, ddir, out
+
+
 def _build_cmd(hf_id, name, extra_tokens, engine, bin_override=None):
     """Engine command line. They all serve an OpenAI API on :8000, so nothing
     downstream changes (LiteLLM, portal, playground)."""
+    if engine == "exllamav3":
+        # TabbyAPI : meme API OpenAI sur :8000, rien ne change en aval. L'auth est
+        # coupee comme pour les autres moteurs : :8000 n'est joignable que depuis le
+        # reseau docker (vllm-restrict.service).
+        base, toks = _resolve_exl3_tokens(extra_tokens, hf_id)
+        mdir, ddir, toks = _exl3_served_layout(base, name, toks)
+        # Deux reglages FIGES, hors de portee de vllm_args :
+        #  --disable-fetch-requests : par defaut TabbyAPI va chercher lui-meme les
+        #    images donnees par URL. N'importe quel appelant de l'API ferait alors
+        #    interroger par la DGX des adresses internes (admin garage, Traefik,
+        #    NAS) — une SSRF, ce que websearch.url_publique interdit ailleurs. Les
+        #    images en base64 (celles du playground) ne passent pas par la.
+        #  --allowed-origins : l'auth etant coupee, le CORS "*" par defaut laisserait
+        #    toute page web ouverte sur la machine (il y a une session de bureau)
+        #    lire les reponses, endpoints d'admin compris. Personne n'appelle :8000
+        #    depuis un navigateur : on n'autorise qu'une origine inexistante (.invalid,
+        #    TLD reserve), l'option exigeant au moins une valeur.
+        cmd = [EXL3_PY, os.path.join(TABBY_DIR, "main.py"),
+               "--host", "0.0.0.0", "--port", "8000", "--disable-auth", "true",
+               "--disable-fetch-requests", "true",
+               "--allowed-origins", "https://no-browser.invalid",
+               "--model-dir", mdir]
+        if "--draft-model-name" in toks:
+            cmd += ["--draft-model-dir", ddir]
+        return cmd + toks
     if engine == "ds4":
         # ds4-server takes a local GGUF; --cuda is required for the GPU.
         cmd = [DS4_BIN, "-m", _resolve_gguf(hf_id),
@@ -881,6 +987,7 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
         bufsize=1,
         env=env,
         start_new_session=True,   # new process group → killpg works
+        cwd=TABBY_DIR if engine == "exllamav3" else None,
     )
     threading.Thread(target=_reader, args=(_proc, journal), daemon=True).start()
     threading.Thread(target=_health_watch, args=(_proc,), daemon=True).start()

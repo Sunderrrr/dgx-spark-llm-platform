@@ -1,0 +1,34 @@
+# SearXNG — réglages du moteur de recherche du playground.
+#
+# Ce fichier est un MODÈLE : `setup.sh` le copie en `settings.yml` (non versionné,
+# il porte alors le secret généré) au premier démarrage. Le dossier est monté en
+# entier dans le conteneur (`./searxng:/etc/searxng`), donc c'est bien celui-ci
+# qui est lu, et non celui livré dans l'image.
+#
+# `use_default_settings: true` : on ne redéfinit que ce qui compte, le reste
+# vient des valeurs par défaut de SearXNG — une liste de moteurs recopiée ici
+# serait à maintenir à chaque montée de version.
+#
+# Read the documentation before extending the defaults:
+# https://docs.searxng.org/admin/settings/
+use_default_settings: true
+
+# ATTENTION : une seule clé `server:` est permise. Deux blocs `server:` dans le
+# même document YAML ne fusionnent PAS — le second écrase le premier en silence,
+# et `image_proxy` disparaissait ainsi de la configuration effective.
+server:
+  secret_key: "changeme"
+  image_proxy: true
+  # Le limiteur bloque les appels programmatiques (pas de cookie, pas de
+  # referer). Sans risque ici : le service n'est joignable que depuis
+  # dgx-portal, sur un réseau docker interne, jamais exposé.
+  limiter: false
+
+search:
+  # Le format JSON n'est PAS actif par défaut : sans lui, seule la page HTML
+  # existe et il faudrait la gratter. C'est ce format que le portail consomme
+  # (`websearch.py` demande `format=json`) : sans cette section, SearXNG répond
+  # 403 et la recherche web tombe — côté portail, sans message clair.
+  formats:
+    - html
+    - json

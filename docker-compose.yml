@@ -143,8 +143,14 @@ services:
       # CTA « Open the Admin dashboard » dans les emails (si vide, aucun bouton).
       ADMIN_URL: ${ADMIN_URL}
       MEDIA_REQUEST_COOLDOWN_S: ${MEDIA_REQUEST_COOLDOWN_S}
-      KEY_MAX_BUDGET: "0.002"
-      KEY_BUDGET_DURATION: "1d"
+      # PAS de KEY_MAX_BUDGET/KEY_BUDGET_DURATION ici : ce bloc a longtemps porté
+      # « 0.002 » / « 1d » (un compte de test quasi épuisé), ce qui écrasait le
+      # défaut correct de config.py sur une installation VIERGE — la table
+      # `settings` étant vide, chaque compte recevait une enveloppe de 0,002
+      # token, donc un 429 à la première requête. En production personne ne le
+      # voyait : la valeur avait été corrigée à la main dans Admin, et c'est elle
+      # qui gagne. Les deux valeurs vivent désormais à UN seul endroit : le défaut
+      # de config.py (200 000 000 tokens / 7 j), modifiable dans Admin → token limit.
       VLLM_RUNNER_URL: http://172.19.0.1:8001
       RUNNER_TOKEN: ${RUNNER_TOKEN}
       # ComfyUI (vidéo MiniMax H3) : process host, 127.0.0.1 only, jamais exposé.
@@ -353,6 +359,9 @@ networks:
 # Change dans sa config :
 #   OLLAMA_BASE_URL  →  supprimer
 #   Ajouter :
-#     OPENAI_API_BASE_URL=http://dgx.cronos.lan:4001/v1
+#     OPENAI_API_BASE_URL=https://api.cronos.website/v1
+#       (et PAS http://dgx.cronos.lan:4001 : LiteLLM n'écoute que sur le réseau
+#        docker interne, aucun port n'est publié sur l'hôte — le seul chemin
+#        depuis l'extérieur est Traefik → https://api.cronos.website)
 #     OPENAI_API_KEY=<LITELLM_MASTER_KEY>
 # Garde tout le reste (Authentik SSO, rôles, etc.) identique.

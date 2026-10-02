@@ -31,7 +31,7 @@ import {
   type IntegrationTool,
   type ModelLimit,
 } from "@/lib/integrationSnippets";
-import { useT, useLocale } from "@/lib/i18n";
+import { useT, useLocale, tServeur } from "@/lib/i18n";
 
 type DiscordStatus = { linkable: boolean; dm_enabled: boolean; linked: boolean; discord_name: string };
 type ApiKey = {
@@ -121,7 +121,7 @@ export function KeysContent() {
         // A stable refusal carries a `code` (e.g. `deja_en_attente`): the UI
         // translates it, the server sentence is only a fallback.
         const msg = r.code ? t(r.code) : r.error;
-        showToast({ body: msg ? t(msg) : t("L'action a échoué."), type: "error" });
+        showToast({ body: msg ? tServeur(msg, t) : t("L'action a échoué."), type: "error" });
         return false;
       }
       apres?.(r);

@@ -53,6 +53,19 @@ const EN: Record<string, string> = {
   "Erreur modèle ({status}).": "Model error ({status}).",
   "La génération d'image est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans image.":
     "Image generation is currently unavailable: the service is stopped. An admin can start it from the Admin area; the model will answer without an image.",
+  "Mémoire disponible : {n} Gio.": "Free memory: {n} GiB.",
+  // Chat stream notices (cronos_notice, 2026-10-02): the SSE error texts of
+  // the playground and the Support chat moved to structured notices.
+  "Aucun message à envoyer.": "No message to send.",
+  "Trop de messages d'affilée — réessaie dans {wait} s.": "Too many messages in a row — try again in {wait} s.",
+  "Aucun modèle n'est actif sur le serveur.": "No model is currently running on the server.",
+  "Le service de modèle est momentanément injoignable. Réessaie dans un instant.":
+    "The model service is temporarily unreachable. Try again in a moment.",
+  "Le modèle a renvoyé une erreur ({status}). Réessaie.": "The model returned an error ({status}). Try again.",
+  "(réponse vide)": "(empty reply)",
+  "Le modèle est occupé, réessaie dans un instant.": "The model is busy, try again in a moment.",
+  "Peux-tu reformuler ta demande ?": "Could you rephrase your request?",
+  "Le modèle n'a pas répondu à temps. Réessaie dans un instant.": "The model did not answer in time. Try again in a moment.",
   "Boost temporaire — {user} : {total} tokens jusqu'au {date} UTC (retour à {base}).": "Temporary boost — {user}: {total} tokens until {date} UTC (back to {base}).",
   "Accorder des tokens": "Grant tokens",
   "Montant à ajouter": "Amount to add",
@@ -1555,6 +1568,163 @@ const EN: Record<string, string> = {
   // exhausted its two attempts): say so instead of doing nothing.
   "Session incomplète — recharge la page.":
     "Incomplete session — reload the page.",
+
+  // ── Server sentences, translated at DISPLAY time (progressive migration).
+  //    The keys are the server strings BYTE-IDENTICAL (dgx-portal/*.py —
+  //    `_json_erreur(…)`, `jsonify({'error': …})`, sidecar `detail`), one
+  //    character off and the lookup silently falls back to French. Sentences
+  //    with a runtime value keep the placeholder (« Lancement de {name} … »):
+  //    tServeur() re-injects the captured value with .replace(), like the
+  //    quota notice in lib/notices.ts. ──
+  // Login / auth / sessions
+  "Trop de tentatives. Réessaie dans {wait} min.": "Too many attempts. Try again in {wait} min.",
+  "Trop de tentatives, réessaie dans {wait} s.": "Too many attempts — try again in {wait} s.",
+  "Trop de requêtes. Réessaie dans {wait} s.": "Too many requests. Try again in {wait} s.",
+  "Accès réservé aux administrateurs.": "Administrators only.",
+  "CSRF token manquant ou invalide.": "Missing or invalid CSRF token.",
+  "Accès révoqué pour ce compte.": "Access revoked for this account.",
+  "Mot de passe incorrect.": "Incorrect password.",
+  "Mot de passe requis.": "Password required.",
+  "Mot de passe requis pour supprimer ton compte.": "Password required to delete your account.",
+  "Mot de passe requis pour ajouter une clé.": "Password required to add a key.",
+  "Demande de connexion expirée ou invalide.": "Sign-in request expired or invalid.",
+  "Demande d'enregistrement expirée ou invalide.": "Registration request expired or invalid.",
+  "Compte incohérent.": "Inconsistent account.",
+  "Session introuvable (déjà fermée ?).": "Session not found (already closed?).",
+  "Identifiant de session invalide.": "Invalid session identifier.",
+  "Identifiant de session ambigu, réessaie.": "Ambiguous session identifier — try again.",
+  "Clé refusée : la vérification a échoué.": "Key refused: verification failed.",
+  "Clé invalide.": "Invalid key.",
+  "Réponse de clé manquante.": "Missing key response.",
+  "Clé inconnue pour ce compte.": "Unknown key for this account.",
+  "Enregistre d'abord une clé de sécurité.": "Register a security key first.",
+  "Compte SSO : aucun mot de passe n'est géré par le portail, la vérification est impossible.":
+    "SSO account: the portal manages no password, verification is impossible.",
+  "Compte géré par l'annuaire (LDAP/SSO) : le mot de passe se change là-bas.":
+    "Directory-managed account (LDAP/SSO): the password is changed there.",
+  "Le nouveau mot de passe est identique à l'actuel.": "The new password is the same as the current one.",
+  "Confirmation requise : cette suppression est définitive.": "Confirmation required: this deletion is permanent.",
+  // API keys
+  "Clé introuvable sur ce compte.": "Key not found on this account.",
+  "Tu as déjà une clé nommée ainsi.": "You already have a key with that name.",
+  "La clé n'a pas pu être créée : le service de clés (LiteLLM) n'a pas répondu. Réessaie dans un instant.":
+    "The key could not be created: the key service (LiteLLM) did not respond. Try again in a moment.",
+  "La clé n'a PAS pu être révoquée : LiteLLM n'a pas répondu. Elle est encore valide, réessaie.":
+    "The key could NOT be revoked: LiteLLM did not respond. It is still valid — try again.",
+  "Le nom n'a PAS pu être changé : LiteLLM n'a pas répondu. La clé est intacte, réessaie.":
+    "The name could NOT be changed: LiteLLM did not respond. The key is intact — try again.",
+  "Le nom doit contenir au moins un caractère (lettres, chiffres, - ou _).":
+    "The name must contain at least one character (letters, digits, - or _).",
+  // Model admin
+  "Modèle introuvable.": "Model not found.",
+  "Modèle arrêté.": "Model stopped.",
+  "Échec de l'arrêt du modèle.": "Failed to stop the model.",
+  "Lancement refusé par le runner.": "Launch refused by the runner.",
+  "Nom et HF model ID requis.": "Name and HF model ID required.",
+  "Un modèle avec ce nom existe déjà.": "A model with this name already exists.",
+  "Identifiant HuggingFace invalide (attendu : org/nom).": "Invalid HuggingFace identifier (expected: org/name).",
+  "Durée invalide (ex: 1d, 7d, 30d, 12h).": "Invalid duration (e.g. 1d, 7d, 30d, 12h).",
+  "Lancement de {name} accepté — chargement en cours.":
+    "Launch of {name} accepted — loading in progress.",
+  "Modèle introuvable dans le catalogue.": "Model not found in the catalogue.",
+  "Modèle voix introuvable.": "Voice model not found.",
+  "Un modèle OCR avec ce nom existe déjà.": "An OCR model with this name already exists.",
+  "Un modèle voix avec ce nom existe déjà.": "A voice model with this name already exists.",
+  "Nom et variante requis (variante hors liste autorisée).":
+    "Name and variant required (variant outside the allowed list).",
+  "Modèle OCR supprimé du catalogue.": "OCR model removed from the catalogue.",
+  "Modèle voix supprimé du catalogue.": "Voice model removed from the catalogue.",
+  "Args du modèle mis à jour.": "Model args updated.",
+  "Args du modèle mis à jour (routage LiteLLM rafraîchi).":
+    "Model args updated (LiteLLM routing refreshed).",
+  // Budget / model requests
+  "Montant irréaliste (> 1e12 tokens) — vérifie la saisie.":
+    "Unrealistic amount (> 1e12 tokens) — check what you typed.",
+  "Budget : nombre strictement positif attendu (tokens). Pour couper l'accès d'un compte, utilise le blocage du compte — réversible et tracé ; un budget de 0 le plafonne réellement à zéro token.":
+    "Budget: a strictly positive number is expected (tokens). To cut an account's access, use account blocking — reversible and logged; a budget of 0 really caps it at zero tokens.",
+  "Demande introuvable ou déjà traitée.": "Request not found or already handled.",
+  "Demande introuvable.": "Request not found.",
+  "Demande mise à jour.": "Request updated.",
+  "Demande rejetée.": "Request rejected.",
+  "Statut invalide.": "Invalid status.",
+  "Tu as déjà une demande en attente.": "You already have a pending request.",
+  "Demande envoyée pour « {name} » !": "Request sent for “{name}”!",
+  "Le montant à ajouter doit être un nombre positif.": "The amount to add must be a positive number.",
+  "Erreur lors de la mise à jour du budget sur LiteLLM.": "Failed to update the budget on LiteLLM.",
+  "Durée de la subvention : nombre de jours entre 1 et 365 (vide = permanent).":
+    "Grant duration: number of days between 1 and 365 (empty = permanent).",
+  // Conversations
+  "Action inconnue : {action}": "Unknown action: {action}",
+  "Action inconnue.": "Unknown action.",
+  "id manquant": "missing id",
+  "messages invalides": "invalid messages",
+  "conversation introuvable": "conversation not found",
+  "conversation illisible": "unreadable conversation",
+  // Generic admin / account
+  "Tu ne peux pas supprimer ton propre compte.": "You cannot delete your own account.",
+  "Tu ne peux pas purger ton propre compte.": "You cannot purge your own account.",
+  "Tu ne peux pas bloquer ton propre compte.": "You cannot block your own account.",
+  "Dernier administrateur local : nomme un autre administrateur avant de supprimer celui-ci.":
+    "Last local administrator: appoint another administrator before deleting this one.",
+  "Tu es le dernier administrateur local : nomme un autre administrateur avant de supprimer ton compte.":
+    "You are the last local administrator: appoint another administrator before deleting your account.",
+  "Ce compte est local : utilise la suppression, qui retire aussi l'accès.":
+    "This account is local: use deletion, which also removes access.",
+  "Confirmation requise : cette suppression emporte les accès ET les données du compte.":
+    "Confirmation required: this deletion takes the account's access AND data.",
+  "Confirmation requise : cette opération efface définitivement les données du compte.":
+    "Confirmation required: this operation permanently erases the account's data.",
+  "Compte créé, mais son quota n'a PAS pu être appliqué sur LiteLLM : le compte est sans plafond tant que le budget n'est pas redéfini.":
+    "Account created, but its quota could NOT be applied on LiteLLM: the account has no cap until the budget is set again.",
+  "Mode maintenance activé.": "Maintenance mode enabled.",
+  "Mode maintenance désactivé.": "Maintenance mode disabled.",
+  "Nom d'utilisateur invalide.": "Invalid username.",
+  "Avatar inconnu.": "Unknown avatar.",
+  // ASR / dictation / media
+  "Modèle non chargé.": "Model not loaded.",
+  "Modèle de transcription non chargé.": "Transcription model not loaded.",
+  "Fichier audio trop volumineux.": "Audio file too large.",
+  "Audio illisible.": "Unreadable audio.",
+  "Format audio non supporté.": "Unsupported audio format.",
+  "Enregistrement trop court.": "Recording too short.",
+  "Enregistrement trop long ({dur}s, maximum {max}s).": "Recording too long ({dur}s, maximum {max}s).",
+  "Enregistrement refusé.": "Recording refused.",
+  "Une description musicale est requise.": "A music description is required.",
+  "Aucun modèle musique configuré.": "No music model configured.",
+  "Trop de générations en cours. Attends la fin des précédentes.":
+    "Too many generations in progress. Wait for the previous ones to finish.",
+  "Trop de générations d'images en cours. Attends la fin des précédentes.":
+    "Too many image generations in progress. Wait for the previous ones to finish.",
+  "Ce job n'est plus actif.": "This job is no longer active.",
+  "Trop de générations d'images en cours pour ce compte — attends la fin des précédentes.":
+    "Too many image generations in progress for this account — wait for the previous ones to finish.",
+  "La génération d'image a échoué (sidecar indisponible ou surchargé). Dis-le tel quel à l'utilisateur.":
+    "Image generation failed (sidecar unavailable or overloaded). Say it to the user as-is.",
+  // Memory
+  "Fait introuvable.": "Fact not found.",
+  "Fichier trop volumineux.": "File too large.",
+  "Aucun fait reconnu dans ce fichier.": "No fact recognised in this file.",
+  "JSON invalide.": "Invalid JSON.",
+  "Encodage invalide (UTF-8 attendu).": "Invalid encoding (UTF-8 expected).",
+  "Modèle image inconnu.": "Unknown image model.",
+  // Support: confirmation of a sensitive action + votes
+  "Demande inconnue.": "Unknown request.",
+  "Cette demande a expiré (ou a déjà été traitée).": "This request expired (or has already been handled).",
+  "Cette demande a déjà été traitée.": "This request has already been handled.",
+  "Vote invalide.": "Invalid vote.",
+  // Remaining displayed sentences (admin announcements, email config, model
+  // request, webauthn, maintenance API)
+  "Annonce publiée — elle s'affichera à l'ouverture du site.":
+    "Announcement published — it will show up when the site opens.",
+  "Titre requis pour l'annonce.": "A title is required for the announcement.",
+  "Dernier administrateur local : nomme un autre administrateur avant de bloquer celui-ci.":
+    "Last local administrator: appoint another administrator before blocking this one.",
+  "Mode maintenance en cours — l'API est temporairement indisponible, réessaie plus tard.":
+    "Maintenance in progress — the API is temporarily unavailable, try again later.",
+  "SMTP non configuré (renseigne SMTP_HOST / SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL).":
+    "SMTP not configured (set SMTP_HOST / SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL).",
+  "Catégorie inconnue.": "Unknown category.",
+  "Champs manquants.": "Missing fields.",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({
@@ -1582,6 +1752,50 @@ export function useLang() {
 export function useT() {
   const { lang } = useContext(I18nContext);
   return useCallback((fr: string) => (lang === "en" ? EN[fr] ?? fr : fr), [lang]);
+}
+
+/* Server sentences arrive PRE-FORMATTED with their runtime value
+ * (« Trop de tentatives. Réessaie dans 2 min. »): the exact lookup can only
+ * miss. The dictionary therefore keeps the TEMPLATE as msgid (« … dans
+ * {wait} min. »), and we match the sentence against those templates to
+ * re-inject the captured value into the translation with .replace() — the
+ * same trick as the quota notice (lib/notices.ts). Exact keys win first;
+ * anything unmatched is displayed as-is (a missing translation must never
+ * mangle a message). */
+type ModeleServeur = { re: RegExp; msgid: string };
+let modelesServeur: ModeleServeur[] | null = null;
+
+function tableModelesServeur(): ModeleServeur[] {
+  if (!modelesServeur) {
+    // Longest templates first: a short one must not swallow a longer sibling.
+    modelesServeur = Object.keys(EN)
+      .filter((k) => /\{[^}]+\}/.test(k))
+      .sort((a, b) => b.length - a.length)
+      .map((msgid) => {
+        const motif = msgid
+          .split(/(\{[^}]+\})/)
+          .filter(Boolean)
+          .map((m) => (/^\{[^}]+\}$/.test(m) ? "([\\s\\S]*?)" : m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+          .join("");
+        return { re: new RegExp(`^${motif}$`), msgid };
+      });
+  }
+  return modelesServeur;
+}
+
+/** Translates a SERVER-PROVIDED sentence at display time (cf. block comment).
+ *  `t` is passed as a parameter (module function): like `texteNotice`, a hook
+ *  can only be called from a component. */
+export function tServeur(message: string, t: (fr: string) => string): string {
+  const direct = t(message);
+  if (direct !== message) return direct;          // exact key, done
+  for (const { re, msgid } of tableModelesServeur()) {
+    const m = message.match(re);
+    if (!m) continue;
+    let i = 0;
+    return t(msgid).replace(/\{[^}]+\}/g, () => m[++i] ?? "");
+  }
+  return direct;
 }
 
 /** Formatting locale (numbers, dates, times) that FOLLOWS the displayed language.

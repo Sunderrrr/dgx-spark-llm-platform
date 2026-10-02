@@ -52,7 +52,7 @@ import {
 } from "@/lib/api";
 import type { SupportConfirmRequest, ToolCallEvent } from "@/lib/api";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
-import { useT } from "@/lib/i18n";
+import { useT, tServeur } from "@/lib/i18n";
 import { copierTexte } from "@/lib/copier";
 import { texteNotice } from "@/lib/notices";
 import type { CronosNotice } from "@/lib/notices";
@@ -284,7 +284,13 @@ export default function SupportPage() {
     token: string,
     keepCard: boolean,
   ) {
-    const message = result.message || result.error || t("Erreur réseau — réessaie.");
+    // The server sentence (French) is translated at display time; the model's
+    // own prose (`message` of a tool result) has no key and falls back to itself.
+    const message = result.message
+      ? tServeur(result.message, t)
+      : result.error
+        ? tServeur(result.error, t)
+        : t("Erreur réseau — réessaie.");
     // eslint-disable-next-line react-hooks/purity -- handleConfirm only runs from event handlers
     const now = Date.now();
     setMessages((prev) => {

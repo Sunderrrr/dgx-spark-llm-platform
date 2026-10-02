@@ -801,12 +801,14 @@ class PurgeInventaireTest(BaseComptes):
     """The inventory of purged tables must stay honest: any table carrying a
     `username` and absent from the list must be a deliberate choice."""
 
-    # `audit_log` is the trace of admin actions, `local_users` is erased
-    # explicitly by identifier — and `blocked_users` is an ACCESS decision,
-    # not personal data: purging it would UNBLOCK the account (see the
+    # `audit_log` (and its `audit_log_archive`, the rows it evicts — see
+    # db.log_audit, 2026-10-02) is the trace of admin actions, `local_users` is
+    # erased explicitly by identifier — and `blocked_users` is an ACCESS
+    # decision, not personal data: purging it would UNBLOCK the account (see the
     # comment on `TABLES_PURGEES`). It is the only offboarding lever for a
     # directory account, so it survives the purge.
-    NON_PURGEES_VOLONTAIREMENT = {'audit_log', 'local_users', 'blocked_users'}
+    NON_PURGEES_VOLONTAIREMENT = {'audit_log', 'audit_log_archive',
+                                  'local_users', 'blocked_users'}
 
     def test_toutes_les_tables_utilisateur_sont_couvertes(self):
         with portal.app.app_context():

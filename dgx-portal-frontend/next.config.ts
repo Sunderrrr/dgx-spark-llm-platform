@@ -9,37 +9,37 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  // Retire l'en-tête X-Powered-By: Next.js — aucun intérêt fonctionnel,
-  // juste du fingerprinting gratuit offert à un attaquant.
+  // Removes the X-Powered-By: Next.js header — no functional value,
+  // just free fingerprinting handed to an attacker.
   poweredByHeader: false,
-  // /root/package-lock.json (bac à sable Astryx, hors de ce projet) fait sinon
-  // dériver Next vers la mauvaise racine de workspace.
+  // /root/package-lock.json (Astryx sandbox, outside this project) otherwise
+  // makes Next drift to the wrong workspace root.
   turbopack: {
     root: path.join(__dirname),
   },
   experimental: {
-    // Le proxy.ts middleware (route TOUT le non-GET/HEAD vers Flask) tronque
-    // silencieusement le corps des requêtes au-delà de 10 Mo par défaut — cassait
-    // les uploads image de /api/video/generate et /api/ocr/extract (limite
-    // affichée : 15 Mo). Relevé pour matcher + marge. Vu en prod le 04/08 :
-    // un screenshot de ~11 Mo faisait planter le proxy en ECONNRESET.
+    // The proxy.ts middleware (routes ALL non-GET/HEAD to Flask) silently
+    // truncates request bodies beyond 10 MB by default — it broke the image
+    // uploads of /api/video/generate and /api/ocr/extract (advertised
+    // limit: 15 MB). Raised to match + margin. Seen in prod on 04/08:
+    // an ~11 MB screenshot crashed the proxy with ECONNRESET.
     proxyClientMaxBodySize: "20mb",
-    // Next coupe TOUTE requête proxifiée à 30 s par défaut
-    // (server/lib/router-utils/proxy-request.ts : `proxyTimeout || 30_000`) et
-    // répond alors « 500 Internal Server Error » — côté client c'est
-    // indiscernable d'une panne. Le clonage vocal d'un texte long dépasse
-    // largement 30 s (~45 s pour 1 500 caractères) : la génération aboutissait
-    // et était bien enregistrée, mais l'utilisateur voyait une erreur et
-    // relançait, empilant les générations. Vu en prod le 05/08.
-    // Ordre voulu des délais : proxy 300 s > gunicorn 200 s > appel /tts 120 s,
-    // pour que le timeout le plus INTERNE gagne et renvoie un vrai message.
+    // Next cuts EVERY proxied request at 30 s by default
+    // (server/lib/router-utils/proxy-request.ts: `proxyTimeout || 30_000`) and
+    // then answers « 500 Internal Server Error » — on the client side it is
+    // indistinguishable from an outage. Voice cloning of a long text goes well
+    // beyond 30 s (~45 s for 1 500 characters): the generation succeeded
+    // and was properly saved, but the user saw an error and relaunched,
+    // stacking generations. Seen in prod on 05/08.
+    // Intended order of the timeouts: proxy 300 s > gunicorn 200 s > /tts call
+    // 120 s, so that the most INTERNAL timeout wins and returns a real message.
     proxyTimeout: 300_000,
   },
   async rewrites() {
-    // Le navigateur ne parle qu'à ce serveur Next.js (même origine, pas de CORS
-    // à gérer côté cookies/CSRF). Tout ce qui n'est pas une page Next connue
-    // (API JSON, /login POST, /playground/chat SSE, /admin/*, etc.) est transmis
-    // tel quel à Flask, joignable en interne via le réseau docker-compose.
+    // The browser only talks to this Next.js server (same origin, no CORS to
+    // handle for cookies/CSRF). Anything that is not a known Next page
+    // (JSON API, /login POST, /playground/chat SSE, /admin/*, etc.) is passed
+    // as-is to Flask, reachable internally over the docker-compose network.
     return {
       fallback: [{ source: "/:path*", destination: `${BACKEND_URL}/:path*` }],
     };

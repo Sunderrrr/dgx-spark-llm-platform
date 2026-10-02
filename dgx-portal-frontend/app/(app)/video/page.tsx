@@ -88,9 +88,9 @@ export default function VideoPage() {
     fetch("/api/home", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        // On retient le nom RÉELLEMENT servi, pour le titre : il était écrit en
-        // dur (« MiniMax H3 »), donc vrai tant que le workflow ComfyUI ne change
-        // pas — et faux le jour où il change, sans que rien ne le signale.
+        // We keep the name ACTUALLY served, for the title: it was hardcoded
+        // (« MiniMax H3 »), so true as long as the ComfyUI workflow does not
+        // change — and false the day it changes, with nothing flagging it.
         const modele = d?.running_models?.find((m: RunningModel) => m.kind === "video");
         setAvailable(!!modele);
         setVideoName(modele?.name ?? null);
@@ -98,8 +98,8 @@ export default function VideoPage() {
       .catch(() => setAvailable(null));
   }, []);
 
-  // `prompt` est passable en surcharge (« Réessayer » d'un item d'historique) —
-  // setState étant asynchrone, on lit la valeur du paramètre pour la requête.
+  // `prompt` can be overridden (« Réessayer » on a history item) —
+  // setState being asynchronous, we read the parameter's value for the request.
   async function generate(opts?: { prompt?: string }) {
     const p = (opts?.prompt ?? prompt).trim();
     if (!p) return;
@@ -121,13 +121,13 @@ export default function VideoPage() {
       }
       setPromptId(res.prompt_id);
       loadHistory();
-      // L'intervalle précédent doit mourir avant d'armer le nouveau (sinon un
-      // orphelin interroge le vieux job indéfiniment, même après démontage).
+      // The previous interval must die before arming the new one (otherwise an
+      // orphan polls the old job indefinitely, even after unmount).
       stopPolling();
       pollRef.current = setInterval(async () => {
         const r = await fetch(`/api/video/status/${res.prompt_id}`, { credentials: "include" });
-        // `r.json()` sur un 401 ou une page HTML lève dans un callback
-        // d'intervalle : rejet silencieux, statut bloqué sur « en cours ».
+        // `r.json()` on a 401 or an HTML page throws in an interval
+        // callback: silent rejection, status stuck on « en cours ».
         if (!r.ok) return;
         const st = await r.json();
         if (st.status === "done" || st.status === "error") {
@@ -151,19 +151,19 @@ export default function VideoPage() {
     setStatus(item.status as JobStatus);
   }
 
-  // Relance une génération échouée : on reprend le prompt, la durée et l'image
-  // de référence courants (la référence d'origine n'est pas restituable).
+  // Relaunches a failed generation: we reuse the current prompt, duration and
+  // reference image (the original reference cannot be restored).
   function retryItem(item: HistoryItem) {
     generate({ prompt: item.prompt });
   }
 
-  // Arrête la génération vidéo en cours (interrupt ComfyUI) ou en attente.
+  // Stops the video generation in progress (interrupt ComfyUI) or pending.
   async function cancel() {
     if (!promptId) return;
     setCancelling(true);
     try {
-      // `fetch` ne rejette que sur erreur RÉSEAU : sans `res.ok`, un refus du
-      // serveur s'affichait comme une annulation réussie.
+      // `fetch` only rejects on NETWORK error: without `res.ok`, a server
+      // refusal showed up as a successful cancellation.
       const r = await authFetch(`/api/video/cancel/${promptId}`, {
         method: "POST",
         headers: { "X-CSRFToken": csrf },

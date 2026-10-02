@@ -1,12 +1,12 @@
-/** Notices système du serveur (`cronos_notice`) : msgid français + arguments.
+/** Server system notices (`cronos_notice`): French msgid + arguments.
  *
- * Traduites au rendu dans la langue de l'interface — le contrat i18n
- * (français = clé) s'applique comme pour le reste de l'UI ; le serveur
- * n'écrit jamais de phrase, donc pas de langue côté backend.
+ * Translated at render time into the UI language — the i18n contract
+ * (French = key) applies as for the rest of the UI; the server
+ * never writes a sentence, so no language on the backend side.
  *
- * Partagé par le playground et l'assistant Support : les deux tournent sur la
- * clé API de l'utilisateur, donc sur son budget, et peuvent recevoir les mêmes
- * refus (aucune clé créée, quota épuisé).
+ * Shared by the playground and the Support assistant: both run on the
+ * user's API key, hence on their budget, and can receive the same
+ * refusals (no key created, quota exhausted).
  */
 export type CronosNotice = { id: string; reset?: string; status?: number };
 

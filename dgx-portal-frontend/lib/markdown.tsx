@@ -1,31 +1,31 @@
 "use client";
 
 /**
- * Enveloppe de `<Markdown>` qui referme deux trous de la dépendance : son filtre
- * d'URL, et le rendu des maths.
+ * Wrapper around `<Markdown>` that plugs two holes in the dependency: its URL
+ * filter, and math rendering.
  *
- * `sanitizeUrl` d'Astryx 0.1.8 (`dist/Markdown/Markdown.js:413`) teste
- * `/^(javascript|data|vbscript):/i` sur `url.trim()`. Or `trim()` ne retire que
- * les espaces de BORDURE : une tabulation ou un saut de ligne DANS le schéma
- * passe le test, alors que le navigateur, lui, supprime tabulations et sauts de
- * ligne AVANT d'analyser l'URL (algorithme WHATWG). `[clic](java\nscript:…)`
- * produit donc un lien `javascript:` bien vivant. Mesuré sur le paquet installé
- * (parseur livré, exécuté en Node) : `javascript:alert(1)` → refusé,
- * `java\nscript:alert(1)` → accepté.
+ * `sanitizeUrl` from Astryx 0.1.8 (`dist/Markdown/Markdown.js:413`) tests
+ * `/^(javascript|data|vbscript):/i` against `url.trim()`. But `trim()` only
+ * removes EDGE spaces: a tab or a newline INSIDE the scheme passes the
+ * test, while the browser, for its part, removes tabs and newlines BEFORE
+ * parsing the URL (WHATWG algorithm). `[clic](java\nscript:…)` therefore
+ * produces a perfectly alive `javascript:` link. Measured on the installed
+ * package (shipped parser, run in Node): `javascript:alert(1)` → refused,
+ * `java\nscript:alert(1)` → accepted.
  *
- * Aujourd'hui la CSP (`script-src` sans `'unsafe-inline'`, cf. `proxy.ts`)
- * empêche l'exécution — mais tout reposerait sur ce seul en-tête. On juge donc
- * ici sur l'URL NETTOYÉE de tous ses caractères de contrôle.
+ * Today the CSP (`script-src` without `'unsafe-inline'`, cf. `proxy.ts`)
+ * prevents execution — but everything would rest on that single header. So
+ * we judge here on the URL stripped of ALL its control characters.
  *
- * Le rendu légitime reste celui du système de design : `<Link>` porte
- * exactement les mêmes classes StyleX que le lien par défaut du Markdown
- * (`xjse4m1` couleur d'accent, `x1bvjpef`), et passe par le `LinkProvider` de
- * l'application. Aucun changement visuel, et les liens externes conservent
+ * The legitimate rendering remains the design system's: `<Link>` carries
+ * exactly the same StyleX classes as the default Markdown link
+ * (`xjse4m1` accent color, `x1bvjpef`), and goes through the application's
+ * `LinkProvider`. No visual change, and external links keep
  * `target="_blank"` + `rel="noopener noreferrer"`.
  *
- * Les maths (`$…$`, `$$…$$`, `\(…\)`) sont préparées ici, avant le parseur :
- * cf. `lib/maths.tsx` pour la raison — le parseur coupe le texte à chaque
- * antislash, donc un plugin par nœud ne peut plus voir la formule.
+ * Math (`$…$`, `$$…$$`, `\(…\)`) is prepared here, before the parser:
+ * see `lib/maths.tsx` for the reason — the parser splits the text at every
+ * backslash, so a per-node plugin can no longer see the formula.
  */
 import { useMemo } from "react";
 import { Markdown } from "@astryxdesign/core/Markdown";
@@ -33,15 +33,15 @@ import { Link } from "@astryxdesign/core/Link";
 import type { ComponentProps, ReactNode } from "react";
 import { pluginMaths, protegerMaths, type Formule } from "./maths";
 
-/** Schémas jamais légitimes dans une réponse de modèle. */
+/** Schemes never legitimate in a model answer. */
 const SCHEMA_DANGEREUX = /^(?:javascript|data|vbscript|file):/i;
 
 /**
- * URL utilisable pour un lien, ou `null` si la destination doit rester du texte.
+ * URL usable for a link, or `null` if the destination must stay as text.
  *
- * On retire d'abord TOUS les caractères de contrôle (U+0000–U+001F, U+007F) :
- * ce sont eux qui, invisiblement, séparent un schéma dangereux et le rendent
- * acceptable pour un `trim()`.
+ * We first remove ALL control characters (U+0000–U+001F, U+007F):
+ * they are what invisibly split a dangerous scheme and make it
+ * acceptable to a `trim()`.
  */
 export function hrefSur(brut: string): string | null {
   const url = String(brut ?? "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
@@ -51,7 +51,7 @@ export function hrefSur(brut: string): string | null {
 
 function LienSur({ href, children }: { href: string; children: ReactNode }) {
   const url = hrefSur(href);
-  // Refusé : le texte du lien reste lisible, mais il n'est plus activable.
+  // Refused: the link text stays readable, but it is no longer clickable.
   if (!url) return <span>{children}</span>;
   return (
     <Link href={url} isExternalLink={/^https?:\/\//i.test(url)}>
@@ -60,7 +60,7 @@ function LienSur({ href, children }: { href: string; children: ReactNode }) {
   );
 }
 
-/** `<Markdown>` avec le filtre d'URL corrigé et les maths rendues. */
+/** `<Markdown>` with the fixed URL filter and rendered math. */
 export function MarkdownSur({ children, inlinePlugins, ...props }: ComponentProps<typeof Markdown>) {
   const { texte, formules } = useMemo(() => {
     if (typeof children !== "string") return { texte: children, formules: [] as Formule[] };

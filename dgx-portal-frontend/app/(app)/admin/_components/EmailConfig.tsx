@@ -16,22 +16,22 @@ import { useT } from "@/lib/i18n";
 type Config = { configured?: boolean; admin_email?: string };
 type TestResp = { ok?: boolean; error?: { message?: string } };
 
-/** Adresse d'expédition du portail (SMTP_FROM). Elle est écrite dans le DOM
- *  seulement APRÈS le montage, et jamais dans le HTML rendu par le serveur :
- *  Cloudflare (Scrape Shield) réécrit toute adresse email du HTML SERVEUR en
- *  <a class="__cf_email__">[email protected]</a>. React reçoit alors un DOM qui
- *  ne correspond plus à ce qu'il a rendu, et l'hydratation échoue — « Minified
- *  React error #418 (args[]=text) », mesuré le 2026-10-02 sur /admin, la seule
- *  page qui affichait une adresse. Cloudflare ne réécrit que la réponse HTTP,
- *  jamais les nœuds créés par le client : arrivée après le montage, l'adresse
- *  est intacte. (Supprimer l'obfuscation email dans Cloudflare lèverait la
- *  contrainte, mais le portail ne peut pas compter sur ce réglage.) */
+/** Sender address of the portal (SMTP_FROM). It is written into the DOM
+ *  only AFTER mount, and never in the HTML rendered by the server:
+ *  Cloudflare (Scrape Shield) rewrites every email address of the SERVER-side
+ *  HTML into <a class="__cf_email__">[email protected]</a>. React then receives a DOM
+ *  that no longer matches what it rendered, and hydration fails — « Minified
+ *  React error #418 (args[]=text) », measured on 2026-10-02 on /admin, the only
+ *  page that displayed an address. Cloudflare only rewrites the HTTP response,
+ *  never client-created nodes: arriving after mount, the address is intact.
+ *  (Removing the email obfuscation in Cloudflare would lift the constraint,
+ *  but the portal cannot rely on that setting.) */
 const SENDER_ADDRESS = "no-reply@cronos.website";
 
 /**
- * Bloc « Emails de notification » de la page Admin : indique si le SMTP est
- * configuré (hôte / user / mot de passe / admin) et permet d'envoyer un email
- * de test à l'admin — sans jamais exposer le mot de passe.
+ * « Emails de notification » block of the Admin page: states whether SMTP is
+ * configured (host / user / password / admin) and allows sending a test
+ * email to the admin — without ever exposing the password.
  */
 export function EmailConfig() {
   const t = useT();
@@ -39,15 +39,15 @@ export function EmailConfig() {
   const showToast = useToast();
   const [cfg, setCfg] = useState<Config | null>(null);
   const [sending, setSending] = useState(false);
-  // Faux au rendu serveur comme au premier rendu client (donc aucun écart
-  // d'hydratation), vrai juste après le montage : c'est ce qui autorise
-  // SENDER_ADDRESS à entrer dans le DOM côté client seulement. Comme le
-  // ThemeProvider pour ses préférences locales, c'est le cas « synchroniser
-  // depuis un système externe » que vise la règle — pas une cascade de rendus.
+  // False on server render as on first client render (so no hydration
+  // mismatch), true right after mount: that is what allows SENDER_ADDRESS
+  // to enter the DOM client-side only. Like the ThemeProvider for its local
+  // preferences, it is the « synchroniser depuis un système externe » case
+  // the rule targets — not a render cascade.
   const [monte, setMonte] = useState(false);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot au montage
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot on mount
     setMonte(true);
   }, []);
 

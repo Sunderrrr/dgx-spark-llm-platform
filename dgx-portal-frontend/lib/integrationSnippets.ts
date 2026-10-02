@@ -11,8 +11,8 @@ export const INTEGRATION_TOOLS = [
   { value: "langchain", label: "LangChain Agent" },
   { value: "python", label: "Python SDK" },
   { value: "curl", label: "cURL" },
-  // « env » est le seul libellé non nom-propre de la liste : un msgid français
-  // comme le reste (les autres outils gardent leur nom propre).
+  // « env » is the only label in the list that is not a proper noun: a French
+  // msgid like the rest (the other tools keep their proper name).
   { value: "env", label: "Variables d'env." },
 ] as const;
 
@@ -24,14 +24,14 @@ function maskKey(k: string): string {
 
 const BUILDERS: Record<IntegrationTool, (base: string, key: string, model: string, limits: Record<string, ModelLimit>) => string> = {
   claudecode: (base, k, m, limits) => {
-    // Claude Code ajoute lui-même « /v1/messages » : ANTHROPIC_BASE_URL doit
-    // être la RACINE, pas le chemin OpenAI-compatible qui sert aux autres outils.
+    // Claude Code adds « /v1/messages » itself: ANTHROPIC_BASE_URL must be
+    // the ROOT, not the OpenAI-compatible path that serves the other tools.
     const root = base.replace(/\/v1\/?$/, "");
     const lim = limits[m];
-    // Nombres SANS séparateur de milliers, volontairement : ce texte part dans un
-    // fichier de configuration recopié par l'utilisateur, il ne doit donc pas
-    // dépendre de la langue du navigateur (c'était le dernier `fr-FR` figé du
-    // dépôt, mais un extrait de config n'est pas un affichage d'interface).
+    // Numbers WITHOUT thousands separators, deliberately: this text goes into a
+    // configuration file copied by the user, so it must not depend on the
+    // browser language (it was the last hardcoded `fr-FR` in the repo, but a
+    // config snippet is not a UI display).
     const ctx = lim ? `\n# Contexte du modèle : ${lim.context} tokens (sortie max ${lim.output}).` : "";
     return `# Claude Code — https://claude.com/claude-code
 # Installation : npm install -g @anthropic-ai/claude-code
@@ -57,8 +57,8 @@ claude${ctx}
     const modelDef = lim
       ? `"${m}": {\n          "name": "${m}",\n          "limit": { "context": ${lim.context}, "output": ${lim.output} }\n        }`
       : `"${m}": { "name": "${m}" }`;
-    // `//` et non `#` : opencode lit un JSONC, où `#` n'est PAS un commentaire —
-    // l'utilisateur qui recopiait l'extrait tel quel obtenait un fichier refusé
+    // `//` and not `#`: opencode reads JSONC, where `#` is NOT a comment —
+    // the user copying the snippet as-is got a refused file
     // (« invalid character '#' looking for beginning of value »).
     return `// ~/.config/opencode/opencode.json
 {

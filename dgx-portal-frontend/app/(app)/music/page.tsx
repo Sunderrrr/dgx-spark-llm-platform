@@ -39,16 +39,16 @@ const STATUS_SHORT: Record<string, string> = { running: "En cours", done: "Termi
 
 const VERSIONS = [1, 2, 3];
 
-/* Bruit déterministe (même hachage sinusoïdal que la page Voix) : serveur et
-   client doivent tirer exactement les mêmes valeurs, sinon l'hydratation React
-   diverge — d'où ceci plutôt que Math.random(). */
+/* Deterministic noise (same sinusoidal hash as the Voix page): server and
+   client must draw exactly the same values, otherwise React hydration
+   diverges — hence this instead of Math.random(). */
 function noise(i: number, seed: number) {
   const x = Math.sin(i * 12.9898 + seed) * 43758.5453;
   return x - Math.floor(x);
 }
-/* Chaque barre a son amplitude ET sa durée propres : des durées différentes
-   font dériver les barres les unes par rapport aux autres, donc le motif ne se
-   répète jamais (une durée unique donnerait une vague mécanique). */
+/* Each bar has its own amplitude AND duration: different durations make
+   the bars drift relative to one another, so the pattern never repeats
+   (a single duration would make a mechanical wave). */
 const WAVE_BARS = Array.from({ length: 48 }, (_, i) => ({
   amp: 0.3 + noise(i, 1) * 0.7,
   dur: 0.85 + noise(i, 2) * 1.1,
@@ -64,8 +64,8 @@ export default function MusicPage() {
   const [lyrics, setLyrics] = useState("");
   const [duration, setDuration] = useState(60);
   const [versions, setVersions] = useState(1);
-  const [jobCount, setJobCount] = useState(1);   // versions demandées pour le job affiché
-  const [doneCount, setDoneCount] = useState(0); // versions déjà produites
+  const [jobCount, setJobCount] = useState(1);   // versions requested for the displayed job
+  const [doneCount, setDoneCount] = useState(0); // versions already produced
   const [status, setStatus] = useState<JobStatus>("idle");
   const [jobId, setJobId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -130,12 +130,12 @@ export default function MusicPage() {
       setJobId(res.job_id);
       setJobCount(res.count ?? n);
       loadHistory();
-      // La composition peut durer plusieurs minutes : on interroge le statut
-      // plutôt que de tenir une requête HTTP ouverte tout du long.
+      // The composition can last several minutes: we poll the status
+      // rather than hold an HTTP request open the whole time.
       stopPolling();
       pollRef.current = setInterval(async () => {
         const r = await fetch(`/api/music/status/${res.job_id}`, { credentials: "include" });
-        if (!r.ok) return;              // 401/page HTML : ne pas lever dans l'intervalle
+        if (!r.ok) return;              // 401/HTML page: do not throw inside the interval
         const st = await r.json();
         if (typeof st.count === "number") setJobCount(st.count);
         if (typeof st.done_count === "number") setDoneCount(st.done_count);
@@ -160,12 +160,12 @@ export default function MusicPage() {
     setDoneCount(item.done_count ?? (item.status === "done" ? (item.count ?? 1) : 0));
   }
 
-  // Relance une composition échouée avec les mêmes réglages.
+  // Relaunches a failed composition with the same settings.
   function retryItem(item: HistoryItem) {
     generate({ prompt: item.prompt, lyrics: item.lyrics ?? "", duration: item.duration_s, count: item.count ?? 1 });
   }
 
-  // Arrête la composition en cours (la version en cours se termine).
+  // Stops the composition in progress (the current version finishes).
   async function cancel() {
     if (!jobId) return;
     setCancelling(true);
@@ -335,8 +335,8 @@ export default function MusicPage() {
                               formatValueLabel={(v, m) => `${v}/${m}`}
                             />
                           )}
-                          {/* Onde animée : purement décorative (le texte au-dessus
-                              porte l'information), d'où aria-hidden. */}
+                          {/* Animated wave: purely decorative (the text above carries
+                              the information), hence aria-hidden. */}
                           <HStack className="voice-wave" gap={1} vAlign="center" hAlign="center" aria-hidden>
                             {WAVE_BARS.map((b, i) => (
                               <span
@@ -359,7 +359,7 @@ export default function MusicPage() {
                           </Text>
                         </VStack>
                       )}
-                      {/* Les versions terminées s'écoutent sans attendre la fin du lot. */}
+                      {/* Finished versions can be listened to without waiting for the batch to end. */}
                       {jobId && doneCount > 0 && (
                         <VStack gap={3}>
                           {Array.from({ length: doneCount }).map((_, idx) => (

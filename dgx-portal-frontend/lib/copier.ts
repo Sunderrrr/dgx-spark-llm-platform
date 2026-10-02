@@ -1,15 +1,15 @@
 /**
- * Copie du texte, avec repli là où `navigator.clipboard` n'existe pas.
+ * Text copying, with a fallback where `navigator.clipboard` does not exist.
  *
- * L'API Clipboard exige un CONTEXTE SÉCURISÉ : sur le LAN en HTTP
- * (`http://dgx.cronos.lan`) elle est `undefined`. Partout où le code faisait
- * `navigator.clipboard?.writeText(...)`, le `?.` avalait donc l'appel sans rien
- * faire — bouton visible, clic sans effet, aucun message. C'était
- * particulièrement coûteux dans l'onglet Clés API, dont tout l'intérêt est de
- * copier un extrait de configuration.
+ * The Clipboard API requires a SECURE CONTEXT: on the LAN over HTTP
+ * (`http://dgx.cronos.lan`) it is `undefined`. Everywhere the code did
+ * `navigator.clipboard?.writeText(...)`, the `?.` therefore swallowed the
+ * call without doing anything — visible button, click with no effect, no
+ * message. It was particularly costly in the Clés API tab, whose whole
+ * point is to copy a configuration snippet.
  *
- * On retombe sur `execCommand`, puis on le DIT si ça échoue encore (`onEchec`) :
- * un échec silencieux est le seul résultat inacceptable ici.
+ * We fall back to `execCommand`, then SAY SO if it fails again (`onEchec`):
+ * a silent failure is the only unacceptable outcome here.
  */
 export async function copierTexte(texte: string, onEchec?: () => void): Promise<boolean> {
   try {
@@ -18,7 +18,7 @@ export async function copierTexte(texte: string, onEchec?: () => void): Promise<
       return true;
     }
   } catch {
-    /* on essaie le repli */
+    /* we try the fallback */
   }
   try {
     const ta = document.createElement("textarea");
@@ -32,7 +32,7 @@ export async function copierTexte(texte: string, onEchec?: () => void): Promise<
     document.body.removeChild(ta);
     if (ok) return true;
   } catch {
-    /* on le dit plus bas */
+    /* we say so below */
   }
   onEchec?.();
   return false;

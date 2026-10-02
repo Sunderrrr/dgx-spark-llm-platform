@@ -163,8 +163,8 @@ export default function VoicePage() {
   }
 
   function copyText(s: string) {
-    // Hors contexte sécurisé (LAN en HTTP) `navigator.clipboard` est absent :
-    // le `?.` avalait alors la copie sans le moindre message.
+    // Outside a secure context (LAN over HTTP) `navigator.clipboard` is absent:
+    // the `?.` then swallowed the copy without the slightest message.
     void copierTexte(s, () =>
       showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }));
   }

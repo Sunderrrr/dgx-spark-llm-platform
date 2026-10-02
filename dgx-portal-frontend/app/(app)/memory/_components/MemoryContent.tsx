@@ -45,8 +45,8 @@ type MemGraph = { enabled: boolean; max_facts: number; nodes: MemNode[]; edges: 
 
 const EMPTY: MemGraph = { enabled: false, max_facts: 400, nodes: [], edges: [] };
 
-/** Contenu de l'onglet Mémoire des réglages (pas de page dédiée, même parti pris
- *  que les clés API : c'est un réglage de compte, pas une destination). */
+/** Content of the settings Mémoire tab (no dedicated page, same design choice
+ *  as the API keys: it is an account setting, not a destination). */
 export function MemoryContent() {
   const t = useT();
   const csrf = useCsrf();
@@ -55,8 +55,8 @@ export function MemoryContent() {
   const [loading, setLoading] = useState(true);
   const [subject, setSubject] = useState("");
   const [fact, setFact] = useState("");
-  // Modification d'une information qui a évolué : on édite sur place plutôt que
-  // d'obliger à supprimer puis ré-ajouter (ce qui perdrait sa date d'origine).
+  // Editing a piece of information that has evolved: we edit in place rather
+  // than force a delete then re-add (which would lose its original date).
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
 
@@ -70,22 +70,22 @@ export function MemoryContent() {
     }
   }
 
-  // Chargement au montage : la mise à jour d'état a lieu APRÈS l'await, jamais
-  // dans le corps de l'effet.
-  // Le corps de `load()` est repris ici plutôt qu'appelé : `void load()` fait
-  // lever `react-hooks/set-state-in-effect` (la règle ne voit pas que l'état est
-  // posé APRÈS l'await, donc elle croit à un setState synchrone dans l'effet) —
-  // et une suppression de règle ici masquerait un vrai avertissement plus tard.
+  // Load on mount: the state update happens AFTER the await, never in the
+  // body of the effect. The body of `load()` is inlined here rather than
+  // called: `void load()` makes `react-hooks/set-state-in-effect` throw
+  // (the rule does not see that the state is set AFTER the await, so it
+  // believes in a synchronous setState in the effect) — and disabling the
+  // rule here would hide a real warning later.
   useEffect(() => {
     getJSON<MemGraph>("/api/memory")
       .then(setGraph)
       .catch(() => showToast({ body: t("Chargement impossible."), type: "error" }))
       .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- au montage uniquement
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- on mount only
   }, []);
 
-  // Les faits sont groupés PAR SUJET : c'est la forme du graphe, et c'est ce qui
-  // rend lisible « ce que l'IA sait sur X » — une liste à plat ne le montrerait pas.
+  // The facts are grouped BY SUBJECT: it is the shape of the graph, and it is
+  // what makes « ce que l'IA sait sur X » readable — a flat list would not show it.
   const bySubject = useMemo(() => {
     const m = new Map<string, MemEdge[]>();
     for (const e of graph.edges) {
@@ -97,10 +97,10 @@ export function MemoryContent() {
   }, [graph.edges]);
 
   async function toggle(enabled: boolean) {
-    // `sendJSON` ne contrôle PAS le statut HTTP et rend `{}` sur un corps non
-    // JSON : un 500/502 faisait donc `r.enabled === undefined`, l'interrupteur
-    // s'affichait « désactivé » et le message annonçait un changement qui n'avait
-    // pas eu lieu. On ne bouge l'état qu'après un `ok` explicite.
+    // `sendJSON` does NOT check the HTTP status and returns `{}` on a non-JSON
+    // body: a 500/502 therefore gave `r.enabled === undefined`, the toggle
+    // showed « désactivé » and the message announced a change that had not
+    // happened. We only move the state after an explicit `ok`.
     let r: { ok?: boolean; enabled?: boolean; error?: string };
     try {
       r = await sendJSON<{ ok: boolean; enabled: boolean }>("/api/memory/enabled", csrf, { enabled });
@@ -169,7 +169,7 @@ export function MemoryContent() {
       showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
       return;
     }
-    // Sans ce test, une panne affichait « Mémoire effacée — undefined informations ».
+    // Without this test, an outage displayed « Mémoire effacée — undefined informations ».
     if (!r?.ok) {
       showToast({ body: r?.error ?? t("L'action a échoué."), type: "error" });
       return;
@@ -179,9 +179,9 @@ export function MemoryContent() {
   }
 
   // ── Export / import ────────────────────────────────────────────────────────
-  // Export : le backend renvoie un fichier (Content-Disposition: attachment).
-  // On récupère le blob via authFetch (credentials incluses → session conservée)
-  // puis on déclenche un téléchargement navigateur. Aucun secret dans l'URL.
+  // Export: the backend returns a file (Content-Disposition: attachment).
+  // We fetch the blob via authFetch (credentials included → session kept)
+  // then trigger a browser download. No secret in the URL.
   async function download(fmt: "json" | "md") {
     try {
       const res = await authFetch(fmt === "json" ? "/api/memory/export" : "/api/memory/export.md");
@@ -208,9 +208,9 @@ export function MemoryContent() {
 
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // Import : on lit le fichier local (JSON ou Markdown), puis on le POSTE comme
-  // le reste (sendJSON gère le CSRF). L'extension choisit la route ; la fusion
-  // est côté backend, on ne fait que relayer le document et recharger l'état.
+  // Import: we read the local file (JSON or Markdown), then POST it like
+  // the rest (sendJSON handles CSRF). The extension picks the route; the merge
+  // is backend-side, we only relay the document and reload the state.
   async function importFile(file: File) {
     const isJson = /\.json$/i.test(file.name);
     try {
@@ -228,7 +228,7 @@ export function MemoryContent() {
           type: "info",
         });
       } else {
-        // Markdown : on envoie le texte brut (pas de JSON.parse).
+        // Markdown: we send the raw text (no JSON.parse).
         const text = await file.text();
         const res = await authFetch("/api/memory/import.md", {
           method: "POST",
@@ -325,8 +325,8 @@ export function MemoryContent() {
           </HStack>
         </HStack>
 
-        {/* Le plafond est visible : quand il approche, l'assistant ne peut plus
-            rien mémoriser et il faut faire du tri soi-même. */}
+        {/* The ceiling is visible: when it gets close, the assistant can no
+            longer memorize anything and one has to do the pruning oneself. */}
         <VStack gap={1}>
           <ProgressBar
             label={t("Capacité utilisée")}
@@ -388,8 +388,8 @@ export function MemoryContent() {
                     key={e.id}
                     label={e.fact}
                     description={
-                      // La relation générique (ajout manuel sans relation précisée)
-                      // n'apprend rien au lecteur : on ne montre alors que l'origine.
+                      // The generic relation (manual addition with no relation specified)
+                      // teaches the reader nothing: we then only show the origin.
                       e.object
                         ? `${e.relation} → ${e.object}`
                         : [

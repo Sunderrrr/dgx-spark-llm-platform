@@ -46,16 +46,16 @@ import { SettingsDialog } from "./_components/SettingsDialog";
 import { OnboardingDialog } from "./_components/OnboardingDialog";
 import { useT } from "@/lib/i18n";
 import { SettingsDialogContext, type SettingsSection } from "@/lib/settings-dialog";
-/* Le logo, importé plutôt que pointé par son URL. `import` fait passer le fichier
-   par le pipeline d'actifs : le navigateur reçoit une URL
-   `/_next/static/media/favicon.<empreinte>.ico`, donc une URL NOUVELLE dès que le
-   fichier change (l'import rend un objet `StaticImageData`, d'où le `.src`).
-   Servi à la place depuis `/favicon.ico`, il gardait la même adresse d'une version
-   à l'autre et le navigateur resservait sa copie : mesuré le 2026-10-01, la requête
-   ne repartait même pas vers le serveur (aucun événement réseau visible) et
-   l'ancien logo noir restait affiché — une entrée en échec peut coller de la même
-   façon (vue une fois ; 10 essais sur 10 corrects ensuite). Le favicon de l'onglet,
-   lui, continue d'être servi à la racine. */
+/* The logo, imported instead of pointed at by URL. `import` puts the file
+   through the asset pipeline: the browser gets a
+   `/_next/static/media/favicon.<empreinte>.ico` URL, hence a NEW URL as soon as
+   the file changes (the import yields a `StaticImageData` object, hence `.src`).
+   Served instead from `/favicon.ico`, it kept the same address from one version
+   to the next and the browser re-served its copy: measured on 2026-10-01, the
+   request did not even go back to the server (no network event visible) and
+   the old black logo stayed displayed — a failed entry can stick the same way
+   (seen once; 10 out of 10 attempts correct afterwards). The tab favicon,
+   for its part, keeps being served from the root. */
 import logoCronos from "@/app/favicon.ico";
 
 type NotificationItem = {
@@ -85,8 +85,8 @@ const NAV_ITEMS = [
   { href: "/support", label: "Support", icon: LifebuoyIcon },
 ];
 
-// Type de notification venu du serveur → libellé affiché (traduit au rendu) ;
-// le type brut reste le repli pour tout type futur inconnu.
+// Notification type coming from the server → displayed label (translated at
+// render time); the raw type stays the fallback for any future unknown type.
 const NOTIF_KIND_LABEL: Record<string, string> = {
   request: "Demande",
   image: "Image",
@@ -98,20 +98,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { mode, setMode } = useThemeMode();
   const { who, setWho } = useWhoami();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  // Demandes en attente (badge de la sidebar). Poll léger pour rester à jour
-  // sans charger l'app — pas un compteur temps réel critique.
+  // Pending requests (sidebar badge). Light polling to stay up to date
+  // without loading the app — not a critical real-time counter.
   const [pendingCount, setPendingCount] = useState<{ model: number; budget: number }>({ model: 0, budget: 0 });
-  // Prise en main : ouverte quand le compte ne l'a jamais vue. L'état vient du
-  // serveur (colonne user_prefs.onboarded), pas du navigateur — elle suit donc
-  // la personne d'un poste à l'autre, et ne revient jamais une fois passée.
+  // Onboarding: opens when the account has never seen it. The state comes from
+  // the server (user_prefs.onboarded column), not the browser — it follows the
+  // person from one machine to the next, and never comes back once done.
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined);
   const t = useT();
   const router = useRouter();
-  // Palette de commandes (Ctrl/Cmd+K) : navigation et actions rapides.
+  // Command palette (Ctrl/Cmd+K): navigation and quick actions.
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteValue, setPaletteValue] = useState("");
-  // Centrale de notifications (cloche) : liste + nombre de non-lues.
+  // Notification center (bell): list + unread count.
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifs, setNotifs] = useState<NotificationItem[]>([]);
   const [notifUnread, setNotifUnread] = useState(0);
@@ -130,17 +130,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // browser NAVIGATES and follows the final redirect — including to
   // Authentik's end-session under SSO, which a fetch would silently swallow.
   //
-  // Le jeton est redemandé juste avant : c'est le seul POST dont l'échec est un
-  // cul-de-sac (l'utilisateur voit une page « Bad Request » en anglais et ne peut
-  // plus se déconnecter). Le provider le fetch au montage du document, et rien ne
-  // garantit qu'il n'a pas changé depuis — constaté après un login SSO. Une requête
-  // de plus au moment de partir vaut mieux qu'une déconnexion impossible.
+  // The token is re-requested right before: it is the only POST whose failure is
+  // a dead end (the user sees an English « Bad Request » page and can no longer
+  // log out). The provider fetches it on document mount, and nothing guarantees
+  // it has not changed since — seen after an SSO login. One extra request on the
+  // way out beats an impossible logout.
   async function logout() {
     let jeton = csrf;
     try {
       jeton = await refreshCsrf();
     } catch {
-      // Réseau en vrac : on poste le jeton connu plutôt que de bloquer l'utilisateur.
+      // Flaky network: we post the known token rather than blocking the user.
     }
     const form = document.createElement("form");
     form.method = "POST";
@@ -163,8 +163,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     [who?.is_admin],
   );
 
-  // Palette de commandes : navigation (les mêmes pages que la sidebar) +
-  // quelques actions rapides. Groupe via auxiliaryData.group.
+  // Command palette: navigation (the same pages as the sidebar) +
+  // a few quick actions. Grouped via auxiliaryData.group.
   const paletteItems = useMemo(
     () => [
       ...navItems.map((it) => ({
@@ -182,7 +182,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     [paletteItems],
   );
 
-  // Ouverture au clavier (Cmd/Ctrl+K) : listener global, hors champs de saisie.
+  // Keyboard opening (Cmd/Ctrl+K): global listener, outside text fields.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -203,7 +203,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    // La prise en main s'ouvre quand le compte ne l'a jamais vue (état serveur).
+    // The onboarding opens when the account has never seen it (server state).
     // Sync "from an external system" (the server's onboarded flag), same rule
     // as the localStorage reconcile in the theme provider.
     /* eslint-disable react-hooks/set-state-in-effect */
@@ -211,8 +211,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [who]);
 
-  // Badge « demandes en attente » dans la sidebar : compteur léger, mis à jour
-  // toutes les 30 s.
+  // « demandes en attente » badge in the sidebar: light counter, updated
+  // every 30 s.
   useEffect(() => {
     let cancelled = false;
     const tick = () =>
@@ -225,11 +225,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  // Le jeton CSRF est lu dans une REF, pas capturé : le GET /api/notifications
-  // n'en a pas besoin, mais le POST /seen si. En le mettant dans les dépendances
-  // du useCallback, `loadNotifs` était recréé quand `csrf` passait de "" au
-  // jeton, ce qui relançait l'effet de montage : la liste était chargée DEUX
-  // fois à chaque ouverture de page, pour rien.
+  // The CSRF token is read in a REF, not captured: GET /api/notifications does
+  // not need it, but POST /seen does. Putting it in the useCallback
+  // dependencies, `loadNotifs` was recreated when `csrf` went from "" to the
+  // token, which re-ran the mount effect: the list was loaded TWICE at every
+  // page opening, for nothing.
   const csrfRef = useRef(csrf);
   useEffect(() => { csrfRef.current = csrf; }, [csrf]);
   const loadNotifs = useCallback((markSeen: boolean) => {
@@ -259,11 +259,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           header={
             <SideNavHeading
               heading="Cronos"
-              /* Le logo de l'onglet (favicon servi à la racine) aussi en
-                 haut à gauche, juste avant « Cronos ». alt vide : l'info est
-                 déjà portée par le texte du heading qui suit. */
+              /* The tab logo (favicon served from the root) also at the
+                 top left, right before « Cronos ». empty alt: the info is
+                 already carried by the text of the heading that follows. */
               icon={
-                // Favicon statique 26 Ko : next/image n'apporte rien ici.
+                // Static 26 KB favicon: next/image brings nothing here.
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={logoCronos.src}
@@ -277,7 +277,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           footer={
             <HStack padding={2} gap={2} vAlign="center" hAlign="between" wrap="wrap">
               <HStack gap={2} vAlign="center" wrap="wrap">
-                {/* Toujours rendu : sans logo choisi, c'est l'avatar généré depuis le pseudo. */}
+                {/* Always rendered: without a chosen logo, it is the avatar generated from the username. */}
                 <UserAvatar
                   avatarId={who?.avatar_id}
                   username={who?.username}
@@ -334,10 +334,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 isSelected={item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)}
                 endContent={
-                  /* Badges SÉPARÉS : « Demander un modèle » ne compte que les
-                     demandes de modèles ; « Admin » porte la file de traitement
-                     (modèles + budgets). Un total mélangé affichait « 1 » sur
-                     la demande de modèle pour une demande de budget. */
+                  /* SEPARATE badges: « Demander un modèle » only counts model
+                     requests; « Admin » carries the processing queue
+                     (models + budgets). A mixed total displayed « 1 » on
+                     the model request for a budget request. */
                   item.href === "/request" && pendingCount.model > 0
                     ? <Badge label={String(pendingCount.model)} variant="info" />
                     : item.href === "/admin" && pendingCount.model + pendingCount.budget > 0
@@ -359,16 +359,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         />
       )}
-      {/* Les surcouches montées en permanence (onboarding, réglages, palette,
-          notifications) passent AVANT {children}. Raison mesurée : la page suspend au
-          rendu serveur (`loading.tsx`), donc tout ce qui la suit dans ce layout est
-          envoyé dans le flux AVANT elle et se retrouve inséré avant elle dans le DOM,
-          là où React attend l'ordre du JSX (le texte du tour d'accueil sortait à
-          l'octet 34 116 et celui de la page à 67 239). Ici, les deux ordres coïncident.
-          Attention : cela ne corrige PAS l'erreur d'hydratation React #418 observée sur
-          /playground, dont la cause est ailleurs — elle subsiste à taux inchangé après
-          ce déplacement (mesuré). Un <dialog> ouvert vit dans le « top layer » : sa
-          position dans le DOM ne change rien à son empilement. */}
+      {/* The overlays always mounted (onboarding, settings, palette,
+          notifications) come BEFORE {children}. Measured reason: the page suspends
+          on server rendering (`loading.tsx`), so everything after it in this layout
+          is sent in the stream BEFORE it and ends up inserted before it in the DOM,
+          where React expects the JSX order (the onboarding-tour text came out at
+          byte 34 116 and the page's at 67 239). Here, both orders coincide.
+          Note: this does NOT fix the React hydration error #418 observed on
+          /playground, whose cause is elsewhere — it persists at an unchanged rate
+          after this move (measured). An open <dialog> lives in the « top layer »:
+          its position in the DOM changes nothing about its stacking. */}
       <OnboardingDialog
         isOpen={showOnboarding}
         prenom={who?.fullname?.split(" ")[0]}

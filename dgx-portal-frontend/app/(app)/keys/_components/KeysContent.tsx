@@ -38,8 +38,8 @@ type ApiKey = {
   key_alias: string;
   key: string;
   created_at: string;
-  // `last_active` vient de LiteLLM (dernier appel avec cette clé) : c'est ce qui
-  // permet de repérer une clé oubliée sans avoir à la révoquer à l'aveugle.
+  // `last_active` comes from LiteLLM (last call with this key): it is what
+  // makes it possible to spot a forgotten key without revoking it blindly.
   last_active: string | null;
   spend: number;
 };
@@ -82,19 +82,19 @@ export function KeysContent() {
         // Default: the virtual "auto-model" (follows the currently-running model).
         if (!selectedModel) setSelectedModel(d.auto_model || d.running_models[0] || "");
       })
-      // Avant : pas de `catch`, donc une requête en échec laissait l'onglet
-      // presque vide (juste le titre) sans le moindre mot d'explication.
+      // Before: no `catch`, so a failed request left the tab
+      // almost empty (just the title) without the slightest explanation.
       .catch((e: Error) => setErreurChargement(e.message));
     getJSON<DiscordStatus>("/api/discord/status").then(setDiscord).catch(() => {});
   }
 
-  /** Exécute une action du formulaire et ne dit « c'est fait » que si c'est vrai.
+  /** Runs a form action and only says « c'est fait » when it is true.
    *
-   * Les quatre actions de cet onglet passaient par `postForm`, qui ne rend NI le
-   * statut NI le corps de la réponse : tout échec (LiteLLM injoignable, clé
-   * introuvable, demande déjà en attente — refusée en 409) s'affichait comme un
-   * succès. La révocation était le pire cas : la clé restait valide alors que
-   * l'utilisateur la croyait morte.
+   * The four actions of this tab went through `postForm`, which returns
+   * NEITHER the status NOR the response body: every failure (LiteLLM
+   * unreachable, key not found, request already pending — refused with 409)
+   * showed up as a success. Revocation was the worst case: the key stayed
+   * valid while the user believed it dead.
    */
   async function actionKeys(
     corps: Record<string, string>,
@@ -102,8 +102,8 @@ export function KeysContent() {
     apres?: (r: { key_alias?: string; key?: string }) => void,
   ): Promise<boolean> {
     if (!csrf) {
-      // Sans message, le bouton devenait un no-op muet quand les deux tentatives
-      // de `CsrfProvider` avaient échoué.
+      // Without a message, the button became a silent no-op when both
+      // `CsrfProvider` attempts had failed.
       showToast({ body: t("Session incomplète — recharge la page."), type: "error" });
       return false;
     }
@@ -118,8 +118,8 @@ export function KeysContent() {
         ok?: boolean; error?: string; code?: string; key_alias?: string; key?: string;
       };
       if (!res.ok || r.ok === false) {
-        // Un refus stable porte un `code` (ex. `deja_en_attente`) : l'interface
-        // le traduit, la phrase du serveur ne sert que de repli.
+        // A stable refusal carries a `code` (e.g. `deja_en_attente`): the UI
+        // translates it, the server sentence is only a fallback.
         const msg = r.code ? t(r.code) : r.error;
         showToast({ body: msg ? t(msg) : t("L'action a échoué."), type: "error" });
         return false;
@@ -142,24 +142,24 @@ export function KeysContent() {
   async function createKey() {
     await actionKeys({ action: "create", key_name: keyName }, t("Clé créée !"), (r) => {
       setKeyName("");
-      // On montre la clé neuve tout de suite : c'est le seul moment où on la
-      // voit sans cliquer sur « Afficher », et c'est ce qu'on veut copier.
+      // We show the new key right away: it is the only moment when it can be
+      // seen without clicking « Afficher », and it is what one wants to copy.
       if (r.key) setRevealed((prev) => new Set(prev).add(r.key as string));
     });
   }
 
   async function revokeKey(key: string, alias: string) {
-    // Révocation = perte définitive : on demande confirmation, avec le nom.
+    // Revocation = permanent loss: we ask for confirmation, with the name.
     if (!window.confirm(t("Révoquer la clé « {alias} » ? Les programmes qui l'utilisent cesseront de fonctionner.").replace("{alias}", alias))) return;
     await actionKeys({ action: "revoke", key }, t("Clé révoquée."));
   }
 
-  /** Copie la clé SANS la révéler.
+  /** Copies the key WITHOUT revealing it.
    *
-   * Il fallait auparavant afficher la clé, la sélectionner à la souris puis la
-   * copier — trois gestes, et la clé restait à l'écran (celle du voisin de
-   * bureau, d'une capture d'écran, d'un partage de fenêtre). Le bouton
-   * « Afficher » sert à LIRE une clé, pas à la copier.
+   * Previously one had to display the key, select it with the mouse then
+   * copy it — three gestures, and the key stayed on the screen (in front of
+   * the desk neighbour, in a screenshot, in a window share). The
+   * « Afficher » button is for READING a key, not copying it.
    */
   function copyKey(key: string, alias: string) {
     void copierTexte(key, () =>
@@ -174,8 +174,8 @@ export function KeysContent() {
     });
   }
 
-  /** Renomme une clé : l'alias est ce qui permet de s'y retrouver quand on en a
-   *  plusieurs (une par machine) — il devait être choisi une fois pour toutes. */
+  /** Renames a key: the alias is what makes it possible to find one's way with
+   *  several of them (one per machine) — it had to be chosen once and for all. */
   async function renameKey(key: string, alias: string) {
     const nouveau = window.prompt(
       t("Nouveau nom pour la clé « {alias} » :").replace("{alias}", alias), alias,
@@ -212,12 +212,12 @@ export function KeysContent() {
     refresh();
   }
 
-  // Les largeurs sont OBLIGATOIRES : sans `width`, Astryx partage la largeur en
-  // parts ÉGALES (1/n) et sans minimum. Dans les 706 px du panneau de réglages,
-  // six colonnes faisaient 118 px chacune et chaque rangée 177 px de haut — la
-  // clé se repliait sur quatre lignes et les boutons s'empilaient. On fixe donc
-  // la part ET le plancher de chaque colonne, et la date de création passe sous
-  // l'alias pour rendre à la clé la place qu'elle réclame.
+  // The widths are MANDATORY: without `width`, Astryx splits the width into
+  // EQUAL shares (1/n) with no minimum. In the 706 px of the settings panel,
+  // six columns made 118 px each and every row 177 px tall — the key wrapped
+  // onto four lines and the buttons stacked up. So we set the share AND the
+  // floor of each column, and the creation date moves under the alias to
+  // give the key back the room it claims.
   const columns: TableColumn<ApiKey & Record<string, unknown>>[] = [
     {
       key: "key_alias",
@@ -225,8 +225,8 @@ export function KeysContent() {
       width: proportional(3, { minWidth: 120 }),
       renderCell: (row) => (
         <VStack gap={0}>
-          {/* 40 caractères possibles : sans troncature, un alias long faisait
-              trois lignes et déformait la rangée. L'infobulle le rend en entier. */}
+          {/* 40 characters available: without truncation, a long alias made
+              three lines and distorted the row. The tooltip shows it in full. */}
           <Text weight="semibold" maxLines={1}>{row.key_alias || "—"}</Text>
           {row.created_at && (
             <Text type="supporting" color="secondary">
@@ -242,15 +242,15 @@ export function KeysContent() {
       width: proportional(5, { minWidth: 180 }),
       renderCell: (row) => (
         <HStack gap={2} vAlign="center" width="100%">
-          {/* `StackItem size="fill"` apporte flex:1 + min-width:0. Sans ce reset,
-              un élément flex refuse de rétrécir sous son contenu : la clé
-              poussait les deux boutons hors de la cellule. Masquée elle tient
-              sur une ligne (tronquée avec infobulle) ; RÉVÉLÉE elle se déroule
-              sur deux lignes au lieu d'être coupée — sinon « Afficher » ne
-              montrerait pas la clé, ce qui serait absurde. Le bouton copier
-              rend de toute façon la valeur entière sans rien révéler. Le
-              libellé du bouton suit son ÉTAT : « Masquer » une fois révélée,
-              sans quoi un lecteur d'écran annonce l'inverse de ce qu'il fait. */}
+          {/* `StackItem size="fill"` brings flex:1 + min-width:0. Without this reset,
+              a flex item refuses to shrink below its content: the key pushed
+              the two buttons out of the cell. Hidden it fits on one line
+              (truncated with a tooltip); REVEALED it unfolds on two lines
+              instead of being cut — otherwise « Afficher » would not show
+              the key, which would be absurd. The copy button returns the
+              whole value anyway without revealing anything. The button
+              label follows its STATE: « Masquer » once revealed, otherwise
+              a screen reader announces the opposite of what it does. */}
           <StackItem size="fill">
             <Text type="code" hasTabularNumbers maxLines={revealed.has(row.key) ? 0 : 1} wordBreak="break-all">
               {revealed.has(row.key) ? row.key : `${row.key.slice(0, 10)}…${row.key.slice(-4)}`}
@@ -286,8 +286,8 @@ export function KeysContent() {
       key: "last_active",
       header: t("Dernière utilisation"),
       width: proportional(4, { minWidth: 110 }),
-      // Jamais utilisée = information utile, pas une case vide : c'est
-      // exactement la clé qu'on peut révoquer sans rien casser.
+      // Never used = useful information, not an empty cell: it is exactly the
+      // key that can be revoked without breaking anything.
       renderCell: (row) => (row.last_active
         ? new Date(row.last_active).toLocaleDateString(numLocale)
         : t("Jamais utilisée")),
@@ -315,8 +315,8 @@ export function KeysContent() {
 
   const pct = data && !data.account.unlimited && data.account.max_budget ? (data.account.spend / data.account.max_budget) * 100 : 0;
 
-  // Deux versions du même extrait : celle affichée (clé masquée si non révélée)
-  // et celle copiée (toujours la vraie clé).
+  // Two versions of the same snippet: the displayed one (key hidden if not
+  // revealed) and the copied one (always the real key).
   const snippetAffiche =
     data && selectedKey && selectedModel
       ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, revealKeyInSnippet)
@@ -473,12 +473,12 @@ export function KeysContent() {
                 {t("Modèle virtuel : route toujours vers le modèle chat actuellement chargé — ton code n'a rien à changer quand l'admin bascule de modèle. Choisis un modèle nommé pour t'épingler à celui-là.")}
               </Text>
             )}
-            {/* La bande d'onglets dépasse la largeur du panneau (une douzaine
-                d'intégrations pour ~684 px) : sans conteneur défilant, les
-                derniers onglets débordent hors du cadre et sont inatteignables. */}
+            {/* The tab strip exceeds the panel width (a dozen integrations
+                for ~684 px): without a scrolling container, the last tabs
+                overflow out of the frame and are unreachable. */}
             <HStack width="100%" style={{ overflowX: "auto" }}>
               <TabList value={tool} onChange={(v) => setTool(v as IntegrationTool)}>
-                {/* `tool` : ne pas masquer la fonction de traduction `t`. */}
+                {/* `tool`: do not shadow the `t` translation function. */}
                 {INTEGRATION_TOOLS.map((tool) => (
                   <Tab key={tool.value} value={tool.value} label={t(tool.label)} />
                 ))}
@@ -494,14 +494,14 @@ export function KeysContent() {
             <Text type="supporting" color="secondary">
               {t("Le bouton copier donne toujours la vraie clé, même affichée masquée.")}
             </Text>
-            {/* isWrapped : le <pre> est en overflow-x hidden, donc sans retour à la
-                ligne les lignes longues (URL + clé) sont coupées SANS moyen de
-                les lire ni de les sélectionner. */}
-            {/* La clé est masquée à l'écran (on ne veut pas d'une clé en clair
-                sur un écran partagé ou une capture), mais COPIER doit donner la
-                vraie clé — sinon on colle « sk-Oo-••••83EQ » dans sa config et
-                rien ne marche. CodeBlock copie son propre `code` : on réécrit
-                donc le presse-papiers juste après avec la version révélée. */}
+            {/* isWrapped: the <pre> is overflow-x hidden, so without line wrapping
+                the long lines (URL + key) are cut with NO way to read
+                or select them. */}
+            {/* The key is hidden on screen (we do not want a clear-text key
+                on a shared screen or a screenshot), but COPY must give the
+                real key — otherwise one pastes « sk-Oo-••••83EQ » in their
+                config and nothing works. CodeBlock copies its own `code`:
+                so we rewrite the clipboard right after with the revealed version. */}
             <CodeBlock
               isWrapped
               code={snippetAffiche}

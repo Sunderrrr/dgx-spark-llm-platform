@@ -17,7 +17,7 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
-// Enveloppe qui referme le filtre d'URL de la dépendance (cf. lib/markdown.tsx).
+// Wrapper that closes over the dependency's URL filter (see lib/markdown.tsx).
 import { MarkdownSur as Markdown } from "@/lib/markdown";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
@@ -79,8 +79,8 @@ import { useThemeMode } from "../../theme-provider";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
 import { type EtapeWeb, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
-// Les notices système (cronos_notice) sont partagées avec l'assistant Support,
-// qui tourne lui aussi sur la clé de l'utilisateur : voir lib/notices.ts.
+// System notices (cronos_notice) are shared with the Support assistant,
+// which also runs on the user's key: see lib/notices.ts.
 import { texteNotice } from "@/lib/notices";
 import { copierTexte } from "@/lib/copier";
 
@@ -103,17 +103,17 @@ import { BASE_SKILLS, type Skill, loadCustomSkills, saveCustomSkills, skillMatch
 const DEFAULT_SETTINGS: Settings = {
   system: "",
   temperature: 0.7,
-  // Le maximum. Seuls les tokens RÉELLEMENT produits sont facturés, donc un
-  // plafond haut ne coûte rien sur une réponse courte — et 4096 coupait net toute
-  // réponse un peu longue (page HTML complète, gros fichier de configuration).
-  // Le backend rabaisse cette valeur à ce qui reste dans la fenêtre de contexte
-  // une fois le prompt compté : une longue conversation ne part donc pas en
-  // erreur, elle obtient simplement une réponse plus courte.
+  // The maximum. Only tokens ACTUALLY produced are billed, so a
+  // high ceiling costs nothing on a short answer — and 4096 cleanly cut off any
+  // slightly long answer (full HTML page, large configuration file).
+  // The backend lowers this value to what remains in the context window
+  // once the prompt is counted: a long conversation therefore does not fail,
+  // it simply gets a shorter answer.
   maxTokens: 131072,
   topP: 1,
   reasoning: false,
-  // Effort de réflexion : '' = laisser le template du modèle à sa valeur par
-  // défaut (les valeurs reconnues dépendent du modèle — ex. Qwen3.8 : xhigh).
+  // Reasoning effort: '' = leave the model's template at its default
+  // value (recognized values depend on the model — e.g. Qwen3.8: xhigh).
   reasoningEffort: "",
 };
 
@@ -122,34 +122,34 @@ const ATTACH_ACCEPT =
 
 const MAX_ATTACHMENT_BYTES = 96 * 1024;
 
-/** Extensions que l'attribut `accept` ne fait que SUGGÉRER : un sélecteur de
- *  fichiers laisse toujours passer « Tous les fichiers », et un glisser-déposer
- *  n'en tient aucun compte. Sans ce contrôle, une image était lue en TEXTE
- *  (`readAsText`) et son contenu binaire partait dans le prompt sous forme de
- *  mojibake, sans le moindre avertissement. */
+/** Extensions that the `accept` attribute only SUGGESTS: a file picker
+ *  always lets « Tous les fichiers » through, and drag-and-drop
+ *  ignores it entirely. Without this check, an image was read as TEXT
+ *  (`readAsText`) and its binary content went into the prompt as
+ *  mojibake, with no warning at all. */
 const ATTACH_EXTENSIONS = ATTACH_ACCEPT.split(",").map((e) => e.trim().toLowerCase());
 
-/** Images : acceptées SEULEMENT si le modèle choisi les lit (`model_vision`).
- *  Réduites dans le navigateur avant l'envoi — une photo de téléphone (4 000 px,
- *  5 Mo) coûterait sinon des milliers de tokens de préchargement et dépasserait
- *  la limite d'enregistrement des conversations. 1 568 px suffit à lire un texte
- *  ou une capture d'écran. Voir `preparerImage` : une image déjà raisonnable
- *  part telle quelle, sans passer par un canevas. */
+/** Images: accepted ONLY if the selected model reads them (`model_vision`).
+ *  Downscaled in the browser before sending — a phone photo (4 000 px,
+ *  5 Mo) would otherwise cost thousands of preload tokens and exceed
+ *  the conversation save limit. 1 568 px is enough to read text
+ *  or a screenshot. See `preparerImage`: an already reasonable image
+ *  goes as is, without going through a canvas. */
 const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp,.gif";
 const IMAGE_EXTENSIONS = IMAGE_ACCEPT.split(",");
 const IMAGE_COTE_MAX = 1568;
 const IMAGE_SOURCE_MAX_BYTES = 25 * 1024 * 1024;
 const IMAGES_PAR_MESSAGE = 4;
-/** Images rejouées au modèle par requête : les plus récentes (même borne que le serveur). */
+/** Images replayed to the model per request: the most recent ones (same bound as the server). */
 const IMAGES_MAX_REQUETE = 8;
-/** Budget images d'une conversation ENREGISTRÉE (caractères) : le serveur borne
- *  la conversation à 2 M et le champ de formulaire à 4 Mo. Au-delà, les images
- *  les plus anciennes ne sont plus conservées (le texte, lui, l'est). */
+/** Image budget of a SAVED conversation (characters): the server bounds
+ *  the conversation to 2 M and the form field to 4 Mo. Beyond that, the
+ *  oldest images are no longer kept (the text, however, is). */
 const IMAGES_BUDGET_SAUVEGARDE = 1_500_000;
-/** Poids estimé d'une image dans la fenêtre de contexte, en caractères (~1 500 tokens). */
+/** Estimated weight of an image in the context window, in characters (~1 500 tokens). */
 const IMAGE_POIDS_CHARS = 1500 * 4;
 
-/** Taille au-delà de laquelle une image est réduite (le serveur refuse > ~2,2 Mo). */
+/** Size beyond which an image is downscaled (the server rejects > ~2,2 Mo). */
 const IMAGE_ORIGINALE_MAX_BYTES = 2 * 1024 * 1024;
 
 function lireDataUrl(file: Blob): Promise<string> {
@@ -161,10 +161,10 @@ function lireDataUrl(file: Blob): Promise<string> {
   });
 }
 
-/** Le canevas rend-il vraiment ce qu'on y dessine ?
- *  Mesuré le 2026-10-01 : sur certains navigateurs (protections anti-pistage
- *  par canevas), la relecture rend un canevas VIDE — l'image partait toute
- *  noire, et le modèle décrivait avec aplomb une scène inventée. */
+/** Does the canvas really render what is drawn on it?
+ *  Measured on 2026-10-01: on some browsers (canvas anti-tracking
+ *  protections), reading back yields an EMPTY canvas — the image went out
+ *  all black, and the model confidently described an invented scene. */
 function canevasFiable(): boolean {
   try {
     const c = document.createElement("canvas");
@@ -180,11 +180,11 @@ function canevasFiable(): boolean {
   }
 }
 
-/** L'image à envoyer, en URL `data:`.
- *  Une image déjà raisonnable part TELLE QUELLE (aucun canevas : rien à
- *  abîmer). Seule une grande image est réduite à IMAGE_COTE_MAX en JPEG, et
- *  seulement si le canevas est fiable ; sinon on refuse plutôt que d'envoyer
- *  une image noire. */
+/** The image to send, as a `data:` URL.
+ *  An already reasonable image goes AS IS (no canvas: nothing to
+ *  damage). Only a large image is downscaled to IMAGE_COTE_MAX in JPEG, and
+ *  only if the canvas is reliable; otherwise we refuse rather than send
+ *  a black image. */
 async function preparerImage(file: File): Promise<string> {
   const bmp = await createImageBitmap(file);
   const { width, height } = bmp;
@@ -210,8 +210,8 @@ async function preparerImage(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
-/** Ne garde les images que sur les messages les plus récents, dans la limite de `max`
- *  images ou de `budget` caractères. Le texte n'est jamais touché. */
+/** Keeps images only on the most recent messages, within `max`
+ *  images or `budget` characters. Text is never touched. */
 function imagesRecentes<M extends { images?: string[] }>(msgs: M[], max: number, budget = Infinity): M[] {
   let reste = max;
   let poids = 0;
@@ -231,12 +231,12 @@ function imagesRecentes<M extends { images?: string[] }>(msgs: M[], max: number,
   return out;
 }
 
-/** Titre et résumé ne lisent que le texte : inutile d'y faire voyager des Mo d'images. */
+/** Title and summary only read the text: no need to ship megabytes of images through them. */
 function sansImages(msgs: ChatMsg[]) {
   return msgs.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden }));
 }
 
-/** Messages tels qu'ils sont enregistrés (drapeaux + images dans le budget). */
+/** Messages as they are saved (flags + images within the budget). */
 function pourSauvegarde(msgs: ChatMsg[]) {
   return imagesRecentes(
     msgs.map((m) => ({
@@ -273,18 +273,18 @@ Strict rules:
 - The fence language MUST be \`ask\` — never \`json\` or anything else, or the user will not see clickable questions.
 - Only ask when it genuinely helps; otherwise just answer normally.`;
 
-// Le modèle pose autant de questions qu'il le juge utile — deux ou dix. Ces
-// plafonds ne sont PAS un cadrage éditorial mais un garde-fou : une génération
-// qui déraille ne doit pas produire un questionnaire interminable.
+// The model asks as many questions as it sees fit — two or ten. These
+// limits are NOT editorial framing but a safety net: a generation
+// that goes off the rails must not produce an endless questionnaire.
 const MAX_ASK_QUESTIONS = 20;
 const MAX_ASK_OPTIONS = 8;
 
-/** Corps d'un bloc de questions, quelle que soit l'étiquette de la fence.
- *  Vu en prod le 2026-10-01 (MiMo) : le modèle range ses questions dans un bloc
- *  ```json au lieu de ```ask. Le questionnaire sortait alors en « fichier-2.json »
- *  dans le volet, et l'utilisateur n'avait rien sur quoi cliquer. On accepte donc
- *  ```json ou une fence sans langage, mais SEULEMENT si le corps commence par
- *  {"questions": [ — un vrai fichier JSON n'a aucune raison de commencer ainsi. */
+/** Body of a questions block, whatever the fence label.
+ *  Seen in prod on 2026-10-01 (MiMo): the model puts its questions in a
+ *  ```json block instead of ```ask. The questionnaire then came out as « fichier-2.json »
+ *  in the panel, and the user had nothing to click. We therefore accept
+ *  ```json or a language-less fence, but ONLY if the body starts with
+ *  {"questions": [ — a real JSON file has no reason to start that way. */
 const RE_CORPS_QUESTIONS = /^\s*\{\s*"questions"\s*:\s*\[/;
 function estBlocQuestions(lang: string, corps: string): boolean {
   const l = lang.toLowerCase();
@@ -296,53 +296,53 @@ type AskQ = { question: string; options: string[] };
 // A model's clarifying block: one or more questions, plus any prose around it.
 type AskBlock = { questions: AskQ[]; prose: string };
 
-/** Une modification ciblée d'un fichier déjà produit. */
+/** A targeted edit to an already produced file. */
 type FileEdit = { file: string; find: string; replace: string };
 
-// Instruction ajoutée au prompt système : corriger un fichier déjà produit sans
-// le réécrire en entier. Réécrire 400 lignes pour en changer trois coûte du temps,
-// des tokens, et réintroduit des erreurs ailleurs dans le fichier.
-// Le modèle nomme lui-même ses fichiers : c'est lui qui sait ce que l'utilisateur
-// a demandé et dans quel projet ça s'insère. Sans ça, l'interface doit deviner et
-// retombe sur un nom générique.
+// Instruction added to the system prompt: fix an already produced file without
+// rewriting it entirely. Rewriting 400 lines to change three costs time,
+// tokens, and reintroduces errors elsewhere in the file.
+// The model names its own files: it knows what the user asked for
+// and which project they fit into. Without this, the UI has to guess and
+// falls back to a generic name.
 const NAME_INSTRUCTION = `Name every file you output: put its path in backticks on the line just before the code block (\`index.html\`, \`roles/web/tasks/main.yml\`), chosen from what the user asked. Reuse the exact same name for a file you already produced.`;
 
-// Le protocole d'édition partielle a été retiré : sur du code généré qui contient
-// des erreurs, une correction ponctuelle laissait un fichier à moitié juste, et
-// une ancre mal recopiée ne s'appliquait pas du tout. On redemande le fichier
-// ENTIER — c'est plus long à générer, mais ce qui sort est utilisable tel quel.
+// The partial-edit protocol was removed: on generated code containing
+// errors, a spot fix left a half-right file, and
+// a mis-copied anchor did not apply at all. We ask for the file
+// ENTIRE — it is longer to generate, but what comes out is usable as is.
 const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you already produced, output that file COMPLETE, from its first line to its last, under the exact same name. Never output a partial file, an excerpt, a diff, or a "rest unchanged" placeholder.`;
 
-// Le modele ABANDONNE de lui-meme sur un gros fichier : mesure en prod le 22/08,
-// il s'est arrete a 14 187 tokens sur 131 072 disponibles, avec
-// finish_reason=stop (donc rien ne le distinguait d'une reponse reussie), en
-// ecrivant « Le fichier est trop long pour etre affiche en entier ici » suivi
-// d'un fichier tronque presente comme complet. Aucune limite technique n'etait
-// atteinte. Cette instruction part a TOUS les tours, pas seulement quand un
-// fichier existe deja, et passe EN DERNIER pour ne pas diluer ASK_INSTRUCTION
-// (dont l'efficacite depend de sa position en tete, cf. mesure plus bas).
+// The model GIVES UP on its own on a large file: measured in prod on 22/08,
+// it stopped at 14 187 tokens out of 131 072 available, with
+// finish_reason=stop (so nothing distinguished it from a successful answer),
+// writing « Le fichier est trop long pour etre affiche en entier ici » followed
+// by a truncated file presented as complete. No technical limit was
+// reached. This instruction goes out on EVERY turn, not only when a
+// file already exists, and goes LAST so as not to dilute ASK_INSTRUCTION
+// (whose effectiveness depends on its position at the top, see measurement below).
 const INTEGRALITE_INSTRUCTION = `Never abridge a file you were asked to produce. Never write that a file is "too long to show here", never say you are giving a "shortened", "simplified" or "essential" version, and never replace any part of a file with an ellipsis, a placeholder, or a comment such as "rest of the code unchanged". There is no display limit: write the file in full, from its first line to its last. If you run out of room before the end, stop mid-file rather than closing it early — you will be asked to continue, and you will resume at the exact character where you stopped. A truncated file presented as complete is the worst possible answer.`;
 
-// Placeholder du champ : on fait tourner quelques textes (dont l'astuce « / »
-// pour appeler une compétence). Chaque entrée est une clé i18n (FR-as-msgid).
+// Input placeholder: we rotate a few texts (including the « / » trick
+// to call a skill). Each entry is an i18n key (FR-as-msgid).
 const PLACEHOLDER_TEXTS = [
   "Comment puis-je vous aider aujourd'hui ?",
   "Tapez / pour appeler une compétence",
   "Résumez un document, générez une image, écrivez du code…",
 ];
 
-// Commandes « / » qui ouvrent le créateur de compétences.
+// « / » commands that open the skill creator.
 const SLASH_CREATE_COMMANDS = ["skill-creator", "create", "new", "creer", "competence", "compétence"];
 
-/* ── Compatibilité : anciennes conversations ────────────────────────────────
- * Le modèle ne reçoit plus le protocole d'édition (il réécrit le fichier en
- * entier). Ces fonctions restent parce que l'historique déjà enregistré
- * contient des blocs ```edit : sans elles, ces conversations réafficheraient
- * du JSON brut au lieu du fichier corrigé. Rien de neuf n'en produit.
+/* ── Compatibility: old conversations ────────────────────────────────────────
+ * The model no longer receives the edit protocol (it rewrites the file
+ * entirely). These functions remain because the already saved history
+ * contains ```edit blocks: without them, those conversations would show
+ * raw JSON instead of the fixed file. Nothing new produces them.
  */
 
-/** Lit un bloc ```edit. Même tolérance que parseAsk : ces blocs sortent d'un
- *  modèle, ils arrivent parfois tronqués ou suivis de déchets. */
+/** Reads a ```edit block. Same tolerance as parseAsk: these blocks come from
+ *  a model, they sometimes arrive truncated or followed by junk. */
 function parseEdits(content: string): FileEdit[] {
   const m = content.match(/```edit\s*\n([\s\S]*?)(?:```|$)/);
   if (!m) return [];
@@ -352,8 +352,8 @@ function parseEdits(content: string): FileEdit[] {
     try {
       obj = JSON.parse(body);
     } catch {
-      // Trois défauts vus en vrai, dans cet ordre de fréquence : retours à la
-      // ligne bruts dans une chaîne, déchets après la fin, objet non refermé.
+      // Three defects seen in the wild, in order of frequency: raw line
+      // breaks inside a string, junk after the end, unclosed object.
       const repare = escapeRawControlChars(body);
       try {
         obj = JSON.parse(repare);
@@ -361,7 +361,7 @@ function parseEdits(content: string): FileEdit[] {
         try {
           obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
         } catch {
-          // fermetures dépareillées (« } » au lieu de « ] »)
+          // mismatched closers (« } » instead of « ] »)
           obj = JSON.parse(reparerFermetures(repare));
         }
       }
@@ -382,15 +382,15 @@ function parseEdits(content: string): FileEdit[] {
   }
 }
 
-/** Répare des fermetures DÉPAREILLÉES (« } » à la place de « ] », fermeture en
- *  trop), en suivant la pile des ouvertures hors chaînes.
- *  Vu en prod le 2026-10-01 (MiMo) : `"options": ["a", "b"}]}]}` — la liste
- *  d'options fermée par une accolade. Ni la coupe (firstJsonValue) ni le
- *  rééquilibrage (balanceJson) n'en venaient à bout, et tout le questionnaire
- *  s'affichait en JSON brut au lieu de la carte de questions.
- *  Règle : une fermeture qui ne correspond pas au sommet ferme d'abord ce qui
- *  est réellement ouvert ; une fermeture sans ouverture est ignorée ; ce qui
- *  reste ouvert à la fin est refermé. */
+/** Repairs MISMATCHED closers (« } » instead of « ] », extra
+ *  closer), following the stack of openers outside strings.
+ *  Seen in prod on 2026-10-01 (MiMo): `"options": ["a", "b"}]}]}` — the
+ *  options list closed by a brace. Neither the cut (firstJsonValue) nor the
+ *  rebalancing (balanceJson) could cope, and the whole questionnaire
+ *  displayed as raw JSON instead of the question card.
+ *  Rule: a closer that does not match the top first closes what is
+ *  actually open; a closer without an opener is ignored; what
+ *  is still open at the end is closed. */
 function reparerFermetures(src: string): string {
   const pile: string[] = [];
   let out = "";
@@ -407,7 +407,7 @@ function reparerFermetures(src: string): string {
     if (ch === '"') { inString = true; out += ch; continue; }
     if (ch === "{" || ch === "[") { pile.push(ch === "{" ? "}" : "]"); out += ch; continue; }
     if (ch === "}" || ch === "]") {
-      if (!pile.includes(ch)) continue;                    // fermeture orpheline
+      if (!pile.includes(ch)) continue;                    // orphan closer
       while (pile.length && pile[pile.length - 1] !== ch) out += pile.pop();
       out += pile.pop();
       continue;
@@ -415,14 +415,14 @@ function reparerFermetures(src: string): string {
     out += ch;
   }
   if (inString) out += '"';
-  // Virgule pendante avant une fermeture (« "b",] ») : invalide en JSON.
+  // Dangling comma before a closer (« "b",] »): invalid in JSON.
   return (out + pile.reverse().join("")).replace(/,\s*([}\]])/g, "$1");
 }
 
-// Referme un JSON tronqué en fin de chaîne. Un modèle ouvert de cette taille
-// oublie régulièrement le dernier `}` ou `]` — un seul caractère manquant faisait
-// échouer JSON.parse, et le bloc de questions retombait en JSON brut sous les yeux
-// de l'utilisateur (constaté en production). On rééquilibre plutôt que d'abandonner.
+// Closes a JSON truncated at the end of a string. A model this size
+// regularly forgets the last `}` or `]` — a single missing character made
+// JSON.parse fail, and the questions block fell back to raw JSON before the
+// user's eyes (seen in production). We rebalance rather than give up.
 function balanceJson(src: string): string {
   const stack: string[] = [];
   let inString = false;
@@ -438,68 +438,68 @@ function balanceJson(src: string): string {
     else if (ch === "{" || ch === "[") stack.push(ch);
     else if (ch === "}" || ch === "]") stack.pop();
   }
-  let out = src.replace(/,\s*$/, "");     // virgule en suspens avant la coupure
-  if (inString) out += '"';                // chaîne laissée ouverte
+  let out = src.replace(/,\s*$/, "");     // trailing comma before the cut
+  if (inString) out += '"';                // string left open
   while (stack.length) out += stack.pop() === "{" ? "}" : "]";
   return out;
 }
 
-/** La réponse s'arrête-t-elle au milieu d'un fichier ?
+/** Does the answer stop in the middle of a file?
  *
- * Le plafond de tokens n'est pas la seule façon de finir tronqué : un modèle de
- * cette taille lâche parfois prise au milieu d'un gros fichier et émet sa fin de
- * séquence en pleine expression. Le compteur dit alors « terminé » alors que le
- * fichier est inutilisable, et rien ne permettait de reprendre.
+ * The token ceiling is not the only way to end up truncated: a model of
+ * this size sometimes lets go in the middle of a large file and emits its end
+ * of sequence mid-expression. The counter then says « terminé » while the
+ * file is unusable, and nothing allowed a resume.
  */
 function reponseIncomplete(content: string): boolean {
   const ouvert = openCodeFence(content);
   if (ouvert) {
-    // Fence de fermeture simplement oubliée sur un fichier qui, lui, est fini :
-    // ce n'est pas une coupure, et le dire relançait une génération pour rien.
+    // Closing fence merely forgotten on a file that IS finished:
+    // this is not a cut, and saying so restarted a generation for nothing.
     return !/<\/html\s*>\s*$/i.test(ouvert.body.trimEnd());
   }
   if (/<!DOCTYPE html|<html[\s>]/i.test(content) && !/<\/html\s*>/i.test(content)) return true;
   return false;
 }
 
-/** Le script de cette page HTML est-il refermé ?
+/** Is the script of this HTML page closed?
  *
- * Constaté en production : le modèle écrit `</script></body></html>` alors qu'une
- * accolade reste ouverte au milieu. Le fichier a l'air terminé — il finit bien par
- * `</html>` — mais son JavaScript ne s'exécute pas du tout (« Unexpected end of
- * input »), plateau vide, page morte. Vérifier la balise de fin ne suffit donc pas.
+ * Seen in production: the model writes `</script></body></html>` while a
+ * brace remains open in the middle. The file looks finished — it does end with
+ * `</html>` — but its JavaScript does not run at all (« Unexpected end of
+ * input »), blank canvas, dead page. Checking the end tag is therefore not enough.
  *
- * On ne peut PAS s'appuyer sur `new Function` pour le savoir : la CSP du portail
- * (`script-src 'self' 'nonce-…'`, sans `unsafe-eval`) l'interdit dans le navigateur,
- * et l'exception levée n'est alors même pas une SyntaxError. On compte donc les
- * blocs nous-mêmes, en sautant chaînes, gabarits, commentaires et littéraux
- * d'expression rationnelle — sans quoi la moindre accolade dans un texte fausserait
- * tout.
+ * We CANNOT rely on `new Function` to know this: the portal's CSP
+ * (`script-src 'self' 'nonce-…'`, without `unsafe-eval`) forbids it in the browser,
+ * and the thrown exception is then not even a SyntaxError. So we count the
+ * blocks ourselves, skipping strings, templates, comments and regular
+ * expression literals — otherwise the slightest brace in a text would skew
+ * everything.
  */
 function profondeurFinale(code: string): number {
   let i = 0, prof = 0;
   const n = code.length;
-  // Pile des gabarits `...${ ... }...` : à l'intérieur d'un ${}, on relit du code.
+  // Stack of template literals `...${ ... }...`: inside a ${}, we are back in code.
   const gabarits: number[] = [];
-  let precedent = "";                       // dernier caractère significatif
+  let precedent = "";                       // last significant character
   const avantRegex = /[(,=:[!&|?{};+\-*%~^<>]/;
   const motsAvantRegex = /(?:^|[^\w$])(?:return|typeof|instanceof|in|of|new|delete|void|do|else|case|yield|await)$/;
   while (i < n) {
     const c = code[i];
-    // — commentaires
+    // — comments
     if (c === "/" && code[i + 1] === "/") { while (i < n && code[i] !== "\n") i++; continue; }
     if (c === "/" && code[i + 1] === "*") { i += 2; while (i < n && !(code[i] === "*" && code[i + 1] === "/")) i++; i += 2; continue; }
-    // — chaînes
+    // — strings
     if (c === "'" || c === '"') {
       const q = c; i++;
       while (i < n && code[i] !== q) { if (code[i] === "\\") i++; i++; }
       i++; precedent = "x"; continue;
     }
-    // — gabarits
+    // — templates
     if (c === "`") {
       i++;
       for (;;) {
-        if (i >= n) return 1;               // gabarit jamais refermé → tronqué
+        if (i >= n) return 1;               // template never closed → truncated
         if (code[i] === "\\") { i += 2; continue; }
         if (code[i] === "`") { i++; break; }
         if (code[i] === "$" && code[i + 1] === "{") { gabarits.push(prof); prof++; i += 2; break; }
@@ -507,7 +507,7 @@ function profondeurFinale(code: string): number {
       }
       precedent = "x"; continue;
     }
-    // — littéral d'expression rationnelle
+    // — regular expression literal
     if (c === "/" && (precedent === "" || avantRegex.test(precedent)
                       || motsAvantRegex.test(code.slice(Math.max(0, i - 12), i)))) {
       i++;
@@ -517,7 +517,7 @@ function profondeurFinale(code: string): number {
         if (code[i] === "[") classe = true;
         else if (code[i] === "]") classe = false;
         else if (code[i] === "/" && !classe) { i++; break; }
-        else if (code[i] === "\n") break;   // pas une regex finalement
+        else if (code[i] === "\n") break;   // not a regex after all
         i++;
       }
       precedent = "x"; continue;
@@ -525,11 +525,11 @@ function profondeurFinale(code: string): number {
     if (c === "{" || c === "(" || c === "[") prof++;
     else if (c === "}" || c === ")" || c === "]") {
       prof--;
-      // Une accolade qui referme un `${…}` fait retomber dans le gabarit.
+      // A brace closing a `${…}` drops back into the template.
       if (gabarits.length && prof === gabarits[gabarits.length - 1]) {
         gabarits.pop();
         i++;
-        // on repart dans le gabarit jusqu'à son backtick
+        // back into the template until its backtick
         for (;;) {
           if (i >= n) return 1;
           if (code[i] === "\\") { i += 2; continue; }
@@ -554,13 +554,13 @@ function scriptCasse(contenu: string): boolean {
   let casse = false;
   for (const m of contenu.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
     const attrs = m[1] || "";
-    if (/\bsrc\s*=/i.test(attrs)) continue;                       // script externe
+    if (/\bsrc\s*=/i.test(attrs)) continue;                       // external script
     if (/type\s*=\s*["']?(?!text\/javascript|application\/javascript)[^"'\s>]+/i.test(attrs)) continue;
     const code = m[2];
     if (!code.trim()) continue;
-    // Un bloc encore ouvert à la fin = fichier inutilisable. On ne signale QUE ce
-    // sens-là : un excès de fermetures viendrait plus probablement d'une lecture
-    // imparfaite de notre part que d'un vrai défaut.
+    // A block still open at the end = unusable file. We only report THIS
+    // direction: an excess of closers would more likely come from an imperfect
+    // reading on our side than from a real defect.
     if (profondeurFinale(code) > 0) { casse = true; break; }
   }
   if (memoScript.size > 40) memoScript.clear();
@@ -568,11 +568,11 @@ function scriptCasse(contenu: string): boolean {
   return casse;
 }
 
-/** Ce qu'affiche une étape de recherche web, en clair.
+/** What a web-search step displays, in plain words.
  *
- * Le modèle passe plusieurs dizaines de secondes à chercher et à lire avant de
- * répondre. Sans ce fil, l'attente est totalement muette et personne ne sait ce
- * qui se passe — c'est le premier retour d'usage qu'on a eu dessus.
+ * The model spends several tens of seconds searching and reading before
+ * answering. Without this feed, the wait is totally silent and nobody knows
+ * what is going on — this was the first usage feedback we got on it.
  */
 function libelleEtapeWeb(
   e: EtapeWeb,
@@ -612,83 +612,83 @@ function libelleEtapeWeb(
   }
 }
 
-/** Le modèle a-t-il annoncé quelque chose puis clos son tour ?
+/** Did the model announce something and then close its turn?
  *
- * Vu en production : « Bien sûr ! Quelques précisions pour bien t'aider : » — 13
- * tokens, puis fin normale du modèle (le journal serveur confirme un arrêt propre,
- * ni coupure réseau ni plafond). Le bloc de questions annoncé n'arrive jamais et
- * l'utilisateur se retrouve devant une phrase d'introduction toute seule.
+ * Seen in production: « Bien sûr ! Quelques précisions pour bien t'aider : » — 13
+ * tokens, then a normal model stop (the server log confirms a clean stop,
+ * no network cut, no ceiling). The announced questions block never arrives and
+ * the user is left with an introductory sentence all by itself.
  *
- * Une réponse ENTIÈRE qui se termine par deux-points, sans le moindre bloc de code,
- * n'est jamais une réponse finie : elle promet une suite qui n'est pas venue.
+ * A WHOLE answer that ends with a colon, without the slightest code block,
+ * is never a finished answer: it promises a continuation that never came.
  */
 function tourAvorte(m: ChatMsg | undefined): boolean {
   if (!m || m.role !== "assistant") return false;
   const t = m.content.trim();
-  // Au-delà, c'est une vraie réponse qui se trouve finir par « : » (une liste
-  // introduite, par exemple) — pas un tour avorté.
+  // Beyond that, it is a real answer that happens to end with « : » (an introduced
+  // list, for example) — not an aborted turn.
   if (!t || t.length > 400 || t.includes("```")) return false;
   if (/[:：]$/.test(t)) return true;
-  // Même chose, sous une autre forme : le NOM du fichier annoncé, puis rien.
-  // Mesuré le 2026-10-02 sur MiMo : « `roles/nginx_reverse_proxy/tasks/main.yml` »
-  // — 8 tokens, fin normale du modèle, et le rôle Ansible attendu n'arrive jamais.
-  // Exigé : une extension qui commence par une lettre, ET des backticks ou un
-  // dossier — sans quoi « 3.14 » ou « google.com » seraient refaits en boucle.
+  // Same thing, in another form: the NAME of the announced file, then nothing.
+  // Measured on 2026-10-02 on MiMo: « `roles/nginx_reverse_proxy/tasks/main.yml` »
+  // — 8 tokens, normal model stop, and the expected Ansible role never arrives.
+  // Required: an extension starting with a letter, AND backticks or a
+  // directory — otherwise « 3.14 » or « google.com » would be redone in a loop.
   const derniere = t.split("\n").pop()!.trim();
   const nu = derniere.replace(/^`(.*)`$/, "$1");
   const chemin = /^[\w.\/-]*[\w-]\.[A-Za-z][A-Za-z0-9]{0,7}$/.test(nu) || BARE_FILES.test(nu);
   return chemin && (nu !== derniere || nu.includes("/"));
 }
 
-/** Le texte du message, avec la fence jamais refermée refermée d'office.
+/** The message text, with the never-closed fence force-closed.
  *
- * `parseArtifacts` n'extrait qu'un bloc DÉLIMITÉ des deux côtés. Une réponse
- * coupée en plein fichier n'en produisait donc aucun : ni carte, ni aperçu, ni
- * téléchargement — le code se déversait tel quel dans la bulle. On referme le
- * bloc pour récupérer ce qui a été écrit ; c'est toujours mieux que rien, et le
- * bandeau « Réponse coupée » dit que ce n'est pas fini.
+ * `parseArtifacts` only extracts a block DELIMITED on both sides. An answer
+ * cut mid-file therefore produced none: no card, no preview, no
+ * download — the code poured as is into the bubble. We close the
+ * block to salvage what was written; it is always better than nothing, and the
+ * « Réponse coupée » banner says it is not finished.
  */
 function contenuCloture(content: string): string {
   const fences = content.match(/```/g);
   return fences && fences.length % 2 === 1 ? content + "\n```" : content;
 }
 
-/** Ce qu'il faut recoller au fichier : le message de reprise, sans son emballage.
+/** What must be glued back onto the file: the resume message, without its wrapper.
  *
- * Une reprise commence AU MILIEU du bloc. Trois formes vues en vrai :
- *  - le modèle rouvre une fence : on prend le corps du bloc ;
- *  - il enchaîne le contenu brut puis REFERME le bloc : le seul ``` est une
- *    fermeture, le corps est donc ce qui la PRÉCÈDE (le lire à l'envers ne
- *    rapportait que la phrase de conclusion, et le fichier restait tronqué) ;
- *  - il n'y a aucune fence : tout le message est du contenu.
+ * A resume starts IN THE MIDDLE of the block. Three forms seen in the wild:
+ *  - the model reopens a fence: we take the block body;
+ *  - it continues with the raw content then CLOSES the block: the only ``` is a
+ *    closer, so the body is what PRECEDES it (reading it backwards only
+ *    yielded the concluding sentence, and the file stayed truncated);
+ *  - there is no fence at all: the whole message is content.
  */
 function corpsDeSuite(content: string): string {
   const ferme = content.match(/```[^\n`]*\n([\s\S]*?)```/);
   if (ferme) return ferme[1].replace(/\n$/, "");
   const premier = content.indexOf("```");
   if (premier < 0) return content;
-  // Une fence d'OUVERTURE est suivie d'une info-string puis d'un saut de ligne, et
-  // se trouve en tête du message ; sinon c'est une fermeture.
+  // An OPENING fence is followed by an info-string then a line break, and
+  // sits at the top of the message; otherwise it is a closing fence.
   const ouvrante = /^\s*```[^\n`]*\n/.test(content);
   if (ouvrante) return openCodeFence(content)?.body ?? content;
   return content.slice(0, premier).replace(/\n$/, "");
 }
 
-/** Recolle une suite sur un fichier inachevé, en absorbant ce qu'elle répète.
+/** Glues a continuation onto an unfinished file, absorbing what it repeats.
  *
- * Le modèle ne reprend pas au caractère près : il rafistole le mot coupé puis
- * réémet le bloc en cours depuis son début. Recoller bêtement dupliquait le code
- * et laissait une accolade en trop — la page s'affichait mais son script mourait
- * sur « Unexpected end of input », donc pas d'échiquier. On cherche la plus longue
- * suite de lignes commune entre la FIN du fichier et le DÉBUT de la reprise, et on
- * raboute là. La recherche est bornée à la queue du fichier : même trompée, elle ne
- * peut jamais amputer le début.
+ * The model does not resume character for character: it patches up the cut word
+ * then re-emits the current block from its start. Naively gluing duplicated the
+ * code and left an extra brace — the page displayed but its script died
+ * on « Unexpected end of input », so no chessboard. We look for the longest
+ * run of lines common to the END of the file and the START of the resume, and
+ * splice there. The search is bounded to the tail of the file: even when
+ * fooled, it can never amputate the beginning.
  */
-const RECOL_QUEUE = 6000;      // portion de fin de fichier où l'on cherche
-const RECOL_TETE  = 6000;      // portion de début de reprise où l'on cherche
-const RECOL_MIN_LIGNES = 3;    // en dessous, c'est du bruit (« } », lignes vides)
+const RECOL_QUEUE = 6000;      // portion of the file end where we search
+const RECOL_TETE  = 6000;      // portion of the resume start where we search
+const RECOL_MIN_LIGNES = 3;    // below that, it is noise (« } », empty lines)
 const RECOL_MIN_CARS = 60;
-const RECOL_MAX_SUPPRIME = 2000;   // au-delà, on préfère dupliquer que perdre
+const RECOL_MAX_SUPPRIME = 2000;   // beyond that, we prefer duplicating to losing
 
 function decoupeLignes(texte: string, depart: number) {
   const lignes: { texte: string; pos: number }[] = [];
@@ -701,10 +701,10 @@ function decoupeLignes(texte: string, depart: number) {
 }
 
 function recoller(base: string, suite: string): string {
-  // Une suite qui réécrit VRAIMENT le document entier est un remplacement, pas un
-  // ajout. On exige qu'elle aille jusqu'au bout et qu'elle pèse son poids : sans
-  // ces deux conditions, une reprise de trois lignes commençant par « <html> »
-  // effaçait un fichier de plusieurs milliers de lignes.
+  // A continuation that REALLY rewrites the whole document is a replacement, not an
+  // addition. We require it to go all the way and to pull its weight: without
+  // these two conditions, a three-line resume starting with « <html> »
+  // wiped out a file of several thousand lines.
   if (/^\s*(<!DOCTYPE|<html[\s>])/i.test(suite) && /<!DOCTYPE|<html[\s>]/i.test(base)
       && /<\/html\s*>/i.test(suite) && suite.length >= base.length * 0.5) {
     return suite;
@@ -719,7 +719,7 @@ function recoller(base: string, suite: string): string {
       while (i + k < lb.length && j + k < ls.length && lb[i + k].texte === ls[j + k].texte) {
         const t = lb[i + k].texte.trim();
         cars += t.length;
-        if (t.length >= 10) utiles++;      // « } » ou ligne vide ne prouvent rien
+        if (t.length >= 10) utiles++;      // « } » or an empty line proves nothing
         k++;
       }
       if (k >= RECOL_MIN_LIGNES && utiles >= 1 && cars >= RECOL_MIN_CARS
@@ -728,25 +728,25 @@ function recoller(base: string, suite: string): string {
       }
     }
   }
-  // Garde-fou : le raboutage SUPPRIME la queue du fichier. Le chevauchement réel
-  // observé est de quelques centaines de caractères (le modèle réémet le bloc en
-  // cours) ; au-delà, une correspondance fortuite détruirait du bon code. Dans le
-  // doute on recolle bout à bout : un peu de duplication se voit et se corrige,
-  // du code disparu, non.
+  // Safety net: splicing DELETES the file's tail. The real overlap
+  // observed is a few hundred characters (the model re-emits the current block);
+  // beyond that, a chance match would destroy good code. When in
+  // doubt we glue end to end: a bit of duplication is visible and fixable,
+  // vanished code is not.
   if (meilleur && base.length - meilleur.base <= RECOL_MAX_SUPPRIME) {
     return base.slice(0, meilleur.base) + suite.slice(meilleur.suite);
   }
   return raboutLigne(base, suite);
 }
 
-/** Raboute une suite qui RÉPÈTE la fin de la ligne coupée.
+/** Splices a continuation that REPEATS the end of the cut line.
  *
- * Le plafond de tokens tombe au milieu d'une ligne, et le modèle reprend souvent
- * le mot (ou la ligne) où il s'était arrêté : mesuré le 2026-10-01 sur MiMo,
- * « p_del » + « del = sub.add_parser(…) » donnait « p_deldel », NameError au
- * lancement. Le recollage par lignes ne voit rien (moins de 3 lignes communes).
- * On cherche le plus long début de la suite qui termine déjà la ligne coupée ;
- * 3 caractères au moins, pour ne pas rogner un caractère légitime par hasard. */
+ * The token ceiling lands mid-line, and the model often resumes
+ * the word (or line) it had stopped at: measured on 2026-10-01 on MiMo,
+ * « p_del » + « del = sub.add_parser(…) » gave « p_deldel », NameError at
+ * launch. Line splicing sees nothing (fewer than 3 common lines).
+ * We look for the longest start of the continuation that already ends the cut
+ * line; at least 3 characters, so as not to trim a legitimate character by chance. */
 function raboutLigne(base: string, suite: string): string {
   const fin = base.slice(base.lastIndexOf("\n") + 1);
   if (!fin.trim()) return base + suite;
@@ -767,25 +767,25 @@ const PROMPT_INTEGRAL =
   + "sans resume et sans « reste inchange ». Il n'y a aucune limite d'affichage.";
 const REPRISE_INSTRUCTION = `Your previous reply was cut off in the middle of a file. Output ONLY the missing remainder of that file, starting at the exact character where you stopped. Do not repeat anything already written, do not re-introduce, do not summarise, and do not use an edit block — just continue the raw content until the file is complete.`;
 
-/** Reprises automatiques d'affilée avant de rendre la main à l'utilisateur. */
-// Releve de 3 a 10 : un gros fichier unique demande une dizaine de segments
-// (mesure : 2 400 a 14 000 tokens par reprise), et a 3 la chaine rendait
-// toujours la main sur un fichier inacheve. Borne quand meme : une reprise
-// qui boucle sans avancer doit revenir a l'utilisateur, pas tourner sans fin.
+/** Consecutive automatic resumes before handing back to the user. */
+// Raised from 3 to 10: a single large file takes about ten segments
+// (measured: 2 400 to 14 000 tokens per resume), and at 3 the chain still
+// handed back on an unfinished file. Still bounded: a resume
+// that loops without making progress must return to the user, not run forever.
 const MAX_REPRISES_AUTO = 10;
 
-/** Ce message caché est-il la demande de reprise émise par « Continuer » ? */
+/** Is this hidden message the resume request issued by « Continuer » ? */
 function estReprise(m: ChatMsg | undefined): boolean {
   return !!m && m.role === "user" && !!m.hidden && m.content.startsWith(PROMPT_REPRISE);
 }
 
-/** Coupe ce que le modèle a écrit APRÈS son bloc de questions.
+/** Cuts what the model wrote AFTER its questions block.
  *
- * L'instruction lui demande de s'arrêter au bloc, mais il lui arrive de repartir
- * et de générer jusqu'au plafond de tokens (constaté : 4096 pour une question de
- * ~150). Ce texte n'est pas affiché — il se retrouve quand même dans l'historique
- * renvoyé au modèle au tour suivant, qui répond alors n'importe quoi ou rien.
- * On garde l'introduction et le bloc, on jette la suite.
+ * The instruction asks it to stop at the block, but it sometimes starts again
+ * and generates up to the token ceiling (seen: 4096 for a ~150 question).
+ * This text is not displayed — yet it ends up in the history
+ * sent back to the model on the next turn, which then answers anything or
+ * nothing. We keep the introduction and the block, we drop the rest.
  */
 function trimAfterAsk(content: string): string {
   const i = content.indexOf("```ask");
@@ -794,12 +794,12 @@ function trimAfterAsk(content: string): string {
   return close < 0 ? content : content.slice(0, close + 3);
 }
 
-/** Échappe les caractères de contrôle laissés BRUTS dans une chaîne JSON.
+/** Escapes control characters left RAW in a JSON string.
  *
- * Un modèle qui écrit du code dans un champ « replace » oublie régulièrement
- * d'échapper ses retours à la ligne : la chaîne contient un vrai saut de ligne,
- * ce que JSON interdit, et tout le bloc devient illisible. Constaté en
- * production sur un bloc d'édition de plusieurs dizaines de lignes.
+ * A model writing code in a « replace » field regularly forgets
+ * to escape its line breaks: the string contains a real newline,
+ * which JSON forbids, and the whole block becomes unreadable. Seen in
+ * production on an edit block of several dozen lines.
  */
 function escapeRawControlChars(src: string): string {
   let out = "";
@@ -822,12 +822,12 @@ function escapeRawControlChars(src: string): string {
   return out;
 }
 
-/** La première valeur JSON complète de la chaîne, ignorant ce qui suit.
+/** The first complete JSON value of the string, ignoring what follows.
  *
- * Le modèle ajoute parfois un caractère APRÈS l'objet fermé (constaté : un
- * guillemet orphelin, « …]}\" »). JSON.parse refuse tout ce qui suit une valeur
- * complète, et le rééquilibrage ne sert à rien ici : le JSON n'est pas tronqué,
- * il est suivi de déchets. On coupe donc dès que la profondeur revient à zéro.
+ * The model sometimes adds a character AFTER the closed object (seen: an
+ * orphan quote, « …]}\" »). JSON.parse rejects anything following a complete
+ * value, and rebalancing is useless here: the JSON is not truncated,
+ * it is followed by junk. So we cut as soon as the depth returns to zero.
  */
 function firstJsonValue(src: string): string | null {
   const debut = src.search(/[{[]/);
@@ -850,20 +850,20 @@ function firstJsonValue(src: string): string | null {
       if (depth === 0) return src.slice(debut, i + 1);
     }
   }
-  return null;   // jamais refermé → c'est une troncature, balanceJson s'en charge
+  return null;   // never closed → it is truncation, balanceJson handles it
 }
 
 // Detect a ```ask block. Accepts {questions:[…]} and the legacy {question,options}.
-// La fence de fermeture est optionnelle : si le modèle l'oublie, on prend tout
-// ce qui suit plutôt que de ne rien reconnaître du tout.
+// The closing fence is optional: if the model forgets it, we take everything
+// that follows rather than recognizing nothing at all.
 function parseAsk(content: string): AskBlock | null {
   const m = content.match(/```ask\s*\n([\s\S]*?)(?:```|$)/)
     ?? content.match(/```(?:json)?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/)
-    // Forme dégénérée mesurée sur MiMo le 2026-10-02 : le modèle écrit `ask`
-    // en code inline (ou « ask » nu) suivi du JSON SANS aucune fence — le
-    // questionnaire sortait alors en texte brut, sans rien sur quoi cliquer.
-    // Même garde-fou que pour la fence json : le corps doit commencer par
-    // {"questions": [, sinon ce serait avaler un vrai fichier au détour.
+    // Degenerate form measured on MiMo on 2026-10-02: the model writes `ask`
+    // as inline code (or bare « ask ») followed by the JSON with NO fence — the
+    // questionnaire then came out as plain text, with nothing to click.
+    // Same safety net as for the json fence: the body must start with
+    // {"questions": [, otherwise we would swallow a real file along the way.
     ?? content.match(/(?:^|\n)[ \t]*`?ask`?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/i);
   if (!m) return null;
   try {
@@ -872,8 +872,8 @@ function parseAsk(content: string): AskBlock | null {
     try {
       obj = JSON.parse(body);
     } catch {
-      // 1) déchets après un objet complet → on coupe à la fermeture
-      // 2) objet jamais refermé → on rééquilibre
+      // 1) junk after a complete object → we cut at the closing
+      // 2) object never closed → we rebalance
       const repare = escapeRawControlChars(body);
       try {
         obj = JSON.parse(repare);
@@ -881,7 +881,7 @@ function parseAsk(content: string): AskBlock | null {
         try {
           obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
         } catch {
-          // fermetures dépareillées (« } » au lieu de « ] »)
+          // mismatched closers (« } » instead of « ] »)
           obj = JSON.parse(reparerFermetures(repare));
         }
       }
@@ -965,17 +965,17 @@ function downloadText(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-// ── Export & partage d'une conversation ─────────────────────────────────────
-// Une conversation à exporter : mêmes champs que l'API (même forme qu'ApiConversation
-// côté lib/conversations).
+// ── Export & sharing of a conversation ─────────────────────────────────────
+// A conversation to export: same fields as the API (same shape as ApiConversation
+// on the lib/conversations side).
 type ExportConversation = {
   title: string;
   model: string;
   messages: { role: "user" | "assistant"; content: string; hidden?: boolean }[];
 };
 
-// Conversations épinglées (star) : préférence personnelle stockée côté navigateur —
-// pas de migration backend, partagée sur ce poste.
+// Pinned (starred) conversations: a personal preference stored in the browser —
+// no backend migration, shared on this machine.
 const PINNED_KEY = "cronos.pinned.conversations";
 function loadPinnedIds(): string[] {
   try {
@@ -992,12 +992,12 @@ function savePinnedIds(ids: string[]) {
   }
 }
 
-// Math/LaTeX : le rendu vit désormais dans `lib/maths.tsx`, appelé par
-// `MarkdownSur` (cf. `lib/markdown.tsx`). Il ne pouvait pas rester ici : un
-// `inlinePlugins` s'applique PAR NŒUD de texte, et le parseur coupe le texte à
-// chaque antislash — la formule n'était donc jamais reconnue. La protection du
-// LaTeX se fait maintenant AVANT le parseur.
-// Snippets / prompts réutilisables, sauvegardés par l'utilisateur (navigateur).
+// Math/LaTeX: rendering now lives in `lib/maths.tsx`, called by
+// `MarkdownSur` (see `lib/markdown.tsx`). It could not stay here: an
+// `inlinePlugins` applies PER text node, and the parser splits text at
+// every backslash — so the formula was never recognized. Protecting
+// LaTeX now happens BEFORE the parser.
+// Snippets / reusable prompts, saved by the user (browser).
 type Snippet = { id: string; label: string; content: string };
 const SNIPPET_KEY = "cronos.snippets";
 function loadSnippets(): Snippet[] {
@@ -1015,11 +1015,11 @@ function saveSnippets(list: Snippet[]) {
   }
 }
 
-// Onglets : plusieurs conversations ouvertes en parallèle. On garde la logique de
-// génération intacte (les états live `messages`/`model`/… sont ceux de l'onglet
-// ACTIF) ; on ne fait que sauvegarder/restaurer le snapshot de chaque onglet à la
-// bascule. Le basculement est désactivé pendant un flux pour ne pas couper une
-// réponse en cours.
+// Tabs: several conversations open in parallel. The generation logic
+// stays intact (the live state `messages`/`model`/… belongs to the ACTIVE
+// tab); we only save/restore each tab's snapshot on
+// switch. Switching is disabled during a stream so as not to cut a
+// answer in progress.
 type Tab = {
   id: string;
   title: string;
@@ -1035,10 +1035,10 @@ function newTabId() {
   return `tab-${Date.now()}-${tabSeq}`;
 }
 
-// Renommage des fichiers générés (artefacts). Clé = `convId::kind::titre`
-// (les noms de fichiers sont générés uniques par le modèle) et persistée en
-// localStorage pour survivre à un rechargement ; `convId` évite qu'un même nom
-// (`fichier-1.yml`) dans deux conversations se renomme l'un l'autre.
+// Renaming generated files (artifacts). Key = `convId::kind::titre`
+// (file names are made unique by the model) and persisted in
+// localStorage to survive a reload; `convId` prevents the same name
+// (`fichier-1.yml`) in two conversations from renaming each other.
 const ARTIFACT_RENAME_KEY = "cronos.artifact.renames";
 function loadArtifactRenames(): Record<string, string> {
   try {
@@ -1063,8 +1063,8 @@ function convTitleFallback(msgs: ExportConversation["messages"], fallback: strin
   return (first.slice(0, 80).trim() || fallback);
 }
 
-/** Conversation → Markdown lisible, exporté en .md.
- *  `t` est passé en paramètre : fonction de module, un hook ne s'y appelle pas. */
+/** Conversation → readable Markdown, exported as .md.
+ *  `t` is passed as a parameter: it is a module function, so no hook is called here. */
 function convAsMarkdown(conv: ExportConversation, t: (s: string) => string): string {
   const lines = [`# ${conv.title}`, "", `_${t("Modèle :")} ${conv.model || "—"}_`, "", "---", ""];
   for (const m of conv.messages) {
@@ -1075,7 +1075,7 @@ function convAsMarkdown(conv: ExportConversation, t: (s: string) => string): str
   return lines.join("\n");
 }
 
-/** Conversation → JSON complet (on conserve tout, y compris hidden), en .json. */
+/** Conversation → full JSON (we keep everything, including hidden), as .json. */
 function convAsJson(conv: ExportConversation): string {
   return JSON.stringify(
     { title: conv.title, model: conv.model, exported_at: new Date().toISOString(), messages: conv.messages },
@@ -1084,33 +1084,33 @@ function convAsJson(conv: ExportConversation): string {
   );
 }
 
-// Extensions reconnues comme des FICHIERS. Liste fermée volontairement : sans
-// elle, « ansible.builtin.reboot » ou « os_family['debian'] » passeraient pour
-// des noms de fichiers et donneraient des titres absurdes.
+// Extensions recognized as FILES. Deliberately a closed list: without
+// it, « ansible.builtin.reboot » or « os_family['debian'] » would pass for
+// file names and produce absurd titles.
 const FILE_EXT = new RegExp(
   "\\.(ya?ml|json|jsonc|toml|ini|cfg|conf|env|py|js|mjs|cjs|ts|tsx|jsx|sh|bash|zsh|" +
   "go|rs|rb|php|java|kt|c|h|cpp|sql|html|css|scss|md|txt|log|xml|service|tf|gradle)$",
   "i");
 const BARE_FILES = /^(Dockerfile|Makefile|Vagrantfile|Jenkinsfile|Procfile)$/i;
 
-/** Nom de fichier annoncé juste AVANT un bloc de code.
+/** File name announced right BEFORE a code block.
  *
- * Un modèle écrit presque toujours « ### 2. `tasks/main.yml` » puis le bloc.
- * Sans lire ce contexte, les artefacts s'appelaient « file 1 », « yaml · 2 »… —
- * des cartes dont on ne pouvait plus dire à quel fichier elles correspondaient,
- * alors que la prose juste au-dessus, elle, nommait les fichiers.
+ * A model almost always writes « ### 2. `tasks/main.yml` » then the block.
+ * Without reading this context, artifacts were named « file 1 », « yaml · 2 »… —
+ * cards one could no longer tell which file they belonged to,
+ * while the prose just above did name the files.
  */
 function titleFromContext(before: string): string {
-  // Ne remonter que jusqu'au bloc PRÉCÉDENT : au-delà, on ramasse les
-  // commentaires écrits À L'INTÉRIEUR du bloc d'avant (« # defaults/main.yml »)
-  // et on nomme le fichier courant avec le nom du précédent.
+  // Only look back to the PREVIOUS block: beyond that, we pick up
+  // comments written INSIDE the previous block (« # defaults/main.yml »)
+  // and name the current file with the previous one's name.
   const finBlocPrecedent = before.lastIndexOf("```");
   const zone = finBlocPrecedent >= 0 ? before.slice(finBlocPrecedent + 3) : before;
   const tail = zone.slice(-300);
   const candidats: string[] = [];
-  // 1) entre backticks — la forme la plus fiable
+  // 1) between backticks — the most reliable form
   for (const m of tail.matchAll(/`([^`\n]{1,80})`/g)) candidats.push(m[1].trim());
-  // 2) sinon un jeton qui ressemble à un chemin
+  // 2) otherwise a token that looks like a path
   for (const m of tail.matchAll(/(?:^|[\s(*_"'>])([\w.-]+(?:\/[\w.-]+)*)(?=[\s:,)*_"'.]|$)/gm)) {
     candidats.push(m[1].trim());
   }
@@ -1122,34 +1122,34 @@ function titleFromContext(before: string): string {
   return "";
 }
 
-/** Le bloc de code encore ouvert à la fin du contenu, s'il y en a un.
+/** The code block still open at the end of the content, if any.
  *
- * Pendant le flux, c'est le fichier que le modèle est en train d'écrire. On le
- * dirige vers le volet latéral au lieu de le laisser défiler dans le chat puis
- * de le déplacer d'un coup à la fin — ce qui donnait l'impression que les
- * fichiers étaient « recopiés » deux fois.
+ * During the stream, this is the file the model is writing. We
+ * route it to the side panel instead of letting it scroll in the chat and then
+ * moving it all at once at the end — which gave the impression that
+ * files were "copied over" twice.
  */
 function openCodeFence(content: string): { lang: string; body: string; start: number } | null {
   const fences = content.match(/```/g);
-  if (!fences || fences.length % 2 === 0) return null;   // tout est refermé
+  if (!fences || fences.length % 2 === 0) return null;   // everything is closed
   const start = content.lastIndexOf("```");
   const rest = content.slice(start + 3);
   const nl = rest.indexOf("\n");
-  if (nl < 0) return null;                               // l'info-string n'est pas finie
+  if (nl < 0) return null;                               // the info-string is not finished
   const info = rest.slice(0, nl).trim();
   const first = info.split(/\s+/)[0] || "";
-  if (estBlocQuestions(first, rest.slice(nl + 1))) return null;   // géré par parseAsk
+  if (estBlocQuestions(first, rest.slice(nl + 1))) return null;   // handled by parseAsk
   return { lang: first || "text", body: rest.slice(nl + 1), start };
 }
 
-/** `t` est passé en paramètre (fonction de module) : le titre de repli des
- *  artefacts sans nom suit la langue affichée, y compris au téléchargement. */
+/** `t` is passed as a parameter (module function): the fallback title of
+ *  unnamed artifacts follows the displayed language, including on download. */
 function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => string): { prose: string; artifacts: Artifact[] } {
   const text = content.trim();
-  // Un message qui contient un vrai bloc de code est un FICHIER, jamais un
-  // document : le prendre pour un document renvoyait tout le message — question
-  // comprise — sous un nom en .md. Ça dépendait de `allowDoc`, donc du message
-  // PRÉCÉDENT, d'où un comportement qui changeait après un F5.
+  // A message containing a real code block is a FILE, never a
+  // document: taking it for a document returned the whole message — question
+  // included — under a .md name. It depended on `allowDoc`, hence on the
+  // PREVIOUS message, hence behavior that changed after an F5.
   const aDuCode = /```[^\n`]*\n[\s\S]{120,}?```/.test(text) || /<!DOCTYPE html|<html[\s>]/i.test(text);
   if (allowDoc && !aDuCode && text.length >= DOC_MIN_CHARS) {
     return { prose: "", artifacts: [{ kind: "doc", title: docTitleFromContent(text), content: text }] };
@@ -1164,33 +1164,33 @@ function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => st
     const body = m[2].replace(/\n$/, "");
     const info = m[1].trim();
     const first = info.split(/\s+/)[0] || "";
-    // ```ask et ```edit sont du PROTOCOLE, jamais des fichiers. `edit` ne posait pas
-    // problème tant qu'un bloc non refermé n'était pas extrait ; depuis qu'on referme
-    // les fences d'office, un bloc edit tronqué ressortait en « fichier-2.txt ».
+    // ```ask and ```edit are PROTOCOL, never files. `edit` was not a
+    // problem as long as an unclosed block was not extracted; since we force-close
+    // fences, a truncated edit block came out as « fichier-2.txt ».
     if (first === "edit" || estBlocQuestions(first, body)) continue;
     let lang = first;
     let title = "";
     if (first.includes(".")) { title = first; lang = first.split(".").pop() || ""; }
     const named = info.match(/(?:title|file|filename)=(\S+)/i);
     if (named) title = named[1];
-    // Le nom annoncé dans la prose juste au-dessus vaut mieux qu'un numéro.
+    // The name announced in the prose just above beats a number.
     if (!title) title = titleFromContext(content.slice(0, m.index));
-    // Un bloc DONT LE NOM DE FICHIER EST ANNONCÉ est un fichier, même court : sinon
-    // un rôle Ansible sortait avec deux fichiers en cartes et le troisième — plus
-    // court — resté dans le chat, pour la même chose. Un extrait anonyme et court
-    // reste en revanche dans le fil : c'est une illustration, pas un livrable.
+    // A block WHOSE FILE NAME IS ANNOUNCED is a file, even a short one: otherwise
+    // an Ansible role came out with two files as cards and the third — shorter —
+    // left in the chat, for the same thing. A short anonymous snippet
+    // however stays in the thread: it is an illustration, not a deliverable.
     const substantial = !!title || body.length >= 200 || body.split("\n").length >= 6;
     if (!substantial) continue;
     n += 1;
-    // Nom de repli : un vrai nom de fichier, pas une étiquette. « html · 1 » se
-    // téléchargeait en « html · 1.txt » — ni lisible, ni ouvrable.
+    // Fallback name: a real file name, not a label. « html · 1 » used to
+    // download as « html · 1.txt » — neither readable nor openable.
     if (!title) {
       const info = LANG_INFO[(lang || "").toLowerCase()];
-      // Une page HTML seule s'appelle index.html — c'est ce qu'on attend d'elle,
-      // et c'est ouvrable tel quel. Les autres gardent un nom neutre numéroté.
-      // `n` vient d'être incrémenté : le PREMIER bloc porte n === 1. Avec `n === 0`
-      // la condition n'était jamais vraie et une page HTML sans nom annoncé
-      // ressortait toujours en « fichier-2.html ».
+      // A lone HTML page is named index.html — that is what one expects of it,
+      // and it opens as is. Others keep a neutral numbered name.
+      // `n` was just incremented: the FIRST block has n === 1. With `n === 0`
+      // the condition was never true and an HTML page with no announced name
+      // always came out as « fichier-2.html ».
       if (info?.ext === "html" && n === 1) title = "index.html";
       // Nom de repli traduit : un fichier téléchargé ne doit pas garder un nom
       // français en mode anglais.
@@ -1204,11 +1204,11 @@ function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => st
   }
   prose += content.slice(lastIndex);
 
-  // Filet : un document HTML écrit SANS bloc de code. Le modèle oublie
-  // régulièrement la clôture pour un gros fichier — il n'en sortait alors aucun
-  // fichier, donc pas de carte, pas d'aperçu, pas de téléchargement. L'utilisateur
-  // se rabattait sur l'export de la conversation (bouton depuis retiré, il prêtait
-  // justement à confusion) : d'où un .md contenant la question et la prose.
+  // Safety net: an HTML document written WITHOUT a code block. The model often
+  // forgets the closing for a large file — then no file came out
+  // at all, so no card, no preview, no download. The user
+  // fell back on exporting the conversation (button since removed, it lent
+  // itself to confusion): hence a .md containing the question and the prose.
   if (!artifacts.length) {
     const html = content.match(/<!DOCTYPE html[\s\S]*?<\/html\s*>|<html[\s\S]*?<\/html\s*>/i);
     if (html && html[0].length >= 200) {
@@ -1226,9 +1226,9 @@ function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => st
   return { prose: prose.trim(), artifacts };
 }
 
-// Extension et type de contenu par langage. Sans extension, le navigateur ajoute
-// « .txt » d'après le type MIME : un fichier nommé « html · 1 » se téléchargeait
-// en « html · 1.txt », illisible et non ouvrable.
+// Extension and content type per language. Without an extension, the browser adds
+// « .txt » from the MIME type: a file named « html · 1 » downloaded as
+// « html · 1.txt », unreadable and unopenable.
 const LANG_INFO: Record<string, { ext: string; mime: string }> = {
   html: { ext: "html", mime: "text/html" },
   htm: { ext: "html", mime: "text/html" },
@@ -1262,8 +1262,8 @@ const LANG_INFO: Record<string, { ext: string; mime: string }> = {
   ruby: { ext: "rb", mime: "text/plain" },
 };
 
-/** Nom réellement téléchargeable : ni espace ni « · », et toujours une extension
- *  cohérente avec le langage. */
+/** Actually downloadable name: no space nor « · », and always an extension
+ *  consistent with the language. */
 function nomTelechargeable(titre: string, lang: string): string {
   if (/\.[a-z0-9]{1,6}$/i.test(titre)) return titre;
   const info = LANG_INFO[(lang || "").toLowerCase()];
@@ -1275,29 +1275,29 @@ function mimePourLangage(lang: string): string {
   return LANG_INFO[(lang || "").toLowerCase()]?.mime ?? "text/plain";
 }
 
-/** Ce bloc est-il un extrait d'un fichier déjà connu, plutôt qu'une version ? */
+/** Is this block a snippet of an already known file, rather than a version? */
 function estFragment(
   ancien: { content: string; lang: string } | undefined,
   nouveau: string,
 ): boolean {
   if (!ancien) return false;
-  // Seuils volontairement prudents : on ne refuse une mise à jour que si le
-  // fichier connu est déjà conséquent ET que le nouveau bloc fait moins des
-  // deux tiers. Une vraie réécriture qui raccourcit un peu passe donc encore.
+  // Deliberately conservative thresholds: we only reject an update if the
+  // known file is already substantial AND the new block is less than
+  // two thirds of it. A real rewrite that shortens a bit still passes.
   return ancien.content.length > 800 && nouveau.length < ancien.content.length * 0.66;
 }
 
-// Titre attribué faute de mieux (« fichier-2.html ») : le modèle n'a pas nommé
-// son bloc. Les deux formes — française et anglaise — existent, le nom est
-// fabriqué dans la langue affichée (parseArtifacts reçoit t).
+// Title given for lack of a better one (« fichier-2.html »): the model did not
+// name its block. Both forms — French and English — exist, the name is
+// built in the displayed language (parseArtifacts receives t).
 const TITRE_GENERIQUE = /^(?:fichier|file)-\d+\.[a-z0-9]{1,6}$/i;
 
-/** Les fichiers pour lesquels CE message ne contient qu'un extrait.
+/** The files for which THIS message contains only a snippet.
  *
- * Deux formes, vues toutes les deux en vrai :
- *  - le bloc porte le nom du fichier mais est bien plus court → extrait nommé ;
- *  - le bloc n'est pas nommé du tout (« voici la partie corrigée ») alors qu'un
- *    fichier bien plus gros du même langage existe déjà → extrait anonyme.
+ * Two forms, both seen in the wild:
+ *  - the block carries the file name but is much shorter → named snippet;
+ *  - the block is not named at all (« voici la partie corrigée ») while a
+ *    much larger file of the same language already exists → anonymous snippet.
  */
 function fragmentsDuMessage(messages: ChatMsg[], index: number, t: (s: string) => string): string[] {
   const m = messages[index];
@@ -1308,7 +1308,7 @@ function fragmentsDuMessage(messages: ChatMsg[], index: number, t: (s: string) =
     if (a.kind !== "code") continue;
     if (estFragment(avant.get(a.title), a.content)) { noms.push(a.title); continue; }
     if (!TITRE_GENERIQUE.test(a.title)) continue;
-    // Bloc anonyme : à quel fichier connu du même langage pourrait-il appartenir ?
+    // Anonymous block: which known file of the same language could it belong to?
     const candidat = [...avant.entries()]
       .filter(([, f]) => f.lang === a.lang)
       .find(([, f]) => estFragment(f, a.content));
@@ -1316,10 +1316,10 @@ function fragmentsDuMessage(messages: ChatMsg[], index: number, t: (s: string) =
   }
   if (noms.length) return noms;
 
-  // Dernier cas, le plus fréquent : un bloc COURT et sans nom (« voici la partie
-  // corrigée »). Trop petit pour devenir un fichier, il reste dans le fil — mais
-  // l'utilisateur, lui, attendait son fichier corrigé. On regarde donc les blocs
-  // bruts, pas seulement ceux promus en fichiers.
+  // Last case, the most frequent: a SHORT unnamed block (« voici la partie
+  // corrigée »). Too small to become a file, it stays in the thread — but
+  // the user, meanwhile, expected their fixed file. So we look at raw blocks,
+  // not only those promoted to files.
   if (!avant.size) return [];
   for (const f of m.content.matchAll(/```([^\n`]*)\n([\s\S]*?)```/g)) {
     const lang = (f[1].trim().split(/\s+/)[0] || "").toLowerCase();
@@ -1332,12 +1332,12 @@ function fragmentsDuMessage(messages: ChatMsg[], index: number, t: (s: string) =
   return [];
 }
 
-/** État courant de chaque fichier de la conversation, jusqu'au message `index`.
+/** Current state of each file in the conversation, up to the `index` message.
  *
- * DÉRIVÉ du fil, jamais stocké : un fichier = sa dernière version complète, à
- * laquelle on applique dans l'ordre les modifications qui ont suivi. Rien à
- * synchroniser, donc rien qui puisse se désynchroniser — recharger la
- * conversation reconstruit exactement le même état.
+ * DERIVED from the thread, never stored: a file = its last complete version, to
+ * which the subsequent edits are applied in order. Nothing to
+ * synchronize, hence nothing that can go out of sync — reloading the
+ * conversation rebuilds exactly the same state.
  */
 function fichiersJusqua(
   messages: ChatMsg[],
@@ -1345,89 +1345,89 @@ function fichiersJusqua(
   t: (s: string) => string,
 ): Map<string, { content: string; lang: string }> {
   const fichiers = new Map<string, { content: string; lang: string }>();
-  // Le fichier laissé en plan par le message précédent : une reprise le complète
-  // au lieu d'ouvrir un second fichier avec la moitié du contenu.
+  // The file left in the lurch by the previous message: a resume completes it
+  // instead of opening a second file with half of the content.
   let inacheve: string | null = null;
   for (let i = 0; i <= index && i < messages.length; i++) {
     const m = messages[i];
     if (m.role !== "assistant") continue;
-    // Une reprise ne se recolle que sur un fichier RÉELLEMENT laissé ouvert.
-    // Se rabattre sur le dernier fichier connu paraissait prudent, mais recollait
-    // la suite sur un fichier déjà terminé : deux </html>, accolades déséquilibrées.
+    // A resume only glues onto a file REALLY left open.
+    // Falling back to the last known file seemed prudent, but glued
+    // the continuation onto an already finished file: two </html>, unbalanced braces.
     const cible = inacheve ? fichiers.get(inacheve) : undefined;
-    // Un bloc de protocole n'est PAS la suite du fichier : le modèle a répondu à
-    // « Continue » par un ```edit (constaté en production). Le recoller aurait
-    // injecté du JSON au milieu du HTML — on le traite comme un message normal.
+    // A protocol block is NOT the file's continuation: the model answered
+    // « Continue » with a ```edit (seen in production). Gluing it would have
+    // injected JSON in the middle of the HTML — we treat it as a normal message.
     const protocole = /```(?:edit|ask)\b/.test(m.content);
     if (estReprise(messages[i - 1]) && !protocole && !cible) {
-      // Reprise sans rien à compléter (le fichier était déjà fini) : son contenu
-      // n'est pas un fichier. En faire un donnait la carte « fichier-2.txt »
-      // remplie d'un demi-script.
+      // Resume with nothing to complete (the file was already finished): its content
+      // is not a file. Making one produced the « fichier-2.txt » card
+      // filled with half a script.
       inacheve = null;
       continue;
     }
     if (cible && !protocole && estReprise(messages[i - 1])) {
       const fusion: string = recoller(cible.content, corpsDeSuite(m.content));
       fichiers.set(inacheve!, { ...cible, content: fusion });
-      // Une reprise peut être coupée à son tour. Son compte de fences ne dit rien
-      // (elle commence au milieu d'un bloc) : c'est le fichier reconstitué qui
-      // décide s'il reste ouvert — OU le plafond de tokens lui-même. Le fichier
-      // reconstitué n'a plus de fences, et `reponseIncomplete` ne reconnaît alors
-      // qu'un HTML sans </html> : un script Python coupé par le plafond passait
-      // pour fini, et la reprise SUIVANTE était jetée — la fin du fichier
-      // disparaissait (mesuré le 2026-10-01 sur MiMo : fichier arrêté sur `p_del`).
+      // A resume can itself be cut. Its fence count says nothing
+      // (it starts in the middle of a block): it is the rebuilt file that
+      // decides whether it stays open — OR the token ceiling itself. The rebuilt
+      // file has no fences left, and `reponseIncomplete` then only
+      // recognizes an HTML without </html>: a Python script cut by the ceiling passed
+      // for finished, and the NEXT resume was dropped — the end of the file
+      // disappeared (measured on 2026-10-01 on MiMo: file stopped at `p_del`).
       inacheve = m.truncated || reponseIncomplete(fusion) ? inacheve : null;
       continue;
     }
-    // Un SEUL parse par message (l'ancien `fichierInacheve` reparsait le même
-    // contenu juste avant) : `fichiersJusqua` est rappelé pour chaque message à
-    // chaque rendu, donc le doublon coûtait quadratique par token reçu, et
-    // `fusionDuMessage`/`appliquerEdits` l'appellent aussi deux fois par message.
+    // A SINGLE parse per message (the old `fichierInacheve` re-parsed the same
+    // content just before): `fichiersJusqua` is called for every message on
+    // every render, so the duplicate cost quadratic per token received, and
+    // `fusionDuMessage`/`appliquerEdits` also call it twice per message.
     const fences = m.content.match(/```/g);
     const arts = parseArtifacts(contenuCloture(m.content), false, t).artifacts;
     const dernierArt = arts[arts.length - 1];
-    // Le fichier que ce message laisse inachevé, s'il y en a un : fences impaires
-    // (bloc non refermé) et dernier artefact de type code.
+    // The file this message leaves unfinished, if any: odd fence count
+    // (unclosed block) and last code-type artifact.
     inacheve = (fences && fences.length % 2 === 1 && dernierArt && dernierArt.kind === "code")
       ? dernierArt.title : null;
     for (const [rang, a] of arts.entries()) {
       if (a.kind !== "code") continue;
-      // Le bloc que la coupure a laissé ouvert est la version EN COURS d'écriture,
-      // pas un extrait : sans ça, la reprise se recollait sur la version complète
-      // précédente. On garde tout de même un plancher, pour qu'un moignon de
-      // quelques lignes ne détruise pas un fichier abouti.
+      // The block the cut left open is the version BEING written,
+      // not a snippet: without this, the resume glued onto the previous complete
+      // version. We still keep a floor, so that a stub of
+      // a few lines does not destroy a finished file.
       const precedent = fichiers.get(a.title);
       if (rang === arts.length - 1 && a.title === inacheve
           && (!precedent || a.content.length >= precedent.content.length * 0.25)) {
         fichiers.set(a.title, { content: a.content, lang: a.lang });
         continue;
       }
-      // Un bloc BIEN plus court qu'un fichier déjà connu du même nom est un
-      // EXTRAIT (« voici la partie corrigée »), pas une nouvelle version. Le
-      // prendre pour le fichier remplaçait 400 lignes par 20, et le volet
-      // affichait ce moignon comme s'il était le fichier.
+      // A block MUCH shorter than an already known file of the same name is a
+      // SNIPPET (« voici la partie corrigée »), not a new version. Taking it
+      // for the file replaced 400 lines with 20, and the panel
+      // displayed this stub as if it were the file.
       if (estFragment(fichiers.get(a.title), a.content)) continue;
       fichiers.set(a.title, { content: a.content, lang: a.lang });
     }
     for (const e of parseEdits(m.content)) {
-      // Le modèle peut nommer « index.html » un fichier enregistré sous
-      // « site/index.html » : on retombe sur une correspondance par suffixe.
+      // The model may name « index.html » a file saved as
+      // « site/index.html »: we fall back to a suffix match.
       const cle =
         (fichiers.has(e.file) && e.file) ||
         [...fichiers.keys()].find((k) => k === e.file || k.endsWith("/" + e.file) || e.file.endsWith("/" + k));
       if (!cle) continue;
       const cible = fichiers.get(cle)!;
-      if (!cible.content.includes(e.find)) continue;   // ancre introuvable : on n'invente rien
+      if (!cible.content.includes(e.find)) continue;   // anchor not found: we invent nothing
       fichiers.set(cle, { ...cible, content: cible.content.replace(e.find, e.replace) });
     }
   }
   return fichiers;
 }
 
-/** Le fichier qu'un message de reprise vient de compléter.
+/** The file a resume message just completed.
  *
- * Ce message ne contient que la fin du fichier : ce qu'il faut montrer, c'est le
- * fichier entier reconstitué, pas la moitié qu'il transporte.
+ * This message only contains the end of the file: what must be shown is the
+ * whole rebuilt file, not the half it carries.
  */
 function fusionDuMessage(messages: ChatMsg[], index: number, t: (s: string) => string): Artifact[] {
   const m = messages[index];
@@ -1444,14 +1444,14 @@ function fusionDuMessage(messages: ChatMsg[], index: number, t: (s: string) => s
   return out;
 }
 
-/** Ce message laisse-t-il un fichier inachevé, reprises comprises ?
- *  (`t` juste pour traverser vers fusionDuMessage : seul le contenu compte ici.) */
+/** Does this message leave a file unfinished, resumes included?
+ *  (`t` only to pass through to fusionDuMessage: only the content matters here.) */
 function fichierLaisseOuvert(messages: ChatMsg[], index: number, t: (s: string) => string): boolean {
   const m = messages[index];
   if (!m || m.role !== "assistant") return false;
-  // Une reprise commence AU MILIEU d'un bloc : elle n'a pas de fence ouvrante, donc
-  // son compte de fences est toujours impair. S'y fier relançait une reprise après
-  // l'autre alors que le fichier était refermé. Seul le fichier reconstitué décide.
+  // A resume starts IN THE MIDDLE of a block: it has no opening fence, so
+  // its fence count is always odd. Trusting it restarted one resume after
+  // another while the file was closed. Only the rebuilt file decides.
   if (estReprise(messages[index - 1])) {
     const fusion = fusionDuMessage(messages, index, t);
     return fusion.length ? fusion.some((f) => reponseIncomplete(f.content)) : false;
@@ -1459,18 +1459,18 @@ function fichierLaisseOuvert(messages: ChatMsg[], index: number, t: (s: string) 
   return reponseIncomplete(m.content);
 }
 
-/* Le modèle qui AVOUE avoir abrégé.
+/* The model that ADMITS it abbreviated.
  *
- * Cas vu en prod le 22/08 : « Le fichier est trop long pour être affiché en
- * entier ici », suivi d'un fichier tronqué. Un tel message peut parfaitement
- * refermer sa fence — le fichier a alors l'air fini et fichierLaisseOuvert() ne
- * voit rien, alors que le modèle vient de dire lui-même qu'il manque du contenu.
+ * Case seen in prod on 22/08: « Le fichier est trop long pour être affiché en
+ * entier ici », followed by a truncated file. Such a message can perfectly well
+ * close its fence — the file then looks finished and fichierLaisseOuvert() sees
+ * nothing, while the model itself just said content is missing.
  *
- * Chaque motif est un AVEU explicite, jamais une tournure ordinaire : « version
- * simplifiée » ou « pour résumer » sont volontairement absents, ils apparaissent
- * dans des réponses parfaitement complètes et déclencheraient des reprises en
- * boucle (déjà vécu avec proseIncomplete, qui a détruit une conversation entière
- * en quatre reprises avant d'être retiré).
+ * Each pattern is an explicit ADMISSION, never an ordinary phrasing: « version
+ * simplifiée » or « pour résumer » are deliberately absent, they appear
+ * in perfectly complete answers and would trigger resumes in a
+ * loop (already experienced with proseIncomplete, which destroyed an entire
+ * conversation in four resumes before being removed).
  */
 const ABANDON_DECLARE =
   /trop\s+(?:long|volumineux|gros)[^.\n]{0,80}?(?:affich|ici\b|ce\s+message)/i;
@@ -1483,8 +1483,8 @@ const ABANDON_DECLARE_ALT = [
 ];
 
 function abandonDeclare(content: string): boolean {
-  // Seulement sur un message qui prétend livrer du code : la même phrase dans
-  // une réponse en prose ne signale rien à reprendre.
+  // Only on a message that claims to deliver code: the same sentence in
+  // a prose answer signals nothing to resume.
   if (!content.includes("```")) return false;
   return ABANDON_DECLARE.test(content) || ABANDON_DECLARE_ALT.some((r) => r.test(content));
 }
@@ -1496,7 +1496,7 @@ function messageIncomplet(messages: ChatMsg[], index: number, t: (s: string) => 
 }
 
 
-/** Les modifications d'un message, avec le résultat et les échecs éventuels. */
+/** The edits of a message, with the result and any failures. */
 function appliquerEdits(messages: ChatMsg[], index: number, t: (s: string) => string): {
   fichiers: Artifact[];
   echecs: string[];
@@ -1521,59 +1521,59 @@ function appliquerEdits(messages: ChatMsg[], index: number, t: (s: string) => st
 
 type QueuedMsg = { content: string; text: string; attachmentCount?: number; images?: string[]; ts: number };
 
-// Panneau de réglages du playground : largeur voulue, et marge de sécurité avec le
-// bord de la fenêtre (= --spacing-2). Voir toggleSettings pour le bornage.
+// Playground settings panel: target width, and safety margin to the
+// window edge (= --spacing-2). See toggleSettings for the clamping.
 const LARGEUR_PANNEAU_REGLAGES = 480;
 const MARGE_PANNEAU_REGLAGES = 8;
 
 export default function PlaygroundPage() {
   const t = useT();
   const numLocale = useLocale();
-  // Les deux effets du composeur (faisceau de bordure, halo de voix) peignent
-  // selon le fond : on leur donne le mode de l'APPLICATION, pas `auto`, car
-  // Astryx ne pose `data-theme` que pour le sombre (cf. ThinkingIndicator).
+  // The composer's two effects (border beam, voice halo) paint
+  // according to the background: we give them the APPLICATION mode, not `auto`,
+  // because Astryx only sets `data-theme` for dark (see ThinkingIndicator).
   const { mode } = useThemeMode();
   const { open: openSettings } = useSettingsDialog();
   const csrf = useCsrf();
   const [runningModels, setRunningModels] = useState<string[]>([]);
   const [modelLimits, setModelLimits] = useState<Record<string, number>>({});
   const [modelVision, setModelVision] = useState<Record<string, boolean>>({});
-  // Image ouverte en grand depuis une bulle (null = fermé).
+  // Image opened large from a bubble (null = closed).
   const [imageVue, setImageVue] = useState<{ srcs: string[]; index: number } | null>(null);
-  // null = pas encore su. On n'affiche l'alerte qu'une fois la réponse reçue,
-  // pour ne pas faire clignoter un avertissement au chargement.
+  // null = not known yet. We only show the warning once the answer is received,
+  // so as not to flash a warning on load.
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [model, setModel] = useState("");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
-  // Index du message utilisateur en cours d'édition (édition en place). La
-  // conversation reste affichée ; au renvoi, on rebranche depuis cet index.
+  // Index of the user message being edited (inline edit). The
+  // conversation stays displayed; on resend, we rebranch from that index.
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  // Origine du prompt système : un persona, une compétence ou une saisie manuelle.
-  // Permet de signaler qu'une compétence a écrasé le system prompt d'un persona.
+  // Origin of the system prompt: a persona, a skill, or manual input.
+  // Allows flagging that a skill overwrote a persona's system prompt.
   const [systemProvenance, setSystemProvenance] = useState<"persona" | "skill" | "manual">("manual");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  // Position du panneau de réglages : capturée sur le clic du bouton (rect du
-  // bouton → coin bas-gauche du panneau sous la roue crantée). Overlay FIXE :
-  // il ne touche jamais au flux, donc la page ne bouge pas d'un pixel.
+  // Position of the settings panel: captured on the button click (button rect →
+  // bottom-left corner of the panel under the gear). FIXED overlay:
+  // it never touches the flow, so the page does not move a pixel.
   const [settingsPos, setSettingsPos] = useState<{ top: number; right: number; maxH: number; largeur: number } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  // Fermeture du panneau réglages : clic extérieur ou Échap. AUCUN déplacement
-  // de focus à l'ouverture — le focus trap du composant Popover faisait
-  // défiler la page (bouton de fermeture sr-only révélé sous le panneau),
-  // d'où un chat « rappelé en bas » à chaque clic sur la roue.
+  // Closing the settings panel: outside click or Escape. NO focus move
+  // on open — the Popover component's focus trap used to
+  // scroll the page (sr-only close button revealed under the panel),
+  // hence a chat "yanked back down" on every click of the gear.
   const toggleSettings = (el: HTMLElement | null) => {
     if (!isSettingsOpen && el) {
       const r = el.getBoundingClientRect();
-      // Le panneau est ancré à la roue, mais sa largeur ne peut pas dépasser la
-      // fenêtre : sous 768 px la barre latérale est repliée, la roue descend à
-      // ~250 px du bord gauche, et un panneau de 480 px ancré là partait 201 px
-      // HORS ÉCRAN — sans recours, un `position: fixed` ne défile pas. On borne
-      // donc la largeur à la fenêtre, puis le décalage droit pour que le bord
-      // gauche reste visible. Au-delà de ~1024 px la roue est assez à droite :
-      // les deux bornes sont inactives et le panneau garde sa taille nominale.
+      // The panel is anchored to the gear, but its width cannot exceed the
+      // window: under 768 px the sidebar is folded, the gear moves down to
+      // ~250 px from the left edge, and a 480 px panel anchored there started 201 px
+      // OFF SCREEN — with no way out, a `position: fixed` does not scroll. So we clamp
+      // the width to the window, then the right offset so the left
+      // edge stays visible. Beyond ~1024 px the gear is far enough right:
+      // both bounds are inactive and the panel keeps its nominal size.
       const largeur = Math.min(LARGEUR_PANNEAU_REGLAGES, window.innerWidth - 2 * MARGE_PANNEAU_REGLAGES);
       setSettingsPos({
         top: r.bottom + 8,
@@ -1589,8 +1589,8 @@ export default function PlaygroundPage() {
     if (!isSettingsOpen) return;
     const onDown = (e: PointerEvent) => {
       const cible = e.target as HTMLElement | null;
-      // Le clic sur la roue elle-même passe par le toggle du bouton : ne pas
-      // fermer ici, sinon pointerdown ferme puis click rouvre (net nul).
+      // Clicking the gear itself goes through the button's toggle: do not
+      // close here, otherwise pointerdown closes then click reopens (net zero).
       if (cible?.closest(".playground-settings-panel")) return;
       setIsSettingsOpen(false);
     };
@@ -1604,16 +1604,16 @@ export default function PlaygroundPage() {
       document.removeEventListener("keydown", onKey);
     };
   }, [isSettingsOpen]);
-  // Recherche dans l'historique + conversations épinglées (star).
+  // Search in history + pinned (starred) conversations.
   const [histQuery, setHistQuery] = useState("");
   const [pinnedIds, setPinnedIds] = useState<string[]>(loadPinnedIds);
-  // Renommage d'une conversation depuis l'historique.
+  // Renaming a conversation from the history.
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [streaming, setStreaming] = useState(false);
 
-  // Onglets : plusieurs conversations ouvertes. Le live state ci-dessus est
-  // l'onglet actif ; chaque entrée de `tabs` en garde un snapshot.
+  // Tabs: several conversations open. The live state above is
+  // the active tab; each `tabs` entry keeps a snapshot of it.
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>("");
   const tabsRef = useRef<Tab[]>([]);
@@ -1628,32 +1628,32 @@ export default function PlaygroundPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // File d'attente : messages soumis pendant qu'une réponse se génère. Au lieu
-  // d'être perdus (l'ancien « if (streaming) return »), ils s'empilent dans un
-  // panneau au-dessus du compositeur et partent TOUT SEULS dès que la réponse en
-  // cours se termine. Les boutons de chaque ligne ne servent qu'à court-circuiter
-  // cette attente : « Envoyer » interrompt la réponse en cours (sa partie déjà
-  // écrite est conservée, comme avec Stop) pour passer à ce message tout de suite.
-  // Reprises enchaînées sans intervention : au-delà, on rend la main plutôt
-  // que de laisser un modèle qui boucle consommer le budget du compte.
+  // Queue: messages submitted while an answer is generating. Instead
+  // of being lost (the old « if (streaming) return »), they pile up in a
+  // panel above the composer and go out ALL BY THEMSELVES as soon as the current
+  // answer ends. Each row's buttons only short-circuit
+  // this wait: « Envoyer » interrupts the current answer (its already
+  // written part is kept, as with Stop) to move to this message right away.
+  // Chained resumes without intervention: beyond that, we hand back rather
+  // than let a looping model consume the account's budget.
   const reprisesRef = useRef(0);
   const [reprise, setReprise] = useState(0);
   const [queued, setQueued] = useState<QueuedMsg[]>([]);
   const queuedRef = useRef<QueuedMsg[]>([]);
-  // runStream clôt la conversation depuis sa propre closure : pour repartir de
-  // la liste à jour (réponse partielle conservée, etc.) on lit par ref.
+  // runStream closes the conversation from its own closure: to start again from
+  // the up-to-date list (partial answer kept, etc.) we read via ref.
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; });
 
-  // ── Auto-défilement du fil pendant la génération ───────────────────────────
-  // ChatLayout suit déjà le bas, mais il décroche par intermittence : quand un
-  // gros morceau de texte arrive d'un coup (un paragraphe entier re-rendu),
-  // l'écart au bas dépasse son seuil en UNE frame, il en déduit que le lecteur a
-  // remonté et cesse de suivre jusqu'à ce qu'on redescende à la main. Mesuré :
-  // sur deux exécutions identiques, une réponse suivait le bas sur 7/7
-  // échantillons, l'autre décrochait sur 38/40.
-  // On double donc son mécanisme par un suivi explicite, désarmé UNIQUEMENT
-  // quand le lecteur remonte volontairement, et réarmé dès qu'il revient en bas.
+  // ── Thread auto-scroll during generation ───────────────────────────────────
+  // ChatLayout already follows the bottom, but it drops off intermittently: when a
+  // big chunk of text arrives at once (a whole paragraph re-rendered),
+  // the gap to the bottom exceeds its threshold in ONE frame, it infers the reader
+  // scrolled up and stops following until one scrolls back down by hand. Measured:
+  // on two identical runs, one answer followed the bottom on 7/7
+  // samples, the other dropped off on 38/40.
+  // So we double its mechanism with explicit tracking, disarmed ONLY
+  // when the reader scrolls up deliberately, and rearmed as soon as they return to the bottom.
   const suitLeBasRef = useRef(true);
   useEffect(() => {
     const el = document.querySelector<HTMLElement>(".astryx-chat-layout");
@@ -1661,7 +1661,7 @@ export default function PlaygroundPage() {
     let precedent = el.scrollTop;
     const onScroll = () => {
       const ecart = el.scrollHeight - el.scrollTop - el.clientHeight;
-      // Remontée d'au moins 4 px : c'est le lecteur, pas nous.
+      // Scrolled up by at least 4 px: that is the reader, not us.
       if (el.scrollTop < precedent - 4) suitLeBasRef.current = false;
       if (ecart < 40) suitLeBasRef.current = true;
       precedent = el.scrollTop;
@@ -1669,8 +1669,8 @@ export default function PlaygroundPage() {
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
-  // Après chaque rendu : si on suivait, on recolle au bas. Écriture DOM
-  // uniquement — aucun état mis à jour, donc aucun rendu en cascade.
+  // After each render: if we were following, we stick back to the bottom. DOM write
+  // only — no state updated, so no cascade of renders.
   useEffect(() => {
     if (!streaming || !suitLeBasRef.current) return;
     const el = document.querySelector<HTMLElement>(".astryx-chat-layout");
@@ -1681,35 +1681,35 @@ export default function PlaygroundPage() {
     queuedRef.current = q;
     setQueued(q);
   };
-  // Le panneau de file fait grandir/rétrécir le dock, qui est sticky EN BAS du
-  // scroller : sa hauteur s'ajoute donc au contenu, et si on suivait le bas, la
-  // dernière ligne se retrouve masquée dessous. Astryx n'observe que le contenu
-  // des messages, pas le dock — d'où ce recollage explicite. On ne le fait que
-  // si on était déjà collé au bas, pour ne pas arracher quelqu'un qui relit
-  // plus haut. Le scroller est le ChatLayout lui-même (pas de scrollRef fourni),
-  // et la page n'en contient qu'un.
+  // The queue panel grows/shrinks the dock, which is sticky at the BOTTOM of the
+  // scroller: its height adds to the content, and if we were following the bottom,
+  // the last line ends up hidden underneath. Astryx only observes the message
+  // content, not the dock — hence this explicit re-stick. We only do it if
+  // we were already stuck to the bottom, so as not to yank someone re-reading
+  // further up. The scroller is ChatLayout itself (no scrollRef provided),
+  // and the page contains only one.
   useEffect(() => {
     const el = document.querySelector<HTMLElement>(".astryx-chat-layout");
     if (!el) return;
-    // Marge large : l'écart vient d'AUGMENTER de la hauteur du panneau.
+    // Wide margin: the gap just GREW by the panel's height.
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
       el.scrollTo({ top: el.scrollHeight });
     }
   }, [queued.length]);
-  // Débit en direct : `usage.completion_tokens` n'arrive qu'à la FIN du flux. On
-  // estime donc le nombre de tokens à partir des CARACTÈRES reçus — compter les
-  // deltas SSE serait faux (mesuré : avec le décodage spéculatif MTP, vLLM envoie
-  // plusieurs tokens par delta, d'où ~2,7x de sous-estimation). Le ratio
-  // caractères/token est auto-calibré à la fin de chaque génération sur le
-  // `usage` exact, donc il s'adapte au modèle et à la langue (mesuré : ~4,5 en
-  // français, ~5,0 en anglais). Refs : mises à jour à chaque delta sans re-render.
+  // Live rate: `usage.completion_tokens` only arrives at the END of the stream. We
+  // therefore estimate the token count from the received CHARACTERS — counting
+  // SSE deltas would be wrong (measured: with MTP speculative decoding, vLLM sends
+  // several tokens per delta, hence ~2,7x underestimation). The
+  // characters/token ratio is auto-calibrated at the end of each generation on the
+  // exact `usage`, so it adapts to the model and the language (measured: ~4,5 in
+  // French, ~5,0 in English). Refs: updated on every delta without re-render.
   const liveCharsRef = useRef(0);
   const charsPerTokenRef = useRef(4.8);
   const liveStartRef = useRef<number | null>(null);
   const [liveStats, setLiveStats] = useState<{ tokens: number; tps: number } | null>(null);
 
-  // Rafraîchit le compteur affiché 4x/s pendant le flux — assez fluide à l'œil,
-  // sans ajouter un re-render par token (updateLast en fait déjà un).
+  // Refreshes the displayed counter 4x/s during the stream — smooth enough to the eye,
+  // without adding a re-render per token (updateLast already does one).
   useEffect(() => {
     if (!streaming) return;
     const id = setInterval(() => {
@@ -1722,27 +1722,27 @@ export default function PlaygroundPage() {
     }, 250);
     return () => clearInterval(id);
   }, [streaming]);
-  // Étapes de recherche web de la génération EN COURS. Sans cet affichage,
-  // l'attente est muette : plusieurs dizaines de secondes pendant lesquelles le
-  // modèle cherche et lit, sans que rien ne l'indique.
+  // Web-search steps of the IN-PROGRESS generation. Without this display,
+  // the wait is silent: several tens of seconds during which the
+  // model searches and reads, with nothing indicating it.
   const [etapesWeb, setEtapesWeb] = useState<EtapeWeb[]>([]);
-  // Première erreur d'exécution remontée par l'aperçu (vide = la page tourne).
+  // First runtime error reported by the preview (empty = the page runs).
   const [erreurApercu, setErreurApercu] = useState("");
   const [currentId, setCurrentId] = useState<string | null>(null);
-  // Miroir de `currentId` : la fin d'un flux s'exécute dans sa propre closure et
-  // doit savoir si l'utilisateur regarde TOUJOURS la même conversation (voir
-  // plus bas, « le fil a-t-il changé pendant la génération »).
+  // Mirror of `currentId`: the end of a stream runs in its own closure and
+  // must know whether the user is STILL looking at the same conversation (see
+  // below, "did the thread change during the generation").
   const currentIdRef = useRef<string | null>(null);
   useEffect(() => { currentIdRef.current = currentId; }, [currentId]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [ctxUsed, setCtxUsed] = useState(0);
-  // Découpage entrée/sortie de la DERNIÈRE génération (mesure exacte remontée
-  // par LiteLLM via `usage`) : prompt_tokens = ce qui remplit la fenêtre,
-  // completion_tokens = la réponse produite. null tant qu'aucune génération.
+  // Input/output split of the LAST generation (exact measurement reported
+  // by LiteLLM via `usage`): prompt_tokens = what fills the window,
+  // completion_tokens = the produced answer. null until a generation happens.
   const [ioTokens, setIoTokens] = useState<{ prompt: number; completion: number } | null>(null);
-  // Tokens cumulés de la conversation en cours (coût réel : chaque requête
-  // facture prompt + complétion, donc la somme des `total_tokens` = ce qui est
-  // débité du budget). Per-message, `m.tokens` est l'affichage déjà en place.
+  // Cumulated tokens of the current conversation (real cost: each request
+  // bills prompt + completion, so the sum of `total_tokens` = what is
+  // deducted from the budget). Per message, `m.tokens` is the already existing display.
   const [convTokens, setConvTokens] = useState(0);
   useWhoami();
   // Artifact/canvas side-panel: when the assistant writes a file (a substantial
@@ -1757,18 +1757,18 @@ export default function PlaygroundPage() {
   // in-progress document card during a document stream. A ref mirrors it so the
   // stream-completion closure can read the current value.
   const [liveDocOpen, setLiveDocOpen] = useState(false);
-  // Aperçu rendu d'une page HTML générée, plutôt que son code source.
+  // Rendered preview of a generated HTML page, rather than its source code.
   const [htmlPreview, setHtmlPreview] = useState(true);
-  // URL de l'aperçu servi par le backend. Une iframe `srcdoc` hérite de la CSP
-  // du portail et ses scripts inline sont bloqués : la page s'affiche mais rien
-  // n'y répond. On passe donc par une réponse qui porte son propre bac à sable.
+  // URL of the preview served by the backend. A `srcdoc` iframe inherits the
+  // portal's CSP and its inline scripts are blocked: the page displays but
+  // nothing responds in it. So we go through a response that carries its own sandbox.
   const [previewUrl, setPreviewUrl] = useState("");
-  // Plein écran du volet : indispensable pour regarder une page HTML générée,
-  // illisible dans une colonne de 400 px.
+  // Full screen for the panel: essential to watch a generated HTML page,
+  // unreadable in a 400 px column.
   const [plein, setPlein] = useState(false);
   const liveDocOpenRef = useRef(false);
-  /** Fermeture du panneau : sortir du plein écran ramène au volet latéral, on ne
-   *  referme le fichier que si on n'y était pas. */
+  /** Panel close: leaving full screen returns to the side panel, we only
+   *  close the file if we were not in it. */
   const fermerPanneau = () => {
     if (plein) { setPlein(false); return; }
     setArtifact(null);
@@ -1782,33 +1782,33 @@ export default function PlaygroundPage() {
   const dictation = useDictation({ value: input, onChange: setInput, csrf });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Rayon de la carte du composeur, en pixels, pour les deux effets qui
-  // l'enveloppent (halo de voix, faisceau de bordure).
+  // Radius of the composer card, in pixels, for the two effects that
+  // wrap it (voice halo, border beam).
   //
-  // Les deux librairies savent le détecter toutes seules — mais sur leur
-  // PREMIER ENFANT, et le premier enfant de `border-beam` est sa PROPRE balise
-  // `<style>` (0 px) : mesuré le 2026-10-01, le faisceau se dessinait donc avec
-  // le repli de 16 px dans une carte de 28, coins visiblement plus carrés que
-  // le composeur. On lit le token plutôt que de figer « 28 » ici : c'est la
-  // même source de vérité que la carte (`--radius-chat`, `:root` dans
-  // astryx.css), donc un thème qui change les rayons suit.
+  // Both libraries can detect it on their own — but on their
+  // FIRST CHILD, and `border-beam`'s first child is its OWN
+  // `<style>` tag (0 px): measured on 2026-10-01, the beam was therefore drawn with
+  // the 16 px fallback in a 28 card, corners visibly squarer than
+  // the composer. We read the token rather than hardcoding « 28 » here: it is the
+  // same source of truth as the card (`--radius-chat`, `:root` in
+  // astryx.css), so a theme that changes radii follows.
   const [rayonComposeur, setRayonComposeur] = useState<number | undefined>(undefined);
   useEffect(() => {
     const px = parseFloat(getComputedStyle(document.documentElement)
       .getPropertyValue("--radius-chat"));
-    // Lecture du DOM au montage : `getComputedStyle` n'existe pas au rendu
-    // serveur, donc la valeur ne peut pas être dérivée pendant le rendu. Un seul
-    // setState, une seule fois, aucune cascade — c'est le cas « synchroniser
-    // depuis un système externe » que la règle vise à distinguer des boucles de
-    // rendu. (La directive doit précéder IMMÉDIATEMENT le code : placée avant les
-    // commentaires, elle ne désactivait que la première ligne de commentaire.)
+    // DOM read on mount: `getComputedStyle` does not exist at server
+    // render, so the value cannot be derived during render. A single
+    // setState, once, no cascade — this is the "sync
+    // from an external system" case the rule aims to distinguish from render
+    // loops. (The directive must IMMEDIATELY precede the code: placed before the
+    // comments, it only disabled the first comment line.)
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (Number.isFinite(px) && px > 0) setRayonComposeur(px);
   }, []);
 
   useEffect(() => {
-    // Garde d'ATTENTE, pas de bouton mort : l'effet se rejoue dès que le jeton
-    // arrive (dépendance `csrf`), donc rien à signaler à l'utilisateur.
+    // A WAITING guard, not a dead button: the effect replays as soon as the token
+    // arrives (`csrf` dependency), so nothing to report to the user.
     if (!csrf) return;
     let annule = false;
     (async () => {
@@ -1833,20 +1833,20 @@ export default function PlaygroundPage() {
       .catch(() => {});
   }, []);
 
-  // Ouverture ciblée depuis l'accueil : ?conv=<id> ouvre une conversation
-  // précise, ?model=<name> présélectionne le modèle courant. Appliqué une seule
-  // fois, une fois les conversations ET les modèles courants chargés (les deux
-  // fetchs sont dans des effets séparés, l'ordre n'est pas garanti).
+  // Targeted open from the home page: ?conv=<id> opens a specific
+  // conversation, ?model=<name> preselects the current model. Applied once,
+  // once the conversations AND the current models are loaded (the two
+  // fetches are in separate effects, the order is not guaranteed).
   const initFromUrlRef = useRef(false);
-  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- init one-shot depuis l'URL */
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- one-shot init from the URL */
   useEffect(() => {
     if (initFromUrlRef.current) return;
     const params = new URLSearchParams(window.location.search);
     const convId = params.get("conv");
     const modelName = params.get("model");
     if (!convId && !modelName) return;
-    if (runningModels.length === 0) return; // attente des modèles
-    if (convId && conversations.length === 0) return; // attente des conversations
+    if (runningModels.length === 0) return; // waiting for the models
+    if (convId && conversations.length === 0) return; // waiting for the conversations
     initFromUrlRef.current = true;
     if (modelName && runningModels.includes(modelName)) setModel(modelName);
     const conv = convId ? conversations.find((c) => c.id === convId) : undefined;
@@ -1875,13 +1875,13 @@ export default function PlaygroundPage() {
       // eslint-disable-next-line react-hooks/purity
       ts: Date.now(),
       model: activeModel,
-      // `hidden` fait partie du message : sans lui, une réponse à des questions
-      // redevenait un message ordinaire au rechargement, décalant les index et
-      // changeant le rendu de la conversation.
-      // `truncated` et `isError` voyagent aussi, et le serveur les conserve :
-      // sans eux, une réponse coupée en plein fichier repassait pour COMPLÈTE
-      // après un rechargement — plus de bandeau, plus de bouton « Continuer »,
-      // alors que le fichier restait inachevé à l'écran.
+      // `hidden` is part of the message: without it, an answer to questions
+      // became an ordinary message again on reload, shifting indexes and
+      // changing the rendering of the conversation.
+      // `truncated` and `isError` travel too, and the server keeps them:
+      // without them, an answer cut mid-file passed for COMPLETE
+      // after a reload — no more banner, no more « Continuer » button,
+      // while the file remained unfinished on screen.
       messages: pourSauvegarde(msgs),
     };
     // Optimistic on the UI side, then server save in the background: the
@@ -1890,8 +1890,8 @@ export default function PlaygroundPage() {
       const rest = prev.filter((c) => c.id !== item.id);
       return [item, ...rest];
     });
-    // Un enregistrement refusé (413, base indisponible) ne doit pas se traduire
-    // par un historique qui se vide en silence : on le DIT.
+    // A refused save (413, database unavailable) must not turn into
+    // a silently emptied history: we SAY it.
     if (csrf) {
       void persistConversation(csrf, item).then((ok) => {
         if (!ok) showToast({ body: t("Conversation non enregistrée — elle disparaîtra au rechargement."), type: "error" });
@@ -1908,16 +1908,16 @@ export default function PlaygroundPage() {
   }
 
   function newConversation() {
-    // Pas de ré-enregistrement ici : chaque génération sauvegarde déjà à sa fin.
-    // Ré-enregistrer remontait la conversation en tête de liste au simple fait
-    // d'en changer, alors que l'ordre doit refléter la dernière ACTIVITÉ.
-    // Avec les onglets, « nouvelle conversation » ouvre un onglet propre.
+    // No re-save here: each generation already saves at its end.
+    // Re-saving used to move the conversation to the top of the list on the mere
+    // fact of changing it, while the order must reflect the last ACTIVITY.
+    // With tabs, « nouvelle conversation » opens a clean tab.
     newTab();
   }
 
-  // Commute vers un onglet : on fige le snapshot de l'onglet actif puis on
-  // restaure celui de la cible. Désactivé pendant un flux (l'état live est alors
-  // celui de la génération en cours).
+  // Switch to a tab: we freeze the active tab's snapshot then
+  // restore the target's. Disabled during a stream (the live state then
+  // belongs to the ongoing generation).
   function switchTab(id: string) {
     if (streaming || id === activeTabId || !id) return;
     setTabs((prev) => prev.map((t) =>
@@ -1961,9 +1961,9 @@ export default function PlaygroundPage() {
     if (streaming) return;
     const idx = tabsRef.current.findIndex((t) => t.id === id);
     if (idx < 0) return;
-    // Titre généré à la fermeture : on analyse TOUTE la conversation qu'on
-    // ferme (pas seulement son premier échange) pour poser un titre fiable
-    // dans l'historique. Silencieux si la conversation n'a ni messages ni id.
+    // Title generated on close: we analyze the WHOLE conversation we
+    // close (not just its first exchange) to set a reliable title
+    // in the history. Silent if the conversation has neither messages nor id.
     const closingTab = tabsRef.current[idx];
     if (closingTab && closingTab.messages.length > 0 && closingTab.currentId) {
       void autoTitle(closingTab.currentId, closingTab.messages, id, closingTab.model);
@@ -2002,11 +2002,11 @@ export default function PlaygroundPage() {
   }
 
   function selectConversation(conv: Conversation) {
-    // La liste d'historique est BORNÉE : au-delà d'un budget d'octets, le
-    // serveur n'a transporté que les métadonnées (`messages_omis`). On va
-    // chercher le contenu au moment où on l'ouvre vraiment — sans ce détour, la
-    // conversation s'ouvrirait sur un fil vide, ce qui est pire que la latence
-    // qu'on économise.
+    // The history list is BOUNDED: beyond a byte budget, the
+    // server only carried the metadata (`messages_omis`). We fetch
+    // the content when we really open it — without this detour, the
+    // conversation would open on an empty thread, which is worse than the latency
+    // we save.
     if (conv.messagesOmis) {
       void fetchConversation(conv.id).then((complete) => {
         if (complete) {
@@ -2021,14 +2021,14 @@ export default function PlaygroundPage() {
     appliquerConversation(conv);
   }
 
-  /** Applique une conversation au fil affiché (ouverture depuis l'historique). */
+  /** Applies a conversation to the displayed thread (open from the history). */
   function appliquerConversation(conv: Conversation) {
-    // Idem : ouvrir une conversation ne la modifie pas, donc ne doit pas la
-    // faire remonter ni réécrire celle qu'on quitte.
+    // Same: opening a conversation does not modify it, so it must not
+    // move it up nor rewrite the one we leave.
     setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })));
     setCurrentId(conv.id);
     setEditingIdx(null);
-    // L'onglet actif porte cette conversation (titre dans la barre d'onglets).
+    // The active tab carries this conversation (title in the tab bar).
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, title: conv.title, currentId: conv.id } : t)));
     if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
     setCtxUsed(0);
@@ -2041,9 +2041,9 @@ export default function PlaygroundPage() {
   function deleteConversation(id: string) {
     setConversations((prev) => prev.filter((c) => c.id !== id));
     if (csrf) {
-      // La suppression est optimiste à l'écran, mais un refus du serveur est
-      // DIT : sinon la conversation revenait au rechargement, comme si le clic
-      // n'avait rien fait.
+      // Deletion is optimistic on screen, but a server refusal is
+      // SAID: otherwise the conversation came back on reload, as if the click
+      // had done nothing.
       void removeConversation(csrf, id).then((ok) => {
         if (!ok) {
           showToast({
@@ -2056,7 +2056,7 @@ export default function PlaygroundPage() {
     if (id === currentId) setCurrentId(null);
   }
 
-  // Star/épingler une conversation (préférence navigateur, triée en tête).
+  // Star/pin a conversation (browser preference, sorted first).
   function togglePinned(id: string) {
     setPinnedIds((prev) => {
       const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
@@ -2065,11 +2065,11 @@ export default function PlaygroundPage() {
     });
   }
 
-  // Snippets : sauvegarde le prompt courant, insère, supprime.
+  // Snippets: saves the current prompt, inserts, deletes.
   function saveSnippet() {
     const content = input.trim();
     if (!content) return;
-    // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+    // eslint-disable-next-line react-hooks/purity -- called from a handler
     const snip: Snippet = { id: String(Date.now()), label: content.slice(0, 60), content };
     setSnippets((prev) => { const next = [...prev, snip]; saveSnippets(next); return next; });
   }
@@ -2081,7 +2081,7 @@ export default function PlaygroundPage() {
     setSnippetsOpen(false);
   }
 
-  // Auto-titre : demande au modèle un titre court, puis renomme la conversation.
+  // Auto-title: asks the model for a short title, then renames the conversation.
   async function genTitle() {
     if (busyTitle || !messages.length || !currentId) return;
     setBusyTitle(true);
@@ -2099,7 +2099,7 @@ export default function PlaygroundPage() {
     }
   }
 
-  // Résumé : condense la conversation, affiché dans un dialog copiable.
+  // Summary: condenses the conversation, displayed in a copyable dialog.
   async function genSummary() {
     if (!messages.length) return;
     setSummary(t("Génération en cours…"));
@@ -2113,8 +2113,8 @@ export default function PlaygroundPage() {
     }
   }
 
-  // Auto-titre déclenché à la première réponse : résumé court généré par le
-  // modèle, propagé en direct à l'historique + l'onglet, sans rechargement.
+  // Auto-title triggered on the first answer: short summary generated by the
+  // model, propagated live to the history + the tab, without a reload.
   async function autoTitle(convId: string, msgs: ChatMsg[], tabId: string, modelForTitle?: string) {
     if (!csrf) {
       showToast({ body: t("Session incomplète — recharge la page."), type: "error" });
@@ -2139,9 +2139,9 @@ export default function PlaygroundPage() {
     }
   }
 
-  // Renommage d'un fichier généré : applique le nouveau nom (persisté par
-  // conversation) et ferme l'édition. Le titre se met à jour dans la carte du
-  // chat, le volet et le nom de téléchargement.
+  // Renaming a generated file: applies the new name (persisted per
+  // conversation) and closes the edit. The title updates in the chat card,
+  // the panel and the download name.
   function renamedTitle(a: Artifact): string {
     return artifactRenames[artifactRenameKey(currentId, a)] ?? a.title;
   }
@@ -2159,17 +2159,17 @@ export default function PlaygroundPage() {
   }
 
   const [shared, setShared] = useState(false);
-  // Snippets / prompts réutilisables (bibliothèque navigateur).
+  // Snippets / reusable prompts (browser library).
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [snippets, setSnippets] = useState<Snippet[]>(loadSnippets);
-  // Compétences (skills) : compétences de base + celles créées par l'utilisateur.
+  // Skills: base skills + those created by the user.
   const [skills, setSkills] = useState<Skill[]>(() => [...BASE_SKILLS, ...loadCustomSkills()]);
   const [skillCreatorOpen, setSkillCreatorOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const customSkills = skills.filter((s) => !s.builtin);
 
-  // Ouvre le créateur (édition si une compétence existante est fournie) et
-  // referme le menu « / » pour ne pas superposer modal + menu.
+  // Opens the creator (edit if an existing skill is provided) and
+  // closes the « / » menu so as not to stack modal + menu.
   function openSkillCreator(skill?: Skill) {
     setEditingSkill(skill ?? null);
     setSkillCreatorOpen(true);
@@ -2182,7 +2182,7 @@ export default function PlaygroundPage() {
     setSkills([...BASE_SKILLS, ...custom]);
   }
 
-  // Édition : on remplace la compétence du même id (les autres restent).
+  // Edit: we replace the skill with the same id (the others stay).
   function updateCustomSkill(s: Skill) {
     const custom = customSkills.map((c) => (c.id === s.id ? s : c));
     saveCustomSkills(custom);
@@ -2195,9 +2195,9 @@ export default function PlaygroundPage() {
     setSkills([...BASE_SKILLS, ...custom]);
   }
 
-  // Sélection d'une compétence : on inscrit son prompt (localisé) dans le champ
-  // et, si elle en a un, on applique son prompt système au modèle (en signalant
-  // que la provenance devient « compétence »).
+  // Selecting a skill: we put its (localized) prompt into the input
+  // and, if it has one, apply its system prompt to the model (flagging
+  // that the provenance becomes « compétence »).
   function selectSkill(s: Skill) {
     setInput(t(s.prompt));
     const sp = s.systemPrompt;
@@ -2207,26 +2207,26 @@ export default function PlaygroundPage() {
     }
   }
 
-  // Auto-titre + résumé (générés par le modèle, facturés sur le budget).
+  // Auto-title + summary (generated by the model, billed to the budget).
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summary, setSummary] = useState("");
   const [busyTitle, setBusyTitle] = useState(false);
-  // Panneau « contexte » : ce que le modèle voit (system, fichiers, tokens).
+  // « contexte » panel: what the model sees (system, files, tokens).
   const [ctxOpen, setCtxOpen] = useState(false);
-  // Renommage des fichiers générés : map persistée (convId::kind::titre → nom).
+  // Renaming generated files: persisted map (convId::kind::titre → name).
   const [artifactRenames, setArtifactRenames] = useState<Record<string, string>>(loadArtifactRenames);
   const [renamingArtifact, setRenamingArtifact] = useState(false);
   const [renameArtifactValue, setRenameArtifactValue] = useState("");
 
-  // Export (Markdown/JSON) de la conversation chargée.
+  // Export (Markdown/JSON) of the loaded conversation.
   function exportConversation(conv: ExportConversation, fmt: "md" | "json") {
     const name = slugify(convTitleFallback(conv.messages, t("Conversation")));
     if (fmt === "json") downloadText(`${name}.json`, convAsJson(conv), "application/json");
     else downloadText(`${name}.md`, convAsMarkdown(conv, t), "text/markdown");
   }
 
-  // Lien de partage en lecture seule : on crée l'instantané puis on copie l'URL.
-  // Renommage d'une conversation (titre dérivé du 1er message par défaut).
+  // Read-only share link: we create the snapshot then copy the URL.
+  // Renaming a conversation (title derived from the 1st message by default).
   function startRename(id: string, title: string) {
     setRenamingId(id);
     setRenameValue(title || t("Conversation"));
@@ -2253,9 +2253,9 @@ export default function PlaygroundPage() {
         return;
       }
       const url = `${window.location.origin}/c/${res.token}`;
-      // navigator.clipboard exige un contexte sécurisé (HTTPS) : sur le LAN en
-      // HTTP il n'existe pas — on retombe sur execCommand, puis en dernier
-      // recours on AFFICHE le lien plutôt que d'échouer en silence.
+      // navigator.clipboard requires a secure context (HTTPS): on the LAN over
+      // HTTP it does not exist — we fall back to execCommand, and as a last
+      // resort we DISPLAY the link rather than fail silently.
       try {
         await navigator.clipboard.writeText(url);
       } catch {
@@ -2282,13 +2282,13 @@ export default function PlaygroundPage() {
     }
   }
 
-  /** Lit un fichier TEXTE en pièce jointe (contenu intégré au message).
+  /** Reads a TEXT file as an attachment (content inlined into the message).
    *
-   *  Trois refus explicites, parce qu'ils étaient tous les trois silencieux :
-   *  un binaire (image, PDF, archive) partait en mojibake vers le modèle ; un
-   *  fichier trop gros était annoncé par un `alert()` natif bloquant ; et un
-   *  échec de lecture (`FileReader.onerror`, fichier disparu, disque) ne disait
-   *  rien du tout. Le refus est un message dans l'interface, pas une console.
+   *  Three explicit refusals, because all three were silent:
+   *  a binary (image, PDF, archive) went to the model as mojibake; a
+   *  too large file was announced by a blocking native `alert()`; and a
+   *  read failure (`FileReader.onerror`, vanished file, disk) said
+   *  nothing at all. The refusal is a message in the UI, not a console.
    */
   function handleFiles(files: FileList | null) {
     if (!files) return;
@@ -2339,9 +2339,9 @@ export default function PlaygroundPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // Glisser-déposer sur la PAGE : sans handler, le navigateur navigue vers le
-  // fichier déposé et le fil de discussion disparaît. On accepte le dépôt
-  // partout dans la conversation. La ref évite de réabonner à chaque rendu.
+  // Drag-and-drop on the PAGE: without a handler, the browser navigates to the
+  // dropped file and the thread disappears. We accept the drop
+  // anywhere in the conversation. The ref avoids re-subscribing on every render.
   const handleFilesRef = useRef<(f: FileList | null) => void>(() => {});
   useEffect(() => { handleFilesRef.current = handleFiles; });
   useEffect(() => {
@@ -2368,7 +2368,7 @@ export default function PlaygroundPage() {
     }
     setStreaming(true);
     setEtapesWeb([]);
-    // Nouvel envoi : le lecteur veut voir la réponse arriver, on réarme le suivi.
+    // New send: the reader wants to see the answer arrive, we rearm the tracking.
     suitLeBasRef.current = true;
     setLiveDocOpen(false);
     liveDocOpenRef.current = false;
@@ -2401,35 +2401,35 @@ export default function PlaygroundPage() {
     let tronque = false;
     let wasAborted = false;
     try {
-      // On retire la capacité « poser des questions » UNIQUEMENT sur le tour qui
-      // suit immédiatement des réponses — là où le modèle serait tenté d'enchaîner
-      // question sur question au lieu de répondre.
-      // Avant, ce test balayait TOUTE la conversation (`some`) : dès qu'on avait
-      // répondu une fois, le modèle ne pouvait plus jamais demander de précisions,
-      // même beaucoup plus tard sur une demande sans rapport. D'où l'impression
-      // qu'il « fonçait » alors qu'il posait encore des questions en début de
-      // conversation (mesuré : 16 demandes floues sur 18 donnent lieu à une
-      // question, et 0 sur 9 demandes précises).
+      // We remove the "asking questions" capability ONLY on the turn that
+      // immediately follows answers — where the model would be tempted to chain
+      // question upon question instead of answering.
+      // Before, this test swept the WHOLE conversation (`some`): as soon as we had
+      // answered once, the model could never ask for details again,
+      // even much later on an unrelated request. Hence the impression
+      // that it "charged ahead" while it was still asking questions at the start of
+      // the conversation (measured: 16 vague requests out of 18 lead to a
+      // question, and 0 out of 9 precise requests).
       const dernier = nextMessages[nextMessages.length - 1];
-    // Ce tour est-il une reprise (bouton « Continuer » ou reprise automatique) ?
+    // Is this turn a resume (« Continuer » button or automatic resume)?
     const enReprise = estReprise(dernier);
       const alreadyAsked = !!dernier?.hidden;
       const plafondModele = modelLimits[model];
       const askSettings = {
         ...settings,
-        // Le plafond de sortie ne peut pas dépasser la fenêtre du modèle chargé.
-        // Le backend le rabaisse déjà à ce qui reste ; on évite ici d'envoyer une
-        // valeur qui n'a de sens pour aucun modèle en cours.
+        // The output ceiling cannot exceed the loaded model's window.
+        // The backend already lowers it to what remains; here we avoid sending a
+        // value that makes sense for no current model.
         maxTokens: plafondModele ? Math.min(settings.maxTokens, plafondModele) : settings.maxTokens,
-        // L'ordre et le VOLUME comptent : mesuré sur 12 demandes floues, le modèle
-        // pose une question 11 fois sur 12 avec la seule instruction de questions,
-        // 7 fois sur 12 en y ajoutant nommage et édition, et 3 fois sur 12 si
-        // l'instruction de questions passe en dernier. On garde donc les questions
-        // EN TÊTE, un nommage réduit à une phrase, et l'instruction d'édition
-        // seulement quand un fichier existe déjà — avant, elle ne sert à rien.
-        // Sur un tour de REPRISE, ni questions ni protocole d'édition : le modèle
-        // avait justement répondu par un bloc ```edit tronqué au lieu de finir le
-        // fichier, ce qui laissait l'utilisateur sans rien.
+        // Order and VOLUME matter: measured on 12 vague requests, the model
+        // asks a question 11 times out of 12 with the questions instruction alone,
+        // 7 times out of 12 when adding naming and editing, and 3 times out of 12 if
+        // the questions instruction goes last. So we keep the questions
+        // AT THE TOP, a naming reduced to one sentence, and the edit instruction
+        // only when a file already exists — before that, it is useless.
+        // On a RESUME turn, neither questions nor edit protocol: the model
+        // had precisely answered with a truncated ```edit block instead of finishing
+        // the file, leaving the user with nothing.
         system: (enReprise
           ? [settings.system.trim(), REPRISE_INSTRUCTION]
           : [
@@ -2451,14 +2451,14 @@ export default function PlaygroundPage() {
           if (delta.usage) usage = delta.usage;
           if (delta.truncated) tronque = true;
           if (delta.notice) {
-            // Notice système (quota dépassé…) : traduite ICI selon la langue
-            // de l'interface, pas côté serveur.
+            // System notice (quota exceeded…): translated HERE according to the
+            // interface language, not server-side.
             acc += (acc ? "\n\n" : "") + texteNotice(delta.notice, t);
             updateLast();
           }
           if (delta.webStep) {
             const e = delta.webStep;
-            // Une étape « finie » remplace son annonce, elle ne s'ajoute pas.
+            // A "finished" step replaces its announcement, it is not added.
             setEtapesWeb((prec) => {
               const base = e.etape.endsWith("_finie") ? prec.slice(0, -1) : prec;
               return [...base, e].slice(-6);
@@ -2499,10 +2499,10 @@ export default function PlaygroundPage() {
     if (acc || reason) {
       const gen = tf ? (te - tf) / 1000 : 0;
       const tokens = usage?.completion_tokens;
-      // Auto-calibrage : le vrai nombre de tokens est connu ici, on en déduit le
-      // ratio caractères/token réel de ce modèle/cette langue pour que l'estimation
-      // en direct de la PROCHAINE génération soit juste. Borné pour qu'une réponse
-      // dégénérée (1 token, 500 caractères) ne fausse pas durablement l'affichage.
+      // Auto-calibration: the true token count is known here, we derive the
+      // real characters/token ratio of this model/language so the estimate
+      // of the NEXT generation is right. Bounded so that a degenerate
+      // answer (1 token, 500 characters) does not skew the display for good.
       const producedChars = acc.length + reason.length;
       if (tokens && producedChars > 0) {
         charsPerTokenRef.current = Math.min(12, Math.max(1.5, producedChars / tokens));
@@ -2519,13 +2519,13 @@ export default function PlaygroundPage() {
         isError,
       });
     }
-    // Le FIL a-t-il changé pendant la génération ? Charger une autre conversation
-    // depuis l'historique (ou changer d'onglet) n'est pas bloqué — c'est
-    // légitime — mais la fin du flux réécrivait alors `messages` ET `currentId`
-    // avec les valeurs capturées au DÉPART : on revenait brutalement à l'ancienne
-    // conversation, la réponse partielle ajoutée par-dessus, et l'onglet actif
-    // gardait le titre de l'autre. On enregistre TOUJOURS la réponse au bon
-    // endroit (aucune perte), on ne repeint l'écran que si on y est encore.
+    // Did the THREAD change during the generation? Loading another conversation
+    // from the history (or switching tab) is not blocked — it is
+    // legitimate — but the end of the stream then rewrote `messages` AND `currentId`
+    // with the values captured at START: we brutally jumped back to the old
+    // conversation, the partial answer added on top, and the active tab
+    // kept the other one's title. We always save the answer in the right
+    // place (no loss), we only repaint the screen if we are still there.
     const memeFil = currentIdRef.current === currentId;
     if (memeFil) setMessages(finalMessages);
     // If the assistant wrote a file, or wrote a document in reply to a document
@@ -2554,26 +2554,26 @@ export default function PlaygroundPage() {
     const savedId = persist(finalMessages, currentId, model);
     if (memeFil) {
       setCurrentId(savedId ?? null);
-      // L'onglet actif porte immédiatement cette conversation (avant même que
-      // l'auto-titre ne réponde), pour que fermer/commuter reste cohérent.
+      // The active tab immediately carries this conversation (even before
+      // the auto-title answers), so that closing/switching stays consistent.
       setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, currentId: savedId ?? null } : t)));
     }
-    // (Auto-titre à la fermeture uniquement — on analyse la conversation complète
-    // pour un titre d'historique fiable ; voir closeTab.)
+    // (Auto-title on close only — we analyze the full conversation
+    // for a reliable history title; see closeTab.)
     setStreaming(false);
     setLiveStats(null);
     abortRef.current = null;
-    // Le modèle a lâché en plein fichier : on enchaîne tout seul. Constaté en
-    // production — un gros fichier HTML s'arrêtait en pleine expression sans
-    // que rien ne l'indique, et il fallait tout redemander. Le plafond de
-    // tokens n'y était pour rien : c'est le modèle qui rend la main trop tôt.
-    // `isError` n'exclut PAS la reprise : la coupure la plus fréquente est justement
-    // une erreur — le flux casse en cours de route sur une génération de plusieurs
-    // minutes, et le texte déjà reçu s'arrête en plein mot. C'est exactement le cas
-    // où reprendre tout seul a le plus de valeur. Seul un arrêt DEMANDÉ (bouton
-    // Stop) interdit la reprise.
-    // Tour avorté (annonce sans la suite) : on REFAIT le tour au lieu de le
-    // reprendre — il n'y a rien à prolonger, la réponse n'a jamais commencé.
+    // The model dropped mid-file: we chain on our own. Seen in
+    // production — a large HTML file stopped mid-expression without
+    // anything indicating it, and everything had to be asked again. The token
+    // ceiling had nothing to do with it: the model hands back too early.
+    // `isError` does NOT rule out a resume: the most frequent cut is precisely
+    // an error — the stream breaks along the way on a generation of several
+    // minutes, and the text already received stops mid-word. This is exactly the
+    // case where resuming on our own is most valuable. Only a REQUESTED stop (Stop
+    // button) forbids the resume.
+    // Aborted turn (announcement without the follow-up): we REDO the turn instead of
+    // resuming it — there is nothing to extend, the answer never started.
     if (!wasAborted && tourAvorte(finalMessages[finalMessages.length - 1])) {
       if (reprisesRef.current < MAX_REPRISES_AUTO) {
         reprisesRef.current += 1;
@@ -2582,9 +2582,9 @@ export default function PlaygroundPage() {
         return;
       }
     }
-    // `messageIncomplet` ci-dessous évalue déjà `fichierLaisseOuvert` : on garde
-    // son résultat au lieu de le recalculer deux lignes plus bas (chaque appel
-    // relit tout le message, reprises comprises).
+    // `messageIncomplet` below already evaluates `fichierLaisseOuvert`: we keep
+    // its result instead of recomputing it two lines below (each call
+    // re-reads the whole message, resumes included).
     const dernierIdx = finalMessages.length - 1;
     const laisseOuvert = !wasAborted
       && fichierLaisseOuvert(finalMessages, dernierIdx, t);
@@ -2593,14 +2593,14 @@ export default function PlaygroundPage() {
       if (reprisesRef.current < MAX_REPRISES_AUTO) {
         reprisesRef.current += 1;
         setReprise(reprisesRef.current);
-        // Fichier laissé OUVERT : on le prolonge au caractère suivant. Fichier
-        // REFERMÉ mais abrégé de l'aveu du modèle : le prolonger produirait du
-        // contenu après la dernière ligne d'un fichier déjà clos — c'est une
-        // réécriture complète qu'il faut demander.
+        // File left OPEN: we extend it to the next character. File
+        // CLOSED but abbreviated by the model's own admission: extending it would
+        // produce content after the last line of an already closed file — what is
+        // needed is a full rewrite request.
         const suite = laisseOuvert ? PROMPT_REPRISE_COMPLET : PROMPT_INTEGRAL;
         void runStream([...finalMessages, {
           role: "user", content: suite,
-          // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+          // eslint-disable-next-line react-hooks/purity -- called from a handler
           ts: Date.now(), hidden: true,
         }]);
         return;
@@ -2609,18 +2609,18 @@ export default function PlaygroundPage() {
     }
     reprisesRef.current = 0;
     setReprise(0);
-    // Des messages ont été mis en file pendant cette génération : ils partent
-    // maintenant, sans validation manuelle. Base explicite (finalMessages) :
-    // messagesRef n'est pas encore resynchronisé dans cette même tick.
+    // Messages were queued during this generation: they go out
+    // now, with no manual validation. Explicit base (finalMessages):
+    // messagesRef is not yet resynchronized in this same tick.
     if (queuedRef.current.length) dispatchQueued(finalMessages);
   }
 
   function send(value: string) {
     const text = value.trim();
     if (!text && !attachments.length) return;
-    // La clé a pu être créée depuis la boîte de réglages entre-temps : on
-    // revérifie ici plutôt que de laisser le bandeau (et l'échec) persister.
-    // Une requête de plus, et uniquement dans l'état cassé.
+    // The key may meanwhile have been created from the settings box: we
+    // re-check here rather than leave the banner (and the failure) lingering.
+    // One extra request, and only in the broken state.
     if (hasKey === false) {
       void fetchPlaygroundData().then((d) => setHasKey(d.has_key)).catch(() => {});
     }
@@ -2630,8 +2630,8 @@ export default function PlaygroundPage() {
     dictation.cancel();
     const fichiers = attachments.filter((f) => !f.image);
     let images: string[] | undefined = attachments.flatMap((f) => (f.image ? [f.image] : []));
-    // Le modèle a pu changer depuis l'ajout : on ne part pas avec des images
-    // qu'il ne lirait pas (le serveur les retirerait de toute façon).
+    // The model may have changed since the attachment: we do not send images
+    // it would not read (the server would drop them anyway).
     if (images.length && !modelVision[model]) {
       showToast({ body: t("Ce modèle ne lit pas les images : elles n'ont pas été envoyées."), type: "error" });
       images = [];
@@ -2645,8 +2645,8 @@ export default function PlaygroundPage() {
         fichiers.map((f) => "```" + f.name + "\n" + f.content + "\n```").join("\n\n");
     }
     const attachmentCount = fichiers.length || undefined;
-    // En pleine génération, le message passe en file d'attente (validé par le
-    // bouton Envoyer de sa bulle) au lieu d'être silencieusement perdu.
+    // Mid-generation, the message goes to the queue (validated by the
+    // « Envoyer » button of its bubble) instead of being silently lost.
     if (streaming) {
       // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
       updateQueue([...queuedRef.current, { content: full, text, attachmentCount, images, ts: Date.now() }]);
@@ -2655,9 +2655,9 @@ export default function PlaygroundPage() {
       return;
     }
     const nextMessages: ChatMsg[] = [
-      // En édition en place : on rebranche depuis le message édité — on garde
-      // tout ce qui le précède, on remplace ce message + la suite par la
-      // nouvelle version.
+      // In inline edit: we rebranch from the edited message — we keep
+      // everything that precedes it, we replace this message + the rest with the
+      // new version.
       ...(editingIdx !== null ? messages.slice(0, editingIdx) : messages),
       // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
       { role: "user", content: full, ts: Date.now(), attachmentCount, images },
@@ -2669,11 +2669,11 @@ export default function PlaygroundPage() {
     void runStream(nextMessages);
   }
 
-  // « Envoyer » sur une ligne : ne pas attendre la fin de la réponse en cours.
-  // On remonte ce message en tête de file puis on interrompt la génération — son
-  // début est conservé, exactement comme avec Stop. L'envoi lui-même est fait par
-  // la fin de runStream (l'abort est asynchrone : lire l'état ici perdrait la
-  // réponse partielle).
+  // « Envoyer » on a row: do not wait for the current answer to end.
+  // We move this message to the head of the queue then interrupt the generation —
+  // its start is kept, exactly as with Stop. The send itself is done by
+  // the end of runStream (the abort is asynchronous: reading state here would
+  // lose the partial answer).
   function sendQueuedNow(idx: number) {
     const q = queuedRef.current;
     if (!q[idx]) return;
@@ -2685,9 +2685,9 @@ export default function PlaygroundPage() {
     dispatchQueued();
   }
 
-  // « Modifier » : le message ressort de la file et retourne dans le compositeur.
-  // On y remet `content` (et pas le texte brut) pour ne pas perdre en silence les
-  // fichiers joints qui y ont été inlinés.
+  // « Modifier »: the message comes out of the queue and goes back into the composer.
+  // We put back `content` (not the raw text) so as not to silently lose the
+  // attached files that were inlined into it.
   function editQueued(idx: number) {
     const m = queuedRef.current[idx];
     if (!m) return;
@@ -2723,7 +2723,7 @@ export default function PlaygroundPage() {
     void runStream(nextMessages);
   }
 
-  /** Redemande le fichier ENTIER quand le modèle n'a renvoyé qu'un extrait. */
+  /** Asks again for the WHOLE file when the model only returned a snippet. */
   function demanderFichierComplet(nom: string) {
     if (streaming) return;
     const nextMessages: ChatMsg[] = [
@@ -2733,31 +2733,31 @@ export default function PlaygroundPage() {
           + "avec la correction intégrée. Un seul bloc de code, aucun extrait, "
           + "aucune ligne omise, pas de « ... » ni de commentaire du type "
           + "« reste inchangé ».",
-        // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+        // eslint-disable-next-line react-hooks/purity -- called from a handler
         ts: Date.now(), hidden: true },
     ];
     setMessages(nextMessages);
     void runStream(nextMessages);
   }
 
-  /** Reprend une réponse coupée par le plafond de tokens, sans la refaire. */
+  /** Resumes an answer cut by the token ceiling, without redoing it. */
   function continuer() {
     if (streaming || !messages.length) return;
     const nextMessages: ChatMsg[] = [
       ...messages,
       { role: "user",
         content: PROMPT_REPRISE_COMPLET,
-        // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+        // eslint-disable-next-line react-hooks/purity -- called from a handler
         ts: Date.now(), hidden: true },
     ];
     setMessages(nextMessages);
     void runStream(nextMessages);
   }
 
-  /** Le fichier livré ne s'exécute pas : on en redemande une version complète.
+  /** The delivered file does not run: we ask again for a complete version.
    *
-   * Surtout PAS une reprise : la coupure n'est pas à la fin, elle est au milieu
-   * (un bloc jamais refermé). Ajouter du texte à la suite n'y changerait rien.
+   * Definitely NOT a resume: the cut is not at the end, it is in the middle
+   * (a never-closed block). Adding text after it would change nothing.
    */
   function refaireFichier(nom: string) {
     if (streaming || !messages.length) return;
@@ -2768,14 +2768,14 @@ export default function PlaygroundPage() {
           + "(« Unexpected end of input » — un bloc n'est jamais refermé), donc la page reste "
           + "vide. Renvoie le fichier COMPLET et corrigé, en entier, du début à la fin, "
           + "sous le même nom. Vérifie que chaque accolade et chaque parenthèse est refermée.",
-        // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+        // eslint-disable-next-line react-hooks/purity -- called from a handler
         ts: Date.now(), hidden: true },
     ];
     setMessages(nextMessages);
     void runStream(nextMessages);
   }
 
-  /** L'aperçu a levé une erreur : on redemande le fichier corrigé, en entier. */
+  /** The preview raised an error: we ask again for the fixed file, in full. */
   function corrigerErreur(nom: string, message: string) {
     if (streaming || !messages.length) return;
     const nextMessages: ChatMsg[] = [
@@ -2786,7 +2786,7 @@ export default function PlaygroundPage() {
           + "(vérifie notamment que les fonctions appelées existent bien dans la version "
           + "de bibliothèque que tu utilises) et renvoie le fichier COMPLET corrigé, "
           + "en entier, sous le même nom.",
-        // eslint-disable-next-line react-hooks/purity -- appelé depuis un handler
+        // eslint-disable-next-line react-hooks/purity -- called from a handler
         ts: Date.now(), hidden: true },
     ];
     setMessages(nextMessages);
@@ -2804,9 +2804,9 @@ export default function PlaygroundPage() {
     if (base.length && base[base.length - 1].role === "user") void runStream(base);
   }
 
-  // Éditer un message PASSÉ, en place : la conversation reste affichée, le
-  // contenu repart dans l'input, et l'envoi rebranchera depuis ce point (le
-  // message édité + la suite sont remplacés, pas tronqués à l'affichage).
+  // Editing a PAST message, in place: the conversation stays displayed, the
+  // content goes back into the input, and sending will rebranch from that point
+  // (the edited message + the rest are replaced, not truncated on display).
   function editMessage(i: number) {
     if (streaming) return;
     const m = messages[i];
@@ -2818,25 +2818,25 @@ export default function PlaygroundPage() {
 
 
   const max = modelLimits[model] || 32768;
-  // Une seule somme de caractères et une seule estimation par rendu :
-  // `estimateTokens` était appelé DEUX fois avec les mêmes arguments, et la
-  // décomposition ci-dessous refaisait une troisième fois la même somme.
+  // A single character sum and a single estimate per render:
+  // `estimateTokens` was called TWICE with the same arguments, and the
+  // breakdown below redid the same sum a third time.
   let contentChars = input.length;
   for (const m of messages) contentChars += m.content.length;
   for (const a of attachments) contentChars += a.image ? IMAGE_POIDS_CHARS : a.content.length;
   for (const m of messages) contentChars += (m.images?.length ?? 0) * IMAGE_POIDS_CHARS;
   const estTokens = Math.round((settings.system.length + contentChars) / 4);
-  // Entrée / sortie : la fenêtre se remplit de tokens d'ENTRÉE (prompt : system
-  // + historique + message + fichiers) et de tokens de SORTIE (la réponse
-  // générée). Mesure exacte de la dernière génération (usage LiteLLM) quand elle
-  // existe ; sinon estimation chars/4 de l'entrée courante.
+  // Input / output: the window fills with INPUT tokens (prompt: system
+  // + history + message + files) and OUTPUT tokens (the generated
+  // answer). Exact measurement of the last generation (LiteLLM usage) when it
+  // exists; otherwise a chars/4 estimate of the current input.
   const used = Math.max(ctxUsed, estTokens);
   const inTokens = ioTokens?.prompt ?? estTokens;
   const outTokens = ioTokens?.completion ?? 0;
-  // Décomposition du contenu pour « Fenêtre de contexte » : prompt système vs
-  // messages/fichiers (même estimation chars/4). Le backend ne fournit pas le
-  // décompte par segment, on estime donc la part relative — assez fidèle pour
-  // visualiser ce qui occupe la fenêtre.
+  // Content breakdown for « Fenêtre de contexte »: system prompt vs
+  // messages/files (same chars/4 estimate). The backend does not provide the
+  // per-segment count, so we estimate the relative share — faithful enough to
+  // visualize what occupies the window.
   const systemTokens = Math.round(settings.system.length / 4);
   const contentTokens = Math.round(contentChars / 4);
   const totalEstimate = Math.max(1, systemTokens + contentTokens);
@@ -2845,11 +2845,11 @@ export default function PlaygroundPage() {
   const ctxLevel: "accent" | "warning" | "error" =
     used / max >= 0.95 ? "error" : used / max >= 0.8 ? "warning" : "accent";
 
-  // Liste d'historique : recherche par titre + épinglées en tête, puis récentes.
+  // History list: search by title + pinned first, then recent.
   const q = histQuery.trim().toLowerCase();
-  // `filter().sort()` sur toutes les conversations était refait à CHAQUE rendu,
-  // donc à chaque token reçu, alors que la liste n'est lue que dans la boîte
-  // « Historique » : on ne la calcule que lorsqu'elle est ouverte.
+  // `filter().sort()` over all conversations was redone on EVERY render,
+  // hence on every token received, while the list is only read in the
+  // « Historique » box: we only compute it when it is open.
   const visibleConvs = useMemo(
     () => (historyOpen
       ? conversations
@@ -2868,9 +2868,9 @@ export default function PlaygroundPage() {
   const streamingDocActive =
     streaming && lastMsg?.role === "assistant" && isDocTask(messages[messages.length - 2]?.content ?? "");
   const liveContent = streamingDocActive ? (lastMsg?.content ?? "") : "";
-  // Fichier de code en cours d'écriture : il s'affiche DIRECTEMENT dans le volet,
-  // pas dans le chat. Sur écran étroit il n'y a pas de volet — on le laisse alors
-  // défiler dans le chat, sinon l'utilisateur ne verrait rien s'écrire.
+  // Code file being written: it displays DIRECTLY in the panel,
+  // not in the chat. On a narrow screen there is no panel — we then let it
+  // scroll in the chat, otherwise the user would see nothing being written.
   const liveCode =
     streaming && !isNarrow && lastMsg?.role === "assistant" && !streamingDocActive
       ? openCodeFence(lastMsg.content ?? "")
@@ -2879,9 +2879,9 @@ export default function PlaygroundPage() {
     ? titleFromContext((lastMsg?.content ?? "").slice(0, liveCode.start)) || `${liveCode.lang}`
     : "";
   const showLiveDoc = liveDocOpen && streamingDocActive;
-  // Entre deux fichiers (bloc précédent refermé, suivant pas commencé), le volet
-  // garde le dernier fichier terminé au lieu de se vider. Dérivé du contenu, sans
-  // état : rien à synchroniser, donc rien à désynchroniser.
+  // Between two files (previous block closed, next not started), the panel
+  // keeps the last finished file instead of emptying. Derived from content, no
+  // state: nothing to synchronize, hence nothing to desynchronize.
   const dernierFini =
     streaming && !isNarrow && lastMsg?.role === "assistant" && !streamingDocActive
       ? (parseArtifacts(lastMsg.content ?? "", false, t).artifacts.slice(-1)[0] ?? null)
@@ -2908,45 +2908,45 @@ export default function PlaygroundPage() {
       ? t("Rédaction en cours…")
       : (panelIsCode && epingle?.kind === "code" ? epingle.lang : "");
   const panelLang = liveCode ? liveCode.lang : (epingle?.kind === "code" ? epingle.lang : "text");
-  // Une page HTML terminée peut être REGARDÉE, pas seulement lue en code. On ne
-  // le propose pas tant qu'elle s'écrit : un rendu à moitié écrit clignote.
+  // A finished HTML page can be WATCHED, not only read as code. We do not
+  // offer it while it is being written: a half-written render flickers.
   const panelEstHtml = !liveCode && panelIsCode && /^html?$/i.test(panelLang);
   const panelDownloadName = panelIsCode
     ? nomTelechargeable(panelTitle, panelLang)
     : `${slugify(panelTitle)}.md`;
   const panelDownloadMime = panelIsCode ? mimePourLangage(panelLang) : "text/markdown";
-  // Publie la page à prévisualiser dès que son contenu change. Écriture externe
-  // (réseau) suivie d'une mise à jour d'état APRÈS l'await : pas de rendu en
-  // cascade. Rien n'est publié tant qu'on ne regarde pas un aperçu.
+  // Publishes the page to preview as soon as its content changes. External write
+  // (network) followed by a state update AFTER the await: no cascading
+  // render. Nothing is published while no preview is being watched.
   useEffect(() => {
     let annule = false;
     if (!panelEstHtml || !htmlPreview || !panelContent) {
-      // Remise à zéro différée : mettre l'état à jour dans le CORPS de l'effet
-      // déclencherait un rendu en cascade.
+      // Deferred reset: updating state in the BODY of the effect
+      // would trigger a cascading render.
       void Promise.resolve().then(() => { if (!annule) setPreviewUrl(""); });
       return () => { annule = true; };
     }
     void sendJSON<{ ok: boolean; id?: string }>("/playground/preview", csrf, { html: panelContent })
       .then((r) => {
         if (annule || !r.ok || !r.id) return;
-        setErreurApercu("");            // nouvelle page : on repart d'un état propre
+        setErreurApercu("");            // new page: we start from a clean state
         setPreviewUrl(`/playground/preview/${r.id}`);
       })
       .catch(() => {});
     return () => { annule = true; };
   }, [panelEstHtml, htmlPreview, panelContent, csrf]);
 
-  // L'aperçu remonte ses erreurs d'exécution. Une page peut être parfaitement
-  // formée et ne rien faire — mauvaise version de bibliothèque, méthode
-  // inexistante — et aucune analyse du texte ne peut le voir. Seule l'exécution
-  // le dit, et c'est l'aperçu qui exécute.
-  // Fenêtres d'aperçu légitimes. L'iframe a une origine OPAQUE (sandbox sans
-  // allow-same-origin), donc `e.origin` vaut « null » et ne prouve rien : sans
-  // contrôle de `e.source`, n'importe quelle fenêtre ayant une référence sur
-  // cette page (cadre, `window.opener`) pouvait injecter un faux message
-  // d'erreur — affiché dans un Banner, puis renvoyé au modèle par « Corriger ».
-  // Un WeakSet couvre les DEUX iframes d'aperçu (elles ne sont pas forcément
-  // montées exclusivement selon la mise en page) et ne retient rien.
+  // The preview reports its runtime errors. A page can be perfectly
+  // well-formed and do nothing — wrong library version, non-existent
+  // method — and no text analysis can see it. Only execution
+  // says so, and the preview is what executes.
+  // Legitimate preview windows. The iframe has an OPAQUE origin (sandbox without
+  // allow-same-origin), so `e.origin` is « null » and proves nothing: without
+  // checking `e.source`, any window holding a reference to
+  // this page (frame, `window.opener`) could inject a fake error
+  // message — displayed in a Banner, then sent back to the model via « Corriger ».
+  // A WeakSet covers BOTH preview iframes (they are not necessarily
+  // mounted exclusively depending on the layout) and retains nothing.
   const apercuWindows = useRef(new WeakSet<Window>());
   const refApercu = useCallback((el: HTMLIFrameElement | null) => {
     const w = el?.contentWindow;
@@ -2959,7 +2959,7 @@ export default function PlaygroundPage() {
       const d = e.data as { cronosPreviewError?: unknown } | null;
       const msg = d && typeof d.cronosPreviewError === "string" ? d.cronosPreviewError : null;
       if (!msg) return;
-      // Contenu produit par la page générée : jamais interprété, seulement affiché.
+      // Content produced by the generated page: never interpreted, only displayed.
       setErreurApercu((prec) => prec || msg.slice(0, 300));
     }
     window.addEventListener("message", surMessage);
@@ -2973,11 +2973,11 @@ export default function PlaygroundPage() {
     onScroll: onPanelScroll,
     scrollToBottom: panelJumpDown,
   } = useStickToBottom(panelContent, showLive);
-  // CodeBlock gère lui-même son défilement (dès qu'on lui donne un maxHeight) et
-  // n'expose pas ce conteneur. Sans ça, un fichier long est ROGNÉ par un enfant
-  // en overflow:hidden : plus rien ne déborde, donc plus rien ne défile et le
-  // bouton « Descendre » n'apparaît jamais. Même remède que les logs de l'admin :
-  // on pose la ref sur le parent et on descend chercher l'élément défilable.
+  // CodeBlock handles its own scrolling (as soon as it gets a maxHeight) and
+  // does not expose that container. Without this, a long file is CLIPPED by a
+  // child in overflow:hidden: nothing overflows anymore, so nothing scrolls and
+  // the « Descendre » button never appears. Same remedy as the admin logs:
+  // we put the ref on the parent and dig down for the scrollable element.
   const panelScrollRef = useCallback(
     (node: HTMLElement | null) => {
       if (!node) return panelScrollRefBrut(null);
@@ -2990,18 +2990,18 @@ export default function PlaygroundPage() {
     },
     [panelScrollRefBrut],
   );
-  // Salutation horaire pour le premier message (type Claude). « soir » à partir de 18h.
+  // Time-of-day greeting for the first message (Claude-style). « soir » from 18h.
   const playHour = new Date().getHours();
   const greeting =
     playHour >= 18 || playHour < 5
       ? t("Bonsoir, comment allez-vous ?")
       : t("Bonjour, comment allez-vous ?");
-  // Premier message : on centre le composeur avec la salutation au-dessus.
+  // First message: we center the composer with the greeting above.
   const isFirstEmpty = messages.length === 0 && !isSettingsOpen && !streaming;
 
-  // Placeholder rotatif : quelques textes qui défilent (dont l'astuce « / »
-  // pour appeler une compétence). Le timer est indépendant du rendu : il fait
-  // simplement avancer l'index dans PLACEHOLDER_TEXTS.
+  // Rotating placeholder: a few texts that rotate (including the « / » trick
+  // to call a skill). The timer is independent of rendering: it simply
+  // advances the index in PLACEHOLDER_TEXTS.
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setPlaceholderIdx((i) => (i + 1) % PLACEHOLDER_TEXTS.length), 5000);
@@ -3009,13 +3009,13 @@ export default function PlaygroundPage() {
   }, []);
   const placeholderText = t(PLACEHOLDER_TEXTS[placeholderIdx] ?? PLACEHOLDER_TEXTS[0]);
 
-  // Mode « /compétence » : dès que le champ commence par un « / », on affiche
-  // le menu des compétences. Le texte après « / » sert de filtre.
+  // « /compétence » mode: as soon as the input starts with a « / », we show
+  // the skills menu. The text after « / » acts as a filter.
   const slashQuery = input.startsWith("/") ? input.slice(1).trim().toLowerCase() : null;
 
-  // Commandes « / » spéciales : /skill-creator (ou /create, /new) ouvre le
-  // créateur de compétence et vide le champ. Détecté à la saisie (onChange),
-  // pas dans un effect, pour respecter la règle react-hooks/set-state-in-effect.
+  // Special « / » commands: /skill-creator (or /create, /new) opens the
+  // skill creator and clears the input. Detected on typing (onChange),
+  // not in an effect, to respect the react-hooks/set-state-in-effect rule.
   function handleInput(v: string) {
     const cmd = v.startsWith("/") ? v.slice(1).trim().toLowerCase() : null;
     if (cmd && SLASH_CREATE_COMMANDS.includes(cmd)) {
@@ -3025,7 +3025,7 @@ export default function PlaygroundPage() {
     setInput(v);
   }
 
-  // Compétences filtrées (pour la navigation clavier + le menu) : base puis créées.
+  // Filtered skills (for keyboard navigation + the menu): base then created.
   const baseHits = useMemo(
     () => (slashQuery !== null ? skills.filter((s) => s.builtin && skillMatches(s, slashQuery)) : []),
     [skills, slashQuery],
@@ -3034,15 +3034,15 @@ export default function PlaygroundPage() {
     () => (slashQuery !== null ? skills.filter((s) => !s.builtin && skillMatches(s, slashQuery)) : []),
     [skills, slashQuery],
   );
-  // Ligne 0 = carte « créer », lignes 1..n = compétences (base puis créées).
+  // Row 0 = « créer » card, rows 1..n = skills (base then created).
   const skillHits = useMemo(() => [...baseHits, ...customHits], [baseHits, customHits]);
   const menuRows = 1 + skillHits.length;
 
-  // Ligne surlignée dans le menu (0 = « Créer un skill », 1..n = compétences).
+  // Highlighted row in the menu (0 = « Créer un skill », 1..n = skills).
   const [skillSel, setSkillSel] = useState(1);
   useEffect(() => {
-    // On remonte le surlignage à la première compétence à chaque changement de
-    // filtre (sync depuis l'état du champ, cas légitime autorisé par le lint).
+    // We move the highlight back to the first skill on every filter
+    // change (sync from the input state, legitimate case allowed by the lint).
     if (slashQuery !== null) {
       /* eslint-disable react-hooks/set-state-in-effect */
       setSkillSel(1);
@@ -3050,18 +3050,18 @@ export default function PlaygroundPage() {
     }
   }, [slashQuery]);
 
-  // Handler de navigation clavier, maintenu à jour à chaque rendu via une ref :
-  // l'effet d'écoute ne dépend que de l'ouverture du menu, sans dépendances
-  // instables (fonctions / tableaux recréés), donc 0 warning exhaustive-deps.
+  // Keyboard navigation handler, kept up to date on every render via a ref:
+  // the listener effect only depends on the menu being open, with no unstable
+  // dependencies (recreated functions / arrays), hence 0 exhaustive-deps warnings.
   const onMenuKeyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   useEffect(() => {
     onMenuKeyRef.current = (e: KeyboardEvent) => {
-      // Aucune compétence ne correspond au filtre : ce n'est pas une commande,
-      // c'est un message qui COMMENCE par « / » (un chemin de fichier, une
-      // commande d'un autre outil…). Le menu n'est alors qu'une ligne « créer un
-      // skill », et Entrée ouvrait le créateur EN VIDANT LE CHAMP : le message
-      // écrit était détruit sans un mot. On ne touche plus au clavier dans ce
-      // cas — Entrée envoie, comme pour n'importe quel message.
+      // No skill matches the filter: this is not a command,
+      // it is a message that STARTS with « / » (a file path, a
+      // command from another tool…). The menu is then just a « créer un
+      // skill » row, and Enter opened the creator WHILE CLEARING THE INPUT: the
+      // written message was destroyed without a word. We no longer touch the
+      // keyboard in this case — Enter sends, as for any message.
       if (!skillHits.length) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -3072,15 +3072,15 @@ export default function PlaygroundPage() {
         e.stopPropagation();
         setSkillSel((s) => Math.max(s - 1, 0));
       } else if (e.key === "Escape") {
-        // Échap ne vide JAMAIS le champ : il servait à « fermer » le menu, mais
-        // le menu n'a pas d'état propre (il suit le texte du champ), donc la
-        // touche effaçait tout ce qui était écrit. On la laisse au compositeur.
+        // Escape NEVER clears the input: it used to "close" the menu, but
+        // the menu has no state of its own (it follows the input text), so the
+        // key erased everything that was typed. We leave it to the composer.
         e.stopPropagation();
       } else if (e.key === "Enter") {
         const sel = Math.min(skillSel, menuRows - 1);
         if (sel === 0) {
-          // La ligne « créer un skill » n'est atteignable au clavier que par ↑/↓
-          // quand des compétences existent : on ne l'ouvre plus par accident.
+          // The « créer un skill » row is only reachable by keyboard with ↑/↓
+          // when skills exist: we no longer open it by accident.
           e.preventDefault();
           e.stopPropagation();
           openSkillCreator();
@@ -3100,16 +3100,16 @@ export default function PlaygroundPage() {
     function onMenuKey(e: KeyboardEvent) {
       onMenuKeyRef.current(e);
     }
-    // Écoute en PHASE DE CAPTURE sur la fenêtre pour devancer le champ (sinon
-    // ↑/↓ relit l'historique et Entrée envoie le message).
+    // CAPTURE-PHASE listener on the window to beat the input (otherwise
+    // ↑/↓ re-reads the history and Enter sends the message).
     window.addEventListener("keydown", onMenuKey, true);
     return () => window.removeEventListener("keydown", onMenuKey, true);
   }, [slashQuery]);
   const effectiveSel = Math.min(skillSel, menuRows - 1);
 
-  // Nœud « composer » réutilisé à la fois dans le layout ancré en bas (conversation
-  // en cours) et centré sur le premier message. Barre en bas : Attacher (gauche),
-  // sélecteur de modèle + bouton micro/envoyer (droite).
+  // « composer » node reused both in the bottom-anchored layout (ongoing
+  // conversation) and centered on the first message. Bottom bar: Attacher (left),
+  // model selector + mic/send button (right).
   const composerNode = (
     <VStack gap={2} padding={4}>
       {/* Édition en place : la conversation reste affichée, on signale que le
@@ -3242,10 +3242,10 @@ export default function PlaygroundPage() {
         placeholder={placeholderText}
         input={
           <ChatComposerInput value={input} onChange={handleInput} onSubmit={send}
-                                  // Coller ou déposer un fichier dans le champ :
-                                  // le composant appelle `onFiles` — la page ne la
-                                  // passait pas, donc l'événement était avalé sans
-                                  // rien dire (`preventDefault()` inconditionnel).
+                                  // Pasting or dropping a file in the input:
+                                  // the component calls `onFiles` — the page did not
+                                  // pass it, so the event was swallowed without
+                                  // saying anything (unconditional `preventDefault()`).
                                   onFiles={(files) => handleFiles(files as unknown as FileList)} />
         }
         drawer={
@@ -3420,9 +3420,9 @@ export default function PlaygroundPage() {
                 size="sm"
                 icon={<Icon icon={PlusIcon} size="sm" />}
                 isIconOnly
-                // `newConversation` sort tant qu'une réponse se génère : un
-                // bouton actif au clic muet laissait croire à une panne. On dit
-                // l'indisponibilité au lieu de l'ignorer — comme « Nouvel onglet ».
+                // `newConversation` bails out while an answer is generating: a
+                // active button with a silent click made it look like a failure. We say
+                // the unavailability instead of ignoring it — like « Nouvel onglet ».
                 isDisabled={streaming}
                 onClick={newConversation}
               />
@@ -3526,8 +3526,8 @@ export default function PlaygroundPage() {
                       label={t("Fermer")}
                       variant="ghost"
                       size="sm"
-                      // Fermer un onglet en pleine génération était refusé en
-                      // silence par `closeTab` : on le montre.
+                      // Closing a tab mid-generation was refused
+                      // silently by `closeTab`: we show it.
                       isDisabled={streaming}
                       isIconOnly
                       icon={<Icon icon={XMarkIcon} size="sm" />}
@@ -3583,53 +3583,53 @@ export default function PlaygroundPage() {
                   // A clarifying question the model asked (rendered as clickable
                   // answers). Takes precedence over document/code artifact detection.
                   const ask = m.role === "assistant" && !streamingThis ? parseAsk(m.content) : null;
-                  // Les fichiers TERMINÉS deviennent des cartes tout de suite, sans
-                  // attendre la fin de la réponse : parseArtifacts n'extrait que les
-                  // blocs dont la fence de fermeture est arrivée, celui en cours reste
-                  // donc de côté (volet) et non dans le chat. `allowDoc` reste réservé
-                  // à la fin : basculer tout le message en document au milieu du flux
-                  // ferait disparaître le texte déjà lu.
-                  // Le fichier en cours d'écriture part dans le volet : on le
-                  // retire une bonne fois du contenu analysé, pour qu'il ne
-                  // ressorte ni en carte ni dans la prose du chat.
+                  // FINISHED files become cards right away, without
+                  // waiting for the answer to end: parseArtifacts only extracts
+                  // blocks whose closing fence has arrived, the one in progress stays
+                  // aside (panel) and not in the chat. `allowDoc` stays reserved
+                  // for the end: flipping the whole message into a document mid-stream
+                  // would make the already read text disappear.
+                  // The file being written goes into the panel: we
+                  // remove it once and for all from the analyzed content, so it
+                  // comes out neither as a card nor in the chat prose.
                   const contenuAffiche =
                     streamingThis && isLast && liveCode ? m.content.slice(0, liveCode.start) : m.content;
                   const arts = m.role === "assistant" && !ask
                     ? parseArtifacts(
-                        // Fence jamais refermée : on la referme, sinon le fichier
-                        // coupé reste du code brut au milieu de la bulle.
+                        // Never-closed fence: we close it, otherwise the
+                        // cut file stays as raw code in the middle of the bubble.
                         streamingThis ? contenuAffiche : contenuCloture(contenuAffiche),
                         !streamingThis && isDocTask(messages[i - 1]?.content ?? ""), t)
                     : null;
-                  // Message de reprise : il ne porte que la fin du fichier.
+                  // Resume message: it only carries the end of the file.
                   const suite = m.role === "assistant" && !streamingThis
                     ? fusionDuMessage(messages, i, t)
                     : [];
-                  // Un message peut ne contenir que des MODIFICATIONS : le fichier
-                  // à montrer est alors le résultat, pas ce que le message contient.
+                  // A message may contain only EDITS: the file
+                  // to show is then the result, not what the message contains.
                   const modifs = m.role === "assistant" && !streamingThis
                     ? appliquerEdits(messages, i, t)
                     : { fichiers: [], echecs: [] };
-                  // Le modèle a renvoyé « la partie corrigée » au lieu du fichier.
+                  // The model returned « la partie corrigée » instead of the file.
                   const fragments = m.role === "assistant" && !streamingThis
                     ? fragmentsDuMessage(messages, i, t)
                     : [];
-                  // Le flux a cassé APRÈS avoir livré du texte : ce n'est pas une
-                  // heuristique, c'est une erreur constatée. Sans ce signalement, la
-                  // réponse s'arrêtait en plein mot sans que rien ne l'explique.
+                  // The stream broke AFTER delivering text: this is not a
+                  // heuristic, it is an observed error. Without this flag, the
+                  // answer stopped mid-word with nothing to explain it.
                   const coupeReseau = !!m.isError && m.role === "assistant"
                     && m.content.length > 200 && !streamingThis;
-                  // Un message de REPRISE ne montre que le fichier reconstitué. S'il
-                  // n'y avait rien à compléter, il ne montre aucun fichier : son
-                  // contenu est la suite d'un texte, pas un livrable. Sans ce test,
-                  // la carte « fichier-2.txt » (un demi-script) revenait dans le fil.
+                  // A RESUME message only shows the rebuilt file. If
+                  // there was nothing to complete, it shows no file: its
+                  // content is the continuation of a text, not a deliverable. Without this test,
+                  // the « fichier-2.txt » card (half a script) came back into the thread.
                   const estSuite = m.role === "assistant" && !streamingThis
                     && estReprise(messages[i - 1]);
                   const items = estSuite
                     ? [...suite, ...modifs.fichiers]
                     : [...(arts?.artifacts ?? []), ...modifs.fichiers];
-                  // Un fichier qui se termine par </html> mais dont le script ne compile
-                  // pas est inutilisable : rien ne le signalait, la page restait vide.
+                  // A file ending with </html> but whose script does not compile
+                  // is unusable: nothing reported it, the page stayed blank.
                   const fichierCasse = !streamingThis
                     ? items.find((a) => a.kind === "code" && scriptCasse(a.content))
                     : undefined;
@@ -3640,9 +3640,9 @@ export default function PlaygroundPage() {
                     : t("Voici le fichier — ouvre-le pour le copier.");
                   // While streaming, hide a half-written ```ask block (raw JSON) —
                   // the question UI appears once the block is complete.
-                  // Ce qui reste à afficher dans le chat pendant le flux : ni le
-                  // bloc ```ask à moitié écrit (JSON brut), ni le fichier en cours
-                  // d'écriture — ce dernier s'écrit dans le volet.
+                  // What is left to display in the chat during the stream: neither the
+                  // half-written ```ask block (raw JSON), nor the file being
+                  // written — the latter is written in the panel.
                   const streamingBody =
                     streamingThis && m.content.includes("```ask")
                       ? m.content.split("```ask")[0]
@@ -3653,14 +3653,14 @@ export default function PlaygroundPage() {
                   // sentence (its first line) — never the questions/options text,
                   // which live in the interactive card.
                   const askIntro = ask ? (ask.prose.split("\n").map((s) => s.trim()).find(Boolean) ?? "").slice(0, 280) : "";
-                  // Le bloc ```edit lui-même n'a rien à faire dans le chat : on
-                  // garde la phrase d'explication, le résultat part en carte.
-                  // Le bloc ```edit est TOUJOURS retiré du chat, même quand il n'a
-                  // pas pu être appliqué : c'est du protocole, pas une réponse. En
-                  // cas d'échec, le bandeau ci-dessous l'explique.
+                  // The ```edit block itself has no business in the chat: we
+                  // keep the explanation sentence, the result goes to a card.
+                  // The ```edit block is ALWAYS removed from the chat, even when it
+                  // could not be applied: it is protocol, not an answer. In
+                  // case of failure, the banner below explains it.
                   const contientEdit = m.content.includes("```edit");
-                  // Une reprise n'a pas de prose à montrer : tout son contenu est
-                  // la fin du fichier, déjà recollée dans la carte.
+                  // A resume has no prose to show: all its content is
+                  // the end of the file, already glued into the card.
                   const proseHorsEdit = estSuite && suite.length
                     ? ""
                     : (arts?.prose ?? m.content)
@@ -3673,8 +3673,8 @@ export default function PlaygroundPage() {
                       : contientEdit && !streamingThis
                         ? (proseHorsEdit || t("Modification proposée."))
                         : streamingBody;
-                  // Bloc présent mais rien appliqué et rien signalé : le parseur
-                  // n'a pas pu le lire du tout. À dire, sinon la réponse paraît vide.
+                  // Block present but nothing applied and nothing reported: the parser
+                  // could not read it at all. Must be said, otherwise the answer looks empty.
                   const editIllisible =
                     contientEdit && !streamingThis && !modifs.fichiers.length && !modifs.echecs.length;
                   // A document being streamed shows only a live-updating card in
@@ -3695,9 +3695,9 @@ export default function PlaygroundPage() {
                                 <HStack gap={1} vAlign="center">
                                   <Text type="supporting" color="secondary">
                                     {streamingThis && liveStats
-                                      ? // Pendant le flux : compté sur les deltas SSE, donc « ~ ».
-                                        // Une reprise automatique est dite : sinon la réponse
-                                        // semble repartir de nulle part.
+                                      ? // During the stream: counted on the SSE deltas, hence « ~ ».
+                                        // An automatic resume is announced: otherwise the answer
+                                        // seems to come out of nowhere.
                                         (reprise
                                           ? `${t("Reprise automatique")} ${reprise}/${MAX_REPRISES_AUTO} · `
                                           : "") + `~${liveStats.tokens} tokens · ${liveStats.tps} tok/s`
@@ -4020,9 +4020,9 @@ export default function PlaygroundPage() {
                   </HStack>
                 )}
                 {panelEstHtml && htmlPreview && erreurApercu ? (
-                  /* La page s'ouvre mais lève une erreur : elle est bien formée et
-                     pourtant inutilisable. Sans ce bandeau, l'utilisateur voit un
-                     aperçu vide ou figé sans savoir pourquoi. */
+                  /* The page opens but raises an error: it is well-formed and
+                     yet unusable. Without this banner, the user sees an
+                     empty or frozen preview with no idea why. */
                   <HStack padding={3}>
                     <Banner
                       status="warning"
@@ -4041,16 +4041,16 @@ export default function PlaygroundPage() {
                   </HStack>
                 ) : null}
                 {panelEstHtml && htmlPreview ? (
-                  /* Page générée par le modèle, dans une iframe ISOLÉE.
-                     `allow-scripts` SANS `allow-same-origin` : la page peut
-                     s'exécuter — sinon boutons et interactions sont morts, ce qui
-                     rend l'aperçu inutile pour une page interactive — mais son
-                     origine reste OPAQUE. Elle ne peut donc ni lire les cookies
-                     de session, ni toucher au DOM de la page qui l'héberge, ni
-                     appeler l'API avec les droits de l'utilisateur.
-                     `allow-same-origin` ne doit JAMAIS être ajouté ici : combiné à
-                     `allow-scripts`, il annule le bac à sable et un HTML généré
-                     deviendrait du code exécuté dans notre propre origine. */
+                  /* Model-generated page, in an ISOLATED iframe.
+                     `allow-scripts` WITHOUT `allow-same-origin`: the page can
+                     run — otherwise buttons and interactions are dead, which
+                     makes the preview useless for an interactive page — but its
+                     origin stays OPAQUE. It can therefore neither read session
+                     cookies, nor touch the DOM of the hosting page, nor
+                     call the API with the user's rights.
+                     `allow-same-origin` must NEVER be added here: combined with
+                     `allow-scripts`, it cancels the sandbox and a generated HTML
+                     would become code executed in our own origin. */
                   <iframe
                     ref={refApercu}
                     title={panelTitle}
@@ -4447,8 +4447,8 @@ export default function PlaygroundPage() {
                 }
                 content={
                   panelEstHtml && htmlPreview ? (
-                    /* Même aperçu isolé qu'en volet : le plein écran sert
-                       justement à REGARDER la page, pas à relire son code. */
+                    /* Same isolated preview as in the panel: full screen is meant
+                       precisely to WATCH the page, not re-read its code. */
                     <iframe
                       ref={refApercu}
                       title={panelTitle}

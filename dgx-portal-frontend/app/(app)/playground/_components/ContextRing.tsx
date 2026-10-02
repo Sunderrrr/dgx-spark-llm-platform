@@ -2,10 +2,10 @@
 
 import { useT } from "@/lib/i18n";
 
-// Anneau circulaire de contexte : piste grise + arc qui se remplit en bleu au
-// fur et à mesure de l'usage (ambre à 80 %, rouge à 95 %). Astryx n'a pas de
-// jauge circulaire, on dessine donc un SVG minimal (deux <circle>, pas de
-// <div>). Les couleurs sont des tokens, pas des valeurs en dur.
+// Circular context ring: gray track + arc that fills in blue as usage grows
+// (amber at 80 %, red at 95 %). Astryx has no circular gauge, so we draw a
+// minimal SVG (two <circle>, no <div>). Colors are tokens, not hardcoded
+// values.
 export function ContextRing({ used, max }: { used: number; max: number }) {
   const t = useT();
   const ratio = Math.min(1, Math.max(0, used / (max || 1)));
@@ -25,7 +25,7 @@ export function ContextRing({ used, max }: { used: number; max: number }) {
       role="img"
       aria-label={`${t("Utilisation du contexte")} : ${pct} %`}
     >
-      {/* Piste grise */}
+      {/* Gray track */}
       <circle
         cx={size / 2}
         cy={size / 2}
@@ -34,7 +34,7 @@ export function ContextRing({ used, max }: { used: number; max: number }) {
         stroke="var(--color-border-emphasized)"
         strokeWidth={stroke}
       />
-      {/* Arc de remplissage, part du haut, sens horaire */}
+      {/* Fill arc, starts at the top, clockwise */}
       <circle
         cx={size / 2}
         cy={size / 2}

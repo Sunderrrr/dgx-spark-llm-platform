@@ -10,53 +10,53 @@ export type ChatMsg = {
   ts?: number;
   isError?: boolean;
   attachmentCount?: number;
-  /** Images jointes (URL `data:`), envoyées au modèle s'il sait les lire. */
+  /** Attached images (`data:` URLs), sent to the model if it can read them. */
   images?: string[];
   // Sent to the model but not rendered in the chat (e.g. the answers submitted
   // from a clarifying-question card, which the user doesn't want to see echoed).
   hidden?: boolean;
-  /** Réponse coupée net par le plafond de tokens : on le signale et on propose
-   *  de reprendre là où le modèle s'est arrêté. */
+  /** Response cut short by the token ceiling: we flag it and offer
+   *  to resume where the model stopped. */
   truncated?: boolean;
 };
 
 export type Attachment = {
   name: string;
   content: string;
-  /** Pièce jointe IMAGE : URL `data:` déjà réduite, `content` reste vide. */
+  /** IMAGE attachment: already-downscaled `data:` URL, `content` stays empty. */
   image?: string;
 };
 
 export type Conversation = {
-  /** `client_id` côté serveur : une chaîne, jamais un nombre. */
+  /** `client_id` on the server side: a string, never a number. */
   id: string;
   title: string;
   ts: number;
   model: string;
-  // `hidden` est conservé : une réponse à des questions doit rester cachée
-  // après rechargement, sinon les index se décalent et le rendu change.
+  // `hidden` is kept: an answer to questions must stay hidden
+  // after reload, otherwise the indexes shift and the rendering changes.
   messages: {
     role: Role;
     content: string;
     hidden?: boolean;
-    // Conservés côté serveur, donc utiles à l'affichage après rechargement :
-    // sans eux, une réponse coupée repassait pour complète (voir persist()).
+    // Kept server-side, so useful for display after reload:
+    // without them, a truncated answer looked complete again (see persist()).
     isError?: boolean;
     truncated?: boolean;
   }[];
-  // Liste d'historique BORNÉE : au-delà d'un budget d'octets, le serveur ne
-  // transporte que les métadonnées et marque la conversation. Elle se recharge
-  // à l'unité à l'ouverture (`fetchConversation`) — sans ce drapeau, une
-  // conversation lourde s'ouvrirait sur un fil vide.
+  // BOUNDED history list: beyond a byte budget, the server only
+  // carries the metadata and marks the conversation. It reloads
+  // item by item on opening (`fetchConversation`) — without this flag, a
+  // heavy conversation would open on an empty thread.
   messagesOmis?: boolean;
 };
 
 export type PlaygroundData = {
   running_models: string[];
   model_limits: Record<string, number>;
-  /** Modèles qui lisent les images (lu dans leurs arguments de lancement). */
+  /** Models that read images (read from their launch arguments). */
   model_vision?: Record<string, boolean>;
-  /** Le playground consomme la clé de l'utilisateur : sans clé, rien ne part. */
+  /** The playground uses the user's key: without a key, nothing goes out. */
   has_key: boolean;
 };
 
@@ -66,8 +66,8 @@ export type Settings = {
   maxTokens: number;
   topP: number;
   reasoning: boolean;
-  /** Profondeur de réflexion (chat_template_kwargs.reasoning_effort). '' = la
-   *  valeur par défaut du template du modèle — les valeurs acceptées dépendent
-   *  du modèle : le backend retente sans si le template refuse. */
+  /** Reasoning depth (chat_template_kwargs.reasoning_effort). '' = the
+   *  model template's default value — the accepted values depend
+   *  on the model: the backend retries without it if the template refuses. */
   reasoningEffort: string;
 };

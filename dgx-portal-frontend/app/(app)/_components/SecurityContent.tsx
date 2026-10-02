@@ -40,12 +40,12 @@ type SessionsState = {
   passkey_possible?: boolean;
 };
 
-/** D'où vient le mot de passe, et ce qu'on peut en dire.
+/** Where the password lives, and what can be said about it.
  *
- * Les sources du portail sont CUMULATIVES (`user_sources`) : un compte peut
- * être local ET avoir servi en SSO. On ne devine donc pas « SSO » à partir de
- * l'absence de ligne locale — on lit ce que le serveur répond, et quand il ne
- * sait pas, on le dit au lieu de proposer un formulaire qui échouera.
+ * The portal's sources are CUMULATIVE (`user_sources`): an account can be
+ * local AND have served in SSO. So we do not guess « SSO » from the absence
+ * of a local row — we read what the server answers, and when it does not
+ * know, we say so instead of offering a form that will fail.
  */
 function motDePasseInfo(gestion: string | undefined) {
   switch (gestion) {
@@ -84,22 +84,22 @@ export function SecurityContent() {
   const { who } = useWhoami();
   const [sec, setSec] = useState<SecurityState | null>(null);
   const [busy, setBusy] = useState(false);
-  // Sessions actives du compte : liste + révocation (unitaire ou « les autres »).
+  // Active sessions of the account: list + revocation (single or « les autres »).
   const [sess, setSess] = useState<SessionsState | null>(null);
-  const [sessBusy, setSessBusy] = useState<string | null>(null); // id de session ou "all"
-  // Changement de mot de passe (comptes locaux uniquement).
+  const [sessBusy, setSessBusy] = useState<string | null>(null); // session id or "all"
+  // Password change (local accounts only).
   const [pwCurrent, setPwCurrent] = useState("");
   const [pwNew, setPwNew] = useState("");
   const [pwConfirm, setPwConfirm] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [pwMsg, setPwMsg] = useState<{ status: "success" | "error"; text: string } | null>(null);
-  // Ré-vérification requise pour toute suppression / bascule : on mémorise
-  // l'action en attente, puis on demande le mot de passe.
+  // Re-verification required for every deletion / toggle: we remember
+  // the pending action, then ask for the password.
   const [pendingAction, setPendingAction] = useState<{
-    // « register » passe par le MÊME dialogue que les deux autres : ajouter une
-    // clé est l'action qui ACTIVE la double authentification, et le serveur exige
-    // désormais le mot de passe (un cookie volé suffisait à poser SA clé et à
-    // enfermer la victime hors de son compte).
+    // « register » goes through the SAME dialog as the other two: adding a
+    // key is the action that ENABLES two-factor authentication, and the server
+    // now requires the password (a stolen cookie was enough to set THEIR key
+    // and lock the victim out of their account).
     kind: "toggle" | "remove" | "register";
     enabled?: boolean;
     credential_id?: string;
@@ -115,7 +115,7 @@ export function SecurityContent() {
     load();
   }, [load]);
 
-  /** Demande le mot de passe, puis enregistre réellement la clé (cf. confirmPassword). */
+  /** Asks for the password, then actually registers the key (cf. confirmPassword). */
   function addKey() {
     if (!supportsWebAuthn()) {
       showToast({ body: t("Ce navigateur ne supporte pas les clés de sécurité."), type: "error" });
@@ -125,18 +125,18 @@ export function SecurityContent() {
     setPendingAction({ kind: "register" });
   }
 
-  /** Crée la passkey — appelé une fois le mot de passe fourni. */
+  /** Creates the passkey — called once the password is provided. */
   async function enregistrerCle() {
     setBusy(true);
     try {
       const begin = await sendJSON<{
         publicKey?: Record<string, unknown>; nonce?: string; error?: string;
       }>("/api/security/register/begin", csrf, { password: pw });
-      // `begin` peut ÉCHOUER (mot de passe faux, compte SSO, plafond d'essais) :
-      // sans ce test, `createPasskey(undefined)` levait un TypeError et le
-      // message du serveur était remplacé par un « Échec de l'enregistrement »
-      // générique — constaté en test navigateur. `sendJSON` ne lève pas sur un
-      // 4xx, donc c'est bien ici que le refus se lit.
+      // `begin` can FAIL (wrong password, SSO account, attempt ceiling):
+      // without this test, `createPasskey(undefined)` threw a TypeError and the
+      // server message was replaced by a generic « Échec de l'enregistrement »
+      // — seen in browser testing. `sendJSON` does not throw on a 4xx,
+      // so this is where the refusal is read.
       if (!begin?.publicKey || !begin.nonce) {
         showToast({ body: t(begin?.error || "Échec de l'enregistrement de la clé."), type: "error" });
         return;
@@ -169,10 +169,10 @@ export function SecurityContent() {
     setBusy(true);
     try {
       if (pendingAction.kind === "register") {
-        // L'ajout de clé n'appelle pas le serveur ici : `enregistrerCle` fait le
-        // flux WebAuthn complet (begin → createPasskey → finish) avec ce mot de
-        // passe, gère ses messages et recharge l'état. Le dialogue se ferme
-        // avant, quel que soit le résultat.
+        // The key addition does not call the server here: `enregistrerCle` runs the
+        // full WebAuthn flow (begin → createPasskey → finish) with this
+        // password, handles its messages and reloads the state. The dialog closes
+        // beforehand, whatever the result.
         setPendingAction(null);
         await enregistrerCle();
         return;
@@ -207,11 +207,11 @@ export function SecurityContent() {
     }
   }
 
-  /** Révoque une session précise (les erreurs du serveur sont affichées
-   * telles quelles : messages français pensés pour l'utilisateur). */
-  /** Révoque une session précise. `t(res.error || …)` comme dans l'enregistrement
-   * de clé : une phrase serveur libre retombe sur elle-même (fallback silencieux),
-   * une clé connue est traduite — même motif aux trois handlers ci-dessous. */
+  /** Revokes a specific session (server errors are displayed
+   * as-is: French messages written for the user). */
+  /** Revokes a specific session. `t(res.error || …)` as in the key
+   * registration: a free server sentence falls back to itself (silent
+   * fallback), a known key is translated — same pattern in the three handlers below. */
   async function revokeSession(id: string) {
     if (!csrf || sessBusy) return;
     setSessBusy(id);
@@ -231,7 +231,7 @@ export function SecurityContent() {
     }
   }
 
-  /** Révoque toutes les sessions sauf celle-ci. */
+  /** Revokes every session except this one. */
   async function revokeOtherSessions() {
     if (!csrf || sessBusy) return;
     setSessBusy("all");
@@ -251,8 +251,8 @@ export function SecurityContent() {
     }
   }
 
-  /** Changement de mot de passe (comptes locaux). Le serveur répond 400 avec
-   * {ok:false, error} : message français affiché tel quel. */
+  /** Password change (local accounts). The server answers 400 with
+   * {ok:false, error}: French message displayed as-is. */
   async function changePassword() {
     if (!csrf || pwBusy) return;
     if (pwNew.length < 8 || pwNew !== pwConfirm) return;
@@ -280,26 +280,26 @@ export function SecurityContent() {
   const credentials = sec?.credentials ?? [];
   const sessions = sess?.sessions ?? [];
   const otherSessions = sessions.filter((s) => !s.current);
-  // Source du mot de passe : dite par le serveur (`/api/whoami` puis
-  // `/api/account/sessions` en repli). Tant qu'on ne sait pas, on n'affiche PAS
-  // le formulaire : l'ancien `?? true` supposait « compte local » par défaut et
-  // montrait donc un changeur de mot de passe à un compte SSO — le serveur le
-  // refusait ensuite, mais après coup.
+  // Password source: stated by the server (`/api/whoami` then
+  // `/api/account/sessions` as fallback). As long as we do not know, we do NOT
+  // display the form: the old `?? true` assumed « compte local » by default and
+  // therefore showed a password changer to an SSO account — the server
+  // refused it afterwards, but only after the fact.
   const gestion = who?.password_managed_by ?? sess?.password_managed_by;
   const info = motDePasseInfo(gestion);
   const passkeyPossible = who?.passkey_possible ?? sess?.passkey_possible ?? info.passkey;
-  // Suppression de compte : deux gestes distincts selon qui détient le compte.
+  // Account deletion: two distinct gestures depending on who owns the account.
   const [suppression, setSuppression] = useState(false);
   const [confirmSuppression, setConfirmSuppression] = useState("");
   const [mdpSuppression, setMdpSuppression] = useState("");
   const [suppressionBusy, setSuppressionBusy] = useState(false);
   const [suppressionMsg, setSuppressionMsg] = useState<string | null>(null);
 
-  /** Supprime le compte (local) ou efface ses données (compte d'annuaire).
+  /** Deletes the account (local) or erases its data (directory account).
    *
-   * Le serveur exécute `deprovisionner_compte` — le même chemin que la
-   * suppression par un admin — puis coupe les sessions : on ne peut donc pas
-   * rester connecté après. On l'annonce, puis on repart sur /login. */
+   * The server runs `deprovisionner_compte` — the same path as a deletion
+   * by an admin — then cuts the sessions: one therefore cannot stay
+   * logged in afterwards. We say so, then head back to /login. */
   async function supprimerCompte() {
     if (!csrf || suppressionBusy) return;
     setSuppressionBusy(true);
@@ -321,7 +321,7 @@ export function SecurityContent() {
           : t("Tes données du portail sont effacées. Ton compte, lui, existe toujours dans l'annuaire : demande à un administrateur de le bloquer si tu pars.")
           + (res.warning ? ` ${res.warning}` : ""),
       );
-      // Session déjà révoquée côté serveur : rester ici n'aurait aucun sens.
+      // Session already revoked server-side: staying here would make no sense.
       window.setTimeout(() => window.location.assign("/login"), res.deleted ? 2500 : 6000);
     } catch {
       setSuppressionMsg(t("Le serveur n'a pas répondu — réessaie."));
@@ -356,9 +356,9 @@ export function SecurityContent() {
               </Text>
             </>
           ) : (
-            /* Le portail ne peut pas re-vérifier un mot de passe SSO, or c'est
-               ce que la 2FA exige pour être modifiée : proposer l'interrupteur
-               ne mènerait qu'à « Mot de passe incorrect », ce qui est faux. */
+            /* The portal cannot re-verify an SSO password, yet that is
+               what 2FA requires to be changed: offering the toggle
+               would only lead to « Mot de passe incorrect », which is false. */
             <Banner
               status="info"
               title={t("Compte SSO : la double authentification se règle chez ton fournisseur d'identité, pas ici.")}
@@ -417,7 +417,7 @@ export function SecurityContent() {
         </VStack>
       </Card>
 
-      {/* Sessions actives — mêmes lignes que le détail côté admin */}
+      {/* Active sessions — same rows as the admin-side detail */}
       <Card>
         <VStack gap={3}>
           <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
@@ -452,7 +452,7 @@ export function SecurityContent() {
         </VStack>
       </Card>
 
-      {/* Mot de passe — comptes locaux ; LDAP/SSO le gèrent dans l'annuaire */}
+      {/* Password — local accounts; LDAP/SSO manage it in the directory */}
       <Card>
         <VStack gap={3}>
           <VStack gap={0}>
@@ -509,8 +509,8 @@ export function SecurityContent() {
         </VStack>
       </Card>
 
-      {/* Quitter la plateforme — le geste manquait complètement : il fallait
-          passer par un administrateur pour supprimer son propre compte. */}
+      {/* Leaving the platform — the gesture was completely missing: it
+          took an administrator to delete one's own account. */}
       <Card>
         <VStack gap={3}>
           <VStack gap={0}>

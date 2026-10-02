@@ -1,9 +1,9 @@
-// Assistance WebAuthn côté client (passkeys / YubiKey / clé 1Password).
+// Client-side WebAuthn help (passkeys / YubiKey / 1Password key).
 //
-// Le backend renvoie des options au format `@simplewebauthn/browser` (challenge,
-// userId, ids de clés en base64url). L'API `navigator.credentials` exige des
-// BufferSource, donc on décode avant d'appeler create/get, puis on re-encode la
-// réponse en JSON que `webauthn_routes.py` sait vérifier.
+// The backend returns options in the `@simplewebauthn/browser` format
+// (challenge, userId, key ids in base64url). The `navigator.credentials` API
+// requires BufferSource, so we decode before calling create/get, then
+// re-encode the response as JSON that `webauthn_routes.py` knows how to verify.
 "use client";
 
 function bytesFromBase64url(s: string): Uint8Array {
@@ -22,7 +22,7 @@ function bytesToBase64url(buf: ArrayBuffer): string {
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-// Options du backend (objet simple, strings base64url) -> options DOM.
+// Backend options (plain object, base64url strings) -> DOM options.
 function prepareCreationOptions(pk: Record<string, unknown>): PublicKeyCredentialCreationOptions {
   const user = (pk.user ?? {}) as Record<string, unknown>;
   const opts = {
@@ -34,8 +34,8 @@ function prepareCreationOptions(pk: Record<string, unknown>): PublicKeyCredentia
       id: bytesFromBase64url(c.id as string),
     })),
   };
-  // Le set complet (pubKeyCredParams, rp, attestation, …) vient du backend ;
-  // le cast via `unknown` évite le contrôle structurel des types DOM.
+  // The full set (pubKeyCredParams, rp, attestation, …) comes from the
+  // backend; the cast via `unknown` avoids the structural check of the DOM types.
   return opts as unknown as PublicKeyCredentialCreationOptions;
 }
 
@@ -51,7 +51,7 @@ function prepareRequestOptions(pk: Record<string, unknown>): PublicKeyCredential
   return opts as unknown as PublicKeyCredentialRequestOptions;
 }
 
-// Sérialise la réponse du navigateur dans le JSON que py_webauthn attend.
+// Serializes the browser response into the JSON that py_webauthn expects.
 function credentialToJSON(cred: PublicKeyCredential): Record<string, unknown> {
   const resp = cred.response as AuthenticatorAttestationResponse | AuthenticatorAssertionResponse;
   const out: Record<string, unknown> = {

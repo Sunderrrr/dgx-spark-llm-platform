@@ -59,16 +59,16 @@ type ModelHealth = {
   max_seqs: number | null;
   ctx_in: number | null;
   ctx_out: number | null;
-  // Compteurs cumulés du moteur. Absents quand le moteur est arrêté ou que ses
-  // métriques sont injoignables : l'affichage retombe alors sur « — », jamais
-  // sur un zéro qui ferait croire à une remise à zéro du compteur.
+  // Cumulative engine counters. Absent when the engine is stopped or its
+  // metrics are unreachable: the display then falls back on « — », never on a
+  // zero that would suggest a counter reset.
   tokens_generated?: number | null;
   tokens_generated_total?: number | null;
   tps_moyen?: number | null;
   tokens_prompt?: number | null;
   tps_prefill?: number | null;
-  // Activité en vol vue par le MOTEUR (llama.cpp /slots). Absente pour vLLM, qui
-  // n'expose pas /slots : l'absence ne doit pas se lire « personne ne travaille ».
+  // In-flight activity seen by the ENGINE (llama.cpp /slots). Absent for vLLM,
+  // which does not expose /slots: the absence must not read as « personne ne travaille ».
   slots?: {
     busy: number;
     total: number;
@@ -107,10 +107,10 @@ function fmtCtx(n: number | null): string {
   return n >= 1024 ? `${Math.round(n / 1024)}k` : `${n}`;
 }
 
-// Depuis quand cet utilisateur n'a rien demandé au modèle ? Le panneau admin
-// répond « qui utilise le modèle en temps réel » : un nom sans âge ne le dit pas
-// (« live » s'allume pour tout le monde dès que le moteur travaille), alors que
-// « il y a 4 s » contre « il y a 41 min » se lit d'un coup d'œil.
+// How long since this user last asked the model for anything? The admin panel
+// answers « qui utilise le modèle en temps réel »: a name without an age does
+// not say it (« live » lights up for everyone as soon as the engine works),
+// whereas « il y a 4 s » versus « il y a 41 min » reads at a glance.
 function ageDepuis(secondes: number | null | undefined, t: (s: string) => string): string {
   if (secondes == null) return t("activité inconnue");
   if (secondes < 5) return t("à l'instant");
@@ -135,8 +135,8 @@ function sidecarLines(
   t: (s: string) => string,
   numLocale: string,
 ): [string, string][] {
-  // La locale suit la langue affichée ; passée par le composant car un helper
-  // hors composant ne peut pas appeler de hook.
+  // The locale follows the displayed language; passed by the component because
+  // a helper outside a component cannot call a hook.
   const num = (n: number) => n.toLocaleString(numLocale);
   const lines: [string, string][] = [[t("Aujourd'hui"), num(sm.count_today)]];
   if (kind === "ocr") {
@@ -166,9 +166,9 @@ const KIND_DESC: Record<RunningModel["kind"], string> = {
   ocr: "Extraction de texte et de tableaux depuis images et PDF",
   voice: "Clonage de voix zéro-shot à partir d'un court échantillon",
 };
-// Destination + libellé du bouton « Ouvrir » sur les cartes de services média.
-// Chaque capacité va sur SA page (le fallback « vidéo » était le bug : image et
-// musique atterrissaient sur /video).
+// Destination + label of the « Ouvrir » button on the media service cards.
+// Each capability goes to ITS own page (the « vidéo » fallback was the bug:
+// image and music landed on /video).
 const KIND_OPEN: Record<RunningModel["kind"], { label: string; href: string }> = {
   chat: { label: "Ouvrir le chat", href: "/playground" },
   image: { label: "Ouvrir la génération d'image", href: "/image" },
@@ -180,8 +180,8 @@ const KIND_OPEN: Record<RunningModel["kind"], { label: string; href: string }> =
 // Short name of the media backends (for the "Media services" block).
 const KIND_NAME: Record<"ocr" | "video" | "voice", string> = { ocr: "OCR", video: "Vidéo", voice: "Voix" };
 
-// Bandeau « disponibilité par capacité » : chaque capacité va sur SA page, et
-// son statut reflète un modèle en cours d'exécution de ce type.
+// « disponibilité par capacité » banner: each capability goes to ITS own
+// page, and its status reflects a running model of that type.
 const CAPS: { kind: RunningModel["kind"]; label: string; icon: typeof PhotoIcon }[] = [
   { kind: "chat", label: "Chat", icon: ChatBubbleLeftRightIcon },
   { kind: "image", label: "Image", icon: PhotoIcon },
@@ -198,8 +198,8 @@ type HomeData = {
   sysmetrics: SysMetrics;
   sidecar_metrics: Partial<Record<"ocr" | "video" | "voice", SidecarMetric>>;
   modelhealth: ModelHealth;
-  // `en_vol` vient du callback LiteLLM : c'est la seule attribution CONSTATÉE
-  // pendant une requête (les autres reposent sur une déduction depuis le moteur).
+  // `en_vol` comes from the LiteLLM callback: it is the only OBSERVED
+  // attribution during a request (the others rest on an inference from the engine).
   active_users: { username: string; requests: number; tokens: number; live?: boolean; derniere_s?: number | null; en_vol?: boolean; depuis_s?: number | null }[] | null;
   usage: { has_data: boolean; total: number; active_keys: number; points: { hour: number; tokens: number }[] } | null;
   usage_by_model: { model: string; tokens: number }[];
@@ -238,8 +238,8 @@ export default function HomePage() {
   const showToast = useToast();
   const csrf = useCsrf();
   const [data, setData] = useState<HomeData | null>(null);
-  // Session en cours vue par le moteur (rafraîchie chaque seconde avec le reste
-  // de modelhealth) : sert à distinguer « rien ne tourne » de « ça tourne mais
+  // Session in progress seen by the engine (refreshed every second with the
+  // rest of modelhealth): used to tell « rien ne tourne » from « ça tourne mais
   // aucune identité n'est encore journalisée ».
   const slots = data?.modelhealth?.slots ?? null;
   const [loadError, setLoadError] = useState(false);
@@ -247,8 +247,8 @@ export default function HomePage() {
   const [recentConvs, setRecentConvs] = useState<Conversation[]>([]);
   const { who } = useWhoami();
 
-  // Reprendre une conversation : les plus récentes, pour ouvrir le playground
-  // dessus. Chargées une fois au montage (aller-retour léger, sans csrf).
+  // Resume a conversation: the most recent ones, to open the playground on
+  // them. Loaded once on mount (light round-trip, no csrf).
   useEffect(() => {
     let annule = false;
     fetchConversations()
@@ -257,9 +257,9 @@ export default function HomePage() {
     return () => { annule = true; };
   }, []);
 
-  // Charge le tableau de bord. On ne signale l'erreur que s'il n'y a encore rien
-  // à afficher (un échec de poll transitoire ne doit pas effacer les données déjà
-  // affichées) ; un succès met à jour l'horodatage « dernière mise à jour ».
+  // Loads the dashboard. We only report the error if there is still nothing
+  // to display (a transient poll failure must not erase data already
+  // displayed); a success updates the « dernière mise à jour » timestamp.
   const load = useCallback(() => {
     if (document.visibilityState !== "visible") return;
     getJSON<HomeData>("/api/home")
@@ -271,24 +271,24 @@ export default function HomePage() {
       .catch(() => setLoadError(true));
   }, []);
 
-  // Le débit et le TTFT sont les seules valeurs qui bougent à la seconde. On les
-  // rafraîchit sur un endpoint dédié et minuscule (/api/modelhealth) plutôt que de
-  // passer tout le tableau de bord à 1 s : /api/home agrège les dépenses et sonde
-  // les sidecars, le payer 5 fois plus souvent pour deux chiffres serait absurde.
+  // Throughput and TTFT are the only values that move by the second. We refresh
+  // them on a tiny dedicated endpoint (/api/modelhealth) rather than pushing
+  // the whole dashboard to 1 s: /api/home aggregates spend and probes the
+  // sidecars, paying it 5 times more often for two figures would be absurd.
   useEffect(() => {
     const tick = () => {
       if (document.visibilityState !== "visible") return;
       getJSON<ModelHealth>("/api/modelhealth")
         .then((h) => setData((d) => (d ? { ...d, modelhealth: h } : d)))
-        .catch(() => {});   // poll transitoire : le cycle 5 s reprendra la main
+        .catch(() => {});   // transient poll: the 5 s cycle will take over
     };
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
 
-  // Après le round-trip Discord OAuth (ou unlink), le backend revient ici avec
-  // ?discord=… — on affiche le résultat et on ouvre l'onglet qui héberge le
-  // lien, puis on nettoie l'URL pour qu'un refresh ne rejoue pas la scène.
+  // After the Discord OAuth (or unlink) round-trip, the backend comes back here
+  // with ?discord=… — we display the result and open the tab hosting the
+  // link, then clean the URL so a refresh does not replay the scene.
   useEffect(() => {
     const d = new URLSearchParams(window.location.search).get("discord");
     if (!d) return;
@@ -308,12 +308,12 @@ export default function HomePage() {
   }, []);
 
   // Poll the dashboard every 5s so server load, running models and active
-  // users stay live without a manual refresh. 5 s et pas moins : vllm_health()
-  // met ses metriques en cache ~4 s, donc sonder plus vite ne rafraichirait
-  // rien de plus et ne ferait que multiplier les requetes. L'agregat SpendLogs
-  // derriere passe par l'index startTime (~0,15 ms), il encaisse ce rythme.
-  // load() s'occupe du fetch initial (tick immédiat) ET du rythme, et saute le
-  // round-trip quand l'onglet est masqué — pas de double requête au montage.
+  // users stay live without a manual refresh. 5 s and no less: vllm_health()
+  // caches its metrics for ~4 s, so polling faster would refresh nothing
+  // more and only multiply the requests. The SpendLogs aggregate behind it
+  // goes through the startTime index (~0.15 ms), it absorbs this pace.
+  // load() handles the initial fetch (immediate tick) AND the pace, and skips
+  // the round-trip when the tab is hidden — no double request on mount.
   useEffect(() => {
     load();
     const id = setInterval(load, 5000);
@@ -334,20 +334,20 @@ export default function HomePage() {
           <VStack gap={6}>
             <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
               <VStack gap={1}>
-                {/* La pp juste à droite du bonjour : c'est l'endroit où on se
-                    reconnaît en arrivant, et à 48 px le blobatar bouge de façon
-                    lisible (à 24 px, la respiration se devine). */}
+                {/* The avatar right next to the greeting: it is where you
+                    recognize yourself on arrival, and at 48 px the blobatar moves
+                    readably (at 24 px, the breathing is only guessed). */}
                 <HStack gap={3} vAlign="center" wrap="wrap">
                   <Heading level={1}>{t("Bonjour")}{firstName ? `, ${firstName}` : ""}</Heading>
                   <UserAvatar avatarId={who?.avatar_id} username={who?.username} name={who?.fullname} size="lg" />
                 </HStack>
                 <Text type="supporting" color="secondary">{t("Ton accès self-service à l'inférence LLM sur DGX Spark.")}</Text>
-                {/* Boutons « Explorer les modèles » / « Demander un modèle »
-                    retirés : déjà en cartes plus bas sur cette page. */}
+                {/* « Explorer les modèles » / « Demander un modèle » buttons
+                    removed: already in cards further down this page. */}
               </VStack>
               <HStack gap={2} wrap="wrap">
-                {/* « Lancer une conversation » retiré : l'accès rapide est
-                    déjà dans la barre latérale. */}
+                {/* « Lancer une conversation » removed: the quick access is
+                    already in the sidebar. */}
                 <Button label={t("Mes clés API")} variant="secondary" icon={<Icon icon={KeyIcon} size="sm" />} onClick={() => openSettings("keys")} />
               </HStack>
             </HStack>
@@ -451,8 +451,8 @@ export default function HomePage() {
                                 {t("Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.").replace("{model}", data.auto_model)}
                               </Text>
                             )}
-                            {/* « Créer une clé API » retiré : déjà en haut à
-                                droite de la page. */}
+                            {/* « Créer une clé API » removed: already at the top
+                                right of the page. */}
                           </>
                         ) : (
                           <>
@@ -558,22 +558,22 @@ export default function HomePage() {
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Tokens générés")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{data.modelhealth.tps ?? "—"} tok/s</Text>
-                          {/* Débit INSTANTANÉ, donc il tombe à 0 dès que le moteur
-                              ingère un long contexte d'entrée : 4 requêtes en cours
-                              et un seul pas de décodage en 6 s, mesuré le 14/09.
-                              La moyenne depuis le lancement donne le repère qui
-                              manque, et elle est exacte (rapport de deux compteurs
-                              du moteur, pas un échantillonnage du portail). */}
+                          {/* INSTANTANEOUS throughput, so it drops to 0 as soon as the
+                              engine ingests a long input context: 4 requests in flight
+                              and a single decode step in 6 s, measured on 14/09.
+                              The average since startup gives the missing reference,
+                              and it is exact (ratio of two engine counters, not a
+                              portal sampling). */}
                           {data.modelhealth.tps_moyen != null && (
                             <Text type="supporting" color="secondary" hasTabularNumbers>
                               {t("moyenne {n} tok/s").replace("{n}", String(data.modelhealth.tps_moyen))}
                             </Text>
                           )}
                         </VStack>
-                        {/* Le pendant du débit de génération, côté ENTRÉE. Un client
-                            agentique relit des contextes énormes : le moteur passe
-                            l'essentiel de son temps en prefill, donc ce chiffre
-                            explique les 0 tok/s affichés à gauche. */}
+                        {/* The counterpart of the generation throughput, on the INPUT
+                            side. An agentic client re-reads huge contexts: the engine
+                            spends most of its time in prefill, so this figure
+                            explains the 0 tok/s displayed on the left. */}
                         <VStack gap={0}>
                           <Text type="supporting" color="secondary">{t("Prefill")}</Text>
                           <Text weight="semibold" hasTabularNumbers>
@@ -609,8 +609,8 @@ export default function HomePage() {
                           <Text type="supporting" color="secondary">{t("Contexte sortie")}</Text>
                           <Text weight="semibold" hasTabularNumbers>{fmtCtx(data.modelhealth.ctx_out)}</Text>
                         </VStack>
-                        {/* Accès rapide retiré : déjà couvert par les
-                            boutons en haut de la page. */}
+                        {/* Quick access removed: already covered by the
+                            buttons at the top of the page. */}
                       </HStack>
                     )}
 
@@ -642,9 +642,9 @@ export default function HomePage() {
                       <VStack gap={2}>
                         <HStack gap={2} wrap="wrap">
                           <Text type="supporting" color="secondary">{t("Qui utilise le modèle · 30 dernières minutes · visible admin uniquement")}</Text>
-                          {/* Débit GLOBAL du moteur, jamais par personne : l'admin voit
-                              QUI travaille ici, et la vitesse à laquelle la machine
-                              sert tout le monde à la fois. */}
+                          {/* GLOBAL engine throughput, never per person: the admin sees
+                              WHO works here, and the speed at which the machine
+                              serves everyone at once. */}
                           {data.modelhealth && (
                             <Text type="supporting" color="secondary" hasTabularNumbers>
                               {t("débit global {n} tok/s").replace("{n}", String(data.modelhealth.tps ?? "—"))}
@@ -654,11 +654,11 @@ export default function HomePage() {
                             </Text>
                           )}
                         </HStack>
-                        {/* Activité EN VOL. LiteLLM n'écrit sa ligne qu'à la fin d'une
-                            requête : mesuré le 14/09, 44 minutes sans écriture alors que
-                            deux sessions travaillaient, donc un panneau vide qui laissait
-                            croire que la machine était libre. Le moteur, lui, sait décrire
-                            ces sessions — occupées, depuis quand, où en est le prompt. */}
+                        {/* IN-FLIGHT activity. LiteLLM only writes its row at the end of
+                            a request: measured on 14/09, 44 minutes without a write while
+                            two sessions were working, so an empty panel that made it
+                            look like the machine was free. The engine, for its part,
+                            can describe these sessions — busy, since when, prompt progress. */}
                         {slots && slots.busy > 0 && (
                           <Text type="supporting" color="secondary" hasTabularNumbers>
                             {t("{n} session(s) en cours sur le moteur").replace("{n}", String(slots.busy))}
@@ -687,13 +687,13 @@ export default function HomePage() {
                               <Badge
                                 key={u.username}
                                 variant={u.live ? "success" : "neutral"}
-                                // L'âge est ce qui distingue « il génère là » d'« il a
-                                // fini il y a une heure » : un drapeau seul ne le dit
-                                // pas, et sur 30 minutes la différence est énorme.
+                                // The age is what distinguishes « il génère là » from « il a
+                                // fini il y a une heure »: a flag alone does not say it,
+                                // and over 30 minutes the difference is huge.
                                 label={[
                                   u.username,
-                                  // Attribution CONSTATÉE par LiteLLM (requête en
-                                  // cours) plutôt que déduite : on affiche sa durée.
+                                  // OBSERVED attribution by LiteLLM (request in
+                                  // flight) rather than inferred: we display its duration.
                                   u.en_vol
                                     ? t("en cours depuis {d}").replace("{d}", ageDepuis(u.depuis_s ?? 0, t))
                                     : ageDepuis(u.derniere_s, t),
@@ -751,9 +751,9 @@ export default function HomePage() {
                     <Text weight="semibold">{t("Usage des quotas")}</Text>
                   </HStack>
                   {data && (who?.is_admin ? (
-                    /* Admin = illimité : PAS de mécanique de quota ici (jauge,
-                       pourcentage, restant, date de reset) — elles n'ont pas de
-                       sens sans enveloppe et suggéraient un plafond fictif. */
+                    /* Admin = unlimited: NO quota mechanics here (gauge,
+                       percentage, remaining, reset date) — they mean nothing
+                       without an envelope and suggested a fictitious cap. */
                     <VStack gap={2}>
                       <Text type="supporting" color="secondary">{t("Limite :")} {t("Illimitée (admin)")}</Text>
                       <Text type="supporting" color="secondary">
@@ -793,21 +793,21 @@ export default function HomePage() {
                         </Text>
                       )}
                       <HStack hAlign="end">
-                        {/* Vraie demande de budget (budget_requests + notif
-                           admin), PAS un lien vers la page « demande de
-                           modèle » : le premier clic envoyait les gens
-                           demander un modèle LLM au lieu de tokens. */}
+                        {/* Real budget request (budget_requests + admin
+                           notif), NOT a link to the « demande de modèle »
+                           page: the first click sent people to request
+                           an LLM model instead of tokens. */}
                         <Button
                           label={data.budget_request_pending ? t("Demande en cours d'examen") : t("Demander plus de budget")}
                           variant="secondary"
                           size="sm"
                           isDisabled={data.budget_request_pending}
                           onClick={async () => {
-                            // La raison part en base et se réaffiche brute (colonne
-                            // « Raison », file admin) : msgid traduit côté client.
-                            // Le verdict du serveur est LU : `postForm` ne rend ni
-                            // statut ni corps, donc un refus (demande déjà en
-                            // attente, 409) s'affichait ici comme un envoi réussi.
+                            // The reason goes to the database and is displayed raw (column
+                            // « Raison », admin queue): msgid translated client-side.
+                            // The server's verdict is READ: `postForm` returns neither
+                            // status nor body, so a refusal (request already
+                            // pending, 409) showed up here as a successful send.
                             const raison = t("Demande depuis la page d'accueil (quota bientôt épuisé)");
                             try {
                               const res = await authFetch("/keys", {
@@ -865,9 +865,9 @@ export default function HomePage() {
                   <Button label={t("Explorer les modèles")} variant="secondary" href="/search" />
                 </VStack>
               </Card>
-              {/* Carte « Demander un modèle » retirée : la section
-                  « Mes dernières demandes » juste en dessous porte déjà le
-                  bouton et l'historique. */}
+              {/* « Demander un modèle » card removed: the
+                  « Mes dernières demandes » section just below already
+                  carries the button and the history. */}
             </Grid>
 
             {data && (

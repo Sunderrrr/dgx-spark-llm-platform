@@ -37,14 +37,14 @@ export async function getJSON<T>(url: string): Promise<T> {
   const res = await authFetch(url);
   if (res.status === 403) throw new ForbiddenError(url);
   if (!res.ok) {
-    // Le serveur dit POURQUOI (Hugging Face injoignable, tâche inconnue…).
-    // Jeter ce message obligeait l'interface à afficher « Échec du chargement »,
-    // qui n'apprend rien et fait passer une panne amont pour un bug du portail.
+    // The server says WHY (Hugging Face unreachable, unknown task…).
+    // Throwing this message away forced the UI to display « Échec du chargement »,
+    // which teaches nothing and makes an upstream outage look like a portal bug.
     const corps = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
     const err = new Error(corps?.error || `Échec du chargement (${url}).`) as Error & { code?: string };
-    // `code` voyage avec l'erreur : c'est lui qui permet à un écran de traduire
-    // un refus ou une panne amont stable (le portail répond en français, cf.
-    // CLAUDE.md § i18n) au lieu d'afficher une phrase française en mode anglais.
+    // `code` travels with the error: it is what lets a screen translate
+    // a refusal or a stable upstream outage (the portal answers in French, cf.
+    // CLAUDE.md § i18n) instead of displaying a French sentence in English mode.
     if (corps?.code) err.code = corps.code;
     throw err;
   }
@@ -52,9 +52,9 @@ export async function getJSON<T>(url: string): Promise<T> {
 }
 
 /**
- * POST/DELETE JSON vers une route JSON du backend. Les routes de mémoire
- * échangent du JSON structuré (un fait a un sujet, une relation, un objet),
- * là où `postForm` sérialise à plat.
+ * POST/DELETE JSON to a JSON route of the backend. The memory routes
+ * exchange structured JSON (a fact has a subject, a relation, an object),
+ * where `postForm` serializes flat.
  */
 export async function sendJSON<T = { ok: boolean; error?: string }>(
   url: string,
@@ -76,13 +76,13 @@ export async function sendJSON<T = { ok: boolean; error?: string }>(
  * form-encoded) by reusing its already-tested logic — no new
  * mutation endpoint on the backend.
  *
- * ATTENTION — le commentaire d'origine disait « we ignore that HTML body », et
- * c'était le piège : `postForm` ne disait RIEN du résultat, ni statut ni corps.
- * Trois bugs de production en sont venus (historique de conversation tronqué en
- * 413, « Clé créée ! » sur une création échouée, avatar refusé), donc le
- * `Response` est désormais RENDU. Pour une action dont le résultat compte,
- * lis le statut ou passe par `postFormVerifie` ; si tu n'as pas besoin de
- * savoir, l'utilisateur non plus — mais alors ne lui affiche pas « c'est fait ».
+ * NOTE — the original comment said « we ignore that HTML body », and that was
+ * the trap: `postForm` said NOTHING about the result, neither status nor body.
+ * Three production bugs came from it (conversation history truncated at
+ * 413, « Clé créée ! » on a failed creation, avatar refused), so the
+ * `Response` is now RETURNED. For an action whose result matters,
+ * read the status or go through `postFormVerifie`; if you do not need to
+ * know, the user does not either — but then do not display « c'est fait ».
  */
 export async function postForm(url: string, csrf: string, data: Record<string, string>): Promise<Response> {
   return authFetch(url, {
@@ -93,12 +93,12 @@ export async function postForm(url: string, csrf: string, data: Record<string, s
 }
 
 /**
- * Verdict d'une action form-encodée.
+ * Verdict of a form-encoded action.
  *
- * `ok: false` couvre les trois façons d'échouer, y compris celle qui trompait le
- * plus : une réponse NON-JSON (redirection HTML, page d'erreur) est un échec, et
- * non un succès par défaut. Le `code` d'un refus stable est remonté tel quel,
- * pour que l'interface le traduise (cf. CLAUDE.md § i18n).
+ * `ok: false` covers the three ways of failing, including the one that misled
+ * the most: a NON-JSON response (HTML redirect, error page) is a failure, not
+ * a success by default. The `code` of a stable refusal is surfaced as-is,
+ * so that the UI can translate it (cf. CLAUDE.md § i18n).
  */
 export async function postFormVerifie(
   url: string,
@@ -170,8 +170,8 @@ export async function fetchPlaygroundData(): Promise<PlaygroundData> {
   return res.json();
 }
 
-/** Une étape de recherche web ou de génération d'image, telle que le backend
- * l'annonce au fil de l'eau. */
+/** A web search or image generation step, as the backend
+ * announces it on the fly. */
 export type EtapeWeb = {
   etape: "recherche" | "recherche_finie" | "lecture" | "lecture_finie"
     | "generation" | "generation_finie" | "inconnue";
@@ -183,7 +183,7 @@ export type EtapeWeb = {
   erreur?: string | null;
   sources?: { titre: string; url: string }[];
   echecs?: { url: string; raison: string }[];
-  /** Adresses des images produites (génération réussie). */
+  /** Addresses of the produced images (successful generation). */
   images?: string[];
 };
 
@@ -191,12 +191,12 @@ export type StreamDelta = {
   reasoningChunk?: string;
   contentChunk?: string;
   usage?: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number };
-  /** Le modèle a été coupé net par le plafond de tokens (finish_reason="length"). */
+  /** The model was cut short by the token ceiling (finish_reason="length"). */
   truncated?: boolean;
-  /** Étape de recherche web : ce que le modèle est en train de chercher ou lire. */
+  /** Web search step: what the model is currently searching or reading. */
   webStep?: EtapeWeb;
-  /** Notice système STRUCTURÉE (quota dépassé, erreur modèle…) : traduite au
-     rendu dans la langue de l'interface — le serveur n'envoie jamais de phrase. */
+  /** STRUCTURED system notice (quota exceeded, model error…): translated at
+     render time into the UI language — the server never sends a sentence. */
   notice?: { id: string; reset?: string; status?: number };
 };
 
@@ -209,12 +209,12 @@ export type ToolCallEvent = {
   error?: string;
 };
 
-/** Action sensible proposée par l'assistant Support (trame `cronos_confirm`
- * du flux /support/chat : révocation de clé, lancement/arrêt du modèle).
- * RIEN n'est exécuté tant que l'utilisateur n'a pas cliqué : le jeton opaque,
- * à usage unique et lié au compte, ne part qu'au POST /support/confirm — il
- * n'entre jamais dans le contexte du modèle, donc une injection indirecte ne
- * peut pas le rejouer (contrairement à une consigne de prompt). */
+/** Sensitive action proposed by the Support assistant (`cronos_confirm`
+ * frame of the /support/chat stream: key revocation, model launch/stop).
+ * NOTHING is executed until the user has clicked: the opaque, single-use,
+ * account-bound token only goes out with the POST /support/confirm — it
+ * never enters the model context, so an indirect injection cannot replay it
+ * (unlike a prompt instruction). */
 export type SupportConfirmRequest = {
   token: string;
   tool: string;
@@ -233,12 +233,12 @@ type SSEPayload = {
 
 /** Reads an SSE stream (packets `data: {...}\n\n`) and invokes onEvent per received packet. */
 async function readSSE(res: Response, onEvent: (payload: SSEPayload) => void): Promise<void> {
-  // Un corps non-SSE (413 « trop gros », page HTML d'erreur du proxy, JSON de
-  // refus) ne contient aucune ligne `data:` : la fonction rendait donc la main
-  // SANS RIEN DIRE, et l'écran affichait un résultat vide. Cas mesuré : une
-  // image de 17 Mo passe le proxy (20 Mo) mais dépasse le plafond de Flask
-  // (16 Mo) → « aucun texte détecté » au lieu d'une erreur de taille.
-  // Les trois appelants ont déjà un `catch` qui affiche le message.
+  // A non-SSE body (413 « trop gros », proxy HTML error page, refusal JSON)
+  // contains no `data:` line: the function therefore returned
+  // WITHOUT SAYING ANYTHING, and the screen showed an empty result. Measured
+  // case: a 17 MB image passes the proxy (20 MB) but exceeds Flask's ceiling
+  // (16 MB) → « aucun texte détecté » instead of a size error.
+  // The three callers already have a `catch` that displays the message.
   if (!res.ok) throw new Error(`Erreur ${res.status}`);
   if (!res.body) return;
   const reader = res.body.getReader();
@@ -284,18 +284,18 @@ export async function streamChat(
       max_tokens: settings.maxTokens,
       top_p: settings.topP,
       reasoning: settings.reasoning,
-      // '' (défaut du template) part en undefined : le backend ne transmet
-      // reasoning_effort au modèle que s'il est renseigné.
+      // '' (template default) goes out as undefined: the backend only passes
+      // reasoning_effort to the model when it is set.
       reasoning_effort: settings.reasoningEffort || undefined,
     }),
     signal,
   });
   await readSSE(res, (json) => {
     if (json.usage) onDelta({ usage: json.usage });
-    // Le backend relaie les lignes SSE telles quelles : finish_reason arrive ici.
-    // "length" = réponse tronquée par max_tokens, à signaler au lecteur.
+    // The backend relays the SSE lines as-is: finish_reason arrives here.
+    // "length" = response truncated by max_tokens, to be flagged to the reader.
     if (json.choices?.[0]?.finish_reason === "length") onDelta({ truncated: true });
-    // Recherche web : événement à part, jamais mêlé au texte de la réponse.
+    // Web search: separate event, never mixed into the response text.
     if (json.cronos_web) onDelta({ webStep: json.cronos_web });
     if (json.cronos_notice) onDelta({ notice: json.cronos_notice });
     const delta = json.choices?.[0]?.delta;
@@ -326,18 +326,18 @@ export async function streamOcr(
 }
 
 /** Reads the SSE stream from /support/chat: text, tool invocations (ChatToolCalls),
- * notices système (cronos_notice) et demandes de confirmation d'action sensible
+ * system notices (cronos_notice) and sensitive-action confirmation requests
  * (cronos_confirm).
  *
- * `onNotice` reçoit les notices système du serveur (cronos_notice) : le Support
- * tourne sur la clé API de l'utilisateur, donc sur son budget, et peut donc
- * répondre « pas de clé » ou « quota dépassé » — exactement comme le playground.
- * Sans ce rappel, ces refus se traduisaient par une réponse vide.
+ * `onNotice` receives the server's system notices (cronos_notice): Support
+ * runs on the user's API key, hence on their budget, and can therefore
+ * answer « pas de clé » or « quota dépassé » — exactly like the playground.
+ * Without this reminder, these refusals showed up as an empty answer.
  *
- * `onConfirm` reçoit les demandes de confirmation (cronos_confirm) : le modèle
- * a demandé une action SENSIBLE (révocation de clé, lancement/arrêt du modèle),
- * rien n'est exécuté — l'interface affiche Confirmer/Annuler et c'est le clic
- * (confirmSupportAction) qui tranche. */
+ * `onConfirm` receives the confirmation requests (cronos_confirm): the model
+ * asked for a SENSITIVE action (key revocation, model launch/stop),
+ * nothing is executed — the UI displays Confirmer/Annuler and the click
+ * (confirmSupportAction) decides. */
 export async function streamSupportChat(
   csrf: string,
   messages: { role: string; content: string }[],
@@ -362,11 +362,11 @@ export async function streamSupportChat(
   });
 }
 
-/** Confirme (`cancel: false`) ou annule (`cancel: true`) une action sensible
- * proposée par l'assistant Support (POST /support/confirm, jeton à usage
- * unique). 200 → {ok, message} ; 404/409/400 → {error} (demande expirée, déjà
- * traitée ou invalide) : sendJSON ne lève pas sur ces statuts, l'appelant lit
- * ok/error/message. Seule exception : une erreur réseau, qui propage. */
+/** Confirms (`cancel: false`) or cancels (`cancel: true`) a sensitive action
+ * proposed by the Support assistant (POST /support/confirm, single-use
+ * token). 200 → {ok, message} ; 404/409/400 → {error} (request expired,
+ * already handled or invalid): sendJSON does not throw on these statuses, the
+ * caller reads ok/error/message. Only exception: a network error, which propagates. */
 export function confirmSupportAction(
   csrf: string,
   token: string,
@@ -375,9 +375,9 @@ export function confirmSupportAction(
   return sendJSON("/support/confirm", csrf, { token, cancel });
 }
 
-/** Pouce haut/bas sur une réponse du Support (commentaire facultatif pour le
- * 👎). question/réponse/model accompagnent le vote pour repérer les réponses
- * qui échouent ; l'échec du POST ne doit jamais casser le chat. */
+/** Thumbs up/down on a Support answer (optional comment for the
+ * 👎). question/answer/model accompany the vote to spot the answers
+ * that fail; the POST failure must never break the chat. */
 export function sendSupportFeedback(
   csrf: string,
   payload: {

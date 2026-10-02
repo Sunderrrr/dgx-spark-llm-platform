@@ -1,45 +1,45 @@
 <!--
-Merci. Quelques rappels avant d'ouvrir la PR — ils viennent de CONTRIBUTING.md.
+Thank you. A few reminders before opening the PR — they come from CONTRIBUTING.md.
 
-- Un modèle de chat en service, c'est de la production : ne le redémarre pas pour
-  tester ta modification. Si ta PR touche `vllm-runner/runner.py`, `systemd/` ou le
-  catalogue de modèles, dis-le explicitement plus bas.
-- Déployer = reconstruire l'image puis `docker compose up -d <service>`.
-  `docker compose restart` ne prend PAS le nouveau code.
-- Jamais de `--memory` sur un sidecar (la mémoire est unifiée, le plafond casse
-  aussi le chargement CUDA).
-- Aucun secret, aucune clé, aucune donnée personnelle dans la PR ni dans les
-  captures d'écran (le dépôt est public).
+- A served chat model is production: do not restart it to test your change. If your
+  PR touches `vllm-runner/runner.py`, `systemd/` or the model catalog, say so
+  explicitly below.
+- Deploying = rebuilding the image, then `docker compose up -d <service>`.
+  `docker compose restart` does NOT pick up the new code.
+- Never put `--memory` on a sidecar (memory is unified, the cap also breaks CUDA
+  loading).
+- No secret, no key, no personal data in the PR or in the screenshots (the
+  repository is public).
 -->
 
-## Ce que fait cette PR
+## What this PR does
 
-<!-- En une ou deux phrases : le problème réel, pour qui il se posait, et ce que
-     la modification change. -->
+<!-- In one or two sentences: the real problem, who hit it, and what the change
+     alters. -->
 
-## Pourquoi ainsi
+## Why this way
 
-<!-- Les options envisagées, celle retenue, et ce qui ferait revenir dessus.
-     S'il s'agit d'un correctif non évident, colle la MESURE qui le prouve
-     (commande + sortie) : plusieurs commentaires du dépôt n'existent que pour
-     consigner une mesure qui contredit le correctif intuitif. -->
+<!-- The options considered, the one chosen, and what would make you revisit it.
+     For a non-obvious fix, paste the MEASUREMENT that proves it (command +
+     output): several comments in this repo exist only to record a measurement
+     that contradicts the intuitive fix. -->
 
-## Vérifications
+## Checks
 
-- [ ] `./scripts/pre-push-check.sh` est vert (tests + i18n + scan de secrets)
-- [ ] Si le frontend change : `npx tsc --noEmit` et `npx eslint .` sont verts
-- [ ] Si une page change d'apparence : la galerie de `assets/` a été refaite
-      (`scripts/screenshots.py` puis `--verify` puis `--install`)
-- [ ] Si le contrat HTTP, `.env` ou le déploiement change : `CHANGELOG.md` a une
-      entrée sous `## [Unreleased]`
-- [ ] Aucun secret, aucune clé API, aucune donnée personnelle ajoutés
-- [ ] Le modèle servi n'a **pas** été redémarré
+- [ ] `./scripts/pre-push-check.sh` is green (tests + i18n + secret scan)
+- [ ] If the frontend changes: `npx tsc --noEmit` and `npx eslint .` are green
+- [ ] If a page changes appearance: the `assets/` gallery has been redone
+      (`scripts/screenshots.py` then `--verify` then `--install`)
+- [ ] If the HTTP contract, `.env` or deployment changes: `CHANGELOG.md` has an
+      entry under `## [Unreleased]`
+- [ ] No secret, no API key, no personal data added
+- [ ] The served model was **not** restarted
 
-## Impact opérationnel
+## Operational impact
 
-<!-- À remplir si applicable : le changement ne prend effet qu'au prochain
-     lancement légitime du runner (le dire explicitement !), une unité systemd
-     doit être réinstallée, une variable `.env` doit être ajoutée à la main,
-     une migration de base est nécessaire, une image doit être reconstruite. -->
+<!-- Fill in if applicable: the change only takes effect at the next legitimate
+     runner launch (say so explicitly!), a systemd unit must be reinstalled, an
+     `.env` variable must be added by hand, a database migration is needed, an
+     image must be rebuilt. -->
 
-Aucun.
+None.

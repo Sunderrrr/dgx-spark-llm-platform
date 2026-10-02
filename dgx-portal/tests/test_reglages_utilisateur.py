@@ -9,7 +9,7 @@ revocation failed and the key stayed VALID while the user believed it dead.
 
 These tests lock in the honest contract: a success says `{ok: true}`, a
 refusal carries an HTTP status saying it (`404` unknown key, `409` request
-already pending, `502` upstream unreachable, `400` invalid value).
+already pending, `503` upstream unreachable, `400` invalid value).
 
 No network call: `create_litellm_key` / `revoke_litellm_key` are replaced.
 """
@@ -106,12 +106,12 @@ class ClesApiTest(_BaseReglages):
         self.assertIsNotNone(ligne, "la clé créée doit être consignée en base")
         self.assertEqual(ligne["key_alias"], "mon-laptop")
 
-    def test_creation_ratee_dit_502_et_ne_ment_pas(self):
+    def test_creation_ratee_dit_503_et_ne_ment_pas(self):
         """LiteLLM mute: before, the UI announced « Clé créée ! »."""
         c = self._client()
         with patch.object(portal, "create_litellm_key", return_value=None):
             r = self._post(c, "/keys", {"action": "create", "key_name": "x"})
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 503)
         corps = r.get_json()
         self.assertFalse(corps["ok"])
         self.assertTrue(corps["error"])
@@ -149,7 +149,7 @@ class ClesApiTest(_BaseReglages):
         c = self._client()
         with patch.object(portal, "revoke_litellm_key", return_value=False):
             r = self._post(c, "/keys", {"action": "revoke", "key": "sk-vive"})
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 503)
         self.assertIn("encore valide", r.get_json()["error"])
         with self._db():
             ligne = portal.get_db().execute(
@@ -355,7 +355,7 @@ class RenommageCleTest(_BaseReglages):
         with patch.object(portal, "renommer_cle_litellm", return_value=False):
             r = self._post(c, "/keys", {"action": "rename", "key": "sk-ren-1",
                                         "key_name": "portable-nora"})
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 503)
         self.assertFalse(r.get_json()["ok"])
         self.assertEqual(self._alias("sk-ren-1"), "poste-test",
                          "le portail ne doit pas renommer si LiteLLM a refusé")

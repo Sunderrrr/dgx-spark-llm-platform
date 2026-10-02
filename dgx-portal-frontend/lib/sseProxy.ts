@@ -119,7 +119,7 @@ export async function proxySSE(request: Request, path: string): Promise<Response
     });
   } catch {
     return new Response(sseErrorFrame("Le serveur ne répond pas — réessaie dans un instant."), {
-      status: 502,
+      status: 503,
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
     });
   } finally {
@@ -160,7 +160,7 @@ export async function proxySSEGet(request: Request, path: string): Promise<Respo
     });
   } catch {
     return new Response(sseErrorFrame("Le serveur ne répond pas — réessaie dans un instant."), {
-      status: 502,
+      status: 503,
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
     });
   } finally {

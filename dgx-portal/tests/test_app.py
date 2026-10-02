@@ -1422,7 +1422,7 @@ class PlaygroundTitleSummarizeTest(unittest.TestCase):
         with c.session_transaction() as s:
             s["csrf"] = "test-csrf"
         r = c.post('/api/playground/title', headers={"X-CSRFToken": "test-csrf"}, json={"messages": [{"role": "user", "content": "Bonjour"}]})
-        self.assertIn(r.status_code, (200, 302, 401, 403, 409, 502))
+        self.assertIn(r.status_code, (200, 302, 401, 403, 409, 503))
 
 
 class PlaygroundTitleSummarizeMockTest(unittest.TestCase):

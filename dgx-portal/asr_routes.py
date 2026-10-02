@@ -77,7 +77,7 @@ def api_transcribe():
                 # must not re-issue one per second while the model loads.
                 ok, detail = asr_demarrage_auto()
                 if not ok:
-                    return jsonify({'error': f"Le service de dictée n'a pas pu démarrer{detail}."}), 502
+                    return jsonify({'error': f"Le service de dictée n'a pas pu démarrer{detail}."}), 503
             else:
                 erreur = asr_load_error()
                 if erreur:
@@ -113,12 +113,12 @@ def api_transcribe():
                 return jsonify({'error': detail or "Enregistrement refusé."}), statut
             if statut == 503:
                 return jsonify({'error': detail or "Modèle de transcription non chargé."}), 503
-            return jsonify({'error': detail or "Échec de la transcription."}), 502
+            return jsonify({'error': detail or "Échec de la transcription."}), 503
         return jsonify({'text': r.json().get('text', '')})
     except requests.exceptions.Timeout:
         return jsonify({'error': "La transcription a mis trop de temps."}), 504
     except Exception:
-        return jsonify({'error': "Service de transcription injoignable."}), 502
+        return jsonify({'error': "Service de transcription injoignable."}), 503
 
 @bp.route('/api/transcribe/available')
 @login_required

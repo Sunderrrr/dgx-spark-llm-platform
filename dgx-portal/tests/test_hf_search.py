@@ -6,7 +6,7 @@ in the code before the fix:
 
 1. **« HF est injoignable » displayed as « aucun modèle ne correspond ».**
    The user looking for a model concluded it did not exist. The function
-   now raises `HfIndisponible` and `/api/search` answers 502 with
+   now raises `HfIndisponible` and `/api/search` answers 503 with
    `{ok: false, error}` — the admin actions contract.
 2. **The GB10 filter made a misleading « aucun résultat ».** The frequent
    case is not « ce modèle n'existe pas » but « il n'est pas taggé gb10 ».
@@ -227,11 +227,11 @@ class ApiSearchTest(CompteDeTest):
     def tearDown(self):
         self._rmuser()
 
-    def test_panne_de_hf_repond_502_et_non_zero_resultat(self):
+    def test_panne_de_hf_repond_503_et_non_zero_resultat(self):
         with patch.object(vllm_health.requests, 'get',
                           side_effect=requests.ConnectionError('boom')):
             r = self.c.get('/api/search?q=qwen')
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 503)
         corps = r.get_json()
         self.assertFalse(corps['ok'])
         self.assertIn('Hugging Face', corps['error'])

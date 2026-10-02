@@ -35,7 +35,7 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { authFetch, getJSON, postFormVerifie, ForbiddenError } from "@/lib/api";
-import { useT, useLocale } from "@/lib/i18n";
+import { useT, useLocale, tServeur } from "@/lib/i18n";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { UserLookup } from "./_components/UserLookup";
 import { EmailConfig } from "./_components/EmailConfig";
@@ -302,16 +302,17 @@ export default function AdminPage() {
         // success. (authFetch does not throw on 403 — only 401 redirects.)
         showToast({ body: t("Accès refusé."), type: "error" });
       } else if (res.status >= 400 || !body || body.ok === false) {
-        const errMsg = body?.error ?? t("Échec de l'action.");
+        const errMsg = body?.error ? tServeur(body.error, t) : t("Échec de l'action.");
         showToast({ body: errMsg, type: "error" });
         result = { ok: false, error: errMsg, warning };
       } else {
         // The server often provides a useful sentence (« Lancement de X
-        // accepté — chargement en cours. »): we display it preferentially.
-        showToast({ body: body.message ?? t("Action effectuée."), type: "info" });
+        // accepté — chargement en cours. »): we display it preferentially
+        // (translated at display time, cf. tServeur).
+        showToast({ body: body.message ? tServeur(body.message, t) : t("Action effectuée."), type: "info" });
         // PARTIAL success (files not deleted, LiteLLM not deregistered…): the
         // server writes it in `warning`, which was displayed nowhere.
-        if (warning) showToast({ body: warning, type: "error" });
+        if (warning) showToast({ body: tServeur(warning, t), type: "error" });
         result = { ok: true, warning };
       }
     } catch {
@@ -1119,7 +1120,7 @@ function BudgetSetForm({ rows, actionDisabled }: { rows: SpendRow[]; actionDisab
                   csrf, { budget: budget.trim() },
                 );
                 if (!res.ok) {
-                  showToast({ body: res.error ? t(res.error) : t("L'action a échoué."), type: "error" });
+                  showToast({ body: res.error ? tServeur(res.error, t) : t("L'action a échoué."), type: "error" });
                   return;
                 }
                 showToast({ body: t("Budget redéfini.") });

@@ -230,6 +230,48 @@ class FluxSSETest(_BasePlayground):
         self.assertIn('model_error', corps)
         self.assertIn('500', corps)
 
+    def test_demande_d_image_service_arrete_notice(self):
+        """Demande d'image EXPLICITE avec le sidecar éteint : le modèle répondrait
+        « je ne peux pas générer d'images » — faux, c'est le service qui manque.
+        La notice structurée le dit (vu le 2026-10-02 avec MiMo, qui nie la
+        capacité au lieu de renvoyer l'erreur)."""
+        with ExitStack() as stack:
+            self._standard(stack, post=self._amont_unique(
+                _FauxAmont([_delta("Je ne peux pas générer d'images."), _fin()])))
+            # `_standard` lie `_image_demandee` et `image_disponible` au même
+            # drapeau : on les sépare pour n'avoir que la demande.
+            stack.enter_context(patch.object(chat, '_image_demandee', return_value=True))
+            stack.enter_context(patch.object(chat, 'image_disponible', return_value=False))
+            with portal.app.test_request_context(
+                    '/playground/chat', method='POST',
+                    json=self._corps(msgs=[{'role': 'user',
+                                            'content': 'Crée une image de chat.'}])):
+                session['username'] = 'demo'
+                session['auth_at'] = int(time.time())
+                corps = chat.playground_chat().get_data(as_text=True)
+        self.assertIn('cronos_notice', corps)
+        self.assertIn('image_service_off', corps)
+
+    def test_demande_d_image_service_pret_sans_notice(self):
+        """Même demande, service prêt : l'outil s'arme, aucune notice ne part —
+        la notice ne doit jamais annoncer un service éteint qui ne l'est pas."""
+        def _phase(*a, **k):
+            return
+            yield                       # générateur vide
+
+        with ExitStack() as stack:
+            self._standard(stack, post=self._amont_unique(
+                _FauxAmont([_delta('Voilà.'), _fin()])), image=True)
+            stack.enter_context(patch.object(chat, '_phase_outils', side_effect=_phase))
+            with portal.app.test_request_context(
+                    '/playground/chat', method='POST',
+                    json=self._corps(msgs=[{'role': 'user',
+                                            'content': 'Crée une image de chat.'}])):
+                session['username'] = 'demo'
+                session['auth_at'] = int(time.time())
+                corps = chat.playground_chat().get_data(as_text=True)
+        self.assertNotIn('image_service_off', corps)
+
     def test_timeout_de_lecture_est_une_erreur_de_transport(self):
         """LiteLLM injoignable n'est PAS une erreur de modèle : la réponse doit
         le dire, pas annoncer un code 0."""

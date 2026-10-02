@@ -24,6 +24,8 @@ export function texteNotice(
       return t("Crée d'abord une clé API (page Mes clés API) : cet assistant consomme le budget de ton compte.");
     case "model_error":
       return t("Erreur modèle ({status}).").replace("{status}", String(notice.status ?? ""));
+    case "image_service_off":
+      return t("La génération d'image est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans image.");
     default:
       return notice.id;
   }

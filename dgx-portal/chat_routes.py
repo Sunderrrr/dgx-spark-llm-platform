@@ -1044,7 +1044,13 @@ def playground_chat():
                and websearch_active(session['username']))
     # Outil image : même barre que la recherche — demande EXPLICITE seulement.
     # La maintenance bloque comme pour la page Image (les admins passent).
-    _img_ok = (_image_demandee(history) and image_disponible()
+    # L'état du service est gardé : il sert AUSSI à prévenir l'utilisateur quand
+    # le sidecar est éteint (mesuré le 2026-10-02 avec MiMo — sans cela le modèle
+    # répond « je ne peux pas générer d'images », ce qui est faux : la plateforme
+    # le sait faire, c'est le service qui manque).
+    _img_demandee = _image_demandee(history)
+    _img_service = image_disponible()
+    _img_ok = (_img_demandee and _img_service
                and maintenance_block_sse() is None)
 
     # Le plafond de sortie S'AJOUTE au prompt dans la fenêtre de contexte : au-delà,
@@ -1080,6 +1086,14 @@ def playground_chat():
         # prefixe possible, rien n'est jamais reutilise d'un tour a l'autre).
         # Vu en prod le 22/08 : conversation de 68 kio, 502 a 15 s pile.
         yield ": ouverture\n\n"
+        # Demande d'image explicite avec le service éteint : sans cette notice,
+        # le modèle nie sa propre capacité (« je ne peux pas générer d'images »)
+        # et personne ne devine que c'est le sidecar qui manque. La notice est
+        # STRUCTURÉE : le frontend la traduit (lib/notices.ts), comme pour le
+        # quota. Mesuré le 2026-10-02 avec MiMo.
+        if _img_demandee and not _img_service:
+            yield ("data: " + json.dumps(
+                {'cronos_notice': {'id': 'image_service_off'}}) + "\n\n")
         # Le chrono du TTFT part ICI, avant la phase outils : c'est le délai
         # réellement subi par la personne qui a posé la question. Il était pris
         # après la recherche (juste avant le POST final), donc une demande qui

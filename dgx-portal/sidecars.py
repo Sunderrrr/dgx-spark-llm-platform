@@ -525,7 +525,7 @@ def _sidecar_start_json(kind):
         # see asr_epingler for the honest limits of that behaviour.
         asr_epingler()
     return jsonify({'ok': bool(ok),
-                    'error': None if ok else f"Échec du démarrage {kind}.{detail}"}), (200 if ok else 502)
+                    'error': None if ok else f"Échec du démarrage {kind}.{detail}"}), (200 if ok else 503)
 
 def _sidecar_stop_json(kind):
     """Stopping a sidecar: same JSON contract as the start.
@@ -537,7 +537,7 @@ def _sidecar_stop_json(kind):
     if kind == 'asr' and ok:
         asr_depingler()   # a manual stop also clears any manual-start pin
     return jsonify({'ok': bool(ok),
-                    'error': None if ok else f"Échec de l'arrêt {kind}.{detail}"}), (200 if ok else 502)
+                    'error': None if ok else f"Échec de l'arrêt {kind}.{detail}"}), (200 if ok else 503)
 
 def _sidecar_action(kind, action, acteur=None, note=''):
     """(ok, detail) — `detail` carries the exact reason returned by the runner.

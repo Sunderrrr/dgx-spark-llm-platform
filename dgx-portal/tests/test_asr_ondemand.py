@@ -206,8 +206,8 @@ class DemarrageTest(_Base):
                 r1 = self._transcrit()
                 r2 = self._transcrit()
             self.assertEqual(echec.call_count, 2)
-            self.assertEqual(r1.status_code, 502)
-            self.assertEqual(r2.status_code, 502)
+            self.assertEqual(r1.status_code, 503)
+            self.assertEqual(r2.status_code, 503)
         finally:
             for p in commun:
                 p.stop()

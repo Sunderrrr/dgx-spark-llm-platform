@@ -205,7 +205,7 @@ def api_voice_generate():
     _t0 = time.time()
     audio_bytes, err = voice_clone(ref_bytes, err_or_mime, text, language, ref_text)
     if audio_bytes is None:
-        return jsonify({'error': err}), 502
+        return jsonify({'error': err}), 503
     duration_ms = int((time.time() - _t0) * 1000)  # real generation time
     audio_ms = _wav_duration_ms(audio_bytes)        # duration of the produced audio (WAV)
     username = session['username']

@@ -12,10 +12,12 @@ _sidecar_proc_status). Grouping them here makes everything one-way again.
 `_log` replaces `app.logger`: it is the same object (logging.getLogger('app')),
 checked. See litellm_client.py.
 """
+import contextlib
 import json
 import logging
 import os
 import re
+import tempfile
 import threading
 import time
 
@@ -516,6 +518,12 @@ def _sidecar_start_json(kind):
     if err:
         return jsonify({'ok': False, 'error': err}), 507
     ok, detail = _sidecar_action(kind, 'start')
+    if kind == 'asr' and ok:
+        # A MANUAL start pins the dictation sidecar against the idle reaper
+        # (asr_epingler): the admin asked for it, it must not be stopped behind
+        # their back ten minutes later. The pin is time-limited on purpose —
+        # see asr_epingler for the honest limits of that behaviour.
+        asr_epingler()
     return jsonify({'ok': bool(ok),
                     'error': None if ok else f"Échec du démarrage {kind}.{detail}"}), (200 if ok else 502)
 
@@ -526,16 +534,23 @@ def _sidecar_stop_json(kind):
     nowhere: a stop failure thus displayed as a success.
     """
     ok, detail = _sidecar_action(kind, 'stop')
+    if kind == 'asr' and ok:
+        asr_depingler()   # a manual stop also clears any manual-start pin
     return jsonify({'ok': bool(ok),
                     'error': None if ok else f"Échec de l'arrêt {kind}.{detail}"}), (200 if ok else 502)
 
-def _sidecar_action(kind, action):
+def _sidecar_action(kind, action, acteur=None, note=''):
     """(ok, detail) — `detail` carries the exact reason returned by the runner.
 
     Throwing it away left the administrator with only a « Échec du démarrage
     ocr. » identical for an unreachable runner, a missing container after a
     failed recreation and a transient error — so nothing actionable without
     opening a shell on the host.
+
+    `acteur` names the audit's actor (the ASR idle reaper is no user — it passes
+    « système »); None keeps today's behaviour, the logged-in user. `note` is
+    appended to the audit line when the action has a WHY worth recording (an
+    automatic stop). Both are optional: every existing caller is unchanged.
     """
     ok, detail = False, ''
     try:
@@ -552,9 +567,281 @@ def _sidecar_action(kind, action):
             detail = f" ({motif})" if motif else f" (HTTP {r.status_code})"
     except Exception as e:                                   # noqa: BLE001
         detail = f" ({type(e).__name__})"
-    log_audit(session.get('username'), f'sidecar.{action}',
-              f"{kind} : {'OK' if ok else 'échec' + detail}")
+    if acteur is None:
+        # `session.get` RAISES outside a request context (the idle reaper runs
+        # in a background thread): an audit lookup must never break the action
+        # it is describing.
+        try:
+            acteur = session.get('username')
+        except Exception:                                # noqa: BLE001
+            acteur = None
+    log_audit(acteur, f'sidecar.{action}',
+              f"{kind} : {'OK' if ok else 'échec' + detail}" + (f" — {note}" if note else ''))
     return ok, detail
+
+# ── ASR on-demand: started at first dictation, stopped after an idle window ──
+#
+# The `asr` container (~2.1 GiB of GPU) only serves dictation. While it was
+# `restart=unless-stopped` and stopped only by an admin click, it sat on its
+# GPU memory for nothing. Since this section it starts on the first
+# transcription request and stops itself after _ASR_INACTIVITE_S without any.
+#
+# The portal runs FOUR gunicorn workers, so every piece of state here is FILE
+# state (in-memory counters would be per-process, and one worker's reaper could
+# stop a container another worker is transcribing with). No DB either: the
+# check sits in the request path of an endpoint polled EVERY SECOND
+# (useDictation, POLL_MS) and must stay near-free. Files live in /tmp
+# (ASR_ONDEMAND_DIR overrides, for tests): they only need to be shared by the
+# workers of one portal container — losing them costs at most one extra idle
+# window after a portal restart.
+_ASR_INACTIVITE_S = 600       # 10 min without a transcription → stop the container
+_ASR_EPINGLE_S = 3600         # a manual admin start suppresses the reaper for 1 h
+_ASR_APPEL_MAX_S = 300        # in-flight marker older than this is stale (a call is bounded at 180 s)
+_ASR_VIGILANCE_S = 30         # reaper wake-up period
+_ASR_VERROU_MAX_S = 60        # a stop lock older than this is treated as abandoned
+_ASR_AUTO_MIN_GIB = 8         # MemAvailable headroom required for an AUTOMATIC start
+
+
+def _asr_etat_dir():
+    """Directory holding the shared on-demand state (overridable for tests)."""
+    d = os.environ.get('ASR_ONDEMAND_DIR', '/tmp/cronos-asr-ondemand')
+    try:
+        os.makedirs(os.path.join(d, 'en_vol'), exist_ok=True)
+    except OSError:
+        pass
+    return d
+
+def asr_note_activite():
+    """Reset the idle clock — shared by all workers through the file's mtime."""
+    p = os.path.join(_asr_etat_dir(), 'activite')
+    try:
+        with open(p, 'a'):
+            pass
+        os.utime(p, None)
+    except OSError:
+        pass
+
+def asr_inactivite_s():
+    """Seconds since the last dictation call, None if none was ever recorded."""
+    try:
+        return time.time() - os.path.getmtime(os.path.join(_asr_etat_dir(), 'activite'))
+    except OSError:
+        return None
+
+@contextlib.contextmanager
+def asr_appel_en_vol():
+    """Marks one transcription call as IN FLIGHT (cross-worker marker file).
+
+    The reaper never stops `asr` while a marker exists. The idle clock is also
+    reset at the END of the call: idle really means « since the last call
+    ended », not « since it started ». A marker left behind by a killed worker
+    expires after _ASR_APPEL_MAX_S (asr_appels_en_vol) — it must not block the
+    reaper forever.
+    """
+    marqueur = None
+    try:
+        fd, marqueur = tempfile.mkstemp(dir=os.path.join(_asr_etat_dir(), 'en_vol'))
+        os.close(fd)
+    except OSError:
+        marqueur = None
+    try:
+        yield
+    finally:
+        if marqueur:
+            try:
+                os.remove(marqueur)
+            except OSError:
+                pass
+        asr_note_activite()
+
+def asr_appels_en_vol():
+    """Number of transcription calls in flight right now (stale markers dropped)."""
+    d = os.path.join(_asr_etat_dir(), 'en_vol')
+    n = 0
+    try:
+        for nom in os.listdir(d):
+            p = os.path.join(d, nom)
+            try:
+                if time.time() - os.path.getmtime(p) < _ASR_APPEL_MAX_S:
+                    n += 1
+                else:
+                    os.remove(p)   # worker died mid-call
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return n
+
+def asr_epingler(duree_s=None):
+    """PIN the container against the idle reaper (called on a manual admin start).
+
+    Time-limited on purpose (_ASR_EPINGLE_S): an admin who starts dictation from
+    the Admin page gets it left alone for an hour, but « started once by hand »
+    must not mean « holds GPU memory forever » — that is exactly the behaviour
+    this on-demand work removes. Honest limits of the pin: it lives in /tmp, so
+    it is shared by the four workers but NOT persisted — recreating the portal
+    container drops it, and the reaper then restarts its clock (at most one
+    extra idle window before the next automatic stop).
+    """
+    try:
+        with open(os.path.join(_asr_etat_dir(), 'epingle'), 'w') as f:
+            f.write(str(time.time() + (duree_s or _ASR_EPINGLE_S)))
+    except OSError:
+        pass
+    asr_note_activite()
+
+def asr_depingler():
+    try:
+        os.remove(os.path.join(_asr_etat_dir(), 'epingle'))
+    except OSError:
+        pass
+
+def _asr_epinglee():
+    try:
+        with open(os.path.join(_asr_etat_dir(), 'epingle')) as f:
+            jusque = float(f.read().strip())
+    except (OSError, ValueError):
+        return False
+    return time.time() < jusque
+
+def asr_arret_autorise():
+    """True when the reaper may stop `asr`: no call in flight, not pinned, and
+    no transcription for _ASR_INACTIVITE_S. Cheap on purpose: files only."""
+    if asr_appels_en_vol():
+        return False
+    if _asr_epinglee():
+        return False
+    inact = asr_inactivite_s()
+    if inact is None:
+        # Nothing recorded yet (portal just (re)started): ARM the clock instead
+        # of treating « no data » as « idle forever ».
+        asr_note_activite()
+        return False
+    return inact >= _ASR_INACTIVITE_S
+
+def asr_memoire_ok():
+    """(ok, motif) — memory guard for an AUTOMATIC start of the dictation.
+
+    Deliberately stricter than _mem_guard('asr') (5 GiB, kept unchanged for the
+    admin start): an on-demand start happens with NO human watching, and on
+    unified memory a sidecar that overflows does not merely fail — the OOM
+    killer takes the served chat model down with it. 8 GiB of MemAvailable
+    leaves a real cushion over the ~2.1 GiB the sidecar holds. MemAvailable is
+    the only signal that sees GPU allocations (CLAUDE.md, memory safety), and
+    it is read straight from /proc/meminfo (_mem_available_gb). Unreadable → we
+    do NOT start: a guard we cannot evaluate is not a guard.
+    """
+    dispo = _mem_available_gb()
+    if dispo is None:
+        return False, ("Mémoire disponible illisible : la dictée ne démarre pas toute "
+                       "seule sans ce garde-fou. Réessaie plus tard.")
+    if dispo < _ASR_AUTO_MIN_GIB:
+        return False, (f"Mémoire insuffisante pour démarrer la dictée "
+                       f"({dispo:.1f} Go disponibles, ~{_ASR_AUTO_MIN_GIB} Go nécessaires) : "
+                       f"le modèle de chat en a besoin. Libère de la mémoire, puis réessaie.")
+    return True, ''
+
+# Auto-start throttle. The dictation polls EVERY SECOND and the proc-status
+# cache (5 s) keeps reading « stopped » while the container starts: without
+# this, ONE dictation session issued up to ~20 `docker start` (4 workers x up
+# to 5 cached polls) and as many audit lines — recycling the 500-row audit log
+# that exists to answer « qui a fait quoi ». A SUCCESSFUL start therefore
+# silences the next attempts for _ASR_REDARRAGE_S; a FAILED one is retried on
+# the next poll (the throttle only follows a success).
+_ASR_REDARRAGE_S = 60
+_asr_demarrage_auto_t = 0.0
+
+def asr_demarrage_auto():
+    """(ok, detail) — start `asr` for a dictation, throttled after a success.
+
+    Same runner helper as the admin start — `_sidecar_action('asr', 'start')`,
+    i.e. `docker start`, a no-op on an already-running container: nothing else
+    is shelled out, and the action is audited like a manual start (with the
+    request's user as actor).
+    """
+    global _asr_demarrage_auto_t
+    if time.time() - _asr_demarrage_auto_t < _ASR_REDARRAGE_S:
+        return True, ''   # a start is already under way: keep saying « démarrage »
+    ok, detail = _sidecar_action('asr', 'start')
+    if ok:
+        _asr_demarrage_auto_t = time.time()
+    return ok, detail
+
+_asr_veilleur_verrou = threading.Lock()
+_asr_veilleur_demarre = False
+
+def asr_demarrer_veilleur():
+    """Start (once per process) the thread that stops `asr` when idle.
+
+    Lazy and DB-free: launched from the first transcription request; the loop
+    only reads the state files above, plus one status call when it is really
+    about to stop. Each gunicorn worker gets its own thread — every step is
+    idempotent (`docker stop` on a stopped container is a no-op) and a lock
+    file keeps several workers from stopping at the same instant.
+    """
+    global _asr_veilleur_demarre
+    if _asr_veilleur_demarre:
+        return False
+    with _asr_veilleur_verrou:
+        if _asr_veilleur_demarre:
+            return False
+        _asr_veilleur_demarre = True
+        threading.Thread(target=_asr_veilleur_boucle, name='asr-veilleur', daemon=True).start()
+        return True
+
+def _asr_veilleur_boucle():
+    while True:
+        time.sleep(_ASR_VIGILANCE_S)
+        try:
+            _asr_veilleur_passe()
+        except Exception:                                # noqa: BLE001
+            _log.warning("veilleur ASR : passage en erreur", exc_info=True)
+
+def _asr_veilleur_passe():
+    """One reaper pass: stop `asr` if the dictation has been idle long enough.
+
+    Returns True only when a stop was actually ordered. It never stops while a
+    transcription is in flight (asr_arret_autorise, re-checked just before the
+    act) and never touches an already-stopped container. The residual race — a
+    call starting between the last check and `docker stop` — is milliseconds
+    wide against a 10-minute condition, and the request path's own recovery
+    (auto-start + retry-later payload) covers it anyway.
+    """
+    if not asr_arret_autorise():
+        return False
+    # Single actor among the workers: a lock FILE, atomic everywhere. The
+    # others skip this pass — their own comes 30 s later and finds the clock
+    # reset. An abandoned lock (killed pass) expires after _ASR_VERROU_MAX_S.
+    verrou = os.path.join(_asr_etat_dir(), 'verrou-arret')
+    try:
+        os.close(os.open(verrou, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        try:
+            if time.time() - os.path.getmtime(verrou) > _ASR_VERROU_MAX_S:
+                os.remove(verrou)
+        except OSError:
+            pass
+        return False
+    try:
+        if not asr_arret_autorise():   # last look: a call may have started
+            return False
+        if _sidecar_proc_status('asr') != 'running':
+            # Already stopped (or runner unreachable): `docker stop` would be a
+            # no-op at best and an audit lie at worst. Reset the clock so this
+            # does not re-probe the runner every 30 s while the sidecar is down.
+            asr_note_activite()
+            return False
+        ok, _detail = _sidecar_action(
+            'asr', 'stop', acteur='système',
+            note=f"arrêt automatique après {int(_ASR_INACTIVITE_S / 60)} min d'inactivité")
+        asr_note_activite()   # rearm the clock whatever the outcome: no docker hammering
+        return bool(ok)
+    finally:
+        try:
+            os.remove(verrou)
+        except OSError:
+            pass
+
 
 def _ocr_launch(hf_id, args):
     """Recreate the OCR container with another model (runner.py validates the flags

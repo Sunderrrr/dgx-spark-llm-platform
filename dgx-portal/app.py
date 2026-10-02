@@ -1130,7 +1130,7 @@ def keys():
         if not new_key:
             return jsonify({'ok': False,
                             'error': "La clé n'a pas pu être créée : le service de clés "
-                                     "(LiteLLM) n'a pas répondu. Réessaie dans un instant."}), 502
+                                     "(LiteLLM) n'a pas répondu. Réessaie dans un instant."}), 503
         db = get_db()
         db.execute(
             "INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) VALUES (?,?,?,?)",
@@ -1155,7 +1155,7 @@ def keys():
         if not revoke_litellm_key(k):
             return jsonify({'ok': False,
                             'error': "La clé n'a PAS pu être révoquée : LiteLLM n'a pas "
-                                     "répondu. Elle est encore valide, réessaie."}), 502
+                                     "répondu. Elle est encore valide, réessaie."}), 503
         db.execute("DELETE FROM api_keys WHERE key_value=? AND username=?",
                    (k, session['username']))
         db.commit()
@@ -1193,7 +1193,7 @@ def keys():
         if not renommer_cle_litellm(k, alias):
             return jsonify({'ok': False,
                             'error': "Le nom n'a PAS pu être changé : LiteLLM n'a pas "
-                                     "répondu. La clé est intacte, réessaie."}), 502
+                                     "répondu. La clé est intacte, réessaie."}), 503
         db.execute("UPDATE api_keys SET key_alias=? WHERE key_value=? AND username=?",
                    (alias, k, session['username']))
         db.commit()
@@ -1304,7 +1304,7 @@ def api_search():
     """Model search on Hugging Face.
 
     The contract is the same as the admin actions: the response says what
-    really happened. An HF outage returns 502 with `ok: false` — never an
+    really happened. An HF outage returns 503 with `ok: false` — never an
     empty list, which reads « ton modèle n'existe pas ».
     """
     query = request.args.get('q', '').strip()
@@ -1332,7 +1332,7 @@ def api_search():
         # translate that case (English only makes sense if it is complete), and
         # the technical detail stays attached for whoever must diagnose.
         return jsonify({'ok': False, 'results': [], 'code': 'hf_indisponible',
-                        'error': f"Hugging Face n'a pas répondu ({e}). Réessaie dans un instant."}), 502
+                        'error': f"Hugging Face n'a pas répondu ({e}). Réessaie dans un instant."}), 503
     # GB10 filter + no result: the user's next question is « est-ce que ça
     # existe ailleurs ? ». We answer it (True/False/None = unknown, and then the
     # UI says nothing).

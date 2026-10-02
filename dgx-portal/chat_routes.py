@@ -1118,7 +1118,7 @@ def playground_chat():
         # An SSE comment goes out BEFORE ANYTHING, web search or not. In
         # WSGI headers only go out at the generator's FIRST yield: as long as
         # nothing is produced, the frontend proxy does not see the response
-        # start and cuts at CONNECT_TIMEOUT_MS (lib/sseProxy.ts) with a 502
+        # start and cuts at CONNECT_TIMEOUT_MS (lib/sseProxy.ts) with a 503
         # « Le serveur ne repond pas ». Yet without search the first yield
         # only arrived at the RETURN of the POST to LiteLLM, hence after all of
         # the context prefill. Measured on MiMo/TabbyAPI (2026-10-02): a
@@ -1126,7 +1126,7 @@ def playground_chat():
         # alone brushes the 15 s cut. Prefix reuse DOES exist on this engine
         # (same prefix turn after turn = TTFT 1.0 s): the cold turn is the
         # expensive one, and it is exactly the one where nothing was yielded.
-        # Seen in prod on 22/08: 68 kio conversation, 502 at exactly 15 s.
+        # Seen in prod on 22/08: 68 kio conversation, cut at exactly 15 s.
         yield ": ouverture\n\n"
         # Explicit image request with the service off: without this notice,
         # the model denies its own capability (« je ne peux pas générer d'images »)
@@ -1438,7 +1438,7 @@ def playground_title():
               {'role': 'user', 'content': "\n".join(f"{m['role']}: {m['content'][:200]}" for m in msgs[-6:])}]
     title, err = _non_stream(prompt, model, max_tokens=40)
     if err:
-        return jsonify({'error': err}), 502
+        return jsonify({'error': err}), 503
     return jsonify({'title': title or ''})
 
 
@@ -1467,5 +1467,5 @@ def playground_summarize():
              {'role': 'user', 'content': "\n\n".join(f"{m['role']}: {m['content']}" for m in msgs[-12:])}]
     summary, err = _non_stream(abrev, model, max_tokens=500, temperature=0.2)
     if err:
-        return jsonify({'error': err}), 502
+        return jsonify({'error': err}), 503
     return jsonify({'summary': summary or ''})

@@ -1,10 +1,9 @@
-# Qwen3-TTS (Apache 2.0) pour le clonage de voix, construit pour le GB10
-# (Blackwell, sm_121) : même base CUDA 13.0 + torch cu130 que le conteneur
-# Chatterbox, seule combinaison validée sur cette machine ARM64.
+# Qwen3-TTS (Apache 2.0) for voice cloning, built for the GB10
+# (Blackwell, sm_121): same CUDA 13.0 + torch cu130 base as the Chatterbox
+# container, the only combination validated on this ARM64 machine.
 #
-# flash-attn n'est volontairement PAS installé : il ne se compile pas
-# proprement en aarch64 et server.py retombe sur l'attention native PyTorch
-# quand il est absent.
+# flash-attn is deliberately NOT installed: it does not compile cleanly on
+# aarch64 and server.py falls back to native PyTorch attention when absent.
 FROM docker.io/nvidia/cuda:13.0.3-runtime-ubuntu22.04@sha256:ea99f417d171352c988c499da1c4facb89fa166c95bde42cc659cd174f6e7bea
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -28,8 +27,8 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 
 WORKDIR /app
 
-# torch d'abord, depuis l'index cu130 : qwen-tts tire sinon une roue CPU/CUDA12
-# qui ne connaît pas sm_121.
+# torch first, from the cu130 index: otherwise qwen-tts pulls a CPU/CUDA12
+# wheel that does not know sm_121.
 RUN python3 -m pip install --no-cache-dir --upgrade pip && \
     python3 -m pip install --no-cache-dir \
       --extra-index-url https://download.pytorch.org/whl/cu130 \
@@ -44,11 +43,11 @@ COPY server.py /app/server.py
 
 RUN mkdir -p /app/hf_cache
 
-# 8004, comme le sidecar Chatterbox : le port est FIXE côté plateforme
-# (`VOICE_URL=http://voice:8004` dans config.py, et les deux moteurs sont des
-# remplaçants l'un de l'autre). Ce CMD n'est de toute façon jamais celui qui
-# tourne : `voice-qwen-recreate.sh` lance le conteneur avec ses propres
-# arguments, dont `--port 8004`. Annoncer 8005 ici ne faisait que semer le doute.
+# 8004, like the Chatterbox sidecar: the port is FIXED on the platform side
+# (`VOICE_URL=http://voice:8004` in config.py, and the two engines are
+# substitutes for each other). This CMD is never the one running anyway:
+# `voice-qwen-recreate.sh` starts the container with its own arguments,
+# including `--port 8004`. Advertising 8005 here only sowed doubt.
 EXPOSE 8004
 
 CMD ["python3", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8004"]

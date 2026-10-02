@@ -1,13 +1,13 @@
-"""Serveur texte-vers-image minimal autour d'un pipeline diffusers.
+"""Minimal text-to-image server around a diffusers pipeline.
 
-Le dossier du modele est monte en lecture seule sur /model (telecharge sur
-l'hote). La generation est serialisee derriere un verrou (GPU unique) ; une
-requete renvoie le PNG directement. Le portail enveloppe ca dans son propre job
-asynchrone (fil + base), donc le sidecar reste volontairement simple.
+The model folder is mounted read-only on /model (downloaded on the host).
+Generation is serialized behind a lock (single GPU); one request returns the
+PNG directly. The portal wraps this in its own asynchronous job (thread + DB),
+so the sidecar stays deliberately simple.
 
-Volontairement AGNOSTIQUE du modele : la classe de pipeline est lue dans
-model_index.json par DiffusionPipeline, et la sortie est normalisee, parce que
-les pipelines ne rendent pas tous la meme chose (cf. _premiere_image).
+Deliberately MODEL-AGNOSTIC: the pipeline class is read from model_index.json
+by DiffusionPipeline, and the output is normalized, because pipelines do not
+all return the same thing (see _premiere_image).
 """
 import io
 import os
@@ -21,32 +21,31 @@ from PIL import Image, ImageFilter
 import esrgan
 
 MODEL_DIR = os.environ.get("MODEL_DIR", "/model")
-# Valeurs par defaut fournies par image-recreate.sh, qui les choisit selon le
-# modele : un modele distille se contente de ~8 etapes a guidage 1.0, un modele
-# complet en demande 35 a 50 avec un guidage de 4 a 6. Aucune valeur ici ne
-# convient aux deux — d'ou le passage par l'environnement.
+# Default values provided by image-recreate.sh, which picks them per model: a
+# distilled model is happy with ~8 steps at guidance 1.0, a full model needs 35
+# to 50 with guidance 4 to 6. No value here suits both — hence the environment.
 DEFAULT_STEPS = int(os.environ.get("IMAGE_STEPS", "35"))
 DEFAULT_GUIDANCE = float(os.environ.get("IMAGE_GUIDANCE", "4.0"))
 
-# Formats de sortie acceptés. PNG = défaut historique ; JPEG perd l'alpha (on
-# convertit en RGB) mais pèse moins ; WebP garde l'alpha et pèse le moins. Le
-# portail valide déjà la valeur ; on re-normalise ici par sécurité (alias jpg).
+# Accepted output formats. PNG = historical default; JPEG loses alpha (we
+# convert to RGB) but weighs less; WebP keeps alpha and weighs the least. The
+# portal already validates the value; we re-normalize here for safety (jpg alias).
 FORMAT_PIL = {'png': 'PNG', 'jpeg': 'JPEG', 'jpg': 'JPEG', 'webp': 'WEBP'}
 FORMAT_MIME = {'png': 'image/png', 'jpeg': 'image/jpeg', 'jpg': 'image/jpeg', 'webp': 'image/webp'}
 
-# Real-ESRGAN (super-résolution x4) pour les sorties « 4K ». Poids montés en
-# lecture seule sur /esrgan. Chargé paresseusement (une seule fois) au premier
-# upscale qui dépasse le seuil ; le réseau est petit (~64 Mo) et tourne sur le
-# même GPU que le pipeline.
+# Real-ESRGAN (x4 super-resolution) for « 4K » outputs. Weights mounted
+# read-only on /esrgan. Loaded lazily (only once) at the first upscale above
+# the threshold; the network is small (~64 MB) and runs on the same GPU as the
+# pipeline.
 ESRGAN_PATH = os.environ.get("ESRGAN_PATH", "/esrgan/RealESRGAN_x4plus.pth")
-ESRGAN_SCALE_THRESHOLD = 1.6  # au-delà de ~1.6x, on préfère ESRGAN à Lanczos
+ESRGAN_SCALE_THRESHOLD = 1.6  # beyond ~1.6x, prefer ESRGAN over Lanczos
 _esrgan = None
 _esrgan_error = None
 _esrgan_lock = threading.Lock()
 
 
 def _get_esrgan():
-    """Renvoie le réseau Real-ESRGAN (chargé à la demande) ou None si indisponible."""
+    """Return the Real-ESRGAN network (loaded on demand) or None if unavailable."""
     global _esrgan, _esrgan_error
     if _esrgan is not None:
         return _esrgan
@@ -58,7 +57,7 @@ def _get_esrgan():
                 _esrgan_error = f"poids absents: {ESRGAN_PATH}"
             else:
                 _esrgan = esrgan.load_esrgan(ESRGAN_PATH, "cuda")
-        except Exception as e:  # on dégrade proprement vers Lanczos
+        except Exception as e:  # we degrade cleanly to Lanczos
             _esrgan_error = f"{type(e).__name__}: {e}"
         return _esrgan
 
@@ -70,34 +69,34 @@ _model_name = os.environ.get("MODEL_NAME") or os.path.basename(MODEL_DIR.rstrip(
 
 
 def _load_pipeline():
-    """Charge le pipeline decrit par model_index.json.
+    """Load the pipeline described by model_index.json.
 
-    DiffusionPipeline lit `_class_name` et instancie la bonne classe : pas de
-    liste de classes en dur, un nouveau modele diffusers marche sans toucher au
-    code. AutoPipelineForText2Image ne convenait pas — sa table de correspondance
-    ne connait pas les pipelines recents (Cosmos3OmniPipeline en fait partie).
+    DiffusionPipeline reads `_class_name` and instantiates the right class: no
+    hardcoded class list, a new diffusers model works without touching the code.
+    AutoPipelineForText2Image would not do — its mapping table does not know
+    recent pipelines (Cosmos3OmniPipeline is one of them).
 
-    Deux pieges specifiques aux modeles pre-quantifies NF4 (bitsandbytes) :
-      - ne JAMAIS appeler .to(dtype) dessus, seulement .to(device) ;
-      - la configuration de quantification est deja dans le depot, il ne faut
-        surtout pas en passer une autre.
+    Two pitfalls specific to NF4 (bitsandbytes) pre-quantized models:
+      - NEVER call .to(dtype) on them, only .to(device) ;
+      - the quantization config is already in the repo, above all do not pass
+        another one.
     """
     global _pipe, _load_error
     try:
         from diffusers import DiffusionPipeline
 
-        # enable_safety_checker=False evite d'exiger cosmos_guardrail, une
-        # dependance optionnelle des pipelines Cosmos. Les autres pipelines ne
-        # connaissent pas ce parametre et levent : on retente sans.
+        # enable_safety_checker=False avoids requiring cosmos_guardrail, an
+        # optional dependency of the Cosmos pipelines. The other pipelines do
+        # not know this parameter and raise: we retry without it.
         try:
             pipe = DiffusionPipeline.from_pretrained(
                 MODEL_DIR, torch_dtype=torch.bfloat16, enable_safety_checker=False)
         except TypeError:
             pipe = DiffusionPipeline.from_pretrained(MODEL_DIR, torch_dtype=torch.bfloat16)
 
-        # .to("cuda") deplace SANS convertir le dtype : sur un modele 4 bits une
-        # conversion casserait les poids quantifies. Si accelerate a deja reparti
-        # le modele, le deplacement echoue — ce n'est pas une erreur de chargement.
+        # .to("cuda") moves WITHOUT converting the dtype: on a 4-bit model a
+        # conversion would break the quantized weights. If accelerate has already
+        # sharded the model, the move fails — that is not a load error.
         try:
             pipe = pipe.to("cuda")
         except Exception:
@@ -108,7 +107,7 @@ def _load_pipeline():
         except Exception:
             pass
         globals()["_pipe"] = pipe
-    except Exception as e:  # on garde l'erreur pour que /health la rapporte
+    except Exception as e:  # keep the error so /health reports it
         globals()["_load_error"] = f"{type(e).__name__}: {e}"
 
 
@@ -116,13 +115,12 @@ threading.Thread(target=_load_pipeline, daemon=True).start()
 
 
 def _premiere_image(out):
-    """Recupere la premiere image, quel que soit ce que rend le pipeline.
+    """Grab the first image, whatever the pipeline returns.
 
-    Les pipelines texte-vers-image classiques renvoient `.images` (liste de
-    PIL.Image). Les pipelines Cosmos 3 sont omnimodaux et renvoient `.video` :
-    une liste de sequences, dont la premiere contient une seule frame en mode
-    texte-vers-image. Sans ce demelage, la generation reussissait cote GPU puis
-    echouait a l'enregistrement.
+    Classic text-to-image pipelines return `.images` (list of PIL.Image). The
+    Cosmos 3 pipelines are omni-modal and return `.video`: a list of sequences,
+    of which the first holds a single frame in text-to-image mode. Without this
+    untangling, generation succeeded on the GPU then failed at save time.
     """
     images = getattr(out, "images", None)
     if images:
@@ -130,7 +128,7 @@ def _premiere_image(out):
     video = getattr(out, "video", None)
     if video:
         premiere = video[0]
-        # Sequence de frames, ou frame unique deja deballee.
+        # Frame sequence, or single frame already unwrapped.
         return premiere[0] if isinstance(premiere, (list, tuple)) else premiere
     if isinstance(out, (list, tuple)) and out:
         return out[0]
@@ -149,12 +147,12 @@ def model_info():
 
 
 def _upscale(image, out_w, out_h):
-    """Agrandit vers out_w x out_h en haute qualité.
+    """Upscale towards out_w x out_h in high quality.
 
-    Petite montée (Full HD, ~1.25x) : Lanczos + unsharp suffit. Grande montée
-    (4K, >1.6x) : Real-ESRGAN x4 (synthèse de détail) puis ajustement Lanczos à
-    la taille exacte. Le crop centré est un filet de sécurité (ratios identiques
-    en pratique, donc no-op).
+    Small bump (Full HD, ~1.25x): Lanczos + unsharp is enough. Large bump
+    (4K, >1.6x): Real-ESRGAN x4 (detail synthesis) then Lanczos adjustment to
+    the exact size. The centered crop is a safety net (identical ratios in
+    practice, so a no-op).
     """
     if image.width >= out_w and image.height >= out_h:
         return image
@@ -163,8 +161,8 @@ def _upscale(image, out_w, out_h):
         net = _get_esrgan()
         if net is not None:
             image = esrgan.upscale_4x(net, image)
-    # Ajustement final à la taille exacte (cover + crop), qui gère aussi la
-    # redescente quand ESRGAN a sur-dimensionné (4x > cible).
+    # Final adjustment to the exact size (cover + crop), which also handles the
+    # downscale when ESRGAN overshot (4x > target).
     scale = max(out_w / image.width, out_h / image.height)
     w = max(out_w, round(image.width * scale))
     h = max(out_h, round(image.height * scale))
@@ -194,24 +192,24 @@ def generate(prompt: str = Form(...),
     steps = max(1, min(80, int(steps)))
     width = max(256, min(1536, (int(width) // 8) * 8))
     height = max(256, min(1536, (int(height) // 8) * 8))
-    # Taille de sortie : si demandée et plus grande que la génération native, on
-    # upscale (Lanczos + unsharp). Borné à 3840 (4K) par côté.
+    # Output size: if requested and larger than the native generation, we
+    # upscale (Lanczos + unsharp). Bounded at 3840 (4K) per side.
     out_width = max(0, min(3840, int(out_width or 0)))
     out_height = max(0, min(3840, int(out_height or 0)))
     try:
         with _gpu_lock:
             with torch.inference_mode():
-                # prompt= en argument NOMME, jamais positionnel : les pipelines qui
-                # savent aussi editer une image (Flux2KleinPipeline entre autres)
-                # attendent l'image en premiere position, et un prompt positionnel
-                # y atterrit comme image -> « Provide either `prompt` or
-                # `prompt_embeds` ». Constate le 24/08 sur FLUX.2 Klein 4B.
+                # prompt= as a NAMED argument, never positional: pipelines that
+                # can also edit an image (Flux2KleinPipeline among others) expect
+                # the image in first position, and a positional prompt lands
+                # there as image -> « Provide either `prompt` or
+                # `prompt_embeds` ». Observed on 24/08 on FLUX.2 Klein 4B.
                 out = _pipe(prompt=prompt, num_inference_steps=steps,
                             guidance_scale=float(guidance), width=width, height=height)
             image = _premiere_image(out)
         if out_width and out_height:
             image = _upscale(image, out_width, out_height)
-        # JPEG ne sait pas coder un canal alpha : on aplatit sur RGB avant.
+        # JPEG cannot encode an alpha channel: we flatten to RGB first.
         if fmt == "JPEG" and image.mode in ("RGBA", "LA", "P"):
             image = image.convert("RGB")
         buf = io.BytesIO()

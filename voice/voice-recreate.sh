@@ -1,14 +1,13 @@
 #!/bin/bash
-# Recrée le conteneur voix ("voice", Chatterbox TTS) avec une des trois
-# variantes du modèle. Appelé par vllm-runner (utilisateur vllmrunner, via
-# sudo scoped — voir /etc/sudoers.d/vllmrunner-services) après validation du
-# repo_id côté Python (liste blanche fermée, pas d'argument libre) : ce
-# script fait confiance à cette validation en amont, à l'identique de
-# ocr-recreate.sh pour le conteneur OCR.
+# Recreate the voice container ("voice", Chatterbox TTS) with one of the three
+# model variants. Called by vllm-runner (user vllmrunner, via scoped sudo — see
+# /etc/sudoers.d/vllmrunner-services) after the repo_id was validated on the
+# Python side (closed allowlist, no free argument): this script trusts that
+# upstream validation, exactly like ocr-recreate.sh for the OCR container.
 #
-# Contrairement à OCR (vLLM, choix du modèle en argv), Chatterbox choisit son
-# modèle via config.yaml (clé model.repo_id) — ce script régénère donc un
-# config.yaml complet à chaque relance plutôt que de passer un argv.
+# Unlike OCR (vLLM, model choice in argv), Chatterbox picks its model through
+# config.yaml (key model.repo_id) — so this script regenerates a full
+# config.yaml at every relaunch rather than passing an argv.
 #
 # $1 = repo_id (chatterbox | chatterbox-turbo | chatterbox-multilingual)
 set -euo pipefail
@@ -53,10 +52,10 @@ generation_defaults:
 audio_output:
   format: wav
   sample_rate: 24000
-  # L'interface autorise 1 minute d'enregistrement micro (et l'arrêt auto tombe
-  # à 60,0x s, pas pile 60) : ce plafond doit rester STRICTEMENT au-dessus,
-  # sinon Chatterbox refuse un échantillon que l'UI vient d'inviter à faire.
-  # La valeur par défaut amont (30 s) provoquait exactement ça.
+  # The UI allows 1 minute of microphone recording (and its auto-stop lands at
+  # 60.0x s, not exactly 60): this cap must stay STRICTLY above that,
+  # otherwise Chatterbox rejects a sample the UI just invited the user to make.
+  # The upstream default (30 s) caused exactly that.
   max_reference_duration_sec: 90
   save_to_disk: false
 ui:
@@ -69,9 +68,9 @@ EOF
 
 docker rm -f voice >/dev/null 2>&1 || true
 
-# Plafond de journaux identique aux services du compose (20 Mo × 5) : sans lui
-# le journal du conteneur grossit sans borne, et un `docker logs` en panique
-# devient illisible. Appliqué au prochain démarrage, pas de coupure ici.
+# Log cap identical to the compose services (20 MB x 5): without it the
+# container log grows unbounded, and a panicked `docker logs` becomes
+# unreadable. Applied at next startup, no downtime here.
 exec docker run -d --name voice --restart unless-stopped \
   --log-opt max-size=20m --log-opt max-file=5 \
   --security-opt no-new-privileges --cap-drop ALL --pids-limit 512 \

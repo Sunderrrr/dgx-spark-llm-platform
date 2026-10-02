@@ -1,21 +1,22 @@
-# Publication d'une release à partir d'un tag `vX.Y.Z`.
+# Publish a release from a `vX.Y.Z` tag.
 #
-# Pourquoi la release est construite depuis CHANGELOG.md et non recopiée à la
-# main : le corps d'une release GitHub est ce que lit un utilisateur qui arrive
-# six mois plus tard, et c'est exactement ce qui se désynchronise du fichier dès
-# qu'on le recopie. Ici les deux ne peuvent pas diverger — le workflow extrait la
-# section avec le même code que la vérification locale (`release.sh --notes`).
+# Why the release is built from CHANGELOG.md and not copied by hand: the body
+# of a GitHub release is what a user arriving six months later reads, and that
+# is exactly what goes out of sync with the file as soon as it is copied. Here
+# the two cannot diverge — the workflow extracts the section with the same code
+# as the local check (`release.sh --notes`).
 #
-# Le tag lui-même porte les mêmes notes : un `git tag -a` posé par
-# `scripts/release.sh` les embarque, donc l'information survit au dépôt distant.
+# The tag itself carries the same notes: a `git tag -a` set by
+# `scripts/release.sh` embeds them, so the information survives the remote
+# repo.
 name: Release
 
 on:
   push:
     tags: ["v*"]
 
-# Le jeton doit pouvoir créer la release, et RIEN de plus : pas de contenu lu en
-# écriture, pas de paquets, pas d'actions.
+# The token must be able to create the release, and NOTHING more: no content
+# in write mode, no packages, no actions.
 permissions:
   contents: write
 
@@ -26,17 +27,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      # Un tag peut être poussé sans passer par le script (à la main, ou depuis
-      # une autre machine) : on revérifie donc l'accord tag ↔ paquet ↔ CHANGELOG
-      # avant de publier quoi que ce soit.
+      # A tag can be pushed without going through the script (by hand, or from
+      # another machine): so we re-check the tag ↔ package ↔ CHANGELOG
+      # agreement before publishing anything.
       - name: Verify version coherence
         run: ./scripts/release.sh --check "$GITHUB_REF_NAME"
 
       - name: Build the release notes from CHANGELOG.md
         run: ./scripts/release.sh --notes "$GITHUB_REF_NAME" > /tmp/notes.md
 
-      # `gh` est préinstallé sur les runners : pas d'action tierce à épingler pour
-      # une opération qui tient en une commande.
+      # `gh` is preinstalled on the runners: no third-party action to pin for
+      # an operation that fits in one command.
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

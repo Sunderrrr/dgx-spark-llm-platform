@@ -1,34 +1,35 @@
-# SearXNG — réglages du moteur de recherche du playground.
+# SearXNG — settings of the playground's search engine.
 #
-# Ce fichier est un MODÈLE : `setup.sh` le copie en `settings.yml` (non versionné,
-# il porte alors le secret généré) au premier démarrage. Le dossier est monté en
-# entier dans le conteneur (`./searxng:/etc/searxng`), donc c'est bien celui-ci
-# qui est lu, et non celui livré dans l'image.
+# This file is a TEMPLATE: `setup.sh` copies it to `settings.yml` (not
+# versioned, it then carries the generated secret) at first startup. The folder
+# is mounted whole into the container (`./searxng:/etc/searxng`), so this is
+# indeed the one being read, not the one shipped in the image.
 #
-# `use_default_settings: true` : on ne redéfinit que ce qui compte, le reste
-# vient des valeurs par défaut de SearXNG — une liste de moteurs recopiée ici
-# serait à maintenir à chaque montée de version.
+# `use_default_settings: true`: we only redefine what matters, the rest comes
+# from SearXNG's own defaults — an engine list copied here would have to be
+# maintained at every version bump.
 #
 # Read the documentation before extending the defaults:
 # https://docs.searxng.org/admin/settings/
 use_default_settings: true
 
-# ATTENTION : une seule clé `server:` est permise. Deux blocs `server:` dans le
-# même document YAML ne fusionnent PAS — le second écrase le premier en silence,
-# et `image_proxy` disparaissait ainsi de la configuration effective.
+# CAREFUL: a single `server:` key is allowed. Two `server:` blocks in the same
+# YAML document do NOT merge — the second silently overwrites the first, and
+# `image_proxy` thus disappeared from the effective configuration.
 server:
   secret_key: "changeme"
   image_proxy: true
-  # Le limiteur bloque les appels programmatiques (pas de cookie, pas de
-  # referer). Sans risque ici : le service n'est joignable que depuis
-  # dgx-portal, sur un réseau docker interne, jamais exposé.
+  # The limiter blocks programmatic calls (no cookie, no referer). No risk
+  # here: the service is reachable only from dgx-portal, on an internal docker
+  # network, never exposed.
   limiter: false
 
 search:
-  # Le format JSON n'est PAS actif par défaut : sans lui, seule la page HTML
-  # existe et il faudrait la gratter. C'est ce format que le portail consomme
-  # (`websearch.py` demande `format=json`) : sans cette section, SearXNG répond
-  # 403 et la recherche web tombe — côté portail, sans message clair.
+  # The JSON format is NOT enabled by default: without it, only the HTML page
+  # exists and one would have to scrape it. This is the format the portal
+  # consumes (`websearch.py` asks for `format=json`): without this section,
+  # SearXNG answers 403 and web search falls — on the portal side, with no
+  # clear message.
   formats:
     - html
     - json

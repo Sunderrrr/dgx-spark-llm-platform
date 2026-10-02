@@ -5,15 +5,15 @@ Description=Restrict vLLM (8000), vllm-runner (8001) and ComfyUI (8188) to local
 # model API (:8000) and ComfyUI (:8188). We run after it and insert a wt0 DROP
 # for those ports at the TOP of INPUT so it is evaluated first (audit H1, 2026-08-12).
 #
-# MESURE DU 2026-09-17 : le `-C … || -I INPUT 1` d'origine ne REPARE pas l'ordre.
-# La règle existant déjà (plus bas), le test `-C` réussissait et rien n'était
-# réinséré ; or netbird réinstalle son ACCEPT général en position 1 à chaque
-# (re)démarrage. Constat : ACCEPT `-i wt0` en règle 1 (491 000 paquets) et notre
-# DROP en règle 14 (0 paquet) — jamais évalué, donc un pair du VPN atteignait
-# `:8000` sans authentification (HTTP 200 sur /v1/models). D'où les deux
-# correctifs : la règle est SUPPRIMÉE puis RÉINSÉRÉE en tête à chaque exécution,
-# et `PartOf=netbird.service` fait rejouer l'unité quand netbird redémarre —
-# c'est la cause même de la dérive.
+# MEASUREMENT OF 2026-09-17: the original `-C … || -I INPUT 1` does NOT fix
+# the order. The rule already existing (further down), the `-C` test succeeded
+# and nothing was re-inserted; yet netbird reinstalls its general ACCEPT at
+# position 1 on every (re)start. Observed: ACCEPT `-i wt0` as rule 1 (491 000
+# packets) and our DROP as rule 14 (0 packets) — never evaluated, so a VPN
+# peer reached `:8000` without authentication (HTTP 200 on /v1/models). Hence
+# the two fixes: the rule is DELETED then RE-INSERTED at the top at every run,
+# and `PartOf=netbird.service` replays the unit when netbird restarts — that is
+# the very cause of the drift.
 After=network.target docker.service netbird.service
 Wants=netbird.service
 PartOf=netbird.service

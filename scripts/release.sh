@@ -1,23 +1,23 @@
 #!/bin/sh
-# Logique de version du dépôt — une seule source de vérité, et un seul chemin
-# pour publier.
+# Repo versioning logic — a single source of truth, and a single path to
+# publish.
 #
-# Pourquoi un script plutôt qu'une étiquette posée à la main : la version vit à
-# TROIS endroits qui peuvent diverger en silence — `dgx-portal-frontend/package.json`
-# (et son lockfile), l'entrée la plus récente de `CHANGELOG.md`, et le tag git.
-# Un tag qui ne correspond pas au paquet livré ne casse rien tout de suite : il
-# rend simplement impossible de dire, six mois plus tard, ce qui tournait. Ici,
-# publier et vérifier passent par le même code.
+# Why a script rather than a tag set by hand: the version lives in THREE places
+# that can silently diverge — `dgx-portal-frontend/package.json` (and its
+# lockfile), the most recent entry of `CHANGELOG.md`, and the git tag. A tag
+# that does not match the shipped package breaks nothing right away: it simply
+# makes it impossible to tell, six months later, what was running. Here,
+# publishing and checking go through the same code.
 #
-#   scripts/release.sh --check            # cohérence paquet ↔ CHANGELOG (CI)
-#   scripts/release.sh --check v0.1.0     # …et le tag annoncé correspond
-#   scripts/release.sh --notes v0.1.0     # corps de release, extrait du CHANGELOG
-#   scripts/release.sh 0.2.0              # publie : version, commit, tag, push
+#   scripts/release.sh --check            # package ↔ CHANGELOG consistency (CI)
+#   scripts/release.sh --check v0.1.0     # …and the announced tag matches
+#   scripts/release.sh --notes v0.1.0     # release body, extracted from the CHANGELOG
+#   scripts/release.sh 0.2.0              # publish: version, commit, tag, push
 #
-# Le CHANGELOG s'écrit AVANT : la section « ## [0.2.0] » doit exister, sinon le
-# script refuse (et `--notes` n'aurait rien à publier). C'est volontaire — des
-# notes de version rédigées après coup décrivent ce dont on se souvient, pas ce
-# qui a changé.
+# The CHANGELOG is written FIRST: the « ## [0.2.0] » section must exist,
+# otherwise the script refuses (and `--notes` would have nothing to publish).
+# That is deliberate — release notes written after the fact describe what we
+# remember, not what changed.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -28,20 +28,19 @@ REPO=https://github.com/Sunderrrr/dgx-spark-llm-platform
 
 die() { echo "✗ $*" >&2; exit 1; }
 
-# Version du paquet (source de vérité pour ce que l'application embarque).
+# Package version (source of truth for what the application embeds).
 pkg_version() {
     python3 -c "import json;print(json.load(open('$PKG'))['version'])"
 }
 
-# Version de l'entrée la plus RÉCENTE du CHANGELOG : la première ligne
-# « ## [x.y.z] » (les liens de comparaison en bas du fichier ne commencent pas
-# par « ## [ »).
+# Version of the most RECENT CHANGELOG entry: the first « ## [x.y.z] » line
+# (the comparison links at the bottom of the file do not start with « ## [ »).
 changelog_version() {
     sed -n 's/^## \[\([0-9][^]]*\)\].*/\1/p' "$CHANGELOG" | head -n 1
 }
 
-# Corps d'une section de version, jusqu'à la section suivante (les lignes
-# « ## [...] » et les définitions de liens finales sont exclues).
+# Body of a version section, up to the next section (the « ## [...] » lines and
+# the trailing link definitions are excluded).
 changelog_notes() {
     awk -v v="$1" '
         $0 ~ "^## \\[" v "\\]" { inside = 1; next }
@@ -86,8 +85,8 @@ case "$1" in
     printf '%s' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
         || die "version attendue au format X.Y.Z (reçu : $1)"
 
-    # L'arbre doit être propre : un tag posé sur un mélange de modifications non
-    # commitées ne décrit rien de reproductible.
+    # The tree must be clean: a tag set on a mix of uncommitted changes
+    # describes nothing reproducible.
     [ -z "$(git status --porcelain)" ] \
         || die "arbre de travail non propre — commiter ou remiser avant de publier :
 $(git status --short)"
@@ -107,8 +106,8 @@ for path, version in ((sys.argv[1], sys.argv[3]), (sys.argv[2], sys.argv[3])):
     data = json.load(open(path, encoding="utf-8"))
     data["version"] = version
     if path.endswith("package-lock.json"):
-        # Le lockfile répète la version du paquet racine dans packages[""] : npm
-        # compare les deux, et une divergence fait échouer `npm ci` en CI.
+        # The lockfile repeats the root package version in packages[""]: npm
+        # compares both, and a divergence makes `npm ci` fail in CI.
         data["packages"][""]["version"] = version
     open(path, "w", encoding="utf-8").write(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n")
@@ -117,8 +116,8 @@ PY
 
     git add "$PKG" "$LOCK" "$CHANGELOG"
     git commit -q -m "chore(version): publie la version $v"
-    # Tag ANNOTÉ : il porte les notes, donc `git show v$v` suffit à savoir ce qui
-    # a été livré, même sans accès à l'interface GitHub.
+    # ANNOTATED tag: it carries the notes, so `git show v$v` is enough to know
+    # what was shipped, even without access to the GitHub UI.
     printf '%s\n' "$notes" | git tag -a "v$v" -F -
     echo "  commit et tag v$v créés"
 

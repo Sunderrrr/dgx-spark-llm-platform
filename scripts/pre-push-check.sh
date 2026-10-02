@@ -97,11 +97,11 @@ else
   fi
 fi
 
-# ── 3. Couverture i18n ────────────────────────────────────────────────────────
-# Une clé de traduction manquante ne casse RIEN : le texte retombe silencieusement
-# sur le français et l'utilisateur anglophone lit du français. Un contrôle local
-# qui prend une seconde vaut mieux que de le découvrir en production ; il tourne
-# aussi en CI, mais autant l'attraper avant le push.
+# ── 3. i18n coverage ─────────────────────────────────────────────────────────
+# A missing translation key breaks NOTHING: the text silently falls back to
+# French and the English-speaking user reads French. A local check that takes a
+# second beats discovering it in production; it also runs in CI, but better to
+# catch it before the push.
 info "Contrôle de couverture i18n (scripts/check-i18n.py)…"
 if python3 scripts/check-i18n.py; then
   ok "i18n couvert"

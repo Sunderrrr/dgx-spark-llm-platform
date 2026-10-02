@@ -1,14 +1,13 @@
 #!/bin/bash
-# Recrée le conteneur de génération d'image (diffusers). Mêmes garanties que
-# ocr-recreate.sh / voice-recreate.sh / asr-recreate.sh : appelé par
-# vllm-runner via sudo scoped, argument unique validé contre une liste blanche
-# fermée, jamais interprété par un shell. Aucun port publié — seul dgx-portal
-# l'atteint, par image_net (IMAGE_URL=http://image:8007).
+# Recreate the image generation container (diffusers). Same guarantees as
+# ocr-recreate.sh / voice-recreate.sh / asr-recreate.sh: called by vllm-runner
+# via scoped sudo, single argument validated against a closed allowlist, never
+# interpreted by a shell. No published port — only dgx-portal reaches it, via
+# image_net (IMAGE_URL=http://image:8007).
 #
-# $1 = model id (liste blanche ci-dessous). Chaque modèle correspond à un
-#      dossier diffusers déjà présent sur l'hôte sous /root/models/<slug> : le
-#      téléchargement à froid est une étape de provisioning séparée, jamais
-#      déclenchée depuis le web.
+# $1 = model id (allowlist below). Each model maps to a diffusers folder
+#      already present on the host under /root/models/<slug>: cold download is
+#      a separate provisioning step, never triggered from the web.
 set -euo pipefail
 
 if [ $# -ne 1 ]; then
@@ -17,11 +16,11 @@ if [ $# -ne 1 ]; then
 fi
 
 MODEL="$1"
-# slug = dossier local ; NAME = étiquette affichée dans l'UI ; STEPS/GUIDANCE =
-# réglages d'inférence propres au modèle. Un modèle DISTILLÉ (few-step) se
-# contente de ~8 étapes à guidage 1.0 — le pousser plus haut le sursature. Un
-# modèle COMPLET en demande 35 à 50 avec un guidage de 4 à 6. Aucune valeur par
-# défaut ne convient aux deux, d'où ce réglage par entrée.
+# slug = local folder; NAME = label shown in the UI; STEPS/GUIDANCE =
+# inference settings specific to the model. A DISTILLED (few-step) model is
+# happy with ~8 steps at guidance 1.0 — pushing it higher oversaturates. A FULL
+# model needs 35 to 50 with guidance 4 to 6. No default suits both, hence this
+# per-entry setting.
 case "$MODEL" in
   black-forest-labs/FLUX.2-klein-4B)
     SLUG="flux2-klein-4b"; NAME="FLUX.2 Klein 4B"
@@ -37,16 +36,15 @@ fi
 
 docker rm -f image >/dev/null 2>&1 || true
 
-# PAS de --memory : sur le GB10 la mémoire GPU est UNIFIÉE avec la RAM et est
-#   comptée dans le cgroup mémoire du conteneur ; une limite plafonnerait donc
-#   aussi les allocations CUDA et ferait échouer le chargement (~16 Go pour
-#   FLUX.2 Klein 4B).
-# --cap-drop/--security-opt : ce conteneur reçoit un prompt utilisateur vers du
-#   code de modèle tiers, même durcissement que les autres sidecars.
-# Modèle monté en lecture seule ; seul dgx-portal atteint le port 8007 (image_net).
-# Plafond de journaux identique aux services du compose (20 Mo × 5) : sans lui
-# le journal du conteneur grossit sans borne, et un `docker logs` en panique
-# devient illisible. Appliqué au prochain démarrage, pas de coupure ici.
+# NO --memory: on the GB10 the GPU memory is UNIFIED with the RAM and is
+#   counted in the container's memory cgroup; a limit would therefore also cap
+#   the CUDA allocations and make loading fail (~16 GB for FLUX.2 Klein 4B).
+# --cap-drop/--security-opt: this container receives a user prompt into
+#   third-party model code, same hardening as the other sidecars.
+# Model mounted read-only; only dgx-portal reaches port 8007 (image_net).
+# Log cap identical to the compose services (20 MB x 5): without it the
+# container log grows unbounded, and a panicked `docker logs` becomes
+# unreadable. Applied at next startup, no downtime here.
 exec docker run -d --name image --restart unless-stopped \
   --log-opt max-size=20m --log-opt max-file=5 \
   --network ai-platform_image_net --gpus all --shm-size=2g \

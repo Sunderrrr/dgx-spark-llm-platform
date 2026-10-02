@@ -1,8 +1,8 @@
 #!/bin/bash
-# Recrée le conteneur de transcription (Whisper). Mêmes garanties que
-# ocr-recreate.sh / voice-recreate.sh : appelé par vllm-runner via sudo scoped,
-# argument unique validé contre une liste blanche fermée, jamais interprété par
-# un shell. Aucun port publié — seul dgx-portal l'atteint, par asr_net.
+# Recreate the transcription container (Whisper). Same guarantees as
+# ocr-recreate.sh / voice-recreate.sh: called by vllm-runner via scoped sudo,
+# single argument validated against a closed allowlist, never interpreted by a
+# shell. No published port — only dgx-portal reaches it, via asr_net.
 #
 # $1 = model id (openai/whisper-*)
 set -euo pipefail
@@ -20,24 +20,24 @@ esac
 
 docker rm -f asr >/dev/null 2>&1 || true
 
-# --security-opt/--cap-drop : aligne ce conteneur, qui reçoit des octets
-#   utilisateur bruts, sur le durcissement du reste de la plateforme.
-# PAS de --memory ici : sur le GB10 la mémoire GPU est UNIFIÉE avec la RAM et
-#   est comptée dans le cgroup mémoire du conteneur ; une limite --memory
-#   plafonne donc aussi les allocations CUDA et fait échouer le chargement du
-#   modèle (CUDA out of memory au démarrage). La protection anti-bombe de
-#   décompression est assurée dans le code (contrôle d'en-tête avant décodage,
-#   server.py) et par le plafond d'octets, pas par le cgroup.
-# Le cache HF est DÉDIÉ à l'ASR (`/root/.cache/huggingface-asr`), et reste en
-#   écriture pour permettre le téléchargement à froid du modèle au premier
-#   démarrage (déploiement sans étape manuelle). Il ne monte donc plus le cache
-#   partagé `HF_HOME` du runner : ce conteneur reçoit des octets utilisateur
-#   bruts et tourne en root, donc pouvoir ÉCRIRE dans les poids que le runner
-#   relira au prochain lancement était un chemin d'empoisonnement de modèle.
-#   Le modèle whisper y est recopié une fois (`cp -a`), sans re-téléchargement.
-# Plafond de journaux identique aux services du compose (20 Mo × 5) : sans lui
-# le journal du conteneur grossit sans borne, et un `docker logs` en panique
-# devient illisible. Appliqué au prochain démarrage, pas de coupure ici.
+# --security-opt/--cap-drop: aligns this container, which receives raw user
+#   bytes, with the hardening of the rest of the platform.
+# NO --memory here: on the GB10 the GPU memory is UNIFIED with the RAM and is
+#   counted in the container's memory cgroup; an --memory limit would therefore
+#   also cap the CUDA allocations and make model loading fail (CUDA out of
+#   memory at startup). The anti-decompression-bomb protection is done in the
+#   code (header check before decoding, server.py) and by the byte cap, not by
+#   the cgroup.
+# The HF cache is DEDICATED to ASR (`/root/.cache/huggingface-asr`) and stays
+#   writable to allow a cold download of the model at first startup (deploy
+#   with no manual step). It therefore no longer mounts the runner's shared
+#   `HF_HOME` cache: this container receives raw user bytes and runs as root,
+#   so being able to WRITE into the weights the runner will read again at the
+#   next launch was a model-poisoning path. The whisper model is copied there
+#   once (`cp -a`), with no re-download.
+# Log cap identical to the compose services (20 MB x 5): without it the
+# container log grows unbounded, and a panicked `docker logs` becomes
+# unreadable. Applied at next startup, no downtime here.
 exec docker run -d --name asr --restart unless-stopped \
   --log-opt max-size=20m --log-opt max-file=5 \
   --network ai-platform_asr_net --gpus all --shm-size=2g \

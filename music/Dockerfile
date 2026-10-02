@@ -1,6 +1,6 @@
-# MiniMax-Music3 (text-to-music) et autres modèles musique diffusers, pour le
-# GB10 (Blackwell, sm_121) : même base CUDA 13.0 + torch cu130 que les sidecars
-# image/voix/ASR — la seule pile validée sur cet aarch64.
+# MiniMax-Music3 (text-to-music) and other diffusers music models, for the
+# GB10 (Blackwell, sm_121): same CUDA 13.0 + torch cu130 base as the
+# image/voice/ASR sidecars — the only stack validated on this aarch64.
 FROM docker.io/nvidia/cuda:13.0.3-runtime-ubuntu22.04@sha256:ea99f417d171352c988c499da1c4facb89fa166c95bde42cc659cd174f6e7bea
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -21,8 +21,8 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
       --extra-index-url https://download.pytorch.org/whl/cu130 \
       torch==2.10.0
 
-# MiniMax-Music3 vit dans une PR diffusers non encore fusionnée : on épingle le
-# commit exact recommandé par la fiche du modèle (reproductible).
+# MiniMax-Music3 lives in a not-yet-merged diffusers PR: we pin the exact
+# commit recommended by the model card (reproducible).
 RUN python3 -m pip install --no-cache-dir \
       "git+https://github.com/huggingface/diffusers@dafe3733fcfdbf3c48915fe77be3aef65b5d6a2d" \
       "transformers>=4.46" "accelerate==1.14.0" safetensors sentencepiece protobuf \

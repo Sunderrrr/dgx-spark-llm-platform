@@ -1,14 +1,14 @@
-"""WebAuthn / passkeys — 2e facteur (non-TOTP).
+"""WebAuthn / passkeys — 2nd factor (non-TOTP).
 
-On ne re-teste PAS la cryptographie (c'est la lib `webauthn`, testée en amont).
-On teste notre branchement : que la réponse d'enregistrement générée par
-`navigator.credentials.create` est acceptée et stockée, que le login avec 2FA
-active (mot de passe valide) ne pose PAS la session mais renvoie un défi, que
-l'assertion de `navigator.credentials.get` termine le login, et que la
-suppression/désactivation exige une re-vérification par mot de passe.
+We do NOT re-test the cryptography (that is the `webauthn` lib, tested
+upstream). We test our wiring: that the registration response generated
+by `navigator.credentials.create` is accepted and stored, that a login
+with 2FA on (valid password) does NOT set the session but returns a
+challenge, that the `navigator.credentials.get` assertion finishes the
+login, and that deletion/deactivation requires a password re-verification.
 
-Un `FakeAuthenticator` produit des réponses (P-256) que la lib accepte — on
-vérifie ainsi le flux complet côté serveur sans matériel réel.
+A `FakeAuthenticator` produces (P-256) responses the lib accepts — we
+thus check the full server-side flow without real hardware.
 """
 import base64
 import hashlib
@@ -32,7 +32,7 @@ def _b64url(b):
 
 
 class FakeAuthenticator:
-    """Authenticator logiciel de test (P-256) pour enregistrer puis asserter."""
+    """Test software authenticator (P-256) to register then assert."""
 
     def __init__(self, rp_id=RP_ID, origin=ORIGIN):
         self.rp_id = rp_id
@@ -104,7 +104,7 @@ class WebAuthnTestCase(unittest.TestCase):
             db.commit()
 
     def _client(self, username=None):
-        """Client de test ; si username, ouvre une session (username+auth_at)."""
+        """Test client; if username, opens a session (username+auth_at)."""
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["csrf"] = "tok"
@@ -114,11 +114,11 @@ class WebAuthnTestCase(unittest.TestCase):
         return c
 
     def _register(self, c, username, label="Ma clé", password="pw"):
-        """Enregistre une passkey via l'API (retourne (fake, nonce de login)).
+        """Registers a passkey via the API (returns (fake, login nonce)).
 
-        Le mot de passe est exigé par `register/begin` : sans lui, un cookie volé
-        suffisait à poser SA clé et à activer la 2FA, enfermant la victime hors
-        de son compte (constat d'audit du 2026-09-17)."""
+        The password is required by `register/begin`: without it, a stolen
+        cookie was enough to set THEIR key and turn 2FA on, locking the
+        victim out of their account (audit finding of 2026-09-17)."""
         begin = c.post("/api/security/register/begin",
                        json={"password": password}, headers={"X-CSRFToken": "tok"})
         self.assertEqual(begin.status_code, 200, begin.get_data(as_text=True))
@@ -159,11 +159,11 @@ class WebAuthnTestCase(unittest.TestCase):
         self.assertEqual(data["credentials"][0]["label"], "Ma clé")
 
     def test_enregistrement_exige_le_mot_de_passe(self):
-        """Un cookie seul ne doit PAS pouvoir poser une clé (verrouillage du compte).
+        """A cookie alone must NOT be able to set a key (account lockout).
 
-        `register/begin` active la 2FA dès la première clé : sans re-vérification,
-        un voleur de cookie enregistrait la sienne et la victime ne pouvait plus
-        se connecter — récupération par un admin, destructrice."""
+        `register/begin` turns 2FA on at the first key: without
+        re-verification, a cookie thief registered theirs and the victim
+        could no longer log in — recovery by an admin, destructive."""
         c = self._client("eve")
         sans = c.post("/api/security/register/begin", json={},
                       headers={"X-CSRFToken": "tok"})
@@ -171,9 +171,9 @@ class WebAuthnTestCase(unittest.TestCase):
         faux = c.post("/api/security/register/begin", json={"password": "mauvais"},
                       headers={"X-CSRFToken": "tok"})
         self.assertEqual(faux.status_code, 400, faux.get_data(as_text=True))
-        # La double authentification n'a pas bougé.
+        # Two-factor authentication did not change.
         self.assertFalse(c.get("/api/security").get_json()["enabled"])
-        # Et avec le bon mot de passe, l'enregistrement se fait.
+        # And with the right password, the registration goes through.
         bon = c.post("/api/security/register/begin", json={"password": "pw"},
                      headers={"X-CSRFToken": "tok"})
         self.assertEqual(bon.status_code, 200, bon.get_data(as_text=True))
@@ -198,7 +198,7 @@ class WebAuthnTestCase(unittest.TestCase):
             self.assertNotIn("username", s)
 
     def test_login_sans_2fa_redirige(self):
-        # eve sans 2FA : login normal.
+        # eve without 2FA: normal login.
         lc = self._client()
         r = lc.post("/login", data={"username": "eve", "password": "pw"},
                     headers={"X-CSRFToken": "tok"})
@@ -237,17 +237,17 @@ class WebAuthnTestCase(unittest.TestCase):
         c = self._client("eve")
         self._register(c, "eve")
         cred_id = c.get("/api/security").get_json()["credentials"][0]["credential_id"]
-        # Sans mot de passe → 400.
+        # No password → 400.
         r = c.post("/api/security/remove", json={"credential_id": cred_id},
                    headers={"X-CSRFToken": "tok"})
         self.assertEqual(r.status_code, 400)
         # Mauvais mot de passe → 401.
         r = c.post("/api/security/remove", json={"credential_id": cred_id, "password": "bad"},
                    headers={"X-CSRFToken": "tok"})
-        # 400 : la session est valide, la confirmation ne l'est pas. Un 401 ferait
-        # déconnecter l'utilisateur par le client au lieu de lui montrer l'erreur.
+        # 400: the session is valid, the confirmation is not. A 401 would make
+        # the client log the user out instead of showing the error.
         self.assertEqual(r.status_code, 400)
-        # Bon mot de passe → supprimé + désactivé (dernière clé).
+        # Right password → deleted + deactivated (last key).
         r = c.post("/api/security/remove", json={"credential_id": cred_id, "password": "pw"},
                    headers={"X-CSRFToken": "tok"})
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
@@ -256,21 +256,21 @@ class WebAuthnTestCase(unittest.TestCase):
         self.assertEqual(data["credentials"], [])
 
     def test_reverification_compte_les_echecs_et_verrouille_le_compte(self):
-        """Les tentatives depuis les Réglages comptent dans le MÊME verrou que
-        /login : sans cela, une session détournée pouvait tester des mots de
-        passe à la vitesse du réseau (le compteur de /login n'avançait pas)."""
+        """The attempts from the Settings count in the SAME lock as /login:
+        without that, a hijacked session could test passwords at network
+        speed (the /login counter did not move)."""
         c = self._client("eve")
         codes = [c.post("/api/security/toggle",
                         json={"enabled": True, "password": "mauvais"},
                         headers={"X-CSRFToken": "tok"}).status_code
                  for _ in range(6)]
-        self.assertEqual(codes, [400] * 6)        # 6 échecs = seuil (400 = confirmation fausse)
+        self.assertEqual(codes, [400] * 6)        # 6 failures = threshold (400 = wrong confirmation)
         r = c.post("/api/security/toggle", json={"enabled": True, "password": "mauvais"},
                    headers={"X-CSRFToken": "tok"})
-        self.assertEqual(r.status_code, 429)      # verrouillé
+        self.assertEqual(r.status_code, 429)      # locked
         self.assertIn("Trop de tentatives", r.get_json()["error"])
-        # Le compteur est celui du COMPTE : /login est verrouillé lui aussi,
-        # même avec le BON mot de passe.
+        # The counter is the ACCOUNT's: /login is locked too, even with
+        # the RIGHT password.
         anon = portal.app.test_client()
         with anon.session_transaction() as s:
             s["csrf"] = "tok"
@@ -293,12 +293,12 @@ class WebAuthnTestCase(unittest.TestCase):
 
     def test_toggle_requiert_cle_et_mot_de_passe(self):
         c = self._client("eve")
-        # Activer sans clé → 400.
+        # Enable without key → 400.
         r = c.post("/api/security/toggle", json={"enabled": True, "password": "pw"},
                    headers={"X-CSRFToken": "tok"})
         self.assertEqual(r.status_code, 400)
         self._register(c, "eve")
-        # Bien désactiver / réactiver avec mot de passe correct.
+        # Properly deactivate / reactivate with the right password.
         r = c.post("/api/security/toggle", json={"enabled": False, "password": "pw"},
                    headers={"X-CSRFToken": "tok"})
         self.assertEqual(r.status_code, 200)

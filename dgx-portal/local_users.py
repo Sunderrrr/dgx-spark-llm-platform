@@ -1,11 +1,11 @@
-"""Comptes locaux geres par l'administrateur (table `local_users`).
+"""Local accounts managed by the administrator (`local_users` table).
 
-Extrait de app.py le 28/08. Ces aides etaient dispersees : quatre au debut du
-monolithe, _parse_budget deux mille lignes plus bas avec les routes qui s'en
-servent. Elles forment un seul sujet — l'authentification et le budget d'un
-compte local — et le blueprint d'administration en a besoin.
+Extracted from app.py on 28/08. These helpers were scattered: four at the
+top of the monolith, _parse_budget two thousand lines below with the routes
+using it. They form a single topic — authentication and budget of a local
+account — and the admin blueprint needs them.
 
-C'est la gestion normale de comptes, en base, par l'administrateur.
+This is the normal account management, in database, by the administrator.
 """
 from datetime import datetime
 
@@ -16,12 +16,12 @@ from db import get_db, get_setting
 from litellm_client import _ensure_litellm_user, litellm_update_user_budget
 
 def _local_group(name, groupes=None):
-    """Ligne du groupe `name`, ou None.
+    """Row of group `name`, or None.
 
-    `groupes` (nom → ligne) évite un SELECT par appel quand l'appelant a déjà
-    chargé la table : `/api/admin/users` parcourt tous les comptes et appelait
-    cette fonction DEUX fois par compte (droits + quota effectif), soit 2N
-    requêtes pour une table qu'il lit de toute façon en entier.
+    `groupes` (name → row) avoids one SELECT per call when the caller has
+    already loaded the table: `/api/admin/users` walks every account and
+    called this function TWICE per account (rights + effective quota), i.e.
+    2N queries for a table it reads entirely anyway.
     """
     if not name:
         return None
@@ -42,7 +42,7 @@ def _local_user_is_admin(row, groupes=None):
     g = _local_group(row['group_name'], groupes)
     return bool(row['is_admin']) or bool(g['is_admin'] if g else 0)
 
-# Hash jetable pour égaliser le temps de réponse (cf. oracle d'énumération).
+# Throwaway hash to even out the response time (cf. enumeration oracle).
 _HASH_FACTICE = generate_password_hash('mot-de-passe-factice')
 
 
@@ -52,11 +52,11 @@ def _local_user_auth(username, password):
     row = get_db().execute(
         "SELECT * FROM local_users WHERE username=? AND enabled=1", (username,)).fetchone()
     if row is None:
-        # Compte inexistant : on paie QUAND MÊME le coût du KDF. Le `or` de la
-        # version précédente court-circuitait avant `check_password_hash`, donc
-        # le temps de réponse de /login distinguait « compte local existant » de
-        # « inexistant » (oracle d'énumération gratuit, sans déclencher le
-        # verrou : corps et statut identiques).
+        # Nonexistent account: we STILL pay the KDF cost. The `or` of the previous
+        # version short-circuited before `check_password_hash`, so the /login
+        # response time told « compte local existant » from « inexistant » (a free
+        # enumeration oracle, without triggering the lock: identical body and
+        # status).
         check_password_hash(_HASH_FACTICE, password or '')
         return False, False, None
     if not check_password_hash(row['password_hash'], password):
@@ -66,21 +66,21 @@ def _local_user_auth(username, password):
 def _sync_local_user_budget(username, row):
     """Propagates the local account's effective quota to LiteLLM (create + update).
 
-    Renvoie False si l'enveloppe n'a PAS pu être écrite. L'ancienne version
-    avalait l'exception : l'admin voyait « compte créé » alors que le quota
-    n'existait pas côté LiteLLM, c'est-à-dire un compte de fait illimité. Un
-    échec de quota est un échec de sécurité, il doit remonter à l'appelant.
+    Returns False if the envelope could NOT be written. The old version
+    swallowed the exception: the admin saw « compte créé » while the quota
+    did not exist on the LiteLLM side, i.e. a de facto unlimited account. A
+    quota failure is a security failure, it must surface to the caller.
     """
     try:
         eff = _local_user_effective_budget(row)
-        # La durée accompagne TOUJOURS l'écriture : la docstring de
-        # litellm_update_user_budget affirme qu'un update sans durée conserve
-        # celle du compte, et la mesure du 2026-09-13 le confirme sur cette
-        # version (7d et budget_reset_at inchangés après un update sans le
-        # champ). Mais un compte qui n'a JAMAIS eu de durée resterait alors sans
-        # fenêtre de remise à zéro, c'est-à-dire avec un plafond à vie — le
-        # gotcha consigné le 2026-09-08. Écrire la durée partout évite d'avoir à
-        # se souvenir de laquelle des deux lectures s'applique.
+        # The duration ALWAYS accompanies the write: the
+        # litellm_update_user_budget docstring states that an update without a
+        # duration keeps the account's, and the 2026-09-13 measurement confirms it
+        # on this version (7d and budget_reset_at unchanged after an update without
+        # the field). But an account that NEVER had a duration would then stay
+        # without a reset window, i.e. with a lifelong cap — the gotcha recorded on
+        # 2026-09-08. Writing the duration everywhere avoids having to remember
+        # which of the two readings applies.
         duree = get_setting('default_key_duration', KEY_DURATION)
         _ensure_litellm_user(username, eff, duree)
         return bool(litellm_update_user_budget(username, eff, budget_duration=duree))
@@ -89,9 +89,9 @@ def _sync_local_user_budget(username, row):
         return False
 
 
-# Mots de passe refusés même s'ils font 8 caractères : ce sont les premiers
-# essayés par un bourrage d'identifiants, et un compte local n'a pas forcément
-# de second facteur pour rattraper le coup (la passkey est optionnelle).
+# Passwords refused even at 8 characters: these are the first tried by
+# credential stuffing, and a local account has no guaranteed second factor
+# to save the day (the passkey is optional).
 _MOTS_DE_PASSE_INTERDITS = {
     'password', 'password1', 'password123', 'motdepasse', 'motdepasse1',
     '12345678', '123456789', '1234567890', 'azertyui', 'azertyuiop',
@@ -101,11 +101,11 @@ _MOTS_DE_PASSE_INTERDITS = {
 
 
 def password_policy_error(password, username=None):
-    """None si le mot de passe est acceptable, sinon le message à afficher.
+    """None if the password is acceptable, otherwise the message to display.
 
-    Règle volontairement courte : longueur minimale + refus des évidences.
-    Pas de rotation forcée ni d'exigence de classes de caractères — elles
-    poussent aux mots de passe prévisibles (« Ete2026! ») sans rien apporter.
+    Deliberately short rule: minimum length + refusal of the obvious.
+    No forced rotation nor character-class requirement — they push towards
+    predictable passwords (« Ete2026! ») while adding nothing.
     """
     if not password or len(password) < 8:
         return 'Mot de passe trop court (8 caractères minimum).'
@@ -146,13 +146,13 @@ def _record_user_source(username, source, fullname=None, is_admin=None):
     except Exception:
         pass
 
-# Plafond de quota : la borne HAUTE manquait sur les chemins de compte et de
-# groupe (audit du 2026-10-02). `float()` accepte 1e300, donc un « quota » de
-# fait illimité passait par `/admin/users/create`, `/admin/users/update` et
-# `/admin/groups/create`, alors que la même équipe jugeait 1e12 nécessaire sur
-# les approbations et les subventions — un 6,7e12 tapé par erreur y avait déjà
-# été refusé. `inf` et `1e400` menaient en plus à un 500 : seul ValueError était
-# attrapé, pas l'OverflowError de `int(float('inf'))`.
+# Quota cap: the UPPER bound was missing on the account and group paths
+# (audit of 2026-10-02). `float()` accepts 1e300, so a de facto unlimited
+# « quota » went through `/admin/users/create`, `/admin/users/update` and
+# `/admin/groups/create`, while the same team judged 1e12 necessary on
+# approvals and grants — a 6,7e12 typo had already been refused there.
+# `inf` and `1e400` also led to a 500: only ValueError was caught, not the
+# OverflowError of `int(float('inf'))`.
 MAX_BUDGET = 1e12
 
 
@@ -163,8 +163,8 @@ def _parse_budget(raw):
         return None, None
     try:
         v = int(float(raw))
-        # `not (0 < v <= MAX)` et non deux comparaisons : NaN échoue toutes les
-        # comparaisons, donc il passait.
+        # `not (0 < v <= MAX)` and not two comparisons: NaN fails every comparison,
+        # so it used to pass.
         if not (0 < v <= MAX_BUDGET):
             return None, (f"Le quota doit être un entier positif, "
                           f"au plus {MAX_BUDGET:.0e} tokens.")
@@ -173,20 +173,20 @@ def _parse_budget(raw):
         return None, "Quota invalide."
 
 
-# ── D'où vient le mot de passe d'un compte ───────────────────────────────────
-# Le portail connaît TROIS chemins de connexion (local_users → LDAP → SSO) et
-# les consigne de façon CUMULATIVE dans `user_sources` : un même compte peut
-# avoir une ligne locale ET s'être connecté en SSO. Annoncer « compte SSO » à
-# quelqu'un qui possède aussi un mot de passe local serait donc faux — et lui
-# cacher un formulaire qui fonctionne serait pire que de l'afficher.
+# ── Where an account's password lives ──────────────────────────────────────
+# The portal knows THREE login paths (local_users → LDAP → SSO) and records
+# them CUMULATIVELY in `user_sources`: one account can have a local row AND
+# have logged in via SSO. Announcing « compte SSO » to someone who also owns
+# a local password would thus be false — and hiding a form that works from
+# them would be worse than showing it.
 #
-# Règle de vérité, dans cet ordre :
-#   1. une ligne `local_users` → le portail détient le hash, il fait autorité ;
-#   2. sinon `ldap` → le mot de passe vit dans l'annuaire (bind LDAP) ;
-#   3. sinon `sso`  → il vit chez le fournisseur d'identité ;
-#   4. sinon → on ne SAIT PAS, et on le dit.
-# L'absence de source consignée n'est pas une preuve d'absence : c'est déjà la
-# règle d'`auth.etat_compte`, et l'inverse avait déconnecté tout le monde.
+# Truth rule, in this order:
+#   1. a `local_users` row → the portal holds the hash, it is authoritative;
+#   2. else `ldap` → the password lives in the directory (LDAP bind);
+#   3. else `sso`  → it lives at the identity provider;
+#   4. else → we do NOT know, and we say so.
+# The absence of a recorded source is not proof of absence: this is already
+# the rule of `auth.etat_compte`, and the opposite had logged everyone out.
 GESTION_PORTAIL = 'portail'
 GESTION_LDAP = 'annuaire-ldap'
 GESTION_SSO = 'fournisseur-sso'
@@ -194,12 +194,12 @@ GESTION_INCONNUE = 'inconnu'
 
 
 def gestion_mot_de_passe(username):
-    """{'gestion', 'sources', 'local'} : qui détient le mot de passe du compte.
+    """{'gestion', 'sources', 'local'}: who holds the account's password.
 
-    Sert à l'interface, qui ne montre le formulaire de changement que si
-    `gestion == 'portail'` et dit où le changer sinon. Le serveur refuse de
-    toute façon (`/api/account/password` ne touche que `local_users`) — mais un
-    formulaire qui échoue après coup n'est pas une réponse acceptable.
+    Serves the UI, which shows the change form only when
+    `gestion == 'portail'` and says where to change it otherwise. The server
+    refuses anyway (`/api/account/password` only touches `local_users`) — but
+    a form that fails afterwards is not an acceptable answer.
     """
     db = get_db()
     local = db.execute("SELECT 1 FROM local_users WHERE username=?",
@@ -220,11 +220,11 @@ def gestion_mot_de_passe(username):
 
 
 def passkey_possible(username):
-    """La double authentification par passkey est-elle proposable ?
+    """Is passkey two-factor authentication offerable?
 
-    Ajouter, retirer une clé ou basculer la 2FA exige une RE-VÉRIFICATION par
-    mot de passe (`/api/security/*`). Un compte SSO n'en a aucun que le portail
-    puisse vérifier : lui montrer l'interrupteur ne mènerait qu'à « Mot de passe
-    incorrect », ce qui est faux. Portée produit : local + LDAP.
+    Adding, removing a key or toggling 2FA requires RE-VERIFICATION by
+    password (`/api/security/*`). An SSO account has none the portal can
+    check: showing it the switch would only lead to « Mot de passe
+    incorrect », which is false. Product scope: local + LDAP.
     """
     return gestion_mot_de_passe(username)['passkey']

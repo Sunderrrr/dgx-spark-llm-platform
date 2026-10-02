@@ -1,15 +1,15 @@
-"""Client LiteLLM : cles API, budgets, comptes utilisateurs.
+"""LiteLLM client: API keys, budgets, user accounts.
 
-Extrait de app.py le 28/08, depuis la banniere « Helpers » qui melangeait en
-realite trois sujets — ce client, le pilotage du runner, et la gestion des
-sidecars. Seules les fonctions LiteLLM sont ici ; add_announcement,
-comfyui_is_up et get_voice_model, qui etaient intercalees dans les memes lignes,
-sont restees dans app.py.
+Extracted from app.py on 28/08, from the « Helpers » banner which really
+mixed three topics — this client, runner driving, and sidecar management.
+Only the LiteLLM functions are here; add_announcement, comfyui_is_up and
+get_voice_model, which were interleaved in the same lines, stayed in
+app.py.
 
-`_log` remplace `app.logger` : Flask expose app.logger comme
-logging.getLogger(nom_du_module), soit exactement logging.getLogger('app') ici.
-C'est le MEME objet — les messages partent au meme endroit qu'avant, sans avoir
-a importer l'application (ce qui recreerait un cycle).
+`_log` replaces `app.logger`: Flask exposes app.logger as
+logging.getLogger(module_name), i.e. exactly logging.getLogger('app') here.
+It is the SAME object — messages go to the same place as before, without
+having to import the application (which would recreate a cycle).
 """
 import hashlib
 import logging
@@ -49,31 +49,31 @@ def get_user_keys(username):
             'spend': depuis_litellm.get('spend', 0),
             'max_budget': depuis_litellm.get('max_budget'),
             'budget_reset_at': depuis_litellm.get('budget_reset_at'),
-            # Dernier appel avec cette clé (colonne `last_active` de LiteLLM).
-            # Elle manquait : on ne pouvait pas distinguer la clé utilisée ce
-            # matin de celle créée il y a six mois et jamais employée — donc pas
-            # savoir laquelle révoquer sans risque. `None` = jamais utilisée
-            # d'après LiteLLM, ce qui est une information, pas une absence.
+            # Last call with this key (LiteLLM's `last_active` column).
+            # It was missing: one could not tell the key used this morning from one
+            # created six months ago and never used — so no way to know which one to
+            # revoke safely. `None` = never used according to LiteLLM, which is
+            # information, not a gap.
             'last_active': depuis_litellm.get('last_active'),
         })
     return result
 
 def _infos_cles(cles):
-    """spend / max_budget / budget_reset_at pour une liste de cles EN CLAIR.
+    """spend / max_budget / budget_reset_at for a list of keys IN CLEAR.
 
-    Lit directement la base LiteLLM plutot que son endpoint HTTP /key/info.
-    Deux raisons :
+    Reads the LiteLLM database directly rather than its HTTP /key/info
+    endpoint. Two reasons:
 
-    1. FUITE. /key/info n'accepte que le GET avec la cle en parametre d'URL
-       (le POST repond 405, verifie), et le journal d'acces de LiteLLM
-       enregistre l'URL complete : `docker logs litellm` exposait donc des cles
-       API valides et utilisables a quiconque a acces au demon Docker.
-       Constate en prod le 23/08.
-    2. COUT. L'appelant boucle sur les cles d'un utilisateur : c'etait un
-       aller-retour HTTP PAR cle, ici une seule requete.
+    1. LEAK. /key/info only accepts GET with the key as a URL parameter
+       (POST answers 405, checked), and LiteLLM's access log records the
+       full URL: `docker logs litellm` therefore exposed valid, usable API
+       keys to anyone with access to the Docker daemon. Observed in prod on
+       23/08.
+    2. COST. The caller loops over a user's keys: it was one HTTP round-trip
+       PER key, here a single query.
 
-    LiteLLM stocke le sha256 de la cle, jamais la cle : on hache pour joindre.
-    Renvoie {cle_en_clair: {...}} ; une cle absente n'a simplement pas d'entree.
+    LiteLLM stores the sha256 of the key, never the key: we hash to join.
+    Returns {cle_en_clair: {...}}; a missing key simply has no entry.
     """
     cles = [c for c in cles if c]
     if not cles:
@@ -88,11 +88,11 @@ def _infos_cles(cles):
         cur.execute('SELECT token, spend, max_budget, budget_reset_at, last_active '
                     'FROM "LiteLLM_VerificationToken" WHERE token = ANY(%s)',
                     (list(par_hash),))
-        # `last_active` peut être NULL (clé jamais utilisée) : on garde le None,
-        # l'interface en fait « Jamais utilisée ». Le type varie selon la version
-        # de LiteLLM (timestamp ou texte) : on accepte les deux — une exception
-        # ici ferait tomber TOUT le bloc dans le `except`, donc afficherait 0
-        # dépensé pour des clés qui ont consommé.
+        # `last_active` can be NULL (key never used): we keep the None, the UI
+        # renders « Jamais utilisée ». The type varies with the LiteLLM version
+        # (timestamp or text): we accept both — an exception here would drop the
+        # WHOLE block into the `except`, thus showing 0 spent for keys that did
+        # consume.
         return {par_hash[t]: {'spend': sp or 0, 'max_budget': mb,
                               'budget_reset_at': br or '',
                               'last_active': (la.isoformat() if hasattr(la, 'isoformat')
@@ -110,7 +110,7 @@ def _ensure_litellm_user(username, max_budget, budget_duration):
     only the amount may have been adjusted by an admin. An existing user
     WITHOUT any budget (accounts predating the feature, or users created by
     side paths) is repaired with the default — otherwise it stays uncapped
-    forever (trou réel trouvé le 2026-09-08).
+    forever (real hole found on 2026-09-08).
     """
     body = {"user_id": username, "metadata": {"created_by": "dgx-portal"}}
     try:
@@ -118,7 +118,7 @@ def _ensure_litellm_user(username, max_budget, budget_duration):
         info = _litellm_user_info(username)
         if info.get('exists'):
             if info.get('max_budget') is None:
-                # Répare : compte existant mais jamais doté d'un budget.
+                # Repair: existing account that never got a budget.
                 requests.post(f"{LITELLM_URL}/user/update", headers=litellm_headers(),
                               json={"user_id": username,
                                     "max_budget": float(max_budget),
@@ -153,10 +153,10 @@ def _litellm_user_info(username):
 
 
 def litellm_update_user_budget(username, new_max_budget, budget_duration=None):
-    """Met à jour l'enveloppe du compte. `budget_duration` est REPASSÉ à
-    chaque update : un /user/update qui ne le porte pas laisse le compte sans
-    fenêtre de reset (le montant serait un plafond à vie, jamais remis à zéro).
-    None = garder la durée existante du compte (ne pas envoyer le champ)."""
+    """Updates the account envelope. `budget_duration` is SENT AGAIN at every
+    update: a /user/update that does not carry it leaves the account without
+    a reset window (the amount would be a lifelong cap, never reset).
+    None = keep the account's existing duration (do not send the field)."""
     payload = {'user_id': username, 'max_budget': float(new_max_budget)}
     if budget_duration:
         payload['budget_duration'] = budget_duration
@@ -169,13 +169,13 @@ def litellm_update_user_budget(username, new_max_budget, budget_duration=None):
 
 
 def delete_litellm_user(username):
-    """Supprime l'enveloppe LiteLLM du compte (budget + dépense cumulée).
+    """Deletes the account's LiteLLM envelope (budget + cumulative spend).
 
-    À n'appeler qu'APRÈS la révocation de ses clés : l'objet utilisateur ne
-    porte aucune autorisation en lui-même, mais le laisser en place faisait
-    hériter à un compte recréé sous le même nom la dépense du précédent — un
-    nouveau collègue pouvait donc démarrer au-dessus de son quota.
-    Vérifié le 2026-09-13 : /user/delete accepte {"user_ids": [...]} et répond 200.
+    To be called only AFTER revoking its keys: the user object carries no
+    authorization of its own, but leaving it in place made an account
+    recreated under the same name inherit the previous one's spend — a new
+    colleague could thus start above their quota.
+    Checked on 2026-09-13: /user/delete accepts {"user_ids": [...]} and answers 200.
     """
     try:
         r = requests.post(f"{LITELLM_URL}/user/delete", headers=litellm_headers(),
@@ -212,17 +212,17 @@ def revoke_litellm_key(key_value):
 
 
 def renommer_cle_litellm(key_value, nouvel_alias):
-    """Met à jour l'alias de la clé CHEZ LiteLLM, pas seulement dans le portail.
+    """Updates the key alias AT LiteLLM, not only in the portal.
 
-    L'alias est dupliqué : le portail en garde une copie (`api_keys.key_alias`)
-    pour lister les clés sans interroger LiteLLM, et LiteLLM affiche le sien
-    dans son propre tableau de bord. N'en mettre à jour qu'un des deux ferait
-    diverger les deux vues — le portail montrerait « portable-nora » là où
-    l'admin lirait encore « cle-27 ».
+    The alias is duplicated: the portal keeps a copy (`api_keys.key_alias`)
+    to list keys without querying LiteLLM, and LiteLLM shows its own in its
+    own dashboard. Updating only one of the two would make the two views
+    diverge — the portal would show « portable-nora » where the admin would
+    still read « cle-27 ».
 
-    La clé part dans le CORPS de la requête, jamais dans l'URL : c'est la règle
-    qui a fait abandonner `/key/info` (cf. `_infos_cles`, fuite constatée dans
-    les journaux du proxy le 23/08).
+    The key travels in the request BODY, never in the URL: this is the rule
+    that made us abandon `/key/info` (see `_infos_cles`, leak observed in
+    the proxy logs on 23/08).
     """
     try:
         r = requests.post(f"{LITELLM_URL}/key/update", headers=litellm_headers(),
@@ -232,18 +232,18 @@ def renommer_cle_litellm(key_value, nouvel_alias):
         return False
 
 
-# ── Enregistrement des modeles dans LiteLLM ──────────────────────────────────
-# Rapatrie de app.py le 28/08. C'est ce qui supprime la derniere rustine :
-# sidecars.py appelait app._point_auto_model par import differe faute de
-# pouvoir l'importer sans cycle. Il vit desormais ici, avec le reste du
+# ── Model registration in LiteLLM ───────────────────────────────────────────
+# Brought over from app.py on 28/08. This removes the last patch:
+# sidecars.py called app._point_auto_model via a deferred import for lack of
+# a way to import it without a cycle. It now lives here, with the rest of
 # client LiteLLM, et sidecars l'importe normalement.
 
 def _litellm_model_entry(name):
-    """(id, entree complete) de l'entree LiteLLM portant ce model_name.
+    """(id, full entry) of the LiteLLM entry carrying this model_name.
 
-    L'entree complete sert a RESTAURER le modele si sa recreation echoue (voir
-    _litellm_upsert) : « supprimer puis recreer » laisse, en cas d'echec de la
-    creation, un modele qui servait disparaitre du routage.
+    The full entry is used to RESTORE the model if its recreation fails (see
+    _litellm_upsert): « supprimer puis recreer » leaves, when the creation
+    fails, a model that was serving to vanish from routing.
     """
     try:
         r = requests.get(f"{LITELLM_URL}/model/info", headers=litellm_headers(), timeout=5)
@@ -259,11 +259,11 @@ def _litellm_model_id(name):
     return _litellm_model_entry(name)[0]
 
 def _restaurer_modele(entree):
-    """Reinstalle une entree LiteLLM telle qu'elle etait (best effort).
+    """Reinstalls a LiteLLM entry as it was (best effort).
 
-    `model_info` est filtre : LiteLLM refuse a la creation les champs qu'il
-    genere lui-meme (`id`, `db_model`). Renvoie True si la restauration a ete
-    acceptee.
+    `model_info` is filtered: LiteLLM refuses at creation the fields it
+    generates itself (`id`, `db_model`). Returns True if the restoration was
+    accepted.
     """
     info = {k: v for k, v in (entree.get('model_info') or {}).items()
             if k not in ('id', 'db_model')}
@@ -302,18 +302,18 @@ def _litellm_upsert(public_name, upstream, max_input, max_output):
             "api_key": "dummy",
             "input_cost_per_token": 1,
             "output_cost_per_token": 1,
-            # Les modèles servis ici sont des « thinking models » : sans ça, le
-            # raisonnement part dans la réponse et consomme tout le budget de
-            # sortie. Une requête qui passe explicitement chat_template_kwargs
-            # (le bouton « Raisonnement » du playground) l'emporte toujours —
-            # vérifié, ce réglage n'est qu'un défaut.
+            # The models served here are « thinking models »: without this, the
+            # reasoning goes into the response and eats the whole output budget. A
+            # request explicitly passing chat_template_kwargs (the playground's
+            # « Raisonnement » button) always wins — checked, this setting is only a
+            # default.
             "chat_template_kwargs": {"enable_thinking": False},
-            # Le MÊME réglage, en double, pour l'endpoint Anthropic /v1/messages
-            # (utilisé par Claude Code) : l'adaptateur Anthropic de LiteLLM
-            # ignore le chat_template_kwargs de haut niveau et ne transmet que
-            # extra_body. Sans cette ligne, un appel court revient VIDE —
-            # content: [] et stop_reason: max_tokens, le raisonnement ayant
-            # mangé tout le budget (mesuré : 41 tokens contre 3).
+            # The SAME setting, duplicated, for the Anthropic /v1/messages endpoint
+            # (used by Claude Code): LiteLLM's Anthropic adapter ignores the top-level
+            # chat_template_kwargs and only forwards extra_body. Without this line, a
+            # short call comes back EMPTY — content: [] and stop_reason: max_tokens,
+            # the reasoning having eaten the whole budget (measured: 41 tokens against
+            # 3).
             "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
         },
         "model_info": {
@@ -332,10 +332,10 @@ def _litellm_upsert(public_name, upstream, max_input, max_output):
                           json=body, timeout=8)
         if r.status_code < 300:
             return True
-        # La creation a echoue APRES la suppression : sans restauration, un modele
-        # qui repondait disparait du routage (l'ancienne entree etait supprimee
-        # d'abord, pour ne pas laisser deux entrees du meme nom). On remet donc
-        # l'ancienne — capturee AVANT la suppression, sinon il n'y a plus rien a
+        # The creation failed AFTER the deletion: without restoration, a model that
+        # was answering vanishes from routing (the old entry was deleted first, to
+        # avoid leaving two entries of the same name). So we put back the old one —
+        # captured BEFORE the deletion, otherwise there is nothing left to
         # restaurer.
         if existing and entree_avant:
             restaure = _restaurer_modele(entree_avant)
@@ -369,19 +369,19 @@ def _point_auto_model(name, vllm_args, engine='vllm'):
     return _litellm_upsert(AUTO_MODEL_NAME, _model_upstream(name, engine), max_input, max_output)
 
 def _unregister_litellm_model(name):
-    """Retire l'entree LiteLLM de ce modele. Renvoie True si elle n'existe plus.
+    """Removes the LiteLLM entry of this model. Returns True if it no longer exists.
 
-    Elle ne renvoyait RIEN (et avalait ses exceptions) : l'appelant annoncait
-    « retiré de LiteLLM » sans jamais savoir si c'etait vrai, et une entree
-    LiteLLM sans ligne de catalogue est un routage qu'aucun ecran ne permet plus
-    de nettoyer. Renvoyer False = « je n'ai pas pu », a charge de l'appelant de
-    le dire.
+    It returned NOTHING (and swallowed its exceptions): the caller announced
+    « retiré de LiteLLM » without ever knowing whether it was true, and a
+    LiteLLM entry without a catalog row is a routing that no screen allows
+    cleaning up anymore. Returning False = « je n'ai pas pu », for the caller
+    to say so.
     """
     if not LITELLM_KEY:
         return False
     mid = _litellm_model_id(name)
     if not mid:
-        return True                      # rien a retirer : c'est le resultat voulu
+        return True                      # nothing to remove: this is the intended result
     try:
         r = requests.post(f"{LITELLM_URL}/model/delete", headers=litellm_headers(),
                           json={"id": mid}, timeout=5)

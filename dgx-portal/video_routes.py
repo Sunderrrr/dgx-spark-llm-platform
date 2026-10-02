@@ -1,8 +1,8 @@
-"""Video (MiniMax H3 via ComfyUI) — routes extraites de app.py le 28/08.
+"""Video (MiniMax H3 via ComfyUI) — routes extracted from app.py on 28/08.
 
-Blueprint sans url_prefix : les chemins restent identiques au caractere pres,
-donc le frontend n'a rien a changer. Cf. memory_routes.py pour le raisonnement
-complet sur les endpoints.
+Blueprint without url_prefix: the paths stay identical to the character, so
+the frontend has nothing to change. See memory_routes.py for the full
+reasoning about the endpoints.
 """
 import os
 from datetime import datetime
@@ -52,13 +52,13 @@ def api_video_generate():
     db.execute("INSERT INTO video_jobs (username, prompt_id, prompt, created_at, req_duration_s) VALUES (?,?,?,?,?)",
                (session['username'], prompt_id, prompt_text, datetime.now().isoformat(), int(duration)))
     # Keeps only the VIDEO_HISTORY_LIMIT most recent per user.
-    # Les FICHIERS partent avec les lignes (audit du 2026-10-02) : la table était
-    # purgée, jamais le disque, et `video_files` n'était balayé par AUCUN script de
-    # sauvegarde (ORPHAN_DIRS ne citait que l'image et la musique). Un job laisse
-    # 10 à 100 Mo, jamais récupérés, dans le volume qui porte aussi la base du
-    # portail — la seule borne était donc la taille du disque. On relève les
-    # identifiants AVANT le DELETE, puis on efface le cache local. Le balayage des
-    # orphelins (avec sa grâce de 7 jours) reste le filet de sécurité.
+    # The FILES go with the rows (audit of 2026-10-02): the table was purged, the
+    # disk never, and `video_files` was swept by NO backup script (ORPHAN_DIRS
+    # named only image and music). A job leaves 10 to 100 Mo, never reclaimed, in
+    # the volume that also holds the portal database — the only bound was
+    # therefore disk size. We collect the identifiers BEFORE the DELETE, then
+    # erase the local cache. The orphan sweep (with its 7-day grace) remains the
+    # safety net.
     evinces = [r['prompt_id'] for r in db.execute(
         """SELECT prompt_id FROM video_jobs WHERE username=? AND id NOT IN (
                      SELECT id FROM video_jobs WHERE username=?
@@ -75,8 +75,8 @@ def api_video_generate():
             if chemin and os.path.isfile(chemin):
                 os.remove(chemin)
         except OSError:
-            # Un fichier qu'on n'arrive pas à effacer ne doit pas faire échouer la
-            # génération en cours : le balayage des orphelins le reprendra.
+            # A file we fail to delete must not fail the ongoing generation: the orphan
+            # sweep will pick it up again.
             pass
     return jsonify({'prompt_id': prompt_id})
 
@@ -101,7 +101,7 @@ def api_video_status(prompt_id):
         (prompt_id, session['username'])).fetchone()
     if not owned:
         abort(404)
-    # Annulé → ne plus interroger ComfyUI (l'interrupt peut le marquer 'error').
+    # Cancelled → stop polling ComfyUI (the interrupt may mark it 'error').
     if owned['status'] == 'cancelled':
         return jsonify({'status': 'cancelled', 'video_path': None})
     st = comfyui_status(prompt_id)
@@ -119,8 +119,8 @@ def api_video_status(prompt_id):
         # (on the first "done"). Approx. to the polling period (~5 s), which
         # is negligible on a several-minute generation.
         if st['status'] == 'done':
-            # `created_at`/`duration_ms` viennent de la ligne DÉJÀ lue pour le
-            # contrôle IDOR : ils ne sont pas touchés par l'UPDATE ci-dessus.
+            # `created_at`/`duration_ms` come from the row ALREADY read for the IDOR
+            # check: they are not touched by the UPDATE above.
             if owned['duration_ms'] is None and owned['created_at']:
                 try:
                     dur = int((datetime.now() - datetime.fromisoformat(owned['created_at'])).total_seconds() * 1000)
@@ -141,8 +141,8 @@ def api_video_status(prompt_id):
 @bp.route('/api/video/cancel/<prompt_id>', methods=['POST'])
 @login_required
 def api_video_cancel(prompt_id):
-    """Annule une génération vidéo en cours (interrupt ComfyUI) ou en attente
-    (retirée de la file). Ne concerne que ses propres jobs."""
+    """Cancels an ongoing video generation (ComfyUI interrupt) or a pending one
+    (removed from the queue). Only affects one's own jobs."""
     db = get_db()
     row = db.execute("SELECT status FROM video_jobs WHERE prompt_id=? AND username=?",
                      (prompt_id, session['username'])).fetchone()

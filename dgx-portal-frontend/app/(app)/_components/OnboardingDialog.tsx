@@ -17,8 +17,8 @@ import {
 import { useT } from "@/lib/i18n";
 import { useSettingsDialog } from "@/lib/settings-dialog";
 
-/** Une étape de la prise en main. `action` est facultative : elle emmène
- *  l'utilisateur là où il pourra faire ce qui vient d'être expliqué. */
+/** One step of the onboarding. `action` is optional: it takes the
+ *  user where they can do what was just explained. */
 type Etape = {
   icon: typeof KeyIcon;
   titre: string;

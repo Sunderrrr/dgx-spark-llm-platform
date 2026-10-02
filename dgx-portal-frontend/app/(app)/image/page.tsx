@@ -33,8 +33,8 @@ type RunningModel = { name: string; kind: string; exposed: boolean };
 
 const BATCH_CHOICES = [1, 2, 3, 4];
 
-// Formats de sortie proposés à la génération. Le sidecar encode (PNG/JPEG/WebP),
-// le portail stocke/sert l'extension correspondante. jpeg -> .jpg à la sortie.
+// Output formats offered at generation time. The sidecar encodes (PNG/JPEG/WebP),
+// the portal stores/serves the matching extension. jpeg -> .jpg on output.
 const FORMATS = [
   { value: "png", label: "PNG" },
   { value: "jpeg", label: "JPEG" },
@@ -44,9 +44,9 @@ type ImageFormat = (typeof FORMATS)[number]["value"];
 
 const FORMAT_EXT: Record<ImageFormat, string> = { png: "png", jpeg: "jpg", webp: "webp" };
 
-// Résolutions proposées. Le modèle génère à sa taille native (multiple de 8,
-// bornée à 1536), puis le sidecar monte en Lanczos vers la taille de sortie.
-// width/height = génération native ; out* = taille finale (0 = pas d'upscale).
+// Offered resolutions. The model generates at its native size (multiple of 8,
+// capped at 1536), then the sidecar upscales in Lanczos to the output size.
+// width/height = native generation; out* = final size (0 = no upscale).
 const SIZES = [
   { value: "square", label: "1024×1024", width: 1024, height: 1024, outWidth: 0, outHeight: 0 },
   { value: "landscape", label: "1920×1080", width: 1536, height: 864, outWidth: 1920, outHeight: 1080 },
@@ -83,7 +83,7 @@ export default function ImagePage() {
   const [size, setSize] = useState<ImageSize>("square");      // output resolution for the next generation
   const [jobCount, setJobCount] = useState(1);    // count of the currently-viewed job
   const [doneCount, setDoneCount] = useState(0);  // images produced so far for it
-  // Galerie : visionneuse plein écran + vignettes supprimées individuellement.
+  // Gallery: fullscreen viewer + thumbnails deleted one by one.
   const [viewer, setViewer] = useState<{ promptId: string; idx: number } | null>(null);
   const [deletedImgs, setDeletedImgs] = useState<Set<string>>(new Set());
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -118,9 +118,9 @@ export default function ImagePage() {
       .catch(() => setAvailable(null));
   }, []);
 
-  // Un génération peut partir du formulaire (état courant) ou d'un « Réessayer »
-  // sur un item d'historique échoué (prompt/batch fournis en dur — setState étant
-  // asynchrone, on passe la valeur à la requête plutôt que de relire l'état).
+  // A generation can start from the form (current state) or from a « Réessayer »
+  // on a failed history item (prompt/batch provided explicitly — setState being
+  // asynchronous, we pass the value to the request rather than re-read the state).
   async function generate(opts?: { prompt?: string; batch?: number; format?: ImageFormat; size?: ImageSize }) {
     const p = (opts?.prompt ?? prompt).trim();
     const b = Math.max(1, opts?.batch ?? batch);
@@ -131,10 +131,10 @@ export default function ImagePage() {
     if (opts?.batch !== undefined) setBatch(b);
     if (opts?.format !== undefined) setFormat(f);
     if (opts?.size !== undefined) setSize(sz.value);
-    // Un intervalle PRÉCÉDENT doit mourir ici : sinon il devient orphelin et,
-    // quand son job se termine, c'est le NOUVEAU qu'il éteint — l'ancien
-    // continuerait d'interroger le statut et l'historique indéfiniment, même
-    // après avoir quitté la page.
+    // A PREVIOUS interval must die here: otherwise it becomes orphaned and,
+    // when its job finishes, it is the NEW one it kills — the old one would
+    // keep polling status and history indefinitely, even after
+    // leaving the page.
     stopPolling();
     setStatus("pending");
     setPromptId(null);
@@ -160,9 +160,9 @@ export default function ImagePage() {
       loadHistory();
       pollRef.current = setInterval(async () => {
         const r = await fetch(`/api/image/status/${res.prompt_id}`, { credentials: "include" });
-        // Sans ce test, une session expirée (401) ou une page HTML faisait
-        // lever `r.json()` dans un callback d'intervalle : rejet silencieux, et
-        // le statut restait bloqué sur « en cours ».
+        // Without this test, an expired session (401) or an HTML page made
+        // `r.json()` throw in an interval callback: silent rejection, and the
+        // status stayed stuck on « en cours ».
         if (!r.ok) return;
         const st = await r.json();
         if (typeof st.count === "number") setJobCount(st.count);
@@ -200,26 +200,26 @@ export default function ImagePage() {
     setStatus(item.status as JobStatus);
     setJobCount(item.count ?? 1);
     setDoneCount(item.done_count ?? (item.status === "done" ? (item.count ?? 1) : 0));
-    // Le téléchargement doit porter la bonne extension pour ce job.
+    // The download must carry the right extension for this job.
     if (item.format === "png" || item.format === "jpeg" || item.format === "webp") {
       setFormat(item.format);
     }
   }
 
-  // Relance une génération échouée avec le même prompt, nombre d'images et format.
+  // Relaunches a failed generation with the same prompt, image count and format.
   function retryItem(item: HistoryItem) {
     const f: ImageFormat = item.format === "jpeg" || item.format === "webp" ? item.format : "png";
     generate({ prompt: item.prompt, batch: item.count ?? 1, format: f });
   }
 
-  // Arrête la génération en cours (coopératif : la suite du lot est interrompue).
+  // Stops the generation in progress (cooperative: the rest of the batch is interrupted).
   async function cancel() {
     if (!promptId) return;
     setCancelling(true);
     try {
-      // `fetch` ne rejette QUE sur erreur réseau : sans lire `res.ok`, un 404
-      // (job inconnu) ou un 500 s'affichait « Génération annulée. » alors que la
-      // génération continuait de consommer le GPU.
+      // `fetch` only rejects on network error: without reading `res.ok`, a 404
+      // (unknown job) or a 500 displayed « Génération annulée. » while the
+      // generation kept consuming the GPU.
       const r = await authFetch(`/api/image/cancel/${promptId}`, {
         method: "POST",
         headers: { "X-CSRFToken": csrf },
@@ -239,13 +239,13 @@ export default function ImagePage() {
     }
   }
 
-  // Galerie : ouvre la visionneuse, retire une image du disque et de l'affichage.
+  // Gallery: opens the viewer, removes an image from disk and from the display.
   function viewImage(id: string, idx: number) { setViewer({ promptId: id, idx }); }
   async function deleteImage(id: string, idx: number) {
-    // La vignette n'est retirée qu'APRÈS confirmation du serveur : elle
-    // réapparaissait au rechargement alors que l'utilisateur la croyait
-    // détruite (404 sur un job qui n'est pas le sien, 500 sur un `os.remove`
-    // en échec côté Flask).
+    // The thumbnail is only removed AFTER server confirmation: it used to
+    // reappear on reload while the user believed it destroyed
+    // (404 on a job that is not theirs, 500 on a failed `os.remove`
+    // on the Flask side).
     try {
       const r = await authFetch(`/api/image/delete/${id}/${idx}`, {
         method: "POST",
@@ -271,8 +271,8 @@ export default function ImagePage() {
       height="fill"
       content={
         <LayoutContent padding={6} isScrollable>
-          {/* Chargement : squelettes (available démarre à null) pour éviter le
-              flash du formulaire avant l'EmptyState. */}
+          {/* Loading: skeletons (available starts at null) to avoid the
+              form flashing before the EmptyState. */}
           {available === null ? (
             <VStack hAlign="center" width="100%">
               <VStack gap={5} maxWidth={720} width="100%">

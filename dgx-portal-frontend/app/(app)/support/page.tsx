@@ -62,16 +62,16 @@ type ChatMsg = {
   content: string;
   ts?: number;
   isError?: boolean;
-  /** Réponse coupée par « Arrêter » : le texte déjà reçu est gardé, mais on le
-   * marque pour qu'il ne passe pas pour une réponse complète. */
+  /** Response cut short by « Arrêter »: the text already received is kept, but
+   * it is marked so it does not pass for a complete answer. */
   interrupted?: boolean;
   toolCalls?: ChatToolCallItem[];
-  /** Action sensible proposée par le modèle (cronos_confirm) : rien n'est
-   * exécuté tant que l'utilisateur n'a pas cliqué Confirmer/Annuler. */
+  /** Sensitive action proposed by the model (cronos_confirm): nothing is
+   * executed until the user has clicked Confirmer/Annuler. */
   pendingAction?: SupportConfirmRequest;
 };
 
-/** État du pouce haut/bas d'UN message (index → état). */
+/** Thumbs up/down state of ONE message (index → state). */
 type FeedbackUi = {
   commentOpen: boolean;
   comment: string;
@@ -106,10 +106,10 @@ const SUGGESTIONS = [
   },
 ];
 
-// Suggestions d'accueil DYNAMIQUES : elles dépendent de l'état que la page
-// observe réellement (modèle à l'arrêt, aucune clé API) et passent DEVANT les
-// cartes génériques — inutile de proposer « Modèles disponibles » à quelqu'un
-// dont le modèle est down, ou « Erreur 401 » à qui n'a encore aucune clé.
+// DYNAMIC welcome suggestions: they depend on the state the page
+// actually observes (model stopped, no API key) and come BEFORE the
+// generic cards — no point offering « Modèles disponibles » to someone
+// whose model is down, or « Erreur 401 » to someone who has no key yet.
 const SUGGESTION_MODELE_ARRETE = {
   heading: "Pourquoi le modèle est-il arrêté ?",
   body: "Diagnostique l'arrêt et propose de le relancer",
@@ -133,20 +133,20 @@ export default function SupportPage() {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [runningModel, setRunningModel] = useState<string | null>(null);
-  // Le compte a-t-il au moins une clé API ? (GET /api/keys, le même que la
-  // page Mes clés API) — sert uniquement à l'accueil dynamique.
+  // Does the account have at least one API key? (GET /api/keys, the same as the
+  // Mes clés API page) — only used for the dynamic welcome.
   const [hasApiKey, setHasApiKey] = useState(true);
-  // Contrôleur du flux en cours : le bouton « Arrêter » l'interrompt (même
-  // idiome que le playground). Null dès que le flux est terminé.
+  // Controller of the current stream: the « Arrêter » button interrupts it (same
+  // idiom as the playground). Null as soon as the stream is done.
   const abortRef = useRef<AbortController | null>(null);
-  // Jeton dont la confirmation/annulation est en cours : les deux boutons de
-  // la carte passent en isDisabled (le jeton est à usage unique côté serveur).
+  // Token whose confirmation/cancellation is in progress: the card's two
+  // buttons go isDisabled (the token is single-use server-side).
   const [confirmingToken, setConfirmingToken] = useState<string | null>(null);
-  // Pouce haut/bas, par index de message.
+  // Thumbs up/down, by message index.
   const [feedback, setFeedback] = useState<Record<number, FeedbackUi>>({});
-  // Cette page n'a pas de système de toast : un échec qui n'a pas de place dans
-  // le fil (jeton CSRF absent, copie impossible) s'affiche ici. Sans cela, ces
-  // boutons étaient des no-ops MUETS.
+  // This page has no toast system: a failure that has no place in the
+  // thread (missing CSRF token, copy impossible) is displayed here. Without
+  // this, these buttons were SILENT no-ops.
   const [erreurUi, setErreurUi] = useState<string | null>(null);
 
   // The welcome message depends on the language, known only after the first
@@ -161,9 +161,9 @@ export default function SupportPage() {
     getJSON<{ running_models: string[] }>("/api/playground/data").then((d) =>
       setRunningModel(d.running_models[0] || null),
     );
-    // Fil conservé côté serveur : un rechargement ne perd plus la conversation.
-    // On n'écrase jamais l'état local si l'utilisateur a déjà écrit (course
-    // entre cette réponse et un premier envoi de sa part).
+    // Thread kept server-side: a reload no longer loses the conversation.
+    // We never overwrite the local state if the user has already written (race
+    // between this answer and a first send from them).
     getJSON<{ messages?: { role: string; content: string }[] }>("/api/support/thread")
       .then((d) => {
         const restored = (d.messages ?? [])
@@ -172,7 +172,7 @@ export default function SupportPage() {
         if (restored.length) setMessages((prev) => (prev.length ? prev : restored));
       })
       .catch(() => {});
-    // Accueil dynamique : sans clé API, on met en avant sa création.
+    // Dynamic welcome: without an API key, we put its creation front and center.
     getJSON<{ user_keys?: unknown[] }>("/api/keys")
       .then((d) => setHasApiKey((d.user_keys ?? []).length > 0))
       .catch(() => {});
@@ -185,7 +185,7 @@ export default function SupportPage() {
     }
     // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
     const startTs = Date.now();
-    // La réponse remplacée repart à zéro : son vote aussi (régénération).
+    // The replaced answer starts over: its vote too (regeneration).
     setFeedback((prev) => ({
       ...prev,
       [nextMessages.length]: { commentOpen: false, comment: "", busy: false, sent: false },
@@ -200,7 +200,7 @@ export default function SupportPage() {
       setMessages((prev) => {
         const copy = [...prev];
         const last = copy[copy.length - 1];
-        // Fil vidé entre-temps (« Nouvelle conversation ») : rien à mettre à jour.
+        // Thread emptied in the meantime (« Nouvelle conversation »): nothing to update.
         if (!last) return copy;
         copy[copy.length - 1] = {
           ...last,
@@ -210,10 +210,10 @@ export default function SupportPage() {
         return copy;
       });
     };
-    // Refus système du serveur (aucune clé API créée, quota épuisé) : le Support
-    // tourne sur la clé de l'utilisateur, donc sur son budget, comme le
-    // playground. On affiche la raison telle quelle — sinon il ne verrait
-    // qu'une réponse vide, sans savoir quoi corriger.
+    // Server system refusal (no API key created, quota exhausted): Support
+    // runs on the user's key, hence on their budget, like the
+    // playground. We display the reason as-is — otherwise they would only see
+    // an empty answer, without knowing what to fix.
     let notice = "";
     const onNotice = (n: CronosNotice) => {
       notice = texteNotice(n, t);
@@ -233,9 +233,9 @@ export default function SupportPage() {
       else toolCalls.push(item);
       updateLast({ content: acc });
     };
-    // Demande de confirmation d'une action sensible : accrochée au message
-    // courant, la carte rendue DANS la bulle attend le clic — côté serveur,
-    // rien n'est exécuté tant que l'utilisateur n'a pas choisi.
+    // Sensitive-action confirmation request: attached to the current
+    // message, the card rendered INSIDE the bubble waits for the click —
+    // server-side, nothing is executed until the user has chosen.
     const onConfirm = (request: SupportConfirmRequest) => {
       setMessages((prev) => {
         const copy = [...prev];
@@ -261,9 +261,9 @@ export default function SupportPage() {
       if (!acc && !notice) updateLast({ content: t("Pas de réponse."), isError: true });
     } catch (e) {
       if ((e as Error)?.name === "AbortError") {
-        // Arrêt volontaire (« Arrêter ») : pas une erreur. On garde le texte
-        // déjà arrivé mais on le marque incomplet ; sans aucun texte, on
-        // retire le message vide plutôt que de laisser une réponse fantôme.
+        // Deliberate stop (« Arrêter »): not an error. We keep the text
+        // that already arrived but mark it incomplete; with no text at all, we
+        // remove the empty message rather than leave a ghost answer.
         if (acc) updateLast({ content: acc, interrupted: true });
         else setMessages((prev) => prev.slice(0, -1));
       } else {
@@ -301,13 +301,13 @@ export default function SupportPage() {
     setConfirmingToken(token);
     try {
       const result = await confirmSupportAction(csrf, token, cancel);
-      // 200 (ok true ou false) comme 404/409 : on affiche le message du
-      // serveur et on retire la carte — le jeton est à usage unique, un
-      // second clic ne pourrait que retomber sur « déjà traitée ».
+      // 200 (ok true or false) as with 404/409: we display the server
+      // message and remove the card — the token is single-use, a
+      // second click could only fall back on « déjà traitée ».
       appendConfirmResult(result, token, false);
     } catch {
-      // Le serveur n'a pas répondu : le jeton est peut-être encore valide, on
-      // garde la carte (boutons réactivés) pour permettre une nouvelle tentative.
+      // The server did not answer: the token may still be valid, we
+      // keep the card (buttons re-enabled) to allow a new attempt.
       appendConfirmResult({ ok: false, message: t("Erreur réseau — réessaie.") }, token, true);
     } finally {
       setConfirmingToken(null);
@@ -319,7 +319,7 @@ export default function SupportPage() {
       setErreurUi(t("Session incomplète — recharge la page."));
       return;
     }
-    // Un flux en cours réécrirait dans le fil juste après le reset : on le coupe.
+    // A stream in progress would write into the thread right after the reset: we cut it.
     abortRef.current?.abort();
     setMessages([]);
     setFeedback({});
@@ -327,7 +327,7 @@ export default function SupportPage() {
     try {
       await sendJSON("/support/thread/clear", csrf, {});
     } catch {
-      // Le fil local est déjà vidé : une erreur réseau ne doit rien bloquer.
+      // The local thread is already emptied: a network error must not block anything.
     }
   }
 
@@ -345,7 +345,7 @@ export default function SupportPage() {
     }
     const msg = messages[i];
     if (msg?.role !== "assistant") return;
-    // question = le dernier message utilisateur précédant cette réponse.
+    // question = the last user message preceding this answer.
     const question =
       [...messages.slice(0, i)].reverse().find((m) => m.role === "user")?.content ?? "";
     setFeedbackUi(i, { busy: true });
@@ -359,7 +359,7 @@ export default function SupportPage() {
       });
       setFeedbackUi(i, { sent: true, busy: false, commentOpen: false });
     } catch {
-      // Vote perdu : on ne casse jamais le chat, les boutons restent utilisables.
+      // Vote lost: we never break the chat, the buttons stay usable.
       setFeedbackUi(i, { busy: false });
     }
   }
@@ -380,7 +380,7 @@ export default function SupportPage() {
     if (base.length && base[base.length - 1].role === "user") void runStream(base);
   }
 
-  // Cartes d'accueil : les suggestions liées à l'état observé d'abord.
+  // Welcome cards: the suggestions tied to the observed state first.
   const suggestions = [
     ...(!runningModel ? [SUGGESTION_MODELE_ARRETE] : []),
     ...(!hasApiKey ? [SUGGESTION_CLE_API] : []),
@@ -474,9 +474,9 @@ export default function SupportPage() {
             <ChatMessageList>
               {displayMessages.map((m, i) => {
                 const isLast = i === displayMessages.length - 1;
-                // La carte de confirmation peut arriver AVANT le premier token
-                // de texte : dès qu'elle est là, plus d'indicateur de réflexion,
-                // sinon elle resterait cachée sous le ThinkingIndicator.
+                // The confirmation card can arrive BEFORE the first text
+                // token: as soon as it is there, no more thinking indicator,
+                // otherwise it would stay hidden under the ThinkingIndicator.
                 const isThinking = isSending && isLast && m.role === "assistant" && !m.content && !m.toolCalls?.length && !m.pendingAction;
                 // isStreaming: without it, Markdown reparses all the text on
                 // every token and only re-renders complete blocks — hence
@@ -486,12 +486,12 @@ export default function SupportPage() {
                 const isStreamingThis = isSending && isLast && m.role === "assistant";
                 const canRegenerateThis = m.role === "assistant" && isLast && !isSending && i > 0;
                 const action = m.pendingAction;
-                // Une confirmation en cours désactive les boutons de TOUTES les
-                // cartes : le jeton est à usage unique, un double clic ne peut
-                // de toute façon aboutir, autant ne pas l'exposer.
+                // A confirmation in progress disables the buttons of ALL the
+                // cards: the token is single-use, a double click cannot
+                // succeed anyway, better not expose it.
                 const isConfirming = confirmingToken !== null;
-                // Vote : seulement sur une réponse finie (jamais pendant le
-                // flux, jamais sur le message d'accueil) et une seule fois.
+                // Vote: only on a finished answer (never during the
+                // stream, never on the welcome message) and only once.
                 const feedbackUi = feedback[i];
                 const canVote =
                   m.role === "assistant" && m.content && messages.length > 0 && !isThinking && !isStreamingThis && !feedbackUi?.sent;

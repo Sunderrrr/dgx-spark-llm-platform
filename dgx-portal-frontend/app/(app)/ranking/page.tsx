@@ -18,18 +18,18 @@ import { ChartBarIcon } from "@heroicons/react/24/outline";
 import { getJSON } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
 
-/* Le classement porte sur des tokens REELLEMENT consommes (entree + genere), pas
- * sur le cout pondere, qui sous-estime d'un facteur ~10 les charges riches en
- * prompt. Les deux lectures ne designent pas le meme vainqueur — mesure du
- * 2026-09-14 sur 30 jours : le 1er concentrait 30,9 % du total mais 0,46 % du
- * genere — donc « total » classe surtout ceux qui ENVOIENT du contexte. D'ou le
- * selecteur de metrique : il repart au serveur, qui retrie, recalcule la part et
- * le delta. L'ecran ne retrie jamais un classement lui-meme. */
+/* The ranking is about ACTUALLY consumed tokens (input + generated), not
+ * about weighted cost, which underestimates prompt-heavy loads by a factor
+ * of ~10. The two readings do not crown the same winner — measurement of
+ * 2026-09-14 over 30 days: #1 concentrated 30.9 % of the total but 0.46 % of
+ * the generated — so « total » mostly ranks those who SEND context. Hence
+ * the metric selector: it goes back to the server, which re-sorts, recomputes
+ * the share and the delta. The screen never re-sorts a ranking itself. */
 
 interface RankRow extends Record<string, unknown> {
   rank: number | null;
   username: string;
-  /** Le logo de marque choisi, ou null pour l'avatar généré depuis le pseudo. */
+  /** The chosen brand logo, or null for the avatar generated from the username. */
   avatar_id?: string | null;
   is_me: boolean;
   is_unattributed: boolean;
@@ -70,7 +70,7 @@ const METRICS = [
 
 const MEDALS: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 
-/** Pourcentage dans la langue affichee : « 30,89 % » en francais, « 30.89% » en anglais. */
+/** Percentage in the displayed language: « 30,89 % » in French, « 30.89% » in English. */
 function pct(v: number, numLocale: string, decimales = 2) {
   return (v / 100).toLocaleString(numLocale, {
     style: "percent",
@@ -79,10 +79,10 @@ function pct(v: number, numLocale: string, decimales = 2) {
   });
 }
 
-/* Tendance : la serie est deja calculee cote serveur, une valeur par bucket de la
- * periode (24 h, 7 j, 30 j ou 12 mois). Sous 5 points on n'affiche rien plutot
- * qu'une courbe : « depuis le debut » n'en a que 3, et trois points ne disent pas
- * plus que le total. */
+/* Trend: the series is already computed server-side, one value per bucket
+ * of the period (24 h, 7 j, 30 j or 12 months). Under 5 points we display
+ * nothing rather than a curve: « depuis le debut » has only 3, and three
+ * points say no more than the total. */
 function Tendance({ points, myself }: { points: number[]; myself: boolean }) {
   const t = useT();
   if (points.length < 5) {
@@ -131,11 +131,11 @@ export default function RankingPage() {
   });
 
   useEffect(() => {
-    // Une panne doit se distinguer d'une absence de consommation : sans cet
-    // etat, une erreur d'API affichait « aucune consommation sur cette periode »
-    // et faisait conclure que personne n'avait rien utilise. Le drapeau `vivant`
-    // ecarte la reponse d'une periode deja quittee — sur un aller-retour rapide
-    // entre deux periodes, la plus lente ecrasait la plus recente.
+    // An outage must be distinguishable from an absence of consumption: without
+    // this state, an API error displayed « aucune consommation sur cette periode »
+    // and led to the conclusion that nobody had used anything. The `vivant`
+    // flag discards the answer of a period already left — on a fast round-trip
+    // between two periods, the slowest overwrote the most recent.
     let vivant = true;
     getJSON<RankingData>(`/api/ranking?period=${period}&metric=${metric}`)
       .then((d) => { if (vivant) setState({ data: d, failed: false }); })
@@ -168,8 +168,8 @@ export default function RankingPage() {
       width: proportional(2),
       renderCell: (r) => (
         <HStack gap={2} vAlign="center">
-          {/* Pas de pp pour les clés non attribuées : ce ne sont pas des
-              comptes, et une créature inventée leur prêterait un visage. */}
+          {/* No avatar for unassigned keys: they are not accounts,
+              and an invented creature would lend them a face. */}
           {!r.is_unattributed && (
             <UserAvatar avatarId={r.avatar_id} username={r.username} size="sm" />
           )}
@@ -201,8 +201,8 @@ export default function RankingPage() {
       renderCell: (r) => (
         <VStack gap={0} align="end">
           <Text weight="bold" hasTabularNumbers>{Math.round(r.value).toLocaleString(numLocale)}</Text>
-          {/* La repartition entree/genere etait calculee sans jamais etre
-              montree : c'est pourtant elle qui explique le classement. */}
+          {/* The input/generated split was computed but never shown:
+              yet it is what explains the ranking. */}
           {metric === "total" && (
             <Text type="supporting" color="secondary">
               {t("dont {n} générés").replace("{n}", Math.round(r.completion).toLocaleString(numLocale))}
@@ -255,9 +255,9 @@ export default function RankingPage() {
               </SegmentedControl>
             </HStack>
 
-            {/* Position personnelle : la seule information qu'on venait chercher
-                et qu'il fallait jusqu'ici aller lire dans la liste, parfois
-                quinzieme. */}
+            {/* Personal position: the only piece of information one came
+                for and that so far had to be read off the list, sometimes
+                fifteenth. */}
             {data && (
               <Card>
                 {me ? (
@@ -328,8 +328,8 @@ export default function RankingPage() {
               />
             )}
 
-            {/* Tableau bord a bord, sans Card : des donnees denses se lisent en
-                lignes, et une boite autour ne fait qu'ajouter un cadre. */}
+            {/* Edge-to-edge table, no Card: dense data reads in rows,
+                and a box around it only adds a frame. */}
             {!failed && hasRows && (
               <Table
                 data={[...ranked, ...unattributed]}

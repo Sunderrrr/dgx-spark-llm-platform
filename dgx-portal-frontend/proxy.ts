@@ -52,9 +52,9 @@ export function proxy(request: NextRequest) {
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     "img-src 'self' data: blob:",
-    // blob: — relecture d'un enregistrement micro avant envoi (page Voix),
-    // créé via URL.createObjectURL ; 'self' seul suffirait pour l'audio généré,
-    // servi par Flask sur /voice/audio/<id>.
+    // blob: — replaying a mic recording before sending (Voix page),
+    // created via URL.createObjectURL; 'self' alone would be enough for the
+    // generated audio, served by Flask on /voice/audio/<id>.
     "media-src 'self' blob:",
     "connect-src 'self'",
     "frame-ancestors 'none'",

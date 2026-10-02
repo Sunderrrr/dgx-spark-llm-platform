@@ -27,9 +27,9 @@ export function useDictation({ value, onChange, csrf }: Options) {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Le flux micro courant, tenu par le Recorder : c'est ce que le halo de voix
-  // analyse (`voice-glow`). Null dès que la dictée s'arrête, pour que le halo
-  // disparaisse avec elle — la transcription, elle, continue (`isTranscribing`).
+  // The current mic stream, held by the Recorder: it is what the voice halo
+  // analyzes (`voice-glow`). Null as soon as dictation stops, so the halo
+  // disappears with it — transcription, for its part, continues (`isTranscribing`).
   const [stream, setStream] = useState<MediaStream | null>(null);
 
   const recorderRef = useRef<Recorder | null>(null);

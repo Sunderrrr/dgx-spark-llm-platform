@@ -44,7 +44,7 @@ import { SessionsList, type AccountSession } from "../../_components/SessionsLis
 type LocalUser = {
   username: string;
   fullname: string | null;
-  /** Logo de marque choisi ; `null` = avatar généré depuis le pseudo. */
+  /** Chosen brand logo; `null` = avatar generated from the username. */
   avatar_id: string | null;
   sources: string[];
   managed: boolean;
@@ -61,9 +61,9 @@ type LocalUser = {
   spend: number;
   key_count: number;
   last_seen: string | null;
-  // État de blocage / verrouillage renvoyé par /api/admin/users. Un compte
-  // bloqué est refusé au login quelle que soit sa source (LDAP/SSO compris) ;
-  // locked_minutes est le verrou temporaire après trop d'échecs de login.
+  // Blocking / locking state returned by /api/admin/users. A blocked
+  // account is refused at login whatever its source (LDAP/SSO included);
+  // locked_minutes is the temporary lock after too many login failures.
   blocked: boolean;
   block_reason: string | null;
   blocked_at: string | null;
@@ -72,13 +72,13 @@ type LocalUser = {
 type Group = { name: string; max_budget: number | null; is_admin: number };
 type UsersData = { users: LocalUser[]; groups: Group[]; default_budget: number };
 
-// Réponse de GET /admin/users/<username>/detail. Chaque champ peut manquer
-// (compte LDAP/SSO sans ligne locale, utilisateur sans profil LiteLLM…).
+// Response of GET /admin/users/<username>/detail. Any field can be missing
+// (LDAP/SSO account without a local row, user without a LiteLLM profile…).
 type AdminUserDetail = {
   ok?: boolean;
   username?: string | null;
   fullname?: string | null;
-  sources?: string | null; // "ldap,sso" — chaîne à virgules, pas un tableau
+  sources?: string | null; // "ldap,sso" — comma-separated string, not an array
   last_source?: string | null;
   last_seen?: string | null;
   role?: string | null;
@@ -109,7 +109,7 @@ const BOOL_OPTS = (t: (s: string) => string) => [
   { label: t("Oui"), value: "1" },
 ];
 
-// Pagination de la table des utilisateurs (client-side).
+// Pagination of the users table (client-side).
 const PAGE_SIZE = 10;
 
 // Compact stat tile used in the overview row (module-level so it isn't
@@ -137,7 +137,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
   // Toolbar state: free-text search + auth-source filter.
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
-  // État de chargement (premier fetch) + page courante de la table.
+  // Loading state (first fetch) + current page of the table.
   const [page, setPage] = useState(1);
 
   // Dialog state — create forms and the (masked) password reset live in modals
@@ -148,33 +148,33 @@ export function UsersSection({ csrf }: { csrf: string }) {
   const [pw, setPw] = useState("");
   const [nu, setNu] = useState({ username: "", password: "", fullname: "", group: "", max_budget: "", is_admin: "0" });
   const [ng, setNg] = useState({ name: "", max_budget: "", is_admin: "0" });
-  // Blocage d'un compte (raison demandée, optionnelle).
+  // Blocking an account (reason requested, optional).
   const [blockUser, setBlockUser] = useState<LocalUser | null>(null);
   const [blockReason, setBlockReason] = useState("");
   const [blockBusy, setBlockBusy] = useState(false);
-  // Suppression : destructive, confirmation en tapant DELETE.
+  // Deletion: destructive, confirmation by typing DELETE.
   const [delUser, setDelUser] = useState<LocalUser | null>(null);
   const [delConfirm, setDelConfirm] = useState("");
   const [delBusy, setDelBusy] = useState(false);
   const [delError, setDelError] = useState<string | null>(null);
-  // Warning de succès ({ok:true, warning}) : des clés n'ont pas pu être
-  // révoquées côté LiteLLM — affiché à côté du succès, pas comme un échec.
+  // Success warning ({ok:true, warning}): some keys could not be
+  // revoked on the LiteLLM side — displayed next to the success, not as a failure.
   const [delWarning, setDelWarning] = useState<string | null>(null);
-  // Purge des données d'un compte d'annuaire (LDAP/SSO, sans ligne locale) :
-  // efface ses données SANS retirer l'accès — l'offboarding, c'est Bloquer.
+  // Purge of a directory account's data (LDAP/SSO, no local row):
+  // erases its data WITHOUT removing access — offboarding is Bloquer.
   const [purgeUser, setPurgeUser] = useState<LocalUser | null>(null);
   const [purgeConfirm, setPurgeConfirm] = useState("");
   const [purgeBusy, setPurgeBusy] = useState(false);
   const [purgeError, setPurgeError] = useState<string | null>(null);
-  // Détail d'un compte (drawer) : chargé à l'ouverture.
+  // Account detail (drawer): loaded on opening.
   const [detailUser, setDetailUser] = useState<LocalUser | null>(null);
   const [detail, setDetail] = useState<AdminUserDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [sessRevoking, setSessRevoking] = useState(false);
-  // Avertissement renvoyé par create/update ({ok:true, warning}) : le quota
-  // LiteLLM n'a pas pu s'appliquer, le compte est temporairement sans plafond.
-  // Le dialog reste ouvert pour le lire, un Banner l'affiche en haut.
+  // Warning returned by create/update ({ok:true, warning}): the LiteLLM
+  // quota could not be applied, the account is temporarily uncapped.
+  // The dialog stays open to read it, a Banner shows it at the top.
   const [formWarning, setFormWarning] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -182,9 +182,9 @@ export function UsersSection({ csrf }: { csrf: string }) {
   }, []);
   useEffect(refresh, [refresh]);
 
-  // Renvoie false en cas d'échec, sinon {ok:true, warning?}. `warning`
-  // (quota LiteLLM non appliqué…) accompagne un SUCCÈS : il s'affiche bien
-  // en évidence dans le dialog, pas comme une erreur.
+  // Returns false on failure, otherwise {ok:true, warning?}. `warning`
+  // (LiteLLM quota not applied…) accompanies a SUCCESS: it is displayed
+  // prominently in the dialog, not as an error.
   const act = useCallback(
     async (url: string, params: Record<string, string>): Promise<{ ok: true; warning?: string } | false> => {
       if (!csrf) return false;
@@ -207,10 +207,10 @@ export function UsersSection({ csrf }: { csrf: string }) {
     [csrf, refresh, showToast, t],
   );
 
-  // Comme act(), mais vers les nouvelles routes JSON ({confirm, reason}…) —
-  // les erreurs {ok:false, error} passent par t() comme dans act() : une
-  // phrase serveur inconnue retombe sur elle-même (fallback silencieux).
-  // Retourne la réponse ou null, à l'appelant de choisir son toast de succès.
+  // Like act(), but to the new JSON routes ({confirm, reason}…) —
+  // {ok:false, error} errors go through t() as in act(): an
+  // unknown server sentence falls back to itself (silent fallback).
+  // Returns the response or null, the caller picks its success toast.
   const actJSON = useCallback(
     async <T extends { ok?: boolean; error?: string }>(url: string, body?: unknown): Promise<T | null> => {
       if (!csrf) return null;
@@ -231,7 +231,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
 
   const fmtBudget = (n: number) => `${Math.round(n).toLocaleString(numLocale)}`;
 
-  // Détail : `sources` est une chaîne « ldap,sso » — on la découpe pour les badges.
+  // Detail: `sources` is a « ldap,sso » string — we split it for the badges.
   const detailSources = detail?.sources
     ? detail.sources.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
@@ -241,8 +241,8 @@ export function UsersSection({ csrf }: { csrf: string }) {
 
   // Overview counters for the stat tiles.
   const stats = useMemo(() => {
-    // Un SEUL parcours : quatre `filter` complets sur la même liste, en plus de
-    // celui de `filtered`, faisaient cinq lectures pour une seule information.
+    // A SINGLE pass: four full `filter` runs over the same list, on top of
+    // the `filtered` one, made five reads for a single piece of information.
     let local = 0, ldap = 0, sso = 0, admins = 0;
     for (const u of users) {
       if (u.managed) local++;
@@ -264,7 +264,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
     });
   }, [users, query, sourceFilter]);
 
-  // Slicing de la page courante (pagination client-side).
+  // Slicing of the current page (client-side pagination).
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageUsers = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
@@ -285,7 +285,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
     const res = await act("/admin/users/create", { ...nu });
     if (!res) return;
     setNu({ username: "", password: "", fullname: "", group: "", max_budget: "", is_admin: "0" });
-    if (res.warning) setFormWarning(res.warning); // dialog laissé ouvert pour lire le warning
+    if (res.warning) setFormWarning(res.warning); // dialog left open to read the warning
     else { setFormWarning(null); setUserDialog(false); }
   }
   async function createGroup() {
@@ -304,9 +304,9 @@ export function UsersSection({ csrf }: { csrf: string }) {
     else { setFormWarning(null); setPwUser(null); }
   }
 
-  // Détail d'un compte : (re)chargé à l'ouverture et après une action qui le
-  // modifie (révocation de sessions) — toujours depuis un handler, pas un
-  // effet : l'état « détail » n'a pas à se synchroniser tout seul.
+  // Account detail: (re)loaded on opening and after an action that modifies
+  // it (session revocation) — always from a handler, not an effect: the
+  // « détail » state does not have to sync itself.
   const loadDetail = useCallback((username: string) => {
     setDetailLoading(true);
     setDetailError(null);
@@ -335,8 +335,8 @@ export function UsersSection({ csrf }: { csrf: string }) {
     setPurgeError(null);
   }
 
-  // Purge d'un compte d'annuaire : données effacées, accès conservé. Erreurs
-  // {ok:false, error} (400/409) affichées verbatim dans le dialog.
+  // Purge of a directory account: data erased, access kept. {ok:false, error}
+  // errors (400/409) displayed verbatim in the dialog.
   async function submitPurge() {
     if (!purgeUser || purgeBusy || purgeConfirm !== "DELETE") return;
     setPurgeBusy(true);
@@ -357,7 +357,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
   async function submitBlock() {
     if (!blockUser || blockBusy) return;
     setBlockBusy(true);
-    // Raison optionnelle : on ne l'envoie que si l'admin en a saisi une.
+    // Optional reason: we only send it if the admin typed one.
     const reason = blockReason.trim();
     const res = await actJSON<{ ok?: boolean; revoked_sessions?: number; error?: string }>(
       `/admin/users/${encodeURIComponent(blockUser.username)}/block`, reason ? { reason } : {});
@@ -394,8 +394,8 @@ export function UsersSection({ csrf }: { csrf: string }) {
   async function submitDelete() {
     if (!delUser || delBusy || delConfirm !== "DELETE") return;
     setDelBusy(true);
-    // Le corps {"confirm": "DELETE"} est exigé par la route ; une erreur
-    // {ok:false, error} s'affiche verbatim dans le dialog.
+    // The {"confirm": "DELETE"} body is required by the route; a
+    // {ok:false, error} error is displayed verbatim in the dialog.
     const res = await sendJSON<{ ok?: boolean; error?: string; warning?: string }>(
       `/admin/users/delete/${delUser.id}`, csrf, { confirm: "DELETE" });
     setDelBusy(false);
@@ -405,8 +405,8 @@ export function UsersSection({ csrf }: { csrf: string }) {
     }
     showToast({ body: t("Compte supprimé."), type: "info" });
     refresh();
-    // Warning de succès (clés non révoquées côté LiteLLM) : le dialog reste
-    // ouvert pour l'afficher — jamais un échec de sécurité silencieux.
+    // Success warning (keys not revoked on the LiteLLM side): the dialog stays
+    // open to show it — never a silent security failure.
     if (res?.warning) {
       setDelConfirm("");
       setDelWarning(res.warning);
@@ -457,9 +457,9 @@ export function UsersSection({ csrf }: { csrf: string }) {
         </HStack>
       ) },
     { key: "enabled", header: t("Statut"), renderCell: (u) => {
-        // Un compte bloqué est refusé au login quelle que soit sa source :
-        // état prioritaire sur actif/désactivé. `locked_minutes` est le
-        // verrou temporaire après trop d'échecs de login — simple indice.
+        // A blocked account is refused at login whatever its source:
+        // state takes precedence over enabled/disabled. `locked_minutes` is the
+        // temporary lock after too many login failures — a mere hint.
         const lockedHint = u.locked_minutes > 0
           ? t("verrouillé après trop d'échecs, {n} min").replace("{n}", String(u.locked_minutes))
           : null;
@@ -502,9 +502,9 @@ export function UsersSection({ csrf }: { csrf: string }) {
               if (blocked) unblockUser(u);
               else { setBlockUser(u); setBlockReason(""); }
             } },
-          // Séparateur avant la zone destructive — seulement s'il la précède.
-          // Supprimer (déprovisionner) : comptes locaux uniquement. Purger :
-          // comptes d'annuaire uniquement (le backend refuse l'inverse).
+          // Separator before the destructive area — only if it precedes it.
+          // Supprimer (deprovision): local accounts only. Purger:
+          // directory accounts only (the backend refuses the other way around).
           ...(u.managed && u.id != null ? [
             { type: "divider" as const },
             { label: t("Supprimer"), icon: TrashIcon, onClick: () => openDelete(u) },
@@ -684,7 +684,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
         />
       </Dialog>
 
-      {/* Block dialog — la raison est optionnelle mais demandée */}
+      {/* Block dialog — the reason is optional but requested */}
       <Dialog isOpen={blockUser != null} onOpenChange={(o) => { if (!o) setBlockUser(null); }} purpose="form" width={isNarrow ? "94vw" : 440}>
         <Layout
           header={<DialogHeader title={t("Bloquer ce compte")} subtitle={blockUser?.username} hasDivider onOpenChange={(o) => { if (!o) setBlockUser(null); }} />}
@@ -709,7 +709,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
         />
       </Dialog>
 
-      {/* Delete dialog — destructif : confirmation en tapant DELETE */}
+      {/* Delete dialog — destructive: confirmation by typing DELETE */}
       <Dialog isOpen={delUser != null} onOpenChange={(o) => { if (!o) { setDelUser(null); setDelWarning(null); } }} purpose="form" width={isNarrow ? "94vw" : 480}>
         <Layout
           header={<DialogHeader title={t("Supprimer ce compte")} subtitle={delUser?.username} hasDivider onOpenChange={(o) => { if (!o) { setDelUser(null); setDelWarning(null); } }} />}
@@ -719,8 +719,8 @@ export function UsersSection({ csrf }: { csrf: string }) {
                 <Text type="supporting" color="secondary">
                   {t("Cette action est définitive : elle révoque les clés API et les sessions du compte, supprime son enveloppe LiteLLM ET ses données personnelles (mémoires, conversations, préférences, passkeys).")}
                 </Text>
-                {/* Warning de succès : des clés n'ont pas pu être révoquées
-                    côté LiteLLM — à lire, jamais silencieux. */}
+                {/* Success warning: some keys could not be revoked
+                    on the LiteLLM side — to be read, never silent. */}
                 {delWarning && <Banner status="warning" title={delWarning} />}
                 <TextInput label={t("Tapez DELETE pour confirmer")} value={delConfirm} onChange={setDelConfirm} />
                 {delError && <Banner status="error" title={delError} />}
@@ -739,8 +739,8 @@ export function UsersSection({ csrf }: { csrf: string }) {
         />
       </Dialog>
 
-      {/* Purge dialog — comptes d'annuaire (LDAP/SSO) : efface les données,
-          PAS l'accès ; c'est Bloquer qui fait l'offboarding. */}
+      {/* Purge dialog — directory accounts (LDAP/SSO): erases the data,
+          NOT the access; Bloquer is what does the offboarding. */}
       <Dialog isOpen={purgeUser != null} onOpenChange={(o) => { if (!o) setPurgeUser(null); }} purpose="form" width={isNarrow ? "94vw" : 480}>
         <Layout
           header={<DialogHeader title={t("Purger les données")} subtitle={purgeUser?.username} hasDivider onOpenChange={(o) => { if (!o) setPurgeUser(null); }} />}
@@ -770,7 +770,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
         />
       </Dialog>
 
-      {/* Detail drawer — identité, budget, clés, sessions et audit du compte */}
+      {/* Detail drawer — identity, budget, keys, sessions and audit of the account */}
       <Dialog isOpen={detailUser != null} onOpenChange={(o) => { if (!o) setDetailUser(null); }} purpose="form" width={isNarrow ? "94vw" : 640}>
         <Layout
           header={<DialogHeader title={t("Détails du compte")} subtitle={detailUser?.username} hasDivider onOpenChange={(o) => { if (!o) setDetailUser(null); }} />}
@@ -785,7 +785,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
                 </HStack>
               ) : detail ? (
                 <VStack gap={4}>
-                  {/* Identité, rôle, sources, dernière activité */}
+                  {/* Identity, role, sources, last activity */}
                   <HStack gap={3} vAlign="center">
                     <UserAvatar
                       avatarId={detailUser?.avatar_id}
@@ -820,7 +820,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
                     </VStack>
                   </HStack>
 
-                  {/* Blocage actif : raison, auteur, date */}
+                  {/* Active block: reason, author, date */}
                   {detail.blocked?.blocked ? (
                     <HStack gap={2} vAlign="center" wrap="wrap">
                       <Badge label={t("Bloqué")} variant="error" />
@@ -830,7 +830,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
                     </HStack>
                   ) : null}
 
-                  {/* Budget : surcharge → effectif, et dépense LiteLLM */}
+                  {/* Budget: override → effective, and LiteLLM spend */}
                   <VStack gap={2}>
                     <Text weight="semibold">{t("Budget")}</Text>
                     <HStack hAlign="between">
@@ -863,8 +863,8 @@ export function UsersSection({ csrf }: { csrf: string }) {
                     ) : null}
                   </VStack>
 
-                  {/* Clés — alias, création, dépense. Jamais de valeur de clé :
-                      le payload ne peut pas en contenir. */}
+                  {/* Keys — alias, creation, spend. Never any key value:
+                      the payload cannot contain any. */}
                   <VStack gap={2}>
                     <Text weight="semibold">{t("Clés")}</Text>
                     {(detail.keys ?? []).length === 0 ? (
@@ -888,7 +888,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
                     )}
                   </VStack>
 
-                  {/* Mémoire & conversations */}
+                  {/* Memory & conversations */}
                   <HStack gap={4} vAlign="center">
                     <HStack gap={1} vAlign="center">
                       <Text type="supporting" color="secondary">{t("Mémoire")} :</Text>
@@ -900,7 +900,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
                     </HStack>
                   </HStack>
 
-                  {/* Sessions — même présentation que la liste self-service */}
+                  {/* Sessions — same layout as the self-service list */}
                   <VStack gap={2}>
                     <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
                       <Text weight="semibold">{t("Sessions")}</Text>
@@ -916,7 +916,7 @@ export function UsersSection({ csrf }: { csrf: string }) {
                     <SessionsList sessions={detail.sessions ?? []} />
                   </VStack>
 
-                  {/* Audit récent */}
+                  {/* Recent audit */}
                   <VStack gap={2}>
                     <Text weight="semibold">{t("Dernières actions de ce compte")}</Text>
                     {(detail.audit ?? []).length === 0 ? (

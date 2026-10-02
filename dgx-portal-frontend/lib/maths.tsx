@@ -1,21 +1,21 @@
 "use client";
 
 /**
- * Rendu des maths écrites par le modèle : `$…$`, `$$…$$` et `\(…\)`.
+ * Rendering of math written by the model: `$…$`, `$$…$$` and `\(…\)`.
  *
- * POURQUOI CE DÉTOUR (diagnostiqué en production le 2026-09-17) : KaTeX ne
- * voyait jamais la formule. Le parseur markdown d'Astryx traite l'antislash
- * comme une séquence d'échappement — `$\frac{a}{b}$` lui arrive en TROIS nœuds
- * de texte (« … $e^{i », « pi} … », « frac{a}{b}$ ») et l'antislash est consommé
- * au passage. Or un `inlinePlugins` s'applique PAR NŒUD (`node.content`) : la
- * paire `$…$` n'existe dans aucun nœud, donc la formule s'affichait telle
- * quelle, DÉGRADÉE (« $frac{a}{b}$ ») — pire que pas de rendu du tout.
+ * WHY THIS DETOUR (diagnosed in production on 2026-09-17): KaTeX never
+ * saw the formula. Astryx's markdown parser treats the backslash as
+ * an escape sequence — `$\frac{a}{b}$` reaches it as THREE text nodes
+ * (« … $e^{i », « pi} … », « frac{a}{b}$ ») and the backslash is consumed
+ * along the way. But an `inlinePlugins` applies PER NODE (`node.content`):
+ * the `$…$` pair exists in no node, so the formula was displayed as-is,
+ * DEGRADED (« $frac{a}{b}$ ») — worse than no rendering at all.
  *
- * On retire donc les formules du texte AVANT le parseur, en les remplaçant par
- * une marque sans caractère significatif (zone privée Unicode + numéro), puis on
- * rend KaTeX depuis la source CONSERVÉE, antislashs intacts. Les zones de code
- * (blocs délimités, `~~~`, code en ligne) sont laissées telles quelles : `$\pi$`
- * dans un bloc de code doit rester du texte.
+ * So we remove the formulas from the text BEFORE the parser, replacing
+ * them with a marker without significant characters (Unicode private use
+ * area + number), then render KaTeX from the KEPT source, backslashes
+ * intact. Code regions (fenced blocks, `~~~`, inline code) are left as-is:
+ * `$\pi$` in a code block must stay text.
  */
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -23,19 +23,19 @@ import type { MarkdownInlinePlugin } from "@astryxdesign/core/Markdown";
 
 export type Formule = { latex: string; display: boolean };
 
-/** Marques de remplacement : zone privée Unicode, absentes d'un texte de modèle. */
+/** Replacement markers: Unicode private use area, absent from model text. */
 const DEBUT = "\uE000";
 const FIN = "\uE001";
 const MOTIF_MARQUE = new RegExp(`${DEBUT}(\\d+)${FIN}`, "g");
 
 /**
- * Un seul balayage, quatre alternatives :
- *   1. une zone de code (bloc délimité, bloc `~~~`, ou portion en ligne) ;
- *   2. `$$…$$`, l'affichage (peut couvrir plusieurs lignes) ;
- *   3. `$…$`, l'en-ligne — sans espace juste après le `$` ouvrant ni avant le
- *      fermant, pour ne pas confondre avec des montants (« $5 and $10 ») ;
- *   4. `\(…\)`, l'autre écriture en ligne.
- * `(?<!\\)` évite de prendre un `\$` échappé pour un délimiteur.
+ * A single sweep, four alternatives:
+ *   1. a code region (fenced block, `~~~` block, or inline portion) ;
+ *   2. `$$…$$`, display math (can span several lines) ;
+ *   3. `$…$`, inline math — no space right after the opening `$` nor before
+ *      the closing one, so as not to confuse it with amounts (« $5 and $10 ») ;
+ *   4. `\(…\)`, the other inline notation.
+ * `(?<!\\)` avoids taking an escaped `\$` for a delimiter.
  */
 const MOTIF = new RegExp(
   [
@@ -47,19 +47,19 @@ const MOTIF = new RegExp(
   "g",
 );
 
-/** Les cinq caractères qui, rendus en HTML, doivent être échappés. */
+/** The five characters that, when rendered as HTML, must be escaped. */
 function echapperHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 }
 
 /**
- * KaTeX en HTML, ou l'expression ÉCHAPPÉE si KaTeX abandonne.
+ * KaTeX as HTML, or the ESCAPED expression if KaTeX gives up.
  *
- * Le `catch` est le correctif d'une faille : sur 5000 accolades imbriquées KaTeX
- * lève « Maximum call stack size exceeded », et renvoyer l'expression BRUTE dans
- * `dangerouslySetInnerHTML` faisait ressortir vivante une balise écrite dans une
- * réponse du modèle (seule la CSP l'arrêtait). Cf. le test navigateur.
+ * The `catch` is the fix for a vulnerability: on 5000 nested braces KaTeX
+ * throws « Maximum call stack size exceeded », and returning the RAW
+ * expression in `dangerouslySetInnerHTML` let a tag written in a model
+ * answer come out alive (only the CSP stopped it). See the browser test.
  */
 export function rendreMath(formule: Formule): string {
   try {
@@ -71,13 +71,13 @@ export function rendreMath(formule: Formule): string {
   }
 }
 
-/** Remplace chaque formule par une marque, et renvoie la source LaTeX conservée. */
+/** Replaces each formula with a marker, and returns the kept LaTeX source. */
 export function protegerMaths(src: string): { texte: string; formules: Formule[] } {
   const formules: Formule[] = [];
   const texte = src.replace(
     MOTIF,
     (tout: string, code?: string, affichage?: string, enLigne?: string, parenthese?: string) => {
-      if (code !== undefined) return tout; // zone de code : intacte
+      if (code !== undefined) return tout; // code region: untouched
       const latex = affichage ?? enLigne ?? parenthese ?? "";
       formules.push({ latex, display: affichage !== undefined });
       return `${DEBUT}${formules.length - 1}${FIN}`;
@@ -86,7 +86,7 @@ export function protegerMaths(src: string): { texte: string; formules: Formule[]
   return { texte, formules };
 }
 
-/** Le plugin qui rend les marques posées par `protegerMaths`. */
+/** The plugin that renders the markers laid by `protegerMaths`. */
 export function pluginMaths(formules: Formule[]): MarkdownInlinePlugin {
   return {
     pattern: MOTIF_MARQUE,

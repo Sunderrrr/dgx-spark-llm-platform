@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import "@astryxdesign/core/reset.css";
 import "@astryxdesign/core/astryx.css";
 import "@astryxdesign/theme-neutral/theme.css";
-// Le mouvement des blobatars (la pp par défaut) vit dans une feuille de style :
-// sans cet import, `animate` ne ferait rien du tout et les pp resteraient
-// figées — sans erreur ni avertissement. Elle porte aussi la règle
-// `prefers-reduced-motion`, qui les remet à l'arrêt.
+// The motion of the blobatars (the default avatar) lives in a stylesheet:
+// without this import, `animate` would do nothing at all and the avatars would
+// stay frozen — with no error and no warning. It also carries the
+// `prefers-reduced-motion` rule, which stops them.
 import "blobatar/motion.css";
 import "./globals.css";
 import { ThemeProvider } from "./theme-provider";

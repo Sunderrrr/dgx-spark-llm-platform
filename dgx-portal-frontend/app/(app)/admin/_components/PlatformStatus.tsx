@@ -8,9 +8,9 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { useT, useLocale } from "@/lib/i18n";
 
-/** Réponse de GET /admin/platform (admin-only, implémenté côté portail).
- * Toutes les clés sont toujours présentes ; une valeur inconnue vaut null —
- * l'affichage ne doit JAMAIS transformer un absent en « tout va bien ». */
+/** Response of GET /admin/platform (admin-only, implemented portal-side).
+ * All keys are always present; an unknown value is null — the display
+ * must NEVER turn a missing one into « tout va bien ». */
 export type PlatformStatusData = {
   disk: { free_gb: number | null; total_gb: number | null; used_pct: number | null };
   backup: { latest: string | null; age_hours: number | null; fresh: boolean | null; count: number | null; readable: boolean };
@@ -21,8 +21,8 @@ export type PlatformStatusData = {
   checked_at: number | null;
 };
 
-/** « 10 h 36 » à partir de secondes de fonctionnement : le format humain, pas
- * un compteur brut que personne ne convertit de tête. */
+/** « 10 h 36 » from uptime seconds: the human format, not a raw counter
+ * nobody converts in their head. */
 function fmtUptime(s: number, numLocale: string): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -31,9 +31,9 @@ function fmtUptime(s: number, numLocale: string): string {
   return `${new Intl.NumberFormat(numLocale, { maximumFractionDigits: 0 }).format(s)} s`;
 }
 
-/** Ligne compacte du résumé : point d'état à gauche, libellé, valeur à droite.
- * `dotVariant === null` = la ligne ne porte pas d'état (compteurs du portail),
- * donc pas de point du tout — jamais un vert non mérité. */
+/** Compact summary row: status dot on the left, label, value on the right.
+ * `dotVariant === null` = the row carries no state (portal counters),
+ * so no dot at all — never an unearned green. */
 function StatusRow({ label, dotVariant, dotLabel, value }: {
   label: string;
   dotVariant: "success" | "warning" | "error" | "neutral" | null;
@@ -56,8 +56,8 @@ export function PlatformStatus({ status }: { status: PlatformStatusData | null }
   const numLocale = useLocale();
   const fmt = (n: number, digits = 1) => new Intl.NumberFormat(numLocale, { maximumFractionDigits: digits }).format(n);
 
-  // Disque : alerte quand l'espace libre devient bas OU que le remplissage
-  // dépasse 90 % — les deux conditions de l'opérateur, testées indépendamment.
+  // Disk: alert when free space gets low OR the fill level exceeds
+  // 90 % — the operator's two conditions, tested independently.
   const freeGb = status?.disk.free_gb ?? null;
   const usedPct = status?.disk.used_pct ?? null;
   const diskKnown = freeGb !== null || usedPct !== null;
@@ -65,7 +65,7 @@ export function PlatformStatus({ status }: { status: PlatformStatusData | null }
   const diskParts: string[] = [];
   if (usedPct !== null) diskParts.push(`${fmt(usedPct)} %`);
   if (freeGb !== null) {
-    // Les unités vivent DANS la clé i18n (« Go » → « GB » en anglais).
+    // The units live INSIDE the i18n key (« Go » → « GB » in English).
     diskParts.push(
       status?.disk.total_gb != null
         ? t("{v} Go sur {w} Go libres").replace("{v}", fmt(freeGb)).replace("{w}", fmt(status.disk.total_gb))
@@ -73,8 +73,8 @@ export function PlatformStatus({ status }: { status: PlatformStatusData | null }
     );
   }
 
-  // Sauvegarde : illisible = l'état est dégradé (on le dit) ; sinon alerte
-  // dès que le dump dépasse la fenêtre du moniteur (26 h) ou n'est pas frais.
+  // Backup: unreadable = the state is degraded (we say so); otherwise alert
+  // as soon as the dump exceeds the monitor's window (26 h) or is not fresh.
   const backup = status?.backup ?? null;
   const backupUnreadable = backup !== null && backup.readable === false;
   const backupStale = backup !== null && backup.readable !== false &&
@@ -85,8 +85,8 @@ export function PlatformStatus({ status }: { status: PlatformStatusData | null }
   else if (backup !== null && !backupUnreadable) backupParts.push(t("âge inconnu"));
   if (backup?.count != null) backupParts.push(`${fmt(backup.count, 0)} ${t("archives")}`);
 
-  // Moniteur : incidents actifs = alerte ; illisible = on ne prétend jamais
-  // « aucun incident » sur une donnée qu'on n'a pas lue.
+  // Monitor: active incidents = alert; unreadable = we never claim
+  // « aucun incident » on data we have not read.
   const monitor = status?.monitor ?? null;
   const incidents = monitor?.active_incidents ?? [];
   const monitorUnreadable = monitor !== null && monitor.readable === false;
@@ -96,7 +96,7 @@ export function PlatformStatus({ status }: { status: PlatformStatusData | null }
       ? `${fmt(incidents.length, 0)} ${t("incident(s) actif(s)")} — ${incidents.join(", ")}`
       : t("aucun incident");
 
-  // Modèle servi : même vocabulaire d'état que la carte Backends.
+  // Served model: same state vocabulary as the Backends card.
   const model = status?.model ?? null;
   const modelStatus = model?.status ?? null;
   const modelVariant = modelStatus === "running" ? "success" : modelStatus === "starting" ? "warning" : "neutral";
@@ -104,13 +104,13 @@ export function PlatformStatus({ status }: { status: PlatformStatusData | null }
   const modelParts: string[] = [];
   if (model?.name) {
     modelParts.push(model.name);
-    // L'uptime n'a de sens qu'à côté d'un nom connu.
+    // Uptime only means something next to a known name.
     if (model.uptime_s != null && modelStatus !== null) modelParts.push(t("en service depuis {u}").replace("{u}", fmtUptime(model.uptime_s, numLocale)));
   } else if (modelStatus !== null) {
     modelParts.push(t("aucun modèle"));
   }
 
-  // Portail : compteurs bruts, sans sémantique d'état → pas de point.
+  // Portal: raw counters, no state semantics → no dot.
   const portal = status?.portal ?? null;
   const portalParts: string[] = [];
   if (portal?.db_mb != null) portalParts.push(t("base {v} Mo").replace("{v}", fmt(portal.db_mb)));
@@ -134,8 +134,8 @@ export function PlatformStatus({ status }: { status: PlatformStatusData | null }
         </HStack>
 
         {!status ? (
-          // Pas de données (chargement ou échec du relevé) : on l'écrit tel quel
-          // plutôt que de dessiner un résumé vert sans source.
+          // No data (loading or failed snapshot): we write it as-is
+          // rather than draw a green summary with no source.
           <Text type="supporting" color="secondary">{t("Relevé indisponible — impossible de lire l'état de la plateforme.")}</Text>
         ) : (
           <VStack gap={2}>

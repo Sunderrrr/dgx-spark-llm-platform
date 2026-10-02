@@ -4,26 +4,26 @@ import { Avatar, resolveSize, type AvatarSize } from "@astryxdesign/core/Avatar"
 import { Blobatar } from "@blobatar/react";
 
 /**
- * La pp d'un compte : le logo de marque qu'il a choisi, sinon le blobatar généré
- * depuis son pseudo.
+ * An account's avatar: the brand logo they chose, otherwise the blobatar
+ * generated from their handle.
  *
- * Pourquoi [blobatar](https://github.com/Alain00/blobatar) plutôt qu'un dessin
- * maison : le déterminisme est un contrat vérifié (même pseudo → même créature,
- * y compris à travers les versions mineures — les tests dorment 1 312 rendus et
- * un histogramme de formes sur 20 000 graines), il n'a aucune dépendance, et son
- * animation au repos — respiration, hochement, clignement, regard — est faite de
- * variables tirées du pseudo, donc deux voisins ne s'animent pas en cadence. Il
- * n'émet ni `<defs>`, ni dégradé, ni filtre : plusieurs centaines de pp sur une
- * page ne peuvent pas entrer en collision d'identifiants. Enfin le contraste des
- * yeux sur le corps est garanti (≥ 4,5:1) à toutes les teintes.
+ * Why [blobatar](https://github.com/Alain00/blobatar) rather than a home-made
+ * drawing: determinism is a verified contract (same handle → same creature,
+ * including across minor versions — the tests hold 1 312 renders and a
+ * histogram of shapes over 20 000 seeds), it has no dependency, and its
+ * idle animation — breathing, nodding, blinking, gazing — is made of
+ * variables drawn from the handle, so two neighbours do not animate in sync.
+ * It emits neither `<defs>`, nor gradient, nor filter: several hundred
+ * avatars on a page cannot collide identifiers. Finally the contrast of the
+ * eyes on the body is guaranteed (≥ 4,5:1) at every hue.
  *
- * Le mouvement se coupe tout seul sous `prefers-reduced-motion` (règle dans
- * `blobatar/motion.css`, importé par `app/layout.tsx`) : rien à gérer ici, et
- * surtout pas une requête média dans le SVG, qui n'y serait pas évaluée.
+ * The motion turns itself off under `prefers-reduced-motion` (rule in
+ * `blobatar/motion.css`, imported by `app/layout.tsx`): nothing to handle
+ * here, and above all not a media query in the SVG, which would not be
+ * evaluated there.
  *
- * Un logo de marque, lui, reste un fichier servi par le portail : une `<img>`
- * via `<Avatar>`, donc rien à générer — et il ne s'anime pas, c'est un dessin
- * figé.
+ * A brand logo, for its part, stays a file served by the portal: an `<img>`
+ * via `<Avatar>`, so nothing to generate — and it does not animate.
  */
 export function UserAvatar({ avatarId, username, name, size = "sm" }: {
   avatarId?: string | null;
@@ -36,24 +36,24 @@ export function UserAvatar({ avatarId, username, name, size = "sm" }: {
   }
   return (
     <Blobatar
-      // Jamais de chaîne vide : blobatar hache ce qu'on lui donne, et « ? » est
-      // déjà le repli des monogrammes.
+      // Never an empty string: blobatar hashes whatever it is given, and « ? » is
+      // already the monogram fallback.
       name={username || name || "?"}
-      // Le SVG veut des pixels ; `resolveSize` est la fonction qui traduit
-      // l'échelle du design system (xsm 20, sm 24, md 36, lg 48, xl 128) — la
-      // recopier ici la ferait diverger au premier changement de jeton.
+      // The SVG wants pixels; `resolveSize` is the function that translates
+      // the design-system scale (xsm 20, sm 24, md 36, lg 48, xl 128) — copying
+      // it here would make it diverge at the first token change.
       size={resolveSize(size)}
-      // Pastille pleine : la pp occupe le rond, exactement comme l'`Avatar`
-      // d'Astryx à côté duquel elle s'affiche.
+      // Full disc: the avatar fills the circle, exactly like the Astryx `Avatar`
+      // it sits next to.
       background="circle"
-      // « always » et non « hover » : c'est la pp de quelqu'un, elle doit vivre
-      // là où on la regarde — barre latérale, réglages, liste d'admin, qui est
-      // paginée à dix lignes. « hover » est le conseil de la librairie pour une
-      // grille de plusieurs centaines, ce que cette page n'est pas.
+      // « always » and not « hover »: it is someone's avatar, it must live
+      // where it is looked at — sidebar, settings, admin list, which is
+      // paginated at ten rows. « hover » is the library's advice for a grid
+      // of several hundreds, which this page is not.
       animate="always"
       title={name || username || ""}
-      // `display: block` : un SVG en ligne est en boîte « inline » par défaut, et
-      // laisserait l'espace de la ligne de base sous la pp dans les piles.
+      // `display: block`: an inline SVG is an « inline » box by default, and
+      // would leave the baseline space under the avatar in stacks.
       style={{ display: "block", flex: "none" }}
     />
   );

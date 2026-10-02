@@ -16,11 +16,11 @@ export function CsrfProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let alive = true;
-    // Un échec ici laissait `csrf` à "" EN SILENCE : tous les POST partaient
-    // alors sans jeton et recevaient « Bad Request — CSRF token manquant ou
-    // invalide », sans que rien n'indique d'où venait le problème. Une seconde
-    // tentative coûte ~400 ms et couvre le cas réel : la requête part pendant que
-    // la session se met en place (retour de SSO, expiration puis reconnexion).
+    // A failure here left `csrf` at "" IN SILENCE: every POST then went out
+    // without a token and got « Bad Request — CSRF token manquant ou
+    // invalide », with nothing indicating where the problem came from. A second
+    // attempt costs ~400 ms and covers the real case: the request goes out while
+    // the session is still being set up (SSO return, expiry then re-login).
     const charger = async () => {
       for (let essai = 0; essai < 2; essai += 1) {
         try {

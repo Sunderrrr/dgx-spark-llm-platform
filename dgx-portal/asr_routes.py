@@ -5,13 +5,24 @@ under the « Voix » banner although it is a distinct sidecar, on its own
 network. That misplaced boundary is what made the section non-extractable.
 
 asr_is_up() is re-imported by app.py: the sidecar dashboard uses it.
+
+ON-DEMAND since this change: the `asr` container (~2.1 GiB of GPU) is started
+by the first transcription request and stopped by an idle reaper after 10 min
+without one (see « ASR on-demand » in sidecars.py). This route NEVER blocks
+waiting for whisper to load — useDictation re-polls it EVERY SECOND
+(POLL_MS = 1000) and a held request would hold a gunicorn worker too. While
+the model is not loaded it answers a retry-later payload the 1 s polling
+tolerates silently; when there is not enough memory to start safely, it
+refuses to start and says so.
 """
 import requests
 from flask import Blueprint, jsonify, request
 
 from auth import login_required
 from config import ASR_URL
-from sidecars import asr_is_up, motif_refus
+from sidecars import (asr_appel_en_vol, asr_demarrage_auto, asr_demarrer_veilleur,
+                      asr_is_up, asr_load_error, asr_memoire_ok,
+                      asr_note_activite, _sidecar_proc_status, motif_refus)
 from guards import (_MAX_VOICE_UPLOAD_BYTES, dictation_rate_block,
                     maintenance_block_json)
 
@@ -43,10 +54,52 @@ def api_transcribe():
     if len(data) > _MAX_VOICE_UPLOAD_BYTES:
         return jsonify({'error': "Enregistrement trop volumineux (15 Mo max)."}), 400
     language = request.form.get('language', '').strip()[:10]
+    # On-demand bookkeeping: every REAL attempt resets the idle clock and arms
+    # the reaper thread (cheap file state, idempotent — the endpoint is polled
+    # every second).
+    asr_note_activite()
+    asr_demarrer_veilleur()
+    if not asr_is_up():
+        etat = _sidecar_proc_status('asr')
+        if etat in ('running', 'stopped', 'unknown'):
+            # The runner answers for the container: we KNOW its state, so no
+            # fall-through guess. Never block waiting for the model to load.
+            if etat in ('stopped', 'unknown'):
+                ok_mem, motif_mem = asr_memoire_ok()
+                if not ok_mem:
+                    # Honest refusal and NO start: on unified memory a sidecar
+                    # that loads with no headroom takes the served chat model
+                    # down with it (the OOM killer cannot even see GPU memory).
+                    return jsonify({'error': motif_mem, 'demarrage': False}), 503
+                # Idempotent by construction: `docker start` on a running
+                # container is a no-op, and a successful start throttles the
+                # next attempts (sidecars.asr_demarrage_auto) — the 1 s polling
+                # must not re-issue one per second while the model loads.
+                ok, detail = asr_demarrage_auto()
+                if not ok:
+                    return jsonify({'error': f"Le service de dictée n'a pas pu démarrer{detail}."}), 502
+            else:
+                erreur = asr_load_error()
+                if erreur:
+                    # The container runs but published a load failure (« CUDA
+                    # error: out of memory »): saying nothing would read as
+                    # slowness — same lesson as the admin card.
+                    return jsonify({'error': f"Le modèle de dictée n'a pas pu se charger : {erreur}"}), 503
+            # Retry-later payload, shaped after what useDictation actually
+            # tolerates: a 2xx keeps the 1 s poll silent (anything else is
+            # shown as an error), and `text` MUST be a string — the client
+            # treats any other type as a failed round. So the starting state
+            # rides along an empty text, and the next poll (1 s later) simply
+            # finds the sidecar one second closer to ready.
+            return jsonify({'text': '', 'demarrage': True}), 200
+        # Runner unreachable / no container state: attempt the call anyway —
+        # the sidecar may still be up, and the historical error contract below
+        # (4xx input, 503, 502, 504) applies unchanged.
     try:
-        r = requests.post(f"{ASR_URL}/transcribe",
-                          files={'audio': ('rec.wav', data, 'audio/wav')},
-                          data={'language': language}, timeout=180)
+        with asr_appel_en_vol():
+            r = requests.post(f"{ASR_URL}/transcribe",
+                              files={'audio': ('rec.wav', data, 'audio/wav')},
+                              data={'language': language}, timeout=180)
         if not r.ok:
             detail = motif_refus(r)
             # The SIDECAR's error code is passed through, no longer overwritten as 502. A
@@ -70,5 +123,16 @@ def api_transcribe():
 @bp.route('/api/transcribe/available')
 @login_required
 def api_transcribe_available():
-    return jsonify({'available': asr_is_up()})
+    """Whether dictation can serve — NOW or ON DEMAND.
 
+    Before on-demand start this was simply `asr_is_up()`: with the sidecar
+    stopped, DictateButton rendered nothing (`if (!available) return null`)
+    and NOTHING could ever trigger the auto-start — the feature was
+    unreachable exactly when it mattered. A stopped-but-present container is
+    therefore « available »: the first transcription starts it. An absent
+    container or an unreachable runner stays unavailable (the button hides
+    rather than promising a service that cannot run).
+    """
+    if asr_is_up():
+        return jsonify({'available': True})
+    return jsonify({'available': _sidecar_proc_status('asr') in ('running', 'stopped')})

@@ -1,8 +1,8 @@
-"""Generation d'image (sidecar diffusers) — routes extraites de app.py le 28/08.
+"""Image generation (diffusers sidecar) — routes extracted from app.py on 28/08.
 
-Blueprint sans url_prefix : les chemins restent identiques au caractere pres,
-donc le frontend n'a rien a changer. Cf. memory_routes.py pour le raisonnement
-complet sur les endpoints.
+Blueprint without url_prefix: the paths stay identical to the character, so
+the frontend has nothing to change. See memory_routes.py for the full
+reasoning about the endpoints.
 """
 import logging
 import os
@@ -32,8 +32,8 @@ IMAGE_FILES_DIR = '/app/data/image_files'
 IMAGE_HISTORY_LIMIT = 20
 IMAGE_MAX_BATCH = 4  # max variations generated per prompt (sequential on unified memory)
 
-# Formats de sortie acceptés. « jpg » est un alias normalisé vers « jpeg » ; le
-# sidecar reçoit la clé canonique, on stocke/sert selon l'extension réelle.
+# Accepted output formats. « jpg » is an alias normalized to « jpeg »; the
+# sidecar receives the canonical key, we store/serve by the real extension.
 IMAGE_FORMATS = {'png': 'png', 'jpg': 'jpeg', 'jpeg': 'jpeg', 'webp': 'webp'}
 IMAGE_EXT = {'png': 'png', 'jpeg': 'jpg', 'webp': 'webp'}
 IMAGE_MIME = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'webp': 'image/webp'}
@@ -50,7 +50,7 @@ def _image_set_done(prompt_id, username, done):
         pass
 
 def _image_cancelled(prompt_id, username):
-    """True si l'utilisateur a demandé l'arrêt de ce job (bouton « Arrêter »)."""
+    """True if the user asked to stop this job (« Arrêter » button)."""
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
         row = c.execute("SELECT status FROM image_jobs WHERE prompt_id=? AND username=?",
@@ -66,10 +66,10 @@ def _image_worker(prompt_id, username, prompt_text, count, fmt='png',
     """Background thread: call the sidecar `count` times (sequentially — one image
     at a time keeps the GPU memory spike at single-image level on unified memory),
     saving each as <prompt_id>_<idx>.<ext>. Each call reseeds implicitly, so the N
-    images are variations of the same prompt. L'annulation est coopérative : on
-    vérifie le drapeau « cancelled » avant chaque image — l'image en cours se
-    termine, la suite du lot est interrompue et le slot GPU est libéré par le
-    finally côté generate."""
+    images are variations of the same prompt. Cancellation is cooperative: the
+    « cancelled » flag is checked before each image — the current image
+    finishes, the rest of the batch is interrupted and the GPU slot is freed
+    by the finally on the generate side."""
     started = datetime.now()
     done = 0
     ext = IMAGE_EXT.get(fmt, 'png')
@@ -123,11 +123,11 @@ def api_image_generate():
     except (TypeError, ValueError):
         count = 1
     count = max(1, min(IMAGE_MAX_BATCH, count))
-    # Format de sortie : normalisé (alias jpg -> jpeg), défaut png. Le sidecar
-    # encode ce format et le portail stocke/sert l'extension correspondante.
+    # Output format: normalized (jpg alias -> jpeg), default png. The sidecar
+    # encodes this format and the portal stores/serves the matching extension.
     fmt = IMAGE_FORMATS.get((request.form.get('format', 'png') or 'png').strip().lower(), 'png')
-    # Résolution : génération native (multiple de 8, bornée comme le sidecar) et
-    # taille de sortie optionnelle (upscale Lanczos côté sidecar si plus grande).
+    # Resolution: native generation (multiple of 8, capped like the sidecar) and
+    # optional output size (Lanczos upscale on the sidecar side if larger).
     def _dim(key, default, lo, hi):
         try:
             v = int(request.form.get(key) or default)
@@ -184,8 +184,8 @@ def api_image_status(prompt_id):
 @bp.route('/api/image/cancel/<prompt_id>', methods=['POST'])
 @login_required
 def api_image_cancel(prompt_id):
-    """Demande l'arrêt d'une génération image (coopératif : l'image en cours se
-    termine, la suite du lot est interrompue). Ne concerne que ses propres jobs."""
+    """Ask to stop an image generation (cooperative: the current image finishes,
+    the rest of the batch is interrupted). Only affects one's own jobs."""
     db = get_db()
     row = db.execute(
         "SELECT status FROM image_jobs WHERE prompt_id=? AND username=?",
@@ -193,7 +193,7 @@ def api_image_cancel(prompt_id):
     if not row:
         abort(404)
     if row['status'] in ('done', 'cancelled'):
-        return jsonify({'ok': True})  # déjà terminé : no-op
+        return jsonify({'ok': True})  # already finished: no-op
     if row['status'] != 'running':
         return jsonify({'error': "Ce job n'est plus actif."}), 400
     db.execute("UPDATE image_jobs SET status='cancelled' WHERE prompt_id=? AND username=?",
@@ -205,8 +205,8 @@ def api_image_cancel(prompt_id):
 @bp.route('/api/image/delete/<prompt_id>/<int:idx>', methods=['POST'])
 @login_required
 def api_image_delete(prompt_id, idx):
-    """Supprime UNE image d'un lot (galerie). Le job (et l'historique) reste :
-    seule la vignette est retirée du disque."""
+    """Deletes ONE image from a batch (gallery). The job (and history) stays:
+    only the thumbnail is removed from disk."""
     owned = get_db().execute(
         "SELECT 1 FROM image_jobs WHERE prompt_id=? AND username=?",
         (prompt_id, session['username'])).fetchone()
@@ -216,17 +216,17 @@ def api_image_delete(prompt_id, idx):
     if not safe:
         abort(404)
     idx = max(0, min(IMAGE_MAX_BATCH - 1, int(idx)))
-    # Le format varie d'un job à l'autre : on cherche le fichier sous n'importe
-    # quelle extension connue avant de le retirer.
+    # The format varies from job to job: we look for the file under any known
+    # extension before removing it.
     for ext in IMAGE_EXT.values():
         path = os.path.join(IMAGE_FILES_DIR, f"{safe}_{idx}.{ext}")
         if os.path.isfile(path):
             try:
                 os.remove(path)
             except Exception as exc:
-                # `str(exc)` d'un `os.remove` porte le chemin ABSOLU du volume
-                # (arborescence interne) et partait dans la réponse HTTP. Le
-                # journal garde le détail, l'utilisateur reçoit une phrase.
+                # `str(exc)` of an `os.remove` carries the ABSOLUTE path of the volume
+                # (internal tree) and leaked into the HTTP response. The log
+                # keeps the detail, the user gets one sentence.
                 _log.warning("suppression image %s/%s échouée : %r", safe, idx, exc)
                 return jsonify({'error': "Suppression impossible."}), 500
             return jsonify({'ok': True})
@@ -246,8 +246,8 @@ def image_file(prompt_id, idx=0):
     if not safe:
         abort(404)
     idx = max(0, min(IMAGE_MAX_BATCH - 1, int(idx)))
-    # Le format (et donc l'extension) varie d'un job à l'autre : on cherche le
-    # fichier sous chaque extension connue, puis on sert le bon Content-Type.
+    # The format (and thus the extension) varies from job to job: we look for the
+    # file under each known extension, then serve the right Content-Type.
     path = None
     for ext in IMAGE_EXT.values():
         cand = os.path.join(IMAGE_FILES_DIR, f"{safe}_{idx}.{ext}")

@@ -1,13 +1,13 @@
-"""Gardes d'authentification et duree de vie des sessions.
+"""Authentication guards and session lifetime.
 
-Extrait de app.py le 28/08 — TROISIEME piece du noyau, apres db.py et config.py,
-et celle sans laquelle aucun blueprint n'etait possible : un module de routes doit
-importer login_required/admin_required, or ces decorateurs vivaient dans app.py,
-que ce meme module ne peut pas reimporter.
+Extracted from app.py on 28/08 — THIRD piece of the core, after db.py and
+config.py, and the one without which no blueprint was possible: a route
+module must import login_required/admin_required, yet those decorators
+lived in app.py, which that same module cannot re-import.
 
-Ne depend que de flask et de l'environnement. url_for('login') et url_for('index')
-sont resolus A L'APPEL, pas a l'import : les routes correspondantes restent
-enregistrees sur l'application dans app.py, donc rien a passer ici.
+Depends only on flask and the environment. url_for('login') and
+url_for('index') are resolved AT CALL time, not at import: the matching
+routes stay registered on the application in app.py, so nothing to pass here.
 """
 import os
 import time
@@ -53,14 +53,14 @@ def _session_expired():
     # expired rather than eternal.
     if time.time() - session.get('auth_at', 0) > SESSION_MAX_AGE:
         return True
-    # Registre serveur : la session n'est plus seulement limitée par son âge,
-    # elle peut être révoquée à volonté (logout, compte verrouillé, admin).
+    # Server-side registry: the session is no longer limited by age alone, it
+    # can be revoked at will (logout, locked account, admin).
     sid = session.get('sid')
     if not sid:
-        # Session antérieure au registre (ou session de test sans sid) : on
-        # conserve l'expiration par l'âge seule — elle n'est pas révocable mais
-        # expirera naturellement. Les nouvelles sessions portent un sid et le
-        # sont. Pas de déconnexion en masse lors de la migration.
+        # Session predating the registry (or test session without sid):
+        # we keep expiry by age alone — it is not revocable but will
+        # expire naturally. New sessions carry a sid and are. No mass
+        # logout at migration time.
         return False
     row = get_db().execute(
         "SELECT revoked, expires_at FROM user_sessions WHERE sid=?", (sid,)).fetchone()
@@ -69,15 +69,15 @@ def _session_expired():
     return False
 
 
-# ── État COURANT du compte ──────────────────────────────────────────────────
-# Le cookie de session ne porte qu'un nom et un rôle recopiés à la connexion.
-# Sans relecture, supprimer un compte, le désactiver, le bloquer ou le
-# rétrograder n'avait AUCUN effet avant l'expiration du cookie (12 h par
-# défaut) : le porteur gardait son accès, y compris administrateur. Ces
-# fonctions sont appelées à chaque requête gardée.
+# ── CURRENT account state ─────────────────────────────────────────────────
+# The session cookie only carries a name and a role copied at login.
+# Without a re-read, deleting an account, disabling it, blocking it or
+# demoting it had NO effect before the cookie expired (12 h by default):
+# the bearer kept their access, admin included. These functions are called
+# at every kept request.
 
 def est_bloque(username):
-    """Compte refusé à la connexion, quelle que soit sa source."""
+    """Account refused at login, whatever its source."""
     if not username:
         return False
     return get_db().execute(
@@ -85,48 +85,48 @@ def est_bloque(username):
 
 
 def etat_compte(username):
-    """(valide, is_admin, raison) relu en base, jamais celui figé au login.
+    """(valid, is_admin, reason) re-read from database, never the one frozen at login.
 
-    `is_admin` vaut **None** quand le portail n'a pas de source d'autorité sur
-    le rôle : l'appelant garde alors celui porté par la session. On ne déduit
-    jamais une rétrogradation d'une donnée absente — inventer un « pas admin »
-    à partir d'une ligne manquante casserait un administrateur légitime.
+    `is_admin` is **None** when the portal has no authoritative source on
+    the role: the caller then keeps the one carried by the session. We
+    never infer a demotion from missing data — inventing a « pas admin »
+    from a missing row would break a legitimate administrator.
 
-    `raison` ('bloque', 'desactive') sert au journal d'audit et au diagnostic
-    admin — jamais à la réponse HTTP : dire « ce compte est bloqué » à qui
-    présente le bon mot de passe reste une information à ne pas donner à un
-    tiers qui teste des identifiants.
+    `raison` ('bloque', 'desactive') serves the audit log and the admin
+    diagnosis — never the HTTP answer: telling « ce compte est bloqué » to
+    whoever presents the right password is still information not to give
+    to a third party testing credentials.
     """
     db = get_db()
     if est_bloque(username):
         return False, False, 'bloque'
     row = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
     if row is not None:
-        # Compte local : le portail est seul maître du rôle et de l'état.
+        # Local account: the portal is the sole master of the role and the state.
         if not row['enabled']:
             return False, False, 'desactive'
         return True, _local_user_is_admin(row), None
-    # Compte LDAP/SSO : aucune ligne locale, et on ne peut pas interroger
-    # l'annuaire à chaque requête (un bind LDAP par appel). Le rôle se lit donc
-    # sur le dernier login consigné ; s'il n'y en a pas, on n'a pas d'avis.
+    # LDAP/SSO account: no local row, and we cannot query the directory at
+    # every request (one LDAP bind per call). The role is thus read on the last
+    # recorded login; if there is none, we have no opinion.
     src = db.execute(
         "SELECT last_is_admin FROM user_sources WHERE username=?", (username,)).fetchone()
     return True, (bool(src['last_is_admin']) if src is not None else None), None
 
 
 def _revalide_session():
-    """Jette la session si le compte n'est plus valide, sinon rafraîchit le rôle.
+    """Discards the session if the account is no longer valid, else refreshes the role.
 
-    Retourne True si la session tient. Un changement de rôle est réécrit dans
-    le cookie : c'est le SEUL endroit qui fait autorité sur is_admin.
+    Returns True if the session holds. A role change is rewritten in the
+    cookie: this is the ONLY place authoritative on is_admin.
     """
     username = session.get('username')
     if not username:
         return True
     valide, is_admin, raison = etat_compte(username)
     if not valide:
-        # Une seule ligne d'audit par session invalidée : session.clear()
-        # remplace le cookie, donc les requêtes suivantes n'ont plus de nom.
+        # One audit line per invalidated session: session.clear() replaces the
+        # cookie, so the next requests have no name anymore.
         log_audit(username, 'session.invalidee', f'compte {raison} — session fermée')
         session.clear()
         return False
@@ -138,18 +138,18 @@ def _revalide_session():
 
 
 def bloquer_compte(username, raison, par):
-    """Refuse le compte à la connexion, coupe ses sessions ET ses clés API.
+    """Refuses the account at login, cuts its sessions AND its API keys.
 
-    Seul mécanisme du portail qui vaille pour un compte LDAP/SSO : il n'a pas
-    de ligne dans local_users, donc pas d'`enabled` à basculer.
+    The portal's only mechanism that works for an LDAP/SSO account: it has
+    no row in local_users, hence no `enabled` to flip.
 
-    Les CLÉS font partie du blocage depuis l'audit du 2026-10-02 : LiteLLM
-    valide les clés lui-même et le portail n'est pas dans le chemin de l'API,
-    donc un compte bloqué gardait un accès `Bearer` complet (GPU partagé
-    consommé sur son enveloppe). Un blocage qui laisse une clé vivante n'a rien
-    révoqué. Contrepartie : « débloquer » ne restaure pas les clés.
+    The KEYS are part of the blocking since the 2026-10-02 audit: LiteLLM
+    validates the keys itself and the portal is not in the API path, so a
+    blocked account kept a full `Bearer` access (shared GPU consumed on its
+    envelope). A block that leaves a live key has revoked nothing.
+    Trade-off: « débloquer » does not restore the keys.
 
-    Renvoie un rapport : {'sessions', 'keys_revoked', 'keys_failed', 'keys'}.
+    Returns a report: {'sessions', 'keys_revoked', 'keys_failed', 'keys'}.
     """
     db = get_db()
     db.execute(
@@ -158,11 +158,11 @@ def bloquer_compte(username, raison, par):
         "blocked_by=excluded.blocked_by, blocked_at=excluded.blocked_at",
         (username, (raison or None), (par or '?'), datetime.now().isoformat()))
     db.commit()
-    # Le rôle d'admin est mis en cache 60 s pour /internal/authcheck : sans purge,
-    # une clé d'admin bloqué franchirait encore la maintenance pendant une minute.
+    # The admin role is cached 60 s for /internal/authcheck: without a purge, a
+    # blocked admin's key would still cross maintenance for a minute.
     _admin_username_cache.pop(username, None)
     revoquees = _revoke_user_sessions(username)
-    from user_lifecycle import revoquer_cles_compte        # import tardif : cycle auth <-> user_lifecycle
+    from user_lifecycle import revoquer_cles_compte        # late import: cycle auth <-> user_lifecycle
     cles_ok, cles_ko, cles_total = revoquer_cles_compte(username, par, 'blocage du compte')
     log_audit(par, 'user.block',
               f'{username}' + (f' — motif : {raison}' if raison else '')
@@ -177,8 +177,8 @@ def debloque_compte(username, par):
     db = get_db()
     n = db.execute("DELETE FROM blocked_users WHERE username=?", (username,)).rowcount
     db.commit()
-    # Même raison que dans bloquer_compte : le rôle en cache ne doit pas retarder
-    # le retour à la normale d'une minute.
+    # Same reason as in bloquer_compte: the cached role must not delay the
+    # return to normal by a minute.
     _admin_username_cache.pop(username, None)
     if n:
         log_audit(par, 'user.unblock', username)
@@ -195,9 +195,9 @@ def login_required(f):
                 abort(401)
             return redirect(url_for('login', next=request.path))
         return f(*args, **kwargs)
-    # Marqueur lu a l'execution par le test de garde des routes : @wraps efface
-    # toute trace du decorateur, donc sans lui il faudrait analyser le source —
-    # fragile, et aveugle a une route enregistree autrement qu'en litteral.
+    # Marker read at runtime by the route guard test: @wraps erases every trace
+    # of the decorator, so without it one would have to parse the source —
+    # fragile, and blind to a route registered other than as a literal.
     decorated._garde = 'login'
     return decorated
 
@@ -220,24 +220,24 @@ def admin_required(f):
     return decorated
 
 
-# ── Socle d'authentification, rapatrie de app.py le 28/08 ───────────────────
-# CSRF, connexion de secours, LDAP, anti-force-brute et ouverture de session
-# etaient disperses dans le monolithe sous quatre bannieres differentes. Ils
-# forment pourtant UN sujet, et le blueprint d'administration en a besoin.
+# ── Authentication foundation, brought over from app.py on 28/08 ────────────
+# CSRF, fallback login, LDAP, anti-brute-force and session opening were
+# scattered in the monolith under four different banners. They form ONE
+# topic though, and the admin blueprint needs them.
 #
-# _csrf_protect et _inject_csrf ont perdu leurs decorateurs @app.* : ils sont
-# enregistres depuis app.py (before_request / context_processor), sinon il
-# faudrait importer l'application ici — le cycle qu'on evite depuis db.py.
+# _csrf_protect and _inject_csrf lost their @app.* decorators: they are
+# registered from app.py (before_request / context_processor), otherwise
+# one would have to import the application here — the cycle avoided since db.py.
 #
-# La MECANIQUE de connexion de secours est deplacee telle quelle, sans une
-# ligne de logique changee : LDAP et le SSO etant eteints, c'est le seul
-# acces a la plateforme.
+# The fallback login MECHANICS is moved as-is, without a single logic
+# line changed: LDAP and SSO being off, it is the only
+# access to the platform.
 
-# ── Validation d'identifiant ──
+# ── Credential validation ──
 
 USERNAME_RE = re.compile(r'^[a-zA-Z0-9._-]{1,64}$')
 
-# ── Jeton CSRF par session ──
+# ── Session CSRF token ──
 
 def _ensure_csrf():
     """Return the session token, creating it if needed.
@@ -270,7 +270,7 @@ def _csrf_protect():
 def _inject_csrf():
     return {'csrf_token': _ensure_csrf}
 
-# ── Statut administrateur ──
+# ── Admin status ──
 
 _admin_username_cache = {}
 
@@ -299,10 +299,10 @@ def _local_user_admin(username):
     working web session (session['is_admin']) but their key was rejected (503)
     in maintenance mode — two sources of truth for "admin". This closes that gap.
 
-    Le BLOCAGE compte comme une perte d'admin (audit du 2026-10-02) : un compte
-    bloqué est refusé au login, mais son `enabled` reste à 1 — sans ce test, sa
-    clé API continuait de franchir la maintenance. `est_bloque` est le même
-    prédicat que celui du login, donc les deux chemins ne peuvent plus diverger.
+    BLOCKING counts as an admin loss (audit of 2026-10-02): a blocked
+    account is refused at login, but its `enabled` stays at 1 — without
+    this test, its API key kept crossing maintenance. `est_bloque` is the
+    same predicate as the login one, so the two paths cannot diverge anymore.
     """
     try:
         if est_bloque(username):
@@ -354,9 +354,9 @@ def ldap_authenticate(username, password):
             conn.unbind()
             return False, False, username
         entry = conn.entries[0]
-        # displayName (ex. « Alice Dupont ») quand présent ; sinon cn, sinon
-        # l'identifiant. Authentik stocke displayName base64 pour les accents,
-        # ldap3 le décode déjà.
+        # displayName (e.g. « Alice Dupont ») when present; else cn, else the
+        # identifier. Authentik stores displayName base64 for accents, ldap3
+        # already decodes it.
         if hasattr(entry, 'displayName') and getattr(entry, 'displayName'):
             fullname = str(entry.displayName)
         elif hasattr(entry, 'cn'):
@@ -464,7 +464,7 @@ def ldap_resolve_sso_identity(sub=None, email=None):
         return None, False, None
 
 
-# ── Anti-force-brute (persiste en base) ──
+# ── Anti-brute-force (persisted in database) ──
 
 LOGIN_MAX_FAILS = 6           # attempts before lockout
 LOGIN_WINDOW    = 900         # sliding window (15 min)
@@ -487,8 +487,8 @@ def _login_fail(key):
         fails, first_at = row['fails'] + 1, row['first_at']
     locked_until = now + LOGIN_LOCK if fails >= LOGIN_MAX_FAILS else 0
     if locked_until:
-        # Un verrouillage est un événement de sécurité : il doit rester une
-        # trace côté admin (le compteur, lui, expire au bout de la fenêtre).
+        # A lockout is a security event: it must remain a trace on the admin side
+        # (the counter itself expires at the end of the window).
         log_audit(key.split('|')[-1] if '|' in key else key, 'login.verrouillage',
                   f'{key} — {fails} échecs, verrouillé {int(LOGIN_LOCK // 60)} min')
     db.execute(
@@ -539,31 +539,31 @@ def _client_ip():
         return fwd
     return request.remote_addr or 'unknown'
 
-# ── Ouverture de session ──
+# ── Session opening ──
 
 def _apply_session(username, fullname, is_admin, via_sso=False):
-    # Le jeton CSRF du client est REPRIS, pas remplacé : c'est lui qui garde la
-    # valeur que la page détient déjà en mémoire.
+    # The client's CSRF token is KEPT, not replaced: it is the one holding the
+    # value the page already has in memory.
     #
-    # `session.clear()` l'efface, et le régénérer ici (ce que faisait le code
-    # jusqu'au 2026-09-14) changeait le jeton DANS LE DOS du navigateur : la page
-    # continuait d'envoyer l'ancien, et tout POST gardé répondait 400 « CSRF token
-    # manquant ou invalide ». Symptôme rapporté : « je me déconnecte après un login
-    # SSO et j'obtiens Bad Request ». Un rechargement complet (ce que fait
-    # `/login` après un login local) masquait le problème ; le SSO, dont le retour
-    # ne repasse pas toujours par un document neuf, l'exposait.
+    # `session.clear()` erases it, and regenerating it here (what the code did
+    # until 2026-09-14) changed the token BEHIND the browser's back: the page
+    # kept sending the old one, and every kept POST answered 400 « CSRF token
+    # manquant ou invalide ». Reported symptom: « je me déconnecte après un
+    # login SSO et j'obtiens Bad Request ». A full reload (what `/login` does
+    # after a local login) masked the problem; the SSO, whose return does not
+    # always go through a fresh document, exposed it.
     #
-    # Pourquoi reprendre le jeton ne relâche rien : il vit dans un cookie SIGNÉ et
-    # HttpOnly, donc ni lisible ni forgeable par une page — le fixation CSRF
-    # suppose un attaquant capable d'imposer une valeur, ce que la signature
-    # interdit. La protection contre la fixation de session reste assurée par le
-    # `sid` neuf créé plus bas, qui est le vrai identifiant révocable.
+    # Why keeping the token relaxes nothing: it lives in a SIGNED and HttpOnly
+    # cookie, so neither readable nor forgeable by a page — CSRF fixation
+    # assumes an attacker able to impose a value, which the signature forbids.
+    # Protection against session fixation remains assured by the fresh `sid`
+    # created below, which is the real revocable identifier.
     #
-    # S'il n'y a pas encore de jeton (navigateur neuf, cookie absent), on en crée
-    # un : la session ne doit jamais partir sans, sinon plusieurs requêtes
-    # parallèles en fabriqueraient chacune un et la dernière à poser son cookie
-    # gagnerait — le jeton mémorisé par la page ne correspondrait plus. C'est la
-    # course que ce bloc évitait déjà, et il continue de l'éviter.
+    # If there is no token yet (new browser, missing cookie), we create one:
+    # the session must never leave without one, else several parallel requests
+    # would each mint one and the last to set its cookie would win — the token
+    # memorized by the page would no longer match. This is the race this block
+    # already avoided, and it keeps avoiding it.
     csrf = session.get('csrf')
     session.clear()
     session['csrf'] = csrf or secrets.token_urlsafe(32)
@@ -576,9 +576,9 @@ def _apply_session(username, fullname, is_admin, via_sso=False):
     # access, and the is_admin flag frozen inside survived a removal from the
     # admin group on the directory side. See _session_expired().
     session['auth_at'] = int(time.time())
-    # Registre serveur : le cookie signé ne porte que ce sid aléatoire ; la
-    # ligne en base (user_sessions) permet de le révoquer à volonté. Un
-    # sid est créé à chaque ouverture de session (login local/LDAP/SSO).
+    # Server-side registry: the signed cookie carries only this random sid; the
+    # database row (user_sessions) allows revoking it at will. A sid is created
+    # at every session opening (local/LDAP/SSO login).
     sid = secrets.token_urlsafe(32)
     db = get_db()
     db.execute(
@@ -591,15 +591,15 @@ def _apply_session(username, fullname, is_admin, via_sso=False):
 
 
 def completer_origine_session():
-    """Complète l'IP et le user-agent de la session COURANTE s'ils manquent.
+    """Fills in the IP and user-agent of the CURRENT session when missing.
 
-    Les sessions ouvertes avant l'ajout de ces colonnes (2026-09-13) n'en ont
-    aucun : l'intéressé voyait un tiret à la place de « ce navigateur, cette
-    IP », c'est-à-dire exactement l'information qui permet de repérer une
-    session qu'on ne reconnaît pas. On ne complète QUE la ligne dont le sid est
-    celui du cookie appelant — donc la sienne — et seulement si la valeur est
-    absente : écraser une IP déjà notée effacerait la trace qu'on veut garder,
-    et un cookie volé réécrirait sa propre origine.
+    Sessions opened before these columns were added (2026-09-13) have
+    none: the person saw a dash instead of « ce navigateur, cette IP »,
+    that is exactly the information that lets one spot a session they do
+    not recognize. We fill in ONLY the row whose sid is the one of the
+    calling cookie — thus their own — and only when the value is absent:
+    overwriting an already noted IP would erase the trace we want to keep,
+    and a stolen cookie would rewrite its own origin.
     """
     sid, username = session.get('sid'), session.get('username')
     if not sid or not username:
@@ -614,8 +614,8 @@ def completer_origine_session():
 
 
 def _revoke_current_session():
-    """Révoque la session courante (logout) : le sid en base passe à revoked,
-    la demande suivante la considérera expirée."""
+    """Revokes the current session (logout): the sid in database moves to
+    revoked, the next request will consider it expired."""
     sid = session.get('sid')
     if not sid:
         return
@@ -626,8 +626,8 @@ def _revoke_current_session():
 
 
 def _revoke_user_sessions(username):
-    """Révoque toutes les sessions actives d'un compte (verrouillage, admin).
-    Ne lève pas si le compte n'a pas de session en base."""
+    """Revokes all active sessions of an account (lockout, admin).
+    Does not raise if the account has no session in database."""
     db = get_db()
     n = db.execute(
         "UPDATE user_sessions SET revoked=1 WHERE username=? AND revoked=0", (username,)).rowcount

@@ -1,18 +1,18 @@
-"""Classement : ce qu'il classe, et ce qu'il refuse de classer.
+"""Ranking: what it ranks, and what it refuses to rank.
 
-Trois defauts corriges le 2026-09-14, que ces tests verrouillent : « nouveau »
-s'affichait sur TOUTES les lignes de la periode « depuis le debut » (le backend
-ne distinguait pas « pas de periode precedente » de « compte absent la periode
-d'avant ») ; le bucket `inconnu` prenait un rang comme s'il etait une personne ;
-et la barre donnait la part du LEADER, jamais celle de la periode.
+Three defects fixed on 2026-09-14, which these tests lock in: « nouveau »
+displayed on ALL rows of the « depuis le debut » period (the backend did
+not distinguish « no previous period » from « account absent the period
+before »); the `inconnu` bucket took a rank as if it were a person; and
+the bar showed the LEADER's share, never the period's.
 
-S'y ajoute la regle de fond, heritee de `auth.etat_compte` : une donnee ABSENTE
-n'est pas une preuve d'absence. Si la base des comptes est illisible, on ne
-reclasse personne — un vrai compte demasque comme residu serait pire qu'un
-residu affiche une fois de trop.
+On top of that the underlying rule, inherited from `auth.etat_compte`:
+MISSING data is not proof of absence. If the accounts database is
+unreadable, we re-rank nobody — a real account unmasked as a leftover
+would be worse than a leftover displayed once too often.
 
-Le Postgres de LiteLLM n'est evidemment pas joignable ici : `_spend_conn` rend
-un curseur factice qui repond selon la requete (courante ou precedente).
+LiteLLM's Postgres is obviously unreachable here: `_spend_conn` returns
+a fake cursor that answers according to the query (current or previous).
 """
 import unittest
 from unittest import mock
@@ -21,7 +21,7 @@ import stats
 
 
 class _CurseurFactice:
-    """Repond a chaque requete ce que le test a prepare pour elle."""
+    """Answers each query what the test prepared for it."""
 
     def __init__(self, courant, precedent):
         self._courant = courant
@@ -40,9 +40,9 @@ class _CurseurFactice:
         return self._lignes
 
     def fetchone(self):
-        # La periode « depuis le debut » commence par demander le tout premier
-        # log ; sans reponse elle leve, et `ranking_full` se rabat sur un
-        # classement vide — ce qui masquerait le test au lieu de le faire echouer.
+        # The « since the start » period begins by asking for the very first
+        # log; without an answer it raises, and `ranking_full` falls back on an
+        # empty ranking — which would mask the test instead of failing it.
         return (None,)
 
 
@@ -58,11 +58,11 @@ class _ConnFactice:
 
 
 def _classement(courant, precedent=(), comptes=('alice', 'bob'), metric='total', period='month'):
-    """`ranking_full` sur un Postgres factice.
+    """`ranking_full` on a fake Postgres.
 
-    `courant` : lignes (bucket, cle, prompt, genere) de la periode.
-    `precedent` : lignes (cle, prompt, genere) de la periode d'avant.
-    `comptes` : les noms qui existent VRAIMENT (le reste est un residu).
+    `courant`: rows (bucket, key, prompt, generated) of the period.
+    `precedent`: rows (key, prompt, generated) of the period before.
+    `comptes`: the names that REALLY exist (the rest is a leftover).
     """
     conn = _ConnFactice(courant, precedent)
     with mock.patch.object(stats, '_spend_conn', return_value=conn), \
@@ -82,13 +82,13 @@ class TestResidus(unittest.TestCase):
         self.assertFalse(rangs['alice']['is_unattributed'])
 
     def test_le_bucket_inconnu_est_traite_comme_un_residu(self):
-        # « inconnu » = cle absente des trois tables de jetons, donc supprimee a
-        # la main : ce n'est pas davantage une personne qu'un nom de test.
+        # « inconnu » = key absent from the three token tables, thus deleted by
+        # hand: it is no more a person than a test name.
         d = _classement(courant=[(1, 'alice', 10, 1), (1, 'inconnu', 500, 0)])
         inconnu = [r for r in d['rows'] if r['username'] == 'inconnu'][0]
         self.assertTrue(inconnu['is_unattributed'])
         self.assertIsNone(inconnu['rank'])
-        # ...et il passe en fin de tableau, pas au milieu des gens.
+        # ...and it goes to the bottom of the table, not among people.
         self.assertEqual(d['rows'][-1]['username'], 'inconnu')
 
     def test_un_residu_ne_compte_pas_comme_compte_actif_mais_reste_dans_le_total(self):
@@ -97,15 +97,15 @@ class TestResidus(unittest.TestCase):
         self.assertEqual(d['total'], 1050)
 
     def test_un_residu_n_affiche_pas_de_delta(self):
-        # Mesure avant correctif : +290 919 % sur le bucket `inconnu`. Un residu
-        # n'a pas d'histoire, donc pas d'evolution.
+        # Measurement before the fix: +290 919 % on the `inconnu` bucket. A
+        # leftover has no history, hence no evolution.
         d = _classement(courant=[(1, 'inconnu', 500, 0)], precedent=[('inconnu', 0.17, 0)])
         self.assertIsNone(d['rows'][0]['delta'])
 
     def test_base_des_comptes_illisible_on_ne_reclasse_personne(self):
-        # `_comptes_connus` renvoie None quand la base locale est illisible : on
-        # ne peut alors pas distinguer une personne d'un residu, et on ne
-        # conclut rien. Seul `inconnu` reste non attribue, par construction.
+        # `_comptes_connus` returns None when the local database is unreadable:
+        # we then cannot tell a person from a leftover, and we conclude
+        # nothing. Only `inconnu` stays unattributed, by construction.
         with mock.patch.object(stats, 'get_db', side_effect=RuntimeError('base illisible')):
             self.assertIsNone(stats._comptes_connus())
         conn = _ConnFactice([(1, 'alice', 10, 1), (1, 'martin', 5, 0)], [])
@@ -133,9 +133,9 @@ class TestPartsEtDeltas(unittest.TestCase):
         self.assertTrue(d['has_prev'])
 
     def test_le_delta_porte_sur_la_metrique_affichee(self):
-        # Alice genere plus, mais ecrit beaucoup moins qu'avant : classee sur le
-        # genere, elle monte ; classee sur l'entree, elle s'effondre. Un delta
-        # calcule sur le total melangerait les deux et ne voudrait rien dire.
+        # Alice generates more, but writes far less than before: ranked on the
+        # generated, she goes up; ranked on the input, she collapses. A delta
+        # computed on the total would mix the two and mean nothing.
         courant = [(1, 'alice', 10, 1000)]
         precedent = [('alice', 1000, 100)]
         self.assertAlmostEqual(_classement(courant, precedent, metric='completion')['rows'][0]['delta'],
@@ -146,13 +146,13 @@ class TestPartsEtDeltas(unittest.TestCase):
     def test_la_moyenne_porte_sur_les_comptes_classes(self):
         d = _classement(courant=[(1, 'alice', 600, 0), (1, 'bob', 200, 0), (1, 'zz-pwtest', 200, 0)])
         self.assertEqual(d['avg'], 400)   # (600 + 200) / 2, residu exclu
-        self.assertEqual(d['total'], 1000)  # mais compte dans le total
+        self.assertEqual(d['total'], 1000)  # but counts in the total
 
 
 class TestMetrique(unittest.TestCase):
     def test_la_metrique_change_l_ordre_et_la_valeur(self):
-        # Mesure reelle du 2026-09-14 : le 1er en volume total generee 0,46 % de
-        # ses tokens. Les deux lectures ne designent pas le meme vainqueur.
+        # Real measurement of 2026-09-14: the #1 in total volume generated 0,46 %
+        # of its tokens. The two readings do not crown the same winner.
         courant = [(1, 'alice', 900, 100), (1, 'bob', 300, 700)]
         par_total = _classement(courant, metric='total')
         par_genere = _classement(courant, metric='completion')
@@ -160,14 +160,14 @@ class TestMetrique(unittest.TestCase):
         self.assertEqual([r['username'] for r in par_genere['rows']], ['bob', 'alice'])
         self.assertEqual(par_total['rows'][0]['value'], 1000)
         self.assertEqual(par_genere['rows'][0]['value'], 700)
-        # Les deux compteurs restent ramenes : l'interface montre « dont N generes ».
+        # Both counters are still fetched: the UI shows « dont N generes ».
         self.assertEqual(par_total['rows'][0]['completion'], 100)
 
     def test_metrique_inconnue_retombe_sur_le_total(self):
         self.assertEqual(_classement([(1, 'alice', 1, 1)], metric='nimportequoi')['metric'], 'total')
 
     def test_un_compte_sans_consommation_sur_la_metrique_choisie_disparait(self):
-        # Alice n'a fait qu'envoyer, Bob que generer.
+        # Alice only sent, Bob only generated.
         courant = [(1, 'alice', 500, 0), (1, 'bob', 0, 500)]
         d = _classement(courant, metric='completion')
         self.assertEqual([r['username'] for r in d['rows']], ['bob'])
@@ -175,17 +175,17 @@ class TestMetrique(unittest.TestCase):
 
 class TestTendance(unittest.TestCase):
     def test_la_tendance_suit_le_nombre_de_buckets_de_la_periode(self):
-        # 24 h sur « jour », 7 j sur « semaine », 30 j sur « mois », 12 mois sur
-        # « annee ». Sous 5 points l'interface n'affiche rien plutot qu'une
-        # courbe : « depuis le debut » n'en a que 3.
+        # 24 h on « jour », 7 days on « semaine », 30 days on « mois », 12 months
+        # on « annee ». Under 5 points the UI shows nothing rather than a
+        # curve: « depuis le debut » only has 3.
         self.assertEqual(len(_classement([(3, 'alice', 10, 0)], period='day')['rows'][0]['trend']), 24)
         self.assertEqual(len(_classement([(3, 'alice', 10, 0)], period='week')['rows'][0]['trend']), 7)
         self.assertEqual(len(_classement([(3, 'alice', 10, 0)], period='month')['rows'][0]['trend']), 30)
 
     def test_la_tendance_porte_sur_la_metrique_choisie(self):
-        # Sur « jour » les buckets sont des HEURES (0..23), donc les cles du test
-        # tombent juste. Les buckets d'une periode « mois » sont des dates : y
-        # placer un entier ne remplit rien, et la somme vaudrait zero.
+        # On « jour » the buckets are HOURS (0..23), so the test keys fall
+        # right. The buckets of a « mois » period are dates: putting an integer
+        # there fills nothing, and the sum would be zero.
         courant = [(1, 'alice', 100, 0), (2, 'alice', 0, 5)]
         par_total = _classement(courant, metric='total', period='day')['rows'][0]['trend']
         par_genere = _classement(courant, metric='completion', period='day')['rows'][0]['trend']
@@ -204,8 +204,8 @@ class TestCasLimites(unittest.TestCase):
         self.assertEqual(d['avg'], 0)
 
     def test_que_des_residus(self):
-        # Division par zero interdite : sans compte classe, la moyenne est nulle
-        # et le classement vide — mais le total, lui, existe.
+        # Division by zero forbidden: with no ranked account the average is
+        # null and the ranking empty — but the total does exist.
         d = _classement(courant=[(1, 'zz-pwtest', 50, 0)])
         self.assertEqual(d['active_count'], 0)
         self.assertEqual(d['avg'], 0)

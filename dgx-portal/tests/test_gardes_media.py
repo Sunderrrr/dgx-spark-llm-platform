@@ -1,10 +1,10 @@
-"""Gardes des routes média : maintenance d'abord, débit ensuite.
+"""Guards of the media routes: maintenance first, rate second.
 
-Écrit le 2026-09-17 en même temps que le regroupement des quatre préambules
-identiques (image, musique, vidéo, voix) dans `guards.media_block_json` : ce
-chemin n'avait AUCUN test, donc rien ne prouvait que le refactor conservait
-l'ordre des refus ni les codes de statut. Un refus de garde ne doit jamais
-laisser passer la requête (le sidecar sature le GPU partagé).
+Written on 2026-09-17 along with the grouping of the four identical
+preambles (image, music, video, voice) into `guards.media_block_json`: this
+path had NO test, so nothing proved the refactor kept the refusal order nor
+the status codes. A guard refusal must never let the request through (the
+sidecar saturates the shared GPU).
 """
 import time
 import unittest
@@ -12,7 +12,7 @@ import unittest
 import app as portal
 from db import set_setting
 
-# Les quatre routes de génération média, toutes derrière la même garde.
+# The four media generation routes, all behind the same guard.
 ROUTES = ('/api/image/generate', '/api/music/generate',
           '/api/video/generate', '/api/voice/generate')
 
@@ -26,10 +26,10 @@ class _BaseMedia(unittest.TestCase):
             portal.get_db().execute(
                 "DELETE FROM login_attempts WHERE key LIKE 'rl-media|%'")
             portal.get_db().commit()
-        # `set_setting` (upsert) et non un UPDATE : la ligne `maintenance_mode`
-        # n'existe pas par défaut, la valeur de repli venant de `get_setting`.
-        # Un UPDATE sur une ligne absente ne changeait rien et le test passait
-        # à côté de la garde.
+        # `set_setting` (upsert) and not an UPDATE: the `maintenance_mode` row
+        # does not exist by default, the fallback value coming from `get_setting`.
+        # An UPDATE on an absent row changed nothing and the test passed
+        # beside the guard.
         with self._db():
             set_setting('maintenance_mode', '0')
 
@@ -64,7 +64,7 @@ class _BaseMedia(unittest.TestCase):
 
 
 class MaintenanceTest(_BaseMedia):
-    """En maintenance, un compte ordinaire est refusé AVANT tout le reste."""
+    """In maintenance, an ordinary account is refused BEFORE everything else."""
 
     def test_les_quatre_routes_media_refusees_en_maintenance(self):
         self._maintenance(True)
@@ -76,34 +76,34 @@ class MaintenanceTest(_BaseMedia):
                 self.assertIn("maintenance", r.get_json()['error'].lower())
 
     def test_un_admin_passe_pendant_la_maintenance(self):
-        """La maintenance ne doit pas enfermer l'administrateur dehors : il est
-        le seul à pouvoir la désactiver depuis l'interface."""
+        """Maintenance must not lock the administrator out: they are the only one
+        able to deactivate it from the UI."""
         self._maintenance(True)
         c = self._client("root", is_admin=True)
         for url in ROUTES:
             with self.subTest(url=url):
                 r = self._post(c, url)
-                # La garde est franchie : l'erreur suivante (prompt manquant ou
-                # modèle absent) est une erreur d'ENTRÉE, jamais un 503/429.
+                # The guard is crossed: the next error (missing prompt or absent
+                # model) is an INPUT error, never a 503/429.
                 self.assertNotIn(r.status_code, (503, 429), url)
 
 
 class DebitTest(_BaseMedia):
-    """Le plafond de débit média compte par compte, et il est atteignable."""
+    """The media rate cap is per account, and it is reachable."""
 
     def test_le_plafond_media_finit_par_refuser(self):
-        # Le bucket est partagé avec le plafond de chat (même fenêtre, même
-        # table) : on envoie donc des requêtes SANS prompt, rejetées en 400 par
-        # la validation d'entrée — elles consomment quand même le quota, sans
-        # jamais toucher au sidecar.
+        # The bucket is shared with the chat cap (same window, same table): we
+        # thus send requests WITHOUT prompt, rejected with 400 by the input
+        # validation — they still consume the quota, without ever touching
+        # the sidecar.
         c = self._client("demo")
         codes = [self._post(c, '/api/image/generate').status_code
                  for _ in range(21)]
-        self.assertNotIn(429, codes[:20], codes)   # les 20 premières passent la garde
-        self.assertEqual(codes[20], 429, codes)    # la 21e est refusée
+        self.assertNotIn(429, codes[:20], codes)   # the first 20 cross the guard
+        self.assertEqual(codes[20], 429, codes)    # the 21st is refused
 
     def test_le_plafond_est_par_compte(self):
-        """Un compte ne doit pas pouvoir épuiser le quota d'un autre."""
+        """An account must not be able to exhaust another's quota."""
         c1 = self._client("demo")
         for _ in range(21):
             self._post(c1, '/api/image/generate')
@@ -112,8 +112,8 @@ class DebitTest(_BaseMedia):
         self.assertEqual(r.status_code, 400, r.get_data(as_text=True))
 
     def test_la_maintenance_est_evaluee_avant_le_debit(self):
-        """L'ordre est une décision : en maintenance ET au plafond, la réponse
-        est le refus de maintenance (503), pas le refus de débit (429)."""
+        """The order is a decision: in maintenance AND at the cap, the answer is
+        the maintenance refusal (503), not the rate refusal (429)."""
         c = self._client("demo")
         for _ in range(21):
             self._post(c, '/api/image/generate')
@@ -123,13 +123,13 @@ class DebitTest(_BaseMedia):
 
 
 class DicteeTest(_BaseMedia):
-    """La dictée a son PROPRE budget, calé sur son rythme réel (~1 req/s).
+    """Dictation has its OWN budget, set on its real pace (~1 req/s).
 
-    Avant le 2026-09-22 elle partageait `rl-media` (20/min) : l'utilisateur qui
-    parlait 20 s recevait « Trop de requêtes. Réessaie dans 36 s. » et sa dictée
-    cessait de s'écrire. Ces tests verrouillent les deux moitiés de la
-    correction — le nouveau plafond suffit à une longue dictée, et il ne mange
-    plus le quota des routes média.
+    Before 2026-09-22 it shared `rl-media` (20/min): a user speaking 20 s
+    received « Trop de requêtes. Réessaie dans 36 s. » and their dictation
+    stopped being written. These tests lock in both halves of the fix —
+    the new cap suffices for a long dictation, and it no longer eats the
+    media routes' quota.
     """
 
     def setUp(self):
@@ -147,13 +147,13 @@ class DicteeTest(_BaseMedia):
             db.commit()
 
     def test_une_longue_dictee_ne_declenche_pas_de_429(self):
-        """61 transcriptions = 60 s de parole + la passe finale : le plafond
-        média (20/min) refusait la 21e, celui-ci doit toutes les accepter."""
+        """61 transcriptions = 60 s of speech + the final pass: the media cap
+        (20/min) refused the 21st, this one must accept them all."""
         c = self._client("demo")
         codes = [self._post(c, '/api/transcribe').status_code for _ in range(61)]
         self.assertNotIn(429, codes, codes)
-        # Le refus vient de la validation d'entrée (aucun audio fourni), donc la
-        # garde a bien été franchie : c'est ce qu'on veut prouver.
+        # The refusal comes from the input validation (no audio provided), so the
+        # guard was indeed crossed: this is what we want to prove.
         self.assertTrue(all(code == 400 for code in codes), codes)
 
     def test_le_plafond_de_dictee_finit_par_refuser(self):
@@ -167,13 +167,13 @@ class DicteeTest(_BaseMedia):
                       self._post(c, '/api/transcribe').get_json()['error'])
 
     def test_la_dictee_ne_consomme_pas_le_quota_media(self):
-        """Les deux budgets sont séparés : dicter ne doit pas empêcher de
-        générer une image (et inversement)."""
+        """The two budgets are separate: dictating must not prevent generating an
+        image (and vice versa)."""
         c = self._client("demo")
         for _ in range(25):
             self._post(c, '/api/transcribe')
-        # Le quota média est intact : la route passe la garde et échoue sur son
-        # entrée (400), jamais en 429.
+        # The media quota is intact: the route crosses the guard and fails on its
+        # input (400), never in 429.
         self.assertEqual(self._post(c, '/api/image/generate').status_code, 400)
 
 

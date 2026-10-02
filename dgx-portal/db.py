@@ -1,12 +1,12 @@
-"""Acces a la base SQLite du portail.
+"""Access to the portal's SQLite database.
 
-Extrait de app.py le 28/08. C'est le NOYAU PARTAGE : sans lui, aucune autre
-section du monolithe n'etait extractible, parce que presque toutes appellent
-get_db() (103 appels) et qu'un module importe par app.py ne peut pas
-reimporter app.py — cycle a l'import.
+Extracted from app.py on 28/08. This is the SHARED CORE: without it, no
+other section of the monolith was extractable, because almost all call
+get_db() (103 calls) and a module imported by app.py cannot re-import
+app.py — import cycle.
 
-Ce module ne depend que de flask.g et de sqlite3 : il n'importe rien du
-portail, donc tout le monde peut l'importer sans risque de cycle.
+This module depends only on flask.g and sqlite3: it imports nothing from
+the portal, so everyone can import it with no cycle risk.
 """
 import os
 import sqlite3
@@ -22,27 +22,27 @@ DB_PATH = '/app/data/portal.db'
 
 
 def log_audit(username, action, detail):
-    """Écrit une entrée de journal d'audit (connexion dédiée, utilisable hors
-    contexte de requête — même depuis un module appelé par app.py).
+    """Writes an audit log entry (dedicated connection, usable outside a
+    request context — even from a module called by app.py).
 
-    `action` est un libellé court et stable (ex. « launch », « stop »,
-    « user.create ») ; `detail` la description lisible. On journalise l'acteur
-    (`username`) et l'horodatage, jamais de secret.
+    `action` is a short, stable label (e.g. « launch », « stop »,
+    « user.create »); `detail` the readable description. We log the actor
+    (`username`) and the timestamp, never a secret.
 
-    Un échec d'écriture ne doit pas casser l'action en cours, mais il ne doit
-    pas non plus être INVISIBLE : un audit muet est indiscernable d'une action
-    qui n'a pas eu lieu. Il part donc sur la sortie d'erreur, où les journaux du
-    conteneur le montrent.
+    A write failure must not break the ongoing action, but it must not be
+    INVISIBLE either: a silent audit is indistinguishable from an action
+    that never happened. It thus goes to stderr, where the container logs
+    show it.
     """
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
         c.execute("INSERT INTO audit_log (username, action, detail, created_at) VALUES (?,?,?,?)",
                   (username or 'système', action, detail, datetime.now().isoformat()))
-        # On ne garde que l'historique récent (les actions sensibles sont rares).
-        # 500 lignes se recyclaient en quelques jours sur cette machine (les
-        # verrouillages de compte et les révocations de session y écrivent aussi,
-        # pas seulement les lancements de modèle) : « qui a fait quoi la semaine
-        # dernière » devenait sans réponse au moment précis où on la posait.
+        # We only keep recent history (sensitive actions are rare).
+        # 500 rows recycled within a few days on this machine (account
+        # lockouts and session revocations write there too, not only model
+        # launches): « qui a fait quoi la semaine dernière » became
+        # unanswerable at the very moment it was asked.
         c.execute("""DELETE FROM audit_log WHERE id NOT IN (
             SELECT id FROM audit_log ORDER BY id DESC LIMIT 5000)""")
         c.commit()
@@ -52,9 +52,9 @@ def log_audit(username, action, detail):
 
 
 def add_notification(username, kind, title, max_per_user=50):
-    """Crée une notification in-app (connexion dédiée, utilisable hors requête —
-    même depuis un worker en thread). `kind` = 'image'|'music'|'request'|...
-    On borne l'historique par utilisateur pour ne pas gonfler la base."""
+    """Creates an in-app notification (dedicated connection, usable outside a
+    request — even from a thread worker). `kind` = 'image'|'music'|'request'|...
+    We bound the history per user so the database does not bloat."""
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
         c.execute("INSERT INTO notifications (username, kind, title, seen, created_at) VALUES (?,?,?,0,?)",
@@ -69,7 +69,7 @@ def add_notification(username, kind, title, max_per_user=50):
 
 
 def notification_unread(username):
-    """Nombre de notifications non lues (badge de la cloche)."""
+    """Number of unread notifications (the bell badge)."""
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
         row = c.execute("SELECT COUNT(*) FROM notifications WHERE username=? AND seen=0",
@@ -81,12 +81,12 @@ def notification_unread(username):
 
 
 def get_db():
-    """Connexion SQLite liee au contexte d'application Flask.
+    """SQLite connection bound to the Flask application context.
 
-    Une seule connexion par requete, refermee par close_db. Les traitements en
-    FIL (generation d'image, video, jobs) n'ont pas de contexte Flask et
-    ouvrent donc leur propre connexion avec sqlite3.connect(DB_PATH) — c'est
-    voulu, pas un oubli.
+    One connection per request, closed by close_db. THREAD workloads (image
+    generation, video, jobs) have no Flask context and thus open their own
+    connection with sqlite3.connect(DB_PATH) — deliberate, not an
+    oversight.
     """
     if 'db' not in g:
         g.db = sqlite3.connect(DB_PATH)
@@ -95,19 +95,19 @@ def get_db():
 
 
 def close_db(e=None):
-    """Enregistre par app.py via app.teardown_appcontext(close_db).
+    """Registered by app.py via app.teardown_appcontext(close_db).
 
-    Pas de decorateur ici : le decorateur exigerait l'objet `app`, donc un
-    import de app.py, donc exactement le cycle que ce module existe pour eviter.
+    No decorator here: the decorator would require the `app` object, hence
+    an import of app.py, hence exactly the cycle this module exists to avoid.
     """
     db = g.pop('db', None)
     if db:
         db.close()
 
 
-# ── Reglages persistes (table `settings`) ────────────────────────────────────
-# De simples enveloppes SQL sur get_db : leur place est dans le noyau, pas dans
-# le monolithe, parce que plusieurs sections extraites en ont besoin.
+# ── Persisted settings (table `settings`) ───────────────────────────────────
+# Simple SQL wrappers over get_db: their place is in the core, not in the
+# monolith, because several extracted sections need them.
 
 def get_setting(key, default=None):
     row = get_db().execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
@@ -128,9 +128,9 @@ def maintenance_active():
 
 
 # ── Base LiteLLM (Postgres) ──────────────────────────────────────────────────
-# Lecture seule, pour les statistiques de consommation et les budgets de cles.
-# Sa place est ici, avec l'acces SQLite : c'est le module des bases, et
-# litellm_client comme les routes de statistiques en ont besoin.
+# Read-only, for the consumption statistics and the key budgets.
+# Its place is here, with the SQLite access: this is the databases module,
+# and litellm_client as well as the statistics routes need it.
 
 def _spend_conn():
     if not LITELLM_DB_URL:
@@ -145,10 +145,10 @@ def _spend_conn():
 
 
 # ── Schema et migrations ─────────────────────────────────────────────────────
-# init_db cree les tables absentes et applique les migrations de colonnes. Il
-# etait dans app.py sous la banniere « DB », avec is_admin_username qui, elle,
-# releve de l'authentification et reste pour l'instant la-bas.
-# Appele une fois a l'amorcage, depuis app.py.
+# init_db creates the missing tables and applies the column migrations. It
+# was in app.py under the « DB » banner, with is_admin_username which, for
+# its part, falls under authentication and stays there for now.
+# Called once at bootstrap, from app.py.
 
 def init_db():
     os.makedirs('/app/data', exist_ok=True)
@@ -447,10 +447,10 @@ def init_db():
     for col in ('theme_id', 'lang'):
         if col not in pref_cols:
             db.execute(f"ALTER TABLE user_prefs ADD COLUMN {col} TEXT")
-    # Mémoire : ACTIVÉE par défaut (2026-09, choix opérateur — portail
-    # multi-utilisateurs domestique). Le graphe reste strictement personnel :
-    # chacun ne lit et n'écrit que le sien, et le réglage sur la page Mémoire
-    # sert à le couper.
+    # Memory: ENABLED by default (2026-09, operator choice — home
+    # multi-user portal). The graph stays strictly personal: each
+    # reads and writes only their own, and the setting on the Memory
+    # page turns it off.
     if 'memory_enabled' not in pref_cols:
         db.execute("ALTER TABLE user_prefs ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 1")
     elif 'memory_enabled INTEGER NOT NULL DEFAULT 0' in (
@@ -458,14 +458,14 @@ def init_db():
                        ).fetchone()[0] or '') or str(next(
                 (r[4] for r in db.execute("PRAGMA table_info(user_prefs)")
                  if r[1] == 'memory_enabled'), None)) == '0':
-        # Bases créées avant le basculement : la colonne porte DEFAULT 0 —
-        # visible dans la DDL quand la table l'a toujours eu dans son CREATE,
-        # et dans PRAGMA table_info (dflt_value) quand elle est arrivée par
-        # ALTER (la DDL de sqlite_master ne bouge alors pas). SQLite ne sait
-        # pas modifier un DEFAULT sur place — recopie de table. La garde rend
-        # la migration ONE-SHOT : après recopie le défaut vaut 1 et ne rejoue
-        # jamais, donc un utilisateur qui coupe sa mémoire ensuite reste coupé,
-        # même après redémarrage.
+        # Databases created before the switch: the column carries DEFAULT 0 —
+        # visible in the DDL when the table always had it in its CREATE, and in
+        # PRAGMA table_info (dflt_value) when it arrived via ALTER (the
+        # sqlite_master DDL does not move then). SQLite cannot change a DEFAULT
+        # in place — table copy. The guard makes the migration ONE-SHOT: after
+        # the copy the default is 1 and never replays, so a user who turns their
+        # memory off afterwards stays off,
+        # even after a restart.
         db.execute('''
             CREATE TABLE user_prefs_new (
                 username  TEXT PRIMARY KEY,
@@ -476,8 +476,8 @@ def init_db():
                 memory_enabled    INTEGER NOT NULL DEFAULT 1,
                 websearch_enabled INTEGER NOT NULL DEFAULT 1
             )''')
-        # Copier uniquement les colonnes qui EXISTENT (une base peut dater
-        # d'avant websearch_enabled) : les absentes prennent leur DEFAULT.
+        # Copy only the columns that EXIST (a database may predate
+        # websearch_enabled): the missing ones take their DEFAULT.
         colonnes = {r[1] for r in db.execute("PRAGMA table_info(user_prefs)")}
         communes = [c for c in ('username', 'avatar_id', 'theme_id', 'lang',
                                 'onboarded', 'memory_enabled', 'websearch_enabled')
@@ -486,19 +486,19 @@ def init_db():
         db.execute(f"INSERT INTO user_prefs_new ({cols}) SELECT {cols} FROM user_prefs")
         db.execute("DROP TABLE user_prefs")
         db.execute("ALTER TABLE user_prefs_new RENAME TO user_prefs")
-        # « pour tous les users » : les comptes créés avant le basculement ont
-        # leur 0 d'origine (jamais un refus explicite, la fonctionnalité étant
-        # antérieure d'une semaine) — tous passés à 1, une seule fois.
+        # « pour tous les users »: accounts created before the switch carry their
+        # original 0 (never an explicit refusal, the feature predating it by a
+        # week) — all moved to 1, once only.
         db.execute("UPDATE user_prefs SET memory_enabled=1")
-        # La table a été recréée avec TOUTES les colonnes : rafraîchir la liste
-        # pour que les ALTER conditionnels ci-dessous ne doublent rien.
+        # The table was recreated with ALL columns: refresh the list so the
+        # conditional ALTERs below double nothing.
         pref_cols = {r[1] for r in db.execute("PRAGMA table_info(user_prefs)")}
-    # Prise en main affichée une fois par COMPTE (et non par navigateur) : le
-    # nouvel arrivant la voit quel que soit le poste, et ne la revoit jamais.
+    # Onboarding shown once per ACCOUNT (not per browser): the newcomer sees it
+    # whatever the machine, and never sees it again.
     if 'websearch_enabled' not in pref_cols:
-        # Activée par défaut, comme la mémoire depuis 2026-09 : la recherche ne
-        # conserve rien sur l'utilisateur. Le réglage sert à la couper pour qui
-        # ne veut pas que ses questions atteignent des moteurs externes.
+        # Enabled by default, like memory since 2026-09: search keeps nothing
+        # about the user. The setting turns it off for whoever does not want their
+        # questions to reach external engines.
         db.execute("ALTER TABLE user_prefs ADD COLUMN websearch_enabled INTEGER NOT NULL DEFAULT 1")
     if 'onboarded' not in pref_cols:
         db.execute("ALTER TABLE user_prefs ADD COLUMN onboarded INTEGER NOT NULL DEFAULT 0")
@@ -534,8 +534,8 @@ def init_db():
     ocr_cols = {r[1] for r in db.execute("PRAGMA table_info(ocr_jobs)")}
     if 'image_path' not in ocr_cols:
         db.execute("ALTER TABLE ocr_jobs ADD COLUMN image_path TEXT")
-    # Plusieurs versions d'un même morceau (fichiers <job_id>_<idx>.wav) : même
-    # principe que les images — count = demandé, done_count = déjà produit.
+    # Several versions of one piece (files <job_id>_<idx>.wav): same principle
+    # as images — count = requested, done_count = already produced.
     _mj = {r[1] for r in db.execute("PRAGMA table_info(music_jobs)")}
     if 'count' not in _mj:
         db.execute("ALTER TABLE music_jobs ADD COLUMN count INTEGER NOT NULL DEFAULT 1")
@@ -719,26 +719,26 @@ def init_db():
     us_cols = {r[1] for r in db.execute("PRAGMA table_info(user_sources)")}
     if 'last_is_admin' not in us_cols:
         db.execute("ALTER TABLE user_sources ADD COLUMN last_is_admin INTEGER")
-    # Migration : IP et user-agent des sessions ouvertes AVANT leur ajout. Les
-    # lignes existantes gardent NULL — la liste des sessions affichera
-    # « inconnu » pour elles, ce qui est exact.
+    # Migration: IP and user-agent of sessions opened BEFORE their addition.
+    # Existing rows keep NULL — the session list will show « inconnu » for
+    # them, which is exact.
     share_cols = {r[1] for r in db.execute("PRAGMA table_info(conversation_shares)")}
     if 'username' not in share_cols:
-        # Les partages créés avant la colonne restent sans propriétaire : ils
-        # sont antérieurs au suivi, on ne peut pas les attribuer rétroactivement.
+        # Shares created before the column stay ownerless: they predate the
+        # tracking, they cannot be attributed retroactively.
         db.execute("ALTER TABLE conversation_shares ADD COLUMN username TEXT")
     sess_cols = {r[1] for r in db.execute("PRAGMA table_info(user_sessions)")}
     for col in ('ip', 'user_agent'):
         if col not in sess_cols:
             db.execute(f"ALTER TABLE user_sessions ADD COLUMN {col} TEXT")
-    # ── Balayage d'hygiène ──────────────────────────────────────────────────
-    # Trois tables ne faisaient que croître et personne ne les nettoyait : les
-    # sessions terminées, les compteurs d'échecs de connexion dont la fenêtre
-    # est morte depuis longtemps, et les défis WebAuthn abandonnés (TTL 5 min).
-    # Rien d'ACTIF n'est touché : une session encore valide est conservée, et le
-    # journal d'audit ne l'est jamais — c'est la trace des actions d'admin.
-    # Sans ce balayage, la table des sessions doublait à chaque déploiement et
-    # la lecture d'une session (à CHAQUE requête gardée) restait un scan.
+    # ── Hygiene sweep ───────────────────────────────────────────────────────
+    # Three tables only grew and nobody cleaned them: ended sessions, login
+    # failure counters whose window died long ago, and abandoned WebAuthn
+    # challenges (TTL 5 min). Nothing ACTIVE is touched: a still valid
+    # session is kept, and the audit log never is — it is the trace of admin
+    # actions. Without this sweep, the session table doubled at every
+    # deployment and reading a session (at EVERY kept request) stayed a
+    # scan.
     now = time.time()
     for requete, args in (
             ("DELETE FROM user_sessions WHERE expires_at < ?", (now - 30 * 86400,)),
@@ -748,8 +748,8 @@ def init_db():
         try:
             db.execute(requete, args)
         except sqlite3.Error:
-            # Table absente d'une base antérieure : le balayage n'est pas une
-            # raison de faire échouer un démarrage.
+            # Table absent from an older database: the sweep is no reason to fail
+            # a startup.
             pass
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
@@ -764,21 +764,21 @@ def init_db():
     db.close()
 
 
-# ── Détecteur de base réinitialisée ─────────────────────────────────────────
-# Le 04/09/2026, le contenu de portal.db a été réinitialisé sans cause
-# identifiée et personne ne l'a vu pendant trois jours : l'application
-# « fonctionne » tout aussi bien sur une base vide. Marqueur compagnon sur le
-# VOLUME (survit au conteneur, meurt avec les données) : présent = la base a
-# déjà contenu des comptes. Marqueur présent + base redevenue vide → critique
-# + email d'alerte infra.
+# ── Reset-database detector ──────────────────────────────────────────────
+# On 04/09/2026, the contents of portal.db were reset with no identified
+# cause and nobody saw it for three days: the application "works" just as
+# well on an empty database. Companion marker on the VOLUME (survives the
+# container, dies with the data): present = the database once held
+# accounts. Marker present + database empty again → critical + infra
+# alert email.
 DB_RESET_MARKER = os.path.join(os.path.dirname(DB_PATH), '.db_initialized')
 
 
 def _detecte_base_reinitialisee(db):
-    """Appelée à chaque init_db() : alerte si une base connue comme peuplée
-    est redevenue vide. Le marqueur n'est créé qu'UNE FOIS la base peuplée
-    (au moins un compte connu), jamais sur une installation vierge — un
-    démarrage d'usine ne doit pas alerter."""
+    """Called at every init_db(): alerts if a database known as populated
+    became empty again. The marker is only created ONCE the database is
+    populated (at least one known account), never on a fresh install — a
+    factory startup must not alert."""
     try:
         vide = (
             db.execute("SELECT COUNT(*) FROM user_sources").fetchone()[0] == 0
@@ -792,8 +792,8 @@ def _detecte_base_reinitialisee(db):
                       "réinitialisation suspectée (volume mal monté, db effacée).")
             print('[db] CRITIQUE : ' + detail)
             try:
-                # Import tardif : notify dépend de config, pas de db — mais ne
-                # pas alourdir l'import du noyau pour un chemin d'alerte rare.
+                # Late import: notify depends on config, not on db — but do not weigh
+                # down the core import for a rare alert path.
                 from notify import notify_infra_alert_email
                 notify_infra_alert_email("Portal database appears to have been reset", detail)
             except Exception as exc:
@@ -803,5 +803,5 @@ def _detecte_base_reinitialisee(db):
             with open(DB_RESET_MARKER, 'w') as fh:
                 fh.write(datetime.now().isoformat() + '\n')
     except Exception as exc:
-        # Ne JAMAIS faire échouer le démarrage sur le détecteur lui-même.
+        # NEVER fail the startup on the detector itself.
         print(f'[db] détecteur anti-reset inopéré : {exc}')

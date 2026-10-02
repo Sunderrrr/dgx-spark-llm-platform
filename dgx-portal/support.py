@@ -1,15 +1,15 @@
-"""Assistant Support : outils exposes au modele et execution securisee.
+"""Support assistant: tools exposed to the model and secure execution.
 
-Extrait de app.py le 28/08. Aucune route ici — la route /support/chat reste
-dans app.py avec le chat du playground, les deux partageant la mecanique de
-flux SSE. Ce module fournit le CATALOGUE d'outils, leur execution, et le
-contexte injecte au modele.
+Extracted from app.py on 28/08. No route here — the /support/chat route
+stays in app.py with the playground chat, both sharing the SSE streaming
+mechanics. This module provides the tool CATALOGUE, their execution, and
+the context injected to the model.
 
-Rappel de la posture de securite, portee par _exec_support_tool : le resultat
-d'un outil MCP ou d'une skill est du texte ecrit par un tiers, reinjecte dans le
-contexte du modele — c'est un vecteur d'injection direct. Des qu'un tel contenu
-est entre, les outils privilegies (revocation de cle, lancement/arret de modele)
-sont refuses pour le reste du tour.
+Reminder of the security posture, carried by _exec_support_tool: the result
+of an MCP tool or a skill is text written by a third party, reinjected into
+the model's context — a direct injection vector. As soon as such content
+has entered, privileged tools (key revocation, model launch/stop) are
+refused for the rest of the round.
 """
 import json
 import re
@@ -174,13 +174,13 @@ def _support_context(username, is_admin, user_msg=''):
         lines.append("Demandes de budget de l'utilisateur : "
                      + ", ".join(r['status'] for r in breqs))
 
-    # ── Trace récente des actions de l'utilisateur (diagnostic) ─────
-    # Le contexte décrivait le compte et la plateforme, mais rien de ce que
-    # l'utilisateur venait de FAIRE : à « ça marchait hier et plus maintenant »,
-    # l'assistant n'avait aucune matière et répondait à côté. `audit_log` est
-    # déjà indexée par utilisateur et contient les échecs de lancement, les
-    # créations/révocations de clés, les bascules de maintenance. Borné à 5
-    # lignes et tronqué : c'est un indice, pas un journal.
+    # ── Recent trace of the user's actions (diagnostic) ────────────
+    # The context described the account and the platform, but nothing of what
+    # the user had just DONE: on « ça marchait hier et plus maintenant », the
+    # assistant had no material and answered off-target. `audit_log` is already
+    # indexed by user and contains launch failures, key creations/revocations,
+    # maintenance toggles. Bounded to 5 lines and truncated: it is a hint, not
+    # a journal.
     try:
         acts = db.execute("SELECT action, detail, created_at FROM audit_log "
                           "WHERE username=? ORDER BY id DESC LIMIT 5",
@@ -324,8 +324,8 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
             ok, motif, incertain = runner_launch(cfg['hf_model_id'], cfg['name'],
                                                  cfg['vllm_args'] or '',
                                                  cfg['engine'] or 'vllm')
-            # L'annonce n'est plus faite ici : _suivre_lancement l'emet quand le
-            # modele SERT vraiment (accepter n'est pas servir).
+            # The announcement is no longer made here: _suivre_lancement emits it when
+            # the model really SERVES (accepting is not serving).
             if ok:
                 return f"Lancement de « {mname} » demandé (démarrage en cours).", True
             if incertain:
@@ -354,33 +354,33 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
 # (key revocation) or global server-scope (the GPU is shared).
 GUARDED_TOOLS = {'revoke_api_key', 'launch_model', 'stop_model'}
 
-# Outils qui ne sont PAS destructifs — ils s'exécutent donc directement, sans
-# bouton de confirmation (choix produit, verrouillé par un test) — mais qui
-# DÉLIVRENT un secret : `create_api_key` renvoie la clé en clair dans son
-# résultat, que le modèle affiche ensuite à l'utilisateur. Rien n'empêchait une
-# page hostile lue par un outil de recherche de faire créer une clé au nom de
-# l'utilisateur, puis d'en lire la valeur dans le contexte du modèle (donc dans
-# le fil conservé). Après lecture d'un contenu externe, on refuse donc aussi
-# ces outils-là ; la création reste directe dans le cas normal.
+# Tools that are NOT destructive — they thus run directly, without a
+# confirmation button (product choice, locked in by a test) — but that
+# DELIVER a secret: `create_api_key` returns the key in clear in its result,
+# which the model then shows the user. Nothing stopped a hostile page read
+# by a search tool from having a key created in the user's name, then
+# reading its value in the model's context (thus in the kept thread). After
+# reading external content we therefore refuse those tools too; creation
+# stays direct in the normal case.
 OUTILS_REFUSES_SI_EXTERNE = GUARDED_TOOLS | {'create_api_key'}
 
-# ── Confirmation des actions sensibles ───────────────────────────────────────
-# Le prompt demande au modèle de faire confirmer ces actions, mais un prompt
-# n'est pas un contrôle : rien n'empêchait le modèle d'appeler revoke_api_key
-# de lui-même. Désormais l'exécution passe par ici — le modèle DÉPOSE une
-# demande, l'utilisateur clique, et c'est le clic qui exécute. Le jeton n'est
-# jamais donné au modèle, donc une injection indirecte (MCP, page web, texte
-# d'une skill) ne peut pas le rejouer.
-PENDING_TTL = 600      # 10 min : au-delà, la demande est périmée
-PENDING_MAX = 5        # demandes en attente conservées par utilisateur
+# ── Confirmation of sensitive actions ─────────────────────────────────────
+# The prompt asks the model to get these actions confirmed, but a prompt is
+# not a control: nothing stopped the model from calling revoke_api_key
+# itself. Execution now goes through here — the model SUBMITS a request,
+# the user clicks, and the click executes. The token is never given to the
+# model, so an indirect injection (MCP, web page, skill text) cannot
+# replay it.
+PENDING_TTL = 600      # 10 min: past that, the request is stale
+PENDING_MAX = 5        # pending requests kept per user
 
 
 def creer_action_en_attente(username, tool, args, label, target):
-    """Dépose une demande de confirmation et retourne son jeton (opaque)."""
+    """Submits a confirmation request and returns its token (opaque)."""
     token = secrets.token_urlsafe(24)
     db = get_db()
-    # Purge au passage : une demande périmée n'a plus de sens, et la table ne
-    # doit pas devenir un journal (elle ne contient que des intentions).
+    # Purge along the way: a stale request makes no sense anymore, and the table
+    # must not become a journal (it only holds intentions).
     db.execute("DELETE FROM pending_actions WHERE created_at < ?",
                (time.time() - PENDING_TTL,))
     db.execute("DELETE FROM pending_actions WHERE username=? AND status='pending' "
@@ -396,7 +396,7 @@ def creer_action_en_attente(username, tool, args, label, target):
 
 
 def action_en_attente(username, token):
-    """La demande de CET utilisateur, si elle est encore valable (sinon None)."""
+    """THIS user's request, if still valid (None otherwise)."""
     if not token:
         return None
     row = get_db().execute(
@@ -410,11 +410,11 @@ def action_en_attente(username, token):
 
 
 def cloturer_action(username, token, statut):
-    """Clôt la demande et dit si c'est NOUS qui l'avons fait.
+    """Closes the request and says whether it was US who did it.
 
-    C'est ce qui garantit l'usage unique : le UPDATE est conditionné à
-    `status='pending'`, donc deux clics simultanés (ou un double envoi) ne
-    donnent qu'un seul `rowcount = 1` — l'autre n'exécute rien.
+    This is what guarantees single use: the UPDATE is conditioned on
+    `status='pending'`, so two simultaneous clicks (or a double submit) give
+    only one `rowcount = 1` — the other executes nothing.
     """
     db = get_db()
     cur = db.execute(

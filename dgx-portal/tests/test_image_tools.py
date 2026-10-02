@@ -1,8 +1,8 @@
-"""Outil image du playground : détection de la demande explicite + exécution.
+"""Playground image tool: explicit request detection + execution.
 
-Même philosophie que test_websearch.py : la règle de déclenchement doit rester
-STRICTE (une demande, pas une mention), et l'exécution doit rendre des
-adresses /image/file/<prompt_id> utilisables par le modèle dans son markdown.
+Same philosophy as test_websearch.py: the trigger rule must stay STRICT
+(a request, not a mention), and the execution must return
+/image/file/<prompt_id> addresses usable by the model in its markdown.
 """
 import sqlite3
 import unittest
@@ -14,7 +14,7 @@ import image_tools
 
 
 class DeclenchementTest(unittest.TestCase):
-    """L'outil image ne s'arme que sur une demande explicite de l'utilisateur."""
+    """The image tool only arms on an explicit request from the user."""
 
     def _demandee(self, texte):
         return image_tools._image_demandee(
@@ -23,7 +23,7 @@ class DeclenchementTest(unittest.TestCase):
     def test_directives_explicites(self):
         for texte in (
             "génère une image d'un chat astronaute",
-            "genere une image de chat",            # sans accent
+            "genere une image de chat",            # without accent
             "peux-tu générer une illustration du DGX ?",
             "je voudrais une image de la tour Eiffel",
             "je veux des images de paysages montagnards",
@@ -40,14 +40,14 @@ class DeclenchementTest(unittest.TestCase):
 
     def test_faux_positifs_jamais(self):
         for texte in (
-            # Une image MENTIONNÉE n'est pas une image DEMANDÉE.
+            # A MENTIONED image is not a REQUESTED image.
             "décris cette image",
             "regarde l'image que j'ai envoyée",
             "quelle est la résolution de l'image ?",
-            "l'image générée hier était floue",     # participe passé
-            "l'image generee hier etait floue",     # idem, sans accent
+            "l'image générée hier était floue",     # past participle
+            "l'image generee hier etait floue",     # ditto, without accent
             "peux-tu décrire l'image du message précédent ?",
-            # Vocabulaire système : ces « images » ne se peignent pas.
+            # System vocabulary: those « images » are not painted.
             "crée une image docker pour ce service",
             "construire l'image OCI puis la pousser",
             "créer une image disque de secours",
@@ -56,15 +56,15 @@ class DeclenchementTest(unittest.TestCase):
             self.assertFalse(self._demandee(texte), texte)
 
     def test_le_code_colle_ne_declenche_rien(self):
-        # Même piège que pour la recherche : du code collé qui PARLE d'image ne
-        # doit pas compter comme une directive (cf. _texte_de_la_demande).
+        # Same trap as for search: pasted code that TALKS about images must not
+        # count as a directive (see _texte_de_la_demande).
         colle = ("```python\n# générer une image de secours\n"
                  "def snapshot(): ...\n```\nexplique ce code")
         self.assertFalse(self._demandee(colle))
 
 
 class GenerationTest(unittest.TestCase):
-    """Exécution de generer_image : worker, adresses rendues, job clôturé."""
+    """Execution of generer_image: worker, returned addresses, closed job."""
 
     def setUp(self):
         import app as portal
@@ -102,7 +102,7 @@ class GenerationTest(unittest.TestCase):
         self.assertEqual(journal[-1]['etape'], 'generation_finie')
         self.assertEqual(len(journal[-1]['images']), 1)
         self.assertTrue(journal[-1]['images'][0].startswith('/image/file/'))
-        # Le job est bien clôturé côté base : pas de « running » fantôme.
+        # The job is properly closed on the database side: no ghost « running ».
         c = sqlite3.connect(DB_PATH)
         ligne = c.execute("SELECT status, done_count FROM image_jobs WHERE prompt_id=?",
                           (journal[-1]['prompt_id'],)).fetchone()
@@ -121,7 +121,7 @@ class GenerationTest(unittest.TestCase):
 
 
 class PhaseOutilsTest(unittest.TestCase):
-    """La phase outils arme generer_image et réinjecte les adresses au modèle."""
+    """The tool phase arms generer_image and reinjects the addresses to the model."""
 
     def test_phase_avec_image(self):
         import websearch_tools
@@ -142,9 +142,9 @@ class PhaseOutilsTest(unittest.TestCase):
                     'content': 'Voici votre image.', 'tool_calls': []}}]}
             return r
 
-        # websearch_tools et image_routes partagent le MÊME module `requests` :
-        # un seul patch, routé sur l'URL — deux patchs s'écraseraient l'un
-        # l'autre (constaté : l'appel LiteLLm tombait sur le faux sidecar).
+        # websearch_tools and image_routes share the SAME `requests` module:
+        # a single patch, routed on the URL — two patches would overwrite each
+        # other (observed: the LiteLLM call fell on the fake sidecar).
         def faux_post(url, **kw):
             if '/v1/chat/completions' in url:
                 return faux_litellm(url, **kw)

@@ -1,13 +1,13 @@
-"""Reglages utilisateur : serveurs MCP, skills, personnalisation, quotas.
+"""User settings: MCP servers, skills, customization, quotas.
 
-Extrait de app.py le 28/08. Regroupe ce que l'utilisateur peut regler pour
-lui-meme, par opposition aux reglages GLOBAUX de la plateforme, qui sont dans
-admin_routes.py.
+Extracted from app.py on 28/08. Gathers what the user can tune for
+themselves, as opposed to the GLOBAL settings of the platform, which live
+in admin_routes.py.
 
-_account_limits et _rate_used vivent ici parce que la page de reglages est le
-seul endroit qui les affiche : ce sont les plafonds vus par l'utilisateur
-(budget de tokens, debit de chat), pas les garde-fous qui les appliquent — ceux-la
-sont dans guards.py.
+_account_limits and _rate_used live here because the settings page is the
+only place displaying them: they are the caps seen by the user (token
+budget, chat rate), not the guardrails enforcing them — those are in
+guards.py.
 """
 import re
 import sqlite3
@@ -72,11 +72,11 @@ def api_settings():
             'spend': acct.get('spend') or 0,
             'max_budget': acct.get('max_budget'),
             'unlimited': bool(session.get('is_admin')),
-            # `spend` est la consommation de la PÉRIODE d'enveloppe (LiteLLM
-            # remet le compteur à zéro à `budget_reset_at`), pas celle du jour :
-            # l'onglet « Mon compte » l'appelait « Consommé aujourd'hui » et
-            # laissait donc croire à un compteur quotidien. On transmet la date
-            # de remise à zéro et la durée pour que l'interface puisse le dire.
+            # `spend` is the consumption of the envelope PERIOD (LiteLLM resets the
+            # counter at `budget_reset_at`), not of the day: the « Mon compte » tab
+            # called it « Consommé aujourd'hui » and thus suggested a daily counter.
+            # We pass on the reset date and the duration so that the interface can
+            # say so.
             'budget_reset_at': acct.get('budget_reset_at') or None,
             'budget_duration': get_setting('default_key_duration', KEY_DURATION),
             'key_count': db.execute("SELECT COUNT(*) c FROM api_keys WHERE username=?",
@@ -315,24 +315,24 @@ def skills_route():
 
 
 # ── Compte : sessions ouvertes et mot de passe ──────────────────────────────
-# Ajouté le 2026-09-13. Le portail savait révoquer les sessions d'un compte
-# (côté admin) mais l'utilisateur ne pouvait ni les VOIR, ni couper celle d'un
-# appareil perdu ; et un compte local ne pouvait pas changer son mot de passe
-# sans passer par un administrateur — alors que le réflexe, après un doute, est
-# de le changer soi-même tout de suite.
+# Added on 2026-09-13. The portal could revoke an account's sessions (admin
+# side) but the user could neither SEE them, nor cut the one of a lost
+# device; and a local account could not change its password without going
+# through an administrator — while the reflex, after a doubt, is to change
+# it oneself right away.
 
 def _mes_sessions(username):
-    """Sessions actives du compte, la plus récente d'abord.
+    """Account's active sessions, most recent first.
 
-    Le sid complet ne sort JAMAIS : c'est le secret du cookie de session, et
-    le renvoyer au navigateur le remettrait dans une réponse JSON, donc dans
-    les journaux de quiconque écoute. On n'expose que 12 caractères, largement
-    assez pour désigner une session de façon unique.
+    The full sid NEVER leaves: it is the session cookie's secret, and
+    sending it back to the browser would put it in a JSON response, thus in
+    the logs of anyone listening. We only expose 12 characters, largely
+    enough to identify a session uniquely.
     """
     now = time.time()
     sid_courant = session.get('sid')
-    # Une session ouverte avant l'ajout des colonnes n'a ni IP ni user-agent :
-    # on la complète ici, tant que c'est bien la sienne.
+    # A session opened before the columns were added has no IP nor user-agent:
+    # we fill it in here, as long as it is really theirs.
     completer_origine_session()
     out = []
     for r in get_db().execute(
@@ -364,11 +364,11 @@ def api_account_sessions():
 @bp.route('/api/account/sessions/revoke', methods=['POST'])
 @login_required
 def api_account_sessions_revoke():
-    """Révoque une de SES sessions (`id`), ou toutes les autres (`all`).
+    """Revokes one of ITS sessions (`id`), or all the others (`all`).
 
-    Le périmètre est le compte appelant, vérifié en SQL : un identifiant de
-    session appartenant à quelqu'un d'autre ne peut pas être visé, même en le
-    devinant.
+    The scope is the calling account, checked in SQL: a session identifier
+    belonging to someone else cannot be targeted, even by guessing
+    it.
     """
     username = session['username']
     corps = request.get_json(silent=True) or request.form
@@ -391,8 +391,8 @@ def api_account_sessions_revoke():
     if not lignes:
         return jsonify({'ok': False, 'error': "Session introuvable (déjà fermée ?)."}), 404
     if len(lignes) > 1:
-        # 12 caractères de token_urlsafe(32) : une collision ici signifie un
-        # identifiant tronqué, on refuse plutôt que de fermer au hasard.
+        # 12 characters of token_urlsafe(32): a collision here means a truncated
+        # identifier, we refuse rather than close at random.
         return jsonify({'ok': False,
                         'error': "Identifiant de session ambigu, réessaie."}), 409
     cible = lignes[0]['sid']
@@ -407,10 +407,10 @@ def api_account_sessions_revoke():
 @bp.route('/api/account/password', methods=['POST'])
 @login_required
 def api_account_password():
-    """Changement de mot de passe en autonomie (comptes locaux seulement).
+    """Self-service password change (local accounts only).
 
-    Un compte LDAP/SSO n'a pas de mot de passe ici : il vit dans l'annuaire,
-    et le portail ne doit pas laisser croire le contraire.
+    An LDAP/SSO account has no password here: it lives in the directory,
+    and the portal must not suggest otherwise.
     """
     username = session['username']
     corps = request.get_json(silent=True) or request.form
@@ -421,23 +421,23 @@ def api_account_password():
     if row is None:
         return jsonify({'ok': False, 'error': "Compte géré par l'annuaire (LDAP/SSO) : "
                                               "le mot de passe se change là-bas."}), 400
-    # Vérification du mot de passe actuel PAR LE CONTRÔLE PARTAGÉ (audit du
-    # 2026-10-02) : c'était le seul site de vérification de mot de passe du
-    # portail qui n'alimentait pas `login_attempts`. Une session détournée
-    # (cookie + jeton CSRF vivent dans la même session) pouvait donc tester des
-    # mots de passe ici à la vitesse du réseau — sans 429, sans verrou — et un
-    # mot de passe trouvé est RÉUTILISABLE (annuaire partagé) en plus de
-    # permettre d'en fixer un nouveau. `webauthn_routes._verify_password_locked`
-    # applique le verrou du COMPTE, partagé avec /login, dans les deux sens.
-    from webauthn_routes import _verify_password_locked      # import tardif : cycle app <-> webauthn
+    # Verification of the current password BY THE SHARED CONTROL (audit of
+    # 2026-10-02): this was the portal's only password check that did not feed
+    # `login_attempts`. A hijacked session (cookie + CSRF token live in the
+    # same session) could thus test passwords here at network speed — no 429,
+    # no lock — and a found password is REUSABLE (shared directory) on top of
+    # allowing a new one to be set.
+    # `webauthn_routes._verify_password_locked` applies the ACCOUNT lock,
+    # shared with /login, in both directions.
+    from webauthn_routes import _verify_password_locked      # late import: cycle app <-> webauthn
     ok, erreur = _verify_password_locked(username, actuel)
     if not ok:
-        # Journalisé : une rafale de ces échecs sur un compte connecté est le
-        # signe d'une session volée, pas d'une faute de frappe.
+        # Logged: a burst of these failures on a logged-in account is the sign of
+        # a stolen session, not a typo.
         log_audit(username, 'account.password.echec', 'mot de passe actuel incorrect')
         return jsonify(erreur[0]), erreur[1]
-    # `actuel` vient d'être VALIDÉ : comparer les deux chaînes répond à la même
-    # question qu'un second `check_password_hash`, sans repayer un KDF scrypt.
+    # `actuel` has just been VALIDATED: comparing the two strings answers the
+    # same question as a second `check_password_hash`, without paying a KDF again.
     if nouveau == actuel:
         return jsonify({'ok': False,
                         'error': "Le nouveau mot de passe est identique à l'actuel."}), 400
@@ -447,10 +447,10 @@ def api_account_password():
     db.execute("UPDATE local_users SET password_hash=? WHERE username=?",
                (generate_password_hash(nouveau), username))
     db.commit()
-    # Un changement de mot de passe ferme les AUTRES sessions : c'est
-    # précisément ce qu'on attend quand on le change par précaution. La
-    # session courante survit — se faire déconnecter par sa propre action est
-    # le genre de détail qui pousse à ne plus jamais changer de mot de passe.
+    # A password change closes the OTHER sessions: this is exactly what is
+    # expected when changing it as a precaution. The current session survives
+    # — being logged out by one's own action is the kind of detail that pushes
+    # people to never change their password again.
     n = db.execute(
         "UPDATE user_sessions SET revoked=1 WHERE username=? AND sid<>? AND revoked=0",
         (username, session.get('sid'))).rowcount
@@ -463,29 +463,29 @@ def api_account_password():
 @bp.route('/api/account/delete', methods=['POST'])
 @login_required
 def api_account_delete():
-    """Suppression de SON compte, décidée par l'intéressé.
+    """Deleting ONE'S account, decided by the person concerned.
 
-    Deux cas, et les confondre serait le mensonge le plus coûteux de cet écran :
+    Two cases, and confusing them would be this screen's most costly lie:
 
-    - compte LOCAL : le portail détient la ligne `local_users`, il peut donc
-      tout retirer — clés révoquées chez LiteLLM, enveloppe supprimée, sessions
-      coupées, données purgées. On passe par `deprovisionner_compte`, le MÊME
-      chemin que la suppression par un admin : une seconde implémentation
-      finirait par diverger (c'est exactement ce qui avait laissé des clés
-      vivantes après une suppression).
-    - compte d'ANNUAIRE (LDAP/SSO) : le portail ne PEUT PAS supprimer le
-      compte, qui vit dans l'annuaire ou chez le fournisseur d'identité. Il
-      efface ce qu'il détient (données, préférences, clés) et le DIT : l'accès
-      se retire côté annuaire, par un administrateur (blocage).
+    - LOCAL account: the portal holds the `local_users` row, so it can
+      remove everything — keys revoked at LiteLLM, envelope deleted,
+      sessions cut, data purged. We go through `deprovisionner_compte`, the
+      SAME path as deletion by an admin: a second implementation would
+      end up diverging (this is exactly what had left live keys after a
+      deletion).
+    - DIRECTORY account (LDAP/SSO): the portal CANNOT delete the
+      account, which lives in the directory or at the identity provider.
+      It erases what it holds (data, preferences, keys) and SAYS so: the
+      access is removed on the directory side by an administrator (blocking).
 
-    Preuves exigées : `confirm=DELETE` (irréversible) et, pour un compte local,
-    le mot de passe — vérifié par `_verify_password_locked`, donc soumis au même
-    verrou 6 essais / 15 min que la page de connexion, sans quoi une session
-    détournée pourrait tester des mots de passe à la vitesse du réseau. Un
-    compte d'annuaire n'a aucun mot de passe que le portail puisse vérifier : la
-    session en cours est la seule preuve disponible, et l'interface le dit.
+    Required proof: `confirm=DELETE` (irreversible) and, for a local
+    account, the password — checked by `_verify_password_locked`, thus
+    subject to the same 6 tries / 15 min lock as the login page, without
+    which a hijacked session could test passwords at network speed. A
+    directory account has no password the portal can check: the current
+    session is the only proof available, and the UI says so.
     """
-    from webauthn_routes import _verify_password_locked   # import tardif : évite un cycle
+    from webauthn_routes import _verify_password_locked   # late import: avoids a cycle
     username = session['username']
     corps = request.get_json(silent=True) or request.form
     if (corps.get('confirm') or '').strip().upper() != 'DELETE':
@@ -497,25 +497,25 @@ def api_account_delete():
     gestion = gestion_mot_de_passe(username)
     local = gestion['local']
     if local:
-        # Même garde que côté admin, mais ici l'auto-suppression est le but :
-        # elle n'est refusée que si elle emporterait le DERNIER admin local.
+        # Same guard as on the admin side, but here self-deletion is the goal: it
+        # is refused only if it would take away the LAST local admin.
         from admin_routes import _dernier_admin_local
         if session.get('is_admin') and _dernier_admin_local(username):
             return jsonify({'ok': False,
                             'error': "Tu es le dernier administrateur local : nomme un "
                                      "autre administrateur avant de supprimer ton compte."}), 409
 
-    # Vérification du mot de passe : on l'exige dès que le portail SAIT le
-    # vérifier, c'est-à-dire pour un compte du portail ET pour un compte LDAP —
-    # `_verify_password_locked` interroge l'annuaire. L'ancien test (`if local:`)
-    # ne couvrait que les comptes locaux : pour un compte d'annuaire, la seule
-    # preuve demandée était le cookie, alors que la suppression emporte les clés
-    # API et l'enveloppe LiteLLM. Le commentaire qui justifiait ce trou
-    # (« un compte d'annuaire n'a aucun mot de passe que le portail puisse
-    # vérifier ») n'était vrai que pour le SSO, où `_verify_password_locked`
-    # répond de lui-même 400. Un compte d'origine inconnue (`inconnu`) garde le
-    # comportement d'avant : exiger un mot de passe que personne ne peut vérifier
-    # rendrait la sortie impossible.
+    # Password check: we require it as soon as the portal KNOWS how to check
+    # it, i.e. for a portal account AND for an LDAP account —
+    # `_verify_password_locked` queries the directory. The old test (`if
+    # local:`) only covered local accounts: for a directory account, the only
+    # proof asked was the cookie, while deletion takes away the API keys and
+    # the LiteLLM envelope. The comment that justified this hole (« un compte
+    # d'annuaire n'a aucun mot de passe que le portail puisse vérifier ») was
+    # only true for SSO, where `_verify_password_locked` answers 400 by
+    # itself. An account of unknown origin (`inconnu`) keeps the previous
+    # behaviour: requiring a password nobody can verify would make leaving
+    # impossible.
     if gestion['gestion'] in (GESTION_PORTAIL, GESTION_LDAP):
         motdepasse = corps.get('password') or ''
         if not motdepasse:
@@ -526,8 +526,8 @@ def api_account_delete():
             return jsonify(err[0]), err[1]
 
     if local:
-        # La ligne locale d'abord : elle porte l'accès, le reste (clés,
-        # enveloppe, données) s'en passe.
+        # The local row first: it carries the access, the rest (keys, envelope,
+        # data) goes without it.
         db.execute("DELETE FROM local_users WHERE username=?", (username,))
         db.commit()
         rapport = deprovisionner_compte(username, username, action='account.self_delete')

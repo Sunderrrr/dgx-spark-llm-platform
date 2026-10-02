@@ -1,16 +1,16 @@
-"""Liaison d'un compte Discord (OAuth2 « identify »).
+"""Discord account linking (OAuth2 « identify »).
 
-Extrait de app.py le 28/08. La banniere « Discord account linking » couvrait en
-realite la page d'accueil, la gestion des cles et la deconnexion en plus de la
-liaison — encore une frontiere mal placee. Seules les quatre routes Discord
-sont ici ; index, logout, api_home et keys restent dans app.py, les deux
-premieres parce qu'elles sont visees par url_for et doivent garder leur nom
-d'endpoint.
+Extracted from app.py on 28/08. The « Discord account linking » banner
+really covered the home page, key management and logout on top of the
+linking — yet another misplaced boundary. Only the four Discord routes
+live here; index, logout, api_home and keys stay in app.py. The first two
+stay because url_for targets them and they must keep their exact endpoint
+name.
 
-Les deux url_for('discord_callback') deviennent url_for('discord.discord_callback') :
-un blueprint prefixe ses endpoints de son nom. Les CHEMINS, eux, ne changent
-pas — pas d'url_prefix — donc l'URL de rappel enregistree chez Discord reste
-valable.
+The two url_for('discord_callback') calls become
+url_for('discord.discord_callback'): a blueprint prefixes its endpoints with
+its name. The PATHS themselves do not change — no url_prefix — so the
+callback URL registered with Discord stays valid.
 """
 import secrets
 from datetime import datetime

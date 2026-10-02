@@ -1,28 +1,28 @@
-"""Actions d'admin : ce que l'interface affirme doit être vrai.
+"""Admin actions: what the UI asserts must be true.
 
-Écrit le 2026-09-13, après un audit de la partie Admin. Trois classes de défauts
-y sont verrouillées, toutes vérifiées en lecture du code avant correction :
+Written on 2026-09-13, after an audit of the Admin part. Three classes of
+defects are locked in there, all verified by reading the code before the fix:
 
-1. **Le mensonge par redirection.** Une vingtaine de routes répondaient
-   `flash(...)` + `redirect(...)`. Le flash n'est rendu par AUCUN template (l'UI
-   est Next.js, `get_flashed_messages` n'existe nulle part dans le dépôt) et le
-   corps HTML de la redirection faisait échouer `res.json()` côté client, dont le
-   `catch` concluait « action effectuée ». Un arrêt du modèle refusé, un budget
-   non appliqué sur LiteLLM ou un échec d'enregistrement de modèle s'affichaient
-   donc comme des succès. Le contrat unique est `{ok, error}` + statut honnête,
-   et le doute (`incertain`) est distingué du refus.
+1. **Lying by redirect.** About twenty routes answered
+   `flash(...)` + `redirect(...)`. The flash is rendered by NO template (the
+   UI is Next.js, `get_flashed_messages` exists nowhere in the repo) and the
+   HTML body of the redirect made `res.json()` fail on the client, whose
+   `catch` concluded « action effectuée ». A refused model stop, a budget
+   not applied on LiteLLM or a model registration failure thus displayed as
+   successes. The single contract is `{ok, error}` + honest status, and the
+   doubt (`incertain`) is distinguished from the refusal.
 
-2. **Les garde-fous manquants.** La modification d'un compte n'avait ni la garde
-   « dernier admin » ni l'auto-protection que la suppression et le blocage
-   possèdent : un POST suffisait à se couper la main, et la revalidation de
-   l'état du compte à chaque requête rend la perte d'accès immédiate. Le cas
-   tordu — un groupe dont DEUX membres tiennent leurs droits d'admin — est
-   couvert explicitement, parce que `_dernier_admin_local` ne peut pas le voir.
+2. **Missing guardrails.** Editing an account had neither the « dernier
+   admin » guard nor the self-protection that deletion and blocking have:
+   one POST was enough to cut one's own hand, and the account-state
+   revalidation at every request makes the access loss immediate. The
+   twisted case — a group whose TWO members hold their admin rights from it
+   — is covered explicitly, because `_dernier_admin_local` cannot see it.
 
-3. **Les fuites de quota.** Une subvention expirée était supprimée même quand le
-   retour au plafond de base avait échoué (hausse temporaire devenue permanente,
-   en silence), et la resynchronisation du quota était inconditionnelle — donc
-   un simple changement de nom effaçait une subvention en cours.
+3. **Quota leaks.** An expired grant was deleted even when the fallback to
+   the base cap had failed (a temporary raise silently became permanent),
+   and the quota resynchronization was unconditional — so a simple rename
+   erased an ongoing grant.
 """
 import time
 import unittest
@@ -39,7 +39,7 @@ import sidecars
 ADMIN1 = 'ztest-adm1'
 ADMIN2 = 'ztest-adm2'
 SIMPLE = 'ztest-simple'
-ANNUAIRE = 'ztest-annuaire'      # admin SANS ligne locale (cas LDAP/SSO)
+ANNUAIRE = 'ztest-annuaire'      # admin WITHOUT local row (LDAP/SSO case)
 MDP = 'MotDePasse123'
 
 
@@ -85,9 +85,9 @@ class BaseAdmin(unittest.TestCase):
                 "SELECT id FROM local_users WHERE username=?", (username,)).fetchone()['id']
 
     def _client(self, username, is_admin=True):
-        """Session d'admin. Pas de `sid` : un identifiant sans ligne dans
-        `user_sessions` est refusé par la garde (c'est ce qui rend une session
-        révocable), et ces tests-ci ne portent pas sur la révocation."""
+        """Admin session. No `sid`: an identifier with no row in `user_sessions` is
+        refused by the guard (this is what makes a session revocable), and
+        these tests are not about revocation."""
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s['csrf'] = 'tok'
@@ -106,7 +106,7 @@ class BaseAdmin(unittest.TestCase):
 
 
 class ContratJsonTest(BaseAdmin):
-    """Un refus doit être rapporté comme un refus, jamais comme un succès."""
+    """A refusal must be reported as a refusal, never as a success."""
 
     def test_arret_refuse_est_rapporte_comme_un_echec(self):
         c = self._client(ADMIN1)
@@ -120,7 +120,7 @@ class ContratJsonTest(BaseAdmin):
         self.assertIn('injoignable', corps['error'])
 
     def test_arret_incertain_est_signale_comme_doute(self):
-        """Le runner n'a pas répondu : on ne prétend pas que l'arrêt a échoué."""
+        """The runner did not answer: we do not claim the stop failed."""
         c = self._client(ADMIN1)
         motif = "Le runner n'a pas répondu dans le délai imparti (45 s) : l'arrêt est peut-être en cours."
         with patch.object(admin_routes, 'runner_stop', return_value=(False, motif, True)):
@@ -148,8 +148,8 @@ class ContratJsonTest(BaseAdmin):
         alerte.assert_called_once()
 
     def test_lancement_incertain_n_alerte_pas(self):
-        """Un DOUTE ne doit pas déclencher d'alerte : elle inviterait à recliquer,
-        donc à tuer un modèle en cours de chargement."""
+        """A DOUBT must not trigger an alert: it would invite clicking again,
+        thus killing a model being loaded."""
         c = self._client(ADMIN1)
         with portal.app.app_context():
             db = portal.get_db()
@@ -166,8 +166,8 @@ class ContratJsonTest(BaseAdmin):
         alerte.assert_not_called()
 
     def test_lancement_reussi_n_annonce_pas_le_modele_au_spawn(self):
-        """Accepter n'est pas servir : l'annonce part quand le modèle répond,
-        c'est-à-dire depuis _suivre_lancement, pas depuis la route."""
+        """Accepting is not serving: the announcement goes out when the model
+        answers, i.e. from _suivre_lancement, not from the route."""
         c = self._client(ADMIN1)
         with portal.app.app_context():
             db = portal.get_db()
@@ -183,8 +183,8 @@ class ContratJsonTest(BaseAdmin):
         annonce.assert_not_called()
 
     def test_arret_sidecar_rapporte_le_motif_du_runner(self):
-        """« Échec du démarrage ocr. » ne disait pas POURQUOI : runner
-        injoignable, conteneur absent et erreur transitoire étaient identiques."""
+        """« Échec du démarrage ocr. » did not say WHY: unreachable runner,
+        missing container and transient error were identical."""
         class Reponse:
             ok = False
             status_code = 500
@@ -222,13 +222,13 @@ class ContratJsonTest(BaseAdmin):
         corps = r.get_json()
         self.assertTrue(corps['ok'])
         self.assertIn('warning', corps)
-        # On remet l'état d'origine : la maintenance est globale.
+        # We restore the original state: maintenance is global.
         self._post(c, '/admin/maintenance/toggle')
         self.assertTrue(self._audit('maintenance'))
 
 
 class GardeDernierAdminTest(BaseAdmin):
-    """Le portail ne doit pas pouvoir se retrouver sans administrateur local."""
+    """The portal must not be left without a local administrator."""
 
     def test_auto_retrogradation_refusee(self):
         c = self._client(ADMIN1)
@@ -246,8 +246,8 @@ class GardeDernierAdminTest(BaseAdmin):
         self.assertEqual(r.status_code, 409)
 
     def test_dernier_admin_local_protege(self):
-        """Vu par un admin d'ANNUAIRE (sans ligne locale), désactiver le dernier
-        admin local laisserait le portail sans administration locale."""
+        """Seen by a DIRECTORY admin (no local row), disabling the last local
+        admin would leave the portal without local administration."""
         c = self._client(ANNUAIRE)
         r = self._post(c, f'/admin/users/update/{self._uid(ADMIN2)}', {'enabled': '0'})
         self.assertEqual(r.status_code, 200)          # ADMIN1 reste admin local
@@ -256,20 +256,20 @@ class GardeDernierAdminTest(BaseAdmin):
         self.assertIn('dernier administrateur local', r.get_json()['error'])
 
     def test_compte_simple_retrogradable_sans_garde(self):
-        """La garde ne doit pas gêner le cas normal."""
+        """The guard must not get in the way of the normal case."""
         c = self._client(ADMIN1)
         r = self._post(c, f'/admin/users/update/{self._uid(SIMPLE)}', {'enabled': '0'})
         self.assertEqual(r.status_code, 200)
 
     def test_groupe_admin_a_deux_membres_ne_peut_pas_disparaitre(self):
-        """Le cas que `_dernier_admin_local` ne voit pas : chacun des deux membres
-        voit l'autre comme admin, alors que les retirer tous les deux n'en laisse
-        aucun."""
+        """The case `_dernier_admin_local` cannot see: each of the two members
+        sees the other as admin, while removing both leaves
+        none."""
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT INTO user_groups (name, max_budget, is_admin, created_at) "
                        "VALUES ('ztest-groupe', NULL, 1, ?)", (time.time(),))
-            # Les DEUX admins locaux tiennent leurs droits du groupe.
+            # BOTH local admins hold their rights from the group.
             db.execute("UPDATE local_users SET is_admin=0, group_name='ztest-groupe' "
                        "WHERE username IN (?,?)", (ADMIN1, ADMIN2))
             db.commit()
@@ -297,11 +297,11 @@ class GardeDernierAdminTest(BaseAdmin):
 
 
 class QuotasTest(BaseAdmin):
-    """Un quota ne doit ni se perdre, ni devenir permanent par accident."""
+    """A quota must neither be lost, nor become permanent by accident."""
 
     def test_budget_zero_refuse(self):
-        """Mesuré : LiteLLM conserve max_budget=0, donc le compte est réellement
-        plafonné à zéro — « 0 pour lever la limite » coupe l'accès."""
+        """Measured: LiteLLM keeps max_budget=0, so the account is really capped
+        at zero — « 0 pour lever la limite » cuts access."""
         c = self._client(ADMIN1)
         r = self._post(c, f'/admin/users/{SIMPLE}/budget/set', {'budget': '0'})
         self.assertEqual(r.status_code, 400)
@@ -341,7 +341,7 @@ class QuotasTest(BaseAdmin):
 
 
 class CycleDeVieModeleTest(BaseAdmin):
-    """Retirer un modèle ne doit pas détruire de quoi le relancer."""
+    """Removing a model must not destroy the means to relaunch it."""
 
     def _modele(self, name='ztest-modele'):
         with portal.app.app_context():
@@ -353,8 +353,8 @@ class CycleDeVieModeleTest(BaseAdmin):
             return db.execute("SELECT id FROM model_configs WHERE name=?", (name,)).fetchone()['id']
 
     def test_suppression_modele_servi_refusee(self):
-        """Ses poids sont lus par le moteur : on demande de l'arrêter d'abord,
-        et rien n'est touché — ni le catalogue, ni les fichiers."""
+        """Its weights are read by the engine: we ask to stop it first, and
+        nothing is touched — neither the catalog, nor the files."""
         mid = self._modele()
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'get_running_models', return_value=['ztest-modele']), \
@@ -380,7 +380,7 @@ class CycleDeVieModeleTest(BaseAdmin):
         self.assertNotIn('warning', r.get_json())
 
     def test_fichiers_partages_conserves(self):
-        """Une autre entrée pointe sur les mêmes poids : on ne les efface pas."""
+        """Another entry points to the same weights: we do not erase them."""
         mid = self._modele('ztest-modele4')
         self._modele('ztest-modele5')
         c = self._client(ADMIN1)
@@ -414,8 +414,8 @@ class CycleDeVieModeleTest(BaseAdmin):
         self.assertIn('warning', r.get_json())
 
     def test_relance_voix_soumise_a_la_garde_memoire(self):
-        """Seule des quatre relances média à ne pas l'avoir : un OOM y tue le
-        modèle de chat servi (le plus gros RSS sur mémoire unifiée)."""
+        """The only one of the four media relaunches without it: an OOM there
+        kills the served chat model (the biggest RSS on unified memory)."""
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT INTO voice_configs (name, repo_id, added_at) VALUES "
@@ -429,8 +429,8 @@ class CycleDeVieModeleTest(BaseAdmin):
         lance.assert_not_called()
 
     def test_demande_non_validee_si_le_routage_echoue(self):
-        """Le demandeur recevait « ton modèle est disponible » avant même de
-        savoir si l'enregistrement LiteLLM avait abouti."""
+        """The requester received « ton modèle est disponible » before even
+        knowing whether the LiteLLM registration succeeded."""
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT INTO model_requests (username, fullname, model_id, status, created_at) "
@@ -453,8 +453,8 @@ class CycleDeVieModeleTest(BaseAdmin):
         self.assertEqual(statut, 'pending', "la demande ne doit pas être marquée traitée")
 
     def test_restauration_litellm_apres_echec_de_creation(self):
-        """`_litellm_upsert` supprime l'entrée avant de la recréer : si la
-        création échoue, un modèle qui répondait doit être remis en place."""
+        """`_litellm_upsert` deletes the entry before recreating it: if the
+        creation fails, a model that was answering must be put back in place."""
         entree = {'model_name': 'ztest-modele', 'litellm_params': {'model': 'openai/ztest-modele'},
                   'model_info': {'id': 'abc', 'db_model': True, 'max_input_tokens': 4096}}
         appels = []
@@ -469,8 +469,8 @@ class CycleDeVieModeleTest(BaseAdmin):
             if url.endswith('/model/delete'):
                 return Reponse(200)
             if len([u for u in appels if u.endswith('/model/new')]) == 1:
-                return Reponse(500)                  # la création échoue
-            return Reponse(200)                      # la restauration réussit
+                return Reponse(500)                  # the creation fails
+            return Reponse(200)                      # the restoration succeeds
 
         with patch.object(litellm_client, 'LITELLM_KEY', 'clef'), \
              patch.object(litellm_client, '_litellm_model_entry', return_value=('abc', entree)), \
@@ -482,7 +482,7 @@ class CycleDeVieModeleTest(BaseAdmin):
 
 
 class EtatPlateformeTest(BaseAdmin):
-    """Le diagnostic ne doit plus exiger un shell sur l'hôte."""
+    """The diagnosis must no longer require a shell on the host."""
 
     def test_etat_plateforme_expose_les_cles_attendues(self):
         c = self._client(ADMIN1)
@@ -492,22 +492,22 @@ class EtatPlateformeTest(BaseAdmin):
         for cle in ('disk', 'backup', 'monitor', 'model', 'portal', 'maintenance', 'checked_at'):
             self.assertIn(cle, d)
         self.assertIsInstance(d['disk']['free_gb'], float)
-        # Les chemins montés n'existent pas dans le conteneur de test : l'état doit
-        # dire « non lisible », jamais prétendre que tout va bien.
+        # The mounted paths do not exist in the test container: the state must
+        # say « non lisible », never pretend all is well.
         self.assertFalse(d['backup']['readable'])
         self.assertFalse(d['monitor']['readable'])
 
     def test_etat_plateforme_refuse_un_non_admin(self):
         c = self._client(SIMPLE, is_admin=False)
-        # 302 vers /login pour une requête de navigateur, 403 pour un appel d'API :
-        # dans les deux cas l'état de la plateforme n'est pas servi.
+        # 302 to /login for a browser request, 403 for an API call: in both
+        # cases the platform state is not served.
         self.assertIn(c.get('/admin/platform').status_code, (302, 403))
 
     def test_contrat_json_sur_une_route_convertie(self):
-        """Plus aucune action d'admin ne répond par une redirection."""
+        """No admin action answers by redirect anymore."""
         c = self._client(ADMIN1)
-        # On vise `sidecars._sidecar_action` : c'est LUI que _sidecar_stop_json
-        # appelle (patcher le nom réexporté par admin_routes n'intercepterait rien).
+        # We target `sidecars._sidecar_action`: it is the one _sidecar_stop_json
+        # calls (patching the name re-exported by admin_routes would intercept nothing).
         with patch.object(sidecars, '_sidecar_action', return_value=(True, '')):
             r = self._post(c, '/admin/image/stop')
         self.assertEqual(r.status_code, 200)

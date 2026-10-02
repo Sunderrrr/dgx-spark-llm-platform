@@ -1,8 +1,8 @@
-"""Recherche web : la barrière anti-SSRF et le bornage de ce qui part au modèle.
+"""Web search: the anti-SSRF barrier and the bounding of what goes to the model.
 
-Le réseau interdit déjà au crawler d'atteindre l'hôte ; ces tests couvrent la
-dernière barrière, celle que le réseau ne pose pas : aucune URL privée ne doit
-être transmise au crawler, quelle que soit la façon dont elle est écrite.
+The network already forbids the crawler from reaching the host; these
+tests cover the last barrier, the one the network does not set up: no
+private URL must be sent to the crawler, however it is written.
 """
 import socket
 import unittest
@@ -13,7 +13,7 @@ import websearch_tools
 
 
 def _lire_avec(texte):
-    """Fait passer `texte` pour le markdown rendu par le crawler."""
+    """Passes `texte` off as the markdown rendered by the crawler."""
     def faux_post(url, **kw):
         r = mock.Mock(); r.raise_for_status = lambda: None
         r.json = lambda: {'results': [{'url': u, 'success': True,
@@ -29,11 +29,11 @@ def _lire_avec(texte):
 
 
 class DeclenchementTest(unittest.TestCase):
-    """La recherche ne part que sur une directive explicite de l'utilisateur.
+    """Search only goes out on an explicit directive from the user.
 
-    Cinq versions « intelligentes » de ce seuil ont échoué en prod (recherches
-    subies) : ce test fige la règle stricte — le mot WEB/INTERNET/GOOGLE doit
-    être présent dans la demande, sinon on ne cherche pas.
+    Five « clever » versions of this threshold failed in prod (suffered
+    searches): this test freezes the strict rule — the word
+    WEB/INTERNET/GOOGLE must be present in the request, else we do not search.
     """
 
     def _pertinent(self, texte):
@@ -55,20 +55,20 @@ class DeclenchementTest(unittest.TestCase):
 
     def test_faux_positifs_jamais(self):
         for texte in (
-            # « en ligne » décrit un état, pas une demande de chercher sur le web.
+            # « en ligne » describes a state, not a request to search the web.
             "je cherche à mettre mon site en ligne",
             "regarde pourquoi mon serveur n'est plus en ligne",
             "mon pod est en ligne mais la réponse est vide",
             "il faut chercher la fuite en ligne 42 du fichier",
-            # « je cherche » décrit le but de l'utilisateur, pas un ordre à l'outil.
+            # « je cherche » describes the user's goal, not an order to the tool.
             "je cherche pourquoi mon conteneur plante au démarrage",
             "cherche dans le code la fonction qui nettoie ça",
         ):
             self.assertFalse(self._pertinent(texte), texte)
 
     def test_le_code_colle_ne_declenche_rien(self):
-        # Un lien Google dans du code collé ne doit pas compter comme une
-        # directive (constaté : trois recherches vides sur « index (2).html »).
+        # A Google link in pasted code must not count as a directive (observed:
+        # three empty searches on « index (2).html »).
         colle = "```html\n<link href=\"https://fonts.googleapis.com/css2?family=Inter\">\n```"
         self.assertFalse(self._pertinent(colle + " corrige ce lien de police"))
 
@@ -95,7 +95,7 @@ class UrlPubliqueTest(unittest.TestCase):
             self.assertFalse(ok)
 
     def test_une_seule_ip_privee_suffit_a_refuser(self):
-        # Un hôte peut annoncer plusieurs adresses : une seule privée doit suffire.
+        # A host can announce several addresses: a single private one must suffice.
         with mock.patch('websearch.socket.getaddrinfo',
                         return_value=[(2, 1, 6, '', ('93.184.216.34', 0)),
                                       (2, 1, 6, '', ('10.1.2.3', 0))]):
@@ -201,12 +201,12 @@ class LectureTest(unittest.TestCase):
 
 
 class NettoyageTest(unittest.TestCase):
-    """Le bandeau se retire ligne à ligne — on ne jette PAS la page.
+    """The banner is removed line by line — we do NOT discard the page.
 
-    Mesuré en vrai : sur letelegramme.fr le premier vrai titre n'arrive qu'à la
-    4ᵉ ligne, et sur tf1info.fr chaque titre est préfixé de « Nouvelle
-    notification » — y compris celui qu'on cherchait. Juger la page sur son début
-    revenait à jeter des pages qui contenaient la réponse.
+    Measured for real: on letelegramme.fr the first real headline only comes
+    at the 4th line, and on tf1info.fr every headline is prefixed with
+    « Nouvelle notification » — including the one we were looking for.
+    Judging the page by its start amounted to discarding pages that held the answer.
     """
 
     def test_bandeau_retire_mais_article_conserve(self):
@@ -227,8 +227,8 @@ class NettoyageTest(unittest.TestCase):
         self.assertIn('Guerre en Ukraine', net)
 
     def test_les_lignes_courtes_de_code_ne_sont_jamais_retirees(self):
-        # Une doc technique est pleine de lignes courtes : filtrer par longueur
-        # détruirait le code. On ne filtre que sur des motifs de bandeau.
+        # A technical doc is full of short lines: filtering by length would
+        # destroy the code. We filter only on banner patterns.
         brut = "async def main():\n    await asyncio.gather(a(), b())\n}\n)\nreturn x"
         net = websearch.nettoyer(brut)
         for l in ('async def main():', 'asyncio.gather', 'return x', '}'):
@@ -274,20 +274,20 @@ class ReglagesExtractionTest(unittest.TestCase):
         self.assertTrue(vus['markdown_generator']['params']['options']['ignore_links'])
         self.assertIn('nav', vus['excluded_tags'])
         self.assertIn('footer', vus['excluded_tags'])
-        # L'élagage par pertinence est volontairement ABSENT : il supprimait les
-        # blocs de code des pages de documentation.
+        # Relevance pruning is deliberately ABSENT: it removed the code blocks
+        # of documentation pages.
         self.assertNotIn('content_filter', vus['markdown_generator']['params'])
 
 class RedirectionInterneTest(unittest.TestCase):
-    """Une graine publique peut rediriger vers l'intérieur : on refuse la PAGE.
+    """A public seed can redirect inwards: we refuse the PAGE.
 
-    Pourquoi ce test existe : crawl4ai ne valide que les URLs de DÉPART
-    (`_normalize_and_validate_seeds` → `validate_url_destination`, commenté
-    « before fetching » dans son `api.py`). Son navigateur suit donc une
-    redirection sans que personne ne revérifie la destination, et le contenu
-    d'un service interne reviendrait dans le contexte du modèle. On contrôle
-    l'URL FINALE (`redirected_url`), que son `handle_crawl_request` sérialise
-    bien puisqu'il renvoie `result.model_dump()`.
+    Why this test exists: crawl4ai only validates the START URLs
+    (`_normalize_and_validate_seeds` → `validate_url_destination`, commented
+    « before fetching » in its `api.py`). Its browser thus follows a redirect
+    without anyone re-checking the destination, and an internal service's
+    content would come back into the model's context. We check the FINAL URL
+    (`redirected_url`), which its `handle_crawl_request` does serialize
+    since it returns `result.model_dump()`.
     """
 
     def _pages(self, resultats):
@@ -331,14 +331,14 @@ class RedirectionInterneTest(unittest.TestCase):
         self.assertIn('contenu', page)
 
     def test_absence_de_redirected_url_change_rien(self):
-        """Comportement précédent : un crawler qui ne dit rien n'est pas suspect."""
+        """Previous behaviour: a crawler that says nothing is not suspicious."""
         page = self._pages([{'url': 'https://exemple.fr/a', 'success': True,
                              'markdown': {'raw_markdown': 'article normal ' * 30},
                              'metadata': {'title': 't'}}])
         self.assertIn('contenu', page)
 
     def test_ignorance_ne_vaut_pas_refus(self):
-        """Nom qui ne résout pas chez nous : on ne jette PAS la page."""
+        """Name that does not resolve on our side: we do NOT discard the page."""
         self.assertFalse(websearch.cible_interne('https://nom-inconnu-zz.test/x'))
         self.assertFalse(websearch.cible_interne('pas une url'))
         self.assertFalse(websearch.cible_interne(''))

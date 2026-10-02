@@ -1,25 +1,25 @@
-"""Cycle de vie d'un compte : tout ce qu'il faut défaire quand il s'en va.
+"""Account lifecycle: everything to undo when someone leaves.
 
-Trois choses se jouent ici, et AUCUNE n'était faite avant le 2026-09-13 :
+Three things happen here, and NONE was done before 2026-09-13:
 
-1. L'ACCÈS. Supprimer un compte local ne faisait qu'un `DELETE` dans
-   `local_users`. Ses clés API restaient valides — LiteLLM les valide
-   lui-même, le portail n'est pas dans le chemin de l'API — et sa session
-   navigateur survivait jusqu'à 12 h. Un partant gardait donc l'accès à
-   l'API *et* au portail.
-2. L'ENVELOPPE. L'objet utilisateur LiteLLM (plafond + dépense cumulée)
-   survivait : un compte recréé sous le même nom héritait de la dépense du
-   précédent, et pouvait donc démarrer au-dessus de son quota.
-3. LES DONNÉES. Mémoire, conversations, partages, préférences, passkeys et
-   jobs média restaient en base, rattachés à un nom qu'un collègue pouvait
-   reprendre — la mémoire étant indexée par nom de compte, le nouveau venu
-   héritait littéralement des souvenirs de l'ancien.
+1. ACCESS. Deleting a local account only did a `DELETE` in
+   `local_users`. Its API keys stayed valid — LiteLLM validates them
+   itself, the portal is not in the API path — and its browser session
+   survived up to 12 h. A leaver thus kept access to the API *and* to
+   the portal.
+2. THE ENVELOPE. The LiteLLM user object (cap + cumulative spend)
+   survived: an account recreated under the same name inherited the
+   previous one's spend, and could thus start above its quota.
+3. THE DATA. Memory, conversations, shares, preferences, passkeys and
+   media jobs stayed in database, attached to a name a colleague could
+   take over — memory being indexed by account name, the newcomer
+   literally inherited the old one's memories.
 
-Le journal d'audit (`audit_log`) n'est PAS purgé : c'est la trace des actions
-d'administration, et elle doit survivre au compte qu'elle concerne. Les
-fichiers média générés (image/musique/voix) ne sont pas supprimés ici non
-plus : la purge des orphelins du script de sauvegarde s'en charge, avec sa
-grâce de 7 jours — supprimer les jobs suffit à les rendre orphelins.
+The audit log (`audit_log`) is NOT purged: it is the trace of admin
+actions, and it must outlive the account it concerns. The generated media
+files (image/music/voice) are not deleted here either: the backup
+script's orphan purge handles them, with its 7-day grace — deleting the
+jobs is enough to orphan them.
 """
 import sqlite3
 import threading
@@ -27,16 +27,16 @@ import threading
 from config import SMTP_HOST
 from db import get_db, log_audit
 
-# Tables rattachées à un compte, purgées à sa suppression. `local_users` n'y
-# est pas : la route de suppression l'efface explicitement, par identifiant,
-# ce qui est la seule façon sûre de viser la bonne ligne.
+# Tables attached to an account, purged at its deletion. `local_users` is
+# not among them: the delete route erases it explicitly, by identifier,
+# which is the only safe way to target the right row.
 #
-# `blocked_users` n'y est pas non plus, et c'est un CHOIX : purger efface des
-# DONNÉES, bloquer décide d'un ACCÈS. Les confondre faisait qu'une purge —
-# le geste normal au départ d'un salarié d'annuaire, qui n'a pas de ligne
-# locale — DÉBLOQUAIT le compte en silence : il redevenait connectable, avec
-# accès plateforme et GPU. La route promet pourtant d'effacer « sans toucher à
-# son accès », et la doc dit que l'offboarding reste le blocage.
+# `blocked_users` is not either, and it is a CHOICE: purging erases DATA,
+# blocking decides an ACCESS. Confusing them made a purge — the normal
+# gesture when a directory employee leaves, who has no local row — UNBLOCK
+# the account silently: it became loggable again, with platform and GPU
+# access. The route promises though to erase « sans toucher à son accès »,
+# and the docs say offboarding remains blocking.
 TABLES_PURGEES = (
     'announcement_state',
     'api_keys',
@@ -79,12 +79,12 @@ def _compte(table, username, colonne='username'):
         return get_db().execute(
             f"SELECT COUNT(*) FROM {table} WHERE {colonne}=?", (username,)).fetchone()[0]
     except sqlite3.Error:
-        # Table absente d'une base antérieure : rien à compter, rien à purger.
+        # Table absent from an older database: nothing to count, nothing to purge.
         return 0
 
 
 def compter_donnees(username):
-    """Résumé de ce qui sera perdu — affiché à l'admin avant qu'il confirme."""
+    """Summary of what will be lost — shown to the admin before they confirm."""
     cles = _compte('api_keys', username)
     return {
         'sessions': _compte('user_sessions', username),
@@ -100,13 +100,13 @@ def compter_donnees(username):
 
 
 def _revoquer_cles(username, revoke_litellm_key, log):
-    """Révoque les clés API du compte côté LiteLLM, puis oublie leurs lignes.
+    """Revokes the account's API keys on the LiteLLM side, then forgets their rows.
 
-    La valeur en clair vient de `api_keys` (le portail la stocke pour pouvoir
-    la révoquer : c'est le seul endroit d'où on peut la retrouver). Une clé
-    que LiteLLM refuse de supprimer est signalée mais n'interrompt pas le
-    reste : mieux vaut un compte sans portail qu'un compte avec une clé
-    vivante, et le rapport le dit.
+    The clear value comes from `api_keys` (the portal stores it to be able
+    to revoke it: the only place it can be found back). A key that LiteLLM
+    refuses to delete is reported but does not interrupt the rest: better
+    an account without portal than an account with a live key, and the
+    report says so.
     """
     db = get_db()
     valeurs = [r['key_value'] for r in db.execute(
@@ -121,27 +121,27 @@ def _revoquer_cles(username, revoke_litellm_key, log):
         except Exception as exc:                                 # noqa: BLE001
             log(f'[user_lifecycle] révocation de clé impossible : {exc}')
             echouees += 1
-    # Les lignes locales disparaissent dans tous les cas : une clé qu'on n'a
-    # pas pu révoquer resterait de toute façon invisible et ingérable ensuite.
+    # The local rows disappear in every case: a key we could not revoke would
+    # stay invisible and unmanageable afterwards anyway.
     db.execute("DELETE FROM api_keys WHERE username=?", (username,))
     db.commit()
     return reussies, echouees, len(valeurs)
 
 
 def revoquer_cles_compte(username, par=None, motif=''):
-    """Révoque les clés API d'un compte et le CONSIGNE. Renvoie (ok, ko, total).
+    """Revokes an account's API keys and RECORDS it. Returns (ok, ko, total).
 
-    Pourquoi ce chemin séparé du déprovisionnement : bloquer un compte (ou le
-    désactiver) coupe l'accès au PORTAIL, pas celui à l'API. LiteLLM valide les
-    clés lui-même et le portail n'est pas dans le chemin de la requête, donc un
-    compte bloqué gardait une clé `Bearer` pleinement fonctionnelle — l'audit du
-    2026-10-02 l'a établi, et le geste que SECURITY.md §2.4 désigne comme
-    l'offboarding des comptes d'annuaire était donc incomplet.
+    Why this path separate from deprovisioning: blocking an account (or
+    disabling it) cuts access to the PORTAL, not to the API. LiteLLM
+    validates the keys itself and the portal is not in the request path, so
+    a blocked account kept a fully functional `Bearer` key — the
+    2026-10-02 audit established it, and the gesture SECURITY.md §2.4 names
+    as the offboarding of directory accounts was thus incomplete.
 
-    On réutilise le chemin UNIQUE de révocation (`_revoquer_cles`, le même que
-    `deprovisionner_compte`) pour qu'il n'existe pas deux façons de révoquer.
-    Contrepartie assumée : « débloquer » ne restaure PAS les clés — le compte
-    retrouve son accès portail, l'utilisateur recrée une clé s'il en veut une.
+    We reuse the SINGLE revocation path (`_revoquer_cles`, the same as
+    `deprovisionner_compte`) so there are not two ways to revoke.
+    Deliberate trade-off: « débloquer » does NOT restore the keys — the
+    account gets its portal access back, the user recreates a key if needed.
     """
     from litellm_client import revoke_litellm_key
 
@@ -154,7 +154,7 @@ def revoquer_cles_compte(username, par=None, motif=''):
 
 
 def purger_donnees(username):
-    """Efface toutes les données rattachées au compte. Renvoie le décompte."""
+    """Erases all data attached to the account. Returns the counts."""
     db = get_db()
     total = 0
     for table in TABLES_PURGEES:
@@ -163,8 +163,8 @@ def purger_donnees(username):
                 f"DELETE FROM {table} WHERE username=?", (username,)).rowcount
         except sqlite3.Error:
             continue
-    # Tentatives de connexion : clés composites ('ip|user' et 'user:user').
-    # Sans ça, un compte recréé sous le même nom naîtrait déjà verrouillé.
+    # Login attempts: composite keys ('ip|user' and 'user:user'). Without it,
+    # an account recreated under the same name would be born already locked.
     try:
         total += db.execute(
             "DELETE FROM login_attempts WHERE key=? OR key LIKE ?",
@@ -176,15 +176,15 @@ def purger_donnees(username):
 
 
 def deprovisionner_compte(username, par, purge=True, action='user.delete'):
-    """Retire tout accès du compte, puis (purge=True) ses données.
+    """Removes every access of the account, then (purge=True) its data.
 
-    L'ORDRE compte : les clés d'abord — LiteLLM refuse de supprimer un
-    utilisateur qui en porte encore selon les versions —, l'enveloppe
-    ensuite, la base du portail en dernier. Si une étape échoue, on préfère
-    laisser un compte sans clés qu'un compte sans ligne locale mais avec des
-    clés vivantes.
+    The ORDER matters: the keys first — LiteLLM refuses to delete a user
+    still carrying some depending on the version —, then the envelope, the
+    portal database last. If a step fails, we prefer leaving an account
+    without keys over an account without local row but with live
+    keys.
     """
-    from auth import _revoke_user_sessions                    # import tardif : auth importe déjà ce module
+    from auth import _revoke_user_sessions                    # late import: auth already imports this module
     from litellm_client import delete_litellm_user, revoke_litellm_key
 
     rapport = compter_donnees(username)
@@ -210,18 +210,18 @@ def deprovisionner_compte(username, par, purge=True, action='user.delete'):
 
 
 def _envoyer_notification_mot_de_passe(username, par_admin=None):
-    """Le travail réel de la notification (adresse, puis email).
+    """The real work of the notification (address, then email).
 
-    Séparé de `prevenir_mot_de_passe_change` pour être testable sans fil : c'est
-    ici que l'annuaire est interrogé, et c'est cette partie qui peut être lente.
+    Split from `prevenir_mot_de_passe_change` to be testable without a
+    thread: this is where the directory is queried, and it can be slow.
     """
     try:
         from auth import ldap_lookup_email
         from notify import send_user_email
         destinataire = ldap_lookup_email(username)
         if not destinataire:
-            # Compte local sans équivalent dans l'annuaire : aucune adresse
-            # connue, et on n'en invente pas une.
+            # Local account with no equivalent in the directory: no known
+            # address, and we do not invent one.
             print(f'[user_lifecycle] pas d’adresse connue pour {username}, '
                   'notification non envoyée')
             return False
@@ -240,22 +240,22 @@ def _envoyer_notification_mot_de_passe(username, par_admin=None):
 
 
 def prevenir_mot_de_passe_change(username, par_admin=None):
-    """Prévient l'intéressé que son mot de passe vient de changer, HORS du chemin.
+    """Warns the person concerned that their password just changed, OFF the path.
 
-    C'est ce qui donne sa valeur au changement en autonomie : quelqu'un dont le
-    compte est pris reste aveugle tant que personne ne lui dit que le mot de
-    passe a bougé. Best-effort assumé — sans SMTP configuré (ou sans adresse
-    connue pour un compte purement local), il ne se passe rien et le changement
-    aboutit quand même : une notification ne doit jamais faire échouer l'action
-    qu'elle rapporte.
+    This is what gives the self-service change its value: someone whose
+    account is taken over stays blind as long as nobody tells them the
+    password moved. Deliberate best-effort — without SMTP configured (or
+    without a known address for a purely local account), nothing happens
+    and the change still succeeds: a notification must never fail the
+    action it reports.
 
-    Elle ne doit pas la RETARDER non plus. Mesuré le 2026-09-16 : la réponse à
-    `POST /api/account/password` mettait **3,2 s**, parce que l'adresse se
-    cherche par un bind LDAP (`ldap_lookup_email`) et que l'annuaire ne répond
-    pas — alors que le changement, lui, était déjà écrit en base. Le clic restait
-    donc suspendu sur un travail qui ne le concerne pas. La notification part
-    maintenant dans un fil démon : elle ne peut ni échouer bruyamment, ni faire
-    attendre. Renvoie False seulement quand il n'y a rien à faire (pas de SMTP).
+    It must not DELAY it either. Measured on 2026-09-16: the answer to
+    `POST /api/account/password` took **3,2 s**, because the address is
+    looked up via an LDAP bind (`ldap_lookup_email`) and the directory does
+    not answer — while the change itself was already written to database.
+    The click thus stayed suspended on work that does not concern it. The
+    notification now goes out in a daemon thread: it can neither fail
+    loudly nor make anyone wait. Returns False only when there is no SMTP.
     """
     if not SMTP_HOST:
         return False

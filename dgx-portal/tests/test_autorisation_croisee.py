@@ -1,25 +1,25 @@
-"""Autorisation CROISÉE (IDOR) : un compte ne touche jamais les données d'un autre.
+"""CROSS-SITE authorization (IDOR): an account never touches another's data.
 
-Pourquoi ce fichier existe : l'isolation était vérifiée pour la mémoire
-(`test_memory_api.IsolationApiTest`), et pour RIEN d'autre. Or les ressources qui
-portent un identifiant choisi par le client sont exactement celles qu'un compte
-peut tenter d'atteindre en le devinant ou en le recopiant : conversation, job
-média, session ouverte, clé API.
+Why this file exists: isolation was checked for memory
+(`test_memory_api.IsolationApiTest`), and for NOTHING else. Yet the
+resources carrying a client-chosen identifier are exactly those an
+account may try to reach by guessing or copying it: conversation, media
+job, opened session, API key.
 
-Chaque route ci-dessous est appelée par B avec l'identifiant de A, et le test
-exige DEUX choses à la fois :
+Each route below is called by B with A's identifier, and the test requires
+TWO things at once:
 
-  1. la route ne répond pas « c'est fait » (aucun 2xx de succès) ;
-  2. la donnée de A est INTACTE après l'appel.
+  1. the route does not answer « c'est fait » (no 2xx success);
+  2. A's data is INTACT after the call.
 
-Le second point est le vrai filet : une route peut répondre 404 après avoir déjà
-écrit (contrôle placé après l'écriture), et un test qui ne regarde que le code
-HTTP ne le verrait pas. C'est la forme d'IDOR la plus discrète — celle qui ne
-laisse aucune trace dans l'interface.
+The second point is the real safety net: a route can answer 404 after
+already writing (check placed after the write), and a test looking only at
+the HTTP code would not see it. This is the most discreet form of IDOR —
+the one leaving no trace in the interface.
 
-Aucun accès réseau : les jobs média insérés sont fictifs, et toutes les routes
-vérifient la propriété AVANT d'appeler un sidecar (un job étranger part donc en
-404 sans qu'aucune requête ne sorte du conteneur).
+No network access: the inserted media jobs are fictitious, and all routes
+check ownership BEFORE calling a sidecar (a foreign job thus leaves in
+404 without any request leaving the container).
 """
 
 import json
@@ -34,7 +34,7 @@ class AutorisationCroiseeTest(unittest.TestCase):
     A = "zz-idor-a"
     B = "zz-idor-b"
 
-    # Identifiants de A, tous choisis pour être devinables par B.
+    # A's identifiers, all chosen to be guessable by B.
     CONV_A = "zz-conv-a"
     IMG_A = "aaaaaaaaaaaaaaaa"
     MUS_A = "bbbbbbbbbbbbbbbb"
@@ -45,11 +45,11 @@ class AutorisationCroiseeTest(unittest.TestCase):
     # ── Outils ───────────────────────────────────────────────────────────
 
     def _base(self):
-        """Insère un enregistrement en ne gardant que les colonnes existantes.
+        """Inserts a record keeping only the existing columns.
 
-        Le schéma bouge (colonnes ajoutées par ALTER TABLE) : lister les colonnes
-        réellement présentes évite un test qui casse sur une migration, sans
-        pour autant masquer une erreur de schéma sur les colonnes citées.
+        The schema moves (columns added by ALTER TABLE): listing the columns
+        actually present avoids a test breaking on a migration, without
+        hiding a schema error on the cited columns.
         """
         with portal.app.app_context():
             db = portal.get_db()
@@ -131,7 +131,7 @@ class AutorisationCroiseeTest(unittest.TestCase):
             db.commit()
 
     def _connecte(self, username):
-        """Une session Flask valide, comme le ferait un vrai login."""
+        """A valid Flask session, as a real login would make."""
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["username"] = username
@@ -142,7 +142,7 @@ class AutorisationCroiseeTest(unittest.TestCase):
         return c
 
     def _valeur(self, table, colonne, cle, valeur_cle):
-        """Relit une valeur en base pour prouver qu'elle n'a pas bougé."""
+        """Re-reads a database value to prove it did not move."""
         with portal.app.app_context():
             db = portal.get_db()
             ligne = db.execute(
@@ -155,7 +155,7 @@ class AutorisationCroiseeTest(unittest.TestCase):
                 f"SELECT 1 FROM {table} WHERE {cle}=?", (valeur_cle,)).fetchone() is not None
 
     def _refuse(self, reponse, route):
-        """La route ne doit pas annoncer un succès."""
+        """The route must not announce a success."""
         self.assertNotIn(
             reponse.status_code, (200, 201, 202, 204),
             f"{route} a répondu {reponse.status_code} à un compte qui n'est pas "
@@ -169,10 +169,10 @@ class AutorisationCroiseeTest(unittest.TestCase):
         self.assertNotIn(self.MARQUEUR, r.get_data(as_text=True))
 
     def test_b_ne_supprime_pas_la_conversation_de_a(self):
-        """Contrat exact : la réponse dit COMBIEN de lignes de B ont été
-        supprimées (0 ici), donc elle ne prétend pas avoir supprimé celle de A,
-        et les deux cas — identifiant inconnu, identifiant d'autrui — sont
-        indiscernables (aucun oracle d'existence)."""
+        """Exact contract: the answer says HOW MANY of B's rows were
+        deleted (0 here), so it does not claim to have deleted A's, and
+        both cases — unknown identifier, someone else's identifier — are
+        indistinguishable (no existence oracle)."""
         r = self.client_b.post("/conversations",
                                data={"action": "delete", "id": self.CONV_A},
                                headers={"X-CSRFToken": self.CSRF})
@@ -184,7 +184,7 @@ class AutorisationCroiseeTest(unittest.TestCase):
         self.assertEqual(self._valeur("conversations", "username", "client_id", self.CONV_A), self.A)
 
     def test_le_compteur_de_suppression_est_reel(self):
-        """Sinon le test précédent passerait avec un `deleted` codé en dur à 0."""
+        """Otherwise the previous test would pass with a hardcoded 0 `deleted`."""
         self.client_b.post(
             "/conversations",
             data={"action": "save", "id": "zz-conv-b", "title": "À B",
@@ -196,15 +196,15 @@ class AutorisationCroiseeTest(unittest.TestCase):
         self.assertEqual(r.get_json(), {"ok": True, "deleted": 1})
 
     def test_action_inconnue_refusee(self):
-        """Une action non reconnue ne doit pas répondre « c'est fait »."""
+        """An unrecognized action must not answer « c'est fait »."""
         r = self.client_b.post("/conversations", data={"action": "zz-inconnue"},
                                headers={"X-CSRFToken": self.CSRF})
         self.assertEqual(r.status_code, 400, r.get_data(as_text=True)[:200])
         self.assertFalse(r.get_json()["ok"])
 
     def test_b_n_ecrase_pas_la_conversation_de_a(self):
-        """Même client_id : le conflit est (username, client_id), donc B écrit
-        chez lui. Ce test le prouve — sinon B écraserait le contenu de A."""
+        """Same client_id: the conflict key is (username, client_id), so B writes
+        at home. This test proves it — else B would overwrite A's content."""
         r = self.client_b.post(
             "/conversations",
             data={"action": "save", "id": self.CONV_A, "title": "Détournée",
@@ -245,13 +245,13 @@ class AutorisationCroiseeTest(unittest.TestCase):
         self.assertNotIn(self.SID_A, r.get_data(as_text=True))
 
     def test_b_ne_revoque_pas_toutes_les_sessions(self):
-        """L'action « toutes les autres » ne doit atteindre que les siennes."""
+        """The « toutes les autres » action must only reach one's own."""
         r = self.client_b.post("/api/account/sessions/revoke",
                                json={"all": True}, headers={"X-CSRFToken": self.CSRF})
         self.assertTrue(r.status_code < 500, r.get_data(as_text=True)[:200])
         self.assertFalse(self._valeur("user_sessions", "revoked", "sid", self.SID_A))
 
-    # ── Clés API ─────────────────────────────────────────────────────────
+    # ── API keys ─────────────────────────────────────────────────────────
 
     def test_b_ne_revoque_pas_la_cle_de_a(self):
         r = self.client_b.post("/keys", data={"action": "revoke", "key": self.CLE_A},
@@ -274,7 +274,7 @@ class AutorisationCroiseeTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertNotIn(self.CLE_A, r.get_data(as_text=True))
 
-    # ── Jobs média : statut, annulation, fichier ─────────────────────────
+    # ── Media jobs: status, cancel, file ─────────────────────────────────
 
     def test_b_ne_voit_pas_les_jobs_de_a(self):
         for route in ("/api/image/history", "/api/ocr/history", "/api/voice/history",
@@ -303,9 +303,9 @@ class AutorisationCroiseeTest(unittest.TestCase):
             self._refuse(r, f"GET {route}")
 
     def test_b_ne_supprime_pas_les_fichiers_de_a(self):
-        """Les routes de fichier servent le média d'un job : elles doivent
-        refuser avant de chercher sur le disque, et la suppression d'une vignette
-        ne doit pas atteindre le lot de A."""
+        """The file routes serve a job's media: they must refuse before
+        looking on disk, and deleting a thumbnail must not reach
+        A's batch."""
         routes = [
             f"/image/file/{self.IMG_A}",
             f"/api/image/delete/{self.IMG_A}/0",

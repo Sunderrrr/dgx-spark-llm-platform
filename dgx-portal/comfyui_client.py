@@ -1,11 +1,11 @@
-"""Client ComfyUI : generation video MiniMax H3 et recuperation des fichiers.
+"""ComfyUI client: MiniMax H3 video generation and file retrieval.
 
-Extrait de app.py le 28/08. Section retenue en premier parce qu'elle etait la
-plus independante du monolithe : sa seule dependance etait COMFYUI_URL, qui vient
-de l'environnement — ce module ne reimporte donc RIEN de app.py, et aucun cycle
-d'import n'est possible.
+Extracted from app.py on 28/08. Section taken first because it was the most
+independent of the monolith: its only dependency was COMFYUI_URL, which comes
+from the environment — so this module re-imports NOTHING from app.py, and no
+import cycle is possible.
 
-app.py conserve les routes /api/video/* ; seule la mecanique ComfyUI vit ici.
+app.py keeps the /api/video/* routes; only the ComfyUI mechanics live here.
 """
 import json
 import os
@@ -105,10 +105,10 @@ def comfyui_status(prompt_id):
     return {'status': 'error', 'video_path': None}
 
 def comfyui_cancel(prompt_id):
-    """Annule une génération vidéo. Retire la requête de la file si elle attend,
-    sinon interrompt la génération en cours. ComfyUI sérialise les rendus : si
-    ce prompt est le seul 'running', c'est bien lui que /interrupt annule ; s'il
-    est dans la file, on le supprime par id (scopé, pas d'effet de bord)."""
+    """Cancels a video generation. Removes the request from the queue if it is
+    waiting, otherwise interrupts the ongoing generation. ComfyUI serializes
+    renders: if this prompt is the only 'running' one, /interrupt indeed
+    cancels it; if queued, we delete it by id (scoped, no side effect)."""
     try:
         rq = requests.get(f"{COMFYUI_URL}/queue", timeout=5)
         if rq.ok:
@@ -196,8 +196,8 @@ def _cache_video_local(prompt_id, st):
     return None
 
 
-# Sonde de disponibilite, rapatriee de app.py le 28/08 : elle etait rangee dans
-# « Helpers » alors qu'elle interroge ComfyUI et rien d'autre.
+# Availability probe, brought over from app.py on 28/08: it sat in « Helpers »
+# although it queries ComfyUI and nothing else.
 _comfyui_up_cache = {'t': 0.0, 'v': False}
 
 def comfyui_is_up():

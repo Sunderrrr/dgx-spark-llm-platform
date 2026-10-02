@@ -85,6 +85,12 @@ def _security_headers(resp):
     resp.headers.setdefault('X-Frame-Options', 'DENY')
     resp.headers.setdefault('Referrer-Policy', 'same-origin')
     resp.headers.setdefault('Content-Security-Policy', _CSP)
+    # Powerful features the app does not use, denied. `microphone` (dictation)
+    # and `camera` (photo capture offered by file inputs on mobile) stay for
+    # 'self' — denying them would silently break those two flows.
+    resp.headers.setdefault('Permissions-Policy',
+                            'geolocation=(), payment=(), usb=(), '
+                            'camera=(self), microphone=(self)')
     # HSTS: ignored over HTTP, applied behind Traefik's TLS.
     resp.headers.setdefault('Strict-Transport-Security', 'max-age=63072000; includeSubDomains')
     return resp

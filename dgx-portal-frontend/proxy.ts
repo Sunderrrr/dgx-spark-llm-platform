@@ -78,6 +78,12 @@ export function proxy(request: NextRequest) {
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("Referrer-Policy", "same-origin");
+  // Powerful features: the dictation needs the microphone, and file inputs offer
+  // the camera on mobile — both stay for 'self'; the rest is denied.
+  response.headers.set(
+    "Permissions-Policy",
+    "geolocation=(), payment=(), usb=(), camera=(self), microphone=(self)",
+  );
   return response;
 }
 

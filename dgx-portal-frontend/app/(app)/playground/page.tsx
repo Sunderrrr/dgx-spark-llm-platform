@@ -858,7 +858,13 @@ function firstJsonValue(src: string): string | null {
 // ce qui suit plutôt que de ne rien reconnaître du tout.
 function parseAsk(content: string): AskBlock | null {
   const m = content.match(/```ask\s*\n([\s\S]*?)(?:```|$)/)
-    ?? content.match(/```(?:json)?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/);
+    ?? content.match(/```(?:json)?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/)
+    // Forme dégénérée mesurée sur MiMo le 2026-10-02 : le modèle écrit `ask`
+    // en code inline (ou « ask » nu) suivi du JSON SANS aucune fence — le
+    // questionnaire sortait alors en texte brut, sans rien sur quoi cliquer.
+    // Même garde-fou que pour la fence json : le corps doit commencer par
+    // {"questions": [, sinon ce serait avaler un vrai fichier au détour.
+    ?? content.match(/(?:^|\n)[ \t]*`?ask`?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/i);
   if (!m) return null;
   try {
     const body = m[1].trim();

@@ -22,12 +22,12 @@ import { useT } from "@/lib/i18n";
 type AskQ = { question: string; options: string[] };
 
 // The model's clarifying questions, shown one at a time (stepper).
-// PLUSIEURS réponses par question : chaque option se coche et se décoche, et la
-// réponse libre peut s'ajouter aux options choisies — une contrainte à un seul
-// choix obligeait à trancher là où la vraie réponse est « les deux ».
-// « Précédent » revient corriger ; sur la dernière question, « Envoyer les
-// réponses » les soumet toutes d'un coup. Une fois envoyées, `answered` fige la
-// carte en simple accusé de réception.
+// MULTIPLE answers per question: each option can be checked and unchecked, and
+// the free-text answer can be added to the chosen options — a single-choice
+// constraint forced a decision where the real answer is "both".
+// « Précédent » goes back to fix an answer; on the last question, « Envoyer les
+// réponses » submits them all at once. Once sent, `answered` freezes the card
+// into a simple acknowledgement.
 export function AskQuestion({
   questions,
   answered,
@@ -44,17 +44,17 @@ export function AskQuestion({
   const [otherText, setOtherText] = useState<string[]>(() => questions.map(() => ""));
 
   const set = <T,>(arr: T[], i: number, v: T) => arr.map((x, j) => (j === i ? v : x));
-  // La réponse d'une question = les options cochées, plus le texte libre s'il y
-  // en a un. Les deux peuvent coexister.
+  // A question's answer = the checked options, plus the free text if there is
+  // one. Both can coexist.
   const effective = (i: number) =>
     [...chosen[i], otherOpen[i] ? otherText[i].trim() : ""].filter(Boolean).join(" + ");
   const isLast = step === questions.length - 1;
   const currentAnswered = effective(step) !== "";
-  // `allAnswered` n'est lu que sur la DERNIÈRE étape (bouton Envoyer) : le
-  // calculer à chaque étape reparcourait toutes les questions pour rien.
+  // `allAnswered` is only read on the LAST step (the « Envoyer » button):
+  // computing it at every step would walk through all the questions for nothing.
   const allAnswered = isLast && questions.every((_, i) => effective(i) !== "");
 
-  // Bascule : recliquer une option la retire.
+  // Toggle: clicking an option again removes it.
   const toggleOption = (opt: string) => {
     setChosen((a) =>
       set(a, step, a[step].includes(opt) ? a[step].filter((x) => x !== opt) : [...a[step], opt]));

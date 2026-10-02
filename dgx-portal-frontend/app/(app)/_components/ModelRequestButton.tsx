@@ -15,12 +15,12 @@ type MediaCategory = "image" | "music" | "video" | "ocr" | "voice";
 type Req = { ok?: boolean; error?: { message?: string }; retry_after?: number; email_sent?: boolean };
 
 /**
- * Bouton « demander un modèle » affiché sur les pages média quand AUCUN
- * modèle de la catégorie n'est chargé. Il prévient l'admin (email) — le
- * bouton disparaît côté backend si un modèle de la catégorie tourne déjà.
- * Une fois la demande envoyée, il se verrouille (évite les doublons) ; un
- * 429 (cooldown anti-spam) affiche un compte à rebours sur le bouton.
- * Avec `showText={false}`, il ne rend que le bouton (pour les EmptyState).
+ * « demander un modèle » button shown on the media pages when NO model of
+ * the category is loaded. It alerts the admin (email) — the button
+ * disappears backend-side if a model of the category is already running.
+ * Once the request is sent, it locks itself (avoids duplicates); a
+ * 429 (anti-spam cooldown) shows a countdown on the button.
+ * With `showText={false}`, it renders only the button (for the EmptyState).
  */
 export function ModelRequestButton({
   category,
@@ -36,9 +36,9 @@ export function ModelRequestButton({
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
-  // Tick pendant un cooldown actif : met à jour `now` (compte à rebours) et
-  // désactive l'auto-nettoyage quand la fenêtre est écoulée (setState dans le
-  // callback de l'intervalle, jamais dans le corps de l'effet).
+  // Tick during an active cooldown: updates `now` (countdown) and disables
+  // the auto-cleanup once the window has elapsed (setState in the interval
+  // callback, never in the body of the effect).
   useEffect(() => {
     if (cooldownUntil === null) return;
     const id = setInterval(() => {

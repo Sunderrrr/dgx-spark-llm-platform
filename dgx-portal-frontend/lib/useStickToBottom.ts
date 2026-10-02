@@ -23,8 +23,8 @@ export function useStickToBottom(dep: unknown, active: boolean) {
   // sub-pixel rounding and the last line still being laid out mid-stream).
   const THRESHOLD = 48;
 
-  // Stable (deps vides) : l'identité sert à add/removeEventListener, une
-  // fonction recréée à chaque rendu empilerait les écouteurs.
+  // Stable (empty deps): the identity serves add/removeEventListener, a
+  // function recreated at every render would stack up listeners.
   const measure = useCallback(() => {
     const node = el.current;
     if (!node) return;
@@ -41,10 +41,10 @@ export function useStickToBottom(dep: unknown, active: boolean) {
     setShowButton(false);
   };
 
-  // Attache l'écouteur `scroll` directement sur le conteneur : cet évènement ne
-  // remonte pas dans le DOM, donc un onScroll React posé plus haut (par exemple
-  // quand le vrai scroller est enfoui dans un composant comme CodeBlock) ne
-  // serait jamais appelé. Le onScroll renvoyé reste utilisable, sans obligation.
+  // Attaches the `scroll` listener directly to the container: this event does
+  // not bubble in the DOM, so a React onScroll set higher up (for example when
+  // the real scroller is buried in a component like CodeBlock) would never be
+  // called. The returned onScroll stays usable, but is not mandatory.
   const setRef = useCallback((node: HTMLElement | null) => {
     const prev = el.current;
     if (prev === node) return;

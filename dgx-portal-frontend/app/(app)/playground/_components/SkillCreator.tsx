@@ -14,8 +14,8 @@ import { TrashIcon } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import type { Skill } from "@/lib/skills";
 
-/** Créateur de compétence : nom + commande /alias + prompt à envoyer +
- *  prompt système optionnel. Liste et supprime les compétences créées. */
+/** Skill creator: name + /alias command + prompt to send +
+ *  optional system prompt. Lists and deletes the created skills. */
 export function SkillCreator({
   open,
   onOpenChange,
@@ -40,8 +40,8 @@ export function SkillCreator({
   const [systemPrompt, setSystemPrompt] = useState("");
   const canSave = Boolean(name.trim()) && Boolean(prompt.trim());
 
-  // Préremplir le formulaire à l'ouverture (édition) ou le vider (création).
-  // Sync depuis les props à l'ouverture : cas légitime autorisé par le lint.
+  // Prefill the form on open (edit) or clear it (create).
+  // Sync from the props on open: legitimate case allowed by the lint.
   useEffect(() => {
     if (!open) return;
     /* eslint-disable react-hooks/set-state-in-effect */

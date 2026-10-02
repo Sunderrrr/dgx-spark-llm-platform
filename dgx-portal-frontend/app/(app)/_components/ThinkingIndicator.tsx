@@ -27,11 +27,11 @@ const VERBS = [
 const MIN_WORD_MS = 10000;
 const MAX_WORD_MS = 15000;
 
-// Les neuf états du paquet `thinking-orbs`. L'orbite était figée sur
-// « working » : à chaque nouvelle phase de réflexion on en tire une au hasard,
-// pour que deux réponses ne s'animent pas de la même façon. Le tirage se fait
-// dans l'initialiseur — l'indicateur n'apparaît qu'après l'envoi, donc jamais
-// dans le HTML servi, et il n'y a aucun rendu serveur à faire diverger.
+// The nine states of the `thinking-orbs` package. The orbit was frozen on
+// « working »: at each new thinking phase we draw one at random, so two
+// answers do not animate the same way. The draw happens in the initializer —
+// the indicator only appears after sending, so never in the served HTML, and
+// there is no server render to diverge.
 const ETATS: OrbState[] = [
   "working",
   "searching",
@@ -44,12 +44,12 @@ const ETATS: OrbState[] = [
   "shaping",
 ];
 
-/** Le libellé, lettre par lettre, avec la MÊME vague que la grille de l'avatar
- *  généré : chaque lettre respire en décalé, la vague traverse le mot.
- *  Volontairement en opacité seule (pas de translation) : un mot dont les
- *  lettres montent et descendent devient pénible à lire. Les lettres doivent
- *  être des éléments distincts pour porter chacune son retard — d'où les
- *  `<span>`, qui restent en ligne (le mot n'est pas découpé pour l'écran). */
+/** The label, letter by letter, with the SAME wave as the generated avatar
+ *  grid: each letter breathes out of phase, the wave crosses the word.
+ *  Deliberately opacity-only (no translation): a word whose letters go up
+ *  and down becomes tedious to read. The letters must be distinct elements
+ *  to each carry their own delay — hence the `<span>`s, which stay inline
+ *  (the word is not split for the screen). */
 function LibelleAnime({ texte }: { texte: string }) {
   return (
     <Text type="supporting" color="secondary">
@@ -57,7 +57,7 @@ function LibelleAnime({ texte }: { texte: string }) {
         <span
           key={`${i}-${caractere}`}
           className="thinking-lettre"
-          // Retard négatif : la vague est déjà répartie au premier rendu.
+          // Negative delay: the wave is already spread out on first render.
           style={{ animationDelay: `-${((i % 12) * 0.11).toFixed(2)}s` }}
         >
           {caractere === " " ? "\u00a0" : caractere}
@@ -93,16 +93,16 @@ export function ThinkingIndicator({ fixedLabel }: { fixedLabel?: string }) {
 
   return (
     <HStack gap={1} vAlign="center" role="status" aria-label={`${label}…`}>
-      {/* `thinking-orbs` (paquet npm, canvas) : orbe de particules à l'échelle
-          « inline » de 20 px, état tiré au hasard ci-dessus. Le thème est passé
-          EXPLICITEMENT depuis le mode de l'application : `auto` seul ne suffit
-          pas, car Astryx ne pose `data-theme` que pour le mode sombre — un mode
-          clair forcé sur un système sombre retomberait sur
-          `prefers-color-scheme` et dessinerait une encre claire sur fond clair.
-          « system » reste `auto`, là c'est exactement la bonne source. Le paquet
-          gère lui-même `prefers-reduced-motion` (image fixe). Décoratif : le
-          sens est porté par le role="status" ci-dessus, on le retire de l'arbre
-          d'accessibilité pour ne pas l'annoncer deux fois. */}
+      {/* `thinking-orbs` (npm package, canvas): particle orb at the 20 px
+          « inline » scale, state drawn at random above. The theme is passed
+          EXPLICITLY from the application mode: `auto` alone is not enough,
+          because Astryx only sets `data-theme` for dark mode — a forced
+          light mode on a dark system would fall back to
+          `prefers-color-scheme` and draw light ink on a light background.
+          « system » stays `auto`, there it is exactly the right source. The
+          package handles `prefers-reduced-motion` itself (still image).
+          Decorative: the meaning is carried by the role="status" above, we
+          remove it from the accessibility tree so it is not announced twice. */}
       <ThinkingOrb
         state={etat}
         size={20}

@@ -83,12 +83,12 @@ type AdminData = {
   voice_status: string;
   voice_model_name: string | null;
   asr_status: string;
-  /** Ajouté en parallèle côté portail ; absent sur l'ancien backend — la
-      ligne n'est simplement pas affichée tant que le champ manque. */
+  /** Added in parallel on the portal side; absent from the old backend — the
+      row is simply not displayed while the field is missing. */
   asr_model_name?: string | null;
-  /** Cause de l'échec de chargement du modèle de dictée (« CUDA error: out of
-      memory », mesuré le 2026-10-01), publiée par le sidecar. Absent tant que
-      le chargement n'a pas échoué. */
+  /** Cause of the dictation model load failure (« CUDA error: out of
+      memory », measured on 2026-10-01), published by the sidecar. Absent until
+      a load has failed. */
   asr_load_error?: string | null;
   image_status: string;
   image_model_name: string | null;
@@ -101,12 +101,12 @@ type AdminData = {
 
 type CatalogKind = "llm" | "ocr" | "voice" | "video" | "image" | "music";
 
-/** Résultat d'une action admin, tel que le backend le répond désormais :
- * {ok: false, error} sur refus, {ok: true, message?, warning?} sinon. */
+/** Result of an admin action, as the backend now answers it:
+ * {ok: false, error} on refusal, {ok: true, message?, warning?} otherwise. */
 type ActResult = { ok: boolean; error?: string; warning?: string };
 
-/** Les quatre actions destructrices/impactantes qui exigent une confirmation
- * explicite avant le POST (cf. ConfirmActionDialog plus bas). */
+/** The four destructive/impactful actions that require an explicit confirmation
+ * before the POST (cf. ConfirmActionDialog below). */
 type ConfirmAction =
   | { kind: "stop-model" }
   | { kind: "launch"; name: string }
@@ -118,8 +118,8 @@ const MAX_LOG_LINES = 600;
 const SIDECAR_VARIANT: Record<string, "success" | "warning" | "neutral" | "error"> = {
   running: "success",
   starting: "warning",
-  // Le conteneur tourne mais son modèle n'a pas pu se charger : ce n'est ni
-  // « en ligne » ni « en cours de démarrage », et l'attente n'a pas de fin.
+  // The container runs but its model could not load: it is neither
+  // « en ligne » nor « en cours de démarrage », and the wait never ends.
   failed: "error",
   stopped: "neutral",
 };
@@ -155,22 +155,22 @@ export default function AdminPage() {
   const [settings, setSettings] = useState({ budget: "", duration: "" });
   const [musicModel, setMusicModel] = useState("MiniMaxAI/MiniMax-Music3");
   const [platform, setPlatform] = useState<PlatformStatusData | null>(null);
-  // Verrou d'in-flight : pendant une action (un lancement tient la requête
-  // 10-60 s), TOUS les boutons d'action de la page se désactivent — un second
-  // clic pendant ce temps ne peut plus partir en double. Le ref doublonne
-  // l'état React pour blinder la fenêtre de rendu entre deux clics.
+  // In-flight lock: during an action (a launch holds the request
+  // 10-60 s), ALL the action buttons on the page are disabled — a second
+  // click in the meantime can no longer fire twice. The ref duplicates
+  // the React state to harden the render window between two clicks.
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
-  // Texte affiché dans le visualiseur de logs, et suivi automatique du bas —
-  // même comportement que le panneau du Playground : on colle au bas tant que
-  // l'admin n'a pas remonté ; s'il remonte, on arrête de le ramener en bas et
-  // une flèche apparaît pour redescendre et réactiver le suivi. `active` est
-  // toujours vrai ici (contrairement au Playground où il ne suit que pendant
-  // le flux) : les logs continuent d'arriver tant que la page est ouverte.
-  // Le join de jusqu'à 600 lignes était refait à CHAQUE rendu — y compris une
-  // frappe sans rapport ou un poll inchangé.
+  // Text displayed in the log viewer, and automatic stick-to-bottom —
+  // same behaviour as the Playground panel: stick to the bottom as long as
+  // the admin has not scrolled up; if they do, we stop pulling them back down and
+  // an arrow appears to go back down and re-enable the tracking. `active` is
+  // always true here (unlike the Playground where it only tracks during the
+  // stream): logs keep arriving as long as the page is open.
+  // The join of up to 600 lines was redone at EVERY render — including an
+  // unrelated keystroke or an unchanged poll.
   const logText = useMemo(
     () => (logKind === "llm" ? logs : sidecarLogs).join("\n"),
     [logKind, logs, sidecarLogs],
@@ -181,10 +181,10 @@ export default function AdminPage() {
     scrollToBottom: logsJumpDown,
   } = useStickToBottom(logText, true);
 
-  // CodeBlock gère lui-même son défilement (dès qu'on lui donne un maxHeight) et
-  // n'expose pas ce conteneur. On pose donc la ref sur un parent et on descend
-  // chercher l'élément réellement défilable — vérifié au navigateur : sans ça, le
-  // texte est rogné par un enfant en overflow:hidden et plus rien ne défile.
+  // CodeBlock manages its own scrolling (as soon as it is given a maxHeight) and
+  // does not expose this container. So we put the ref on a parent and go down
+  // to the actually scrollable element — verified in the browser: without this, the
+  // text is clipped by an overflow:hidden child and nothing scrolls anymore.
   const setLogsScrollRef = useCallback(
     (node: HTMLElement | null) => {
       if (!node) return attachLogsScroller(null);
@@ -198,34 +198,34 @@ export default function AdminPage() {
     [attachLogsScroller],
   );
 
-  // `amorce` : ne recopier init_logs QUE lors du premier chargement. Ce
-  // rafraîchissement tourne toutes les 8 s, et il écrasait à chaque passage les
-  // lignes accumulées par le flux SSE avec un instantané figé — donc en régime
-  // normal le panneau reperdait tout le direct trois fois par tour de flux, et
-  // si l'instantané était vide (cf. runner_logs côté portail) il se vidait
-  // purement et simplement. Le flux est la source de vérité une fois ouvert ;
-  // init_logs ne sert qu'à remplir le panneau avant sa première ligne.
+  // `amorce`: only copy init_logs on the FIRST load. This refresh
+  // runs every 8 s, and it overwrote on every pass the lines accumulated by
+  // the SSE stream with a frozen snapshot — so in normal operation the panel
+  // lost the whole live feed three times per stream lap, and if the snapshot
+  // was empty (cf. runner_logs on the portal side) it was simply emptied.
+  // The stream is the source of truth once open; init_logs only fills the
+  // panel before its first line.
   function refresh(amorce = false) {
     getJSON<AdminData>("/api/admin")
       .then((d) => {
         setData(d);
         if (amorce) {
           setLogs(d.init_logs);
-          // Le formulaire des quotas par défaut n'est pré-rempli qu'À LA
-          // PREMIÈRE charge : le resynchroniser à chaque tour de poll
-          // écrasait la saisie de l'admin sous ses doigts, et c'est la valeur
-          // périmée qui partait au clic sur « Appliquer ».
+          // The default quotas form is pre-filled only on the FIRST
+          // load: re-syncing it on every poll pass
+          // overwrote the admin's input under their fingers, and it was the stale
+          // value that was sent on the click on « Appliquer ».
           setSettings({ budget: String(d.default_key_budget), duration: d.default_key_duration });
         }
       })
       .catch((e) => {
         if (e instanceof ForbiddenError) setForbidden(true);
       });
-    // Journal d'audit + relevé plateforme : dans la même boucle de
-    // rafraîchissement (8 s, et après chaque action via act()), pour que le
-    // journal montre l'action qui vient d'être posée au lieu d'un instantané
-    // du chargement de la page. Deux requêtes de plus par tour, locales et
-    // légères — le compromis assumé de l'écran d'admin.
+    // Audit log + platform snapshot: in the same refresh
+    // loop (8 s, and after each action via act()), so that the
+    // log shows the action just taken instead of a snapshot
+    // of the page load. Two extra requests per pass, local and
+    // light — the accepted trade-off of the admin screen.
     getJSON<AuditRow[]>("/admin/audit")
       .then((d) => setAudit(d ?? []))
       .catch(() => {});
@@ -248,9 +248,9 @@ export default function AdminPage() {
     // EventSource would retry indefinitely an admin-only stream.
     if (forbidden) return;
     const es = new EventSource("/admin/runner/stream");
-    // Le flux rejoue TOUT son tampon a chaque connexion : on vide donc a
-    // l'ouverture, sinon ses lignes s'ajouteraient a celles de l'amorce et le
-    // panneau afficherait tout en double.
+    // The stream replays its WHOLE buffer at each connection: so we clear on
+    // open, otherwise its lines would add to those of the seed and the
+    // panel would show everything twice.
     es.onopen = () => setLogs([]);
 
     es.onmessage = (e) => setLogs((prev) => [...prev, e.data].slice(-MAX_LOG_LINES));
@@ -273,23 +273,23 @@ export default function AdminPage() {
     return () => { alive = false; clearInterval(id); };
   }, [logKind, forbidden]);
 
-  // Le contrat backend (généralisé à TOUTES les routes d'action admin) :
-  // JSON {ok: boolean, error?, message?, warning?} avec un code HTTP honnête
-  // (200 ok, 400 refus, 404 introuvable, 409 à confirmer, 502 amont, 507
-  // mémoire). On ne déclare donc la victoire QUE sur un 2xx portant un JSON
-  // qui ne dit pas ok:false ; un corps non-JSON, un 4xx/5xx ou ok:false sont
-  // des échecs. Auparavant, le catch assimilait « JSON illisible » à un
-  // succès : un arrêt refusé s'affichait comme effectué. Les phrases du
-  // serveur (error/message/warning) sont du français libre, pas des clés
-  // i18n — elles s'affichent telles quelles.
+  // The backend contract (extended to ALL admin action routes):
+  // JSON {ok: boolean, error?, message?, warning?} with an honest HTTP code
+  // (200 ok, 400 refusal, 404 not found, 409 to confirm, 502 upstream,
+  // 507 memory). So we declare victory ONLY on a 2xx carrying a JSON
+  // that does not say ok:false; a non-JSON body, a 4xx/5xx or ok:false are
+  // failures. Previously, the catch treated « JSON illisible » as a
+  // success: a refused stop was displayed as done. The server sentences
+  // (error/message/warning) are free French, not i18n keys — they are
+  // displayed as-is.
   async function act(url: string, params: Record<string, string> = {}): Promise<ActResult> {
     if (!csrf || busyRef.current) return { ok: false };
     busyRef.current = true;
     setBusy(true);
     let result: ActResult = { ok: false };
     try {
-      // authFetch (et non postFormJSON) pour lire le code HTTP : le JSON seul
-      // ne suffit pas à distinguer un refus (400/502…) d'un succès.
+      // authFetch (not postFormJSON) to read the HTTP code: JSON alone
+      // is not enough to tell a refusal (400/502…) from a success.
       const res = await authFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
@@ -298,24 +298,24 @@ export default function AdminPage() {
       const body = await res.json().catch(() => null) as (ActResult & { message?: string }) | null;
       const warning = typeof body?.warning === "string" ? body.warning : undefined;
       if (res.status === 403) {
-        // Admin rétrogradé en cours de session : « accès refusé », jamais un
-        // succès. (authFetch ne lève pas sur 403 — seul 401 redirige.)
+        // Admin demoted mid-session: « accès refusé », never a
+        // success. (authFetch does not throw on 403 — only 401 redirects.)
         showToast({ body: t("Accès refusé."), type: "error" });
       } else if (res.status >= 400 || !body || body.ok === false) {
         const errMsg = body?.error ?? t("Échec de l'action.");
         showToast({ body: errMsg, type: "error" });
         result = { ok: false, error: errMsg, warning };
       } else {
-        // Le serveur fournit souvent une phrase utile (« Lancement de X
-        // accepté — chargement en cours. ») : on l'affiche de préférence.
+        // The server often provides a useful sentence (« Lancement de X
+        // accepté — chargement en cours. »): we display it preferentially.
         showToast({ body: body.message ?? t("Action effectuée."), type: "info" });
-        // Succès PARTIEL (fichiers non effacés, LiteLLM non dérégistré…) : le
-        // serveur l'écrit dans `warning`, qui n'était affiché nulle part.
+        // PARTIAL success (files not deleted, LiteLLM not deregistered…): the
+        // server writes it in `warning`, which was displayed nowhere.
         if (warning) showToast({ body: warning, type: "error" });
         result = { ok: true, warning };
       }
     } catch {
-      // Erreur réseau (pas de réponse du tout) : échec, évidemment.
+      // Network error (no answer at all): failure, obviously.
       showToast({ body: t("Échec de l'action."), type: "error" });
     } finally {
       busyRef.current = false;
@@ -325,11 +325,11 @@ export default function AdminPage() {
     return result;
   }
 
-  // Les quatre confirmations passent par un seul dialog (ConfirmActionDialog) :
-  // le clic sur le bouton d'action n'ouvre QUE le dialog, le POST ne part
-  // qu'à la confirmation. Pour la suppression, `confirm=1` accompagne le POST
-  // confirmé (le backend l'exige pour retirer l'entrée du modèle actuellement
-  // servi — la confirmation UI est justement ce consentement).
+  // The four confirmations go through a single dialog (ConfirmActionDialog):
+  // the click on the action button only opens the dialog, the POST is only sent
+  // on confirmation. For the deletion, `confirm=1` accompanies the confirmed
+  // POST (the backend requires it to remove the currently served model entry —
+  // the UI confirmation is precisely that consent).
   function runConfirmedAction(action: ConfirmAction) {
     if (action.kind === "stop-model") act("/admin/model/stop");
     else if (action.kind === "launch") act("/admin/model/launch", { model_name: action.name });
@@ -428,9 +428,9 @@ export default function AdminPage() {
               <Text type="supporting" color="secondary">{t("Pilotage des modèles, quotas de tokens et demandes des utilisateurs.")}</Text>
             </VStack>
 
-            {/* Widget de bord de commande (disque, sauvegarde, moniteur, modèle
-                servi, compteurs) : rafraîchi par le même poll de 8 s que le
-                reste de la page — les données descendent, pas de second timer. */}
+            {/* Dashboard widget (disk, backup, monitor, served
+                model, counters): refreshed by the same 8 s poll as the
+                rest of the page — the data flows down, no second timer. */}
             <PlatformStatus status={platform} />
 
             {data && (
@@ -472,8 +472,8 @@ export default function AdminPage() {
                           <Text weight="semibold">{t("LLM")}</Text>
                         </HStack>
                         {(st === "running" || st === "starting") && (
-                          // Arrêter le modèle servi coupe TOUTES les générations
-                          // en cours : ça mérite un dialog, pas un clic direct.
+                          // Stopping the served model cuts ALL generations
+                          // in flight: that deserves a dialog, not a direct click.
                           <Button
                             label={t("Arrêter")}
                             variant="secondary"
@@ -527,8 +527,8 @@ export default function AdminPage() {
                           <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/video/start")} />
                         )}
                       </HStack>
-                      {/* La vidéo est un workflow ComfyUI figé : la charge
-                          n'expose aucun nom de modèle, on n'en invente pas. */}
+                      {/* The video is a frozen ComfyUI workflow: the load
+                          exposes no model name, we do not invent one. */}
                     </VStack>
                   </Card>
                   <Card>
@@ -569,18 +569,18 @@ export default function AdminPage() {
                           <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/asr/start")} />
                         )}
                       </HStack>
-                      {/* Le nom du modèle asr n'est fourni que si le backend le
-                          rapporte (asr_model_name, ajouté en parallèle) : sans
-                          lui, pas de ligne du tout — jamais de nom codé en dur. */}
+                      {/* The asr model name is only provided if the backend
+                          reports it (asr_model_name, added in parallel): without
+                          it, no row at all — never a hardcoded name. */}
                       {data.asr_model_name && (
                         <Text type="supporting" color="secondary" wordBreak="break-all">{data.asr_model_name}</Text>
                       )}
-                      {/* Le conteneur tourne SANS modèle chargé : ce n'est pas un
-                          démarrage en cours mais un échec, et le sidecar en publie
-                          la cause (mémoire unifiée insuffisante le 2026-10-01).
-                          Le bouton reste « Arrêter » — le conteneur occupe le
-                          port — d'où le rappel de l'ordre : arrêter, libérer,
-                          relancer. */}
+                      {/* The container runs WITHOUT a loaded model: it is not a
+                          startup in progress but a failure, and the sidecar
+                          publishes its cause (not enough unified memory on
+                          2026-10-01). The button stays « Arrêter » — the
+                          container holds the port — hence the reminder of the
+                          order: stop, free, relaunch. */}
                       {data.asr_load_error && (
                         <>
                           <Text type="supporting" color="secondary" wordBreak="break-all">
@@ -666,10 +666,10 @@ export default function AdminPage() {
                           {cfg.hf_model_id}
                         </Text>
                         <HStack gap={2}>
-                          {/* Lancer = charger le modèle en mémoire (minutes,
-                              grosse emprise mémoire) et Supprimer = retirer
-                              l'entrée (du catalogue ET du routage LiteLLM) :
-                              les deux passent par une confirmation. */}
+                          {/* Lancer = load the model into memory (minutes,
+                              heavy memory footprint) and Supprimer = remove
+                              the entry (from the catalog AND the LiteLLM
+                              routing): both go through a confirmation. */}
                           <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => setConfirmAction({ kind: "launch", name: cfg.name })} />
                           <ArgsEditForm
                             cfg={cfg}
@@ -906,12 +906,12 @@ export default function AdminPage() {
                       <SegmentedControlItem value="video" label={t("Vidéo")} />
                     </SegmentedControl>
                   </HStack>
-                  {/* Le maxHeight rend le défilement à CodeBlock : contraindre un
-                      parent à la place ne marche pas, CodeBlock se fait comprimer et
-                      rogne son texte (overflow:hidden interne), si bien que plus rien
-                      ne déborde ni ne défile. La ref sert seulement de point d'entrée
-                      pour retrouver son scroller. Le conteneur est en position
-                      relative pour ancrer la flèche À L'INTÉRIEUR du cadre. */}
+                  {/* The maxHeight hands the scrolling to CodeBlock: constraining a
+                      parent instead does not work, CodeBlock gets compressed and
+                      clips its text (internal overflow:hidden), so that nothing
+                      overflows or scrolls anymore. The ref only serves as an entry
+                      point to find its scroller. The container is position
+                      relative to anchor the arrow INSIDE the frame. */}
                   <VStack ref={setLogsScrollRef} style={{ position: "relative" }}>
                     <CodeBlock
                       code={logText || t("Aucun log — ce modèle n'est pas démarré.")}
@@ -920,8 +920,8 @@ export default function AdminPage() {
                       width="100%"
                       maxHeight={280}
                     />
-                    {/* Flèche seule, centrée en bas du cadre (le coin haut-droit
-                        est déjà pris par le bouton Copier de CodeBlock). */}
+                    {/* Arrow alone, centered at the bottom of the frame (the top-right
+                        corner is already taken by the Copier button of CodeBlock). */}
                     {showLogsJump && (
                       <HStack
                         style={{
@@ -1020,9 +1020,9 @@ export default function AdminPage() {
               requests={data?.requests ?? []}
             />
 
-            {/* Une seule instance pour les quatre confirmations (arrêt modèle,
-                lancement, suppression catalogue, maintenance) : contenu piloté
-                par confirmAction. */}
+            {/* A single instance for the four confirmations (model stop,
+                launch, catalog deletion, maintenance): content driven
+                by confirmAction. */}
             <ConfirmActionDialog
               action={confirmAction}
               maintenanceActive={!!data?.maintenance_mode}
@@ -1053,16 +1053,16 @@ export default function AdminPage() {
 
 const BUDGET_PRESETS = [10000000, 50000000, 100000000];
 
-/** « 10M » plutôt que « 10 000 000 » sur les boutons : lisible d'un coup
-    d'œil. Les montants qui ne tombent pas juste restent en clair. */
+/** « 10M » rather than « 10 000 000 » on the buttons: readable at a glance.
+    Amounts that do not round cleanly stay spelled out. */
 const fmtCompact = (n: number, numLocale: string) =>
   n >= 1_000_000 && n % 1_000_000 === 0 ? `${Math.round(n / 1_000_000)}M` : Math.round(n).toLocaleString(numLocale);
 
 function BudgetSetForm({ rows, actionDisabled }: { rows: SpendRow[]; actionDisabled?: boolean }) {
-  /** Redéfinir le plafond d'un compte : montant EXACT (pas un ajout) — sert
-     à BAISSER un quota (200M → 50M) autant qu'à le hausser. L'utilisateur se
-     CHOISIT dans une liste (avec son plafond actuel affiché) : pas de nom à
-     taper au hasard. */
+  /** Reset an account's cap: EXACT amount (not an addition) — just as useful
+     to LOWER a quota (200M → 50M) as to raise it. The user is
+     CHOSEN from a list (with their current cap displayed): no name to
+     type blindly. */
   const t = useT();
   const numLocale = useLocale();
   const csrf = useCsrf();
@@ -1110,9 +1110,9 @@ function BudgetSetForm({ rows, actionDisabled }: { rows: SpendRow[]; actionDisab
             onClick={async () => {
               setBusy(true);
               try {
-                // Le verdict est LU : la route refuse explicitement (400) un
-                // plafond absurde (0, négatif, > 1e12 — le trou d'un montant
-                // tapé 6.7e12). Avec `postForm` seul, ce refus s'affichait
+                // The verdict is READ: the route explicitly refuses (400) an
+                // absurd cap (0, negative, > 1e12 — the hole of a 6.7e12
+                // typed amount). With `postForm` alone, this refusal displayed
                 // « Budget redéfini. ».
                 const res = await postFormVerifie(
                   `/admin/users/${encodeURIComponent(user.trim())}/budget/set`,
@@ -1139,13 +1139,13 @@ function BudgetApproveForm({ onApprove, fullname, currentBudget, isDisabled }: {
   onApprove: (amount: string, days: string) => void;
   fullname: string;
   currentBudget: number | null;
-  /** Pendant une action page entière (ou sans jeton CSRF) : ni l'ouverture du
-      dialog ni sa confirmation ne doivent partir. */
+  /** During a whole-page action (or without a CSRF token): neither the opening of
+      the dialog nor its confirmation must be sent. */
   isDisabled?: boolean;
 }) {
-  /** UN bouton par demande : « Approuver » ouvre un dialog avec montants en
-     un clic (+10M/+50M/+100M), une durée en segments (Permanente/1j/3j/7j/30j)
-     et l'aperçu du résultat AVANT de confirmer. Plus aucun champ à deviner. */
+  /** ONE button per request: « Approuver » opens a dialog with one-click amounts
+     (+10M/+50M/+100M), a duration in segments (Permanente/1j/3j/7j/30j)
+     and a preview of the result BEFORE confirming. No field left to guess. */
   const t = useT();
   const numLocale = useLocale();
   const [isOpen, setIsOpen] = useState(false);
@@ -1154,7 +1154,7 @@ function BudgetApproveForm({ onApprove, fullname, currentBudget, isDisabled }: {
   const fmt = (n: number) => Math.round(n).toLocaleString(numLocale);
   const base = currentBudget || 0;
   const total = base + (parseFloat(amount) || 0);
-  // eslint-disable-next-line react-hooks/purity -- aperçu « retour à la base le … » : la date est par nature relative à maintenant, recalculée à chaque ouverture du dialog
+  // eslint-disable-next-line react-hooks/purity -- « retour à la base le … » preview: the date is by nature relative to now, recomputed at each opening of the dialog
   const expire = days === "permanent" ? null : new Date(Date.now() + parseInt(days, 10) * 86400000);
   return (
     <>
@@ -1211,11 +1211,11 @@ function BudgetApproveForm({ onApprove, fullname, currentBudget, isDisabled }: {
   );
 }
 
-/** Dialog de confirmation pour les quatre actions à conséquence (arrêt du
- * modèle servi, lancement, suppression catalogue, bascule maintenance). Une
- * phrase de conséquence, un bouton de confirmation (destructive pour ce qui
- * coupe/détruit, primary pour le lancement), un bouton Annuler — le POST ne
- * part qu'au clic sur Confirmer. */
+/** Confirmation dialog for the four consequential actions (stopping the
+ * served model, launch, catalog deletion, maintenance toggle). A
+ * consequence sentence, a confirmation button (destructive for what
+ * cuts/destroys, primary for the launch), an Annuler button — the POST is
+ * only sent on the click on Confirmer. */
 function ConfirmActionDialog({ action, maintenanceActive, isDisabled, onClose, onConfirm }: {
   action: ConfirmAction | null;
   maintenanceActive: boolean;
@@ -1275,11 +1275,11 @@ function ConfirmActionDialog({ action, maintenanceActive, isDisabled, onClose, o
   );
 }
 
-/** Rendre les args d'une entrée du catalogue modifiables (POST
- * /admin/model/edit/<id>) : ils étaient figés à la création. Nom, HF ID et
- * moteur s'affichent en lecture seule — ce sont eux qui identifient l'entrée,
- * la route ne change que les args. Le champ `warning` du backend (routage
- * LiteLLM non rafraîchi) est montré quand il est présent. */
+/** Make the args of a catalog entry editable (POST
+ * /admin/model/edit/<id>): they were frozen at creation time. Name, HF ID and
+ * engine are displayed read-only — they are what identifies the entry,
+ * the route only changes the args. The backend `warning` field (LiteLLM
+ * routing not refreshed) is shown when present. */
 function ArgsEditForm({ cfg, isDisabled, onSubmit }: {
   cfg: ModelCfg;
   isDisabled: boolean;
@@ -1319,12 +1319,12 @@ function ArgsEditForm({ cfg, isDisabled, onSubmit }: {
                 });
                 if (res.ok) {
                   setIsOpen(false);
-                  // Les args sont enregistrés mais LiteLLM n'a pas suivi :
-                  // l'entrée reste routée avec d'anciennes limites de contexte.
+                  // The args are saved but LiteLLM did not follow:
+                  // the entry stays routed with old context limits.
                   if (res.warning) showToast({ body: res.warning, type: "error" });
                 }
-                // En échec, le dialog reste ouvert (l'erreur est déjà toastée
-                // par act()) : l'admin peut corriger et renvoyer.
+                // On failure, the dialog stays open (the error is already toasted
+                // by act()): the admin can fix and resubmit.
               }}
             />
           </HStack>

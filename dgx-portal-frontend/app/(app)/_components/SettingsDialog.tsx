@@ -70,7 +70,7 @@ type Account = {
   is_admin: boolean;
   spend: number;
   max_budget: number | null;
-  // Fin de la période d'enveloppe LiteLLM : c'est là que `spend` repart à zéro.
+  // End of the LiteLLM envelope period: that is where `spend` restarts from zero.
   budget_reset_at: string | null;
   budget_duration: string;
   unlimited: boolean;
@@ -144,8 +144,8 @@ const SECTION_TITLES: Record<Section, string> = {
 // Constant dialog size, whatever the displayed section.
 const DIALOG_HEIGHT = "min(86vh, 700px)";
 
-// La locale est passée par le composant : le formatage suit la langue
-// affichée et un helper hors composant ne peut pas appeler de hook.
+// The locale is passed by the component: the formatting follows the
+// displayed language and a helper outside a component cannot call a hook.
 function fmt(n: number, numLocale: string) {
   return Math.round(n).toLocaleString(numLocale);
 }
@@ -171,7 +171,7 @@ export function SettingsDialog({
 }: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  /** `null` = avatar généré depuis le pseudo (aucun logo choisi). */
+  /** `null` = avatar generated from the username (no logo chosen). */
   onAvatarChange?: (avatarId: string | null) => void;
   initialSection?: Section;
 }) {
@@ -227,14 +227,14 @@ export function SettingsDialog({
     onOpenChange(false);
   }
 
-  /** Envoie un formulaire de réglage et rend un verdict exploitable.
+  /** Sends a settings form and returns an actionable verdict.
    *
-   * Plusieurs actions de ce dialogue partaient « à l'aveugle » : `void
-   * postForm(...)` pour le thème, la langue et l'avatar, un `await
-   * postFormJSON(...)` dont on ignorait le `ok` pour l'interrupteur MCP, un
-   * `postForm` sans statut pour les suppressions. Une préférence refusée restait
-   * donc affichée comme appliquée jusqu'au rechargement, et une suppression
-   * ratée s'annonçait comme réussie.
+   * Several actions of this dialog went out « à l'aveugle »: `void
+   * postForm(...)` for the theme, the language and the avatar, an `await
+   * postFormJSON(...)` whose `ok` was ignored for the MCP toggle, a
+   * `postForm` without status for the deletions. A refused preference thus
+   * stayed displayed as applied until reload, and a failed deletion
+   * announced itself as successful.
    */
   async function envoyerForm(url: string, corps: Record<string, string>): Promise<boolean> {
     if (!csrf) return false;
@@ -259,8 +259,8 @@ export function SettingsDialog({
 
   async function saveMcp() {
     if (!csrf) return;
-    // Avant : `return` muet. Le bouton « Enregistrer le serveur » ne faisait
-    // donc RIEN tant que le nom ou l'URL manquait, sans dire lequel.
+    // Before: silent `return`. The « Enregistrer le serveur » button thus did
+    // NOTHING while the name or URL was missing, without saying which.
     const manquants = [!mcpForm.name.trim() && t("le nom"), !mcpForm.url.trim() && t("l'URL")]
       .filter(Boolean) as string[];
     if (manquants.length) {
@@ -294,11 +294,11 @@ export function SettingsDialog({
         showToast({ body: result.error ? t(result.error) : t("Échec de la connexion au serveur MCP."), type: "error" });
       }
     } catch {
-      // `postFormJSON` ne teste pas le statut et fait `res.json()` : un corps
-      // non-JSON (413 du plafond de formulaire, page HTML 502, 500 gunicorn)
-      // rejetait la promesse. Le `finally` rendait la main au bouton et
-      // l'utilisateur ne voyait STRICTEMENT RIEN, alors que rien n'était
-      // enregistré. Le motif est celui d'`envoyerForm`, juste au-dessus.
+      // `postFormJSON` does not check the status and runs `res.json()`: a
+      // non-JSON body (413 from the form ceiling, HTML page 502, gunicorn 500)
+      // rejected the promise. The `finally` gave the button back and the user
+      // saw STRICTLY NOTHING, while nothing had been saved.
+      // The pattern is the one of `envoyerForm`, just above.
       showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
     } finally {
       setIsSaving(false);
@@ -312,16 +312,16 @@ export function SettingsDialog({
           ? { ...prev, mcp_servers: prev.mcp_servers.map((s) => (s.id === id ? { ...s, enabled: v ? 1 : 0 } : s)) }
           : prev,
       );
-    basculer(enabled);                    // application immédiate, sans attendre le réseau
+    basculer(enabled);                    // immediate application, without waiting for the network
     if (!(await envoyerForm("/mcp", { action: "toggle", id: String(id), enabled: enabled ? "1" : "0" }))) {
-      // Le résultat était ignoré : un refus laissait l'interrupteur basculé,
-      // donc l'écran affirmait un état que le serveur n'avait pas enregistré.
+      // The result was ignored: a refusal left the toggle flipped, so the
+      // screen asserted a state the server had not saved.
       basculer(!enabled);
     }
   }
 
   async function deleteMcp(id: number, nom: string) {
-    // Suppression définitive (URL + secret) en un clic : on confirme.
+    // Permanent deletion (URL + secret) in one click: we confirm.
     if (!window.confirm(t("Supprimer le serveur MCP « {nom} » ? Son secret sera perdu.").replace("{nom}", nom))) return;
     if (await envoyerForm("/mcp", { action: "delete", id: String(id) })) {
       showToast({ body: t("Serveur MCP supprimé."), type: "info" });
@@ -360,8 +360,8 @@ export function SettingsDialog({
       showToast({ body: wasEdit ? t("Compétence mise à jour.") : t("Compétence enregistrée."), type: "info" });
       refresh();
     } catch {
-      // Même trou que `saveMcp` : sans `catch`, un 413/502 muet laissait croire
-      // à un enregistrement qui n'avait pas eu lieu.
+      // Same hole as `saveMcp`: without a `catch`, a silent 413/502 made it
+      // look like a save that had not happened.
       showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
     } finally {
       setIsSaving(false);
@@ -379,8 +379,8 @@ export function SettingsDialog({
   async function selectTheme(id: ThemeId) {
     const precedent = themeId;
     setThemeId(id);            // applied immediately, without waiting for the network
-    // …mais si le serveur refuse, on REVIENT au thème précédent : garder un
-    // choix non enregistré ferait croire qu'il tient, jusqu'au rechargement.
+    // …but if the server refuses, we REVERT to the previous theme: keeping an
+    // unsaved choice would make it look like it holds, until reload.
     if (!(await envoyerForm("/settings/appearance", { theme_id: id }))) setThemeId(precedent);
   }
 
@@ -392,8 +392,8 @@ export function SettingsDialog({
 
   async function selectAvatar(avatarId: string) {
     const precedent = data?.avatar_id ?? null;
-    // `""` (choix « généré ») se normalise en `null` : c'est ainsi que le reste
-    // de l'application représente « aucun logo choisi », et donc l'avatar généré.
+    // `""` (« généré » choice) normalizes to `null`: it is how the rest of the
+    // application represents « aucun logo choisi », and thus the generated avatar.
     const normalise = avatarId || null;
     setData((prev) => (prev ? { ...prev, avatar_id: normalise } : prev));
     if (await envoyerForm("/settings/avatar", { avatar_id: avatarId })) {
@@ -626,10 +626,10 @@ export function SettingsDialog({
                             value={Math.min(pct, 100)}
                             variant={pct >= 90 ? "error" : pct >= 70 ? "warning" : "success"}
                           />
-                          {/* Le compteur repart à zéro à la date de remise à
-                              zéro de l'enveloppe LiteLLM (hebdomadaire par
-                              défaut). L'afficher évite de croire à un quota
-                              quotidien qui ne remonte jamais. */}
+                          {/* The counter restarts from zero at the LiteLLM
+                              envelope reset date (weekly by default).
+                              Showing it avoids believing in a daily quota
+                              that never climbs back. */}
                           {acct.budget_reset_at ? (
                             <Text type="supporting" color="secondary">
                               {t("Remis à zéro le {date}.").replace(
@@ -814,8 +814,8 @@ export function SettingsDialog({
                     {t("Par défaut, ton avatar est créé à partir de ton pseudo. Tu peux aussi choisir un logo de marque d'IA — pas d'import d'image personnelle.")}
                   </Text>
                   <Grid columns={{ minWidth: 110, max: 5 }} gap={3}>
-                    {/* Attend les réglages : avant, le pseudo est inconnu et le
-                        monogramme afficherait « ? » le temps de la requête. */}
+                    {/* Waits for the settings: before, the handle is unknown and the
+                        monogram would show « ? » while the request runs. */}
                     {data && (
                       <SelectableCard
                         key="genere"
@@ -990,10 +990,10 @@ export function SettingsDialog({
                         />
                         <TextInput
                           label={t("Autorisation (optionnel)")}
-                          // Un jeton Bearer se masque comme un mot de passe : il
-                          // restait lisible en clair pendant la saisie (partage
-                          // d'écran, capture). Il n'est jamais re-servi par le
-                          // serveur (`/api/settings` n'expose que `has_auth`).
+                          // A Bearer token is masked like a password: it
+                          // stayed readable in clear text while typing (screen
+                          // sharing, screenshot). It is never re-served by the
+                          // server (`/api/settings` only exposes `has_auth`).
                           type="password"
                           value={mcpForm.auth}
                           onChange={(v) => setMcpForm((f) => ({ ...f, auth: v }))}

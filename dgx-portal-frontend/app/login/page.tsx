@@ -30,9 +30,9 @@ export default function LoginPage() {
   const [bg, setBg] = useState(BACKGROUNDS[0]);
 
   useEffect(() => {
-    // Refus renvoyé par le retour SSO : le drapeau d'URL est lu côté client,
-    // pas via useSearchParams (qui exigerait une frontière Suspense au
-    // prérendu, pour une page entièrement statique).
+    // Refusal returned by the SSO callback: the URL flag is read client-side,
+    // not via useSearchParams (which would require a Suspense boundary at
+    // pre-render, for a fully static page).
     if (new URLSearchParams(window.location.search).get("refus") === "bloque") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setError(t("Accès révoqué pour ce compte. Contacte un administrateur."));
@@ -86,10 +86,10 @@ export default function LoginPage() {
           res = await post(fresh);
         }
       }
-      // 2e facteur : mot de passe/LDAP valide mais la passkey est exigée. Le
-      // backend renvoie un JSON {webauthn_required, publicKey, nonce} et ne pose
-      // PAS encore la session. On déclenche `navigator.credentials.get` puis on
-      // finalise via /api/security/verify-login (qui, lui, ouvre la session).
+      // 2nd factor: valid password/LDAP but the passkey is required. The backend
+      // returns a {webauthn_required, publicKey, nonce} JSON and does NOT set the
+      // session yet. We trigger `navigator.credentials.get` then finalize via
+      // /api/security/verify-login (which, for its part, opens the session).
       const ct = res.headers.get("content-type") ?? "";
       if (res.ok && ct.includes("application/json")) {
         const body = await res.json().catch(() => null);
@@ -108,9 +108,9 @@ export default function LoginPage() {
       } else if (res.status === 400) {
         setError(t("Session expirée — recharge la page et réessaie."));
       } else if (res.status === 403) {
-        // Compte bloqué par un administrateur : le serveur envoie le message
-        // exact. Sans cette branche, l'intéressé lisait « identifiants
-        // incorrects » et réessayait un mot de passe qui était bon.
+        // Account blocked by an administrator: the server sends the exact message.
+        // Without this branch, the person read « identifiants incorrects » and
+        // retried a password that was fine.
         const body = await res.json().catch(() => null);
         setError(body?.error || t("Accès révoqué pour ce compte. Contacte un administrateur."));
       } else {

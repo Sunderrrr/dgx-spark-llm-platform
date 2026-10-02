@@ -36,15 +36,15 @@ function RequestForm() {
         ok: boolean; message?: string; error?: string; warning?: string; code?: string;
       }>("/request", csrf, { model_id: modelId.trim(), reason });
       if (!r.ok) {
-        // Refus du serveur (demande déjà en attente, identifiant vide…). On
-        // RESTE sur la page : renvoyer à l'accueil ferait croire à une demande
-        // enregistrée — c'est exactement ce que faisait l'ancien 204 muet.
+        // Server refusal (request already pending, empty identifier…). We
+        // STAY on the page: sending back home would look like a saved
+        // request — it is exactly what the old silent 204 did.
         showToast({ body: messageRefus(r), type: "error" });
         return;
       }
-      // Le message de succès est construit ici (et non repris du serveur) pour
-      // rester traduisible ; l'avertissement, lui, vient du serveur : il décrit
-      // un échec qu'il est seul à connaître.
+      // The success message is built here (not taken from the server) to stay
+      // translatable; the warning, for its part, comes from the server: it
+      // describes a failure only it knows about.
       showToast({ body: t("Demande envoyée !"), type: "info" });
       if (r.warning) showToast({ body: r.warning, type: "error" });
       router.push("/");
@@ -55,8 +55,8 @@ function RequestForm() {
     }
   }
 
-  /** Les refus stables portent un `code` : on les traduit. Le texte du serveur
-   * (français) ne sert que de repli pour les cas non prévus côté client. */
+  /** Stable refusals carry a `code`: we translate it. The server text
+   * (French) is only a fallback for cases not handled client-side. */
   function messageRefus(r: { error?: string; code?: string }): string {
     switch (r.code) {
       case "deja_en_attente":

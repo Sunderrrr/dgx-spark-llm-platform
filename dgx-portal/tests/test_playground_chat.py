@@ -197,7 +197,10 @@ class FluxSSETest(_BasePlayground):
         self.assertEqual(envoye['max_tokens'], 777)
         self.assertEqual(envoye['top_p'], 0.3)
         self.assertEqual(envoye['messages'][0]['role'], 'system')
-        self.assertEqual(envoye['messages'][0]['content'], 'Tu es bref.')
+        # The system carries the persona THEN the current date/time (the model
+        # has no clock) — the persona is the prefix, the clock cannot be cut.
+        self.assertTrue(envoye['messages'][0]['content'].startswith('Tu es bref.'))
+        self.assertIn('Nous sommes le', envoye['messages'][0]['content'])
         self.assertEqual(envoye['messages'][1]['content'], 'Salut')
         self.assertTrue(envoye['stream'])
         self.assertEqual(envoye['stream_options'], {'include_usage': True})
@@ -316,7 +319,24 @@ class ReglagesTest(_BasePlayground):
         vus = []
         self._flux(self._corps(system='x' * 9000),
                    post=self._amont_unique(_FauxAmont([_fin()]), vus))
-        self.assertEqual(len(vus[0]['json']['messages'][0]['content']), 4000)
+        # Truncated at 4000 chars, then the date/time line is APPENDED: a long
+        # persona must never be what cuts the clock.
+        contenu = vus[0]['json']['messages'][0]['content']
+        self.assertTrue(contenu.startswith('x' * 4000))
+        self.assertIn('Nous sommes le', contenu[4000:])
+
+    def test_le_system_porte_la_date_et_l_heure_courantes(self):
+        """The model has NO clock (MiMo, measured 2026-10-02: « je n'ai pas
+        accès à la date en temps réel »): the system prompt carries the current
+        date and time, refreshed at EVERY request so a conversation spanning
+        midnight stays right."""
+        vus = []
+        self._flux(self._corps(), post=self._amont_unique(_FauxAmont([_fin()]), vus))
+        contenu = vus[0]['json']['messages'][0]['content']
+        self.assertIn('Nous sommes le', contenu)
+        # weekday + day + month + year + "à HH:MM (timezone)"
+        self.assertRegex(contenu,
+                         r'Nous sommes le \S+ \d{1,2} \S+ \d{4} à \d{2}:\d{2} \(.+\)\.')
 
     def test_max_tokens_rabaisse_a_la_fenetre_restante(self):
         """The output cap ADDS UP to the prompt: beyond, the engine refuses the
@@ -629,6 +649,9 @@ class ImagesTest(_BasePlayground):
     def test_seules_les_images_recentes_partent(self):
         msgs = [{'role': 'user', 'content': f'q{i}', 'images': [IMG] * 4} for i in range(3)]
         m = self._envoye(msgs)
+        # The system message (persona + current date) never carries an image:
+        # the budget being tested is the conversation's.
+        m = [x for x in m if x['role'] != 'system']
         nb = [sum(1 for p in x['content'] if p['type'] == 'image_url')
               if isinstance(x['content'], list) else 0 for x in m]
         self.assertEqual(nb, [0, 4, 4])

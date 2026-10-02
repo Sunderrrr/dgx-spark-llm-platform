@@ -5,7 +5,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { useToast } from "@astryxdesign/core/Toast";
 import { MicrophoneIcon, StopIcon } from "@heroicons/react/24/outline";
 import { useEffect, useRef } from "react";
-import { useT } from "@/lib/i18n";
+import { useT, tServeur } from "@/lib/i18n";
 import type { Dictation } from "@/lib/useDictation";
 
 /**
@@ -40,7 +40,7 @@ export function DictateButton({
       body:
         error === "mic"
           ? t("Micro inaccessible — autorise l'accès au microphone dans ton navigateur.")
-          : error ? t(error) : t("Échec de la transcription."),
+          : error ? tServeur(error, t) : t("Échec de la transcription."),
       type: "error",
     });
   }, [error, showToast, t]);

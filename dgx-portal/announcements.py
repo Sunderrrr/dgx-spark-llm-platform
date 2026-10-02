@@ -1,9 +1,9 @@
-"""Annonces de la plateforme : enregistrement en base et diffusion Discord.
+"""Platform announcements: database recording and Discord broadcasting.
 
-Extrait de app.py le 28/08, depuis le reliquat de la banniere « Helpers ».
-Distinct de discord_notify.py, qui ne fait qu'ENVOYER : ici on decide QUOI
-annoncer (changement de modele, maintenance, annonce de site) et on le persiste
-pour que l'interface puisse le montrer aux utilisateurs qui ne l'ont pas vu.
+Extracted from app.py on 28/08, from the leftover « Helpers » banner.
+Distinct from discord_notify.py, which only SENDS: here we decide WHAT to
+announce (model change, maintenance, site announcement) and persist it so the
+interface can show it to users who have not seen it yet.
 """
 from datetime import datetime
 

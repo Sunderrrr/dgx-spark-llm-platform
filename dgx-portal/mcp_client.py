@@ -1,26 +1,26 @@
-"""Client MCP ("Model Context Protocol") minimal et synchrone.
+"""Minimal synchronous MCP ("Model Context Protocol") client.
 
-Le reste de l'app est du Flask/gunicorn synchrone qui utilise `requests`
-partout (ldap_authenticate, _chat, runner_launch...). Plutôt que d'importer
-le SDK officiel `mcp` (async-first : pydantic + anyio + httpx, à envelopper
-dans asyncio.run() à chaque appel), ce module reparle directement le
-transport « Streamable HTTP » de MCP — du JSON-RPC 2.0 simple sur HTTP POST —
-en ne couvrant que ce dont le chat Support a besoin : découvrir et appeler des
-outils (tools/list, tools/call). Pas de resources/prompts/sampling/roots.
+The rest of the app is synchronous Flask/gunicorn that uses `requests`
+everywhere (ldap_authenticate, _chat, runner_launch...). Rather than importing
+the official `mcp` SDK (async-first: pydantic + anyio + httpx, to be wrapped
+in asyncio.run() at every call), this module speaks MCP's
+« Streamable HTTP » transport directly — plain JSON-RPC 2.0 over HTTP POST —
+covering only what the Support chat needs: discovering and calling tools
+(tools/list, tools/call). No resources/prompts/sampling/roots.
 
-Chaque enregistrement de serveur MCP est fait par un utilisateur authentifié
-mais non admin (voir /mcp dans app.py) : le backend doit alors émettre des
-requêtes HTTP sortantes vers une URL que cet utilisateur contrôle, depuis le
-même réseau docker que litellm (LITELLM_MASTER_KEY), vllm-runner (peut
-lancer/arrêter un modèle) et postgres. _validate_url() est donc une défense
-SSRF obligatoire, pas un détail : elle résout le nom d'hôte et rejette toute
-IP privée/loopback/link-local (dont l'adresse de métadonnées cloud
-169.254.169.254)/CGNAT, en plus des noms de service docker-compose connus.
-Elle est appelée à l'enregistrement ET juste avant chaque requête live —
-cela n'élimine pas un DNS-rebinding minuté exactement entre la résolution et
-la connexion (il faudrait épingler l'IP via un adapter de transport custom),
-mais c'est une mitigation raisonnable pour une base d'utilisateurs interne et
-authentifiée, pas le grand internet anonyme.
+Every MCP server registration is done by an authenticated but non-admin
+user (see /mcp in app.py): the backend must then issue outgoing HTTP
+requests to a URL that user controls, from the same docker network as
+litellm (LITELLM_MASTER_KEY), vllm-runner (can start/stop a model) and
+postgres. _validate_url() is therefore a mandatory SSRF defence, not a
+detail: it resolves the hostname and rejects any private/loopback/link-local
+IP (including the cloud metadata address 169.254.169.254)/CGNAT, on top of
+the known docker-compose service names.
+It is called at registration AND right before every live request —
+this does not eliminate a DNS-rebinding timed exactly between the resolution
+and the connection (that would require pinning the IP via a custom transport
+adapter), but it is a reasonable mitigation for an internal, authenticated
+user base, not the wide anonymous internet.
 """
 
 import ipaddress
@@ -42,25 +42,25 @@ def _is_blocked_ip(ip_str):
     try:
         ip = ipaddress.ip_address(ip_str)
     except ValueError:
-        return True  # IP illisible : on refuse plutôt que de laisser passer
+        return True  # Unreadable IP: refuse rather than let it through
     return (
         ip.is_loopback or ip.is_link_local or ip.is_private or ip.is_reserved
         or ip.is_multicast or ip.is_unspecified
-        # CGNAT (100.64.0.0/10) : pas couvert par is_private sur toutes les
-        # versions de Python, vérifié explicitement.
+        # CGNAT (100.64.0.0/10): not covered by is_private on all Python
+        # versions, checked explicitly.
         or ip in ipaddress.ip_network('100.64.0.0/10')
     )
 
 
 def resolve_validated_mcp_ip(url):
-    """Valide l'URL et résout l'hôte **une seule fois**. Retourne
-    (ok, message_erreur_ou_None, ip_à_épingler).
+    """Validates the URL and resolves the host **exactly once**. Returns
+    (ok, error_message_or_None, ip_to_pin).
 
-    L'IP renvoyée doit être celle utilisée pour la connexion (cf.
-    `_PinnedIPHTTPSAdapter`) : sans ça, `requests` re-résout le nom au moment de
-    la connexion et un serveur peut répondre une IP publique à cette validation
-    puis `127.0.0.1`/une IP interne à la 2ᵉ résolution (DNS-rebinding / TOCTOU),
-    contournant le filtre.
+    The returned IP must be the one used for the connection (see
+    `_PinnedIPHTTPSAdapter`): without it, `requests` re-resolves the name at
+    connection time and a server can answer a public IP to this validation
+    then `127.0.0.1`/an internal IP at the 2nd resolution (DNS-rebinding /
+    TOCTOU), bypassing the filter.
     """
     try:
         parsed = urlparse(url)
@@ -90,17 +90,17 @@ def resolve_validated_mcp_ip(url):
 
 
 def validate_mcp_url(url):
-    """Retourne (ok, message_erreur_ou_None). Pré-contrôle UX ; la connexion
-    réelle passe par resolve_validated_mcp_ip() qui épingle l'IP résolue."""
+    """Returns (ok, error_message_or_None). UX pre-check; the real connection
+    goes through resolve_validated_mcp_ip() which pins the resolved IP."""
     ok, err, _ = resolve_validated_mcp_ip(url)
     return ok, err
 
 
 class _PinnedIPHTTPSAdapter(requests.adapters.HTTPAdapter):
-    """Force la connexion vers une IP déjà validée, tout en gardant le hostname
-    d'origine pour le SNI et la validation du certificat TLS. C'est ce qui ferme
-    la fenêtre de DNS-rebinding : l'IP vérifiée est exactement celle contactée,
-    sans 2ᵉ résolution DNS."""
+    """Forces the connection to an already validated IP, while keeping the
+    original hostname for the SNI and the TLS certificate validation. This is
+    what closes the DNS-rebinding window: the checked IP is exactly the one
+    contacted, with no 2nd DNS resolution."""
 
     def __init__(self, pinned_ip, **kwargs):
         self._pinned_ip = pinned_ip
@@ -109,7 +109,7 @@ class _PinnedIPHTTPSAdapter(requests.adapters.HTTPAdapter):
     def send(self, request, **kwargs):
         parsed = urlparse(request.url)
         host = parsed.hostname or ''
-        # SNI + validation du cert sur le vrai hostname malgré la connexion par IP.
+        # SNI + cert validation on the real hostname despite connecting by IP.
         self.poolmanager.connection_pool_kw['server_hostname'] = host
         self.poolmanager.connection_pool_kw['assert_hostname'] = host
         ip = f"[{self._pinned_ip}]" if ':' in self._pinned_ip else self._pinned_ip
@@ -124,11 +124,11 @@ class MCPError(Exception):
 
 
 class MCPClient:
-    """Client HTTP synchrone pour un serveur MCP distant (transport Streamable HTTP)."""
+    """Synchronous HTTP client for a remote MCP server (Streamable HTTP transport)."""
 
-    # Court : un serveur MCP lent enregistré par un utilisateur peut bloquer
-    # un thread gunicorn (peu de workers/threads) pendant toute la durée du
-    # timeout, jusqu'à 4 fois dans la boucle d'outils de support_chat().
+    # Short: a slow MCP server registered by a user can block a gunicorn thread
+    # (few workers/threads) for the whole timeout duration, up to 4 times in the
+    # support_chat() tool loop.
     def __init__(self, url, auth_header=None, timeout=5):
         self.url = url
         self.auth_header = auth_header
@@ -147,9 +147,9 @@ class MCPClient:
         return h
 
     def _post(self, **kwargs):
-        """POST vers le serveur MCP en épinglant l'IP validée (anti-rebinding) et
-        en refusant les redirections. Résout+valide l'hôte une seule fois, juste
-        avant de se connecter à cette IP-là."""
+        """POST to the MCP server pinning the validated IP (anti-rebinding) and
+        refusing redirects. Resolves+validates the host once only, right before
+        connecting to that very IP."""
         ok, err, ip = resolve_validated_mcp_ip(self.url)
         if not ok:
             raise MCPError(err)
@@ -164,15 +164,15 @@ class MCPClient:
     def _rpc(self, method, params=None):
         payload = {'jsonrpc': '2.0', 'id': str(uuid.uuid4()), 'method': method,
                    'params': params or {}}
-        # allow_redirects=False : requests suit les redirections par défaut
-        # SANS revalider l'hôte de destination — un serveur passerait la
-        # validation puis rediriger vers une IP interne la contournerait. On
-        # refuse toute redirection plutôt que de la suivre. L'IP est en plus
-        # épinglée (cf. _post) pour fermer la fenêtre de DNS-rebinding.
+        # allow_redirects=False: requests follows redirects by default WITHOUT
+        # revalidating the destination host — a server would pass the validation then
+        # redirect to an internal IP and bypass it. We refuse every redirect rather
+        # than follow it. The IP is also pinned (see _post) to close the
+        # DNS-rebinding window.
         r = self._post(json=payload)
-        # `Response.is_redirect` = présence d'un `Location` ET statut dans
-        # (301, 302, 303, 307, 308) : le test explicite qui suivait rejouait donc
-        # exactement la même condition.
+        # `Response.is_redirect` = presence of a `Location` AND status in
+        # (301, 302, 303, 307, 308): the explicit test that followed replayed exactly
+        # the same condition.
         if r.is_redirect:
             raise MCPError("Le serveur MCP a répondu par une redirection, refusée.")
         if r.status_code >= 400:
@@ -207,9 +207,9 @@ class MCPClient:
             'capabilities': {},
             'clientInfo': {'name': 'cronos-support', 'version': '1.0'},
         })
-        # Notification (pas de réponse attendue) — best-effort, certains
-        # serveurs l'exigent avant d'accepter tools/list. allow_redirects=False
-        # pour la même raison que dans _rpc().
+        # Notification (no answer expected) — best-effort, some servers require it
+        # before accepting tools/list. allow_redirects=False for the same reason as
+        # in _rpc().
         try:
             self._post(json={'jsonrpc': '2.0', 'method': 'notifications/initialized'})
         except Exception:
@@ -227,17 +227,17 @@ class MCPClient:
         return text, not result.get('isError', False)
 
 
-# Cache mémoire process-local (pas partagé entre workers gunicorn, ce qui est
-# acceptable : au pire un worker refait un tools/list qu'un autre a déjà en
-# cache — pas un problème de correction, juste une micro-économie de latence).
+# process-local in-memory cache (not shared between gunicorn workers, which is
+# acceptable: at worst one worker redoes a tools/list another already has
+# cached — not a correctness issue, just a tiny latency economy).
 _tools_cache = {}
 _TOOLS_TTL = 120
 
 
 def invalidate_tools(server_id):
-    """Oublie les outils mis en cache d'un serveur — à appeler dès que son URL,
-    son auth ou son filtre changent, sinon on continuerait à exposer au modèle
-    les outils de l'ancienne configuration jusqu'à l'expiration du TTL."""
+    """Forgets a server's cached tools — to be called as soon as its URL, auth or
+    filter changes, otherwise we would keep exposing the old configuration's
+    tools to the model until the TTL expires."""
     _tools_cache.pop(server_id, None)
 
 
@@ -251,10 +251,10 @@ def list_tools_cached(server_id, url, auth_header):
         client.initialize()
         tools = client.list_tools()
     except Exception:
-        # On met AUSSI l'échec en cache. Sans ça, un serveur injoignable
-        # refacturait ses deux timeouts (jusqu'à 10 s) à chaque message de
-        # chat, puisque seul le succès était mémorisé : quelques serveurs
-        # morts suffisaient à bloquer un thread gunicorn pendant des minutes.
+        # We cache the FAILURE too. Without it, an unreachable server would re-charge
+        # its two timeouts (up to 10 s) on every chat message, since only success was
+        # memorized: a few dead servers were enough to block a gunicorn thread for
+        # minutes.
         _tools_cache[server_id] = (now, [])
         return []
     _tools_cache[server_id] = (now, tools)

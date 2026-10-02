@@ -1,10 +1,10 @@
-"""Garde-fous d'authentification et de rendu des réponses du portail.
+"""Authentication guardrails and response rendering of the portal.
 
-Ces tests couvrent ce qui a réellement cassé en production par le passé :
-l'open-redirect du paramètre `next`, le verrouillage anti-brute-force (qui
-vivait en mémoire de process et repartait à zéro à chaque redéploiement), la
-protection CSRF, et la collision possible entre un outil de serveur MCP et un
-outil privilégié intégré.
+These tests cover what really broke in production in the past: the
+open-redirect of the `next` parameter, the anti-brute-force lockout (which
+lived in process memory and restarted at every redeploy), the CSRF
+protection, and the possible collision between an MCP server tool and a
+built-in privileged tool.
 """
 
 import ast
@@ -17,24 +17,24 @@ import unittest
 from unittest.mock import patch
 
 import app as portal
-# _apply_session vit dans auth.py : c'est lui qui décide du sort du jeton CSRF
-# au moment d'ouvrir une session (voir CsrfApresConnexionTest).
+# _apply_session lives in auth.py: it decides the fate of the CSRF token
+# when opening a session (see CsrfApresConnexionTest).
 import auth
-# Le chat a quitte le monolithe pour chat_routes.py (28/08) : on le vise dans
-# son module proprietaire.
+# The chat left the monolith for chat_routes.py (28/08): we target it in
+# its own module.
 import chat_routes as chat
-# Le support a quitte le monolithe pour support.py (28/08) : on le vise dans
-# son module proprietaire.
+# The support left the monolith for support.py (28/08): we target it in
+# its own module.
 import support as assistance
-# Ces symboles ont quitte le monolithe pour websearch_tools.py (28/08) : on les
-# vise dans leur module proprietaire plutot que de faire de app.py une facade.
+# These symbols left the monolith for websearch_tools.py (28/08): we
+# target their own module rather than make app.py a facade.
 import websearch_tools as outils_web
 
 import admin_routes
 
 
 class SafeNextTest(unittest.TestCase):
-    """`?next=` ne doit jamais renvoyer ailleurs que sur le portail."""
+    """`?next=` must never send back anywhere but the portal."""
 
     def _resolve(self, target):
         with portal.app.test_request_context():
@@ -54,8 +54,8 @@ class SafeNextTest(unittest.TestCase):
 
 
 class LoginLockoutTest(unittest.TestCase):
-    """Le compteur est en base : il doit être partagé entre workers et
-    survivre à un redémarrage."""
+    """The counter is in database: it must be shared across workers and
+    survive a restart."""
 
     def setUp(self):
         self.ctx = portal.app.test_request_context()
@@ -92,8 +92,8 @@ class LoginLockoutTest(unittest.TestCase):
     def test_fenetre_glissante(self):
         cle = 'ip-test|bob'
         portal._login_fail(cle)
-        # Antidate la première tentative au-delà de la fenêtre : le compteur
-        # doit repartir de zéro plutôt que de cumuler indéfiniment.
+        # Backdates the first attempt beyond the window: the counter must
+        # restart from zero rather than accumulate forever.
         portal.get_db().execute("UPDATE login_attempts SET first_at=? WHERE key=?",
                                 (time.time() - portal.LOGIN_WINDOW - 10, cle))
         portal.get_db().commit()
@@ -104,9 +104,9 @@ class LoginLockoutTest(unittest.TestCase):
 
 
 class LoginLockoutParUserTest(unittest.TestCase):
-    """Le seuil de verrouillage doit aussi se cumuler par username, pas seulement
-    par IP : un botnet qui change d'IP à chaque essai ne doit pas contourner la
-    protection (chaque IP seule reste sous le seuil, le compte lui se verrouille)."""
+    """The lockout threshold must also accumulate per username, not only per
+    IP: a botnet changing IP at each try must not bypass the protection
+    (each single IP stays under the threshold, the account itself locks)."""
 
     def setUp(self):
         portal.app.config['TESTING'] = True
@@ -120,20 +120,20 @@ class LoginLockoutParUserTest(unittest.TestCase):
             portal.get_db().commit()
 
     def _login(self, ip, username, password='x'):
-        # Username avec '@' (échoue USERNAME_RE) pour ne pas dépendre d'un LDAP
-        # joignable : le chemin d'échec reste instantané et purement local.
+        # Username with '@' (fails USERNAME_RE) so as not to depend on a
+        # reachable LDAP: the failure path stays instant and purely local.
         return self.client.post('/login',
                                 data={'username': username, 'password': password},
                                 headers={'X-CSRFToken': 'test-csrf',
                                          'Cf-Connecting-Ip': ip})
 
     def test_identifiant_invalide_n_ecrit_rien_et_ne_verrouille_pas(self):
-        """Un identifiant hors format est refusé AVANT toute écriture en base.
+        """An out-of-format identifier is refused BEFORE any database write.
 
-        `username` vient d'un formulaire non authentifié et sert de clé à
-        `login_attempts` : sans filtre, un nom neuf de 4 Mo écrivait ~8 Mo de
-        lignes par requête (clé différente à chaque fois, donc jamais verrouillé)
-        et la table n'est purgée qu'au démarrage.
+        `username` comes from an unauthenticated form and keys
+        `login_attempts`: without a filter, a fresh 4 Mo name wrote ~8 Mo of
+        rows per request (different key each time, thus never locked) and the
+        table is only purged at startup.
         """
         r = self._login('198.51.100.250', 'x' * 300)
         self.assertEqual(r.status_code, 401)
@@ -143,10 +143,10 @@ class LoginLockoutParUserTest(unittest.TestCase):
             self.assertIsNone(row, "rien ne doit être écrit pour un identifiant refusé")
 
     def test_botnet_ip_rotatives_verrouille_le_user(self):
-        # Nom d'utilisateur conforme au format accepté partout (USERNAME_RE) :
-        # c'est le compteur par compte qu'on éprouve, pas le filtre d'entrée.
+        # Username matching the format accepted everywhere (USERNAME_RE):
+        # we exercise the per-account counter, not the input filter.
         u = 'bob.cible'
-        for i in range(portal.LOGIN_MAX_FAILS - 1):  # seuil - 1, IPs toutes différentes
+        for i in range(portal.LOGIN_MAX_FAILS - 1):  # threshold - 1, all different IPs
             self.assertEqual(self._login(f'198.51.100.{i+1}', u).status_code, 401)
         with portal.app.test_request_context():
             row = portal.get_db().execute(
@@ -154,8 +154,8 @@ class LoginLockoutParUserTest(unittest.TestCase):
             self.assertIsNotNone(row)
             self.assertEqual(row['fails'], portal.LOGIN_MAX_FAILS - 1)
             self.assertEqual(portal._login_locked('user:bob.cible'), 0)
-        # Le seuil est atteint sur le compte → verrouillé, même depuis une IP neuve,
-        # et la tentative suivante est bloquée AVANT d'être comptée.
+        # The threshold is reached on the account → locked, even from a new IP,
+        # and the next attempt is blocked BEFORE being counted.
         self.assertEqual(self._login('203.0.113.201', u).status_code, 401)
         with portal.app.test_request_context():
             self.assertGreater(portal._login_locked('user:bob.cible'), 0)
@@ -166,9 +166,9 @@ class LoginLockoutParUserTest(unittest.TestCase):
 
 
 class SessionRegistryTest(unittest.TestCase):
-    """Le registre serveur rend la révocation immédiate possible : un compte
-    verrouillé / une session révoquée expire tout de suite, même si le cookie
-    signé (volé ou rejoué) est encore valide."""
+    """The server-side registry makes immediate revocation possible: a locked
+    account / a revoked session expires at once, even if the signed cookie
+    (stolen or replayed) is still valid."""
 
     def setUp(self):
         self.ctx = portal.app.test_request_context()
@@ -200,19 +200,19 @@ class SessionRegistryTest(unittest.TestCase):
         self.assertTrue(portal._session_expired())
 
     def test_session_sans_sid_nest_pas_expire(self):
-        # Session sans sid (postérieure au registre ? non : antérieure, ou de
-        # test) : on garde l'expiration par l'âge, pas de révocation forcée —
-        # c'est ce qui évite de déconnecter tout le monde à la migration.
+        # Session without sid (later than the registry? no: earlier, or a
+        # test one): we keep expiry by age, no forced revocation — this is
+        # what avoids logging everyone out at migration time.
         portal.session['username'] = 'bob'
         portal.session['auth_at'] = int(time.time())
         self.assertFalse(portal._session_expired())
-        # Mais une session sans sid et trop âgée expire bien par l'âge.
+        # But a session without sid and too old does expire by age.
         portal.session['auth_at'] = int(time.time()) - portal.SESSION_MAX_AGE - 10
         self.assertTrue(portal._session_expired())
 
 
 class CsrfTest(unittest.TestCase):
-    """Toute requête non sûre doit porter un jeton CSRF valide."""
+    """Every unsafe request must carry a valid CSRF token."""
 
     def setUp(self):
         portal.app.config['TESTING'] = True
@@ -231,7 +231,7 @@ class CsrfTest(unittest.TestCase):
 
 
 class AuthGateTest(unittest.TestCase):
-    """Les endpoints protégés ne doivent rien servir sans session."""
+    """Protected endpoints must serve nothing without a session."""
 
     def setUp(self):
         portal.app.config['TESTING'] = True
@@ -244,7 +244,7 @@ class AuthGateTest(unittest.TestCase):
 
 
 class McpToolNameTest(unittest.TestCase):
-    """Un serveur MCP hostile ne doit pas pouvoir masquer un outil intégré."""
+    """A hostile MCP server must not be able to mask a built-in tool."""
 
     def test_prefixe_toujours_present(self):
         self.assertTrue(assistance._mcp_tool_name(3, 'search').startswith('mcp_3_'))
@@ -272,7 +272,7 @@ class CleanReplyTest(unittest.TestCase):
 
 
 class SseFramingTest(unittest.TestCase):
-    """Le frontend ne lit que les lignes `data:` ; le cadrage doit rester exact."""
+    """The frontend only reads `data:` lines; the framing must stay exact."""
 
     def test_trame_texte(self):
         trame = chat._sse_text('salut')
@@ -281,7 +281,7 @@ class SseFramingTest(unittest.TestCase):
         self.assertIn('salut', trame)
 
     def test_echappe_les_sauts_de_ligne(self):
-        # Un \n brut couperait la trame SSE en deux et casserait le flux.
+        # A raw \n would cut the SSE frame in two and break the stream.
         self.assertNotIn('\n', chat._sse_text('a\nb')[:-2])
 
     def test_done_optionnel(self):
@@ -291,10 +291,10 @@ class SseFramingTest(unittest.TestCase):
 
 class AvatarTest(unittest.TestCase):
     def test_liste_blanche_stricte(self):
-        # L'id atterrit dans un src d'<img> : pas d'entrée libre.
+        # The id lands in an <img> src: no free input.
         self.assertIn('claude', portal.AVATAR_IDS)
         self.assertNotIn('../../etc/passwd', portal.AVATAR_IDS)
-        self.assertNotIn('avatar-01', portal.AVATAR_IDS)  # ancien jeu retiré
+        self.assertNotIn('avatar-01', portal.AVATAR_IDS)  # old set removed
 
 
 if __name__ == '__main__':
@@ -302,8 +302,8 @@ if __name__ == '__main__':
 
 
 class SessionLifetimeTest(unittest.TestCase):
-    """Une session ne doit pas être éternelle : le cookie signé porte
-    `is_admin`, un vol de cookie donnait sinon un accès permanent."""
+    """A session must not be eternal: the signed cookie carries `is_admin`,
+    a cookie theft otherwise gave permanent access."""
 
     def test_session_fraiche_valide(self):
         with portal.app.test_request_context():
@@ -320,8 +320,8 @@ class SessionLifetimeTest(unittest.TestCase):
             self.assertTrue(portal._session_expired())
 
     def test_session_sans_horodatage_est_perimee(self):
-        # Sessions émises avant l'ajout d'auth_at : on préfère forcer une
-        # reconnexion plutôt que de les traiter comme éternelles.
+        # Sessions issued before auth_at was added: we prefer forcing a
+        # re-login rather than treat them as eternal.
         with portal.app.test_request_context():
             from flask import session
             session['username'] = 'bob'
@@ -333,9 +333,9 @@ class SessionLifetimeTest(unittest.TestCase):
 
 
 class GuardedToolsTest(unittest.TestCase):
-    """Le résultat d'un outil MCP/compétence est du texte tiers réinjecté dans
-    le contexte du modèle : les actions irréversibles doivent être hors de
-    portée d'une injection de prompt."""
+    """The result of an MCP/skill tool is third-party text reinjected in the
+    model's context: irreversible actions must be out of reach of a prompt
+    injection."""
 
     def test_les_actions_destructives_sont_gardees(self):
         for nom in ('revoke_api_key', 'launch_model', 'stop_model'):
@@ -347,9 +347,9 @@ class GuardedToolsTest(unittest.TestCase):
 
 
 class OidcUsernameTest(unittest.TestCase):
-    """preferred_username/nickname/email sont modifiables par l'utilisateur
-    dans beaucoup d'IdP, et cette valeur devient la clé de propriété de toutes
-    les données : elle doit passer le même filtre que le chemin LDAP."""
+    """preferred_username/nickname/email are user-modifiable in many IdPs,
+    and that value becomes the ownership key of all data: it must pass the
+    same filter as the LDAP path."""
 
     def test_accepte_un_identifiant_normal(self):
         for nom in ('alice', 'jean.dupont', 'a-b_c', 'x' * 64):
@@ -362,11 +362,11 @@ class OidcUsernameTest(unittest.TestCase):
 
 
 class CsrfLazyTest(unittest.TestCase):
-    """Régression : le jeton était créé dans before_request, donc CHAQUE
-    réponse posait un Set-Cookie. Sur /login, /api/csrf et /api/whoami partent
-    en parallèle sans cookie : chacune créait une session neuve avec un jeton
-    différent, le dernier Set-Cookie écrasait l'autre, et le POST /login
-    partait avec un jeton orphelin → 400, affiché « Identifiants incorrects »."""
+    """Regression: the token was created in before_request, so EVERY
+    response set a Set-Cookie. On /login, /api/csrf and /api/whoami go out
+    in parallel without a cookie: each created a fresh session with a
+    different token, the last Set-Cookie overwrote the other, and the POST
+    /login left with an orphan token → 400, displayed « Identifiants incorrects »."""
 
     def test_une_requete_anonyme_ne_cree_pas_de_session(self):
         client = portal.app.test_client()
@@ -384,7 +384,7 @@ class CsrfLazyTest(unittest.TestCase):
     def test_le_jeton_est_stable_entre_deux_appels(self):
         client = portal.app.test_client()
         premier = client.get('/api/csrf').get_json()['token']
-        # Une requête intercalée ne doit pas faire tourner le jeton.
+        # An interleaved request must not rotate the token.
         client.get('/api/whoami')
         self.assertEqual(client.get('/api/csrf').get_json()['token'], premier)
 
@@ -394,15 +394,15 @@ class CsrfLazyTest(unittest.TestCase):
 
 
 class CsrfApresConnexionTest(unittest.TestCase):
-    """Régression du 2026-09-14 : ouvrir une session REMPLAÇAIT le jeton CSRF.
+    """Regression of 2026-09-14: opening a session REPLACED the CSRF token.
 
-    Le navigateur garde celui qu'il a mémorisé au chargement de la page ; à partir
-    de là, tout POST gardé partait avec l'ancien et recevait « 400 Bad Request —
-    CSRF token manquant ou invalide ». Signalé sur la DÉCONNEXION après un login
-    SSO, c'est-à-dire l'endroit où l'utilisateur se retrouve sans aucun moyen de
-    sortir. Le jeton vit dans un cookie signé et HttpOnly : le reprendre ne
-    rouvre pas la fixation CSRF, et le `sid` neuf continue d'assurer la protection
-    contre la fixation de session.
+    The browser keeps the one it memorized at page load; from then on every
+    kept POST left with the old one and got « 400 Bad Request —
+    CSRF token manquant ou invalide ». Reported on the LOGOUT after an SSO
+    login, i.e. the place where the user is left with no way out. The token
+    lives in a signed and HttpOnly cookie: keeping it does not reopen CSRF
+    fixation, and the fresh `sid` keeps assuring the protection against
+    session fixation.
     """
 
     def test_le_jeton_du_client_survit_a_l_ouverture_de_session(self):
@@ -422,7 +422,7 @@ class CsrfApresConnexionTest(unittest.TestCase):
             self.assertTrue(session_flask.get('csrf'))
 
     def test_la_deconnexion_accepte_le_jeton_du_client(self):
-        """Le chemin complet du symptôme : session SSO, jeton du client, POST."""
+        """The full path of the symptom: SSO session, client token, POST."""
         client = portal.app.test_client()
         with client.session_transaction() as s:
             s['csrf'] = 'jeton-du-client'
@@ -435,7 +435,7 @@ class CsrfApresConnexionTest(unittest.TestCase):
         self.assertEqual(reponse.status_code, 302)
 
     def test_la_deconnexion_refuse_toujours_un_jeton_invente(self):
-        """Le correctif ne doit pas transformer la garde en passoire."""
+        """The fix must not turn the guard into a sieve."""
         client = portal.app.test_client()
         with client.session_transaction() as s:
             s['csrf'] = 'jeton-du-client'
@@ -446,10 +446,10 @@ class CsrfApresConnexionTest(unittest.TestCase):
 
 
 class ClientIpTest(unittest.TestCase):
-    """La chaîne est client → Cloudflare → Traefik → Next.js → Flask :
-    request.remote_addr valait toujours l'IP du conteneur frontend, la même
-    pour tout le monde. Le verrou global _login_locked(ip) additionnait donc
-    les échecs de TOUS les utilisateurs et bloquait le portail entier."""
+    """The chain is client → Cloudflare → Traefik → Next.js → Flask:
+    request.remote_addr was always the frontend container IP, the same for
+    everyone. The global lock _login_locked(ip) thus added up the failures
+    of ALL users and blocked the whole portal."""
 
     def _ip(self, headers):
         with portal.app.test_request_context(headers=headers,
@@ -475,11 +475,11 @@ class ClientIpTest(unittest.TestCase):
 
 
 class HistoriqueModeleTest(unittest.TestCase):
-    """Ce que le playground renvoie au modèle ne doit JAMAIS être amputé.
+    """What the playground sends back to the model must NEVER be amputated.
 
-    Le bug d'origine : chaque message était tronqué à 8 000 caractères, donc après
-    une longue réponse le modèle relisait son propre fichier coupé en plein milieu
-    et affirmait s'être interrompu — ce qui était vrai de son point de vue.
+    The original bug: each message was truncated to 8 000 characters, so
+    after a long answer the model re-read its own file cut mid-way and
+    claimed to have interrupted itself — true from its point of view.
     """
 
     def _msgs(self, *tailles):
@@ -496,11 +496,11 @@ class HistoriqueModeleTest(unittest.TestCase):
         self.assertEqual(chat._history_for_model(h, '', None), h)
 
     def test_le_debordement_retire_les_plus_anciens(self):
-        # budget = (32768 - 8192) * 3 = 73 728 caractères
+        # budget = (32768 - 8192) * 3 = 73 728 characters
         h = self._msgs(40_000, 40_000, 40_000, 500)
         out = chat._history_for_model(h, '', 32768)
         self.assertLess(len(out), len(h))
-        # le dernier échange survit toujours, entier
+        # the last exchange always survives, whole
         self.assertEqual(out[-1]['content'], h[-1]['content'])
         self.assertEqual(len(out[-2]['content']), 40_000)
 
@@ -518,13 +518,13 @@ class HistoriqueModeleTest(unittest.TestCase):
 
 
 class ContexteOutilsTest(unittest.TestCase):
-    """La phase outils relit une version COURTE de la conversation.
+    """The tool phase re-reads a SHORT version of the conversation.
 
-    Lui passer l'historique entier ajoutait un préchargement complet avant la
-    réponse : mesuré 30 s sur 100 Ko de contexte, plus de 60 s au-delà — et le
-    client abandonnait sur une conversation un peu ancienne, alors qu'une
-    conversation neuve fonctionnait. Décider « faut-il chercher ? » ne demande
-    pas de relire un fichier de 65 Ko.
+    Passing it the whole history added a full preload before the answer:
+    measured 30 s on 100 Ko of context, over 60 s beyond — and the client
+    gave up on a slightly old conversation, while a fresh one worked.
+    Deciding « faut-il chercher ? » does not call for re-reading a 65 Ko
+    file.
     """
 
     def test_un_gros_message_est_raccourci(self):
@@ -553,8 +553,8 @@ class ContexteOutilsTest(unittest.TestCase):
         self.assertIn('consignes', out[0]['content'])
 
     def test_debut_et_fin_conserves_dans_un_message_coupe(self):
-        # La demande est souvent en tête, la dernière consigne en queue : c'est le
-        # ventre du fichier qui n'apprend rien.
+        # The request is often at the top, the last instruction at the tail: it is
+        # the belly of the file that teaches nothing.
         msgs = [{'role': 'user', 'content': 'DEBUT' + 'm' * 60_000 + 'FIN'}]
         out = outils_web._contexte_outils(msgs)
         self.assertIn('DEBUT', out[-1]['content'])
@@ -568,12 +568,12 @@ class ContexteOutilsTest(unittest.TestCase):
 
 
 class PertinenceRechercheTest(unittest.TestCase):
-    """La recherche ne part que sur une directive explicite.
+    """Search only goes out on an explicit directive.
 
-    Cinq versions ont échoué en production en devinant l'intention à partir de
-    mots isolés : « google » venait d'une balise de police, « source » d'un
-    createBufferSource, « en ligne » d'un « jeu d'échecs en ligne » — celle-là a
-    bloqué un utilisateur six fois de suite.
+    Five versions failed in production by guessing the intent from isolated
+    words: « google » came from a font tag, « source » from a
+    createBufferSource, « en ligne » from a « jeu d'échecs en ligne » — that
+    one blocked one user six times in a row.
     """
 
     def _u(self, t):
@@ -599,14 +599,14 @@ class PertinenceRechercheTest(unittest.TestCase):
                   "fais une recherche sur les ondes sonores",
                   "lance une recherche web",
                   "recherche web : propagation du son",
-                  # « en ligne » n'est plus une cible : il décrit un état plus
-                  # souvent qu'il ne désigne le web (« site en ligne »).
+                  # « en ligne » is no longer a target: it describes a state more
+                  # often than it names the web (« site en ligne »).
                   "renseigne-toi sur internet là-dessus"):
             self.assertTrue(outils_web._recherche_pertinente(self._u(t)), t)
 
     def test_mettre_en_ligne_ne_declenche_pas(self):
-        # 2026-09 : « en ligne » décrit un état ; « je cherche à mettre mon
-        # site en ligne » a ouvert une recherche web — c'est fini.
+        # 2026-09: « en ligne » describes a state; « je cherche à mettre mon
+        # site en ligne » opened a web search — that is over.
         for t in ("je cherche à mettre mon site en ligne",
                   "regarde pourquoi mon serveur n'est plus en ligne",
                   "fais-moi un jeu d'échecs en ligne"):
@@ -622,10 +622,10 @@ class PertinenceRechercheTest(unittest.TestCase):
 
 
 class VersionsPerimeesTest(unittest.TestCase):
-    """Seule la dernière version de chaque fichier repart au modèle.
+    """Only the last version of each file goes back to the model.
 
-    Mesuré sur les conversations réelles : 42 332 des 72 182 caractères d'un fil
-    étaient d'anciennes versions du même fichier, rejouées à chaque message.
+    Measured on real conversations: 42 332 of the 72 182 characters of a
+    thread were old versions of the same file, replayed at every message.
     """
 
     def _msg(self, role, contenu):
@@ -682,11 +682,11 @@ class VersionsPerimeesTest(unittest.TestCase):
 
 
 class TrouvaillesTest(unittest.TestCase):
-    """Ce que la recherche ramène est réinjecté en TEXTE, jamais en rôle `tool`.
+    """What the search brings back is reinjected as TEXT, never as a `tool` role.
 
-    Envoyer des `tool_calls` et des messages de rôle `tool` sans déclarer les
-    outils donnait une conversation que le gabarit ne sait pas rendre : 35 tokens
-    produits, aucun contenu reçu, « The model returned no response ».
+    Sending `tool_calls` and `tool`-role messages without declaring the
+    tools gave a conversation the template cannot render: 35 tokens
+    produced, no content received, « The model returned no response ».
     """
 
     def test_rien_trouve_rien_ajoute(self):
@@ -708,25 +708,25 @@ class TrouvaillesTest(unittest.TestCase):
 
 
 class GardeDesRoutesTest(unittest.TestCase):
-    """Toute route du portail est authentifiée, sauf une liste explicite.
+    """Every portal route is authenticated, except an explicit list.
 
-    Recompte le 2026-09-13 sur le `url_map` vivant : 153 routes, 11 sans garde,
-    aucun oubli (146 avant les six routes de gestion des comptes ajoutées ce
-    jour-là : blocage, déblocage, détail, sessions et mot de passe en
-    autonomie — toutes gardées). Ce test fige ce résultat. Il ne lit PAS le source — il parcourt
-    le `url_map` de Flask et interroge le marqueur `_garde` posé par
-    login_required/admin_required, donc il voit aussi une route enregistrée
-    autrement que par un `@app.route` littéral.
+    Recounted on 2026-09-13 on the live `url_map`: 153 routes, 11 without
+    guard, no omission (146 before the six account management routes added
+    that day: blocking, unblocking, detail, sessions and self-service
+    password — all guarded). This test freezes that result. It does NOT
+    read the source — it walks Flask's `url_map` and asks the `_garde`
+    marker set by login_required/admin_required, so it also sees a route
+    registered other than by a literal `@app.route`.
 
-    Le vrai risque couvert n'est pas l'état actuel du code mais son futur : le
-    conteneur OCR exécute du code de modèle tiers (`--trust-remote-code`) et
-    partage `ocr_net` avec le portail. Une route publique ajoutée par
-    inadvertance deviendrait joignable depuis ce code-là. Si ce test échoue,
-    la question n'est pas « comment le faire passer » mais « cette route
-    a-t-elle vraiment vocation à être publique ».
+    The real risk covered is not the current state of the code but its
+    future: the OCR container runs third-party model code
+    (`--trust-remote-code`) and shares `ocr_net` with the portal. A public
+    route added by oversight would become reachable from that code. If
+    this test fails, the question is not « comment le faire passer » but
+    « cette route a-t-elle vraiment vocation à être publique ».
     """
 
-    # Chaque entrée est publique POUR UNE RAISON. On n'en ajoute pas sans
+    # Each entry is public FOR A REASON. We add none without
     # savoir dire laquelle.
     PUBLIQUES = {
         'api_config':         "ne renvoie que {oidc_enabled}, lu avant connexion",
@@ -735,12 +735,12 @@ class GardeDesRoutesTest(unittest.TestCase):
         'oauth_callback':     "retour du fournisseur OIDC, hors session",
         'logout':             "doit marcher même sur une session déjà expirée",
         'api_csrf':           "délivre le jeton CSRF nécessaire pour se connecter",
-        # 2e facteur WebAuthn : l'utilisateur n'est PAS encore authentifié (le
-        # mot de passe / LDAP vient d'être validé en amont), ce point finalise le
-        # login. Il exige le jeton CSRF + un défi one-time + une assertion valide.
+        # WebAuthn 2nd factor: the user is NOT authenticated yet (the
+        # password / LDAP was just validated upstream), this endpoint finishes
+        # the login. It requires the CSRF token + a one-time challenge + a valid assertion.
         'webauthn.security_verify_login': "finalise un login 2FA (assertion passkey), hors session",
-        # Prefixe 'admin.' depuis que l'administration est un blueprint (28/08) :
-        # les CHEMINS n'ont pas bougé, seuls les noms d'endpoints.
+        # Prefix 'admin.' since the administration is a blueprint (28/08):
+        # the PATHS did not move, only the endpoint names.
         'admin.internal_authcheck': "appelé par Traefik (forwardAuth), jamais par un "
                                     "navigateur ; ne renvoie aucune donnée",
         'static':             "fichiers statiques servis par Flask",
@@ -768,30 +768,30 @@ class GardeDesRoutesTest(unittest.TestCase):
                          "pas un défaut : documente-la dans PUBLIQUES ou ajoute une garde.")
 
     def test_la_liste_des_publiques_ne_pourrit_pas(self):
-        """Une entrée qui ne correspond plus à aucune route doit disparaître."""
+        """An entry matching no route anymore must disappear."""
         connues = {r.endpoint for r in portal.app.url_map.iter_rules()}
         self.assertEqual(set(self.PUBLIQUES) - connues, set(),
                          "entrée(s) obsolète(s) dans PUBLIQUES")
 
     def test_le_marqueur_est_bien_pose(self):
-        """Sans marqueur, le test principal passerait en ne voyant rien."""
+        """Without a marker, the main test would pass while seeing nothing."""
         gardees = [r.endpoint for r in portal.app.url_map.iter_rules()
                    if getattr(portal.app.view_functions.get(r.endpoint), '_garde', None)]
         self.assertGreater(len(gardees), 90, "le marqueur _garde a disparu des décorateurs")
 
 
 class NomsResolublesTest(unittest.TestCase):
-    """Aucun module du portail ne charge un nom défini nulle part.
+    """No portal module loads a name defined nowhere.
 
-    Python résout les globales À L'APPEL. Un nom parti dans un autre module lors
-    d'une extraction ne casse donc ni l'import, ni les tests, ni la comparaison
-    de table de routes — seulement la requête de l'utilisateur, en production.
+    Python resolves globals AT CALL time. A name gone to another module
+    during an extraction thus breaks neither the import, nor the tests, nor
+    the route table comparison — only the user's request, in production.
 
-    Vécu deux fois le 28/08 pendant le découpage : `_read_uploaded_image` emporté
-    avec la section vidéo alors que /api/ocr/extract s'en servait, puis
-    `image_ready`/`get_music_model` restés référencés par le tableau de bord des
-    sidecars. Les deux importaient proprement et auraient levé un NameError au
-    premier clic. Ce test les aurait vus ; c'est pour ça qu'il existe.
+    Lived twice on 28/08 during the split: `_read_uploaded_image` carried
+    away with the video section while /api/ocr/extract used it, then
+    `image_ready`/`get_music_model` left referenced by the sidecar
+    dashboard. Both imported cleanly and would have raised a NameError on
+    the first click. This test would have seen them; that is why it exists.
     """
 
     MODULES = [
@@ -836,7 +836,7 @@ class NomsResolublesTest(unittest.TestCase):
 
 
 class HealthRouteTest(unittest.TestCase):
-    """/healthz (liveness publique) et /api/health (état agrégé, connecté)."""
+    """/healthz (public liveness) and /api/health (aggregated state, logged-in)."""
 
     def setUp(self):
         portal.app.config["TESTING"] = True
@@ -873,10 +873,10 @@ class HealthRouteTest(unittest.TestCase):
             self.assertFalse(body["ok"])
 
     def test_litellm_joignable_meme_quand_health_exige_une_cle(self):
-        """LiteLLM >= 1.102 répond 401 sur `/health` (clé exigée) : le portail ne
-        doit pas en conclure que le proxy est tombé. Régression du 2026-09-24 —
-        la montée 1.92 → 1.102.1 a fait afficher « LiteLLM injoignable » sur le
-        tableau de bord alors que le proxy servait les requêtes."""
+        """LiteLLM >= 1.102 answers 401 on `/health` (key required): the portal
+        must not conclude the proxy is down. Regression of 2026-09-24 — the
+        upgrade 1.92 → 1.102.1 made « LiteLLM injoignable » display on the
+        dashboard while the proxy served requests."""
         import unittest.mock as mock
 
         class Reponse:
@@ -884,9 +884,9 @@ class HealthRouteTest(unittest.TestCase):
                 self.status_code = code
 
         def faux_get(url, timeout=None):
-            if url.endswith("/health"):          # 1.102 : authentifié
+            if url.endswith("/health"):          # 1.102: authenticated
                 return Reponse(401)
-            if url.endswith("/health/liveliness"):  # public, la vraie sonde
+            if url.endswith("/health/liveliness"):  # public, the real probe
                 return Reponse(200)
             return Reponse(200)                   # runner /status, etc.
 
@@ -908,7 +908,7 @@ class HealthRouteTest(unittest.TestCase):
 
 
 class PendingCountRouteTest(unittest.TestCase):
-    """/api/pending-count : badge sidebar (demandes modèle + budget en attente)."""
+    """/api/pending-count: sidebar badge (model requests + pending budget)."""
 
     def setUp(self):
         portal.app.config["TESTING"] = True
@@ -939,11 +939,11 @@ class PendingCountRouteTest(unittest.TestCase):
         with c.session_transaction() as s:
             s["username"] = "demo"
             s["auth_at"] = int(time.time())
-        # Utilisateur non-admin : uniquement SES demandes, et par TYPE —
-        # une demande de budget ne doit jamais allumer le badge « modèle ».
+        # Non-admin user: only THEIR requests, and by TYPE — a budget
+        # request must never light up the « modèle » badge.
         self.assertEqual(c.get("/api/pending-count").get_json(),
                          {'model': 1, 'budget': 0})
-        # Admin : toutes (demo pending + other pending), par type.
+        # Admin: all (demo pending + other pending), by type.
         with c.session_transaction() as s:
             s["is_admin"] = True
         self.assertEqual(c.get("/api/pending-count").get_json(),
@@ -951,8 +951,8 @@ class PendingCountRouteTest(unittest.TestCase):
 
 
 class AnnonceModeleSupprimeTest(unittest.TestCase):
-    """Le fil d'annonces est un « quoi de neuf », pas un journal : retirer un
-    modèle du catalogue doit retirer l'annonce qui l'a présenté."""
+    """The announcement feed is a « what's new », not a journal: removing a
+    model from the catalog must remove the announcement that presented it."""
 
     def setUp(self):
         portal.app.config["TESTING"] = True
@@ -979,9 +979,9 @@ class AnnonceModeleSupprimeTest(unittest.TestCase):
              patch.object(admin_routes, 'runner_delete_files', return_value=(True, 0, '')):
             r = c.post(f"/admin/model/delete/{self.mid}",
                        headers={'X-CSRFToken': 'test-csrf'})
-        # Contrat JSON : plus de redirection. Le `flash` n'était rendu par aucun
-        # template et la réponse HTML de la redirection passait pour un succès
-        # côté interface (son `catch` traitait le non-JSON comme « ok »).
+        # JSON contract: no more redirect. The `flash` was rendered by no
+        # template and the redirect HTML response counted as a success on
+        # the UI side (its `catch` treated non-JSON as « ok »).
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()['ok'])
         with portal.app.app_context():
@@ -997,7 +997,7 @@ class AnnonceModeleSupprimeTest(unittest.TestCase):
 
 
 class BudgetGrantsTest(unittest.TestCase):
-    """Subventions temporaires (boost N jours) + redéfinition du plafond."""
+    """Temporary grants (boost N days) + cap redefinition."""
 
     def setUp(self):
         portal.app.config["TESTING"] = True
@@ -1020,7 +1020,7 @@ class BudgetGrantsTest(unittest.TestCase):
             s["csrf"] = "test-csrf"
 
     def test_approve_temporaire_creer_subvention(self):
-        """Approuver avec durée : plafond boosté + ligne budget_grants."""
+        """Approve with duration: boosted cap + budget_grants row."""
         with patch.object(admin_routes, '_litellm_user_info', return_value={'max_budget': 200000000}), \
              patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
             c = portal.app.test_client()
@@ -1034,11 +1034,11 @@ class BudgetGrantsTest(unittest.TestCase):
             g = portal.get_db().execute("SELECT * FROM budget_grants").fetchone()
             self.assertIsNotNone(g)
             self.assertEqual(g['username'], 'demo')
-            self.assertEqual(g['base_budget'], 200000000)  # retour à la base…
+            self.assertEqual(g['base_budget'], 200000000)  # back to the base…
             self.assertEqual(g['current_budget'], 250000000)
 
     def test_expiration_revient_a_la_base(self):
-        """À l'échéance : le compte est ramené au plafond de base."""
+        """At expiry: the account is brought back to the base cap."""
         with portal.app.app_context():
             db = portal.get_db()
             db.execute(
@@ -1051,12 +1051,12 @@ class BudgetGrantsTest(unittest.TestCase):
             ramenes = admin_routes.revert_expired_grants()
         self.assertEqual(ramenes, 1)
         args = up.call_args
-        self.assertEqual(args.args[1], 200000000)          # …à la base, pas autre chose
+        self.assertEqual(args.args[1], 200000000)          # …to the base, nothing else
         with portal.app.app_context():
             self.assertIsNone(portal.get_db().execute("SELECT * FROM budget_grants").fetchone())
 
     def test_expiration_necrase_pas_une_decision_admin(self):
-        """Si l'admin a redéfini le plafond entre-temps, on n'écrase pas."""
+        """If the admin redefined the cap meanwhile, we do not overwrite."""
         with portal.app.app_context():
             db = portal.get_db()
             db.execute(
@@ -1068,10 +1068,10 @@ class BudgetGrantsTest(unittest.TestCase):
              patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
             ramenes = admin_routes.revert_expired_grants()
         self.assertEqual(ramenes, 0)
-        up.assert_not_called()                             # la décision admin fait foi
+        up.assert_not_called()                             # the admin decision is authoritative
 
     def test_redefinir_le_plafond_a_la_baisse(self):
-        """/budget/set définit un montant EXACT : 200M → 50M, et purge les boosts."""
+        """/budget/set sets an EXACT amount: 200M → 50M, and purges the boosts."""
         with portal.app.app_context():
             db = portal.get_db()
             db.execute(
@@ -1085,7 +1085,7 @@ class BudgetGrantsTest(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             self.assertTrue(r.get_json()['ok'])
         args = up.call_args
-        self.assertEqual(args.args[1], 50000000)           # montant exact, pas +
+        self.assertEqual(args.args[1], 50000000)           # exact amount, not +
         with portal.app.app_context():
             self.assertIsNone(portal.get_db().execute("SELECT * FROM budget_grants").fetchone())
 
@@ -1094,11 +1094,11 @@ class BudgetGrantsTest(unittest.TestCase):
             c = portal.app.test_client()
             self._login(c)
             c.post("/admin/users/demo/budget/set", data={"budget": "6666726666666", "csrf_token": "test-csrf"})
-            up.assert_not_called()                         # typo illimitante refusée
+            up.assert_not_called()                         # unlimited-making typo refused
 
 
 class BudgetPeriodTest(unittest.TestCase):
-    """Découpage de la fenêtre budgétaire + calcul du quota restant."""
+    """Budget window slicing + remaining quota computation."""
 
     def setUp(self):
         portal._BUDGET_CACHE.clear()
@@ -1116,8 +1116,8 @@ class BudgetPeriodTest(unittest.TestCase):
             used, remaining = portal._budget_remaining('budget-test', 10000, '7d')
             self.assertEqual(used, 1200)
             self.assertEqual(remaining, 8800)
-        # Plancher : jamais négatif quand on a dépassé le budget. On vide le
-        # cache entre les deux (sinon le TTL renvoie la valeur précédente).
+        # Floor: never negative once over budget. We empty the cache
+        # between the two (else the TTL returns the previous value).
         portal._BUDGET_CACHE.clear()
         with mock.patch.object(portal, "_real_tokens_by_user", return_value={'budget-test': 99999}):
             used, remaining = portal._budget_remaining('budget-test', 1000, '7d')
@@ -1125,8 +1125,8 @@ class BudgetPeriodTest(unittest.TestCase):
 
 
 class PromMetricsTest(unittest.TestCase):
-    """/metrics (Prometheus) : texte pour un scrape LAN — et REFUSÉ dès que la
-    requête arrive par l'edge Cloudflare (le rewrite du frontend l'exposait)."""
+    """/metrics (Prometheus): text for a LAN scrape — and REFUSED as soon as
+    the request arrives via the Cloudflare edge (the frontend rewrite exposed it)."""
 
     def test_metriques_publiques_sur_le_lan(self):
         c = portal.app.test_client()
@@ -1138,9 +1138,9 @@ class PromMetricsTest(unittest.TestCase):
         self.assertIn("cronos_gpu_util_pct", body)
 
     def test_metrics_refuse_via_cloudflare(self):
-        """Cloudflare pose Cf-Connecting-Ip sur TOUTE requête qui traverse
-        l'edge : sa présence prouve que l'appel vient d'internet (dgx.cronos.website)
-        et non du LAN/netbird, donc on ne sert pas les métriques de l'hôte."""
+        """Cloudflare sets Cf-Connecting-Ip on EVERY request crossing the
+        edge: its presence proves the call comes from the internet
+        (dgx.cronos.website), not the LAN/netbird, so we serve no host metrics."""
         c = portal.app.test_client()
         r = c.get("/metrics", headers={"Cf-Connecting-Ip": "203.0.113.7"})
         self.assertEqual(r.status_code, 403)
@@ -1150,7 +1150,7 @@ class PromMetricsTest(unittest.TestCase):
 
 
 class MediaCancelTest(unittest.TestCase):
-    """Annulation d'une génération image/musique/vidéo (bouton « Arrêter »)."""
+    """Cancellation of an image/music/video generation (« Arrêter » button)."""
 
     CSRF = "test-csrf"
 
@@ -1172,7 +1172,7 @@ class MediaCancelTest(unittest.TestCase):
         return {"X-CSRFToken": self.CSRF}
 
     def test_post_sans_jeton_refuse(self):
-        # before_request vérifie le CSRF avant toute chose (défense en profondeur).
+        # before_request checks the CSRF first thing (defence in depth).
         c = portal.app.test_client(); self._login(c)
         self.assertEqual(c.post("/api/image/cancel/p1").status_code, 400)
 
@@ -1228,8 +1228,8 @@ class MediaCancelTest(unittest.TestCase):
 
 
 class ShareConversationTest(unittest.TestCase):
-    """Partage d'une conversation : lien en lecture seule, RÉSERVÉ AUX CONNECTÉS
-    (exigence du 2026-09-09 : un lien qui fuit ne montre rien à un anonyme)."""
+    """Sharing a conversation: read-only link, RESERVED TO LOGGED-IN USERS
+    (requirement of 2026-09-09: a leaked link shows nothing to an anonymous)."""
 
     CSRF = "test-csrf"
 
@@ -1248,8 +1248,8 @@ class ShareConversationTest(unittest.TestCase):
             s["csrf"] = self.CSRF
 
     def test_post_sans_jeton_refuse(self):
-        # Pas de session → before_request renvoie 400 (jeton manquant) avant toute
-        # autre considération : on ne crée jamais un partage anonyme.
+        # No session → before_request answers 400 (missing token) before any
+        # other consideration: we never create an anonymous share.
         self.assertEqual(
             portal.app.test_client().post("/conversations/share", data={"client_id": "x"}).status_code,
             400)
@@ -1274,7 +1274,7 @@ class ShareConversationTest(unittest.TestCase):
         self.assertIn("Bonjour", view.get_data(as_text=True))
 
     def test_partage_accepte_le_json(self):
-        """Le playground envoie du JSON (sendJSON), pas du form : accepté."""
+        """The playground sends JSON (sendJSON), not form: accepted."""
         with portal.app.app_context():
             portal.get_db().execute(
                 "INSERT INTO conversations (username,client_id,title,model,messages,updated_at) "
@@ -1291,7 +1291,7 @@ class ShareConversationTest(unittest.TestCase):
         self.assertTrue(r.get_json()["ok"])
 
     def test_vue_anonyme_renvoie_vers_login(self):
-        """Anonyme + token valide → redirection login, JAMAIS la conversation."""
+        """Anonymous + valid token → login redirect, NEVER the conversation."""
         with portal.app.app_context():
             portal.get_db().execute(
                 "INSERT INTO conversations (username,client_id,title,model,messages,updated_at) "
@@ -1310,8 +1310,8 @@ class ShareConversationTest(unittest.TestCase):
         self.assertIn("/login", view.headers.get("Location", ""))
 
     def test_vue_inconnue_404(self):
-        # Connecté + token inconnu → 404. (Anonyme, c'est une redirection login
-        # qui prime : on ne révèle même pas l'existence du lien.)
+        # Logged in + unknown token → 404. (Anonymous, a login redirect
+        # comes first: we do not even reveal the link exists.)
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["username"] = "demo"
@@ -1320,7 +1320,7 @@ class ShareConversationTest(unittest.TestCase):
 
 
 class AuditLogTest(unittest.TestCase):
-    """Journal d'audit : écriture + lecture admin."""
+    """Audit log: write + admin read."""
 
     def setUp(self):
         portal.app.config["TESTING"] = True
@@ -1384,7 +1384,7 @@ class NotificationsTest(unittest.TestCase):
     def test_sans_session_est_refuse(self):
         c = portal.app.test_client()
         self.assertIn(c.get("/api/notifications").status_code, (302, 401, 403))
-        # POST sans CSRF → 400 (before_request CSRF avant login_required).
+        # POST without CSRF → 400 (before_request CSRF before login_required).
         self.assertEqual(c.post("/api/notifications/seen").status_code, 400)
 
     def test_docs_requiert_login(self):
@@ -1397,7 +1397,7 @@ class NotificationsTest(unittest.TestCase):
 
 
 class PlaygroundTitleSummarizeTest(unittest.TestCase):
-    """Routes auto-titre / résumé du playground : POST login_required, CSRF."""
+    """Playground auto-title / summary routes: POST login_required, CSRF."""
 
     def _paths(self):
         rules = {str(r) for r in portal.app.url_map.iter_rules()}
@@ -1409,7 +1409,7 @@ class PlaygroundTitleSummarizeTest(unittest.TestCase):
 
     def test_post_sans_csrf_refuse(self):
         c = portal.app.test_client()
-        # before_request CSRF court avant login_required → 400 sur POST.
+        # before_request CSRF runs before login_required → 400 on POST.
         self.assertEqual(c.post('/api/playground/title').status_code, 400)
         self.assertEqual(c.post('/api/playground/summarize').status_code, 400)
 
@@ -1422,7 +1422,7 @@ class PlaygroundTitleSummarizeTest(unittest.TestCase):
 
 
 class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
-    """Routes auto-titre/résumé avec modèle mocké : réponse JSON attendue."""
+    """Auto-title/summary routes with mocked model: expected JSON response."""
 
     CSRF = "test-csrf"
 
@@ -1475,12 +1475,12 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
             self.assertEqual(r.get_json()["summary"], "Résumé du contexte")
 
     def test_maintenance_arrete_le_titre_et_le_resume(self):
-        """En maintenance, ces deux routes doivent refuser AVANT d'appeler le modèle.
+        """In maintenance, these two routes must refuse BEFORE calling the model.
 
-        Elles appelaient LiteLLM sans aucune garde : le chat répondait le message
-        de maintenance pendant que l'auto-titre partait quand même (mesuré : 30
-        appels → 30×200 avec de vrais appels). Un modèle en cours de libération
-        était donc sollicité exactement pendant la fenêtre qu'on veut protéger.
+        They called LiteLLM with no guard at all: the chat answered the
+        maintenance message while the auto-title went out anyway (measured:
+        30 calls → 30×200 with real calls). A model being released was thus
+        solicited exactly during the window we want to protect.
         """
         import unittest.mock as mock
         from db import set_setting
@@ -1495,24 +1495,24 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
                     r = c.post(route, headers={"X-CSRFToken": self.CSRF},
                                json={"messages": [{"role": "user", "content": "Bonjour"}]})
                     self.assertEqual(r.status_code, 503, route)
-                # La garde passe AVANT l'appel : rien n'est parti à LiteLLM.
+                # The guard passes BEFORE the call: nothing went to LiteLLM.
                 non_stream.assert_not_called()
         finally:
             with portal.app.app_context():
                 set_setting('maintenance_mode', '0')
 
     def test_plafond_de_debit_s_applique_au_titre(self):
-        """Sans plafond, une boucle côté client tenait les threads gunicorn.
+        """Without a cap, a client-side loop held the gunicorn threads.
 
-        Le plafond est PROPRE à la route (`rl-titre`), pas partagé avec le chat :
-        le partager diviserait par deux le budget de messages de l'utilisateur,
-        puisque le titre part après chaque premier message.
+        The cap is PROPER to the route (`rl-titre`), not shared with the
+        chat: sharing it would halve the user's message budget, since the
+        title goes out after every first message.
         """
         import unittest.mock as mock
         import guards
         c = portal.app.test_client()
-        # Compte dédié : le bucket est en SQLite et partagé par le processus de
-        # test, les tests voisins du fichier consomment déjà `rl-titre`.
+        # Dedicated account: the bucket is in SQLite and shared by the test
+        # process, neighbouring tests of the file already consume `rl-titre`.
         self._login(c, username="plafond-titre")
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "_non_stream", return_value=("Titre", None)), \
@@ -1524,15 +1524,15 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
 
 
 class SupportBillingTest(unittest.TestCase):
-    """L'assistant Support consomme le GPU AU NOM de l'utilisateur : il doit
-    passer par SA clé (celle qui porte le quota LiteLLM), jamais par la clé
-    master — sinon le budget est contourné et la consommation n'apparaît dans
-    aucun compte (audit sécurité)."""
+    """The Support assistant spends the GPU ON BEHALF of the user: it must
+    go through THEIR key (the one carrying the LiteLLM quota), never the
+    master key — else the budget is bypassed and the consumption appears in
+    no account (security audit)."""
 
     CSRF = "test-csrf"
 
     class _FakeStream:
-        """Réponse SSE minimale : un fragment de texte, puis [DONE]."""
+        """Minimal SSE response: one text fragment, then [DONE]."""
 
         ok = True
         status_code = 200
@@ -1571,7 +1571,7 @@ class SupportBillingTest(unittest.TestCase):
             r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
                                     json={"messages": [{"role": "user", "content": "Salut"}]})
             self.assertEqual(r.status_code, 200)
-            r.get_data(as_text=True)      # force l'exécution du générateur SSE
+            r.get_data(as_text=True)      # forces the execution of the SSE generator
         self.assertTrue(vus, "aucun appel au modèle n'a été fait")
         self.assertEqual(vus[0].get("Authorization"), "Bearer sk-user-123")
 
@@ -1602,19 +1602,19 @@ class SupportBillingTest(unittest.TestCase):
 
 
 class SupportSensibleActionsTest(unittest.TestCase):
-    """Les actions sensibles du Support ne s'exécutent QUE sur confirmation.
+    """Support sensitive actions only run on confirmation.
 
-    Avant : la consigne « demande toujours confirmation » vivait dans le prompt,
-    et rien côté serveur n'empêchait le modèle de révoquer une clé ou d'arrêter
-    le modèle servi de sa propre initiative. Désormais la boucle de chat DÉPOSE
-    une demande, l'interface affiche un bouton, et /support/confirm est le seul
-    chemin d'exécution — jeton opaque, lié à l'utilisateur, à usage unique.
+    Before: the « always ask for confirmation » instruction lived in the
+    prompt, and nothing on the server side stopped the model from revoking
+    a key or stopping the served model on its own initiative. Now the chat
+    loop SUBMITS a request, the UI shows a button, and /support/confirm is
+    the only execution path — opaque token, bound to the user, single-use.
     """
 
     CSRF = "test-csrf"
 
     class _Flux:
-        """Flux SSE simulé (les appels successifs reçoivent des frames différents)."""
+        """Simulated SSE stream (successive calls receive different frames)."""
 
         ok = True
         status_code = 200
@@ -1678,9 +1678,9 @@ class SupportSensibleActionsTest(unittest.TestCase):
             appels["n"] += 1
             return self._Flux(frames[i])
 
-        # `_fin_support` est neutralisé : c'est un thread lancé après la réponse
-        # (fil sauvé + extraction mémoire) qui rappelle requests.post une fois le
-        # tour fini et volerait une frame simulée au test suivant.
+        # `_fin_support` is neutralized: it is a thread started after the
+        # response (saved thread + memory extraction) that calls requests.post
+        # once the round is over and would steal a simulated frame from the next test.
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
              mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
@@ -1692,7 +1692,7 @@ class SupportSensibleActionsTest(unittest.TestCase):
                                     json={"messages": [{"role": "user", "content": "révoque ma clé test"}]})
             self.assertEqual(r.status_code, 200)
             body = r.get_data(as_text=True)
-        # Rien n'a été exécuté, et l'interface reçoit de quoi afficher le bouton.
+        # Nothing was executed, and the UI receives what it needs to show the button.
         exec_tool.assert_not_called()
         self.assertIn("cronos_confirm", body)
         self.assertIn("revoke_api_key", body)
@@ -1716,7 +1716,7 @@ class SupportSensibleActionsTest(unittest.TestCase):
             self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
             self.assertTrue(r.get_json()["ok"])
             self.assertIn("révoquée", r.get_json()["message"])
-            # Deuxième clic (ou rejeu) : la demande n'est plus « pending ».
+            # Second click (or replay): the request is no longer « pending ».
             r2 = c.post("/support/confirm", headers={"X-CSRFToken": self.CSRF}, json={"token": tok})
             self.assertEqual(r2.status_code, 404)
             self.assertEqual(exec_tool.call_count, 1)
@@ -1752,7 +1752,7 @@ class SupportSensibleActionsTest(unittest.TestCase):
         self.assertEqual(r2.status_code, 400)
 
     def test_une_action_non_sensible_n_est_pas_retardee(self):
-        """create_api_key s'exécute directement : pas de bouton pour le non destructif."""
+        """create_api_key runs directly: no button for the non-destructive."""
         import unittest.mock as mock
         frames = [[self._frame_outil("create_api_key", {"alias": "ma-cle"}), "data: [DONE]"],
                   [self._frame_texte("C'est fait."), "data: [DONE]"]]
@@ -1816,10 +1816,10 @@ class SupportSensibleActionsTest(unittest.TestCase):
 
 
 class SupportInjectionGuardTest(unittest.TestCase):
-    """Contenu externe (MCP/skill) lu → les actions sensibles sont refusées.
+    """External content (MCP/skill) read → sensitive actions are refused.
 
-    Ce garde-fou préexistait à la confirmation par jeton, et la boucle de chat a
-    été modifiée juste à côté : sans ce test, une régression passerait inaperçue.
+    This guard pre-existed the token confirmation, and the chat loop was
+    modified right next to it: without this test, a regression would go unnoticed.
     """
 
     CSRF = "test-csrf"
@@ -1850,7 +1850,7 @@ class SupportInjectionGuardTest(unittest.TestCase):
     def test_action_sensible_refusee_apres_contenu_externe(self):
         import unittest.mock as mock
         frames = [
-            [self._outil("mcp_serveur_outil", {}), "data: [DONE]"],       # lecture externe
+            [self._outil("mcp_serveur_outil", {}), "data: [DONE]"],       # external read
             [self._outil("revoke_api_key", {"alias": "prod"}, "call_2"), "data: [DONE]"],
             [self._texte("Je ne peux pas faire ça dans ce tour."), "data: [DONE]"],
         ]
@@ -1880,11 +1880,11 @@ class SupportInjectionGuardTest(unittest.TestCase):
             r = c.post("/support/chat", headers={"X-CSRFToken": self.CSRF},
                        json={"messages": [{"role": "user", "content": "résume cette page"}]})
             body = r.get_data(as_text=True)
-        # Ni exécution, ni proposition de confirmation : le refus est net.
+        # No execution, no confirmation proposal: the refusal is clean.
         exec_tool.assert_not_called()
         self.assertNotIn("cronos_confirm", body)
-        # Le corps SSE est du JSON : les accents y sont échappés (\u00e9), on
-        # vérifie donc la partie ASCII du message.
+        # The SSE body is JSON: accents are escaped there (\u00e9), so we
+        # check the ASCII part of the message.
         self.assertIn("Action bloqu", body)
         with portal.app.app_context():
             n_pending = portal.get_db().execute(
@@ -1892,17 +1892,17 @@ class SupportInjectionGuardTest(unittest.TestCase):
         self.assertEqual(n_pending, 0)
 
     def test_creation_de_cle_refusee_apres_contenu_externe(self):
-        """`create_api_key` n'est pas destructif, mais il DÉLIVRE un secret.
+        """`create_api_key` is not destructive, but it DELIVERS a secret.
 
-        Il s'exécute donc directement dans le cas normal (choix produit, cf.
-        `test_une_action_non_sensible_n_est_pas_retardee`) — sauf après lecture
-        d'un contenu externe : sinon une page hostile faisait créer une clé au
-        nom de l'utilisateur connecté, et sa valeur entrait dans le contexte du
-        modèle (donc dans le fil conservé) sans que personne ne l'ait demandée.
+        It thus runs directly in the normal case (product choice, see
+        `test_une_action_non_sensible_n_est_pas_retardee`) — except after
+        reading external content: else a hostile page had a key created in
+        the logged-in user's name, and its value entered the model's
+        context (thus the kept thread) without anyone asking for it.
         """
         import unittest.mock as mock
         frames = [
-            [self._outil("mcp_serveur_outil", {}), "data: [DONE]"],        # lecture externe
+            [self._outil("mcp_serveur_outil", {}), "data: [DONE]"],        # external read
             [self._outil("create_api_key", {"alias": "ma-cle"}, "call_2"), "data: [DONE]"],
             [self._texte("Je ne crée pas de clé dans ce tour."), "data: [DONE]"],
         ]
@@ -1932,7 +1932,7 @@ class SupportInjectionGuardTest(unittest.TestCase):
             r = c.post("/support/chat", headers={"X-CSRFToken": self.CSRF},
                        json={"messages": [{"role": "user", "content": "résume cette page"}]})
             body = r.get_data(as_text=True)
-        # Ni exécution, ni proposition de confirmation : le refus est net.
+        # No execution, no confirmation proposal: the refusal is clean.
         exec_tool.assert_not_called()
         self.assertNotIn("cronos_confirm", body)
         self.assertIn("Action bloqu", body)
@@ -1947,11 +1947,11 @@ class SupportInjectionGuardTest(unittest.TestCase):
 
 
 class SupportFinDeTourTest(unittest.TestCase):
-    """Fin de tour du Support : le fil est conservé, une réponse COUPÉE ne l'est pas.
+    """End of Support round: the thread is kept, a CUT answer is not.
 
-    Le fil sert à reprendre la conversation après un rechargement de page : le
-    figer sur une réponse interrompue ferait réapparaître une phrase tronquée à
-    chaque visite, et l'extraction mémoire en tirerait des faits faux.
+    The thread serves to resume the conversation after a page reload:
+    freezing it on an interrupted answer would bring back a truncated
+    sentence at every visit, and the memory extraction false facts.
     """
 
     def _nettoyer(self):

@@ -1,12 +1,12 @@
-"""Notifications sortantes : courriel (HTML, anglais) et webhook Discord.
+"""Outgoing notifications: email (HTML, English) and Discord webhook.
 
-Extrait de app.py le 28/08. Ces fonctions vivaient sous la banniere « OCR »,
-qui ne contient en realite aucun code OCR — c'est le genre de frontiere mal
-placee qui rendait le monolithe difficile a decouper. Elles n'ont rien
-d'OCR ni de Discord-DM (cf. discord_notify.py, qui envoie des messages PRIVES
-aux utilisateurs ; ici c'est le webhook d'equipe et le mail admin).
+Extracted from app.py on 28/08. These functions lived under the « OCR »
+banner, which actually contains no OCR code — the kind of misplaced
+boundary that made the monolith hard to split. They have nothing OCR nor
+Discord-DM about them (see discord_notify.py, which sends PRIVATE messages
+to users; here it is the team webhook and the admin mail).
 
-Ne depend que de la configuration et de la bibliotheque standard.
+Depends only on the configuration and the standard library.
 """
 import html
 import re
@@ -20,13 +20,13 @@ import requests
 from config import (ADMIN_EMAIL, ADMIN_URL, DISCORD_WH, SMTP_FROM, SMTP_HOST,
                     SMTP_PASS, SMTP_PORT, SMTP_USER)
 
-# Nom d'application affiché par le client mail (gmail indique « DGX platform »).
-# L'adresse d'expédition reste le compte SMTP authentifié (no-reply@cronos.website).
+# Application name shown by the mail client (gmail shows « DGX platform »).
+# The sending address stays the authenticated SMTP account (no-reply@cronos.website).
 APP_NAME = "DGX platform"
 
 
 def _sender():
-    """Adresse « From » complète : `<APP_NAME> <<compte SMTP>>`."""
+    """Full « From » address: `<APP_NAME> <<SMTP account>>`."""
     addr = SMTP_USER
     m = re.search(r"<([^>]+)>", SMTP_FROM or "")
     if m:
@@ -35,9 +35,9 @@ def _sender():
 
 
 # ── Gabarit d'email (HTML + texte alternatif) ───────────────────────────────
-# Un seul rendu pour toutes les notifications : bandeau brandé, tableau de
-# détail, pied de page. Le contenu des notifications admin est en anglais
-# (choix produit) ; `send_user_email` garde le contenu fourni par l'appelant.
+# A single rendering for all notifications: branded banner, detail table,
+# footer. The content of admin notifications is English (product choice);
+# `send_user_email` keeps the content provided by the caller.
 
 def _esc(value):
     value = "" if value is None else str(value)
@@ -112,16 +112,16 @@ def _email_parts(heading, rows, body, footnote, cta_url=None):
 
 def _send(to_email, subject, heading, rows=None, body=None, footnote=None,
           cta_url=None):
-    """Envoie un email HTML + texte alternatif à `to_email`. Retourne True/False."""
+    """Sends an HTML email + alternative text to `to_email`. Returns True/False."""
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]) or not to_email:
         return False
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
     msg['From'] = _sender()
     msg['To'] = to_email
-    # `subject` ne sert qu'à l'en-tête SMTP ci-dessus : il n'est ni dans le
-    # HTML ni dans le texte alternatif, donc il ne traverse plus ces deux
-    # fonctions (paramètre mort depuis toujours).
+    # `subject` only serves the SMTP header above: it is neither in the HTML nor
+    # in the alternative text, so it no longer goes through these two functions
+    # (a dead parameter since always).
     text, html_body = _email_parts(heading, rows, body, footnote, cta_url)
     msg.attach(MIMEText(text, 'plain'))
     msg.attach(MIMEText(html_body, 'html'))
@@ -136,15 +136,15 @@ def _send(to_email, subject, heading, rows=None, body=None, footnote=None,
         return False
 
 
-# ── Discord (inchangé) ──────────────────────────────────────────────────────
+# ── Discord (unchanged) ───────────────────────────────────────────────────
 
 def notify_discord(model_id, username, fullname, reason):
-    """True si le webhook a été appelé ET a répondu 2xx.
+    """True if the webhook was called AND answered 2xx.
 
-    La fonction ne renvoyait rien : l'appelant ne pouvait donc pas dire à
-    l'utilisateur si l'admin avait réellement été prévenu, et `bool(None)`
-    annonçait « non prévenu » même quand le message était bien parti. Les trois
-    cas d'échec (webhook non configuré, réseau, réponse en erreur) valent False.
+    The function returned nothing: the caller could thus not tell the user
+    whether the admin had really been warned, and `bool(None)` announced
+    « non prévenu » even when the message had gone out. The three failure
+    cases (webhook not configured, network, error response) are False.
     """
     if not DISCORD_WH:
         return False
@@ -189,7 +189,7 @@ def notify_budget_discord(username, fullname, key_alias, current_budget, reason)
 # ── Emails ──────────────────────────────────────────────────────────────────
 
 def notify_email(model_id, username, fullname, reason):
-    """Email admin : demande d'ajout d'un modèle."""
+    """Admin email: model addition request."""
     return _send(
         ADMIN_EMAIL,
         f"[DGX platform] New model request — {model_id}",
@@ -221,13 +221,13 @@ def notify_budget_email(username, fullname, key_alias, current_budget, reason):
 
 
 def send_user_email(to_email, subject, body):
-    """Email à UN utilisateur — contenu fourni par l'appelant (souvent en
-    français, le portail étant FR-first) ; on applique le même gabarit HTML."""
+    """Email to ONE user — content provided by the caller (often French, the
+    portal being FR-first); the same HTML template is applied."""
     return _send(to_email, subject, subject, body=body)
 
 
 def notify_maintenance_email(enabled, by_username, by_fullname):
-    """Email admin : bascule du mode maintenance."""
+    """Admin email: maintenance mode toggle."""
     state = "enabled" if enabled else "disabled"
     heading = "Maintenance mode enabled" if enabled else "Maintenance mode disabled"
     return _send(
@@ -242,7 +242,7 @@ def notify_maintenance_email(enabled, by_username, by_fullname):
 
 
 def notify_media_request_email(category, username, fullname):
-    """Email admin : demande de lancement d'un modèle d'une catégorie média."""
+    """Admin email: request to launch a model from a media category."""
     return _send(
         ADMIN_EMAIL,
         f"[DGX platform] {category} model requested",
@@ -255,7 +255,7 @@ def notify_media_request_email(category, username, fullname):
 
 
 def notify_infra_alert_email(kind, detail):
-    """Email admin : incident infra (échec de lancement d'un modèle, etc.)."""
+    """Admin email: infra incident (model launch failure, etc.)."""
     return _send(
         ADMIN_EMAIL,
         f"[DGX platform] Alert — {kind}",
@@ -267,7 +267,7 @@ def notify_infra_alert_email(kind, detail):
 
 
 def send_test_email():
-    """Email de test du SMTP (bouton Admin). Retourne True si l'envoi a réussi."""
+    """SMTP test email (Admin button). Returns True if the send succeeded."""
     return _send(
         ADMIN_EMAIL,
         "[DGX platform] SMTP test",

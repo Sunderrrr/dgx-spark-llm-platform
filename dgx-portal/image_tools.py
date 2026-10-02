@@ -1,21 +1,21 @@
-"""Outil « generer_image » du playground — sur le modèle de websearch_tools.
+"""The playground's « generer_image » tool — modelled on websearch_tools.
 
-Le principe est le même que pour la recherche : une DEMANDE explicite de
-l'utilisateur (« génère une image de… », « dessine-moi… ») arme l'outil ; une
-simple mention d'image (« décris cette image », « l'image générée hier ») ne
-déclenche rien. L'exécution réutilise le worker de la page Image
-(image_routes._image_worker) — un seul chemin de génération à maintenir.
+The principle is the same as for search: an explicit user REQUEST
+(« génère une image de… », « dessine-moi… ») arms the tool; a mere mention of
+an image (« décris cette image », « l'image générée hier ») triggers nothing.
+Execution reuses the Image page worker (image_routes._image_worker) — a
+single generation path to maintain.
 
-Pourquoi passer PAR LE MODÈLE : « génère une image d'un chat astronaute » doit
-devenir un prompt de diffusion riche (sujet, style, lumière, cadrage), pas la
-phrase brute. Le modèle réécrit ; le portal ne fait qu'exécuter et rendre les
-adresses des fichiers produits (/image/file/<prompt_id>/<idx>), que le modèle
-intègre en markdown — le renderer Astryx les affiche comme des <img>.
+Why go THROUGH THE MODEL: « génère une image d'un chat astronaute » must
+become a rich diffusion prompt (subject, style, lighting, framing), not the
+raw sentence. The model rewrites it; the portal only executes and returns
+the addresses of the produced files (/image/file/<prompt_id>/<idx>), which
+the model embeds in markdown — the Astryx renderer displays them as <img>.
 
-L'exécution est un GÉNÉRATEUR : une génération prend 10–60 s couramment
-(jusqu'à plusieurs minutes) et le proxy du frontend coupe sur inactivité — on
-renvoie donc des battements SSE pendant l'attente (même raison que la phase
-websearch, cf. _phase_outils).
+Execution is a GENERATOR: a generation commonly takes 10–60 s (up to several
+minutes) and the frontend proxy cuts on inactivity — so we emit SSE
+heartbeats while waiting (same reason as the websearch phase, see
+_phase_outils).
 """
 import re
 import secrets
@@ -28,19 +28,19 @@ from db import DB_PATH, get_db
 from guards import media_job_done, media_job_slot
 from sidecars import image_ready
 
-# Attente entre deux sondages du statut du job (ligne image_jobs) : le worker
-# tourne dans son propre thread daemon, on ne fait que lire son avancement.
+# Wait between two polls of the job status (image_jobs row): the worker runs
+# in its own daemon thread, we only read its progress.
 _POLL_INTERVAL_S = 2
-# Au-delà, on rend la main au modèle avec un message d'échec (le sidecar
-# répond en général en 10–60 s ; 600 s est son propre timeout interne).
+# Past this, we hand back to the model with a failure message (the sidecar
+# usually answers in 10–60 s; 600 s is its own internal timeout).
 _IMAGE_TIMEOUT_S = 420
-# Un battement SSE toutes les 15 s : très en dessous du coupe-flux du proxy.
+# An SSE heartbeat every 15 s: well below the proxy's idle cutoff.
 _HEARTBEAT_EVERY_S = 15
 
-# Même règle stricte que la recherche web : un VERBE de création suivi, dans la
-# même phrase, d'un objet visuel. Les participes passés (« générée », « dessiné »)
-# ne matchent pas (l'accent ou la lettre finale casse le mot), « redessine » non
-# plus (\b au milieu d'un mot n'existe pas).
+# Same strict rule as web search: a VERB of creation followed, in the same
+# sentence, by a visual object. Past participles (« générée », « dessiné ») do
+# not match (the accent or the final letter breaks the word), nor does
+# « redessine » (\b mid-word does not exist).
 _DEMANDE_IMAGE = re.compile(
     r"\b(?:genere|génère|generer|générer|cree|crée|creer|créer|veux|voudrais|"
     r"aimerais|fais|faites|generate|create|make|design)\b"
@@ -50,26 +50,26 @@ _DEMANDE_IMAGE = re.compile(
     r"|\bdraw\b[^.!?\n]{0,40}",
     re.I)
 
-# Faux positifs assumés du vocabulaire système : « image docker », « image
-# disque », « image système » ne sont pas des images à peindre. Testé sur le
-# fragment de phrase qui a matché, pas sur tout le message.
+# Accepted false positives from system vocabulary: « image docker », « image
+# disque », « image système » are not images to paint. Tested on the sentence
+# fragment that matched, not on the whole message.
 _PAS_UNE_IMAGE = re.compile(r"\b(?:docker|conteneur|container|oci|disque|disk|iso|"
                             r"syst[èe]me|systeme|kernel)\b", re.I)
 
 
 def _image_demandee(history):
-    """L'utilisateur demande-t-il EXPLICITEMENT la génération d'une image ?"""
+    """Does the user EXPLICITLY ask for an image to be generated?"""
     from websearch_tools import _texte_de_la_demande   # import tardif : cycle sinon
     dernier = next((m for m in reversed(history) if m.get('role') == 'user'), None)
     texte = _texte_de_la_demande(str((dernier or {}).get('content', '')))
-    # Chaque occurrence matchée est vérifiée : « crée une image docker » tombe
-    # sur le garde-fou, « crée une image de chat » passe.
+    # Every matched occurrence is checked: « crée une image docker » falls to the
+    # guard, « crée une image de chat » passes.
     return any(not _PAS_UNE_IMAGE.search(texte[m.start():m.end() + 40])
                for m in _DEMANDE_IMAGE.finditer(texte))
 
 
 def image_disponible():
-    """Le sidecar de génération est-il configuré et prêt ?"""
+    """Is the generation sidecar configured and ready?"""
     return image_ready()
 
 
@@ -95,20 +95,20 @@ def _outils_image():
 
 
 def _annonce_image(args):
-    """Ce qu'on s'apprête à générer, dit au client avant de le faire."""
+    """What we are about to generate, told to the client before doing it."""
     return {'etape': 'generation', 'outil': 'diffusers',
             'question': str(args.get('prompt', ''))[:200]}
 
 
 def _exec_image_tool(args, username, journal):
-    """Génère l'image et rend le texte à remettre au modèle.
+    """Generate the image and return the text to hand back to the model.
 
-    GÉNÉRATEUR : yield de battements SSE pendant l'attente ; le texte final est
-    la valeur de retour, récupérée par `yield from` dans _phase_outils.
+    GENERATOR: yields SSE heartbeats while waiting; the final text is the
+    return value, retrieved by `yield from` in _phase_outils.
 
-    Le worker tourne dans un thread daemon (comme côté page Image) : si le
-    client part en plein milieu, la génération se termine quand même — le job
-    est proprement clôturé et l'image reste dans l'historique de la page Image.
+    The worker runs in a daemon thread (as on the Image page): if the client
+    leaves mid-way, the generation still completes — the job is properly
+    closed and the image stays in the Image page history.
     """
     import image_routes
 

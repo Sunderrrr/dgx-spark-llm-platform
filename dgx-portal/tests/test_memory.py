@@ -1,17 +1,17 @@
-"""Garde-fous du graphe de mémoire.
+"""Guardrails of the memory graph.
 
-Ces tests couvrent les quatre façons dont ce design peut mal tourner :
-la fragmentation des nœuds (« vLLM » ≠ « vllm » ferait un graphe de doublons,
-pire qu'une liste plate), l'écriture sans consentement (la mémoire est un
-opt-in), la fuite d'un utilisateur vers un autre, et l'accumulation de faits
-contradictoires quand une information est mise à jour.
+These tests cover the four ways this design can go wrong: node
+fragmentation (« vLLM » ≠ « vllm » would make a duplicate graph, worse
+than a flat list), writing without consent (memory is an opt-in), leakage
+from one user to another, and the accumulation of contradictory facts
+when information is updated.
 """
 
 import unittest
 
 import app as portal
-# La memoire a quitte le monolithe pour memory_routes.py (28/08, 1er
-# blueprint) : on la vise dans son module proprietaire.
+# Memory left the monolith for memory_routes.py (28/08, 1st blueprint):
+# we target it in its own module.
 import memory_routes as memoire
 
 
@@ -39,7 +39,7 @@ class MemoryTestBase(unittest.TestCase):
 
 
 class NormalisationTest(MemoryTestBase):
-    """Les variantes d'écriture d'un même sujet doivent converger sur UN nœud."""
+    """Spelling variants of one subject must converge on ONE node."""
 
     def test_casse_accents_et_ponctuation_convergent(self):
         self.assertEqual(memoire._mem_norm('vLLM'), memoire._mem_norm('VLLM'))
@@ -56,8 +56,8 @@ class NormalisationTest(MemoryTestBase):
         self.assertEqual(len(memoire._mem_graph(self.USER)['edges']), 3)
 
     def test_ecritures_non_latines_memorisables(self):
-        # [a-z0-9] seul rendait tout sujet japonais/russe/grec impossible à
-        # mémoriser : sa forme normalisée était vide, donc rejetée.
+        # [a-z0-9] alone made any Japanese/Russian/Greek subject impossible to
+        # store: its normalized form was empty, thus rejected.
         for sujet in ('日本語', 'Привет', 'Ελληνικά', '中文'):
             self.assertTrue(memoire._mem_norm(sujet), sujet)
             _, ok = memoire._mem_add_fact(self.USER, sujet, 'note', f'Fait sur {sujet}')
@@ -65,9 +65,9 @@ class NormalisationTest(MemoryTestBase):
         self.assertEqual(len(memoire._mem_graph(self.USER)['nodes']), 4)
 
     def test_le_depliage_des_accents_ne_touche_que_le_latin(self):
-        # En latin, « è » et « e » doivent converger. En japonais NON : NFKD
-        # décompose « が » en « か » + dakuten, et supprimer ce dernier
-        # confondrait deux mots différents.
+        # In latin, « è » and « e » must converge. In Japanese NO: NFKD
+        # decomposes « が » into « か » + dakuten, and dropping the latter
+        # would confuse two different words.
         self.assertEqual(memoire._mem_norm('Modèle'), memoire._mem_norm('modele'))
         self.assertNotEqual(memoire._mem_norm('が'), memoire._mem_norm('か'))
 
@@ -79,8 +79,8 @@ class NormalisationTest(MemoryTestBase):
 
 
 class OptInTest(MemoryTestBase):
-    """La mémoire est activée par défaut (2026-09) ; seule une coupure
-    explicite empêche l'écriture."""
+    """Memory is enabled by default (2026-09); only an explicit switch-off
+    prevents writing."""
 
     def test_outil_refuse_si_desactivee(self):
         memoire._mem_set_enabled(self.USER, False)
@@ -91,8 +91,8 @@ class OptInTest(MemoryTestBase):
         self.assertEqual(memoire._mem_graph(self.USER)['edges'], [])
 
     def test_activee_par_defaut_sans_preferences(self):
-        # Un compte sans ligne de préférences a la mémoire ON — le défaut
-        # s'applique ; seule une désactivation explicite l'emporte.
+        # An account with no preference row has memory ON — the default
+        # applies; only an explicit deactivation wins.
         portal.get_db().execute("DELETE FROM user_prefs WHERE username=?", ('memtest-neuf',))
         portal.get_db().commit()
         self.assertTrue(memoire._mem_enabled('memtest-neuf'))
@@ -104,7 +104,7 @@ class OptInTest(MemoryTestBase):
 
 
 class IsolationTest(MemoryTestBase):
-    """La mémoire d'un utilisateur ne doit jamais atteindre un autre."""
+    """One user's memory must never reach another."""
 
     def test_rappel_cloisonne(self):
         memoire._mem_add_fact(self.USER, 'vLLM', 'utilise', "Secret de A.")
@@ -121,13 +121,13 @@ class IsolationTest(MemoryTestBase):
     def test_suppression_cloisonnee(self):
         memoire._mem_add_fact(self.USER, 'vLLM', 'utilise', "Fait de A.")
         edge_id = memoire._mem_graph(self.USER)['edges'][0]['id']
-        # B ne doit pas pouvoir supprimer un fait de A avec son identifiant.
+        # B must not be able to delete a fact of A with its identifier.
         self.assertFalse(memoire._mem_forget(self.OTHER, edge_id))
         self.assertEqual(len(memoire._mem_graph(self.USER)['edges']), 1)
 
 
 class PeremptionTest(MemoryTestBase):
-    """Une information mise à jour remplace l'ancienne au lieu de s'y ajouter."""
+    """Updated information replaces the old one instead of adding to it."""
 
     def test_meme_relation_remplace(self):
         memoire._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.25.")
@@ -149,13 +149,13 @@ class PeremptionTest(MemoryTestBase):
 
 
 class MiseAJourTest(MemoryTestBase):
-    """Une information qui évolue doit pouvoir être corrigée, sans que deux
-    informations distinctes s'effacent l'une l'autre."""
+    """Information that evolves must be correctable, without two distinct
+    pieces of information erasing each other."""
 
     def test_deux_infos_sur_un_meme_sujet_coexistent(self):
-        # Régression : les deux ajouts manuels partagent la relation générique.
-        # Les traiter comme deux versions d'un même fait effaçait la première
-        # EN SILENCE — on perdait une information que l'utilisateur avait saisie.
+        # Regression: the two manual adds share the generic relation. Treating
+        # them as two versions of one fact erased the first one SILENTLY — we
+        # lost information the user had entered.
         memoire._mem_add_fact(self.USER, 'vLLM', memoire.MEM_GENERIC_RELATION,
                              'Sert les modèles de chat.', source='user')
         memoire._mem_add_fact(self.USER, 'vLLM', memoire.MEM_GENERIC_RELATION,
@@ -164,7 +164,7 @@ class MiseAJourTest(MemoryTestBase):
         self.assertEqual(faits, ['Sert les modèles de chat.', 'Écoute sur le port 8001.'])
 
     def test_relation_explicite_remplace_toujours(self):
-        # À l'inverse, une relation explicite EST la clé de mise à jour.
+        # Conversely, an explicit relation IS the update key.
         memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.25.')
         memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
         self.assertEqual([e['fact'] for e in memoire._mem_graph(self.USER)['edges']],
@@ -178,7 +178,7 @@ class MiseAJourTest(MemoryTestBase):
         apres = memoire._mem_graph(self.USER)['edges']
         self.assertEqual(len(apres), 1)
         self.assertEqual(apres[0]['fact'], 'Tourne en 0.27.')
-        # Même identifiant : c'est une correction, pas une suppression + un ajout.
+        # Same identifier: it is a correction, not a deletion + an addition.
         self.assertEqual(apres[0]['id'], edge['id'])
 
     def test_modification_texte_vide_refusee(self):
@@ -204,14 +204,14 @@ class MiseAJourTest(MemoryTestBase):
 
 
 class RappelTest(MemoryTestBase):
-    """Le rappel rend le voisinage du sujet, pas toute la mémoire."""
+    """Recall returns the subject's neighbourhood, not the whole memory."""
 
     def test_sujet_inconnu_ne_rend_rien(self):
         memoire._mem_add_fact(self.USER, 'vLLM', 'utilise', "Sert les modèles.")
         self.assertEqual(memoire._mem_recall(self.USER, 'Kubernetes'), [])
 
     def test_alias_par_l_objet_relie(self):
-        # Un fait qui relie deux sujets doit être retrouvé depuis l'un OU l'autre.
+        # A fact linking two subjects must be found from either one.
         memoire._mem_add_fact(self.USER, 'Cronos', 'sert avec', "Cronos sert ses modèles avec vLLM.",
                              obj='vLLM')
         depuis_cronos = [f['fact'] for f in memoire._mem_recall(self.USER, 'Cronos')]
@@ -229,8 +229,8 @@ class RappelTest(MemoryTestBase):
         memoire._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.27.")
         msg, ok = memoire._exec_memory_tool('recall_memory', {'subject': 'vLLM'}, self.USER)
         self.assertTrue(ok)
-        # Un fait mémorisé vient d'une conversation passée : il pourrait avoir été
-        # rédigé pour manipuler le modèle. Il doit arriver étiqueté « données ».
+        # A stored fact comes from a past conversation: it might have been written
+        # to manipulate the model. It must arrive tagged « données ».
         self.assertIn('données', msg)
         self.assertIn('Tourne en 0.27.', msg)
 

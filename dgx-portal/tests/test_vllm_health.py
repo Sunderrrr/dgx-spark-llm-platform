@@ -1,10 +1,10 @@
-"""Sante du modele : ce que chaque moteur sait dire, et ce qu'il ne sait pas.
+"""Model health: what each engine can say, and what it cannot.
 
-Les deux moteurs n'exposent pas les memes metriques, et la tuile « requetes
-servies » a longtemps affiche pour llama.cpp un compteur de TOKENS (39 303
-requetes annoncees pour 39 303 tokens generes). Corriger cela ne devait rien
-changer a vLLM, qui publie un vrai compteur de requetes : ces tests figent la
-frontiere pour que le chemin vLLM ne parte pas avec le prochain nettoyage.
+The two engines expose different metrics, and the « requetes servies »
+tile long displayed for llama.cpp a TOKEN counter (39 303 requests
+announced for 39 303 generated tokens). Fixing it was to change nothing
+for vLLM, which publishes a real request counter: these tests freeze the
+boundary so the vLLM path does not leave with the next cleanup.
 """
 import os
 import shutil
@@ -42,7 +42,7 @@ _METRICS_LLAMA = ("llamacpp:tokens_predicted_total 39080\n"
 
 
 def _sante(engine, texte):
-    """Appelle vllm_health() en faisant croire que `engine` sert `texte`."""
+    """Calls vllm_health() pretending `engine` serves `texte`."""
     ligne = {'engine': engine}
     faux_db = types.SimpleNamespace(
         execute=lambda *a, **k: types.SimpleNamespace(fetchone=lambda: ligne))
@@ -55,7 +55,7 @@ def _sante(engine, texte):
 
 
 class SanteVllmTest(unittest.TestCase):
-    """vLLM publie tout ce qu'il faut : rien de son affichage ne doit bouger."""
+    """vLLM publishes everything needed: nothing of its display must move."""
 
     def setUp(self):
         vllm_health._vllm_tps.update(t=0.0, gen=0.0)
@@ -78,10 +78,10 @@ class SanteVllmTest(unittest.TestCase):
         self.assertTrue(250 < tps < 350, tps)    # ~300 tokens en ~1 s
 
     def test_vllm_sans_trafic_n_herite_pas_du_ttft_d_un_autre_moteur(self):
-        """Le repli « mesure par le portail » est reserve a llama.cpp.
+        """The « measured by the portal » fallback is reserved for llama.cpp.
 
-        Sur `ttft_cnt == 0` il afficherait, pour un vLLM tout juste lance, le
-        TTFT laisse par le moteur precedent.
+        On `ttft_cnt == 0` it would display, for a just-launched vLLM, the
+        TTFT left by the previous engine.
         """
         with mock.patch('stats.ttft_mesure', return_value=9.99):
             d = _sante('vllm', _metrics_vllm("0", succes=("0", "0"), ttft=("0", "0")))
@@ -90,7 +90,7 @@ class SanteVllmTest(unittest.TestCase):
 
 
 class SanteLlamacppTest(unittest.TestCase):
-    """llama.cpp en sait moins : il doit se taire plutot que d'inventer."""
+    """llama.cpp knows less: it must stay silent rather than invent."""
 
     def test_pas_de_compteur_de_requetes_invente(self):
         self.assertIsNone(_sante('llamacpp', _METRICS_LLAMA)['requests'])
@@ -100,11 +100,11 @@ class SanteLlamacppTest(unittest.TestCase):
             self.assertEqual(_sante('llamacpp', _METRICS_LLAMA)['ttft'], 0.27)
 
     def test_debit_lu_sur_n_decode_total_le_seul_a_avancer(self):
-        """Pendant une generation la jauge vaut 0 et tokens_predicted_total ne
-        bouge pas : seul n_decode_total avance.
+        """During a generation the gauge reads 0 and tokens_predicted_total does
+        not move: only n_decode_total advances.
 
-        Ses PAS de decodage se multiplient par le nombre de slots actifs pour
-        donner des tokens (cf. DebitAgregeTest) : 30 pas/s sur 2 slots = 60 tok/s.
+        Its DECODE STEPS multiply by the number of active slots to yield
+        tokens (see DebitAgregeTest): 30 steps/s over 2 slots = 60 tok/s.
         """
         vllm_health._llama_tps.update(t=0.0, dec=None)
         base = ("llamacpp:tokens_predicted_total 39080\n"
@@ -115,13 +115,13 @@ class SanteLlamacppTest(unittest.TestCase):
         _sante('llamacpp', base + "llamacpp:n_decode_total 1000\n")
         time.sleep(1.05)
         tps = _sante('llamacpp', base + "llamacpp:n_decode_total 1030\n")['tps']
-        self.assertTrue(52 < tps < 68, tps)      # 30 pas/s x 2 slots
+        self.assertTrue(52 < tps < 68, tps)      # 30 steps/s x 2 slots
 
     def test_debit_retombe_a_zero_quand_personne_ne_genere(self):
-        """Compteur immobile entre deux releves = plus personne ne genere.
+        """Counter still between two readings = nobody generates anymore.
 
-        On affichait le dernier debit connu, ce qui se lisait comme un compteur
-        fige alors que la machine ne faisait rien.
+        We displayed the last known throughput, which read as a frozen
+        counter while the machine did nothing.
         """
         vllm_health._llama_tps.update(t=0.0, dec=None)
         base = ("llamacpp:tokens_predicted_total 39080\n"
@@ -132,26 +132,26 @@ class SanteLlamacppTest(unittest.TestCase):
         repos = base + "llamacpp:requests_processing 0\n"
         _sante('llamacpp', actif + "llamacpp:n_decode_total 1000\n")
         time.sleep(1.05)
-        # une generation a eu lieu : debit non nul
+        # a generation happened: non-zero throughput
         self.assertTrue(_sante('llamacpp', actif + "llamacpp:n_decode_total 1030\n")['tps'] > 0)
         time.sleep(1.05)
-        # le compteur n'a plus bouge : personne n'utilise le modele
+        # the counter stopped moving: nobody uses the model
         self.assertEqual(_sante('llamacpp', repos + "llamacpp:n_decode_total 1030\n")['tps'], 0.0)
 
 
 class ContexteEffectifTest(unittest.TestCase):
-    """`--ctx-size` de llama.cpp est un TOTAL... sauf en cache unifie.
+    """llama.cpp's `--ctx-size` is a TOTAL... except with a unified cache.
 
-    Le tableau de bord annoncait 58 254 / 29 127 la ou le moteur servait
-    524 288 par slot : la division par `--parallel` ne s'applique pas quand les
-    slots partagent un reservoir unique.
+    The dashboard announced 58 254 / 29 127 where the engine served 524 288
+    per slot: the division by `--parallel` does not apply when the slots
+    share a single pool.
     """
 
     def test_sans_parallel_le_contexte_est_entier(self):
         self.assertEqual(vllm_health.effective_ctx("--ctx-size 524288", "llamacpp"), 524288)
 
     def test_parallel_seul_divise_le_contexte(self):
-        # Sans --kv-unified, llama.cpp cloisonne : chaque slot a sa tranche.
+        # Without --kv-unified, llama.cpp partitions: each slot has its slice.
         self.assertEqual(
             vllm_health.effective_ctx("--ctx-size 1048576 --parallel 4", "llamacpp"), 262144)
 
@@ -166,13 +166,13 @@ class ContexteEffectifTest(unittest.TestCase):
                                       "llamacpp"), 262144)
 
     def test_kv_unified_per_slot_declare_la_fenetre(self):
-        """llama.cpp 0.5.0 : le plafond par session DECLARE fait foi.
+        """llama.cpp 0.5.0: the DECLARED per-session cap is authoritative.
 
-        Mesure du 2026-09-25 (Flash-Next) : avec `--ctx-size 1048576 --parallel 4
-        --kv-unified --kv-unified-per-slot 262144` le moteur sert 262144 par
-        session — c'est ce qu'il annonce sur /props. La regle « unifie » ci-dessus
-        aurait annonce 1048576, soit cinq fois la limite reelle d'un prompt : le
-        client ne l'aurait decouvert qu'a l'echec de sa requete.
+        Measured on 2026-09-25 (Flash-Next): with `--ctx-size 1048576
+        --parallel 4 --kv-unified --kv-unified-per-slot 262144` the engine
+        serves 262144 per session — that is what it announces on /props. The
+        « unifie » rule above would have announced 1048576, five times the
+        real prompt limit, discovered only at the failure of the request.
         """
         self.assertEqual(
             vllm_health.effective_ctx(
@@ -184,17 +184,17 @@ class ContexteEffectifTest(unittest.TestCase):
         self.assertEqual((e, s_), (196608, 65536))
 
     def test_kv_unified_per_slot_sans_ctx_size(self):
-        """Le plafond suffit a lui seul : le moteur dimensionne alors le reservoir.
+        """The cap suffices on its own: the engine then sizes the pool.
 
-        Sans `--ctx-size`, la formule par defaut ne trouve rien et retombait sur
-        32 768 — un plafond declare doit repondre avant elle.
+        Without `--ctx-size`, the default formula finds nothing and fell
+        back on 32 768 — a declared cap must answer before it.
         """
         self.assertEqual(
             vllm_health.effective_ctx(
                 "--parallel 4 --kv-unified --kv-unified-per-slot 131072", "llamacpp"), 131072)
 
     def test_la_repartition_affichee_suit(self):
-        """256k en entree ET 256k en sortie, ce que l'operateur a demande."""
+        """256k in input AND 256k in output, what the operator asked for."""
         e, s_ = vllm_health.ctx_split(
             "--ctx-size 524288 --parallel 6 --kv-unified --n-predict 262144", "llamacpp")
         self.assertEqual((e, s_), (262144, 262144))
@@ -204,11 +204,11 @@ class ContexteEffectifTest(unittest.TestCase):
 
 
 class DebitAgregeTest(unittest.TestCase):
-    """`n_decode_total` compte des PAS de decodage, pas des tokens.
+    """`n_decode_total` counts DECODE STEPS, not tokens.
 
-    llama.cpp batche les slots : un pas produit un token par slot actif. Le
-    tableau de bord affichait donc le debit divise par le nombre de sessions —
-    17,4 tok/s la ou les clients en recevaient 69,5.
+    llama.cpp batches the slots: a step produces one token per active slot.
+    The dashboard thus displayed the throughput divided by the number of
+    sessions — 17,4 tok/s where clients received 69,5.
     """
 
     def _metrics(self, decode, processing):
@@ -230,7 +230,7 @@ class DebitAgregeTest(unittest.TestCase):
         self.assertTrue(30 < self._mesure(34, 1) < 38)
 
     def test_quatre_sessions_multiplient_le_debit(self):
-        """4 sessions a ~17 pas/s = ~69 tok/s delivres, pas 17."""
+        """4 sessions at ~17 steps/s = ~69 tok/s delivered, not 17."""
         tps = self._mesure(17, 4)
         self.assertTrue(60 < tps < 76, tps)
 
@@ -241,9 +241,9 @@ class DebitAgregeTest(unittest.TestCase):
         self.assertEqual(_sante('llamacpp', self._metrics(1000, 0))['tps'], 0.0)
 
     def test_fin_de_generation_ne_tombe_pas_a_zero(self):
-        """Fenetre a cheval sur la fin : des tokens produits, plus aucun slot actif.
+        """Window straddling the end: tokens produced, no active slot anymore.
 
-        Sans le garde-fou le produit vaudrait zero et le debit clignoterait.
+        Without the guard the product would be zero and the throughput would blink.
         """
         vllm_health._llama_tps.update(t=0.0, dec=None)
         _sante('llamacpp', self._metrics(1000, 1))
@@ -263,13 +263,13 @@ _METRICS_LLAMA_COMPLET = (
 
 
 class CompteursCumulesTest(unittest.TestCase):
-    """Ce que le moteur sait dire du travail déjà fait.
+    """What the engine can say about the work already done.
 
-    Le débit instantané ne suffit pas : mesuré le 2026-09-14, 4 requêtes en
-    cours, `n_decode_total` qui avance d'UN pas en 6 s (le modèle ingérait des
-    contextes d'entrée) et un prefill à 248 tok/s. L'écran annonçait donc
-    « 0 tok/s » alors que le GPU travaillait. D'où la moyenne exacte depuis le
-    démarrage, et les compteurs d'entrée.
+    Instantaneous throughput is not enough: measured on 2026-09-14, 4
+    requests in flight, `n_decode_total` advancing by ONE step in 6 s (the
+    model was ingesting input contexts) and a prefill at 248 tok/s. The
+    screen thus announced « 0 tok/s » while the GPU worked. Hence the exact
+    average since startup, and the input counters.
     """
 
     def test_les_compteurs_du_moteur_sont_exposes(self):
@@ -281,20 +281,20 @@ class CompteursCumulesTest(unittest.TestCase):
         self.assertEqual(s['tokens_generated_total'], 999999)
 
     def test_la_moyenne_est_exacte_et_pas_echantillonnee(self):
-        """158 729 tokens en 11 921,9 s de génération = 13,3 tok/s.
+        """158 729 tokens in 11 921,9 s of generation = 13,3 tok/s.
 
-        Le rapport de deux compteurs du moteur : aucune approximation liée à la
-        fréquence de sonde du portail, contrairement au débit instantané.
+        The ratio of two engine counters: no approximation tied to the
+        portal's probe frequency, unlike the instantaneous throughput.
         """
         s = _sante('llamacpp', _METRICS_LLAMA_COMPLET)
         self.assertEqual(s['tps_moyen'], 13.3)
 
     def test_pas_de_moyenne_sur_un_compteur_qui_vient_de_repartir(self):
-        """Compteur neuf : la moyenne porterait sur quelques minutes à peine.
+        """Fresh counter: the average would cover barely a few minutes.
 
-        Mesuré le 2026-09-14 : remise à zéro, 47 tokens et 192 s de génération →
-        « 0,2 tok/s ». Le seuil de 300 s évite d'afficher ce chiffre vide de sens ;
-        le total cumulé, lui, reste juste.
+        Measured on 2026-09-14: reset, 47 tokens and 192 s of generation →
+        « 0,2 tok/s ». The 300 s threshold avoids displaying this meaningless
+        figure; the cumulative total, for its part, stays right.
         """
         neuf = ("llamacpp:tokens_predicted_total 47\n"
                 "llamacpp:tokens_predicted_seconds_total 192.443\n"
@@ -304,7 +304,7 @@ class CompteursCumulesTest(unittest.TestCase):
         self.assertEqual(_sante('llamacpp', au_dessus)['tps_moyen'], 0.2)
 
     def test_vllm_na_pas_de_moyenne_a_inventer(self):
-        """vLLM ne publie pas de secondes de génération : None, pas un faux chiffre."""
+        """vLLM publishes no generation seconds: None, not a fake figure."""
         s = _sante('vllm', _metrics_vllm())
         self.assertIsNone(s['tps_moyen'])
         self.assertEqual(s['tokens_generated'], 1000)
@@ -325,7 +325,7 @@ class _FauxCurseur:
 
 
 class _FausseDb:
-    """Socle minimal : une ligne lue, et les écritures mémorisées pour les compter."""
+    """Minimal base: one row read, and the writes memorized to count them."""
 
     def __init__(self, row=None):
         self.row = row
@@ -343,9 +343,9 @@ class _FausseDb:
 
 
 class CumulTokensGeneresTest(unittest.TestCase):
-    """« Garder les tokens générés » : le compteur du moteur repart de zéro à
-    chaque relance, le cumul ne doit donc pas retomber avec lui — et surtout ne
-    jamais compter deux fois le même lancement."""
+    """« Garder les tokens générés »: the engine counter restarts from zero at
+    every relaunch, so the cumulative must not fall with it — and above all
+    never count the same launch twice."""
 
     def _cumul(self, db, valeur):
         with mock.patch.object(stats, 'get_db', return_value=db):
@@ -360,10 +360,10 @@ class CumulTokensGeneresTest(unittest.TestCase):
         self.assertEqual(self._cumul(db, 150), 150)
 
     def test_une_remise_a_zero_archive_la_valeur_deja_comptee(self):
-        """Compteur qui repart en arrière : le moteur a redémarré OU remis son
-        cache à zéro — mesuré le 2026-09-14, `tokens_predicted_total` de 158 864 à
-        47 avec le MÊME pid, pendant que `prompt_tokens_total` ne bougeait pas.
-        Les deux cas demandent le même traitement : le travail déjà fait reste dû.
+        """Counter moving backwards: the engine restarted OR reset its cache to
+        zero — measured on 2026-09-14, `tokens_predicted_total` from 158 864
+        to 47 with the SAME pid, while `prompt_tokens_total` did not move.
+        Both cases call for the same treatment: the work already done stays owed.
         """
         db = _FausseDb()
         self._cumul(db, 150)
@@ -377,7 +377,7 @@ class CumulTokensGeneresTest(unittest.TestCase):
         self.assertEqual(cumuls, sorted(cumuls), cumuls)
 
     def test_aucune_ecriture_quand_rien_ne_bouge(self):
-        """Au repos la sonde tourne à 1 s : pas une écriture SQLite par seconde."""
+        """At rest the probe runs at 1 s: not one SQLite write per second."""
         db = _FausseDb()
         self._cumul(db, 100)
         self.assertEqual(len(db.ecritures), 1)
@@ -406,7 +406,7 @@ _SLOTS_OCCUPES = [
 
 
 def _avec_slots(slots):
-    """Fait repondre /slots comme llama.cpp, en laissant /metrics au texte donne."""
+    """Makes /slots answer like llama.cpp, leaving /metrics to the given text."""
     def _get(url, **k):
         if url.endswith('/slots'):
             return types.SimpleNamespace(json=lambda: slots)
@@ -415,12 +415,12 @@ def _avec_slots(slots):
 
 
 class SlotsActifsTest(unittest.TestCase):
-    """Pendant une requete, le moteur est la SEULE source d'activite.
+    """During a request, the engine is the ONLY source of activity.
 
-    LiteLLM n'ecrit sa ligne qu'a la fin : mesure du 2026-09-14, 44 minutes sans
-    la moindre ligne alors que deux sessions travaillaient, donc un panneau qui
-    annoncait « personne » pendant que le GPU tournait. Ces tests fixent ce que le
-    portail sait dire malgre ca — et ce qu'il refuse d'inventer.
+    LiteLLM only writes its row at the end: measured on 2026-09-14, 44
+    minutes without a single row while two sessions worked, hence a panel
+    announcing « personne » while the GPU ran. These tests freeze what the
+    portal can say despite that — and what it refuses to invent.
     """
 
     def setUp(self):
@@ -437,22 +437,22 @@ class SlotsActifsTest(unittest.TestCase):
         self.assertEqual(a['total'], 4)
 
     def test_l_ingestion_du_prompt_est_sommee(self):
-        """« ou en est le prompt » : 23 000 des 27 000 tokens ingeres."""
+        """« ou en est le prompt »: 23 000 of the 27 000 ingested tokens."""
         a = self._activite(_SLOTS_OCCUPES)
         self.assertEqual(a['prompt_ingere'], 27000)
         self.assertEqual(a['prompt_traite'], 23000)
 
     def test_l_age_est_suivi_par_identifiant_de_tache(self):
-        """llama.cpp donne un id de tache, pas une heure de depart."""
+        """llama.cpp gives a task id, not a start time."""
         self._activite(_SLOTS_OCCUPES)
         self.assertIsNotNone(self._activite(_SLOTS_OCCUPES)['plus_ancien_s'])
-        # Tache vue il y a 10 minutes : c'est l'age qui doit ressortir.
+        # Task seen 10 minutes ago: it is the age that must come out.
         vllm_health._slots_taches[279] = time.time() - 600
         a = self._activite(_SLOTS_OCCUPES)
         self.assertTrue(598 < a['plus_ancien_s'] < 604, a['plus_ancien_s'])
 
     def test_une_tache_terminee_sort_du_suivi(self):
-        """Sinon la table des taches grossirait sans fin."""
+        """Otherwise the task table would grow forever."""
         self._activite(_SLOTS_OCCUPES)
         self.assertIn(279, vllm_health._slots_taches)
         self._activite([s for s in _SLOTS_OCCUPES if s['id'] != 0])
@@ -460,7 +460,7 @@ class SlotsActifsTest(unittest.TestCase):
         self.assertIn(1334, vllm_health._slots_taches)
 
     def test_moteur_sans_slots_renvoie_none_et_pas_zero(self):
-        """vLLM n'expose pas /slots, et une panne de sonde n'est pas « personne »."""
+        """vLLM exposes no /slots, and a probe failure is not « personne »."""
         with mock.patch.object(vllm_health.requests, 'get',
                                side_effect=RuntimeError('injoignable')):
             self.assertIsNone(vllm_health._slots_activite())
@@ -482,12 +482,12 @@ class SlotsActifsTest(unittest.TestCase):
 
 
 class EnVolStatsTest(unittest.TestCase):
-    """Lecture des requetes EN COURS ecrites par le callback LiteLLM.
+    """Reading the IN-FLIGHT requests written by the LiteLLM callback.
 
-    Ce fichier est la seule attribution CONSTATEE : sans lui, le panneau ne peut
-    dire que ce que le moteur voit (des sessions occupees) et ce que SpendLogs a
-    deja vu (des requetes finies). Il est aussi, par construction, un fichier qui
-    peut manquer ou etre illisible — d'ou ces tests.
+    This file is the only OBSERVED attribution: without it, the panel can
+    only say what the engine sees (busy sessions) and what SpendLogs has
+    already seen (finished requests). It is also, by construction, a file
+    that can be missing or unreadable — hence these tests.
     """
 
     def setUp(self):
@@ -518,7 +518,7 @@ class EnVolStatsTest(unittest.TestCase):
         self.assertTrue(11 < actifs['alice'] < 15, actifs)
 
     def test_un_alias_inconnu_ne_devine_aucun_nom(self):
-        """Mieux vaut ne rien afficher qu'un nom invente."""
+        """Better to display nothing than an invented name."""
         with mock.patch.object(stats, '_compte_existe', return_value=False):
             self._ecrit([('c1', 'Opencode-Omarchy', 'personne-connu', 5)])
             self.assertEqual(stats._en_vol(), {})

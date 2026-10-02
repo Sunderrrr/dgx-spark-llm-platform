@@ -1,15 +1,15 @@
-"""Voix (Chatterbox / Qwen3-TTS) : clonage, synthese, historique.
+"""Voice (Chatterbox / Qwen3-TTS): cloning, synthesis, history.
 
-Extrait de app.py le 28/08. La banniere « Voix » du monolithe couvrait en
-realite TROIS sujets — la voix, la dictee (ASR) et l'amorcage de l'application
-en fin de fichier — ce qui expliquait des dependances incoherentes
-(init_db, AVATAR_IDS, LOGIN_WINDOW). La frontiere a donc ete redessinee avant
-d'extraire : la dictee part dans asr_routes.py, l'amorcage reste dans app.py.
+Extracted from app.py on 28/08. The monolith's « Voix » banner really
+covered THREE topics — voice, dictation (ASR) and the application bootstrap
+at the end of the file — which explained the inconsistent dependencies
+(init_db, AVATAR_IDS, LOGIN_WINDOW). The boundary was therefore redrawn
+before extracting: dictation goes to asr_routes.py, bootstrap stays in app.py.
 
-get_voice_engine / get_voice_languages viennent de la section « Helpers » : ce
-sont des sondes purement voix, leur place est ici. VOICE_REPO_IDS et
-get_voice_model restent dans app.py — ils servent au lancement de modeles
-depuis l'administration, pas aux routes voix.
+get_voice_engine / get_voice_languages come from the « Helpers » section:
+they are purely voice probes, their place is here. VOICE_REPO_IDS and
+get_voice_model stay in app.py — they serve model launching from the
+admin, not the voice routes.
 """
 import io as _io
 import os
@@ -29,14 +29,14 @@ from sidecars import motif_refus
 
 bp = Blueprint('voice', __name__)
 
-_voice_info_cache = {'t': 0.0, 'v': None}   # v = None quand le dernier appel a échoué
+_voice_info_cache = {'t': 0.0, 'v': None}   # v = None when the last call failed
 
 def _voice_model_info():
-    """Corps de `/api/model-info` du sidecar voix, mis en cache 30 s.
+    """Body of the voice sidecar's `/api/model-info`, cached 30 s.
 
-    UNE seule fonction parce que `get_voice_engine` et `get_voice_languages`
-    interrogeaient la MÊME URL avec deux caches 30 s indépendants : la page voix
-    appelle les deux, donc chaque cache froid coûtait deux GET identiques.
+    A SINGLE function because `get_voice_engine` and `get_voice_languages`
+    queried the SAME URL with two independent 30 s caches: the voice page
+    calls both, so each cold cache cost two identical GETs.
     """
     now = time.time()
     if now - _voice_info_cache['t'] < 30:
@@ -219,9 +219,9 @@ def api_voice_generate():
     # Keeps only the VOICE_HISTORY_LIMIT most recent per user — also purges
     # the corresponding audio files, otherwise VOICE_AUDIO_DIR grows
     # indefinitely (same reasoning as OCR_IMAGES_DIR).
-    # `id` est demandé ici pour que la suppression réutilise CES lignes : la
-    # sous-requête `NOT IN (… ORDER BY id DESC LIMIT …)` était sinon évaluée deux
-    # fois (une pour lister les fichiers, une dans le DELETE).
+    # `id` is requested here so the deletion reuses THESE rows: the subquery
+    # `NOT IN (… ORDER BY id DESC LIMIT …)` would otherwise be evaluated twice
+    # (once to list the files, once in the DELETE).
     stale = db.execute(
         "SELECT id, audio_path FROM voice_jobs WHERE username=? AND id NOT IN ("
         "  SELECT id FROM voice_jobs WHERE username=? ORDER BY id DESC LIMIT ?)",
@@ -277,5 +277,5 @@ def voice_audio(job_id):
     return send_file(path, mimetype='audio/mpeg')
 
 
-# Variante Chatterbox chargee, rapatriee de app.py le 28/08 : sonde purement
-# voix, elle etait rangee dans « Helpers ». app.py et sidecars.py la reimportent.
+# Loaded Chatterbox variant, brought over from app.py on 28/08: a purely
+# voice probe, it sat in « Helpers ». app.py and sidecars.py re-import it.

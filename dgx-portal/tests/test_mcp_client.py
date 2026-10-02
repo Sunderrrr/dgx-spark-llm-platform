@@ -1,10 +1,10 @@
-"""Garde-fous SSRF du client MCP.
+"""SSRF guardrails of the MCP client.
 
-C'est le point le plus sensible du portail : n'importe quel utilisateur
-authentifié (pas seulement un admin) enregistre une URL que le backend ira
-ensuite contacter, depuis le réseau docker qui héberge litellm
-(LITELLM_MASTER_KEY), vllm-runner et postgres. Ces tests figent le
-comportement de la liste noire.
+This is the portal's most sensitive point: any authenticated user (not
+only an admin) registers a URL the backend will then contact, from the
+docker network hosting litellm (LITELLM_MASTER_KEY), vllm-runner and
+postgres. These tests freeze the
+behaviour of the blacklist.
 """
 
 import socket
@@ -15,7 +15,7 @@ import mcp_client
 
 
 def _fake_dns(ip):
-    """Force la résolution DNS vers `ip`, sans toucher au réseau."""
+    """Forces the DNS resolution to `ip`, without touching the network."""
     return mock.patch.object(
         socket, 'getaddrinfo',
         lambda host, port, *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (ip, 0))])
@@ -38,10 +38,10 @@ class ValidateUrlTest(unittest.TestCase):
             self.assertFalse(ok, host)
 
     def test_rejette_les_ip_privees_et_speciales(self):
-        # Un nom public qui résout vers une adresse interne doit être refusé :
-        # c'est le cas d'attaque réel, pas seulement l'IP écrite en dur.
+        # A public name resolving to an internal address must be refused: this is
+        # the real attack case, not just a hardcoded IP.
         for ip in ('127.0.0.1', '10.0.0.5', '192.168.1.10', '172.16.0.9',
-                   '169.254.169.254',           # métadonnées cloud
+                   '169.254.169.254',           # cloud metadata
                    '100.64.0.1',                # CGNAT
                    '0.0.0.0'):
             with _fake_dns(ip):
@@ -70,17 +70,17 @@ class BlockedIpTest(unittest.TestCase):
             self.assertFalse(mcp_client._is_blocked_ip(ip), ip)
 
     def test_ip_illisible_est_bloquee(self):
-        # En cas de doute on refuse, plutôt que de laisser passer.
+        # In case of doubt we refuse, rather than let through.
         self.assertTrue(mcp_client._is_blocked_ip('pas-une-ip'))
 
     def test_ipv6_mappee_ipv4_interne(self):
-        # ::ffff:169.254.169.254 contourne une liste noire naïve.
+        # ::ffff:169.254.169.254 bypasses a naive blacklist.
         self.assertTrue(mcp_client._is_blocked_ip('::ffff:169.254.169.254'))
 
 
 class RedirectTest(unittest.TestCase):
-    """Une redirection est refusée : `requests` la suivrait sans revalider la
-    destination, ce qui annulerait complètement le filtre ci-dessus."""
+    """A redirect is refused: `requests` would follow it without revalidating
+    the destination, which would completely cancel the filter above."""
 
     def test_refuse_une_redirection(self):
         client = mcp_client.MCPClient('https://exemple.com/mcp')
@@ -110,9 +110,9 @@ if __name__ == '__main__':
 
 
 class NegativeCacheTest(unittest.TestCase):
-    """Un serveur injoignable doit être mémorisé comme tel. Sans ça, chaque
-    message de chat repayait ses timeouts (jusqu'à 10 s), et quelques serveurs
-    morts suffisaient à monopoliser les threads gunicorn."""
+    """An unreachable server must be memorized as such. Without it, every chat
+    message repaid its timeouts (up to 10 s), and a few dead servers were
+    enough to monopolize the gunicorn threads."""
 
     def setUp(self):
         mcp_client._tools_cache.clear()
@@ -154,8 +154,8 @@ class NegativeCacheTest(unittest.TestCase):
 
 
 class ResolvePinTest(unittest.TestCase):
-    """La résolution DNS est faite UNE fois et l'IP renvoyée est celle épinglée
-    pour la connexion — c'est ce qui ferme le DNS-rebinding (TOCTOU)."""
+    """The DNS resolution is done ONCE and the returned IP is the one pinned
+    for the connection — this is what closes DNS-rebinding (TOCTOU)."""
 
     def test_renvoie_l_ip_publique_validee(self):
         with _fake_dns('93.184.216.34'):
@@ -172,8 +172,8 @@ class ResolvePinTest(unittest.TestCase):
 
 
 class PinnedAdapterTest(unittest.TestCase):
-    """L'adaptateur se connecte à l'IP validée mais garde le hostname pour le SNI
-    et la validation du certificat (le cert reste vérifié)."""
+    """The adapter connects to the validated IP but keeps the hostname for the
+    SNI and the certificate validation (the cert stays checked)."""
 
     def test_epingle_l_ip_et_conserve_le_hostname(self):
         adapter = mcp_client._PinnedIPHTTPSAdapter('93.184.216.34')
@@ -190,7 +190,7 @@ class PinnedAdapterTest(unittest.TestCase):
         with mock.patch.object(mcp_client.requests.adapters.HTTPAdapter, 'send', faux_send):
             adapter.send(prepared)
         self.assertIn('93.184.216.34', capture['url'])
-        self.assertNotIn('exemple.com', capture['url'])          # plus de re-résolution DNS
-        self.assertEqual(capture['host'], 'exemple.com:8443')    # Host d'origine préservé
+        self.assertNotIn('exemple.com', capture['url'])          # no more DNS re-resolution
+        self.assertEqual(capture['host'], 'exemple.com:8443')    # Original host preserved
         self.assertEqual(capture['sni'], 'exemple.com')          # SNI = vrai hostname
-        self.assertEqual(capture['assert'], 'exemple.com')       # cert vérifié sur le hostname
+        self.assertEqual(capture['assert'], 'exemple.com')       # cert checked on the hostname

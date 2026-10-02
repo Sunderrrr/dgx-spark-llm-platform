@@ -1,17 +1,17 @@
-"""WebAuthn / passkeys — 2e facteur par cle de securite (YubiKey, cle 1Password,
-passkey OS), pas de TOTP.
+"""WebAuthn / passkeys — 2nd factor by security key (YubiKey, 1Password key,
+OS passkey), not TOTP.
 
-Activee par utilisateur depuis les reglages (roue crantee) : chaque compte
-enregistre une passkey et peut exiger sa presence au login (local/LDAP). Les
-defis sont one-time, stockes en base et bornes dans le temps.
+Enabled per user from the settings (gear): each account registers a
+passkey and can require its presence at login (local/LDAP). Challenges are
+one-time, stored in database and bounded in time.
 
-Scope tres volontaire : le 2e facteur s'applique aux connexions local et LDAP
-(choix produit). Le SSO/Authentik n'est PAS dote du step-up, et la passkey est
-liee a l'origine (WEBAUTHN_ORIGIN) — une cle enregistree sur le domaine public
-ne fonctionne pas depuis une autre origine (ex. le LAN).
+Very deliberate scope: the 2nd factor applies to local and LDAP logins
+(product choice). SSO/Authentik is NOT given the step-up, and the passkey
+is bound to the origin (WEBAUTHN_ORIGIN) — a key registered on the public
+domain does not work from another origin (e.g. the LAN).
 
-Ne depend du noyau (db, auth, config) que via get_db / _apply_session / config :
-jamais de l'objet `app`, pour rester importable sans cycle.
+Depends on the core (db, auth, config) only via get_db / _apply_session /
+config: never the `app` object, to stay importable without a cycle.
 """
 import base64
 import hashlib
@@ -46,25 +46,25 @@ from local_users import (GESTION_LDAP, GESTION_PORTAIL, GESTION_SSO, _local_user
 
 bp = Blueprint("webauthn", __name__)
 
-WEBAUTHN_PENDING_TTL = 5 * 60  # secondes — un defi ne vit que 5 min
+WEBAUTHN_PENDING_TTL = 5 * 60  # seconds — a challenge only lives 5 min
 _UV = (UserVerificationRequirement.REQUIRED if WEBAUTHN_REQUIRE_UV
        else UserVerificationRequirement.PREFERRED)
 
 
-# ── Aide base64url ───────────────────────────────────────────────────────────
+# ── base64url helpers ───────────────────────────────────────────────────────
 def _b64url(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
 
 
 def _b64d(s: str) -> bytes:
-    # Base64url (padding optionnel) -> bytes. Le pad manquant est rehabilité.
+    # Base64url (optional padding) -> bytes. The missing pad is restored.
     pad = "=" * (-len(s) % 4)
     return base64.urlsafe_b64decode(s + pad)
 
 
-# ── Persistance ──────────────────────────────────────────────────────────────
+# ── Persistence ─────────────────────────────────────────────────────────────
 def _webauthn_enabled(username: str) -> bool:
-    """Le compte exige-t-il la passkey au login (local/LDAP) ?"""
+    """Does the account require the passkey at login (local/LDAP)?"""
     row = get_db().execute(
         "SELECT enabled FROM user_security WHERE username=?", (username,)).fetchone()
     return bool(row and row["enabled"])
@@ -97,8 +97,8 @@ def _credential_row(username: str, credential_id_b64: str):
 def _pending_insert(nonce, username, kind, challenge, fullname=None, is_admin=None, source=None):
     db = get_db()
     now = time.time()
-    # On ne garde qu'UN defi en cours par (compte, type) : un nouveau
-    # invalide l'ancien (anti-rejeu, et borne la table).
+    # We keep only ONE challenge in flight per (account, type): a new one
+    # invalidates the old one (anti-replay, and bounds the table).
     db.execute("DELETE FROM pending_webauthn WHERE username=? AND kind=?", (username, kind))
     db.execute(
         "INSERT INTO pending_webauthn (nonce, username, kind, challenge, fullname, is_admin, source, created_at, expires_at) "
@@ -108,10 +108,10 @@ def _pending_insert(nonce, username, kind, challenge, fullname=None, is_admin=No
 
 
 def _pending_get(nonce, kind=None):
-    # `nonce` vient d'un corps JSON dont le TYPE n'est pas garanti : une liste ou
-    # un objet faisait remonter un sqlite3.ProgrammingError en 500 sur une route
-    # PUBLIQUE (audit du 2026-10-02). Traiter un nonce non-chaîne comme absent est
-    # exactement ce que le flux sait déjà faire (défi introuvable/expiré).
+    # `nonce` comes from a JSON body whose TYPE is not guaranteed: a list or
+    # an object raised a sqlite3.ProgrammingError as a 500 on a PUBLIC route
+    # (audit of 2026-10-02). Treating a non-string nonce as absent is exactly
+    # what the flow already knows how to do (challenge not found/expired).
     if not isinstance(nonce, str) or not nonce:
         return None
     db = get_db()
@@ -136,24 +136,24 @@ def _pending_clear(nonce) -> None:
 
 
 def _verify_password(username: str, password: str, gestion: str) -> bool:
-    # `gestion` est FOURNI par l'appelant : `_verify_password_locked` l'a déjà
-    # calculé (deux SELECT) pour son propre test SSO, et le recalculer ici
-    # doublait ces lectures à chaque re-vérification sensible.
-    """Re-vérification par mot de passe, contre la source qui le DÉTIENT.
+    # `gestion` is PROVIDED by the caller: `_verify_password_locked` already
+    # computed it (two SELECTs) for its own SSO test, and recomputing it here
+    # doubled those reads at every sensitive re-verification.
+    """Password re-verification, against the source that HOLDS it.
 
-    `login()` essaie le local PUIS l'annuaire, et cet ordre y est voulu : un
-    compte d'annuaire dont une ligne locale subsiste doit pouvoir entrer avec
-    son mot de passe d'annuaire. Ici la question est autre — on confirme une
-    action sensible — et `gestion_mot_de_passe` dit déjà qui fait autorité.
+    `login()` tries local THEN the directory, and that order is deliberate
+    there: a directory account with a leftover local row must be able to log
+    in with its directory password. Here the question is another — we
+    confirm a sensitive action — and `gestion_mot_de_passe` already tells who rules.
 
-    Interroger l'annuaire pour un compte dont le PORTAIL détient le mot de passe
-    n'était pas seulement inutile : mesuré le 2026-09-17 sur
-    `/api/security/register/begin`, un mot de passe faux coûtait **13 s** de
-    worker gunicorn quand l'annuaire est muet — et le refus est justement le cas
-    FRÉQUENT. Avec quatre workers, quatre fautes de frappe simultanées
-    immobilisaient donc le portail. Un compte `portail` ne consulte plus
-    l'annuaire, un compte `annuaire` ne consulte plus le local, et `inconnu`
-    (rien ne fait autorité) garde l'ordre de `login()`.
+    Querying the directory for an account whose password the PORTAL holds
+    was not merely useless: measured on 2026-09-17 on
+    `/api/security/register/begin`, a wrong password cost **13 s** of
+    gunicorn worker when the directory is mute — and the refusal is
+    precisely the FREQUENT case. With four workers, four simultaneous
+    typos thus immobilized the portal. A `portail` account no longer
+    consults the directory, an `annuaire` account no longer consults the
+    local one, and `inconnu` (nothing is authoritative) keeps `login()`'s order.
     """
     if gestion == GESTION_PORTAIL:
         return _local_user_auth(username, password)[0]
@@ -166,27 +166,27 @@ def _verify_password(username: str, password: str, gestion: str) -> bool:
 
 
 def _verify_password_locked(username: str, password: str):
-    """Re-verification PROTEGEE par le verrou de login — (ok, reponse_erreur).
+    """Re-verification PROTECTED by the login lock — (ok, error_response).
 
-    Sans ce garde-fou, une session detournee (cookie + jeton CSRF vivent dans la
-    meme session) permettait d'essayer des mots de passe a la vitesse du reseau
-    via /api/security/* : le compteur de /login n'etait jamais incremente, donc
-    le verrou 6 echecs / 15 min ne se declenchait jamais, et un mot de passe
-    trouve donnait le mot de passe REUTILISABLE du compte (plus la possibilite
-    de desenregistrer ses passkeys).
+    Without this guard, a hijacked session (cookie + CSRF token live in the
+    same session) allowed trying passwords at network speed via
+    /api/security/*: the /login counter was never incremented, so the 6
+    failures / 15 min lock never triggered, and a found password gave the
+    account's REUSABLE password (plus the possibility to unregister its
+    passkeys).
 
-    Le compteur est celui du COMPTE (`user:<nom>`), partage avec /login : les
-    tentatives faites depuis les Reglages verrouillent aussi la page de
-    connexion, et inversement. Les echecs sont donc bornes globalement, quel
-    que soit le chemin emprunte.
+    The counter is the ACCOUNT's (`user:<nom>`), shared with /login: the
+    attempts made from the Settings also lock the login page, and vice
+    versa. Failures are thus bounded globally, whatever the path
+    taken.
     """
     ukey = f"user:{username}"
-    # Compte SSO : aucun mot de passe que le portail puisse vérifier. Le dire
-    # AVANT le compteur d'échecs est délibéré : sinon un utilisateur SSO qui
-    # essaie son mot de passe d'identité (le seul qu'il ait) accumule des échecs
-    # sur `user:<nom>` — le compteur étant partagé avec /login, il finissait par
-    # se verrouiller lui-même la page de connexion, pour une action impossible
-    # dès le départ.
+    # SSO account: no password the portal can check. Saying it BEFORE the
+    # failure counter is deliberate: otherwise an SSO user trying their
+    # identity password (the only one they have) accumulates failures on
+    # `user:<nom>` — the counter being shared with /login, they ended up
+    # locking themselves out of the login page, for an action impossible
+    # from the start.
     gestion = gestion_mot_de_passe(username)['gestion']
     if gestion == GESTION_SSO:
         return False, ({"error": "Compte SSO : aucun mot de passe n'est géré par le "
@@ -198,15 +198,15 @@ def _verify_password_locked(username: str, password: str):
         _login_reset(ukey)
         return True, None
     _login_fail(ukey)
-    # 400 et NON 401 : la session est parfaitement valide, c'est la
-    # CONFIRMATION qui est fausse. Le client interprète un 401 comme « session
-    # expirée » et renvoie l'utilisateur à /login (`authFetch`) : se tromper de
-    # mot de passe en ajoutant une clé le DÉCONNECTAIT donc, au lieu de lui
-    # afficher « Mot de passe incorrect. » — constaté en test navigateur.
+    # 400 and NOT 401: the session is perfectly valid, it is the
+    # CONFIRMATION that is wrong. The client interprets a 401 as « session
+    # expirée » and sends the user back to /login (`authFetch`): mistyping the
+    # password while adding a key thus LOGGED THEM OUT, instead of showing
+    # « Mot de passe incorrect. » — observed in browser testing.
     return False, ({"error": "Mot de passe incorrect."}, 400)
 
 
-# ── Flux d'enregistrement (ajout d'une cle) ───────────────────────────────────
+# ── Registration flow (adding a key) ───────────────────────────────────────
 def start_registration(username: str):
     existing = _stored_credentials(username)
     exclude = [
@@ -218,7 +218,7 @@ def start_registration(username: str):
         rp_id=WEBAUTHN_RP_ID,
         rp_name=WEBAUTHN_RP_NAME,
         user_name=username,
-        # user_id doit etre stable et unique par compte : hash du username.
+        # user_id must be stable and unique per account: hash of the username.
         user_id=hashlib.sha256(username.encode()).digest(),
         timeout=60000,
         attestation=AttestationConveyancePreference.NONE,
@@ -252,18 +252,18 @@ def finish_registration(username: str, credential, nonce: str, label: str):
         return {"error": "Clé refusée : la vérification a échoué."}, 400
 
     cred_id = _b64url(ver.credential_id)
-    # `transports` n'est pas renvoyé par la lib : il vient de la réponse du
-    # client (Navigator.credentials.create → response.transports, si dispo).
+    # `transports` is not returned by the lib: it comes from the client's
+    # response (Navigator.credentials.create → response.transports, when available).
     transports_arr = (credential.get("response") or {}).get("transports") or []
     transports = json.dumps(transports_arr)
     db = get_db()
-    # Le DELETE est SCOPÉ par compte (audit du 2026-10-02) : `credential_id` est
-    # globalement unique, et un identifiant fourni par le client suffisait à
-    # emporter la ligne d'un AUTRE compte. La victime ne perdait pas seulement sa
-    # clé : `user_security.enabled` restait à 1 sans aucune clé enregistrée, donc
-    # chaque connexion finissait en « aucune passkey » — un verrouillage
-    # définitif jusqu'à intervention d'un admin. Les deux autres accès à cette
-    # table étaient déjà scopés ; celui-ci était le seul à ne pas l'être.
+    # The DELETE is SCOPED per account (audit of 2026-10-02): `credential_id`
+    # is globally unique, and a client-supplied identifier was enough to take
+    # away ANOTHER account's row. The victim lost more than their key:
+    # `user_security.enabled` stayed at 1 with no registered key, so every
+    # login ended in « aucune passkey » — a definitive lockout until admin
+    # intervention. The two other accesses to this table were already scoped;
+    # this one was the only one that was not.
     db.execute("DELETE FROM webauthn_credentials WHERE username=? AND credential_id=?",
                (username, cred_id))
     db.execute(
@@ -272,18 +272,18 @@ def finish_registration(username: str, credential, nonce: str, label: str):
         "VALUES (?,?,?,?,?,?,?)",
         (username, cred_id, ver.credential_public_key, ver.sign_count,
          transports, label or "Clé de sécurité", time.time()))
-    _set_enabled(username, True)  # enregistrer la 1re cle => 2FA activee
+    _set_enabled(username, True)  # register the 1st key => 2FA enabled
     _pending_clear(nonce)
     db.commit()
     return {"ok": True}
 
 
-# ── Flux d'authentification (etape 2 du login) ───────────────────────────────
+# ── Authentication flow (login step 2) ─────────────────────────────────────
 def start_login(username: str, fullname: str, is_admin: bool, source: str):
-    """Genere le defi pour la 2e etape (apres un mot de passe / LDAP valide)."""
+    """Generates the challenge for the 2nd step (after a valid password / LDAP)."""
     creds = _stored_credentials(username)
-    # transports est un simple indice côté navigateur ; on l'omet volontairement
-    # (la lib exige des enums et non des chaînes, et l'indice est optionnel).
+    # transports is a mere browser-side hint; we deliberately omit it (the
+    # lib requires enums and not strings, and the hint is optional).
     allow = [
         PublicKeyCredentialDescriptor(id=_b64d(c["credential_id"]),
                                       type=PublicKeyCredentialType.PUBLIC_KEY)
@@ -306,18 +306,18 @@ def finish_login(nonce: str, credential):
     if not pend:
         return {"error": "Demande de connexion expirée ou invalide."}, 400
     username = pend["username"]
-    # id de la cle telle que verifiee (on le re-derive de la reponse).
+    # id of the key as verified (we re-derive it from the response).
     try:
         cred_id = _b64url(base64.urlsafe_b64decode(credential.get("id", "") + "=="))
     except Exception:
         return {"error": "Clé invalide."}, 400
     row = _credential_row(username, cred_id)
     if not row:
-        # Le défi est à USAGE UNIQUE : les deux autres sorties le consomment,
-        # pas celle-ci — il restait donc valide jusqu'à son TTL (5 min) après une
-        # première tentative infructueuse. Pas de rejeu possible pour autant
-        # (`sign_count` vérifié et mis à jour), mais un défi ouvert ne doit pas
-        # survivre à l'échec qui l'a utilisé.
+        # The challenge is SINGLE-USE: the two other exits consume it, not this
+        # one — it thus stayed valid until its TTL (5 min) after a first failed
+        # attempt. No replay possible for all that (`sign_count` checked and
+        # updated), but an open challenge must not survive the failure that used
+        # it.
         _pending_clear(nonce)
         return {"error": "Clé inconnue pour ce compte."}, 401
     try:
@@ -333,10 +333,10 @@ def finish_login(nonce: str, credential):
     except Exception:
         _pending_clear(nonce)
         return {"error": "Vérification de la clé échouée."}, 401
-    # Un blocage posé PENDANT les quelques minutes du défi doit faire échouer
-    # la seconde étape : la passkey prouve l'identité, elle ne vaut pas
-    # autorisation. Le contrôle de app.py a eu lieu avant le défi, celui-ci
-    # ferme la fenêtre entre les deux.
+    # A block placed DURING the few minutes of the challenge must fail the
+    # second step: the passkey proves identity, it is not an authorization.
+    # The app.py check happened before the challenge, this one closes the
+    # window between the two.
     if est_bloque(username):
         _pending_clear(nonce)
         log_audit(username, 'login.refuse', 'compte bloqué pendant le défi passkey')
@@ -359,10 +359,10 @@ def api_security():
     gestion = gestion_mot_de_passe(username)
     return jsonify({
         "enabled": _webauthn_enabled(username),
-        # L'interface doit pouvoir DIRE d'où vient le mot de passe, et donc si
-        # un formulaire de changement (ou l'ajout d'une passkey) a un sens ici.
-        # Une seule lecture de la source (deux SELECT) pour les deux champs :
-        # `passkey_possible` ne fait que relire `gestion_mot_de_passe`.
+        # The UI must be able to SAY where the password comes from, and thus
+        # whether a change form (or adding a passkey) makes sense here.
+        # A single read of the source (two SELECTs) for both fields:
+        # `passkey_possible` merely re-reads `gestion_mot_de_passe`.
         "password_managed_by": gestion["gestion"],
         "passkey_possible": gestion["passkey"],
         "credentials": [{
@@ -377,27 +377,27 @@ def api_security():
 @bp.route("/api/security/register/begin", methods=["POST"])
 @login_required
 def security_register_begin():
-    # Re-vérification du mot de passe AVANT de créer quoi que ce soit.
+    # Password re-verification BEFORE creating anything.
     #
-    # Sans elle, un simple cookie volé suffisait à enregistrer SA clé : le défi
-    # s'obtient avec le cookie seul (`/api/csrf` est public et rend le jeton de
-    # la session en cours), `finish_registration` active alors la 2FA
-    # (`_set_enabled(username, True)`) avec pour seule clé celle du voleur, et
-    # la victime se retrouve dans un compte où son mot de passe correct ne suffit
-    # plus et où elle ne peut produire aucune assertion — récupération par un
-    # admin uniquement, et destructrice. `security_remove` et `security_toggle`
-    # exigeaient déjà ce mot de passe ; l'ajout d'une clé, non, alors que c'est
-    # l'opération qui CRÉE la condition de verrouillage.
+    # Without it, a simple stolen cookie was enough to register THEIR key:
+    # the challenge is obtained with the cookie alone (`/api/csrf` is public
+    # and returns the current session's token), `finish_registration` then
+    # enables 2FA (`_set_enabled(username, True)`) with the thief's key as the
+    # only one, and the victim ends up in an account where their correct
+    # password no longer suffices and where they cannot produce any assertion
+    # — recovery by an admin only, and destructive. `security_remove` and
+    # `security_toggle` already required this password; adding a key did not,
+    # while it is the operation that CREATES the lockout condition.
     #
-    # Effet de bord voulu : la portée « local + LDAP » de la 2FA, jusqu'ici
-    # seulement affichée par l'interface (`passkey_possible`), est enfin
-    # appliquée par le serveur — un compte SSO reçoit 400 « Compte SSO ».
+    # Deliberate side effect: the « local + LDAP » scope of 2FA, until now
+    # only displayed by the UI (`passkey_possible`), is finally enforced by
+    # the server — an SSO account receives 400 « Compte SSO ».
     data = request.get_json(silent=True) or {}
     motdepasse = data.get("password") or ""
     if not motdepasse:
-        # Champ absent = requête incomplète, pas un mot de passe faux : répondre
-        # 401 ici consommerait une tentative du verrou partagé avec /login pour
-        # une requête qui n'a rien tenté.
+        # Missing field = incomplete request, not a wrong password: answering
+        # 401 here would consume a try of the lock shared with /login for a
+        # request that attempted nothing.
         return jsonify({"error": "Mot de passe requis pour ajouter une clé."}), 400
     ok, err = _verify_password_locked(session["username"], motdepasse)
     if not ok:
@@ -467,8 +467,8 @@ def security_toggle():
 
 @bp.route("/api/security/verify-login", methods=["POST"])
 def security_verify_login():
-    """Etape finale du login 2FA. PAS de @login_required : l'utilisateur
-    n'est pas encore authentifie (il vient de fournir mot de passe / LDAP)."""
+    """Final step of the 2FA login. NO @login_required: the user is not
+    authenticated yet (they just provided password / LDAP)."""
     data = request.get_json(silent=True) or {}
     nonce = data.get("nonce")
     credential = data.get("credential")

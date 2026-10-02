@@ -1,10 +1,10 @@
-"""Mails SMTP : bouton maintenance + bouton « demander un modèle » (pages média).
+"""SMTP mails: maintenance button + « demander un modèle » button (media pages).
 
-On ne teste PAS l'envoi (nécessite un SMTP réel, jamais dans l'image de test) :
-on teste que les fonctions de notification sont gardées (no-op sans config
-SMTP), et la logique de la route /api/model/request (garde login, catégorie
-valide, refus si un modèle de la catégorie est déjà chargé, notification émise
-sinon).
+We do NOT test the sending (requires a real SMTP, never in the test image):
+we test that the notification functions are guarded (no-op without SMTP
+config), and the logic of the /api/model/request route (login guard, valid
+category, refusal if a model of the category is already loaded, notification
+emitted otherwise).
 """
 import time
 import unittest
@@ -15,7 +15,7 @@ from notify import notify_maintenance_email, notify_media_request_email
 
 
 class NotifyGuardsTest(unittest.TestCase):
-    """Sans config SMTP (image de test), les envois sont des no-op sûrs."""
+    """Without SMTP config (test image), the sends are safe no-ops."""
 
     def _without_smtp(self):
         orig = (notify_mod.SMTP_HOST, notify_mod.SMTP_USER,
@@ -77,8 +77,8 @@ class MediaRequestRouteTest(unittest.TestCase):
         return c
 
     def test_requiert_session(self):
-        # Session avec CSRF valide mais SANS username => login_required rejette.
-        # (Sans session du tout, la garde CSRF répondrait 400 avant login_required.)
+        # Session with valid CSRF but NO username => login_required rejects.
+        # (With no session at all, the CSRF guard would answer 400 before login_required.)
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["csrf"] = "tok"
@@ -100,7 +100,7 @@ class MediaRequestRouteTest(unittest.TestCase):
                    headers={"X-CSRFToken": "tok"})
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()["ok"])
-        # La session de test ne porte pas fullname -> chaîne vide.
+        # The test session carries no fullname -> empty string.
         self.assertEqual(self.calls, [("video", "demo", "")])
 
     def test_refuse_si_modele_deja_charge(self):
@@ -112,9 +112,9 @@ class MediaRequestRouteTest(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
     def test_cooldown_refuse_repetition(self):
-        # Anti-spam : deux demandes rapprochées sur la même (utilisateur,
-        # catégorie) → la 2e est refusée (429) sans tenir compte du verrou
-        # côté frontend (réinitialisé à la navigation).
+        # Anti-spam: two close requests on the same (user, category) →
+        # the 2nd is refused (429) regardless of the frontend lock
+        # (reset on navigation).
         c = self._client("demo")
         r1 = c.post("/api/model/request", json={"category": "music"},
                     headers={"X-CSRFToken": "tok"})
@@ -126,7 +126,7 @@ class MediaRequestRouteTest(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
 
     def test_cooldown_par_categorie_independant(self):
-        # Une demande « video » n'empêche pas une demande « ocr » du même user.
+        # A « video » request does not block an « ocr » request from the same user.
         c = self._client("demo")
         self.assertEqual(c.post("/api/model/request", json={"category": "video"},
                                 headers={"X-CSRFToken": "tok"}).status_code, 200)

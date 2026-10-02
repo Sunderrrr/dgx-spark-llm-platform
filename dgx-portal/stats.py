@@ -1,14 +1,14 @@
-"""Statistiques de consommation : agregats, classements, utilisateurs actifs.
+"""Consumption statistics: aggregates, rankings, active users.
 
-Extrait de app.py le 28/08. La banniere « Statistiques » du monolithe couvrait
-en realite deux sujets : ces calculs, et toute l'administration des modeles et
-sidecars (34 routes). Seuls les calculs sont ici — aucune route, donc aucun
-endpoint renomme et aucun url_for a requalifier.
+Extracted from app.py on 28/08. The monolith's « Statistiques » banner
+really covered two topics: these computations, and the whole management of
+models and sidecars (34 routes). Only the computations are here — no
+route, hence no renamed endpoint and no url_for to requalify.
 
-Les donnees viennent de deux sources melangees a dessein : la base LiteLLM
-(Postgres) pour les requetes TERMINEES, et le registre in-flight (SQLite) pour
-celles en cours — LiteLLM n'ecrit sa ligne qu'a la fin, donc sans ce registre un
-utilisateur en pleine generation resterait invisible.
+The data comes from two sources mixed on purpose: the LiteLLM database
+(Postgres) for FINISHED requests, and the in-flight registry (SQLite) for
+ongoing ones — LiteLLM only writes its row at the end, so without this
+registry a user mid-generation would stay invisible.
 """
 import os
 import re
@@ -31,7 +31,7 @@ from vllm_health import vllm_health
 # Pseudo-keys that don't correspond to a user (admin/health calls).
 _NON_USER_KEYS = {'litellm_proxy_master_key', 'None', ''}
 
-# Ce sur quoi un classement peut porter : les deux ensemble, ou l'un des deux.
+# What a ranking can be based on: both together, or either one.
 RANKING_METRICS = ('total', 'completion', 'prompt')
 
 
@@ -79,13 +79,13 @@ _TOKENS_BY_MODEL_TTL = 30.0
 
 
 def _tokens_by_model(since_utc=None):
-    """Tokens réels par modèle (chat), depuis `since_utc` (naive UTC). Sert au
-    « usage par modèle » du dashboard — voir ce qui consomme le GPU, au-delà de la
-    répartition par utilisateur.
+    """Real tokens per (chat) model, since `since_utc` (naive UTC). Feeds the
+    dashboard's « usage par modèle » — see what consumes the GPU, beyond the
+    per-user breakdown.
 
-    Mis en cache 30 s comme `user_hourly` : `/api/home` est interrogé toutes les
-    5 s et ce `GROUP BY` balaie TOUTE la table `LiteLLM_SpendLogs` (50 000 lignes
-    au 2026-09-14). La valeur est un cumul, elle ne bouge pas à la seconde.
+    Cached 30 s like `user_hourly`: `/api/home` is polled every 5 s and this
+    `GROUP BY` scans the WHOLE `LiteLLM_SpendLogs` table (50 000 rows on
+    2026-09-14). The value is a cumulative, it does not move by the second.
     """
     cle = since_utc.isoformat() if since_utc is not None else ''
     hit = _TOKENS_BY_MODEL_CACHE.get(cle)
@@ -146,34 +146,34 @@ def _inflight_snapshot():
     return out
 
 
-# ── Cumul des tokens générés, à travers les remises à zéro du moteur ────────
-# Les compteurs de llama.cpp et de vLLM repartent de zéro à chaque démarrage :
-# « tokens générés » retombait donc à 0 à chaque changement de modèle ou
-# redémarrage, effaçant l'historique de la machine. On conserve la dernière
-# valeur vue pour chaque modèle, et on l'archive quand le compteur REPART EN
-# ARRIÈRE — un tel compteur étant monotone, une baisse ne peut être qu'une
-# remise à zéro, et le travail déjà fait reste dû.
+# ── Cumulative generated tokens, across engine counter resets ─────────────
+# The llama.cpp and vLLM counters restart from zero at every startup:
+# « tokens générés » thus fell back to 0 at every model change or restart,
+# wiping the machine's history. We keep the last value seen for each
+# model, and archive it when the counter moves BACKWARDS — such a counter
+# being monotone, a drop can only be a reset, and the work already done
+# stays owed.
 #
-# MESURE du 2026-09-14, à ne pas simplifier en « c'est une relance » :
-# `tokens_predicted_total` est passé de 158 864 à 47 et `n_decode_total` de
-# 132 694 à 271 **sans que le processus change** (même pid, 7 h 56 de vie,
-# NRestarts=0), pendant que `prompt_tokens_total` restait à 174 932. Ce n'est
-# donc pas seulement un redémarrage : une remise à zéro du cache KV produit la
-# même signature. Peu importe la cause — dans les deux cas le cumul doit
-# continuer de croître, et c'est ce que fait l'archivage.
+# MEASUREMENT of 2026-09-14, not to be simplified into « c'est une
+# relance »: `tokens_predicted_total` went from 158 864 to 47 and
+# `n_decode_total` from 132 694 to 271 **without the process changing**
+# (same pid, 7 h 56 of life, NRestarts=0), while `prompt_tokens_total`
+# stayed at 174 932. So it is not only a restart: a KV cache reset yields
+# the same signature. Whatever the cause — in both cases the cumulative
+# must keep growing, and that is what the archiving does.
 #
-# Ce que le chiffre vaut exactement : il est exact au pas d'échantillonnage près.
-# La dernière observation date d'au plus une période de sonde (/api/modelhealth à
-# 1 s quand un tableau de bord est ouvert, /api/home à 5 s sinon), donc on perd au
-# pire les tokens générés pendant ces quelques secondes avant la remise à zéro.
-# Pour un chiffre comptable, la référence est côté LiteLLM — SUM(completion_tokens)
-# sur SpendLogs valait 21 984 293 au 2026-09-14, et couvre toute la plateforme.
+# What the figure is exactly worth: it is exact up to the sampling step.
+# The last observation is at most one probe period old (/api/modelhealth at
+# 1 s when a dashboard is open, /api/home at 5 s otherwise), so we lose at
+# worst the tokens generated during those few seconds before the reset.
+# For an accounting figure, the reference is on the LiteLLM side —
+# SUM(completion_tokens) on SpendLogs read 21 984 293 on 2026-09-14, and covers the whole platform.
 def cumuler_tokens_generes(modele, valeur):
-    """Total des tokens générés par ce modèle, remises à zéro comprises.
+    """Total of the tokens generated by this model, resets included.
 
-    Retourne None si le modèle n'est pas connu ou si la base est injoignable :
-    l'appelant affiche alors le compteur du lancement en cours, jamais un zéro
-    qui ferait croire à une remise à zéro.
+    Returns None if the model is unknown or the database unreachable: the
+    caller then displays the current launch's counter, never a zero that
+    would suggest a reset.
     """
     if not modele or valeur is None:
         return None
@@ -185,14 +185,14 @@ def cumuler_tokens_generes(modele, valeur):
         if row is None:
             base = 0
         elif valeur >= row['dernier']:
-            base = row['base']                      # compteur toujours en cours
+            base = row['base']                      # counter still running
         else:
-            base = row['base'] + row['dernier']     # remise à zéro : on archive le précédent
-        # On n'écrit que si quelque chose change : au repos (compteur figé), la
-        # sonde à 1 s ne doit pas produire une écriture SQLite par seconde.
-        # `base != row['base']` était un troisième terme jamais décisif : si les
-        # deux premiers sont faux, c'est que `valeur == row['dernier']`, donc la
-        # branche « compteur en cours » a été prise et `base` vaut déjà
+            base = row['base'] + row['dernier']     # reset: we archive the previous one
+        # We only write when something changes: at rest (frozen counter), the
+        # 1 s probe must not produce one SQLite write per second.
+        # `base != row['base']` was a third, never decisive term: if the first
+        # two are false, then `valeur == row['dernier']`, so the « counter still
+        # running » branch was taken and `base` already equals
         # `row['base']`.
         if row is None or valeur != row['dernier']:
             db.execute(
@@ -207,12 +207,12 @@ def cumuler_tokens_generes(modele, valeur):
 
 
 def _compte_existe(nom):
-    """Ce nom correspond-il a un compte connu de la plateforme ?
+    """Does this name match an account known to the platform?
 
-    Sert uniquement a VALIDER un nom devine depuis l'alias d'une cle API : sans
-    cette verification on afficherait n'importe quel morceau d'alias comme s'il
-    s'agissait d'un utilisateur. user_prefs, et non local_users : les comptes
-    LDAP/SSO n'ont pas de ligne locale, seul user_prefs les voit tous.
+    Only used to VALIDATE a name guessed from an API key alias: without this
+    check any alias fragment would display as if it were a user. user_prefs,
+    and not local_users: LDAP/SSO accounts have no local row, only
+    user_prefs sees them all.
     """
     if not nom:
         return False
@@ -223,22 +223,22 @@ def _compte_existe(nom):
         return False
 
 
-# 180 s et non 120 : le registre in-flight ne couvre QUE les routes du portail
-# (Playground/Support). Un client API passe par Traefik -> LiteLLM sans jamais
-# traverser le portail : sa seule trace est SpendLogs, ecrite en FIN de requete.
-# Les requetes agentiques mesurees durent 100 a 124 s, donc sous ~150 s un tel
-# client disparaissait entre deux appels alors qu'il tournait sans discontinuer.
-# Pas plus de 180 s non plus : au-dela, le panneau garde des noms partis depuis
-# longtemps. C'est le garde-fou sur l'activite du moteur qui borne vraiment —
-# moteur au repos, panneau vide, quelle que soit la fenetre.
+# 180 s and not 120: the in-flight registry covers ONLY the portal routes
+# (Playground/Support). An API client goes through Traefik -> LiteLLM
+# without ever crossing the portal: its only trace is SpendLogs, written
+# at request END. The measured agentic requests last 100 to 124 s, so
+# below ~150 s such a client vanished between two calls while running
+# non-stop. Not more than 180 s either: beyond, the panel keeps names of
+# long-gone users. It is the guard on engine activity that really bounds
+# — engine idle, panel empty, whatever the window.
 def _compte_depuis_alias(alias):
-    """Nom de compte devine depuis l'alias d'une cle API, ou '' si douteux.
+    """Account name guessed from an API key alias, or '' when doubtful.
 
-    Alias de la forme « alice-1783112817 » ou « Opencode-Omarchy » : on ne
-    devine RIEN, on ne retient un morceau que s'il correspond a un compte connu —
-    sinon on prefere afficher la cle que d'inventer un nom. Regle partagee avec
-    SpendLogs : une seule logique de resolution, donc un seul endroit ou se
-    tromper.
+    Aliases of the form « alice-1783112817 » or « Opencode-Omarchy »: we
+    guess NOTHING, we only keep a fragment when it matches a known account —
+    otherwise we prefer showing the key to inventing a name. Rule shared
+    with SpendLogs: a single resolution logic, hence a single place to get
+    it wrong.
     """
     for morceau in re.split(r'[-_]', alias or ''):
         if morceau and _compte_existe(morceau):
@@ -246,21 +246,21 @@ def _compte_depuis_alias(alias):
     return ''
 
 
-# Fichier ecrit par le callback LiteLLM `cronos_inflight` et monte ici en LECTURE
-# SEULE. Il contient les requetes EN COURS, c'est-a-dire la seule source capable de
-# nommer quelqu'un PENDANT qu'il genere : LiteLLM n'ecrit sa ligne SpendLogs qu'a
-# la fin (mesure du 2026-09-14 : 44 minutes sans la moindre ligne pendant que deux
-# sessions travaillaient). Absent => on se rabat sur les lignes finies ; l'ecriture
-# se fait cote LiteLLM, le portail ne fait que lire.
+# File written by the LiteLLM callback `cronos_inflight` and mounted here
+# READ-ONLY. It holds the IN-FLIGHT requests, i.e. the only source able to
+# name someone WHILE they generate: LiteLLM only writes its SpendLogs row
+# at the end (measured on 2026-09-14: 44 minutes without a single row
+# while two sessions worked). Absent => we fall back on the finished rows;
+# the writing happens on the LiteLLM side, the portal only reads.
 _EN_VOL_DB = os.environ.get('CRONOS_INFLIGHT_DB', '/run/cronos/inflight.db')
 
 
 def _en_vol():
-    """Requetes en cours : {compte: age_en_secondes}.
+    """In-flight requests: {account: age_in_seconds}.
 
-    Ne leve jamais et ne devine rien : c'est un confort d'affichage, pas une
-    dependance. Un fichier absent ou illisible donne {} — et l'interface sait deja
-    dire « sessions occupees, identites pas encore journalisees ».
+    Never raises and guesses nothing: a display comfort, not a dependency.
+    A missing or unreadable file gives {} — and the UI already knows how to
+    say « sessions occupees, identites pas encore journalisees ».
     """
     conn = None
     try:
@@ -268,9 +268,9 @@ def _en_vol():
         maintenant = time.time()
         out = {}
         for alias, user_id, debut in conn.execute('SELECT alias, user_id, debut FROM en_vol'):
-            # user_id est le compte pour les cles creees par le portail, mais une
-            # cle creee ailleurs peut porter n'importe quoi : on valide, comme
-            # pour l'alias.
+            # user_id is the account for keys created by the portal, but a key
+            # created elsewhere can carry anything: we validate, as for
+            # the alias.
             u = _compte_depuis_alias(alias)
             if not u and user_id and _compte_existe(str(user_id)):
                 u = str(user_id)
@@ -281,10 +281,10 @@ def _en_vol():
             except (TypeError, ValueError):
                 age = 0.0
             if u not in out or age > out[u]:
-                # La PLUS ANCIENNE requete de ce compte gagne : c'est elle qui
-                # porte l'information utile (« cette session tourne depuis 40
-                # min »). Garder la plus recente ferait disparaitre une requete
-                # bloquee derriere un aller-retour de deux secondes.
+                # The OLDEST request of this account wins: it is the one
+                # carrying the useful information (« cette session tourne
+                # depuis 40 min »). Keeping the most recent would make a
+                # request stuck behind a two-second round-trip disappear.
                 out[u] = age
         return out
     except Exception:
@@ -303,27 +303,27 @@ def _active_users(window_s=1800):
         current user in real time. Such users are marked `live`.
     Feeds the admin "who's using the model" panel on the home page.
 
-    Fenetre par defaut de 30 MINUTES, et pas 2 : mesure du 2026-09-14, une requete
-    agentique a dure 3 min 17 s et le moteur est reste 44 minutes sans qu'aucune
-    ligne ne soit ecrite, alors que deux sessions travaillaient. Sur 2 minutes, le
-    panneau affichait donc « personne » pendant qu'un GPU tournait a plein — le
-    pire des message puisque l'admin en conclut que la machine est libre. On
-    elargit donc, et chaque nom porte son AGE (`derniere_s`) : « il y a 40 min »
-    ne se confond pas avec « il y a 4 s ».
+    Default window of 30 MINUTES, not 2: measured on 2026-09-14, an
+    agentic request lasted 3 min 17 s and the engine stayed 44 minutes
+    without a single row being written, while two sessions worked. On 2
+    minutes, the panel thus displayed « personne » while a GPU ran at full
+    tilt — the worst message since the admin concludes the machine is
+    free. So we widen it, and every name carries its AGE (`derniere_s`):
+    « il y a 40 min » cannot be confused with « il y a 4 s ».
     """
-    # Le panneau doit refleter l'activite REELLE. Sans ce garde-fou il gardait des
-    # noms affiches pendant toute la fenetre alors que plus rien ne tournait :
-    # l'admin voyait « 0 / 8 sessions » et pourtant deux utilisateurs listes. Le
-    # moteur est la seule autorite sur « est-ce que quelque chose tourne ».
+    # The panel must reflect REAL activity. Without this guard it kept names
+    # displayed for the whole window while nothing ran anymore: the admin saw
+    # « 0 / 8 sessions » yet two listed users. The engine is the only
+    # authority on « est-ce que quelque chose tourne ».
     inflight = _inflight_snapshot()
     en_cours = 0
     try:
         h = vllm_health() or {}
         en_cours = int(h.get('running') or 0) + int(h.get('waiting') or 0)
     except Exception:
-        # Moteur injoignable : on ne VIDE PAS le panneau sur une simple panne de
-        # sonde, sinon une erreur de metriques ferait croire que personne n'utilise
-        # le modele. On retombe sur la fenetre SpendLogs seule.
+        # Engine unreachable: we do NOT empty the panel on a mere probe failure,
+        # else a metrics error would make it look like nobody uses the model. We
+        # fall back on the SpendLogs window alone.
         en_cours = -1
     if not inflight and en_cours == 0:
         return []
@@ -334,20 +334,20 @@ def _active_users(window_s=1800):
             umap = _key_user_map(conn)
             cur = conn.cursor()
             since = datetime.now(ZoneInfo('UTC')).replace(tzinfo=None) - timedelta(seconds=window_s)
-            # Filtre sur endTime, PAS sur startTime. LiteLLM n'ecrit la ligne qu'a la
-            # FIN de la requete : au moment ou elle devient visible, son startTime est
-            # deja vieux de toute la duree de la generation. Mesure du 23/08 sur un
-            # client agentique (un compte via une cle API) : requetes de 100 a 124 s
-            # enchainees sans interruption, donc systematiquement hors d'une fenetre
-            # de 120 s calee sur startTime — l'utilisateur etait invisible du panneau
-            # « qui utilise le modele » alors qu'il saturait le GPU en continu.
-            # Deux bornes, et c'est VOULU. Seul startTime est indexe (pas endTime) :
-            # filtrer sur le seul COALESCE(endTime, startTime) forcait un balayage
-            # complet — 38 000 lignes et 5,7 ms par appel, qui empirent a chaque
-            # requete enregistree. La borne large sur startTime laisse Postgres
-            # utiliser son index, la borne fine sur endTime garde la justesse pour
-            # une requete longue. Mesure du 23/08 : 5,741 ms -> 0,145 ms.
-            # 1 h de marge : au-dela, une requete unique aussi longue n'existe pas.
+            # Filter on endTime, NOT on startTime. LiteLLM only writes the row at the
+            # END of the request: by the time it becomes visible, its startTime is
+            # already as old as the whole generation. Measured on 23/08 on an agentic
+            # client (one account via an API key): requests of 100 to 124 s chained
+            # without interruption, thus systematically outside a 120 s window
+            # aligned on startTime — the user was invisible to the « qui utilise le
+            # modele » panel while saturating the GPU continuously.
+            # Two bounds, and it is DELIBERATE. Only startTime is indexed (not
+            # endTime): filtering on COALESCE(endTime, startTime) alone forced a full
+            # scan — 38 000 rows and 5,7 ms per call, worsening with every recorded
+            # request. The wide bound on startTime lets Postgres use its index, the
+            # fine bound on endTime keeps the accuracy for a long request. Measured
+            # on 23/08: 5,741 ms -> 0,145 ms.
+            # 1 h of margin: beyond, a single request that long does not exist.
             large = since - timedelta(seconds=3600)
             cur.execute('SELECT api_key, COUNT(*), '
                         'SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)), '
@@ -361,11 +361,11 @@ def _active_users(window_s=1800):
             for api_key, cnt, toks, col_user, alias, dernier in cur.fetchall():
                 if api_key in _NON_USER_KEYS:
                     continue
-                # Trois sources d'attribution, de la plus fiable a la plus faible.
-                # Avant, une cle absente de la table de correspondance etait
-                # SILENCIEUSEMENT ignoree : son proprietaire n'apparaissait jamais,
-                # sans que rien ne le signale. Or une cle creee hors du portail (ou
-                # avant l'ajout de metadata.user) n'a pas cette correspondance.
+                # Three attribution sources, from most to least reliable.
+                # Before, a key missing from the mapping table was
+                # SILENTLY ignored: its owner never appeared, with nothing
+                # saying so. Yet a key created outside the portal (or before
+                # metadata.user was added) has no such mapping.
                 u = umap.get(api_key) or (col_user or '').strip()
                 if not u and alias:
                     u = _compte_depuis_alias(alias)
@@ -375,13 +375,13 @@ def _active_users(window_s=1800):
                                        'live': False, 'derniere_s': None})
                 a['requests'] += int(cnt or 0)
                 a['tokens'] += int(toks or 0)
-                # Age de la derniere activite. C'est CE chiffre qui repond a la
-                # question de l'admin (« qui genere la, maintenant ? ») : le drapeau
-                # `live` est volontairement grossier (il s'allume des que le moteur
-                # travaille, donc pour tout le monde a la fois des qu'il y a du
-                # trafic), et deux utilisateurs affiches identiques peuvent avoir
-                # une minute d'ecart. On garde le minimum, donc l'activite la plus
-                # recente de cet utilisateur.
+                # Age of the last activity. This is THE figure answering the
+                # admin's question (« qui genere la, maintenant ? »): the `live`
+                # flag is deliberately coarse (it lights up as soon as the
+                # engine works, thus for everyone at once as soon as there is
+                # traffic), and two identically displayed users can be one
+                # minute apart. We keep the minimum, i.e. the most recent
+                # activity of that user.
                 if dernier is not None:
                     try:
                         age = (maintenant - dernier).total_seconds()
@@ -390,16 +390,16 @@ def _active_users(window_s=1800):
                     if age is not None and (a['derniere_s'] is None or age < a['derniere_s']):
                         a['derniere_s'] = max(0.0, age)
                 if en_cours > 0 and a['derniere_s'] is not None and a['derniere_s'] < 15:
-                    # Le moteur traite quelque chose ET cet utilisateur vient
-                    # d'emettre : c'est lui (ou l'un d'eux). Le registre in-flight
-                    # ne voit que le portail, donc sans ca un client API n'etait
-                    # JAMAIS marque « live ».
+                    # The engine is processing something AND this user just
+                    # emitted: it is them (or one of them). The in-flight
+                    # registry only sees the portal, so without this an API client
+                    # was NEVER marked « live ».
                     #
-                    # Le seuil de 15 s est essentiel depuis que la fenetre est
-                    # passee a 30 min : sans lui, `en_cours > 0` allumait « live »
-                    # pour tout le monde a la fois, y compris pour un compte dont
-                    # la derniere requete datait de 40 minutes. Le doute n'est pas
-                    # une preuve d'activite.
+                    # The 15 s threshold is essential since the window went to
+                    # 30 min: without it, `en_cours > 0` lit up « live » for
+                    # everyone at once, including an account whose last request
+                    # dated back 40 minutes. A doubt is no proof of
+                    # activity.
                     a['live'] = True
         except Exception:
             pass
@@ -410,16 +410,16 @@ def _active_users(window_s=1800):
         a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
                                'live': False, 'derniere_s': None})
         a['live'] = True
-        # Requete en cours : c'est l'instant present, par definition.
+        # In-flight request: this is the present instant, by definition.
         a['derniere_s'] = 0.0
         if a['requests'] == 0:
             a['requests'] = n
-    # Requetes EN COURS, telles que LiteLLM les a notees a leur depart. C'est la
-    # seule source qui nomme un utilisateur PENDANT qu'il genere : le drapeau
-    # `live` pose plus haut repose sur « le moteur travaille et ce compte vient
-    # d'emettre », donc sur une deduction, alors qu'ici c'est constate. `depuis_s`
-    # dit depuis combien de temps la requete tourne — une requete de 40 minutes
-    # n'est pas la meme chose qu'un aller-retour d'une seconde.
+    # IN-FLIGHT requests, as LiteLLM noted them at their start. This is the
+    # only source naming a user WHILE they generate: the `live` flag set
+    # above relies on « the engine works and this account just emitted », i.e.
+    # on a deduction, while here it is observed. `depuis_s` says how long the
+    # request has been running — a 40-minute request is not the same thing as
+    # a one-second round-trip.
     for u, age in _en_vol().items():
         a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
                                'live': False, 'derniere_s': None})
@@ -427,8 +427,8 @@ def _active_users(window_s=1800):
         a['en_vol'] = True
         a['depuis_s'] = age
         a['derniere_s'] = 0.0
-    # Champs toujours presents : l'interface ne doit pas distinguer trois formes
-    # de dictionnaire selon la source qui a cree l'entree.
+    # Fields always present: the UI must not distinguish three dict shapes
+    # depending on the source that created the entry.
     for a in agg.values():
         a.setdefault('en_vol', False)
         a.setdefault('depuis_s', None)
@@ -518,19 +518,19 @@ def _key_user_map(conn):
     return mapping
 
 def _comptes_connus():
-    """Comptes qui existent vraiment : locaux, ou consignes comme source de login.
+    """Accounts that really exist: local, or recorded as a login source.
 
-    Sert a distinguer une PERSONNE d'un residu. Les cles creees pour un test — ou
-    supprimees a la main — laissent des lignes de consommation au nom d'un compte
-    qui n'existe nulle part : les classer parmi les utilisateurs leur donne un
-    rang, et un jour une medaille. Mesure du 2026-09-14 : `zz-pwtest`, residu
-    d'un test de politique de mot de passe (15 requetes, 8 633 tokens), figurait
-    au classement public.
+    Used to tell a PERSON from a leftover. Keys created for a test — or
+    deleted by hand — leave consumption rows in the name of an account that
+    exists nowhere: ranking them among users gives them a rank, and one day
+    a medal. Measured on 2026-09-14: `zz-pwtest`, leftover of a password
+    policy test (15 requests, 8 633 tokens), appeared in the public
+    ranking.
 
-    Meme precaution que `auth.etat_compte` : si la base locale est illisible on
-    renvoie None et l'appelant ne conclut RIEN. Une donnee absente n'est pas une
-    preuve d'absence — mieux vaut une ligne de trop qu'un vrai compte demasque
-    comme un residu.
+    Same precaution as `auth.etat_compte`: if the local database is
+    unreadable we return None and the caller concludes NOTHING. Missing
+    data is not proof of absence — better one row too many than a real
+    account unmasked as a leftover.
     """
     try:
         db = get_db()
@@ -541,20 +541,20 @@ def _comptes_connus():
         return None
 
 def _valeur_metrique(prompt, completion, metric):
-    """Le chiffre sur lequel on CLASSE : l'entree, le genere, ou les deux."""
+    """The figure we RANK on: the input, the generated, or both."""
     if metric == 'completion':
         return completion or 0
     if metric == 'prompt':
         return prompt or 0
     return (prompt or 0) + (completion or 0)
 
-# Arithmétique de mois pour les périodes « 12 derniers mois » et « depuis le
-# début » : timedelta ne connaît pas les mois (durées inégales), et on évite
-# d'ajouter dateutil pour si peu.
+# Month arithmetic for the « 12 derniers mois » and « depuis le début »
+# periods: timedelta knows no months (unequal lengths), and we avoid
+# adding dateutil for so little.
 _MIDNIGHT = {'hour': 0, 'minute': 0, 'second': 0, 'microsecond': 0}
 
 def relativedelta_months(n, day=None):
-    """Décalage de n mois, applicable à un datetime via `dt + relativedelta_months(n)`."""
+    """Shift of n months, applicable to a datetime via `dt + relativedelta_months(n)`."""
     class _Shift:
         def __radd__(self, dt):
             y, m = dt.year, dt.month + n
@@ -564,7 +564,7 @@ def relativedelta_months(n, day=None):
     return _Shift()
 
 def _month_buckets(start, end):
-    """Liste des 1ers du mois de `start` à `end` inclus (clés des sparklines)."""
+    """List of the 1sts of the month from `start` to `end` included (sparkline keys)."""
     out, y, m = [], start.year, start.month
     while (y, m) <= (end.year, end.month):
         out.append(date(y, m, 1))
@@ -574,21 +574,21 @@ def _month_buckets(start, end):
     return out
 
 def ranking_full(period='day', me=None, metric='total'):
-    """Classement enrichi : tokens reellement consommes, part du total de la
-    periode, delta vs la periode precedente, repartition entree/genere et
-    tendance, par compte.
+    """Enriched ranking: really consumed tokens, share of the period total,
+    delta vs the previous period, input/generated breakdown and trend,
+    per account.
 
-    `metric` choisit ce qui est CLASSE : 'total' (entree + genere), 'completion'
-    (genere) ou 'prompt' (entree). Le choix n'est pas cosmetique — mesure du
-    2026-09-14 sur 30 jours : le 1er concentrait 32,2 % du total mais seulement
-    0,46 % du genere. Un classement « total » classe donc surtout ceux qui
-    ENVOIENT du contexte, et l'ordre change vraiment quand on classe le genere
-    (un compte sort du top 5, un autre y entre).
+    `metric` chooses what is RANKED: 'total' (input + generated),
+    'completion' (generated) or 'prompt' (input). The choice is not
+    cosmetic — measured on 2026-09-14 over 30 days: the #1 concentrated
+    32,2 % of the total but only 0,46 % of the generated. A « total »
+    ranking thus mostly ranks those who SEND context, and the order
+    really changes when ranking the generated (one account leaves the top 5).
 
-    Les lignes qui ne correspondent a aucun compte (`inconnu`, residus de cles
-    de test) sortent du classement : ni rang ni medaille, et elles ne comptent
-    pas dans les comptes actifs. Elles restent dans le TOTAL de la periode, qui
-    decrit la plateforme — pas le classement.
+    Rows matching no account (`inconnu`, test key leftovers) leave the
+    ranking: no rank nor medal, and they do not count in the active
+    accounts. They stay in the period TOTAL, which describes the platform
+    — not the ranking.
     """
     metric = metric if metric in RANKING_METRICS else 'total'
     conn = _spend_conn()
@@ -610,20 +610,20 @@ def ranking_full(period='day', me=None, metric='total'):
             buckets = [today - timedelta(days=i) for i in range(29, -1, -1)]
             bucket_kind = 'day'
         elif period in ('year', 'all'):
-            # Buckets MENSUELS : sur un an, 365 points feraient une sparkline
-            # illisible (et 30x plus de lignes à agréger côté SQL).
+            # MONTHLY buckets: over a year, 365 points would make an unreadable
+            # sparkline (and 30x more rows to aggregate on the SQL side).
             if period == 'year':
                 cur_start = now_local.replace(**_MIDNIGHT) + relativedelta_months(-11, day=1)
                 prev_start = cur_start + relativedelta_months(-12)
             else:
-                # Depuis le début : on part du tout premier log (à défaut, ce mois-ci).
+                # Since the start: we begin at the very first log (otherwise, this month).
                 c0 = conn.cursor()
                 c0.execute('SELECT MIN("startTime") FROM "LiteLLM_SpendLogs"')
                 first = (c0.fetchone() or [None])[0]
                 start_date = first.date().replace(day=1) if first else today.replace(day=1)
                 cur_start = now_local.replace(**_MIDNIGHT).replace(
                     year=start_date.year, month=start_date.month, day=1)
-                prev_start = cur_start  # aucune période antérieure → pas de delta
+                prev_start = cur_start  # no previous period → no delta
             buckets = _month_buckets(cur_start.date(), today)
             bucket_kind = 'month'
         else:  # day
@@ -642,9 +642,9 @@ def ranking_full(period='day', me=None, metric='total'):
             bexpr = "date_trunc('month', ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::date"
         else:
             bexpr = "((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s)::date"
-        # Periode courante : par bucket ET par cle. Les DEUX compteurs sont
-        # ramenes, pas seulement leur somme : c'est ce qui permet de classer sur
-        # l'entree, le genere, ou les deux.
+        # Current period: per bucket AND per key. BOTH counters are
+        # fetched, not only their sum: this is what allows ranking on
+        # the input, the generated, or both.
         cur.execute(
             f'SELECT {bexpr} AS b, api_key, SUM(prompt_tokens), SUM(completion_tokens) '
             'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s GROUP BY b, api_key',
@@ -657,17 +657,17 @@ def ranking_full(period='day', me=None, metric='total'):
             p, c = prompt or 0, comp or 0
             a = agg.setdefault(u, {'tokens': 0, 'prompt': 0, 'completion': 0, 'spark': {}})
             a['tokens'] += p + c; a['prompt'] += p; a['completion'] += c
-            # La tendance suit la metrique affichee, pas le total : une courbe de
-            # contexte n'a pas la meme forme qu'une courbe de generation.
+            # The trend follows the displayed metric, not the total: a context
+            # curve does not have the same shape as a generation curve.
             v = _valeur_metrique(p, c, metric)
             if v:
                 a['spark'][b] = a['spark'].get(b, 0) + v
-        # Periode precedente, meme metrique : un delta compare ce qui est
-        # comparable. « Depuis le debut » n'a rien avant lui — on saute la
-        # requete, et `has_prev` previent l'interface qu'il n'y a pas de delta a
-        # afficher. L'ancienne version, elle, affichait « nouveau » sur TOUTES
-        # les lignes de cette periode : faute de distinguer « pas de periode
-        # precedente » de « compte absent la periode d'avant ».
+        # Previous period, same metric: a delta compares what is
+        # comparable. « Depuis le debut » has nothing before it — we skip the
+        # query, and `has_prev` warns the UI that there is no delta to
+        # display. The old version displayed « nouveau » on ALL rows of
+        # that period: for lack of distinguishing « no previous period »
+        # from « account absent the period before ».
         prev = {}
         if period != 'all':
             cur.execute('SELECT api_key, SUM(COALESCE(prompt_tokens,0)), SUM(COALESCE(completion_tokens,0)) '
@@ -679,13 +679,13 @@ def ranking_full(period='day', me=None, metric='total'):
                     continue
                 u = umap.get(api_key, 'inconnu')
                 prev[u] = prev.get(u, 0) + _valeur_metrique(p, c, metric)
-        # La metrique se calcule UNE fois par compte : elle sert au tri, au
-        # total, a la part et au delta.
+        # The metric is computed ONCE per account: it serves the sort, the
+        # total, the share and the delta.
         for a in agg.values():
             a['value'] = _valeur_metrique(a['prompt'], a['completion'], metric)
 
         def est_residu(u):
-            """Ligne qui n'est le compte de personne — voir `_comptes_connus`."""
+            """Row that is nobody's account — see `_comptes_connus`."""
             return u == 'inconnu' or (connus is not None and u not in connus)
 
         def ligne(u, a, rang):
@@ -694,12 +694,12 @@ def ranking_full(period='day', me=None, metric='total'):
             return {
                 'rank': rang, 'username': u, 'is_me': u == me,
                 'is_unattributed': residu,
-                'value': int(a['value']),                 # ce sur quoi on classe
+                'value': int(a['value']),                 # what we rank on
                 'tokens': int(a['tokens']),
                 'prompt': int(a['prompt']), 'completion': int(a['completion']),
                 'share_pct': (a['value'] / total * 100) if total else 0,
-                # Pas de delta sur une ligne non attribuee : son « +290 919 % » du
-                # mois ne compare rien d'utile, et un residu n'a pas d'histoire.
+                # No delta on an unattributed row: its « +290 919 % » of the
+                # month compares nothing useful, and a leftover has no history.
                 'delta': None if residu or not pv else (a['value'] - pv) / pv * 100,
                 'trend': [a['spark'].get(b, 0) for b in buckets],
             }
@@ -777,9 +777,9 @@ def user_hourly(username):
         conn.close()
 
 
-# ── Usage par sidecar, pour l'administration ────────────────────────────────
-# Rapatriees de la banniere « Apercu » le 28/08, ou elles n'avaient rien a
-# faire : ce sont des agregats de consommation, comme le reste de ce module.
+# ── Per-sidecar usage, for the administration ──────────────────────────────
+# Brought over from the « Apercu » banner on 28/08, where they had nothing
+# to do: these are consumption aggregates, like the rest of this module.
 
 def admin_get_user_consumption():
     """Consumption per ACCOUNT: number of keys (local DB) + spend/budget at the
@@ -852,35 +852,35 @@ def admin_get_voice_usage():
     return [dict(r) for r in rows]
 
 
-# ── TTFT reellement mesure ───────────────────────────────────────────────────
-# llama.cpp ne publie aucun TTFT dans /metrics, mais il renvoie un `timings`
-# PAR REQUETE (y compris dans le dernier fragment SSE), dont `prompt_ms` est
-# exactement le temps avant le premier token. Le portail relaie chaque
-# generation : il est donc le seul endroit qui puisse en tenir une moyenne.
+# ── TTFT actually measured ────────────────────────────────────────────────
+# llama.cpp publishes no TTFT in /metrics, but it returns a `timings` PER
+# REQUEST (including in the last SSE fragment), whose `prompt_ms` is
+# exactly the time before the first token. The portal relays every
+# generation: it is thus the only place able to keep an average.
 #
-# Moyenne mobile exponentielle, stockee dans `settings` : partagee entre les
-# workers gunicorn (une moyenne en memoire de processus donnerait un chiffre
-# different a chaque sondage selon le worker touche), bornee par construction,
-# et elle suit l'evolution au lieu d'etre ecrasee par l'historique.
+# Exponential moving average, stored in `settings`: shared between the
+# gunicorn workers (a process-memory average would give a different
+# figure at every poll depending on the worker hit), bounded by
+# construction, and it follows the evolution instead of being wiped by history.
 _TTFT_ALPHA = 0.2
 
 
 def enregistrer_ttft(ms):
-    """Intègre une mesure de TTFT (millisecondes) dans la moyenne mobile."""
+    """Integrates a TTFT measurement (milliseconds) into the moving average."""
     try:
         ms = float(ms)
-        if ms <= 0 or ms > 600_000:      # garde-fou : mesure aberrante ignoree
+        if ms <= 0 or ms > 600_000:      # guard: aberrant measurement ignored
             return
         from db import get_setting, set_setting
         ancien = get_setting('ttft_ms_ewma')
         nouveau = ms if ancien is None else (1 - _TTFT_ALPHA) * float(ancien) + _TTFT_ALPHA * ms
         set_setting('ttft_ms_ewma', round(nouveau, 1))
     except Exception:                                        # noqa: BLE001
-        pass                                                 # jamais bloquant
+        pass                                                 # never blocking
 
 
 def ttft_mesure():
-    """Moyenne mobile du TTFT en secondes, ou None si rien n'a encore ete mesure."""
+    """Moving average of the TTFT in seconds, or None if nothing measured yet."""
     try:
         from db import get_setting
         v = get_setting('ttft_ms_ewma')

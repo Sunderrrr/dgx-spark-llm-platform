@@ -1,17 +1,17 @@
-"""Recherche web pour le playground : SearXNG cherche, crawl4ai lit.
+"""Web search for the playground: SearXNG searches, crawl4ai reads.
 
-Deux services distincts, volontairement :
-  - **SearXNG** (méta-moteur auto-hébergé) traduit une question en liste de liens.
-    crawl4ai ne sait pas chercher — il ne sait qu'extraire une URL qu'on lui donne.
-  - **crawl4ai** ouvre les pages retenues et en rend un markdown propre.
+Two distinct services, deliberately:
+  - **SearXNG** (self-hosted meta-engine) turns a question into a list of links.
+    crawl4ai cannot search — it can only extract a URL it is given.
+  - **crawl4ai** opens the selected pages and renders clean markdown.
 
-Les deux vivent sur un réseau docker dédié (`web_net`), sans route vers litellm
-ni postgres, et une unité systemd leur interdit d'ouvrir la moindre connexion
-vers la machine hôte : crawl4ai pilote un navigateur sur des pages entièrement
-contrôlées par des tiers, c'est le composant le plus exposé de la plateforme.
+Both live on a dedicated docker network (`web_net`), with no route to litellm
+nor postgres, and a systemd unit forbids them from opening the least
+connection to the host machine: crawl4ai drives a browser over pages entirely
+controlled by third parties, it is the platform's most exposed component.
 
-Ce module ajoute la dernière barrière, celle que le réseau ne peut pas poser :
-aucune URL ne part au crawler sans que son hôte ait été résolu et vérifié public.
+This module adds the last barrier, the one the network cannot set up:
+no URL goes to the crawler without its host having been resolved and checked public.
 """
 import ipaddress
 import os
@@ -21,21 +21,21 @@ from urllib.parse import urlparse
 
 import requests
 
-from mcp_client import _is_blocked_ip          # même politique que les serveurs MCP
+from mcp_client import _is_blocked_ip          # same policy as the MCP servers
 
 SEARXNG_URL = os.environ.get('SEARXNG_URL', 'http://searxng:8080')
 CRAWL4AI_URL = os.environ.get('CRAWL4AI_URL', 'http://crawl4ai:11235')
 _TOKEN_FILE = os.environ.get('CRAWL4AI_TOKEN_FILE', '/run/secrets/crawl4ai_token')
 
-# Bornes : ce qui part au modèle doit rester lisible et tenir dans le contexte.
-# Réglages d'extraction, choisis sur mesure (voir tests/test_websearch.py) :
-#  - `ignore_links` : sans lui, une page de doc sort avec 325 liens de navigation
-#    noyant le texte. Avec, le contenu reste intact — y compris les blocs de code.
-#  - `excluded_tags` : retire menus, pieds de page et barres latérales. Mesuré
-#    -61 % de volume sur une page produit, -75 % sur une page d'actualité.
-# L'élagage par pertinence (PruningContentFilter) a été ESSAYÉ puis écarté : il
-# supprime les blocs de code — `TaskGroup` et `asyncio.gather` disparaissaient
-# d'une page de documentation Python — sans rien gagner sur les murs de cookies.
+# Bounds: what goes to the model must stay readable and fit in the context.
+# Extraction settings, chosen by measurement (see tests/test_websearch.py):
+#  - `ignore_links`: without it, a doc page comes out with 325 navigation links
+#    drowning the text. With it, the content stays intact — code blocks included.
+#  - `excluded_tags`: removes menus, footers and sidebars. Measured -61 % of
+#    volume on a product page, -75 % on a news page.
+# Relevance pruning (PruningContentFilter) was TRIED then dropped: it removes
+# code blocks — `TaskGroup` and `asyncio.gather` vanished from a Python
+# documentation page — with no gain on cookie walls.
 _EXTRACTION = {
     'cache_mode': 'bypass',
     'excluded_tags': ['nav', 'footer', 'header', 'aside', 'script', 'style', 'form'],
@@ -45,15 +45,15 @@ _EXTRACTION = {
     },
 }
 
-# Beaucoup de sites servent leur bandeau AVANT l'article : consentement,
-# abonnement, fil de notifications. Mesuré : sur letelegramme.fr les vrais titres
-# n'arrivent qu'à la 4ᵉ ligne, et sur tf1info.fr chaque titre est préfixé de
-# « Nouvelle notification » — dont celui qu'on cherchait. Juger la page sur son
-# DÉBUT revenait donc à jeter des pages qui contenaient la réponse ; on retire
-# ces lignes-là, et on ne renonce que si le reste est vraiment vide.
+# Many sites serve their banner BEFORE the article: consent, subscription,
+# notification feed. Measured: on letelegramme.fr the real headlines only come
+# at the 4th line, and on tf1info.fr every headline is prefixed with
+# « Nouvelle notification » — including the one we were looking for. Judging
+# the page by its START therefore meant discarding pages that held the answer;
+# we remove those lines, and only give up if the rest is really empty.
 #
-# On filtre par LIGNE et jamais par longueur : une ligne courte peut être du
-# code, et une page de documentation en est pleine.
+# We filter by LINE and never by length: a short line can be code, and a
+# documentation page is full of them.
 LIGNES_DE_BANDEAU = (
     'continuer sans accepter', 'utilisons des cookies', 'accepter les cookies',
     'gérer mes choix', 'gerer mes choix', 'politique de confidentialité',
@@ -61,7 +61,7 @@ LIGNES_DE_BANDEAU = (
     'abonnez-vous', 'accept cookies', 'privacy preferences', 'consent',
     'enable javascript', 'activez javascript', 'required part of this site',
 )
-# Préfixes parasites collés à des titres utiles : on retire le préfixe, pas la ligne.
+# Parasite prefixes stuck to useful headings: we remove the prefix, not the line.
 PREFIXES_PARASITES = ('Vidéo Nouvelle notification', 'Nouvelle notification')
 MIN_MOTS_UTILES = 60
 
@@ -77,7 +77,7 @@ _token_lock = threading.Lock()
 
 
 def _token():
-    """Jeton d'API de crawl4ai, lu une fois depuis le fichier monté."""
+    """crawl4ai API token, read once from the mounted file."""
     global _token_cache
     with _token_lock:
         if _token_cache is None:
@@ -90,7 +90,7 @@ def _token():
 
 
 def disponible():
-    """Les deux services répondent-ils ? Sert à n'exposer l'outil que s'il marche."""
+    """Do both services answer? Used to expose the tool only when it works."""
     try:
         r = requests.get(f"{CRAWL4AI_URL}/health", timeout=3)
         if not r.ok:
@@ -101,11 +101,11 @@ def disponible():
 
 
 def url_publique(url):
-    """(ok, erreur) — l'URL vise-t-elle bien une adresse publique ?
+    """(ok, error) — does the URL really target a public address?
 
-    Le réseau interdit déjà au crawler d'atteindre l'hôte, mais rien ne
-    l'empêcherait de viser une autre machine du réseau local. On refuse donc
-    toute URL dont l'hôte résout, même partiellement, vers du privé.
+    The network already forbids the crawler from reaching the host, but
+    nothing would stop it from targeting another machine on the local
+    network. We refuse any URL whose host resolves, even partly, to private.
     """
     try:
         p = urlparse(url)
@@ -116,7 +116,7 @@ def url_publique(url):
     host = p.hostname or ''
     if not host:
         return False, "URL sans hôte."
-    # Une IP écrite en clair se vérifie directement, sans résolution.
+    # A literal IP is checked directly, without resolution.
     try:
         ipaddress.ip_address(host)
         return (False, "Adresse interne refusée.") if _is_blocked_ip(host) else (True, None)
@@ -133,18 +133,18 @@ def url_publique(url):
 
 
 def cible_interne(url):
-    """L'URL vise-t-elle une adresse interne, de façon CERTAINE ?
+    """Does the URL target an internal address, with CERTAINTY?
 
-    Sert au contrôle APRÈS lecture, sur l'URL finale rendue par le crawler
-    (`redirected_url`) : `url_publique` ne voit que les graines, donc une page
-    publique qui redirige vers `http://<service interne>` est bien allée y
-    chercher son contenu — crawl4ai valide les graines « before fetching », et
-    rien après (vérifié dans son `api.py`).
+    Used for the AFTER-read check, on the final URL rendered by the crawler
+    (`redirected_url`): `url_publique` only sees the seeds, so a public page
+    redirecting to `http://<service interne>` did go fetch its content there —
+    crawl4ai validates the seeds « before fetching », and nothing after
+    (checked in its `api.py`).
 
-    Différence voulue avec `url_publique` : ici l'IGNORANCE ne refuse pas. Cette
-    URL vient du crawler, pas de l'utilisateur ; un schéma inattendu ou un nom
-    qui ne résout pas chez nous ne prouve rien, et refuser ferait disparaître des
-    pages légitimes. On ne rejette que ce qu'on sait interne.
+    Deliberate difference from `url_publique`: here IGNORANCE does not refuse.
+    This URL comes from the crawler, not the user; an unexpected scheme or a
+    name that does not resolve on our side proves nothing, and refusing would
+    make legitimate pages disappear. We only reject what we know internal.
     """
     try:
         p = urlparse(url)
@@ -165,7 +165,7 @@ def cible_interne(url):
 
 
 def nettoyer(texte):
-    """Retire les lignes de bandeau et les préfixes parasites. Retourne le texte."""
+    """Removes banner lines and parasite prefixes. Returns the text."""
     sorties = []
     for ligne in (texte or '').split('\n'):
         l = ligne.rstrip()
@@ -177,7 +177,7 @@ def nettoyer(texte):
                 l = l.lstrip('* ')[len(prefixe):].lstrip()
                 break
         sorties.append(l)
-    # Les blancs multiples laissés par les lignes retirées n'apportent rien.
+    # The multiple blanks left by removed lines add nothing.
     propre, vide = [], False
     for l in sorties:
         if l.strip():
@@ -188,7 +188,7 @@ def nettoyer(texte):
 
 
 def _trop_pauvre(texte):
-    """La page est-elle vide de substance une fois nettoyée ? (None si ça va.)"""
+    """Is the page empty of substance once cleaned? (None if fine.)"""
     mots = sum(1 for m in (texte or '').split() if len(m) > 3)
     if mots < MIN_MOTS_UTILES:
         return "Page sans contenu exploitable (chargée en JavaScript, ou accès refusé)."
@@ -196,7 +196,7 @@ def _trop_pauvre(texte):
 
 
 def rechercher(question, nombre=6, langue='fr'):
-    """Question → liens. Retourne (resultats, erreur)."""
+    """Question → links. Returns (results, error)."""
     question = (question or '').strip()[:400]
     if not question:
         return [], "Question vide."
@@ -227,7 +227,7 @@ def rechercher(question, nombre=6, langue='fr'):
 
 
 def lire(urls, max_cars=MAX_CARS_PAGE):
-    """URLs → contenu markdown. Retourne (pages, erreur)."""
+    """URLs → markdown content. Returns (pages, error)."""
     valides = []
     for u in (urls or [])[:MAX_PAGES]:
         ok, err = url_publique(u)
@@ -246,11 +246,11 @@ def lire(urls, max_cars=MAX_CARS_PAGE):
                 md = item.get('markdown')
                 if isinstance(md, dict):
                     md = md.get('fit_markdown') or md.get('raw_markdown') or ''
-                # Contrôle APRÈS lecture : la graine était publique, mais le
-                # crawler a pu suivre une redirection vers une adresse interne.
-                # Le contenu d'un service interne n'a rien à faire dans le
-                # contexte du modèle — on jette la page entière (le markdown
-                # n'est même pas conservé).
+                # AFTER-read check: the seed was public, but the
+                # crawler may have followed a redirect to an internal address.
+                # The content of an internal service has no business in the
+                # model's context — we drop the whole page (the markdown
+                # is not even kept).
                 finale = item.get('redirected_url')
                 if isinstance(finale, str) and cible_interne(finale):
                     resultats[item.get('url', '')] = {
@@ -270,12 +270,12 @@ def lire(urls, max_cars=MAX_CARS_PAGE):
         if not ok:
             pages.append({'url': u, 'erreur': err})
             continue
-        # crawl4ai peut normaliser l'URL (barre finale) : on retombe dessus.
+        # crawl4ai may normalize the URL (trailing slash): we fall back on it.
         info = resultats.get(u) or next((v for k, v in resultats.items()
                                          if k.rstrip('/') == u.rstrip('/')), None)
         if not info or not info['ok']:
-            # `results` peut porter un motif (refus après redirection) : le
-            # perdre afficherait « Page illisible. » pour une page bien lue.
+            # `results` may carry a reason (refusal after redirect): losing it
+            # would display « Page illisible. » for a page that read fine.
             pages.append({'url': u, 'erreur': (info or {}).get('erreur') or "Page illisible."})
             continue
         propre = nettoyer(info['markdown'])

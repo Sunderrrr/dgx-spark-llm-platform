@@ -1,12 +1,12 @@
-"""Notifications Discord : messages prives aux utilisateurs ayant lie leur compte.
+"""Discord notifications: private messages to users who linked their account.
 
-Extrait de app.py le 28/08, apres db.py et config.py. Sans ces deux-la, la
-section n'etait pas extractible : elle lit la table `discord_links` et les
-reglages persistes.
+Extracted from app.py on 28/08, after db.py and config.py. Without those two,
+the section was not extractable: it reads the `discord_links` table and the
+persisted settings.
 
-Le bot envoie un message prive a chaque utilisateur ayant lie son compte
-(OAuth2 "identify") quand une annonce part. Entierement optionnel : sans
-DISCORD_BOT_TOKEN, tout est inerte.
+The bot sends a private message to each user who linked their account
+(OAuth2 "identify") when an announcement goes out. Entirely optional: without
+DISCORD_BOT_TOKEN, everything is inert.
 """
 import sqlite3
 import threading
@@ -15,9 +15,9 @@ import time
 import requests
 
 from config import DISCORD_API, DISCORD_BOT_TOKEN
-# DB_PATH en plus de get_db : la diffusion part dans un FIL, qui n'a pas de
-# contexte Flask et ouvre donc sa propre connexion (meme raison que les jobs
-# image/video — cf. la docstring de get_db).
+# DB_PATH in addition to get_db: the broadcast runs in a THREAD, which has no
+# Flask context and therefore opens its own connection (same reason as the
+# image/video jobs — see the get_db docstring).
 from db import DB_PATH, get_setting
 
 # Distinct from the admin webhook above: here the *bot* sends a private message

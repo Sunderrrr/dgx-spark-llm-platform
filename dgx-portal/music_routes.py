@@ -1,8 +1,8 @@
-"""Musique (sidecar diffusers) — routes extraites de app.py le 28/08.
+"""Music (diffusers sidecar) — routes extracted from app.py on 28/08.
 
-Blueprint sans url_prefix : les chemins restent identiques au caractere pres,
-donc le frontend n'a rien a changer. Cf. memory_routes.py pour le raisonnement
-complet sur les endpoints.
+Blueprint without url_prefix: the paths stay identical to the character, so
+the frontend has nothing to change. See memory_routes.py for the full
+reasoning about the endpoints.
 """
 import os
 import re
@@ -25,14 +25,14 @@ bp = Blueprint('music', __name__)
 MUSIC_FILES_DIR = '/app/data/music_files'
 MUSIC_HISTORY_LIMIT = 20
 MUSIC_MAX_SECONDS = 300
-# Plafond volontairement bas : ~4x la durée demandée par version, donc 3 versions
-# d'un morceau de 3 min monopolisent déjà le GPU ~35 min.
+# Deliberately low cap: ~4x the requested duration per version, so 3 versions
+# of a 3-minute piece already hold the GPU for ~35 min.
 MUSIC_MAX_BATCH = 3
 
 
 def _music_set_done(job_id, username, done):
-    """Incrémente le compteur produit : la page affiche les versions au fur et à
-    mesure plutôt qu'à la toute fin du lot."""
+    """Increments the produced counter: the page shows the versions as they come
+    rather than at the very end of the batch."""
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
         c.execute("UPDATE music_jobs SET done_count=? WHERE job_id=? AND username=?",
@@ -42,7 +42,7 @@ def _music_set_done(job_id, username, done):
         pass
 
 def _music_cancelled(job_id, username):
-    """True si l'utilisateur a demandé l'arrêt de ce job (bouton « Arrêter »)."""
+    """True if the user asked to stop this job (« Arrêter » button)."""
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
         row = c.execute("SELECT status FROM music_jobs WHERE job_id=? AND username=?",
@@ -54,15 +54,15 @@ def _music_cancelled(job_id, username):
 
 
 def _music_worker(job_id, username, prompt, lyrics, duration, count):
-    """Thread : appelle le sidecar `count` fois, écrit un WAV par version.
+    """Thread: calls the sidecar `count` times, writes one WAV per version.
 
-    Séquentiel : le sidecar sérialise déjà les générations derrière son verrou
-    GPU, et enchaîner en parallèle ne ferait qu'ajouter de l'attente. Chaque
-    appel repart d'une graine différente → autant de variantes du même morceau.
-    Génération longue (~4x la durée demandée) → timeout large, et le portail ne
-    bloque pas la requête de l'utilisateur : la page interroge /status.
-    Annulation coopérative (comme l'image) : on vérifie le drapeau avant chaque
-    version, la version en cours se termine et le slot GPU est libéré ensuite.
+    Sequential: the sidecar already serializes generations behind its GPU
+    lock, and chaining in parallel would only add waiting. Each call starts
+    from a different seed → as many variants of the same piece.
+    Long generation (~4x the requested duration) → wide timeout, and the
+    portal does not block the user's request: the page polls /status.
+    Cooperative cancellation (like the image): the flag is checked before
+    each version, the running version finishes and the GPU slot is then freed.
     """
     started = datetime.now()
     done = 0
@@ -164,8 +164,8 @@ def api_music_status(job_id):
 @bp.route('/api/music/cancel/<job_id>', methods=['POST'])
 @login_required
 def api_music_cancel(job_id):
-    """Demande l'arrêt d'une composition (coopératif : la version en cours se
-    termine, la suite du lot est interrompue). Ne concerne que ses propres jobs."""
+    """Ask to stop a composition (cooperative: the running version finishes, the
+    rest of the batch is interrupted). Only affects one's own jobs."""
     db = get_db()
     row = db.execute("SELECT status FROM music_jobs WHERE job_id=? AND username=?",
                      (job_id, session['username'])).fetchone()
@@ -185,7 +185,7 @@ def api_music_cancel(job_id):
 @bp.route('/music/file/<job_id>/<int:idx>')
 @login_required
 def music_file(job_id, idx=0):
-    # Scope (id, username) en une requête — même garde IDOR que /voice/audio.
+    # Scope (id, username) in one query — same IDOR guard as /voice/audio.
     owned = get_db().execute("SELECT 1 FROM music_jobs WHERE job_id=? AND username=?",
                              (job_id, session['username'])).fetchone()
     if not owned:
@@ -195,7 +195,7 @@ def music_file(job_id, idx=0):
         abort(404)
     idx = max(0, min(MUSIC_MAX_BATCH - 1, int(idx)))
     path = os.path.join(MUSIC_FILES_DIR, f"{safe}_{idx}.wav")
-    # Compat : les morceaux d'avant le multi-version sont en <job_id>.wav.
+    # Compat: pieces predating multi-version are <job_id>.wav.
     if not os.path.isfile(path) and idx == 0:
         legacy = os.path.join(MUSIC_FILES_DIR, safe + '.wav')
         if os.path.isfile(legacy):

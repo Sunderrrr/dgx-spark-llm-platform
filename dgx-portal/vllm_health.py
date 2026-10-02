@@ -1,14 +1,14 @@
-"""Sonde du moteur vLLM : modeles servis, sante, debit, fenetre de contexte.
+"""vLLM engine probe: served models, health, throughput, context window.
 
-Extrait de app.py le 28/08, depuis la banniere « OCR » qui ne contenait aucun
-code OCR — c'est ce genre de frontiere mal placee qui rendait le monolithe
-difficile a decouper.
+Extracted from app.py on 28/08, from the « OCR » banner which contained no
+OCR code — the kind of misplaced boundary that made the monolith hard to
+split.
 
-get_running_models est venu avec : c'est une sonde vLLM, elle etait rangee dans
-« Helpers ». app.py la reimporte, beaucoup de code s'en sert.
+get_running_models came along: it is a vLLM probe, it sat in « Helpers ».
+app.py re-imports it, lots of code uses it.
 
-_vllm_health_uncached lit model_configs pour connaitre max-num-seqs et la
-fenetre de contexte du modele actif : d'ou la dependance a get_db.
+_vllm_health_uncached reads model_configs to know max-num-seqs and the
+active model's context window: hence the dependency on get_db.
 """
 import os
 import re
@@ -40,9 +40,9 @@ def get_running_models():
 
 _VLLM_METRICS_URL = VLLM_API.rsplit('/v1', 1)[0] + '/metrics'
 _vllm_tps = {'t': 0.0, 'gen': 0.0}
-# llama.cpp : dernier releve de n_decode_total + son horodatage, pour en tirer un
-# debit INSTANTANE. Voir le commentaire du calcul plus bas : c'est le seul
-# compteur qui avance pendant la generation.
+# llama.cpp: last reading of n_decode_total + its timestamp, to derive an
+# INSTANTANEOUS throughput. See the comment at the computation below: it is
+# the only counter that advances during generation.
 _llama_tps = {'t': 0.0, 'dec': None}
 
 def _prom_sum(text, metric):
@@ -58,26 +58,26 @@ def _prom_sum(text, metric):
 
 _vllm_health_cache = {'t': 0.0, 'v': None}
 
-# llama.cpp expose /slots : quel slot traite, quel identifiant de tache, et ou en
-# est l'ingestion du prompt. C'est la SEULE source d'activite disponible PENDANT
-# une requete — LiteLLM n'ecrit sa ligne qu'a la fin (mesure du 2026-09-14 : 44
-# minutes sans la moindre ligne alors que deux sessions travaillaient), et le
-# moteur, lui, ne connait pas l'identite du client. On affiche donc ce qu'il sait
-# vraiment plutot que « personne n'utilise le modele ».
+# llama.cpp exposes /slots: which slot processes what, which task identifier,
+# and how far prompt ingestion is. It is the ONLY activity source available
+# DURING a request — LiteLLM only writes its row at the end (measured on
+# 2026-09-14: 44 minutes without a single row while two sessions worked),
+# and the engine does not know the client's identity. We thus display what
+# it really knows rather than « personne n'utilise le modele ».
 _SLOTS_URL = VLLM_API.rsplit('/v1', 1)[0] + '/slots'
-# llama.cpp ne dit pas DEPUIS QUAND une tache tourne, seulement son identifiant :
-# on retient l'instant ou chaque identifiant est apparu. Cela donne « cette
-# session travaille depuis 12 min » et permet de distinguer une requete bloquee
-# d'une machine simplement lente.
+# llama.cpp does not say SINCE WHEN a task runs, only its identifier: we
+# record the instant each identifier appeared. That gives « cette session
+# travaille depuis 12 min » and lets one tell a stuck request from a merely
+# slow machine.
 _slots_taches = {}
 
 
 def _slots_activite():
-    """Ce que le moteur fait maintenant, session par session.
+    """What the engine is doing right now, session by session.
 
-    Retourne None quand le moteur ne publie pas /slots (vLLM) ou ne repond pas :
-    l'interface n'affiche alors rien plutot qu'un zero qui voudrait dire
-    « personne », alors que c'est « je ne sais pas ».
+    Returns None when the engine publishes no /slots (vLLM) or does not
+    answer: the UI then shows nothing rather than a zero that would mean
+    « personne », while it actually means « je ne sais pas ».
     """
     try:
         slots = requests.get(_SLOTS_URL, timeout=4).json()
@@ -99,8 +99,8 @@ def _slots_activite():
         plus_ancien = age if plus_ancien is None else max(plus_ancien, age)
         ingere += int(s.get('n_prompt_tokens') or 0)
         traite += int(s.get('n_prompt_tokens_processed') or 0)
-    # Menage : une tache qui n'est plus traitee sort du suivi, sinon la table
-    # grossirait sans fin (elle vit en memoire, un redemarrage la vide).
+    # Cleanup: a task no longer processed leaves the tracking, else the table
+    # would grow forever (it lives in memory, a restart empties it).
     for t in [t for t in _slots_taches if t not in vus]:
         _slots_taches.pop(t, None)
     return {
@@ -137,16 +137,16 @@ _METRIC_NAMES = {
         'gen':      'llamacpp:tokens_predicted_total',
         'running':  'llamacpp:requests_processing',
         'waiting':  'llamacpp:requests_deferred',
-        # llama.cpp ne publie AUCUN compteur de requetes. `n_decode_total`
-        # comptait des tokens : l'afficher en "requetes servies" annoncait 39 303
-        # requetes pour 39 303 tokens generes. Faute de source, on n'affiche rien.
+        # llama.cpp publishes NO request counter. `n_decode_total`
+        # counts tokens: displaying it as "served requests" announced 39 303
+        # requests for 39 303 generated tokens. For lack of a source, we show nothing.
         'requests': None,
-        # Presence de cette cle = "ce moteur a son propre calcul de debit"
-        # (cf. plus bas). La jauge elle-meme ne sert plus : elle vaut 0 pendant
-        # la generation, le debit est tire de n_decode_total.
+        # Presence of this key = "this engine has its own throughput computation"
+        # (see below). The gauge itself is no longer used: it reads 0 during
+        # generation, the throughput comes from n_decode_total.
         'speed':    'llamacpp:predicted_tokens_seconds',
-        'ttft_sum': None,   # cf. plus bas : le TTFT vient d'une mesure reelle
-        'ttft_cnt': None,   #   relevee par chat_routes, pas de /metrics.
+        'ttft_sum': None,   # see below: the TTFT comes from a real measurement
+        'ttft_cnt': None,   #   collected by chat_routes, not from /metrics.
     },
 }
 
@@ -172,35 +172,35 @@ def _vllm_health_uncached():
     running_now = int(_prom_sum(text, M['running']) or 0)
     tps = None
     # If the engine publishes its own speed (llama.cpp), we take it directly.
-    speed_metric = M.get('speed')  # présence = ce moteur publie son propre débit
+    speed_metric = M.get('speed')  # presence = this engine publishes its own throughput
     if speed_metric:
-        # Debit INSTANTANE, agrege sur toutes les sessions.
+        # INSTANTANEOUS throughput, aggregated over all sessions.
         #
-        # Mesure faite sur ce serveur : pendant une generation en cours,
-        # `predicted_tokens_seconds` (jauge) vaut 0 et `tokens_predicted_total`
-        # n'avance PAS — llama.cpp ne les met a jour qu'a la fin de la requete.
-        # Les lire donnait donc 0 tok/s pendant toute la generation, puis un
-        # chiffre fige entre deux : exactement le "compteur statique" constate.
-        # `n_decode_total` est le seul a avancer en continu pendant la generation.
-        # MAIS il compte des PAS DE DECODAGE, pas des tokens : llama.cpp batche les
-        # slots actifs, donc un pas produit un token PAR SLOT actif. Le lire tel quel
-        # divisait le debit affiche par le nombre de sessions — mesure du 2026-09-11 :
-        # 17,4 affiche pour 69,5 reellement delivres aux clients a 4 sessions.
-        # `requests_processing` est le facteur correct, verifie a 1, 2 et 4 sessions
-        # (34,0 / 50,5 / 69,5 contre 33,9 / 50,5 / 69,5 reels). Attention :
-        # `n_busy_slots_per_decode` a l'air fait pour ca mais c'est une moyenne
-        # depuis le demarrage (1,7 en permanence), elle ne convient pas.
+        # Measured on this server: during an ongoing generation,
+        # `predicted_tokens_seconds` (gauge) reads 0 and `tokens_predicted_total`
+        # does NOT advance — llama.cpp only updates them at the end of the request.
+        # Reading them thus gave 0 tok/s during the whole generation, then a
+        # frozen figure in between: exactly the observed "static counter".
+        # `n_decode_total` is the only one advancing continuously during generation.
+        # BUT it counts DECODE STEPS, not tokens: llama.cpp batches the active
+        # slots, so a step yields one token PER active slot. Reading it as-is
+        # divided the displayed throughput by the number of sessions — measurement
+        # of 2026-09-11: 17,4 displayed for 69,5 actually delivered to clients at 4
+        # sessions. `requests_processing` is the correct factor, verified at 1, 2
+        # and 4 sessions (34,0 / 50,5 / 69,5 against 33,9 / 50,5 / 69,5 real).
+        # Beware: `n_busy_slots_per_decode` looks made for this but is an average
+        # since startup (1,7 constantly), it does not fit.
         dec = _prom_sum(text, 'llamacpp:n_decode_total') or 0.0
         p_t, p_dec = _llama_tps['t'], _llama_tps['dec']
         if p_dec is not None and now > p_t and dec >= p_dec:
             pas = (dec - p_dec) / (now - p_t)
-            # Rien de genere depuis le dernier releve => 0, la verite quand personne
-            # n'utilise le modele. Le `max(..., 1)` couvre la fenetre qui chevauche la
-            # FIN d'une generation : des tokens ont ete produits alors que le compteur
-            # de slots est deja retombe a zero, sans lui on afficherait 0 a tort.
+            # Nothing generated since the last reading => 0, the truth when nobody
+            # uses the model. The `max(..., 1)` covers the window overlapping the END
+            # of a generation: tokens were produced while the slot counter already
+            # fell back to zero, without it we would wrongly display 0.
             tps = round(pas * max(running_now, 1), 1) if pas > 0 else 0.0
         else:
-            tps = 0.0        # premier releve du process : rien a comparer
+            tps = 0.0        # first reading of the process: nothing to compare
         _llama_tps.update(t=now, dec=dec)
     else:
         # vLLM: no instantaneous speed metric → cumulative delta/time.
@@ -211,15 +211,15 @@ def _vllm_health_uncached():
     ttft_cnt = _prom_sum(text, M['ttft_cnt']) if M.get('ttft_cnt') else 0.0
     ttft_sum = ttft_sum or 0.0
     ttft_cnt = ttft_cnt or 0.0
-    # llama.cpp ne publie aucun TTFT dans /metrics. Mais il joint un `timings`
-    # PAR REQUETE au dernier fragment SSE, que chat_routes releve au passage :
-    # c'est une vraie mesure de bout en bout, pas une extrapolation. On la prefere
-    # donc, et faute de mesure on n'affiche RIEN plutot qu'un chiffre calcule sur
-    # une autre base — un TTFT rapporte a 1000 tokens n'est pas un TTFT.
-    # Repli reserve aux moteurs qui n'ont AUCUNE source de TTFT (llama.cpp). Le
-    # declencher sur `ttft_cnt == 0` afficherait, pour un vLLM fraichement lance
-    # n'ayant encore rien servi, une mesure heritee du moteur precedent. vLLM
-    # publie son propre histogramme : on ne s'en melange pas.
+    # llama.cpp publishes no TTFT in /metrics. But it attaches a `timings`
+    # PER REQUEST to the last SSE fragment, which chat_routes picks up along
+    # the way: a real end-to-end measurement, not an extrapolation. We prefer
+    # it thus, and for lack of one we display NOTHING rather than a figure
+    # computed on another basis — a TTFT reported at 1000 tokens is no TTFT.
+    # Fallback reserved for engines with NO TTFT source (llama.cpp). Triggering
+    # on `ttft_cnt == 0` would display, for a freshly launched vLLM that has
+    # served nothing yet, a measurement inherited from the previous engine.
+    # vLLM publishes its own histogram: we do not mix the two.
     ttft_mesure_s = None
     if M.get('ttft_cnt') is None:
         from stats import ttft_mesure
@@ -236,8 +236,8 @@ def _vllm_health_uncached():
             ctx_in, ctx_out = ctx_split(row['vllm_args'], engine)
     except Exception:
         pass
-    # Compteurs cumulés. llama.cpp publie de quoi calculer une moyenne EXACTE
-    # depuis son démarrage ; vLLM ne donne que des totaux, donc pas de moyenne.
+    # Cumulative counters. llama.cpp publishes enough to compute an EXACT
+    # average since startup; vLLM only gives totals, hence no average.
     if engine == 'llamacpp':
         compteurs, cumul = _compteurs_llamacpp(text, running[0], gen)
     else:
@@ -264,37 +264,37 @@ def _vllm_health_uncached():
         'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else ttft_mesure_s,
         'requests': (int(_prom_sum(text, M['requests']) or 0)
                      if M.get('requests') else None),
-        # Compteurs cumulés depuis le DÉMARRAGE du moteur (cf. _compteurs_llamacpp).
+        # Cumulative counters since the engine STARTUP (see _compteurs_llamacpp).
         'tokens_generated': compteurs['generes'],
         'tokens_generated_total': cumul,
         'tps_moyen': compteurs['tps_moyen'],
         'tokens_prompt': compteurs['entree'],
         'tps_prefill': compteurs['tps_prefill'],
-        # Activite en vol, session par session (cf. _slots_activite) : c'est ce
-        # qui permet de dire « 2 sessions travaillent depuis 12 min » quand
-        # aucune identite n'est encore journalisee.
+        # In-flight activity, session by session (see _slots_activite): this is
+        # what allows saying « 2 sessions travaillent depuis 12 min » when no
+        # identity is logged yet.
         'slots': _slots_activite(),
     }
 
 
 def _compteurs_llamacpp(text, modele, generes):
-    """Compteurs cumulés du moteur, et cumul conservé à travers ses relances.
+    """Engine cumulative counters, and the cumulative kept across its relaunches.
 
-    Trois lectures, toutes exactes parce qu'elles viennent de compteurs du moteur
-    et non d'un échantillonnage par le portail :
+    Three readings, all exact because they come from engine counters and not
+    from a portal-side sampling:
 
-    - `tokens_predicted_total` : tokens générés depuis le démarrage ;
-    - `tokens_predicted_seconds_total` : secondes passées à générer. Leur
-      RAPPORT est donc une vraie moyenne de décodage depuis le démarrage
-      (158 729 / 11 921,9 = 13,3 tok/s sur ce serveur), stable là où le débit
-      instantané saute de 0 à 1,3 puis retombe — c'est ce qui manquait pour
-      répondre à « les tokens par seconde décodés » ;
-    - `prompt_tokens_total` + la jauge `prompt_tokens_seconds` : le travail
-      d'ENTRÉE. C'est ce qui explique l'écran « 0 tok/s » alors que le GPU
-      travaille : mesuré le 2026-09-14, 4 requêtes en cours, `n_decode_total`
-      qui avance d'UN pas en 6 s, et un prefill à 248 tok/s. Un modèle agentique
-      relit des contextes énormes, donc il passe l'essentiel de son temps en
-      entrée ; afficher « 0 » sans le dire est exact mais trompeur.
+    - `tokens_predicted_total`: tokens generated since startup;
+    - `tokens_predicted_seconds_total`: seconds spent generating. Their
+      RATIO is thus a real decode average since startup (158 729 / 11 921,9
+      = 13,3 tok/s on this server), stable where the instantaneous
+      throughput jumps from 0 to 1,3 then falls back — this is what was
+      missing to answer « les tokens par seconde décodés »;
+    - `prompt_tokens_total` + the `prompt_tokens_seconds` gauge: the INPUT
+      work. This explains the « 0 tok/s » screen while the GPU works:
+      measured on 2026-09-14, 4 requests in flight, `n_decode_total`
+      advancing by ONE step in 6 s, and a prefill at 248 tok/s. An agentic
+      model re-reads huge contexts, so it spends most of its time in input;
+      displaying « 0 » without saying so is exact but misleading.
     """
     vides = {'generes': None, 'tps_moyen': None, 'entree': None, 'tps_prefill': None}
     if not modele:
@@ -305,23 +305,23 @@ def _compteurs_llamacpp(text, modele, generes):
         prefill = _prom_sum(text, 'llamacpp:prompt_tokens_seconds')
         compteurs = {
             'generes': int(generes) if generes else 0,
-            # Seuil de 300 s de génération cumulée — un CHOIX, pas une mesure :
-            # sur quelques dizaines de secondes la moyenne ne veut rien dire.
-            # Ce n'est pas théorique : mesuré le 2026-09-14, le compteur du
-            # moteur est reparti à zéro (cache KV remis à zéro, même pid), et la
-            # « moyenne » est tombée à 47 tokens / 192,4 s = 0,2 tok/s. L'afficher
-            # serait pire que ne rien afficher, donc l'interface masque la ligne
-            # tant que le moteur n'a pas généré cinq minutes depuis sa remise à
-            # zéro. Le total cumulé, lui, reste juste dans tous les cas.
+            # Threshold of 300 s of cumulative generation — a CHOICE, not a
+            # measurement: over a few tens of seconds the average means nothing.
+            # This is not theoretical: measured on 2026-09-14, the engine
+            # counter went back to zero (KV cache reset, same pid), and the
+            # « average » fell to 47 tokens / 192,4 s = 0,2 tok/s. Displaying it
+            # would be worse than nothing, so the UI hides the line until the
+            # engine has generated five minutes since its reset. The cumulative
+            # total, for its part, stays right in every case.
             'tps_moyen': round(generes / secondes, 1) if secondes >= 300 else None,
             'entree': int(entree) if entree is not None else None,
             'tps_prefill': round(prefill, 1) if prefill else None,
         }
     except Exception:
         return vides, None
-    # Le cumul qui SURVIT à une relance : c'est ce que veut dire « garder les
-    # tokens générés ». Un échec de lecture ne doit pas priver d'affichage : on
-    # rend le compteur du lancement en cours, sans cumul.
+    # The cumulative that SURVIVES a relaunch: this is what « garder les
+    # tokens générés » means. A read failure must not deprive the display: we
+    # return the current launch's counter, without cumulative.
     try:
         from stats import cumuler_tokens_generes
         cumul = cumuler_tokens_generes(modele, compteurs['generes'])
@@ -363,9 +363,9 @@ def max_seqs_of(args, engine='vllm'):
     if engine == 'ds4':
         return 1
     n = _arg_int(args, _SEQS_FLAG.get(engine or 'vllm', 'max-num-seqs'))
-    # llama.cpp sert 4 slots quand --parallel est absent (verifie sur le moteur
-    # lui-meme : « n_slots = 4 »). Sans ce repli, le panneau de sante affichait
-    # « 0 / — » au lieu de « 0 / 4 » des qu'un modele etait lance sans ce drapeau.
+    # llama.cpp serves 4 slots when --parallel is absent (checked on the
+    # engine itself: « n_slots = 4 »). Without this fallback, the health panel
+    # showed « 0 / — » instead of « 0 / 4 » without that flag.
     if n is None and (engine or 'vllm') == 'llamacpp':
         return 4
     return n
@@ -378,21 +378,21 @@ def effective_ctx(args, engine='vllm'):
     so a request only gets ctx-size ÷ --parallel. vLLM/ds4: --max-model-len
     / --ctx are already per request.
 
-    SAUF en cache unifie : les slots partagent alors un reservoir unique et chacun
-    peut adresser le contexte ENTIER — diviser sous-estimerait d'autant. llama.cpp
-    active ce mode par defaut quand le nombre de slots est automatique, et le
-    desactive des qu'on passe --parallel, a moins de redemander --kv-unified.
-    Mesure : `--ctx-size 524288 --parallel 6 --kv-unified` annonce
-    n_ctx_slot = 524288, alors que la division affichait 87381.
+    EXCEPT with a unified cache: the slots then share a single pool and each
+    can address the WHOLE context — dividing would underestimate it by that
+    much. llama.cpp enables this mode by default when the slot count is
+    automatic, and disables it as soon as --parallel is passed, unless
+    --kv-unified is asked again. Measurement: `--ctx-size 524288 --parallel 6
+    --kv-unified` announces n_ctx_slot = 524288, where the division showed 87381.
 
-    DEPUIS llama.cpp 0.5.0 (`--kv-unified-per-slot N`) la fenetre par session se
-    DECLARE, et c'est alors elle qui fait foi : le moteur plafonne le slot a N et
-    dimensionne le reservoir a n_parallel x N. Ni la division ni la regle
-    « unifie » ci-dessus ne s'appliquent alors. Mesure du 2026-09-25 sur
-    Flash-Next : `--ctx-size 1048576 --parallel 4 --kv-unified
-    --kv-unified-per-slot 262144` sert 262144 par session (le moteur l'annonce
-    sur /props), la ou la regle « unifie » aurait annonce 1048576 — cinq fois la
-    limite reelle d'un prompt, que le client n'aurait decouvert qu'a l'echec.
+    SINCE llama.cpp 0.5.0 (`--kv-unified-per-slot N`) the per-session window
+    is DECLARED, and it is then authoritative: the engine caps the slot at N
+    and sizes the pool at n_parallel x N. Neither the division nor the
+    « unifie » rule above applies then. Measured on 2026-09-25 on
+    Flash-Next: `--ctx-size 1048576 --parallel 4 --kv-unified
+    --kv-unified-per-slot 262144` serves 262144 per session (announced on
+    /props), where the « unifie » rule would have announced 1048576 — five
+    times the real prompt limit, discovered only at failure.
     """
     if engine == 'llamacpp':
         par_slot = _arg_int(args, 'kv-unified-per-slot', 0) or 0
@@ -419,12 +419,12 @@ def ctx_split(vllm_args, engine='vllm'):
     """
     slot = effective_ctx(vllm_args, engine) or 32768
     if engine in ('llamacpp', 'ds4', 'exllamav3'):
-        # --n-predict EST la limite de sortie du moteur quand l'admin la fixe :
-        # on l'annonce telle quelle plutot que de la deviner. Sans ce drapeau, on
-        # garde l'heuristique prudente (un tiers du slot, plafonne a 64k).
-        # Le plafond code en dur ne devrait pas decider a la place du modele :
-        # Qwen recommande jusqu'a 262144 tokens de raisonnement et 131072 de
-        # reponse finale sur Flash-Next, tres au-dela de ces 64k.
+        # --n-predict IS the engine's output limit when the admin sets it: we
+        # advertise it as such rather than guess it. Without that flag, we keep
+        # the cautious heuristic (a third of the slot, capped at 64k).
+        # The hardcoded cap should not decide instead of the model: Qwen
+        # recommends up to 262144 reasoning tokens and 131072 final answer
+        # tokens on Flash-Next, far beyond these 64k.
         demande = _arg_int(vllm_args, 'n-predict')
         out_reserve = (demande if demande and 0 < demande < slot
                        else min(65536, slot // 3))
@@ -433,29 +433,29 @@ def ctx_split(vllm_args, engine='vllm'):
 
 _SEARCH_PAGE_SIZE = 48
 
-# Tâches HF proposées par l'interface. Servent d'allow-list : un filtre inconnu
-# fait répondre 400 à HF, ce qui n'est PAS une panne de HF et ne doit donc pas
-# être présenté comme telle (cf. HfIndisponible). Une tâche VIDE est permise :
-# c'est le défaut, cf. search_hf_models_page.
+# HF tasks offered by the UI. Serve as an allow-list: an unknown filter
+# makes HF answer 400, which is NOT an HF outage and must not be shown as
+# one (see HfIndisponible). An EMPTY task is allowed: it is the default,
+# see search_hf_models_page.
 HF_TASKS = ('text-generation', 'text2text-generation', 'conversational',
             'feature-extraction', 'text-to-image', 'text-to-video',
             'image-to-text')
 
-# Jeton Hugging Face, OPTIONNEL, relu à chaque appel (le fichier peut être monté
-# après le démarrage du portail). Sans lui l'API publique répond quand même, mais
-# deux choses manquent, mesurées le 2026-09-14 :
-#   - les dépôts à accès restreint (`gated`) n'apparaissent pas dans la recherche ;
-#   - la limite anonyme est de 500 requêtes / 5 min par IP (en-tête
-#     `ratelimit-policy` de HF) — une recherche qui interroge HF à chaque frappe
-#     peut l'atteindre, et un 429 s'afficherait alors comme un échec de recherche.
-# Le jeton vit dans ./secrets/hf_token (0600, git-ignoré) et est monté en LECTURE
-# SEULE dans le portail. Il n'est JAMAIS renvoyé par une route ni journalisé :
-# seule sa présence l'est (`hf_jeton_present`).
+# Hugging Face token, OPTIONAL, re-read at every call (the file can be
+# mounted after the portal starts). Without it the public API still
+# answers, but two things are missing, measured on 2026-09-14:
+#   - restricted-access (`gated`) repos do not appear in the search;
+#   - the anonymous limit is 500 requests / 5 min per IP (HF's
+#     `ratelimit-policy` header) — a search querying HF at every keystroke
+#     can reach it, and a 429 would then display as a search failure.
+# The token lives in ./secrets/hf_token (0600, git-ignored) and is mounted
+# READ-ONLY in the portal. It is NEVER returned by a route nor logged:
+# only its presence is (`hf_jeton_present`).
 HF_TOKEN_FILE = os.environ.get('CRONOS_HF_TOKEN_FILE', '/run/secrets/hf_token')
 
 
 def _hf_token():
-    """Le jeton HF, ou ''. Jamais renvoyé, jamais écrit dans un journal."""
+    """The HF token, or ''. Never returned, never written to a log."""
     jeton = (os.environ.get('HF_TOKEN')
              or os.environ.get('HUGGING_FACE_HUB_TOKEN') or '').strip()
     if jeton:
@@ -468,7 +468,7 @@ def _hf_token():
 
 
 def hf_jeton_present():
-    """Y a-t-il un jeton HF ? L'interface peut le dire, la valeur ne sort pas."""
+    """Is there an HF token? The UI may say so, the value never leaves."""
     return bool(_hf_token())
 
 
@@ -478,21 +478,21 @@ def _hf_headers():
 
 
 class HfIndisponible(Exception):
-    """Hugging Face n'a pas répondu exploitablement.
+    """Hugging Face did not answer with anything usable.
 
-    Distinct d'une recherche sans résultat : le portail doit pouvoir le dire.
-    Avant, toute exception était avalée et renvoyait `[]`, donc « HF est
-    injoignable » s'affichait comme « aucun modèle ne correspond » — l'utilisateur
-    concluait que son modèle n'existe pas."""
+    Distinct from a search with no result: the portal must be able to say
+    so. Before, every exception was swallowed and returned `[]`, so « HF est
+    injoignable » displayed as « aucun modèle ne correspond » — the user
+    concluded their model does not exist."""
 
 
 def _hf_page(params, timeout=8):
-    """Un appel HF → (données, y a-t-il une page suivante). LÈVE au lieu de renvoyer vide.
+    """One HF call → (data, is there a next page). RAISES instead of returning empty.
 
-    `has_more` vient de l'en-tête `Link` de HF (`rel="next"`), qui fait foi.
-    Côté interface, l'ancienne heuristique (« la page est pleine donc il y en a
-    d'autres ») affichait un bouton « Charger plus » qui pouvait ne rien donner,
-    et surtout en cachait un quand la dernière page était pleine.
+    `has_more` comes from HF's `Link` header (`rel="next"`), which is
+    authoritative. On the UI side, the old heuristic (« la page est pleine
+    donc il y en a d'autres ») showed a « Charger plus » button that could
+    give nothing, and above all hid one when the last page was full.
     """
     try:
         r = requests.get('https://huggingface.co/api/models', params=params,
@@ -500,8 +500,8 @@ def _hf_page(params, timeout=8):
     except requests.RequestException as e:
         raise HfIndisponible(f"HF injoignable ({type(e).__name__})") from e
     if not r.ok:
-        # Un jeton présent mais refusé n'est pas une panne de HF : le dire
-        # permet de comprendre qu'il faut le remplacer, pas attendre.
+        # A present but refused token is not an HF outage: saying so
+        # helps understand it must be replaced, not waited on.
         if r.status_code in (401, 403) and _hf_token():
             raise HfIndisponible("jeton Hugging Face refusé")
         raise HfIndisponible(f"HF a répondu {r.status_code}")
@@ -517,66 +517,66 @@ def _hf_page(params, timeout=8):
 
 
 def _hf_models(params, timeout=8):
-    """Un appel HF, qui LÈVE au lieu de renvoyer une liste vide (cf. ci-dessus)."""
+    """One HF call, which RAISES instead of returning an empty list (see above)."""
     return _hf_page(params, timeout)[0]
 
 
 def search_hf_models_page(query, task=None, gb10_only=False, skip=0):
-    """Recherche HF → (modèles, page suivante ?).
+    """HF search → (models, next page?).
 
-    **Aucun filtre par défaut : on cherche dans TOUT Hugging Face.** Deux filtres
-    étaient appliqués d'office et rendaient introuvables des modèles qui existent
-    (signalé le 2026-09-14, l'opérateur ne trouvait pas « Ornith-1.5 ») :
+    **No default filter: we search ALL of Hugging Face.** Two filters were
+    applied automatically and made existing models unfindable (reported on
+    2026-09-14, the operator could not find « Ornith-1.5 »):
 
-      - `task` valait `text-generation` : un dépôt taggé seulement
-        `image-text-to-text` (`Ornith-1.5`, un Qwen3.5 multimodal) ou pas taggé du
-        tout était invisible ;
-      - le tag `gb10` ne marque que les modèles testés sur DGX Spark — une poignée
-        de dépôts — donc tout le reste disparaissait sans que rien ne le dise.
-        C'est un filtre utile, mais un filtre qu'on DEMANDE.
+      - `task` defaulted to `text-generation`: a repo tagged only
+        `image-text-to-text` (`Ornith-1.5`, a multimodal Qwen3.5) or not
+        tagged at all was invisible;
+      - the `gb10` tag only marks models tested on DGX Spark — a handful of
+        repos — so everything else disappeared without anything saying so.
+        It is a useful filter, but a filter one ASKS for.
 
-    Le tri reste par téléchargements décroissants : sans requête, la page montre
-    donc les modèles les plus utilisés de Hugging Face (ou de la tâche choisie),
-    ce qui est la façon la plus honnête d'« explorer le catalogue ».
+    Sorting stays by decreasing downloads: without a query, the page thus
+    shows the most used models of Hugging Face (or of the chosen task),
+    which is the most honest way to « explorer le catalogue ».
 
-    `full=true` ajoute `gated` (mesuré : +85 Kio, même temps de réponse). Ce champ
-    vaut la dépense : un dépôt gated exige un jeton HF et fait échouer le
-    téléchargement APRÈS le clic sur « Lancer » — c'est exactement ce qui est
-    arrivé au mmproj de Flash-Next. Le voir dans les résultats évite de le
-    découvrir au lancement.
+    `full=true` adds `gated` (measured: +85 Kio, same response time). This
+    field is worth the expense: a gated repo requires an HF token and fails
+    the download AFTER the click on « Lancer » — exactly what happened to
+    the Flash-Next mmproj. Seeing it in the results avoids discovering it
+    at launch.
     """
     filters = ([task] if task else []) + ([GB10_TAG] if gb10_only else [])
     params = {'search': query, 'limit': _SEARCH_PAGE_SIZE, 'skip': max(0, int(skip)),
               'sort': 'downloads', 'direction': -1, 'full': 'true'}
-    # `filter` vide et `filter` absent ne veulent pas dire la même chose côté HF
-    # (plusieurs `filter` = ET) : on omet la clé au lieu d'envoyer une liste vide.
+    # Empty `filter` and missing `filter` do not mean the same thing on the HF
+    # side (several `filter` = AND): we omit the key instead of sending an empty list.
     if filters:
         params['filter'] = filters
     out, has_more = _hf_page(params)
     for m in out:
         m['engine'] = guess_engine(m)
-        # `siblings` (la liste des fichiers du dépôt) pesait 58 % de la réponse —
-        # mesuré : 51 Kio sur 87 pour 39 modèles — et AUCUN écran ne s'en sert
-        # (l'engine se déduit des `tags`, pas des fichiers). Le retirer allège
-        # chaque recherche de plus de moitié, sur 48 modèles × ~15 fichiers.
-        # `_id` (identifiant interne de Hugging Face) part avec, même raison.
+        # `siblings` (the repo file list) weighed 58 % of the response — measured:
+        # 51 Kio out of 87 for 39 models — and NO screen uses it (the engine is
+        # deduced from the `tags`, not the files). Removing it lightens every
+        # search by more than half, on 48 models × ~15 files.
+        # `_id` (Hugging Face internal identifier) goes with it, same reason.
         m.pop('siblings', None)
         m.pop('_id', None)
     return out, has_more
 
 
 def search_hf_models(query, task=None, gb10_only=False, skip=0):
-    """La liste seule — le même appel que `search_hf_models_page`, sans `has_more`."""
+    """The list alone — the same call as `search_hf_models_page`, without `has_more`."""
     return search_hf_models_page(query, task, gb10_only, skip)[0]
 
 
 def hf_modele_hors_gb10(query, task=None):
-    """Y a-t-il des modèles pour cette recherche SANS le filtre gb10 ?
+    """Are there models for this search WITHOUT the gb10 filter?
 
-    Sert à ne pas laisser l'utilisateur devant un « aucun résultat » trompeur :
-    quand le filtre GB10 ne donne rien mais que HF en connaît, l'interface peut
-    le dire et proposer de décocher le filtre. Renvoie True, False, ou None
-    quand on ne sait pas — un doute ne doit pas s'afficher comme un « non ».
+    Used to not leave the user in front of a misleading « aucun résultat »:
+    when the GB10 filter gives nothing but HF knows some, the UI can say so
+    and offer to uncheck the filter. Returns True, False, or None when we
+    do not know — a doubt must not display as a « non ».
     """
     if not query:
         return None

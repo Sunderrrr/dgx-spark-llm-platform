@@ -1,10 +1,10 @@
-"""Dictee (ASR) : transcription audio.
+"""Dictation (ASR): audio transcription.
 
-Extrait de app.py le 28/08, en meme temps que la voix : ces routes vivaient sous
-la banniere « Voix » alors que c'est un sidecar distinct, sur son propre reseau.
-C'est cette frontiere mal placee qui rendait la section non extractible.
+Extracted from app.py on 28/08, at the same time as voice: these routes lived
+under the « Voix » banner although it is a distinct sidecar, on its own
+network. That misplaced boundary is what made the section non-extractable.
 
-asr_is_up() est reimporte par app.py : le tableau de bord des sidecars s'en sert.
+asr_is_up() is re-imported by app.py: the sidecar dashboard uses it.
 """
 import requests
 from flask import Blueprint, jsonify, request
@@ -49,12 +49,12 @@ def api_transcribe():
                           data={'language': language}, timeout=180)
         if not r.ok:
             detail = motif_refus(r)
-            # Le CODE DU SIDECAR est repris, il n'est plus écrasé en 502. Un
-            # enregistrement trop court, un format illisible ou un fichier trop
-            # gros sont des ERREURS D'ENTRÉE (400/413) : les présenter comme une
-            # panne de service faisait croire à une indisponibilité, et un client
-            # qui réessaie automatiquement rejouait une requête qui ne pouvait
-            # pas marcher. 503 (modèle non chargé) et 5xx restent des pannes.
+            # The SIDECAR's error code is passed through, no longer overwritten as 502. A
+            # recording too short, an unreadable format or a file too large are INPUT
+            # ERRORS (400/413): presenting them as a service failure made it look like an
+            # outage, and a client that retries automatically replayed a request that
+            # could not work anyway. 503 (model not loaded) and 5xx remain genuine
+            # failures.
             statut = r.status_code
             if 400 <= statut < 500:
                 return jsonify({'error': detail or "Enregistrement refusé."}), statut

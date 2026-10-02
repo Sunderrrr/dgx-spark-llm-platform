@@ -1,10 +1,10 @@
-"""Tests HTTP des routes de mémoire.
+"""HTTP tests of the memory routes.
 
-Les tests de `test_memory.py` portent sur les fonctions. Ceux-ci passent par la
-vraie pile Flask — décorateurs d'authentification, protection CSRF, sérialisation
-JSON — parce que c'est là que se jouent les défauts qu'un test de fonction ne
-voit pas : une route oubliée sans `@login_required`, une isolation qui tient au
-niveau SQL mais qu'une route contourne en lisant un paramètre de requête.
+The tests of `test_memory.py` target the functions. These go through the
+real Flask stack — authentication decorators, CSRF protection, JSON
+serialization — because that is where the defects a function test cannot
+see play out: a route forgotten without `@login_required`, an isolation
+holding at SQL level but bypassed by a route reading a query parameter.
 """
 
 import time
@@ -13,8 +13,8 @@ from unittest import mock
 
 import app as portal
 import chat_routes as chat_routes
-# La memoire a quitte le monolithe pour memory_routes.py (28/08, 1er
-# blueprint) : on la vise dans son module proprietaire.
+# Memory left the monolith for memory_routes.py (28/08, 1st blueprint):
+# we target it in its own module.
 import memory_routes as memoire
 from db import get_db
 
@@ -40,7 +40,7 @@ class MemoryApiBase(unittest.TestCase):
             db.commit()
 
     def _login(self, username, client=None):
-        """Ouvre une session valide et renvoie le jeton CSRF associé."""
+        """Opens a valid session and returns the associated CSRF token."""
         c = client or self.client
         with c.session_transaction() as sess:
             sess['username'] = username
@@ -58,7 +58,7 @@ class MemoryApiBase(unittest.TestCase):
 
 
 class AuthGateTest(MemoryApiBase):
-    """Aucune route de mémoire ne doit répondre sans session."""
+    """No memory route must answer without a session."""
 
     def test_toutes_les_routes_sont_protegees(self):
         appels = [
@@ -69,7 +69,7 @@ class AuthGateTest(MemoryApiBase):
             ('post', '/api/memory/purge', None),
         ]
         for methode, route, corps in appels:
-            # Un jeton CSRF cohérent : on teste bien l'AUTHENTIFICATION, pas le CSRF.
+            # A consistent CSRF token: we really test AUTHENTICATION, not CSRF.
             with self.client.session_transaction() as sess:
                 sess.clear()
                 sess['csrf'] = 'jeton-anonyme'
@@ -80,7 +80,7 @@ class AuthGateTest(MemoryApiBase):
 
 
 class CsrfTest(MemoryApiBase):
-    """Les routes qui écrivent doivent refuser une requête sans jeton valide."""
+    """The writing routes must refuse a request without a valid token."""
 
     def test_ecritures_sans_jeton_refusees(self):
         self._login(self.USER)
@@ -101,8 +101,8 @@ class CsrfTest(MemoryApiBase):
 
 class OptInApiTest(MemoryApiBase):
     def test_activee_par_defaut(self):
-        # 2026-09 : défaut ON — un compte tout neuf a la mémoire activée, avec
-        # un graphe vide.
+        # 2026-09: default ON — a brand-new account has memory enabled, with
+        # an empty graph.
         self._login(self.USER)
         d = self.client.get('/api/memory').get_json()
         self.assertTrue(d['enabled'])
@@ -111,8 +111,8 @@ class OptInApiTest(MemoryApiBase):
     def test_activation_persiste(self):
         csrf = self._enable(self.USER)
         self.assertTrue(self.client.get('/api/memory').get_json()['enabled'])
-        # Une nouvelle session (nouveau client) doit retrouver le réglage : il
-        # vit en base, pas dans le cookie.
+        # A new session (new client) must find the setting back: it lives in
+        # database, not in the cookie.
         autre = portal.app.test_client()
         self._login(self.USER, autre)
         self.assertTrue(autre.get('/api/memory').get_json()['enabled'])
@@ -121,9 +121,9 @@ class OptInApiTest(MemoryApiBase):
         self.assertFalse(self.client.get('/api/memory').get_json()['enabled'])
 
     def test_ajout_manuel_possible_meme_sans_opt_in(self):
-        # L'opt-in encadre ce que le MODÈLE enregistre. Un ajout fait à la main
-        # par l'utilisateur est un acte volontaire : le bloquer n'aurait aucun
-        # sens puisqu'il l'a écrit lui-même.
+        # The opt-in frames what the MODEL stores. A manual add by the user is
+        # a deliberate act: blocking it would make no sense since they wrote it
+        # themselves.
         csrf = self._login(self.USER)
         r = self.client.post('/api/memory/facts', json={'subject': 'vLLM', 'fact': 'À la main.'},
                              headers={'X-CSRFToken': csrf})
@@ -132,7 +132,7 @@ class OptInApiTest(MemoryApiBase):
 
 
 class IsolationApiTest(MemoryApiBase):
-    """Deux comptes réels, deux clients HTTP : rien ne doit traverser."""
+    """Two real accounts, two HTTP clients: nothing must cross."""
 
     def setUp(self):
         super().setUp()
@@ -167,8 +167,8 @@ class IsolationApiTest(MemoryApiBase):
         self.assertEqual(self._facts(self.client_a), ['Secret de A.'])
 
     def test_les_noeuds_ne_sont_pas_partages(self):
-        # Même sujet ("vLLM") des deux côtés : ce doit être DEUX nœuds distincts,
-        # sinon les deux graphes seraient reliés par ce nœud commun.
+        # Same subject ("vLLM") on both sides: they must be TWO distinct nodes,
+        # else the two graphs would be linked by that common node.
         a = self.client_a.get('/api/memory').get_json()
         b = self.client_b.get('/api/memory').get_json()
         self.assertEqual(len(a['nodes']), 1)
@@ -177,7 +177,7 @@ class IsolationApiTest(MemoryApiBase):
 
 
 class ImportExportApiTest(MemoryApiBase):
-    """Export (JSON/Markdown) et import (fusion) de la mémoire du compte connecté."""
+    """Export (JSON/Markdown) and import (merge) of the logged-in account's memory."""
 
     def setUp(self):
         super().setUp()
@@ -196,7 +196,7 @@ class ImportExportApiTest(MemoryApiBase):
         self.assertEqual(len(doc['edges']), 1)
         self.assertEqual(doc['edges'][0]['subject'], 'vLLM')
         self.assertEqual(doc['edges'][0]['fact'], 'Tourne en 0.27.')
-        # Un fait avec un objet crée DEUX nœuds (sujet + objet).
+        # A fact with an object creates TWO nodes (subject + object).
         self.assertEqual(len(doc['nodes']), 2)
         self.assertEqual({n['name'] for n in doc['nodes']}, {'vLLM', 'DGX Spark'})
 
@@ -210,7 +210,7 @@ class ImportExportApiTest(MemoryApiBase):
 
     def test_import_roundtrip_fusion(self):
         doc = self.client.get('/api/memory/export').get_json()
-        # Purge puis réimport : on doit retrouver exactement le même fait.
+        # Purge then reimport: we must find back exactly the same fact.
         self.client.post('/api/memory/purge', headers={'X-CSRFToken': self.csrf})
         self.assertEqual(self.client.get('/api/memory').get_json()['edges'], [])
         r = self.client.post('/api/memory/import', json=doc, headers={'X-CSRFToken': self.csrf})
@@ -223,7 +223,7 @@ class ImportExportApiTest(MemoryApiBase):
         doc = self.client.get('/api/memory/export').get_json()
         self.client.post('/api/memory/import', json=doc, headers={'X-CSRFToken': self.csrf})
         faits = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
-        self.assertEqual(faits, ['Tourne en 0.27.'])  # fusion, pas de doublon
+        self.assertEqual(faits, ['Tourne en 0.27.'])  # merge, no duplicate
 
     def test_import_json_invalide_refuse(self):
         r = self.client.post('/api/memory/import', data='pas du json',
@@ -236,12 +236,12 @@ class ImportExportApiTest(MemoryApiBase):
         self.assertEqual(r.status_code, 400)
 
     def test_import_ne_traverse_pas_les_comptes(self):
-        # Le champ `username` du doc est ignoré : la SESSION fait foi.
+        # The doc's `username` field is ignored: the SESSION is authoritative.
         doc = self.client.get('/api/memory/export').get_json()
-        doc['username'] = self.OTHER  # tenté d'usurper la destination
+        doc['username'] = self.OTHER  # tried to usurp the destination
         r = self.client.post('/api/memory/import', json=doc, headers={'X-CSRFToken': self.csrf})
         self.assertEqual(r.status_code, 200)
-        # L'import a bien atterri chez USER (session), et OTHER n'a rien reçu.
+        # The import landed on USER (session), and OTHER received nothing.
         self.assertEqual(
             len([e for e in self.client.get('/api/memory').get_json()['edges'] if e['fact'] == 'Tourne en 0.27.']), 1)
         autre = portal.app.test_client()
@@ -257,14 +257,14 @@ class ImportExportApiTest(MemoryApiBase):
 
 
 class ImportMarkdownTest(MemoryApiBase):
-    """Import Markdown : parseur tolérant + round-trip avec l'export .md."""
+    """Markdown import: tolerant parser + round-trip with the .md export."""
 
     def setUp(self):
         super().setUp()
         self.csrf = self._enable(self.USER)
 
     def test_roundtrip_avec_notre_export_markdown(self):
-        # Un fait structuré (avec objet) + notre export .md, puis purge + réimport.
+        # A structured fact (with object) + our .md export, then purge + reimport.
         self.client.post('/api/memory/facts',
                          json={'subject': 'vLLM', 'fact': 'Tourne en 0.27.', 'object': 'DGX Spark'},
                          headers={'X-CSRFToken': self.csrf})
@@ -279,7 +279,7 @@ class ImportMarkdownTest(MemoryApiBase):
         self.assertIn('Tourne en 0.27.', faits)
 
     def test_markdown_generique_claude_chatgpt(self):
-        # Format libre : titres = sujets, puces = faits (sans structure gras).
+        # Free format: titles = subjects, bullets = facts (no bold structure).
         md = (
             "# Memory\n"
             "## Préférences\n"
@@ -306,7 +306,7 @@ class ImportMarkdownTest(MemoryApiBase):
                          headers={'X-CSRFToken': self.csrf,
                                   'Content-Type': 'text/plain; charset=utf-8'})
         faits = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
-        self.assertEqual(faits, ['Tourne en 0.27.'])  # pas de doublon
+        self.assertEqual(faits, ['Tourne en 0.27.'])  # no duplicate
 
     def test_fichier_sans_fait_refuse(self):
         r = self.client.post('/api/memory/import.md', data=b'# Rien ici\n\njuste du texte',
@@ -315,15 +315,15 @@ class ImportMarkdownTest(MemoryApiBase):
         self.assertEqual(r.status_code, 400)
 
     def test_import_md_requiert_une_session(self):
-        # Sans session ni jeton CSRF cohérent, l'écriture est refusée (400 par le
-        # guard CSRF global, exécuté avant login_required).
+        # Without session nor consistent CSRF token, writing is refused (400 by
+        # the global CSRF guard, run before login_required).
         autre = portal.app.test_client()
         r = autre.post('/api/memory/import.md', data=b'## x\n- y',
                        headers={'Content-Type': 'text/plain'})
         self.assertIn(r.status_code, (302, 400, 401, 403))
 
     def test_parseur_relations_structurées(self):
-        # Motif « **relation** objet : fait » reconnu ; hors gras → relation générique.
+        # Pattern « **relation** object: fact » recognized; outside bold → generic relation.
         md = "## vLLM\n- **sert avec** DGX Spark : Tourne en 0.27.\n"
         edges, aliases = memoire._md_parse(md)
         self.assertEqual(len(edges), 1)
@@ -332,8 +332,8 @@ class ImportMarkdownTest(MemoryApiBase):
         self.assertEqual(edges[0]['fact'], 'Tourne en 0.27.')
 
     def test_format_claude_legacy(self):
-        # Export Claude legacy réel : sections en gras seul + sous-sections en
-        # italique seul + paragraphes de prose (une ligne dense, pas de puces).
+        # Real legacy Claude export: bold-only sections + italic-only
+        # sub-sections + prose paragraphs (one dense line, no bullets).
         md = (
             "**Work context**\n"
             "\n"
@@ -348,7 +348,7 @@ class ImportMarkdownTest(MemoryApiBase):
             "He runs a DGX Spark (NVIDIA GB10, ARM64, 128GB).\n"
         )
         edges, aliases = memoire._md_parse(md)
-        # 4 phrases → 4 faits, répartis sous Work context / Recent months.
+        # 4 sentences → 4 facts, spread under Work context / Recent months.
         self.assertEqual(len(edges), 4)
         by_subject = {}
         for e in edges:
@@ -357,12 +357,12 @@ class ImportMarkdownTest(MemoryApiBase):
         self.assertIn('Recent months', by_subject)
         self.assertEqual(len(by_subject['Work context']), 2)
         self.assertEqual(len(by_subject['Recent months']), 2)
-        # Le gras inline (DGX Spark) est débarrassé de son markup.
+        # The inline bold (DGX Spark) is stripped of its markup.
         self.assertTrue(any('DGX Spark' in f for f in by_subject['Recent months']))
         self.assertTrue(all('**' not in f for f in by_subject['Recent months']))
 
     def test_import_complet_format_claude(self):
-        # Import bout-en-bout d'un extrait Claude : les faits doivent atterrir.
+        # End-to-end import of a Claude excerpt: the facts must land.
         md = (
             "**Personal context**\n"
             "\n"
@@ -378,7 +378,7 @@ class ImportMarkdownTest(MemoryApiBase):
 
 
 class InjectionContexteTest(MemoryApiBase):
-    """Le bloc mémoire injecté au system du chat (lecture)."""
+    """The memory block injected in the chat system (reading)."""
 
     def setUp(self):
         super().setUp()
@@ -399,7 +399,7 @@ class InjectionContexteTest(MemoryApiBase):
             bloc = memoire._mem_inject_context(self.USER)
         self.assertIn('### Mémoire', bloc)
         self.assertIn('vLLM — Tourne en 0.27.', bloc)
-        # Cadré comme des données (anti injection-prompt persistante).
+        # Framed as data (anti persistent-prompt-injection).
         self.assertIn('données', bloc)
 
     def test_exclut_les_faits_perimes(self):
@@ -415,12 +415,12 @@ class InjectionContexteTest(MemoryApiBase):
 
 
 class ExtractionPostTourTest(MemoryApiBase):
-    """Le fil d'extraction post-tour écrit la mémoire HORS contexte de requête."""
+    """The post-round extraction thread writes memory OUTSIDE request context."""
 
     def test_ecrit_hors_contexte_requete(self):
-        # Le fil post-tour ne possède PAS de contexte de requête Flask : c'est
-        # exactement ce qui a cassé la première version (get_db y levait
-        # « Working outside of application context », gobé par un except nu).
+        # The post-round thread has NO Flask request context: this is exactly
+        # what broke the first version (get_db raised « Working outside of
+        # application context » there, swallowed by a bare except).
         with portal.app.app_context():
             memoire._mem_set_enabled(self.USER, True)
         extraits = [{'role': 'user', 'content': "Je préfère les réponses courtes."},
@@ -467,7 +467,7 @@ class EntreesHostilesTest(MemoryApiBase):
             self.assertEqual(self._post(corps).status_code, 400, corps)
 
     def test_sujet_sans_aucun_caractere_utile(self):
-        # « !!! » se normalise en chaîne vide : le nœud serait sans clé.
+        # « !!! » normalizes to an empty string: the node would be keyless.
         self.assertEqual(self._post({'subject': '!!!', 'fact': 'x'}).status_code, 400)
 
     def test_texte_tres_long_tronque_sans_planter(self):
@@ -480,7 +480,7 @@ class EntreesHostilesTest(MemoryApiBase):
     def test_injection_sql_traitee_comme_du_texte(self):
         charge = "'; DROP TABLE memory_edges; --"
         self.assertEqual(self._post({'subject': charge, 'fact': charge}).status_code, 200)
-        # La table existe toujours et le fait est là, tel quel.
+        # The table still exists and the fact is there, as is.
         d = self.client.get('/api/memory').get_json()
         self.assertEqual(d['edges'][0]['fact'], charge)
 
@@ -495,7 +495,7 @@ class EntreesHostilesTest(MemoryApiBase):
 
     def test_identifiant_non_numerique(self):
         r = self.client.delete('/api/memory/facts/abc', headers={'X-CSRFToken': self.csrf})
-        self.assertEqual(r.status_code, 404)   # la route attend un <int:>
+        self.assertEqual(r.status_code, 404)   # the route expects an <int:>
 
     def test_corps_json_absent(self):
         r = self.client.post('/api/memory/facts', headers={'X-CSRFToken': self.csrf})
@@ -507,7 +507,7 @@ class EntreesHostilesTest(MemoryApiBase):
 
 
 class ParcoursTest(MemoryApiBase):
-    """Le parcours du graphe doit ramener le voisinage — ni moins, ni tout."""
+    """The graph walk must bring back the neighbourhood — no less, no all."""
 
     def setUp(self):
         super().setUp()
@@ -520,7 +520,7 @@ class ParcoursTest(MemoryApiBase):
         super().tearDown()
 
     def test_deux_sauts(self):
-        # Cronos —> vLLM —> CUDA : depuis Cronos, 1 saut voit vLLM, 2 sauts CUDA.
+        # Cronos —> vLLM —> CUDA: from Cronos, 1 jump sees vLLM, 2 jumps CUDA.
         memoire._mem_add_fact(self.USER, 'Cronos', 'sert avec', 'Cronos sert avec vLLM.', obj='vLLM')
         memoire._mem_add_fact(self.USER, 'vLLM', 'repose sur', 'vLLM repose sur CUDA.', obj='CUDA')
         un = {f['fact'] for f in memoire._mem_recall(self.USER, 'Cronos', hops=1)}
@@ -536,7 +536,7 @@ class ParcoursTest(MemoryApiBase):
         self.assertNotIn('Aime le curry.', faits)
 
     def test_cycle_ne_boucle_pas(self):
-        # A—B, B—C, C—A : la CTE récursive doit s'arrêter (UNION dédoublonne).
+        # A—B, B—C, C—A: the recursive CTE must stop (UNION deduplicates).
         memoire._mem_add_fact(self.USER, 'A', 'lie', 'A vers B.', obj='B')
         memoire._mem_add_fact(self.USER, 'B', 'lie', 'B vers C.', obj='C')
         memoire._mem_add_fact(self.USER, 'C', 'lie', 'C vers A.', obj='A')
@@ -555,7 +555,7 @@ class ParcoursTest(MemoryApiBase):
 
 
 class AliasTest(MemoryApiBase):
-    """Un alias doit ramener sur le nœud existant, pas en créer un second."""
+    """An alias must lead back to the existing node, not create a second one."""
 
     def setUp(self):
         super().setUp()
@@ -590,7 +590,7 @@ class AliasTest(MemoryApiBase):
 
 
 class OutilsTest(MemoryApiBase):
-    """Les outils exposés au modèle : contrat et garde-fous."""
+    """The tools exposed to the model: contract and guardrails."""
 
     def setUp(self):
         super().setUp()
@@ -620,8 +620,8 @@ class OutilsTest(MemoryApiBase):
         self.assertFalse(ok)
 
     def test_le_modele_ne_choisit_pas_pour_qui(self):
-        # Un argument « username » injecté dans l'appel d'outil ne doit avoir
-        # aucun effet : la cible vient de la session.
+        # A « username » argument injected in the tool call must have no
+        # effect: the target comes from the session.
         memoire._mem_set_enabled(self.USER, True)
         memoire._exec_memory_tool(
             'save_memory',

@@ -1,23 +1,23 @@
-"""Cycle de vie d'un compte : accès coupé, données purgées, sessions visibles.
+"""Account lifecycle: access cut, data purged, sessions visible.
 
-Écrit le 2026-09-13, en même temps que le correctif qu'il verrouille. Avant,
-supprimer un compte ne faisait qu'un DELETE dans `local_users` : ses clés API
-restaient valides (LiteLLM les valide lui-même, le portail n'est pas dans le
-chemin de l'API), sa session navigateur survivait jusqu'à 12 h, et ses données
-personnelles restaient rattachées à un nom qu'un collègue pouvait reprendre —
-la mémoire étant indexée par compte, un compte recréé héritait des souvenirs
-du précédent.
+Written on 2026-09-13, along with the fix it locks in. Before, deleting
+an account only did a DELETE in `local_users`: its API keys stayed valid
+(LiteLLM validates them itself, the portal is not in the API path), its
+browser session survived up to 12 h, and its personal data stayed
+attached to a name a colleague could take over — memory being indexed
+per account, a recreated account inherited the previous one's
+memories.
 
-Deux règles de conception méritent d'être verrouillées ici, parce qu'elles sont
-contre-intuitives :
+Two design rules deserve to be locked in here, because they are
+counter-intuitive:
 
-1. Un compte dont le portail n'a AUCUNE trace ne doit pas être considéré comme
-   supprimé (`test_compte_non_local_sans_ligne_reste_valide`) : on ne déduit
-   jamais une révocation d'une donnée absente. La première version de ce
-   correctif le faisait et déconnectait tout le monde.
-2. Le rôle est relu à chaque requête pour un compte LOCAL (le portail en est
-   maître), mais pas réinventé pour un compte d'annuaire, dont le rôle vient du
-   dernier login consigné.
+1. An account the portal has NO trace of must not be considered deleted
+   (`test_compte_non_local_sans_ligne_reste_valide`): we never infer a
+   revocation from missing data. The first version of this fix did, and
+   logged everyone out at once.
+2. The role is re-read at every request for a LOCAL account (the portal
+   owns it), but not reinvented for a directory account, whose role comes
+   from the last recorded login.
 """
 import secrets
 import time
@@ -37,8 +37,8 @@ MDP = 'MotDePasse123'
 
 
 class BaseComptes(unittest.TestCase):
-    """Socle commun : deux comptes locaux (un simple, un admin) et un ménage
-    strict, pour que ces tests ne laissent rien derrière eux."""
+    """Common base: two local accounts (a plain one, an admin) and a strict
+    cleanup, so these tests leave nothing behind."""
 
     def setUp(self):
         portal.app.config['TESTING'] = True
@@ -84,7 +84,7 @@ class BaseComptes(unittest.TestCase):
 
     def _client(self, username, is_admin=False, sid=None, ip='82.67.54.181',
                 user_agent='Mozilla/5.0 (X11; Linux) Test/1.0'):
-        """Client avec une session ouverte et, si demandé, sa ligne serveur."""
+        """Client with an opened session and, if asked, its server row."""
         if sid is not None:
             with portal.app.app_context():
                 db = portal.get_db()
@@ -104,7 +104,7 @@ class BaseComptes(unittest.TestCase):
         return c
 
     def _post(self, client, url, data=None, json=None):
-        # werkzeug refuse data ET json ensemble : on n'en envoie qu'un.
+        # werkzeug refuses data AND json together: we send only one.
         kwargs = {'headers': {'X-CSRFToken': 'tok'}}
         if json is not None:
             kwargs['json'] = json
@@ -114,7 +114,7 @@ class BaseComptes(unittest.TestCase):
 
 
 class RevalidationTest(BaseComptes):
-    """L'état du compte est relu à chaque requête, pas figé dans le cookie."""
+    """The account state is re-read at every request, not frozen in the cookie."""
 
     def test_desactivation_coupe_la_session_en_cours(self):
         sid = secrets.token_urlsafe(32)
@@ -124,7 +124,7 @@ class RevalidationTest(BaseComptes):
             db = portal.get_db()
             db.execute("UPDATE local_users SET enabled=0 WHERE username=?", (CIBLE,))
             db.commit()
-        # Sans la relecture, cette session restait valide jusqu'à 12 h.
+        # Without the re-read, this session stayed valid up to 12 h.
         self.assertEqual(c.get('/api/whoami').status_code, 401)
 
     def test_retrogradation_retire_le_droit_admin(self):
@@ -150,16 +150,16 @@ class RevalidationTest(BaseComptes):
         self.assertEqual(c.get('/api/whoami').status_code, 401)
 
     def test_compte_non_local_sans_ligne_reste_valide(self):
-        """Un compte sans ligne locale NI source consignée garde sa session.
+        """An account with no local row NOR recorded source keeps its session.
 
-        C'est la règle du « on ne déduit rien d'une donnée absente » : la
-        première version du correctif traitait ces comptes comme supprimés et
-        déconnectait tout le monde d'un coup."""
+        This is the « we infer nothing from missing data » rule: the first
+        version of the fix treated such accounts as deleted and logged
+        everyone out at once."""
         c = self._client('ztest-inconnu', is_admin=True)
         self.assertEqual(c.get('/api/whoami').status_code, 200)
 
     def test_role_annuaire_consigne_fait_foi(self):
-        """Pour un compte LDAP/SSO, le dernier rôle consigné est relu."""
+        """For an LDAP/SSO account, the last recorded role is re-read."""
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT INTO user_sources (username, sources, fullname, last_source, "
@@ -172,12 +172,12 @@ class RevalidationTest(BaseComptes):
             db = portal.get_db()
             db.execute("UPDATE user_sources SET last_is_admin=0 WHERE username=?", (ANNUAIRE,))
             db.commit()
-        # Les droits ont été retirés côté annuaire : la session suit.
+        # The rights were removed on the directory side: the session follows.
         self.assertEqual(c.get('/api/admin/users').status_code, 403)
 
 
 class BlocageTest(BaseComptes):
-    """Bloquer refuse l'accès quelle que soit la source d'authentification."""
+    """Blocking refuses access whatever the authentication source."""
 
     def test_bloquer_coupe_les_sessions_ouvertes(self):
         sid = secrets.token_urlsafe(32)
@@ -199,8 +199,8 @@ class BlocageTest(BaseComptes):
             s['csrf'] = 'tok'
         r = anon.post('/login', data={'username': CIBLE, 'password': MDP},
                       headers={'X-CSRFToken': 'tok', 'Cf-Connecting-Ip': '82.67.54.181'})
-        # 403 et non « identifiants incorrects » : le mot de passe est bon,
-        # c'est le compte qui est refusé.
+        # 403 and not « identifiants incorrects »: the password is right,
+        # it is the account that is refused.
         self.assertEqual(r.status_code, 403)
 
     def test_debloquer_rend_l_acces(self):
@@ -215,8 +215,8 @@ class BlocageTest(BaseComptes):
         self.assertEqual(r.status_code, 302)
 
     def test_compte_annuaire_bloquable(self):
-        """Le cas qui n'avait AUCUN levier avant : un compte LDAP/SSO sans
-        ligne locale, qu'on ne pouvait que déconnecter — il revenait."""
+        """The case that had NO lever before: an LDAP/SSO account without a
+        local row, that one could only log out — it came back."""
         admin = self._client(ADMIN, is_admin=True)
         r = self._post(admin, f'/admin/users/{ANNUAIRE}/block', json={'reason': 'parti'})
         self.assertEqual(r.status_code, 200)
@@ -236,7 +236,7 @@ class BlocageTest(BaseComptes):
 
 
 class SuppressionTest(BaseComptes):
-    """Supprimer un compte, c'est retirer un accès, pas effacer une ligne."""
+    """Deleting an account means removing an access, not erasing a row."""
 
     def _donnees(self, username):
         with portal.app.app_context():
@@ -263,7 +263,7 @@ class SuppressionTest(BaseComptes):
         r = self._post(admin, f'/admin/users/delete/{self._uid(CIBLE)}')
         self.assertEqual(r.status_code, 409)
         self.assertTrue(r.get_json()['needs_confirm'])
-        # Le résumé est fourni pour que l'interface dise ce qui sera perdu.
+        # The summary is provided so the UI can say what will be lost.
         self.assertIn('conversations', r.get_json()['donnees'])
         self.assertIsNotNone(self._uid(CIBLE))
 
@@ -310,9 +310,9 @@ class SuppressionTest(BaseComptes):
         self.assertIn(CIBLE, trace['detail'])
 
     def test_echec_de_revocation_signale(self):
-        """LiteLLM injoignable : la suppression aboutit, mais l'admin est
-        prévenu que des clés peuvent survivre. L'échec silencieux était
-        exactement le problème."""
+        """LiteLLM unreachable: the deletion succeeds, but the admin is warned
+        that keys may survive. The silent failure was exactly the
+        problem."""
         self._donnees(CIBLE)
         admin = self._client(ADMIN, is_admin=True)
         with patch.object(litellm_client, 'revoke_litellm_key', return_value=False), \
@@ -333,8 +333,8 @@ class SuppressionTest(BaseComptes):
 
 
 class PurgeCompteAnnuaireTest(BaseComptes):
-    """Un compte d'annuaire n'a pas de ligne locale : sa suppression est
-    impossible par construction, mais ses données ne doivent pas rester."""
+    """A directory account has no local row: its deletion is impossible by
+    construction, but its data must not remain."""
 
     def _donnees(self, username):
         with portal.app.app_context():
@@ -349,11 +349,11 @@ class PurgeCompteAnnuaireTest(BaseComptes):
     def test_purge_efface_les_donnees_sans_toucher_a_l_acces(self):
         self._donnees(ANNUAIRE)
         admin = self._client(ADMIN, is_admin=True)
-        # On BLOQUE d'abord : c'est l'état d'ACCÈS qui doit survivre à la purge.
-        # Sans ce blocage préalable, le test passait à côté du défaut —
-        # `blocked_users` figurait dans les tables purgées, donc le geste normal
-        # au départ d'un salarié d'annuaire (blocage puis purge) rendait le
-        # compte de nouveau connectable, en silence et sans le dire dans l'audit.
+        # We BLOCK first: it is the ACCESS state that must survive the purge.
+        # Without this prior block, the test missed the defect — `blocked_users`
+        # was among the purged tables, so the normal gesture when a directory
+        # employee leaves (block then purge) made the account loggable again,
+        # silently and without saying so in the audit.
         self.assertEqual(
             self._post(admin, f'/admin/users/{ANNUAIRE}/block',
                        json={'reason': 'parti'}).status_code, 200)
@@ -366,12 +366,12 @@ class PurgeCompteAnnuaireTest(BaseComptes):
                                (ANNUAIRE,)).fetchone()[0]
             trace = db.execute("SELECT action FROM audit_log ORDER BY id DESC").fetchone()[0]
         self.assertEqual(reste, 0)
-        # L'audit distingue une purge d'une suppression : ce n'est pas le même
-        # geste, et un compte d'annuaire peut revenir.
+        # The audit distinguishes a purge from a deletion: it is not the same
+        # gesture, and a directory account can come back.
         self.assertEqual(trace, 'user.purge')
         with portal.app.app_context():
-            # Purger n'est pas débloquer : la purge n'efface que des DONNÉES,
-            # le blocage reste le levier d'offboarding.
+            # Purging is not unblocking: the purge only erases DATA, blocking
+            # remains the offboarding lever.
             self.assertTrue(portal.est_bloque(ANNUAIRE))
 
     def test_sans_confirmation_refuse(self):
@@ -393,7 +393,7 @@ class PurgeCompteAnnuaireTest(BaseComptes):
 
 
 class DetailTest(BaseComptes):
-    """La vue détail doit informer sans jamais laisser fuir une clé."""
+    """The detail view must inform without ever leaking a key."""
 
     def test_detail_ne_renvoie_jamais_la_valeur_d_une_cle(self):
         with portal.app.app_context():
@@ -426,11 +426,11 @@ class DetailTest(BaseComptes):
         self.assertFalse(users[ADMIN]['blocked'])
 
     def test_liste_des_comptes_porte_l_avatar(self):
-        """La liste d'admin porte l'avatar, comme le reste de l'interface.
+        """The admin list carries the avatar, like the rest of the UI.
 
-        L'écran d'admin y affiche la pp : logo de marque choisi, ou avatar généré
-        quand `avatar_id` est nul. Sans ce champ, l'admin voyait des initiales là
-        où l'intéressé voit sa pp — et l'interface ne pouvait pas le deviner.
+        The admin screen shows the pp there: chosen brand logo, or
+        generated avatar when `avatar_id` is null. Without this field the
+        admin saw initials where the person sees their pp — unguessable.
         """
         admin = self._client(ADMIN, is_admin=True)
         users = {u['username']: u for u in admin.get('/api/admin/users').get_json()['users']}
@@ -449,7 +449,7 @@ class DetailTest(BaseComptes):
 
 
 class AutoServiceTest(BaseComptes):
-    """Ce que l'utilisateur peut faire pour lui-même."""
+    """What the user can do for themselves."""
 
     def test_liste_mes_sessions_sans_sid_complet(self):
         sid = secrets.token_urlsafe(32)
@@ -460,7 +460,7 @@ class AutoServiceTest(BaseComptes):
         self.assertTrue(body['local_account'])
         self.assertEqual(len(body['sessions']), 1)
         s = body['sessions'][0]
-        # Empreinte courte seulement : le sid est le secret du cookie.
+        # Short fingerprint only: the sid is the cookie's secret.
         self.assertEqual(len(s['id']), 12)
         self.assertNotIn(sid, r.get_data(as_text=True))
         self.assertTrue(s['current'])
@@ -558,8 +558,8 @@ class AutoServiceTest(BaseComptes):
             courante = db.execute("SELECT revoked FROM user_sessions WHERE sid=?",
                                   (sid,)).fetchone()
         self.assertEqual(autre_row['revoked'], 1)
-        # La session courante survit : se faire déconnecter par sa propre
-        # action décourage de changer de mot de passe.
+        # The current session survives: being logged out by one's own
+        # action discourages changing one's password.
         self.assertEqual(courante['revoked'], 0)
         self.assertEqual(c.get('/api/whoami').status_code, 200)
 
@@ -570,9 +570,9 @@ class AutoServiceTest(BaseComptes):
 
 
 class OrigineSessionTest(BaseComptes):
-    """Une session ouverte avant l'ajout des colonnes IP/user-agent n'en a
-    aucune : son porteur doit pouvoir la compléter en ouvrant sa liste, sinon il
-    ne peut pas reconnaître ses propres sessions (un tiret ne dit rien)."""
+    """A session opened before the IP/user-agent columns were added has none:
+    its bearer must be able to fill them in by opening their list, else they
+    cannot recognize their own sessions (a dash says nothing)."""
 
     def test_une_session_sans_origine_se_complete_a_la_lecture(self):
         sid = secrets.token_urlsafe(32)
@@ -591,8 +591,8 @@ class OrigineSessionTest(BaseComptes):
         with portal.app.app_context():
             row = portal.get_db().execute(
                 "SELECT ip, user_agent FROM user_sessions WHERE sid=?", (sid,)).fetchone()
-        # C'est précisément la trace qu'on veut garder : un cookie volé ne doit
-        # pas pouvoir réécrire sa propre origine en se présentant.
+        # This is exactly the trace we want to keep: a stolen cookie must not
+        # be able to rewrite its own origin by showing up.
         self.assertEqual((row['ip'], row['user_agent']), ('203.0.113.9', 'Ancien/1.0'))
 
     def test_la_vue_admin_ne_touche_pas_la_session_d_un_autre(self):
@@ -603,15 +603,15 @@ class OrigineSessionTest(BaseComptes):
         with portal.app.app_context():
             row = portal.get_db().execute(
                 "SELECT ip FROM user_sessions WHERE sid=?", (autrui,)).fetchone()
-        # Y écrire l'IP de l'admin ferait dire à la ligne « cette session vient
-        # de l'admin » — un mensonge dans la seule vue qui sert à repérer une
-        # session inconnue.
+        # Writing the admin's IP there would make the row say « cette session
+        # vient de l'admin » — a lie in the only view used to spot an unknown
+        # session.
         self.assertIsNone(row['ip'])
 
 
 class PolitiqueMotDePasseTest(unittest.TestCase):
-    """Règles de mot de passe, testées directement : elles servent à la fois à
-    la création par un admin et au changement en autonomie."""
+    """Password rules, tested directly: they serve both the creation by an
+    admin and the self-service change."""
 
     def _err(self, pw, user=None):
         from local_users import password_policy_error
@@ -634,7 +634,7 @@ class PolitiqueMotDePasseTest(unittest.TestCase):
 
 
 class QuotaTest(BaseComptes):
-    """Un quota qui n'a pas pu être écrit ne doit plus passer inaperçu."""
+    """A quota that could not be written must no longer go unnoticed."""
 
     def test_echec_de_quota_signale_a_la_creation(self):
         admin = self._client(ADMIN, is_admin=True)
@@ -666,8 +666,8 @@ class QuotaTest(BaseComptes):
             r = self._post(admin, '/admin/groups/delete/ztest-groupe')
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()['membres'], 1)
-        # Sans cette propagation, le membre gardait l'ancienne enveloppe : un
-        # quota fantôme, plus généreux que le défaut.
+        # Without this propagation, the member kept the old envelope: a ghost
+        # quota, more generous than the default.
         self.assertEqual(vus, [CIBLE])
         with portal.app.app_context():
             row = portal.get_db().execute(
@@ -687,13 +687,13 @@ class QuotaTest(BaseComptes):
         with patch('admin_routes._sync_local_user_budget',
                    side_effect=lambda u, r: vus.append(u) or True):
             self._post(admin, '/admin/groups/delete/ztest-groupe')
-        # Son plafond personnel ne dépendait pas du groupe : rien à propager.
+        # Their personal cap did not depend on the group: nothing to propagate.
         self.assertEqual(vus, [])
 
 
 class NotificationMotDePasseTest(unittest.TestCase):
-    """La notification de changement de mot de passe est un bonus, jamais une
-    condition : elle ne doit rien casser quand l'email n'est pas configuré."""
+    """The password change notification is a bonus, never a condition: it
+    must break nothing when the email is not configured."""
 
     def test_sans_smtp_rien_ne_part_et_rien_ne_leve(self):
         with patch.object(user_lifecycle, 'SMTP_HOST', ''):
@@ -719,21 +719,21 @@ class NotificationMotDePasseTest(unittest.TestCase):
             self.assertTrue(user_lifecycle._envoyer_notification_mot_de_passe(
                 CIBLE, par_admin=ADMIN))
         self.assertEqual(envoi.call_args_list[0][0][0], 'quelqu-un@example.com')
-        # Le message dit QUI a changé le mot de passe : c'est toute la valeur
-        # de la notification pour la personne qui la reçoit.
+        # The message says WHO changed the password: this is the whole value
+        # of the notification for the person receiving it.
         self.assertIn("Ton mot de passe", envoi.call_args_list[0][0][2])
         self.assertIn("Un administrateur", envoi.call_args_list[1][0][2])
 
     def test_la_reponse_n_attend_pas_l_annuaire(self):
-        """Défaut mesuré le 2026-09-16 : 3,2 s de réponse à cause du bind LDAP.
+        """Defect measured on 2026-09-16: 3,2 s of response because of the LDAP bind.
 
-        Le changement de mot de passe était déjà écrit en base, mais le clic
-        restait suspendu le temps que l'annuaire (muet) veuille bien expirer.
-        La notification est maintenant confiée à un fil : on vérifie ici que
-        l'appel rend la main tout de suite, même quand la recherche d'adresse
-        est lente, puis on attend le fil pour vérifier que l'email part quand
-        même — un correctif de latence qui perdrait la notification serait pire
-        que le mal.
+        The password change was already written to database, but the click
+        stayed suspended until the (mute) directory saw fit to expire.
+        The notification is now entrusted to a thread: we check here that
+        the call returns immediately, even when the address lookup is slow,
+        then we wait for the thread to verify the email still goes out — a
+        latency fix that would lose the notification would be worse than
+        the evil.
         """
         import time as _time
         vus = []
@@ -751,7 +751,7 @@ class NotificationMotDePasseTest(unittest.TestCase):
             ecoule = _time.time() - t0
             self.assertLess(ecoule, 0.5,
                             f"la réponse a attendu l'annuaire ({ecoule:.2f} s)")
-            for _ in range(60):                       # jusqu'à ~3 s
+            for _ in range(60):                       # up to ~3 s
                 if vus:
                     break
                 _time.sleep(0.05)
@@ -759,11 +759,11 @@ class NotificationMotDePasseTest(unittest.TestCase):
 
 
 class BalayageHygieneTest(BaseComptes):
-    """Le balayage du démarrage ne doit supprimer que ce qui est MORT.
+    """The startup sweep must only remove what is DEAD.
 
-    Le risque de ce genre de nettoyage est de faire disparaître une session
-    encore valide, ce qui déconnecterait tout le monde — d'où un test qui
-    vérifie les deux côtés : les lignes périmées partent, les vivantes restent.
+    The risk of this kind of cleanup is making a still valid session
+    disappear, which would log everyone out — hence a test checking both
+    sides: stale rows go, live ones stay.
     """
 
     def test_les_lignes_perimees_partent_et_les_vivantes_restent(self):
@@ -798,14 +798,14 @@ class BalayageHygieneTest(BaseComptes):
 
 
 class PurgeInventaireTest(BaseComptes):
-    """L'inventaire des tables purgées doit rester honnête : toute table qui
-    porte un `username` et n'est pas dans la liste doit être un choix."""
+    """The inventory of purged tables must stay honest: any table carrying a
+    `username` and absent from the list must be a deliberate choice."""
 
-    # `audit_log` est la trace des actions d'admin, `local_users` est effacé
-    # explicitement par identifiant — et `blocked_users` est une décision
-    # d'ACCÈS, pas une donnée personnelle : le purger DÉBLOQUERAIT le compte
-    # (cf. le commentaire de `TABLES_PURGEES`). C'est le seul levier
-    # d'offboarding d'un compte d'annuaire, donc il survit à la purge.
+    # `audit_log` is the trace of admin actions, `local_users` is erased
+    # explicitly by identifier — and `blocked_users` is an ACCESS decision,
+    # not personal data: purging it would UNBLOCK the account (see the
+    # comment on `TABLES_PURGEES`). It is the only offboarding lever for a
+    # directory account, so it survives the purge.
     NON_PURGEES_VOLONTAIREMENT = {'audit_log', 'local_users', 'blocked_users'}
 
     def test_toutes_les_tables_utilisateur_sont_couvertes(self):

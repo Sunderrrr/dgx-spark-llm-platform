@@ -1,12 +1,12 @@
-"""OCR : sonde du modele servi, flux d'extraction et routes.
+"""OCR: probe of the served model, extraction stream and routes.
 
-Extrait de app.py le 28/08. Frontiere redessinee, la aussi : la banniere
-« OCR » du monolithe couvrait en realite la sante vLLM, les notifications mail
-et la recherche HuggingFace — seul ocr_extract_stream y etait de l'OCR. On n'a
-donc pris que ce qui l'est vraiment, plutot que de deplacer la banniere.
+Extracted from app.py on 28/08. Boundary redrawn here too: the monolith's
+« OCR » banner really covered vLLM health, mail notifications and the
+HuggingFace search — only ocr_extract_stream was actual OCR. So we took only
+what really is OCR, rather than moving the banner.
 
-get_ocr_model est reimporte par app.py : le tableau de bord des sidecars s'en
-sert pour savoir si le conteneur OCR repond.
+get_ocr_model is re-imported by app.py: the sidecar dashboard uses it to
+know whether the OCR container answers.
 """
 import base64
 import json
@@ -81,13 +81,13 @@ def ocr_extract_stream(image_bytes, mime, instruction, on_done):
     on_done(full_text) is called once the stream ends (empty text on
     error), to let the caller persist the history.
     """
-    # Commentaire SSE emis AVANT tout travail : il force l'ecriture immediate
-    # des en-tetes de reponse. Sinon le premier octet ne part qu'au retour du
-    # POST vers le conteneur OCR, or celui-ci peut monter a ~100 s sous
-    # contention GPU (cf. plus bas) — bien au-dela des 15 s de delai de
-    # connexion du proxy Next.js (lib/sseProxy.ts), qui coupait donc la requete
-    # avant meme la premiere reponse. Meme piege que /support/chat et
-    # /playground/chat. get_ocr_model() sonde le reseau : le yield passe avant.
+    # SSE comment emitted BEFORE any work: it forces the response headers to be
+    # written immediately. Otherwise the first byte only leaves on the return of
+    # the POST to the OCR container, which can climb to ~100 s under GPU
+    # contention (see below) — far beyond the 15 s connect delay of the Next.js
+    # proxy (lib/sseProxy.ts), which therefore cut the request before even the
+    # first response. Same trap as /support/chat and /playground/chat.
+    # get_ocr_model() probes the network: the yield goes first.
     yield ": ouverture\n\n"
     model = get_ocr_model() or 'baidu/Unlimited-OCR'
     is_chandra = 'chandra' in model.lower()
@@ -186,9 +186,9 @@ def api_ocr_extract():
         # Purges the images of rows that fall out of the history window,
         # otherwise OCR_IMAGES_DIR grows indefinitely (no other reference
         # to these files once the row is deleted).
-        # On liste TOUTES les lignes hors fenêtre (le DELETE en supprimait
-        # autant, y compris celles sans image), et on ne retire un fichier que
-        # lorsqu'il y en a un : la sous-requête était sinon évaluée deux fois.
+        # We list ALL rows outside the window (the DELETE removed as many, including
+        # those without an image), and only remove a file when there is one: the
+        # subquery would otherwise be evaluated twice.
         stale = db.execute(
             """SELECT id, image_path FROM ocr_jobs WHERE username=?
                AND id NOT IN (SELECT id FROM ocr_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",

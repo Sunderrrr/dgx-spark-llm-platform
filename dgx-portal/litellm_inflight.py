@@ -1,40 +1,40 @@
-"""Activite EN VOL des requetes, pour le panneau admin du portail.
+"""In-flight request activity, for the portal's admin panel.
 
-**Pourquoi ce fichier existe.** LiteLLM n'ecrit sa ligne SpendLogs qu'a la FIN
-d'une requete, et n'expose aucun endpoint de requetes en vol (mesure du
-2026-09-14 : 518 routes publiees, aucune ne liste l'actif ; `/metrics` repond 404,
-le callback Prometheus n'etant pas active). Le portail ne pouvait donc repondre
-qu'a « qui a fini recemment », jamais a « qui genere la, maintenant » — alors que
-le moteur, lui, voyait bien 2 a 4 sessions occupees. Mesures du meme jour :
-**44 minutes sans la moindre ligne SpendLogs** pendant que deux sessions
-travaillaient, une requete agentique durant **3 min 17 s** pour 22 281 tokens
-d'entree.
+**Why this file exists.** LiteLLM only writes its SpendLogs row at the END of
+a request, and exposes no in-flight request endpoint (measured on
+2026-09-14: 518 published routes, none lists the active ones; `/metrics`
+answers 404, the Prometheus callback being inactive). The portal could thus
+only answer « who finished recently », never « who is generating right now »
+— while the engine clearly saw 2 to 4 busy sessions. Same-day measurements:
+**44 minutes without a single SpendLogs row** while two sessions were
+working, one agentic request lasting **3 min 17 s** for 22 281 input
+tokens.
 
-Ce callback note l'ouverture au DEPART et la retire a la fin. Trois regles :
+This callback records the request at START and removes it at the end. Three rules:
 
-- une erreur ici ne doit **jamais** faire echouer une requete : tout est
-  encapsule, l'incident part sur la sortie d'erreur et la requete continue ;
-- **les hooks SYNCHRONES sont ceux qui comptent** : dans cette version de LiteLLM,
-  `async_log_pre_api_call` est bien declare par `CustomLogger` mais **jamais
-  appele** (verifie dans le paquet installe : la seule occurrence est sa
-  definition). Le pre-appel part de `litellm.input_callback`, et l'evenement de
-  succes de `litellm.callbacks` — deux listes qui invoquent `log_pre_api_call` /
-  `log_success_event`, les methodes SYNCHRONES. Une classe qui n'implemente que
-  les variantes asynchrones ne recoit donc **rien**, et c'est exactement ce qui
-  s'est produit le 2026-09-14 : la table existait, restait vide, et aucune erreur
-  n'etait levee. L'ecriture synchrone coute ~1 ms (deux instructions) : c'est le
-  prix a payer pour etre appele ;
-- le fichier est partage avec le portail, qui le monte en **lecture seule** : un
-  seul ecrivain (ici), et rien de ce cote ne peut alterer le portail.
+- an error here must **never** fail a request: everything is wrapped, the
+  incident goes to stderr and the request continues;
+- **the SYNCHRONOUS hooks are the ones that count**: in this version of LiteLLM,
+  `async_log_pre_api_call` is indeed declared by `CustomLogger` but **never
+  called** (checked in the installed package: the only occurrence is its
+  definition). The pre-call comes from `litellm.input_callback`, and the
+  success event from `litellm.callbacks` — two lists that invoke
+  `log_pre_api_call` / `log_success_event`, the SYNCHRONOUS methods. A class
+  that only implements the async variants therefore receives **nothing**, and
+  that is exactly what happened on 2026-09-14: the table existed, stayed
+  empty, and no error was raised. The synchronous write costs ~1 ms (two
+  statements): the price to pay to be called;
+- the file is shared with the portal, which mounts it **read-only**: a single
+  writer (here), and nothing on this side can alter the portal.
 
-**Pourquoi un SQLite et pas la base LiteLLM** : l'image du proxy ne contient
-aucun pilote PostgreSQL — ni `psycopg2`, ni `psycopg`, ni `asyncpg` (verifie) —
-et `prisma` n'est pas utilisable directement. Le portail, lui, lit deja
-SpendLogs en Postgres ; il lira ce fichier en plus.
+**Why a SQLite and not the LiteLLM database**: the proxy image contains no
+PostgreSQL driver — neither `psycopg2`, nor `psycopg`, nor `asyncpg` (checked)
+— and `prisma` cannot be used directly. The portal already reads
+SpendLogs from Postgres; it will read this file as well.
 
-Ce qui est stocke est volontairement BRUT (alias de cle, user_id, modele) : c'est
-le portail qui resout un alias en nom de compte, avec la meme regle que pour
-SpendLogs. Une seule logique de resolution, donc un seul endroit ou se tromper.
+What is stored is deliberately RAW (key alias, user_id, model): it is the
+portal that resolves an alias into an account name, with the same rule as for
+SpendLogs. A single resolution logic, hence a single place to get it wrong.
 """
 import asyncio
 import os
@@ -43,8 +43,8 @@ import sys
 import time
 
 CHEMIN = os.environ.get('CRONOS_INFLIGHT_DB', '/run/cronos/inflight.db')
-# Au-dela, la ligne est consideree orpheline : un client tue en plein vol ne
-# declenche ni succes ni echec, donc personne ne viendrait la retirer.
+# Past this point the row is considered orphaned: a client killed mid-flight
+# triggers neither success nor failure, so nobody would come and remove it.
 PEREMPTION_S = float(os.environ.get('CRONOS_INFLIGHT_TTL', '7200'))
 
 try:
@@ -66,10 +66,10 @@ def _ouvre():
 
 
 def _identite(kwargs):
-    """(cle, alias, user_id, modele) tels que LiteLLM les donne pour une requete.
+    """(key, alias, user_id, model) as LiteLLM gives them for a request.
 
-    La cle est l'identifiant d'appel de LiteLLM : c'est elle qui permet de retirer
-    exactement la ligne ouverte, sans dependre du modele ni de l'alias.
+    The key is LiteLLM's call identifier: it is what allows removing exactly
+    the opened row, without depending on the model or the alias.
     """
     params = (kwargs or {}).get('litellm_params') or {}
     meta = params.get('metadata') or {}
@@ -82,7 +82,7 @@ def _identite(kwargs):
 
 
 def _enregistre(kwargs):
-    """Note l'ouverture d'une requete. Retourne 1 si une ligne a ete ecrite."""
+    """Records a request opening. Returns 1 if a row was written."""
     cle, alias, user_id, modele = _identite(kwargs)
     if not cle:
         return 0
@@ -98,7 +98,7 @@ def _enregistre(kwargs):
 
 
 def _retire(kwargs):
-    """Retire la ligne d'une requete terminee, en succes comme en echec."""
+    """Removes the row of a finished request, on success as on failure."""
     cle, _, _, _ = _identite(kwargs)
     if not cle:
         return 0
@@ -112,15 +112,15 @@ def _retire(kwargs):
 
 
 class ActiviteEnVol(CustomLogger):
-    """Hooks LiteLLM : ouverture au depart, retrait a la fin (succes ou echec).
+    """LiteLLM hooks: opening at start, removal at the end (success or failure).
 
-    Les methodes SYNCHRONES sont les seules que cette version appelle (voir
-    l'en-tete) ; les asynchrones sont conservees pour les chemins qui les
-    utilisent encore, et les deux passent par les memes fonctions `_enregistre` /
-    `_retire`, donc une seule logique d'ecriture.
+    The SYNCHRONOUS methods are the only ones this version calls (see the
+    header); the async ones are kept for the paths that still use them, and
+    both go through the same `_enregistre` / `_retire` functions, so a single
+    write logic.
     """
 
-    # ── Chemins reellement empruntes par le proxy ──────────────────────────
+    # ── Paths actually taken by the proxy ───────────────────────────────────
     def log_pre_api_call(self, model=None, messages=None, kwargs=None):
         self._sur(_enregistre, kwargs)
 
@@ -144,17 +144,17 @@ class ActiviteEnVol(CustomLogger):
 
     @staticmethod
     def _sur(fn, kwargs):
-        """Appel synchrone : une erreur d'ecriture ne doit pas remonter."""
+        """Synchronous call: a write error must never propagate."""
         try:
             fn(kwargs)
-        except Exception as e:                        # noqa: BLE001 — jamais fatal
+        except Exception as e:                        # noqa: BLE001 — never fatal
             print('cronos_inflight: %s: %s' % (type(e).__name__, e), file=sys.stderr)
 
     @staticmethod
     async def _hors_boucle(fn, kwargs):
         try:
             await asyncio.to_thread(fn, kwargs)
-        except Exception as e:                        # noqa: BLE001 — jamais fatal
+        except Exception as e:                        # noqa: BLE001 — never fatal
             print('cronos_inflight: %s: %s' % (type(e).__name__, e), file=sys.stderr)
 
 

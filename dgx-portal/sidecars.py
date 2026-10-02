@@ -1,16 +1,16 @@
-"""Pilotage du runner et des sidecars : etat, lancement, arret, journaux, sondes.
+"""Runner and sidecar driving: state, launch, stop, logs, probes.
 
-Extrait de app.py le 28/08, depuis la banniere « Helpers ».
+Extracted from app.py on 28/08, from the « Helpers » banner.
 
-Les SONDES de disponibilite (get_ocr_model, get_voice_model, asr_is_up,
-image_ready, get_image_model, music_ready, get_music_model) vivent ici et non
-dans les blueprints correspondants. Je les y avais d'abord mises, a tort : un
-sidecar se sonde independamment de ses routes, et les laisser la-bas creait une
-dependance CROISEE (sidecars a besoin des sondes, les routes ont besoin de
-_sidecar_proc_status). En les regroupant ici, tout redevient a sens unique.
+The availability PROBES (get_ocr_model, get_voice_model, asr_is_up,
+image_ready, get_image_model, music_ready, get_music_model) live here and
+not in the corresponding blueprints. I first put them there, wrongly: a
+sidecar is probed independently of its routes, and leaving them there
+created a CROSS dependency (sidecars needs the probes, the routes need
+_sidecar_proc_status). Grouping them here makes everything one-way again.
 
-`_log` remplace `app.logger` : c'est le meme objet (logging.getLogger('app')),
-verifie. Cf. litellm_client.py.
+`_log` replaces `app.logger`: it is the same object (logging.getLogger('app')),
+checked. See litellm_client.py.
 """
 import json
 import logging
@@ -32,10 +32,10 @@ from vllm_health import get_running_models
 
 _log = logging.getLogger('app')
 
-# Motifs de « delai depasse » : le runner n'a pas repondu dans le temps imparti.
-# Ce n'est PAS un echec — l'operation est probablement en cours. L'appelant ne
-# doit donc ni alerter l'infra, ni inviter l'operateur a recliquer (relancer un
-# modele en cours de chargement le tue : regle d'or).
+# « timeout » patterns: the runner did not answer in the allotted time.
+# This is NOT a failure — the operation is probably under way. The caller
+# must therefore neither alert the infra nor invite the operator to click
+# again (relaunching a model being loaded kills it: golden rule).
 _MOTIF_DELAI_LANCEMENT = (
     "Le runner n'a pas répondu dans le délai imparti (150 s) : le lancement est "
     "peut-être toujours en cours. Vérifie l'état du modèle AVANT de relancer — "
@@ -112,11 +112,11 @@ def get_voice_model():
 _asr_info_cache = {'t': 0.0, 'v': {}}
 
 def _asr_info():
-    """Réponse de /api/model-info du sidecar ASR, mise en cache 10 s.
+    """Response of the ASR sidecar's /api/model-info, cached 10 s.
 
-    Un seul appel HTTP sert désormais deux besoins (le sidecar est-il prêt, et
-    QUEL modèle est chargé) : `/api/admin` est interrogé toutes les 8 s, on ne
-    veut pas doubler les requêtes vers un service qu'on réveille.
+    A single HTTP call now serves two needs (is the sidecar ready, and WHICH
+    model is loaded): `/api/admin` is polled every 8 s, we do not want to
+    double the requests to a service we are waking up.
     """
     now = time.time()
     if now - _asr_info_cache['t'] < 10:
@@ -135,24 +135,24 @@ def asr_is_up():
     return bool(_asr_info().get('loaded'))
 
 def asr_model_name():
-    """Nom du modèle RÉELLEMENT chargé, ou None si le sidecar ne sert rien.
+    """Name of the model ACTUALLY loaded, or None if the sidecar serves nothing.
 
-    L'interface annonçait « whisper-large-v3-turbo » en dur : vrai aujourd'hui,
-    mensonger dès que le sidecar changera de modèle. On préfère ne rien dire
-    (None) plutôt que de répéter une valeur figée.
+    The UI hardcoded « whisper-large-v3-turbo »: true today, a lie as soon as
+    the sidecar changes model. We prefer saying nothing (None) rather than
+    repeating a frozen value.
     """
     info = _asr_info()
     return info.get('type') if info.get('loaded') else None
 
 def asr_load_error():
-    """Raison de l'échec de chargement du modèle de dictée, ou None.
+    """Reason of the dictation model's load failure, or None.
 
-    Le sidecar ASR démarre son serveur MÊME quand les poids n'ont pas pu être
-    chargés : mesuré le 2026-10-01, `CUDA error: out of memory` pendant
-    `model.to(device)` — la mémoire unifiée est partagée avec le modèle de chat.
-    Il répond alors `loaded: false` en publiant la cause, que personne ne
-    lisait : l'admin affichait « Démarrage… » indéfiniment. Une panne qui ne se
-    dit pas se lit comme une lenteur.
+    The ASR sidecar starts its server EVEN when the weights could not be
+    loaded: measured on 2026-10-01, `CUDA error: out of memory` during
+    `model.to(device)` — unified memory is shared with the chat model.
+    It then answers `loaded: false` while publishing the cause, which nobody
+    read: the admin showed « Démarrage… » indefinitely. A failure that does
+    not speak reads as slowness.
     """
     info = _asr_info()
     return None if info.get('loaded') else (info.get('error') or None)
@@ -190,12 +190,12 @@ def get_music_model():
     return None
 
 def motif_refus(r):
-    """Motif de refus d'une réponse du runner, `''` s'il n'y a rien à lire.
+    """Refusal reason from a runner response, `''` if there is nothing to read.
 
-    Le runner répond `{"detail": "..."}` quand il refuse un lancement ; le reste
-    du temps son corps n'est pas du JSON. Sept appels recopiaient ce
-    `try/except` — une seule définition suffit, et l'échec silencieux y est
-    explicite au lieu d'être répété sept fois.
+    The runner answers `{"detail": "..."}` when it refuses a launch; the rest
+    of the time its body is not JSON. Seven calls copied this `try/except` —
+    a single definition is enough, and the silent failure is explicit there
+    instead of being repeated seven times.
     """
     try:
         return r.json().get('detail', '') or ''
@@ -223,20 +223,20 @@ def runner_status():
     return {'status': 'unreachable', 'model': None, 'pid': None}
 
 def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
-    """Lance un modele. Renvoie (ok, motif, incertain).
+    """Launches a model. Returns (ok, motif, incertain).
 
-    `incertain` distingue un REFUS (le runner a repondu non : rien ne demarre,
-    `motif` porte sa raison exacte) d'un DELAI DEPASSE (aucune reponse dans le
-    temps imparti, alors que le chargement peut tres bien etre en cours).
-    L'appelant ne doit PAS alerter l'infra sur un doute : un faux « echec de
-    lancement » habitue l'administrateur a ignorer les alertes et l'invite a
-    recliquer — ce qui tue un modele en cours de chargement.
+    `incertain` distinguishes a REFUSAL (the runner answered no: nothing
+    starts, `motif` carries its exact reason) from a TIMEOUT (no answer in
+    the allotted time, while the loading may well be under way).
+    The caller must NOT alert the infra on a doubt: a fake « echec de
+    lancement » gets the administrator used to ignoring alerts and invites
+    him to click again — which kills a model being loaded.
 
-    Timeout long : quand un modele tourne deja, le runner attend que le driver
-    rende la memoire unifiee avant de lancer le suivant (anti-OOM). /launch met
-    donc 10-60 s en general, et jusqu'a ~100 s dans le pire cas (SIGTERM 30 s +
-    SIGKILL 5 s + attente de liberation 60 s + stabilisation). A 90 s, un
-    lancement parfaitement normal etait rapporte comme un echec.
+    Long timeout: when a model is already running, the runner waits for the
+    driver to return the unified memory before launching the next one
+    (anti-OOM). /launch thus takes 10-60 s generally, and up to ~100 s in
+    the worst case (SIGTERM 30 s + SIGKILL 5 s + release wait 60 s +
+    stabilization). At 90 s, a perfectly normal launch was reported as a failure.
     """
     def _once():
         r = requests.post(f"{RUNNER_URL}/launch",
@@ -246,24 +246,24 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
                           timeout=150)
         # Launch accepted → the `auto-model` alias follows the new model.
         if r.ok:
-            # Et le modele REEL est re-enregistre : ses limites annoncees a LiteLLM
-            # (max_input/max_output, calculees par ctx_split) dependent des args de
-            # CE lancement. Sans cela, seul `auto-model` suivait un changement de
-            # contexte et le nom reel gardait les anciennes valeurs — constate le
-            # 04/09 : auto-model annoncait 737856/262144, le nom reel 196608/65536.
+            # And the REAL model is re-registered: its limits advertised to LiteLLM
+            # (max_input/max_output, computed by ctx_split) depend on THIS launch's
+            # args. Without it, only `auto-model` followed a context change and the
+            # real name kept the old values — observed on 04/09: auto-model advertised
+            # 737856/262144, the real name 196608/65536.
             #
-            # Ce routage reste IMMEDIAT (le retirer pendant le chargement ne
-            # changerait rien pour un client : l'amont ne repond pas encore, il
-            # obtiendrait la meme erreur). Ce qui est differe, c'est l'ANNONCE aux
-            # utilisateurs et l'alerte en cas d'echec — voir _suivre_lancement.
+            # This routing stays IMMEDIATE (removing it during loading would change
+            # nothing for a client: the upstream does not answer yet, it would get the
+            # same error). What is deferred is the ANNOUNCEMENT to users and the alert
+            # on failure — see _suivre_lancement.
             _register_litellm_model(model_name, vllm_args, engine or 'vllm')
             _point_auto_model(model_name, vllm_args, engine or 'vllm')
             _suivre_lancement(model_name)
             return True, '', False
-        # Le runner REFUSE avec un motif precis (flag hors liste blanche, moteur
-        # absent, GGUF introuvable). Le jeter et n'annoncer qu'un echec generique
-        # envoie l'administrateur chercher au mauvais endroit : vu le 04/09, un
-        # « flag not allowed: --llama-next » affiche comme « Runner inaccessible ».
+        # The runner REFUSES with a precise reason (flag outside the allow-list,
+        # missing engine, GGUF not found). Throwing it away and announcing only a
+        # generic failure sends the administrator looking in the wrong place: seen
+        # on 04/09, « flag not allowed: --llama-next » shown as « Runner inaccessible ».
         try:
             motif = (r.json() or {}).get('error') or r.text[:200]
         except Exception:                                    # noqa: BLE001
@@ -272,11 +272,11 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
     try:
         return _once()
     except requests.exceptions.ConnectionError:
-        # Runner brièvement injoignable : on retente UNE fois. Une ConnectionError
-        # signifie qu'aucun lancement n'a pu partir (on ne risque donc pas de
-        # double-spawn). Un timeout, en revanche, peut correspondre à un démarrage
-        # déjà en cours → on n'insiste pas (règle d'or : ne pas relancer un modèle
-        # qui tourne déjà).
+        # Runner briefly unreachable: we retry ONCE. A ConnectionError
+        # means that no launch could start (so no risk of double-spawn). A
+        # timeout, on the other hand, may correspond to a startup already
+        # under way → we do not insist (golden rule: never relaunch a model
+        # that is already running).
         time.sleep(1)
         try:
             return _once()
@@ -289,37 +289,37 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
     except Exception as e:                                   # noqa: BLE001
         return False, f"runner injoignable ({type(e).__name__})", False
 
-# Fenetre de suivi d'un lancement accepte. Un chargement de ~100 Go peut etre
-# long (poids + compilation des kernels FlashInfer au premier demarrage), et le
-# watchdog du runner retente jusqu'a 3 fois : il faut laisser le temps aux
-# tentatives avant de conclure a l'echec.
+# Tracking window for an accepted launch. A ~100 Go loading can be long
+# (weights + FlashInfer kernel compilation on first startup), and the
+# runner's watchdog retries up to 3 times: the attempts need time before
+# concluding failure.
 _FENETRE_DEMARRAGE_S = 900
 _INTERVALLE_SUIVI_S = 5
 
 def _suivre_lancement(model_name, fenetre_s=None):
-    """Verifie APRES COUP qu'un lancement accepte a bien abouti, et le dit.
+    """Checks AFTER THE FACT that an accepted launch really succeeded, and says so.
 
-    Le runner repond « starting » des le Popen : accepter n'est pas servir. Sans
-    ce suivi, le portail annoncait le nouveau modele aux utilisateurs au moment
-    du spawn — donc un modele qui pouvait ne jamais demarrer — et un echec de
-    chargement (OOM, poids incomplets, arch non supportee) laissait la
-    plateforme SANS modele servi sans que personne ne soit prevenu : le moniteur
-    ne sonde pas vLLM (sidecar on-demand), donc « runner debout, aucun modele »
-    est invisible pour lui.
+    The runner answers « starting » right at the Popen: accepting is not
+    serving. Without this tracking, the portal announced the new model to
+    users at spawn time — so a model that might never start — and a load
+    failure (OOM, incomplete weights, unsupported arch) left the platform
+    with NO served model without anyone being warned: the monitor does not
+    probe vLLM (on-demand sidecar), so « runner up, no model » is invisible
+    to it.
 
-    L'annonce aux utilisateurs part donc maintenant quand le modele SERT, et un
-    echec produit un email d'infra + une ligne d'audit. Volontairement en fil
-    d'arriere-plan : la requete d'admin doit repondre tout de suite (elle est
-    tenue par act() cote interface, et le flux de logs du runner montre deja la
-    progression au client).
+    The announcement to users now goes out when the model SERVES, and a
+    failure produces an infra email + an audit line. Deliberately in a
+    background thread: the admin request must answer immediately (it is
+    held by act() on the UI side, and the runner's log stream already shows
+    progress to the client).
     """
     fenetre = _FENETRE_DEMARRAGE_S if fenetre_s is None else fenetre_s
     annonce, audit = _announce_launch, log_audit
     try:
         ctx = current_app._get_current_object()
     except Exception:                                        # noqa: BLE001
-        # Hors contexte de requete (outil de support, script) : on renonce au
-        # suivi plutot que d'echouer bruyamment — le lancement, lui, a eu lieu.
+        # Outside a request context (support tool, script): we give up tracking
+        # rather than fail loudly — the launch itself did happen.
         return
 
     def _boucle():
@@ -329,8 +329,8 @@ def _suivre_lancement(model_name, fenetre_s=None):
             etat = runner_status()
             nom, statut = etat.get('model'), etat.get('status')
             if nom and nom != model_name and statut in ('running', 'starting'):
-                # Un AUTRE modele a ete lance entre-temps : ce n'est plus notre
-                # affaire (et un arret volontaire ne doit pas declencher d'alerte).
+                # ANOTHER model was launched in the meantime: this is no longer our
+                # business (and a deliberate stop must not trigger an alert).
                 return
             if nom == model_name and statut == 'running':
                 with ctx.app_context():
@@ -338,11 +338,11 @@ def _suivre_lancement(model_name, fenetre_s=None):
                         annonce(model_name)
                         audit('systeme', 'model.servi',
                               f"{model_name} chargé et en service")
-                        # Le runner n'expose pas d'heure de mise en service : on
-                        # enregistre donc CE QUE LE PORTAIL A OBSERVÉ (le modèle
-                        # répond à cet instant). Lu par le bandeau « état de la
-                        # plateforme » ; absent si le modèle servait déjà avant
-                        # cette version, et l'interface affiche alors « — ».
+                        # The runner exposes no time of entry into service: we thus
+                        # record WHAT THE PORTAL OBSERVED (the model answers at
+                        # that instant). Read by the « état de la plateforme »
+                        # banner; absent if the model was already serving before
+                        # this version, and the UI then shows « — ».
                         set_setting('model_servi', json.dumps(
                             {'nom': model_name, 'depuis': int(time.time())}))
                     except Exception:                        # noqa: BLE001
@@ -367,11 +367,11 @@ def _suivre_lancement(model_name, fenetre_s=None):
     threading.Thread(target=_boucle, name='suivi-lancement', daemon=True).start()
 
 def runner_stop():
-    """Arrete le modele servi. Renvoie (ok, motif, incertain).
+    """Stops the served model. Returns (ok, motif, incertain).
 
-    Timeout porte a 45 s : /stop SIGTERM le process, attend jusqu'a 30 s, puis
-    SIGKILL (5 s) et efface last_model.json. A 5 s, un arret parfaitement normal
-    etait annonce « Runner vLLM inaccessible » alors qu'il etait en cours.
+    Timeout raised to 45 s: /stop SIGTERMs the process, waits up to 30 s,
+    then SIGKILL (5 s) and erases last_model.json. At 5 s, a perfectly
+    normal stop was announced « Runner vLLM inaccessible » while still going on.
     """
     try:
         r = requests.post(f"{RUNNER_URL}/stop", headers=_runner_headers(), timeout=45)
@@ -384,11 +384,11 @@ def runner_stop():
         return False, f"runner injoignable ({type(e).__name__})", False
 
 def runner_delete_files(hf_model_id):
-    """Efface les poids d'un modele (via le runner). Renvoie (ok, octets, motif).
+    """Erases a model's weights (via the runner). Returns (ok, octets, motif).
 
-    `ok` est vrai aussi quand il n'y avait RIEN a effacer (dossier deja absent) :
-    l'etat voulu — plus de fichiers — est atteint. Timeout large : un rm -rf de
-    100 Go sur ce disque prend quelques secondes, mais rien ne presse.
+    `ok` is true also when there was NOTHING to erase (folder already
+    absent): the wanted state — no more files — is reached. Wide timeout:
+    an rm -rf of 100 Go on this disk takes a few seconds, but nothing hurries.
     """
     try:
         r = requests.post(f"{RUNNER_URL}/models/delete-files", headers=_runner_headers(),
@@ -462,11 +462,11 @@ def _sidecar_status(kind):
              else False)
     if ready:
         return 'running'
-    # Un chargement ÉCHOUÉ n'est pas un chargement en cours. Le sidecar de
-    # dictée dit POURQUOI il n'a rien chargé (cf. asr_load_error) : le montrer
-    # vaut mieux que d'attendre indéfiniment un « Démarrage… » qui n'arrivera
-    # jamais. Les autres sidecars ne publient pas de cause, donc pas d'état
-    # « failed » pour eux — ils gardent `starting`.
+    # A FAILED load is not a load in progress. The dictation sidecar says WHY
+    # it loaded nothing (see asr_load_error): showing it beats waiting forever
+    # for a « Démarrage… » that will never come. The other sidecars publish no
+    # cause, hence no « failed » state for
+    # them — they keep `starting`.
     return 'failed' if kind == 'asr' and asr_load_error() else 'starting'
 
 def _mem_available_gb():
@@ -492,9 +492,9 @@ def _mem_available_gb():
 # higher threshold to keep a real cushion. The chat model's memory is,
 # itself, frozen at launch (KV pre-allocated), so once a sidecar is loaded
 # the whole is stable — that's what makes these thresholds reliable.
-# 'music' vaut pour le mode par défaut du sidecar : quantification 8 bits des
-# deux gros LLM (~24 Go en bf16 → ~13 Go). Surchargeable par env si on repasse
-# le sidecar en pleine précision (MUSIC_QUANT=none) ou en 4 bits.
+# 'music' covers the sidecar's default mode: 8-bit quantization of the two
+# big LLMs (~24 Go in bf16 → ~13 Go). Overridable by env if the sidecar goes
+# back to full precision (MUSIC_QUANT=none) or 4-bit.
 _SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5, 'image': 40,
                         'music': int(os.environ.get('MUSIC_MEM_NEED_GB', 15))}
 
@@ -520,22 +520,22 @@ def _sidecar_start_json(kind):
                     'error': None if ok else f"Échec du démarrage {kind}.{detail}"}), (200 if ok else 502)
 
 def _sidecar_stop_json(kind):
-    """Arret d'un sidecar : meme contrat JSON que le demarrage.
+    """Stopping a sidecar: same JSON contract as the start.
 
-    L'arret repondait par un flash + une redirection, que l'interface Next ne
-    rend nulle part : un echec d'arret s'affichait donc comme un succes.
+    The stop answered with a flash + a redirect, which the Next UI renders
+    nowhere: a stop failure thus displayed as a success.
     """
     ok, detail = _sidecar_action(kind, 'stop')
     return jsonify({'ok': bool(ok),
                     'error': None if ok else f"Échec de l'arrêt {kind}.{detail}"}), (200 if ok else 502)
 
 def _sidecar_action(kind, action):
-    """(ok, detail) — `detail` porte le motif exact renvoye par le runner.
+    """(ok, detail) — `detail` carries the exact reason returned by the runner.
 
-    Le jeter ne laissait a l'administrateur qu'un « Échec du démarrage ocr. »
-    identique pour un runner injoignable, un conteneur absent apres une
-    recreation ratee et une erreur transitoire — donc rien d'exploitable sans
-    ouvrir un shell sur l'hote.
+    Throwing it away left the administrator with only a « Échec du démarrage
+    ocr. » identical for an unreachable runner, a missing container after a
+    failed recreation and a transient error — so nothing actionable without
+    opening a shell on the host.
     """
     ok, detail = False, ''
     try:
@@ -595,12 +595,12 @@ def _image_launch(model_id):
     except Exception as e:
         return False, str(e)
 
-# Modèles musique : id HuggingFace libre (comme l'OCR), la forme est validée
-# ici ET côté runner avant tout appel sudo.
+# Music models: free HuggingFace id (like OCR), the shape is validated
+# here AND on the runner side before any sudo call.
 _HF_ID_RE = re.compile(r'^[A-Za-z0-9][\w.-]{0,60}/[A-Za-z0-9][\w.-]{0,80}$')
 
 def _music_launch(model_id):
-    """Recrée le conteneur musique avec un autre modèle HF."""
+    """Recreates the music container with another HF model."""
     try:
         r = requests.post(f"{RUNNER_URL}/music/launch", headers=_runner_headers(),
                           json={'model_id': model_id}, timeout=180)
@@ -614,14 +614,14 @@ _LOG_NOISE_RE = re.compile(r'"GET /(?:v1/models|metrics|health\S*|version|ping)\
 def _drop_log_noise(lines):
     return [l for l in lines if not _LOG_NOISE_RE.search(l)]
 
-# Tampon complet du runner. On demande TOUJOURS le maximum, jamais une fenetre
-# proportionnelle a n : le tampon est domine par les lignes d'acces de routine
-# (sondes /metrics et /v1/models), dans une proportion qui varie avec la cadence
-# des sondages et l'activite du modele. Mesure du 28/08, modele au repos : sur
-# les 1 000 dernieres lignes brutes, ZERO ligne utile — la fenetre de n*5 = 750
-# ne contenait que du bruit, `runner_logs` renvoyait une liste vide et le
-# panneau d'administration affichait « ce modele n'est pas demarre » alors qu'il
-# tournait. Les premieres lignes utiles n'apparaissaient qu'au-dela de 1 500.
+# The runner's full buffer. We ALWAYS ask for the maximum, never a window
+# proportional to n: the buffer is dominated by routine access lines (/metrics
+# and /v1/models probes), in a proportion that varies with the polling pace
+# and the model's activity. Measurement of 28/08, model idle: of the last 1
+# 000 raw lines, ZERO useful line — the n*5 = 750 window held only noise,
+# `runner_logs` returned an empty list and the admin panel displayed « ce
+# modele n'est pas demarre » while it was running. The first useful lines
+# only appeared beyond 1 500.
 _RUNNER_LOGS_TAMPON = 2000
 
 def runner_logs(n=150):
@@ -632,8 +632,8 @@ def runner_logs(n=150):
             return _drop_log_noise(r.json().get('logs', []))[-n:]
         _log.warning("runner_logs : le runner a repondu %s", r.status_code)
     except Exception as e:                                   # noqa: BLE001
-        # Sans cette trace, un echec ici est indiscernable d'un modele arrete :
-        # c'est exactement ce qui a masque le probleme ci-dessus.
+        # Without this trace, a failure here is indistinguishable from a stopped
+        # model: this is exactly what masked the problem above.
         _log.warning("runner_logs : %s", type(e).__name__)
     return []
 

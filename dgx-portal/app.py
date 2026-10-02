@@ -9,13 +9,13 @@ _SECRET_FAIBLES = {'changeme', 'secret', 'dev', 'test', 'password', 'changeme!'}
 
 app = Flask(__name__)
 
-# La clé de signature des cookies de session est le secret le plus critique du
-# portail : le cookie Flask est SIGNÉ mais pas chiffré, donc qui connaît la clé
-# fabrique `{'username': 'admin', 'is_admin': True}` et se fait passer pour lui.
-# `os.environ[...]` échouait déjà si la variable manquait, mais acceptait
-# n'importe quelle valeur — y compris le `changeme` de `.env.example`, avec
-# lequel une session forgée est acceptée (vérifié sur une app jetable). On
-# refuse donc au démarrage, bruyamment, plutôt qu'à l'exploitation.
+# The session-cookie signing key is the portal's most critical secret: the Flask
+# cookie is SIGNED but not encrypted, so whoever knows the key can forge
+# `{'username': 'admin', 'is_admin': True}` and impersonate that account.
+# `os.environ[...]` already failed if the variable was missing, but accepted any
+# value — including the `changeme` of `.env.example`, with which a forged
+# session is accepted (verified on a throwaway app). So we refuse at startup,
+# loudly, rather than at exploitation time.
 _SECRET_KEY = os.environ['SECRET_KEY']
 if len(_SECRET_KEY) < 32 or _SECRET_KEY.strip().lower() in _SECRET_FAIBLES:
     raise RuntimeError(
@@ -49,14 +49,13 @@ app.config.update(
     # largest legitimate uploads (OCR/video image 15 MB); beyond that Werkzeug
     # returns 413 without parsing anything.
     MAX_CONTENT_LENGTH=16 * 1024 * 1024,
-    # Werkzeug 3.1 plafonne À 500 Ko la mémoire d'UN champ de formulaire
-    # (`MAX_FORM_MEMORY_SIZE`), indépendamment de MAX_CONTENT_LENGTH. Or les
-    # conversations s'enregistrent en form-data (`POST /conversations`, champ
-    # `messages`) avec un plafond voulu de 2 Mo : toute conversation un peu
-    # longue était donc refusée en 413 AVANT d'atteindre la route, et le
-    # frontend avalant l'échec, elle disparaissait simplement au rechargement.
-    # 4 Mo couvre CONV_MAX_CHARS (2 M) plus la marge de sérialisation, tout en
-    # restant très en dessous de MAX_CONTENT_LENGTH.
+    # Werkzeug 3.1 caps the memory of ONE form field at 500 Ko
+    # (`MAX_FORM_MEMORY_SIZE`), independently of MAX_CONTENT_LENGTH. Yet
+    # conversations are saved as form-data (`POST /conversations`, `messages`
+    # field) with an intended 2 Mo cap: any slightly long conversation was thus
+    # refused with 413 BEFORE reaching the route, and since the frontend swallows
+    # the failure, it simply vanished on reload. 4 Mo covers CONV_MAX_CHARS (2 M)
+    # plus the serialization margin, while staying well under MAX_CONTENT_LENGTH.
     MAX_FORM_MEMORY_SIZE=4 * 1024 * 1024,
 )
 
@@ -78,8 +77,8 @@ _CSP = ("default-src 'self'; "
 
 @app.after_request
 def _security_headers(resp):
-    # L'aperçu HTML pose SA PROPRE politique (bac à sable) : la remplacer par
-    # celle du portail rendrait de nouveau ses scripts inertes.
+    # The HTML preview sets its OWN policy (sandbox): replacing it with the
+    # portal's would render its scripts inert again.
     if resp.headers.get('Content-Security-Policy', '').startswith('sandbox'):
         return resp
     resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
@@ -91,14 +90,14 @@ def _security_headers(resp):
     return resp
 
 
-# ── Surface de ré-export, à NE PAS « nettoyer » ──────────────────────────────
-# Les blocs `from <module> import (...)` qui suivent (lignes ~100 à 335)
-# ramènent ici les noms que le monolithe portait avant l'extraction en modules :
-# app.py reste le point d'entrée WSGI (`gunicorn app:app`) ET le module que les
-# scripts d'exploitation importent (`scripts/create-demo-account.py` fait
-# `import app as portal`). pyflakes les signale « imported but unused » puisque
-# app.py ne s'en sert pas lui-même : c'est attendu, et les retirer casserait un
-# `from app import <nom>` hors dépôt sans rien apporter au comportement.
+# ── Re-export surface, do NOT "clean up" ─────────────────────────────────────
+# The `from <module> import (...)` blocks below (lines ~100 to 335) bring back
+# here the names the monolith carried before the extraction into modules:
+# app.py remains the WSGI entry point (`gunicorn app:app`) AND the module that
+# operations scripts import (`scripts/create-demo-account.py` does
+# `import app as portal`). pyflakes flags them as "imported but unused" since
+# app.py does not use them itself: this is expected, and removing them would
+# break a `from app import <name>` outside the repo without changing behavior.
 
 
 # ── CSRF protection (per-session token) ──────────────────────────────────────
@@ -106,9 +105,9 @@ def _security_headers(resp):
 # must send it back via the hidden `csrf_token` field (forms) or the
 # X-CSRFToken header (fetch/JSON calls). Defense in depth on top of SameSite=Lax.
 
-# Socle d'authentification (CSRF, secours, LDAP, anti-force-brute, session) :
-# cf. auth.py. Les deux crochets ci-dessous y ont perdu leur decorateur, qui
-# aurait exige l'objet `app` — on les enregistre donc ici, explicitement.
+# Authentication foundation (CSRF, fallback, LDAP, anti-brute-force, session):
+# see auth.py. The two hooks below lost their decorator there, which would have
+# required the `app` object — so we register them here, explicitly.
 from auth import (  # noqa: E402
     LOGIN_LOCK, LOGIN_MAX_FAILS, LOGIN_WINDOW, USERNAME_RE, _admin_username_cache,
     _apply_session, _client_ip, _csrf_protect, _ensure_csrf,
@@ -120,7 +119,7 @@ from auth import (  # noqa: E402
 )
 app.before_request(_csrf_protect)
 app.context_processor(_inject_csrf)
-# Configuration : cf. config.py (2e piece du noyau partage, avec db.py).
+# Configuration: see config.py (2nd piece of the shared core, with db.py).
 from config import (  # noqa: E402
     AUTO_MODEL_NAME, AVATAR_IDS, AVATAR_LABELS, LANGS, THEME_IDS, VLLM_API_BASE,
     LDAP_URI, LDAP_BASE, LDAP_BIND_DN, LDAP_BIND_PW,
@@ -141,7 +140,7 @@ from config import (  # noqa: E402
 
 
 
-from db import (  # noqa: E402  (cf. commentaire plus bas)
+from db import (  # noqa: E402  (see comment below)
     DB_PATH, _spend_conn, close_db, get_db, get_setting, init_db, log_audit,
     maintenance_active, notification_unread, set_setting,
 )
@@ -152,10 +151,10 @@ oauth = None
 if OIDC_ENABLED:
     from authlib.integrations.flask_client import OAuth
     oauth = OAuth(app)
-    # gjallarhorn (Cloudflare) renvoie 403 aux User-Agents non-navigateur, y
-    # compris celui d'authlib quand il récupère le metadata OIDC. On le récupère
-    # donc nous-mêmes (UA navigateur) et on passe les endpoints directement (via
-    # **_md) ; `user_agent` couvre les appels token/userinfo ultérieurs.
+    # gjallarhorn (Cloudflare) returns 403 to non-browser User-Agents,
+    # including authlib's when it fetches the OIDC metadata. So we fetch it
+    # ourselves (browser UA) and pass the endpoints directly (via **_md);
+    # `user_agent` covers the later token/userinfo calls.
     _md = {}
     try:
         import requests as _requests
@@ -175,9 +174,9 @@ if OIDC_ENABLED:
 
 # ── DB ─────────────────────────────────────────────────────────────────────
 
-# get_db / close_db / DB_PATH vivent dans db.py depuis le 28/08 : ils sont le
-# noyau partage par les modules extraits du monolithe, et un module importe par
-# app.py ne peut pas reimporter app.py.
+# get_db / close_db / DB_PATH live in db.py since 28/08: they are the core
+# shared by the modules extracted from the monolith, and a module imported by
+# app.py cannot re-import app.py.
 app.teardown_appcontext(close_db)
 # _sse_msg / maintenance_block_sse : cf. guards.py
 from guards import _sse_msg, maintenance_block_sse  # noqa: E402
@@ -188,7 +187,7 @@ from guards import (  # noqa: E402
     maintenance_block_json, media_rate_block,
 )
 
-# Client LiteLLM (cles, budgets, comptes) : cf. litellm_client.py
+# LiteLLM client (keys, budgets, accounts): see litellm_client.py
 from litellm_client import (  # noqa: E402
     _ensure_litellm_user, _infos_cles, _litellm_user_info, create_litellm_key,
     get_user_keys, litellm_headers, litellm_update_user_budget, renommer_cle_litellm,
@@ -198,10 +197,10 @@ from litellm_client import (  # noqa: E402
 # get_running_models / _rm_cache : cf. vllm_health.py
 from vllm_health import get_running_models  # noqa: E402
 
-# Annonces (enregistrement + diffusion) : cf. announcements.py
+# Announcements (recording + broadcast): see announcements.py
 from announcements import _announce_launch, add_announcement  # noqa: E402
 
-# Runner et sidecars (etat, lancement, journaux, sondes) : cf. sidecars.py
+# Runner and sidecars (state, launch, logs, probes): see sidecars.py
 from sidecars import (  # noqa: E402
     _drop_log_noise, _image_launch, _mem_guard, _music_launch, _ocr_launch,
     _runner_headers, _sidecar_action, _sidecar_proc_status, _sidecar_start_json,
@@ -212,10 +211,10 @@ from sidecars import (  # noqa: E402
     IMAGE_MODEL_IDS, _HF_ID_RE, _LOG_NOISE_RE,
 )
 
-# ── ComfyUI (generation video MiniMax H3) ────────────────────────────────────
-# Deplace dans comfyui_client.py le 28/08 : cette section n'avait qu'une seule
-# dependance (COMFYUI_URL, issue de l'environnement), c'etait donc la coupure la
-# moins risquee du monolithe. Les routes /api/video/* restent ici.
+# ── ComfyUI (MiniMax H3 video generation) ────────────────────────────────────
+# Moved to comfyui_client.py on 28/08: this section had a single dependency
+# (COMFYUI_URL, from the environment), so it was the least risky cut from the
+# monolith. The /api/video/* routes stay here.
 from comfyui_client import (  # noqa: E402
     comfyui_is_up,
     comfyui_generate, comfyui_status, comfyui_fetch_video,
@@ -223,33 +222,33 @@ from comfyui_client import (  # noqa: E402
     VIDEO_FILES_DIR, COMFYUI_OUTPUT_DIR,
 )
 
-# Sonde vLLM (sante, debit, contexte) + recherche HF : cf. vllm_health.py
+# vLLM probe (health, throughput, context) + HF search: see vllm_health.py
 from vllm_health import (  # noqa: E402
     GB10_TAG, HF_TASKS, HfIndisponible, _CTX_FLAG, _SEARCH_PAGE_SIZE, _SEQS_FLAG,
     _prom_sum, ctx_of, ctx_split, effective_ctx, guess_engine, hf_jeton_present,
     hf_modele_hors_gb10, max_seqs_of, search_hf_models_page, vllm_health,
 )
 
-# Notifications (mail admin, webhook Discord) : cf. notify.py
+# Notifications (admin mail, Discord webhook): see notify.py
 from notify import (  # noqa: E402
     notify_budget_discord, notify_budget_email, notify_discord, notify_email,
     notify_media_request_email, send_user_email,
 )
 
 # ── Notifications Discord ────────────────────────────────────────────────────
-# Deplacees dans discord_notify.py le 28/08 (cf. db.py et config.py).
+# Moved to discord_notify.py on 28/08 (see db.py and config.py).
 from discord_notify import _discord_announce, discord_broadcast  # noqa: E402
 
-# ── Gardes d'authentification ────────────────────────────────────────────────
-# Deplacees dans auth.py le 28/08 : un blueprint doit pouvoir les importer sans
-# reimporter app.py. Cf. la docstring d'auth.py.
+# ── Authentication guards ────────────────────────────────────────────────────
+# Moved to auth.py on 28/08: a blueprint must be able to import them without
+# re-importing app.py. See the docstring of auth.py.
 from auth import (  # noqa: E402
     SESSION_MAX_AGE, _API_FETCH_PATHS, _is_api_request, _session_expired,
     admin_required, login_required,
 )
 
 # ── Local users managed by the admin (local_users table) ─────────────────────
-# Comptes locaux (authentification, budget) : cf. local_users.py
+# Local accounts (authentication, budget): see local_users.py
 from local_users import (  # noqa: E402
     _local_group, _local_user_auth, _local_user_effective_budget,
     _local_user_is_admin, _parse_budget, _record_user_source,
@@ -257,22 +256,22 @@ from local_users import (  # noqa: E402
 )
 
 # ── Discord account linking (OAuth2 "identify") ──────────────────────────────
-# ── Liaison de compte Discord ────────────────────────────────────────────────
-# Blueprint : cf. discord_routes.py (28/08).
+# ── Discord account linking ──────────────────────────────────────────────────
+# Blueprint: see discord_routes.py (28/08).
 from discord_routes import bp as discord_bp  # noqa: E402
 
-# ── Reglages utilisateur ─────────────────────────────────────────────────────
-# Blueprint : cf. settings_routes.py (28/08).
+# ── User settings ────────────────────────────────────────────────────────────
+# Blueprint: see settings_routes.py (28/08).
 from settings_routes import bp as settings_bp  # noqa: E402
 
-# ── Historique des conversations du playground ───────────────────────────────
-# Blueprint : cf. conversation_routes.py (28/08).
+# ── Playground conversation history ──────────────────────────────────────────
+# Blueprint: see conversation_routes.py (28/08).
 from conversation_routes import (  # noqa: E402
     CONVERSATIONS_MAX, CONV_MAX_CHARS, MSG_MAX_CHARS, bp as conversations_bp,
 )
 
-# ── Support (assistant IA) ───────────────────────────────────────────────────
-# Assistant Support (outils, execution, contexte) : cf. support.py
+# ── Support (AI assistant) ───────────────────────────────────────────────────
+# Support assistant (tools, execution, context): see support.py
 from support import (  # noqa: E402
     _clean_reply, _exec_support_tool, _mask_key, _sse_tool_event,
     _support_context, _support_tools, _user_extra_tools,
@@ -280,51 +279,51 @@ from support import (  # noqa: E402
     _support_tool_target,
 )
 
-# ── Memoire : graphe de connaissances par utilisateur ────────────────────────
-# Premier blueprint sorti du monolithe (28/08) : cf. memory_routes.py.
+# ── Memory: per-user knowledge graph ─────────────────────────────────────────
+# First blueprint out of the monolith (28/08): see memory_routes.py.
 from memory_routes import bp as memory_bp  # noqa: E402
 
-# ── Apercu d'une page HTML generee ───────────────────────────────────────────
-# Blueprint : cf. preview_routes.py (28/08).
+# ── Preview of a generated HTML page ─────────────────────────────────────────
+# Blueprint: see preview_routes.py (28/08).
 from preview_routes import bp as preview_bp  # noqa: E402
 
-# ── Chat (playground + support), en flux SSE ─────────────────────────────────
-# Blueprint : cf. chat_routes.py (28/08).
+# ── Chat (playground + support), SSE streaming ───────────────────────────────
+# Blueprint: see chat_routes.py (28/08).
 from chat_routes import bp as chat_bp  # noqa: E402
 
-# ── Statistiques de consommation (base LiteLLM Postgres) ─────────────────────
-# Statistiques (agregats, classements, utilisateurs actifs) : cf. stats.py
+# ── Usage statistics (LiteLLM Postgres database) ─────────────────────────────
+# Statistics (aggregates, rankings, active users): see stats.py
 from stats import (  # noqa: E402
     RANKING_METRICS, _account_activity, _active_users, _inflight_end, _inflight_start,
     _real_tokens_by_user, _tokens_by_model,
     ranking_full, user_hourly,
 )
 
-# ── Administration (modeles, sidecars, comptes, annonces) ────────────────────
-# Blueprint : cf. admin_routes.py (28/08). L'endpoint `admin` devient
-# `admin.admin` ; les 34 url_for du projet, tous dans ce bloc, ont suivi.
+# ── Administration (models, sidecars, accounts, announcements) ───────────────
+# Blueprint: see admin_routes.py (28/08). The `admin` endpoint becomes
+# `admin.admin`; the project's 34 url_for calls, all in this block, followed.
 from admin_routes import bp as admin_bp  # noqa: E402
 
 # ── Video (MiniMax H3 via ComfyUI) ──
-# Blueprint : cf. video_routes.py (28/08).
+# Blueprint: see video_routes.py (28/08).
 from video_routes import bp as video_bp  # noqa: E402
 
-# ── Generation d'image (sidecar diffusers) ──
-# Blueprint : cf. image_routes.py (28/08).
-from image_routes import bp as image_bp  # noqa: E402  (get_image_model/image_ready deja importes de sidecars)
+# ── Image generation (diffusers sidecar) ──
+# Blueprint: see image_routes.py (28/08).
+from image_routes import bp as image_bp  # noqa: E402  (get_image_model/image_ready already imported from sidecars)
 
-# ── Musique (sidecar diffusers) ──
-# Blueprint : cf. music_routes.py (28/08).
-from music_routes import bp as music_bp  # noqa: E402  (get_music_model/music_ready deja importes de sidecars)
+# ── Music (diffusers sidecar) ──
+# Blueprint: see music_routes.py (28/08).
+from music_routes import bp as music_bp  # noqa: E402  (get_music_model/music_ready already imported from sidecars)
 
 # ── OCR ──────────────────────────────────────────────────────────────────────
-# Blueprint : cf. ocr_routes.py (28/08). Frontiere redessinee — voir sa docstring.
-from ocr_routes import bp as ocr_bp  # noqa: E402  (get_ocr_model deja importe de sidecars)
+# Blueprint: see ocr_routes.py (28/08). Boundary redrawn — see its docstring.
+from ocr_routes import bp as ocr_bp  # noqa: E402  (get_ocr_model already imported from sidecars)
 
-# ── Voix et dictee ───────────────────────────────────────────────────────────
-# Frontiere redessinee le 28/08 : cette banniere couvrait voix + dictee +
-# amorcage. La voix part dans voice_routes.py, la dictee dans asr_routes.py,
-# l'amorcage reste ci-dessous.
+# ── Voice and dictation ──────────────────────────────────────────────────────
+# Boundary redrawn on 28/08: this banner covered voice + dictation + bootstrapping.
+# Voice goes to voice_routes.py, dictation to asr_routes.py,
+# bootstrapping stays below.
 from voice_routes import (  # noqa: E402
     bp as voice_bp, get_voice_engine, get_voice_languages,
 )
@@ -334,20 +333,20 @@ from webauthn_routes import (  # noqa: E402
     bp as webauthn_bp, _webauthn_enabled, start_login,
 )
 
-# ── Recherche web depuis le playground ───────────────────────────────────────
-# Deplacee dans websearch_tools.py le 28/08 (cf. db.py pour le noyau partage).
+# ── Web search from the playground ───────────────────────────────────────────
+# Moved to websearch_tools.py on 28/08 (see db.py for the shared core).
 from websearch_tools import (  # noqa: E402
     _phase_outils, _recherche_pertinente, _texte_des_trouvailles, websearch_active,
 )
 
 
-# get_setting / set_setting / maintenance_active : cf. db.py (noyau partage).
+# get_setting / set_setting / maintenance_active: see db.py (shared core).
 
 
 
 
 
-# init_db (schema + migrations) : cf. db.py
+# init_db (schema + migrations): see db.py
 
 # ── LDAP ────────────────────────────────────────────────────────────────────
 
@@ -361,7 +360,7 @@ from websearch_tools import (  # noqa: E402
 
 
 
-# VOICE_REPO_IDS : cf. sidecars.py (liste blanche des variantes lancables)
+# VOICE_REPO_IDS: see sidecars.py (allowlist of launchable variants)
 
 
 
@@ -409,23 +408,23 @@ def api_config():
 
 
 def _refus_si_bloque(username):
-    """Refuse un compte bloqué, APRÈS vérification des identifiants.
+    """Refuse a blocked account, AFTER credential verification.
 
-    Placé après, et non avant : il faut présenter un mot de passe valide pour
-    apprendre qu'on est bloqué, donc un compte bloqué ne sert pas à énumérer
-    les comptes existants. Et l'intéressé reçoit un message qui dit la vérité,
-    au lieu d'un « identifiants incorrects » qui l'enverrait réessayer sans
-    fin. Le blocage est posé par un admin (Users → Bloquer) : c'est le SEUL
-    levier pour un compte LDAP/SSO, qui n'a aucune ligne dans local_users.
+    Placed after, and not before: a valid password must be presented to learn
+    that one is blocked, so a blocked account cannot be used to enumerate
+    existing accounts. And the person concerned receives a truthful message,
+    instead of an « identifiants incorrects » that would make them retry
+    endlessly. The block is set by an admin (Users → Bloquer): it is the ONLY
+    lever for an LDAP/SSO account, which has no row in local_users.
     """
     if not est_bloque(username):
         return None
     log_audit(username, 'login.refuse', 'compte bloqué par un administrateur')
     message = "Accès révoqué pour ce compte. Contacte un administrateur."
     flash(message, "danger")
-    # Corps JSON en plus du statut : la page de connexion affiche le message
-    # tel quel, sinon un compte bloqué croirait à une faute de frappe et
-    # réessaierait indéfiniment.
+    # JSON body in addition to the status: the login page displays the message
+    # as-is, otherwise a blocked account would think it was a typo and
+    # retry indefinitely.
     return (jsonify({'ok': False, 'error': message, 'blocked': True}), 403)
 
 
@@ -436,25 +435,25 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip().lower()
         password = request.form.get('password', '')
-        # Borné AVANT de construire les clés de verrou : `key`/`ukey` sont
-        # écrites en base (`login_attempts`) dès l'échec, et `username` vient
-        # d'un formulaire non authentifié. Sans ce filtre, un identifiant neuf
-        # de 4 Mo (le plafond du champ) écrivait ~8 Mo de lignes par requête,
-        # avec une clé différente à chaque fois — donc jamais verrouillé — et la
-        # table n'est purgée qu'au démarrage. Le format est celui accepté
-        # partout ailleurs (USERNAME_RE) : 64 caractères au plus.
+        # Capped BEFORE building the lock keys: `key`/`ukey` are written to the
+        # database (`login_attempts`) as soon as a failure occurs, and `username`
+        # comes from an unauthenticated form. Without this filter, a 4 Mo (the
+        # field cap) fresh identifier wrote ~8 Mo of rows per request, with a
+        # different key every time — so never locked — and the table is only
+        # purged at startup. The format is the one accepted everywhere else
+        # (USERNAME_RE): at most 64 characters.
         if not USERNAME_RE.match(username):
             return ('', 401)
         ip  = _client_ip()
         key = f"{ip}|{username}"
         ukey = f"user:{username}"
-        # Compteur par username, indépendant de l'IP : un attaquant qui change
-        # d'IP à chaque essai reste sous le seuil par IP, mais le compteur du
-        # compte cumule toutes les tentatives → il finit par se verrouiller.
-        # NB: PAS de verrou global par IP (audit L2) — derrière un NAT partagé
-        # (VPN/office), un verrou IP bloquait TOUT le monde après 6 échecs
-        # cumulés. Le verrou par-compte (ukey) suffit contre le brute-force
-        # ciblé ; la clé ip|username borne un compte depuis une IP donnée.
+        # Counter per username, independent of the IP: an attacker who changes
+        # IP on every attempt stays under the per-IP threshold, but the account
+        # counter cumulates all attempts → it eventually locks.
+        # NB: NO global per-IP lock (L2 audit) — behind a shared NAT
+        # (VPN/office), an IP lock blocked EVERYONE after 6 cumulated failures.
+        # The per-account lock (ukey) suffices against targeted brute-force;
+        # the ip|username key caps an account from a given IP.
         wait = _login_locked(key) or _login_locked(ukey)
         if wait:
             flash(f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min.", "danger")
@@ -469,7 +468,7 @@ def login():
             _login_reset(key); _login_reset(ukey)
             _record_user_source(username, 'local', l_name, l_admin)
             if _webauthn_enabled(username):
-                # 2e facteur : mot de passe valide MAIS pas encore de session.
+                # 2nd factor: valid password BUT no session yet.
                 payload = start_login(username, l_name, l_admin, 'local')
                 return jsonify({'webauthn_required': True,
                                 'publicKey': payload['publicKey'],
@@ -560,16 +559,16 @@ def oauth_callback():
     # token's own username.
     sub = (userinfo.get('sub') or '').strip()
     email = (userinfo.get('email') or '').strip().lower()
-    # Le repli sur l'adresse e-mail n'est autorisé que si l'IdP ne la déclare pas
-    # NON vérifiée (audit du 2026-10-02). `ldap_resolve_sso_identity` résout par
-    # `sub` d'abord et retombe sur `(mail=…)` : sur un IdP qui laisse un
-    # utilisateur poser l'adresse d'un collègue, ce repli ouvrait la session du
-    # collègue — or `session['username']` est la clé de propriété de TOUT (clés
-    # API, MCP, conversations, quota) et porte `is_admin` via `last_is_admin`.
-    # Le claim ABSENT laisse le comportement inchangé (beaucoup d'IdP ne
-    # l'envoient pas, et le refuser couperait la connexion SSO de tout le monde) ;
-    # seul un `false` EXPLICITE ferme le repli. Ce n'est donc pas un durcissement
-    # complet : `email_verified: true` exigé pour le repli reste à décider.
+    # Falling back to the e-mail address is only allowed if the IdP does not
+    # declare it NOT verified (audit of 2026-10-02). `ldap_resolve_sso_identity`
+    # resolves by `sub` first and falls back to `(mail=…)`: on an IdP that lets a
+    # user set a colleague's address, this fallback opened the colleague's
+    # session — yet `session['username']` is the ownership key of EVERYTHING (API
+    # keys, MCP, conversations, quota) and carries `is_admin` via `last_is_admin`.
+    # An ABSENT claim leaves the behavior unchanged (many IdPs do not send it,
+    # and refusing it would cut everyone's SSO login); only an EXPLICIT `false`
+    # closes the fallback. So this is not a full hardening: requiring
+    # `email_verified: true` for the fallback remains to be decided.
     if userinfo.get('email_verified') is False and email:
         log_audit('sso', 'sso.email_non_verifie',
                   f'repli sur l\'adresse refusé pour sub={sub[:64]} (email_verified=false)')
@@ -593,10 +592,10 @@ def oauth_callback():
         is_admin = is_admin or any(g == OIDC_ADMIN_GROUP or _is_admin_group(g) for g in groups)
 
     if _refus_si_bloque(username):
-        # Le mot de passe n'entre pas en jeu ici : l'identité est prouvée par
-        # l'annuaire, mais le refus du portail fait foi. Le drapeau d'URL porte
-        # le message jusqu'à la page de connexion, qui est rendue par Next.js
-        # (un flash Flask n'y serait affiché nulle part).
+        # The password does not come into play here: identity is proven by the
+        # directory, but the portal's refusal stands. The URL flag carries the
+        # message to the login page, which is rendered by Next.js
+        # (a Flask flash would be displayed nowhere).
         return redirect(url_for('login', refus='bloque'))
     nxt = session.pop('sso_next', None)
     _record_user_source(username, 'sso', fullname, is_admin)
@@ -613,8 +612,8 @@ app.register_blueprint(discord_bp)
 @app.route('/logout', methods=['POST'])
 def logout():
     was_sso = session.get('sso')
-    # Révoque la session côté serveur (registre) AVANT de vider le cookie :
-    # même un cookie volé/rejoué ne pourra plus être utilisé après logout.
+    # Revokes the session server-side (registry) BEFORE emptying the cookie:
+    # even a stolen/replayed cookie can no longer be used after logout.
     _revoke_current_session()
     session.clear()
     # RP-initiated logout: if the user logged in via SSO, we also
@@ -687,8 +686,8 @@ def _sidecar_metrics(kind):
 
 
 def _budget_period_days(duration):
-    """Jours couverts par la fenêtre budgétaire (« 1d », « 7d », « 30d »,
-    « 3 mois »…). Défaut raisonnable : 1 jour si non parsable."""
+    """Days covered by the budget window (« 1d », « 7d », « 30d »,
+    « 3 mois »…). Sensible default: 1 day if unparseable."""
     s = str(duration or "").lower()
     if "mois" in s or "month" in s:
         return 30
@@ -699,14 +698,14 @@ def _budget_period_days(duration):
         return 1
 
 
-# Cache court : /api/home est pollé souvent, on ne re-scinde pas SpendLogs à
-# chaque refresh (même logique de TTL que user_hourly dans stats.py).
+# Short cache: /api/home is polled often, we do not re-slice SpendLogs on
+# every refresh (same TTL logic as user_hourly in stats.py).
 _BUDGET_CACHE = {}
 _BUDGET_TTL = 60
 
 
 def _budget_remaining(username, default_budget, duration):
-    """(used, remaining) tokens réels de l'utilisateur sur la fenêtre budgétaire."""
+    """(used, remaining) real tokens of the user over the budget window."""
     now = time.time()
     hit = _BUDGET_CACHE.get(username)
     if hit and now - hit[0] < _BUDGET_TTL:
@@ -744,11 +743,11 @@ def _index_data():
     ).fetchall()
     default_budget = float(get_setting('default_key_budget', KEY_BUDGET))
     budget_duration = get_setting('default_key_duration', KEY_DURATION)
-    # L'enveloppe qui bloque RÉELLEMENT vit chez LiteLLM (elle porte les
-    # accords admin qui ne touchent que ce compte). Elle prime sur le calcul
-    # portail (override local → groupe → défaut), utilisé en repli si le
-    # compte n'existe pas encore côté LiteLLM. Sans ça, une limite accordée
-    # par l'admin n'était jamais reflétée sur la carte d'utilisation.
+    # The envelope that ACTUALLY blocks lives at LiteLLM (it carries the admin
+    # grants that only touch this account). It takes precedence over the portal
+    # calculation (local override → group → default), used as fallback if the
+    # account does not exist yet on the LiteLLM side. Without this, a limit
+    # granted by the admin was never reflected on the usage card.
     _litellm_ui = _litellm_user_info(session['username'])
     effective = _litellm_ui.get('max_budget')
     if effective is None:
@@ -756,8 +755,8 @@ def _index_data():
                         (session['username'],)).fetchone()
         effective = _local_user_effective_budget(mu) if mu else default_budget
     budget_used, budget_remaining = _budget_remaining(session['username'], effective, budget_duration)
-    # Date du prochain reset de l'enveloppe : affichée à l'utilisateur pour
-    # qu'il sache QUAND il récupère du quota (sinon « dépassé » semble éternel).
+    # Date of the envelope's next reset: shown to the user so they know WHEN
+    # they get quota back (otherwise « dépassé » seems eternal).
     budget_reset_at = (_litellm_ui.get('budget_reset_at') or '')[:16].replace('T', ' ')
     return dict(running_models=running, my_requests=my_requests,
                 public_api_url=PUBLIC_API_URL, auto_model=AUTO_MODEL_NAME,
@@ -772,8 +771,8 @@ def _index_data():
                 budget_used=budget_used,
                 budget_remaining=budget_remaining,
                 budget_reset_at=budget_reset_at,
-                # La carte d'accueil désactive le bouton « Demander plus de
-                # budget » tant qu'une demande est en attente (anti double-post).
+                # The home card disables the « Demander plus de budget » button
+                # while a request is pending (anti double-post).
                 budget_request_pending=bool(db.execute(
                     "SELECT 1 FROM budget_requests WHERE username=? AND status='pending'",
                     (session['username'],)).fetchone()))
@@ -790,30 +789,30 @@ def index():
 
 @app.route('/healthz')
 def healthz():
-    """Liveness minimale, publique — pour les healthchecks / sondes de
-    disponibilité. Ne révèle rien d'interné."""
+    """Minimal, public liveness endpoint — for healthchecks / availability
+    probes. Reveals nothing internal."""
     return jsonify({'ok': True, 'time': int(time.time())})
 
 
 @app.route('/metrics')
 def prom_metrics():
-    """Exposition Prometheus (texte) — pour scraper avec Grafana.
+    """Prometheus exposition (text) — for scraping with Grafana.
 
-    Publique par choix sur le réseau LAN/netbird : c'est le standard pour un
-    pull de métriques. En revanche elle ne doit PAS sortir sur l'internet, et
-    elle y était pourtant joignable : le rewrite catch-all du frontend relaie
-    `/:path*` vers Flask, donc /metrics était servi à `dgx.cronos.website`
-    (CPU/RAM/GPU/température/modèle en ligne à qui le demandait).
+    Public by choice on the LAN/netbird network: this is the standard for a
+    metrics pull. However it must NOT reach the internet, and yet it was
+    reachable there: the frontend's catch-all rewrite relays `/:path*` to
+    Flask, so /metrics was served at `dgx.cronos.website`
+    (CPU/RAM/GPU/temperature/online model to whoever asked).
 
-    Garde retenue : une requête qui traverse l'edge Cloudflare porte toujours
-    l'en-tête `Cf-Connecting-Ip` (posé par Cloudflare, normalisé par le plugin
-    Traefik) → on refuse. Un scrape LAN/netbird, lui, arrive sans cet en-tête.
-    Reprend le payload du runner sans dupliquer la collecte (déjà mise en cache
-    côté lui).
+    Guard kept: a request that crosses the Cloudflare edge always carries the
+    `Cf-Connecting-Ip` header (set by Cloudflare, normalized by the Traefik
+    plugin) → we refuse. A LAN/netbird scrape, on the other hand, arrives
+    without this header. Reuses the runner's payload without duplicating
+    collection (already cached on its side).
 
-    Limite connue : un client qui atteindrait l'origine en direct (hors
-    Cloudflare) n'envoie pas cet en-tête ; c'est le contournement d'edge connu,
-    qui se traite au niveau du routeur, pas ici.
+    Known limit: a client reaching the origin directly (outside Cloudflare)
+    does not send this header; this is the known edge bypass, handled at the
+    router level, not here.
     """
     if request.headers.get('Cf-Connecting-Ip'):
         return Response("metrics: accès réservé au réseau local\n", status=403,
@@ -841,9 +840,9 @@ def prom_metrics():
 @app.route('/docs')
 @login_required
 def docs():
-    """Documentation de l'API OpenAI-compatible, page HTML autonome (aucune
-    dépendance CDN : le box est LAN/netbird). Liste les modèles courants + les
-    endpoints /v1/* avec exemples curl/Python/JS."""
+    """Documentation of the OpenAI-compatible API, standalone HTML page (no
+    CDN dependency: the box is LAN/netbird). Lists the current models + the
+    /v1/* endpoints with curl/Python/JS examples."""
     import html as _h
     models = get_running_models() or []
     model_rows = "".join(f'<code>{_h.escape(m)}</code><br>' for m in models)
@@ -897,7 +896,7 @@ def docs():
 @app.route('/api/notifications')
 @login_required
 def api_notifications():
-    """Notifications in-app de l'utilisateur (cloche, vu/non-vu)."""
+    """User in-app notifications (bell, seen/unseen)."""
     rows = get_db().execute(
         "SELECT id, kind, title, seen, created_at FROM notifications "
         "WHERE username=? ORDER BY id DESC LIMIT 30", (session['username'],)).fetchall()
@@ -917,7 +916,7 @@ def api_notifications_seen():
 
 
 def _service_reachable(url, expect=(200, 401), timeout=3):
-    """True si le service répond (statut dans `expect`), sinon False."""
+    """True if the service answers (status in `expect`), False otherwise."""
     try:
         r = requests.get(url, timeout=timeout)
         return r.status_code in expect
@@ -928,16 +927,15 @@ def _service_reachable(url, expect=(200, 401), timeout=3):
 @app.route('/api/health')
 @login_required
 def api_health():
-    """État agrégé des services (diagnostic). Les services média sont
-    on-demand : leur absence n'invalide pas la santé globale."""
+    """Aggregated state of the services (diagnostic). Media services are
+    on-demand: their absence does not invalidate overall health."""
     chat = get_running_models()
     runner_up = _service_reachable(f"{RUNNER_URL}/status")
-    # `/health/liveliness` et pas `/health` : depuis LiteLLM 1.102 (montée du
-    # 2026-09-24) `/health` exige une clé d'API et répond 401 sans elle — la
-    # sonde annonçait donc « LiteLLM injoignable » alors que le proxy tournait.
-    # `liveliness` est publique, ne coûte rien et ne sonde pas les modèles
-    # amont, ce qui correspond exactement à ce que ce drapeau signifie ici :
-    # « joignable ».
+    # `/health/liveliness` and not `/health`: since LiteLLM 1.102 (upgrade of
+    # 2026-09-24) `/health` requires an API key and answers 401 without it — so
+    # the probe reported « LiteLLM injoignable » while the proxy was running.
+    # `liveliness` is public, costs nothing and does not probe the upstream
+    # models, which matches exactly what this flag means here: « joignable ».
     litellm_up = _service_reachable(f"{LITELLM_URL}/health/liveliness", expect=(200,))
     return jsonify({
         'ok': bool(runner_up and litellm_up),
@@ -961,21 +959,21 @@ def api_whoami():
     pref = get_db().execute(
         "SELECT avatar_id, theme_id, lang, onboarded FROM user_prefs WHERE username=?",
         (session.get('username'),)).fetchone()
-    # Qui détient le mot de passe de ce compte : le portail, l'annuaire LDAP, le
-    # fournisseur SSO, ou personne qu'on sache. L'interface s'en sert pour
-    # montrer le bon formulaire — ou pour dire où le mot de passe se change.
+    # Who holds this account's password: the portal, the LDAP directory, the
+    # SSO provider, or nobody as far as we know. The UI uses it to show the
+    # right form — or to say where the password is changed.
     gestion = gestion_mot_de_passe(session.get('username'))
     return jsonify({'username': session.get('username'), 'fullname': session.get('fullname'),
                      'is_admin': bool(session.get('is_admin')),
                      'avatar_id': pref['avatar_id'] if pref else None,
                      'theme_id': (pref['theme_id'] if pref else None) or 'neutral',
                      'lang': (pref['lang'] if pref else None) or 'fr',
-                     # Absence de ligne user_prefs = compte qui n'a jamais rien
-                     # réglé, donc jamais vu la prise en main.
+                     # No user_prefs row = account that has never set
+                     # anything, hence never seen the onboarding.
                      'onboarded': bool(pref['onboarded']) if pref else False,
-                     # `local_account` reste pour les appelants existants ;
-                     # `password_managed_by` dit la même chose en plus précis
-                     # (un compte peut être local ET s'être connecté en SSO).
+                     # `local_account` remains for existing callers;
+                     # `password_managed_by` says the same thing more precisely
+                     # (an account can be local AND have logged in via SSO).
                      'local_account': gestion['local'],
                      'password_managed_by': gestion['gestion'],
                      'auth_sources': gestion['sources'],
@@ -986,7 +984,7 @@ def api_whoami():
 @app.route('/api/onboarding/done', methods=['POST'])
 @login_required
 def api_onboarding_done():
-    """Marque la prise en main comme vue, une fois pour toutes, pour ce compte."""
+    """Marks the onboarding as seen, once and for all, for this account."""
     db = get_db()
     db.execute("INSERT INTO user_prefs (username, onboarded) VALUES (?,1) "
                "ON CONFLICT(username) DO UPDATE SET onboarded=1",
@@ -1006,11 +1004,11 @@ def api_home():
 @app.route('/api/modelhealth')
 @login_required
 def api_modelhealth():
-    """Sante du modele SEULE, sondee a la seconde par le tableau de bord.
+    """Health of the model ALONE, probed every second by the dashboard.
 
-    /api/home est bien plus lourd (agregat des depenses, requetes de l'user,
-    capteurs des sidecars) et reste a 5 s ; seul le debit temps reel avait
-    besoin d'un rythme rapide, d'ou cet endpoint minimal.
+    /api/home is much heavier (spend aggregate, user requests, sidecar sensors)
+    and stays at 5 s; only real-time throughput needed a fast pace, hence this
+    minimal endpoint.
     """
     return jsonify(vllm_health())
 
@@ -1018,11 +1016,11 @@ def api_modelhealth():
 @app.route('/api/pending-count')
 @login_required
 def api_pending_count():
-    """Badges de la sidebar : demandes de MODÈLE et de BUDGET, séparées.
+    """Sidebar badges: MODEL and BUDGET requests, kept separate.
 
-    Un total unique mélangé collait le même chiffre sur « Demander un modèle »
-    et sur « Admin » : une simple demande de budget affichait « 1 » sur la
-    demande de modèle (bug signalé le 2026-09-08)."""
+    A single mixed total stuck the same number on « Demander un modèle »
+    and on « Admin »: a mere budget request showed « 1 » on the model
+    request (bug reported on 2026-09-08)."""
     db = get_db()
     if session.get('is_admin'):
         model = db.execute(
@@ -1039,17 +1037,17 @@ def api_pending_count():
     return jsonify({'model': int(model or 0), 'budget': int(budget or 0)})
 
 
-# Catégories média sur lesquelles un utilisateur peut demander le lancement d'un
-# modèle. Un "request" n'a de sens que si AUCUN modèle de la catégorie n'est
-# chargé : sinon le bouton ne sert à rien (la page permet déjà de générer).
+# Media categories for which a user can request a model launch.
+# A "request" only makes sense if NO model of the category is loaded:
+# otherwise the button is pointless (the page already allows generating).
 _MEDIA_CATEGORIES = {
     'image', 'music', 'video', 'ocr', 'voice',
 }
 
 
 def _media_category_running(category):
-    """True si un modèle de la catégorie est déjà chargé (mêmes capteurs que
-    _index_data, pour ne pas dupliquer la notion de « disponible »)."""
+    """True if a model of the category is already loaded (same sensors as
+    _index_data, to avoid duplicating the notion of « disponible »)."""
     if category == 'image':
         return image_ready()
     if category == 'music':
@@ -1066,9 +1064,9 @@ def _media_category_running(category):
 @app.route('/api/model/request', methods=['POST'])
 @login_required
 def api_model_request():
-    """Signale à l'admin qu'un utilisateur veut un modèle de la catégorie donnée.
-    Refuse si un modèle de cette catégorie est déjà chargé (défense en
-    profondeur : le frontend cache déjà le bouton dans ce cas)."""
+    """Reports to the admin that a user wants a model of the given category.
+    Refuses if a model of this category is already loaded (defense in
+    depth: the frontend already hides the button in that case)."""
     data = request.get_json(silent=True) or {}
     category = (data.get('category') or '').strip().lower()
     user = session['username']
@@ -1077,9 +1075,9 @@ def api_model_request():
     if _media_category_running(category):
         return jsonify({'error': {'message':
                        f"Un modèle « {category} » est déjà chargé."}}), 409
-    # Anti-spam : une seule demande par (utilisateur, catégorie) dans la
-    # fenêtre MEDIA_REQUEST_COOLDOWN_S, même après navigation/refresh (le
-    # verrou côté frontend se réinitialise, celui-ci non).
+    # Anti-spam: only one request per (user, category) within the
+    # MEDIA_REQUEST_COOLDOWN_S window, even after navigation/refresh (the
+    # frontend-side lock resets, this one does not).
     now = time.time()
     db = get_db()
     row = db.execute(
@@ -1107,12 +1105,12 @@ def keys():
     # GET /keys: the page itself is rendered by the Next.js frontend
     # (data via /api/keys) — only the POST actions below remain
     # used (postForm("/keys", ...) from app/(app)/keys/page.tsx).
-    # POST : actions de l'onglet « Clés API ». Elles répondent du JSON avec un
-    # statut HONNÊTE, comme les actions d'admin (cf. CLAUDE.md) : cette route
-    # répondait `('', 204)` après un `flash(...)`, or AUCUN template ne rend les
-    # flash — l'interface annonçait donc « Clé créée ! » / « Clé révoquée. »
-    # quoi qu'il arrive. Le cas grave était la révocation : LiteLLM injoignable,
-    # la clé restait VALIDE et l'utilisateur la croyait morte.
+    # POST: actions of the « Clés API » tab. They answer JSON with an HONEST
+    # status, like the admin actions (see CLAUDE.md): this route answered
+    # `('', 204)` after a `flash(...)`, yet NO template renders flashes — so the
+    # UI announced « Clé créée ! » / « Clé révoquée. » whatever happened. The
+    # serious case was revocation: LiteLLM unreachable, the key stayed VALID
+    # while the user believed it dead.
     if request.method != 'POST':
         return ('', 204)
     action = request.form.get('action')
@@ -1133,8 +1131,8 @@ def keys():
             (session['username'], alias, new_key, datetime.now().isoformat())
         )
         db.commit()
-        # La valeur repart vers l'interface : c'est le seul instant où on la voit
-        # sans cliquer sur « Afficher ».
+        # The value goes back to the UI: it is the only moment it can be seen
+        # without clicking « Afficher ».
         return jsonify({'ok': True, 'key_alias': alias, 'key': new_key})
     if action == 'revoke':
         k = request.form.get('key')
@@ -1160,22 +1158,22 @@ def keys():
         k = request.form.get('key')
         raw_name = request.form.get('key_name', '').strip()
         db = get_db()
-        # Même vérification d'appartenance que la révocation : sans elle, on
-        # renommerait la clé de quelqu'un d'autre en soumettant sa valeur.
+        # Same ownership check as revocation: without it, one could rename
+        # someone else's key by submitting its value.
         owns = db.execute(
             "SELECT key_alias FROM api_keys WHERE key_value=? AND username=?",
             (k, session['username'])
         ).fetchone()
         if not owns:
             return jsonify({'ok': False, 'error': "Clé introuvable sur ce compte."}), 404
-        # Mêmes règles que la création, sinon un alias de 4000 caractères ou
-        # plein de sauts de ligne casserait l'affichage de la liste.
+        # Same rules as creation, otherwise a 4000-character alias or one full
+        # of line breaks would break the list display.
         alias = re.sub(r'[^a-zA-Z0-9_-]', '-', raw_name)[:40]
         if not alias:
             return jsonify({'ok': False, 'error': "Le nom doit contenir au moins un "
                                                   "caractère (lettres, chiffres, - ou _)."}), 400
-        # Un alias déjà porté par une AUTRE de tes clés rendrait la liste
-        # ambiguë : c'est exactement ce que l'alias sert à éviter.
+        # An alias already carried by ANOTHER of your keys would make the list
+        # ambiguous: that is exactly what the alias exists to avoid.
         doublon = db.execute(
             "SELECT 1 FROM api_keys WHERE username=? AND key_alias=? AND key_value<>?",
             (session['username'], alias, k)
@@ -1183,9 +1181,9 @@ def keys():
         if doublon:
             return jsonify({'ok': False, 'code': 'alias_deja_utilise',
                             'error': "Tu as déjà une clé nommée ainsi."}), 409
-        # LiteLLM d'abord : si on renommait seulement chez nous, sa console
-        # continuerait d'afficher l'ancien nom, et l'admin ne saurait plus à qui
-        # appartient une clé donnée.
+        # LiteLLM first: if we only renamed on our side, its console would keep
+        # showing the old name, and the admin could no longer tell who owns a
+        # given key.
         if not renommer_cle_litellm(k, alias):
             return jsonify({'ok': False,
                             'error': "Le nom n'a PAS pu être changé : LiteLLM n'a pas "
@@ -1195,10 +1193,10 @@ def keys():
         db.commit()
         return jsonify({'ok': True, 'key_alias': alias})
     if action == 'request_budget':
-        # Borné à l'écriture (audit du 2026-10-02) : `/api/admin` relit les 200
-        # dernières demandes ENTIÈRES toutes les 8 s, donc un motif de 4 Mio
-        # (MAX_FORM_MEMORY_SIZE) faisait sérialiser des centaines de Mo par
-        # réponse — sur une mémoire unifiée où l'OOM-killer vise le modèle servi.
+        # Capped at write time (audit of 2026-10-02): `/api/admin` re-reads the
+        # last 200 FULL requests every 8 s, so a 4 Mio reason
+        # (MAX_FORM_MEMORY_SIZE) made hundreds of MB serialize per response —
+        # on unified memory where the OOM-killer targets the served model.
         reason  = request.form.get('reason', '').strip()[:500]
         current = _litellm_user_info(session['username']).get('max_budget')
         db = get_db()
@@ -1207,8 +1205,8 @@ def keys():
             (session['username'],)
         ).fetchone()
         if existing:
-            # `code` : refus stable et fréquent, que l'interface traduit
-            # (cf. CLAUDE.md § i18n) plutôt que d'afficher la phrase française.
+            # `code`: stable and frequent refusal, which the UI translates
+            # (see CLAUDE.md § i18n) instead of displaying the French sentence.
             return jsonify({'ok': False, 'code': 'deja_en_attente',
                             'error': "Tu as déjà une demande en attente."}), 409
         db.execute(
@@ -1252,8 +1250,8 @@ def api_keys():
     running = get_running_models()
     model_limits[AUTO_MODEL_NAME] = (model_limits.get(running[0]) if running else None) \
         or {'context': 262144, 'output': 131072}
-    # Une seule lecture du réglage et UN appel à `_budget_remaining` : la même
-    # réponse les répétait trois et deux fois.
+    # A single read of the setting and ONE call to `_budget_remaining`: the same
+    # response repeated them three and two times.
     duree = get_setting('default_key_duration', KEY_DURATION)
     budget_used, budget_remaining = _budget_remaining(session['username'], default_budget, duree)
     return jsonify({
@@ -1297,49 +1295,49 @@ app.register_blueprint(chat_bp)
 @app.route('/api/search')
 @login_required
 def api_search():
-    """Recherche de modèles sur Hugging Face.
+    """Model search on Hugging Face.
 
-    Le contrat est le même que celui des actions d'admin : la réponse dit ce qui
-    s'est réellement passé. Une panne de HF renvoie 502 avec `ok: false` — jamais
-    une liste vide, qui se lit « ton modèle n'existe pas ».
+    The contract is the same as the admin actions: the response says what
+    really happened. An HF outage returns 502 with `ok: false` — never an
+    empty list, which reads « ton modèle n'existe pas ».
     """
     query = request.args.get('q', '').strip()
     task  = request.args.get('task', '').strip()
-    # Le filtre GB10 est désormais OPT-IN (2026-09-14). Il était appliqué d'office,
-    # et comme le tag `gb10` ne marque qu'une poignée de modèles testés sur DGX
-    # Spark, tout le reste de Hugging Face était invisible — l'opérateur en a
-    # conclu que la recherche ne marchait pas (il cherchait Ornith-1.5, qui n'est
-    # pas taggé). Un filtre qu'on n'a pas demandé ne doit pas décider des résultats.
-    # `all=1`, l'ancien paramètre qui désactivait le filtre, reste accepté pour ne
-    # pas casser un lien ou un client existant — il ne fait plus rien.
+    # The GB10 filter is now OPT-IN (2026-09-14). It was applied unconditionally,
+    # and since the `gb10` tag marks only a handful of models tested on DGX
+    # Spark, the whole rest of Hugging Face was invisible — the operator
+    # concluded that search did not work (they were looking for Ornith-1.5,
+    # which is not tagged). A filter nobody asked for must not decide the results.
+    # `all=1`, the old parameter that disabled the filter, is still accepted so
+    # an existing link or client does not break — it now does nothing.
     gb10  = request.args.get('gb10') == '1'
     try:
         skip = max(0, int(request.args.get('skip', 0)))
     except ValueError:
         skip = 0
-    # Un filtre inconnu fait répondre 400 à HF : c'est une erreur d'appel, pas
-    # une panne — on le dit, plutôt que de la déguiser en « aucun résultat ».
+    # An unknown filter makes HF answer 400: this is a call error, not an
+    # outage — we say so, rather than disguising it as « aucun résultat ».
     if task and task not in HF_TASKS:
         return jsonify({'ok': False, 'results': [], 'error': f"Tâche inconnue : {task}."}), 400
     try:
         results, has_more = search_hf_models_page(query, task, gb10_only=gb10, skip=skip)
     except HfIndisponible as e:
-        # `code` en plus de `error` : le portail est FR-first, mais l'interface peut
-        # traduire ce cas-là (l'anglais n'a de sens que s'il est complet), et le
-        # détail technique reste joint pour qui doit diagnostiquer.
+        # `code` in addition to `error`: the portal is FR-first, but the UI can
+        # translate that case (English only makes sense if it is complete), and
+        # the technical detail stays attached for whoever must diagnose.
         return jsonify({'ok': False, 'results': [], 'code': 'hf_indisponible',
                         'error': f"Hugging Face n'a pas répondu ({e}). Réessaie dans un instant."}), 502
-    # Filtre GB10 + aucun résultat : la question suivante de l'utilisateur est
-    # « est-ce que ça existe ailleurs ? ». On y répond (True/False/None = on ne
-    # sait pas, et alors l'interface ne dit rien).
+    # GB10 filter + no result: the user's next question is « est-ce que ça
+    # existe ailleurs ? ». We answer it (True/False/None = unknown, and then the
+    # UI says nothing).
     hors_gb10 = None
     if gb10 and query and not results:
         hors_gb10 = hf_modele_hors_gb10(query, task)
     return jsonify({'ok': True, 'results': results, 'query': query, 'task': task,
                     'gb10_only': gb10, 'skip': skip, 'page_size': _SEARCH_PAGE_SIZE,
                     'has_more': has_more, 'hors_gb10': hors_gb10,
-                    # Présence du jeton, JAMAIS sa valeur : elle dit à l'interface
-                    # si les dépôts à accès restreint peuvent apparaître.
+                    # Presence of the token, NEVER its value: it tells the UI
+                    # whether gated repositories can appear.
                     'hf_token': hf_jeton_present()})
 
 
@@ -1357,19 +1355,19 @@ def api_ranking():
     period = request.args.get('period', 'day')
     if period not in RANKING_PERIODS:
         period = 'day'
-    # La metrique est validee ici comme la periode : un classement sur autre
-    # chose que l'entree, le genere ou leur somme n'existe pas, et retomber sur
-    # le total vaut mieux que repondre une erreur a une page qui s'ouvre.
+    # The metric is validated here like the period: a ranking on anything other
+    # than input, generation or their sum does not exist, and falling back to
+    # the total beats answering an error to a page that opens.
     metric = request.args.get('metric', 'total')
     if metric not in RANKING_METRICS:
         metric = 'total'
     data = ranking_full(period, me=session['username'], metric=metric)
-    # La pp de chaque ligne. Le classement ne nommait que des comptes ; une pp
-    # se reconnait plus vite qu'un pseudo, et la liste d'admin la montrait deja.
-    # UNE lecture pour toute la page (et non une par ligne) : `user_prefs` est
-    # petite, mais la page se rafraichit souvent. Une ligne absente de la table
-    # garde `None`, c'est-a-dire l'avatar généré depuis le pseudo — le defaut de
-    # tout compte, cf. /api/whoami.
+    # The avatar of each row. The ranking only named accounts; an avatar is
+    # recognized faster than a nickname, and the admin list already showed it.
+    # ONE read for the whole page (not one per row): `user_prefs` is
+    # small, but the page refreshes often. A row absent from the table
+    # keeps `None`, i.e. the avatar generated from the nickname — the default of
+    # every account, see /api/whoami.
     avatars = {nom: av for nom, av in get_db().execute(
         "SELECT username, avatar_id FROM user_prefs").fetchall()}
     for ligne in data['rows']:
@@ -1386,12 +1384,12 @@ def request_model():
     # the POST action below remains used (postForm from request/page.tsx).
     if request.method != 'POST':
         return ('', 204)
-    # JSON d'abord (sendJSON), formulaire en repli : la route a longtemps été
-    # appelée en form-encodé et rien ne justifie de casser ce chemin.
+    # JSON first (sendJSON), form as fallback: the route was long called
+    # form-encoded and nothing justifies breaking that path.
     donnees = request.get_json(silent=True) or request.form
-    # Mêmes bornes que les routes voisines (`admin_routes` :1203, `settings_routes`
-    # :218) : le type est vérifié au passage, un JSON non-chaîne levait sinon un
-    # AttributeError en 500 (audit du 2026-10-02).
+    # Same bounds as the neighbouring routes (`admin_routes` :1203, `settings_routes`
+    # :218): the type is checked along the way, a non-string JSON would otherwise
+    # raise an AttributeError in 500 (audit of 2026-10-02).
     brut_id  = donnees.get('model_id')
     brut_motif = donnees.get('reason')
     model_id = (brut_id.strip() if isinstance(brut_id, str) else '')[:200]
@@ -1405,8 +1403,8 @@ def request_model():
         (session['username'], model_id)
     ).fetchone()
     if existing:
-        # Avant : flash() + 204. Le flash n'est rendu par aucun template, donc
-        # la page annonçait « Demande envoyée ! » sans qu'aucune ligne n'existe.
+        # Before: flash() + 204. The flash is rendered by no template, so the
+        # page announced « Demande envoyée ! » while no row existed.
         return jsonify({'ok': False, 'code': 'deja_en_attente',
                         'error': f"Tu as déjà une demande en attente pour « {model_id} »."}), 409
     db.execute(
@@ -1418,8 +1416,8 @@ def request_model():
     db.commit()
     discord_ok = notify_discord(model_id, session['username'], session['fullname'], reason)
     email_ok = notify_email(model_id, session['username'], session['fullname'], reason)
-    # La demande EST enregistrée : un échec de notification est un avertissement,
-    # pas une erreur — mais il doit se voir (l'admin est prévenu par ces canaux).
+    # The request IS recorded: a notification failure is a warning,
+    # not an error — but it must show (the admin is warned via these channels).
     reponse = {'ok': True, 'message': f"Demande envoyée pour « {model_id} » !",
                'discord_sent': bool(discord_ok), 'email_sent': bool(email_ok)}
     if not (discord_ok or email_ok):
@@ -1427,7 +1425,7 @@ def request_model():
                               "(ni Discord ni email).")
     return jsonify(reponse)
 
-# Usage par sidecar (administration) : cf. stats.py
+# Per-sidecar usage (administration): see stats.py
 
 
 
@@ -1456,17 +1454,17 @@ with app.app_context():
     _db.commit()
 
 def _start_grant_reaper():
-    """Thread démon : ramène les plafonds expirés à leur base (toutes les 60 s).
+    """Daemon thread: brings expired caps back to their base (every 60 s).
 
-    Les subventions temporaires (budget_grants) vivent côté LiteLLM : sans
-    ce balayage, un supplément accordé « pour 3 jours » resterait la limite
-    pour toujours dès que personne ne charge le portail. Le premier tour au
-    démarrage rattrape les échéances manquées pendant une coupure."""
+    Temporary grants (budget_grants) live on the LiteLLM side: without
+    this sweep, an extra granted « pour 3 jours » would remain the limit
+    forever as soon as nobody loads the portal. The first run at startup
+    catches up on deadlines missed during an outage."""
     import threading
 
     def _loop():
-        # Import local : le thread démarre à l'import d'app.py, AVANT que le
-        # module des routes admin (monté plus bas) ne soit chargé.
+        # Local import: the thread starts at app.py import time, BEFORE the
+        # admin routes module (mounted below) is loaded.
         from admin_routes import revert_expired_grants
         while True:
             try:

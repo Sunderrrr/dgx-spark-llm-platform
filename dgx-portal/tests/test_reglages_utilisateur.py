@@ -1,17 +1,17 @@
-"""Les routes des PARAMÈTRES UTILISATEUR, et leur contrat de réponse.
+"""The USER SETTINGS routes, and their response contract.
 
-Pourquoi ce fichier existe : les actions de l'onglet « Clés API » (`POST /keys`)
-et celles des réglages (`/settings/avatar`, `/settings/appearance`) répondaient
-`('', 204)` après un `flash(...)`. Or **aucun template ne rend les flash** —
-l'interface est Next.js —, donc l'utilisateur lisait « Clé créée ! » ou « Clé
-révoquée. » quoi qu'il arrive. Le cas grave : LiteLLM injoignable, la révocation
-échouait et la clé restait VALIDE pendant que l'utilisateur la croyait morte.
+Why this file exists: the actions of the « Clés API » tab (`POST /keys`)
+and those of the settings (`/settings/avatar`, `/settings/appearance`)
+answered `('', 204)` after a `flash(...)`. Yet **no template renders the
+flashes** — the UI is Next.js —, so the user read « Clé créée ! » or « Clé
+révoquée. » whatever happened. The serious case: LiteLLM unreachable, the
+revocation failed and the key stayed VALID while the user believed it dead.
 
-Ces tests verrouillent le contrat honnête : un succès dit `{ok: true}`, un refus
-porte un statut HTTP qui le dit (`404` clé inconnue, `409` demande déjà en
-attente, `502` amont injoignable, `400` valeur invalide).
+These tests lock in the honest contract: a success says `{ok: true}`, a
+refusal carries an HTTP status saying it (`404` unknown key, `409` request
+already pending, `502` upstream unreachable, `400` invalid value).
 
-Aucun appel réseau : `create_litellm_key` / `revoke_litellm_key` sont remplacés.
+No network call: `create_litellm_key` / `revoke_litellm_key` are replaced.
 """
 import time
 import unittest
@@ -44,7 +44,7 @@ class _BaseReglages(unittest.TestCase):
         return portal.app.app_context()
 
     def _insere_local(self, username, password="Motdepasse1!", is_admin=0, enabled=1):
-        """Crée le compte LOCAL que les routes lisent (`local_users`)."""
+        """Creates the LOCAL account the routes read (`local_users`)."""
         with self._db():
             db = portal.get_db()
             db.execute("DELETE FROM local_users WHERE username=?", (username,))
@@ -78,7 +78,7 @@ class _BaseReglages(unittest.TestCase):
 
 
 class ClesApiTest(_BaseReglages):
-    """`POST /keys` : création, révocation, demande de budget."""
+    """`POST /keys`: creation, revocation, budget request."""
 
     def _insere_cle(self, valeur="sk-test-123", alias="poste-test", user="demo"):
         with self._db():
@@ -90,7 +90,7 @@ class ClesApiTest(_BaseReglages):
             db.commit()
 
     def test_creation_reussie_rend_la_cle(self):
-        """La valeur repart vers l'interface : c'est le seul instant où on la voit."""
+        """The value goes back to the UI: the only moment one sees it."""
         c = self._client()
         with patch.object(portal, "create_litellm_key", return_value="sk-neuve-999"):
             r = self._post(c, "/keys", {"action": "create", "key_name": "mon-laptop"})
@@ -107,7 +107,7 @@ class ClesApiTest(_BaseReglages):
         self.assertEqual(ligne["key_alias"], "mon-laptop")
 
     def test_creation_ratee_dit_502_et_ne_ment_pas(self):
-        """LiteLLM muet : avant, l'interface annonçait « Clé créée ! »."""
+        """LiteLLM mute: before, the UI announced « Clé créée ! »."""
         c = self._client()
         with patch.object(portal, "create_litellm_key", return_value=None):
             r = self._post(c, "/keys", {"action": "create", "key_name": "x"})
@@ -135,7 +135,7 @@ class ClesApiTest(_BaseReglages):
                         f"alias généré inattendu : {vus['alias']!r}")
 
     def test_revocation_dune_cle_dun_autre_compte_refusee(self):
-        """Anti-IDOR : la clé existe, mais pas sur CE compte."""
+        """Anti-IDOR: the key exists, but not on THIS account."""
         self._insere_cle(valeur="sk-autrui", user="autre")
         c = self._client("demo")
         with patch.object(portal, "revoke_litellm_key", return_value=True):
@@ -144,7 +144,7 @@ class ClesApiTest(_BaseReglages):
         self.assertFalse(r.get_json()["ok"])
 
     def test_revocation_ratee_dit_que_la_cle_est_encore_valide(self):
-        """Le mensonge dangereux : « Clé révoquée. » alors qu'elle marche encore."""
+        """The dangerous lie: « Clé révoquée. » while it still works."""
         self._insere_cle(valeur="sk-vive")
         c = self._client()
         with patch.object(portal, "revoke_litellm_key", return_value=False):
@@ -169,7 +169,7 @@ class ClesApiTest(_BaseReglages):
         self.assertIsNone(ligne)
 
     def test_demande_de_budget_deja_en_attente_refusee(self):
-        """Le bouton affichait « Demande envoyée ! » alors que le serveur refusait."""
+        """The button displayed « Demande envoyée ! » while the server refused."""
         with self._db():
             db = portal.get_db()
             db.execute("DELETE FROM budget_requests WHERE username='demo'")
@@ -214,13 +214,13 @@ class ClesApiTest(_BaseReglages):
         self.assertFalse(r.get_json()["ok"])
 
     def test_get_reste_sans_corps(self):
-        """Le GET n'est pas une page : l'interface Next.js porte l'écran."""
+        """The GET is not a page: the Next.js UI carries the screen."""
         c = self._client()
         self.assertEqual(c.get("/keys").status_code, 204)
 
 
 class AvatarTest(_BaseReglages):
-    """`POST /settings/avatar` : `flash` invisible → réponse lisible."""
+    """`POST /settings/avatar`: invisible `flash` → readable response."""
 
     def test_avatar_inconnu_refuse_en_400(self):
         c = self._client()
@@ -243,12 +243,12 @@ class AvatarTest(_BaseReglages):
         self.assertEqual(ligne["avatar_id"], avatars[0])
 
     def test_avatar_genere_remet_a_null(self):
-        """Le choix « avatar généré » (valeur vide) doit revenir en arrière.
+        """The « avatar généré » choice (empty value) must be able to go back.
 
-        C'est `NULL` qui veut dire « aucun logo choisi, donc avatar créé à
-        partir du pseudo » : sans ce retour possible, un compte qui avait pris
-        un logo de marque ne pouvait plus jamais revenir à l'avatar par défaut —
-        et la valeur vide n'était même pas acceptée (400).
+        It is `NULL` that means « aucun logo choisi, donc avatar créé à
+        partir du pseudo »: without this way back, an account that had taken
+        a brand logo could never return to the default avatar — and the
+        empty value was not even accepted (400).
         """
         with self._db():
             avatars = portal.AVATAR_IDS
@@ -267,7 +267,7 @@ class AvatarTest(_BaseReglages):
         self.assertIsNone(ligne["avatar_id"])
 
     def test_avatar_genere_accepte_en_toutes_lettres(self):
-        """`genere` est accepté comme synonyme de la valeur vide."""
+        """`genere` is accepted as a synonym of the empty value."""
         c = self._client()
         r = self._post(c, "/settings/avatar", {"avatar_id": "genere"})
         self.assertEqual(r.status_code, 200)
@@ -278,7 +278,7 @@ class AvatarTest(_BaseReglages):
 
 
 class ApparenceTest(_BaseReglages):
-    """`POST /settings/appearance` : le refus portait le statut du succès."""
+    """`POST /settings/appearance`: the refusal carried the success status."""
 
     def test_theme_inconnu_refuse_en_400(self):
         c = self._client()
@@ -306,7 +306,7 @@ class ApparenceTest(_BaseReglages):
 
 
 class RenommageCleTest(_BaseReglages):
-    """`action=rename` : l'alias est ce qui permet de retrouver sa clé."""
+    """`action=rename`: the alias is what lets one find their key back."""
 
     def _insere_cle(self, valeur="sk-ren-1", alias="poste-test", user="demo"):
         with self._db():
@@ -324,7 +324,7 @@ class RenommageCleTest(_BaseReglages):
         return ligne["key_alias"] if ligne else None
 
     def test_renommage_reussi_des_deux_cotes(self):
-        """Portail ET LiteLLM : sinon les deux vues divergent."""
+        """Portal AND LiteLLM: else the two views diverge."""
         self._insere_cle()
         c = self._client()
         appels = []
@@ -349,7 +349,7 @@ class RenommageCleTest(_BaseReglages):
         self.assertEqual(self._alias("sk-autrui-ren"), "poste-test")
 
     def test_litellm_injoignable_garde_l_ancien_nom(self):
-        """Un renommage à moitié fait serait pire que pas de renommage."""
+        """A half-done rename would be worse than no rename."""
         self._insere_cle()
         c = self._client()
         with patch.object(portal, "renommer_cle_litellm", return_value=False):
@@ -382,7 +382,7 @@ class RenommageCleTest(_BaseReglages):
         self.assertEqual(self._alias("sk-ren-1"), "poste-test")
 
     def test_nom_assaini_et_borne(self):
-        """Un alias de 4000 caractères casserait l'affichage de la liste."""
+        """A 4000-character alias would break the list display."""
         self._insere_cle()
         c = self._client()
         with patch.object(portal, "renommer_cle_litellm", return_value=True):
@@ -396,7 +396,7 @@ class RenommageCleTest(_BaseReglages):
 
 
 class SourceMotDePasseTest(_BaseReglages):
-    """Qui détient le mot de passe : la question qui décide de ce qu'on affiche."""
+    """Who holds the password: the question deciding what we display."""
 
     def test_compte_local(self):
         self._insere_local("zz-gestion-local")
@@ -424,7 +424,7 @@ class SourceMotDePasseTest(_BaseReglages):
         self._nettoie("zz-gestion-sso")
 
     def test_compte_sans_source_connue(self):
-        """Donnée absente ≠ absence de mot de passe : on ne devine pas."""
+        """Missing data ≠ no password: we do not guess."""
         self._nettoie("zz-gestion-inconnu")
         with self._db():
             info = portal.gestion_mot_de_passe("zz-gestion-inconnu")
@@ -432,7 +432,7 @@ class SourceMotDePasseTest(_BaseReglages):
         self.assertFalse(info["local"])
 
     def test_local_et_sso_le_local_fait_autorite(self):
-        """Les sources sont CUMULATIVES : annoncer « SSO » serait faux."""
+        """The sources are CUMULATIVE: announcing « SSO » would be false."""
         self._insere_local("zz-gestion-mixte")
         self._insere_source("zz-gestion-mixte", "local,sso")
         with self._db():
@@ -442,10 +442,10 @@ class SourceMotDePasseTest(_BaseReglages):
 
 
 class SecuriteCompteTest(_BaseReglages):
-    """`/api/security` : dire pourquoi une passkey n'est pas proposable."""
+    """`/api/security`: say why a passkey is not offerable."""
 
     def test_sso_refuse_la_verification_sans_compter_d_echec(self):
-        """Un compte SSO qui essaie son mot de passe ne doit pas se verrouiller."""
+        """An SSO account trying its password must not lock itself out."""
         self._insere_source("zz-sec-sso", "sso")
         c = self._client("zz-sec-sso")
         with self._db():
@@ -482,7 +482,7 @@ class SecuriteCompteTest(_BaseReglages):
 
 
 class SuppressionCompteTest(_BaseReglages):
-    """`/api/account/delete` : partir soi-même, sans mentir sur ce qui reste."""
+    """`/api/account/delete`: leave on one's own, without lying about what remains."""
 
     def _patch_litellm(self):
         return patch.multiple(
@@ -515,8 +515,8 @@ class SuppressionCompteTest(_BaseReglages):
         with patch("auth.ldap_authenticate", return_value=(False, None, None)):
             r = self._json_post(c, "/api/account/delete",
                                 {"confirm": "DELETE", "password": "faux"})
-        # 400 : le portail répond « la confirmation est fausse », pas « tu n'es
-        # pas authentifié » — un 401 ferait déconnecter l'utilisateur.
+        # 400: the portal answers « la confirmation est fausse », not « tu n'es
+        # pas authentifié » — a 401 would log the user out.
         self.assertEqual(r.status_code, 400)
         with self._db():
             self.assertIsNotNone(portal.get_db().execute(
@@ -524,15 +524,15 @@ class SuppressionCompteTest(_BaseReglages):
         self._nettoie("zz-del-3")
 
     def test_un_compte_local_n_interroge_pas_l_annuaire(self):
-        """Le refus d'un mot de passe local ne doit pas ATTENDRE l'annuaire.
+        """The refusal of a local password must not WAIT for the directory.
 
-        Mesuré le 2026-09-17 en production : `POST /api/security/register/begin`
-        mettait **13 s** à refuser un mot de passe faux, parce que la
-        vérification locale échouée enchaînait sur un bind LDAP sur un annuaire
-        muet — et le refus est le cas FRÉQUENT. Le worker gunicorn restait
-        immobilisé tout ce temps (quatre fautes de frappe simultanées suffisaient
-        à figer le portail). Le test verrouille l'intention sans dépendre d'une
-        horloge : l'annuaire ne doit même pas être appelé.
+        Measured on 2026-09-17 in production: `POST /api/security/register/begin`
+        took **13 s** to refuse a wrong password, because the failed local
+        check chained onto an LDAP bind against a mute directory — and the
+        refusal is the FREQUENT case. The gunicorn worker stayed stuck all
+        that time (four simultaneous typos were enough to freeze the
+        portal). The test locks in the intent without depending on a
+        clock: the directory must not even be called.
         """
         self._insere_local("zz-del-5")
         c = self._client("zz-del-5")
@@ -569,11 +569,11 @@ class SuppressionCompteTest(_BaseReglages):
         self._nettoie("zz-del-4")
 
     def test_dernier_admin_local_refuse(self):
-        """Se couper la main laisserait le portail sans administrateur local."""
+        """Cutting one's own hand would leave the portal without a local admin."""
         self._insere_local("zz-del-admin", is_admin=1)
         with self._db():
             db = portal.get_db()
-            # Aucun autre admin local actif : c'est la situation visée.
+            # No other active local admin: this is the targeted situation.
             db.execute("UPDATE local_users SET is_admin=0 WHERE username<>'zz-del-admin'")
             db.commit()
         c = self._client("zz-del-admin", is_admin=True)
@@ -588,14 +588,14 @@ class SuppressionCompteTest(_BaseReglages):
         self._nettoie("zz-del-admin")
 
     def test_compte_d_annuaire_exige_le_mot_de_passe(self):
-        """Un compte LDAP ne se purge pas sur le seul cookie.
+        """An LDAP account is not purged on the cookie alone.
 
-        Le portail SAIT vérifier un mot de passe LDAP (`_verify_password_locked`
-        interroge l'annuaire) : la justification d'origine (« un compte
-        d'annuaire n'a aucun mot de passe que le portail puisse vérifier ») ne
-        valait que pour le SSO. La suppression emporte clés API et enveloppe
-        LiteLLM : elle exige donc la même preuve qu'en local. Ici l'annuaire est
-        injoignable depuis les tests → refus, et RIEN n'est purgé.
+        The portal KNOWS how to check an LDAP password
+        (`_verify_password_locked` queries the directory): the original
+        justification (« un compte d'annuaire n'a aucun mot de passe que le
+        portail puisse vérifier ») only held for SSO. Deletion takes away
+        API keys and the LiteLLM envelope: it demands the same proof as for
+        a local one. Here the directory is unreachable → nothing is purged.
         """
         self._insere_source("zz-del-ldap", "ldap")
         with self._db():
@@ -616,9 +616,9 @@ class SuppressionCompteTest(_BaseReglages):
         self._nettoie("zz-del-ldap")
 
     def test_compte_sso_purge_toujours_sans_mot_de_passe(self):
-        """Le compte SSO, lui, n'a aucun mot de passe vérifiable : on ne le bloque pas.
+        """The SSO account, for its part, has no checkable password: we do not block it.
 
-        Exiger une preuve impossible rendrait la sortie du portail inatteignable.
+        Requiring impossible proof would make leaving the portal unreachable.
         """
         self._insere_source("zz-del-sso", "sso")
         with self._db():
@@ -640,7 +640,7 @@ class SuppressionCompteTest(_BaseReglages):
 
 
 class BudgetAffichageTest(_BaseReglages):
-    """`/api/settings` : la consommation est celle de la PÉRIODE, et elle le dit."""
+    """`/api/settings`: the consumption is the PERIOD's, and it says so."""
 
     def test_le_payload_porte_la_date_de_remise_a_zero(self):
         faux = {"exists": True, "spend": 42, "max_budget": 100,
@@ -655,7 +655,7 @@ class BudgetAffichageTest(_BaseReglages):
                         "la durée de l'enveloppe doit accompagner le plafond")
 
     def test_sans_enveloppe_la_date_reste_absente(self):
-        """Pas de date inventée quand LiteLLM n'en donne pas."""
+        """No invented date when LiteLLM gives none."""
         faux = {"exists": False, "spend": 0, "max_budget": None, "budget_reset_at": ""}
         c = self._client()
         with patch("settings_routes._litellm_user_info", return_value=faux):

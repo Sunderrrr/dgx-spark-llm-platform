@@ -1,9 +1,9 @@
-"""Détecteur de base réinitialisée (db._detecte_base_reinitialisee).
+"""Reset-database detector (db._detecte_base_reinitialisee).
 
-Le 04/09/2026 le contenu de portal.db a été réinitialisé sans cause
-identifiée et personne ne l'a vu pendant trois jours. Contrat figé ici :
-une base peuplée crée le marqueur ; une base VIDE alors que le marqueur
-existe alerte (email infra) ; une base vierge d'usine n'alerte jamais.
+On 04/09/2026 the contents of portal.db were reset with no identified cause
+and nobody saw it for three days. Contract frozen here: a populated database
+creates the marker; an EMPTY database while the marker exists alerts (infra
+email); a factory-fresh database never alerts.
 """
 import os
 import sqlite3
@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 from db import DB_PATH, DB_RESET_MARKER, _detecte_base_reinitialisee
-import app as portal   # noqa: F401  (déclenche init_db : schéma complet)
+import app as portal   # noqa: F401  (triggers init_db: full schema)
 
 
 class DetecteurTest(unittest.TestCase):
@@ -25,7 +25,7 @@ class DetecteurTest(unittest.TestCase):
             self.db.rollback()
             self.db.close()
         except sqlite3.ProgrammingError:
-            pass  # connexion volontairement fermée par un test
+            pass  # connection deliberately closed by a test
         if os.path.exists(DB_RESET_MARKER):
             os.remove(DB_RESET_MARKER)
 
@@ -47,7 +47,7 @@ class DetecteurTest(unittest.TestCase):
 
     def test_marqueur_present_et_base_vide_alerte(self):
         self._peuple()
-        _detecte_base_reinitialisee(self.db)          # crée le marqueur
+        _detecte_base_reinitialisee(self.db)          # creates the marker
         self.db.execute("DELETE FROM conversations")
         with mock.patch('notify.notify_infra_alert_email') as alerte:
             _detecte_base_reinitialisee(self.db)
@@ -56,10 +56,10 @@ class DetecteurTest(unittest.TestCase):
         self.assertIn('reset', sujet.lower())
 
     def test_rien_apres_lecture_impossible(self):
-        # Le détecteur ne doit JAMAIS faire échouer init_db : sur une vraie
-        # connexion fermée, il avale l'erreur (pas d'exception propagée).
+        # The detector must NEVER fail init_db: on a really closed connection it
+        # swallows the error (no exception propagated).
         self.db.close()
-        _detecte_base_reinitialisee(self.db)  # ne doit pas lever
+        _detecte_base_reinitialisee(self.db)  # must not raise
 
 
 if __name__ == '__main__':

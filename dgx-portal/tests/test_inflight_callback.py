@@ -1,13 +1,13 @@
-"""Tests du callback LiteLLM d'activite en vol (`dgx-portal/litellm_inflight.py`).
+"""Tests of the LiteLLM in-flight activity callback (`dgx-portal/litellm_inflight.py`).
 
-Ce module tourne DANS le proxy (monte sous le nom `cronos_inflight`), mais sa
-logique est critique : c'est la seule source qui nomme un utilisateur pendant
-qu'il genere. Deux proprietes a figer, dont la premiere est non negociable :
+This module runs INSIDE the proxy (mounted as `cronos_inflight`), but its
+logic is critical: it is the only source naming a user while they generate.
+Two properties to freeze, the first one non-negotiable:
 
-  - une erreur d'ecriture ne doit JAMAIS remonter : une requete ne peut pas
-    echouer parce que le suivi d'activite n'a pas pu ecrire ;
-  - une ligne ouverte est retiree a la fin, en succes comme en echec, sinon le
-    panneau afficherait indefiniment des sessions fantomes.
+  - a write error must NEVER surface: a request cannot fail because the
+    activity tracking could not write;
+  - an opened row is removed at the end, on success as on failure, else the
+    panel would display ghost sessions indefinitely.
 """
 import importlib.util
 import os
@@ -17,14 +17,14 @@ import time
 import unittest
 from unittest import mock
 
-# Le module vit dans dgx-portal/ (et non dans litellm/) parce que le conteneur de
-# tests ne monte que ce dossier : c'est ce qui le garde couvert par la CI. LiteLLM,
-# lui, le recoit monte sous le nom `cronos_inflight` — voir docker-compose.yml.
+# The module lives in dgx-portal/ (not in litellm/) because the test
+# container only mounts that folder: this is what keeps it covered by CI.
+# LiteLLM, for its part, gets it mounted as `cronos_inflight` — see docker-compose.yml.
 import litellm_inflight
 
 
 def _charge(chemin_db):
-    """Recharge le module avec un fichier de suivi jetable."""
+    """Reloads the module with a throwaway tracking file."""
     os.environ['CRONOS_INFLIGHT_DB'] = chemin_db
     importlib.reload(litellm_inflight)
     return litellm_inflight
@@ -58,7 +58,7 @@ class ActiviteEnVolTest(unittest.TestCase):
         self.assertEqual(self._lignes(), [])
 
     def test_deux_requetes_concurrentes_sont_independantes(self):
-        """4 sessions sur ce moteur : retirer l'une ne doit pas toucher l'autre."""
+        """4 sessions on this engine: removing one must not touch the other."""
         self.mod._enregistre(_kwargs('c1', 'alice-1', 'alice'))
         self.mod._enregistre(_kwargs('c2', 'bob-1', 'bob'))
         self.mod._retire(_kwargs('c1', 'alice-1', 'alice'))
@@ -79,11 +79,11 @@ class ActiviteEnVolTest(unittest.TestCase):
         self.assertEqual(self.mod._retire({'litellm_params': {}}), 0)
 
     def test_une_base_illisible_ne_fait_pas_echouer_la_requete(self):
-        """Premiere regle : le suivi d'activite n'est jamais fatal."""
+        """First rule: activity tracking is never fatal."""
         with mock.patch.object(self.mod, '_ouvre', side_effect=RuntimeError('disque plein')):
             with self.assertRaises(RuntimeError):
                 self.mod._enregistre(_kwargs())
-            # Les hooks, eux, avalent l'erreur : c'est ce qui protege la requete.
+            # The hooks, for their part, swallow the error: this is what protects the request.
             hooks = self.mod.ActiviteEnVol()
             import asyncio
             asyncio.run(hooks.async_log_pre_api_call('m', [], _kwargs()))
@@ -99,22 +99,22 @@ class ActiviteEnVolTest(unittest.TestCase):
         self.assertEqual(self._lignes(), [])
 
     def test_les_hooks_SYNCHRONES_ecrivent_et_retirent(self):
-        """Ce sont eux que cette version de LiteLLM appelle reellement.
+        """These are the ones this LiteLLM version really calls.
 
-        Regression du 2026-09-14 : la classe n'implementait que les variantes
-        asynchrones. Or `async_log_pre_api_call` est declare par `CustomLogger`
-        mais jamais invoque par le proxy (verifie dans le paquet installe) : le
-        pre-appel part de `litellm.input_callback` et le succes de
-        `litellm.callbacks`, qui appellent les methodes SYNCHRONES. Consequence
-        observee en production : table creee, table vide, aucune erreur — un
-        silence parfait. Ce test est la garde qui manquait.
+        Regression of 2026-09-14: the class only implemented the async
+        variants. Yet `async_log_pre_api_call` is declared by `CustomLogger`
+        but never invoked by the proxy (checked in the installed package):
+        the pre-call goes through `litellm.input_callback` and the success
+        through `litellm.callbacks`, which call the SYNCHRONOUS methods.
+        Observed in production: table created, table empty, no error —
+        perfect silence. This test is the missing guard.
         """
         hooks = self.mod.ActiviteEnVol()
         hooks.log_pre_api_call(model='auto-model', messages=[], kwargs=_kwargs())
         self.assertEqual(len(self._lignes()), 1)
 
-        # L'echec retire aussi : une requete refusee ne doit pas laisser un nom
-        # affiche comme « en cours » jusqu'a la peremption.
+        # The failure removes too: a refused request must not leave a name
+        # displayed as « en cours » until expiry.
         hooks.log_failure_event(kwargs=_kwargs())
         self.assertEqual(self._lignes(), [])
 
@@ -124,7 +124,7 @@ class ActiviteEnVolTest(unittest.TestCase):
         self.assertEqual(self._lignes(), [])
 
     def test_les_hooks_synchrones_ne_sont_pas_fatals(self):
-        """Meme garantie que pour l'asynchrone : jamais d'exception remontee."""
+        """Same guarantee as for the async one: never a raised exception."""
         hooks = self.mod.ActiviteEnVol()
         with mock.patch.object(self.mod, '_ouvre', side_effect=RuntimeError('disque plein')):
             hooks.log_pre_api_call(model='m', messages=[], kwargs=_kwargs())

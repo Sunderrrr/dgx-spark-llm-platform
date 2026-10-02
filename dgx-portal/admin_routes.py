@@ -1,16 +1,16 @@
-"""Administration : modeles, sidecars, comptes, annonces, reglages globaux.
+"""Administration: models, sidecars, accounts, announcements, global settings.
 
-Extrait de app.py le 28/08 — dernier gros bloc du monolithe, 48 routes. Il
-regroupe deux bannieres qui n'en formaient qu'une en pratique : la gestion des
-modeles et sidecars, et celle des comptes.
+Extracted from app.py on 28/08 — last big block of the monolith, 48 routes. It
+groups two banners that formed only one in practice: model and sidecar
+management, and account management.
 
-Pas d'url_prefix : toutes les URL restent identiques au caractere pres. La vue
-`admin` (GET /admin, 204) a ete SUPPRIMEE le 2026-09-17 : elle n'existait plus
-que comme cible des `url_for('admin')` des routes d'action, et ces routes
-repondent toutes du JSON depuis le 2026-09-13 — plus un seul `url_for('admin')`
-n'existe. Verifie en direct avant de la retirer : https://dgx.cronos.website/admin
-repond `text/html` (c'est la page Next.js qui sert /admin), donc l'endpoint Flask
-etait inatteignable.
+No url_prefix: all URLs stay identical to the character. The `admin` view
+(GET /admin, 204) was REMOVED on 2026-09-17: it existed only as the target of
+the `url_for('admin')` calls of the action routes, and those routes have all
+answered JSON since 2026-09-13 — not a single `url_for('admin')` remains.
+Verified live before removing it: https://dgx.cronos.website/admin
+answers `text/html` (it is the Next.js page serving /admin), so the Flask
+endpoint was unreachable.
 """
 import json
 import os
@@ -59,10 +59,10 @@ from vllm_health import get_running_models, guess_engine, vllm_health
 
 bp = Blueprint('admin', __name__)
 
-# Statistiques (agregats, classements, utilisateurs actifs) : cf. stats.py.
-# Les noms utilises sont importes en tete (voir ci-dessus, lignes 43-45) ; les
-# agregats du monolithe (classements, inflight, buckets) ont ete rapatries dans
-# leur propre module et ne sont plus utilises ici.
+# Statistics (aggregates, rankings, active users): see stats.py.
+# The names used are imported at the top (see above, lines 43-45); the
+# monolith's aggregates (rankings, inflight, buckets) were moved to their
+# own module and are no longer used here.
 
 @bp.route('/usage/hourly')
 @login_required
@@ -89,20 +89,20 @@ def admin_consumption():
 @admin_required
 def api_admin():
     db = get_db()
-    # Listes BORNÉES : elles grandissaient avec tout l'historique (chaque demande
-    # de chaque compte, depuis toujours) et partaient entières au navigateur à
-    # chaque rafraîchissement de 8 s. Les COMPTEURS, eux, restent exacts : ils se
-    # calculent en SQL sur la table entière, pas sur la page affichée.
+    # BOUNDED lists: they grew with the whole history (every request from
+    # every account, since forever) and went in full to the browser at every
+    # 8 s refresh. The COUNTERS, in contrast, stay exact: they are computed
+    # in SQL over the whole table, not over the displayed page.
     all_reqs    = db.execute("SELECT * FROM model_requests ORDER BY created_at DESC LIMIT 200").fetchall()
     model_cfgs  = db.execute("SELECT * FROM model_configs ORDER BY name").fetchall()
     ocr_cfgs    = db.execute("SELECT * FROM ocr_configs ORDER BY name").fetchall()
     voice_cfgs  = db.execute("SELECT * FROM voice_configs ORDER BY name").fetchall()
     budget_reqs = db.execute("SELECT * FROM budget_requests ORDER BY created_at DESC LIMIT 200").fetchall()
-    # Un SEUL balayage pour les trois compteurs de `model_requests` : la page
-    # admin rappelle /api/admin toutes les 8 s, et quatre COUNT(*) sur la même
-    # table la faisaient lire quatre fois. `SUM(<condition>)` compte exactement
-    # comme un COUNT filtré ; `or 0` couvre la table vide (SUM rend NULL là où
-    # COUNT rendait 0).
+    # A SINGLE scan for the three counters of `model_requests`: the admin
+    # page calls /api/admin every 8 s, and four COUNT(*) on the same
+    # table made it read four times. `SUM(<condition>)` counts exactly
+    # like a filtered COUNT; `or 0` covers the empty table (SUM returns NULL
+    # where COUNT returned 0).
     compte = db.execute(
         "SELECT SUM(status='pending') AS pending, SUM(status='done') AS done, "
         "SUM(status='rejected') AS rejected FROM model_requests").fetchone()
@@ -127,13 +127,13 @@ def api_admin():
         'voice_status': lambda: _sidecar_status('voice'),
         'voice_model_name': get_voice_model,
         'asr_status': lambda: _sidecar_status('asr'),
-        # Modèle dictée RÉELLEMENT chargé (lu sur le sidecar) : l'onglet Dictée
-        # affichait « whisper-large-v3-turbo » en dur — vrai aujourd'hui, faux
-        # au premier changement de modèle. None quand rien n'est servi.
+        # Dictation model ACTUALLY loaded (read from the sidecar): the Dictée
+        # tab displayed « whisper-large-v3-turbo » hardcoded — true today, wrong
+        # at the first model change. None when nothing is served.
         'asr_model_name': asr_model_name,
-        # POURQUOI la dictée n'est pas disponible quand le conteneur tourne
-        # pourtant : le sidecar publie la cause de l'échec de chargement
-        # (typiquement un CUDA out of memory). None s'il n'y a pas d'échec.
+        # WHY dictation is unavailable even though the container is
+        # running: the sidecar publishes the cause of the load failure
+        # (typically a CUDA out of memory). None if there is no failure.
         'asr_load_error': asr_load_error,
         'image_status': lambda: _sidecar_status('image'),
         'image_model_name': lambda: get_image_model(),
@@ -171,8 +171,8 @@ def api_admin():
         'voice_cfgs': [dict(r) for r in voice_cfgs],
         'image_model_ids': sorted(IMAGE_MODEL_IDS),
         'budget_reqs': [dict(r) for r in budget_reqs],
-        # Subventions TEMPORAIRES en cours : l'admin voit ce qui reviendra au
-        # plafond de base, et quand.
+        # TEMPORARY grants in progress: the admin sees what will return to the
+        # base cap, and when.
         'budget_grants': [dict(r) for r in db.execute(
             "SELECT * FROM budget_grants WHERE expires_at > ? ORDER BY expires_at",
             (datetime.utcnow().isoformat(),)).fetchall()],
@@ -182,20 +182,20 @@ def api_admin():
     })
 
 
-# --- État de la plateforme -------------------------------------------------
-# Ce que le MONITEUR HÔTE surveille déjà mais que personne ne pouvait LIRE : son
-# seul canal est l'email, donc hors panne l'administrateur ne savait ni quand la
-# dernière sauvegarde avait eu lieu, ni combien d'espace restait, sans ouvrir un
-# shell. Les deux chemins sont montés en lecture seule dans le conteneur et les
-# dumps sont en 0600 root : on ne lit que des NOMS et des dates, jamais un
-# contenu de dump.
+# --- Platform state ---------------------------------------------------------
+# What the HOST MONITOR already watches but nobody could READ: its only
+# channel is e-mail, so outside an incident the administrator knew neither when
+# the last backup happened, nor how much space was left, without opening a
+# shell. The two paths are mounted read-only in the container and the
+# dumps are 0600 root: we only read NAMES and dates, never dump
+# content.
 _BACKUP_DIR = os.environ.get('BACKUP_DIR', '/var/backups/cronos')
 _MONITOR_STATE = os.environ.get('MONITOR_STATE', '/var/lib/cronos-monitor/state.json')
-_SEUIL_SAUVEGARDE_H = 26      # le dump tourne à 03:00 : au-delà de 26 h, il est en retard
+_SEUIL_SAUVEGARDE_H = 26      # the dump runs at 03:00: beyond 26 h, it is late
 
 
 def _etat_disque():
-    """Espace du volume de données — même système de fichiers que l'hôte."""
+    """Space on the data volume — same filesystem as the host."""
     try:
         st = os.statvfs('/app/data')
         total = st.f_frsize * st.f_blocks
@@ -208,14 +208,15 @@ def _etat_disque():
 
 
 def _etat_sauvegarde():
-    """Fraîcheur du dernier dump du portail (nom + date, jamais le contenu).
+    """Freshness of the portal's latest dump (name + date, never the content).
 
-    La source normale est l'**état du moniteur hôte**, qui tourne en root toutes
-    les 5 min et y recopie ce qu'il a mesuré : `/var/backups/cronos` est en 0700
-    root et les dumps en 0600 (ils contiennent la base entière), donc le conteneur
-    ne peut PAS les lister. On garde la lecture directe du dossier en repli : si
-    le montage existe et est lisible un jour, elle sert ; sinon `readable: false`,
-    que l'interface affiche « illisible » — jamais « tout va bien ».
+    The normal source is the **host monitor state**, which runs as root every
+    5 min and copies what it measured there: `/var/backups/cronos` is 0700
+    root and the dumps are 0600 (they contain the whole database), so the
+    container CANNOT list them. We keep direct folder reading as fallback: if
+    the mount exists and is readable one day, it serves; otherwise
+    `readable: false`, which the UI displays as « illisible » — never
+    « tout va bien ».
     """
     try:
         with open(_MONITOR_STATE, encoding='utf-8') as f:
@@ -244,7 +245,7 @@ def _etat_sauvegarde():
 
 
 def _etat_moniteur():
-    """Incidents en cours selon l'état sticky du moniteur hôte."""
+    """Current incidents according to the host monitor's sticky state."""
     try:
         with open(_MONITOR_STATE, encoding='utf-8') as f:
             etat = json.load(f)
@@ -253,11 +254,11 @@ def _etat_moniteur():
             down = [k for k, v in down.items() if v]
         return {'readable': True,
                 'active_incidents': sorted(str(i) for i in down),
-                # Horodatage AVEC son fuseau : le conteneur tourne en UTC et
-                # `fromtimestamp` seul produisait un « 21:46:31 » que rien ne
-                # distinguait d'une heure locale — soit 2 h de décalage pour un
-                # lecteur français. C'est la date de la dernière SONDUE du
-                # moniteur (il réécrit son état à chaque passage, toutes les 5 min).
+                # Timestamp WITH its timezone: the container runs in UTC and
+                # bare `fromtimestamp` produced a « 21:46:31 » that nothing
+                # distinguished from a local time — i.e. 2 h of offset for a
+                # French reader. This is the date of the monitor's last SWEEP
+                # (it rewrites its state at each pass, every 5 min).
                 'since': datetime.fromtimestamp(
                     os.stat(_MONITOR_STATE).st_mtime, timezone.utc).isoformat(timespec='seconds')}
     except Exception:                                            # noqa: BLE001
@@ -265,7 +266,7 @@ def _etat_moniteur():
 
 
 def _etat_modele():
-    """Modèle servi + depuis quand, d'après ce que le PORTAIL a observé."""
+    """Served model + since when, according to what the PORTAL observed."""
     st = runner_status()
     nom, statut = st.get('model'), st.get('status')
     uptime = None
@@ -307,12 +308,12 @@ def _etat_portail():
 @bp.route('/admin/platform')
 @admin_required
 def admin_platform():
-    """État de la PLATEFORME (disque, sauvegarde, incidents, modèle servi).
+    """State of the PLATFORM (disk, backup, incidents, served model).
 
-    Distinct de `/api/health`, qui ne répond que « les services répondent-ils » :
-    ici on répond aux questions qu'on se pose pendant un incident — reste-t-il de
-    la place, la sauvegarde de cette nuit a-t-elle eu lieu, quels incidents le
-    moniteur a-t-il ouverts, depuis quand le modèle tourne-t-il.
+    Distinct from `/api/health`, which only answers « les services répondent-ils »:
+    here we answer the questions asked during an incident — is there space
+    left, did last night's backup happen, which incidents has the
+    monitor opened, how long has the model been running.
     """
     return jsonify({
         'disk': _etat_disque(),
@@ -336,26 +337,26 @@ def launch_model():
     ok, motif, incertain = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
                                          cfg['engine'] or 'vllm')
     if ok:
-        # L'annonce « tel modele remplace tel autre » ne part plus ici mais depuis
-        # _suivre_lancement, quand le modele SERT reellement : accepter n'est pas
-        # servir, et annoncer un modele qui ne demarrera jamais est un mensonge
-        # visible par tous les utilisateurs.
+        # The « tel modele remplace tel autre » announcement no longer goes out
+        # here but from _suivre_lancement, when the model is ACTUALLY served:
+        # accepting is not serving, and announcing a model that will never start
+        # is a lie visible by all users.
         log_audit(session.get('username'), 'model.launch', f"lancement de {name}")
     else:
         log_audit(session.get('username'), 'model.launch_échec',
                   f"lancement de {name} : {motif}"
                   + (" (délai dépassé, issue inconnue)" if incertain else " (refusé)"))
-        # Pas d'alerte infra sur un DOUTE : le lancement est peut-etre en cours.
-        # Un faux « echec de lancement » habitue l'administrateur a ignorer les
-        # alertes — et l'invite a relancer, ce qui tue un modele en chargement.
+        # No infra alert on a DOUBT: the launch may still be in progress.
+        # A false "launch failure" trains the administrator to ignore
+        # alerts — and invites a relaunch, which kills a model being loaded.
         if not incertain:
             notify_infra_alert_email(
                 "Chat model launch failed", f"{name}: {motif or 'launch refused'}")
-    # Réponse JSON, pas une redirection : `act()` côté frontend lit {ok, error} et
-    # traite toute réponse NON-JSON comme un succès (son propre commentaire le dit).
-    # Cette route redirigeait, donc un lancement refusé s'affichait comme réussi et
-    # l'administrateur ne voyait « rien se passer ». Constaté le 04/09 : deux
-    # tentatives refusées en 400, aucune trace à l'écran.
+    # JSON response, not a redirect: `act()` on the frontend side reads {ok, error}
+    # and treats any NON-JSON response as a success (its own comment says so).
+    # This route redirected, so a refused launch displayed as successful and
+    # the administrator saw « rien se passer ». Observed on 04/09: two
+    # attempts refused with 400, no trace on screen.
     if ok:
         return _json_ok(f"Lancement de {name} accepté — chargement en cours.")
     return _json_erreur(motif or "Lancement refusé par le runner.",
@@ -386,7 +387,7 @@ def api_announcements_seen():
     return {'ok': True}
 
 def _json_ok(message=None, **extra):
-    """Succes d'action d'admin : {ok: true} + champs libres."""
+    """Admin action success: {ok: true} + free fields."""
     corps = {'ok': True}
     if message:
         corps['message'] = message
@@ -395,17 +396,17 @@ def _json_ok(message=None, **extra):
 
 
 def _json_erreur(message, code=400, **extra):
-    """Refus d'action d'admin : {ok: false, error} + champs libres.
+    """Admin action refusal: {ok: false, error} + free fields.
 
-    Contrat UNIQUE de toutes les actions d'admin. Une vingtaine de routes
-    repondaient auparavant `flash(...)` + `redirect(...)` : le flash n'est rendu
-    par AUCUN template (l'interface est Next.js ; `get_flashed_messages` n'existe
-    nulle part dans le depot) et le corps HTML de la redirection faisait echouer
-    `res.json()` cote client, dont le `catch` concluait « action effectuee ».
-    Consequence mesuree : un arret du modele refuse s'affichait comme reussi,
-    tout comme un echec d'enregistrement LiteLLM ou un budget refuse. Le
-    lancement de modele avait ete corrige ainsi le 04/09 ; le correctif n'avait
-    jamais ete generalise a ses voisines.
+    SINGLE contract of all admin actions. About twenty routes
+    previously answered `flash(...)` + `redirect(...)`: the flash is rendered by
+    NO template (the UI is Next.js; `get_flashed_messages` exists nowhere in the
+    repo) and the HTML body of the redirect made the client-side
+    `res.json()` fail, whose `catch` concluded « action effectuee ».
+    Measured consequence: a refused model stop displayed as successful,
+    just like a LiteLLM registration failure or a refused budget. The
+    model launch had been fixed this way on 04/09; the fix had never
+    been generalized to its neighbours.
     """
     corps = {'ok': False, 'error': message}
     corps.update(extra)
@@ -431,9 +432,9 @@ def stop_model():
               "arrêt du modèle de chat" if ok else f"échec de l'arrêt : {motif}")
     if ok:
         return _json_ok("Modèle arrêté.")
-    # `incertain` = le runner n'a pas repondu dans le delai, l'arret est
-    # peut-etre en cours. On le dit tel quel plutot que d'affirmer un echec :
-    # un operateur qui croit a un echec reclique.
+    # `incertain` = the runner did not answer within the delay, the stop may
+    # still be in progress. We say so as-is rather than claiming a failure:
+    # an operator who believes it failed clicks again.
     return _json_erreur(motif or "Échec de l'arrêt du modèle.", 202 if incertain else 502,
                         incertain=incertain)
 
@@ -567,8 +568,8 @@ def stop_music():
 @bp.route('/admin/music/launch', methods=['POST'])
 @admin_required
 def launch_music():
-    """Lance un modèle musique (id HF libre, comme l'OCR). Le conteneur télécharge
-    le modèle lui-même au démarrage : rien à faire côté shell."""
+    """Launches a music model (free HF id, like OCR). The container downloads
+    the model itself at startup: nothing to do on the shell side."""
     model_id = request.form.get('model_id', '').strip()
     if not _HF_ID_RE.fullmatch(model_id):
         return jsonify({'ok': False, 'error': "Identifiant HuggingFace invalide (attendu : org/nom)."}), 400
@@ -618,10 +619,10 @@ def launch_voice_cfg():
     cfg = get_db().execute("SELECT * FROM voice_configs WHERE name=?", (name,)).fetchone()
     if not cfg:
         return _json_erreur("Modèle voix introuvable.", 404)
-    # Même garde mémoire que l'OCR, l'image et la musique : recréer le conteneur
-    # voix recharge un modèle (~15 Go), et cette route était la SEULE des quatre
-    # à ne pas la poser — sur mémoire unifiée, un OOM tue le plus gros RSS,
-    # c'est-à-dire le modèle de chat servi.
+    # Same memory guard as OCR, image and music: recreating the voice
+    # container reloads a model (~15 Go), and this route was the ONLY one of the
+    # four not to set it — on unified memory, an OOM kills the biggest RSS,
+    # i.e. the served chat model.
     err = _mem_guard('voice')
     if err:
         return _json_erreur(err, 507)
@@ -645,10 +646,10 @@ def add_model_cfg():
         engine = 'vllm'
     if not name or not hf_id:
         return _json_erreur("Nom et HF model ID requis.")
-    # Pas de validation de forme sur hf_id ici, volontairement : `local:<nom>`
-    # (GGUF local) est un identifiant legitime, que la regex « org/nom » de
-    # l'image et de la musique refuserait. Le runner garde sa propre garde de
-    # forme avant de construire argv.
+    # No shape validation on hf_id here, deliberately: `local:<name>`
+    # (local GGUF) is a legitimate identifier, which the « org/nom » regex of
+    # image and music would refuse. The runner keeps its own shape guard
+    # before building argv.
     db = get_db()
     try:
         db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, engine, added_at) "
@@ -669,11 +670,11 @@ def add_model_cfg():
 @bp.route('/admin/model/edit/<int:mid>', methods=['POST'])
 @admin_required
 def edit_model_cfg(mid):
-    """Modifie les args vLLM/llama.cpp d'une entrée du catalogue.
+    """Modifies the vLLM/llama.cpp args of a catalog entry.
 
-    Les args ne sont PAS validés ici : l'allow-list des flags vit dans le runner,
-    qui la vérifie de toute façon au lancement (`_BOOL_FLAGS`, `_BIN_FLAGS`). La
-    dupliquer ici créerait une seconde source de verité qui divergerait.
+    The args are NOT validated here: the flag allow-list lives in the runner,
+    which checks it anyway at launch (`_BOOL_FLAGS`, `_BIN_FLAGS`). Duplicating
+    it here would create a second source of truth that would diverge.
     """
     args = request.form.get('vllm_args', '').strip()
     db = get_db()
@@ -682,10 +683,10 @@ def edit_model_cfg(mid):
         return _json_erreur("Modèle introuvable dans le catalogue.", 404)
     db.execute("UPDATE model_configs SET vllm_args=? WHERE id=?", (args, mid))
     db.commit()
-    # Le resultat d'enregistrement etait IGNORÉ et la route annoncait
-    # « routage LiteLLM rafraîchi » sans condition : or LiteLLM applique les
-    # limites par requete (max_input/max_output via ctx_split) issues de CETTE
-    # entree — un echec silencieux laissait donc un routage faux.
+    # The registration result was IGNORED and the route announced
+    # « routage LiteLLM rafraîchi » unconditionally: yet LiteLLM applies the
+    # per-request limits (max_input/max_output via ctx_split) coming from THIS
+    # entry — a silent failure therefore left a wrong routing.
     ok = _register_litellm_model(row['name'], args, row['engine'] or 'vllm')
     log_audit(session.get('username'), 'model.edit',
               f"{row['name']} — args mis à jour" + ('' if ok else " — routage LiteLLM ÉCHOUÉ"))
@@ -698,21 +699,21 @@ def edit_model_cfg(mid):
 @bp.route('/admin/model/delete/<int:mid>', methods=['POST'])
 @admin_required
 def delete_model_cfg(mid):
-    """Retire un modele du catalogue ET efface ses fichiers du disque.
+    """Removes a model from the catalog AND erases its files from disk.
 
-    Avant le 2026-10-01 seule l'entree partait : les poids restaient (jusqu'a
-    100 Go chacun) sans plus aucun ecran pour les retrouver.
-    Les fichiers sont gardes quand une AUTRE entree (chat, OCR) pointe sur les
-    memes : effacer les poids d'un modele encore au catalogue le casserait.
+    Before 2026-10-01 only the entry went away: the weights stayed (up to
+    100 Go each) with no screen left to find them again.
+    The files are kept when ANOTHER entry (chat, OCR) points at the
+    same ones: erasing the weights of a model still in the catalog would break it.
     """
     db = get_db()
     row = db.execute("SELECT name, hf_model_id FROM model_configs WHERE id=?", (mid,)).fetchone()
     if not row:
         return _json_erreur("Modèle introuvable dans le catalogue.", 404)
     nom, hf_id = row['name'], row['hf_model_id']
-    # Le modele SERVI : ses poids sont en cours de lecture par le moteur, et le
-    # runner relancerait au prochain demarrage un modele sans fichiers. On
-    # demande de l'arreter d'abord plutot que de laisser un etat a moitie fait.
+    # The SERVED model: its weights are being read by the engine, and the
+    # runner would relaunch at next startup a model with no files. We ask to
+    # stop it first rather than leaving a half-done state.
     if nom in (get_running_models() or []):
         return _json_erreur(
             f"{nom} est le modèle actuellement servi : arrête-le d'abord, puis "
@@ -722,14 +723,14 @@ def delete_model_cfg(mid):
         "UNION SELECT name FROM ocr_configs WHERE hf_model_id=?", (hf_id, mid, hf_id))]
     db.execute("DELETE FROM model_configs WHERE id=?", (mid,))
     db.commit()
-    # Le resultat etait ignore : l'interface annoncait « retiré de LiteLLM » meme
-    # quand l'entree y survivait, et une entree LiteLLM sans ligne de catalogue
-    # est un routage que plus aucun ecran ne permet de nettoyer.
+    # The result was ignored: the UI announced « retiré de LiteLLM » even
+    # when the entry survived there, and a LiteLLM entry without a catalog row
+    # is a routing that no screen can clean up anymore.
     deregistre = _unregister_litellm_model(nom)
-    # Le fil d'annonces est un « quoi de neuf », pas un journal : garder
-    # « modèle X ajouté » pour un modèle qu'on vient de retirer annonce aux
-    # utilisateurs quelque chose qui n'existe plus. Le fait reste consigné
-    # dans l'audit, seul le fil est nettoyé.
+    # The announcement feed is a "what's new", not a log: keeping
+    # « modèle X ajouté » for a model just removed announces to users
+    # something that no longer exists. The fact remains recorded
+    # in the audit, only the feed is cleaned up.
     retires = db.execute("DELETE FROM announcements WHERE kind='model_add' AND a=?",
                          (nom,)).rowcount
     db.commit()
@@ -766,13 +767,13 @@ def update_settings():
     duration = request.form.get('default_key_duration', '').strip()
     try:
         budget_val = float(budget)
-        # `not (0 < v <= MAX_BUDGET)` plutôt que deux comparaisons : NaN échoue
-        # toutes les comparaisons, donc il passait les tests « <= 0 » et « > MAX »
-        # et se retrouvait écrit comme plafond global. La borne HAUTE manquait
-        # ici, sur la route la plus LARGE du portail — le plafond par défaut
-        # s'applique à tout compte sans override ni groupe (audit du 2026-10-02),
-        # et c'est exactement la faute de frappe à 6,7e12 que la garde des
-        # approbations avait été écrite pour empêcher.
+        # `not (0 < v <= MAX_BUDGET)` rather than two comparisons: NaN fails
+        # every comparison, so it passed the « <= 0 » and « > MAX » tests
+        # and ended up written as the global cap. The UPPER bound was missing
+        # here, on the portal's WIDEST route — the default cap
+        # applies to every account without override nor group (audit of
+        # 2026-10-02), and this is exactly the 6,7e12 typo the approval
+        # guard had been written to prevent.
         if not (0 < budget_val <= MAX_BUDGET):
             raise ValueError
     except (ValueError, OverflowError):
@@ -783,8 +784,8 @@ def update_settings():
     ancien = get_setting('default_key_budget', None)
     set_setting('default_key_budget', budget_val)
     set_setting('default_key_duration', duration)
-    # Le plafond GLOBAL n'etait pas audite, alors qu'il s'applique a tout compte
-    # sans override ni groupe : c'est l'action la plus large de la page.
+    # The GLOBAL cap was not audited, although it applies to every account
+    # without override nor group: it is the widest action of the page.
     log_audit(session.get('username'), 'settings.budget',
               f"plafond global {ancien} → {budget_val:.0f} tokens / {duration}")
     return _json_ok(f"Limite globale mise à jour : {budget_val:,.0f} tokens / {duration}."
@@ -808,12 +809,12 @@ def api_admin_users():
     recorded = {r['username']: r for r in db.execute("SELECT * FROM user_sources").fetchall()}
     spend = {s['username']: s for s in (admin_get_user_consumption() or [])}
     blocked = {b['username']: b for b in db.execute("SELECT * FROM blocked_users").fetchall()}
-    # Avatar choisi (NULL = avatar généré depuis le pseudo) : l'admin voyait des
-    # initiales là où l'intéressé voit sa pp.
+    # Chosen avatar (NULL = avatar generated from the nickname): the admin saw
+    # initials where the person concerned sees their avatar.
     avatars = {a['username']: a['avatar_id'] for a in
                db.execute("SELECT username, avatar_id FROM user_prefs").fetchall()}
-    # Verrouillage anti-force-brute en cours : la clé est composite
-    # ('ip|compte' ou 'user:compte'), on rattache au compte par le suffixe.
+    # Anti-brute-force lockout in progress: the key is composite
+    # ('ip|compte' or 'user:compte'), we attach it to the account by the suffix.
     locked = {}
     now = datetime.now().timestamp()
     for r in db.execute("SELECT key, locked_until FROM login_attempts WHERE locked_until > ?",
@@ -821,9 +822,9 @@ def api_admin_users():
         compte = r['key'].split('|')[-1].removeprefix('user:')
         locked[compte] = max(locked.get(compte, 0), int((r['locked_until'] - now) // 60) + 1)
 
-    # La table des groupes est petite et etait DEJA lue apres la boucle
-    # (pour la reponse) : on la charge ici et on la passe aux helpers, ce qui
-    # supprime les 2 SELECT par compte de `_local_group`.
+    # The groups table is small and was ALREADY read after the loop
+    # (for the response): we load it here and pass it to the helpers, which
+    # removes the 2 SELECTs per account of `_local_group`.
     groups = db.execute("SELECT name, max_budget, is_admin FROM user_groups "
                         "ORDER BY name").fetchall()
     groupes = {g['name']: g for g in groups}
@@ -845,14 +846,14 @@ def api_admin_users():
         last_source = rs['last_source'] if rs else None
         last_is_admin = rs['last_is_admin'] if rs else None
         local_admin = _local_user_is_admin(mu, groupes) if mu else None
-        # Rôle EFFECTIF, tel qu'il est réellement APPLIQUÉ aux requêtes. Une seule
-        # autorité, et c'est le portail : dès qu'une ligne `local_users` existe,
-        # `auth.etat_compte` tranche sur elle seule (`_local_user_is_admin`) et
-        # réécrit `session['is_admin']` — quel que soit `last_source`. La page
-        # Users affirmait l'inverse (« l'annuaire gagne ») : un compte local admin
-        # retiré de `cn=adm_cronos` restait admin à l'usage, sans aucun signal
-        # pour l'opérateur qui venait de faire le geste. On affiche donc ce qui
-        # s'applique, et le commentaire dit la même chose que auth.py.
+        # EFFECTIVE role, as it is actually APPLIED to requests. A single
+        # authority, and it is the portal: as soon as a `local_users` row
+        # exists, `auth.etat_compte` rules on it alone (`_local_user_is_admin`)
+        # and rewrites `session['is_admin']` — whatever `last_source`. The Users
+        # page claimed the opposite (« l'annuaire gagne »): a local admin account
+        # removed from `cn=adm_cronos` stayed admin in practice, with no signal
+        # for the operator who had just done it. So we display what applies, and
+        # the comment says the same thing as auth.py.
         if mu is not None:
             effective_admin = local_admin
             role_source = 'local'
@@ -864,9 +865,9 @@ def api_admin_users():
         # via the directory (SSO/LDAP) is effectively managed by Authentik, even
         # if a historical local_users row still exists (edit actions remain
         # available because the row exists, but its rights/budget are delegated).
-        # Un compte d'annuaire reste « géré par l'annuaire » même si une ligne
-        # locale historique subsiste ; sans ligne locale, l'annuaire est la
-        # seule autorité possible.
+        # A directory account stays « géré par l'annuaire » even if a
+        # historical local row remains; without a local row, the directory is
+        # the only possible authority.
         managed_by = 'repertoire' if (mu is None or last_source in ('sso', 'ldap')) else 'local'
         out.append({
             'username': name,
@@ -888,9 +889,9 @@ def api_admin_users():
             'spend': (sp['spend'] if sp else 0),
             'key_count': (sp['key_count'] if sp else 0),
             'last_seen': recorded[name]['last_seen'] if name in recorded else None,
-            # État de refus et verrouillage : sans eux, la page ne peut pas
-            # distinguer un compte bloqué d'un compte simplement inactif — or
-            # c'est exactement ce qu'un admin vient vérifier.
+            # Refusal and lockout state: without them, the page cannot
+            # distinguish a blocked account from a merely inactive one — yet
+            # that is exactly what an admin comes to check.
             'blocked': blocked.get(name) is not None,
             'block_reason': (blocked[name]['reason'] if name in blocked else None),
             'blocked_at': (blocked[name]['blocked_at'] if name in blocked else None),
@@ -902,8 +903,8 @@ def api_admin_users():
 @bp.route('/admin/audit')
 @admin_required
 def admin_audit():
-    """Journal d'audit (admin) : les derniers événements sensibles, filtrables
-    par utilisateur (?username=). Lecture antéchronologique, plafonnée."""
+    """Audit log (admin): the latest sensitive events, filterable
+    by user (?username=). Reverse-chronological read, capped."""
     username = (request.args.get('username') or '').strip()
     db = get_db()
     if username:
@@ -949,8 +950,8 @@ def admin_users_create():
     log_audit(session.get('username'), 'user.create',
               f"création de {username}" + (f" (groupe {group})" if group else "")
               + ('' if quota_ok else ' — QUOTA NON APPLIQUÉ'))
-    # Un quota qui n'a pas pu être écrit côté LiteLLM, c'est un compte de fait
-    # illimité : le dire, au lieu de laisser croire à une création complète.
+    # A quota that could not be written on the LiteLLM side is a de-facto
+    # unlimited account: say so, instead of letting a complete creation be believed.
     return jsonify({'ok': True} if quota_ok else {
         'ok': True,
         'warning': "Compte créé, mais son quota n'a PAS pu être appliqué sur LiteLLM : "
@@ -974,12 +975,12 @@ def admin_users_update(uid):
         group = request.form.get('group', '').strip() or None
         if group and not _local_group(group):
             return jsonify({'ok': False, 'error': "Groupe inconnu."}), 400
-        # Les droits d'admin viennent de `local_users.is_admin` OU du groupe
-        # (`_local_user_is_admin`). Changer de GROUPE est donc un retrait de
-        # droits comme un autre, et cette branche était la seule des trois à ne
-        # pas passer par la garde : un admin tenant ses droits de son groupe
-        # pouvait se l'envoyer à vide et perdre l'administration (audit du
-        # 2026-10-02). On simule l'état APRÈS le changement, pas seulement
+        # Admin rights come from `local_users.is_admin` OR the group
+        # (`_local_user_is_admin`). Changing GROUP is therefore a rights removal
+        # like any other, and this branch was the only one of the three not to
+        # go through the guard: an admin holding their rights from their group
+        # could send it empty and lose the administration (audit of
+        # 2026-10-02). We simulate the state AFTER the change, not just
         # `is_admin`.
         nouveau_groupe = _local_group(group) if group else None
         if not (row['is_admin'] or (nouveau_groupe and nouveau_groupe['is_admin'])):
@@ -1012,30 +1013,30 @@ def admin_users_update(uid):
         db.execute(f"UPDATE local_users SET {', '.join(sets)} WHERE id=?", (*vals, uid))
         db.commit()
     updated = db.execute("SELECT * FROM local_users WHERE id=?", (uid,)).fetchone()
-    # Verrouiller un compte (enabled=0) révoque immédiatement ses sessions :
-    # il perd son accès sans attendre l'expiration HTTP.
+    # Locking an account (enabled=0) immediately revokes its sessions:
+    # it loses its access without waiting for HTTP expiration.
     revoquees = 0
     cles_ko = 0
     if 'enabled' in request.form and not updated['enabled']:
         revoquees = _revoke_user_sessions(updated['username'])
-        # Désactiver coupe l'accès au PORTAIL, pas celui à l'API : LiteLLM valide
-        # les clés lui-même et le portail n'est pas dans le chemin. Sans cette
-        # révocation, un compte « désactivé » gardait une clé fonctionnelle
-        # (audit du 2026-10-02) — le même trou que le blocage, sur l'autre
-        # chemin d'offboarding.
+        # Disabling cuts PORTAL access, not API access: LiteLLM validates the
+        # keys itself and the portal is not in the path. Without this
+        # revocation, a « désactivé » account kept a working key
+        # (audit of 2026-10-02) — the same hole as blocking, on the other
+        # offboarding path.
         cles_ok, cles_ko, cles_total = revoquer_cles_compte(
             updated['username'], session.get('username'), 'désactivation du compte')
     if password:
-        # Changer le mot de passe doit fermer les AUTRES sessions : sans ça,
-        # un changement motivé par un doute sur un cookie volé ne protégeait
-        # de rien, l'ancienne session continuant de valider.
+        # Changing the password must close the OTHER sessions: without that,
+        # a change motivated by doubt about a stolen cookie protected
+        # nothing, the old session continuing to validate.
         revoquees = max(revoquees, _revoke_user_sessions(updated['username']))
-    # La resynchronisation du quota etait INCONDITIONNELLE : renommer un compte,
-    # changer son mot de passe ou corriger son nom reecrivait l'enveloppe LiteLLM
-    # a partir de local_users — ce qui EFFACAIT une subvention en cours, puisque
-    # budget_grants ne vit que cote LiteLLM. Le reaper constatait ensuite la
-    # derive, concluait « l'admin est intervenu entre-temps » et supprimait la
-    # ligne : le compte perdait son quota sans que personne ne soit prevenu.
+    # The quota resync was UNCONDITIONAL: renaming an account, changing its
+    # password or fixing its name rewrote the LiteLLM envelope from
+    # local_users — which ERASED a grant in progress, since budget_grants only
+    # lives on the LiteLLM side. The reaper then noticed the drift, concluded
+    # « l'admin est intervenu entre-temps » and deleted the row: the account
+    # lost its quota with nobody being warned.
     recharge = request.form.get('enabled') in ('1', 'true', 'on')
     if {'group', 'max_budget'} & set(request.form.keys()) or recharge:
         quota_ok = _sync_local_user_budget(updated['username'], updated)
@@ -1067,23 +1068,23 @@ def admin_users_update(uid):
 @bp.route('/admin/users/<username>/revoke-sessions', methods=['POST'])
 @admin_required
 def admin_revoke_sessions(username):
-    """Révoque à volonté toutes les sessions actives d'un compte (même un
-    cookie volé devient inutilisable immédiatement)."""
+    """Revokes at will all active sessions of an account (even a
+    stolen cookie becomes unusable immediately)."""
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
     n = _revoke_user_sessions(username)
-    # Une révocation est une action de sécurité : elle se journalise comme les
-    # autres. Elle ne l'était pas, seule la désactivation l'était.
+    # A revocation is a security action: it is logged like the others.
+    # It was not, only disabling was.
     log_audit(session.get('username'), 'session.revoke',
               f"{username} — {n} session(s) révoquée(s)")
     return jsonify({'ok': True, 'revoked': n})
 
 def _corps():
-    """Corps de requête, formulaire OU JSON.
+    """Request body, form OR JSON.
 
-    L'Admin envoie du formulaire (postForm) et la nouvelle interface JSON
-    (fetch) : lire uniquement request.form faisait ignorer silencieusement un
-    `confirm=DELETE` pourtant envoyé, et la route répondait 409 sans fin.
+    The Admin sends form data (postForm) and the new UI JSON (fetch): reading
+    only request.form silently ignored a `confirm=DELETE` that was indeed sent,
+    and the route answered 409 forever.
     """
     data = request.get_json(silent=True)
     if isinstance(data, dict):
@@ -1092,18 +1093,18 @@ def _corps():
 
 
 def _dernier_admin_local(username):
-    """Vrai si `username` est le dernier administrateur LOCAL actif.
+    """True if `username` is the last active LOCAL administrator.
 
-    Le portail n'aurait alors plus personne pour l'administrer en local —
-    les admins du répertoire (LDAP/SSO) dépendent d'un annuaire externe, ce
-    qui n'est pas une raison pour se couper soi-même la main.
+    The portal would then have nobody left to administer it locally —
+    the directory admins (LDAP/SSO) depend on an external directory, which
+    is no reason to cut off one's own hand.
 
-    Un compte BLOQUÉ ne compte pas (audit du 2026-10-02) : il est refusé au login
-    même avec le bon mot de passe, donc il ne peut plus administrer quoi que ce
-    soit. Sans cette exclusion, bloquer les deux derniers admins locaux l'un
-    après l'autre passait — chacun voyait l'autre, encore `enabled=1`, comme un
-    recours — et la plateforme se retrouvait sans aucun administrateur local
-    joignable. Le chemin `enabled=0`, lui, se filtrait déjà tout seul.
+    A BLOCKED account does not count (audit of 2026-10-02): it is refused at
+    login even with the right password, so it can no longer administer anything.
+    Without this exclusion, blocking the last two local admins one after the
+    other passed — each saw the other, still `enabled=1`, as a recourse — and
+    the platform ended up with no reachable local administrator. The `enabled=0`
+    path, in contrast, already filtered itself out.
     """
     db = get_db()
     for r in db.execute(
@@ -1115,13 +1116,13 @@ def _dernier_admin_local(username):
 
 
 def _admins_locaux_apres(simulation):
-    """Compte les admins locaux actifs APRÈS un retrait simulé.
+    """Counts the active local admins AFTER a simulated removal.
 
-    `simulation` = {username: (is_admin, group_name)} des comptes dont l'état
-    change. Nécessaire pour le cas que `_dernier_admin_local` ne peut pas voir :
-    un groupe dont DEUX membres tiennent leurs droits d'administration. Pris un
-    par un, chacun voit l'autre comme admin et conclut qu'il peut partir ; les
-    retirer tous les deux n'en laisse aucun.
+    `simulation` = {username: (is_admin, group_name)} of the accounts whose
+    state changes. Needed for the case `_dernier_admin_local` cannot see:
+    a group where TWO members hold their admin rights. Taken one by one, each
+    sees the other as admin and concludes they may leave; removing both of
+    them leaves none.
     """
     db = get_db()
     n = 0
@@ -1144,18 +1145,18 @@ def _admins_locaux_apres(simulation):
 
 
 def _refus_retrait_admin(row, action):
-    """Motif de refus si retirer les droits d'admin de `row` est interdit.
+    """Reason for refusal when removing the admin rights of `row` is forbidden.
 
-    Deux cas, même raison : le portail deviendrait inadministrable en local.
-    - se désactiver ou se rétrograder SOI-MÊME échappe à toute réparation : plus
-      aucune session d'administration ne subsiste ;
-    - retirer le DERNIER admin local laisse la plateforme aux seuls admins du
-      répertoire, qui dépendent d'un annuaire externe.
+    Two cases, same reason: the portal would become locally unadministrable.
+    - disabling or demoting ONESELF escapes any repair: no administration
+      session is left at all;
+    - removing the LAST local admin leaves the platform to the directory
+      admins alone, who depend on an external directory.
 
-    La suppression et le blocage ont cette garde ; la MODIFICATION ne l'avait
-    pas, alors qu'un seul POST y suffisait — et la revalidation de l'état du
-    compte à chaque requête rend la perte d'accès immédiate (plus besoin
-    d'attendre l'expiration du cookie).
+    Deletion and blocking have this guard; MODIFICATION did not, although a
+    single POST sufficed — and the revalidation of the account state on every
+    request makes the loss of access immediate (no need to wait for the cookie
+    to expire).
     """
     if not _local_user_is_admin(row):
         return None
@@ -1171,17 +1172,17 @@ def _refus_retrait_admin(row, action):
 @bp.route('/admin/users/delete/<int:uid>', methods=['POST'])
 @admin_required
 def admin_users_delete(uid):
-    """Supprime un compte : retire TOUT son accès, puis purge ses données.
+    """Deletes an account: removes ALL its access, then purges its data.
 
-    Avant le 2026-09-13 cette route ne faisait qu'un DELETE dans local_users :
-    les clés API du compte restaient valides (LiteLLM les valide lui-même) et
-    sa session navigateur survivait jusqu'à 12 h. Trois garde-fous sont
-    ajoutés avec le reste :
-    - pas d'auto-suppression (l'admin se couperait l'accès en pleine action) ;
-    - pas de suppression du dernier administrateur local ;
-    - `confirm=DELETE` exigé : l'opération emporte les données personnelles
-      (mémoire, conversations, partages, préférences) et ne doit pas partir
-      d'un POST accidentel.
+    Before 2026-09-13 this route only did a DELETE in local_users:
+    the account's API keys stayed valid (LiteLLM validates them itself) and
+    its browser session survived up to 12 h. Three guards were
+    added with the rest:
+    - no self-deletion (the admin would cut their own access mid-action);
+    - no deletion of the last local administrator;
+    - `confirm=DELETE` required: the operation takes away personal data
+      (memory, conversations, shares, preferences) and must not start from
+      an accidental POST.
     """
     db = get_db()
     row = db.execute("SELECT * FROM local_users WHERE id=?", (uid,)).fetchone()
@@ -1201,15 +1202,15 @@ def admin_users_delete(uid):
         return jsonify({'ok': False, 'needs_confirm': True, 'donnees': donnees,
                         'error': "Confirmation requise : cette suppression emporte "
                                  "les accès ET les données du compte."}), 409
-    # La ligne locale d'abord : elle porte l'accès, et tout ce qui suit la
-    # concerne (clés, enveloppe, données) sans dépendre d'elle.
+    # The local row first: it carries the access, and everything after it
+    # concerns it (keys, envelope, data) without depending on it.
     db.execute("DELETE FROM local_users WHERE id=?", (uid,))
     db.commit()
     rapport = deprovisionner_compte(username, moi)
     reponse = {'ok': True, 'purged': rapport}
-    # L'accès API est la moitié du problème : si LiteLLM n'a pas répondu, des
-    # clés peuvent encore fonctionner, et l'admin doit le savoir tout de suite
-    # plutôt que de le découvrir dans le journal d'audit.
+    # API access is half the problem: if LiteLLM did not answer, some
+    # keys may still work, and the admin must know it right away
+    # rather than discovering it in the audit log.
     if rapport['keys_failed'] or not rapport['litellm_user']:
         reponse['warning'] = (
             f"{rapport['keys_failed']} clé(s) n'ont pas pu être révoquées et/ou "
@@ -1221,14 +1222,14 @@ def admin_users_delete(uid):
 @bp.route('/admin/users/<username>/purge', methods=['POST'])
 @admin_required
 def admin_user_purge(username):
-    """Efface les DONNÉES d'un compte sans ligne locale (compte d'annuaire).
+    """Erases the DATA of an account without a local row (directory account).
 
-    Un compte LDAP/SSO n'existe pas dans `local_users` : la route de
-    suppression, qui part d'un identifiant local, ne peut donc rien pour lui —
-    et ses conversations, sa mémoire, ses préférences et ses clés restaient en
-    base indéfiniment après son départ. Cette route les efface, sans toucher à
-    son accès : le BLOCAGE reste le levier d'offboarding, car un compte
-    d'annuaire peut se reconnecter et retrouverait alors un compte vide.
+    An LDAP/SSO account does not exist in `local_users`: the deletion route,
+    which starts from a local id, can therefore do nothing for it — and its
+    conversations, memory, preferences and keys stayed in the database
+    indefinitely after it left. This route erases them, without touching its
+    access: BLOCKING remains the offboarding lever, since a directory
+    account can log back in and would then find an empty account.
     """
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
@@ -1253,13 +1254,13 @@ def admin_user_purge(username):
 @bp.route('/admin/users/<username>/block', methods=['POST'])
 @admin_required
 def admin_user_block(username):
-    """Refuse un compte à la connexion, quelle que soit sa source.
+    """Refuses an account at login, whatever its source.
 
-    C'est le SEUL levier du portail pour un compte LDAP/SSO : il n'a pas de
-    ligne dans local_users, donc pas d'`enabled` à basculer, et révoquer ses
-    sessions ne servait à rien — il se reconnectait aussitôt. Le blocage est
-    réversible et ne touche pas à son état local : débloquer rend le compte
-    exactement tel qu'il était.
+    This is the portal's ONLY lever for an LDAP/SSO account: it has no
+    row in local_users, hence no `enabled` to flip, and revoking its
+    sessions was pointless — it logged right back in. Blocking is
+    reversible and does not touch its local state: unblocking restores the
+    account exactly as it was.
     """
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
@@ -1278,9 +1279,9 @@ def admin_user_block(username):
                'revoked_sessions': rapport['sessions'],
                'revoked_keys': rapport['keys_revoked'],
                'keys_total': rapport['keys']}
-    # Un échec de révocation ne doit JAMAIS être silencieux : une clé que LiteLLM
-    # a refusé de supprimer reste un accès vivant au GPU, et l'admin doit le
-    # savoir tout de suite (audit du 2026-10-02).
+    # A revocation failure must NEVER be silent: a key that LiteLLM refused
+    # to remove remains a live access to the GPU, and the admin must know it
+    # right away (audit of 2026-10-02).
     if rapport['keys_failed']:
         reponse['warning'] = (f"{rapport['keys_failed']} clé(s) API n'ont PAS pu être "
                               f"révoquées — vérifie côté LiteLLM avant de considérer "
@@ -1300,12 +1301,12 @@ def admin_user_unblock(username):
 @bp.route('/admin/users/<username>/detail')
 @admin_required
 def admin_user_detail(username):
-    """Tout ce que le portail sait d'un compte, en une réponse.
+    """Everything the portal knows about an account, in one response.
 
-    La page Users liste ; cette vue répond aux questions qu'on se pose
-    vraiment devant un compte : que consomme-t-il, a-t-il des clés, combien de
-    souvenirs, d'où s'est-il connecté, et qu'a-t-on fait de lui. Les valeurs
-    des clés ne sortent JAMAIS d'ici : seul leur alias est renvoyé.
+    The Users page lists; this view answers the questions actually asked in
+    front of an account: what does it consume, does it have keys, how many
+    memories, where did it log in from, and what has been done to it. Key
+    values NEVER leave here: only their alias is returned.
     """
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
@@ -1319,10 +1320,10 @@ def admin_user_detail(username):
     for k in (get_user_keys(username) or []):
         cles.append({'alias': k.get('key_alias'), 'created_at': k.get('created_at'),
                      'spend': k.get('spend', 0)})
-    # La ligne du sid appelant est la sienne : si l'admin ouvre son propre
-    # compte, elle se complète comme en self-service (session ouverte avant
-    # l'ajout des colonnes IP/user-agent). Celle d'un AUTRE compte n'est jamais
-    # touchée — on n'écrirait pas l'IP de l'admin dans la session d'autrui.
+    # The row of the calling sid is its own: if the admin opens their own
+    # account, it is filled in like in self-service (session opened before
+    # the IP/user-agent columns were added). That of ANOTHER account is never
+    # touched — one would not write the admin's IP into someone else's session.
     completer_origine_session()
     sid_courant = session.get('sid')
     now = datetime.now().timestamp()
@@ -1332,22 +1333,22 @@ def admin_user_detail(username):
             "WHERE username=? AND revoked=0 AND expires_at > ? "
             "ORDER BY created_at DESC LIMIT 20", (username, now)).fetchall():
         sessions.append({
-            # Jamais le sid complet : c'est le secret du cookie de session.
+            # Never the full sid: it is the session cookie's secret.
             'id': (r['sid'] or '')[:12],
             'created_at': r['created_at'], 'expires_at': r['expires_at'],
             'ip': r['ip'], 'user_agent': r['user_agent'],
             'current': bool(sid_courant and r['sid'] == sid_courant),
         })
-    # Actions EFFECTUÉES par ce compte (audit_log.username est l'acteur, la
-    # cible est dans `detail`) : c'est la lecture utile pour un compte admin.
+    # Actions PERFORMED by this account (audit_log.username is the actor, the
+    # target is in `detail`): this is the useful reading for an admin account.
     audit = [{'action': r['action'], 'detail': r['detail'], 'at': r['created_at']}
              for r in db.execute(
                  "SELECT action, detail, created_at FROM audit_log WHERE username=? "
                  "ORDER BY id DESC LIMIT 20", (username,)).fetchall()]
     last_source = rs['last_source'] if rs else None
     if mu is not None:
-        # Même autorité unique que la liste (et que `auth.etat_compte`) : la
-        # ligne locale tranche, l'annuaire ne s'y ajoute pas.
+        # Same single authority as the list (and as `auth.etat_compte`): the
+        # local row rules, the directory is not added to it.
         role = 'admin' if _local_user_is_admin(mu) else 'user'
     else:
         role = 'admin' if (rs and rs['last_is_admin']) else 'user'
@@ -1391,9 +1392,9 @@ def admin_groups_create():
         return jsonify({'ok': False, 'error': err}), 400
     is_admin = request.form.get('is_admin') in ('1', 'true', 'on')
     db = get_db()
-    # Cas symetrique de la suppression : modifier un groupe existant pour lui
-    # RETIRER le droit d'admin (upsert ON CONFLICT) fait perdre leurs droits a
-    # ses membres — sans passer par la suppression. Meme garde.
+    # Symmetric case of deletion: editing an existing group to REMOVE its
+    # admin right (upsert ON CONFLICT) makes its members lose their rights —
+    # without going through deletion. Same guard.
     ancien = _local_group(name)
     if ancien and ancien['is_admin'] and not is_admin:
         membres = db.execute("SELECT * FROM local_users WHERE group_name=?", (name,)).fetchall()
@@ -1418,10 +1419,10 @@ def admin_groups_create():
 def admin_groups_delete(name):
     db = get_db()
     membres = db.execute("SELECT * FROM local_users WHERE group_name=?", (name,)).fetchall()
-    # Un groupe peut PORTER les droits d'administration de ses membres
-    # (user_groups.is_admin) : le supprimer peut donc laisser le portail sans
-    # aucun administrateur local, exactement comme retrograder le dernier. La
-    # suppression du groupe ne verifiait rien.
+    # A group can CARRY the admin rights of its members
+    # (user_groups.is_admin): deleting it can therefore leave the portal with
+    # no local administrator at all, exactly like demoting the last one. The
+    # group deletion checked nothing.
     groupe = _local_group(name)
     if groupe and groupe['is_admin'] and any(_local_user_is_admin(m) for m in membres):
         if _admins_locaux_apres({m['username']: (0, None) for m in membres}) == 0:
@@ -1432,15 +1433,15 @@ def admin_groups_delete(name):
     db.execute("UPDATE local_users SET group_name=NULL WHERE group_name=?", (name,))
     db.execute("DELETE FROM user_groups WHERE name=?", (name,))
     db.commit()
-    # Les membres perdent le quota du groupe : leur NOUVEAU plafond effectif
-    # (override personnel, sinon défaut global) doit être réécrit côté LiteLLM.
-    # La création de groupe le faisait, la suppression non — les membres
-    # gardaient donc en silence une enveloppe parfois plus généreuse que le
-    # défaut, c'est-à-dire un quota fantôme.
+    # The members lose the group's quota: their NEW effective cap
+    # (personal override, else global default) must be rewritten on the LiteLLM
+    # side. Group creation did it, deletion did not — the members therefore
+    # silently kept an envelope sometimes more generous than the default, that
+    # is, a phantom quota.
     echecs = []
     for m in membres:
         if m['max_budget'] is not None:
-            continue                     # plafond personnel : rien à propager
+            continue                     # personal cap: nothing to propagate
         frais = db.execute("SELECT * FROM local_users WHERE username=?",
                            (m['username'],)).fetchone()
         if frais and not _sync_local_user_budget(m['username'], frais):
@@ -1461,18 +1462,18 @@ def toggle_maintenance():
     now_on = not maintenance_active()
     set_setting('maintenance_mode', '1' if now_on else '0')
     add_announcement('maintenance', 'on' if now_on else 'off')
-    # Notifie l'opérateur (ADMIN_EMAIL) de la bascule — les admins sont les
-    # destinataires, pas les utilisateurs bloqués.
+    # Notify the operator (ADMIN_EMAIL) of the toggle — the admins are the
+    # recipients, not the blocked users.
     sent = notify_maintenance_email(now_on, session.get('username', ''),
                                     session.get('fullname', ''))
-    # L'audit manquait sur la bascule : c'est pourtant l'action qui coupe l'acces
-    # a tout le monde, et « qui a active la maintenance a 3 h du matin » etait
-    # jusqu'ici sans reponse en base.
+    # The audit was missing on the toggle: yet it is the action that cuts
+    # access for everyone, and « qui a active la maintenance a 3 h du matin »
+    # has until now had no answer in the database.
     log_audit(session.get('username'), 'maintenance',
               'activé' if now_on else 'désactivé')
-    # Le flash « email non envoyé » n'etait rendu par personne : l'avertissement
-    # SMTP documente comme visible par l'operateur ne l'etait pas. Il part
-    # desormais dans la reponse JSON, donc dans le bandeau de l'interface.
+    # The « email non envoyé » flash was rendered by nobody: the SMTP warning
+    # documented as visible by the operator was not. It now goes out
+    # in the JSON response, hence in the UI banner.
     avert = None
     if all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]) and not sent:
         avert = "L'email d'alerte n'a pas pu être envoyé — vérifie la config SMTP."
@@ -1482,15 +1483,15 @@ def toggle_maintenance():
 @bp.route('/admin/email/config')
 @admin_required
 def admin_email_config():
-    """Statut de la config email (hôte / user / mot de passe / admin) — ne
-    renvoie jamais le mot de passe."""
+    """Status of the email config (host / user / password / admin) — never
+    returns the password."""
     configured = bool(all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]))
     return jsonify({'configured': configured, 'admin_email': ADMIN_EMAIL})
 
 @bp.route('/admin/email/test', methods=['POST'])
 @admin_required
 def admin_email_test():
-    """Envoie un email de test à ADMIN_EMAIL pour valider le SMTP."""
+    """Sends a test email to ADMIN_EMAIL to validate SMTP."""
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]) or not ADMIN_EMAIL:
         return jsonify({'ok': False, 'configured': False,
                         'error': "SMTP non configuré (renseigne SMTP_HOST / "
@@ -1532,21 +1533,21 @@ def approve_budget(req_id):
     except ValueError:
         return _json_erreur("Le montant à ajouter doit être un nombre positif.")
     if amount_val > 1_000_000_000_000:
-        # Garde-fou : un montant aberrant (typo « 6666726666666 ») rend le
-        # compte illimité de facto — c'est arrivé sur ce serveur sans que
-        # personne ne le voie. Au-delà d'1e12 tokens, c'est une erreur de
-        # saisie, on refuse.
+        # Guardrail: an absurd amount (typo « 6666726666666 ») makes the
+        # account unlimited de facto — it happened on this server without
+        # anyone seeing it. Beyond 1e12 tokens, it is a typing
+        # error, we refuse.
         return _json_erreur("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.")
     # Budget at the ACCOUNT level: we increment the LiteLLM user's envelope.
     info = _litellm_user_info(breq['username'])
     current_budget = info.get('max_budget') or 0
-    # La fenêtre de reset accompagne toujours la mise à jour : sans elle le
-    # montant devient un plafond à vie, jamais remis à zéro. On aligne sur le
-    # défaut global (hebdomadaire depuis le 2026-09-08).
+    # The reset window always accompanies the update: without it the amount
+    # becomes a lifelong cap, never reset to zero. We align on the global
+    # default (weekly since 2026-09-08).
     grant_duration = get_setting('default_key_duration', KEY_DURATION)
-    # « durée » : vide = permanent (l'ancien comportement) ; N jours = le
-    # supplément N'EST PAS une nouvelle limite à vie — un reaper ramène le
-    # compte à son plafond de base à l'échéance.
+    # « durée »: empty = permanent (the old behaviour); N days = the extra is
+    # NOT a new lifelong limit — a reaper brings the account back to its base
+    # cap at the deadline.
     grant = db.execute(
         "SELECT * FROM budget_grants WHERE username=? AND expires_at > ?",
         (breq['username'], datetime.utcnow().isoformat())).fetchone()
@@ -1562,9 +1563,9 @@ def approve_budget(req_id):
                                 "(vide = permanent).")
         expires_at = (datetime.utcnow() + timedelta(days=jours)).isoformat()
     if expires_at:
-        # Subvention TEMPORAIRE : le plafond de base est figé UNE fois (au
-        # premier boost) ; un 2e boost pendant la période s'empile dessus,
-        # l'échéance revient quand même au MÊME plafond de base.
+        # TEMPORARY grant: the base cap is frozen ONCE (at the first
+        # boost); a 2nd boost during the period stacks on top of it,
+        # the deadline still returns to the SAME base cap.
         base = grant['base_budget'] if grant else current_budget
         new_budget = (grant['current_budget'] if grant else base) + amount_val
         if not litellm_update_user_budget(breq['username'], new_budget,
@@ -1586,8 +1587,8 @@ def approve_budget(req_id):
                                           budget_duration=grant_duration):
             return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 502)
         if grant:
-            # Hausse PERMANENTE pendant une subvention : elle doit survivre à
-            # l'échéance, donc elle relève le plafond de base lui-même.
+            # PERMANENT raise during a grant: it must survive the deadline,
+            # so it raises the base cap itself.
             db.execute("UPDATE budget_grants SET base_budget=?, current_budget=?, updated_at=? WHERE id=?",
                        (grant['base_budget'] + amount_val, grant['current_budget'] + amount_val,
                         datetime.utcnow().isoformat(), grant['id']))
@@ -1598,9 +1599,9 @@ def approve_budget(req_id):
     db.commit()
     add_notification(breq['username'], 'request',
                      f"Budget accordé : +{amount_val:,.0f} tokens.".replace(',', ' '))
-    # Accorder un budget n'etait PAS audite : c'est pourtant l'action qui a le
-    # plus riche passe d'incidents sur cette machine (la typo a 6,7e12 tokens),
-    # et « qui a augmente le quota de qui » doit avoir une reponse en base.
+    # Granting a budget was NOT audited: yet it is the action with the richest
+    # incident history on this machine (the 6,7e12 tokens typo),
+    # and « qui a augmente le quota de qui » must have an answer in the database.
     log_audit(session.get('username'), 'budget.approve',
               f"{breq['username']} +{amount_val:.0f} tokens"
               + (f" (temporaire, retour à {grant['base_budget'] if grant else current_budget:.0f} "
@@ -1618,16 +1619,16 @@ def approve_budget(req_id):
 @bp.route('/admin/users/<username>/budget/set', methods=['POST'])
 @admin_required
 def set_user_budget(username):
-    """Redéfinir le plafond d'un compte (montant EXACT, pas un ajout).
+    """Redefine an account's cap (EXACT amount, not an addition).
 
-    Permet de BAISSER un quota (200M → 50M) comme de le hausser. Toute
-    subvention temporaire en cours est écrasée : la décision admin fait foi.
+    Allows LOWERING a quota (200M → 50M) as well as raising it. Any temporary
+    grant in progress is overwritten: the admin decision stands.
 
-    0 est REFUSÉ. Mesuré sur cette instance : `user/update` avec `max_budget: 0`
-    laisse bien 0 en base (LiteLLM ne l'interprète pas comme « illimité »), donc
-    le compte est réellement plafonné à zéro token — un « je mets 0 pour lever
-    la limite » coupe l'accès. Le blocage fait le même effet, en réversible et
-    avec un motif consigné.
+    0 is REFUSED. Measured on this instance: `user/update` with `max_budget: 0`
+    does leave 0 in the database (LiteLLM does not interpret it as
+    « illimité »), so the account is really capped at zero tokens — a
+    « je mets 0 pour lever la limite » cuts access. Blocking has the same
+    effect, reversible and with a recorded reason.
     """
     db = get_db()
     raw = request.form.get('budget', '').strip()
@@ -1641,8 +1642,8 @@ def set_user_budget(username):
             "l'accès d'un compte, utilise le blocage du compte — réversible et "
             "tracé ; un budget de 0 le plafonne réellement à zéro token.")
     if value > 1_000_000_000_000:
-        # Même garde-fou que l'approbation : au-delà d'1e12 tokens c'est une
-        # typo qui rend le compte illimité de facto.
+        # Same guardrail as approval: beyond 1e12 tokens it is a typo that
+        # makes the account unlimited de facto.
         return _json_erreur("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.")
     grant_duration = get_setting('default_key_duration', KEY_DURATION)
     if not litellm_update_user_budget(username, value, budget_duration=grant_duration):
@@ -1655,11 +1656,11 @@ def set_user_budget(username):
 
 
 def revert_expired_grants():
-    """Ramène à leur plafond de base les comptes dont la subvention a expiré.
+    """Brings back to their base cap the accounts whose grant has expired.
 
-    Retourne le nombre de comptes ramenés. Appelé par le reaper (thread du
-    portail, toutes les 60 s) et une fois au démarrage : après une coupure,
-    l'échéance manquée est rattrapée à la minute du boot.
+    Returns the number of accounts brought back. Called by the reaper (portal
+    thread, every 60 s) and once at startup: after an outage, the missed
+    deadline is caught up within the minute of boot.
     """
     db = get_db()
     now = datetime.utcnow().isoformat()
@@ -1672,22 +1673,22 @@ def revert_expired_grants():
         info = _litellm_user_info(g['username'])
         actuel = info.get('max_budget')
         if actuel is None or abs(actuel - g['current_budget']) < 1:
-            # Personne n'a touché au plafond depuis le boost : on revient à la base.
+            # Nobody has touched the cap since the boost: we return to the base.
             if not litellm_update_user_budget(g['username'], g['base_budget'],
                                               budget_duration=grant_duration):
-                # La ligne NE DOIT PAS disparaître : elle porte l'échéance ET le
-                # plafond de base, donc la seule raison de retenter au prochain
-                # passage. La supprimer malgré l'échec transformait une
-                # subvention TEMPORAIRE en hausse permanente, en silence — une
-                # minute de LiteLLM injoignable suffisait, et personne ne
-                # pouvait plus savoir qu'un retour était dû.
+                # The row MUST NOT disappear: it carries the deadline AND the
+                # base cap, hence the only reason to retry at the next pass.
+                # Deleting it despite the failure turned a TEMPORARY grant into
+                # a permanent raise, silently — one minute of unreachable
+                # LiteLLM sufficed, and nobody could know anymore that a return
+                # was due.
                 log_audit('reaper', 'budget.grant_revert_echec',
                           f"{g['username']} : retour au plafond de base non appliqué "
                           f"(LiteLLM injoignable ?), nouvelle tentative au prochain passage")
                 continue
             ramenes += 1
-        # Sinon l'admin est intervenu entre-temps : la subvention est simplement
-        # oubliée, on n'écrase PAS sa décision.
+        # Otherwise the admin intervened in the meantime: the grant is simply
+        # forgotten, we do NOT overwrite their decision.
         db.execute("DELETE FROM budget_grants WHERE id=?", (g['id'],))
     db.commit()
     return ramenes
@@ -1838,18 +1839,18 @@ def update_request(req_id):
 
     nom, deja, routage_ok = None, False, True
     if status == 'done' and req['model_id']:
-        # On ENREGISTRE d'abord, on annonce ensuite. La demande etait marquee
-        # « Lancé ✓ » et l'email « ton modèle est disponible » partait AVANT de
-        # savoir si l'enregistrement LiteLLM avait abouti ; l'echec ne sortait que
-        # dans un flash que l'interface ne rendait pas. Le demandeur apprenait
-        # donc qu'il pouvait utiliser un modele qui n'etait pas route.
+        # We REGISTER first, we announce after. The request was marked
+        # « Lancé ✓ » and the email « ton modèle est disponible » went out BEFORE
+        # knowing whether the LiteLLM registration had succeeded; the failure
+        # only appeared in a flash the UI did not render. The requester thus
+        # learned they could use a model that was not routed.
         nom, deja = _add_model_to_catalog(db, req['model_id'])
         cfg = db.execute("SELECT vllm_args, engine FROM model_configs WHERE name=?", (nom,)).fetchone()
         routage_ok = _register_litellm_model(
             nom, cfg['vllm_args'] if cfg else DEFAULT_VLLM_ARGS,
             (cfg['engine'] if cfg else 'vllm') or 'vllm')
         if not routage_ok:
-            db.commit()          # le catalogue, lui, est bien a jour
+            db.commit()          # the catalog itself is up to date
             log_audit(session.get('username'), 'request.routage_echec',
                       f"demande #{req_id} ({nom}) : catalogue OK, LiteLLM non enregistré")
             return _json_erreur(
@@ -1892,11 +1893,11 @@ def update_request(req_id):
 @bp.route('/admin/support/feedback')
 @admin_required
 def admin_support_feedback():
-    """Retours utilisateurs sur le Support (pouce haut/bas + commentaires).
+    """User feedback on the Support (thumbs up/down + comments).
 
-    Sert à savoir QUELLES réponses échouent : sans cela, le prompt du Support ne
-    se corrigeait qu'à l'intuition. Agrégat + derniers retours négatifs (les plus
-    utiles pour corriger), borné.
+    Serves to know WHICH replies fail: without it, the Support prompt was only
+    fixed by intuition. Aggregate + latest negative feedback (the most useful
+    to fix), bounded.
     """
     db = get_db()
     tot = db.execute("SELECT COUNT(*) c, SUM(CASE WHEN vote>0 THEN 1 ELSE 0 END) p "

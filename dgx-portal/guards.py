@@ -1,11 +1,11 @@
-"""Gardes partages par les routes couteuses (maintenance, debit).
+"""Guards shared by the costly routes (maintenance, rate).
 
-Extrait de app.py le 28/08, avec les blueprints media : video, image et musique
-appellent tous les deux memes gardes, qui vivaient dans le monolithe. Les
-laisser la aurait force chaque blueprint a reimporter app.py — le cycle qu'on
-evite depuis db.py.
+Extracted from app.py on 28/08, with the media blueprints: video, image and
+music all call the same two guards, which lived in the monolith. Leaving
+them there would have forced each blueprint to re-import app.py — the cycle
+we have avoided since db.py.
 
-Ne depend que de flask, du noyau (db) et du temps.
+Depends only on flask, the core (db) and time.
 """
 import struct
 import threading
@@ -21,22 +21,22 @@ from config import KEY_DURATION
 from db import get_db, get_setting, maintenance_active
 
 
-# ── Garde de quota (comptabilité fiable SpendLogs) ───────────────────────────
-# Le 429 natif de LiteLLM ne suffit pas : son compteur interne a été écrasé
-# pendant des semaines par les resets quotidiens et sa sync DB est capricieuse
-# (un compte : 242 M de tokens réels sur 7 j contre 1,3 M comptés, 2026-09-09 —
-# il « dépassait » son quota sans jamais être bloqué). Le portail juge donc
-# AVANT l'appel modèle sur SpendLogs — la même source que la carte
-# d'utilisation : ce que l'utilisateur voit dépassé est réellement appliqué.
+# ── Quota guard (reliable SpendLogs accounting) ────────────────────────────
+# LiteLLM's native 429 is not enough: its internal counter was wiped for
+# weeks by the daily resets and its DB sync is capricious (one account: 242 M
+# real tokens over 7 days against 1,3 M counted, 2026-09-09 — it "exceeded"
+# its quota without ever being blocked). The portal therefore judges BEFORE
+# the model call on SpendLogs — the same source as the usage card: what the
+# user sees exceeded is really enforced.
 _QUOTA_CACHE = {}          # username -> (horodatage, verdict)
-_QUOTA_CACHE_TTL = 30      # s : un tour d'agrégat Postgres par compte suffit
+_QUOTA_CACHE_TTL = 30      # s: one Postgres aggregate pass per account is enough
 
 
 def quota_depasse_reset(username):
-    """Date du prochain reset si le compte a épuisé son enveloppe, sinon None.
+    """Date of the next reset if the account has exhausted its envelope, else None.
 
-    On renvoie la DONNÉE (date), pas un texte : la phrase vit côté frontend,
-    traduite dans la langue de l'interface (contrat i18n : msgid français)."""
+    We return the DATA (date), not a sentence: the wording lives on the
+    frontend side, translated into the interface language (i18n contract: French msgid)."""
     now = time.time()
     hit = _QUOTA_CACHE.get(username)
     if hit and now - hit[0] < _QUOTA_CACHE_TTL:
@@ -55,7 +55,7 @@ def quota_depasse_reset(username):
             if used >= int(effective):
                 reset = (ui.get('budget_reset_at') or '')[:16].replace('T', ' ')
     except Exception:
-        reset = None                     # ne JAMAIS bloquer sur une panne interne
+        reset = None                     # NEVER block on an internal failure
     _QUOTA_CACHE[username] = (now, reset)
     return reset
 
@@ -67,12 +67,12 @@ def maintenance_block_json():
 
 
 def media_block_json():
-    """Les DEUX refus qui ouvrent toute génération média : maintenance, puis débit.
+    """The TWO refusals that open any media generation: maintenance, then rate.
 
-    Renvoie la réponse à retourner, ou None quand la requête peut continuer.
-    Les quatre routes média (image, musique, vidéo, voix) répétaient ces quatre
-    lignes à l'identique ; l'ORDRE — la maintenance d'abord — est une décision,
-    qui n'a donc plus qu'un seul endroit où être relue.
+    Returns the response to send back, or None when the request can proceed.
+    The four media routes (image, music, video, voice) repeated these four
+    lines identically; the ORDER — maintenance first — is a decision, which
+    now has a single place to be reviewed.
     """
     return maintenance_block_json() or media_rate_block()
 
@@ -83,23 +83,23 @@ CHAT_RATE_WINDOW = 60    # …per 60 s window and per user
 def _chat_rate_limited(username, bucket, max_requetes=None, fenetre=None):
     """Returns the number of seconds to wait, or 0 if the request can pass.
 
-    Le plafond et la fenêtre sont des PARAMÈTRES depuis le 2026-09-22 : la
-    dictée n'appelle pas l'ASR au rythme d'un utilisateur qui clique, mais
-    toutes les secondes (cf. `dictation_rate_block`), et un plafond unique ne
-    peut pas décrire les deux usages."""
+    The cap and the window are PARAMETERS since 2026-09-22: dictation does
+    not call ASR at a clicking user's pace, but every second (see
+    `dictation_rate_block`), and a single cap cannot describe both
+    usages."""
     max_requetes = CHAT_RATE_MAX if max_requetes is None else max_requetes
     fenetre = CHAT_RATE_WINDOW if fenetre is None else fenetre
     now = time.time()
     key = f"{bucket}|{username}"
     db = get_db()
-    # L'ACQUISITION est un seul UPSERT conditionnel depuis l'audit du 2026-10-02.
-    # Un SELECT suivi d'un UPDATE laissait passer N requêtes simultanées : toutes
-    # lisaient `fails` avant la première écriture. 64 threads gunicorn pouvaient
-    # donc franchir un plafond de 20 d'un coup, saturer le pool et le GPU — et le
-    # compteur doit de toute façon vivre en SQL, puisque les 4 workers ne peuvent
-    # pas se coordonner autrement. `rowcount` vaut 1 quand la requête a été
-    # comptée (fenêtre ouverte et plafond non atteint), 0 sinon : c'est la
-    # décision, prise par la base, pas par du code applicatif.
+    # The ACQUISITION is a single conditional UPSERT since the 2026-10-02 audit.
+    # A SELECT followed by an UPDATE let N simultaneous requests through: all
+    # read `fails` before the first write. 64 gunicorn threads could thus cross a
+    # cap of 20 at once, saturate the pool and the GPU — and the counter must
+    # live in SQL anyway, since the 4 workers cannot coordinate otherwise.
+    # `rowcount` is 1 when the request was counted (window open and cap not
+    # reached), 0 otherwise: this is the decision, made by the database, not by
+    # application code.
     cur = db.execute(
         "INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,1,?,0) "
         "ON CONFLICT(key) DO UPDATE SET fails=fails+1 "
@@ -112,9 +112,9 @@ def _chat_rate_limited(username, bucket, max_requetes=None, fenetre=None):
     row = db.execute("SELECT first_at FROM login_attempts WHERE key=?", (key,)).fetchone()
     if row and now - row['first_at'] <= fenetre:
         return max(1, int(fenetre - (now - row['first_at'])))
-    # Fenêtre expirée : la rouvrir. Deux requêtes simultanées peuvent la rouvrir
-    # toutes les deux et la seconde écrase la première — le seul effet est une
-    # requête non comptée, une fois par fenêtre.
+    # Expired window: reopen it. Two simultaneous requests can both reopen it
+    # and the second overwrites the first — the only effect is one uncounted
+    # request, once per window.
     db.execute("UPDATE login_attempts SET fails=1, first_at=? WHERE key=?", (now, key))
     db.commit()
     return 0
@@ -133,41 +133,41 @@ def media_rate_block():
     return None
 
 
-# ── Dictée (ASR) : un budget à son rythme, pas celui des médias ──────────────
-# La dictée n'est PAS un appel média isolé : `useDictation` (frontend)
-# retranscrit tout l'audio capté depuis le début TOUTES LES SECONDES pendant que
-# l'utilisateur parle (POLL_MS = 1000), plus une passe finale. Partager la
-# fenêtre de 20/min des médias la condamnait donc au 429 au bout d'environ 20 s
-# de parole — constaté le 2026-09-22 (« Trop de requêtes. Réessaie dans 36 s. »)
-# et la dictée cessait de s'écrire. Son budget suit son rythme réel (~1 req/s)
-# avec 25 % de marge : une longue dictée ne le touche jamais, un client qui
-# martèle le trouve tout de suite.
+# ── Dictation (ASR): a budget at its own pace, not the media one ────────────
+# Dictation is NOT a single media call: `useDictation` (frontend)
+# retranscribes all audio captured since the start EVERY SECOND while the
+# user speaks (POLL_MS = 1000), plus a final pass. Sharing the media window
+# of 20/min thus condemned it to 429 after about 20 s of speech — observed
+# on 2026-09-22 (« Trop de requêtes. Réessaie dans 36 s. ») and the
+# dictation stopped being written. Its budget follows its real pace
+# (~1 req/s) with 25 % headroom: a long dictation never touches it, a
+# hammering client meets it at once.
 ASR_RATE_MAX    = 75    # transcriptions allowed…
 ASR_RATE_WINDOW = 60    # …per 60 s window and per user
 
 
 def dictation_rate_block():
-    """Garde de débit de `/api/transcribe` (bucket distinct de `rl-media`)."""
+    """Rate guard for `/api/transcribe` (bucket distinct from `rl-media`)."""
     wait = _chat_rate_limited(session['username'], 'rl-asr', ASR_RATE_MAX, ASR_RATE_WINDOW)
     if wait:
         return jsonify({'error': f"Trop de requêtes. Réessaie dans {wait} s."}), 429
     return None
 
 
-# ── Jobs asynchrones (image/musique) : borne de concurrence par utilisateur ──
-# media_rate_block borne le DEBIT (20/min), mais chaque requete cree un thread
-# daemon qui se bloque jusqu'a 600 s (image) / 1800 s (musique) sur le sidecar.
-# Sur plusieurs fenetres, un meme compte peut donc empiler des threads qui
-# restent accroches au GPU. On borne le nombre de jobs EN COURS par compte,
-# independamment du rythme — la seule vraie limite pour un thread de fond.
+# ── Async jobs (image/music): per-user concurrency bound ───────────────────
+# media_rate_block bounds the RATE (20/min), but each request creates a
+# daemon thread that blocks up to 600 s (image) / 1800 s (music) on the
+# sidecar. Over several windows one account can thus stack threads that stay
+# hooked to the GPU. We bound the number of IN-FLIGHT jobs per account,
+# independently of the pace — the only real limit for a background thread.
 _MEDIA_SLOTS = defaultdict(int)
 _MEDIA_SLOTS_LOCK = threading.Lock()
 MEDIA_MAX_CONCURRENT = 3
 
 def media_job_slot(username):
-    """Acquiert un slot de job asynchrone pour `username`. True si accepte
-    (l'appelant DOIT liberer via media_job_done quand le worker finit),
-    False si ce compte a deja MEDIA_MAX_CONCURRENT jobs en cours."""
+    """Acquires an async job slot for `username`. True if accepted (the caller
+    MUST release via media_job_done when the worker finishes), False if this
+    account already has MEDIA_MAX_CONCURRENT jobs in flight."""
     with _MEDIA_SLOTS_LOCK:
         if _MEDIA_SLOTS[username] >= MEDIA_MAX_CONCURRENT:
             return False
@@ -175,7 +175,7 @@ def media_job_slot(username):
         return True
 
 def media_job_done(username):
-    """Libere un slot acquis par media_job_slot (appele en fin de worker)."""
+    """Releases a slot acquired by media_job_slot (called at the end of the worker)."""
     with _MEDIA_SLOTS_LOCK:
         cur = _MEDIA_SLOTS.get(username, 0)
         if cur <= 1:
@@ -184,35 +184,35 @@ def media_job_done(username):
             _MEDIA_SLOTS[username] = cur - 1
 
 
-# Limite d'envoi audio, partagee par la voix (clip de reference) et la dictee :
-# les deux acceptent un fichier de l'utilisateur vers du code de modele tiers.
+# Audio upload limit, shared by voice (reference clip) and dictation: both
+# accept a user file towards third-party model code.
 _MAX_VOICE_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB, reference sample
 
 
 # ── Envoi d'image, partage ───────────────────────────────────────────────────
-# Lu par les routes video ET OCR : les deux acceptent une image de
-# l'utilisateur. Cette aide vivait dans la section video du monolithe, ce qui
-# l'a rendue invisible pour l'OCR au moment de l'extraction — la route
-# /api/ocr/extract levait un NameError A L'APPEL, que ni les tests ni la
-# comparaison de table de routes ne pouvaient voir.
+# Read by the video AND OCR routes: both accept a user image. This helper
+# lived in the monolith's video section, which made it invisible to OCR at
+# extraction time — the /api/ocr/extract route raised a NameError AT CALL
+# TIME, which neither the tests nor the route-table comparison could
+# see.
 _MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB, reference image
 _ALLOWED_IMAGE_TYPES = {'image/png', 'image/jpeg', 'image/webp'}
 
-# ── Borne de DÉCODAGE de l'image (audit du 2026-10-02) ───────────────────────
-# Le plafond d'octets ne borne que le fichier COMPRESSÉ : un PNG de quelques
-# centaines de Ko peut décrire 170 Mpx (un aplat se compresse ~1000:1) et faire
-# allouer ~0,7 Go au processus qui le décode — ComfyUI, un service HÔTE pour la
-# vidéo, ou le conteneur OCR. Sur une mémoire unifiée, l'OOM-killer vise le plus
-# gros RSS, c'est-à-dire le modèle servi. Les dimensions se lisent dans l'EN-TÊTE,
-# sans décoder : le portail n'a pas Pillow, et décoder pour mesurer serait déjà
-# la bombe. Un en-tête illisible est REFUSÉ (fail-closed) : laisser passer ce
-# qu'on ne sait pas mesurer n'annulerait pas seulement la garde, il suffirait
-# d'abîmer l'en-tête pour la contourner.
+# ── Image DECODING bound (audit of 2026-10-02) ─────────────────────────────
+# The byte cap only bounds the COMPRESSED file: a PNG of a few hundred Ko can
+# describe 170 Mpx (a flat area compresses ~1000:1) and make the decoding
+# process allocate ~0,7 Go — ComfyUI, a HOST service for video, or the OCR
+# container. On unified memory, the OOM-killer targets the biggest RSS, i.e.
+# the served model. The dimensions are read in the HEADER, without decoding:
+# the portal has no Pillow, and decoding to measure would already be the
+# bomb. An unreadable header is REFUSED (fail-closed): letting through what
+# we cannot measure would not merely cancel the guard, corrupting the header
+# would be enough to bypass it.
 MAX_IMAGE_PIXELS = 40_000_000  # ~40 Mpx
 
 
 def _dimensions_image(data, mime):
-    """(largeur, hauteur) lues dans l'en-tête PNG/JPEG/WebP, ou None."""
+    """(width, height) read from the PNG/JPEG/WebP header, or None."""
     try:
         if mime == 'image/png':
             # Signature puis chunk IHDR : largeur/hauteur en u32 big-endian.
@@ -220,8 +220,8 @@ def _dimensions_image(data, mime):
                 return None
             return struct.unpack('>II', data[16:24])
         if mime == 'image/jpeg':
-            # Parcours des segments jusqu'au marqueur SOF (0xC0-0xCF, sauf DHT,
-            # JPG et DAC qui partagent le préfixe).
+            # Walk the segments up to the SOF marker (0xC0-0xCF, except DHT, JPG and
+            # DAC which share the prefix).
             i = 2
             while i + 9 < len(data):
                 if data[i] != 0xFF:
@@ -235,7 +235,7 @@ def _dimensions_image(data, mime):
                                 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
                     hauteur, largeur = struct.unpack('>HH', data[i + 5:i + 9])
                     return largeur, hauteur
-                if marqueur == 0xDA:  # début des données : plus aucun SOF à venir
+                if marqueur == 0xDA:  # start of data: no SOF left to come
                     return None
                 i += 2 + taille
             return None
@@ -243,13 +243,13 @@ def _dimensions_image(data, mime):
             if data[:4] != b'RIFF' or data[8:12] != b'WEBP':
                 return None
             format_webp = data[12:16]
-            if format_webp == b'VP8X':      # dimensions 24 bits, moins un
+            if format_webp == b'VP8X':      # 24-bit dimensions, minus one
                 return (int.from_bytes(data[24:27], 'little') + 1,
                         int.from_bytes(data[27:30], 'little') + 1)
             if format_webp == b'VP8 ':      # lossy : 14 bits chacune
                 return (struct.unpack('<H', data[26:28])[0] & 0x3FFF,
                         struct.unpack('<H', data[28:30])[0] & 0x3FFF)
-            if format_webp == b'VP8L':      # lossless : 14 bits empaquetés
+            if format_webp == b'VP8L':      # lossless: 14 bits packed
                 bits = int.from_bytes(data[21:25], 'little')
                 return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
             return None
@@ -281,8 +281,8 @@ def _read_uploaded_image(field='image'):
 
 
 # ── Aides SSE, partagees ─────────────────────────────────────────────────────
-# Utilisees par le playground, le support et l'OCR : elles doivent vivre hors
-# du monolithe pour qu'un blueprint puisse les importer.
+# Used by the playground, the support and the OCR: they must live outside
+# the monolith so a blueprint can import them.
 
 def _sse_msg(text):
     """A single SSE 'content' message + end of stream (safe JSON escaping)."""
@@ -291,8 +291,8 @@ def _sse_msg(text):
 
 
 def _sse_notice(nid, **args):
-    """Notice système STRUCTURÉE (ex. quota dépassé) : le frontend la traduit
-    dans la langue de l'interface — le serveur n'écrit jamais de phrase."""
+    """STRUCTURED system notice (e.g. quota exceeded): the frontend translates it
+    into the interface language — the server never writes a sentence."""
     payload = json.dumps({'cronos_notice': {'id': nid, **args}})
     return f"data: {payload}\n\ndata: [DONE]\n\n"
 

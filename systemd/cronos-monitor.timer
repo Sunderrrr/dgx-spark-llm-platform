@@ -2,8 +2,8 @@
 Description=Run cronos-monitor every 5 minutes
 
 [Timer]
-# Premier passage peu après le boot, puis toutes les 5 min (rattrape les
-# passages manqués si la machine était éteinte).
+# First pass shortly after boot, then every 5 min (catches up missed passes if
+# the machine was off).
 OnBootSec=2min
 OnUnitActiveSec=5min
 Persistent=true

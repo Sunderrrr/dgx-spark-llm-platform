@@ -18,46 +18,46 @@ VLLM_BIN_025 = os.environ.get("VLLM_BIN_025", "/root/venvs/vllm025/bin/vllm")
 # 0.25.1 on Qwen3.8-27B-FP8+MTP (~12 vs ~11.8 tok/s — memory-bandwidth bound),
 # kept as an opt-in --vllm-027 flag for models we choose to run on the latest.
 VLLM_BIN_027 = os.environ.get("VLLM_BIN_027", "/root/venvs/vllm-next/bin/vllm")
-# vLLM 0.28.0 venv (same torch 2.13 cu130, verified on the GB10: sm_121 detected).
-# Adds 11 architectures over 0.27.1, including BailingMoeV3 — Ling-3.0 becomes
-# servable by vLLM and no longer only by llama.cpp. Still NO Qwen4Exp. Opt-in via
-# --vllm-028, like the previous ones.
+# vLLM 0.28.0 venv (meme torch 2.13 cu130, verifie sur le GB10 : sm_121 detecte).
+# Ajoute 11 architectures par rapport a 0.27.1, dont BailingMoeV3 — Ling-3.0
+# devient servable par vLLM et non plus seulement par llama.cpp. Toujours PAS de
+# Qwen4Exp. Opt-in via --vllm-028, comme les precedentes.
 VLLM_BIN_028 = os.environ.get("VLLM_BIN_028", "/root/venvs/vllm-028/bin/vllm")
-# vLLM nightly (main). Opt-in via --vllm-nightly, NEVER by default: it is a
-# pre-release. Rationale: K2-Horizon (arch `k2_horizon`) was merged into vLLM main
-# only on 3 September 2026 (PR #55063) and is present in NO release — 0.28.0
-# predates it, and its registry of 378 architectures does not know
-# K2HorizonForCausalLM (verified).
+# vLLM nightly (main). Opt-in via --vllm-nightly, JAMAIS par defaut : c'est une
+# pre-release. Raison d'etre : K2-Horizon (arch `k2_horizon`) n'a ete fusionne dans
+# vLLM main que le 3 septembre 2026 (PR #55063) et n'est present dans AUCUNE
+# release — 0.28.0 lui est anterieure, son registre de 378 architectures ne connait
+# pas K2HorizonForCausalLM (verifie).
 VLLM_BIN_NIGHTLY = os.environ.get("VLLM_BIN_NIGHTLY", "/root/venvs/vllm-nightly/bin/vllm")
 LLAMA_BIN    = os.environ.get("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-server")
-# Recent upstream llama.cpp (0.3.0-dev, August 2026), built for the GB10. It brings
-# `qwen4exp` (Qwen3.8-Flash-Next), absent from the two other builds, while keeping
-# `bailingmoe3` and `deepseek4`. Opt-in via --llama-next and NOT by default: the
-# Ling-3.0 GGUF published by AtomicChat uses `ssm_f`/`ssm_a` tensors that only the
-# TurboQuant fork can read, upstream expects `ssm_f_a`. Making it the default would
-# silently break that model.
+# llama.cpp amont recent (0.3.0-dev, aout 2026), compile pour le GB10. Il apporte
+# `qwen4exp` (Qwen3.8-Flash-Next), absent des deux autres builds, tout en gardant
+# `bailingmoe3` et `deepseek4`. Opt-in via --llama-next et NON par defaut : le
+# GGUF de Ling-3.0 publie par AtomicChat utilise des tenseurs `ssm_f`/`ssm_a` que
+# seul le fork TurboQuant sait lire, l'amont attend `ssm_f_a`. Basculer par
+# defaut casserait ce modele en silence.
 LLAMA_BIN_NEXT = os.environ.get("LLAMA_BIN_NEXT", "/root/llama-cpp-upstream/build/bin/llama-server")
-# MBZUAI-IFM fork, branch model/K2Horizon, built for the GB10. The only build that
-# knows the `k2_horizon` architecture: the llama.cpp PR is still OPEN, neither
-# upstream nor the TurboQuant fork read it (verified). Opt-in via --llama-k2 and
-# never by default: it is a dev branch, not a release.
+# Fork MBZUAI-IFM branche model/K2Horizon, compile pour le GB10. Seul build qui
+# connaisse l'architecture `k2_horizon` : la PR llama.cpp est encore OUVERTE, ni
+# l'amont ni le fork TurboQuant ne la lisent (verifie). Opt-in par --llama-k2 et
+# jamais par defaut : c'est une branche de dev, pas une release.
 LLAMA_BIN_K2 = os.environ.get("LLAMA_BIN_K2", "/root/llama-cpp-k2horizon/build/bin/llama-server")
-# Prism ML fork (branch `prism`), prebuilt VULKAN binary for aarch64. The only
-# build that reads the TERNARY tensor type `pq2_0` (id 142): measurement of
-# 2026-10-01, 402 of the 851 tensors of the PQ2_0 of Ternary-Bonsai-2-27B carry it,
-# and `libggml-base.so` of our three other builds only knows `q1_0`/`q2_0`.
-# Upstream and the TurboQuant fork therefore fail at load time. Opt-in via
-# `--llama-prism` and never by default.
+# Fork Prism ML (branche `prism`), binaire VULKAN preconstruit pour aarch64. Seul
+# build qui lise le type de tenseur TERNAIRE `pq2_0` (id 142) : mesure du
+# 2026-10-01, 402 des 851 tenseurs du PQ2_0 de Ternary-Bonsai-2-27B le portent, et
+# `libggml-base.so` de nos trois autres builds ne connait que `q1_0`/`q2_0`.
+# L'amont et le fork TurboQuant echouent donc au chargement. Opt-in par
+# `--llama-prism` et jamais par defaut.
 #
-# COMPILED HERE IN CUDA on 2026-10-01 (`/root/llama-prism-cuda`, branch `prism`,
-# sm_121). The vendor aarch64 release only offers CPU and Vulkan, and the VULKAN
-# binary CANNOT serve this model: it crashes with SIGABRT as soon as the context is
-# reserved on `pre-allocated tensor (cache_k_l3) in a buffer (Vulkan0) that cannot
-# run the operation (NONE)`. The source, however, does have the CUDA ternary
-# kernels (56 `pq2` symbols in libggml-cuda.so versus 106 `arr_dmmv_pq2_0_*` on the
-# Vulkan side), hence this local build. `--list-devices` now reports
-# `CUDA0: NVIDIA GB10` instead of `Vulkan0`. The prebuilt binaries stay in
-# /root/llama-prism should a CPU fallback ever be needed.
+# COMPILE ICI EN CUDA le 2026-10-01 (`/root/llama-prism-cuda`, branche `prism`,
+# sm_121). La release aarch64 de l'editeur n'offre que CPU et Vulkan, et le binaire
+# VULKAN ne peut PAS servir ce modele : il plante en SIGABRT des la reservation du
+# contexte sur `pre-allocated tensor (cache_k_l3) in a buffer (Vulkan0) that cannot
+# run the operation (NONE)`. Le source, lui, a bien les noyaux ternaires CUDA
+# (56 symboles `pq2` dans libggml-cuda.so contre 106 `arr_dmmv_pq2_0_*` cote
+# Vulkan), d'ou cette compilation locale. `--list-devices` annonce desormais
+# `CUDA0: NVIDIA GB10` et non plus `Vulkan0`. Les binaires precompilies restent
+# dans /root/llama-prism si un repli CPU est un jour necessaire.
 LLAMA_BIN_PRISM = os.environ.get("LLAMA_BIN_PRISM", "/root/llama-prism-cuda/build/bin/llama-server")
 # ds4 engine: DGX Spark-specific "multi-tensor" NVFP4 GGUF (DeepSeek-V4-Flash).
 # Neither vLLM nor stock llama.cpp can load this format.
@@ -71,21 +71,21 @@ MODELS_DIR   = os.environ.get("MODELS_DIR", "/root/models")
 # models that breaks in agentic use). Referenced by name only → no arbitrary path.
 TEMPLATES_DIR = os.environ.get("TEMPLATES_DIR", "/root/models/templates")
 RUNNER_TOKEN = os.environ["RUNNER_TOKEN"]  # required — no default, the service must fail at startup if absent
-# An EMPTY token would pass the comparison against a request WITHOUT an
-# Authorization header (`compare_digest("", "")` is true): a `RUNNER_TOKEN=` in the
-# environment would therefore turn the daemon into an OPEN service, while it owns
-# the GPU and can launch any model. Refused at startup, like an absent one
-# (audit of 2026-10-02). The token in service is 46 characters.
+# Un jeton VIDE passerait la comparaison avec une requête SANS en-tête
+# Authorization (`compare_digest("", "")` est vrai) : un `RUNNER_TOKEN=` dans
+# l'environnement transformait donc le daemon en service OUVERT, alors qu'il
+# possède le GPU et peut lancer n'importe quel modèle. On refuse au démarrage,
+# comme pour l'absence (audit du 2026-10-02). Le jeton en service en fait 46.
 if len(RUNNER_TOKEN) < 16:
     raise SystemExit("RUNNER_TOKEN absent ou trop court (16 caracteres minimum)")
 
-# ExLlamaV3 engine, served by TabbyAPI (OpenAI API). Added 2026-10-01 for
-# MiMo-V2.6-Flash-RL in EXL3 2.27 bpw: 85 GiB for the 309B, the only complete
-# version of this model that fits on the GB10 (the smallest GGUF is 126 GB).
-# No published aarch64 wheel: exllamav3 is compiled locally in this venv.
+# Moteur ExLlamaV3, servi par TabbyAPI (API OpenAI). Ajoute le 2026-10-01 pour
+# MiMo-V2.6-Flash-RL en EXL3 2,27 bpw : 85 Gio pour les 309B, la seule version
+# complete de ce modele qui tienne sur le GB10 (le GGUF le plus petit fait 126 Go).
+# Pas de roue aarch64 publiee : exllamav3 est compile localement dans ce venv.
 EXL3_PY   = os.environ.get("EXL3_PY", "/root/venvs/exl3/bin/python")
-# Symlink directories the runner republishes at every launch (see
-# _exl3_served_layout). Under its HOME: the only place it can write.
+# Dossiers de liens symboliques que le runner republie a chaque lancement (cf.
+# _exl3_served_layout). Sous son HOME : c'est le seul endroit ou il peut ecrire.
 EXL3_RUN_DIR = os.path.join(os.environ.get("HOME", "/var/lib/vllm-runner"), "exl3")
 TABBY_DIR = os.environ.get("TABBY_DIR", "/root/tabbyAPI")
 ENGINES = ("vllm", "llamacpp", "ds4", "exllamav3")
@@ -98,30 +98,30 @@ _ENGINE_BIN = {"vllm": VLLM_BIN, "llamacpp": LLAMA_BIN, "ds4": DS4_BIN,
 STATE_FILE = os.path.join(os.environ.get("HOME", "/var/lib/vllm-runner"), "last_model.json")
 MAX_AUTO_RETRIES = 3
 
-# --- Memory guards (2026-10-01, after a crash loop) ---------------------------
-# On the GB10 the GPU memory is taken from system RAM but APPEARS IN NO PROCESS
-# and in no cgroup: a 26 GB model counts for only 2 GB of anon there (measured).
-# The kernel's OOM killer is therefore blind to the real cause — on 2026-10-01 it
-# killed 443 processes without freeing anything, while ~119 GB stayed held by the
-# driver (Mem-Info tally: 0.77 GB free, almost nothing in anon/cache), and the
-# machine froze then rebooted twice. A MemoryMax on the unit would therefore be
-# illusory. The only reliable signal is MemAvailable, which GPU memory does lower:
-# that is what the guards below watch.
+# --- Garde-fous memoire (2026-10-01, apres une boucle de plantages) -----------
+# Sur le GB10 la memoire GPU est prise dans la RAM systeme mais N'APPARAIT DANS
+# AUCUN PROCESSUS ni dans aucun cgroup : un modele de 26 Go n'y compte que 2 Go
+# d'anon (mesure). Le tueur OOM du noyau est donc aveugle a la vraie cause — le
+# 2026-10-01 il a tue 443 processus sans rien liberer, pendant que ~119 Go restaient
+# tenus par le pilote (bilan Mem-Info : 0,77 Go libre, presque rien en anon/cache),
+# et la machine a gele puis redemarre deux fois. Un MemoryMax sur l'unite serait
+# donc illusoire. Le seul signal fiable est MemAvailable, que la memoire GPU fait
+# bien baisser : c'est lui que surveillent les garde-fous ci-dessous.
 #
-# Floor to LAUNCH a model: below it, the previous instance's memory has not been
-# returned (the driver frees it with a delay) and we would pile up on top of it.
+# Plancher pour LANCER un modele : en dessous, la memoire de l'instance precedente
+# n'est pas rendue (le pilote la libere avec retard) et on s'empilerait dessus.
 MIN_FREE_TO_LAUNCH_GIB = float(os.environ.get("MIN_FREE_TO_LAUNCH_GIB", "30"))
-# Critical threshold WHILE a model runs: we kill our own llama-server before the
-# kernel goes into a global OOM and takes the whole machine down.
+# Seuil critique PENDANT qu'un modele tourne : on tue nous-memes notre llama-server
+# avant que le noyau ne parte en OOM global et n'emporte toute la machine.
 CRITICAL_FREE_GIB = float(os.environ.get("CRITICAL_FREE_GIB", "2"))
-# A model must hold for this time WITHOUT interruption to reset the failure
-# counter. Answering HTTP 200 is not enough: in the 2026-10-01 loop the model
-# answered, the counter reset, then it was killed a minute later — so
-# MAX_AUTO_RETRIES was never reached.
+# Un modele doit tenir ce temps SANS interruption pour remettre le compteur
+# d'echecs a zero. Repondre en HTTP 200 ne suffit pas : dans la boucle du
+# 2026-10-01 le modele repondait, le compteur repartait a zero, puis il etait
+# tue une minute plus tard — MAX_AUTO_RETRIES n'etait donc jamais atteint.
 STABLE_SECONDS = int(os.environ.get("RESUME_STABLE_SECONDS", "600"))
-# Resume failure counter PERSISTED to disk: in RAM it reset on every service
-# restart (OOMPolicy=stop restarts the runner on every OOM), which made the loop
-# infinite, even across reboots.
+# Compteur d'echecs de reprise PERSISTE sur disque : en memoire vive il repartait
+# a zero a chaque redemarrage du service (OOMPolicy=stop redemarre le runner a
+# chaque OOM), ce qui rendait la boucle infinie, y compris a travers les reboots.
 RESUME_FAILS_FILE = os.path.join(os.environ.get("HOME", "/var/lib/vllm-runner"),
                                  "resume_failures")
 
@@ -134,7 +134,7 @@ _engine = None        # engine of the current model: 'vllm' | 'llamacpp'
 _logs   = []
 _status = "stopped"   # stopped | starting | running | error
 _auto_retries = 0     # consecutive failed automatic relaunch attempts
-_running_since = None # instant when the current model went "running"
+_running_since = None # instant ou le modele courant est passe "running"
 
 # ── Auth ─────────────────────────────────────────────────────────────────
 # Every route requires "Authorization: Bearer <RUNNER_TOKEN>".
@@ -192,9 +192,9 @@ _BIN_FLAGS = {
     "--llama-k2": LLAMA_BIN_K2,
     "--llama-prism": LLAMA_BIN_PRISM,
 }
-# Each pseudo-flag is accepted only for ITS engine: offering --vllm-028 to a
-# llama.cpp launch makes no sense, and accepting it would point llama.cpp at a
-# vLLM binary. The split lives here, the allowlists use it below.
+# Chaque pseudo-flag n'est admis que pour SON moteur : proposer --vllm-028 a un
+# lancement llama.cpp n'a aucun sens, et l'accepter ferait pointer llama.cpp vers
+# un binaire vLLM. Le decoupage vit ici, les allow-lists s'en servent plus bas.
 _LLAMA_BIN_FLAGS = {f for f in _BIN_FLAGS if f.startswith("--llama-")}
 _VLLM_BIN_FLAGS  = set(_BIN_FLAGS) - _LLAMA_BIN_FLAGS
 _BOOL_FLAGS |= _VLLM_BIN_FLAGS
@@ -204,19 +204,19 @@ _VALUE_FLAGS = {
     "--max-num-batched-tokens", "--block-size", "--swap-space",
     "--quantization", "--tensor-parallel-size", "--pipeline-parallel-size",
     "--reasoning-parser",
-    # Attention kernel choice. Needed on GB10: vLLM prefers FLASHINFER, but this
-    # card's capability is sm_121 and the required FlashInfer paths are gated by
-    # `is_sm100a_supported()` — which returns False here. The engine then fails at
-    # memory profiling on "FlashInfer backend is not available", even though the
-    # package IS installed. TRITON_ATTN is the alternative the engine itself
-    # advertises among its potential backends.
+    # Choix du noyau d'attention. Necessaire sur GB10 : vLLM prefere FLASHINFER,
+    # mais la capability de cette carte est sm_121 et les chemins FlashInfer requis
+    # sont gardes par `is_sm100a_supported()` — qui renvoie False ici. Le moteur
+    # echoue alors au profilage memoire sur "FlashInfer backend is not available",
+    # alors que le paquet EST installe. TRITON_ATTN est l'alternative annoncee par
+    # le moteur lui-meme dans ses backends potentiels.
     "--attention-backend",
-    # Default values for the template variables, merged UNDER those of each
-    # request. On K2-Horizon they set the default `reasoning_effort`
-    # (high|medium|low), i.e. the tag pair the parser expects when the client does
-    # not ask for one. Careful: on the vLLM side the flag is called
-    # --default-chat-template-kwargs ; --chat-template-kwargs is the llama.cpp one
-    # and makes `vllm serve` fail with "unrecognized arguments".
+    # Valeurs par defaut des variables de template, fusionnees SOUS celles de
+    # chaque requete. Sur K2-Horizon elles fixent le `reasoning_effort` par defaut
+    # (high|medium|low), donc la paire de balises que le parser attend quand le
+    # client n'en demande pas. Attention : cote vLLM le flag s'appelle
+    # --default-chat-template-kwargs ; --chat-template-kwargs est celui de
+    # llama.cpp et fait echouer `vllm serve` avec "unrecognized arguments".
     "--default-chat-template-kwargs", "--limit-mm-per-prompt",
     "--uvicorn-log-level",
     # Speculative decoding (MTP / draft model): a compact JSON value, e.g.
@@ -250,26 +250,26 @@ _OCR_VALUE_FLAGS = _VALUE_FLAGS | {"--logits_processors", "--mm-processor-cache-
 _LLAMA_BOOL_FLAGS = {
     "--no-mmap", "--mlock", "--jinja", "--cont-batching",
     "--no-kv-offload", "--metrics", "--no-warmup",
-    # KV unified: a single buffer shared by the slots. Without it, --parallel N
-    # DIVIDES the context (262k/8 = 32k per session); with it, each session can
-    # grow up to the full pool when the others are idle.
+    # KV unifié : un seul buffer partagé par les slots. Sans lui, --parallel N
+    # DIVISE le contexte (262k/8 = 32k par session) ; avec, chaque session peut
+    # monter jusqu'au pool complet quand les autres sont inoccupées.
     "--kv-unified", "--no-kv-unified",
     # Truncates old tokens when a slot is full instead of ERRORing (otherwise a
     # client like OpenCode retries the same over-long request → crash).
     "--context-shift", "--no-context-shift",
 }
-# Without this line the binary pseudo-flags were refused by validation BEFORE
-# reaching _start_process: --llama-next was therefore unusable all along
-# ("flag not allowed"), even though _build_cmd does know how to use it.
+# Sans cette ligne les pseudo-flags de binaire etaient refuses par la validation
+# AVANT d'atteindre _start_process : --llama-next etait donc inutilisable depuis
+# toujours ("flag not allowed"), quand bien meme _build_cmd sait s'en servir.
 _LLAMA_BOOL_FLAGS |= _LLAMA_BIN_FLAGS
 _LLAMA_VALUE_FLAGS = {
-    # 0.5.0: `--ctx-size` sizes the KV cache PER SLOT (measurement of
-    # 2026-09-25: 4 private 262k slots = 4 M tokens of cache, ~124 GiB, OOM,
-    # where the old binary held the same service within 109 GiB).
-    # `--kv-unified-per-slot N` declares the window PER SESSION and lets the
-    # pool size itself to n_parallel x N: that is how to ask for 4 x 256k with
-    # this binary. The portal reads this flag to advertise the right input limit
-    # (see `effective_ctx`).
+    # 0.5.0 : `--ctx-size` dimensionne le cache KV PAR SLOT (mesure du
+    # 2026-09-25 : 4 slots prives de 262k = 4 M de tokens de cache, ~124 Gio,
+    # OOM, la ou l'ancien binaire tenait dans 109 Gio pour le meme service).
+    # `--kv-unified-per-slot N` declare la fenetre PAR SESSION et laisse le
+    # reservoir se dimensionner a n_parallel x N : c'est la facon de demander
+    # 4 x 256k avec ce binaire. Le portail lit ce drapeau pour annoncer la
+    # bonne limite d'entree (cf. `effective_ctx`).
     "--kv-unified-per-slot",
     "--ctx-size", "--n-gpu-layers", "--parallel", "--threads", "--threads-batch",
     "--batch-size", "--ubatch-size", "--cache-type-k", "--cache-type-v",
@@ -282,9 +282,9 @@ _LLAMA_VALUE_FLAGS = {
     # Value = file name only, resolved under TEMPLATES_DIR (no arbitrary path,
     # see _resolve_template) → used to fix up an embedded template.
     "--chat-template-file",
-    # Vision projector (multimodal). Same rule as above: file name only,
-    # resolved NEXT TO the weights (see _resolve_mmproj_tokens) — a projector
-    # only makes sense with the quantization it was produced for.
+    # Projecteur vision (multimodal). Meme regle que ci-dessus : nom de fichier
+    # seul, resolu A COTE des poids (cf. _resolve_mmproj_tokens) — un projecteur
+    # n'a de sens qu'avec la quantification contre laquelle il a ete produit.
     "--mmproj",
 }
 
@@ -303,35 +303,34 @@ _DS4_VALUE_FLAGS = {
 }
 
 
-# Chat models APPROVED BY NAME for --trust-remote-code. The flag stays absent from
-# _BOOL_FLAGS (RCE via the HF repo code): this is a per-model exception, not an
-# opening. Listing a model here is a security decision — launching that model runs
-# the Python code of its repository.
+# Modeles de chat NOMMEMENT approuves pour --trust-remote-code. Le flag reste
+# absent de _BOOL_FLAGS (RCE via le code du depot HF) : ceci est une exception par
+# modele, pas une ouverture. Y inscrire un modele est une decision de securite —
+# lancer ce modele execute le code Python de son depot.
 _TRUST_RC_MODELS = {
-    # Empty: no active exception. K2-Horizon was listed here on 2026-09-07 then
-    # removed along with the model — keeping an approval for a model we no longer
-    # serve widens the surface without bringing anything.
+    # Vide : aucune exception active. K2-Horizon y a figure le 2026-09-07 puis en a
+    # ete retire avec le modele — garder une approbation pour un modele qu'on ne
+    # sert plus elargit la surface sans rien apporter.
 }
 
 
 def _repo_id_of(hf_id):
-    """HF repository matching `hf_id`, whether given as an id or as a cache
-    snapshot path (.../models--org--name/snapshots/<sha>).
+    """Depot HF correspondant a `hf_id`, qu'il soit donne par identifiant ou par
+    chemin de snapshot du cache (.../models--org--nom/snapshots/<sha>).
 
-    Without this, approving "org/name" would not recognize the same model when
-    referenced by its cache path — and the exception would fail in a way nobody
-    could understand.
+    Sans cela, approuver "org/nom" ne reconnaitrait pas le meme modele reference
+    par son chemin de cache — et l'exception echouerait de facon incomprehensible.
     """
     m = re.search(r'models--([^/]+?)--(.+?)/snapshots/', hf_id or '')
     return f"{m.group(1)}/{m.group(2)}" if m else (hf_id or '')
 
 
-# ── exllamav3 allowlist (TabbyAPI options) ─────────────────────────────────
-# --host/--port/--disable-auth/--model-dir/--draft-model-dir are set by the
-# runner. No flag taking a PATH (--config, lora/embeddings folders): the model
-# and drafter names are accepted ALONE and resolved under the controlled
-# `local:` directory (see _resolve_exl3_tokens), like --mmproj.
-_EXL3_BOOL_FLAGS = set()          # TabbyAPI takes true/false as a VALUE
+# ── Whitelist exllamav3 (options de TabbyAPI) ───────────────────────────────
+# --host/--port/--disable-auth/--model-dir/--draft-model-dir sont poses par le
+# runner. Aucun drapeau prenant un CHEMIN (--config, dossiers lora/embeddings) :
+# les noms du modele et du drafter sont acceptes SEULS et resolus sous le dossier
+# `local:` controle (cf. _resolve_exl3_tokens), comme --mmproj.
+_EXL3_BOOL_FLAGS = set()          # TabbyAPI prend true/false en VALEUR
 _EXL3_VALUE_FLAGS = {
     "--model-name", "--draft-model-name", "--max-seq-len", "--cache-size",
     "--cache-mode", "--chunk-size", "--max-batch-size", "--vision", "--reasoning",
@@ -393,9 +392,9 @@ def _resolve_gguf(hf_id):
 def _validate_vllm_args(extra, engine="vllm", hf_id=""):
     """Return (ok, tokens_or_error_message). The allowlist depends on the engine.
 
-    `hf_id` is only used for --trust-remote-code: this flag is accepted for a chat
-    model only if the repository is listed in _TRUST_RC_MODELS (OCR already carries
-    it in its own allowlist).
+    `hf_id` ne sert qu'a --trust-remote-code : ce flag n'est accepte pour un modele
+    de chat que si le depot figure dans _TRUST_RC_MODELS (l'OCR, lui, le porte deja
+    dans son propre allowlist).
     """
     bool_flags, value_flags = _flags_for(engine)
     tokens = extra.split()
@@ -421,28 +420,28 @@ def _append(line):
         del _logs[:500]
 
 
-# --- Startup journal on disk ------------------------------------------------
-# The memory buffer alone is not enough to diagnose a startup failure:
-# ~2000 lines, and `_start_process` empties it at EVERY attempt, so with the 3
-# auto-resumes the root cause was overwritten before being read (finding recorded
-# on 2026-09-13). So we double the stream with a file PER STARTUP.
+# --- Journal de démarrage sur disque ---------------------------------------
+# Le tampon mémoire seul ne suffit pas à diagnostiquer un échec de démarrage :
+# ~2000 lignes, et `_start_process` le vide à CHAQUE tentative, si bien qu'avec
+# les 3 auto-résumes la cause racine était écrasée avant d'être lue (constat
+# consigné le 2026-09-13). On double donc le flux d'un fichier PAR DÉMARRAGE.
 #
-# Absolute rule: this journal must NEVER prevent a launch. Any error (full disk,
-# missing folder, permissions) leaves `journal = None` and the model starts as
-# before. The runner runs as `vllmrunner`: this folder belongs to it, it is
-# created outside the service (no restart needed).
+# Règle absolue : ce journal ne doit JAMAIS empêcher un lancement. Toute erreur
+# (disque plein, dossier absent, droits) laisse `journal = None` et le modèle
+# démarre comme avant. Le runner tourne en `vllmrunner` : ce dossier lui
+# appartient, il est créé hors service (aucun redémarrage nécessaire).
 LOG_DIR = os.environ.get("RUNNER_LOG_DIR", "/var/lib/vllm-runner/logs")
 _LOG_MAX_BYTES = 20 * 1024 * 1024
 _LOG_KEEP = 12
 
 
 class _Journal:
-    """Size-capped startup file, silent on failure.
+    """Fichier de démarrage borné en taille, silencieux en cas d'échec.
 
-    A class rather than a bare file handle: it must remember the bytes already
-    written to stop at the cap without `tell()` on every line, and stop writing
-    for good if the disk refuses — without ever raising, since the caller is the
-    loop reading the engine's output.
+    Une classe plutôt qu'un descripteur nu : il faut retenir les octets déjà
+    écrits pour s'arrêter à la borne sans `tell()` à chaque ligne, et cesser
+    définitivement d'écrire si le disque refuse — sans jamais lever, puisque
+    l'appelant est la boucle qui lit la sortie du moteur.
     """
 
     def __init__(self, chemin):
@@ -472,7 +471,7 @@ class _Journal:
 
 
 def _elague_journaux():
-    """Keep only the latest startups (the disk is shared with the weights)."""
+    """Ne garde que les derniers démarrages (le disque est partagé avec les poids)."""
     try:
         fichiers = [os.path.join(LOG_DIR, f) for f in os.listdir(LOG_DIR)
                     if f.endswith(".log")]
@@ -484,7 +483,7 @@ def _elague_journaux():
 
 
 def _ouvre_journal(name, engine):
-    """Open the journal for THIS startup, or None if that is not possible."""
+    """Ouvre le journal de CE démarrage, ou None si ce n'est pas possible."""
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
         propre = re.sub(r"[^A-Za-z0-9._-]", "_", name or "modele")[:60] or "modele"
@@ -603,9 +602,9 @@ def _write_resume_fails(n):
 
 
 def _launch_memory_ok(context):
-    """Wait until the previous instance's memory is released, then REFUSE to
-    launch if less than MIN_FREE_TO_LAUNCH_GIB remains. To be called OUTSIDE the
-    lock: the wait can last a minute and would block /status."""
+    """Attend que la memoire de l'instance precedente soit rendue, puis REFUSE de
+    lancer s'il reste moins de MIN_FREE_TO_LAUNCH_GIB. A appeler HORS du verrou :
+    l'attente peut durer une minute et bloquerait /status."""
     _wait_mem_release()
     free = _mem_available_gib()
     if free is not None and free < MIN_FREE_TO_LAUNCH_GIB:
@@ -617,9 +616,9 @@ def _launch_memory_ok(context):
 
 
 def _memory_guard(proc):
-    """As long as OUR model runs: if MemAvailable drops below CRITICAL_FREE_GIB,
-    we kill it ourselves. It is the only way to get there before the kernel, whose
-    OOM killer cannot see GPU memory and would kill everything else instead."""
+    """Tant que NOTRE modele tourne : si MemAvailable passe sous CRITICAL_FREE_GIB,
+    on le tue nous-memes. C'est la seule facon d'arriver avant le noyau, dont le
+    tueur OOM ne voit pas la memoire GPU et tuerait tout le reste a la place."""
     while proc is _proc and proc.poll() is None:
         free = _mem_available_gib()
         if free is not None and free < CRITICAL_FREE_GIB:
@@ -777,9 +776,9 @@ def _resolve_mmproj_tokens(tokens, hf_id):
 
 
 def _resolve_exl3_tokens(tokens, hf_id):
-    """`local:` directory of the model + name checks for --model-name /
-    --draft-model-name: name ALONE (no separator, no ".."), existing subdirectory.
-    Same guard as _resolve_gguf: the directory stays strictly under MODELS_DIR."""
+    """Dossier `local:` du modele + verification des noms --model-name /
+    --draft-model-name : nom SEUL (ni separateur ni ".."), sous-dossier existant.
+    Meme garde que _resolve_gguf : le dossier reste strictement sous MODELS_DIR."""
     if not hf_id.startswith("local:"):
         raise ValueError("exllamav3 requires a local: model")
     slug = re.sub(r'[^A-Za-z0-9._-]', '', hf_id[len("local:"):])
@@ -802,17 +801,17 @@ def _resolve_exl3_tokens(tokens, hf_id):
 
 
 def _exl3_served_layout(base, name, toks):
-    """Publish the model UNDER ITS CATALOG NAME for TabbyAPI.
+    """Publie le modele SOUS SON NOM DE CATALOGUE pour TabbyAPI.
 
-    The portal expects /v1/models to return the catalog name, and that name only
-    (llama.cpp gives it via --alias, vLLM via --served-model-name). TabbyAPI, on
-    the other hand, lists the FOLDER NAMES of --model-dir, and all its requests are
-    « admin » auth off: it returned both the model folder AND the drafter folder.
-    The portal took the first one (the drafter), did not find it in the catalog and
-    fell back to the `vllm` engine — false health, and about fifteen callers of
-    get_running_models() disturbed. TabbyAPI names an entry after the LINK name
-    (path.name), not its target: a folder holding only a <catalog> -> model link,
-    and the drafter in a separate folder, is enough.
+    Le portail attend de /v1/models le nom du catalogue, et lui seul (llama.cpp le
+    donne via --alias, vLLM via --served-model-name). TabbyAPI, lui, liste les
+    NOMS DE DOSSIERS de --model-dir, et toutes ses requetes sont « admin » auth
+    coupee : il renvoyait donc le dossier du modele ET celui du drafter. Le portail
+    prenait le premier (le drafter), ne le trouvait pas au catalogue et retombait
+    sur le moteur `vllm` — sante fausse, et une quinzaine d'appelants de
+    get_running_models() perturbes. TabbyAPI nomme une entree d'apres le nom du
+    LIEN (path.name), pas sa cible : un dossier ne contenant qu'un lien
+    <catalogue> -> modele, et le drafter dans un dossier a part, suffisent.
     """
     alias = re.sub(r'[^A-Za-z0-9._-]', '', name or '')
     if alias in ("", ".", ".."):
@@ -836,22 +835,22 @@ def _build_cmd(hf_id, name, extra_tokens, engine, bin_override=None):
     """Engine command line. They all serve an OpenAI API on :8000, so nothing
     downstream changes (LiteLLM, portal, playground)."""
     if engine == "exllamav3":
-        # TabbyAPI: same OpenAI API on :8000, nothing changes downstream. Auth is
-        # off as for the other engines: :8000 is reachable only from the docker
-        # network (vllm-restrict.service).
+        # TabbyAPI : meme API OpenAI sur :8000, rien ne change en aval. L'auth est
+        # coupee comme pour les autres moteurs : :8000 n'est joignable que depuis le
+        # reseau docker (vllm-restrict.service).
         base, toks = _resolve_exl3_tokens(extra_tokens, hf_id)
         mdir, ddir, toks = _exl3_served_layout(base, name, toks)
-        # Two HARDCODED settings, out of reach of vllm_args:
-        #  --disable-fetch-requests: by default TabbyAPI itself fetches the images
-        #    given by URL. Any caller of the API could then make the DGX query
-        #    internal addresses (admin garage, Traefik, NAS) — an SSRF, which
-        #    websearch.url_publique forbids elsewhere. base64 images (the
-        #    playground ones) do not go through this path.
-        #  --allowed-origins: with auth off, the default CORS "*" would let any web
-        #    page open on the machine (there is a desktop session) read the
-        #    responses, admin endpoints included. Nobody calls :8000 from a
-        #    browser: we allow only a nonexistent origin (.invalid, reserved TLD),
-        #    the option requiring at least one value.
+        # Deux reglages FIGES, hors de portee de vllm_args :
+        #  --disable-fetch-requests : par defaut TabbyAPI va chercher lui-meme les
+        #    images donnees par URL. N'importe quel appelant de l'API ferait alors
+        #    interroger par la DGX des adresses internes (admin garage, Traefik,
+        #    NAS) — une SSRF, ce que websearch.url_publique interdit ailleurs. Les
+        #    images en base64 (celles du playground) ne passent pas par la.
+        #  --allowed-origins : l'auth etant coupee, le CORS "*" par defaut laisserait
+        #    toute page web ouverte sur la machine (il y a une session de bureau)
+        #    lire les reponses, endpoints d'admin compris. Personne n'appelle :8000
+        #    depuis un navigateur : on n'autorise qu'une origine inexistante (.invalid,
+        #    TLD reserve), l'option exigeant au moins une valeur.
         cmd = [EXL3_PY, os.path.join(TABBY_DIR, "main.py"),
                "--host", "0.0.0.0", "--port", "8000", "--disable-auth", "true",
                "--disable-fetch-requests", "true",
@@ -874,9 +873,9 @@ def _build_cmd(hf_id, name, extra_tokens, engine, bin_override=None):
         src = ["-m", _resolve_gguf(hf_id)] if hf_id.startswith("local:") else ["-hf", hf_id]
         extra_tokens = _resolve_template_tokens(extra_tokens)
         extra_tokens = _resolve_mmproj_tokens(extra_tokens, hf_id)
-        # bin_override: set by --llama-next (see _BIN_FLAGS). Without it the flag
-        # would be removed from the argv but have NO effect, the binary being
-        # hardcoded here — silent failure.
+        # bin_override : pose par --llama-next (cf. _BIN_FLAGS). Sans cela le
+        # drapeau serait retire de l'argv mais n'aurait AUCUN effet, le binaire
+        # etant code en dur ici — panne silencieuse.
         return [bin_override or LLAMA_BIN] + src + [
                 "--host", "0.0.0.0", "--port", "8000",
                 "--alias", name,
@@ -890,12 +889,12 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     """Launch the inference engine. Must be called with _lock already held."""
     global _proc, _model, _status, _engine
 
-    # The command is built BEFORE stopping the running model (audit of
-    # 2026-10-02). `_build_cmd` validates and resolves (local model, template,
-    # mmproj) and can FAIL: the previous order therefore killed the SERVED model
-    # before discovering that the relaunch was impossible — a typo left the
-    # platform with no model at all, while the runner only serves one at a time.
-    # Here the failure surfaces before any stop and the service stays as it is.
+    # La commande est construite AVANT l'arrêt du modèle en cours (audit du
+    # 2026-10-02). `_build_cmd` valide et résout (modèle local, gabarit, mmproj)
+    # et peut ÉCHOUER : l'ordre précédent tuait donc le modèle SERVI avant de
+    # découvrir que la relance était impossible — une faute de saisie laissait la
+    # plateforme sans aucun modèle, alors que le runner n'en sert qu'un à la fois.
+    # Ici l'échec remonte avant tout arrêt et le service reste tel quel.
     #
     # Kept for persistence (auto-resume): the pseudo-flags (e.g. --vllm-025) are
     # stripped from extra_tokens just below for execution, but an auto-resume
@@ -930,9 +929,9 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     _model  = name
     _engine = engine
     _status = "starting"
-    # On-disk journal of the startup: the ONLY place where the root cause of a
-    # failure will survive, since this clear() wipes the memory buffer at every
-    # attempt (including at every auto-resume).
+    # Journal sur disque du démarrage : c'est le SEUL endroit où survivra la
+    # cause racine d'un échec, puisque ce clear() efface le tampon mémoire à
+    # chaque tentative (y compris à chaque auto-résume).
     journal = _ouvre_journal(name, engine)
     if journal is not None:
         journal.ecrire(f"[runner] {time.strftime('%Y-%m-%dT%H:%M:%S')} démarrage "
@@ -943,9 +942,9 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     if killed:
         _wait_mem_release()
 
-    # Here we only LOG the command already built above (before the previous model
-    # was stopped): rebuilding it here after the kill was exactly the flaw fixed
-    # on 2026-10-02.
+    # Ici on ne fait que JOURNALISER la commande déjà construite plus haut (avant
+    # l'arrêt du modèle précédent) : la reconstruire ici après le kill était
+    # exactement le défaut corrigé le 2026-10-02.
     _append(f"[runner] ({engine}) $ {' '.join(cmd)}")
     if journal is not None:
         journal.ecrire(f"$ {' '.join(cmd)}")
@@ -1016,10 +1015,10 @@ def launch():
     # _start_process/_resolve_gguf (argv + path). No control chars / quotes.
     if not (_HF_ID_RE.fullmatch(hf_id) or _LOCAL_ID_RE.fullmatch(hf_id) or _ABS_PATH_RE.fullmatch(hf_id)):
         return jsonify({"error": "invalid hf_model_id"}), 400
-    # `_ABS_PATH_RE` allows the DOT, so `/models/../../etc/shadow` passed as-is:
-    # the path goes into the engine's argv (`-m`), which reads the file. The
-    # runner does not open it itself, but nothing justifies accepting `..` in a
-    # path we claim is "absolute and bounded" (audit of 2026-10-02).
+    # `_ABS_PATH_RE` autorise le POINT, donc `/models/../../etc/shadow` passait tel
+    # quel : le chemin part en argv de l'engine (`-m`), qui lit le fichier. Le
+    # runner ne l'ouvre pas lui-même, mais rien ne justifie d'accepter `..` dans un
+    # chemin qu'on prétend « absolu et borné » (audit du 2026-10-02).
     if any(part == ".." for part in hf_id.split("/")):
         return jsonify({"error": "invalid hf_model_id (.. refused)"}), 400
     if engine not in ENGINES:
@@ -1051,49 +1050,6 @@ def stop():
             _model  = None
             return jsonify({"status": "stopped"})
     return jsonify({"status": "already_stopped"})
-
-
-@app.route("/models/delete-files", methods=["POST"])
-def delete_model_files():
-    """Delete from disk the weights of a model removed from the catalog.
-
-    The files belong to root: deletion goes through
-    /usr/local/sbin/model-files-rm.sh (scoped sudo), which revalidates everything.
-    Here we refuse upstream what must never reach it: a malformed id, an absolute
-    path (never deleted remotely), and the SERVED model or one awaiting resume —
-    deleting its weights under an engine that reads them (mmap) would crash the
-    generation, and the watchdog would relaunch a model without files.
-    """
-    data  = request.get_json(silent=True) or {}
-    hf_id = (data.get("hf_model_id") or "").strip()
-    if _LOCAL_ID_RE.fullmatch(hf_id):
-        kind, ident = "local", hf_id[len("local:"):]
-    elif _HF_ID_RE.fullmatch(hf_id):
-        kind, ident = "hf", hf_id
-    else:
-        return jsonify({"error": "hf_model_id invalide (local:<dossier> ou org/nom)"}), 400
-    if ".." in ident:
-        return jsonify({"error": "hf_model_id invalide (.. refusé)"}), 400
-    with _lock:
-        try:
-            with open(STATE_FILE) as f:
-                en_cours = (json.load(f) or {}).get("hf_model_id")
-        except (OSError, ValueError):
-            en_cours = None
-        if en_cours == hf_id:
-            return jsonify({"error": "modèle servi (ou en attente de reprise) : "
-                                     "arrête-le avant d'effacer ses fichiers"}), 409
-        ok, out = _sudo("/usr/local/sbin/model-files-rm.sh", kind, ident, timeout=600)
-    if not ok:
-        absent = "absent" in out
-        _append(f"[runner] Effacement des fichiers de {hf_id} : {'absents' if absent else 'ÉCHEC'} ({out[-200:]})")
-        return jsonify({"error": out[-300:] or "échec", "absent": absent}), 404 if absent else 500
-    try:
-        octets = int(out.strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        octets = 0
-    _append(f"[runner] Fichiers de {hf_id} effacés ({octets / 2**30:.1f} Gio libérés).")
-    return jsonify({"status": "deleted", "bytes": octets})
 
 
 # ── OCR (docker container) / Video (ComfyUI systemd service) ────────────────
@@ -1146,12 +1102,12 @@ def ocr_launch():
     hf_id = (data.get("hf_model_id") or "").strip()
     if not hf_id:
         return jsonify({"ok": False, "detail": "hf_model_id missing"}), 400
-    # Same SHAPE check as /launch (audit of 2026-10-02): without it, a
-    # `"hf_model_id": "--model=/chemin/local"` flowed through to `vllm serve`, which
-    # interprets it as an OPTION — the caller was driving the OCR container's argv
-    # instead of a repository id, and the shape check of `_validate_vllm_args` was
-    # bypassed by the argument itself. The portal catalog only produces
-    # `org/name` (already validated by this expression).
+    # Même contrôle de FORME que /launch (audit du 2026-10-02) : sans lui, un
+    # `"hf_model_id": "--model=/chemin/local"` traversait jusqu'à `vllm serve`, qui
+    # l'interprète comme une OPTION — l'appelant pilotait donc l'argv du conteneur
+    # OCR au lieu d'un identifiant de dépôt, et le contrôle de forme de
+    # `_validate_vllm_args` se contournait par l'argument lui-même. Le catalogue du
+    # portail ne produit que des `org/name` (déjà validés par cette expression).
     if not _HF_ID_RE.fullmatch(hf_id):
         return jsonify({"ok": False, "detail": "invalid hf_model_id"}), 400
     ok, tokens_or_err = _validate_vllm_args(data.get("vllm_args", "") or "", engine="ocr")
@@ -1255,10 +1211,10 @@ def asr_launch():
     return jsonify({"ok": ok, "detail": out})
 
 
-# ── Image (diffusers) — `image` container on image_net ──────────────────────
-# Closed allowlist: each id maps to a diffusers folder already present on the
-# host (see image-recreate.sh). No arbitrary HF repo here — same posture as
-# OCR/voice/dictation.
+# ── Image (diffusers) — conteneur `image` sur image_net ──────────────────────
+# Liste blanche fermée : chaque id correspond à un dossier diffusers déjà
+# présent sur l'hôte (cf. image-recreate.sh). Pas de repo HF arbitraire ici —
+# même posture que l'OCR/voix/dictée.
 _IMAGE_MODEL_IDS = {"black-forest-labs/FLUX.2-klein-4B"}
 
 
@@ -1296,18 +1252,18 @@ def image_launch():
     return jsonify({"ok": ok, "detail": out})
 
 
-# ── Music (diffusers, MiniMax-Music3 & co) ──────────────────────────────────
-# Unlike image (closed allowlist), the model is free: the admin pastes a
-# HuggingFace id, as for OCR. So we validate the SHAPE of the id before any sudo
-# call — the host script revalidates on its side, and the argument goes in argv
-# (never interpreted by a shell).
+# ── Musique (diffusers, MiniMax-Music3 & co) ─────────────────────────────────
+# Contrairement à l'image (liste blanche fermée), le modèle est libre : l'admin
+# colle un id HuggingFace, comme pour l'OCR. On valide donc la FORME de l'id
+# avant tout appel sudo — le script hôte revalide de son côté, et l'argument
+# part en argv (jamais interprété par un shell).
 _HF_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,60}/[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
-# Local GGUF ("local:<name>", ds4/llamacpp) — same charset, no required slash.
+# GGUF local ("local:<name>", ds4/llamacpp) — même charset, sans slash requis.
 _LOCAL_ID_RE = re.compile(r"^local:[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
-# Absolute local path to an already downloaded HF snapshot (vllm engine) —
-# e.g. /root/.cache/huggingface/hub/models--…/snapshots/<sha>. Accepted because
-# vllm receives the id verbatim in argv (never in a shell); the risk is a local
-# file read, not execution, and /launch already sits behind admin auth.
+# Chemin local absolu vers une snapshot HF déjà téléchargée (engine vllm) —
+# p.ex. /root/.cache/huggingface/hub/models--…/snapshots/<sha>. Accepté car
+# vllm reçoit l'id verbatim en argv (jamais en shell) ; le risque est un file
+# read local, pas de l'exécution, et /launch est déjà derrière auth admin.
 _ABS_PATH_RE = re.compile(r"^/[A-Za-z0-9._/@+-]+(/[A-Za-z0-9._/@+-]+)*$")
 
 
@@ -1485,8 +1441,8 @@ def _watchdog():
     desactive_annonce = False
     while True:
         time.sleep(10)
-        # A model that holds STABLE_SECONDS without interruption resets the
-        # failure counter — and only it (see STABLE_SECONDS).
+        # Un modele qui tient STABLE_SECONDS sans interruption remet le compteur
+        # d'echecs a zero — et seulement lui (cf. STABLE_SECONDS).
         if (_status == "running" and _running_since
                 and time.time() - _running_since >= STABLE_SECONDS
                 and _read_resume_fails()):
@@ -1516,14 +1472,14 @@ def _watchdog():
             _append(f"[runner] auto-resume impossible, invalid args: {extra_tokens}")
             _write_resume_fails(MAX_AUTO_RETRIES)
             continue
-        # Memory wait/floor OUTSIDE the lock. A refusal counts as a failure:
-        # that is what eventually stops a loop instead of feeding it.
+        # Attente/plancher memoire HORS du verrou. Un refus compte comme un echec :
+        # c'est ce qui finit par arreter une boucle au lieu de la nourrir.
         if not _launch_memory_ok("auto-resume"):
             _write_resume_fails(fails + 1)
             continue
         with _lock:
             if _proc is not None and _proc.poll() is None:
-                continue          # launched meanwhile (Admin): nothing to do
+                continue          # lance entre-temps (Admin) : rien a faire
             _write_resume_fails(fails + 1)
             _auto_retries = fails + 1
             attempt_msg = (f"[runner] model stopped unexpectedly — auto-resume "
@@ -1535,13 +1491,13 @@ def _watchdog():
 if __name__ == "__main__":
     threading.Thread(target=_watchdog, daemon=True).start()
 
-    # Startup resume is left to the watchdog (first pass ~10 s later).
-    # It relaunched the model IMMEDIATELY, without waiting for the driver to
-    # return the killed instance's GPU memory: after an OOM, the new model piled
-    # up on top of it and crashed again — infinite loop, even across reboots. The
-    # watchdog, on the other hand, applies the memory wait, the floor and the
-    # persisted counter. Doing it here TOO would open a race: the memory wait can
-    # last a minute, during which the watchdog would start a second instance.
+    # La reprise au demarrage est confiee au watchdog (premier passage ~10 s apres).
+    # Elle relancait le modele IMMEDIATEMENT, sans attendre que le pilote rende la
+    # memoire GPU de l'instance tuee : apres un OOM, le nouveau modele s'empilait
+    # dessus et replantait — boucle infinie, y compris a travers les reboots. Le
+    # watchdog applique, lui, l'attente memoire, le plancher et le compteur persiste.
+    # Le faire ici AUSSI ouvrirait une course : l'attente memoire peut durer une
+    # minute, pendant laquelle le watchdog lancerait une seconde instance.
     if _load_last_launch():
         _append("[runner] service started — the watchdog will resume the last model "
                 "once memory is confirmed free")

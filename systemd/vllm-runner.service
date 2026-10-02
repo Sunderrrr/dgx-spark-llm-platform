@@ -10,15 +10,15 @@ WorkingDirectory=/root/ai-platform/vllm-runner
 EnvironmentFile=/root/ai-platform/.env
 ExecStart=/usr/bin/python3 /root/ai-platform/vllm-runner/runner.py
 Restart=always
-# 30 s et non 5 : le pilote NVIDIA rend la memoire GPU d'un processus tue avec
-# RETARD. Relance en 5 s, le runner rechargeait son modele par-dessus une memoire
-# pas encore rendue -> nouvel OOM -> boucle (45 redemarrages le 2026-10-01).
+# 30 s and not 5: the NVIDIA driver returns a killed process's GPU memory with
+# a DELAY. Relaunching after 5 s, the runner reloaded its model on top of
+# memory not yet returned → new OOM → loop (45 restarts on 2026-10-01).
 RestartSec=30
-# Un OOM qui touche le llama-server ne doit PAS tuer tout le runner : avec le
-# defaut `stop`, systemd arretait le service entier, le portail perdait le runner
-# et chaque redemarrage relancait le modele. En `continue`, le runner reste debout,
-# constate la sortie du modele et laisse le watchdog decider, avec attente
-# memoire, plancher et compteur d'echecs persiste (cf. runner.py).
+# An OOM hitting the llama-server must NOT kill the whole runner: with the
+# default `stop`, systemd stopped the whole service, the portal lost the runner
+# and every restart relaunched the model. In `continue`, the runner stays up,
+# notices the model's exit and lets the watchdog decide, with memory wait,
+# floor and persisted failure counter (see runner.py).
 OOMPolicy=continue
 Environment=VLLM_BIN=/root/.local/bin/vllm
 Environment=HF_HOME=/root/.cache/huggingface

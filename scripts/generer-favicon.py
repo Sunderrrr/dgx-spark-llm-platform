@@ -1,32 +1,31 @@
 #!/usr/bin/env python3
-"""Régénère le logo du portail depuis le fichier source du designer.
+"""Regenerate the portal logo from the designer's source file.
 
-Le fichier produit est `dgx-portal-frontend/app/favicon.ico`, servi par Next à
-la racine du site. Il sert à DEUX endroits, volontairement : l'icône de l'onglet
-du navigateur, et le logo en haut à gauche de la barre latérale, juste avant
-« Cronos » (`app/(app)/layout.tsx`, `SideNavHeading` → `icon`). Une seule source
-pour les deux, donc : remplacer le logo met les deux à jour d'un coup.
+The produced file is `dgx-portal-frontend/app/favicon.ico`, served by Next at
+the site root. It is used in TWO places, deliberately: the browser tab icon,
+and the logo at the top left of the sidebar, right before « Cronos »
+(`app/(app)/layout.tsx`, `SideNavHeading` → `icon`). One source for both: so
+replacing the logo updates both at once.
 
-Deux contraintes ont dicté le traitement :
+Two constraints dictated the processing:
 
-* **Un favicon doit être carré.** Le logo source est un emblème plus large que
-  haut, posé sur fond transparent. On recadre sur le contenu VISIBLE (seuil
-  d'alpha : le pourtour porte un halo presque transparent qui, pris en compte,
-  décentrerait l'emblème vers le bas), puis on centre ce contenu sur un carré
-  transparent. Aucun étirement : les proportions du designer sont conservées.
+* **A favicon must be square.** The source logo is an emblem wider than tall,
+  on a transparent background. We crop to the VISIBLE content (alpha threshold:
+  the outline carries an almost transparent halo that, if counted, would push
+  the emblem downwards), then center that content on a transparent square. No
+  stretching: the designer's proportions are preserved.
 
-* **Turbopack refuse un ICO dont les PNG embarqués ne sont pas en RGBA** et
-  échoue sur « The PNG is not in RGBA format! ». L'image est donc convertie en
-  RGBA AVANT l'écriture — c'est ce qui fait passer `next build`.
+* **Turbopack refuses an ICO whose embedded PNGs are not RGBA** and fails on
+  « The PNG is not in RGBA format! ». The image is therefore converted to RGBA
+  BEFORE writing — that is what makes `next build` pass.
 
-Le carré est calculé sur la plus grande taille demandée, puis réduit pour
-chaque taille : un seul rééchantillonnage par taille, pas de dégradation en
-cascade.
+The square is computed from the largest requested size, then reduced for each
+size: a single resampling per size, no cascading degradation.
 
 Usage :
-    scripts/generer-favicon.py [chemin-du-logo.png]
+    scripts/generer-favicon.py [path-to-logo.png]
 
-Sans argument : ~/Images/dgx.png (le fichier du designer).
+Without argument: ~/Images/dgx.png (the designer's file).
 """
 
 from __future__ import annotations
@@ -39,16 +38,16 @@ from PIL import Image
 SOURCE_DEFAUT = Path.home() / "Images" / "dgx.png"
 DESTINATION = Path(__file__).resolve().parent.parent / "dgx-portal-frontend" / "app" / "favicon.ico"
 
-# Tailles embarquées dans l'ICO : onglet (16/32), barre des tâches (48), et de
-# quoi rester net sur un écran dense (64/128, que le navigateur réduit).
+# Sizes embedded in the ICO: tab (16/32), taskbar (48), and enough to stay
+# sharp on a dense screen (64/128, which the browser scales down).
 TAILLES = (16, 32, 48, 64, 128)
 
-# En dessous de ce niveau d'alpha, c'est le halo et non l'emblème.
+# Below this alpha level, it is the halo and not the emblem.
 SEUIL_ALPHA = 8
 
 
 def embleme_carreen(chemin: Path) -> Image.Image:
-    """Contenu visible du logo, centré sur un carré transparent."""
+    """Visible content of the logo, centered on a transparent square."""
     logo = Image.open(chemin).convert("RGBA")
     visible = logo.getchannel("A").point(lambda v: 255 if v > SEUIL_ALPHA else 0)
     boite = visible.getbbox()

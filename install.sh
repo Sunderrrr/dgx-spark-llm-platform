@@ -26,16 +26,16 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y ca-certificates curl git iptables acl python3 python3-pip pipx
 
-# Flask for the host runner (system python3). PEP 668-safe. Version pinnée
-# (audit M5) — alignée sur celle dgx-portal/requirements.txt.
+# Flask for the host runner (system python3). PEP 668-safe. Pinned version
+# (audit M5) — aligned with dgx-portal/requirements.txt.
 apt-get install -y python3-flask 2>/dev/null || pip3 install --break-system-packages "flask==3.1.3"
 
 # ── 2. Docker + compose plugin ──────────────────────────────────────────────
-# get.docker.com est le script officiel, mais on ne pipe plus directement dans
-# sh : on le télécharge, on vérifie que le téléchargement n'est ni vide ni
-# tronqué, puis on l'exécute séparément. La SIGNATURE n'est PAS vérifiée — le
-# script n'en publie pas d'exploitable ici — c'est un risque connu et consigné
-# dans SECURITY.md (§3, risques acceptés), pas une protection qu'on croit avoir.
+# get.docker.com is the official script, but we no longer pipe it straight into
+# sh: we download it, check the download is neither empty nor truncated, then
+# run it separately. The SIGNATURE is NOT verified — the script publishes no
+# usable one here — this is a known, recorded risk (SECURITY.md §3, accepted
+# risks), not a protection we believe we have.
 if ! command -v docker >/dev/null 2>&1; then
   log "Installing Docker"
   DOCKER_SH="$(mktemp)"
@@ -51,9 +51,9 @@ systemctl enable --now docker >/dev/null 2>&1 || true
 # ── 3. vLLM (host, for the runner) ──────────────────────────────────────────
 if [ ! -x /root/.local/bin/vllm ] && ! command -v vllm >/dev/null 2>&1; then
   log "Installing vLLM via pipx (this can take a while)"
-  # Version pinnée (audit M5) : alignée sur le runner (0.24.0 constaté en prod).
-  # Sur GB10/Blackwell, NVIDIA publie une roue précompilée ; si l'install
-  # générique échoue, installe cette roue manuellement.
+  # Pinned version (audit M5): aligned with the runner (0.24.0 observed in prod).
+  # On GB10/Blackwell, NVIDIA publishes a prebuilt wheel; if the generic install
+  # fails, install that wheel manually.
   pipx install "vllm==0.24.0" \
     || echo "!! vLLM install failed — on GB10/Blackwell you may need NVIDIA's prebuilt wheel; install it manually so /root/.local/bin/vllm exists."
 fi
@@ -82,12 +82,12 @@ id "$RUNNER_USER" >/dev/null 2>&1 || {
   useradd -r -m -d "$RUNNER_HOME" -s /usr/sbin/nologin "$RUNNER_USER"
 }
 
-# ── 6b. /root doit rester TRAVERSABLE par le runner ─────────────────────────
-# Le dépôt vit sous /root (0700 par défaut sur Debian/Ubuntu) et l'unité tourne
-# en vllmrunner : sans cette ACL, l'interpréteur ne peut même pas OUVRIR
-# runner.py, et comme l'unité est en Restart=always elle boucle en crash — sans
-# message, puisque l'activation ci-dessous est en `|| true`. On ne relâche que la
-# TRAVERSÉE (--x), jamais la lecture du dossier.
+# ── 6b. /root must stay TRAVERSABLE by the runner ───────────────────────────
+# The repo lives under /root (0700 by default on Debian/Ubuntu) and the unit
+# runs as vllmrunner: without this ACL, the interpreter cannot even OPEN
+# runner.py, and since the unit has Restart=always it crash-loops — silently,
+# because the activation above uses `|| true`. We only loosen TRAVERSAL (--x),
+# never reading of the directory.
 if command -v setfacl >/dev/null 2>&1; then
   setfacl -m u:"$RUNNER_USER":--x /root
   setfacl -m u:"$RUNNER_USER":--x "$REPO_DIR" 2>/dev/null || true
@@ -99,9 +99,9 @@ fi
 
 # ── 7. systemd units (paths patched to the real repo dir) ───────────────────
 log "Installing systemd units"
-# TOUTES les unités du dépôt, pas seulement celles du démarrage : les unités de
-# restriction réseau et le couple monitor/backup sont décrits dans le README
-# comme déployés, et sans eux l'installation est à moitié protégée en silence.
+# ALL the repo's units, not just the startup ones: the network restriction units
+# and the monitor/backup pair are described in the README as deployed, and
+# without them the install is half-protected in silence.
 for unit in vllm-runner.service vllm-restrict.service cronos-docker-restrict.service \
              cronos-web-restrict.service cronos-ocr-restrict.service hawser-restrict.service \
              cronos-traefik-boot.service cronos-monitor.service cronos-monitor.timer \
@@ -110,11 +110,11 @@ for unit in vllm-runner.service vllm-restrict.service cronos-docker-restrict.ser
   sed "s#/root/ai-platform#${REPO_DIR}#g" "systemd/$unit" > "/etc/systemd/system/$unit"
 done
 
-# ── 7b. Wrappers root-owned appelés par le runner via sudo scoped ───────────
-# Sans eux, l'admin peut lancer un modèle mais AUCUN sidecar média : runner.py
-# les exécute en `sudo`, et les règles sudoers ci-dessous sont les seules à les
-# autoriser. Un wrapper absent se manifeste par « command not allowed » au
-# premier clic sur « lancer », pas à l'installation.
+# ── 7b. Root-owned wrappers called by the runner via scoped sudo ────────────
+# Without them, the admin can launch a model but NO media sidecar at all:
+# runner.py runs them with `sudo`, and the sudoers rules below are the only ones
+# authorizing them. A missing wrapper shows up as « command not allowed » on the
+# first click on « lancer », not at install time.
 for s in ocr/ocr-recreate.sh voice/voice-recreate.sh voice-qwen/voice-qwen-recreate.sh \
          asr/asr-recreate.sh music/music-recreate.sh systemd/image-recreate.sh \
          systemd/ocr-restrict.sh; do
@@ -123,23 +123,23 @@ for s in ocr/ocr-recreate.sh voice/voice-recreate.sh voice-qwen/voice-qwen-recre
   fi
 done
 
-# ── 7c. Règles sudo scoped (0440 obligatoire : sudo REFUSE un fichier lisible
-#        en écriture par son propriétaire) ──────────────────────────────────
+# ── 7c. Scoped sudo rules (0440 mandatory: sudo REFUSES a file writable by
+#        its owner) ──────────────────────────────────────────────────────────
 for f in systemd/sudoers.d-*; do
   if [ -f "$f" ]; then
     install -o root -g root -m 0440 "$f" "/etc/sudoers.d/$(basename "$f" | sed 's/^sudoers\.d-//')"
   fi
 done
-# Une règle invalide casse sudo pour TOUT LE MONDE, y compris la réparation : on
-# la valide avant de continuer, si l'outil est là.
+# An invalid rule breaks sudo for EVERYONE, repair included: validate it before
+# continuing, if the tool is there.
 if command -v visudo >/dev/null 2>&1; then
   visudo -c >/dev/null || die "une règle sudoers est invalide — voir /etc/sudoers.d/"
 fi
 
-# ── 7d. needrestart : ne pas redémarrer vllm-runner à chaque mise à jour ────
-# Le fichier n'est PAS une unité systemd (c'est du Perl) : il vit hors de
-# systemd/ exprès, pour qu'un `cp systemd/* /etc/systemd/system/` — le réflexe —
-# ne dépose pas un fichier inerte là où on croit avoir posé une protection.
+# ── 7d. needrestart: do not restart vllm-runner at every update ─────────────
+# The file is NOT a systemd unit (it is Perl): it lives outside systemd/ on
+# purpose, so that a `cp systemd/* /etc/systemd/system/` — the reflex —
+# does not drop an inert file where one thinks a protection was placed.
 if [ -f needrestart/99-vllm-runner.conf ]; then
   install -o root -g root -m 0644 needrestart/99-vllm-runner.conf \
     /etc/needrestart/conf.d/99-vllm-runner.conf
@@ -148,17 +148,17 @@ fi
 systemctl daemon-reload
 systemctl enable --now vllm-restrict.service cronos-docker-restrict.service 2>/dev/null || true
 systemctl enable --now vllm-runner.service 2>/dev/null || true
-# Isolation réseau : ces trois-là sont des règles iptables, elles doivent
-# survivre au reboot (sans elles, web_net retrouve l'accès à l'hôte).
+# Network isolation: those three are iptables rules, they must survive a reboot
+# (without them, web_net regains access to the host).
 systemctl enable --now cronos-web-restrict.service cronos-ocr-restrict.service 2>/dev/null || true
 systemctl enable hawser-restrict.service 2>/dev/null || true
-# Surveillance et sauvegarde : les responsables sont des TIMERS, pas les services.
+# Monitoring and backup: the responsible parties are TIMERS, not the services.
 systemctl enable --now cronos-monitor.timer cronos-backup.timer 2>/dev/null || true
-# Garde-fou de boot Traefik : activé pour le prochain démarrage, pas lancé
-# maintenant (inutile de redémarrer un Traefik déjà sain à l'install).
+# Traefik boot guard: enabled for the next boot, not started now (no point
+# restarting an already healthy Traefik at install time).
 systemctl enable cronos-traefik-boot.service 2>/dev/null || true
-# comfyui et comfyui-relay sont volontairement ON-DEMAND : installés, jamais
-# activés (voir l'en-tête de leurs unités).
+# comfyui and comfyui-relay are deliberately ON-DEMAND: installed, never
+# enabled (see the header of their units).
 
 # ── Done ────────────────────────────────────────────────────────────────────
 cat <<EOF

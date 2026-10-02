@@ -41,28 +41,30 @@ assets/ranking.png
 # Users page screenshot contains internal usernames (like the leaderboard)
 assets/users.png
 
-# Configuration SearXNG : settings.yml contient un secret généré au premier
-# démarrage, donc il ne se versionne pas. Le MODÈLE, lui, doit être versionné :
-# sans lui, un clone neuf laisse SearXNG écrire sa configuration par défaut —
-# qui n'active PAS le format JSON attendu par le portail — et la recherche web
-# répond 403 sans que rien ne le signale. Le motif exclut le CONTENU du dossier
-# (et non le dossier), sans quoi la négation qui suit n'aurait aucun effet :
-# git ne peut pas ré-inclure un fichier dont un dossier parent est exclu.
+# SearXNG configuration: settings.yml holds a secret generated at first
+# startup, so it is not versioned. The TEMPLATE, on the other hand, must be
+# versioned: without it, a fresh clone lets SearXNG write its default
+# configuration — which does NOT enable the JSON format the portal expects —
+# and web search answers 403 with nothing reporting it. The pattern excludes
+# the CONTENT of the folder (not the folder itself), otherwise the negation
+# below would have no effect: git cannot re-include a file whose parent folder
+# is excluded.
 searxng/*
 !searxng/settings.yml.example
 
-# Jetons de service générés localement (crawl4ai). Jamais dans git.
+# Service tokens generated locally (crawl4ai). Never in git.
 secrets/
 
 # Machine-private security notes (operator-specific; never commit)
 .machine/
 
-# Guide d'exploitation (CLAUDE.md) : lu depuis le disque par l'opérateur et les
-# agents qui travaillent dans le dépôt, mais il ne se publie pas. Le motif sans
-# barre couvre aussi dgx-portal-frontend/CLAUDE.md. À ne pas confondre avec
-# dgx-portal-frontend/public/avatars/claude.svg, qui est une image et reste suivi.
+# Operating guide (CLAUDE.md): read from disk by the operator and the agents
+# working in the repo, but not published. The pattern without a slash also
+# covers dgx-portal-frontend/CLAUDE.md. Not to be confused with
+# dgx-portal-frontend/public/avatars/claude.svg, which is an image and stays
+# tracked.
 CLAUDE.md
 
-# État d'exécution partagé entre conteneurs (activité en vol du proxy, lue par le
-# portail). Contient des alias de clés API et des noms de comptes : jamais dans git.
+# Runtime state shared between containers (proxy in-flight activity, read by
+# the portal). Holds API key aliases and account names: never in git.
 runtime/

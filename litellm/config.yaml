@@ -1,18 +1,18 @@
 model_list:
-  # Modèles statiques ornith-35b-fp8 et kat-coder-v2.5 supprimés le 2026-08-15
-  # (retirés du catalogue + poids effacés du disque, à la demande). Les modèles
-  # ajoutés depuis le portail (validation d'une demande ou ajout manuel)
-  # sont enregistrés à chaud dans la DB via /model/new — pas besoin de les lister ici.
+  # Static models ornith-35b-fp8 and kat-coder-v2.5 removed on 2026-08-15
+  # (dropped from the catalog + weights erased from disk, at the operator's
+  # request). Models added from the portal (request approval or manual add)
+  # are registered hot into the DB via /model/new — no need to list them here.
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
   store_model_in_db: true
 
-# Le proxy route via le Router LiteLLM : c'est ICI (pas dans litellm_settings)
-# que se règlent les retries et le timeout du routeur. num_retries: 0 évite
-# qu'une requête lente/coincée soit rejouée et saisisse des slots supplémentaires
-# sur le backend mono-instance (llama.cpp, 4 slots) jusqu'à tout bloquer.
+# The proxy routes via the LiteLLM Router: it is HERE (not in litellm_settings)
+# that the router's retries and timeout are set. num_retries: 0 avoids a
+# slow/stuck request being replayed and grabbing additional slots on the
+# single-instance backend (llama.cpp, 4 slots) until everything is blocked.
 router_settings:
   num_retries: 0
   timeout: 300
@@ -21,26 +21,27 @@ router_settings:
 
 litellm_settings:
   drop_params: true
-  # Repli pour une clé créée SANS budget explicite (création à la main dans le
-  # tableau de bord LiteLLM). Il doit refléter la politique de la plateforme —
-  # dgx-portal/config.py, `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` — sinon deux
-  # chemins de création donnent deux plafonds différents selon qui crée la clé.
-  # Les clés créées par le portail, elles, portent toujours leur enveloppe.
+  # Fallback for a key created WITHOUT an explicit budget (hand-created in the
+  # LiteLLM dashboard). It must reflect the platform policy —
+  # dgx-portal/config.py, `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` — otherwise
+  # two creation paths give two different caps depending on who creates the
+  # key. Keys created by the portal, on the other hand, always carry their
+  # envelope.
   default_max_budget: 200000000
   default_budget_duration: "7d"
-  # Anti « slots bloqués » : par défaut LiteLLM RÉESSAIE une requête qui
-  # échoue/pend — sur un modèle mono-backend lent (llama.cpp, 4 slots), chaque
-  # retry saisit un slot de plus, et quelques échecs suffisent à tout bloquer.
-  # On coupe les retries, et on borne la durée d'une requête (filet de sécurité :
-  # une requête vraiment coincée est abandonnée, ce qui ferme la connexion vers
-  # llama.cpp et libère le slot).
+  # Anti "blocked slots": by default LiteLLM RETRIES a request that fails/hangs
+  # — on a slow single-backend model (llama.cpp, 4 slots), each retry grabs one
+  # more slot, and a few failures are enough to block everything. We cut the
+  # retries and bound the duration of a request (safety net: a really stuck
+  # request is abandoned, which closes the connection to llama.cpp and frees
+  # the slot).
   num_retries: 0
   request_timeout: 300
-  # Qui utilise le modele MAINTENANT. LiteLLM n'ecrit SpendLogs qu'a la fin d'une
-  # requete et n'expose aucune liste de requetes en vol : le panneau admin du
-  # portail ne pouvait donc nommer personne pendant une generation (mesure du
-  # 2026-09-14 : 44 minutes sans la moindre ligne alors que deux sessions
-  # travaillaient). Ce callback note l'ouverture au depart et la retire a la fin,
-  # dans un petit SQLite que le portail monte en lecture seule. Il ne peut pas
-  # faire echouer une requete : toute erreur est tracee puis ignoree.
+  # Who uses the model RIGHT NOW. LiteLLM writes SpendLogs only at the end of a
+  # request and exposes no in-flight request list: the portal's admin panel
+  # could therefore name nobody during a generation (measurement of
+  # 2026-09-14: 44 minutes without a single row while two sessions were
+  # working). This callback records the opening at start and removes it at the
+  # end, into a small SQLite the portal mounts read-only. It cannot fail a
+  # request: every error is traced then ignored.
   callbacks: ["cronos_inflight.en_vol"]

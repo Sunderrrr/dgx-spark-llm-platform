@@ -1,21 +1,23 @@
 #!/bin/bash
-# Génère le fichier .env avec des secrets aléatoires.
+# Generates the .env file with random secrets.
 #
-# Tous les secrets PUREMENT INTERNES (clé maître LiteLLM, mot de passe Postgres,
-# clé de session Flask, jeton portail↔runner) sont générés ici : après ce
-# script, la pile démarre sans qu'aucune valeur « changeme » ne subsiste sur un
-# chemin interne. Seuls restent à remplir à la main les secrets qui dépendent
-# de services externes (LDAP, OIDC/Authentik, SMTP, Discord).
+# All PURELY INTERNAL secrets (LiteLLM master key, Postgres password, Flask
+# session key, portal↔runner token) are generated here: after this script, the
+# stack starts with no "changeme" value left anywhere on an internal path. Only
+# the secrets that depend on external services (LDAP, OIDC/Authentik, SMTP,
+# Discord) remain to be filled in by hand.
 set -e
 
-# ── Artefacts techniques dérivés de secrets, générés AVANT la garde sur .env ──
-# Ils sont volontairement au-dessus du « .env existe déjà » : relancer setup.sh
-# sur une installation en place doit pouvoir réparer un artefact manquant, sans
-# exiger de supprimer .env (ce qui régénérerait tous les secrets internes).
+# ── Technical artifacts derived from secrets, generated BEFORE the .env guard ──
+# They deliberately sit above the ".env already exists" check: rerunning
+# setup.sh on an existing install must be able to repair a missing artifact,
+# without requiring .env to be deleted (which would regenerate every internal
+# secret).
 
-# SearXNG lit TOUT le dossier monté (`./searxng:/etc/searxng`). Sans settings.yml,
-# l'image écrit le sien, qui n'active pas le format JSON que le portail demande :
-# la recherche web répond alors 403, sans message clair côté portail.
+# SearXNG reads the WHOLE mounted folder (`./searxng:/etc/searxng`). Without
+# settings.yml, the image writes its own, which does not enable the JSON format
+# the portal requires: web search then answers 403, with no clear message on the
+# portal side.
 mkdir -p searxng
 if [ ! -s searxng/settings.yml ]; then
   sed "s|secret_key: \"changeme\"|secret_key: \"$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')\"|" \
@@ -24,10 +26,10 @@ if [ ! -s searxng/settings.yml ]; then
   echo "✓ searxng/settings.yml généré (format JSON activé, secret aléatoire, 0600)"
 fi
 
-# Jeton de service crawl4ai : il refuse d'écouter ailleurs qu'en loopback sans
-# credential, et le compose le monte depuis ./secrets/. Le fichier doit être
-# lisible par le conteneur NON privilégié → 0644 (un 0600 root le rendrait
-# illisible, et le conteneur refuserait de démarrer).
+# crawl4ai service token: it refuses to listen beyond loopback without a
+# credential, and the compose mounts it from ./secrets/. The file must be
+# readable by the UNPRIVILEGED container → 0644 (a 0600 root-owned file would be
+# unreadable, and the container would refuse to start).
 mkdir -p secrets && chmod 700 secrets
 if [ ! -s secrets/crawl4ai_token ]; then
   python3 -c "import secrets;print(secrets.token_urlsafe(32))" > secrets/crawl4ai_token

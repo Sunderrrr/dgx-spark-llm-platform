@@ -1,24 +1,25 @@
 #!/bin/bash
-# Recrée le conteneur OCR ("ocr") avec un autre modèle HF vLLM. Appelé par
-# vllm-runner (utilisateur vllmrunner, via sudo scoped — voir
-# /etc/sudoers.d/vllmrunner-services) après validation des flags côté Python
-# (_validate_vllm_args, engine="ocr") : ce script fait confiance à cette
-# validation en amont et ne fait qu'exécuter la recréation.
+# Recreate the OCR container ("ocr") with another HF vLLM model. Called by
+# vllm-runner (user vllmrunner, via scoped sudo — see
+# /etc/sudoers.d/vllmrunner-services) after the flags were validated on the
+# Python side (_validate_vllm_args, engine="ocr"): this script trusts that
+# upstream validation and only performs the recreation.
 #
 # $1 = hf_model_id (ex: baidu/Unlimited-OCR)
-# $@ (à partir de $2) = flags vLLM déjà validés (liste de tokens, jamais
-# interprétés par un shell : docker run les reçoit comme argv du conteneur,
-# pas comme options docker — docker arrête de parser des options au nom d'image).
+# $@ (from $2) = already-validated vLLM flags (token list, never interpreted
+# by a shell: docker run receives them as the container's argv, not as docker
+# options — docker stops parsing options at the image name).
 #
-# Durcissement (audit M2, 2026-08) — l'OCR est le SEUL sidecar autorisé à passer
-# --trust-remote-code, donc à exécuter du code de modèle tiers arbitraire :
-#   --cap-drop ALL / --security-opt no-new-privileges : aligne l'OCR sur asr/voice ;
-#     ce code arbitraire ne dispose d'aucune capability ni élévation.
-#   Cache HF DÉDIÉ (/root/.cache/huggingface-ocr) au lieu de partager en RW le
-#     cache du runner hôte (qui sert le modèle de CHAT) : supprime le chemin
-#     d'empoisonnement (un repo OCR malveillant ne peut plus écrire dans le cache
-#     lu par le runner). Le modèle OCR se (re)télécharge dans ce dossier isolé.
-#   PAS de --memory : mémoire unifiée GB10 (plafonnerait la VRAM). Cf. CLAUDE.md.
+# Hardening (audit M2, 2026-08) — OCR is the ONLY sidecar allowed to pass
+# --trust-remote-code, i.e. to run arbitrary third-party model code:
+#   --cap-drop ALL / --security-opt no-new-privileges: aligns OCR on asr/voice;
+#     that arbitrary code gets no capability and no elevation.
+#   DEDICATED HF cache (/root/.cache/huggingface-ocr) instead of sharing in RW
+#     the host runner's cache (which serves the CHAT model): removes the
+#     poisoning path (a malicious OCR repo can no longer write into the cache
+#     read by the runner). The OCR model (re)downloads into this isolated
+#     folder.
+#   NO --memory: GB10 unified memory (would cap the VRAM). See CLAUDE.md.
 set -euo pipefail
 
 if [ $# -lt 1 ]; then
@@ -34,12 +35,12 @@ mkdir -p "$OCR_CACHE"
 
 docker rm -f ocr >/dev/null 2>&1 || true
 
-# Pas d'`exec` : le filtre L2 doit etre repose APRES la creation. Docker
-# reattribue une IP a chaque recreation, et une regle epinglee sur l'ancienne ne
-# bloquerait plus rien SANS que rien ne le signale (echec silencieux).
-# Plafond de journaux identique aux services du compose (20 Mo × 5) : sans lui
-# le journal du conteneur grossit sans borne, et un `docker logs` en panique
-# devient illisible. Appliqué au prochain démarrage, pas de coupure ici.
+# No `exec`: the L2 filter must be laid down AGAIN AFTER the creation. Docker
+# reassigns an IP at every recreation, and a rule pinned to the old one would
+# stop blocking anything WITHOUT anything reporting it (silent failure).
+# Log cap identical to the compose services (20 MB x 5): without it the
+# container log grows unbounded, and a panicked `docker logs` becomes
+# unreadable. Applied at next startup, no downtime here.
 docker run -d --name ocr --restart unless-stopped \
   --log-opt max-size=20m --log-opt max-file=5 \
   --network ai-platform_ocr_net --gpus all --shm-size=8g \
@@ -50,10 +51,10 @@ docker run -d --name ocr --restart unless-stopped \
   "$HF_ID" "$@"
 rc=$?
 
-# cf. cronos-ocr-restrict.service : empeche ce conteneur (le seul en
-# --trust-remote-code) d'ouvrir une connexion vers le portail, qui porte les
-# secrets maitres. Best-effort : une OCR qui demarre sans le filtre vaut mieux
-# qu'une OCR qui ne demarre pas, mais on le dit fort dans le journal.
+# see cronos-ocr-restrict.service: prevents this container (the only one with
+# --trust-remote-code) from opening a connection to the portal, which holds the
+# master secrets. Best-effort: an OCR that starts without the filter is better
+# than an OCR that does not start, but we say so loudly in the log.
 if [ -x /usr/local/sbin/ocr-restrict.sh ]; then
   /usr/local/sbin/ocr-restrict.sh add || echo "ATTENTION : filtre ocr->portail NON pose" >&2
 else

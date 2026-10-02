@@ -7,9 +7,9 @@ Type=simple
 User=vllmrunner
 Group=vllmrunner
 WorkingDirectory=/root/ComfyUI
-# Loopback uniquement : le portail (conteneur docker) l'atteint via le relais
-# socat comfyui-relay.service qui écoute sur 172.19.0.1:8188. Plus de
-# 0.0.0.0 — le moteur vidéo sans auth n'est joignable que depuis l'hôte.
+# Loopback only: the portal (docker container) reaches it via the socat relay
+# comfyui-relay.service listening on 172.19.0.1:8188. No more 0.0.0.0 — the
+# unauthenticated video engine is reachable only from the host.
 ExecStart=/root/venvs/comfyui/bin/python3 main.py --listen 127.0.0.1 --port 8188
 Restart=always
 RestartSec=5
@@ -17,9 +17,9 @@ Environment=HOME=/var/lib/vllm-runner
 Environment=HF_HOME=/root/.cache/huggingface
 
 [Install]
-# ON-DEMAND : ne PAS `systemctl enable` ce service. ComfyUI (MiniMax H3) est un
-# sidecar média on-demand (~33 Go de VRAM) lancé UNIQUEMENT via Admin →
-# POST /video/start (le runner fait `systemctl start comfyui`). L'enabler force
-# son chargement à chaque boot, gaspillant la VRAM au profit du chat. Un service
-# disabled reste démarrable manuellement, donc /video/start continue de marcher.
+# ON-DEMAND: do NOT `systemctl enable` this service. ComfyUI (MiniMax H3) is an
+# on-demand media sidecar (~33 GB of VRAM) started ONLY via Admin →
+# POST /video/start (the runner runs `systemctl start comfyui`). Enabling it
+# forces its loading at every boot, wasting VRAM at chat's expense. A disabled
+# service can still be started manually, so /video/start keeps working.
 WantedBy=multi-user.target

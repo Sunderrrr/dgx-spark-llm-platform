@@ -1,5 +1,5 @@
-# Le formulaire de sécurité n'est pas ici : une faille ne se signale pas dans une
-# issue publique. Voir SECURITY.md à la racine du dépôt.
+# The security form is not here: a vulnerability is not reported in a public
+# issue. See SECURITY.md at the repo root.
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability

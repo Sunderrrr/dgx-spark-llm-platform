@@ -1,11 +1,12 @@
 #!/bin/bash
-# Pose (ou retire) le filtre L2 qui empeche le conteneur OCR d'ouvrir une
-# connexion vers le portail. Voir cronos-ocr-restrict.service pour le pourquoi.
+# Lay down (or remove) the L2 filter that prevents the OCR container from
+# opening a connection to the portal. See cronos-ocr-restrict.service for the
+# why.
 #
-# Les adresses sont relues A CHAUD : docker les reattribue a chaque recreation
-# du conteneur, et une regle epinglee sur une ancienne IP echouerait EN SILENCE
-# (elle ne bloquerait plus rien sans que rien ne le signale). C'est pour la meme
-# raison que ocr-recreate.sh rappelle ce script apres chaque `docker run`.
+# The addresses are re-read AT RUNTIME: docker reassigns them at every container
+# recreation, and a rule pinned to an old IP would fail SILENTLY (it would stop
+# blocking anything with nothing reporting it). Same reason why ocr-recreate.sh
+# calls this script again after every `docker run`.
 set -uo pipefail
 ACTION="${1:-add}"
 NET=ai-platform_ocr_net
@@ -16,11 +17,11 @@ BR="br-${ID:0:12}"
 SRC=$(docker inspect ocr -f "{{index .NetworkSettings.Networks \"$NET\" \"IPAddress\"}}" 2>/dev/null)
 DST=$(docker inspect dgx-portal -f "{{index .NetworkSettings.Networks \"$NET\" \"IPAddress\"}}" 2>/dev/null)
 
-# Purge des regles devenues obsoletes sur ce bridge. Suppression PAR INDEX, en
-# partant de la fin : `ebtables -D` exige la specification exacte de la regle,
-# or on ne connait plus les IP d'une precedente incarnation du conteneur.
-# `ebtables -L --Ln` prefixe chaque regle de son index : on lit CE champ, pas un
-# numero de ligne (grep -n donnerait le sien, decale par les lignes d'en-tete).
+# Purge of rules that became obsolete on this bridge. Deletion BY INDEX,
+# starting from the end: `ebtables -D` requires the exact rule specification,
+# and we no longer know the IPs of a previous incarnation of the container.
+# `ebtables -L --Ln` prefixes each rule with its index: we read THAT field, not
+# a line number (grep -n would give its own, shifted by the header lines).
 for i in $(ebtables -L FORWARD --Ln 2>/dev/null \
            | awk -v br="$BR" '$0 ~ ("logical-in " br) && /--ip-dport 5000/ {print $1}' \
            | sort -rn); do

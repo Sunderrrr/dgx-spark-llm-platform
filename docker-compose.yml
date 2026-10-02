@@ -1,7 +1,7 @@
-# Rotation des journaux Docker (audit du 2026-10-02) : sans plafond, un journal
-# grossit jusqu'a remplir le disque. Constat hors compose (music 696 Mo, traefik
-# 172 Mo, aucun /etc/docker/daemon.json) et en croissance ici. L'ancre evite de
-# recopier quatre lignes six fois ; max-size est PAR conteneur, pas global.
+# Docker log rotation (audit of 2026-10-02): with no cap, a log grows until it
+# fills the disk. Observed outside compose (music 696 MB, traefik 172 MB, no
+# /etc/docker/daemon.json) and growing here too. The anchor avoids copying four
+# lines six times; max-size is PER container, not global.
 x-logging: &logging
   driver: json-file
   options:
@@ -10,14 +10,14 @@ x-logging: &logging
 
 services:
 
-  # ─── Base de données LiteLLM ───────────────────────────────────────────────
+  # ─── LiteLLM database ──────────────────────────────────────────────────────
   postgres:
     logging: *logging
     image: postgres:15-alpine@sha256:cd17e2ac98240fce1541ad2a803b34009b4eea5aec8a832363cdc7eca62e722e
     container_name: litellm-postgres
     restart: unless-stopped
-    # Durcissement : mono-utilisateur postgres (uid 70) sans capability et sans
-    # elevation. Le serveur s'exécute en non-root ; la base reste non publiée.
+    # Hardening: single-user postgres (uid 70) with no capability and no
+    # elevation. The server runs non-root; the database stays unpublished.
     user: "70:70"
     cap_drop:
       - ALL
@@ -36,42 +36,45 @@ services:
       retries: 10
       start_period: 10s
 
-  # ─── LiteLLM — API gateway + gestion des clés ─────────────────────────────
+  # ─── LiteLLM — API gateway + key management ────────────────────────────────
   litellm:
     logging: *logging
-    # Épinglé au digest (repro + anti supply-chain). Tag d'origine : main-stable,
-    # version embarquée vérifiée : 1.102.1 (image du 2026-09-23).
-    # Pour mettre à jour : docker pull ghcr.io/berriai/litellm:main-stable puis
-    # remplacer le sha ci-dessous par le nouveau digest (et vérifier la version
-    # avec : docker run --rm --entrypoint python <image> -c "from
-    # importlib.metadata import version; print(version('litellm'))").
+    # Pinned by digest (repro + anti supply-chain). Original tag: main-stable,
+    # embedded version verified: 1.102.1 (image of 2026-09-23).
+    # To update: docker pull ghcr.io/berriai/litellm:main-stable then replace
+    # the sha above with the new digest (and check the version with: docker run
+    # --rm --entrypoint python <image> -c "from importlib.metadata import
+    # version; print(version('litellm'))").
     image: ghcr.io/berriai/litellm@sha256:87f34979b9f8cb274fac90ca8a4fdda07d8480de22755562a26adeb95ce20d02
     container_name: litellm
     restart: unless-stopped
-    # Durcissement (parité avec dgx-portal/frontend) : LiteLLM est une appli
-    # Python qui n'a besoin d'aucune capability et ne doit pas élever ses privs.
-    # NB: l'image amont tourne en uid 0 par défaut et son bootstrap Prisma ne
-    # supporte pas un uid non-root (il régénère sa CLI node sous $HOME/.cache) —
-    # on garde root + cap_drop ALL + no-new-privileges plutôt que de casser le
-    # démarrage. Voir audit H1 pour la piste non-root à finaliser côté image.
+    # Hardening (parity with dgx-portal/frontend): LiteLLM is a Python app that
+    # needs no capability and must not elevate its privs.
+    # NB: the upstream image runs as uid 0 by default and its Prisma bootstrap
+    # does not support a non-root uid (it regenerates its node CLI under
+    # $HOME/.cache) — we keep root + cap_drop ALL + no-new-privileges rather
+    # than break startup. See audit H1 for the non-root track to finish on the
+    # image side.
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
-    # AUCUN port publié : LiteLLM n'est joignable que depuis le réseau Docker.
-    # Traefik (`http://litellm:4001`) et le portail (LITELLM_URL) passent par là ;
-    # l'accès externe se fait par https://api.cronos.website, qui applique en plus
-    # le forwardAuth de maintenance — que l'ancien port publié court-circuitait.
+    # NO published port: LiteLLM is reachable only from the Docker network.
+    # Traefik (`http://litellm:4001`) and the portal (LITELLM_URL) go through
+    # there; external access goes through https://api.cronos.website, which
+    # additionally applies the maintenance forwardAuth — which the old
+    # published port bypassed.
     volumes:
-      # La config du proxy est en LECTURE SEULE : LiteLLM la lit au démarrage et
-      # ne l'écrit jamais (ses modèles vivent dans Postgres, `store_model_in_db:
-      # true`). En écriture, c'était un chemin de persistance pour un proxy
-      # compromis — `/run/cronos` étant monté en écriture juste à côté, il
-      # pouvait y déposer un greffon et le faire charger au redémarrage suivant.
+      # The proxy config is READ-ONLY: LiteLLM reads it at startup and never
+      # writes it (its models live in Postgres, `store_model_in_db: true`).
+      # Writable, it was a persistence path for a compromised proxy —
+      # `/run/cronos` being mounted writable right next to it, it could drop a
+      # plugin there and have it loaded at the next restart.
       - ./litellm/config.yaml:/app/config.yaml:ro
-      # Activité EN VOL (qui génère maintenant) : petit SQLite écrit par le
-      # callback `cronos_inflight`, lu par le portail. Le module est monté à part
-      # pour rester lisible, et PYTHONPATH=/app le rend importable.
+      # IN-FLIGHT activity (who is generating right now): small SQLite written
+      # by the `cronos_inflight` callback, read by the portal. The module is
+      # mounted separately to stay readable, and PYTHONPATH=/app makes it
+      # importable.
       - ./dgx-portal/litellm_inflight.py:/app/cronos_inflight.py:ro
       - ./runtime:/run/cronos
     environment:
@@ -79,11 +82,11 @@ services:
       CRONOS_INFLIGHT_DB: /run/cronos/inflight.db
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      # Coupe l'UI d'admin (/ui, /sso) : elle était publiquement joignable via
-      # api.cronos.website et concentrait toute la master key sur un formulaire
-      # de login exposé. L'admin passe par le portail (dgx-portal), pas cette UI.
+      # Turns off the admin UI (/ui, /sso): it was publicly reachable via
+      # api.cronos.website and concentrated the whole master key on an exposed
+      # login form. Admin goes through the portal (dgx-portal), not this UI.
       DISABLE_ADMIN_UI: "True"
-      # SSO Authentik (crée une app OIDC "litellm" dans Authentik, scope: openid profile email)
+      # SSO Authentik (create an OIDC app "litellm" in Authentik, scope: openid profile email)
       GENERIC_CLIENT_ID: ${AUTHENTIK_LITELLM_CLIENT_ID}
       GENERIC_CLIENT_SECRET: ${AUTHENTIK_LITELLM_CLIENT_SECRET}
       GENERIC_AUTHORIZATION_ENDPOINT: https://gjallarhorn.cronos.website/application/o/authorize/
@@ -98,13 +101,13 @@ services:
       postgres:
         condition: service_healthy
 
-  # ─── DGX Portal — backend Flask (API + auth LDAP/OIDC) ─────────────────────
-  # Plus de port publié sur l'hôte : l'ancienne interface Jinja est "down" (les
-  # fichiers restent intacts, tout marche encore) mais n'est plus atteignable
-  # depuis l'extérieur. dgx-portal reste joignable en interne via le réseau
-  # docker-compose (dgx-portal:5000) : c'est ce que dgx-portal-frontend proxy.
-  # → Pour revenir à l'ancienne interface : remettre `ports: ["5000:5000"]`
-  #   ici ET redonner à dgx-portal-frontend son port 3002 ci-dessous.
+  # ─── DGX Portal — Flask backend (API + LDAP/OIDC auth) ─────────────────────
+  # No more published port on the host: the old Jinja UI is "down" (the files
+  # stay intact, everything still works) but is no longer reachable from
+  # outside. dgx-portal stays internally reachable via the docker-compose
+  # network (dgx-portal:5000): that is what dgx-portal-frontend proxies.
+  # → To go back to the old UI: put `ports: ["5000:5000"]` back here AND give
+  #   dgx-portal-frontend its port 3002 back below.
   dgx-portal:
     logging: *logging
     build: ./dgx-portal
@@ -121,17 +124,17 @@ services:
       LDAP_BIND_DN: cn=ldap,ou=users,dc=cronos,dc=lan
       LDAP_BIND_PW: ${LDAP_BIND_PW}
       LITELLM_URL: http://litellm:4001
-      # Surchargeable pour les tests (faux sidecar) ; défaut = sidecar image_net.
+      # Overridable for tests (fake sidecar); default = image_net sidecar.
       IMAGE_URL: ${IMAGE_URL:-http://image:8007}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      # Passerelle du réseau `default` plutôt que host.docker.internal : ce
-      # dernier pointe la bridge docker0 (172.17.0.1), que ce conteneur
-      # n'atteint QUE par sa route par défaut. Or dgx-portal est multi-homé et
-      # Docker place cette route sur la dernière interface connectée (asr_net,
-      # 172.22.x) — adresse source que vllm-restrict.service met en DROP, d'où
-      # 3 s de timeout par sonde. En visant 172.19.0.1 le paquet part par eth0
-      # avec une source 172.19.x, que le pare-feu autorise. Mesuré : 4,01 s →
-      # 0,00 s. Le sous-réseau est épinglé plus bas pour que l'IP soit stable.
+      # Gateway of the `default` network rather than host.docker.internal: the
+      # latter points at the docker0 bridge (172.17.0.1), which this container
+      # reaches ONLY via its default route. But dgx-portal is multi-homed and
+      # Docker puts that route on the last connected interface (asr_net,
+      # 172.22.x) — a source address that vllm-restrict.service DROPs, hence
+      # 3 s of timeout per probe. Aiming at 172.19.0.1 the packet leaves via
+      # eth0 with a 172.19.x source, which the firewall allows. Measured:
+      # 4.01 s → 0.00 s. The subnet is pinned below so the IP stays stable.
       VLLM_API_URL: http://172.19.0.1:8000/v1
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
       SMTP_HOST: ${SMTP_HOST}
@@ -140,32 +143,32 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       SMTP_FROM: ${SMTP_FROM}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
-      # CTA « Open the Admin dashboard » dans les emails (si vide, aucun bouton).
+      # CTA « Open the Admin dashboard » in the emails (empty = no button).
       ADMIN_URL: ${ADMIN_URL}
       MEDIA_REQUEST_COOLDOWN_S: ${MEDIA_REQUEST_COOLDOWN_S}
-      # PAS de KEY_MAX_BUDGET/KEY_BUDGET_DURATION ici : ce bloc a longtemps porté
-      # « 0.002 » / « 1d » (un compte de test quasi épuisé), ce qui écrasait le
-      # défaut correct de config.py sur une installation VIERGE — la table
-      # `settings` étant vide, chaque compte recevait une enveloppe de 0,002
-      # token, donc un 429 à la première requête. En production personne ne le
-      # voyait : la valeur avait été corrigée à la main dans Admin, et c'est elle
-      # qui gagne. Les deux valeurs vivent désormais à UN seul endroit : le défaut
-      # de config.py (200 000 000 tokens / 7 j), modifiable dans Admin → token limit.
+      # NO KEY_MAX_BUDGET/KEY_BUDGET_DURATION here: this block long carried
+      # « 0.002 » / « 1d » (a nearly exhausted test account), which overwrote
+      # config.py's correct default on a FRESH install — the `settings` table
+      # being empty, every account got an envelope of 0.002 tokens, hence a 429
+      # on the first request. In production nobody saw it: the value had been
+      # corrected by hand in Admin, and that one wins. Both values now live in
+      # ONE single place: config.py's default (200 000 000 tokens / 7 d),
+      # changeable in Admin → token limit.
       VLLM_RUNNER_URL: http://172.19.0.1:8001
       RUNNER_TOKEN: ${RUNNER_TOKEN}
-      # ComfyUI (vidéo MiniMax H3) : process host, 127.0.0.1 only, jamais exposé.
+      # ComfyUI (MiniMax H3 video): host process, 127.0.0.1 only, never exposed.
       COMFYUI_URL: http://172.19.0.1:8188
-      # OCR (baidu/Unlimited-OCR) : conteneur sur ocr_net (réseau dédié, pas
-      # `default` avec litellm/postgres) — dgx-portal est multi-homé pour l'atteindre.
+      # OCR (baidu/Unlimited-OCR): container on ocr_net (dedicated network, not
+      # `default` with litellm/postgres) — dgx-portal is multi-homed to reach it.
       OCR_URL: http://ocr:8000/v1
-      # Voix (Chatterbox, clonage) : même raisonnement que OCR — conteneur sur
-      # voice_net dédié, jamais sur `default`.
+      # Voice (Chatterbox, cloning): same reasoning as OCR — container on the
+      # dedicated voice_net, never on `default`.
       VOICE_URL: http://voice:8004
-      # Transcription (dictée du Playground) : idem, réseau asr_net dédié.
+      # Transcription (Playground dictation): same, dedicated asr_net network.
       ASR_URL: http://asr:8006
-      # URL publique de l'API compatible OpenAI affichée aux utilisateurs
+      # Public URL of the OpenAI-compatible API shown to users
       PUBLIC_API_URL: https://api.cronos.website/v1
-      # Base LiteLLM pour les stats de consommation (ranking + graphe horaire)
+      # LiteLLM database for consumption stats (ranking + hourly graph)
       LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       TZ_DISPLAY: Europe/Paris
       # ── SSO / OIDC (Authentik) ──
@@ -175,64 +178,63 @@ services:
       OIDC_REDIRECT_URI: https://dgx.cronos.website/api/oauth2-redirect
       OIDC_LOGOUT_URL: https://gjallarhorn.cronos.website/application/o/dgx/end-session/
       OIDC_ADMIN_GROUP: adm_cronos
-      # App servie en HTTPS derrière Traefik → cookie de session Secure
+      # App served over HTTPS behind Traefik → Secure session cookie
       SESSION_COOKIE_SECURE: "1"
     volumes:
       - portal_data:/app/data
-      # Activité en vol du proxy, en LECTURE SEULE : LiteLLM est le seul écrivain,
-      # et un portail compromis ne doit pas pouvoir toucher ce que le proxy écrit
-      # (ni l'inverse). Absent = le panneau se rabat sur les seules lignes finies.
+      # Proxy in-flight activity, READ-ONLY: LiteLLM is the only writer, and a
+      # compromised portal must not be able to touch what the proxy writes (nor
+      # the reverse). Absent = the panel falls back to the finished rows only.
       - ./runtime:/run/cronos:ro
       # ComfyUI's video output, read-only: lets the portal serve past videos
       # from disk even when the video sidecar (ComfyUI) is stopped to free the GPU.
       - /root/ComfyUI/output:/comfyui-output:ro
-      # État du moniteur hôte (lecture seule) : incidents en cours et fraîcheur du
-      # dernier dump du portail, mesurée en root par le moniteur. Le dossier des
-      # dumps lui-même n'est PAS monté — il est en 0700 root et les dumps en 0600,
-      # et c'est voulu : ils contiennent la base entière.
+      # Host monitor state (read-only): current incidents and freshness of the
+      # portal's last dump, measured as root by the monitor. The dump folder
+      # itself is NOT mounted — it is 0700 root and the dumps 0600, and that is
+      # on purpose: they hold the whole database.
       - /var/lib/cronos-monitor:/var/lib/cronos-monitor:ro
-      # Même jeton, côté appelant.
+      # Same token, caller side.
       - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
-      # Jeton Hugging Face, FACULTATIF, en lecture seule : il fait apparaître les
-      # dépôts à accès restreint dans la recherche de modèles et relève la limite
-      # anonyme de l'API (500 requêtes / 5 min par IP). Le portail ne renvoie
-      # jamais sa valeur, seulement sa présence (`vllm_health.hf_jeton_present`).
-      # Il appartient à l'utilisateur du conteneur (uid 10001) et reste en 0600 :
-      # personne d'autre sur la machine ne peut le lire. Fichier absent → le
-      # portail cherche en anonyme, sans erreur (un `docker compose up` sur un
-      # dépôt fraîchement cloné crée un DOSSIER à la place : `open()` échoue, et
-      # c'est traité comme « pas de jeton »).
+      # Hugging Face token, OPTIONAL, read-only: it makes gated repos visible in
+      # model search and raises the anonymous API limit (500 requests / 5 min per
+      # IP). The portal never returns its value, only its presence
+      # (`vllm_health.hf_jeton_present`). It belongs to the container's user
+      # (uid 10001) and stays 0600: nobody else on the machine can read it.
+      # Missing file → the portal searches anonymously, without error (a `docker
+      # compose up` on a freshly cloned repo creates a FOLDER instead: `open()`
+      # fails, and that is handled as "no token").
       - ./secrets/hf_token:/run/secrets/hf_token:ro
     extra_hosts:
-      # Épinglé sur la passerelle du réseau `default`, PAS sur `host-gateway`.
-      # `host-gateway` désigne la passerelle de l'interface qui porte la route par
-      # défaut — laquelle dépend de l'ordre des réseaux attachés. L'ajout d'un
-      # réseau a suffi, deux fois (asr_net hier, web_net aujourd'hui), à la faire
-      # basculer : les paquets sortaient alors en 172.22.x ou 172.25.x, et
-      # vllm-restrict.service — qui n'autorise que 172.19.0.0/16 vers le runner
-      # et vLLM — les mettait en DROP. Plus aucun modèle joignable.
-      # Cette adresse est déjà celle que le pare-feu autorise en dur : on aligne
-      # les deux plutôt que de dépendre d'un ordre d'interfaces.
+      # Pinned to the gateway of the `default` network, NOT to `host-gateway`.
+      # `host-gateway` means the gateway of whichever interface carries the
+      # default route — which depends on the order of attached networks.
+      # Adding one network was enough, twice (asr_net yesterday, web_net today),
+      # to flip it: packets then left as 172.22.x or 172.25.x, and
+      # vllm-restrict.service — which only allows 172.19.0.0/16 towards the
+      # runner and vLLM — DROPped them. No model reachable anymore.
+      # This address is already the one the firewall hard-allows: we align the
+      # two rather than depend on interface order.
       - "host.docker.internal:172.19.0.1"
     depends_on:
       - litellm
     networks:
-      # `priority` fixe l'interface qui porte la route par défaut, donc l'IP
-      # SOURCE des appels sortants vers host.docker.internal (vLLM :8000,
-      # runner :8001, ComfyUI :8188). Sans ça Docker choisit par ordre
-      # alphabétique : l'ajout de `asr_net` l'a fait passer devant `default`,
-      # les paquets sont partis en 172.22.x, et vllm-restrict.service — qui
-      # n'autorise que 172.19.0.0/16 — les a mis en DROP. Résultat : chaque
-      # sonde attendait son timeout de 3 s, ~14 s pour afficher l'accueil.
-      # On garde volontairement la règle pare-feu étroite plutôt que d'ouvrir
-      # les autres sous-réseaux : les conteneurs OCR/voix/dictée n'ont aucune
-      # raison d'atteindre le runner.
-      # `priority` : c'est l'interface de plus haute priorité qui porte la route
-      # par défaut, donc l'IP SOURCE des appels sortants. Sans elle, docker
-      # choisit par ordre alphabétique — l'ajout de `web_net` a suffi à faire
-      # sortir les paquets en 172.25.x, que vllm-restrict.service (qui n'autorise
-      # que 172.19.0.0/16) a mis en DROP : plus aucun accès au runner ni à vLLM.
-      # Constaté en direct, exactement comme lors de l'ajout d'`asr_net`.
+      # `priority` fixes which interface carries the default route, hence the
+      # SOURCE IP of outgoing calls to host.docker.internal (vLLM :8000,
+      # runner :8001, ComfyUI :8188). Without it Docker picks by order of
+      # alphabetical order: adding `asr_net` moved it ahead of `default`,
+      # packets left as 172.22.x, and vllm-restrict.service — which only allows
+      # 172.19.0.0/16 — DROPped them. Result: every probe waited its 3 s
+      # timeout, ~14 s to display the home page.
+      # We deliberately keep the narrow firewall rule rather than open the
+      # other subnets: the OCR/voice/dictation containers have no reason to
+      # reach the runner.
+      # `priority`: the highest-priority interface carries the default route,
+      # hence the SOURCE IP of outgoing calls. Without it, docker picks in
+      # alphabetical order — adding `web_net` was enough to make packets leave
+      # as 172.25.x, which vllm-restrict.service (which only allows
+      # 172.19.0.0/16) DROPped: no more access to the runner nor to vLLM.
+      # Observed live, exactly like when `asr_net` was added.
       default:
         priority: 100
       ocr_net: {}
@@ -242,12 +244,12 @@ services:
       music_net: {}
       web_net: {}
 
-  # ─── DGX Portal Frontend — Next.js + Astryx, nouvelle interface complète ──
-  # Reprend le port 5000 (celui que filtre déjà cronos-docker-restrict.service
-  # et vers lequel Traefik route) : rien à changer côté pare-feu/Traefik, ils
-  # continuent de cibler ":5000", qui sert maintenant ce conteneur. Tout ce qui
-  # n'est pas une page Next connue est transmis en interne à dgx-portal:5000
-  # (voir next.config.ts → rewrites().fallback).
+  # ─── DGX Portal Frontend — Next.js + Astryx, full new UI ───────────────────
+  # Takes over port 5000 (the one cronos-docker-restrict.service already
+  # filters and Traefik routes to): nothing to change on the firewall/Traefik
+  # side, they keep targeting ":5000", which now serves this container.
+  # Anything that is not a known Next page is forwarded internally to
+  # dgx-portal:5000 (see next.config.ts → rewrites().fallback).
   dgx-portal-frontend:
     logging: *logging
     build: ./dgx-portal-frontend
@@ -260,20 +262,20 @@ services:
     ports:
       - "5000:3000"
 
-  # ─── Recherche web : SearXNG (métamoteur) + crawl4ai (extraction) ──────────
-  # Aucun `ports:` : ni l'un ni l'autre n'est joignable depuis l'extérieur, seul
-  # dgx-portal les atteint sur web_net.
+  # ─── Web search: SearXNG (metasearch) + crawl4ai (extraction) ──────────────
+  # No `ports:`: neither is reachable from outside, only dgx-portal reaches
+  # them on web_net.
   searxng:
     logging: *logging
-    # Digest-pinné (repro + anti supply-chain). Pour mettre à jour :
-    # docker pull searxng/searxng:latest puis remplacer le sha ci-dessous.
+    # Digest-pinned (repro + anti supply-chain). To update:
+    # docker pull searxng/searxng:latest then replace the sha above.
     image: searxng/searxng@sha256:11a9b34cdc0b1ec2b991470a2762ecb5a1a531898289fb51dcd015260450729e
     container_name: searxng
     restart: unless-stopped
     environment:
-      # Vue depuis dgx-portal ; sert aussi à SearXNG pour ses propres URL.
+      # Viewed from dgx-portal; also used by SearXNG for its own URLs.
       - SEARXNG_BASE_URL=http://searxng:8080/
-      # Secret généré par setup.sh (plus de fallback faible public).
+      # Secret generated by setup.sh (no more weak public fallback).
       - SEARXNG_SECRET=${SEARXNG_SECRET}
     volumes:
       - ./searxng:/etc/searxng:rw
@@ -282,7 +284,7 @@ services:
     cap_drop:
       - ALL
     cap_add:
-      # SearXNG (uwsgi) se rabat sur un utilisateur non privilégié au démarrage.
+      # SearXNG (uwsgi) falls back to an unprivileged user at startup.
       - SETUID
       - SETGID
     networks:
@@ -290,26 +292,26 @@ services:
 
   crawl4ai:
     logging: *logging
-    # Digest-pinné (repro + anti supply-chain). Pour mettre à jour :
-    # docker pull unclecode/crawl4ai:latest puis remplacer le sha ci-dessous.
+    # Digest-pinned (repro + anti supply-chain). To update:
+    # docker pull unclecode/crawl4ai:latest then replace the sha above.
     image: unclecode/crawl4ai@sha256:bd36741e7bdd35ddc1a05d9183e1d6d8cefb61dd640d944a25d026b76e917690
     container_name: crawl4ai
     restart: unless-stopped
     volumes:
-      # Sans jeton, crawl4ai refuse délibérément d'écouter ailleurs que sur la
-      # boucle locale — il serait donc injoignable depuis dgx-portal. Le jeton est
-      # généré une fois dans ./secrets (hors dépôt, 0600) et monté ici sous le
-      # chemin que son entrypoint lit tout seul.
+      # Without a token, crawl4ai deliberately refuses to listen beyond the
+      # loopback — so it would be unreachable from dgx-portal. The token is
+      # generated once into ./secrets (outside the repo, 0600) and mounted here
+      # at the path its entrypoint reads on its own.
       - ./secrets/crawl4ai_token:/run/secrets/api_token:ro
-    # Chromium a besoin de mémoire partagée : sans ça il plante sur les pages
-    # un peu lourdes. C'est /dev/shm, PAS une limite mémoire — on ne met JAMAIS
-    # `mem_limit` sur un sidecar de cette machine (mémoire unifiée, cf. CLAUDE.md).
+    # Chromium needs shared memory: without it it crashes on somewhat heavy
+    # pages. This is /dev/shm, NOT a memory limit — NEVER set `mem_limit` on a
+    # sidecar of this machine (unified memory, see CLAUDE.md).
     shm_size: 1g
     security_opt:
       - no-new-privileges:true
-    # crawl4ai est le composant le plus exposé de la box (il pilote un navigateur
-    # sur des pages entièrement contrôlées par des tiers) : on lui retire TOUTES
-    # les capabilities par défaut, comme les autres sidecars.
+    # crawl4ai is the most exposed component of the box (it drives a browser
+    # over pages entirely controlled by third parties): we remove ALL default
+    # capabilities from it, like the other sidecars.
     cap_drop:
       - ALL
     networks:
@@ -320,48 +322,49 @@ volumes:
   portal_data:
 
 networks:
-  # NB : sous-réseau NON épinglé ici — le faire force Docker à recréer le
-  # réseau, ce qu'il refuse car traefik (hors de ce compose) y est attaché.
-  # 172.19.0.0/16 est l'attribution stable constatée ; vllm-restrict.service
-  # l'autorise et les URL ci-dessus visent sa passerelle 172.19.0.1.
+  # NB: subnet NOT pinned here — doing so forces Docker to recreate the
+  # network, which it refuses because traefik (outside this compose) is
+  # attached to it. 172.19.0.0/16 is the stable allocation observed;
+  # vllm-restrict.service allows it and the URLs above target its gateway
+  # 172.19.0.1.
   default:
-  # Réseau dédié OCR : le conteneur OCR (image vllm-openai, admin peut le
-  # relancer avec --trust-remote-code sur un autre modèle HF, cf. README
-  # « Security ») n'est PLUS sur `default` avec litellm/postgres/traefik —
-  # seul dgx-portal (qui lui parle en HTTP, cf. OCR_URL) est multi-homé sur
-  # les deux réseaux. Un code arbitraire exécuté dans ce conteneur (repo HF
-  # malveillant) n'a donc plus de route L3 directe vers litellm/postgres.
+  # Dedicated OCR network: the OCR container (vllm-openai image, the admin can
+  # relaunch it with --trust-remote-code on another HF repo, see README
+  # « Security ») is NO LONGER on `default` with litellm/postgres/traefik —
+  # only dgx-portal (which talks to it over HTTP, see OCR_URL) is multi-homed
+  # on both networks. Arbitrary code executed in this container (malicious HF
+  # repo) therefore has no direct L3 route to litellm/postgres.
   ocr_net:
-  # Même isolation que ocr_net, pour le conteneur voix (Chatterbox) : reçoit
-  # lui aussi de l'audio/texte fourni par l'utilisateur vers du code de
-  # modèle tiers, même surface de risque que OCR.
+  # Same isolation as ocr_net, for the voice container (Chatterbox): it too
+  # receives user-provided audio/text into third-party model code, same risk
+  # surface as OCR.
   voice_net:
-  # Idem pour la transcription : de l'audio utilisateur passe dans du code de
-  # modèle tiers, il n'a rien à faire sur le réseau de litellm/postgres.
+  # Same for transcription: user audio goes through third-party model code, it
+  # has no business on the litellm/postgres network.
   asr_net:
-  # Génération d'image (diffusers) : même posture que les autres
-  # sidecars — reçoit un prompt utilisateur vers du code de modèle tiers, isolé
-  # de litellm/postgres. Seul dgx-portal l'atteint (IMAGE_URL=http://image:8007).
+  # Image generation (diffusers): same posture as the other sidecars — receives
+  # a user prompt into third-party model code, isolated from litellm/postgres.
+  # Only dgx-portal reaches it (IMAGE_URL=http://image:8007).
   image_net:
-  # Génération musicale (MiniMax-Music3 & co, diffusers) : idem, et d'autant
-  # plus que le modèle est choisi librement depuis l'admin — du code de modèle
-  # tiers arbitraire n'a rien à faire sur le réseau de litellm/postgres.
+  # Music generation (MiniMax-Music3 & co, diffusers): same, and all the more so
+  # since the model is freely chosen from the admin — arbitrary third-party
+  # model code has no business on the litellm/postgres network.
   music_net:
-  # Recherche web : c'est le sidecar le PLUS exposé de la machine — crawl4ai
-  # pilote un navigateur qui visite des pages arbitraires, donc du contenu
-  # entièrement contrôlé par des tiers, et SearXNG interroge des moteurs
-  # externes. Ni l'un ni l'autre n'a la moindre raison d'avoir une route vers
-  # litellm, postgres ou traefik. Seul dgx-portal est multi-homé dessus.
+  # Web search: this is the MOST exposed sidecar of the machine — crawl4ai
+  # drives a browser visiting arbitrary pages, i.e. content entirely controlled
+  # by third parties, and SearXNG queries external engines. Neither has the
+  # slightest reason to have a route to litellm, postgres or traefik. Only
+  # dgx-portal is multi-homed onto it.
   web_net:
 
 # ─── OpenWebUI ────────────────────────────────────────────────────────────────
-# OpenWebUI tourne sur ton autre serveur (vor.cronos.website).
-# Change dans sa config :
-#   OLLAMA_BASE_URL  →  supprimer
-#   Ajouter :
+# OpenWebUI runs on your other server (vor.cronos.website).
+# Change in its config:
+#   OLLAMA_BASE_URL  →  remove
+#   Add:
 #     OPENAI_API_BASE_URL=https://api.cronos.website/v1
-#       (et PAS http://dgx.cronos.lan:4001 : LiteLLM n'écoute que sur le réseau
-#        docker interne, aucun port n'est publié sur l'hôte — le seul chemin
-#        depuis l'extérieur est Traefik → https://api.cronos.website)
+#       (and NOT http://dgx.cronos.lan:4001: LiteLLM listens only on the
+#        internal docker network, no port is published on the host — the only
+#        path from outside is Traefik → https://api.cronos.website)
 #     OPENAI_API_KEY=<LITELLM_MASTER_KEY>
-# Garde tout le reste (Authentik SSO, rôles, etc.) identique.
+# Keep everything else (Authentik SSO, roles, etc.) identical.

@@ -1,41 +1,40 @@
-# Veille des dépendances (Dependabot) — ALERTES ACTIVES, PR AUTOMATIQUES EN PAUSE.
+# Dependency watch (Dependabot) — ALERTS ACTIVE, AUTOMATIC PRs ON HOLD.
 #
-# Pourquoi la veille : la CI vérifie que le code compile et que les tests passent,
-# mais elle ne dit RIEN d'une CVE publiée dans une bibliothèque déjà installée.
-# Sans veille, la seule façon de l'apprendre est un audit manuel — c'est exactement
-# ce qui a laissé passer le contournement de `sanitizeUrl` d'Astryx 0.1.8.
+# Why the watch: CI checks that the code compiles and the tests pass, but it
+# says NOTHING about a CVE published in an already-installed library. Without a
+# watch, the only way to learn about it is a manual audit — that is exactly
+# what let the `sanitizeUrl` bypass in Astryx 0.1.8 slip through.
 #
-# Pourquoi les PR sont en PAUSE (`open-pull-requests-limit: 0`, 2026-10-01) : le
-# dépôt doit garder UNE seule branche (`master`). Chaque PR Dependabot crée la
-# sienne, et trois branches dormaient sur le distant (deux Dependabot, une
-# ancienne) pour des mises à jour que personne n'avait relues. Le dépôt perdait sa
-# lisibilité pour un bénéfice que la CI apporte déjà : le job « Dependency audit »
-# (pip-audit + npm audit, advisory) tourne à chaque push et écrit ses résultats
-# dans le résumé du run. Les ALERTES Dependabot (onglet Security) restent actives :
-# c'est elles qui préviennent d'une CVE, sans créer de branche. Vérifié le
-# 2026-10-01 : elles étaient DÉSACTIVÉES sur le dépôt (404 sur
-# `/vulnerability-alerts`) — les activer est ce qui rend cette pause acceptable,
-# sinon mettre les PR en pause aurait supprimé la seule veille automatique.
-# Les CORRECTIFS de sécurité automatiques restent désactivés, à l'inverse, parce
-# qu'eux ouvrent une PR : l'alerte suffit, la correction se fait à la main.
+# Why the PRs are ON HOLD (`open-pull-requests-limit: 0`, 2026-10-01): the repo
+# must keep ONE single branch (`master`). Every Dependabot PR creates its own,
+# and three branches were sleeping on the remote (two Dependabot, one old) for
+# updates nobody had reviewed. The repo was losing its readability for a
+# benefit CI already brings: the "Dependency audit" job (pip-audit + npm audit,
+# advisory) runs at every push and writes its results into the run summary. The
+# Dependabot ALERTS (Security tab) stay active: they are what warns about a
+# CVE, without creating a branch. Verified on 2026-10-01: they were DISABLED on
+# the repo (404 on `/vulnerability-alerts`) — enabling them is what makes this
+# pause acceptable, otherwise pausing the PRs would have removed the only
+# automatic watch. Automatic security FIXES stay disabled, on the other hand,
+# because those open a PR: the alert is enough, the fix is done by hand.
 #
-# POUR REPRENDRE UNE MISE À JOUR : la faire à la main, dans un commit unique et
-# relisible — `npm audit fix` / `npm update <paquet>` côté frontend (le verrou est
-# désormais diffable, cf. `.gitattributes`), `pip install -U` + `pip freeze` côté
-# portail — puis pousser et laisser la CI juger. Pour réactiver les PR, remettre un
-# `open-pull-requests-limit` non nul ci-dessous (commencer à 1 : un lot à la fois,
-# jamais trois branches ouvertes en parallèle).
+# TO RESUME AN UPDATE: do it by hand, in a single readable commit — `npm audit
+# fix` / `npm update <package>` on the frontend side (the lock is now diffable,
+# see `.gitattributes`), `pip install -U` + `pip freeze` on the portal side —
+# then push and let CI judge. To re-enable PRs, put a non-zero
+# `open-pull-requests-limit` below (start at 1: one batch at a time, never
+# three open branches in parallel).
 #
-# RÈGLE apprise le 2026-09-17 (elle vaut pour toute reprise manuelle) : un lot ne
-# contient QUE des mineures et des correctifs (`update-types`). Le premier lot npm
-# groupait tout et proposait d'un coup React 19.3, eslint 10, TypeScript 7, KaTeX
-# 0.18 et Astryx 0.6 — que `npm ci` refuse d'installer, donc une PR ni relisable ni
-# fusionnable. Une majeure est un chantier : elle mérite sa propre PR, avec sa
-# propre CI.
+# RULE learned on 2026-09-17 (it applies to any manual update): a batch
+# contains ONLY minors and patches (`update-types`). The first npm batch
+# grouped everything and proposed at once React 19.3, eslint 10, TypeScript 7,
+# KaTeX 0.18 and Astryx 0.6 — which `npm ci` refuses to install, so a PR
+# neither reviewable nor mergeable. A major is a project of its own: it
+# deserves its own PR, with its own CI.
 version: 2
 
 updates:
-  # Portail Flask
+  # Flask portal
   - package-ecosystem: pip
     directory: /dgx-portal
     schedule:
@@ -47,7 +46,7 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
-  # Interface Next.js
+  # Next.js UI
   - package-ecosystem: npm
     directory: /dgx-portal-frontend
     schedule:
@@ -59,53 +58,52 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
     ignore:
-      # Astryx est le système de design : une mineure peut changer le rendu de
-      # 153 composants. On veut bien une PR pour un CORRECTIF, mais pas être
-      # réveillé chaque semaine par une 0.x — les montées de cette dépendance se
-      # décident et se vérifient à la main (`npx astryx upgrade`). Les MAJEURES
-      # restent proposées, hors lot, justement pour qu'elles aient leur PR.
+      # Astryx is the design system: a minor can change the rendering of 153
+      # components. A PR for a PATCH is welcome, but we do not want to be woken
+      # up every week by a 0.x — bumps of this dependency are decided and
+      # verified by hand (`npx astryx upgrade`). MAJORs are still proposed,
+      # outside a batch, precisely so they get their own PR.
       - dependency-name: "@astryxdesign/core"
         update-types: ["version-update:semver-minor", "version-update:semver-patch"]
       - dependency-name: "@astryxdesign/cli"
         update-types: ["version-update:semver-minor", "version-update:semver-patch"]
       - dependency-name: "@astryxdesign/theme-neutral"
         update-types: ["version-update:semver-minor", "version-update:semver-patch"]
-      # Les TYPES de Node suivent le RUNTIME, ils ne le précèdent pas :
-      # l'image est `node:20-slim` (épinglée par digest, cf. Dockerfile). Des
-      # `@types/node` 26 compiler sur un Node 20 feraient accepter par `tsc` des
-      # API absentes à l'exécution — une divergence que la CI ne voit pas, puis-
-      # qu'elle se contente de vérifier que le code actuel compile. Le jour où le
-      # runtime bouge, les deux se mettent à jour dans le même commit.
+      # Node TYPES follow the RUNTIME, they do not precede it: the image is
+      # `node:20-slim` (pinned by digest, see Dockerfile). Having `@types/node`
+      # 26 compile on a Node 20 would make `tsc` accept APIs absent at runtime
+      # — a divergence CI cannot see, since it only checks that the current code
+      # compiles. The day the runtime moves, both are updated in the same
+      # commit.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-      # TypeScript 7 et ESLint 10 sont BLOQUÉS EN AMONT, pas par notre code —
-      # mesuré le 2026-09-17 sur les deux PR (#6, #8) : les deux échouent à
-      # l'étape Lint, jamais à l'installation ni au type-check.
-      #   - #6 : `npx tsc --noEmit` passe avec TypeScript 7.0.2 (0 erreur), mais
-      #     `typescript-eslint` — fourni par `eslint-config-next` — LÈVE à
-      #     l'import dès `typescript` majeur ≥ 7 (« typescript-eslint does not
-      #     support TS 7.0 », suivi en amont : typescript-eslint#10940).
-      #   - #8 : ESLint 10 retire `context.getFilename()` ; le
-      #     `eslint-plugin-react` fourni par `eslint-config-next` l'appelle
-      #     encore, et la DERNIÈRE version publiée (7.37.5) déclare toujours
-      #     `eslint: ^3 … ^9.7` — aucun correctif disponible en aval.
-      # Les livrer demanderait de remplacer le lint de Next.js par une
-      # configuration maison : ce n'est pas une montée de dépendance, c'est un
-      # chantier à part entière (et il retirerait des règles qu'on veut garder).
-      # POUR REPRENDRE : retirer les deux `ignore` ci-dessous, puis
+      # TypeScript 7 and ESLint 10 are BLOCKED UPSTREAM, not by our code —
+      # measured on 2026-09-17 on both PRs (#6, #8): both fail at the Lint
+      # step, never at install nor type-check.
+      #   - #6: `npx tsc --noEmit` passes with TypeScript 7.0.2 (0 errors), but
+      #     `typescript-eslint` — provided by `eslint-config-next` — RAISES at
+      #     import as soon as `typescript` major ≥ 7 (« typescript-eslint does not
+      #     support TS 7.0 », tracked upstream: typescript-eslint#10940).
+      #   - #8: ESLint 10 removes `context.getFilename()`; the
+      #     `eslint-plugin-react` provided by `eslint-config-next` still calls
+      #     it, and the LAST published version (7.37.5) still declares
+      #     `eslint: ^3 … ^9.7` — no downstream fix available.
+      # Shipping them would mean replacing Next.js linting with a home-made
+      # configuration: that is not a dependency bump, it is a project in itself
+      # (and it would drop rules we want to keep).
+      # TO RESUME: remove the two `ignore` entries below, then
       # `npm i -D typescript@^7 eslint@^10 && npx tsc --noEmit && npx eslint .` —
-      # si le lint passe, la montée est mûre ; sinon, remettre l'ignore.
+      # if lint passes, the bump is ripe; otherwise, put the ignore back.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
       - dependency-name: "eslint"
         update-types: ["version-update:semver-major"]
 
-  # Actions du workflow : une action tierce compromise s'exécute avec le jeton
-  # du dépôt — d'où l'épinglage par SHA, que Dependabot sait maintenir.
-  # En pause comme les autres (même raison : UNE branche), mais la veille reste :
-  # les actions tierces remontent, elles aussi, dans le graphe de dépendances et
-  # donc dans les alertes Dependabot. Une montée de SHA se fait à la main, et se
-  # relit en une ligne.
+  # Workflow actions: a compromised third-party action runs with the repo's
+  # token — hence the SHA pinning, which Dependabot knows how to maintain.
+  # On hold like the others (same reason: ONE branch), but the watch remains:
+  # third-party actions too show up in the dependency graph and therefore in
+  # Dependabot alerts. A SHA bump is done by hand, and reviewed in one line.
   - package-ecosystem: github-actions
     directory: /
     schedule:

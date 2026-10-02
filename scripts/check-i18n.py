@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
-"""Contrôle de couverture i18n de l'interface (à lancer depuis la racine du dépôt).
+"""UI i18n coverage check (run from the repo root).
 
-Pourquoi ce script existe
--------------------------
-Le contrat i18n du portail est dans `dgx-portal-frontend/lib/i18n.tsx` : le texte
-**français sert de clé**, l'anglais est un dictionnaire, et **une clé manquante
-retombe silencieusement sur le français**. Ce silence est le problème : rien ne
-casse, personne ne voit l'anglais manquant, et l'utilisateur anglophone lit du
-français. Le même angle mort existait pour le formatage (une vingtaine de
-`toLocaleString("fr-FR")` en dur affichaient « 1 234 » à un lecteur anglophone).
+Why this script exists
+----------------------
+The portal's i18n contract lives in `dgx-portal-frontend/lib/i18n.tsx`: the
+**French text serves as the key**, English is a dictionary, and **a missing key
+silently falls back to French**. That silence is the problem: nothing breaks,
+nobody sees the missing English, and the English-speaking user reads French.
+The same blind spot existed for formatting (about twenty hardcoded
+`toLocaleString("fr-FR")` displayed « 1 234 » to an English-speaking reader).
 
-Ce script rend ces deux angles morts bruyants. Il vérifie :
+This script makes both blind spots noisy. It checks:
 
-1. toute chaîne `t("…")` littérale a une entrée dans le dictionnaire `EN` ;
-2. aucune locale de formatage n'est écrite en dur hors de `lib/i18n.tsx`.
+1. every literal `t("…")` string has an entry in the `EN` dictionary;
+2. no formatting locale is hardcoded outside `lib/i18n.tsx`.
 
-Il **rapporte sans échouer** les entrées du dictionnaire qu'il ne voit jamais
-utilisées : un `t(variable)` (libellé venu du serveur, tableau d'options…) est
-invisible à l'analyse statique, donc cette liste contient de faux positifs — ne
-pas s'en servir pour supprimer des clés.
+It **reports without failing** the dictionary entries it never sees used: a
+`t(variable)` (label from the server, options table…) is invisible to static
+analysis, so that list contains false positives — do not use it to delete keys.
 
-Sortie : 0 si tout est couvert, 1 sinon. Usage : `python3 scripts/check-i18n.py`.
+Output: 0 if everything is covered, 1 otherwise. Usage: `python3 scripts/check-i18n.py`.
 """
 import os
 import re
@@ -28,7 +27,7 @@ import sys
 
 RACINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dgx-portal-frontend')
 I18N = os.path.join(RACINE, 'lib', 'i18n.tsx')
-# Seul fichier autorisé à écrire une locale en dur : c'est là qu'elle est définie.
+# Only file allowed to hardcode a locale: it is where the locale is defined.
 LOCALE_AUTORISEE = {os.path.join('lib', 'i18n.tsx')}
 IGNORES = ('node_modules', '.next', '.git')
 
@@ -42,11 +41,11 @@ def _fichiers():
 
 
 def _cles_en():
-    """Clés déclarées dans le bloc `const EN: Record<string, string> = { … }`.
+    """Keys declared in the `const EN: Record<string, string> = { … }` block.
 
-    Une clé commence une ligne et est suivie de « : ». Une valeur multi-ligne ne
-    matche donc pas (elle n'est pas suivie de deux-points) — ce qui évite de
-    compter les valeurs comme des clés.
+    A key starts a line and is followed by « : ». A multi-line value therefore
+    does not match (it is not followed by a colon) — which avoids counting
+    values as keys.
     """
     src = open(I18N, encoding='utf-8').read()
     debut = src.index('const EN: Record<string, string> = {')
@@ -59,14 +58,14 @@ def _cles_en():
 
 
 def _appels_t():
-    """(chaîne, fichier:ligne) pour chaque `t("…")` littéral trouvé."""
+    """(string, file:line) for each literal `t("…")` found."""
     trouves = []
     for chemin in _fichiers():
         if os.path.abspath(chemin) == os.path.abspath(I18N):
             continue
         rel = os.path.relpath(chemin, RACINE)
         txt = open(chemin, encoding='utf-8').read()
-        # Le hook peut être renommé localement (`const tr = useT()`).
+        # The hook can be renamed locally (`const tr = useT()`).
         alias = set(re.findall(r'const\s+(\w+)\s*=\s*useT\(\)', txt)) | {'t'}
         for a in alias:
             motif = (rf'\b{re.escape(a)}\(\s*(?:"((?:[^"\\]|\\.)*)"'

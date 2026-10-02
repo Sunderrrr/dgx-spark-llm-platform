@@ -1,48 +1,49 @@
 #!/usr/bin/env python3
-"""Captures d'écran du portail Cronos — thème SOMBRE, interface ANGLAISE,
-compte de démonstration dédié.
+"""Screenshots of the Cronos portal — DARK theme, ENGLISH UI,
+dedicated demonstration account.
 
-Pourquoi un script plutôt que des captures à la main : le jeu d'images publié
-dans le README doit rester cohérent (même compte, même thème, même langue, même
-taille, aucune donnée personnelle). Ces propriétés se rejouent à chaque
-évolution de l'interface, et deux d'entre elles ne se voient pas à l'œil :
-   1. le cadrage — /admin expose plus haut l'adresse email de notification et
-      plus bas les demandes de budget nominatives, or le dépôt est PUBLIC ;
-   2. le contenu réel — une capture prise pendant que le compte avait des
-      droits admin montre un assistant qui propose de lancer un modèle, ce qui
-      n'est pas ce que voit un utilisateur normal.
-D'où : cadrage explicite, censure automatique, et vérification par OCR après
-coup (le modèle qui écrit ce script ne voit pas les images).
+Why a script rather than hand-taken screenshots: the image set published in
+the README must stay consistent (same account, same theme, same language, same
+size, no personal data). These properties get replayed at every UI change, and
+two of them cannot be seen by eye:
+   1. the framing — /admin shows higher up the notification email address and
+      lower down the named budget requests, while the repo is PUBLIC;
+   2. the real content — a screenshot taken while the account had admin rights
+      shows an assistant offering to launch a model, which is not what a normal
+      user sees.
+Hence: explicit framing, automatic redaction, and an OCR check afterwards (the
+model writing this script cannot see the images).
 
-Usage (les trois modes s'enchaînent : capturer, vérifier, installer) :
-    python screenshots.py                 # capture toutes les pages
-    python screenshots.py playground      # une seule page
-    python screenshots.py --media         # les pages média dont le modèle tourne
-    python screenshots.py --verify        # contrôle les PNG déjà produits
-    python screenshots.py --install       # copie les PNG validés dans assets/
+Usage (the three modes chain: capture, verify, install):
+    python screenshots.py                 # capture all pages
+    python screenshots.py playground      # a single page
+    python screenshots.py --media         # the media pages whose model is running
+    python screenshots.py --verify        # check the PNGs already produced
+    python screenshots.py --install       # copy the validated PNGs into assets/
 
-Noms propres à censurer (jamais dans un dépôt public) : liste-les, un par ligne
-(« # » pour commenter), dans un fichier hors dépôt, et pointe-le par
-SHOTS_FORBIDDEN_FILE :
+Proper names to redact (never in a public repo): list them, one per line
+(« # » to comment), in a file outside the repo, and point at it with
+SHOTS_FORBIDDEN_FILE:
     SHOTS_FORBIDDEN_FILE=/root/shots/noms-interdits.txt python screenshots.py --verify
-Variable absente ou fichier illisible → les motifs STRUCTURELS (email, clé
-`sk-…`, texte de refus) s'appliquent seuls, sans erreur.
+Missing variable or unreadable file → only the STRUCTURAL patterns (email, key
+`sk-…`, access-refusal text) apply, without error.
 
-Prérequis : playwright + chromium (`playwright install chromium`), et le mot de
-passe du compte de démonstration dans SHOTS_PW_FILE (défaut
-/root/shots/demo-credentials, chmod 600, hors dépôt). Le compte se crée avec
-`scripts/create-demo-account.py` ; il n'est PAS administrateur — /admin et
-/users demandent d'accorder is_admin le temps de la prise de vue, puis de le
-retirer (le script refuse de capturer ces pages sans les droits et supprime le
-fichier : une page « Administrators only » ne doit pas finir dans la doc).
+Prerequisites: playwright + chromium (`playwright install chromium`), and the
+password of the demonstration account in SHOTS_PW_FILE (default
+/root/shots/demo-credentials, chmod 600, outside the repo). The account is
+created with `scripts/create-demo-account.py`; it is NOT an administrator —
+/admin and /users require granting is_admin for the duration of the capture,
+then removing it (the script refuses to capture those pages without the rights
+and deletes the file: a « Administrators only » page must not end up in the
+docs).
 
-Ce que la vérification garantit, image par image : 3200x2000, fond sombre,
-contenu attendu présent, et AUCUNE donnée personnelle dans ce que le lecteur
-verra — adresse e-mail, clé API, texte de refus d'accès, et les noms propres
-listés dans SHOTS_FORBIDDEN_FILE. Les IP privées, elles, ne sont pas recherchées
-APRÈS coup : elles sont floutées AVANT la prise de vue (`SENSIBLE`, plus bas),
-donc elles n'existent dans aucun pixel — c'est la seule façon fiable de ne pas
-les publier. Le contrôle, lui, se fait par OCR sur le PNG final.
+What the check guarantees, image by image: 3200x2000, dark background,
+expected content present, and NO personal data in what the reader will see —
+email address, API key, access-refusal text, and the proper names listed in
+SHOTS_FORBIDDEN_FILE. Private IPs, on the other hand, are not searched for
+AFTERWARDS: they are blurred BEFORE the capture (`SENSIBLE`, below), so they
+exist in no pixel — that is the only reliable way not to publish them. The
+check itself is done by OCR on the final PNG.
 """
 import json
 import os
@@ -64,7 +65,7 @@ except FileNotFoundError:
 OUT = os.environ.get("SHOTS_OUT", "/root/shots/out")
 W, H, DPR = 1600, 1000, 2
 
-# (nom de fichier, route) — l'ordre suit le tableau du README
+# (file name, route) — the order follows the README table
 PAGES = [
     ("dashboard", "/"),
     ("playground", "/playground"),
@@ -82,40 +83,39 @@ PAGES = [
     ("ranking", "/ranking"),
 ]
 
-# Le conteneur de contenu du portail défile en interne (le body ne défile pas).
-# /admin est cadré sur la ligne backend, le catalogue et les logs — ce que le
-# README annonce — et laisse hors champ la carte « Notification emails » (y≈204)
-# comme les tableaux de demandes (y≥1539).
+# The portal's content container scrolls internally (the body does not scroll).
+# /admin is framed on the backend row, the catalog and the logs — what the
+# README advertises — and leaves out of frame the « Notification emails » card
+# (y≈204) as well as the request tables (y≥1539).
 SCROLL = {"admin": 340}
 
-# Aucune capture publiée ne doit contenir d'adresse email, de clé API, d'IP
-# privée ou du nom d'un autre compte : ce filet floute le texte fautif avant la
-# prise de vue, et le PNG final est revérifié par OCR.
+# No published screenshot may contain an email address, an API key, a private
+# IP or another account's name: this net blurs the offending text before the
+# shot, and the final PNG is re-checked by OCR.
 SENSIBLE = (r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}"
             r"|sk-[A-Za-z0-9_\-]{6,}"
             r"|\b(?:10|172\.(?:1[6-9]|2[0-9]|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b")
 
-# Pages média : leur intérêt tient à un RÉSULTAT à l'écran, or aucune machine
-# média n'est chargée la plupart du temps (seul un modèle de chat tourne, la
-# mémoire unifiée ne permettant pas plus). Sans modèle chargé, la page affiche
-# « No OCR model is available » — publier cela à la place d'une démonstration
-# serait une régression. On garde donc la capture publiée tant qu'aucun modèle
-# média n'est chargé ; `screenshots.py ocr` force la prise de vue quand l'un
-# d'eux tourne.
+# Media pages: their point lies in a RESULT on screen, yet no media model is
+# loaded most of the time (only a chat model runs, the unified memory allowing
+# no more). With no model loaded, the page shows « No OCR model is available » —
+# publishing that instead of a demo would be a regression. So we keep the
+# published capture as long as no media model is loaded; `screenshots.py ocr`
+# forces the shot when one of them is running.
 MEDIA = {"ocr", "voice", "video", "image", "music"}
 SKIP_REFRESH = MEDIA          # une page média ne se capture qu'avec son backend
 
-# Pages internes : jamais publiées (elles listent des comptes, cf. .gitignore),
-# donc contrôlées pour la forme mais pas pour la confidentialité.
+# Internal pages: never published (they list accounts, see .gitignore), so
+# checked for shape but not for confidentiality.
 INTERNAL = {"users", "ranking"}
 
-# Pages réservées aux administrateurs : leur capture demande d'accorder
-# TEMPORAIREMENT is_admin au compte de démonstration (puis de le retirer).
+# Admin-only pages: capturing them requires granting is_admin TEMPORARILY to
+# the demonstration account (then removing it).
 ADMIN_ONLY = {"admin", "users"}
 
-# Pages qui n'ont d'intérêt qu'avec un échange réel à l'écran : on efface
-# l'historique du compte puis on pose une question en anglais et on attend la
-# fin du flux avant de déclencher.
+# Pages that only make sense with a real exchange on screen: we clear the
+# account's history, then ask a question in English and wait for the end of the
+# stream before triggering.
 PROMPTS = {
     "playground": "Explain in three sentences what this platform does.",
     "support": "Which models are available right now?",
@@ -135,11 +135,11 @@ def log(msg):
 
 
 def media_prets(page):
-    """Backends média réellement chargés, vus par le portail lui-même.
+    """Media backends actually loaded, seen by the portal itself.
 
-    `/api/health` est la bonne source : les sidecars sont on-demand, donc leur
-    absence est un état normal et non une panne, et c'est le portail qui sait
-    lequel répond (celui qu'affiche l'Admin)."""
+    `/api/health` is the right source: the sidecars are on-demand, so their
+    absence is a normal state and not a failure, and the portal is the one that
+    knows which answers (the one the Admin shows)."""
     return page.evaluate("""() => fetch('/api/health').then(r => r.json())
         .then(d => Object.entries(d.services || {})
           .filter(([k, v]) => ['ocr', 'voice', 'video', 'image', 'music'].includes(k)
@@ -148,8 +148,8 @@ def media_prets(page):
 
 
 def login(page):
-    """Attend l'hydratation React AVANT de remplir : sinon les champs sont
-    réécrits par le premier rendu client et le bouton reste désactivé."""
+    """Wait for React hydration BEFORE filling: otherwise the fields are
+    rewritten by the first client render and the button stays disabled."""
     page.goto(f"{BASE}/login", wait_until="networkidle")
     page.wait_for_selector('input[type="password"]')
     page.wait_for_timeout(1500)
@@ -161,8 +161,8 @@ def login(page):
 
 
 def prep(page):
-    """Clé API (le playground et le Support facturent le compte) et quelques
-    souvenirs : sinon les captures montrent des pages vides."""
+    """API key (the playground and Support bill the account) and a few
+    memories: otherwise the screenshots show empty pages."""
     token = page.evaluate("fetch('/api/csrf').then(r => r.json()).then(d => d.token)")
     have = page.evaluate("fetch('/api/keys').then(r => r.json()).then(d => (d.user_keys || []).length)")
     if have:
@@ -175,12 +175,11 @@ def prep(page):
             return res.status;
         }""", [token])
         log(f"clé API créée (HTTP {st})")
-    # Déterministe plutôt qu'idempotent : on purge puis on réécrit les cinq
-    # faits. Un simple « n'ajoute que s'il manque » laissait le graphe dériver —
-    # le modèle extrait ses propres souvenirs des conversations de capture, et le
-    # compte finissait avec 37 faits (ou 8, ou 5) selon l'historique des
-    # exécutions. Or la page Mémoire est publiée : elle doit montrer la même chose
-    # à chaque prise de vue.
+    # Deterministic rather than idempotent: we purge then rewrite the five
+    # facts. A plain "add only if missing" let the graph drift — the model
+    # extracts its own memories from the capture conversations, and the account
+    # ended with 37 facts (or 8, or 5) depending on the run history. Yet the
+    # Memory page is published: it must show the same thing at every shot.
     page.evaluate("""async ([tok]) => {
         await fetch('/api/memory/purge', {method: 'POST',
             headers: {'X-CSRFToken': tok, 'Content-Type': 'application/json'},
@@ -197,9 +196,9 @@ def prep(page):
 
 
 def reset_history(page, token, name):
-    """Efface l'historique pour que la capture montre l'échange qu'on vient de
-    poser, et non un résidu d'une exécution précédente (qui pourrait, par
-    exemple, dater d'une session où le compte avait des droits admin)."""
+    """Clear the history so the screenshot shows the exchange we just set up,
+    and not a residue of a previous run (which could, for example, date from a
+    session where the account had admin rights)."""
     if name == "support":
         page.evaluate("""async ([tok]) => { await fetch('/support/thread/clear', {method: 'POST',
             headers: {'X-CSRFToken': tok}}); }""", [token])
@@ -215,11 +214,11 @@ def reset_history(page, token, name):
 
 
 def ask(page, prompt, wait_ms=120000):
-    """Pose une question et attend la fin du flux (l'écran se stabilise)."""
+    """Ask a question and wait for the end of the stream (the screen settles)."""
     page.wait_for_timeout(2500)
-    # ChatComposerInput (Astryx) est un contentEditable, pas un textarea : les
-    # <textarea> de la page appartiennent aux panneaux de réglages, rendus dans
-    # des <dialog> fermés (taille 0). fill() ne s'applique pas non plus.
+    # ChatComposerInput (Astryx) is a contentEditable, not a textarea: the page's
+    # <textarea> elements belong to the settings panels, rendered inside closed
+    # <dialog>s (size 0). fill() does not apply either.
     box = page.locator('[contenteditable="true"]:visible').last
     box.wait_for(state="visible", timeout=30000)
     box.click()
@@ -250,9 +249,9 @@ def main():
             color_scheme="dark", locale="en-US",
             user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                        "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36")
-        # Le mode sombre est purement local (localStorage) ; la langue et la
-        # palette viennent des préférences du compte (/api/whoami), donc rien à
-        # forcer ici — forcer la langue provoquerait un écart d'hydratation.
+        # Dark mode is purely local (localStorage); the language and the
+        # palette come from the account preferences (/api/whoami), so nothing to
+        # force here — forcing the language would cause a hydration mismatch.
         ctx.add_init_script("localStorage.setItem('cronos_theme_mode','dark');")
         page = ctx.new_page()
         page.on("pageerror", lambda e: errors.append(str(e)))
@@ -298,9 +297,9 @@ def main():
             }""", SENSIBLE)
             page.screenshot(path=f"{OUT}/{name}.png")
             text = page.locator("body").inner_text()
-            # /admin et /users exigent un compte administrateur : sans droits, la
-            # page affiche un refus, qu'il ne faut PAS publier comme capture de la
-            # fonctionnalité. On supprime le fichier et on le signale.
+            # /admin and /users require an administrator account: without
+            # rights, the page shows a refusal, which must NOT be published as a
+            # screenshot of the feature. We delete the file and report it.
             if name in ADMIN_ONLY and re.search(r"Administrators only|does not have the rights", text):
                 os.remove(f"{OUT}/{name}.png")
                 log(f"REFUSÉ : {name} demande un compte admin — capture supprimée "
@@ -318,8 +317,8 @@ def main():
 
 
 def _ocr(path):
-    """Texte réellement visible dans l'image (tesseract) : seule preuve fiable
-    pour un script qui ne peut pas juger la capture à l'œil."""
+    """Text actually visible in the image (tesseract): the only reliable proof
+    for a script that cannot judge the screenshot by eye."""
     import shutil
     import subprocess
     import tempfile
@@ -333,10 +332,10 @@ def _ocr(path):
 
 
 def _forbidden_re():
-    """Motifs « données personnelles » : structurels toujours actifs (adresse
-    e-mail, clé `sk-…`, texte de refus d'accès), plus les noms propres listés
-    dans le fichier pointé par SHOTS_FORBIDDEN_FILE (un motif par ligne, `#` en
-    commentaire). Variable absente ou fichier illisible → structurels seuls."""
+    """« données personnelles » patterns: structural ones always active (email
+    address, key `sk-…`, access-refusal text), plus the proper names listed in
+    the file pointed at by SHOTS_FORBIDDEN_FILE (one pattern per line, `#` for
+    comments). Missing variable or unreadable file → structural ones only."""
     motif = (r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|sk-[A-Za-z0-9_\-]{6,}"
              r"|Administrators only|does not have the rights|Traceback")
     chemin = os.environ.get("SHOTS_FORBIDDEN_FILE")
@@ -354,7 +353,7 @@ def _forbidden_re():
 
 
 def verify(folder="assets"):
-    """Contrôle chaque capture publiée : taille, thème, contenu, données perso."""
+    """Check each published screenshot: size, theme, content, personal data."""
     from PIL import Image
     expected = {
         "dashboard": [r"Demo", r"Availability"],
@@ -368,16 +367,16 @@ def verify(folder="assets"):
         "ranking": [r"Leaderboard|Rank"],
     }
     forbidden = _forbidden_re()
-    # Les marqueurs ci-dessus ne suffisent pas pour les pages média : une page
-    # dont le backend est éteint affiche quand même son titre (« OCR »), donc une
-    # capture VIDE les passerait tous en annonçant « Ask an admin to start… ».
-    # C'est précisément la capture à ne pas publier, on la refuse nommément.
+    # The markers above are not enough for the media pages: a page whose backend
+    # is off still shows its title (« OCR »), so an EMPTY capture would pass them
+    # all while announcing « Ask an admin to start… ». That is precisely the
+    # screenshot not to publish, we refuse it by name.
     vide = re.compile(r"Ask an admin to (?:add|start|launch) an? \w+ model"
                       r"|Demande à un admin (?:d'ajouter|de démarrer)", re.I)
-    # Pages média dont la capture publiée ne montrait que l'état vide : retirées
-    # du dépôt (README → Screenshots). Absentes = normal, pas un échec ; dès
-    # qu'une nouvelle capture existe, elle passe les mêmes contrôles que les
-    # autres, garde anti-état-vide comprise.
+    # Media pages whose published capture only showed the empty state: removed
+    # from the repo (README → Screenshots). Missing = normal, not a failure; as
+    # soon as a new capture exists, it goes through the same checks as the
+    # others, empty-state guard included.
     retirees = {"voice", "music"}
     ko = 0
     for name, marks in expected.items():
@@ -430,8 +429,8 @@ if "--install" in sys.argv:
     import shutil
     noms = [a for a in sys.argv[1:] if not a.startswith("-")]
     for name, _ in PAGES:
-        # Ne jamais écraser une capture publiée par une prise de vue qu'on n'a
-        # pas voulue : les pages média ne sont installées que si on les nomme.
+        # Never overwrite a published screenshot with a shot we did not intend:
+        # media pages are only installed if named.
         if name in SKIP_REFRESH and name not in noms and "--media" not in sys.argv:
             print(f"  conservé : assets/{name}.png (page média, non recapturée)")
             continue

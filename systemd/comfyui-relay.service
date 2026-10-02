@@ -1,13 +1,14 @@
 [Unit]
 Description=Relais socat 172.19.0.1:8188 -> 127.0.0.1:8188 (ComfyUI vers le portail docker)
-# ComfyUI écoute en loopback uniquement (comfyui.service). Ce relais expose
-# uniquement l'adresse du pont docker (172.19.0.1) que le portail vise, sans
-# rouvrir 0.0.0.0. Le pare-feu vllm-restrict.service DROP toujours 8188 pour
-# le reste (wt0/netbird inclus).
+# ComfyUI listens on loopback only (comfyui.service). This relay exposes only
+# the docker bridge address (172.19.0.1) the portal targets, without reopening
+# 0.0.0.0. The vllm-restrict.service firewall still DROPs 8188 for the rest
+# (wt0/netbird included).
 #
-# BindsTo + PartOf : le relais suit EXACTEMENT le cycle de vie de comfyui —
-# comfyui on-demand stoppé via Admin → relay s'arrête proprement (plus de « failed »
-# fantôme) ; comfyui relancé → relay repart avec lui, sans démarrer relais à part.
+# BindsTo + PartOf: the relay follows EXACTLY comfyui's lifecycle — comfyui
+# on-demand stopped via Admin → relay stops cleanly (no more phantom « failed »);
+# comfyui restarted → relay comes back with it, without starting the relay on
+# its own.
 After=comfyui.service network.target
 BindsTo=comfyui.service
 PartOf=comfyui.service
@@ -19,6 +20,7 @@ Restart=always
 RestartSec=5
 
 [Install]
-# Suit comfyui (on-demand) : ne PAS enable non plus, sinon le relais tenterait
-# de démarrer seul au boot (et échouerait sans comfyui). Aucun WantedBy réel.
+# Follows comfyui (on-demand): do NOT enable this one either, otherwise the
+# relay would try to start alone at boot (and fail without comfyui). No real
+# WantedBy.
 WantedBy=multi-user.target

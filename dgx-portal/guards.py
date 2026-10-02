@@ -290,11 +290,17 @@ def _sse_msg(text):
     return f"data: {payload}\n\ndata: [DONE]\n\n"
 
 
-def _sse_notice(nid, **args):
+def _sse_notice(nid, done=True, **args):
     """STRUCTURED system notice (e.g. quota exceeded): the frontend translates it
-    into the interface language — the server never writes a sentence."""
+    into the interface language — the server never writes a sentence.
+
+    `done=False` sends ONLY the notice frame (mid-stream case): the caller's
+    end path already emits `data: [DONE]`, and a second sentinel would change
+    the stream shape. Mirrors _sse_chunks(done=...).
+    """
     payload = json.dumps({'cronos_notice': {'id': nid, **args}})
-    return f"data: {payload}\n\ndata: [DONE]\n\n"
+    fin = "\n\ndata: [DONE]\n\n" if done else "\n\n"
+    return f"data: {payload}{fin}"
 
 
 def maintenance_block_sse():

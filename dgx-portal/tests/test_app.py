@@ -287,6 +287,10 @@ class SseFramingTest(unittest.TestCase):
     def test_done_optionnel(self):
         self.assertIn('[DONE]', ''.join(chat._sse_chunks('x', done=True)))
         self.assertNotIn('[DONE]', ''.join(chat._sse_chunks('x', done=False)))
+        # Structured notices share the switch: a mid-stream notice carries
+        # ONLY its data line (the end path already sends the sentinel).
+        self.assertIn('[DONE]', chat._sse_notice('x'))
+        self.assertNotIn('[DONE]', chat._sse_notice('x', done=False))
 
 
 class AvatarTest(unittest.TestCase):
@@ -1599,6 +1603,146 @@ class SupportBillingTest(unittest.TestCase):
             body = r.get_data(as_text=True)
             self.assertIn("quota_exceeded", body)
             self.assertIn("3600", body)
+
+
+class SupportNoticesStructureesTest(unittest.TestCase):
+    """The Support chat SSE ERROR texts are STRUCTURED notices (`cronos_notice`):
+    the server sends an id (+ `wait`/`status` arguments), the frontend writes
+    the sentence. The ids are a CONTRACT with `texteNotice` (an unknown id
+    displays as raw id), so each one is locked byte-identical here.
+
+    Tool labels and tool results are not error texts and stay as they are.
+    """
+
+    CSRF = "test-csrf"
+
+    class _Flux:
+        """Fake upstream stream: a list of frames, or an error to raise."""
+
+        def __init__(self, frames, ok=True, status_code=200, erreur=None):
+            self.frames = list(frames)
+            self.ok = ok
+            self.status_code = status_code
+            self.erreur = erreur
+
+        def close(self):
+            pass
+
+        def iter_lines(self, decode_unicode=False):
+            if self.erreur is not None:
+                raise self.erreur
+            yield from self.frames
+
+    @staticmethod
+    def _frame_texte(t):
+        return "data: " + json.dumps({"choices": [{"delta": {"content": t}}]})
+
+    @staticmethod
+    def _frame_outil(name, args, call_id="call_1"):
+        delta = {"tool_calls": [{"index": 0, "id": call_id,
+                                 "function": {"name": name,
+                                              "arguments": json.dumps(args)}}]}
+        return "data: " + json.dumps({"choices": [{"delta": delta}]})
+
+    def _client(self, username="demo"):
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s["username"] = username
+            s["auth_at"] = int(time.time())
+            s["csrf"] = self.CSRF
+        return c
+
+    @staticmethod
+    def _notices(corps):
+        """The notice payloads of the stream (`[DONE]` and tool events aside)."""
+        out = []
+        for ligne in corps.splitlines():
+            if ligne.startswith("data: ") and ligne != "data: [DONE]":
+                payload = json.loads(ligne[6:])
+                if "cronos_notice" in payload:
+                    out.append(payload)
+        return out
+
+    def _flux(self, messages=(("user", "Salut"),), running=("fake-model",), wait=0,
+              post=None):
+        """Runs /support/chat and returns (status code, SSE body)."""
+        msgs = [{"role": role, "content": content} for role, content in messages]
+        with patch.object(chat, "get_running_models", return_value=list(running)), \
+             patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
+             patch.object(chat, "quota_depasse_reset", return_value=None), \
+             patch.object(chat, "_chat_rate_limited", return_value=wait), \
+             patch.object(chat, "_user_extra_tools", return_value=([], {})), \
+             patch.object(chat, "_exec_support_tool", return_value=("ok", True)), \
+             patch.object(chat, "_fin_support"), \
+             patch.object(chat.requests, "post",
+                          side_effect=post or AssertionError("appel interdit")):
+            r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
+                                    json={"messages": msgs})
+            return r.status_code, r.get_data(as_text=True)
+
+    def test_message_vide_notice(self):
+        code, corps = self._flux(messages=())
+        self.assertEqual(code, 400)
+        self.assertEqual(self._notices(corps),
+                         [{"cronos_notice": {"id": "empty_message"}}])
+
+    def test_plafond_attente_notice(self):
+        code, corps = self._flux(wait=7)
+        self.assertEqual(self._notices(corps),
+                         [{"cronos_notice": {"id": "chat_rate_limited", "wait": 7}}])
+        self.assertNotIn("Trop de", corps)
+
+    def test_aucun_modele_notice(self):
+        code, corps = self._flux(running=())
+        self.assertEqual(self._notices(corps),
+                         [{"cronos_notice": {"id": "no_model_running"}}])
+
+    def test_amont_injoignable_notice(self):
+        import requests as _rq
+        code, corps = self._flux(post=_rq.exceptions.ConnectionError("coupé"))
+        self.assertEqual(self._notices(corps),
+                         [{"cronos_notice": {"id": "model_unreachable"}}])
+        self.assertIn("data: [DONE]", corps)
+
+    def test_amont_en_erreur_notice_statut(self):
+        code, corps = self._flux(
+            post=lambda *a, **k: self._Flux([], ok=False, status_code=500))
+        self.assertEqual(self._notices(corps),
+                         [{"cronos_notice": {"id": "model_replied_error",
+                                             "status": 500}}])
+
+    def test_reponse_vide_notice(self):
+        code, corps = self._flux(post=lambda *a, **k: self._Flux(["data: [DONE]"]))
+        self.assertEqual(self._notices(corps),
+                         [{"cronos_notice": {"id": "empty_reply"}}])
+
+    def test_lecture_timeout_notice(self):
+        import requests as _rq
+        code, corps = self._flux(
+            post=lambda *a, **k: self._Flux([], erreur=_rq.exceptions.ReadTimeout()))
+        self.assertEqual(self._notices(corps),
+                         [{"cronos_notice": {"id": "model_timeout"}}])
+
+    def _boucle_d_outils(self, final):
+        """4 tool rounds, then the forced final turn served by `final`."""
+        appels = {"n": 0}
+        outil = self._Flux([self._frame_outil("request_budget", {"alias": "a"}),
+                            "data: [DONE]"])
+
+        def _post(*a, **k):
+            appels["n"] += 1
+            return outil if appels["n"] <= 4 else final
+        return self._flux(post=_post)
+
+    def test_modele_occupe_apres_boucle_d_outils(self):
+        code, corps = self._boucle_d_outils(self._Flux([], ok=False, status_code=503))
+        self.assertEqual(self._notices(corps),
+                         [{"cronos_notice": {"id": "model_busy"}}])
+
+    def test_reformulation_apres_boucle_d_outils(self):
+        code, corps = self._boucle_d_outils(self._Flux(["data: [DONE]"]))
+        self.assertEqual(self._notices(corps),
+                         [{"cronos_notice": {"id": "reformulate"}}])
 
 
 class SupportSensibleActionsTest(unittest.TestCase):

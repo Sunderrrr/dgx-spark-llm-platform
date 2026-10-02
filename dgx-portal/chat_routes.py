@@ -7,9 +7,10 @@ and above all emitting an SSE comment BEFORE any work.
 This last point is not cosmetic: in WSGI, headers only go out at the
 FIRST yield of the generator. As long as nothing is produced, the frontend
 proxy does not see the response start and cuts with a 502 « Le serveur ne repond
-pas », while the generation proceeds normally. Since this model uses linear
-attention, no prefix cache is possible and context prefill grows with the
-conversation — hence silences of several tens of seconds. Do not remove these
+pas », while the generation proceeds normally. The context prefill is what
+silences the stream in the meantime: measured on MiMo/TabbyAPI (2026-10-02),
+a 10 175-token prompt prefills at 697 tok/s COLD (TTFT 14.6 s) — while a
+shared prefix is reused turn after turn (TTFT 1.0 s). Do not remove these
 opening yields.
 
 _history_for_model and _sans_versions_perimees bound what we send to the
@@ -75,8 +76,9 @@ def _sse_text(text):
 
 
 def _sse_chunks(text, done=True):
-    """Sends ALREADY-known text, in a few frames. Serves the error
-    messages and the "reasoning block" fallback: the common case now goes
+    """Sends ALREADY-known text, in a few frames. Now only serves the
+    "reasoning block" fallback (the error messages have become structured
+    `cronos_notice` events, translated by the frontend): the common case goes
     through _run_turn(), which relays the model's real stream.
 
     No delay here: it only imitated a fake typing effect and
@@ -107,7 +109,7 @@ def support_chat():
     data = request.get_json(silent=True) or {}
     history = data.get('messages', [])
     if not isinstance(history, list) or not history:
-        return Response(_sse_msg("Empty message."), mimetype='text/event-stream'), 400
+        return Response(_sse_notice('empty_message'), mimetype='text/event-stream'), 400
     blocked = maintenance_block_sse()
     if blocked:
         return blocked
@@ -115,13 +117,11 @@ def support_chat():
                for m in history if m.get('role') in ('user', 'assistant')][-12:]
     wait = _chat_rate_limited(session['username'], 'rl-support')
     if wait:
-        return Response(_sse_msg(f"Trop de messages d'affilée — réessaie dans {wait}s."),
+        return Response(_sse_notice('chat_rate_limited', wait=wait),
                         mimetype='text/event-stream')
     running = get_running_models()
     if not running:
-        return Response(_sse_msg("No model is running on the server right now, so I can't "
-                                 "answer. Ask an admin to start one, then try again."),
-                        mimetype='text/event-stream')
+        return Response(_sse_notice('no_model_running'), mimetype='text/event-stream')
     model = running[0]
     username = session['username']
     fullname = session.get('fullname', username)
@@ -347,23 +347,20 @@ def support_chat():
                 if content:
                     _reponse.append(content)
                 if status == TRANSPORT_ERR:
-                    yield from _sse_chunks(
-                        "Le service de modèle est momentanément injoignable. Réessaie dans un instant.",
-                        done=False)
+                    yield _sse_notice('model_unreachable', done=False)
                     yield "data: [DONE]\n\n"
                     return
                 if status != 200 and use_tools:
                     use_tools = False   # model without tools support → retry without
                     continue
                 if status != 200:
-                    yield from _sse_chunks(f"Le modèle a renvoyé une erreur ({status}). Réessaie.",
-                                           done=False)
+                    yield _sse_notice('model_replied_error', status=status, done=False)
                     yield "data: [DONE]\n\n"
                     return
                 streamed_any = streamed_any or bool(content.strip())
                 if not tcs:
                     if not streamed_any:
-                        yield from _sse_chunks("(réponse vide)", done=False)
+                        yield _sse_notice('empty_reply', done=False)
                     else:
                         _etat['fini'] = True     # complete reply (see _fin_support)
                     yield "data: [DONE]\n\n"
@@ -433,16 +430,15 @@ def support_chat():
             # (otherwise the model can loop on calls and never conclude).
             content, _, status = yield from _run_turn(False)
             if status != 200:
-                yield from _sse_chunks("Le modèle est occupé, réessaie dans un instant.", done=False)
+                yield _sse_notice('model_busy', done=False)
             elif not content.strip():
-                yield from _sse_chunks("Peux-tu reformuler ta demande ?", done=False)
+                yield _sse_notice('reformulate', done=False)
             else:
                 _reponse.append(content)
                 _etat['fini'] = True             # complete reply (see _fin_support)
             yield "data: [DONE]\n\n"
         except Exception:
-            yield from _sse_chunks("Le modèle n'a pas répondu à temps. Réessaie dans un instant.",
-                                   done=False)
+            yield _sse_notice('model_timeout', done=False)
             yield "data: [DONE]\n\n"
 
     def gen():
@@ -656,6 +652,24 @@ def _playground_model_vision():
     if running:
         vision[AUTO_MODEL_NAME] = vision.get(running[0], False)
     return vision
+
+
+def _memoire_disponible_gib():
+    """Free memory in GiB (`MemAvailable`), or None if unreadable.
+
+    Read from /proc/meminfo rather than the runner's /metrics: one less
+    round-trip for a figure the notice only displays. `MemAvailable` (and not
+    "free") because GPU allocations lower it too — the same signal the launch
+    guards use. Rounded to 0.1 GiB: the notice is a hint, not a benchmark.
+    """
+    try:
+        with open('/proc/meminfo') as f:
+            for line in f:
+                if line.startswith('MemAvailable:'):
+                    return round(int(line.split()[1]) / 1024 / 1024, 1)
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
 
 
 def _poids(m):
@@ -959,17 +973,17 @@ def playground_chat():
             h['images'] = imgs
         history.append(h)
     if not history:
-        return Response(_sse_msg("Empty message."), mimetype='text/event-stream')
+        return Response(_sse_notice('empty_message'), mimetype='text/event-stream')
     blocked = maintenance_block_sse()
     if blocked:
         return blocked
     wait = _chat_rate_limited(session['username'], 'rl-playground')
     if wait:
-        return Response(_sse_msg(f"Trop de messages d'affilée — réessaie dans {wait}s."),
+        return Response(_sse_notice('chat_rate_limited', wait=wait),
                         mimetype='text/event-stream')
     running = get_running_models()
     if not running:
-        return Response(_sse_msg("No model is currently running."), mimetype='text/event-stream')
+        return Response(_sse_notice('no_model_running'), mimetype='text/event-stream')
     model = data.get('model') if data.get('model') in running else running[0]
     # Images: dropped if THIS model does not read them (a conversation started
     # on a model that sees, resumed on another, does not end in 400), and
@@ -1082,19 +1096,25 @@ def playground_chat():
         # start and cuts at CONNECT_TIMEOUT_MS (lib/sseProxy.ts) with a 502
         # « Le serveur ne repond pas ». Yet without search the first yield
         # only arrived at the RETURN of the POST to LiteLLM, hence after all of
-        # the context prefill: well over 15 s on a large
-        # conversation, this model being linear-attention (no prefix cache
-        # possible, nothing is ever reused from one turn to the next).
+        # the context prefill. Measured on MiMo/TabbyAPI (2026-10-02): a
+        # 10 175-token prompt prefills at 697 tok/s COLD — TTFT 14.6 s, which
+        # alone brushes the 15 s cut. Prefix reuse DOES exist on this engine
+        # (same prefix turn after turn = TTFT 1.0 s): the cold turn is the
+        # expensive one, and it is exactly the one where nothing was yielded.
         # Seen in prod on 22/08: 68 kio conversation, 502 at exactly 15 s.
         yield ": ouverture\n\n"
         # Explicit image request with the service off: without this notice,
         # the model denies its own capability (« je ne peux pas générer d'images »)
         # and nobody guesses it is the sidecar that is missing. The notice is
         # STRUCTURED: the frontend translates it (lib/notices.ts), like for the
-        # quota. Measured on 2026-10-02 with MiMo.
+        # quota. Measured on 2026-10-02 with MiMo. It also carries the free
+        # memory: under MiMo (~100 GB resident) the sidecar often simply cannot
+        # start, and "the service is stopped" alone leaves the reader thinking
+        # one click would be enough.
         if _img_demandee and not _img_service:
             yield ("data: " + json.dumps(
-                {'cronos_notice': {'id': 'image_service_off'}}) + "\n\n")
+                {'cronos_notice': {'id': 'image_service_off',
+                                   'libre_gib': _memoire_disponible_gib()}}) + "\n\n")
         # The TTFT stopwatch starts HERE, before the tool phase: it is the delay
         # actually suffered by the person who asked the question. It was taken
         # after the search (just before the final POST), so a request that spent
@@ -1120,8 +1140,9 @@ def playground_chat():
         try:
             # The POST itself BLOCKS until the first byte returned by LiteLLM,
             # i.e. until the end of the context PREFILL: tens of seconds on a
-            # large conversation, this model having no prefix cache (linear
-            # attention). It therefore starts INSIDE the reader thread and
+            # large cold turn (measured 14.6 s for 10 175 tokens on
+            # MiMo/TabbyAPI, 2026-10-02 — a warm shared prefix reuses at
+            # 1.0 s). It therefore starts INSIDE the reader thread and
             # not in the generator: otherwise no heartbeat is emitted during
             # all that time, and the frontend proxy cut on inactivity
             # (IDLE_TIMEOUT_MS, 60 s) a perfectly healthy generation.
@@ -1266,6 +1287,17 @@ def playground_chat():
                 # actually finished. The portal frontend, for its part, stops at
                 # the connection close — that is why the defect had never been seen.
                 yield "data: [DONE]\n\n"
+            elif _finish == 'tool_calls':
+                # Instrumentation (2026-10-02): MiMo sometimes closes on
+                # `tool_calls` although this call never declares any tool — the
+                # model emits ỏi               # spontaneously and a parser upstream still catches it. With no
+                # content, the user then sees an EMPTY bubble with no explanation.
+                # The TabbyAPI patch covers the declared-tools case; this log
+                # measures the residual path before trying to fix it.
+                _log.warning("playground %s : finish_reason=tool_calls SPONTANE "
+                             "(aucun outil demande), %s tokens de contenu%s",
+                             _who, _out or 0,
+                             " — bulle VIDE cote utilisateur" if not _out else "")
             elif _finish != 'stop':
                 _log.warning("playground %s : finish_reason=%s, %s tokens produits",
                                    _who, _finish, _out)
@@ -1296,7 +1328,19 @@ def playground_chat():
             raise
         except Exception as _e:
             _log.warning("playground %s : flux interrompu (%s)", _who, type(_e).__name__)
-            yield _sse_msg("⚠ stream interrupted.")
+            # A transport failure on the LiteLLM POST (`requests` exceptions)
+            # is NOT a model error: it goes out as a STRUCTURED notice that the
+            # frontend translates. A read timeout (anti-stuck slot, see
+            # `timeout=(10, 300)` above) is "no answer in time"; the other
+            # transport failures are "unreachable". This branch ends the stream
+            # (nothing else sends the sentinel), hence the `done` default.
+            if (isinstance(_e, requests.exceptions.Timeout)
+                    and not isinstance(_e, requests.exceptions.ConnectionError)):
+                yield _sse_notice('model_timeout')
+            elif isinstance(_e, requests.exceptions.RequestException):
+                yield _sse_notice('model_unreachable')
+            else:
+                yield _sse_msg("⚠ stream interrupted.")
         finally:
             # Frees the reader thread: it exits its `with`, closes the upstream
             # connection and gives back the vLLM slot. Without this a departed

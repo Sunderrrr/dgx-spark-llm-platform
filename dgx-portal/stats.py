@@ -887,3 +887,50 @@ def ttft_mesure():
         return round(float(v) / 1000.0, 2) if v else None
     except Exception:                                        # noqa: BLE001
         return None
+
+
+def flux_depuis_spendlogs(fenetre_s=60):
+    """Throughput figures for the engines that publish NO /metrics (TabbyAPI).
+
+    `vllm_health()` scrapes /metrics for the decode rate and the cumulative
+    counters; on exllamav3 the route answers 404 and the dashboard showed
+    nothing. LiteLLM's SpendLogs already holds, per COMPLETED request, its two
+    token counts and its two timestamps: the figures below are therefore ratios
+    of SUMS — exact in cumulative terms and insensitive to the portal's probe
+    frequency, like `_compteurs_llamacpp`.
+
+    Pitfall, the same one as the in-flight panel: a SpendLogs row lands at
+    request END, so `debit` undercounts while a long generation is running (its
+    tokens all land at once at the end). A fallback, not a gauge — and the
+    average keeps the 300 s rule of `_compteurs_llamacpp` (below that, a "tok/s"
+    is noise: 47 tokens / 192 s measured once = 0.2).
+
+    Returns None if LiteLLM's database is unreachable.
+    """
+    conn = _spend_conn()
+    if not conn:
+        return None
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT COUNT(*), '
+                    'SUM(COALESCE(completion_tokens, 0)), '
+                    'SUM(COALESCE(prompt_tokens, 0)), '
+                    'COALESCE(SUM(EXTRACT(EPOCH FROM ("endTime" - "startTime"))), 0) '
+                    'FROM "LiteLLM_SpendLogs" WHERE "endTime" IS NOT NULL')
+        requetes, generes, entree, secondes = cur.fetchone()
+        generes, entree = int(generes or 0), int(entree or 0)
+        secondes = float(secondes or 0)
+        cur.execute('SELECT COALESCE(SUM(COALESCE(completion_tokens, 0)), 0) '
+                    'FROM "LiteLLM_SpendLogs" WHERE "endTime" >= %s',
+                    (datetime.utcnow() - timedelta(seconds=fenetre_s),))
+        recents = int(cur.fetchone()[0] or 0)
+        return {
+            'requetes': int(requetes or 0),
+            'generes': generes,
+            'entree': entree,
+            'secondes_generation': secondes,
+            'tps_moyen': round(generes / secondes, 1) if secondes >= 300 else None,
+            'debit': round(recents / fenetre_s, 1),
+        }
+    except Exception:                                        # noqa: BLE001
+        return None

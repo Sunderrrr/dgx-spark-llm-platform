@@ -47,7 +47,13 @@ def api_video_generate():
         duration = 5
     prompt_id = comfyui_generate(data, prompt_text, duration)
     if not prompt_id:
-        return jsonify({'error': "ComfyUI inaccessible ou requête refusée."}), 502
+        # 503 and NOT 502: measured 2026-10-02, Cloudflare's edge REPLACES the
+        # body of a 502 with its own error page (« error code: 502 ») — the
+        # honest message never reaches the user. The same JSON as 503 passes
+        # through intact (verified on this exact route, both ways). Every
+        # user-facing "upstream unavailable" answer in the portal uses 503 for
+        # that reason.
+        return jsonify({'error': "ComfyUI inaccessible ou requête refusée."}), 503
     db = get_db()
     db.execute("INSERT INTO video_jobs (username, prompt_id, prompt, created_at, req_duration_s) VALUES (?,?,?,?,?)",
                (session['username'], prompt_id, prompt_text, datetime.now().isoformat(), int(duration)))
@@ -197,6 +203,6 @@ def video_file(prompt_id):
     upstream = comfyui_fetch_video(st['video_path'], st.get('video_subfolder', ''),
                                    st.get('video_type', 'output'))
     if upstream is None:
-        abort(502)
+        abort(503)
     return Response(upstream.iter_content(chunk_size=65536), mimetype='video/mp4',
                     headers={'Content-Disposition': f'inline; filename="{st["video_path"]}"'})

@@ -999,7 +999,7 @@ class DicteeTest(_BasePlayground):
         self.assertEqual(r.get_json()['text'], 'bonjour le monde')
 
     def test_erreur_d_entree_du_sidecar_reste_400(self):
-        """A recording too short is an INPUT ERROR: presenting it as 502 made it
+        """A recording too short is an INPUT ERROR: presenting it as an upstream failure made it
         look like a service failure."""
         class _R:
             ok = False
@@ -1025,13 +1025,13 @@ class DicteeTest(_BasePlayground):
             r = self._envoie()
         self.assertEqual(r.status_code, 503)
 
-    def test_panne_du_sidecar_502(self):
+    def test_panne_du_sidecar_503(self):
         import requests as _rq
         import asr_routes
         with patch.object(asr_routes.requests, 'post',
                           side_effect=_rq.exceptions.ConnectionError()):
             r = self._envoie()
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 503)
 
     def test_timeout_504(self):
         import requests as _rq

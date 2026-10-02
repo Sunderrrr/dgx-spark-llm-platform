@@ -114,7 +114,7 @@ class ContratJsonTest(BaseAdmin):
                           return_value=(False, 'runner injoignable (ConnectionError)', False)), \
              patch.object(admin_routes, 'notify_infra_alert_email'):
             r = self._post(c, '/admin/model/stop')
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 503)
         corps = r.get_json()
         self.assertFalse(corps['ok'])
         self.assertIn('injoignable', corps['error'])
@@ -143,7 +143,7 @@ class ContratJsonTest(BaseAdmin):
                           return_value=(False, 'flag not allowed: --x', False)), \
              patch.object(admin_routes, 'notify_infra_alert_email') as alerte:
             r = self._post(c, '/admin/model/launch', {'model_name': 'ztest-modele'})
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 503)
         self.assertFalse(r.get_json()['ok'])
         alerte.assert_called_once()
 
@@ -197,7 +197,7 @@ class ContratJsonTest(BaseAdmin):
         c = self._client(ADMIN1)
         with patch.object(sidecars.requests, 'post', return_value=Reponse()):
             r = self._post(c, '/admin/ocr/stop')
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 503)
         self.assertIn('conteneur absent', r.get_json()['error'])
 
     def test_parametres_globaux_sont_audites(self):
@@ -442,7 +442,7 @@ class CycleDeVieModeleTest(BaseAdmin):
         with patch.object(admin_routes, '_register_litellm_model', return_value=False), \
              patch.object(admin_routes, 'send_user_email') as mail:
             r = self._post(c, f'/admin/update/{rid}', {'status': 'done'})
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 503)
         mail.assert_not_called()
         with portal.app.app_context():
             statut = portal.get_db().execute(

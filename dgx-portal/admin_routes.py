@@ -360,7 +360,7 @@ def launch_model():
     if ok:
         return _json_ok(f"Lancement de {name} accepté — chargement en cours.")
     return _json_erreur(motif or "Lancement refusé par le runner.",
-                        202 if incertain else 502, incertain=incertain)
+                        202 if incertain else 503, incertain=incertain)
 
 @bp.route('/api/announcements')
 @login_required
@@ -435,7 +435,7 @@ def stop_model():
     # `incertain` = the runner did not answer within the delay, the stop may
     # still be in progress. We say so as-is rather than claiming a failure:
     # an operator who believes it failed clicks again.
-    return _json_erreur(motif or "Échec de l'arrêt du modèle.", 202 if incertain else 502,
+    return _json_erreur(motif or "Échec de l'arrêt du modèle.", 202 if incertain else 503,
                         incertain=incertain)
 
 @bp.route('/admin/ocr/start', methods=['POST'])
@@ -505,7 +505,7 @@ def launch_ocr_cfg():
               f"lancement OCR {cfg['hf_model_id']}" if ok else f"échec du lancement OCR : {detail}")
     if not ok:
         notify_infra_alert_email("OCR launch failed", f"{cfg['hf_model_id']}: {detail}")
-    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance OCR : {detail}"}), (200 if ok else 502)
+    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance OCR : {detail}"}), (200 if ok else 503)
 
 @bp.route('/admin/voice/start', methods=['POST'])
 @admin_required
@@ -553,7 +553,7 @@ def launch_image():
               f"lancement image {model_id}" if ok else f"échec du lancement image : {detail}")
     if not ok:
         notify_infra_alert_email("Image model launch failed", f"{model_id}: {detail}")
-    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance image : {detail}"}), (200 if ok else 502)
+    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance image : {detail}"}), (200 if ok else 503)
 
 @bp.route('/admin/music/start', methods=['POST'])
 @admin_required
@@ -581,7 +581,7 @@ def launch_music():
               f"lancement musique {model_id}" if ok else f"échec du lancement musique : {detail}")
     if not ok:
         notify_infra_alert_email("Music model launch failed", f"{model_id}: {detail}")
-    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance musique : {detail}"}), (200 if ok else 502)
+    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance musique : {detail}"}), (200 if ok else 503)
 
 @bp.route('/admin/voice/catalog/add', methods=['POST'])
 @admin_required
@@ -633,7 +633,7 @@ def launch_voice_cfg():
         notify_infra_alert_email("Voice model launch failed", f"{name}: {detail}")
     if ok:
         return _json_ok(f"Relance voix avec {name} en cours…")
-    return _json_erreur(f"Échec de la relance voix : {detail}", 502)
+    return _json_erreur(f"Échec de la relance voix : {detail}", 503)
 
 @bp.route('/admin/model/add', methods=['POST'])
 @admin_required
@@ -1570,7 +1570,7 @@ def approve_budget(req_id):
         new_budget = (grant['current_budget'] if grant else base) + amount_val
         if not litellm_update_user_budget(breq['username'], new_budget,
                                           budget_duration=grant_duration):
-            return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 502)
+            return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 503)
         now_iso = datetime.utcnow().isoformat()
         if grant:
             db.execute(
@@ -1585,7 +1585,7 @@ def approve_budget(req_id):
         new_budget = current_budget + amount_val
         if not litellm_update_user_budget(breq['username'], new_budget,
                                           budget_duration=grant_duration):
-            return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 502)
+            return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 503)
         if grant:
             # PERMANENT raise during a grant: it must survive the deadline,
             # so it raises the base cap itself.
@@ -1647,7 +1647,7 @@ def set_user_budget(username):
         return _json_erreur("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.")
     grant_duration = get_setting('default_key_duration', KEY_DURATION)
     if not litellm_update_user_budget(username, value, budget_duration=grant_duration):
-        return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 502)
+        return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 503)
     db.execute("DELETE FROM budget_grants WHERE username=?", (username,))
     db.commit()
     log_audit(session.get('username', '?'), 'budget_set', f'{username}={value:.0f}')
@@ -1730,9 +1730,9 @@ def admin_sidecar_logs(kind):
         r = requests.get(f"{RUNNER_URL}/{kind}/logs", headers=_runner_headers(), timeout=10)
         if r.ok:
             return jsonify({'logs': r.json().get('logs', [])})
-        return jsonify({'logs': [], 'error': 'runner error'}), 502
+        return jsonify({'logs': [], 'error': 'runner error'}), 503
     except Exception:
-        return jsonify({'logs': [], 'error': 'runner unreachable'}), 502
+        return jsonify({'logs': [], 'error': 'runner unreachable'}), 503
 
 @bp.route('/admin/runner/stream')
 @admin_required
@@ -1856,7 +1856,7 @@ def update_request(req_id):
             return _json_erreur(
                 f"Le modèle « {nom} » est dans le catalogue, mais son enregistrement "
                 f"LiteLLM a échoué : la demande reste EN ATTENTE et le demandeur n'est "
-                f"pas prévenu (il ne pourrait pas l'utiliser). Réessaie.", 502)
+                f"pas prévenu (il ne pourrait pas l'utiliser). Réessaie.", 503)
 
     db.execute("UPDATE model_requests SET status=?, updated_at=? WHERE id=?",
                (status, datetime.now().isoformat(), req_id))

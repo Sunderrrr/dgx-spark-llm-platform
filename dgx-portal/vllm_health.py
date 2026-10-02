@@ -150,6 +150,57 @@ _METRIC_NAMES = {
     },
 }
 
+def _sante_sans_metrics(modele, engine):
+    """Health dict for an engine that publishes NO /metrics (TabbyAPI).
+
+    `metrics` stays False so the UI can say the figures do not come from the
+    engine; what can be derived is derived from LiteLLM's SpendLogs
+    (`stats.flux_depuis_spendlogs`): request count, generated/input tokens and
+    a decode average as a RATIO OF SUMS. `tokens_generated` (since engine
+    startup) stays None — nothing counts that — while `tokens_generated_total`
+    keeps its cross-relaunch role via `cumuler_tokens_generes`. The TTFT is the
+    one actually measured by chat_routes (same source as llama.cpp).
+    """
+    from stats import cumuler_tokens_generes, flux_depuis_spendlogs, ttft_mesure
+    flux = flux_depuis_spendlogs() or {}
+    max_seqs = ctx_in = ctx_out = None
+    try:
+        row = get_db().execute("SELECT vllm_args FROM model_configs WHERE name=?",
+                               (modele,)).fetchone()
+        if row:
+            max_seqs = max_seqs_of(row['vllm_args'], engine)
+            ctx_in, ctx_out = ctx_split(row['vllm_args'], engine)
+    except Exception:
+        pass
+    generes = flux.get('generes')
+    cumul = None
+    try:
+        if generes is not None:
+            cumul = cumuler_tokens_generes(modele, generes)
+    except Exception:
+        cumul = None
+    return {
+        'up': True,
+        'model': modele,
+        'engine': engine,
+        'metrics': False,
+        'running': None,
+        'waiting': None,
+        'max_seqs': max_seqs,
+        'ctx_in': ctx_in,
+        'ctx_out': ctx_out,
+        'tps': flux.get('debit'),
+        'ttft': ttft_mesure(),
+        'requests': flux.get('requetes'),
+        'tokens_generated': None,
+        'tokens_generated_total': cumul,
+        'tps_moyen': flux.get('tps_moyen'),
+        'tokens_prompt': flux.get('entree'),
+        'tps_prefill': None,
+        'slots': _slots_activite(),
+    }
+
+
 def _vllm_health_uncached():
     running = get_running_models()
     if not running:
@@ -163,9 +214,17 @@ def _vllm_health_uncached():
     except Exception:
         pass
     try:
-        text = requests.get(_VLLM_METRICS_URL, timeout=4).text
+        reponse = requests.get(_VLLM_METRICS_URL, timeout=4)
+        # No raise_for_status: the /metrics probe is best-effort and its fakes
+        # (tests) only carry `text`. TabbyAPI answers 404 with a body — that is
+        # the "no /metrics" case, not a transport error.
+        if getattr(reponse, 'status_code', 200) >= 400:
+            return _sante_sans_metrics(running[0], engine)
+        text = reponse.text
     except Exception:
-        return {'up': True, 'model': running[0], 'engine': engine, 'metrics': False}
+        # Unreachable engine: fall back to the LiteLLM SpendLogs rather than
+        # leaving the dashboard at "—".
+        return _sante_sans_metrics(running[0], engine)
     M = _METRIC_NAMES.get(engine, _METRIC_NAMES['vllm'])
     gen = _prom_sum(text, M['gen']) or 0.0
     now = time.time()

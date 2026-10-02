@@ -1465,7 +1465,18 @@ def _start_grant_reaper():
     Temporary grants (budget_grants) live on the LiteLLM side: without
     this sweep, an extra granted « pour 3 jours » would remain the limit
     forever as soon as nobody loads the portal. The first run at startup
-    catches up on deadlines missed during an outage."""
+    catches up on deadlines missed during an outage.
+
+    CRONOS_NO_REAPER=1 keeps the thread from starting — the test-suite seam
+    (same family as ASR_ONDEMAND_DIR). Measured 2026-10-02: the thread calls
+    LiteLLM through `requests.post`, which several tests mock GLOBALLY, so a
+    60-second wakeup landing inside one of those tests made it fail
+    intermittently (« appel interdit » style assertions) — the flake that
+    haunted the gate. A test must not depend on nobody else in the process
+    making an HTTP call, and the suite has no real reaper work to do.
+    """
+    if os.environ.get('CRONOS_NO_REAPER') == '1':
+        return
     import threading
 
     def _loop():

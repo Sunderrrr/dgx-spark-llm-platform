@@ -1,9 +1,9 @@
 "use client";
 
-// Panneau des réglages du playground, rendu dans le Popover ancré sur la roue
-// crantée : pas de Card ici (le popover fournit la surface — un Card en plus
-// ferait un double cadre). Sections titrées pour scander la lecture :
-// prompt système (persona + texte), génération, raisonnement.
+// Playground settings panel, rendered in the Popover anchored to the gear
+// wheel: no Card here (the popover provides the surface — an extra Card
+// would make a double frame). Titled sections to pace the reading:
+// system prompt (persona + text), generation, reasoning.
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Slider } from "@astryxdesign/core/Slider";
@@ -15,9 +15,9 @@ import type { Settings } from "@/lib/types";
 import { useMemo } from "react";
 import { useT } from "@/lib/i18n";
 
-// Personas : prompts système pré-écrits, choisis dans un menu déroulant plutôt
-// qu'en rangée de boutons. Les prompts sont en anglais (instructions système),
-// l'UI reste en français.
+// Personas: pre-written system prompts, chosen in a dropdown menu rather
+// than a row of buttons. The prompts are in English (system instructions),
+// the UI stays in French.
 const PERSONAS: { id: string; label: string; prompt: string }[] = [
   { id: "code", label: "Code", prompt: "You are a senior software engineer. Produce complete, runnable, idiomatic code. Prefer whole files over snippets and never elide parts of a file." },
   { id: "redacteur", label: "Rédacteur", prompt: "You are a careful writer. Be clear, structured, and concise. Favour short paragraphs and useful headings." },
@@ -26,16 +26,17 @@ const PERSONAS: { id: string; label: string; prompt: string }[] = [
   { id: "socratic", label: "Socratique", prompt: "Instead of answering directly, ask guiding questions one at a time so the user reaches the answer themselves." },
 ];
 
-// Valeur du sélecteur quand un prompt libre (non persona) est en place : on
-// l'affiche comme option désactivée pour nommer l'état, pas pour être choisi.
+// Selector value when a free-form (non-persona) prompt is in place: shown as
+// a disabled option to name the state, not to be picked.
 const CUSTOM = "__custom__";
 
 export function SettingsPanel({
   settings,
   onChange,
-  /** Fenêtre de contexte du modèle CHARGÉ. Le plafond de sortie s'y ajoute au
-   *  prompt : proposer plus que le contexte n'a aucun sens, et le backend le
-   *  rabaisserait de toute façon. Le curseur suit donc le modèle en cours. */
+  /** Context window of the LOADED model. The output cap adds up on top of
+   *  the prompt within it: offering more than the context makes no sense,
+   *  and the backend would lower it anyway. The slider therefore follows
+   *  the current model. */
   contexte,
   provenance = "manual",
   onProvenance,
@@ -52,15 +53,15 @@ export function SettingsPanel({
   const personaActive = PERSONAS.find((p) => p.prompt === settings.system);
   const personaValue = personaActive?.id ?? (settings.system ? CUSTOM : "");
 
-  // Reconstruit à chaque rendu (dont ceux du flux), alors qu'il ne dépend que de
-  // la langue et du persona sélectionné.
+  // Rebuilt at every render (including the stream ones), while it only depends
+  // on the language and the selected persona.
   const options = useMemo(() => {
     const o: { value: string; label: string; disabled?: boolean }[] = [
       { value: "", label: t("Aucun — conversation à nu") },
       ...PERSONAS.map((p) => ({ value: p.id, label: t(p.label) })),
     ];
     if (personaValue === CUSTOM) {
-      // Un prompt libre est en place : on le montre comme état courant.
+      // A free-form prompt is in place: show it as the current state.
       o.push({ value: CUSTOM, label: t("Personnalisé"), disabled: true });
     }
     return o;
@@ -138,20 +139,21 @@ export function SettingsPanel({
       </VStack>
       <VStack gap={2}>
         <Text type="supporting" color="secondary">{t("Raisonnement")}</Text>
-        {/* Le libellé disait « Afficher le raisonnement » : ce n'est pas un
-            affichage mais un DÉCLENCHEUR — la valeur part en
-            `chat_template_kwargs.enable_thinking`, donc le modèle se met à
-            réfléchir avant de répondre (temps d'attente et facture en hausse).
-            Un interrupteur qui change le coût doit le dire. */}
+        {/* The label used to say « Afficher le raisonnement »: it is not a
+            display but a TRIGGER — the value goes out in
+            `chat_template_kwargs.enable_thinking`, so the model starts
+            thinking before answering (higher wait time and bill).
+            A switch that changes the cost must say so. */}
         <Switch
           label={t("Activer la réflexion du modèle (plus lent, plus coûteux)")}
           value={settings.reasoning}
           onChange={(checked) => onChange({ ...settings, reasoning: checked })}
         />
-        {/* Profondeur de réflexion (reasoning_effort, transmis via le chat
-            template). Chaque modèle valide ses propres valeurs — le Qwen3.8
-            actuel accepte xhigh (son défaut), medium et low ; si le template
-            refuse, le backend retente sans. '' = ne rien transmettre. */}
+        {/* Thinking depth (reasoning_effort, sent through the chat
+            template). Each model validates its own values — the current
+            Qwen3.8 accepts xhigh (its default), medium and low; if the
+            template rejects it, the backend retries without. '' = send
+            nothing. */}
         <SegmentedControl
           label={t("Effort de raisonnement")}
           value={settings.reasoningEffort || "default"}

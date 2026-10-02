@@ -10,10 +10,10 @@ export function useCsrf(): string {
   return useContext(CsrfContext).csrf;
 }
 
-// Le rafraîchissement, pour les rares endroits qui doivent garantir un jeton
-// frais juste avant un envoi : la déconnexion, dont un 400 CSRF est un
-// cul-de-sac (l'utilisateur ne peut plus se déconnecter). Partout ailleurs le
-// jeton du provider suffit et une lecture de contexte est moins chère.
+// The refresh, for the few places that must guarantee a fresh token right
+// before sending: logout, where a CSRF 400 is a dead end (the user can no
+// longer log out). Everywhere else the provider's token is enough and a
+// context read is cheaper.
 export function useCsrfRefresh(): () => Promise<string> {
   return useContext(CsrfContext).refresh;
 }

@@ -1,19 +1,19 @@
-// Compétences (skills) de type Claude : une compétence = une commande /alias qui
-// prépare le model avec un prompt à envoyer (+ un prompt système optionnel).
-// Les compétences de base sont intégrées ; les compétences créées par
-// l'utilisateur vivent en localStorage (comme les snippets).
+// Claude-style skills: a skill = a /alias command that prepares the
+// model with a prompt to send (+ an optional system prompt). The
+// built-in skills are bundled; user-created skills live in
+// localStorage (like the snippets).
 
 export type Skill = {
   id: string;
-  /** Libellé affiché (msgid FR pour les compétences de base). */
+  /** Displayed label (FR msgid for the built-in skills). */
   name: string;
-  /** Commande /alias (ex. "resumer" -> taper /resumer). */
+  /** /alias command (e.g. "resumer" -> type /resumer). */
   alias: string;
-  /** Sous-titre affiché dans le menu. */
+  /** Subtitle displayed in the menu. */
   description: string;
-  /** Texte inscrit dans le champ à la sélection. */
+  /** Text put into the field on selection. */
   prompt: string;
-  /** Prompt système appliqué à la sélection (comportement du model). */
+  /** System prompt applied on selection (behaviour of the model). */
   systemPrompt?: string;
   builtin?: boolean;
 };
@@ -116,11 +116,11 @@ export function saveCustomSkills(list: Skill[]) {
   try {
     localStorage.setItem(SKILLS_KEY, JSON.stringify(list));
   } catch {
-    /* stockage indisponible : on ignore */
+    /* storage unavailable: we ignore */
   }
 }
 
-/** Filtre les compétences par la requête tapée après le « / ». */
+/** Filters the skills by the query typed after the « / ». */
 export function skillMatches(s: Skill, query: string): boolean {
   if (!query) return true;
   const q = query.toLowerCase();

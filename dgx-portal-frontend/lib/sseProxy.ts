@@ -57,18 +57,18 @@ function withIdleTimeout(body: ReadableStream<Uint8Array>): ReadableStream<Uint8
  * or proxy.ts). Bounded by a connection timeout (the backend must respond
  * within 15s) then by an idle timeout once the stream has started.
  */
-// Borne dure du corps relayé : la limite `proxyClientMaxBodySize` (20 Mo dans
-// next.config.ts) est appliquée APRÈS la lecture, on l'applique donc AVANT.
+// Hard cap on the relayed body: the `proxyClientMaxBodySize` limit (20 MB in
+// next.config.ts) is applied AFTER reading, so we apply it BEFORE.
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
 const WHOAMI_TIMEOUT_MS = 3000;
 
 export async function proxySSE(request: Request, path: string): Promise<Response> {
-  // 1) Ne RIEN tamponner avant de savoir que le corps est borné et la session
-  // valide (audit du 2026-10-02) : c'est la seule route publiée du frontend qui
-  // lit un corps arbitraire, et `request.arrayBuffer()` le chargeait en mémoire
-  // AVANT tout contrôle — n'importe quel appelant anonyme faisait donc travailler
-  // le proxy pour 20 Mo. Le contrôle de session évite en plus au portail de
-  // recevoir le corps (une redirection 401 est ce que `authFetch` attend).
+  // 1) Buffer NOTHING before knowing the body is bounded and the session
+  // valid (audit of 2026-10-02): it is the only published frontend route that
+  // reads an arbitrary body, and `request.arrayBuffer()` loaded it into memory
+  // BEFORE any check — any anonymous caller could therefore make the proxy
+  // work for 20 MB. The session check also keeps the portal from receiving
+  // the body (a 401 redirect is what `authFetch` expects).
   const annonce = Number(request.headers.get("content-length") || 0);
   if (Number.isFinite(annonce) && annonce > MAX_BODY_BYTES) {
     return new Response(sseErrorFrame("Requête trop volumineuse (20 Mo maximum)."), {
@@ -80,9 +80,9 @@ export async function proxySSE(request: Request, path: string): Promise<Response
     headers: { Cookie: request.headers.get("cookie") || "" },
     signal: AbortSignal.timeout(WHOAMI_TIMEOUT_MS),
   }).catch(() => null);
-  // 401/403 SEULEMENT : tout autre code (503 de maintenance, 500…) doit continuer
-  // vers le backend, qui répondra ce qu'il doit répondre. Ce garde-fou ne remplace
-  // pas l'autorisation — il évite le travail inutile.
+  // 401/403 ONLY: any other code (maintenance 503, 500…) must continue
+  // to the backend, which will answer what it must answer. This guard does not
+  // replace authorization — it avoids useless work.
   if (verif && (verif.status === 401 || verif.status === 403)) {
     return new Response(sseErrorFrame("Session expirée — reconnecte-toi."), {
       status: 401,
@@ -94,8 +94,8 @@ export async function proxySSE(request: Request, path: string): Promise<Response
   // and corrupt the upload. An ArrayBuffer passes through intact whatever the
   // content (text JSON as for playground/support, or binary here).
   const body = await request.arrayBuffer();
-  // Un `content-length` absent (transfert par blocs) ou menteur reste possible :
-  // on revérifie sur la taille RÉELLE, avant tout appel à l'amont.
+  // A missing (chunked transfer) or lying `content-length` remains possible:
+  // we re-check on the REAL size, before any upstream call.
   if (body.byteLength > MAX_BODY_BYTES) {
     return new Response(sseErrorFrame("Requête trop volumineuse (20 Mo maximum)."), {
       status: 413,

@@ -16,10 +16,10 @@ const EN: Record<string, string> = {
   "Emails de notification": "Notification emails",
   "SMTP configuré": "SMTP configured",
   "SMTP non configuré": "SMTP not configured",
-  // {adresse} = adresse d'expédition, insérée APRÈS le montage : Cloudflare
-  // réécrit les adresses email du HTML serveur et casserait l'hydratation
-  // (cf. SENDER_ADDRESS dans EmailConfig.tsx). Le repli d'avant montage est un
-  // mot neutre, jamais une adresse.
+  // {adresse} = shipping address, inserted AFTER mount: Cloudflare
+  // rewrites the server-side HTML email addresses and would break hydration
+  // (cf. SENDER_ADDRESS in EmailConfig.tsx). The pre-mount fallback is a
+  // neutral word, never an address.
   "Envoi depuis {adresse} via Zoho ; les notifications admin partent vers l'adresse ci-dessous.":
     "Sent from {adresse} via Zoho; admin notifications go to the address below.",
   "le portail": "the portal",
@@ -43,9 +43,9 @@ const EN: Record<string, string> = {
   "Nouveau quota le {date} (UTC).": "New quota on {date} (UTC).",
   "Demande en cours d'examen": "Request under review",
   "Demande envoyée à l'admin.": "Request sent to the admin.",
-  // Raison par défaut du bouton « Demander plus de budget » : le msgid part en
-  // base et se réaffiche tel quel (colonne « Raison » chez l'utilisateur et
-  // dans la file admin), d'où une clé traduite comme une chaîne d'affichage.
+  // Default reason for the « Demander plus de budget » button: the msgid goes to
+  // the database and is displayed as-is (column « Raison » for the user and in
+  // the admin queue), hence a key translated like a display string.
   "Demande depuis la page d'accueil (quota bientôt épuisé)": "Request from the home page (quota nearly exhausted)",
   "Quota dépassé : tu as épuisé ton budget de tokens pour la période en cours.": "Quota exceeded: you have used up your token budget for the current period.",
   "Tu peux demander plus à l'admin (accueil → « Demander plus de budget »).": "You can request more from the admin (home → \"Request more budget\").",
@@ -81,8 +81,8 @@ const EN: Record<string, string> = {
   "jours": "days",
   "Continuer": "Continue",
   "Conversation": "Conversation",
-  // Temps relatif des cartes « Conversations récentes » (lib/conversations.ts :
-  // t y est passé en paramètre, ces clés sont atteintes par variable).
+  // Relative time on the « Conversations récentes » cards (lib/conversations.ts:
+  // t is passed there as a parameter, these keys are reached via a variable).
   "à l'instant": "just now",
   "j": "d",
   "Document": "Document",
@@ -118,8 +118,8 @@ const EN: Record<string, string> = {
   "Supprimer cette image": "Delete this image",
   "Notifications": "Notifications",
   "Aucune notification": "No notifications",
-  // Type de notification venu du serveur (layout.tsx) ; le type brut reste le
-  // repli pour tout type inconnu, et "Image"/"Musique" existent déjà ailleurs.
+  // Notification type coming from the server (layout.tsx); the raw type stays
+  // the fallback for any unknown type, and "Image"/"Musique" already exist elsewhere.
   "Demande": "Request",
   "Rechercher une conversation": "Search conversations",
   "Épingler": "Pin",
@@ -527,13 +527,13 @@ const EN: Record<string, string> = {
   "Masquer": "Hide",
   "Dépensé": "Spent",
   "tokens": "tokens",
-  // Singulier pour « 1 token » : le pluriel se choisit au rendu, avec le motif
-  // déjà en place dans le dépôt (t(n > 1 ? "tokens" : "token")).
+  // Singular for « 1 token »: the plural is chosen at render time, with the
+  // pattern already in place in the repo (t(n > 1 ? "tokens" : "token")).
   "token": "token",
   "Révoquer": "Revoke",
   "Intégrations": "Integrations",
-  // Onglet d'intégration : seul libellé non nom-propre de la liste (les autres
-  // outils gardent leur nom propre). Le `value` reste "env", lui, technique.
+  // Integration tab: the only label in the list that is not a proper noun (the
+  // other tools keep their proper name). The `value` stays "env", it is technical.
   "Variables d'env.": "Env vars",
   "Masquer la clé": "Hide key",
   "Révéler la clé": "Reveal key",
@@ -545,17 +545,17 @@ const EN: Record<string, string> = {
   "Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.":
     "Chat live with an active model — advanced settings, attachments, streaming replies, on your account budget.",
   "Rien à exporter.": "Nothing to export.",
-  // Export Markdown d'une conversation (convAsMarkdown reçoit t en paramètre) ;
-  // « Assistant : » s'écrit pareil dans les deux langues, la clé reste visible
-  // pour le traducteur.
+  // Markdown export of a conversation (convAsMarkdown receives t as a parameter);
+  // « Assistant : » is spelled the same in both languages, the key stays visible
+  // for the translator.
   "Modèle :": "Model:",
   "Vous :": "You:",
   "Assistant :": "Assistant:",
-  // Titre de repli d'un artefact sans nom : un fichier téléchargé ne doit pas
-  // garder un nom français en mode anglais (parseArtifacts reçoit t).
+  // Fallback title of a nameless artifact: an uploaded file must not keep a
+  // French name in English mode (parseArtifacts receives t).
   "fichier-{n}.txt": "file-{n}.txt",
   "fichier-{n}.{ext}": "file-{n}.{ext}",
-  // Pièce jointe trop grosse pour le contexte (handleFiles).
+  // Attachment too large for the context (handleFiles).
   "« {name} » dépasse 96 Ko — trop gros pour le contexte.": "« {name} » exceeds 96 KB — too large for the context.",
   "Erreur réseau.": "Network error.",
   "Le modèle n'a renvoyé aucune réponse.": "The model returned no response.",
@@ -620,9 +620,9 @@ const EN: Record<string, string> = {
   "Résumer": "Summarise",
   "Condense un texte en points clés": "Condense a text into key points",
   "Résume ce texte en 3 points : ": "Summarise this text in 3 points: ",
-  // Noms des compétences de base (lib/skills.ts) : des msgid français traduits
-  // à l'affichage ; "Résumer", "Expliquer", "Analyser des logs" et "Code"
-  // existent déjà au-dessus.
+  // Names of the built-in skills (lib/skills.ts): French msgids translated at
+  // display time; "Résumer", "Expliquer", "Analyser des logs" and "Code"
+  // already exist above.
   "Rédiger": "Write",
   "Traduire": "Translate",
   "Imaginer": "Brainstorm",
@@ -810,7 +810,7 @@ const EN: Record<string, string> = {
   "Détails (optionnel)": "Details (optional)",
   "Publier": "Publish",
   "Logs —": "Logs —",
-  // Titre des cartes de logs : {v} = nom du modèle servi ou type en majuscules.
+  // Log card titles: {v} = name of the served model or uppercase type.
   "Logs — {v}": "Logs — {v}",
   "aucun modèle": "no model",
   "Demandes en attente": "Pending requests",
@@ -1110,8 +1110,8 @@ const EN: Record<string, string> = {
   "La vidéo n'a pas de catalogue : un seul workflow ComfyUI figé, démarré et arrêté depuis la ligne « Backends » ci-dessus.":
     "Video has no catalog: a single fixed ComfyUI workflow, started and stopped from the “Backends” row above.",
   "Ajouter un modèle voix": "Add a voice model",
-  // Variantes du sélecteur « Ajouter un modèle voix » (le value repo_id ne
-  // change pas : seule l'étiquette est traduite).
+  // Variants of the « Ajouter un modèle voix » selector (the repo_id value does
+  // not change: only the label is translated).
   "Qwen3-TTS 1.7B (10 langues)": "Qwen3-TTS 1.7B (10 languages)",
   "Qwen3-TTS 0.6B (10 langues)": "Qwen3-TTS 0.6B (10 languages)",
   "Nom (ex: chatterbox-turbo)": "Name (e.g. chatterbox-turbo)",
@@ -1221,7 +1221,7 @@ const EN: Record<string, string> = {
   "Aucun groupe": "No group",
   "Groupe": "Group",
   "Quota / j": "Quota / day",
-  // Suffixe « par jour » collé après un nombre (carte d'un groupe).
+  // « par jour » suffix appended after a number (card of a group).
   "/ j": "/ d",
   "hérité": "inherited",
   "Actif": "Active",
@@ -1301,7 +1301,7 @@ const EN: Record<string, string> = {
   "La transcription a mis trop de temps.": "Transcription took too long.",
   "Service de transcription injoignable.": "Transcription service unreachable.",
   "Mode maintenance en cours — réessaie plus tard.": "Maintenance in progress — try again later.",
-  // ── Double authentification par clé de sécurité (WebAuthn / passkeys) ──
+  // ── Two-factor authentication with a security key (WebAuthn / passkeys) ──
   "Sécurité": "Security",
   "Double authentification par clé de sécurité (passkey, YubiKey, 1Password) — pas de TOTP.":
     "Two-factor authentication with a security key (passkey, YubiKey, 1Password) — no TOTP.",
@@ -1330,24 +1330,24 @@ const EN: Record<string, string> = {
   "Confirmer": "Confirm",
   "Clé supprimée.": "Key deleted.",
   "Double authentification mise à jour.": "Two-factor authentication updated.",
-  // ── Étape 2FA côté login ──
+  // ── 2FA step on the login side ──
   "Double authentification annulée.": "Two-factor authentication cancelled.",
   "Vérification de la clé échouée.": "Key verification failed.",
-  // ── Bouton « demander un modèle » sur les pages média ──
+  // ── « demander un modèle » button on the media pages ──
   "Envie de ce modèle ? Préviens le responsable, il pourra le lancer.":
     "Want this model? Let the admin know, they can launch it.",
   "Demander ce modèle": "Request this model",
   "Demande envoyée": "Request sent",
   "Demande envoyée au responsable.": "Request sent to the admin.",
   "La demande a échoué.": "The request failed.",
-  // ── Accueil : cartes des services média (bouton « Ouvrir ») ──
+  // ── Home: media service cards (« Ouvrir » button) ──
   "Génération d'images (texte → image)": "Image generation (text → image)",
   "Génération musicale (texte → chanson)": "Music generation (text → song)",
   "Ouvrir le chat": "Open chat",
   "Ouvrir la génération d'image": "Open image generation",
   "Ouvrir la génération musicale": "Open music generation",
-  // ── Support : accueil dynamique, confirmation d'action sensible,
-  //    arrêt du flux, fil restauré et votes ──
+  // ── Support: dynamic home, confirmation of a sensitive action,
+  //    stream stop, restored thread and votes ──
   "Pourquoi le modèle est-il arrêté ?": "Why is the model stopped?",
   "Diagnostique l'arrêt et propose de le relancer": "Diagnoses the outage and offers to relaunch it",
   "Pourquoi le modèle est-il arrêté ? Peux-tu le relancer ?": "Why is the model stopped? Can you relaunch it?",
@@ -1362,7 +1362,7 @@ const EN: Record<string, string> = {
   "Un commentaire ? (facultatif)": "A comment? (optional)",
   "Merci, c'est noté.": "Thanks, noted.",
 
-  // ── Sécurité : sessions actives + changement de mot de passe ──
+  // ── Security: active sessions + password change ──
   "Double authentification, sessions actives et mot de passe de ton compte.":
     "Two-factor authentication, active sessions, and your account password.",
   "Sessions actives": "Active sessions",
@@ -1385,7 +1385,7 @@ const EN: Record<string, string> = {
   "Compte LDAP/SSO : le mot de passe est géré dans l'annuaire, pas ici.":
     "LDAP/SSO account: the password is managed in your directory, not here.",
 
-  // ── Admin : blocage, détail de compte, suppression ──
+  // ── Admin: blocking, account details, deletion ──
   "Bloquer…": "Block…",
   "Bloquer": "Block",
   "Débloquer": "Unblock",
@@ -1416,7 +1416,7 @@ const EN: Record<string, string> = {
   "Tapez DELETE pour confirmer": "Type DELETE to confirm",
   "Supprimer définitivement": "Delete permanently",
   "Compte supprimé.": "Account deleted.",
-  // Purge d'un compte d'annuaire (LDAP/SSO) : données effacées, accès conservé.
+  // Purge of a directory account (LDAP/SSO): data erased, access kept.
   "Purger les données…": "Purge data…",
   "Purger les données": "Purge data",
   "Purger": "Purge",
@@ -1426,8 +1426,8 @@ const EN: Record<string, string> = {
   "Elle ne retire pas l'accès : un compte LDAP/SSO peut se reconnecter et repartira d'un compte vide. Pour retirer l'accès, utilise Bloquer.":
     "It does not remove access: an LDAP/SSO account can sign in again and will start from an empty account. To remove access instead, use Block.",
 
-  // Admin : actions et confirmations (contrat {ok, error} du backend ; les
-  // phrases renvoyées par le serveur s'affichent telles quelles, sans clé).
+  // Admin: actions and confirmations ({ok, error} contract of the backend; the
+  // sentences returned by the server are displayed as-is, without a key).
   "Accès refusé.": "Access denied.",
   "Arrêter le modèle servi ?": "Stop the served model?",
   "Le modèle va être coupé : toutes les générations en cours, pour tous les utilisateurs, seront interrompues.":
@@ -1450,7 +1450,7 @@ const EN: Record<string, string> = {
   "Seuls les args du moteur changent ; l'entrée reste identifiée par son nom et son HF ID.":
     "Only the engine args change; the entry keeps its name and HF ID.",
 
-  // Admin : carte « État de la plateforme » (GET /admin/platform).
+  // Admin: « État de la plateforme » card (GET /admin/platform).
   "État de la plateforme": "Platform status",
   "Relevé indisponible — impossible de lire l'état de la plateforme.": "Status unavailable — could not read the platform state.",
   "Vérifié à {time}": "Checked at {time}",
@@ -1480,12 +1480,12 @@ const EN: Record<string, string> = {
   "comptes locaux": "local users",
   "clés actives": "active keys",
 
-  // Recherche utilisateur (Admin) : exemple générique, jamais de vrai compte.
+  // User search (Admin): generic example, never a real account.
   "ex : jdoe": "e.g. jdoe",
 
-  // Recherche de modèles Hugging Face. Les tâches étaient écrites en anglais
-  // dans le code : elles n'étaient donc pas traduisibles et restaient en anglais
-  // même en français. Elles sont désormais des msgid français comme le reste.
+  // Hugging Face model search. The tasks were written in English in the code:
+  // they were therefore not translatable and stayed English even in French. They
+  // are now French msgids like the rest.
   "Génération de texte": "Text generation",
   "Texte vers texte": "Text to text",
   "Plongements (embeddings)": "Embeddings",
@@ -1495,9 +1495,9 @@ const EN: Record<string, string> = {
   "Accès restreint": "Gated access",
   "Recherche impossible.": "Search failed.",
   "Résultats indisponibles.": "Results unavailable.",
-  // Panne amont de Hugging Face (`code: hf_indisponible`). Le message du serveur
-  // porte le détail technique mais reste en français : l'écran affiche cette
-  // phrase traduite à la place, et le détail reste dans les journaux du portail.
+  // Upstream Hugging Face outage (`code: hf_indisponible`). The server message
+  // carries the technical detail but stays French: the screen shows this
+  // translated sentence instead, and the detail stays in the portal logs.
   "Hugging Face ne répond pas. Réessaie dans un instant.":
     "Hugging Face is not responding. Try again in a moment.",
   "Aucun modèle GB10 ne correspond, mais il y en a sur tout Hugging Face : décoche le filtre ci-dessus.":
@@ -1509,7 +1509,7 @@ const EN: Record<string, string> = {
   "L'identifiant du modèle est requis.": "The model id is required.",
   "Partage impossible :": "Sharing failed:",
 
-  // ── Clés API : copie directe, dates, renommage ──
+  // ── API keys: direct copy, dates, renaming ──
   "Copier la clé": "Copy key",
   "Clé « {alias} » copiée.": "Key “{alias}” copied.",
   "Créée le": "Created",
@@ -1518,11 +1518,11 @@ const EN: Record<string, string> = {
   "Clé renommée.": "Key renamed.",
   "alias_deja_utilise": "You already have a key with that name.",
 
-  // ── Budget : la période, pas la journée ──
+  // ── Budget: the period, not the day ──
   "Consommé sur la période": "Used this period",
   "Remis à zéro le {date}.": "Resets on {date}.",
 
-  // ── Suppression de compte et source du mot de passe ──
+  // ── Account deletion and password source ──
   "Supprimer mon compte": "Delete my account",
   "Supprimer définitivement mon compte": "Permanently delete my account",
   "Effacer mes données": "Erase my data",
@@ -1545,14 +1545,14 @@ const EN: Record<string, string> = {
   "Le portail n'a pas de mot de passe pour ce compte : il se connecte par l'annuaire (LDAP ou SSO), où le mot de passe se change.":
     "The portal has no password for this account: it signs in through the directory (LDAP or SSO), where the password is changed.",
 
-  // ── Suppression d'une conversation refusée par le serveur ──
+  // ── Conversation deletion refused by the server ──
   "Suppression impossible — la conversation est conservée.":
     "Could not delete — the conversation is kept.",
   "Suppression impossible.": "Could not delete.",
   "Image trop lourde : 15 Mo maximum.":
     "Image too large: 15 MB maximum.",
-  // Boutons inertes quand le jeton CSRF n'a pas pu être obtenu (CsrfProvider a
-  // épuisé ses deux tentatives) : le dire plutôt que de ne rien faire.
+  // Inert buttons when the CSRF token could not be obtained (CsrfProvider
+  // exhausted its two attempts): say so instead of doing nothing.
   "Session incomplète — recharge la page.":
     "Incomplete session — reload the page.",
 };
@@ -1584,15 +1584,15 @@ export function useT() {
   return useCallback((fr: string) => (lang === "en" ? EN[fr] ?? fr : fr), [lang]);
 }
 
-/** Locale de formatage (nombres, dates, heures) qui SUIT la langue affichée.
+/** Formatting locale (numbers, dates, times) that FOLLOWS the displayed language.
  *
- *  Le contrat i18n ne porte pas que sur le texte : `toLocaleString("fr-FR")`
- *  écrit en dur affichait « 1 234 » et « 13/09/2026 » à un lecteur anglophone,
- *  qui attend « 1,234 » et « 9/13/2026 ». Une vingtaine d'endroits le faisaient ;
- *  quelques composants avaient déjà la bonne formule (`lang === "fr" ? … : …`),
- *  reprise ici une fois pour toutes. À utiliser via `const numLocale = useLocale()`.
- *  Dans un helper hors composant, passer la valeur en paramètre : un hook ne
- *  s'appelle que depuis un composant.
+ *  The i18n contract is not only about text: a hardcoded `toLocaleString("fr-FR")`
+ *  displayed « 1 234 » and « 13/09/2026 » to an English reader,
+ *  who expects « 1,234 » and « 9/13/2026 ». About twenty places did this;
+ *  a few components already had the right formula (`lang === "fr" ? … : …`),
+ *  adopted here once and for all. Use via `const numLocale = useLocale()`.
+ *  In a helper outside a component, pass the value as a parameter: a hook can
+ *  only be called from a component.
  */
 export function useLocale(): string {
   const { lang } = useContext(I18nContext);

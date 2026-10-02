@@ -11,9 +11,9 @@ type ApiConversation = {
   title: string;
   model: string;
   ts: string;
-  // Les drapeaux voyagent avec le message : `hidden` (réponses aux questions,
-  // demandes de reprise), et `isError`/`truncated` sans lesquels une réponse
-  // coupée repassait pour finie après un rechargement.
+  // The flags travel with the message: `hidden` (answers to questions,
+  // resume requests), and `isError`/`truncated` without which a truncated
+  // answer looked finished again after a reload.
   messages: {
     role: "user" | "assistant";
     content: string;
@@ -22,7 +22,7 @@ type ApiConversation = {
     truncated?: boolean;
     images?: string[];
   }[];
-  /** Vrai quand le serveur a laissé les messages de côté (budget de la liste). */
+  /** True when the server set the messages aside (list budget). */
   messages_omis?: boolean;
 };
 
@@ -30,9 +30,9 @@ export async function fetchConversations(): Promise<Conversation[]> {
   try {
     const data = await getJSON<{ conversations: ApiConversation[] }>("/api/conversations");
     return data.conversations.map((c) => ({
-      // L'identifiant vient du serveur (`client_id`) et n'est PAS un nombre :
-      // le convertir donnait NaN, donc un horodatage fabriqué sans rapport — et
-      // toute suppression visait un identifiant inexistant, sans erreur visible.
+      // The identifier comes from the server (`client_id`) and is NOT a number:
+      // converting it gave NaN, hence an unrelated fabricated timestamp — and
+      // every deletion targeted a nonexistent identifier, with no visible error.
       id: c.id,
       title: c.title,
       ts: Date.parse(c.ts) || Date.now(),
@@ -45,12 +45,12 @@ export async function fetchConversations(): Promise<Conversation[]> {
   }
 }
 
-/** Une conversation ENTIÈRE, à la demande.
+/** A WHOLE conversation, on demand.
  *
- * `GET /api/conversations` borne ce qu'il transporte (30 conversations pleines
- * faisaient ~60 Mo, chargés à chaque ouverture du playground) : au-delà, il ne
- * renvoie que les métadonnées avec `messages_omis`. C'est ce chemin qui rend le
- * contenu quand on ouvre vraiment la conversation.
+ * `GET /api/conversations` bounds what it carries (30 full conversations
+ * were ~60 MB, loaded at every playground opening): beyond that, it only
+ * returns the metadata with `messages_omis`. This is the path that returns
+ * the content when the conversation is actually opened.
  */
 export async function fetchConversation(id: string): Promise<Conversation | null> {
   try {
@@ -70,18 +70,18 @@ export async function fetchConversation(id: string): Promise<Conversation | null
   }
 }
 
-/** Enregistre la conversation ; rend `false` si l'enregistrement a échoué.
+/** Saves the conversation; returns `false` if the save failed.
  *
- * L'échec ne doit pas interrompre la conversation — mais il ne doit pas non plus
- * être INVISIBLE : `postForm` ne lève pas sur un 413, et une sauvegarde refusée
- * (le cas de toute conversation dépassant la limite de champ de formulaire de
- * Werkzeug, corrigé côté serveur) faisait disparaître l'historique au
- * rechargement sans le moindre indice. L'appelant prévient l'utilisateur.
+ * The failure must not interrupt the conversation — but it must not be
+ * INVISIBLE either: `postForm` does not throw on a 413, and a refused save
+ * (the case of every conversation exceeding Werkzeug's form field size
+ * limit, fixed on the server side) made the history disappear on reload
+ * without the slightest clue. The caller warns the user.
  */
 export async function persistConversation(csrf: string, conv: Conversation): Promise<boolean> {
   try {
-    // `postForm` ne rend ni le statut ni le corps : un 413 (champ de formulaire
-    // trop gros) ou un `{ok:false}` passaient donc totalement inaperçus.
+    // `postForm` returns neither status nor body: a 413 (form field too
+    // large) or an `{ok:false}` therefore went totally unnoticed.
     const res = await authFetch("/conversations", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
@@ -101,12 +101,12 @@ export async function persistConversation(csrf: string, conv: Conversation): Pro
   }
 }
 
-/** Supprime la conversation ; rend `false` si le serveur a refusé.
+/** Deletes the conversation; returns `false` if the server refused.
  *
- * Elle était avalée (`postForm` dans un `try {} catch {}` vide) : la
- * conversation disparaissait de la liste, puis RÉAPPARAISSAIT au rechargement
- * sans un mot d'explication. Une suppression qui n'a pas eu lieu doit se dire.
- */
+ * It was swallowed (`postForm` in an empty `try {} catch {}`): the
+ * conversation vanished from the list, then REAPPEARED on reload
+ * without a word of explanation. A deletion that did not happen must
+ * be told. */
 export async function removeConversation(csrf: string, id: string): Promise<boolean> {
   const res = await postFormVerifie("/conversations", csrf, { action: "delete", id: String(id) });
   return res.ok;
@@ -132,7 +132,7 @@ export async function migrateLegacyConversations(csrf: string): Promise<boolean>
   return true;
 }
 
-/** `t` est passé en paramètre : fonction de module, un hook ne s'y appelle pas. */
+/** `t` is passed as a parameter: module function, a hook cannot be called there. */
 export function relativeTime(ts: number, t: (s: string) => string): string {
   const s = (Date.now() - ts) / 1000;
   if (s < 60) return t("à l'instant");

@@ -11,13 +11,13 @@ import { BoltIcon, PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import { type Skill } from "@/lib/skills";
 
-/** Rend la teinte de la carte : bleu quand la ligne est sélectionnée au clavier. */
+/** Returns the card tint: blue when the row is selected at the keyboard. */
 function cardVariant(isSelected: boolean): "muted" | "blue" {
   return isSelected ? "blue" : "muted";
 }
 
-/** Une ligne de compétence : sélection au clic, et pour les compétences créées,
- *  des boutons Modifier / Supprimer (maintient l'indépendance des interactions). */
+/** A skill row: click to select, and for user-created skills, « Modifier » /
+ *  « Supprimer » buttons (keeps the interactions independent). */
 function SkillRow({
   skill,
   index,
@@ -76,10 +76,10 @@ function SkillRow({
   );
 }
 
-/** Menu des compétences affiché sous le champ quand l'utilisateur tape " / ".
- *  Propose les compétences de base (groupe « Compétences ») et celles créées par
- *  l'utilisateur (groupe « Mes compétences »), + l'entrée « Créer un skill ».
- *  La ligne surlignée correspond à la navigation clavier (flèches + Entrée). */
+/** Skills menu shown below the input when the user types " / ".
+ *  Offers the base skills (the « Compétences » group) and the user-created ones
+ *  (the « Mes compétences » group), plus the « Créer un skill » entry.
+ *  The highlighted row matches keyboard navigation (arrow keys + Enter). */
 export function SkillsMenu({
   baseSkills,
   customSkills,
@@ -101,7 +101,7 @@ export function SkillsMenu({
 }) {
   const t = useT();
   const total = baseSkills.length + customSkills.length;
-  const baseOffset = 1; // la ligne 0 est la carte « Créer un skill »
+  const baseOffset = 1; // row 0 is the « Créer un skill » card
   const customOffset = baseOffset + baseSkills.length;
   return (
     <Card

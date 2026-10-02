@@ -31,14 +31,14 @@ type HfModel = {
   downloads?: number;
   tags?: string[];
   engine?: string;
-  /** Présent avec `full=true` : un dépôt gated exige un jeton HF et fait
-   * échouer le téléchargement — autant le voir dans les résultats. */
+  /** Present with `full=true`: a gated repo requires an HF token and makes
+   * the download fail — better to see it in the results. */
   gated?: boolean | string;
 };
 
-/** Une seule tâche à la fois, et « toutes » par défaut : la recherche couvre
- * tout Hugging Face. Filtrer par tâche était le défaut, et c'est ce qui rendait
- * introuvable un modèle taggé seulement `image-text-to-text` (cf. page « Ornith-1.5 »). */
+/** One task at a time, and « toutes » by default: the search covers all of
+ * Hugging Face. Filtering by task was the default, and it is what made a
+ * model tagged only `image-text-to-text` impossible to find (cf. « Ornith-1.5 »). */
 const TASKS = [
   { value: "text-generation", label: "Génération de texte" },
   { value: "text2text-generation", label: "Texte vers texte" },
@@ -51,35 +51,35 @@ const TASKS = [
 
 export default function SearchPage() {
   const t = useT();
-  // Une seule définition de la locale dans le dépôt (`useLocale`) : « 29 386 » en
-  // français, « 29,386 » en anglais, sans y repenser sur chaque écran.
+  // A single locale definition in the repo (`useLocale`): « 29 386 » in
+  // French, « 29,386 » in English, without rethinking it on every screen.
   const numLocale = useLocale();
   const [query, setQuery] = useState("");
-  // Tâche vide = aucune restriction : c'est le défaut.
+  // Empty task = no restriction: that is the default.
   const [task, setTask] = useState("");
-  // Le tag GB10 ne marque qu'une poignée de modèles testés sur DGX Spark : il
-  // était appliqué d'office, donc tout le reste de Hugging Face était invisible
-  // sans que rien ne le dise. C'est un filtre utile, mais qu'on DEMANDE.
+  // The GB10 tag only marks a handful of models tested on DGX Spark: it
+  // was applied automatically, so all the rest of Hugging Face was invisible
+  // with nothing saying so. It is a useful filter, but one you ASK FOR.
   const [gb10Only, setGb10Only] = useState(false);
   const [results, setResults] = useState<HfModel[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  // « HF n'a pas répondu » et « aucun modèle ne correspond » sont deux situations
-  // différentes : les confondre faisait conclure à l'utilisateur que son modèle
-  // n'existe pas. Le serveur distingue désormais les deux (502 vs 200 vide).
+  // « HF n'a pas répondu » and « aucun modèle ne correspond » are two
+  // different situations: confusing them led the user to conclude their model
+  // did not exist. The server now tells the two apart (502 vs empty 200).
   const [error, setError] = useState<string | null>(null);
-  // Le filtre GB10 ne donne rien, mais HF en connaît hors filtre : on le dit.
+  // The GB10 filter yields nothing, but HF knows some outside it: we say so.
   const [horsGb10, setHorsGb10] = useState<boolean | null>(null);
-  // Un jeton HF est-il configuré côté serveur ? Sa valeur ne quitte jamais le
-  // serveur : l'interface ne sait que « il y en a un / il n'y en a pas ».
+  // Is an HF token configured server-side? Its value never leaves the
+  // server: the UI only knows « il y en a un / il n'y en a pas ».
   const [hfToken, setHfToken] = useState<boolean | null>(null);
-  // `has_more` vient de l'en-tête `Link` de Hugging Face, donc il est exact —
-  // l'ancienne heuristique (« la page est pleine ») affichait un bouton qui
-  // pouvait ne rien donner et en cachait un quand la dernière page était pleine.
+  // `has_more` comes from Hugging Face's `Link` header, so it is exact —
+  // the old heuristic (« la page est pleine ») showed a button that could
+  // yield nothing and hid one when the last page was full.
   const [hasMore, setHasMore] = useState(false);
-  // Chaque recherche porte un numéro : une réponse tardive à une frappe
-  // précédente ne doit pas écraser l'affichage de la frappe en cours (le
-  // debounce de 400 ms ne protège pas des réponses hors séquence).
+  // Each search carries a number: a late answer to a previous keystroke
+  // must not overwrite the display of the current one (the 400 ms debounce
+  // does not protect against out-of-sequence answers).
   const seq = useRef(0);
 
   const runSearch = useCallback(async (q: string, tk: string, gb10: boolean, skip = 0) => {
@@ -92,7 +92,7 @@ export default function SearchPage() {
         results: HfModel[]; page_size: number; has_more?: boolean;
         hors_gb10?: boolean | null; hf_token?: boolean;
       }>(`/api/search?${params}`);
-      if (mien !== seq.current) return; // réponse périmée : on la jette
+      if (mien !== seq.current) return; // stale answer: we drop it
       setResults((prev) => (skip > 0 ? [...(prev ?? []), ...data.results] : data.results));
       setHasMore(Boolean(data.has_more));
       setHorsGb10(data.hors_gb10 ?? null);
@@ -100,11 +100,11 @@ export default function SearchPage() {
       setError(null);
     } catch (e) {
       if (mien !== seq.current) return;
-      // On dit ce qui s'est passé, et on garde ce qui était affiché : vider la
-      // grille ferait croire à une recherche sans résultat.
-      // Un code connu (panne de Hugging Face) a sa phrase traduite : sinon un
-      // lecteur anglophone ne lit que le message français du serveur. Le détail
-      // technique (nom de l'exception) reste dans les journaux du portail.
+      // We say what happened, and keep what was displayed: emptying the
+      // grid would look like a search with no result.
+      // A known code (Hugging Face outage) has its translated sentence: otherwise
+      // an English reader only sees the French server message. The technical
+      // detail (exception name) stays in the portal logs.
       const err = e as Error & { code?: string };
       if (err.code === "hf_indisponible") {
         setError(t("Hugging Face ne répond pas. Réessaie dans un instant."));
@@ -210,11 +210,11 @@ export default function SearchPage() {
                       : t("Tape un nom de modèle pour explorer Hugging Face.")
                 }
                 description={
-                  // « Ce modèle n'existe pas » et « il est mal orthographié » se
-                  // ressemblent : la recherche de Hugging Face porte sur le NOM du
-                  // dépôt (pas sur sa description), donc « orith1.5 » ne trouve pas
-                  // « Ornith-1.5 ». Le dire, et donner le lien qui permet de
-                  // vérifier soi-même plutôt que de conclure à une panne.
+                  // « Ce modèle n'existe pas » and « il est mal orthographié » look
+                  // alike: the Hugging Face search runs over the repo NAME (not its
+                  // description), so « orith1.5 » does not find
+                  // « Ornith-1.5 ». Say it, and give the link that lets one
+                  // check for themselves rather than conclude to an outage.
                   horsGb10 === true
                     ? t("Aucun modèle GB10 ne correspond, mais il y en a sur tout Hugging Face : décoche le filtre ci-dessus.")
                     : horsGb10 === false

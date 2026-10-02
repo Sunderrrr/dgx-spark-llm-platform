@@ -22,13 +22,13 @@ export const VOICE_TARGET_SAMPLE_RATE = 24000;
 
 export type Recorder = {
   /**
-   * Le flux micro BRUT, pendant qu'il vit.
+   * The RAW mic stream, while it lives.
    *
-   * Exposé pour que le halo de voix (`voice-glow`) puisse l'analyser : la
-   * librairie ne joue jamais l'audio, elle n'en lit que le niveau. La
-   * référence reste valide après `stop()`/`cancel()`, mais ses pistes sont
-   * alors arrêtées — un consommateur se fie donc à `stop`/`cancel`, qui la
-   * vident côté React, et non à ce qu'il croit lire dans le flux.
+   * Exposed so the voice halo (`voice-glow`) can analyze it: the
+   * library never plays the audio, it only reads the level. The
+   * reference stays valid after `stop()`/`cancel()`, but its tracks are
+   * then stopped — a consumer therefore relies on `stop`/`cancel`, which
+   * clear it on the React side, not on what it thinks it reads in the stream.
    */
   stream: MediaStream;
   /** Stops the recording and returns the converted WAV. */

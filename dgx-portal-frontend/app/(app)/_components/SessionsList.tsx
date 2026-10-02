@@ -1,10 +1,10 @@
 "use client";
 
-// Liste des sessions d'un compte, partagée par la sécurité self-service
-// (Réglages → Mon compte) et le détail d'un utilisateur côté admin — même
-// présentation partout : indice navigateur/OS lisible, IP et dates.
-// L'identifiant de session n'est JAMAIS affiché : opaque, il ne sert qu'à
-// la révocation côté serveur.
+// List of an account's sessions, shared by the self-service security
+// (Réglages → Mon compte) and the admin-side user detail — same
+// presentation everywhere: readable browser/OS hint, IP and dates.
+// The session identifier is NEVER displayed: opaque, it is only used for
+// server-side revocation.
 import type { ReactNode } from "react";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
@@ -25,9 +25,9 @@ export type AccountSession = {
   current?: boolean;
 };
 
-// Indice navigateur/OS le plus courant. L'ordre compte : Edge/Opera/Android
-// contiennent aussi les marqueurs Chrome/Safari/Linux, il faut les tester
-// avant.
+// Most common browser/OS hint. Order matters: Edge/Opera/Android
+// also contain the Chrome/Safari/Linux markers, so they must be tested
+// first.
 const BROWSERS: [RegExp, string][] = [
   [/Edg\//, "Edge"],
   [/OPR\//, "Opera"],
@@ -48,8 +48,8 @@ const OSES: [RegExp, string][] = [
   [/Linux/, "Linux"],
 ];
 
-/** Chaîne user-agent → indice lisible (« Chrome · Windows »). Client inconnu :
- * tronqué, la chaîne complète reste sous le title du Text tronqué. */
+/** User-agent string → readable hint (« Chrome · Windows »). Unknown client:
+ * truncated, the full string stays under the title of the truncated Text. */
 export function describeUserAgent(ua?: string | null): string {
   const raw = (ua ?? "").trim();
   if (!raw) return "—";
@@ -65,8 +65,8 @@ export function SessionsList({
   rowAction,
 }: {
   sessions: AccountSession[];
-  /** Action par ligne (ex. bouton Révoquer côté self-service). Les sessions
-   * courantes (« Cet appareil ») n'ont jamais d'action. */
+  /** Action per row (e.g. the self-service Révoquer button). Current
+   * sessions (« Cet appareil ») never have an action. */
   rowAction?: (s: AccountSession) => ReactNode;
 }) {
   const t = useT();
@@ -89,17 +89,17 @@ export function SessionsList({
           label={s.user_agent ? describeUserAgent(s.user_agent) : t("Appareil inconnu")}
           description={
             <VStack gap={0}>
-              {/* Chaîne complète tronquée sur une ligne : le Text tronqué
-                  expose l'intégralité au survol (title). */}
+              {/* Full string truncated on one line: the truncated Text
+                  exposes the whole of it on hover (title). */}
               {s.user_agent ? (
                 <Text type="supporting" color="secondary" maxLines={1}>
                   {s.user_agent}
                 </Text>
               ) : null}
-              {/* Session ouverte avant que le portail ne note l'IP et le
-                  navigateur : un tiret seul laissait croire à un appareil
-                  exotique au lieu d'un trou dans les données. Le porteur
-                  complète sa propre ligne en ouvrant cette liste. */}
+              {/* Session opened before the portal recorded the IP and the
+                  browser: a bare dash looked like an exotic device instead
+                  of a gap in the data. The bearer completes their own row
+                  by opening this list. */}
               {!s.user_agent && !s.ip ? (
                 <Text type="supporting" color="secondary">
                   {t("Origine non enregistrée : session ouverte avant que le portail ne note l'IP et le navigateur.")}

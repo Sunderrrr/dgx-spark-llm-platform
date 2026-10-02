@@ -24,9 +24,9 @@ export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
   const weeks = Math.ceil(cells.length / 7);
 
   const max = Math.max(...days.map((d) => d.tokens), 1);
-  // Logarithmic scale: without it a spike crushes all the other days. `max` ne
-  // dépend pas de la cellule : son logarithme est hissé hors du `.map` qui rend
-  // les ~180 jours.
+  // Logarithmic scale: without it a spike crushes all the other days. `max` does
+  // not depend on the cell: its logarithm is hoisted out of the `.map` that
+  // renders the ~180 days.
   const logMax = Math.log10(max);
   const level = (t: number) => (t <= 0 ? 0 : Math.min(4, 1 + Math.floor((Math.log10(t) / logMax) * 3.99)));
   const fill = [

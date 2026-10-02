@@ -6,8 +6,10 @@ path had NO test, so nothing proved the refactor kept the refusal order nor
 the status codes. A guard refusal must never let the request through (the
 sidecar saturates the shared GPU).
 """
+import io
 import time
 import unittest
+from unittest.mock import patch
 
 import app as portal
 from db import set_setting
@@ -175,6 +177,27 @@ class DicteeTest(_BaseMedia):
         # The media quota is intact: the route crosses the guard and fails on its
         # input (400), never in 429.
         self.assertEqual(self._post(c, '/api/image/generate').status_code, 400)
+
+    def test_le_429_de_dictee_ne_declenche_pas_de_demarrage_automatique(self):
+        """Guard order is a decision: the rate refusal comes BEFORE the on-demand
+        start of the sidecar. Dictation polls every second — once its budget is
+        spent, the polls must not make the portal start a GPU service, nor touch
+        anything but the refusal."""
+        from guards import ASR_RATE_MAX
+        import sidecars
+        c = self._client("demo")
+        for _ in range(ASR_RATE_MAX):
+            self._post(c, '/api/transcribe')
+        # Patched at the docker seam (sidecars._sidecar_action, the only path to
+        # `docker start`): nothing may reach it past the guard.
+        with patch.object(sidecars, '_sidecar_action') as demarre:
+            r = c.post('/api/transcribe',
+                       data={'audio': (io.BytesIO(b'RIFFxxxxWAVE'), 'rec.wav')},
+                       headers={'X-CSRFToken': self.CSRF},
+                       content_type='multipart/form-data')
+        self.assertEqual(r.status_code, 429)
+        self.assertIn("Trop de requêtes", r.get_json()['error'])
+        demarre.assert_not_called()
 
 
 if __name__ == '__main__':

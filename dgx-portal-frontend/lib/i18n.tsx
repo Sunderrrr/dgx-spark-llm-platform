@@ -51,6 +51,8 @@ const EN: Record<string, string> = {
   "Tu peux demander plus à l'admin (accueil → « Demander plus de budget »).": "You can request more from the admin (home → \"Request more budget\").",
   "Crée d'abord une clé API (page Mes clés API) : cet assistant consomme le budget de ton compte.": "Create an API key first (My API keys page) — this assistant runs on your account budget.",
   "Erreur modèle ({status}).": "Model error ({status}).",
+  "La génération d'image est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans image.":
+    "Image generation is currently unavailable: the service is stopped. An admin can start it from the Admin area; the model will answer without an image.",
   "Boost temporaire — {user} : {total} tokens jusqu'au {date} UTC (retour à {base}).": "Temporary boost — {user}: {total} tokens until {date} UTC (back to {base}).",
   "Accorder des tokens": "Grant tokens",
   "Montant à ajouter": "Amount to add",

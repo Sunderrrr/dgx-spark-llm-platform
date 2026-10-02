@@ -38,11 +38,22 @@ def log_audit(username, action, detail):
         c = sqlite3.connect(DB_PATH, timeout=5)
         c.execute("INSERT INTO audit_log (username, action, detail, created_at) VALUES (?,?,?,?)",
                   (username or 'système', action, detail, datetime.now().isoformat()))
-        # We only keep recent history (sensitive actions are rare).
-        # 500 rows recycled within a few days on this machine (account
+        # We only keep recent history in the LIVE table (sensitive actions are
+        # rare). 500 rows recycled within a few days on this machine (account
         # lockouts and session revocations write there too, not only model
         # launches): « qui a fait quoi la semaine dernière » became
-        # unanswerable at the very moment it was asked.
+        # unanswerable at the very moment it was asked. Hence 5000.
+        # The evicted rows are ARCHIVED, not deleted (2026-10-02): the trace of
+        # admin actions must survive, and the plain DELETE that stood here threw
+        # away exactly the entries one asks for months later. `audit_log_archive`
+        # has the same schema; it grows slowly (one row per eviction batch) and
+        # rides along the SQLite backups (cronos-backup).
+        c.execute("""CREATE TABLE IF NOT EXISTS audit_log_archive (
+            id INTEGER PRIMARY KEY, username TEXT, action TEXT,
+            detail TEXT, created_at TEXT)""")
+        c.execute("""INSERT OR IGNORE INTO audit_log_archive
+                     SELECT * FROM audit_log WHERE id NOT IN (
+                         SELECT id FROM audit_log ORDER BY id DESC LIMIT 5000)""")
         c.execute("""DELETE FROM audit_log WHERE id NOT IN (
             SELECT id FROM audit_log ORDER BY id DESC LIMIT 5000)""")
         c.commit()

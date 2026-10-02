@@ -16,7 +16,7 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { sendJSON } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, tServeur } from "@/lib/i18n";
 
 function RequestForm() {
   const t = useT();
@@ -46,7 +46,7 @@ function RequestForm() {
       // translatable; the warning, for its part, comes from the server: it
       // describes a failure only it knows about.
       showToast({ body: t("Demande envoyée !"), type: "info" });
-      if (r.warning) showToast({ body: r.warning, type: "error" });
+      if (r.warning) showToast({ body: tServeur(r.warning, t), type: "error" });
       router.push("/");
     } catch {
       showToast({ body: t("Erreur lors de l'envoi de la demande."), type: "error" });
@@ -64,7 +64,7 @@ function RequestForm() {
       case "identifiant_requis":
         return t("L'identifiant du modèle est requis.");
       default:
-        return r.error || t("Erreur lors de l'envoi de la demande.");
+        return r.error ? tServeur(r.error, t) : t("Erreur lors de l'envoi de la demande.");
     }
   }
 

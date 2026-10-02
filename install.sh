@@ -63,6 +63,12 @@ if [ -f docker-compose.yml ] && [ -d dgx-portal ]; then
   REPO_DIR="$(pwd)"
 else
   log "Cloning repository to $DEFAULT_DIR"
+  # `git clone` into an existing non-empty directory only says "destination
+  # path already exists" (seen on a bench run over a copied repo, 2026-10-02):
+  # say what to do instead. A directory that IS a clone is reused as before.
+  if [ -e "$DEFAULT_DIR" ] && [ ! -d "$DEFAULT_DIR/.git" ]; then
+    die "$DEFAULT_DIR existe sans être un clone git — déplace-le ou vide-le, puis relance."
+  fi
   [ -d "$DEFAULT_DIR/.git" ] || git clone "$REPO_URL" "$DEFAULT_DIR"
   REPO_DIR="$DEFAULT_DIR"
 fi
@@ -141,6 +147,12 @@ fi
 # purpose, so that a `cp systemd/* /etc/systemd/system/` — the reflex —
 # does not drop an inert file where one thinks a protection was placed.
 if [ -f needrestart/99-vllm-runner.conf ]; then
+  # `install` does not create parent directories: on a minimal Ubuntu without
+  # the needrestart package, /etc/needrestart/conf.d/ was ABSENT and the bare
+  # `install` error aborted the script (set -e) BEFORE the systemctl enables
+  # below — units on disk, never enabled, no message (measured on a throwaway
+  # 24.04 container, 2026-10-02). Create the directory first.
+  install -d -o root -g root /etc/needrestart/conf.d
   install -o root -g root -m 0644 needrestart/99-vllm-runner.conf \
     /etc/needrestart/conf.d/99-vllm-runner.conf
 fi

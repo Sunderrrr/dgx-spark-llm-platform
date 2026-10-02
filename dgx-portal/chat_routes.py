@@ -26,13 +26,14 @@ import re
 import threading
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 from flask import (Blueprint, Response, current_app, jsonify, request, session,
                    stream_with_context)
 
 from auth import login_required
-from config import AUTO_MODEL_NAME, LITELLM_URL
+from config import AUTO_MODEL_NAME, LITELLM_URL, LOCAL_TZ
 from conversation_routes import MSG_MAX_CHARS, images_valides
 from db import get_db, log_audit
 from guards import (_chat_rate_limited, _sse_msg, _sse_notice,
@@ -151,7 +152,9 @@ def support_chat():
         _memctx = memoire._mem_inject_context(username)
         if _memctx:
             ctx += "\n\n" + _memctx
-    msgs = [{'role': 'system', 'content': SUPPORT_SYSTEM + "\n\n### CONTEXTE\n" + ctx}] + history
+    msgs = ([{'role': 'system',
+              'content': SUPPORT_SYSTEM + "\n\n### CONTEXTE\n" + _horodatage()
+              + "\n" + ctx}] + history)
     extra_tools, extra_routing = _user_extra_tools(username)
     tools = _support_tools(is_admin) + extra_tools
 
@@ -654,6 +657,25 @@ def _playground_model_vision():
     return vision
 
 
+def _horodatage():
+    """« Nous sommes le vendredi 2 octobre 2026 à 15:42 (Europe/Paris). »
+
+    The model has NO clock: asked « quelle date sommes-nous ? », MiMo answered
+    « je n'ai pas accès à la date en temps réel » (measured 2026-10-02). The
+    line is injected into the system prompt at EVERY request — not once per
+    conversation — so a thread that spans midnight stays right.
+
+    Day and month names come from tuples, not `strftime`: the container locale
+    is C and `%A` would answer in English whatever the interface language.
+    """
+    n = datetime.now(ZoneInfo(LOCAL_TZ))
+    jours = ('lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche')
+    mois = ('janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet',
+            'août', 'septembre', 'octobre', 'novembre', 'décembre')
+    return (f"Nous sommes le {jours[n.weekday()]} {n.day} {mois[n.month - 1]} "
+            f"{n.year} à {n:%H:%M} ({LOCAL_TZ}).")
+
+
 def _memoire_disponible_gib():
     """Free memory in GiB (`MemAvailable`), or None if unreadable.
 
@@ -1049,6 +1071,9 @@ def playground_chat():
         _memctx = memoire._mem_inject_context(session['username'])
         if _memctx:
             system = (system + "\n\n" + _memctx) if system else _memctx
+    # The current date/time joins the system prompt AFTER the 4000-char
+    # truncation: the model must never lose its clock to a long persona.
+    system = (system + "\n\n" if system else "") + _horodatage()
     msgs = ([{'role': 'system', 'content': system}] if system else []) + history
 
     # Web search: decided here, EXECUTED in the stream (see below). Doing it

@@ -110,4 +110,19 @@ else
   exit 1
 fi
 
+# ── 4. Frontend unit tests ──────────────────────────────────────────────────
+# The playground parsers (parseAsk, recoller, the JSON repair chain) turn model
+# output into UI: a silent regression there shows up as raw JSON in a chat
+# bubble, which no backend test can see. `node --test` runs the TS tests
+# natively (Node >= 23) with zero dependencies.
+info "Running frontend unit tests (dgx-portal-frontend: npm test)…"
+sortie=$(cd dgx-portal-frontend && npm test 2>&1); statut=$?
+if [ "$statut" -eq 0 ]; then
+  ok "Frontend tests passed"
+else
+  printf '%s\n' "$sortie" | tail -25
+  fail "Frontend tests FAILED — push aborted."
+  exit 1
+fi
+
 ok "Pre-push gate GREEN — safe to push"

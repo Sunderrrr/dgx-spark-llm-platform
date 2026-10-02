@@ -19,23 +19,37 @@ import requests
 from config import VLLM_API
 from db import get_db
 
-_rm_cache = {'t': 0.0, 'v': []}
+_rm_cache = {'t': 0.0, 'v': [], 'ok': 0.0}
+# How long a FAILED probe keeps advertising the last known model list.
+_RM_GRACE_S = 600
 
 def get_running_models():
-    """Model(s) served by vLLM. Cached ~5 s to avoid hammering
+    """Model(s) served by the engine. Cached ~5 s to avoid hammering
     /v1/models on every page render and every poll (readable vLLM logs).
+
+    A FAILED probe is NOT evidence that nothing runs — the house rule
+    « missing data is not proof of absence » applies verbatim here. The
+    engine's control plane FREEZES during a large prefill (measured
+    2026-10-02: user prompts of 45k-149k tokens, and /v1/models unreachable
+    in slices of ~15 s; the biggest held it minutes) — meanwhile every user
+    read « aucun modèle actif » and could not chat at all although the model
+    was fine and busy. The last known list is therefore kept for
+    `_RM_GRACE_S` after the last SUCCESSFUL probe; past that, the engine is
+    considered gone and the honest "no model" answer wins. A probe that
+    succeeds with an empty list still clears it: that IS proof of absence.
     """
     now = time.time()
     if now - _rm_cache['t'] < 5:
         return _rm_cache['v']
-    v = []
     try:
         r = requests.get(f"{VLLM_API}/models", timeout=3)
-        if r.ok:
-            v = [m['id'] for m in r.json().get('data', [])]
+        if not getattr(r, 'ok', True):
+            raise RuntimeError(f"/v1/models a repondu {getattr(r, 'status_code', '?')}")
+        v = [m['id'] for m in r.json().get('data', [])]
     except Exception:
-        pass
-    _rm_cache.update(t=now, v=v)
+        _rm_cache['t'] = now        # don't hammer a frozen engine every poll
+        return list(_rm_cache['v']) if now - _rm_cache['ok'] < _RM_GRACE_S else []
+    _rm_cache.update(t=now, v=v, ok=now)
     return v
 
 _VLLM_METRICS_URL = VLLM_API.rsplit('/v1', 1)[0] + '/metrics'

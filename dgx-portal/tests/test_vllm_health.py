@@ -541,5 +541,60 @@ class EnVolStatsTest(unittest.TestCase):
             self.assertEqual(stats._en_vol(), {})      # illisible
 
 
+class ModelesConnusTest(unittest.TestCase):
+    """`get_running_models` — a failed probe is NOT proof of absence.
+
+    Measured 2026-10-02: the engine's /v1/models freezes during a large
+    prefill (user prompts of 45k-149k tokens held it unreachable in ~15 s
+    slices) and every user read « aucun modèle actif » although the model was
+    fine and busy. The last known list is kept for _RM_GRACE_S after the last
+    SUCCESSFUL probe; a probe that answers with an empty list still clears it.
+    """
+
+    def setUp(self):
+        vllm_health._rm_cache.update(t=0.0, v=[], ok=0.0)
+
+    def _sonde(self, reponse=None, erreur=None):
+        def _get(*a, **k):
+            if erreur:
+                raise erreur
+            return reponse
+        return mock.patch.object(vllm_health.requests, 'get', side_effect=_get)
+
+    def test_sonde_en_echec_conserve_la_derniere_liste_connue(self):
+        rep = mock.Mock(ok=True)
+        rep.json.return_value = {'data': [{'id': 'm1'}]}
+        with self._sonde(reponse=rep):
+            self.assertEqual(vllm_health.get_running_models(), ['m1'])
+        vllm_health._rm_cache['t'] = 0.0          # force a new probe
+        with self._sonde(erreur=ConnectionError('fige pendant le prefill')):
+            self.assertEqual(vllm_health.get_running_models(), ['m1'])
+
+    def test_liste_perimee_finalement_videe(self):
+        vllm_health._rm_cache.update(t=0.0, v=['m1'],
+                                     ok=time.time() - vllm_health._RM_GRACE_S - 1)
+        with self._sonde(erreur=ConnectionError('moteur mort')):
+            self.assertEqual(vllm_health.get_running_models(), [])
+
+    def test_reponse_vraiment_videe_vide_la_liste(self):
+        vllm_health._rm_cache.update(t=0.0, v=['m1'], ok=time.time())
+        rep = mock.Mock(ok=True)
+        rep.json.return_value = {'data': []}
+        with self._sonde(reponse=rep):
+            self.assertEqual(vllm_health.get_running_models(), [])   # preuve d'absence
+
+    def test_sonde_en_echec_ne_reessaie_pas_a_chaque_appel(self):
+        vllm_health._rm_cache.update(t=0.0, v=['m1'], ok=time.time())
+        appels = []
+        def _get(*a, **k):
+            appels.append(1)
+            raise ConnectionError('fige')
+        with mock.patch.object(vllm_health.requests, 'get', side_effect=_get):
+            vllm_health.get_running_models()
+            vllm_health.get_running_models()
+            vllm_health.get_running_models()
+        self.assertEqual(len(appels), 1)          # le cache de 5 s protege le moteur fige
+
+
 if __name__ == '__main__':
     unittest.main()

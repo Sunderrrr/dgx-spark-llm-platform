@@ -23,11 +23,42 @@ import shutil
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import app as portal
 import asr_routes
 import sidecars
+
+
+class _ReqMock:
+    """Namespace `requests` SCOPED to the route under test.
+
+    Patching `asr_routes.requests.post` patches `requests.post` GLOBALLY
+    (that module attribute IS the shared package object): measured
+    2026-10-02, the app's own budget-reaper daemon thread calls LiteLLM
+    every 60 s and its call landed in such a mock — an intermittent
+    `assert_not_called` failure that haunted the gate. Replacing the whole
+    namespace in the route keeps the assertion's meaning (« the route made
+    no HTTP call ») without catching the rest of the process.
+    """
+
+    def __init__(self, post=None):
+        self.post = post if post is not None else Mock(name='requests.post')
+
+    # The tests capture the namespace and assert on its `post`: delegate the
+    # mock API so `appel.assert_not_called()` keeps working unchanged.
+    def assert_called_once(self, *a, **k):
+        self.post.assert_called_once(*a, **k)
+
+    def assert_not_called(self, *a, **k):
+        self.post.assert_not_called(*a, **k)
+
+    def assert_called(self, *a, **k):
+        self.post.assert_called(*a, **k)
+
+    @property
+    def call_count(self):
+        return self.post.call_count
 from db import set_setting
 
 
@@ -109,7 +140,7 @@ class DemarrageTest(_Base):
              patch.object(asr_routes, '_sidecar_proc_status', return_value='stopped'), \
              patch.object(sidecars, '_sidecar_action', return_value=(True, '')) as demarre, \
              patch.object(asr_routes, 'asr_demarrer_veilleur') as veilleur, \
-             patch.object(asr_routes.requests, 'post') as appel:
+             patch.object(asr_routes, 'requests', _ReqMock()) as appel:
             r = self._transcrit()
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         corps = r.get_json()
@@ -129,7 +160,7 @@ class DemarrageTest(_Base):
              patch.object(asr_routes, '_sidecar_proc_status', return_value='stopped'), \
              patch.object(asr_routes, 'asr_demarrer_veilleur'), \
              patch.object(sidecars, '_sidecar_action') as demarre, \
-             patch.object(asr_routes.requests, 'post') as appel:
+             patch.object(asr_routes, 'requests', _ReqMock()) as appel:
             r = self._transcrit()
         self.assertEqual(r.status_code, 503, r.get_data(as_text=True))
         err = r.get_json()['error'].lower()
@@ -155,7 +186,7 @@ class DemarrageTest(_Base):
         with patch.object(asr_routes, 'asr_is_up', return_value=True), \
              patch.object(asr_routes, 'asr_demarrer_veilleur'), \
              patch.object(sidecars, '_sidecar_action') as demarre, \
-             patch.object(asr_routes.requests, 'post', return_value=_R()) as appel:
+             patch.object(asr_routes, 'requests', _ReqMock(Mock(return_value=_R()))) as appel:
             r = self._transcrit()
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()['text'], 'bonjour le monde')
@@ -173,7 +204,7 @@ class DemarrageTest(_Base):
                           return_value='CUDA error: out of memory'), \
              patch.object(asr_routes, 'asr_demarrer_veilleur'), \
              patch.object(sidecars, '_sidecar_action') as demarre, \
-             patch.object(asr_routes.requests, 'post') as appel:
+             patch.object(asr_routes, 'requests', _ReqMock()) as appel:
             r = self._transcrit()
         self.assertEqual(r.status_code, 503)
         self.assertIn('CUDA error', r.get_json()['error'])
@@ -189,7 +220,7 @@ class DemarrageTest(_Base):
                   patch.object(asr_routes, 'asr_is_up', return_value=False),
                   patch.object(asr_routes, '_sidecar_proc_status', return_value='stopped'),
                   patch.object(asr_routes, 'asr_demarrer_veilleur'),
-                  patch.object(asr_routes.requests, 'post'))
+                  patch.object(asr_routes, 'requests', _ReqMock()))
         for p in commun:
             p.start()
         try:

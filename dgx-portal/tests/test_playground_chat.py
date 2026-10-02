@@ -274,11 +274,19 @@ class FluxSSETest(_BasePlayground):
 
     def test_timeout_de_lecture_est_une_erreur_de_transport(self):
         """LiteLLM unreachable is NOT a model error: the answer must say so, not
-        announce a code 0."""
+        announce a code 0. The notice is STRUCTURED (`model_unreachable`): the
+        frontend writes the sentence, the server sends no text."""
         import requests as _rq
         corps = self._flux(self._corps(),
                            post=self._amont_unique(None, erreur=_rq.exceptions.ConnectTimeout()))
-        self.assertIn('stream interrupted', corps.lower())
+        self.assertIn('cronos_notice', corps)
+        self.assertIn('model_unreachable', corps)
+        self.assertNotIn('erreur (0)', corps)
+        # The READ timeout (anti-stuck slot) is "no answer in time", which is
+        # another id of the same contract — never a model error either.
+        corps = self._flux(self._corps(),
+                           post=self._amont_unique(None, erreur=_rq.exceptions.ReadTimeout()))
+        self.assertIn('model_timeout', corps)
         self.assertNotIn('erreur (0)', corps)
 
 
@@ -414,15 +422,15 @@ class GardesTest(_BasePlayground):
 
     def test_message_vide(self):
         corps = self._flux({'messages': []})
-        self.assertIn('Empty message.', corps)
+        self.assertIn('empty_message', corps)
 
     def test_roles_inconnus_ignores(self):
         corps = self._flux({'messages': [{'role': 'tool', 'content': 'x'}]})
-        self.assertIn('Empty message.', corps)
+        self.assertIn('empty_message', corps)
 
     def test_aucun_modele(self):
         corps = self._flux(self._corps(), running=())
-        self.assertIn('No model is currently running.', corps)
+        self.assertIn('no_model_running', corps)
 
     def test_modele_inconnu_retombe_sur_le_modele_servi(self):
         vus = []
@@ -472,7 +480,29 @@ class GardesTest(_BasePlayground):
                 session['username'] = 'demo'
                 session['auth_at'] = int(time.time())
                 corps = chat.playground_chat().get_data(as_text=True)
-        self.assertIn('7s', corps)
+        self.assertIn('chat_rate_limited', corps)
+        self.assertIn('"wait": 7', corps)
+
+    def test_rate_limit_notice_structuree_sans_phrase(self):
+        """The rate-limit refusal is a STRUCTURED notice, exactly
+        `{"cronos_notice": {"id": "chat_rate_limited", "wait": N}}`: the server
+        sends the id and the wait, the frontend writes the sentence. No raw
+        French sentence may leak into the stream."""
+        with ExitStack() as stack:
+            self._standard(stack)
+            stack.enter_context(patch.object(chat, '_chat_rate_limited', return_value=12))
+            with portal.app.test_request_context('/playground/chat', method='POST',
+                                                 json=self._corps()):
+                session['username'] = 'demo'
+                session['auth_at'] = int(time.time())
+                corps = chat.playground_chat().get_data(as_text=True)
+        trames = [l for l in corps.splitlines() if l.startswith('data: ')]
+        payloads = [json.loads(l[6:]) for l in trames if l != 'data: [DONE]']
+        self.assertEqual(payloads,
+                         [{'cronos_notice': {'id': 'chat_rate_limited', 'wait': 12}}])
+        self.assertEqual(trames[-1], 'data: [DONE]')
+        for phrase in ('Trop de', 'réessaie', 'messages', 'choices'):
+            self.assertNotIn(phrase, corps)
 
     def test_csrf_manquant_refuse_400(self):
         r = self._client().post('/playground/chat', json=self._corps())
@@ -488,7 +518,7 @@ class GardesTest(_BasePlayground):
                                 headers={'X-CSRFToken': self.CSRF,
                                          'Content-Type': 'application/json'})
         self.assertEqual(r.status_code, 200)
-        self.assertIn(b'Empty message.', r.data)
+        self.assertIn(b'empty_message', r.data)
 
 
 # ── 4. Client abandonment and metrics ──────────────────────────────────────

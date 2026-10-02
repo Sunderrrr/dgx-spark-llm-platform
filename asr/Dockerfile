@@ -1,6 +1,6 @@
-# Whisper (transcription pour la dictée), construit pour le GB10 (Blackwell,
-# sm_121) : même base CUDA 13.0 + torch cu130 que les conteneurs voix, seule
-# combinaison validée sur cette machine aarch64.
+# Whisper (transcription for dictation), built for the GB10 (Blackwell,
+# sm_121): same CUDA 13.0 + torch cu130 base as the voice containers, the only
+# combination validated on this aarch64 machine.
 FROM docker.io/nvidia/cuda:13.0.3-runtime-ubuntu22.04@sha256:ea99f417d171352c988c499da1c4facb89fa166c95bde42cc659cd174f6e7bea
 
 ENV PYTHONDONTWRITEBYTECODE=1

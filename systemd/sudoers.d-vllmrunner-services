@@ -1,16 +1,16 @@
-# Installé par install.sh (§7c, mode 0440 exigé par sudo). Versionné depuis
-# l'audit du 2026-10-01 : il n'existait que sur la machine, donc une
-# reconstruction désarmait silencieusement Admin → Launch des sidecars média.
+# Installed by install.sh (§7c, mode 0440 required by sudo). Versioned since
+# the 2026-10-01 audit: it only existed on the machine, so a rebuild silently
+# disarmed Admin → Launch of the media sidecars.
 #
-# Contrôle scoped des conteneurs OCR et voix (docker) et du service vidéo
-# ComfyUI (systemd), utilisé par vllm-runner (runner.py, routes /ocr/*,
-# /video/* et /voice/*) pour le start/stop/relance demandé depuis l'admin
-# dgx-portal. Commandes fixes (start/stop/status), sans argument variable ni
-# wildcard, sauf pour ocr-recreate.sh (hf_model_id + flags vLLM) et
-# voice-recreate.sh (repo_id) dont les arguments sont validés côté Python
-# (runner.py, _validate_vllm_args / liste blanche fermée pour repo_id) avant
-# l'appel sudo — voir chaque script pour le détail de pourquoi c'est sûr
-# même avec des arguments variables (jamais interprétés par un shell).
+# Scoped control of the OCR and voice containers (docker) and the ComfyUI video
+# service (systemd), used by vllm-runner (runner.py, routes /ocr/*, /video/*
+# and /voice/*) for the start/stop/relaunch requested from the dgx-portal
+# admin. Fixed commands (start/stop/status), with no variable argument nor
+# wildcard, except for ocr-recreate.sh (hf_model_id + vLLM flags) and
+# voice-recreate.sh (repo_id) whose arguments are validated on the Python side
+# (runner.py, _validate_vllm_args / closed allowlist for repo_id) before the
+# sudo call — see each script for the detail of why it is safe even with
+# variable arguments (never interpreted by a shell).
 vllmrunner ALL=(root) NOPASSWD: /usr/bin/systemctl start comfyui.service
 vllmrunner ALL=(root) NOPASSWD: /usr/bin/systemctl stop comfyui.service
 vllmrunner ALL=(root) NOPASSWD: /usr/bin/systemctl is-active comfyui.service

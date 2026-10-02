@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
-"""Crée (ou réinitialise) le compte de démonstration `demo`, utilisé pour les
-captures d'écran publiées dans le README.
+"""Create (or reset) the `demo` demonstration account, used for the
+screenshots published in the README.
 
-Pourquoi un compte dédié : les captures d'écran montrent l'interface telle qu'un
-utilisateur la voit — elles ne doivent exposer ni le compte personnel de
-l'exploitant, ni celui d'un collègue. Ce compte est un compte ordinaire
-(non administrateur, aucun groupe, quota par défaut), avec la mémoire activée et
-l'interface en anglais.
+Why a dedicated account: screenshots show the UI as a user sees it — they must
+expose neither the operator's personal account nor a colleague's. This account
+is an ordinary one (non-admin, no group, default quota), with memory enabled and
+the UI in English.
 
-Le script s'exécute DANS le conteneur du portail : il a besoin du code et de la
-base du portail, et il crée l'enveloppe de budget LiteLLM par le même helper que
-la route d'administration (`_sync_local_user_budget`) — jamais en écrivant
-directement dans LiteLLM.
+The script runs INSIDE the portal container: it needs the portal's code and
+database, and it creates the LiteLLM budget envelope through the same helper as
+the admin route (`_sync_local_user_budget`) — never by writing into LiteLLM
+directly.
 
     docker cp scripts/create-demo-account.py dgx-portal:/tmp/
     docker exec -u 10001 -e DEMO_PW="$(cat /root/shots/demo-credentials)" \
         dgx-portal python3 /tmp/create-demo-account.py
 
-Le mot de passe n'est jamais écrit en clair dans le dépôt : il vient de
-l'environnement et se conserve hors dépôt (ex. /root/shots/demo-credentials).
+The password is never written in clear in the repo: it comes from the
+environment and is kept outside the repo (e.g. /root/shots/demo-credentials).
 """
 import os
 import sys
@@ -43,8 +42,8 @@ with portal.app.app_context():
         " max_budget, enabled, created_at) VALUES (?,?,?,?,?,?,1,?)",
         (USER, generate_password_hash(os.environ['DEMO_PW']), 'Demo account', 0, None, None,
          datetime.now().isoformat()))
-    # Langue anglaise (les captures publiées le sont en anglais) et mémoire
-    # activée ; `onboarded` évite la visite guidée au premier chargement.
+    # English language (the published screenshots are in English) and memory
+    # enabled; `onboarded` skips the guided tour on first load.
     db.execute(
         "INSERT INTO user_prefs (username, avatar_id, theme_id, lang, onboarded, memory_enabled)"
         " VALUES (?,?,?,?,?,?)", (USER, 'avatar-01', 'neutral', 'en', 1, 1))

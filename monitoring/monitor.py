@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
-"""Sonde de santé des services « cœur » de CrOS — alerte email (hôte).
+"""Health probe for the « cœur » services of CrOS — email alert (host).
 
-On sonde le cœur toujours-up de la plateforme et on envoie un email à
-ADMIN_EMAIL quand un service tombe puis se rétablit. De la même façon que la
-bascule de maintenance, l'envoi est un no-op si le SMTP n'est pas configuré.
+We probe the always-up core of the platform and send an email to ADMIN_EMAIL
+when a service falls and then recovers. Like the maintenance failover, sending
+is a no-op if SMTP is not configured.
 
-Ce qui est sondé (toujours censé être up) :
-  - vllm-runner          → daemon systemd (port 8001, répond 200/401)
-  - traefik              → conteneur (docker inspect)
-  - litellm              → conteneur (docker inspect)
-  - litellm-postgres     → conteneur (docker inspect)
-  - dgx-portal           → conteneur (docker inspect)
-  - dgx-portal-frontend  → conteneur (docker inspect)
+What is probed (always supposed to be up):
+  - vllm-runner          → systemd daemon (port 8001, answers 200/401)
+  - traefik              → container (docker inspect)
+  - litellm              → container (docker inspect)
+  - litellm-postgres     → container (docker inspect)
+  - dgx-portal           → container (docker inspect)
+  - dgx-portal-frontend  → container (docker inspect)
 
-Ce qui N'est PAS sondé : vLLM (:8000) et les sidecars média (OCR/voix/musique/
-image/ComfyUI/ASR) — ils sont *on-demand* (démarrés/arrêtés à la demande) ; les
-alerter produirait des faux positifs. Leur état reste visible dans /health.
+What is NOT probed: vLLM (:8000) and the media sidecars (OCR/voice/music/
+image/ComfyUI/ASR) — they are *on-demand* (started/stopped on request);
+alerting on them would produce false positives. Their state stays visible in
+/health.
 
-État « sticky » : un fichier d'état mémorise les services actuellement down,
-pour n'envoyer QU'UNE alerte par incident (et un email de rétablissement).
-Aucune donnée sensible n'y est écrite.
+« sticky » state: a state file records the services currently down, so that
+only ONE alert per incident is sent (and a recovery email). No sensitive data
+is written there.
 
-Usage :
-  python3 monitor.py              # sonde + envoi selon transition
-  python3 monitor.py --init       # ne fait que mémoriser l'état courant (aucun email)
-  python3 monitor.py --dry-run    # sonde + affiche, n'envoie rien
-  python3 monitor.py --list       # liste les services et leur état
-  python3 monitor.py --state PATH # fichier d'état personnalisé
+Usage:
+  python3 monitor.py              # probe + send on transition
+  python3 monitor.py --init       # only memorize the current state (no email)
+  python3 monitor.py --dry-run    # probe + display, send nothing
+  python3 monitor.py --list       # list the services and their state
+  python3 monitor.py --state PATH # custom state file
 """
 import argparse
 import html
@@ -43,8 +44,8 @@ ENV_FILE = os.path.join(ROOT, ".env")
 STATE = "/var/lib/cronos-monitor/state.json"
 APP_NAME = "DGX platform"
 
-# Services sondés : (clé, type, cible, attendu). « expect » = codes HTTP qui
-# comptent comme « up » pour un probe HTTP.
+# Probed services: (key, type, target, expected). « expect » = HTTP codes that
+# count as « up » for an HTTP probe.
 SERVICES = [
     ("vllm-runner", "http", "http://127.0.0.1:8001/status", (200, 401)),
     ("traefik", "container", "traefik", None),
@@ -54,28 +55,28 @@ SERVICES = [
     ("dgx-portal-frontend", "container", "dgx-portal-frontend", None),
 ]
 
-# Sauvegarde nocturne : un dump trop ancien = incident (rétention/maintenance).
+# Nightly backup: a dump too old = incident (retention/maintenance).
 BACKUP_DIR = "/var/backups/cronos"
 BACKUP_MAX_AGE_H = 26  # cronos-backup tourne à 03:00 → < 26 h = toujours frais
 
-# Intégrité des données : le 04/09/2026 le contenu de portal.db a été
-# réinitialisé et personne ne l'a vu pendant trois jours. On garde un
-# FILIGRANE du volume de données vu et on alerte si le compteur chute sous
-# 40 % — un utilisateur qui supprime ses propres conversations peut déclencher
-# un faux positif (un email), un reset silencieux coûte trois jours.
+# Data integrity: on 04/09/2026 the contents of portal.db were reset and nobody
+# noticed for three days. We keep a WATERMARK of the data volume seen and alert
+# if the counter drops below 40 % — a user deleting their own conversations can
+# trigger a false positive (one email), a silent reset costs three days.
 PORTAL_DB = "/var/lib/docker/volumes/ai-platform_portal_data/_data/portal.db"
-# Conservé pour la documentation : c'est le chemin RÉEL de la base, mais l'unité
-# ne peut pas l'ouvrir (volume 0700 uid 10001, moniteur sans CAP_DAC_OVERRIDE).
-# Toute lecture doit passer par COMPTEURS_CODE, ci-dessous.
+# Kept for documentation: this is the REAL path of the database, but the unit
+# cannot open it (0700 uid 10001 volume, monitor without CAP_DAC_OVERRIDE).
+# Any read must go through COMPTEURS_CODE, below.
 DATA_DROP_RATIO = 0.4   # alerte sous 40 % du filigrane
 DATA_FLOOR = 20         # jamais d'alerte tant que le filigrane est < 20
 
-# Les compteurs sont lus DANS le conteneur du portail, pas sur ce chemin : depuis
-# le durcissement de l'unité (CapabilityBoundingSet vide) le moniteur n'a plus
-# CAP_DAC_OVERRIDE, et le volume appartient à uid 10001 en 0700. La sonde
-# renvoyait alors « db illisible » ET `up=True` — donc plus aucune alerte, ce qui
-# était précisément la panne qu'elle existe pour attraper (reset silencieux du
-# 04/09/2026, passé inaperçu trois jours). Le conteneur, lui, possède la base.
+# The counters are read INSIDE the portal container, not on this path: since
+# the unit was hardened (empty CapabilityBoundingSet) the monitor no longer has
+# CAP_DAC_OVERRIDE, and the volume belongs to uid 10001 in 0700. The probe then
+# returned « db illisible » AND `up=True` — so no more alerts at all, which was
+# precisely the failure it exists to catch (silent reset of 04/09/2026,
+# unnoticed for three days). The container, on the other hand, owns the
+# database.
 COMPTEURS_CODE = (
     "import sqlite3;c=sqlite3.connect('file:/app/data/portal.db?mode=ro',uri=True);"
     "print(c.execute('SELECT COUNT(*) FROM conversations').fetchone()[0],"
@@ -85,7 +86,7 @@ COMPTEURS_CODE = (
 
 
 def _data_intact(watermark):
-    """(up, detail, compteurs) : conversations + jobs média vs filigrane."""
+    """(up, detail, counters): conversations + media jobs vs watermark."""
     import subprocess
     try:
         r = subprocess.run(["docker", "exec", "dgx-portal", "python3", "-c", COMPTEURS_CODE],
@@ -94,7 +95,7 @@ def _data_intact(watermark):
             raise RuntimeError((r.stderr or "").strip()[:200] or f"docker exec rc={r.returncode}")
         conv, jobs = (int(x) for x in r.stdout.split())
     except Exception as exc:
-        # Illisible : c'est le rôle des sondes conteneur de le signaler.
+        # Unreadable: it is the container probes' job to report it.
         return True, f"db illisible ({exc})", {"conversations": None, "jobs": None}
     wm_conv = max(int(watermark.get("conversations") or 0), conv)
     wm_jobs = max(int(watermark.get("jobs") or 0), jobs)
@@ -109,12 +110,12 @@ def _data_intact(watermark):
 
 
 def _backup_fresh():
-    """(up, detail, info) : le dump portal le plus récent doit dater de < 26 h.
+    """(up, detail, info): the most recent portal dump must be < 26 h old.
 
-    `info` (nom, âge, nombre de dumps) est recopié dans l'état sticky pour que le
-    PORTAIL puisse l'afficher : c'est le seul canal lisible par le conteneur, où
-    `/var/backups/cronos` est en 0700 root et les dumps en 0600 — c'est voulu,
-    ils contiennent la base entière. Le moniteur, lui, tourne en root.
+    `info` (name, age, number of dumps) is copied into the sticky state so the
+    PORTAL can display it: it is the only channel readable by the container,
+    where `/var/backups/cronos` is 0700 root and the dumps 0600 — that is on
+    purpose, they hold the whole database. The monitor itself runs as root.
     """
     import glob
     import time
@@ -134,7 +135,7 @@ def _backup_fresh():
 
 
 def _load_env(path=ENV_FILE):
-    """Lit KEY=VALUE d'un fichier .env (ignore les commentaires)."""
+    """Read KEY=VALUE from a .env file (comments ignored)."""
     env = {}
     with open(path) as fh:
         for line in fh:
@@ -152,7 +153,7 @@ def _http_up(url, expect):
         with urllib.request.urlopen(url, timeout=5) as resp:
             return resp.status in expect
     except urllib.error.HTTPError as exc:
-        # 401/403 (auth requise) = le service répond → up.
+        # 401/403 (auth required) = the service answers → up.
         return exc.code in expect
     except Exception:
         return False
@@ -170,22 +171,22 @@ def _container_up(name):
 
 
 def probe(watermark=None):
-    """Retourne {clé: {"up": bool, "detail": str}}."""
+    """Return {key: {"up": bool, "detail": str}}."""
     state = {}
     for key, kind, target, expect in SERVICES:
-        # `detail` valait `target` dans les DEUX branches d'un try/except qui
-        # n'enveloppait qu'une affectation : il ne protegeait rien et
-        # s'executait a chaque sonde (toutes les 5 min).
+        # `detail` was `target` in BOTH branches of a try/except that wrapped
+        # only one assignment: it protected nothing and ran at every probe
+        # (every 5 min).
         detail = target
         up = _http_up(target, expect) if kind == "http" else _container_up(target)
         state[key] = {"up": up, "detail": detail}
-    # Sauvegarde nocturne : elle doit être fraîche, sinon c'est un incident —
-    # on passe par le même mécanisme sticky (1 alerte par incident, email de
-    # rétablissement au retour).
+    # Nightly backup: it must be fresh, otherwise it is an incident — we go
+    # through the same sticky mechanism (1 alert per incident, recovery email on
+    # return).
     bu, bdetail, binfo = _backup_fresh()
     state["backup"] = {"up": bu, "detail": bdetail, **binfo}
-    # Intégrité des données : le filigrane (mémorisé dans le state) alimente
-    # la détection de chute massive — même mécanisme sticky que les services.
+    # Data integrity: the watermark (stored in the state) feeds the massive
+    # drop detection — same sticky mechanism as the services.
     du, ddetail, compteurs = _data_intact(watermark or {})
     state["donnees"] = {"up": du, "detail": ddetail, **compteurs}
     return state
@@ -279,8 +280,8 @@ def main():
 
     cur = probe(wm)
     down = {k: v for k, v in cur.items() if not v["up"]}
-    # Filigrane : jamais décroissant (max entre vu et mémorisé) — une lecture
-    # impossible (conteneur arrêté) ne réinitialise donc pas la référence.
+    # Watermark: never decreasing (max between seen and stored) — a failed read
+    # (container stopped) therefore does not reset the reference.
     d = cur.get("donnees", {})
     wm = {
         "conversations": max(int(wm.get("conversations") or 0),
@@ -297,7 +298,7 @@ def main():
         print("DOWN services:", ", ".join(down) if down else "none (all up)")
         return 0
 
-    # --init : mémorise l'état sans envoyer (évite un burst au déploiement).
+    # --init: memorize the state without sending (avoids a burst at deploy time).
     if args.init:
         _save_state(args.state, {"down": sorted(down), "data_watermark": wm,
                                  "backup": cur.get("backup") or {}})
@@ -310,16 +311,17 @@ def main():
         _send(f"[DGX platform] Alert — services down",
               {k: down[k] for k in newly_down})
         print(f"alert sent for: {newly_down}")
-    # Email de rétablissement uniquement quand l'incident est résolu.
+    # Recovery email only when the incident is resolved.
     if not down and recovered:
         _send("[DGX platform] Services back up",
               {k: cur[k] for k in recovered})
         print(f"recovery sent for: {recovered}")
 
-    # L'état écrit est reconstruit ici, pas recopié de `cur` : on n'y garde que
-    # le sticky (`down`) et le filigrane. `backup` est ajouté explicitement parce
-    # que c'est le SEUL canal par lequel le portail peut afficher la fraîcheur du
-    # dump — `/var/backups/cronos` est en 0700 root, le conteneur n'y voit rien.
+    # The state written is rebuilt here, not copied from `cur`: we keep only the
+    # sticky (`down`) and the watermark in it. `backup` is added explicitly
+    # because it is the ONLY channel through which the portal can show the
+    # freshness of the dump — `/var/backups/cronos` is 0700 root, the container
+    # sees nothing there.
     _save_state(args.state, {"down": sorted(down), "data_watermark": wm,
                              "backup": cur.get("backup") or {}})
     return 0

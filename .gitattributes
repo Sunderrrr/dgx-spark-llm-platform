@@ -1,13 +1,12 @@
-# Normalisation pour tous les contributeurs, quel que soit leur poste.
+# Normalization for all contributors, whatever their machine.
 #
-# Pourquoi : ce dépôt est déployé depuis un DGX sous Linux, mais il est aussi
-# édité depuis macOS et Windows. Sans cette règle, un fichier réécrit sous Windows
-# arrive avec des fins de ligne CRLF : `bash -n` refuse alors tous les scripts,
-# `git diff` montre le fichier entier comme modifié, et une unité systemd ou un
-# Dockerfile recopié tel quel échoue pour une raison invisible à l'œil.
-# `text=auto` normalise dans le dépôt et laisse Git choisir à l'extraction ;
-# les images et les polices sont explicitement binaires, sinon Git les
-# « répare » en traversant les octets et corrompt le fichier.
+# Why: this repo is deployed from a Linux DGX, but it is also edited from macOS
+# and Windows. Without this rule, a file rewritten under Windows arrives with
+# CRLF line endings: `bash -n` then rejects every script, `git diff` shows the
+# whole file as modified, and a systemd unit or Dockerfile copied as-is fails
+# for a reason invisible to the eye. `text=auto` normalizes in the repo and
+# lets Git choose on checkout; images and fonts are explicitly binary,
+# otherwise Git "repairs" them by mangling the bytes and corrupts the file.
 * text=auto eol=lf
 
 *.png binary
@@ -20,17 +19,17 @@
 *.woff2 binary
 *.pdf binary
 
-# Le verrou de dépendances est généré : `linguist-generated=true` le replie dans
-# les diffs et le sort des statistiques de langage. En revanche PAS de `-diff` :
-# il rendait le fichier binaire pour Git, donc tout changement de version
-# INVISIBLE en revue. Mesuré le 2026-10-01 sur le correctif de `brace-expansion` :
-# la seule trace était « Bin 251602 -> 251628 bytes ». Or un verrou est justement
-# ce qu'un relecteur doit voir quand il bouge — c'est là qu'un paquet remplacé ou
-# une dépendance non voulue se repèrent.
+# The dependency lock is generated: `linguist-generated=true` folds it into
+# the diffs and takes it out of the language statistics. On the other hand NO
+# `-diff`: it made the file binary for Git, so every version change became
+# INVISIBLE in review. Measured on 2026-10-01 on the `brace-expansion` fix: the
+# only trace was « Bin 251602 -> 251628 bytes ». Yet a lockfile is precisely
+# what a reviewer must see moving — that is where a replaced package or an
+# unwanted dependency gets spotted.
 package-lock.json linguist-generated=true
 
-# `git archive` (tarball de release) n'a pas besoin de l'outillage de
-# développement : ni les modèles d'issues, ni la CI, ni les captures d'écran.
+# `git archive` (release tarball) does not need the development tooling:
+# neither the issue templates, nor the CI, nor the screenshots.
 .github/ export-ignore
 scripts/ export-ignore
 assets/ export-ignore

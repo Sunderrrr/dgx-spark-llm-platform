@@ -5,14 +5,15 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-# Tourne en root : le .env (600) et le socket docker y sont accessibles.
+# Runs as root: the .env (600) and the docker socket are accessible there.
 ExecStart=/usr/bin/python3 /root/ai-platform/monitoring/monitor.py
 TimeoutStartSec=60
-# Durcissement (2026-09-24) : l'unité tourne en root sans qu'aucune de ces
-# capacités ne lui serve. `ProtectSystem=strict` rend tout le système de
-# fichiers en lecture seule (le .env reste LISIBLE, `ProtectHome=read-only` ne
-# le cache pas) et `ReadWritePaths` n'ouvre que ce que le moniteur écrit :
-# son état sticky, et `/root/.docker` (le CLI docker y touche son état buildx).
+# Hardening (2026-09-24): the unit runs as root with none of these
+# capabilities being of any use to it. `ProtectSystem=strict` makes the whole
+# filesystem read-only (the .env stays READABLE, `ProtectHome=read-only` does
+# not hide it) and `ReadWritePaths` opens only what the monitor writes: its
+# sticky state, and `/root/.docker` (the docker CLI touches its buildx state
+# there).
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict

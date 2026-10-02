@@ -1,34 +1,34 @@
 [Unit]
 Description=Empeche le reseau des sidecars de recherche web (SearXNG, crawl4ai) d'atteindre l'hote
-# crawl4ai pilote un navigateur qui visite des pages entierement controlees par
-# des tiers : une page hostile peut le rediriger vers une adresse interne (SSRF).
-# Son reseau docker dedie n'a deja aucune route vers litellm/postgres, et
-# DOCKER-USER bloque les ports du runner/vLLM, mais la machine hote reste
-# joignable sur les ports non couverts (constate : SSH accepte la connexion en
-# 0,05 s depuis ce reseau). On coupe donc toute connexion NEUVE de ce reseau
-# vers l'hote. Le trafic sortant vers Internet passe par FORWARD/MASQUERADE et
-# n'est pas concerne : les recherches continuent de fonctionner.
+# crawl4ai drives a browser visiting pages entirely controlled by third
+# parties: a hostile page can redirect it to an internal address (SSRF).
+# Its dedicated docker network already has no route to litellm/postgres, and
+# DOCKER-USER blocks the runner/vLLM ports, but the host machine stays
+# reachable on the ports not covered (observed: SSH accepts the connection in
+# 0.05 s from this network). So we cut every NEW connection from this network
+# to the host. Outbound traffic to the Internet goes through FORWARD/MASQUERADE
+# and is not affected: searches keep working.
 After=network.target docker.service
 Requires=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Le sous-reseau n'est volontairement PAS epingle dans docker-compose.yml (le
-# figer force docker a recreer le reseau) : on le lit donc a chaud.
+# The subnet is deliberately NOT pinned in docker-compose.yml (pinning it
+# forces docker to recreate the network): so we read it at runtime.
 #
-# DEUX filtres, pas un (audit du 2026-10-02). Le premier est l'INPUT historique
-# (crawl4ai n'atteint plus les ports de l'hote). Le second manquait : une page
-# hostile peut REDIRIGER le navigateur vers une adresse du LAN, et ce trafic la
-# ne passe pas par INPUT mais par FORWARD (masquerade) — il n'etait filtre par
-# RIEN, donc le crawler pouvait sonder 172.16.2.x ou le plan netbird. On coupe
-# donc les destinations privees depuis DOCKER-USER, le premier maillon de
-# FORWARD et le point que Docker documente pour ce genre de regle.
+# TWO filters, not one (audit of 2026-10-02). The first is the historical INPUT
+# one (crawl4ai no longer reaches the host's ports). The second was missing: a
+# hostile page can REDIRECT the browser to a LAN address, and that traffic does
+# not go through INPUT but through FORWARD (masquerade) — it was filtered by
+# NOTHING, so the crawler could probe 172.16.2.x or the netbird plane. So we
+# cut private destinations from DOCKER-USER, the first link of FORWARD and the
+# point Docker documents for this kind of rule.
 #
-# Ce qui reste volontairement ouvert : le trafic INTERNE a web_net (crawl4ai ->
-# SearXNG, meme sous-reseau) et Internet (adresses publiques). Le RETURN sur le
-# sous-reseau lui-meme est insere AVANT les DROP — sans lui, la recherche web
-# serait morte (SearXNG est dans 172.16.0.0/12).
+# What deliberately stays open: INTERNAL traffic on web_net (crawl4ai ->
+# SearXNG, same subnet) and the Internet (public addresses). The RETURN on the
+# subnet itself is inserted BEFORE the DROPs — without it, web search would be
+# dead (SearXNG sits in 172.16.0.0/12).
 ExecStart=/bin/sh -c '\
 SUB=$(docker network inspect ai-platform_web_net -f "{{range .IPAM.Config}}{{.Subnet}}{{end}}" 2>/dev/null); \
 [ -n "$SUB" ] || exit 0; \

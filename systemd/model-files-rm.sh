@@ -1,22 +1,22 @@
 #!/bin/bash
-# Efface du disque les fichiers d'un modèle de chat retiré du catalogue.
-# Appelé par vllm-runner (non privilégié) via sudo scoped, quand un admin
-# supprime un modèle depuis le portail : les poids appartiennent à root, le
-# runner ne peut pas les effacer lui-même.
+# Erase from disk the files of a chat model removed from the catalog.
+# Called by vllm-runner (unprivileged) via scoped sudo, when an admin deletes a
+# model from the portal: the weights belong to root, the runner cannot delete
+# them itself.
 #
-# Mêmes garanties que ocr-recreate.sh / image-recreate.sh : deux arguments,
-# revalidés ICI (le runner les a déjà validés, mais ce script est la dernière
-# barrière avant un rm -rf en root), jamais interprétés par un shell.
+# Same guarantees as ocr-recreate.sh / image-recreate.sh: two arguments,
+# revalidated HERE (the runner already validated them, but this script is the
+# last barrier before a root rm -rf), never interpreted by a shell.
 #
-#   model-files-rm.sh local <dossier>   → /root/models/<dossier>
-#   model-files-rm.sh hf <org>/<nom>    → <hub>/models--<org>--<nom>
+#   model-files-rm.sh local <folder>   → /root/models/<folder>
+#   model-files-rm.sh hf <org>/<name>  → <hub>/models--<org>--<name>
 #
-# Refuse : tout `..`, un lien symbolique, un dossier absent, et les dossiers des
-# AUTRES services (gabarits, upscaler, image, voix, transcription) — un modèle
-# de chat ne les référence jamais, mais une saisie malheureuse ne doit pas
-# pouvoir les emporter.
-# Sortie : le nombre d'octets libérés sur stdout.
-# Codes : 2 argument invalide, 3 absent, 4 protégé.
+# Refuses: any `..`, a symlink, a missing folder, and the folders of the OTHER
+# services (templates, upscaler, image, voice, transcription) — a chat model
+# never references them, but an unlucky input must not be able to take them
+# out.
+# Output: the number of bytes freed on stdout.
+# Codes: 2 invalid argument, 3 missing, 4 protected.
 set -euo pipefail
 
 if [ $# -ne 2 ]; then

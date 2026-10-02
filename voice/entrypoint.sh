@@ -1,13 +1,13 @@
 #!/bin/bash
-# dgx-portal envoie un échantillon de référence FRAIS à /upload_reference à
-# chaque génération (nom aléatoire, jamais réutilisé — voir voice_clone() dans
-# app.py) et Chatterbox n'expose aucune route de suppression : sans ce
-# nettoyage, /app/reference_audio grossit indéfiniment (jusqu'à 15 Mo par
-# génération). Le fichier n'est utile que le temps de l'appel /tts qui suit
-# immédiatement l'upload, donc une TTL d'une heure est très large.
+# dgx-portal sends a FRESH reference sample to /upload_reference at every
+# generation (random name, never reused — see voice_clone() in app.py) and
+# Chatterbox exposes no deletion route: without this cleanup,
+# /app/reference_audio grows indefinitely (up to 15 MB per generation). The
+# file is only useful for the /tts call that immediately follows the upload,
+# so a one-hour TTL is very generous.
 #
-# Tourne dans le conteneur lui-même plutôt que côté portail : celui-ci est
-# non-root et n'a aucun accès au système de fichiers de ce conteneur.
+# Runs inside the container itself rather than on the portal side: the portal
+# is non-root and has no access to this container's filesystem.
 set -euo pipefail
 
 cleanup_loop() {

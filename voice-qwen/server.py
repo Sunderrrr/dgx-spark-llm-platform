@@ -1,13 +1,13 @@
-"""Service HTTP minimal autour de Qwen3-TTS (clonage de voix zero-shot).
+"""Minimal HTTP service around Qwen3-TTS (zero-shot voice cloning).
 
-Qwen ne fournit pas de serveur : vLLM-Omni ne fait pour l'instant que de
-l'inférence offline, et le seul serveur amont est une démo Gradio. On expose
-donc nous-mêmes le strict nécessaire pour dgx-portal.
+Qwen ships no server: vLLM-Omni currently only does offline inference, and the
+only upstream server is a Gradio demo. So we expose the bare minimum ourselves
+for dgx-portal.
 
-Différence volontaire avec le service Chatterbox : UN SEUL appel multipart
-(/clone) au lieu de « uploader la référence puis générer ». Chatterbox
-gardait le clip de référence sur disque sans jamais le supprimer (il a fallu
-lui ajouter une purge par TTL) ; ici l'audio ne quitte jamais la mémoire.
+Deliberate difference from the Chatterbox service: ONE multipart call (/clone)
+instead of « uploader la référence puis générer ». Chatterbox kept the
+reference clip on disk without ever deleting it (a TTL purge had to be added);
+here the audio never leaves memory.
 """
 import asyncio
 import io
@@ -26,19 +26,20 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("qwen3-tts")
 
 MODEL_ID = os.environ.get("QWEN_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
-# Chatterbox refusait tout clip <= 5 s ; Qwen annonce un clonage dès 3 s. On
-# garde une borne basse explicite pour renvoyer un message clair plutôt que de
-# laisser le modèle produire n'importe quoi.
+# Chatterbox refused any clip <= 5 s; Qwen claims cloning from 3 s. We keep an
+# explicit lower bound to return a clear message rather than let the model
+# produce anything.
 MIN_REF_SECONDS = float(os.environ.get("QWEN_TTS_MIN_REF_SECONDS", "3"))
 MAX_REF_SECONDS = float(os.environ.get("QWEN_TTS_MAX_REF_SECONDS", "90"))
-# Anti-bombe de décompression (cf. asr/server.py) : borne l'octet et lit
-# l'en-tête avant de décoder l'échantillon de référence.
+# Anti-decompression-bomb (see asr/server.py): bound the bytes and read the
+# header before decoding the reference sample.
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_SR = 48000
 MAX_CH = 2
-# Borne dure du texte à lire : au-delà, une seule séquence autorégressive tient
-# le verrou GPU plusieurs minutes (le portail abandonne à 180 s mais la
-# génération, non annulable, continue). Le portail plafonne déjà à 2000.
+# Hard bound on the text to read: beyond it, a single autoregressive sequence
+# holds the GPU lock for minutes (the portal gives up at 180 s but the
+# generation, which cannot be cancelled, goes on). The portal already caps at
+# 2000.
 MAX_TEXT_CHARS = 3000
 GEN_TIMEOUT_S = float(os.environ.get("QWEN_TTS_GEN_TIMEOUT", "240"))
 
@@ -47,15 +48,15 @@ app = FastAPI(title="Cronos Qwen3-TTS", docs_url=None, redoc_url=None, openapi_u
 _model = None
 _languages: dict[str, str] = {}
 _load_error: str | None = None
-# Un seul modèle sur un seul GPU : deux générations simultanées se marcheraient
-# dessus. Le verrou les met en file plutôt que de les laisser échouer.
+# One model on one GPU: two simultaneous generations would step on each other.
+# The lock queues them instead of letting them fail.
 _gpu_lock = asyncio.Lock()
 
 
 def _attn_impl() -> str:
-    """flash_attention_2 est recommandé mais ne se compile pas partout (ARM64
-    notamment) — on ne le prend que s'il est réellement importable, sinon
-    l'attention native PyTorch, qui donne le même résultat en un peu plus lent."""
+    """flash_attention_2 is recommended but does not compile everywhere (ARM64
+    notably) — we take it only if it really imports, otherwise native PyTorch
+    attention, which gives the same result a bit more slowly."""
     try:
         import flash_attn  # noqa: F401
         return "flash_attention_2"
@@ -77,11 +78,10 @@ def _load() -> None:
             dtype=torch.bfloat16,
             attn_implementation=impl,
         )
-        # Qwen attend le NOM de la langue, en minuscules ("french"), pas un
-        # code ISO. On construit code -> nom pour que le portail garde des
-        # codes en interne. Tout nom inconnu est ignoré plutôt que tronqué à
-        # ses deux premières lettres, qui produisait des codes faux ("sp"
-        # pour spanish, "ge" pour german…).
+        # Qwen expects the language NAME, lowercase ("french"), not an ISO
+        # code. We build code -> name so the portal keeps codes internally. Any
+        # unknown name is ignored rather than truncated to its first two letters,
+        # which produced wrong codes ("sp" for spanish, "ge" for german…).
         names = list(_model.get_supported_languages())
         _languages = {_ISO[n.lower()]: n for n in names if n.lower() in _ISO}
         skipped = [n for n in names if n.lower() not in _ISO]
@@ -93,9 +93,9 @@ def _load() -> None:
         log.exception("Model failed to load")
 
 
-# Qwen renvoie les noms en minuscules. « auto » n'est pas une langue mais la
-# détection automatique — on la garde et on s'en sert par défaut, c'est plus
-# robuste qu'imposer un choix à l'utilisateur.
+# Qwen returns the names in lowercase. « auto » is not a language but automatic
+# detection — we keep it and use it by default, it is more robust than imposing
+# a choice on the user.
 _ISO = {
     "auto": "auto",
     "chinese": "zh", "english": "en", "japanese": "ja", "korean": "ko",
@@ -104,19 +104,19 @@ _ISO = {
 }
 
 
-# Un texte long envoyé d'un bloc est généré en une seule séquence
-# autorégressive, dont le coût croît bien plus vite que linéairement : mesuré
-# ici, ~330 caractères prennent 17 s alors qu'un discours de ~1400 dépassait
-# 6 minutes et faisait expirer la requête côté portail. On découpe donc comme
-# le fait le serveur Chatterbox, en respectant les fins de phrase.
+# Long text sent as one block is generated as a single autoregressive sequence,
+# whose cost grows much faster than linearly: measured here, ~330 characters
+# take 17 s while a ~1400 speech exceeded 6 minutes and made the request expire
+# on the portal side. So we split like the Chatterbox server does, respecting
+# sentence ends.
 _CHUNK_TARGET = 250
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?…:;])\s+|\n+")
 
 
-# Borne DURE par morceau : un texte sans aucune ponctuation (donc une seule
-# « phrase » pour _SENTENCE_SPLIT) restait entier et repartait en une séquence
-# autorégressive interminable. Au-delà de cette longueur on coupe, de préférence
-# sur un espace proche, pour garantir que chaque morceau reste borné.
+# HARD bound per piece: a text without any punctuation (thus a single
+# « phrase » for _SENTENCE_SPLIT) stayed whole and went back into an endless
+# autoregressive sequence. Beyond this length we cut, preferably on a nearby
+# space, to guarantee every piece stays bounded.
 _CHUNK_HARD_MAX = 400
 
 
@@ -148,7 +148,7 @@ def _chunk_text(text: str) -> list[str]:
 
 
 def _join(wavs: list, sr: int):
-    """Concatène les morceaux avec une courte pause, comme entre deux phrases."""
+    """Concatenate the pieces with a short pause, as between two sentences."""
     if len(wavs) == 1:
         return np.asarray(wavs[0], dtype=np.float32)
     gap = np.zeros(int(0.18 * sr), dtype=np.float32)
@@ -179,9 +179,9 @@ async def clone(
     reference: UploadFile = File(...),
     text: str = Form(...),
     language: str = Form("en"),
-    # Transcription du clip de référence. Fournie => qualité maximale ;
-    # absente => x_vector_only_mode, qui n'utilise que l'empreinte du locuteur
-    # (Qwen documente une qualité moindre dans ce cas).
+    # Transcription of the reference clip. Provided => maximum quality;
+    # absent => x_vector_only_mode, which only uses the speaker fingerprint
+    # (Qwen documents lower quality in that case).
     ref_text: str = Form(""),
 ) -> Response:
     if _model is None:
@@ -195,9 +195,9 @@ async def clone(
         raise HTTPException(status_code=413, detail="Audio de référence trop volumineux.")
 
     def _decode_ref():
-        # En-tête d'abord (durée/fréquence/canaux) puis décodage, hors boucle
-        # d'évènements : un fichier piégé ne peut ni exploser la RAM ni bloquer
-        # le service.
+        # Header first (duration/rate/channels) then decoding, off the event
+        # loop: a trapped file can neither blow up the RAM nor block the
+        # service.
         bio = io.BytesIO(raw)
         try:
             info = sf.info(bio)
@@ -220,16 +220,16 @@ async def clone(
 
     audio, sr = await run_in_threadpool(_decode_ref)
 
-    # Repli sur la détection automatique plutôt que sur l'anglais : une langue
-    # inconnue générait sinon du français lu avec une phonétique anglaise.
+    # Fall back to automatic detection rather than English: an unknown language
+    # would otherwise generate French read with an English phonetics.
     lang_name = _languages.get(language) or _languages.get("auto") or _languages.get("en")
     transcript = ref_text.strip()
     chunks = _chunk_text(text)
 
     def _run():
-        # On construit le prompt de référence UNE fois puis on génère tous les
-        # morceaux d'un coup : Qwen ne réextrait pas les features de la voix à
-        # chaque appel, et surtout aucune séquence n'est très longue.
+        # Build the reference prompt ONCE then generate all pieces at once: Qwen
+        # does not re-extract the voice features at every call, and above all no
+        # sequence is very long.
         prompt = _model.create_voice_clone_prompt(
             ref_audio=(audio, sr),
             ref_text=transcript or None,
@@ -242,20 +242,20 @@ async def clone(
         )
 
     try:
-        # generate_voice_clone est bloquant (GPU) : l'appeler directement dans
-        # cette coroutine gelait toute la boucle d'évènements, au point que
-        # /api/model-info ne répondait plus pendant une génération — le portail
-        # concluait alors « service injoignable » et l'admin voyait le backend
-        # hors ligne. On l'exécute donc dans un thread, sous verrou.
+        # generate_voice_clone is blocking (GPU): calling it directly in this
+        # coroutine froze the whole event loop, to the point that /api/model-info
+        # stopped answering during a generation — the portal then concluded
+        # « service injoignable » and the admin saw the backend offline. So we
+        # run it in a thread, under lock.
         async with _gpu_lock:
-            # Borne dure : une génération partie en vrille ne garde pas le verrou
-            # GPU indéfiniment (le portail a déjà abandonné à 180 s de son côté).
+            # Hard bound: a generation gone wrong must not hold the GPU lock
+            # indefinitely (the portal has already given up at 180 s on its side).
             wavs, out_sr = await asyncio.wait_for(run_in_threadpool(_run), timeout=GEN_TIMEOUT_S)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Génération trop longue, réessaie avec un texte plus court.")
     except Exception:
-        # Détail journalisé côté serveur, jamais renvoyé au client (chemins,
-        # cache HF, internals torch/qwen).
+        # Detail logged server-side, never returned to the client (paths,
+        # HF cache, torch/qwen internals).
         log.exception("Generation failed")
         raise HTTPException(status_code=500, detail="Échec de la génération.")
 

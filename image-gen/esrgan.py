@@ -1,9 +1,9 @@
-"""Real-ESRGAN (RRDBNet) — inference super-résolution, PyTorch pur.
+"""Real-ESRGAN (RRDBNet) — pure PyTorch inference super-resolution.
 
-On vend l'architecture RRDBNet directement plutôt que d'installer `basicsr` :
-ce package est incompatible avec torch 2.10 (torchvision functional_tensor
-retiré), alors que l'architecture elle-même est ~150 lignes sans dépendance.
-Les poids RealESRGAN_x4plus.pth (x4) sont montés en lecture seule (/esrgan).
+We vendor the RRDBNet architecture directly rather than installing `basicsr`:
+that package is incompatible with torch 2.10 (torchvision functional_tensor
+removed), while the architecture itself is ~150 lines with no dependency.
+The RealESRGAN_x4plus.pth (x4) weights are mounted read-only (/esrgan).
 """
 import threading
 
@@ -88,11 +88,11 @@ class RRDBNet(nn.Module):
 
 
 def load_esrgan(path, device):
-    """Charge RealESRGAN_x4plus.pth et renvoie le réseau en mode eval sur `device`."""
+    """Load RealESRGAN_x4plus.pth and return the network in eval mode on `device`."""
     net = RRDBNet(num_in_ch=3, num_out_ch=3, scale=4, num_feat=64,
                   num_block=23, num_grow_ch=32)
     state = torch.load(path, map_location="cpu")
-    # Le checkpoint Real-ESRGAN stocke params_ema (et params) ; on prend l'EMA.
+    # The Real-ESRGAN checkpoint stores params_ema (and params); we take the EMA.
     if "params_ema" in state:
         state = state["params_ema"]
     elif "params" in state:
@@ -103,14 +103,14 @@ def load_esrgan(path, device):
 
 
 def upscale_4x(net, pil_image, tile=256, tile_pad=32):
-    """Super-résolution x4 d'une image PIL RGB, PAR TUILES.
+    """x4 super-resolution of a PIL RGB image, TILE BY TILE.
 
-    Une passe pleine résolution ferait exploser la mémoire unifiée du GB10
-    (les activations du x4 sur 6144x3456 pesaient ~6-8 Go et ont gelé la box).
-    On découpe donc l'image en tuiles de `tile` px avec un recouvrement de
-    `tile_pad` (réceptif du réseau, pour éviter les coutures), on upscale chaque
-    tuile, on recadre le centre et on recolle. Pic mémoire borné à ~0,5 Go
-    (tuile 320x320 -> 1280x1280), indépendant de la taille finale.
+    A full-resolution pass would blow up the GB10's unified memory (the x4
+    activations on 6144x3456 weighed ~6-8 GB and froze the box). So we cut the
+    image into `tile` px tiles with a `tile_pad` overlap (network receptive
+    field, to avoid seams), upscale each tile, crop its center and glue back.
+    Peak memory bounded at ~0.5 GB (tile 320x320 -> 1280x1280), independent of
+    the final size.
     """
     import numpy as np
     from PIL import Image as _PILImage
@@ -131,8 +131,8 @@ def upscale_4x(net, pil_image, tile=256, tile_pad=32):
             with torch.inference_mode():
                 o = net(t)
             o = o.clamp(0, 1).squeeze(0).permute(1, 2, 0).mul(255.0).round().byte().cpu().numpy()
-            # On ne garde que le centre de la tuile (le recouvrement sert au
-            # contexte du réseau mais n'est pas conservé), en gérant les bords.
+            # Keep only the center of the tile (the overlap feeds the network's
+            # context but is not kept), handling the edges.
             cy0 = (ty - y0) * 4
             cx0 = (tx - x0) * 4
             oy0, ox0 = ty * 4, tx * 4

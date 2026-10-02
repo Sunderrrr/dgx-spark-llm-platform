@@ -6,24 +6,25 @@ Requires=docker.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Ports publiés par Docker → filtrés dans la chaîne DOCKER-USER (pas INPUT).
-#   (4001 LiteLLM n'est plus publié du tout — réseau Docker uniquement.)
-#   3000 (portail web) : Traefik 172.16.2.7 uniquement (+ bridge + localhost) —
-#                        l'accès direct doit rester derrière Traefik/HTTPS.
-#                        ATTENTION : on filtre 3000, PAS 5000. DOCKER-USER voit
-#                        le trafic APRÈS la traduction d'adresse, et ce service
-#                        est publié 5000->3000 (contrairement aux autres, qui
-#                        gardent le même numéro des deux côtés). Une règle sur
-#                        --dport 5000 ne correspond donc JAMAIS : elle a l'air
-#                        de protéger le portail sans rien filtrer du tout.
-#   8080 (dashboard Traefik) : VPN Netbird 100.73.0.0/16 + la machine Traefik
-#                        Manager 100.73.45.103 + localhost. PAS le LAN : le
-#                        dashboard donne la carte complète du routage, il n'a
-#                        aucune raison d'être atteignable depuis le réseau
-#                        bureautique. Jamais exposé publiquement non plus.
-#   8090 (Traefik Manager Agent) : 100.73.45.103 (machine Traefik Manager)
-#                        uniquement + bridge docker + localhost.
-# add(): DROP par défaut (append, en bas) + ACCEPT des sources (insert, au-dessus).
+# Ports published by Docker → filtered in the DOCKER-USER chain (not INPUT).
+#   (4001 LiteLLM is no longer published at all — Docker network only.)
+#   3000 (web portal): Traefik 172.16.2.7 only (+ bridge + localhost) —
+#                        direct access must stay behind Traefik/HTTPS.
+#                        CAREFUL: we filter 3000, NOT 5000. DOCKER-USER sees
+#                        the traffic AFTER address translation, and this
+#                        service is published 5000->3000 (unlike the others,
+#                        which keep the same number on both sides). So a rule
+#                        on --dport 5000 NEVER matches: it looks like it
+#                        protects the portal while filtering nothing at all.
+#   8080 (Traefik dashboard): Netbird VPN 100.73.0.0/16 + the Traefik Manager
+#                        machine 100.73.45.103 + localhost. NOT the LAN: the
+#                        dashboard gives the full routing map, it has no
+#                        reason to be reachable from the office network.
+#                        Never publicly exposed either.
+#   8090 (Traefik Manager Agent): 100.73.45.103 (Traefik Manager machine)
+#                        only + docker bridge + localhost.
+# add(): DROP by default (append, at the bottom) + ACCEPT of the sources
+#        (insert, above).
 ExecStart=/bin/sh -c '\
 add() { P=$1; shift; \
   iptables -C DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || iptables -A DOCKER-USER -p tcp --dport $P -j DROP; \

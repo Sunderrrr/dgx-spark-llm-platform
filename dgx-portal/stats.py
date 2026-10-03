@@ -133,6 +133,17 @@ def _inflight_end(rid):
     except Exception:
         pass
 
+def _inflight_tokens(rid, tokens):
+    """Tokens generated so far by an in-flight request (live decode gauge)."""
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        c.execute("UPDATE inflight_requests SET tokens=? WHERE id=?", (int(tokens), rid))
+        c.commit()
+        c.close()
+    except Exception:                                        # noqa: BLE001
+        pass
+
+
 def _inflight_snapshot():
     out = {}
     try:
@@ -144,6 +155,69 @@ def _inflight_snapshot():
     except Exception:
         pass
     return out
+
+
+def debit_decode_live():
+    """Live decode throughput of the IN-FLIGHT requests, in tok/s.
+
+    TabbyAPI publishes no /metrics and its stream carries NO token counter
+    (usage arrives once, at the very end — verified on a real stream): the only
+    live source is what the portal's relay sees. Each in-flight request reports
+    `tokens` (~ chars/4, the composer's live convention) and this sums
+    `tokens / age` over the ongoing requests: the average decode rate of what
+    the model is producing RIGHT NOW. It reads 0 during a prefill (nothing
+    generated yet) and the row goes away with the request. Same display
+    semantics as the llama.cpp gauge (Δn_decode_total / Δt), one probe less.
+    """
+    try:
+        c = sqlite3.connect(DB_PATH, timeout=5)
+        now = time.time()
+        total = 0.0
+        for tok, debut in c.execute(
+                "SELECT tokens, started_at FROM inflight_requests WHERE tokens > 0"):
+            age = now - float(debut)
+            if age > 1:
+                total += float(tok) / age
+        c.close()
+        return round(total, 1)
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
+def enregistrer_prefill(prompt_tokens, ttft_s):
+    """Rate of the LAST prefill, in tok/s (gauge, like llamacpp's
+    `prompt_tokens_seconds`: the last value seen, not a current average).
+
+    The engine gives no prefill counter (TabbyAPI has no /metrics), but the
+    portal measured the TTFT itself and `usage.prompt_tokens` is exact at the
+    end of the request: their ratio IS the observed prefill speed. Caveat kept
+    in mind: TTFT also carries any queueing delay, so a busy engine reads a
+    lower prefill than its raw speed.
+    """
+    try:
+        if prompt_tokens and ttft_s and ttft_s > 0:
+            from db import set_setting
+            set_setting('prefill_rate_last', round(float(prompt_tokens) / float(ttft_s), 1))
+            set_setting('prefill_rate_at', time.time())
+    except Exception:                                        # noqa: BLE001
+        pass
+
+
+def prefill_dernier(max_age_s=120):
+    """Last observed prefill rate (tok/s), or None when nothing is fresh.
+
+    Fading with age keeps the house convention: the UI shows NOTHING rather
+    than a zero when there is no real measurement to show.
+    """
+    try:
+        from db import get_setting
+        v = get_setting('prefill_rate_last')
+        ts = get_setting('prefill_rate_at')
+        if v is None or ts is None:
+            return None
+        return round(float(v), 1) if time.time() - float(ts) < max_age_s else None
+    except Exception:                                        # noqa: BLE001
+        return None
 
 
 # ── Cumulative generated tokens, across engine counter resets ─────────────

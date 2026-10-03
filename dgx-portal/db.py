@@ -519,6 +519,19 @@ def init_db():
                      ('enabled', "INTEGER NOT NULL DEFAULT 1")):
         if col not in mcp_cols:
             db.execute(f"ALTER TABLE mcp_servers ADD COLUMN {col} {ddl}")
+        # Migration: live decode gauge (2026-10-02). TabbyAPI publishes no
+        # /metrics and its stream carries no token counter (usage arrives once,
+        # at the end), so the dashboard showed « 0 tok/s » while the model was
+        # generating. The relay now reports `tokens` (~ chars/4, the composer's
+        # live convention) for its in-flight request; `debit_decode_live()` sums
+        # the ongoing rates from there.
+        # Guarded by table existence: on a fresh database this migration runs
+        # BEFORE the script that creates `inflight_requests` — whose CREATE
+        # already carries the column. On an existing database the table is
+        # there and the ALTER does its job.
+        inflight_cols = {r[1] for r in db.execute("PRAGMA table_info(inflight_requests)")}
+        if inflight_cols and 'tokens' not in inflight_cols:
+            db.execute("ALTER TABLE inflight_requests ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0")
     # Migration: api_keys from GLOBAL unique key_alias → unique per (username, alias)
     # (prevents a user from overwriting another's row via an identical alias).
     sql = (db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='api_keys'")
@@ -623,7 +636,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS inflight_requests (
             id         TEXT PRIMARY KEY,
             username   TEXT NOT NULL,
-            started_at REAL NOT NULL
+            started_at REAL NOT NULL,
+            tokens     INTEGER NOT NULL DEFAULT 0
         );
         -- Compteurs du moteur conservés d'un lancement à l'autre : les métriques
         -- de llama.cpp/vLLM repartent de zéro à chaque démarrage, donc « tokens

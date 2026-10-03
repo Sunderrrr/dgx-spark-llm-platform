@@ -596,5 +596,73 @@ class ModelesConnusTest(unittest.TestCase):
         self.assertEqual(len(appels), 1)          # le cache de 5 s protege le moteur fige
 
 
+class DebitVivantTest(unittest.TestCase):
+    """`stats.debit_decode_live` — the live decode gauge, for the engines that
+    publish NO /metrics (TabbyAPI). The dashboard showed « 0 tok/s » while the
+    model was generating, because the SpendLogs figure only lands at the END of
+    a request (measured 2026-10-02 with real traffic). The relay now reports
+    tokens for its in-flight request and the gauge sums the ongoing rates.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.chemin = tempfile.mkdtemp() + '/t.db'
+        c = sqlite3.connect(self.chemin)
+        c.execute("""CREATE TABLE inflight_requests (
+            id TEXT PRIMARY KEY, username TEXT, started_at REAL,
+            tokens INTEGER NOT NULL DEFAULT 0)""")
+        c.commit(); c.close()
+
+    def _insere(self, rid, tokens, age_s):
+        c = sqlite3.connect(self.chemin)
+        c.execute("INSERT INTO inflight_requests VALUES (?,?,?,?)",
+                  (rid, 'alice', time.time() - age_s, tokens))
+        c.commit(); c.close()
+
+    def test_debit_somme_les_taux_en_cours(self):
+        self._insere('a', 100, 10)          # 10 tok/s
+        self._insere('b', 60, 20)           # 3 tok/s
+        with mock.patch.object(stats, 'DB_PATH', self.chemin):
+            self.assertAlmostEqual(stats.debit_decode_live(), 13.0, delta=0.5)
+
+    def test_aucune_requete_en_cours_dit_zero(self):
+        with mock.patch.object(stats, 'DB_PATH', self.chemin):
+            self.assertEqual(stats.debit_decode_live(), 0.0)
+
+    def test_requete_toute_jeune_ne_divise_pas_par_zero(self):
+        self._insere('a', 50, 0.2)          # age < 1 s : ignoree, pas de ZeroDivision
+        with mock.patch.object(stats, 'DB_PATH', self.chemin):
+            self.assertEqual(stats.debit_decode_live(), 0.0)
+
+    def test_le_compteur_de_tokens_est_mis_a_jour(self):
+        self._insere('a', 0, 5)
+        with mock.patch.object(stats, 'DB_PATH', self.chemin):
+            stats._inflight_tokens('a', 240)
+            self.assertAlmostEqual(stats.debit_decode_live(), 48.0, delta=1.0)  # 240/5
+
+    def test_prefill_dernier_est_une_jauge_qui_s_efface(self):
+        with mock.patch('db.set_setting') as set_s, mock.patch('db.get_setting') as get_s:
+            vals = {}
+            set_s.side_effect = lambda k, v: vals.__setitem__(k, v)
+            get_s.side_effect = lambda k, d=None: vals.get(k, d)
+            stats.enregistrer_prefill(1000, 4.0)         # 250 tok/s
+            self.assertAlmostEqual(stats.prefill_dernier(), 250.0, delta=0.1)
+            vals['prefill_rate_at'] = time.time() - 9999
+            self.assertIsNone(stats.prefill_dernier())   # perime -> rien, jamais 0
+
+    def test_sante_sans_metrics_expose_le_debit_vivant(self):
+        with mock.patch.object(stats, 'debit_decode_live', return_value=12.5), \
+             mock.patch.object(stats, 'prefill_dernier', return_value=250.0), \
+             mock.patch.object(stats, 'flux_depuis_spendlogs', return_value={}), \
+             mock.patch.object(stats, 'ttft_mesure', return_value=None), \
+             mock.patch.object(stats, 'cumuler_tokens_generes', return_value=1), \
+             mock.patch.object(vllm_health, 'get_db') as gdb:
+            gdb.return_value.execute.return_value.fetchone.return_value = None
+            d = vllm_health._sante_sans_metrics('m', 'exllamav3')
+        self.assertEqual(d['tps'], 12.5)
+        self.assertEqual(d['tps_prefill'], 250.0)
+        self.assertIs(d['metrics'], False)
+
+
 if __name__ == '__main__':
     unittest.main()

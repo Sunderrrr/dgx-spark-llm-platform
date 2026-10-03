@@ -1065,5 +1065,43 @@ class DicteeTest(_BasePlayground):
             self.assertEqual(sidecars._sidecar_status('asr'), 'starting')
 
 
+class JaugeDebitCableeTest(_BasePlayground):
+    """Le câblage relay → jauge vivante (scan C, 2026-10-03). Sans cette
+    assertion, si le relay cessait d'appeler _inflight_tokens /
+    _ratio_dernier / _prefill_dernier, le « 0 tok/s » reviendrait
+    SILENCIEUSEMENT : les tests de stats.* ne voient que les fonctions, pas
+    celui qui les appelle."""
+
+    def test_le_relais_alimente_compteur_ratio_et_prefill(self):
+        amont = _FauxAmont([_delta('Bonjour '), _delta('le monde'),
+                            _usage(n=12, entree=340), _fin(), b'data: [DONE]'])
+        tokens, ratio, prefill = [], [], []
+        with ExitStack() as stack:
+            self._standard(stack, post=self._amont_unique(amont))
+            stack.enter_context(patch.object(
+                chat, '_inflight_tokens', side_effect=lambda *a: tokens.append(a)))
+            stack.enter_context(patch.object(
+                chat, '_ratio_dernier', side_effect=lambda *a: ratio.append(a)))
+            stack.enter_context(patch.object(
+                chat, '_prefill_dernier', side_effect=lambda *a: prefill.append(a)))
+            with portal.app.test_request_context('/playground/chat', method='POST',
+                                                 json=self._corps()):
+                session['username'] = 'demo'
+                session['auth_at'] = int(time.time())
+                chat.playground_chat().get_data(as_text=True)
+        # 1. le compteur vivant est alimenté, caractères croissants, avec le
+        #    début de décodage (le dénominateur du débit)
+        self.assertTrue(tokens, "le relay n'alimente plus la jauge — « 0 tok/s » silencieux")
+        vus = [a[1] for a in tokens]
+        self.assertEqual(vus, sorted(vus))
+        self.assertTrue(any(a[2] for a in tokens), "le début de décodage n'est pas transmis")
+        # 2. la calibration reçoit le compte EXACT de l'usage (16 car. émis, 12 tokens)
+        self.assertEqual(ratio, [(16, 12)])
+        # 3. le préfill reçoit prompt_tokens (340) et un TTFT mesuré
+        self.assertEqual(len(prefill), 1)
+        self.assertEqual(prefill[0][0], 340)
+        self.assertGreater(prefill[0][1], 0)
+
+
 if __name__ == '__main__':
     unittest.main()

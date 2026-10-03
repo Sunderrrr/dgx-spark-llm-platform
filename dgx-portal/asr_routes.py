@@ -61,6 +61,7 @@ def api_transcribe():
     asr_demarrer_veilleur()
     if not asr_is_up():
         etat = _sidecar_proc_status('asr')
+        reessai = False          # memory freed after a failed load: CALL below
         if etat in ('running', 'stopped', 'unknown'):
             # The runner answers for the container: we KNOW its state, so no
             # fall-through guess. Never block waiting for the model to load.
@@ -80,18 +81,29 @@ def api_transcribe():
                     return jsonify({'error': f"Le service de dictée n'a pas pu démarrer{detail}."}), 503
             else:
                 erreur = asr_load_error()
-                if erreur:
+                if erreur and not asr_memoire_ok()[0]:
                     # The container runs but published a load failure (« CUDA
-                    # error: out of memory »): saying nothing would read as
-                    # slowness — same lesson as the admin card.
+                    # error: out of memory ») and memory is STILL tight: saying
+                    # nothing would read as slowness — same lesson as the admin
+                    # card. The message carries the remedy (free memory, then
+                    # relaunch), which the branch below makes real.
                     return jsonify({'error': f"Le modèle de dictée n'a pas pu se charger : {erreur}"}), 503
+                if erreur:
+                    # Memory has been freed since the failed load (2026-10-03):
+                    # fall THROUGH to the call — the sidecar now retries its load
+                    # on demand (asr/server.py `_charger_si_besoin`). The message
+                    # promised « relance la dictée »; before, that was impossible
+                    # by construction (the load was tried ONCE, at container
+                    # startup, and never again).
+                    reessai = True
             # Retry-later payload, shaped after what useDictation actually
             # tolerates: a 2xx keeps the 1 s poll silent (anything else is
             # shown as an error), and `text` MUST be a string — the client
             # treats any other type as a failed round. So the starting state
             # rides along an empty text, and the next poll (1 s later) simply
             # finds the sidecar one second closer to ready.
-            return jsonify({'text': '', 'demarrage': True}), 200
+            if not reessai:
+                return jsonify({'text': '', 'demarrage': True}), 200
         # Runner unreachable / no container state: attempt the call anyway —
         # the sidecar may still be up, and the historical error contract below
         # (4xx input, 503, 502, 504) applies unchanged.

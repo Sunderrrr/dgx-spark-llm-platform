@@ -36,7 +36,8 @@ from auth import login_required
 from config import AUTO_MODEL_NAME, LITELLM_URL, LOCAL_TZ
 from conversation_routes import MSG_MAX_CHARS, images_valides
 from db import get_db, log_audit
-from stats import _inflight_tokens, enregistrer_prefill as _prefill_dernier
+from stats import (_inflight_tokens, enregistrer_prefill as _prefill_dernier,
+                   enregistrer_ratio as _ratio_dernier)
 from guards import (_chat_rate_limited, _sse_msg, _sse_notice,
                     maintenance_block_json, maintenance_block_sse,
                     quota_depasse_reset)
@@ -1236,6 +1237,7 @@ def playground_chat():
             _ttft_s = None     # measured TTFT (prefill rate below)
             _chars_vus = 0     # live decode gauge: tokens so far (~ chars/4)
             _maj_direct = 0.0  # gauge written at most once per second
+            _premier_tok_wall = None  # first-token wall time (decode-rate denominator)
             _reponse = []      # full model text, for memory extraction
             _fil.start()
             while True:
@@ -1265,6 +1267,7 @@ def playground_chat():
                             if _dc:
                                 if not _ttft_vu:
                                     _ttft_s = time.monotonic() - _t0
+                                    _premier_tok_wall = time.time()
                                     enregistrer_ttft(_ttft_s * 1000)
                                     _ttft_vu = True
                                 # Live decode gauge (2026-10-02): TabbyAPI
@@ -1276,7 +1279,7 @@ def playground_chat():
                                 _chars_vus += _dc
                                 if time.monotonic() - _maj_direct >= 1.0:
                                     _maj_direct = time.monotonic()
-                                    _inflight_tokens(_rid, _chars_vus // 4)
+                                    _inflight_tokens(_rid, _chars_vus, _premier_tok_wall)
                         except Exception:
                             pass
                     if _mem_on and txt.startswith('data: ') and '"delta"' in txt and len(_reponse) < 400:
@@ -1301,6 +1304,7 @@ def playground_chat():
                                 # the engine has no prefill counter, but then                                # TTFT is measured here and prompt_tokens is
                                 # exact — their ratio IS what the user waited.
                                 _prefill_dernier(_pt, _ttft_s)
+                                _ratio_dernier(_chars_vus, _out)
                         except Exception:
                             pass
                     _octets += len(txt)
@@ -1317,7 +1321,7 @@ def playground_chat():
                         pass
                     yield _sse_notice('quota_exceeded', reset=_reset)
                 else:
-                    yield _sse_notice('model_error', status=_amont['statut'])
+                    yield _sse_notice('model_replied_error', status=_amont['statut'])
                 return
             if _finish is None:
                 # The upstream stream closed WITHOUT announcing an end. For

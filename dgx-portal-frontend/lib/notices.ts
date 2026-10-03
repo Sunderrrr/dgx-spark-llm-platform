@@ -30,8 +30,8 @@ export function texteNotice(
     }
     case "no_api_key":
       return t("Crée d'abord une clé API (page Mes clés API) : cet assistant consomme le budget de ton compte.");
-    case "model_error":
-      return t("Erreur modèle ({status}).").replace("{status}", String(notice.status ?? ""));
+    case "model_error":   // legacy alias — the portal emits only model_replied_error
+      return t("Le modèle a renvoyé une erreur ({status}). Réessaie.").replace("{status}", String(notice.status ?? ""));
     // Chat stream notices (2026-10-02): the SSE error texts of the playground
     // and the Support chat became structured notices — the server writes no
     // sentence, this file is where the sentence lives.

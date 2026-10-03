@@ -17,7 +17,7 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 from auth import login_required
 from config import MUSIC_URL
 from db import DB_PATH, add_notification, get_db
-from sidecars import music_ready
+from sidecars import mention_memoire_partagee, music_ready
 from guards import media_block_json, media_job_done, media_job_slot
 
 bp = Blueprint('music', __name__)
@@ -107,7 +107,7 @@ def api_music_generate():
     if not prompt:
         return jsonify({'error': "Une description musicale est requise."}), 400
     if not music_ready():
-        return jsonify({'error': "Aucun modèle musique configuré."}), 503
+        return jsonify({'error': "Aucun modèle musique configuré." + mention_memoire_partagee()}), 503
     lyrics = request.form.get('lyrics', '')[:10000]
     try:
         duration = int(float(request.form.get('duration', 60)))

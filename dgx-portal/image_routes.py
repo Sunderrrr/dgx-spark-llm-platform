@@ -18,7 +18,7 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 from auth import login_required
 from db import DB_PATH, add_notification, get_db
 from config import IMAGE_URL
-from sidecars import image_ready
+from sidecars import mention_memoire_partagee, image_ready
 
 _log = logging.getLogger('app')
 from guards import media_block_json, media_job_done, media_job_slot
@@ -116,7 +116,7 @@ def api_image_generate():
     if not prompt_text:
         return jsonify({'error': "Un prompt texte est requis."}), 400
     if not image_ready():
-        return jsonify({'error': "Aucun modèle image configuré."}), 503
+        return jsonify({'error': "Aucun modèle image configuré." + mention_memoire_partagee()}), 503
     # Batch size: 1–4 variations per prompt (generated sequentially).
     try:
         count = int(request.form.get('count', 1))

@@ -4,6 +4,8 @@ export type ChatMsg = {
   role: Role;
   content: string;
   reasoning?: string;
+  /** Thinking duration in ms (first reasoning chunk → first content chunk). */
+  reasoningMs?: number;
   tokens?: number;
   tokensPerSec?: number;
   ttft?: number;

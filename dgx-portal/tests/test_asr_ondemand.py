@@ -197,11 +197,13 @@ class DemarrageTest(_Base):
 
     def test_chargement_echoue_dit_pourquoi(self):
         """A container running with no model loaded and a PUBLISHED cause is an
-        honest error, not an endless silent « démarrage » (cf. asr_load_error)."""
+        honest error, not an endless silent « démarrage » (cf. asr_load_error) —
+        while memory is STILL tight, so a retry would only fail again."""
         with patch.object(asr_routes, 'asr_is_up', return_value=False), \
              patch.object(asr_routes, '_sidecar_proc_status', return_value='running'), \
              patch.object(asr_routes, 'asr_load_error',
                           return_value='CUDA error: out of memory'), \
+             patch.object(asr_routes, 'asr_memoire_ok', return_value=(False, 'memoire basse')), \
              patch.object(asr_routes, 'asr_demarrer_veilleur'), \
              patch.object(sidecars, '_sidecar_action') as demarre, \
              patch.object(asr_routes, 'requests', _ReqMock()) as appel:
@@ -210,6 +212,31 @@ class DemarrageTest(_Base):
         self.assertIn('CUDA error', r.get_json()['error'])
         demarre.assert_not_called()
         appel.assert_not_called()
+
+    def test_memorie_reliberee_reessaie_le_chargement(self):
+        """2026-10-03: the message said « libère de la mémoire, puis relance la
+        dictée » — and that was impossible by construction (the sidecar loaded
+        its weights ONCE at startup and never again). When the published failure
+        is a load failure AND memory is available again, the call is forwarded:
+        the sidecar retries its load on demand (asr/server.py)."""
+        class _R:
+            status_code = 200
+            ok = True
+            def json(self):
+                return {'text': 'bonjour'}
+        with patch.object(asr_routes, 'asr_is_up', return_value=False), \
+             patch.object(asr_routes, '_sidecar_proc_status', return_value='running'), \
+             patch.object(asr_routes, 'asr_load_error',
+                          return_value='CUDA error: out of memory'), \
+             patch.object(asr_routes, 'asr_memoire_ok', return_value=(True, '')), \
+             patch.object(asr_routes, 'asr_note_activite'), \
+             patch.object(asr_routes, 'asr_demarrer_veilleur'), \
+             patch.object(sidecars, '_sidecar_action') as demarre, \
+             patch.object(asr_routes, 'requests', _ReqMock(Mock(return_value=_R()))) as appel:
+            r = self._transcrit()
+        self.assertEqual(r.status_code, 200)
+        appel.post.assert_called_once()          # la requete PART vers le sidecar
+        demarre.assert_not_called()              # pas de redemarrage de conteneur
 
     def test_le_demarrage_n_est_pas_repete_a_chaque_poll(self):
         """The client polls every second: a successful auto-start must not fire

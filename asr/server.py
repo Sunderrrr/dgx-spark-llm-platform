@@ -13,6 +13,8 @@ import asyncio
 import io
 import logging
 import os
+import threading
+import time
 
 import numpy as np
 import soundfile as sf
@@ -43,6 +45,14 @@ app = FastAPI(title="Cronos ASR", docs_url=None, redoc_url=None, openapi_url=Non
 
 _pipe = None
 _load_error: str | None = None
+# A load failure at STARTUP is not final: measured 2026-10-03, one CUDA OOM
+# (unified memory is shared with the chat model) left `_pipe` None FOREVER —
+# /api/transcribe answered 503 without ever retrying, so the portal's honest
+# « libère de la mémoire, puis relance la dictée » could not work by
+# construction. The load is now retried on demand (single-flight, throttled).
+_load_lock = threading.Lock()
+_dernier_essai: float = 0.0
+_RETRY_S = 10.0
 # The anyio threadpool accepts 40 tasks: unbounded, 40 transcriptions could hit
 # the same transformers pipeline (not thread-safe) and 40 Whisper inferences the
 # same unified-memory GPU. A semaphore of 2 keeps some throughput for dictation
@@ -50,9 +60,10 @@ _load_error: str | None = None
 _gpu_sem = asyncio.Semaphore(2)
 
 
-@app.on_event("startup")
-def _load() -> None:
-    global _pipe, _load_error
+def _charger() -> None:
+    """Load the weights (startup, and retried on demand below)."""
+    global _pipe, _load_error, _dernier_essai
+    _dernier_essai = time.monotonic()
     try:
         from transformers import pipeline
 
@@ -73,6 +84,30 @@ def _load() -> None:
         log.exception("Model failed to load")
 
 
+def _charger_si_besoin() -> bool:
+    """True when the model is loaded; retries a FAILED load on demand.
+
+    Single-flight (a second caller waits for the attempt to finish) and
+    throttled to one attempt per `_RETRY_S`: the dictation polls every second,
+    and a failing CUDA allocation is not made cheaper by hammering it.
+    """
+    global _pipe, _dernier_essai
+    if _pipe is not None:
+        return True
+    with _load_lock:
+        if _pipe is not None:
+            return True
+        if time.monotonic() - _dernier_essai < _RETRY_S:
+            return False
+        _charger()
+        return _pipe is not None
+
+
+@app.on_event("startup")
+def _load() -> None:
+    _charger()
+
+
 @app.get("/api/model-info")
 def model_info() -> JSONResponse:
     return JSONResponse({
@@ -91,8 +126,9 @@ async def transcribe(
     # French sentence, its classic mistake.
     language: str = Form(""),
 ) -> JSONResponse:
-    if _pipe is None:
-        raise HTTPException(status_code=503, detail=_load_error or "Modèle non chargé.")
+    if not _charger_si_besoin():
+        raise HTTPException(status_code=503,
+                            detail=_load_error or "Modèle non chargé.")
 
     raw = await audio.read()
     if len(raw) > MAX_UPLOAD_BYTES:

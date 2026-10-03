@@ -1103,5 +1103,41 @@ class JaugeDebitCableeTest(_BasePlayground):
         self.assertGreater(prefill[0][1], 0)
 
 
+class RaisonnementAutoTest(_BasePlayground):
+    """Le thinking suit la DEMANDE, pas un interrupteur figé (2026-10-03 :
+    « active le en fonction de ce que les user demandent, pas tout le
+    temps »). Le défaut est `auto` ; une saisie explicite (true/false) gagne
+    toujours ; les appels internes (titres, résumés, recherche) restent
+    volontairement sans réflexion."""
+
+    def _ctk(self, corps):
+        vus = []
+        amont = _FauxAmont([_delta('ok'), _usage(3), _fin(), b'data: [DONE]'])
+        self._flux(corps, post=self._amont_unique(amont, vus=vus))
+        return vus[0]['json'].get('chat_template_kwargs') or {}
+
+    def test_auto_declenche_pour_une_demande_qui_le_merite(self):
+        ctk = self._ctk(self._corps(
+            [{'role': 'user', 'content': 'Pourquoi ce service redémarre-t-il tout seul ?'}],
+            reasoning='auto'))
+        self.assertTrue(ctk.get('enable_thinking'))
+
+    def test_auto_se_tait_pour_le_quotidien(self):
+        ctk = self._ctk(self._corps([{'role': 'user', 'content': 'Salut !'}], reasoning='auto'))
+        self.assertFalse(ctk.get('enable_thinking'))
+
+    def test_le_defaut_est_auto(self):
+        ctk = self._ctk(self._corps(
+            [{'role': 'user', 'content': 'Compare les deux architectures.'}]))
+        self.assertTrue(ctk.get('enable_thinking'))
+
+    def test_la_saisie_explicite_gagne_toujours(self):
+        ctk = self._ctk(self._corps(
+            [{'role': 'user', 'content': 'Compare les deux architectures.'}], reasoning=False))
+        self.assertFalse(ctk.get('enable_thinking'))
+        ctk = self._ctk(self._corps([{'role': 'user', 'content': 'Salut !'}], reasoning=True))
+        self.assertTrue(ctk.get('enable_thinking'))
+
+
 if __name__ == '__main__':
     unittest.main()

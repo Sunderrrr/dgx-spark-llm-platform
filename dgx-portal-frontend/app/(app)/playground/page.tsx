@@ -115,7 +115,7 @@ const DEFAULT_SETTINGS: Settings = {
   // it simply gets a shorter answer.
   maxTokens: 131072,
   topP: 1,
-  reasoning: false,
+  reasoning: "auto" as const,
   // Reasoning effort: '' = leave the model's template at its default
   // value (recognized values depend on the model — e.g. Qwen3.8: xhigh).
   reasoningEffort: "",

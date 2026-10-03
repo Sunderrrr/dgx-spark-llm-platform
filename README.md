@@ -388,6 +388,21 @@ snapshot served at a `/c/<token>` link, visible to logged-in users. On request
 ("draw…"), the model can also generate an image through the image sidecar, the
 same tool mechanism as web search.
 
+### Model thinking (reasoning)
+
+The thinking mode is **adaptive**: by default (`Auto`) the platform decides per
+request — a « why does this service restart… », a code analysis or a
+step-by-step question triggers a reasoning pass; « hi », « thanks » or a short
+rewrite does not. Thinking costs tokens and latency, so it is never always-on.
+The three states (`Auto` / `Toujours` / `Jamais`) live in the playground's
+generation panel; an explicit choice always wins over `Auto`. When the model
+thinks, its reasoning streams into a collapsible block above the answer.
+
+**API clients** (`/v1/chat/completions`, `/v1/messages`): thinking is **off by
+default** and opt-in — pass `"chat_template_kwargs": {"enable_thinking": true}`
+(or a `reasoning_effort`) to ask for it. This default is registered at the
+LiteLLM model level; an explicit request always wins.
+
 ### Memory
 
 A knowledge graph of what the assistant has learned about you, built as you

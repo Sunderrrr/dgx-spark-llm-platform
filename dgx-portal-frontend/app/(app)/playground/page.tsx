@@ -19,6 +19,7 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 // Wrapper that closes over the dependency's URL filter (see lib/markdown.tsx).
 import { MarkdownSur as Markdown } from "@/lib/markdown";
+import { ReasoningBlock } from "./_components/ReasoningBlock";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
@@ -2007,12 +2008,14 @@ export default function PlaygroundPage() {
     let tf: number | null = null;
     let acc = "";
     let reason = "";
+    let raisonDebut: number | null = null;   // 1er fragment de pensée
+    let finPensee: number | null = null;     // 1er fragment de réponse
     let usage: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number } | undefined;
 
     const updateLast = () => {
       setMessages((prev) => {
         const copy = [...prev];
-        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: reason, ts: copy[copy.length - 1]?.ts };
+        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: reason, ts: copy[copy.length - 1]?.ts , reasoningMs: raisonDebut ? Math.round((finPensee ?? performance.now()) - raisonDebut) : undefined };
         return copy;
       });
     };
@@ -2086,6 +2089,7 @@ export default function PlaygroundPage() {
           }
           if (delta.reasoningChunk) {
             if (tf === null) tf = performance.now();
+            if (raisonDebut === null) raisonDebut = performance.now();
             if (liveStartRef.current === null) liveStartRef.current = tf;
             liveCharsRef.current += delta.reasoningChunk.length;
             reason += delta.reasoningChunk;
@@ -2093,6 +2097,7 @@ export default function PlaygroundPage() {
           }
           if (delta.contentChunk) {
             if (tf === null) tf = performance.now();
+            if (finPensee === null) finPensee = performance.now();
             if (liveStartRef.current === null) liveStartRef.current = tf;
             liveCharsRef.current += delta.contentChunk.length;
             acc += delta.contentChunk;
@@ -2132,6 +2137,7 @@ export default function PlaygroundPage() {
         content: trimAfterAsk(acc),
         truncated: tronque,
         reasoning: reason,
+        reasoningMs: raisonDebut ? Math.round((finPensee ?? te) - raisonDebut) : undefined,
         tokens,
         tokensPerSec: tokens && gen > 0 ? Number((tokens / gen).toFixed(1)) : undefined,
         ttft: tf ? Number(((tf - t0) / 1000).toFixed(2)) : undefined,
@@ -3424,11 +3430,7 @@ export default function PlaygroundPage() {
                         </ClickableCard>
                       ) : ask ? (
                         <VStack gap={2}>
-                          {m.reasoning ? (
-                            <Collapsible trigger={t("Raisonnement")} defaultIsOpen={false}>
-                              <Markdown>{m.reasoning}</Markdown>
-                            </Collapsible>
-                          ) : null}
+                          <ReasoningBlock reasoning={m.reasoning || ""} ms={m.reasoningMs} />
                           {bodyText.trim() ? <Markdown>{bodyText}</Markdown> : null}
                           <AskQuestion
                             questions={ask.questions}
@@ -3444,11 +3446,7 @@ export default function PlaygroundPage() {
                         </VStack>
                       ) : (
                         <VStack gap={2}>
-                          {m.reasoning ? (
-                            <Collapsible trigger={t("Raisonnement")} defaultIsOpen={false}>
-                              <Markdown isStreaming={streamingThis}>{m.reasoning}</Markdown>
-                            </Collapsible>
-                          ) : null}
+                          <ReasoningBlock reasoning={m.reasoning || ""} ms={m.reasoningMs} streaming={streamingThis} />
                           <Markdown isStreaming={streamingThis}>{bodyText || " "}</Markdown>
                           {/* Une modification dont l'ancre n'existe pas dans le
                               fichier ne s'applique PAS. On le dit, plutôt que de

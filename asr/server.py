@@ -64,6 +64,9 @@ def _charger() -> None:
     """Load the weights (startup, and retried on demand below)."""
     global _pipe, _load_error, _last_attempt
     _last_attempt = time.monotonic()
+    # The previous attempt's error must not outlive it: `loaded: true` next to
+    # « CUDA error… » is a contradiction the admin card would display verbatim.
+    _load_error = None
     try:
         from transformers import pipeline
 

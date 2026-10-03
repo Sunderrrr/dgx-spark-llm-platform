@@ -53,12 +53,7 @@ class _ReqMock:
     def assert_not_called(self, *a, **k):
         self.post.assert_not_called(*a, **k)
 
-    def assert_called(self, *a, **k):
-        self.post.assert_called(*a, **k)
 
-    @property
-    def call_count(self):
-        return self.post.call_count
 from db import set_setting
 
 

@@ -475,7 +475,7 @@ An empty result is explained rather than left bare: Hugging Face matches the
 returns nothing — the page says so and offers a link to Hugging Face itself. When
 the GB10 filter returns nothing it also checks without the filter, because a model
 that exists but isn't tagged is not a model that doesn't exist. And if Hugging
-Face itself doesn't answer, that is reported as such (502) rather than shown as an
+Face itself doesn't answer, that is reported as such (503) rather than shown as an
 empty result list.
 
 ### Request a model

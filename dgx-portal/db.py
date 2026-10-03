@@ -532,6 +532,12 @@ def init_db():
         inflight_cols = {r[1] for r in db.execute("PRAGMA table_info(inflight_requests)")}
         if inflight_cols and 'tokens' not in inflight_cols:
             db.execute("ALTER TABLE inflight_requests ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0")
+        if inflight_cols and 'decode_since' not in inflight_cols:
+            # Wall time of the FIRST token: the decode rate divides by the
+            # decode time, not by the request's age (queue + prefill would
+            # dilute it — measured 2026-10-02: 12 tok/s displayed against ~19
+            # real).
+            db.execute("ALTER TABLE inflight_requests ADD COLUMN decode_since REAL")
     # Migration: api_keys from GLOBAL unique key_alias → unique per (username, alias)
     # (prevents a user from overwriting another's row via an identical alias).
     sql = (db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='api_keys'")
@@ -637,7 +643,8 @@ def init_db():
             id         TEXT PRIMARY KEY,
             username   TEXT NOT NULL,
             started_at REAL NOT NULL,
-            tokens     INTEGER NOT NULL DEFAULT 0
+            tokens     INTEGER NOT NULL DEFAULT 0,
+            decode_since REAL
         );
         -- Compteurs du moteur conservés d'un lancement à l'autre : les métriques
         -- de llama.cpp/vLLM repartent de zéro à chaque démarrage, donc « tokens

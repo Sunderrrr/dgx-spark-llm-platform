@@ -312,6 +312,12 @@ Claude-native clients can use the Anthropic-compatible
 **`POST https://api.cronos.website/v1/messages`** instead — same keys, same
 budgets.
 
+> **API clients: send a real `User-Agent`.** Cloudflare's browser-integrity
+> check rejects the default `Python-urllib/*` agent (error 1010) before the
+> request reaches the platform. `requests` and `curl` pass; a custom agent
+> always passes. This is edge configuration, not something the portal can
+> relax.
+
 ### The `auto-model` alias
 
 Because the admin swaps the running chat model from time to time, hard-coding a
@@ -485,6 +491,12 @@ Every backend the API can serve, each card labelled with what it does and the ch
 card advertising the `auto-model` tip; a **Server status** panel with live CPU/RAM/GPU
 and the active model's health (throughput, sessions, TTFT, requests served — `—` on
 llama.cpp, which keeps no request counter — plus in/out context); a **Media services**
+The **live throughput** is what the engine produces RIGHT NOW: engine counters
+for llama.cpp/vLLM, and for TabbyAPI (no `/metrics`) the rate of the ongoing
+generation(s), estimated from the relayed stream and calibrated on the exact
+token count of each finished request. It reads 0 when nothing is generated —
+during a prefill, the **Prefill** gauge (last observed prompt speed) is what is
+working.
 block that only appears while an OCR, video or voice sidecar is running; and your own
 hourly token usage over the last 24 h. A backend that is not running is labelled
 "Available from the app, not exposed via the API."

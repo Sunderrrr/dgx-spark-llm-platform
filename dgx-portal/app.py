@@ -1498,6 +1498,19 @@ def _start_grant_reaper():
 
 _start_grant_reaper()
 
+# ASR reaper at STARTUP (2026-10-02), not only at the first dictation: after a
+# reboot, `restart: unless-stopped` brings the `asr` container back and nothing
+# stopped it before the first dictation + 10 min idle — 2.1 GiB of GPU held for
+# nothing on a box that runs on fumes. Same test seam as the budget reaper:
+# CRONOS_NO_REAPER=1 keeps the suite free of background threads. Idempotent —
+# each gunicorn worker gets its own thread, exactly like the lazy start.
+if os.environ.get('CRONOS_NO_REAPER') != '1':
+    try:
+        from sidecars import asr_demarrer_veilleur
+        asr_demarrer_veilleur()
+    except Exception:                                        # noqa: BLE001
+        pass
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
 

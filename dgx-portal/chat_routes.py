@@ -49,6 +49,7 @@ from stats import (_inflight_end, _inflight_start, _inflight_tokens,
                    enregistrer_prefill as _prefill_dernier,
                    enregistrer_ratio as _ratio_dernier, enregistrer_ttft)
 from sidecars import _mem_available_gb
+from raisonnement import raisonnablement_complexe
 from support import (GUARDED_TOOLS, OUTILS_REFUSES_SI_EXTERNE, SUPPORT_SYSTEM,
                      TOOL_LABELS, _clean_reply,
                      _exec_mcp_tool, _exec_skill, _exec_support_tool,
@@ -162,9 +163,13 @@ def support_chat():
     extra_tools, extra_routing = _user_extra_tools(username)
     tools = _support_tools(is_admin) + extra_tools
 
+    # Thinking: same rule as the playground — decided by the ASKED question,
+    # never always-on (2026-10-03).
+    _raisonne = raisonnablement_complexe(_dernier_message_utilisateur(history))
+
     def _chat(with_tools, stream):
         body = {'model': model, 'messages': msgs, 'temperature': 0.3, 'max_tokens': 4096,
-                'chat_template_kwargs': {'enable_thinking': False}}
+                'chat_template_kwargs': {'enable_thinking': _raisonne}}
         if with_tools:
             body['tools'] = tools
             body['tool_choice'] = 'auto'
@@ -680,6 +685,20 @@ def _horodatage():
             f"{n.year} à {n:%H:%M} ({LOCAL_TZ}).")
 
 
+def _dernier_message_utilisateur(history):
+    """Last user message, TEXT only (attachments stripped): the heuristic
+    reads what was ASKED, not what was uploaded."""
+    for h in reversed(history or []):
+        if isinstance(h, dict) and h.get('role') == 'user':
+            c = h.get('content')
+            if isinstance(c, str):
+                return c
+            if isinstance(c, list):
+                return ' '.join(p.get('text', '') for p in c
+                                if isinstance(p, dict) and p.get('text'))
+    return ''
+
+
 def _memoire_disponible_gib():
     """Free memory in GiB (`MemAvailable`), or None if unreadable.
 
@@ -1030,7 +1049,21 @@ def playground_chat():
     temperature = _num(data.get('temperature'), 0.0, 2.0, 0.7, float)
     max_tokens  = _num(data.get('max_tokens'), 1, 131072, 4096, int)
     top_p       = _num(data.get('top_p'), 0.0, 1.0, 1.0, float)
-    reasoning   = bool(data.get('reasoning'))     # show the model's reasoning
+    # Thinking mode: `reasoning` = 'auto' (DEFAULT) | true | false. Auto
+    # decides from the ASKED question (raisonnement.py) — thinking costs
+    # tokens and latency: « active le en fonction de ce que les user
+    # demandent, pas tout le temps » (2026-10-03). An explicit true/false
+    # (the button) always wins; a bare boolean stays explicit for older
+    # clients. Thinking ON also SHOWS the reasoning block.
+    brut = data.get('reasoning', 'auto')
+    if isinstance(brut, bool):
+        mode = 'on' if brut else 'off'
+    else:
+        mode = str(brut).strip().lower() or 'auto'
+    if mode == 'auto':
+        reasoning = raisonnablement_complexe(_dernier_message_utilisateur(history))
+    else:
+        reasoning = mode not in ('off', 'false', '0', 'non')
     # Reasoning depth (chat_template_kwargs.reasoning_effort): the model's
     # TEMPLATE is what validates it — the Qwen3.8 served today only accepts
     # xhigh (default), medium and low, and rejects 'high' with a 500 Jinja. We

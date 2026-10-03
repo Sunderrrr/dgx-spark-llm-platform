@@ -606,7 +606,8 @@ def _asr_etat_dir():
     """Directory holding the shared on-demand state (overridable for tests)."""
     d = os.environ.get('ASR_ONDEMAND_DIR', '/tmp/cronos-asr-ondemand')
     try:
-        os.makedirs(os.path.join(d, 'en_vol'), exist_ok=True)
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        os.makedirs(os.path.join(d, 'en_vol'), mode=0o700, exist_ok=True)
     except OSError:
         pass
     return d

@@ -6,7 +6,7 @@ and above all emitting an SSE comment BEFORE any work.
 
 This last point is not cosmetic: in WSGI, headers only go out at the
 FIRST yield of the generator. As long as nothing is produced, the frontend
-proxy does not see the response start and cuts with a 502 « Le serveur ne repond
+proxy does not see the response start and cuts with a 503 « Le serveur ne repond
 pas », while the generation proceeds normally. The context prefill is what
 silences the stream in the meantime: measured on MiMo/TabbyAPI (2026-10-02),
 a 10 175-token prompt prefills at 697 tok/s COLD (TTFT 14.6 s) — while a
@@ -36,8 +36,7 @@ from auth import login_required
 from config import AUTO_MODEL_NAME, LITELLM_URL, LOCAL_TZ
 from conversation_routes import MSG_MAX_CHARS, images_valides
 from db import get_db, log_audit
-from stats import (_inflight_tokens, enregistrer_prefill as _prefill_dernier,
-                   enregistrer_ratio as _ratio_dernier)
+
 from guards import (_chat_rate_limited, _sse_msg, _sse_notice,
                     maintenance_block_json, maintenance_block_sse,
                     quota_depasse_reset)
@@ -46,7 +45,10 @@ from litellm_client import _litellm_user_info, get_user_keys
 # the chat only uses its read (injection into the system) and its write
 # (post-turn extraction) — never an HTTP route between the two.
 import memory_routes as memoire
-from stats import _inflight_end, _inflight_start, enregistrer_ttft
+from stats import (_inflight_end, _inflight_start, _inflight_tokens,
+                   enregistrer_prefill as _prefill_dernier,
+                   enregistrer_ratio as _ratio_dernier, enregistrer_ttft)
+from sidecars import _mem_available_gb
 from support import (GUARDED_TOOLS, OUTILS_REFUSES_SI_EXTERNE, SUPPORT_SYSTEM,
                      TOOL_LABELS, _clean_reply,
                      _exec_mcp_tool, _exec_skill, _exec_support_tool,
@@ -681,19 +683,14 @@ def _horodatage():
 def _memoire_disponible_gib():
     """Free memory in GiB (`MemAvailable`), or None if unreadable.
 
-    Read from /proc/meminfo rather than the runner's /metrics: one less
-    round-trip for a figure the notice only displays. `MemAvailable` (and not
-    "free") because GPU allocations lower it too — the same signal the launch
-    guards use. Rounded to 0.1 GiB: the notice is a hint, not a benchmark.
+    Delegates to `sidecars._mem_available_gb` — the SAME single source the
+    launch guards read (two implementations of one /proc/meminfo read is one
+    too many, 2026-10-03 scan). Rounded to 0.1 GiB: the notice is a hint, not
+    a benchmark.
     """
-    try:
-        with open('/proc/meminfo') as f:
-            for line in f:
-                if line.startswith('MemAvailable:'):
-                    return round(int(line.split()[1]) / 1024 / 1024, 1)
-    except (OSError, ValueError, IndexError):
-        pass
-    return None
+    v = _mem_available_gb()
+    return None if v is None else round(float(v), 1)
+
 
 
 def _poids(m):
@@ -1235,7 +1232,7 @@ def playground_chat():
             _fil = threading.Thread(target=_lecteur, daemon=True)
             _ttft_vu = False
             _ttft_s = None     # measured TTFT (prefill rate below)
-            _chars_vus = 0     # live decode gauge: tokens so far (~ chars/4)
+            _chars_vus = 0     # live gauge: chars seen (tokens = chars/ratio)
             _maj_direct = 0.0  # gauge written at most once per second
             _premier_tok_wall = None  # first-token wall time (decode-rate denominator)
             _reponse = []      # full model text, for memory extraction
@@ -1274,8 +1271,9 @@ def playground_chat():
                                 # publishes no /metrics and its stream carries no
                                 # token counter — the dashboard showed « 0 tok/s »
                                 # while the model was generating. ~ chars/4 is the
-                                # composer's own live convention (the exact count
-                                # lands at the end, in `usage`). One write/second.
+                                # tokens = chars / ratio_chars_par_token(), the
+                                # ratio calibrated on the exact `usage` of each
+                                # finished request (see stats.py). 1 write/second.
                                 _chars_vus += _dc
                                 if time.monotonic() - _maj_direct >= 1.0:
                                     _maj_direct = time.monotonic()
@@ -1297,13 +1295,16 @@ def playground_chat():
                         try:
                             _d = json.loads(txt[6:]) if txt.startswith('data: ') else {}
                             _finish = (_d.get('choices') or [{}])[0].get('finish_reason') or _finish
-                            _out = (_d.get('usage') or {}).get('completion_tokens') or _out
-                            _pt = (_d.get('usage') or {}).get('prompt_tokens')
                             if _pt and _ttft_s:
                                 # Observed prefill speed (gauge, last value):
-                                # the engine has no prefill counter, but then                                # TTFT is measured here and prompt_tokens is
+                                # the engine has no prefill counter, but the
+                                # TTFT is measured here and prompt_tokens is
                                 # exact — their ratio IS what the user waited.
                                 _prefill_dernier(_pt, _ttft_s)
+                            if _out:
+                                # Calibration of the live estimate, INDEPENDENT
+                                # of the prefill gauge above: the exact token
+                                # count is all it needs.
                                 _ratio_dernier(_chars_vus, _out)
                         except Exception:
                             pass

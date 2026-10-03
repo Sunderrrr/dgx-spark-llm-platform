@@ -50,7 +50,6 @@ const EN: Record<string, string> = {
   "Quota dépassé : tu as épuisé ton budget de tokens pour la période en cours.": "Quota exceeded: you have used up your token budget for the current period.",
   "Tu peux demander plus à l'admin (accueil → « Demander plus de budget »).": "You can request more from the admin (home → \"Request more budget\").",
   "Crée d'abord une clé API (page Mes clés API) : cet assistant consomme le budget de ton compte.": "Create an API key first (My API keys page) — this assistant runs on your account budget.",
-  "Erreur modèle ({status}).": "Model error ({status}).",
   "La génération d'image est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans image.":
     "Image generation is currently unavailable: the service is stopped. An admin can start it from the Admin area; the model will answer without an image.",
   "Mémoire disponible : {n} Gio.": "Free memory: {n} GiB.",

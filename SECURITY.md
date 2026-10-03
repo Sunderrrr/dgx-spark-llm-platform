@@ -336,7 +336,7 @@ interface renders as "unreadable" — never as "fine".
 ### 2.9 Admin actions report what actually happened
 
 Every admin action answers JSON (`{ok, error?, warning?}`) with an honest status
-code: 400 refusal, 404 unknown, 409 `needs_confirm` or "last administrator", 502
+code: 400 refusal, 404 unknown, 409 `needs_confirm` or "last administrator", 503
 upstream unreachable, 507 memory guard, 403 forbidden. This replaced
 `flash(...)` + `redirect(...)`, whose flashed message no template rendered and
 whose HTML body made the Next.js client's `res.json()` throw — the `catch` then

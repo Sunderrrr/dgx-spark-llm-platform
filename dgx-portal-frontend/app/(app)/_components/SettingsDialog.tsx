@@ -295,7 +295,7 @@ export function SettingsDialog({
       }
     } catch {
       // `postFormJSON` does not check the status and runs `res.json()`: a
-      // non-JSON body (413 from the form ceiling, HTML page 502, gunicorn 500)
+      // non-JSON body (413 from the form ceiling, HTML error page, gunicorn 500)
       // rejected the promise. The `finally` gave the button back and the user
       // saw STRICTLY NOTHING, while nothing had been saved.
       // The pattern is the one of `envoyerForm`, just above.
@@ -360,7 +360,7 @@ export function SettingsDialog({
       showToast({ body: wasEdit ? t("Compétence mise à jour.") : t("Compétence enregistrée."), type: "info" });
       refresh();
     } catch {
-      // Same hole as `saveMcp`: without a `catch`, a silent 413/502 made it
+      // Same hole as `saveMcp`: without a `catch`, a silent 413/503 made it
       // look like a save that had not happened.
       showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
     } finally {

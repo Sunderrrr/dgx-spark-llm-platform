@@ -98,7 +98,7 @@ export function MemoryContent() {
 
   async function toggle(enabled: boolean) {
     // `sendJSON` does NOT check the HTTP status and returns `{}` on a non-JSON
-    // body: a 500/502 therefore gave `r.enabled === undefined`, the toggle
+    // body: a 500/503 therefore gave `r.enabled === undefined`, the toggle
     // showed « désactivé » and the message announced a change that had not
     // happened. We only move the state after an explicit `ok`.
     let r: { ok?: boolean; enabled?: boolean; error?: string };

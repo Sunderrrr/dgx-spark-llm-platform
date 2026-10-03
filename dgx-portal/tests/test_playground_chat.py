@@ -170,7 +170,7 @@ class FluxSSETest(_BasePlayground):
 
     def test_ouverture_avant_tout_travail(self):
         """In WSGI the headers only leave at the first yield: without this
-        comment, the frontend proxy cuts with a 502 before the generation
+        comment, the frontend proxy cuts with a 503 before the generation
         starts."""
         amont = _FauxAmont([_delta('Bonjour'), _fin()])
         corps = self._flux(self._corps(), post=self._amont_unique(amont))
@@ -1033,13 +1033,13 @@ class DicteeTest(_BasePlayground):
             r = self._envoie()
         self.assertEqual(r.status_code, 503)
 
-    def test_timeout_504(self):
+    def test_timeout_repondu_en_503(self):
         import requests as _rq
         import asr_routes
         with patch.object(asr_routes.requests, 'post',
                           side_effect=_rq.exceptions.Timeout()):
             r = self._envoie()
-        self.assertEqual(r.status_code, 504)
+        self.assertEqual(r.status_code, 503)
 
     def test_disponibilite(self):
         import asr_routes

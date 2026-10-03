@@ -105,8 +105,11 @@ def api_transcribe():
             if not reessai:
                 return jsonify({'text': '', 'demarrage': True}), 200
         # Runner unreachable / no container state: attempt the call anyway —
-        # the sidecar may still be up, and the historical error contract below
-        # (4xx input, 503, 502, 504) applies unchanged.
+        # the sidecar may still be up. Error contract below: INPUT ERRORS (4xx)
+        # pass through unchanged, the sidecar's own 503 passes through, and
+        # every other failure answers 503 (never 502/504: Cloudflare REPLACES
+        # those bodies with its error page — measured 2026-10-02, the honest
+        # message never reached the user).
     try:
         with asr_appel_en_vol():
             r = requests.post(f"{ASR_URL}/transcribe",
@@ -114,12 +117,13 @@ def api_transcribe():
                               data={'language': language}, timeout=180)
         if not r.ok:
             detail = motif_refus(r)
-            # The SIDECAR's error code is passed through, no longer overwritten as 502. A
-            # recording too short, an unreadable format or a file too large are INPUT
-            # ERRORS (400/413): presenting them as a service failure made it look like an
-            # outage, and a client that retries automatically replayed a request that
-            # could not work anyway. 503 (model not loaded) and 5xx remain genuine
-            # failures.
+            # The SIDECAR's code is passed through for what the CLIENT can act
+            # on: a recording too short, an unreadable format or a file too
+            # large are INPUT ERRORS (400/413) — presenting them as a service
+            # failure made it look like an outage, and a client that retries
+            # automatically replayed a request that could not work anyway. 503
+            # (model not loaded) is kept as-is; every OTHER failure maps to
+            # 503, because 502/504 bodies do not survive Cloudflare.
             statut = r.status_code
             if 400 <= statut < 500:
                 return jsonify({'error': detail or "Enregistrement refusé."}), statut
@@ -128,7 +132,9 @@ def api_transcribe():
             return jsonify({'error': detail or "Échec de la transcription."}), 503
         return jsonify({'text': r.json().get('text', '')})
     except requests.exceptions.Timeout:
-        return jsonify({'error': "La transcription a mis trop de temps."}), 504
+        # 503 and NOT 504, same reason as above: the message would die in
+        # transit behind Cloudflare's error page.
+        return jsonify({'error': "La transcription a mis trop de temps."}), 503
     except Exception:
         return jsonify({'error': "Service de transcription injoignable."}), 503
 

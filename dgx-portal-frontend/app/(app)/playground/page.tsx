@@ -1267,36 +1267,31 @@ export default function PlaygroundPage() {
   useEffect(() => { messagesRef.current = messages; });
 
   // ── Thread auto-scroll during generation ───────────────────────────────────
-  // ChatLayout already follows the bottom, but it drops off intermittently: when a
-  // big chunk of text arrives at once (a whole paragraph re-rendered),
-  // the gap to the bottom exceeds its threshold in ONE frame, it infers the reader
-  // scrolled up and stops following until one scrolls back down by hand. Measured:
-  // on two identical runs, one answer followed the bottom on 7/7
-  // samples, the other dropped off on 38/40.
-  // So we double its mechanism with explicit tracking, disarmed ONLY
-  // when the reader scrolls up deliberately, and rearmed as soon as they return to the bottom.
-  const suitLeBasRef = useRef(true);
+  // Suivre le bas du flux pendant qu'il pousse — et S'ARRÊTER dès que le
+  // lecteur remonte. Le mécanisme d'avant posait son écouteur au MONTAGE de
+  // la page (deps []) sur `.astryx-chat-layout` : or ChatLayout n'existe pas
+  // encore à ce moment-là — il ne s'affiche qu'à la première conversation
+  // (ternaire `isFirstEmpty`) — donc l'écouteur n'était JAMAIS posé,
+  // `suitLeBas` restait figé à true et l'épinglage ramenait en bas à CHAQUE
+  // rendu : « je ne peux plus monter quand il réfléchit ». Le hook maison
+  // (useStickToBottom, déjà en service pour le panneau live et les logs
+  // admin) s'attache par REF : il se pose quand l'élément apparaît, et se
+  // réarme sur la vraie distance au bas (48 px), pas sur un delta de scroll.
+  const dernier = messages[messages.length - 1];
+  const fluxDep = `${dernier?.content?.length ?? 0}:${dernier?.reasoning?.length ?? 0}`;
+  const {
+    setRef: suitLeBasSetRef,
+    showButton: montrerDescendre,
+    scrollToBottom: descendreToutEnBas,
+  } = useStickToBottom(fluxDep, streaming);
+  const scrollerMainRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    const el = document.querySelector<HTMLElement>(".astryx-chat-layout");
-    if (!el) return;
-    let precedent = el.scrollTop;
-    const onScroll = () => {
-      const ecart = el.scrollHeight - el.scrollTop - el.clientHeight;
-      // Scrolled up by at least 4 px: that is the reader, not us.
-      if (el.scrollTop < precedent - 4) suitLeBasRef.current = false;
-      if (ecart < 40) suitLeBasRef.current = true;
-      precedent = el.scrollTop;
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-  // After each render: if we were following, we stick back to the bottom. DOM write
-  // only — no state updated, so no cascade of renders.
-  useEffect(() => {
-    if (!streaming || !suitLeBasRef.current) return;
-    const el = document.querySelector<HTMLElement>(".astryx-chat-layout");
-    if (el) el.scrollTop = el.scrollHeight;
-  });
+    // Le conteneur de défilement est celui de ChatLayout (scrollRef) : l'effet
+    // tourne quand la conversation commence (messages 0 → 1), donc QUAND il
+    // existe — c'était toute la faute du mécanisme précédent.
+    suitLeBasSetRef(scrollerMainRef.current);
+    return () => suitLeBasSetRef(null);
+  }, [messages.length === 0, suitLeBasSetRef]);
 
   const updateQueue = (q: QueuedMsg[]) => {
     queuedRef.current = q;
@@ -1990,7 +1985,7 @@ export default function PlaygroundPage() {
     setStreaming(true);
     setEtapesWeb([]);
     // New send: the reader wants to see the answer arrive, we rearm the tracking.
-    suitLeBasRef.current = true;
+    descendreToutEnBas();   // on re-suit le bas quand on envoie
     setLiveDocOpen(false);
     liveDocOpenRef.current = false;
     const controller = new AbortController();
@@ -3187,7 +3182,18 @@ export default function PlaygroundPage() {
           ) : (
           <ChatLayout
             density="spacious"
-            composer={composerNode}>
+            composer={composerNode}
+            scrollRef={scrollerMainRef}
+            scrollButton={
+              montrerDescendre ? (
+                <Button
+                  label={t("Descendre")}
+                  variant="secondary"
+                  size="sm"
+                  onClick={descendreToutEnBas}
+                />
+              ) : null
+            }>
             <ChatMessageList
               emptyState={
                 <VStack gap={2} hAlign="center">

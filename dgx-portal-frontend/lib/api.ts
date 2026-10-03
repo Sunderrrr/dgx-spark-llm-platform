@@ -283,7 +283,7 @@ export async function streamChat(
       temperature: settings.temperature,
       max_tokens: settings.maxTokens,
       top_p: settings.topP,
-      reasoning: settings.reasoning,
+      reasoning: settings.reasoning === true ? true : settings.reasoning === false ? false : "auto",
       // '' (template default) goes out as undefined: the backend only passes
       // reasoning_effort to the model when it is set.
       reasoning_effort: settings.reasoningEffort || undefined,

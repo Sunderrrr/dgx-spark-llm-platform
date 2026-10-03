@@ -65,7 +65,9 @@ export type Settings = {
   temperature: number;
   maxTokens: number;
   topP: number;
-  reasoning: boolean;
+  /** Thinking: "auto" (default — the server decides from the asked
+   * question), true (always), false (never). */
+  reasoning: boolean | "auto";
   /** Reasoning depth (chat_template_kwargs.reasoning_effort). '' = the
    *  model template's default value — the accepted values depend
    *  on the model: the backend retries without it if the template refuses. */

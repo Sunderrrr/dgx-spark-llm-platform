@@ -51,7 +51,7 @@ _load_error: str | None = None
 # « libère de la mémoire, puis relance la dictée » could not work by
 # construction. The load is now retried on demand (single-flight, throttled).
 _load_lock = threading.Lock()
-_dernier_essai: float = 0.0
+_last_attempt: float = 0.0
 _RETRY_S = 10.0
 # The anyio threadpool accepts 40 tasks: unbounded, 40 transcriptions could hit
 # the same transformers pipeline (not thread-safe) and 40 Whisper inferences the
@@ -62,8 +62,8 @@ _gpu_sem = asyncio.Semaphore(2)
 
 def _charger() -> None:
     """Load the weights (startup, and retried on demand below)."""
-    global _pipe, _load_error, _dernier_essai
-    _dernier_essai = time.monotonic()
+    global _pipe, _load_error, _last_attempt
+    _last_attempt = time.monotonic()
     try:
         from transformers import pipeline
 
@@ -91,13 +91,13 @@ def _charger_si_besoin() -> bool:
     throttled to one attempt per `_RETRY_S`: the dictation polls every second,
     and a failing CUDA allocation is not made cheaper by hammering it.
     """
-    global _pipe, _dernier_essai
+    global _pipe, _last_attempt
     if _pipe is not None:
         return True
     with _load_lock:
         if _pipe is not None:
             return True
-        if time.monotonic() - _dernier_essai < _RETRY_S:
+        if time.monotonic() - _last_attempt < _RETRY_S:
             return False
         _charger()
         return _pipe is not None
@@ -126,7 +126,10 @@ async def transcribe(
     # French sentence, its classic mistake.
     language: str = Form(""),
 ) -> JSONResponse:
-    if not _charger_si_besoin():
+    # run_in_threadpool: the load holds its lock ~15 s and would otherwise
+    # freeze the WHOLE sidecar event loop, /api/model-info included (the
+    # portal's probes then time out during a perfectly healthy load).
+    if not await run_in_threadpool(_charger_si_besoin):
         raise HTTPException(status_code=503,
                             detail=_load_error or "Modèle non chargé.")
 

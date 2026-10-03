@@ -1015,6 +1015,10 @@ const EN: Record<string, string> = {
 
   // — Playground / Support —
   "Réflexion": "Thinking",
+  "Réflexion du modèle (plus lente, plus coûteuse)": "Model thinking (slower, costlier)",
+  "Auto (selon la demande)": "Auto (based on the request)",
+  "Toujours": "Always",
+  "Jamais": "Never",
   "Lecture du fichier…": "Reading the file…",
   "Nouvelle conversation": "New conversation",
   "Historique": "History",

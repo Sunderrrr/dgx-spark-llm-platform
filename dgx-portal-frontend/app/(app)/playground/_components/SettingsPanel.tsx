@@ -143,12 +143,16 @@ export function SettingsPanel({
             display but a TRIGGER — the value goes out in
             `chat_template_kwargs.enable_thinking`, so the model starts
             thinking before answering (higher wait time and bill).
-            A switch that changes the cost must say so. */}
-        <Switch
-          label={t("Activer la réflexion du modèle (plus lent, plus coûteux)")}
-          value={settings.reasoning}
-          onChange={(checked) => onChange({ ...settings, reasoning: checked })}
-        />
+            Three states since 2026-10-03: Auto decides per request. */}
+        <SegmentedControl
+            label={t("Réflexion du modèle (plus lente, plus coûteuse)")}
+            value={settings.reasoning === true ? "on" : settings.reasoning === false ? "off" : settings.reasoning || "auto"}
+            onChange={(v) => onChange({ ...settings, reasoning: v === "on" ? true : v === "off" ? false : "auto" })}
+          >
+            <SegmentedControlItem value="auto" label={t("Auto (selon la demande)")} />
+            <SegmentedControlItem value="on" label={t("Toujours")} />
+            <SegmentedControlItem value="off" label={t("Jamais")} />
+          </SegmentedControl>
         {/* Thinking depth (reasoning_effort, sent through the chat
             template). Each model validates its own values — the current
             Qwen3.8 accepts xhigh (its default), medium and low; if the

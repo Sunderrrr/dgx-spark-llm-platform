@@ -230,7 +230,7 @@ class FluxSSETest(_BasePlayground):
     def test_erreur_modele_notice_structuree(self):
         amont = _FauxAmont([], statut=500)
         corps = self._flux(self._corps(), post=self._amont_unique(amont))
-        self.assertIn('model_error', corps)
+        self.assertIn('model_replied_error', corps)
         self.assertIn('500', corps)
 
     def test_demande_d_image_service_arrete_notice(self):

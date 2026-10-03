@@ -133,15 +133,62 @@ def _inflight_end(rid):
     except Exception:
         pass
 
-def _inflight_tokens(rid, tokens):
-    """Tokens generated so far by an in-flight request (live decode gauge)."""
+def _inflight_tokens(rid, chars, depuis=None):
+    """Live progress of an in-flight request (decode gauge).
+
+    `chars` is what the relay SAW; the stored `tokens` is an estimate,
+    `chars / ratio_chars_par_token()` — the ratio is calibrated on the EXACT
+    count at request end (see `enregistrer_ratio`), so the gauge tracks the
+    real rate instead of a guessed 4 chars/token (measured 2026-10-02: 3.44
+    chars/token on MiMo, i.e. chars/4 read 86 % of the truth).
+
+    `depuis` = wall time of the FIRST token: kept via COALESCE so only the
+    first report wins. The rate divides by the DECODE time, not by the
+    request's age — the queue and the prefill dilute the latter (measured:
+    12 tok/s displayed against ~19 real).
+    """
     try:
+        estime = int(chars / ratio_chars_par_token())
         c = sqlite3.connect(DB_PATH, timeout=5)
-        c.execute("UPDATE inflight_requests SET tokens=? WHERE id=?", (int(tokens), rid))
+        if depuis:
+            c.execute("UPDATE inflight_requests SET tokens=?, "
+                      "decode_since=COALESCE(decode_since, ?) WHERE id=?",
+                      (estime, float(depuis), rid))
+        else:
+            c.execute("UPDATE inflight_requests SET tokens=? WHERE id=?", (estime, rid))
         c.commit()
         c.close()
     except Exception:                                        # noqa: BLE001
         pass
+
+
+def enregistrer_ratio(chars, tokens):
+    """Calibrate the live estimate on the EXACT token count (usage at the end).
+
+    Moving average (0.3), guarded to sane bounds and to samples big enough to
+    mean anything: a 5-token reply would teach the estimator nothing.
+    """
+    try:
+        if tokens and chars and int(tokens) > 8:
+            r = float(chars) / float(tokens)
+            if 0.5 <= r <= 10:
+                from db import get_setting, set_setting
+                ancien = get_setting('chars_par_token')
+                set_setting('chars_par_token',
+                            round(r if not ancien else 0.7 * float(ancien) + 0.3 * r, 3))
+    except Exception:                                        # noqa: BLE001
+        pass
+
+
+def ratio_chars_par_token():
+    """Calibrated chars/token for the live estimate (4.0 until calibrated)."""
+    try:
+        from db import get_setting
+        v = get_setting('chars_par_token')
+        r = float(v) if v else 0.0
+        return r if 0.5 <= r <= 10 else 4.0
+    except Exception:                                        # noqa: BLE001
+        return 4.0
 
 
 def _inflight_snapshot():
@@ -173,9 +220,10 @@ def debit_decode_live():
         c = sqlite3.connect(DB_PATH, timeout=5)
         now = time.time()
         total = 0.0
-        for tok, debut in c.execute(
-                "SELECT tokens, started_at FROM inflight_requests WHERE tokens > 0"):
-            age = now - float(debut)
+        for tok, debut, ds in c.execute(
+                "SELECT tokens, started_at, decode_since FROM inflight_requests "
+                "WHERE tokens > 0"):
+            age = now - float(ds or debut)
             if age > 1:
                 total += float(tok) / age
         c.close()

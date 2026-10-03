@@ -175,7 +175,8 @@ def _sante_sans_metrics(modele, engine):
     keeps its cross-relaunch role via `cumuler_tokens_generes`. The TTFT is the
     one actually measured by chat_routes (same source as llama.cpp).
     """
-    from stats import cumuler_tokens_generes, flux_depuis_spendlogs, ttft_mesure
+    from stats import (cumuler_tokens_generes, debit_decode_live,
+                       flux_depuis_spendlogs, prefill_dernier, ttft_mesure)
     flux = flux_depuis_spendlogs() or {}
     max_seqs = ctx_in = ctx_out = None
     try:
@@ -203,14 +204,17 @@ def _sante_sans_metrics(modele, engine):
         'max_seqs': max_seqs,
         'ctx_in': ctx_in,
         'ctx_out': ctx_out,
-        'tps': flux.get('debit'),
+        # Live decode rate of the IN-FLIGHT requests (see
+        # stats.debit_decode_live): the SpendLogs figure only lands at the end
+        # of a request and read « 0 tok/s » while the model was generating.
+        'tps': debit_decode_live(),
         'ttft': ttft_mesure(),
         'requests': flux.get('requetes'),
         'tokens_generated': None,
         'tokens_generated_total': cumul,
         'tps_moyen': flux.get('tps_moyen'),
         'tokens_prompt': flux.get('entree'),
-        'tps_prefill': None,
+        'tps_prefill': prefill_dernier(),
         'slots': _slots_activite(),
     }
 

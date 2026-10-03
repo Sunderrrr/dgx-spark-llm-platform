@@ -36,6 +36,7 @@ from auth import login_required
 from config import AUTO_MODEL_NAME, LITELLM_URL, LOCAL_TZ
 from conversation_routes import MSG_MAX_CHARS, images_valides
 from db import get_db, log_audit
+from stats import _inflight_tokens, enregistrer_prefill as _prefill_dernier
 from guards import (_chat_rate_limited, _sse_msg, _sse_notice,
                     maintenance_block_json, maintenance_block_sse,
                     quota_depasse_reset)
@@ -1232,6 +1233,9 @@ def playground_chat():
 
             _fil = threading.Thread(target=_lecteur, daemon=True)
             _ttft_vu = False
+            _ttft_s = None     # measured TTFT (prefill rate below)
+            _chars_vus = 0     # live decode gauge: tokens so far (~ chars/4)
+            _maj_direct = 0.0  # gauge written at most once per second
             _reponse = []      # full model text, for memory extraction
             _fil.start()
             while True:
@@ -1253,13 +1257,26 @@ def playground_chat():
                     # anyway the one the user suffers, queue and proxy included.
                     # The same parse accumulates the reply for post-turn memory
                     # extraction (no extra cost: chunk already parsed).
-                    if not _ttft_vu and txt.startswith('data: ') and '"delta"' in txt:
+                    if txt.startswith('data: ') and '"delta"' in txt:
                         try:
                             _dl = ((json.loads(txt[6:]).get('choices') or [{}])[0]
                                    .get('delta') or {})
-                            if _dl.get('content') or _dl.get('reasoning_content'):
-                                enregistrer_ttft((time.monotonic() - _t0) * 1000)
-                                _ttft_vu = True
+                            _dc = len(_dl.get('content') or '') + len(_dl.get('reasoning_content') or '')
+                            if _dc:
+                                if not _ttft_vu:
+                                    _ttft_s = time.monotonic() - _t0
+                                    enregistrer_ttft(_ttft_s * 1000)
+                                    _ttft_vu = True
+                                # Live decode gauge (2026-10-02): TabbyAPI
+                                # publishes no /metrics and its stream carries no
+                                # token counter — the dashboard showed « 0 tok/s »
+                                # while the model was generating. ~ chars/4 is the
+                                # composer's own live convention (the exact count
+                                # lands at the end, in `usage`). One write/second.
+                                _chars_vus += _dc
+                                if time.monotonic() - _maj_direct >= 1.0:
+                                    _maj_direct = time.monotonic()
+                                    _inflight_tokens(_rid, _chars_vus // 4)
                         except Exception:
                             pass
                     if _mem_on and txt.startswith('data: ') and '"delta"' in txt and len(_reponse) < 400:
@@ -1278,6 +1295,12 @@ def playground_chat():
                             _d = json.loads(txt[6:]) if txt.startswith('data: ') else {}
                             _finish = (_d.get('choices') or [{}])[0].get('finish_reason') or _finish
                             _out = (_d.get('usage') or {}).get('completion_tokens') or _out
+                            _pt = (_d.get('usage') or {}).get('prompt_tokens')
+                            if _pt and _ttft_s:
+                                # Observed prefill speed (gauge, last value):
+                                # the engine has no prefill counter, but then                                # TTFT is measured here and prompt_tokens is
+                                # exact — their ratio IS what the user waited.
+                                _prefill_dernier(_pt, _ttft_s)
                         except Exception:
                             pass
                     _octets += len(txt)

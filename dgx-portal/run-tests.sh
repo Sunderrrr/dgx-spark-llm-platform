@@ -1,7 +1,10 @@
 #!/bin/sh
 # Lance la suite de tests dans un conteneur jetable construit depuis l'image du
 # portail : mêmes dépendances qu'en production, et une base SQLite neuve (aucun
-# volume monté) — les tests ne touchent donc jamais aux données réelles.
+# volume de DONNÉES monté) — les tests ne touchent donc jamais aux données
+# réelles. Seule exception, en lecture seule : `asr/server.py`, le code du
+# sidecar de dictée (hors image du portail) — monté pour être testé, cf.
+# tests/test_asr_sidecar.py (2026-10-03, scan de couverture).
 #
 #   ./dgx-portal/run-tests.sh            # tout
 #   ./dgx-portal/run-tests.sh test_app   # un seul module
@@ -26,6 +29,7 @@ else
   set -- discover -s tests
 fi
 exec docker run --rm \
+  -v "$PWD/asr/server.py:/app/tests/asr_sidecar.py:ro" \
   -e SECRET_KEY=test-secret-0123456789abcdef0123456789abcdef \
   -e LITELLM_MASTER_KEY=sk-test \
   -e CRONOS_NO_REAPER=1 \

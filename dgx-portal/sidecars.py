@@ -191,6 +191,21 @@ def get_music_model():
         pass
     return None
 
+def mention_memoire_partagee():
+    """Suffix for media errors: a stopped service is only HALF the story.
+
+    Measured 2026-10-03 (product point 2): MiMo holds ~100 of the 121.6 GiB —
+    a sidecar that STARTS may still not find the memory to load its model, and
+    « the service is stopped » alone made a click look like the fix. The number
+    is MemAvailable, the same signal the launch guards use.
+    """
+    g = _mem_available_gb()
+    if not g:
+        return ""
+    return (f" Le modèle de chat partage la mémoire : {g:.1f} Go libres — "
+            f"arrête-le depuis Admin pour en libérer.")
+
+
 def motif_refus(r):
     """Refusal reason from a runner response, `''` if there is nothing to read.
 
@@ -366,6 +381,13 @@ def _suivre_lancement(model_name, fenetre_s=None):
             except Exception:                                # noqa: BLE001
                 _log.warning("suivi de lancement : alerte impossible", exc_info=True)
 
+    # Same test seam as the two other background threads (budget reaper, ASR
+    # reaper): CRONOS_NO_REAPER=1 keeps the suite free of threads that call the
+    # runner over HTTP while tests mock `requests` globally — the exact motif of
+    # the 2026-10-02 intermittent failure (scan C: this thread had NEITHER seam
+    # NOR test).
+    if os.environ.get('CRONOS_NO_REAPER') == '1':
+        return
     threading.Thread(target=_boucle, name='suivi-lancement', daemon=True).start()
 
 def runner_stop():

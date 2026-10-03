@@ -19,6 +19,7 @@ from guards import (
     _read_uploaded_image,
     media_block_json,
 )
+from sidecars import mention_memoire_partagee
 
 bp = Blueprint('video', __name__)
 
@@ -53,7 +54,7 @@ def api_video_generate():
         # through intact (verified on this exact route, both ways). Every
         # user-facing "upstream unavailable" answer in the portal uses 503 for
         # that reason.
-        return jsonify({'error': "ComfyUI inaccessible ou requête refusée."}), 503
+        return jsonify({'error': "ComfyUI inaccessible ou requête refusée." + mention_memoire_partagee()}), 503
     db = get_db()
     db.execute("INSERT INTO video_jobs (username, prompt_id, prompt, created_at, req_duration_s) VALUES (?,?,?,?,?)",
                (session['username'], prompt_id, prompt_text, datetime.now().isoformat(), int(duration)))

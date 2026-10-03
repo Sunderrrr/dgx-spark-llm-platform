@@ -1295,17 +1295,25 @@ def playground_chat():
                         try:
                             _d = json.loads(txt[6:]) if txt.startswith('data: ') else {}
                             _finish = (_d.get('choices') or [{}])[0].get('finish_reason') or _finish
-                            if _pt and _ttft_s:
-                                # Observed prefill speed (gauge, last value):
-                                # the engine has no prefill counter, but the
-                                # TTFT is measured here and prompt_tokens is
-                                # exact — their ratio IS what the user waited.
-                                _prefill_dernier(_pt, _ttft_s)
-                            if _out:
-                                # Calibration of the live estimate, INDEPENDENT
-                                # of the prefill gauge above: the exact token
-                                # count is all it needs.
-                                _ratio_dernier(_chars_vus, _out)
+                            _u = _d.get('usage') or {}
+                            if _u:
+                                # ONLY lines carrying `usage` (measured: one per
+                                # stream, the last) calibrate — the finish line
+                                # would otherwise replay the previous count and
+                                # weigh the same sample twice.
+                                _out = _u.get('completion_tokens') or _out
+                                _pt = _u.get('prompt_tokens')
+                                if _pt and _ttft_s:
+                                    # Observed prefill speed (gauge, last
+                                    # value): the engine has no prefill counter,
+                                    # but the TTFT is measured here and
+                                    # prompt_tokens is exact — their ratio IS
+                                    # what the user waited.
+                                    _prefill_dernier(_pt, _ttft_s)
+                                if _out:
+                                    # Calibration of the live estimate,
+                                    # INDEPENDENT of the prefill gauge above.
+                                    _ratio_dernier(_chars_vus, _out)
                         except Exception:
                             pass
                     _octets += len(txt)

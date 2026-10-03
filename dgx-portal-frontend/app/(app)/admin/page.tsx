@@ -275,7 +275,7 @@ export default function AdminPage() {
 
   // The backend contract (extended to ALL admin action routes):
   // JSON {ok: boolean, error?, message?, warning?} with an honest HTTP code
-  // (200 ok, 400 refusal, 404 not found, 409 to confirm, 502 upstream,
+  // (200 ok, 400 refusal, 404 not found, 409 to confirm, 503 upstream,
   // 507 memory). So we declare victory ONLY on a 2xx carrying a JSON
   // that does not say ok:false; a non-JSON body, a 4xx/5xx or ok:false are
   // failures. Previously, the catch treated « JSON illisible » as a
@@ -289,7 +289,7 @@ export default function AdminPage() {
     let result: ActResult = { ok: false };
     try {
       // authFetch (not postFormJSON) to read the HTTP code: JSON alone
-      // is not enough to tell a refusal (400/502…) from a success.
+      // is not enough to tell a refusal (400/503…) from a success.
       const res = await authFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },

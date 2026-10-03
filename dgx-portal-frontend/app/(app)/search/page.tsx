@@ -66,7 +66,7 @@ export default function SearchPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   // « HF n'a pas répondu » and « aucun modèle ne correspond » are two
   // different situations: confusing them led the user to conclude their model
-  // did not exist. The server now tells the two apart (502 vs empty 200).
+  // did not exist. The server now tells the two apart (503 + code hf_indisponible vs empty 200).
   const [error, setError] = useState<string | null>(null);
   // The GB10 filter yields nothing, but HF knows some outside it: we say so.
   const [horsGb10, setHorsGb10] = useState<boolean | null>(null);

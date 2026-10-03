@@ -210,9 +210,11 @@ def debit_decode_live():
     TabbyAPI publishes no /metrics and its stream carries NO token counter
     (usage arrives once, at the very end — verified on a real stream): the only
     live source is what the portal's relay sees. Each in-flight request reports
-    `tokens` (~ chars/4, the composer's live convention) and this sums
-    `tokens / age` over the ongoing requests: the average decode rate of what
-    the model is producing RIGHT NOW. It reads 0 during a prefill (nothing
+    its progress (tokens ESTIMATED as chars / ratio_chars_par_token(), the ratio
+    calibrated on the exact `usage` of every finished request) and this sums
+    `tokens / decode time` over the ongoing requests — the DECODE time, first
+    token onwards, not the request's age: queue and prefill would dilute the
+    rate. It is the average decode rate of what the model produces RIGHT NOW. It reads 0 during a prefill (nothing
     generated yet) and the row goes away with the request. Same display
     semantics as the llama.cpp gauge (Δn_decode_total / Δt), one probe less.
     """

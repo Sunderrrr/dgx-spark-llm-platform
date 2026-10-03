@@ -57,8 +57,13 @@ except Exception:                                    # hors conteneur LiteLLM
 def _ouvre():
     dossier = os.path.dirname(CHEMIN)
     if dossier:
-        os.makedirs(dossier, exist_ok=True)
+        os.makedirs(dossier, mode=0o700, exist_ok=True)
     conn = sqlite3.connect(CHEMIN, timeout=2)
+    # 0600: key aliases and account names are business data (2026-10-03 scan).
+    try:
+        os.chmod(CHEMIN, 0o600)
+    except OSError:
+        pass
     conn.execute('CREATE TABLE IF NOT EXISTS en_vol ('
                  'cle TEXT PRIMARY KEY, alias TEXT, user_id TEXT, '
                  'modele TEXT, debut REAL NOT NULL)')

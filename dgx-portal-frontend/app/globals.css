@@ -242,3 +242,22 @@ dialog::backdrop {
 [data-beam].composeur-cadre {
   box-shadow: var(--shadow-low);
 }
+
+/* ── Bloc de raisonnement (façon LM Studio, 2026-10-03) ──────────────────
+   La pensée ACCOMPAGNE la réponse : ton atténué, corps légèrement décalé
+   par un liseré, fond subtil — jamais de quoi concurrencer la réponse elle-
+   même. Valeurs : uniquement des tokens (règle Astryx du frontend). */
+.raison-corps {
+  background: var(--color-background-subtle);
+  border-left: 2px solid var(--color-border-emphasized);
+  border-radius: var(--radius-sm, 4px);
+  padding: var(--spacing-3) var(--spacing-4);
+  color: var(--color-text-secondary);
+}
+.raison-corps p,
+.raison-corps li {
+  color: var(--color-text-secondary);
+}
+.raison-duree {
+  font-variant-numeric: tabular-nums;
+}

@@ -364,13 +364,16 @@ the sidebar gear or the home page's "My API keys" button — there is no standal
 ### Playground
 
 In-browser streaming chat with the active model; no client setup. Three visual
-registers, LM Studio style: the **question** in a bubble (capped at 65 % of the
-column), the **reasoning** in its own collapsible panel (subtle fill, hairline
-border, header with the measured « pensé N s » duration), and the **answer** as
-plain text on the page. Streamed Markdown, attachments, a live context meter,
-per-message copy/regenerate, and a resizable **document panel**: long answers get
-an "Open as document" button that pops the content into a wide, side-by-side
-reading pane.
+registers, LM Studio style, told apart at a glance: the **question** in a bubble
+(capped at 65 % of the column), the **reasoning** as a bare collapsible line
+(chevron, « Réflexion · pensé N s ») that only grows a bubble around the thought
+when you expand it, and the **answer** as plain text on the page. The model name
+sits above the assistant's content, as in the reference screenshots. Streamed
+Markdown, attachments, a live context meter, per-message copy/regenerate, and a
+resizable **side panel** where a file or a document is read *as it is written*
+(long answers also get an "Open as document" button). The chat column and the
+panel each scroll on their own, follow the writing until you scroll up, and then
+offer a « Descendre » button.
 
 Includes **dictation** — a mic button transcribes what you say into the composer.
 Deliberately self-hosted (Whisper on the GPU) rather than the browser's
@@ -399,9 +402,12 @@ step-by-step question triggers a reasoning pass; « hi », « thanks » or a sho
 rewrite does not. Thinking costs tokens and latency, so it is never always-on.
 The three states (`Auto` / `Toujours` / `Jamais`) live in the playground's
 generation panel; an explicit choice always wins over `Auto`. When the model
-thinks, its reasoning streams into a collapsible panel above the answer — open
-while it thinks, and it folds itself on the first answer text, so the end of the
-reasoning and the start of the writing are visible at a glance.
+thinks, its reasoning streams into a collapsible block above the answer, open
+while it thinks. The end of the reasoning and the start of the writing are made
+obvious rather than left to be guessed: the line runs a **clock** (« Réflexion en
+cours… depuis 12 s ») with a pulsing dot, then on the first answer word the clock
+stops on the measured duration, the block **folds itself** (« pensé 7 s ») and the
+answer fades in.
 
 **API clients** (`/v1/chat/completions`, `/v1/messages`): thinking is **off by
 default** and opt-in — pass `"chat_template_kwargs": {"enable_thinking": true}`

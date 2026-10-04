@@ -16,7 +16,6 @@ import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Selector } from "@astryxdesign/core/Selector";
-import { Collapsible } from "@astryxdesign/core/Collapsible";
 // Wrapper that closes over the dependency's URL filter (see lib/markdown.tsx).
 import { MarkdownSur as Markdown } from "@/lib/markdown";
 import { ReasoningBlock } from "./_components/ReasoningBlock";
@@ -1284,14 +1283,16 @@ export default function PlaygroundPage() {
     showButton: montrerDescendre,
     scrollToBottom: descendreToutEnBas,
   } = useStickToBottom(fluxDep, streaming);
-  const scrollerMainRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    // Le conteneur de défilement est celui de ChatLayout (scrollRef) : l'effet
-    // tourne quand la conversation commence (messages 0 → 1), donc QUAND il
-    // existe — c'était toute la faute du mécanisme précédent.
-    suitLeBasSetRef(scrollerMainRef.current);
-    return () => suitLeBasSetRef(null);
-  }, [messages.length === 0, suitLeBasSetRef]);
+  // Le conteneur de défilement est la RACINE de ChatLayout, et elle seule.
+  // Cause racine du « la scrollbar ne marche pas » (2026-10-04) : on passait
+  // `scrollRef` à ChatLayout avec un ref JAMAIS rattaché à un élément —
+  // ChatLayout cesse alors d'être auto-défilant (`isSelfScrolling = !scrollRef`)
+  // et rend sa racine en `overflow: visible` : AUCUN conteneur de défilement
+  // n'existait dans la colonne de chat, ni la molette ni la barre ne faisaient
+  // quoi que ce soit (mesure : `scrollHeight` 1278 pour `clientHeight` 817 et
+  // `scrollTop` toujours 0). Ici `suitLeBasSetRef` EST le ref de rappel de la
+  // racine : il s'attache quand la conversation apparaît (ChatLayout n'existe
+  // pas sur la page vide), et sert au suivi du bas comme au bouton « Descendre ».
 
   const updateQueue = (q: QueuedMsg[]) => {
     queuedRef.current = q;
@@ -1389,6 +1390,9 @@ export default function PlaygroundPage() {
     if (plein) { setPlein(false); return; }
     setArtifact(null);
     setLiveDocOpen(false);
+    // Un volet refermé le reste : la rédaction en cours ne doit pas le rouvrir
+    // derrière l'utilisateur (le ref sert au bilan de fin de flux).
+    liveDocOpenRef.current = false;
   };
   const openLiveDoc = () => { setLiveDocOpen(true); liveDocOpenRef.current = true; };
 
@@ -1986,8 +1990,19 @@ export default function PlaygroundPage() {
     setEtapesWeb([]);
     // New send: the reader wants to see the answer arrive, we rearm the tracking.
     descendreToutEnBas();   // on re-suit le bas quand on envoie
-    setLiveDocOpen(false);
-    liveDocOpenRef.current = false;
+    // « quand un texte est lancé je veux garder la barre latérale, là il la fait
+    // disparaitre » : une rédaction de DOCUMENT s'affiche dans le panneau dès le
+    // premier mot, comme l'écriture d'un fichier de code le fait déjà — avant,
+    // `liveDocOpen` ne devenait vrai qu'au clic sur la carte du chat, et pendant
+    // toute la rédaction le panneau restait absent (ou figé sur le fichier
+    // précédent). L'état reste celui de la VOLONTÉ de l'utilisateur : « Fermer »
+    // pendant la rédaction le remet à faux et rien ne rouvre, la carte
+    // « Ouvrir le document en cours de rédaction » le remet à vrai. Sur
+    // téléphone il n'y a pas de panneau : le texte défile alors dans le chat.
+    const redactionDoc =
+      isDocTask(nextMessages[nextMessages.length - 1]?.content ?? "") && !isNarrow;
+    setLiveDocOpen(redactionDoc);
+    liveDocOpenRef.current = redactionDoc;
     const controller = new AbortController();
     abortRef.current = controller;
     // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
@@ -3166,7 +3181,7 @@ export default function PlaygroundPage() {
           <ChatLayout
             density="spacious"
             composer={composerNode}
-            scrollRef={scrollerMainRef}
+            ref={suitLeBasSetRef}
             scrollButton={
               montrerDescendre ? (
                 <Button
@@ -3294,14 +3309,25 @@ export default function PlaygroundPage() {
                     contientEdit && !streamingThis && !modifs.fichiers.length && !modifs.echecs.length;
                   // A document being streamed shows only a live-updating card in
                   // the chat (its raw text streams into the side panel instead).
+                  // On a narrow screen there is no panel: the card would hide
+                  // the very text being written, so we let it flow in the chat —
+                  // exactly like a code file.
                   const streamingDoc =
-                    streamingThis && m.role === "assistant" && m.content.length > 0 &&
+                    streamingThis && m.role === "assistant" && m.content.length > 0 && !isNarrow &&
                     isDocTask(messages[i - 1]?.content ?? "");
                   return (
                   <ChatMessage key={i} sender={m.role}>
                     <ChatMessageBubble
                       variant={m.role === "user" ? "filled" : "ghost"}
                       className={m.role === "user" ? "bulle-question" : undefined}
+                      /* Le nom du modèle au-dessus du contenu, comme LM Studio
+                         (« google/gemma-4-e4b » sous la question) : il dit QUI
+                         parle, et il marque le début de la réponse. */
+                      name={
+                        m.role === "assistant" ? (
+                          <Text type="supporting" color="secondary">{model}</Text>
+                        ) : undefined
+                      }
                       metadata={
                         !isThinking && m.ts ? (
                           <ChatMessageMetadata
@@ -3438,7 +3464,15 @@ export default function PlaygroundPage() {
                       ) : (
                         <VStack gap={2}>
                           <ReasoningBlock reasoning={m.reasoning || ""} ms={m.reasoningMs} streaming={streamingThis && !bodyText.trim()} />
-                          <Markdown isStreaming={streamingThis}>{bodyText || " "}</Markdown>
+                          {/* Le fondu court du PREMIER mot de la réponse, quand
+                              il y a eu une réflexion : c'est le moment exact où
+                              le bloc de réflexion se replie — la frontière
+                              réflexion → écriture, enfin visible. */}
+                          <Markdown
+                            className={m.reasoning && bodyText.trim() ? "apparition-ecriture" : undefined}
+                            isStreaming={streamingThis}>
+                            {bodyText || " "}
+                          </Markdown>
                           {/* Une modification dont l'ancre n'existe pas dans le
                               fichier ne s'applique PAS. On le dit, plutôt que de
                               laisser croire que la correction est faite. */}
@@ -3611,7 +3645,7 @@ export default function PlaygroundPage() {
                             showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))} />
                         <Button label={t("Fermer")} variant="ghost" size="sm" isIconOnly
                           icon={<Icon icon={XMarkIcon} size="sm" />}
-                          onClick={() => { setArtifact(null); setLiveDocOpen(false); }} />
+                          onClick={() => { setArtifact(null); setLiveDocOpen(false); liveDocOpenRef.current = false; }} />
                       </>
                     )
                   }
@@ -3677,8 +3711,19 @@ export default function PlaygroundPage() {
                 <VStack ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable style={{ flex: 1, minHeight: 0 }}>
                   {/* Valeurs unifiées : pendant le flux il n'y a pas encore
                       d'artefact épinglé, mais bien un fichier à afficher. */}
+                  {/* `flexShrink: 0` : SANS ça le CodeBlock rétrécit à la
+                      hauteur du corps (ses deux étages sont des items flex en
+                      `flex: 0 1 auto`, `min-height` résolu à 0 puisque leur
+                      `overflow` n'est pas `visible`) et son PROPRE conteneur
+                      interne devient le seul à défiler — le corps, lui, ne
+                      déborde jamais : le suivi automatique et le bouton
+                      « Descendre », branchés sur le corps, ne servaient à
+                      rien. Empêcher le rétrécissement rend au corps sa place
+                      d'UNIQUE conteneur de défilement, pour le code comme pour
+                      les documents (mesuré : corps 792/792 contre code interne
+                      5 716/720). */}
                   {panelIsCode
-                    ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped container="section" />
+                    ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped container="section" style={{ flexShrink: 0 }} />
                     : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                 </VStack>
                 )}
@@ -4069,7 +4114,7 @@ export default function PlaygroundPage() {
                   ) : (
                   <LayoutContent ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable>
                     {panelIsCode
-                      ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped container="section" />
+                      ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped container="section" style={{ flexShrink: 0 }} />
                       : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                   </LayoutContent>
                   )

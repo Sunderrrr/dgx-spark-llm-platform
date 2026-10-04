@@ -401,7 +401,10 @@ request — a « why does this service restart… », a code analysis or a
 step-by-step question triggers a reasoning pass; « hi », « thanks » or a short
 rewrite does not. Thinking costs tokens and latency, so it is never always-on.
 The three states (`Auto` / `Toujours` / `Jamais`) live in the playground's
-generation panel; an explicit choice always wins over `Auto`. When the model
+generation panel; an explicit choice always wins over `Auto`, and the panel
+**keeps what you choose** — settings restore on load and are saved on every
+change, per browser like the pinned conversations (the system prompt a skill
+injects is not remembered as your persona). When the model
 thinks, its reasoning streams into a collapsible block above the answer, open
 while it thinks. The end of the reasoning and the start of the writing are made
 obvious rather than left to be guessed: the line runs a **clock** (« Réflexion en

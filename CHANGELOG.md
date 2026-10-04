@@ -19,6 +19,94 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-04
+
+Six weeks of production use after `0.1.0`, driven almost entirely by what the
+playground users asked for out loud: « ça ne ressemble pas à LM Studio », « on ne
+se rend pas bien compte de la fin de réflexion », « la scrollbar ne marche pas ».
+The playground gets its three visual registers, the reasoning phase gets a
+visible boundary, and the side panel scrolls again.
+
+### Added
+
+- **Playground — LM Studio visual registers** — the user question keeps its
+  bubble (capped at 65 % of the column), the reasoning lives in its own
+  collapsible panel (subtle fill, hairline border, rounded — header
+  « Réflexion » with the measured « pensé N s » duration), and the answer is
+  plain text on the page (the bubble's `ghost` variant). Question, thought and
+  answer are now told apart at a glance.
+- **Playground — the thinking phase ends visibly** — the reasoning panel is
+  controlled: it opens while the model thinks and folds itself on the first
+  answer text. That fold *is* the reasoning→writing boundary; the duration
+  stays one click away.
+- **Thinking is adaptive** — the reasoning effort follows what the user
+  actually asks for (« active le en fonction de ce que les user demandent »)
+  instead of a fixed setting.
+- **Runner — an `exllamav3` engine (TabbyAPI)** serves EXL3 models, with the
+  same launch/stop ownership as llama.cpp and vLLM.
+- **Runner — `Prism`, a binary for ternary GGUF** (Ternary-Bonsai-2-27B).
+- **ASR sidecar is on-demand** — the transcription service loads lazily like
+  the other media backends, and the portal reports an honest empty state until
+  an admin or the first user starts it.
+- **Dashboard — live decode rate and prefill gauge** for engines that expose no
+  `/metrics` (derived from their own logs), plus a precise live gauge and a
+  single error-notice identity. The ASR reaper now runs at startup.
+- **Admin** — deleting a model also erases its files from disk; freed space is
+  shown in MiB below 1 GiB.
+- **Chat** — the system prompt carries the current date and time.
+
+### Changed
+
+- **Security** — responses now carry a `Permissions-Policy` header (the last
+  P1 of the 2026-10-01 scan; the remaining P2/P3 findings — the last 504, the
+  ratio bug, docs and permissions — are closed too).
+- **HTTP** — user-facing 502s are served as 503, because Cloudflare replaces
+  502 bodies with its own HTML and the client never saw ours.
+- **Audit** — the rows `log_audit` evicts are archived instead of dropped.
+- **Web stack** — SearXNG 2026.8.22 → 2026.10.2, crawl4ai 0.9.2 → 0.9.4.
+- **Dependencies** — the two vulnerable `brace-expansion` releases are fixed;
+  Dependabot's automatic PRs are paused (its alerts are kept); the dependency
+  audit no longer reddens the run; the lockfile is reviewable by line.
+- **Codebase** — the French comments and docstrings of the portal, the frontend
+  and the services are translated to English (the PR template too), so the code
+  reads in one language.
+- **CI** — the gate runs the frontend unit tests, and generates the Next.js
+  types before type-checking.
+
+### Fixed
+
+- **Playground — scrolling** — « il me ramène en bas quoi que je fasse »: the
+  follow-the-bottom listener was mounted at page mount, before `ChatLayout`
+  exists (it only renders on the first conversation), so it was never attached
+  and the pin dragged the view to the bottom on every render. It now rides the
+  `useStickToBottom` hook already used elsewhere.
+- **Playground — the side panel scrollbar** — the scroll ref dug through the
+  DOM for the first `overflow: auto` element and therefore attached to
+  `CodeBlock`'s *inner* container (the `maxHeight` one), leaving the real
+  scroll container unwatched: no live follow of the file being written, no
+  « Descendre » button. `CodeBlock` no longer nests inside a scrollable
+  container (its own docs warn against it) and the panel body is the single
+  scroll container, for code as for documents.
+- **Playground — clarifying questions** — the clickable questionnaire now
+  survives MiMo's unfenced form, and the JSON-fenced form is recognised at
+  all; mismatched brackets in question blocks are repaired.
+- **Playground — file continuations** — a continuation no longer loses the
+  file's ending, and a turn that only names a file no longer shows the
+  previous half-file as a deliverable.
+- **Playground — images** — images are attached when the selected model can
+  actually read them, and a blocked canvas no longer yields all-black images.
+- **Playground — a stopped image service is said out loud** instead of letting
+  the model deny it.
+- **ASR** — a failed model load is retryable (« relance la dictée » becomes
+  real).
+- **Health** — a failed `/v1/models` probe keeps the last known model list, and
+  the dashboard derives its figures from `SpendLogs` when `/metrics` is absent.
+- **Tests** — the flake motifs are frozen, the uncovered user zones are
+  covered, and the gate's intermittent failure is root-caused and fixed; one
+  blocking lint warning is silenced with its reason.
+- **Install** — the bootstrap survives a host without `needrestart`, and the
+  clone error message is actionable.
+
 ## [0.1.0] - 2026-10-01
 
 First tagged release. The platform has been in production on a single DGX Spark
@@ -137,5 +225,6 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Sunderrrr/dgx-spark-llm-platform/releases/tag/v0.1.0

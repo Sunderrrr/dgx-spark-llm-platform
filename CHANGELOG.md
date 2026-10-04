@@ -19,6 +19,22 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Changed
+
+- **Web stack** — LiteLLM `1.102.1 → 1.104.0`, PostgreSQL `15.18 → 15.19`
+  (both re-pinned by digest in `docker-compose.yml`; Postgres stays on major 15
+  on purpose — the `postgres_data` volume holds the cluster, a major bump is a
+  dump/restore). Verified on the running platform, not just the startup:
+  the `cronos_inflight` callback is still **dispatched** on 1.104.0 — the
+  synchronous hooks remain the ones LiteLLM calls (`log_pre_api_call` at
+  `litellm_logging.py:1446`, `log_success_event` at `:3144`, and
+  `async_log_pre_api_call` still has **zero** call site), a real request opens
+  then closes its `en_vol` row in `runtime/inflight.db`, its SpendLogs row lands
+  (152 273 → 152 274 rows, schema only gained columns), and the whole chain
+  answers through the UI (5 tokens, TTFT 1.57 s). The compose comment now makes
+  that callback check part of the update procedure: a silently unwired callback
+  is invisible — table created, table empty, no error.
+
 ## [0.1.2] - 2026-10-04
 
 Same-day follow-up to `0.1.1`, which had been tagged and pushed before these

@@ -13,7 +13,14 @@ services:
   # ─── LiteLLM database ──────────────────────────────────────────────────────
   postgres:
     logging: *logging
-    image: postgres:15-alpine@sha256:cd17e2ac98240fce1541ad2a803b34009b4eea5aec8a832363cdc7eca62e722e
+    # Pinned by digest (repro + anti supply-chain). Original tag: 15-alpine,
+    # embedded version verified: PostgreSQL 15.19 (image of 2026-09-20).
+    # To update: docker pull postgres:15-alpine then replace the sha below and
+    # check the version with `docker run --rm --entrypoint postgres <image>
+    # --version`. STAY ON MAJOR 15: the `postgres_data` volume holds the
+    # cluster, and PostgreSQL refuses to start on a data directory created by
+    # another major version (a 15 → 17 move is a dump/restore, not an update).
+    image: postgres:15-alpine@sha256:f7d23353e1b15400d22ebe31189f4d314b87a4c129cc400c8c2d8d4ca127bf81
     container_name: litellm-postgres
     restart: unless-stopped
     # Hardening: single-user postgres (uid 70) with no capability and no
@@ -40,12 +47,19 @@ services:
   litellm:
     logging: *logging
     # Pinned by digest (repro + anti supply-chain). Original tag: main-stable,
-    # embedded version verified: 1.102.1 (image of 2026-09-23).
+    # embedded version verified: 1.104.0 (image of 2026-10-04).
     # To update: docker pull ghcr.io/berriai/litellm:main-stable then replace
-    # the sha above with the new digest (and check the version with: docker run
+    # the sha below with the new digest (and check the version with: docker run
     # --rm --entrypoint python <image> -c "from importlib.metadata import
-    # version; print(version('litellm'))").
-    image: ghcr.io/berriai/litellm@sha256:87f34979b9f8cb274fac90ca8a4fdda07d8480de22755562a26adeb95ce20d02
+    # version; print(version('litellm'))"). AFTER ANY UPDATE, re-check that the
+    # `cronos_inflight` callback is still DISPATCHED: the module relies on the
+    # synchronous hooks (`log_pre_api_call` / `log_success_event` /
+    # `log_failure_event`) — the async twins (`async_log_pre_api_call`) are
+    # declared by `CustomLogger` but never called by LiteLLM (verified on
+    # 1.102.1 AND 1.104.0: zero call site), and a class implementing only them
+    # gets a table, no rows, and total silence. Send one real request and look
+    # at `runtime/inflight.db`.
+    image: ghcr.io/berriai/litellm@sha256:625981c83410a3ea68eb0697590a57ec1d764d634514d54fa5db0591077ee839
     container_name: litellm
     restart: unless-stopped
     # Hardening (parity with dgx-portal/frontend): LiteLLM is a Python app that

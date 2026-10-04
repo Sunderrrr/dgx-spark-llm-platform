@@ -363,11 +363,14 @@ the sidebar gear or the home page's "My API keys" button — there is no standal
 
 ### Playground
 
-In-browser streaming chat with the active model; no client setup. Streamed
-Markdown, a collapsible reasoning trace for thinking models, attachments, a live
-context meter, per-message copy/regenerate, and a resizable **document panel**:
-long answers get an "Open as document" button that pops the content into a wide,
-side-by-side reading pane.
+In-browser streaming chat with the active model; no client setup. Three visual
+registers, LM Studio style: the **question** in a bubble (capped at 65 % of the
+column), the **reasoning** in its own collapsible panel (subtle fill, hairline
+border, header with the measured « pensé N s » duration), and the **answer** as
+plain text on the page. Streamed Markdown, attachments, a live context meter,
+per-message copy/regenerate, and a resizable **document panel**: long answers get
+an "Open as document" button that pops the content into a wide, side-by-side
+reading pane.
 
 Includes **dictation** — a mic button transcribes what you say into the composer.
 Deliberately self-hosted (Whisper on the GPU) rather than the browser's
@@ -396,7 +399,9 @@ step-by-step question triggers a reasoning pass; « hi », « thanks » or a sho
 rewrite does not. Thinking costs tokens and latency, so it is never always-on.
 The three states (`Auto` / `Toujours` / `Jamais`) live in the playground's
 generation panel; an explicit choice always wins over `Auto`. When the model
-thinks, its reasoning streams into a collapsible block above the answer.
+thinks, its reasoning streams into a collapsible panel above the answer — open
+while it thinks, and it folds itself on the first answer text, so the end of the
+reasoning and the start of the writing are visible at a glance.
 
 **API clients** (`/v1/chat/completions`, `/v1/messages`): thinking is **off by
 default** and opt-in — pass `"chat_template_kwargs": {"enable_thinking": true}`

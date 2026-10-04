@@ -698,6 +698,62 @@ function artifactRenameKey(convId: string | null, a: Artifact): string {
   return `${convId ?? "anon"}::${a.kind}::${a.title}`;
 }
 
+// Playground settings (persona, generation, reasoning): a personal preference
+// kept in the browser, like the pinned conversations and the snippets.
+// « je dois le sélectionner à chaque fois » : NOTHING was saved, so every page
+// load — and every round trip through another page — reset the panel to
+// DEFAULT_SETTINGS, the reasoning choice (Auto / Toujours / Jamais) first. Now
+// loaded ONCE at mount, saved on every change. Per browser, like every other
+// playground preference: a server-side copy would follow the account, this one
+// needs no migration and restores without a single loading frame.
+const SETTINGS_KEY = "cronos.playground.settings";
+type Provenance = "persona" | "skill" | "manual";
+type ReglagesStockes = { settings: Settings; provenance: Provenance };
+function chargerReglages(): ReglagesStockes {
+  const base: ReglagesStockes = { settings: DEFAULT_SETTINGS, provenance: "manual" };
+  try {
+    const brut = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null") as
+      (Partial<Settings> & { provenance?: unknown }) | null;
+    if (!brut || typeof brut !== "object") return base;
+    // Field by field over the defaults: a value stored by an OLDER version (or
+    // hand-edited) must not break the panel — unknown or wrong-typed, it is
+    // ignored and the default stands.
+    return {
+      settings: {
+        ...DEFAULT_SETTINGS,
+        system: typeof brut.system === "string" ? brut.system : DEFAULT_SETTINGS.system,
+        temperature: typeof brut.temperature === "number" ? brut.temperature : DEFAULT_SETTINGS.temperature,
+        maxTokens: typeof brut.maxTokens === "number" ? brut.maxTokens : DEFAULT_SETTINGS.maxTokens,
+        topP: typeof brut.topP === "number" ? brut.topP : DEFAULT_SETTINGS.topP,
+        reasoning:
+          brut.reasoning === true || brut.reasoning === false || brut.reasoning === "auto"
+            ? brut.reasoning
+            : DEFAULT_SETTINGS.reasoning,
+        reasoningEffort:
+          typeof brut.reasoningEffort === "string" ? brut.reasoningEffort : DEFAULT_SETTINGS.reasoningEffort,
+      },
+      provenance: brut.provenance === "persona" ? "persona" : "manual",
+    };
+  } catch {
+    return base; // stockage illisible : on repart des réglages par défaut
+  }
+}
+function enregistrerReglages(settings: Settings, provenance: Provenance) {
+  try {
+    // The system prompt a SKILL injects belongs to that skill, not to the
+    // user's own defaults: selecting a skill must not become the persona of
+    // every conversation to come. We keep the stored one instead.
+    const ancien = chargerReglages();
+    const persona =
+      provenance === "skill"
+        ? { system: ancien.settings.system, provenance: ancien.provenance }
+        : { system: settings.system, provenance };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, ...persona }));
+  } catch {
+    /* stockage indisponible (mode privé) : on ignore */
+  }
+}
+
 function convTitleFallback(msgs: ExportConversation["messages"], fallback: string): string {
   const first = msgs.find((m) => m.role === "user")?.content ?? "";
   return (first.slice(0, 80).trim() || fallback);
@@ -1170,10 +1226,18 @@ export default function PlaygroundPage() {
   // conversation stays displayed; on resend, we rebranch from that index.
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  // Playground settings, restored from the browser (see `chargerReglages`):
+  // « je dois le sélectionner à chaque fois » — nothing was kept, so every
+  // reload threw the panel back to the defaults. Both states read the SAME
+  // stored object (parsed once), and every change writes it back.
+  const [reglagesDepart] = useState(chargerReglages);
+  const [settings, setSettings] = useState<Settings>(reglagesDepart.settings);
   // Origin of the system prompt: a persona, a skill, or manual input.
   // Allows flagging that a skill overwrote a persona's system prompt.
-  const [systemProvenance, setSystemProvenance] = useState<"persona" | "skill" | "manual">("manual");
+  const [systemProvenance, setSystemProvenance] = useState<Provenance>(reglagesDepart.provenance);
+  useEffect(() => {
+    enregistrerReglages(settings, systemProvenance);
+  }, [settings, systemProvenance]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // Position of the settings panel: captured on the button click (button rect →
   // bottom-left corner of the panel under the gear). FIXED overlay:

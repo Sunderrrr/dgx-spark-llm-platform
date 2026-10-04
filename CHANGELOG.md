@@ -53,6 +53,15 @@ below is measured against the live playground, not read from the code.
   radius). Real tokens now (`--color-background-muted`, `--radius-container`),
   and every token used by the app is validated against the theme — two silent
   `radius` losses on the OCR page were found the same way.
+- **Playground — the settings panel remembers your choices** (« quand je
+  choisis le raisonnement à toujours ou à jamais, il n'enregistre pas, je dois
+  le sélectionner à chaque fois »). Nothing was persisted: every page load — and
+  every round trip through another page — reset the panel to its defaults, so
+  the reasoning mode (Auto / Toujours / Jamais) was re-picked each session
+  (measured: `Always` selected, reload, back to `Auto`). The panel now restores
+  from the browser on mount and saves on every change, per browser like the
+  pinned conversations and the snippets. The system prompt a *skill* injects is
+  deliberately not saved as your persona — it belongs to the skill.
 - **Playground — the side panel stays while a text is written** (« quand un
   texte est lancé je veux garder la barre latérale, là il la fait
   disparaître »). Writing a *document* showed only a card in the chat: the panel

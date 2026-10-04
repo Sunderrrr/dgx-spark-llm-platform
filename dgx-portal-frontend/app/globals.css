@@ -82,12 +82,12 @@ dialog::backdrop {
   }
 }
 .video-generating {
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-container);
   background-color: var(--color-background-muted);
   background-image: linear-gradient(
     100deg,
     transparent 20%,
-    var(--color-background-subtle, rgba(127, 127, 127, 0.18)) 50%,
+    var(--color-background-card) 50%,
     transparent 80%
   );
   background-size: 200% 100%;
@@ -126,7 +126,7 @@ dialog::backdrop {
   flex: 0 0 auto;
   width: 3px;
   height: 100%;
-  border-radius: var(--radius-sm, 2px);
+  border-radius: var(--radius-inner);
   background: var(--color-text-secondary);
   opacity: 0.45;
   transform: scaleY(0.16);
@@ -245,10 +245,11 @@ dialog::backdrop {
 
 /* ── Chat façon LM Studio (2026-10-04) ──────────────────────────────────
    Trois registres visuels, dans l'ordre du flux : la QUESTION de l'utilisateur
-   dans une bulle, la RÉFLEXION dans un panneau dépliable (fond + liseré +
-   coins), la RÉPONSE en texte nu sur le fond de page. Le passage réflexion →
-   écriture se lit d'un coup d'œil : le panneau se replie sur sa durée
-   (« pensé N s ») au moment où le texte de la réponse commence.
+   dans une bulle, la RÉFLEXION dans une bulle dépliable, la RÉPONSE en texte
+   nu sur le fond de page. Le passage réflexion → écriture se lit d'un coup
+   d'œil : la ligne de réflexion porte un point qui pulse et un chrono pendant
+   la pensée, puis se replie sur sa durée (« pensé N s ») au moment où le texte
+   de la réponse commence — ce texte apparaît alors en fondu court.
    Valeurs : uniquement des tokens (règle Astryx du frontend). */
 
 /* La question de l'utilisateur : une bulle, jamais plus large que ~2/3 de la
@@ -259,29 +260,52 @@ dialog::backdrop {
   max-width: 65%;
 }
 
-/* Le panneau de réflexion : une seule boîte (en-tête + corps) qui se détache
-   du fond par un fond subtil et un liseré continu — pas une bulle pleine,
-   elle ne doit pas concurrencer la réponse. */
+/* La bulle de réflexion : elle entoure le TEXTE DE LA PENSÉE, et lui seul.
+   Repliée, la réflexion n'est qu'une ligne posée sur le fond de page (comme
+   « › Thought for 7.04 seconds » chez LM Studio) : c'est le dépliage qui fait
+   apparaître la bulle. */
 .raison-panneau {
-  background: var(--color-background-subtle);
+  background: var(--color-background-muted);
   border: 1px solid var(--color-border-emphasized);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-container);
+  padding: var(--spacing-3) var(--spacing-4);
+  color: var(--color-text-secondary);
+}
+.raison-panneau p,
+.raison-panneau li {
+  color: var(--color-text-secondary);
 }
 
-/* L'en-tête dépliable garde son propre décalage horizontal : le chevron
-   Astryx est dans le flux, l'aligner sur le corps suffit. */
+/* L'en-tête : une ligne NUE sur le fond de page (le chevron Astryx est déjà
+   dans le flux), rien qui ressemble à une boîte. */
 .raison-entete {
-  padding: var(--spacing-2) var(--spacing-3);
+  padding: var(--spacing-1) 0;
 }
 
 .raison-corps {
-  padding: 0 var(--spacing-4) var(--spacing-3);
-  color: var(--color-text-secondary);
-}
-.raison-corps p,
-.raison-corps li {
-  color: var(--color-text-secondary);
+  padding: 0;
 }
 .raison-duree {
   font-variant-numeric: tabular-nums;
+}
+
+/* Le premier mot de la réponse : un fondu COURT, une seule fois, pile au
+   moment où la réflexion se replie. La classe est ajoutée quand le texte
+   arrive (et seulement s'il y a eu une réflexion) : l'animation ne se rejoue
+   pas à chaque rendu du flux. */
+.apparition-ecriture {
+  animation: apparition-ecriture 420ms ease-out;
+}
+@keyframes apparition-ecriture {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .apparition-ecriture {
+    animation: none;
+  }
 }

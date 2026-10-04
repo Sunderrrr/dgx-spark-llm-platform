@@ -410,7 +410,7 @@ export default function OcrPage() {
                                   alt=""
                                   width={32}
                                   height={32}
-                                  style={{ objectFit: "cover", borderRadius: "var(--radius-sm)" }}
+                                  style={{ objectFit: "cover", borderRadius: "var(--radius-element)" }}
                                 />
                               ) : (
                                 <DocumentTextIcon width={20} height={20} />
@@ -458,7 +458,7 @@ export default function OcrPage() {
                       {resultView === "boxes" && resultImageUrl && boxedBlocks.length > 0 ? (
                         <div style={{ position: "relative", width: "100%", lineHeight: 0 }}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={resultImageUrl} alt={t("Zones détectées")} style={{ width: "100%", height: "auto", display: "block", borderRadius: "var(--radius-md)" }} />
+                          <img src={resultImageUrl} alt={t("Zones détectées")} style={{ width: "100%", height: "auto", display: "block", borderRadius: "var(--radius-container)" }} />
                           {boxedBlocks.map((b, i) => {
                             const [x1, y1, x2, y2] = b.coords!;
                             const color = LABEL_COLOR[b.label] ?? "#64748b";

@@ -19,6 +19,60 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-04
+
+Same-day follow-up to `0.1.1`, which had been tagged and pushed before these
+fixes: re-releasing a published tag would rewrite history, so the corrections
+ship as `0.1.2`. What `0.1.1` announced did not actually work — and each item
+below is measured against the live playground, not read from the code.
+
+### Fixed
+
+- **Playground — the chat scrolls again** (« quand un fichier est ouvert sur le
+  côté la scrollbar ne marche pas »). Root cause: `ChatLayout` was given a
+  `scrollRef` that was never attached to any element, and that alone turns off
+  its self-scrolling (`isSelfScrolling = !scrollRef`) and renders its root with
+  `overflow: visible` — the chat column then had **no scroll container at all**
+  (measured: `scrollHeight` 1278 for `clientHeight` 817, `scrollTop` frozen at
+  0, the wheel changed nothing). The root is now the scroll container, and the
+  stick-to-bottom hook is its callback ref: the wheel, the scrollbar, the
+  auto-follow and the « Descendre » button all work, and scrolling up is no
+  longer yanked back down.
+- **Playground — the file panel is a single scroll container again.** The
+  `CodeBlock` shrank to the panel height (both of its levels are `flex: 0 1
+  auto` items, `min-height` resolving to 0 behind a non-visible `overflow`) and
+  its *own* inner container became the only scroller (measured: panel body
+  792/792, inner code box 5 716/720) — so the auto-follow and « Descendre »,
+  both wired to the panel body, did nothing. `flexShrink: 0` on the block
+  restores the body as the one place that scrolls (measured after: body
+  3 408/792, inner box 3 336/3 336).
+- **Playground — the reasoning box is visible.** `0.1.1` styled it with
+  `--color-background-subtle` and `--radius-md`: **neither token exists** in
+  Astryx 0.1.8, so the declarations were dropped and the « panel » had no fill
+  and no radius (measured from `getComputedStyle`: transparent background, 0 px
+  radius). Real tokens now (`--color-background-muted`, `--radius-container`),
+  and every token used by the app is validated against the theme — two silent
+  `radius` losses on the OCR page were found the same way.
+- **Playground — the side panel stays while a text is written** (« quand un
+  texte est lancé je veux garder la barre latérale, là il la fait
+  disparaître »). Writing a *document* showed only a card in the chat: the panel
+  opened on the explicit click alone, so through the whole write there was
+  either no panel or the previous file's. A document write now opens the panel
+  on its first word, exactly like a code file, and the finished document stays
+  there. Closing it by hand is still respected (nothing reopens behind the
+  user); on a phone, where there is no panel, the text streams into the chat
+  instead of hiding behind the card.
+
+### Changed
+
+- **Playground — the thinking → writing boundary is now explicit.** While the
+  model thinks, the reasoning line carries a pulsing dot and a running clock
+  (« Réflexion en cours… depuis 12 s »); on the first answer word the clock
+  stops on the measured duration and the block folds itself (« pensé 7 s »),
+  while the answer fades in — one short transition, no guessing where the
+  thinking ended. The model name now sits above the assistant's content, as in
+  the reference screenshots.
+
 ## [0.1.1] - 2026-10-04
 
 Six weeks of production use after `0.1.0`, driven almost entirely by what the
@@ -225,6 +279,7 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Sunderrrr/dgx-spark-llm-platform/releases/tag/v0.1.0

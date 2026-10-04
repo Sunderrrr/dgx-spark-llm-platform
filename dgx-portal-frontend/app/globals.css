@@ -243,15 +243,39 @@ dialog::backdrop {
   box-shadow: var(--shadow-low);
 }
 
-/* ── Bloc de raisonnement (façon LM Studio, 2026-10-03) ──────────────────
-   La pensée ACCOMPAGNE la réponse : ton atténué, corps légèrement décalé
-   par un liseré, fond subtil — jamais de quoi concurrencer la réponse elle-
-   même. Valeurs : uniquement des tokens (règle Astryx du frontend). */
-.raison-corps {
+/* ── Chat façon LM Studio (2026-10-04) ──────────────────────────────────
+   Trois registres visuels, dans l'ordre du flux : la QUESTION de l'utilisateur
+   dans une bulle, la RÉFLEXION dans un panneau dépliable (fond + liseré +
+   coins), la RÉPONSE en texte nu sur le fond de page. Le passage réflexion →
+   écriture se lit d'un coup d'œil : le panneau se replie sur sa durée
+   (« pensé N s ») au moment où le texte de la réponse commence.
+   Valeurs : uniquement des tokens (règle Astryx du frontend). */
+
+/* La question de l'utilisateur : une bulle, jamais plus large que ~2/3 de la
+   colonne (mesuré sur LM Studio), pour que la réponse garde la largeur de
+   lecture. Le pourcentage est une proportion, pas un gabarit : c'est la
+   colonne qui fixe l'échelle. */
+.bulle-question {
+  max-width: 65%;
+}
+
+/* Le panneau de réflexion : une seule boîte (en-tête + corps) qui se détache
+   du fond par un fond subtil et un liseré continu — pas une bulle pleine,
+   elle ne doit pas concurrencer la réponse. */
+.raison-panneau {
   background: var(--color-background-subtle);
-  border-left: 2px solid var(--color-border-emphasized);
-  border-radius: var(--radius-sm, 4px);
-  padding: var(--spacing-3) var(--spacing-4);
+  border: 1px solid var(--color-border-emphasized);
+  border-radius: var(--radius-md);
+}
+
+/* L'en-tête dépliable garde son propre décalage horizontal : le chevron
+   Astryx est dans le flux, l'aligner sur le corps suffit. */
+.raison-entete {
+  padding: var(--spacing-2) var(--spacing-3);
+}
+
+.raison-corps {
+  padding: 0 var(--spacing-4) var(--spacing-3);
   color: var(--color-text-secondary);
 }
 .raison-corps p,

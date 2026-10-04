@@ -2589,28 +2589,11 @@ export default function PlaygroundPage() {
   // Auto-follow the document while it streams into the panel; show a "jump to
   // bottom" button when the reader scrolls up and leaves the live tail.
   const {
-    setRef: panelScrollRefBrut,
+    setRef: panelScrollRef,
     showButton: showPanelJump,
     onScroll: onPanelScroll,
     scrollToBottom: panelJumpDown,
   } = useStickToBottom(panelContent, showLive);
-  // CodeBlock handles its own scrolling (as soon as it gets a maxHeight) and
-  // does not expose that container. Without this, a long file is CLIPPED by a
-  // child in overflow:hidden: nothing overflows anymore, so nothing scrolls and
-  // the « Descendre » button never appears. Same remedy as the admin logs:
-  // we put the ref on the parent and dig down for the scrollable element.
-  const panelScrollRef = useCallback(
-    (node: HTMLElement | null) => {
-      if (!node) return panelScrollRefBrut(null);
-      const scroller =
-        Array.from(node.querySelectorAll<HTMLElement>("*")).find((e) => {
-          const o = getComputedStyle(e).overflowY;
-          return o === "auto" || o === "scroll";
-        }) ?? node;
-      panelScrollRefBrut(scroller);
-    },
-    [panelScrollRefBrut],
-  );
   // Time-of-day greeting for the first message (Claude-style). « soir » from 18h.
   const playHour = new Date().getHours();
   const greeting =
@@ -3317,6 +3300,8 @@ export default function PlaygroundPage() {
                   return (
                   <ChatMessage key={i} sender={m.role}>
                     <ChatMessageBubble
+                      variant={m.role === "user" ? "filled" : "ghost"}
+                      className={m.role === "user" ? "bulle-question" : undefined}
                       metadata={
                         !isThinking && m.ts ? (
                           <ChatMessageMetadata
@@ -3452,7 +3437,7 @@ export default function PlaygroundPage() {
                         </VStack>
                       ) : (
                         <VStack gap={2}>
-                          <ReasoningBlock reasoning={m.reasoning || ""} ms={m.reasoningMs} streaming={streamingThis} />
+                          <ReasoningBlock reasoning={m.reasoning || ""} ms={m.reasoningMs} streaming={streamingThis && !bodyText.trim()} />
                           <Markdown isStreaming={streamingThis}>{bodyText || " "}</Markdown>
                           {/* Une modification dont l'ancre n'existe pas dans le
                               fichier ne s'applique PAS. On le dit, plutôt que de
@@ -3693,7 +3678,7 @@ export default function PlaygroundPage() {
                   {/* Valeurs unifiées : pendant le flux il n'y a pas encore
                       d'artefact épinglé, mais bien un fichier à afficher. */}
                   {panelIsCode
-                    ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped maxHeight="100%" />
+                    ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped container="section" />
                     : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                 </VStack>
                 )}
@@ -4084,7 +4069,7 @@ export default function PlaygroundPage() {
                   ) : (
                   <LayoutContent ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable>
                     {panelIsCode
-                      ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped maxHeight="100%" />
+                      ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped container="section" />
                       : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                   </LayoutContent>
                   )

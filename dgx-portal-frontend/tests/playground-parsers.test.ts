@@ -30,6 +30,8 @@ import {
   recoller,
   decoupeLignes,
   openCodeFence,
+  contientQuestions,
+  reponseIncomplete,
 } from "../lib/playground-parsers.ts";
 
 /* ── parseAsk ─────────────────────────────────────────────────────────────── */
@@ -127,6 +129,69 @@ test("parseAsk: options/questions caps and filtering", () => {
   assert.equal(r.questions.length, MAX_ASK_QUESTIONS);
   // empty/blank options are dropped, the rest capped
   assert.equal(r.questions[0].options.length, MAX_ASK_OPTIONS);
+});
+
+test("parseAsk: éparpillé après un bloc raté — les questions restent cliquables (2026-10-05)", () => {
+  // Contenu RÉELLEMENT vu sur la plateforme le 2026-10-05 : une enveloppe
+  // {"questions": []} vide refermée tout de suite, l'intro mêlée à des débris
+  // JSON, un objet à moitié écrit (« "Qu "options" », sans virgule), puis les
+  // vraies questions posées dans le texte. Avant : le parseur rendait les mains
+  // et le questionnaire sortait en texte nu.
+  const r = parseAsk(
+    '{"questions": []}```\n'
+    + 'Bien sûr ! Quelques Quel même Bien sûr ! quelques ["Firewall nftables", "SSH", "Pare-feu", "UE", "Deux SSH", "  - "Firewall nftables", " " {"question": "Qu "options": ["Phare", "SSH"],\n'
+    + '{"question": "Quel rôle Ansible veux-tu ?", "options": ["Durcissement", "Kubernetes"]}, {"question": "Quelle rôle pour le durcissement", "options": ["Audit", "Sysctl"]}]}\n'
+    + '{"question": "Quel(s) de configuration veux-tu personnaliser ?", "options": ["SSH", "Pare-feu (nftables)", "Tout appliquer"]}\n'
+    + '{"question": "Comment veux-tu lancer le rôle ?", "options": ["Playbook complet (site.yml)", "Directement en production"]}\n'
+    + '{"question": "Quel niveau de confirmation interactive ?", "options": ["Une seule confirmation globale", "Aucune confirmation"]}'
+  );
+  assert.ok(r, "les questions éparpillées doivent être ramassées");
+  assert.equal(r.questions.length, 5);
+  assert.equal(r.questions[0].question, "Quel rôle Ansible veux-tu ?");
+  assert.equal(r.questions[4].question, "Quel niveau de confirmation interactive ?");
+  // L'objet cassé n'est pas une question, et aucun débris JSON ne reste
+  // dans la prose (le modèle avait mêlé son intro à ses questions).
+  assert.ok(!r.questions.some((q) => q.question === "Qu"));
+  assert.ok(!/[{[]/.test(r.prose), `débris JSON dans la prose : ${r.prose}`);
+});
+
+test("parseAsk: envelope vide puis objets nus — sans aucun repère « ask »", () => {
+  const r = parseAsk(
+    '{"questions": []}\n'
+    + '{"question": "Q1", "options": ["A", "B"]}\n'
+    + '{"question": "Q2", "options": ["C"]}'
+  );
+  assert.ok(r);
+  assert.deepEqual(r.questions.map((q) => q.question), ["Q1", "Q2"]);
+});
+
+test("parseAsk: un vrai fichier qui contient des objets de question n'est pas mangé", () => {
+  const r = parseAsk(
+    "Voici le fichier demandé :\n"
+    + "```html\n<script>\nconst q = {\"question\": \"Une FAQ ?\", \"options\": [\"Oui\", \"Non\"]};\n</script>\n```"
+  );
+  assert.equal(r, null);
+});
+
+test("reponseIncomplete: un questionnaire n'est JAMAIS un fichier à reprendre (2026-10-05)", () => {
+  // Le mécanisme de reprise automatique (« reprends au caractère suivant »)
+  // voyait un fichier « texte » non refermé derrière le marqueur « ``` »
+  // orphelin d'un bloc ask raté : il relançait le modèle, qui RÉÉCRIVAIT son
+  // questionnaire — les deux tentatives s'entremêlaient et les questions
+  // sortaient en texte nu. C'est la cause de « les questions ne marchent plus ».
+  const casse = '{"questions": []}```\nBien sûr ! quelques ["Firewall", "SSH"] {"question": "Q1", "options": ["A", "B"]}';
+  assert.equal(contientQuestions(casse), true);
+  assert.equal(reponseIncomplete(casse), false, "un questionnaire ne doit PAS déclencher de reprise");
+  // Un bloc ask propre non plus.
+  assert.equal(reponseIncomplete('```ask\n{"questions": [{"question": "Q1", "options": ["A"]}]'), false);
+});
+
+test("reponseIncomplete: un vrai fichier tronqué reste repris", () => {
+  assert.equal(reponseIncomplete("```python\ndef carre(n):\n    return n *"), true);
+  assert.equal(reponseIncomplete("```html\n<!DOCTYPE html><html><body>ok"), true);
+  // …et un HTML fini, même sans clôture de bloc, ne l'est pas.
+  assert.equal(reponseIncomplete("```html\n<!DOCTYPE html><html><body>ok</body></html>"), false);
+  assert.equal(contientQuestions("```python\nq = {\"question\": \"x\", \"options\": [\"a\"]}\n```"), false);
 });
 
 /* ── estBlocQuestions / RE_CORPS_QUESTIONS ────────────────────────────────── */

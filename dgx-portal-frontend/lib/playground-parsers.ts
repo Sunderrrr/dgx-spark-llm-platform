@@ -317,56 +317,201 @@ export function firstJsonValue(src: string): string | null {
   return null;   // never closed → it is truncation, balanceJson handles it
 }
 
-// Detect a ```ask block. Accepts {questions:[…]} and the legacy {question,options}.
-// The closing fence is optional: if the model forgets it, we take everything
-// that follows rather than recognizing nothing at all.
-export function parseAsk(content: string): AskBlock | null {
-  const m = content.match(/```ask\s*\n([\s\S]*?)(?:```|$)/)
-    ?? content.match(/```(?:json)?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/)
-    // Degenerate form measured on MiMo on 2026-10-02: the model writes `ask`
-    // as inline code (or bare « ask ») followed by the JSON with NO fence — the
-    // questionnaire then came out as plain text, with nothing to click.
-    // Same safety net as for the json fence: the body must start with
-    // {"questions": [, otherwise we would swallow a real file along the way.
-    ?? content.match(/(?:^|\n)[ \t]*`?ask`?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/i);
-  if (!m) return null;
+// ── Questionnaire de clarification ──────────────────────────────────────────
+// Le format demandé au modèle est UN seul bloc ```ask bien formé. En pratique
+// il le rate parfois : une enveloppe `{"questions": []}` vide refermée tout de
+// suite, puis les vraies questions éparpillées dans le texte en objets
+// `{"question": …, "options": […]}` séparés, entrecoupés de débris (mesuré le
+// 2026-10-05 : le questionnaire sortait en texte nu, sans rien à cliquer).
+// La tolérance vit donc dans CE parseur, jamais dans l'instruction au modèle :
+// on ramasse chaque objet qui COMMENCE comme une question, où qu'il soit.
+
+/** Position juste après l'objet ouvert à `debut`, ou null s'il ne se referme
+ *  jamais (troncature). Les chaînes sont lues : une accolade dans un texte ne
+ *  referme pas l'objet par accident. */
+function finObjet(src: string, debut: number): number | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = debut; i < src.length; i++) {
+    const ch = src[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return null;
+}
+
+/** Chaque objet qui DÉBUTE comme une entrée de questionnaire, avec sa place.
+ *
+ * On cherche le DÉBUT (`{"question"` / `{"questions"`) plutôt qu'un bloc bien
+ * formé : c'est ce qui survit à un modèle qui éparpille et qui se reprend.
+ * Un objet peut en cacher un autre (`{"questions": [{…}]`) : on rescanne juste
+ * après l'accolade ouvrante. */
+function candidatsQuestions(src: string): { texte: string; debut: number; fin: number }[] {
+  const out: { texte: string; debut: number; fin: number }[] = [];
+  const rx = /\{\s*"(?:question|questions)"\s*:/gi;
+  let m: RegExpExecArray | null;
+  while ((m = rx.exec(src))) {
+    const debut = m.index;
+    const fin = finObjet(src, debut);
+    out.push({ texte: src.slice(debut, fin ?? src.length), debut, fin: fin ?? src.length });
+    rx.lastIndex = debut + 1;
+  }
+  return out;
+}
+
+/** Les questions portées par un texte JSON, par la chaîne de réparation.
+ *
+ * Trois défauts vus en production, dans l'ordre : retours à la ligne bruts dans
+ * une chaîne, déchets après l'objet, objet jamais refermé. Ce qui reste
+ * irrécupérable rend ZÉRO question — d'autres candidats porteront les autres. */
+function questionsDe(corps: string): AskQ[] {
+  let obj: unknown;
   try {
-    const body = m[1].trim();
-    let obj;
+    obj = JSON.parse(corps);
+  } catch {
+    const repare = escapeRawControlChars(corps);
     try {
-      obj = JSON.parse(body);
+      obj = JSON.parse(repare);
     } catch {
-      // 1) junk after a complete object → we cut at the closing
-      // 2) object never closed → we rebalance
-      const repare = escapeRawControlChars(body);
       try {
-        obj = JSON.parse(repare);
+        obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
       } catch {
         try {
-          obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
-        } catch {
-          // mismatched closers (« } » instead of « ] »)
           obj = JSON.parse(reparerFermetures(repare));
+        } catch {
+          return [];
         }
       }
     }
-    const raw: unknown[] = Array.isArray(obj.questions) ? obj.questions : (obj.question ? [obj] : []);
-    const questions: AskQ[] = raw
-      .map((q) => {
-        const qq = q as { question?: unknown; options?: unknown };
-        const question = typeof qq.question === "string" ? qq.question.trim() : "";
-        const options = Array.isArray(qq.options)
-          ? qq.options.filter((o: unknown) => typeof o === "string" && o.trim()).map((o: string) => o.trim()).slice(0, MAX_ASK_OPTIONS)
-          : [];
-        return { question, options };
-      })
-      .filter((q) => q.question && q.options.length >= 1)
-      .slice(0, MAX_ASK_QUESTIONS);
-    if (!questions.length) return null;
-    return { questions, prose: content.replace(m[0], "").trim() };
-  } catch {
-    return null;
   }
+  const brut = obj as { question?: unknown; questions?: unknown } | null;
+  const liste: unknown[] = Array.isArray(brut?.questions) ? brut.questions : brut?.question ? [brut] : [];
+  return liste
+    .map((q) => {
+      const qq = q as { question?: unknown; options?: unknown };
+      const question = typeof qq.question === "string" ? qq.question.trim() : "";
+      const options = Array.isArray(qq.options)
+        ? qq.options.filter((o: unknown) => typeof o === "string" && o.trim()).map((o: string) => o.trim()).slice(0, MAX_ASK_OPTIONS)
+        : [];
+      return { question, options };
+    })
+    .filter((q) => q.question && q.options.length >= 1);
+}
+
+/** Bornes [debut, fin) des blocs de code qui sont de vrais FICHIERS : un
+ *  fichier ne doit pas être mangé parce qu'il contient des objets de question
+ *  (une FAQ en JSON, un quiz…). Le critère est EXACTEMENT celui du rendu des
+ *  fichiers (`estBlocQuestions`) : un bloc qui peut porter un questionnaire ne
+ *  protège pas son contenu, tous les autres si. */
+function bornesFichiers(content: string): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (const m of content.matchAll(/```([\w+-]*)[ \t]*\n([\s\S]*?)(?:```|$)/g)) {
+    if (estBlocQuestions(m[1] || "", m[2])) continue;
+    // Un bloc SANS langage et JAMAIS refermé n'est pas un fichier : c'est le
+    // marqueur orphelin d'un bloc raté (« {"questions": []}``` » mesuré le
+    // 2026-10-05) — le protéger aurait caché toutes les questions qui suivent.
+    if (!m[1] && !m[0].endsWith("```")) continue;
+    out.push([m.index ?? 0, (m.index ?? 0) + m[0].length]);
+  }
+  return out;
+}
+
+/** Le message porte-t-il des objets de questionnaire hors des vrais fichiers ?
+ *
+ * C'est ce qui distingue un questionnaire RATÉ d'un fichier ouvert : le modèle
+ * qui éparpille ses questions laisse parfois un marqueur « ``` » orphelin, et
+ * `openCodeFence` voyait alors un fichier « texte » non refermé — la reprise
+ * automatique relançait le modèle (« reprends au caractère suivant »), qui
+ * RÉÉCRIVAIT son questionnaire : les deux tentatives s'entremêlaient et les
+ * questions sortaient en texte nu (mesuré le 2026-10-05). */
+export function contientQuestions(content: string): boolean {
+  const fichiers = bornesFichiers(content);
+  return candidatsQuestions(content).some(
+    (c) => !fichiers.some(([d, f]) => c.debut >= d && c.fin <= f),
+  );
+}
+
+/** Cette réponse laisse-t-elle un fichier INACHEVÉ ?
+ *
+ * Un questionnaire n'est pas un fichier : ne jamais le « reprendre ».
+ * Un fichier HTML qui se termine bien par `</html>` n'est pas inachevé non
+ * plus (le modèle a seulement oublié la clôture de son bloc). */
+export function reponseIncomplete(content: string): boolean {
+  if (contientQuestions(content)) return false;
+  const ouvert = openCodeFence(content);
+  if (ouvert) return !/<\/html\s*>\s*$/i.test(ouvert.body.trimEnd());
+  if (/<!DOCTYPE html|<html[\s>]/i.test(content) && !/<\/html\s*>/i.test(content)) return true;
+  return false;
+}
+
+/** Détecte un questionnaire de clarification, où que le modèle l'ait éparpillé.
+ *
+ * Accepte le bloc ```ask, le ```json derrière le garde `{"questions": [`, la
+ * forme dégénérée « ask » + JSON nu (MiMo, 2026-10-02), et — depuis le
+ * 2026-10-05 — les objets de question POSÉS DANS LE TEXTE après un bloc raté.
+ * Une clôture de clôture oubliée n'est pas rédhibitoire non plus. */
+export function parseAsk(content: string): AskBlock | null {
+  const fichiers = bornesFichiers(content);
+  const questions: AskQ[] = [];
+  const vus = new Set<string>();
+  let premier = content.length;   // début du premier fragment de question
+
+  const ramasse = (corps: string, offset: number) => {
+    for (const c of candidatsQuestions(corps)) {
+      const debut = offset + c.debut;
+      const fin = offset + c.fin;
+      if (fichiers.some(([d, f]) => debut >= d && fin <= f)) continue;   // c'est un fichier
+      premier = Math.min(premier, debut);
+      for (const q of questionsDe(c.texte)) {
+        // Clé de dédoublonnage, jamais affichée : volontairement sans locale.
+        const cle = q.question.toLowerCase();
+        if (vus.has(cle) || questions.length >= MAX_ASK_QUESTIONS) continue;
+        vus.add(cle);
+        questions.push(q);
+      }
+    }
+  };
+
+  // 1) Les blocs qu'on lui DEMANDE d'écrire (on garde leur place pour la prose).
+  for (const m of content.matchAll(/```ask[ \t]*\n([\s\S]*?)(?:```|$)/gi)) {
+    premier = Math.min(premier, m.index ?? 0);
+    ramasse(m[1], (m.index ?? 0) + m[0].length - m[1].length);
+  }
+  for (const m of content.matchAll(/```(?:json)?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/g)) {
+    premier = Math.min(premier, m.index ?? 0);
+    ramasse(m[1], (m.index ?? 0) + m[0].length - m[1].length);
+  }
+  // Forme dégénérée mesurée sur MiMo le 2026-10-02 : « ask » en code inline (ou
+  // nu) suivi du JSON SANS clôture. Le garde `{"questions": [ évite d'avaler un
+  // vrai fichier au passage.
+  for (const m of content.matchAll(/(?:^|\n)[ \t]*`?ask`?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/gi)) {
+    premier = Math.min(premier, m.index ?? 0);
+    ramasse(m[1], (m.index ?? 0) + m[0].length - m[1].length);
+  }
+  // 2) Et surtout : les objets de question POSÉS DANS LE TEXTE, où qu'ils
+  //    soient — c'est ce qui reste quand le bloc d'ouverture est raté.
+  ramasse(content, 0);
+
+  if (!questions.length) return null;
+  // La prose du questionnaire = ce qui PRÉCÈDE le premier fragment de question.
+  // L'instruction n'autorise qu'UNE phrase d'intro avant le bloc ; on y coupe
+  // les débris JSON (crochet/accolade suivi d'une quote, marqueur « ``` ») : un
+  // modèle en difficulté mêle son intro à ses questions.
+  let prose = content.slice(0, premier);
+  const debris = prose.search(/(?:[[{]\s*"|```)/);
+  if (debris >= 0) prose = prose.slice(0, debris);
+  return { questions, prose: prose.trim() };
 }
 
 /** The code block still open at the end of the content, if any.

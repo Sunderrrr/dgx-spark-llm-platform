@@ -86,6 +86,7 @@ import { copierTexte } from "@/lib/copier";
 // Pure model-output parsers, extracted for unit tests (tests/playground-parsers.test.ts).
 import {
   parseAsk, parseEdits, estBlocQuestions, contenuCloture, corpsDeSuite, recoller, openCodeFence,
+  reponseIncomplete,
 } from "@/lib/playground-parsers";
 
 import {
@@ -319,17 +320,6 @@ const SLASH_CREATE_COMMANDS = ["skill-creator", "create", "new", "creer", "compe
  * of sequence mid-expression. The counter then says « terminé » while the
  * file is unusable, and nothing allowed a resume.
  */
-function reponseIncomplete(content: string): boolean {
-  const ouvert = openCodeFence(content);
-  if (ouvert) {
-    // Closing fence merely forgotten on a file that IS finished:
-    // this is not a cut, and saying so restarted a generation for nothing.
-    return !/<\/html\s*>\s*$/i.test(ouvert.body.trimEnd());
-  }
-  if (/<!DOCTYPE html|<html[\s>]/i.test(content) && !/<\/html\s*>/i.test(content)) return true;
-  return false;
-}
-
 /** Is the script of this HTML page closed?
  *
  * Seen in production: the model writes `</script></body></html>` while a

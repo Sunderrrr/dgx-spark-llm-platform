@@ -375,6 +375,14 @@ resizable **side panel** where a file or a document is read *as it is written*
 panel each scroll on their own, follow the writing until you scroll up, and then
 offer a « Descendre » button.
 
+When the request is ambiguous, the model **asks first**: its clarifying
+questions come out as a clickable card (one question at a time, several answers
+allowed, free text per question), and the answers are sent back in one go. The
+parsing is deliberately tolerant — a question block the model botched (empty
+envelope, questions scattered in the text, half-written object) is still
+collected into the card, and a message carrying questions is never mistaken for
+a half-written file to auto-resume.
+
 Includes **dictation** — a mic button transcribes what you say into the composer.
 Deliberately self-hosted (Whisper on the GPU) rather than the browser's
 `SpeechRecognition` API, which in Chrome ships the audio to Google's servers.

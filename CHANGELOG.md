@@ -19,6 +19,25 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Playground — the clarifying questionnaire works again** (« les questions ne
+  marchent plus »). Two defects chained, both found on the very output that was
+  reported. First, the model sometimes fails its `ask` block — an empty
+  `{"questions": []}` envelope closed at once, then the real questions
+  scattered through the text as separate `{"question": …}` objects, with JSON
+  debris around them — and `parseAsk` gave up on the first empty block, so the
+  questions came out as raw text with nothing to click. It now harvests every
+  question-shaped object wherever it lands, each one parsed on its own through
+  the repair chain: the reported message yields its 5 questions (the half-written
+  one is skipped, a real file that happens to contain question objects stays a
+  file). Second, the auto-resume (« reprends au caractère suivant ») mistook the
+  stray ` ``` ` marker of that same broken block for an unfinished *file* and
+  relaunched the model — which **rewrote** its questionnaire, the two attempts
+  interleaving into the garbled text that was reported. A message carrying
+  questions is never resumed now. Locked by 5 new parser tests, the reported
+  content verbatim included.
+
 ### Changed
 
 - **Web stack** — LiteLLM `1.102.1 → 1.104.0`, PostgreSQL `15.18 → 15.19`

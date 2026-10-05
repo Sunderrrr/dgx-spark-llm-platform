@@ -508,8 +508,9 @@ overflows takes the chat model down with it.
 Sensitive actions — revoking a key, launching or stopping the model on the GPU —
 are **never executed on the model's word**: it files a request, the chat shows a
 **Confirmer / Annuler** button, and only your click runs it (single-use token,
-expires after 10 minutes, bound to your account). The assistant also keeps your
-last conversation server-side so a page reload does not lose it, remembers durable
+expires after 10 minutes, bound to your account). Every visit starts on a
+**clear conversation**; the previous thread stays server-side behind a discreet
+« Reprendre » card, never reloading itself. It remembers durable
 facts about you when the memory feature is on, sees your recent platform actions
 when diagnosing a problem, and offers 👍/👎 feedback on its answers (collected
 at `GET /admin/support/feedback`, admin-only).

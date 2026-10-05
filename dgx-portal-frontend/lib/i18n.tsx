@@ -1014,6 +1014,8 @@ const EN: Record<string, string> = {
   "Se connecter avec le SSO Cronos": "Sign in with Cronos SSO",
 
   // — Playground / Support —
+  "Reprendre la conversation précédente": "Resume the previous conversation",
+  "Elle n'est pas chargée : le Support démarre toujours à zéro.": "It is not loaded: Support always starts from scratch.",
   "Réflexion": "Thinking",
   "Réflexion en cours…": "Thinking…",
   "pensé {n} s": "thought for {n} s",

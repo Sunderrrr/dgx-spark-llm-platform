@@ -108,7 +108,14 @@ services:
       GENERIC_USERINFO_ENDPOINT: https://gjallarhorn.cronos.website/application/o/userinfo/
       GENERIC_REDIRECT_URI: http://dgx.cronos.lan:4001/sso/callback
       GENERIC_CLIENT_SCOPE: "openid profile email"
-    entrypoint: ["sh", "-c", "sleep 5 && /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4001"]
+    # The proxy also writes to /run/cronos/litellm.log (shared with dgx-portal,
+    # mounted read-only there) so the Support can read its logs with the same
+    # `read_logs` tool as the GPU services — without going through the runner
+    # (a runner restart would kill the served model). The wrapper keeps the
+    # GRACEFUL SHUTDOWN: `sh` is PID 1 and would swallow SIGTERM, so the
+    # signal is trapped and forwarded to the proxy. The log is bounded: past
+    # 20 MB it is rotated once at startup (`.1`), never grown forever.
+    entrypoint: ["sh", "-c", "sleep 5; size=`stat -c%s /run/cronos/litellm.log 2>/dev/null || echo 0`; if [ $size -gt 20000000 ]; then mv /run/cronos/litellm.log /run/cronos/litellm.log.1; fi; /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4001 >> /run/cronos/litellm.log 2>&1 & app=$!; trap 'kill -TERM $app' TERM INT; wait $app"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

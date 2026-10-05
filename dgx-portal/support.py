@@ -260,7 +260,7 @@ def _support_tools(is_admin):
                 "parameters": {"type": "object", "properties": {}}}},
             {"type": "function", "function": {
                 "name": "read_logs",
-                "description": ("(Admin) Lit la fin des logs d'un service (model, ocr, video, "
+                "description": ("(Admin) Lit la fin des logs d'un service (model, litellm, ocr, video, "
                                 "voice, asr, image, music). Les logs ne sont PAS dans ton "
                                 "contexte : appelle cet outil quand un service ne répond pas — "
                                 "la cause exacte (erreur de chargement, OOM, dépendance absente) "
@@ -435,7 +435,9 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
 SERVICE_KINDS = ('ocr', 'video', 'voice', 'asr', 'image', 'music')
 # « model » = the runner's own buffer (the served chat model), the rest = the
 # sidecars. Same vocabulary as SERVICE_KINDS plus the model itself.
-SERVICE_LOG_KINDS = ('model',) + SERVICE_KINDS
+# « model » = the runner's own buffer (the served chat model), « litellm » =
+# the API gateway's own file (shared volume), the rest = the sidecars.
+SERVICE_LOG_KINDS = ('model', 'litellm') + SERVICE_KINDS
 
 # Snapshot of every service, cached: probing them costs an HTTP round trip
 # each (and up to a timeout when one is down), while a Support turn must not

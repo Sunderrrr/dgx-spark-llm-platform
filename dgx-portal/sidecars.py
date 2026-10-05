@@ -932,6 +932,19 @@ def sidecar_logs(kind, n=120):
     """
     if kind == 'model':
         return runner_logs(n)
+    if kind == 'litellm':
+        # The proxy writes to the SHARED volume (see docker-compose.yml): the
+        # portal mounts it read-only and reads it directly — no runner, no
+        # docker rights, and above all no runner restart (which would kill the
+        # served model). The `.1` file is the rotated previous log.
+        out = []
+        for chemin in ('/run/cronos/litellm.log', '/run/cronos/litellm.log.1'):
+            try:
+                with open(chemin, encoding='utf-8', errors='replace') as f:
+                    out.extend(f.readlines())
+            except OSError:
+                pass
+        return [l.rstrip()[:400] for l in _drop_log_noise(out)[-n:]]
     try:
         r = requests.get(f"{RUNNER_URL}/{kind}/logs", headers=_runner_headers(), timeout=10)
         if r.ok:

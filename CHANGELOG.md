@@ -19,6 +19,18 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **Support — LiteLLM's logs join `read_logs`** (« toutes les logs de tous les
+  services »). The gateway now writes to the shared volume
+  (`/run/cronos/litellm.log`, rotated once past 20 MB) instead of stdout only:
+  the portal mounts it read-only and reads it **directly** — no runner
+  involved, and above all no runner restart, which would kill the served
+  model. The wrapper keeps the graceful shutdown (`sh` is PID 1 and would
+  swallow SIGTERM, so the signal is trapped and forwarded). Verified live: the
+  tool returns the real gateway traffic, and the assistant summarises it.
+  Logs covered: model, litellm, ocr, video, voice, asr, image, music.
+
 ## [0.1.8] - 2026-10-05
 
 The Support reads the services' logs the right way: pulled on demand through a

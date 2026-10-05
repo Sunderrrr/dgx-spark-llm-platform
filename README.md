@@ -491,6 +491,12 @@ its duration. **Dictation** works there too (the same Whisper sidecar as the
 playground), and the thinking is kept in the thread, so a reload still opens the
 diagnosis instead of only its conclusion.
 
+Its context stays **light on purpose**: the services' logs are never dumped
+into the prompt. When a service misbehaves the assistant **pulls the tail of its
+logs on demand** (`read_logs`, admin-only, read-only) — model runner, ocr,
+video, voice, asr, image or music — and answers from the exact cause written
+there. Reading once, precisely, beats carrying a blind snapshot on every turn.
+
 It also **sees every service's real state** (ocr, video, voice, asr, image,
 music: `running` when it actually answers, `starting` while it loads, `stopped`,
 `failed`) and can **relaunch one** (start / restart / stop) — admin-only, and

@@ -24,7 +24,8 @@ from mcp_client import MCPClient, MCPError, list_tools_cached
 from notify import (notify_budget_discord, notify_budget_email, notify_discord,
                     notify_email)
 from sidecars import (_mem_guard, _sidecar_action, _sidecar_status,
-                      runner_launch, runner_logs, runner_status, runner_stop)
+                      runner_launch, runner_logs, runner_status, runner_stop,
+                      sidecar_logs)
 from stats import user_hourly
 from vllm_health import effective_ctx, get_running_models
 
@@ -57,9 +58,9 @@ SUPPORT_SYSTEM = (
     "- launch_model / stop_model : (admin uniquement) piloter le modèle du GPU.\n"
     "Règles d'usage des outils :\n"
     "- N'appelle un outil QUE pour une action explicitement demandée (créer/"
-    "révoquer une clé, demander du budget/un modèle, lancer/arrêter). Pour toute "
-    "question de dépannage, d'information ou d'explication, réponds DIRECTEMENT en "
-    "texte, SANS appeler d'outil (tu as déjà les logs et l'état dans le contexte).\n"
+    "révoquer une clé, demander du budget/un modèle, lancer/arrêter), ou pour LIRE "
+    "les logs d'un service en cas de panne (read_logs). Pour toute question "
+    "d'information ou d'explication, réponds DIRECTEMENT en texte.\n"
     "- Les actions SENSIBLES (revoke_api_key, launch_model, stop_model) te "
     "répondent « NON EXÉCUTÉ : en attente de confirmation » : c'est normal. Le "
     "système affiche alors un bouton Confirmer à l'utilisateur, et l'action ne "
@@ -202,19 +203,18 @@ def _support_context(username, is_admin, user_msg=''):
     except Exception:
         pass
 
-    # ── Server logs (troubleshooting, ADMINS ONLY) ───
-    # The is_admin guard is not cosmetic: the two other accesses to these
-    # logs (/admin/runner/logs and /admin/runner/stream) are @admin_required.
-    # Without it, any user writing "it's slow" or "error"
-    # would get the runner's log tail injected into the system prompt, then
-    # ask the assistant to copy it back — engine command line,
-    # host paths, startup traces, and other users' prompts
-    # as soon as request logging is enabled.
-    if is_admin and _LOG_HINT_RE.search(user_msg or ''):
-        logs = runner_logs(n=20)
-        if logs:
-            tail = [l[:200] for l in logs[-12:]]
-            lines.append("Derniers logs du serveur de modèle :\n" + "\n".join(tail))
+    # ── Server logs: read on DEMAND, never injected ─────────────────────
+    # They used to be dropped into the system prompt on every troubleshooting
+    # question (12 blind lines of the runner's buffer). Cost on every turn,
+    # and the wrong ones: the model had to make do with what was there. Now
+    # `read_logs` pulls the tail of WHATEVER service matters — the cause of a
+    # failure is worth reading once, precisely, not guessing at from a
+    # snapshot. This line only tells the model the door exists; the logs stay
+    # behind it (they are admin-only, like every other read of them).
+    if is_admin:
+        lines.append("Les logs des services ne sont PAS dans ce contexte : s'ils "
+                     "sont utiles pour répondre (panne, erreur, démarrage), lis-les "
+                     "avec l'outil read_logs, puis cite la cause trouvée.")
 
     return SUPPORT_FAQ + "\n\n" + "\n".join(lines)
 
@@ -258,6 +258,19 @@ def _support_tools(is_admin):
                 "name": "stop_model",
                 "description": "(Admin) Arrête le modèle actuellement chargé. Confirmer avant.",
                 "parameters": {"type": "object", "properties": {}}}},
+            {"type": "function", "function": {
+                "name": "read_logs",
+                "description": ("(Admin) Lit la fin des logs d'un service (model, ocr, video, "
+                                "voice, asr, image, music). Les logs ne sont PAS dans ton "
+                                "contexte : appelle cet outil quand un service ne répond pas — "
+                                "la cause exacte (erreur de chargement, OOM, dépendance absente) "
+                                "y est écrite. Lecture seule, aucun effet de bord."),
+                "parameters": {"type": "object", "properties": {
+                    "service": {"type": "string", "enum": list(SERVICE_LOG_KINDS),
+                                "description": "Le service dont lire les logs."},
+                    "lines": {"type": "integer",
+                              "description": "Nombre de lignes à lire, défaut 80 (max 300)."}},
+                    "required": ["service"]}}},
             {"type": "function", "function": {
                 "name": "manage_service",
                 "description": ("(Admin) Démarre, redémarre ou arrête un service de la plateforme "
@@ -304,6 +317,24 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
                 db.commit()
                 return f"Clé « {alias} » révoquée.", True
             return "Échec de la révocation côté LiteLLM.", False
+
+        if name == 'read_logs':
+            if not is_admin:
+                return "Lecture réservée aux administrateurs.", False
+            kind = (args.get('service') or '').strip().lower()
+            if kind not in SERVICE_LOG_KINDS:
+                return (f"Service inconnu : « {kind} » (attendu : "
+                        f"{', '.join(SERVICE_LOG_KINDS)})."), False
+            try:
+                n = max(1, min(300, int(args.get('lines') or 80)))
+            except (TypeError, ValueError):
+                n = 80
+            lignes = sidecar_logs(kind, n)
+            if not lignes:
+                return (f"Aucun log disponible pour « {kind} » : service injoignable, "
+                        "ou tampon vide (rien n'a encore été écrit)."), True
+            return (f"Logs de « {kind} » ({len(lignes)} dernières lignes) :\n"
+                    + "\n".join(lignes)), True
 
         if name == 'manage_service':
             if not is_admin:
@@ -402,6 +433,9 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
 # demand) plus the video backend. Their state is what « ça ne marche pas »
 # means before anyone opens a shell.
 SERVICE_KINDS = ('ocr', 'video', 'voice', 'asr', 'image', 'music')
+# « model » = the runner's own buffer (the served chat model), the rest = the
+# sidecars. Same vocabulary as SERVICE_KINDS plus the model itself.
+SERVICE_LOG_KINDS = ('model',) + SERVICE_KINDS
 
 # Snapshot of every service, cached: probing them costs an HTTP round trip
 # each (and up to a timeout when one is down), while a Support turn must not
@@ -521,6 +555,7 @@ TOOL_LABELS = {
     'launch_model': "Lancer un modèle",
     'stop_model': "Arrêter le modèle",
     'manage_service': "Gérer un service",
+    'read_logs': "Lire les logs d'un service",
 }
 
 

@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-10-05
+
+The Support assistant now answers integration questions from CURRENT
+documentation: two essential MCP servers, registered per account.
+
 ### Added
 
 - **Essential MCP servers, registered per account** (« conf des mcp de base
@@ -482,7 +487,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.10...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.11...HEAD
+[0.1.11]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.7...v0.1.8

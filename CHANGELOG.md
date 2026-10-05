@@ -19,6 +19,26 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **The usual MCP pack, disabled until its key arrives** (« rajoute plus de
+  chose genre github gmail et plus… juste ne les active pas tant que les user
+  n'ont pas set les api key »). Eight servers join the two that work straight
+  away — **github**, **sentry**, **cloudflare**, **slack**, **notion**,
+  **linear**, **figma**, **stripe** — all verified live (they answer 401, i.e.
+  they exist and wait for a token). Each is registered **disabled**, with the
+  token format it expects spelled out; **writing the key in Settings → MCP is
+  what switches the server on**, so an incomplete configuration never becomes
+  active by accident. Three tests lock that rule. Gmail has no public remote
+  MCP endpoint (checked: no such host, aggregators redirect to their own auth)
+  — see the README for the two ways around it.
+
+### Changed
+
+- **`scripts/mcp-essentiels.sh`** is now the single source of truth for the
+  pack (enabled-while-keyless / waiting-for-a-key families), and the
+  per-account cap stays at 10 servers.
+
 ## [0.1.11] - 2026-10-05
 
 The Support assistant now answers integration questions from CURRENT

@@ -241,9 +241,16 @@ def mcp_servers_route():
         except Exception:
             return jsonify({'ok': False, 'error': "Connexion au serveur MCP impossible."})
         try:
+            # « ne les active pas tant que les user n'ont pas set les api key » :
+            # writing the authorization header is what brings a server that
+            # waits for its key to life. A key-less server (context7, deepwiki)
+            # is switched on/off by the toggle, and nothing is ever disabled
+            # behind the user's back.
             db.execute("UPDATE mcp_servers SET name=?, url=?, auth_header=?, description=?, "
-                       "allowed_tools=? WHERE id=? AND username=?",
-                       (name, url, auth_header, description, allowed_tools, server_id, username))
+                       "allowed_tools=?, enabled=CASE WHEN ? THEN 1 ELSE enabled END "
+                       "WHERE id=? AND username=?",
+                       (name, url, auth_header, description, allowed_tools,
+                        1 if auth_header else 0, server_id, username))
             db.commit()
         except sqlite3.IntegrityError:
             return jsonify({'ok': False, 'error': "Tu as déjà un serveur MCP avec ce nom."})

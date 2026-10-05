@@ -18,6 +18,7 @@ import unittest
 from unittest.mock import patch
 
 import app as portal
+import settings_routes
 from werkzeug.security import generate_password_hash
 
 
@@ -217,6 +218,74 @@ class ClesApiTest(_BaseReglages):
         """The GET is not a page: the Next.js UI carries the screen."""
         c = self._client()
         self.assertEqual(c.get("/keys").status_code, 204)
+
+
+class McpActivationTest(_BaseReglages):
+    """« juste les active pas temps que les user n'on pas set les api key ».
+
+    A server registered without its key sits DISABLED — and writing the
+    authorization header is what switches it on. Nothing is ever activated
+    behind the user's back, and nothing is disabled either (a key-less server
+    like context7 is managed by the toggle).
+    """
+
+    USER = "mcp-test"
+
+    def tearDown(self):
+        with self._db():
+            db = portal.get_db()
+            db.execute("DELETE FROM mcp_servers WHERE username=?", (self.USER,))
+            db.commit()
+
+    def _insere(self, auth=None, actif=0):
+        with self._db():
+            db = portal.get_db()
+            db.execute(
+                "INSERT INTO mcp_servers (username, name, url, auth_header, description, "
+                "allowed_tools, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                (self.USER, "github", "https://api.githubcopilot.com/mcp/", auth,
+                 "Dépôts GitHub", "", actif, "2026-10-05T00:00:00"))
+            db.commit()
+            return db.execute("SELECT id FROM mcp_servers WHERE username=?",
+                              (self.USER,)).fetchone()['id']
+
+    def _etat(self, ident):
+        with self._db():
+            r = portal.get_db().execute(
+                "SELECT enabled, auth_header FROM mcp_servers WHERE id=?", (ident,)).fetchone()
+            return (r['enabled'], r['auth_header'])
+
+    def _update(self, client, ident, **data):
+        base = {"action": "update", "id": str(ident), "name": "github",
+                "url": "https://api.githubcopilot.com/mcp/", "description": "Dépôts GitHub",
+                "allowed_tools": ""}
+        base.update(data)
+        with patch.object(settings_routes, "validate_mcp_url", return_value=(True, '')), \
+             patch.object(settings_routes, "MCPClient") as MC:
+            MC.return_value.initialize.return_value = None
+            MC.return_value.list_tools.return_value = [{"name": "list_issues"}]
+            return self._post(client, "/mcp", base)
+
+    def test_ecrire_la_cle_active_le_serveur(self):
+        ident = self._insere(auth=None, actif=0)
+        r = self._update(self._client(self.USER), ident, auth_header="Bearer ghp_test")
+        self.assertTrue(r.get_json().get('ok'), r.get_json())
+        self.assertEqual(self._etat(ident), (1, "Bearer ghp_test"))
+
+    def test_sans_cle_le_serveur_reste_inactif(self):
+        """Redisplaying the form without touching the key keeps it off: an
+        incomplete configuration must never become active by accident."""
+        ident = self._insere(auth=None, actif=0)
+        r = self._update(self._client(self.USER), ident, auth_header="")
+        self.assertTrue(r.get_json().get('ok'), r.get_json())
+        self.assertEqual(self._etat(ident), (0, None))
+
+    def test_un_serveur_deja_actif_ne_s_eteint_pas(self):
+        """A key-less server (context7…) toggled ON stays ON when edited."""
+        ident = self._insere(auth=None, actif=1)
+        r = self._update(self._client(self.USER), ident, auth_header="")
+        self.assertTrue(r.get_json().get('ok'), r.get_json())
+        self.assertEqual(self._etat(ident), (1, None))
 
 
 class AvatarTest(_BaseReglages):

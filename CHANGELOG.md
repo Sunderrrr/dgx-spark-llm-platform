@@ -19,6 +19,20 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **Support — it sees the platform's services, and can relaunch one** (« je
+  suis chaud que il puisse regarder si tout fonctionne et que si un service est
+  stop il puisse relancer »). Every service (ocr, video, voice, asr, image,
+  music) is now listed in the assistant's context with its real state —
+  `running` when it actually answers, `starting` while it loads, `stopped`,
+  `failed` — read from the runner, never guessed. A new **`manage_service`**
+  tool starts, restarts or stops one: admin-only, guarded by the same
+  in-chat confirmation as launching a model, and it answers with the service's
+  NEW state so the assistant can report « relancé, il démarre » instead of
+  hoping. The unified-memory guard runs before any start (a sidecar that
+  overflows takes the chat model with it). 8 new tests.
+
 ## [0.1.6] - 2026-10-05
 
 Four additions that complete the Support's job — diagnosing — and bring it to

@@ -23,7 +23,8 @@ from litellm_client import (_litellm_user_info, create_litellm_key,
 from mcp_client import MCPClient, MCPError, list_tools_cached
 from notify import (notify_budget_discord, notify_budget_email, notify_discord,
                     notify_email)
-from sidecars import runner_launch, runner_logs, runner_status, runner_stop
+from sidecars import (_mem_guard, _sidecar_action, _sidecar_status,
+                      runner_launch, runner_logs, runner_status, runner_stop)
 from stats import user_hourly
 from vllm_health import effective_ctx, get_running_models
 
@@ -161,6 +162,14 @@ def _support_context(username, is_admin, user_msg=''):
     st = runner_status()
     lines.append("Runner vLLM : " + st.get('status', '?')
                  + (" — aucun modèle chargé" if not running else ""))
+    # Every service, so a « ça ne marche pas » is answered from FACTS: the
+    # state is read here, not guessed, and a stopped one can be relaunched
+    # with the `manage_service` tool.
+    etats = services_etat()
+    lignes_svc = [f"  - {k} : {v}" for k, v in etats.items()]
+    lines.append("Services de la plateforme (running = prêt à servir, "
+                 "starting = en chargement, stopped = arrêté, failed = en "
+                 "échec de chargement) :\n" + "\n".join(lignes_svc))
 
     # ── User's pending requests ─────────────
     mreqs = db.execute("SELECT model_id, status FROM model_requests WHERE username=? "
@@ -249,6 +258,20 @@ def _support_tools(is_admin):
                 "name": "stop_model",
                 "description": "(Admin) Arrête le modèle actuellement chargé. Confirmer avant.",
                 "parameters": {"type": "object", "properties": {}}}},
+            {"type": "function", "function": {
+                "name": "manage_service",
+                "description": ("(Admin) Démarre, redémarre ou arrête un service de la plateforme "
+                                "(ocr, video, voice, asr, image, music). À utiliser quand un "
+                                "service est arrêté, en échec ou bloqué au démarrage : l'outil "
+                                "renvoie son nouvel état. Confirmer avant."),
+                "parameters": {"type": "object", "properties": {
+                    "service": {"type": "string", "enum": list(SERVICE_KINDS),
+                                "description": "Le service concerné."},
+                    "action": {"type": "string", "enum": ["start", "restart", "stop"],
+                               "description": ("start = démarrer un service arrêté ; "
+                                               "restart = le relancer (utile s'il est bloqué "
+                                               "ou en échec) ; stop = l'arrêter.")}},
+                    "required": ["service", "action"]}}},
         ]
     return t
 
@@ -281,6 +304,29 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
                 db.commit()
                 return f"Clé « {alias} » révoquée.", True
             return "Échec de la révocation côté LiteLLM.", False
+
+        if name == 'manage_service':
+            if not is_admin:
+                return "Action réservée aux administrateurs.", False
+            kind = (args.get('service') or '').strip().lower()
+            action = (args.get('action') or '').strip().lower()
+            if kind not in SERVICE_KINDS:
+                return (f"Service inconnu : « {kind} » (attendu : "
+                        f"{', '.join(SERVICE_KINDS)})."), False
+            if action not in ('start', 'restart', 'stop'):
+                return f"Action inconnue : « {action} » (attendu : start, restart, stop).", False
+            if action != 'stop':
+                # The memory guard belongs to the START path: on unified memory a
+                # sidecar that overflows takes the chat model down with it.
+                err = _mem_guard(kind)
+                if err:
+                    return err, False
+            if action == 'restart':
+                _sidecar_action(kind, 'stop')
+                time.sleep(2)
+            ok, detail = _sidecar_action(kind, 'start' if action != 'stop' else 'stop')
+            etat = _sidecar_status(kind)
+            return (f"{kind} : {etat}" + (f" — {detail}" if detail else ""), bool(ok))
 
         if name == 'request_budget':
             reason = (args.get('reason') or '').strip()
@@ -352,7 +398,35 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
 # Tools we refuse to run once external content (an MCP result
 # or skill text) has entered the context: destructive
 # (key revocation) or global server-scope (the GPU is shared).
-GUARDED_TOOLS = {'revoke_api_key', 'launch_model', 'stop_model'}
+# Services the Support can inspect and act on: the media sidecars (started on
+# demand) plus the video backend. Their state is what « ça ne marche pas »
+# means before anyone opens a shell.
+SERVICE_KINDS = ('ocr', 'video', 'voice', 'asr', 'image', 'music')
+
+# Snapshot of every service, cached: probing them costs an HTTP round trip
+# each (and up to a timeout when one is down), while a Support turn must not
+# spend its latency budget there. 15 s: fresh enough to judge a restart.
+_services_cache = {'at': 0.0, 'etat': {}}
+
+
+def services_etat():
+    """{kind: 'running' | 'starting' | 'failed' | 'stopped' | …} for every
+    service, plus the chat model's runner. What « ça ne marche pas » means
+    before anyone opens a shell."""
+    now = time.time()
+    if now - _services_cache['at'] < 15:
+        return _services_cache['etat']
+    etat = {}
+    for kind in SERVICE_KINDS:
+        try:
+            etat[kind] = _sidecar_status(kind)
+        except Exception:
+            etat[kind] = 'unreachable'
+    _services_cache['at'] = now
+    _services_cache['etat'] = etat
+    return etat
+
+GUARDED_TOOLS = {'revoke_api_key', 'launch_model', 'stop_model', 'manage_service'}
 
 # Tools that are NOT destructive — they thus run directly, without a
 # confirmation button (product choice, locked in by a test) — but that
@@ -432,6 +506,10 @@ def _support_tool_target(name, args):
         return (args.get('hf_model_id') or '').strip() or None
     if name == 'launch_model':
         return (args.get('name') or '').strip() or None
+    if name == 'manage_service':
+        service = (args.get('service') or '').strip()
+        action = (args.get('action') or '').strip()
+        return f"{service} · {action}" if service else None
     return None
 
 
@@ -442,6 +520,7 @@ TOOL_LABELS = {
     'request_model': "Demander un modèle",
     'launch_model': "Lancer un modèle",
     'stop_model': "Arrêter le modèle",
+    'manage_service': "Gérer un service",
 }
 
 

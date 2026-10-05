@@ -52,6 +52,7 @@ import {
 } from "@/lib/api";
 import type { SupportConfirmRequest, ToolCallEvent } from "@/lib/api";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
+import { ReasoningBlock } from "../_components/ReasoningBlock";
 import { useT, tServeur } from "@/lib/i18n";
 import { copierTexte } from "@/lib/copier";
 import { texteNotice } from "@/lib/notices";
@@ -66,6 +67,11 @@ type ChatMsg = {
    * it is marked so it does not pass for a complete answer. */
   interrupted?: boolean;
   toolCalls?: ChatToolCallItem[];
+  /** The model's reasoning, streamed as `reasoning_content` (same contract as
+   *  the playground): shown in the collapsible block, never in the answer. */
+  reasoning?: string;
+  /** Thinking duration in ms (first reasoning chunk → first content chunk). */
+  reasoningMs?: number;
   /** Sensitive action proposed by the model (cronos_confirm): nothing is
    * executed until the user has clicked Confirmer/Annuler. */
   pendingAction?: SupportConfirmRequest;
@@ -195,6 +201,12 @@ export default function SupportPage() {
     const controller = new AbortController();
     abortRef.current = controller;
     let acc = "";
+    // The model's thinking, like the playground: accumulated apart (it never
+    // goes into the answer), with its real duration (first reasoning chunk →
+    // first content chunk).
+    let raison = "";
+    let raisonDebut: number | null = null;
+    let finPensee: number | null = null;
     const toolCalls: ChatToolCallItem[] = [];
     const updateLast = (patch: Partial<ChatMsg> & { content: string }) => {
       setMessages((prev) => {
@@ -251,13 +263,28 @@ export default function SupportPage() {
         nextMessages,
         controller.signal,
         (chunk) => {
+          if (finPensee === null) finPensee = performance.now();
           acc += chunk;
           updateLast({ content: acc });
         },
         onToolCall,
         onNotice,
         onConfirm,
+        (chunk) => {
+          if (raisonDebut === null) raisonDebut = performance.now();
+          raison += chunk;
+          updateLast({ content: acc, reasoning: raison });
+        },
       );
+      // The thinking duration is only known here, at the end of the stream.
+      if (raison) {
+        updateLast({
+          content: acc,
+          reasoning: raison,
+          // eslint-disable-next-line react-hooks/purity -- send() only runs from event handlers
+          reasoningMs: raisonDebut ? Math.round((finPensee ?? performance.now()) - raisonDebut) : undefined,
+        });
+      }
       if (!acc && !notice) updateLast({ content: t("Pas de réponse."), isError: true });
     } catch (e) {
       if ((e as Error)?.name === "AbortError") {
@@ -504,6 +531,16 @@ export default function SupportPage() {
                 return (
                 <ChatMessage key={i} sender={m.role}>
                   <ChatMessageBubble
+                    variant={m.role === "user" ? "filled" : "ghost"}
+                    className={m.role === "user" ? "bulle-question" : undefined}
+                    /* Same registers as the playground: the question in its
+                       bubble, the answer as plain text, and WHO is answering
+                       named above (the model, as in the reference shots). */
+                    name={
+                      m.role === "assistant" && runningModel ? (
+                        <Text type="supporting" color="secondary">{runningModel}</Text>
+                      ) : undefined
+                    }
                     metadata={
                       !isThinking && m.ts ? (
                         <ChatMessageMetadata
@@ -543,8 +580,22 @@ export default function SupportPage() {
                       <ThinkingIndicator />
                     ) : (
                       <VStack gap={2}>
+                        {/* The thinking, in the same collapsible block as the
+                            playground: open while it runs, folded on the first
+                            answer word with its measured duration. */}
+                        <ReasoningBlock
+                          reasoning={m.reasoning || ""}
+                          ms={m.reasoningMs}
+                          streaming={isStreamingThis && !m.content.trim()}
+                        />
                         {m.toolCalls?.length ? <ChatToolCalls calls={m.toolCalls} /> : null}
-                        {m.content && <Markdown isStreaming={isStreamingThis}>{m.content}</Markdown>}
+                        {m.content && (
+                          <Markdown
+                            className={m.reasoning && m.content.trim() ? "apparition-ecriture" : undefined}
+                            isStreaming={isStreamingThis}>
+                            {m.content}
+                          </Markdown>
+                        )}
                         {m.interrupted && (
                           <Text type="supporting" color="secondary">{t("Réponse interrompue.")}</Text>
                         )}

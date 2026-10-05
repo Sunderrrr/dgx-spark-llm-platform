@@ -346,6 +346,7 @@ export async function streamSupportChat(
   onToolCall?: (event: ToolCallEvent) => void,
   onNotice?: (notice: CronosNotice) => void,
   onConfirm?: (request: SupportConfirmRequest) => void,
+  onReasoning?: (chunk: string) => void,
 ): Promise<void> {
   const res = await authFetch("/support/chat", {
     method: "POST",
@@ -354,6 +355,10 @@ export async function streamSupportChat(
     signal,
   });
   await readSSE(res, (json) => {
+    // La pensée du modèle (`reasoning_content`, renommé par LiteLLM) : même
+    // contrat que le playground, donc même bloc de réflexion à l'écran.
+    const raison = json.choices?.[0]?.delta?.reasoning_content;
+    if (raison) onReasoning?.(raison);
     const content = json.choices?.[0]?.delta?.content;
     if (content) onChunk(content);
     if (json.tool_call) onToolCall?.(json.tool_call);

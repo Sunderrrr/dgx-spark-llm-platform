@@ -19,6 +19,30 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-05
+
+The Support assistant now reads exactly like the playground — same visual
+registers, and its **thinking is visible** instead of being generated and thrown
+away.
+
+### Changed
+
+- **Support — the playground's visual registers.** The question keeps its
+  bubble (65 % of the column), the answer is plain text with the model named
+  above it — the same three registers as the playground and the reference
+  screenshots. One codebase, one look.
+- **Support — the thinking is shown** (« appliquer … le thinking sur le
+  support si tu pense que c'est utile » — it is). The Support already runs an
+  adaptive reasoning pass, so the tokens were **generated and billed** and the
+  relay dropped them: nothing let the operator see what the assistant weighed
+  before answering. The reasoning is now streamed as `reasoning_content` (the
+  playground's contract) and rendered in the same collapsible block — open
+  while it runs, folded on the first answer word with its measured duration
+  (« thought for 20 s » measured live). The stray `think` tags some models leak
+  *into their answer text* stay hidden: those are text, not a structured
+  reasoning. `ReasoningBlock` moved to the shared components, and two backend
+  tests lock both halves of that contract.
+
 ## [0.1.3] - 2026-10-05
 
 Two things shipped together: the platform stack moves forward, and a reported
@@ -329,7 +353,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.0...v0.1.1

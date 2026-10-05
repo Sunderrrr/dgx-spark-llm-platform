@@ -81,6 +81,18 @@ def _sse_text(text):
     return f"data: {json.dumps({'choices': [{'delta': {'content': text}}]})}\n\n"
 
 
+def _sse_raisonnement(text):
+    """A reasoning frame, in the shape LiteLLM produces and the client reads
+    (`lib/api.ts` turns `delta.reasoning_content` into a `reasoningChunk`).
+
+    The Support thinks (adaptive, like the playground) and its reasoning was
+    GENERATED — so BILLED — then dropped by this relay: the operator had no way
+    to see what the assistant weighed before answering. Same contract as the
+    playground, so the same `ReasoningBlock` renders it.
+    """
+    return f"data: {json.dumps({'choices': [{'delta': {'reasoning_content': text}}]})}\n\n"
+
+
 def _sse_chunks(text, done=True):
     """Sends ALREADY-known text, in a few frames. Now only serves the
     "reasoning block" fallback (the error messages have become structured
@@ -255,6 +267,16 @@ def support_chat():
                 except Exception:
                     continue
                 delta = choice.get('delta') or {}
+                # La pensée du modèle (champ renommé `reasoning_content` par
+                # LiteLLM) est relaïée TELLE QUELLE : elle était produite — donc
+                # facturée — puis jetée. Elle s'affiche dans le même bloc
+                # dépliable qu'au playground. Les balises de pensée COULÉES dans
+                # le contenu, elles, restent masquées plus bas : ce sont du texte
+                # parasite, pas un raisonnement structuré.
+                rchunk = delta.get('reasoning_content')
+                if rchunk:
+                    last_emit = time.monotonic()
+                    yield _sse_raisonnement(rchunk)
                 for tc in delta.get('tool_calls') or []:
                     slot = tool_acc.setdefault(tc.get('index', 0),
                                                {'id': None, 'name': '', 'args': ''})

@@ -473,6 +473,15 @@ playground): if the account has no key yet, the assistant answers by asking you 
 create one on *My API keys* rather than silently doing nothing, and a spent budget
 stops it until the quota resets.
 
+It reads exactly like the playground: the **question** in its bubble, the
+**answer** as plain text with the model named above it, and — when the question
+is complex enough to trigger a reasoning pass — the **thinking** in the same
+collapsible block (open while it runs, folded on the first answer word with its
+measured duration). The reasoning is relayed as it streams (`reasoning_content`),
+so what the assistant weighed before answering is visible instead of being
+generated and thrown away; the stray `think` tags some models leak *into their
+answer text* stay hidden, as before.
+
 Sensitive actions — revoking a key, launching or stopping the model on the GPU —
 are **never executed on the model's word**: it files a request, the chat shows a
 **Confirmer / Annuler** button, and only your click runs it (single-use token,

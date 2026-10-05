@@ -1734,6 +1734,39 @@ class SupportNoticesStructureesTest(unittest.TestCase):
             return outil if appels["n"] <= 4 else final
         return self._flux(post=_post)
 
+    @staticmethod
+    def _frame_raisonnement(t):
+        """A thinking frame, as LiteLLM produces it (`reasoning_content`)."""
+        return "data: " + json.dumps({"choices": [{"delta": {"reasoning_content": t}}]})
+
+    def test_le_raisonnement_est_relaie(self):
+        """The model THINKS (adaptive, like the playground): what it produces is
+        generated, so billed — and it was dropped by this relay. It must reach
+        the client in `reasoning_content`, the same contract the playground
+        uses, so the same block can render it."""
+        # ASCII only: `json.dumps` escapes accents (je p\u00e8se…), and this
+        # test is about the FRAME SHAPE, not about the encoding.
+        frames = [self._frame_raisonnement("je pese les options"),
+                  self._frame_texte("la reponse"),
+                  "data: [DONE]"]
+        code, corps = self._flux(post=lambda *a, **k: self._Flux(frames))
+        self.assertEqual(code, 200)
+        self.assertIn('"reasoning_content": "je pese les options"', corps)
+        self.assertIn('"content": "la reponse"', corps)
+
+    def test_la_balise_de_pensee_dans_le_contenu_reste_masquee(self):
+        """A think tag COUPLED INTO the content is a parasite, not a structured
+        reasoning: it stays hidden while the answer streams."""
+        def _c(t):
+            return "data: " + json.dumps({"choices": [{"delta": {"content": t}}]})
+
+        frames = [_c("<think>"), _c("mon raisonnement interne"),
+                  _c("</think>"), _c("la reponse finale"), "data: [DONE]"]
+        code, corps = self._flux(post=lambda *a, **k: self._Flux(frames))
+        self.assertEqual(code, 200)
+        self.assertNotIn("mon raisonnement interne", corps)
+        self.assertIn("la reponse finale", corps)
+
     def test_modele_occupe_apres_boucle_d_outils(self):
         code, corps = self._boucle_d_outils(self._Flux([], ok=False, status_code=503))
         self.assertEqual(self._notices(corps),

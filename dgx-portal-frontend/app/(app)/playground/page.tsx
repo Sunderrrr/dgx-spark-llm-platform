@@ -18,7 +18,7 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Selector } from "@astryxdesign/core/Selector";
 // Wrapper that closes over the dependency's URL filter (see lib/markdown.tsx).
 import { MarkdownSur as Markdown } from "@/lib/markdown";
-import { ReasoningBlock } from "./_components/ReasoningBlock";
+import { ReasoningBlock } from "../_components/ReasoningBlock";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";

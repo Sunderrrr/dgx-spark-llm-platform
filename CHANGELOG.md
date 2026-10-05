@@ -19,6 +19,10 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-10-06
+
+Three more essentials — two of them work without any key and fill real holes.
+
 ### Added
 
 - **Three more essentials: Hugging Face, Exa, Discord** (« tu n'en a pas
@@ -533,7 +537,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.12...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.13...HEAD
+[0.1.13]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.9...v0.1.10

@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-10-05
+
+The Support starts clean on every visit, and its whole interface is now covered
+by an automated check (19 controls against the real page).
+
 ### Changed
 
 - **Support — it starts clear, every time** (« je veux arriver sur support et
@@ -465,7 +470,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.10...HEAD
+[0.1.10]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.6...v0.1.7

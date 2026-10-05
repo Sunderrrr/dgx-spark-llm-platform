@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-10-05
+
+The MCP pack grows to the usual suspects — registered disabled, each waiting
+for its own key before coming alive.
+
 ### Added
 
 - **The usual MCP pack, disabled until its key arrives** (« rajoute plus de
@@ -507,7 +512,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.11...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.8...v0.1.9

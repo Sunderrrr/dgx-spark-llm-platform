@@ -510,7 +510,13 @@ export default function SupportPage() {
                 // The confirmation card can arrive BEFORE the first text
                 // token: as soon as it is there, no more thinking indicator,
                 // otherwise it would stay hidden under the ThinkingIndicator.
-                const isThinking = isSending && isLast && m.role === "assistant" && !m.content && !m.toolCalls?.length && !m.pendingAction;
+                // `!m.reasoning`: as soon as the thinking STARTS, the
+                // ReasoningBlock takes over from the indicator — the block runs
+                // its clock live (« Thinking… for 12 s »), and its fold marks
+                // the reasoning → writing boundary. Without it the whole
+                // thinking phase stayed behind a spinner and the block only
+                // appeared once the answer had begun.
+                const isThinking = isSending && isLast && m.role === "assistant" && !m.content && !m.reasoning && !m.toolCalls?.length && !m.pendingAction;
                 // isStreaming: without it, Markdown reparses all the text on
                 // every token and only re-renders complete blocks — hence
                 // a reply that appears in chunks instead of flowing token by

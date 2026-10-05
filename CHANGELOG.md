@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-05
+
+Follow-up to 0.1.4, seen as soon as the new Support rendering met a real
+reloaded thread: two defects in the very feature 0.1.4 introduced.
+
 ### Fixed
 
 - **Support — the name above an answer is the model that WROTE it** (« dès que
@@ -370,7 +375,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.1...v0.1.2

@@ -135,7 +135,9 @@ def support_chat():
     # answer, and a reloaded thread must not attribute old answers to whatever
     # model happens to run today.
     history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:4000],
-                **({'model': str(m.get('model'))[:80]} if m.get('model') else {})}
+                **({'model': str(m.get('model'))[:80]} if m.get('model') else {}),
+                **({'reasoning': str(m.get('reasoning'))[:8000]} if m.get('reasoning') else {}),
+                **({'reasoning_ms': int(m.get('reasoningMs') or 0)} if m.get('reasoningMs') else {})}
                for m in history if m.get('role') in ('user', 'assistant')][-12:]
     wait = _chat_rate_limited(session['username'], 'rl-support')
     if wait:
@@ -279,6 +281,9 @@ def support_chat():
                 # parasite, pas un raisonnement structuré.
                 rchunk = delta.get('reasoning_content')
                 if rchunk:
+                    if _raison_debut[0] is None:
+                        _raison_debut[0] = time.monotonic()
+                    _raison.append(rchunk)
                     last_emit = time.monotonic()
                     yield _sse_raisonnement(rchunk)
                 for tc in delta.get('tool_calls') or []:
@@ -294,6 +299,8 @@ def support_chat():
                 chunk = delta.get('content')
                 if not chunk:
                     continue
+                if _fin_pensee[0] is None and _raison_debut[0] is not None:
+                    _fin_pensee[0] = time.monotonic()
                 parts.append(chunk)
                 if thinking:
                     # We hide the reasoning, but watch for its close:
@@ -344,6 +351,11 @@ def support_chat():
         return content, calls, 200
 
     _reponse = []      # model text, for the memory write and the thread save
+    # The thinking is kept too: the client shows it, and a reloaded thread must
+    # still open it — otherwise the diagnosis disappears with the page.
+    _raison = []
+    _raison_debut = [None]
+    _fin_pensee = [None]
     # An INTERRUPTED response (closed tab, « Arrêter », model error) must
     # neither be kept as a discussion thread nor serve as material for
     # memory extraction: we only memorize what ran to completion.
@@ -485,14 +497,18 @@ def support_chat():
             yield from _gen_inner()
         finally:
             _inflight_end(_rid)
+            _duree = (round(((_fin_pensee[0] or time.monotonic()) - _raison_debut[0]) * 1000)
+                      if _raison_debut[0] is not None else None)
             _fin_support(username, history, _reponse, model, user_key, _mem_on,
-                         _etat['fini'], current_app._get_current_object())
+                         _etat['fini'], current_app._get_current_object(),
+                         raison="".join(_raison), raison_ms=_duree)
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-def _fin_support(username, history, reponse, model, user_key, mem_on, fini, app):
+def _fin_support(username, history, reponse, model, user_key, mem_on, fini, app,
+                 raison='', raison_ms=None):
     """After the Support turn: saves the thread and extracts durable facts.
 
     Best effort and OUTSIDE the request (daemon thread): the client is already
@@ -513,11 +529,13 @@ def _fin_support(username, history, reponse, model, user_key, mem_on, fini, app)
     # The body is separated from the thread launch: tests can call it
     # directly, without racing a daemon thread.
     threading.Thread(target=_fin_support_corps,
-                     args=(username, history, texte, model, user_key, mem_on, app),
+                     args=(username, history, texte, model, user_key, mem_on, app,
+                           raison, raison_ms),
                      daemon=True).start()
 
 
-def _fin_support_corps(username, history, texte, model, user_key, mem_on, app):
+def _fin_support_corps(username, history, texte, model, user_key, mem_on, app,
+                       raison='', raison_ms=None):
     """End-of-turn work body (outside the request, callable from tests)."""
     extraits = [{'role': m['role'], 'content': m['content']} for m in history[-4:]]
     extraits.append({'role': 'assistant', 'content': texte[:4000]})
@@ -525,8 +543,13 @@ def _fin_support_corps(username, history, texte, model, user_key, mem_on, app):
         with app.app_context():
             db = get_db()
             fil = [{'role': m['role'], 'content': m['content'],
-                    **({'model': m['model']} if m.get('model') else {})} for m in history]
-            fil.append({'role': 'assistant', 'content': texte[:8000], 'model': model})
+                    **({'model': m['model']} if m.get('model') else {}),
+                    **({'reasoning': m['reasoning']} if m.get('reasoning') else {}),
+                    **({'reasoningMs': m['reasoningMs']} if m.get('reasoningMs') else {})}
+                   for m in history]
+            fil.append({'role': 'assistant', 'content': texte[:8000], 'model': model,
+                        **({'reasoning': raison[:8000]} if raison else {}),
+                        **({'reasoningMs': raison_ms} if raison_ms else {})})
             db.execute(
                 "INSERT INTO support_thread (username, messages, updated_at) VALUES (?,?,?) "
                 "ON CONFLICT(username) DO UPDATE SET messages=excluded.messages, "

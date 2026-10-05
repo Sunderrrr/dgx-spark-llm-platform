@@ -19,6 +19,28 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **Support — attachments.** A log, a config, a snippet to review: the composer
+  takes text files (same 96 Ko ceiling and same named-code-block transport as
+  the playground) and the drawer shows what goes out. Diagnosis from a pasted
+  error was already possible; diagnosis from the *file* now is too. Text only —
+  the running model has no guaranteed vision.
+- **Support — export the thread.** One click keeps the whole exchange as .md:
+  questions, answers, **and the thinking that led to them** (folded block, with
+  its duration). What someone reporting a problem sends along with the report.
+- **Support — dictation.** The composer's microphone, same Whisper sidecar as
+  the playground: say what is wrong instead of typing it. Sending a message
+  ends the dictation and goes out with what was transcribed.
+- **Support — the thinking survives a reload.** It was streamed and displayed,
+  then lost with the page: the thread now keeps it, so a reloaded conversation
+  still opens the diagnosis instead of only its conclusion.
+
+### Changed
+
+- **Export shared** — `convAsMarkdown` & friends move to `lib/export.ts`, used
+  by both chats; the reasoning is exported there too.
+
 ## [0.1.5] - 2026-10-05
 
 Follow-up to 0.1.4, seen as soon as the new Support rendering met a real

@@ -24,6 +24,9 @@ import {
   ServerStackIcon,
   PlusIcon,
   StopIcon,
+  ArrowUpIcon,
+  PaperClipIcon,
+  ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline";
 import {
   KeyIcon,
@@ -39,9 +42,11 @@ import {
   ChatMessageMetadata,
   ChatComposer,
   ChatComposerInput,
+  ChatComposerDrawer,
   ChatToolCalls,
 } from "@astryxdesign/core/Chat";
 import type { ChatToolCallItem } from "@astryxdesign/core/Chat";
+import { Token } from "@astryxdesign/core/Token";
 import { useCsrf } from "@/lib/useCsrf";
 import {
   confirmSupportAction,
@@ -54,6 +59,9 @@ import type { SupportConfirmRequest, ToolCallEvent } from "@/lib/api";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 import { ReasoningBlock } from "../_components/ReasoningBlock";
 import { useStickToBottom } from "@/lib/useStickToBottom";
+import { convAsMarkdown, convTitleFallback, downloadText } from "@/lib/export";
+import { useDictation } from "@/lib/useDictation";
+import { DictateButton } from "../_components/DictateButton";
 import { useT, tServeur } from "@/lib/i18n";
 import { copierTexte } from "@/lib/copier";
 import { texteNotice } from "@/lib/notices";
@@ -134,6 +142,14 @@ const SUGGESTION_CLE_API = {
   icon: KeyIcon,
 };
 
+// Attachments: TEXT files only (a log, a config, a snippet to review). The
+// playground also takes images — the Support's use case is diagnosis, and the
+// running model has no guaranteed vision.
+const ATTACH_ACCEPT =
+  ".md,.markdown,.txt,.text,.log,.logs,.err,.error,.out,.json,.jsonl,.csv,.tsv,.yaml,.yml,.toml,.ini,.conf,.cfg,.env,.py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.sh,.bash,.sql,.html,.css,.xml,.diff,.patch";
+const ATTACH_EXTENSIONS = ATTACH_ACCEPT.split(",").map((e) => e.trim().toLowerCase());
+const MAX_ATTACHMENT_BYTES = 96 * 1024;
+
 const WELCOME_MESSAGE_FR =
   "Bonjour 👋 Je suis **Cronos**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.";
 
@@ -142,6 +158,12 @@ export default function SupportPage() {
   const csrf = useCsrf();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
+  // Files attached to the question (a log to diagnose, a config to review…).
+  const [attachments, setAttachments] = useState<{ name: string; content: string }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Dictation, like the playground (Whisper on the GPU, not the browser's
+  // SpeechRecognition): say what is wrong instead of typing it.
+  const dictation = useDictation({ value: input, onChange: setInput, csrf });
   const [isSending, setIsSending] = useState(false);
   const [runningModel, setRunningModel] = useState<string | null>(null);
   // Does the account have at least one API key? (GET /api/keys, the same as the
@@ -191,11 +213,18 @@ export default function SupportPage() {
       .then((d) => {
         const restored = (d.messages ?? [])
           .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m) => ({
-            role: m.role as ChatMsg["role"],
-            content: m.content,
-            model: (m as { model?: string }).model,
-          }));
+          .map((m) => {
+            const brut = m as { model?: string; reasoning?: string; reasoningMs?: number };
+            return {
+              role: m.role as ChatMsg["role"],
+              content: m.content,
+              model: brut.model,
+              // The thinking is kept too: the diagnosis stays readable after a
+              // reload, instead of vanishing with the page.
+              reasoning: brut.reasoning,
+              reasoningMs: brut.reasoningMs,
+            };
+          });
         if (restored.length) {
           setMessages((prev) => (prev.length ? prev : restored));
           // Open at the LAST word, like every chat app: a reloaded thread
@@ -335,6 +364,30 @@ export default function SupportPage() {
     abortRef.current?.abort();
   }
 
+  /** The whole thread as .md — what a person reporting a problem keeps: the
+   *  questions, the answers, and the thinking that led to them. */
+  function exportThread() {
+    const titre = convTitleFallback(messages, t("Conversation"));
+    const slug = titre.toLowerCase().replace(/[^\\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "support";
+    downloadText(
+      `${slug}.md`,
+      convAsMarkdown(
+        {
+          title: titre,
+          model: runningModel ?? "",
+          messages: messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+            reasoning: m.reasoning,
+            reasoningMs: m.reasoningMs,
+          })),
+        },
+        t,
+      ),
+      "text/markdown",
+    );
+  }
+
   function appendConfirmResult(
     result: { ok?: boolean; message?: string; error?: string },
     token: string,
@@ -426,11 +479,41 @@ export default function SupportPage() {
     }
   }
 
+  function handleFiles(files: FileList | null) {
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+      if (!ATTACH_EXTENSIONS.includes(ext)) {
+        setErreurUi(t("« {name} » : seuls les fichiers texte sont acceptés.").replace("{name}", file.name));
+        continue;
+      }
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        setErreurUi(t("« {name} » dépasse 96 Ko — trop gros pour le contexte.").replace("{name}", file.name));
+        continue;
+      }
+      const reader = new FileReader();
+      reader.onload = () => setAttachments((prev) => [...prev, { name: file.name, content: String(reader.result) }]);
+      reader.onerror = () => setErreurUi(t("« {name} » n'a pas pu être lu.").replace("{name}", file.name));
+      reader.readAsText(file);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
+    // Sending ends dictation: the message goes out with what has been
+    // transcribed so far (same rule as the playground).
+    dictation.cancel();
+    // Attached files travel INSIDE the question, as named code blocks: the
+    // model reads them exactly as the playground sends them.
+    const joints = attachments
+      .map((f) => "```" + f.name + "\n" + f.content + "\n```")
+      .join("\n\n");
+    const contenu = joints ? trimmed + "\n\n" + joints : trimmed;
+    setAttachments([]);
     // eslint-disable-next-line react-hooks/purity -- send only runs from event handlers
-    const nextMessages: ChatMsg[] = [...displayMessages, { role: "user", content: trimmed, ts: Date.now() }];
+    const nextMessages: ChatMsg[] = [...displayMessages, { role: "user", content: contenu, ts: Date.now() }];
     setInput("");
     void runStream(nextMessages);
   }
@@ -461,6 +544,16 @@ export default function SupportPage() {
               <Text type="supporting" color="secondary">{t("Un assistant IA connecté à la plateforme : il voit tes clés (masquées), ton budget et l'état du serveur pour t'aider en cas de pépin.")}</Text>
             </VStack>
             <HStack gap={2} vAlign="center">
+              {messages.length > 0 && (
+                <Button
+                  label={t("Exporter")}
+                  variant="ghost"
+                  size="sm"
+                  isIconOnly
+                  icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                  onClick={exportThread}
+                />
+              )}
               {messages.length > 0 && (
                 <Button
                   label={t("Nouvelle conversation")}
@@ -526,6 +619,31 @@ export default function SupportPage() {
                   onChange={setInput}
                   onSubmit={send}
                   isDisabled={isSending}
+                  drawer={
+                    attachments.length ? (
+                      <ChatComposerDrawer count={attachments.length} label={t("Fichiers joints")}>
+                        <HStack gap={1} wrap="wrap">
+                          {attachments.map((f, i) => (
+                            <Token
+                              key={f.name + i}
+                              label={`${f.name} (${Math.ceil(f.content.length / 1024)} Ko)`}
+                              onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                            />
+                          ))}
+                        </HStack>
+                      </ChatComposerDrawer>
+                    ) : undefined
+                  }
+                  footerActions={
+                    <Button
+                      label={t("Joindre un fichier")}
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={PaperClipIcon} size="sm" />}
+                      onClick={() => fileInputRef.current?.click()}
+                    />
+                  }
                   placeholder={t("Écris ton message…  (Entrée pour envoyer, Maj+Entrée pour un saut de ligne)")}
                   input={<ChatComposerInput value={input} onChange={setInput} onSubmit={send} isDisabled={isSending} />}
                   sendButton={
@@ -538,8 +656,27 @@ export default function SupportPage() {
                         icon={<Icon icon={StopIcon} size="sm" />}
                         onClick={stop}
                       />
-                    ) : undefined
+                    ) : input.trim().length > 0 || attachments.length > 0 ? (
+                      <Button
+                        label={t("Envoyer")}
+                        variant="primary"
+                        isIconOnly
+                        size="md"
+                        icon={<Icon icon={ArrowUpIcon} size="sm" />}
+                        onClick={() => send(input)}
+                      />
+                    ) : (
+                      <DictateButton dictation={dictation} isDisabled={false} size="md" />
+                    )
                   }
+                />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={ATTACH_ACCEPT}
+                  style={{ display: "none" }}
+                  onChange={(e) => handleFiles(e.target.files)}
                 />
                 <Text type="supporting" color="secondary">{t("L'assistant ne voit que tes données (clés masquées). Ne colle jamais une clé complète ici.")}</Text>
               </VStack>

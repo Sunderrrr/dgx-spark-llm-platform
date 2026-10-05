@@ -484,6 +484,13 @@ so what the assistant weighed before answering is visible instead of being
 generated and thrown away; the stray `think` tags some models leak *into their
 answer text* stay hidden, as before.
 
+For diagnosis, the composer takes **text files** (a log, a config, a snippet to
+review — 96 Ko at most), and the thread can be **exported** as Markdown with one
+click: questions, answers and the thinking that led to them, folded away with
+its duration. **Dictation** works there too (the same Whisper sidecar as the
+playground), and the thinking is kept in the thread, so a reload still opens the
+diagnosis instead of only its conclusion.
+
 Sensitive actions — revoking a key, launching or stopping the model on the GPU —
 are **never executed on the model's word**: it files a request, the chat shows a
 **Confirmer / Annuler** button, and only your click runs it (single-use token,

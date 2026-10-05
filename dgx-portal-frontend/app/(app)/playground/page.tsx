@@ -83,6 +83,9 @@ import { type EtapeWeb, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/
 // which also runs on the user's key: see lib/notices.ts.
 import { texteNotice } from "@/lib/notices";
 import { copierTexte } from "@/lib/copier";
+import {
+  convAsJson, convAsMarkdown, convTitleFallback, downloadText, type ExportConversation,
+} from "@/lib/export";
 // Pure model-output parsers, extracted for unit tests (tests/playground-parsers.test.ts).
 import {
   parseAsk, parseEdits, estBlocQuestions, contenuCloture, corpsDeSuite, recoller, openCodeFence,
@@ -584,26 +587,6 @@ function slugify(s: string): string {
   return base || "document";
 }
 
-// Client-side download of some text as a file (used for the Markdown export).
-function downloadText(filename: string, content: string, mime: string) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ── Export & sharing of a conversation ─────────────────────────────────────
-// A conversation to export: same fields as the API (same shape as ApiConversation
-// on the lib/conversations side).
-type ExportConversation = {
-  title: string;
-  model: string;
-  messages: { role: "user" | "assistant"; content: string; hidden?: boolean }[];
-};
-
 // Pinned (starred) conversations: a personal preference stored in the browser —
 // no backend migration, shared on this machine.
 const PINNED_KEY = "cronos.pinned.conversations";
@@ -742,32 +725,6 @@ function enregistrerReglages(settings: Settings, provenance: Provenance) {
   } catch {
     /* stockage indisponible (mode privé) : on ignore */
   }
-}
-
-function convTitleFallback(msgs: ExportConversation["messages"], fallback: string): string {
-  const first = msgs.find((m) => m.role === "user")?.content ?? "";
-  return (first.slice(0, 80).trim() || fallback);
-}
-
-/** Conversation → readable Markdown, exported as .md.
- *  `t` is passed as a parameter: it is a module function, so no hook is called here. */
-function convAsMarkdown(conv: ExportConversation, t: (s: string) => string): string {
-  const lines = [`# ${conv.title}`, "", `_${t("Modèle :")} ${conv.model || "—"}_`, "", "---", ""];
-  for (const m of conv.messages) {
-    if (m.hidden) continue;
-    lines.push(m.role === "user" ? `**${t("Vous :")}**` : `**${t("Assistant :")}**`);
-    lines.push("", m.content, "");
-  }
-  return lines.join("\n");
-}
-
-/** Conversation → full JSON (we keep everything, including hidden), as .json. */
-function convAsJson(conv: ExportConversation): string {
-  return JSON.stringify(
-    { title: conv.title, model: conv.model, exported_at: new Date().toISOString(), messages: conv.messages },
-    null,
-    2,
-  );
 }
 
 // Extensions recognized as FILES. Deliberately a closed list: without

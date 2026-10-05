@@ -1778,6 +1778,89 @@ class SupportNoticesStructureesTest(unittest.TestCase):
                          [{"cronos_notice": {"id": "reformulate"}}])
 
 
+class SupportServicesTest(unittest.TestCase):
+    """The Support can SEE the platform's services and RELAUNCH one (« je suis
+    chaud que il puisse regarder si tout fonctionne et que si un service est
+    stop il puisse relancer »).
+
+    The state comes from facts (`_sidecar_status`), never from the model's
+    word, and a relaunch is a SENSITIVE action: same confirmation flow as
+    launching a model, and admin-only.
+    """
+
+    def test_le_service_est_dans_le_contexte(self):
+        """The context lists every service, so « ça ne marche pas » is answered
+        from the actual state."""
+        # The snapshot is cached 15 s (probing the services is not free): a
+        # previous test filled it, this one must see its own values.
+        assistance._services_cache['at'] = 0.0
+        with patch.object(assistance, "_sidecar_status",
+                          side_effect=lambda k: {"ocr": "stopped", "asr": "running"}.get(k, "running")), \
+             patch.object(assistance, "runner_status", return_value={"status": "running"}), \
+             patch.object(assistance, "get_db") as gdb:
+            gdb.return_value.execute.return_value.fetchall.return_value = []
+            ctx = assistance._support_context("demo", True, user_msg="l'OCR ne marche pas")
+        self.assertIn("- ocr : stopped", ctx)
+        self.assertIn("- asr : running", ctx)
+        self.assertIn("Services de la plateforme", ctx)
+
+    def test_loutil_n_est_propose_qu_aux_admins(self):
+        noms_admin = {t["function"]["name"] for t in assistance._support_tools(True)}
+        noms = {t["function"]["name"] for t in assistance._support_tools(False)}
+        self.assertIn("manage_service", noms_admin)
+        self.assertNotIn("manage_service", noms)
+
+    def test_loutil_est_garde_pour_la_confirmation(self):
+        """manage_service is guarded: the model only SUBMITS it."""
+        self.assertIn("manage_service", assistance.GUARDED_TOOLS)
+        self.assertIn("manage_service", assistance.OUTILS_REFUSES_SI_EXTERNE)
+
+    def _exec(self, args, is_admin):
+        with patch.object(assistance, "get_db"):
+            return assistance._exec_support_tool(
+                "manage_service", args, "demo", "Demo", is_admin)
+
+    def test_execution_reservee_aux_admins(self):
+        res, ok = self._exec({"service": "ocr", "action": "start"}, False)
+        self.assertFalse(ok)
+        self.assertIn("administrateurs", res)
+
+    def test_demarrage_renvoie_le_nouvel_etat(self):
+        with patch.object(assistance, "_sidecar_action", return_value=(True, "")) as act, \
+             patch.object(assistance, "_sidecar_status", return_value="starting"), \
+             patch.object(assistance, "_mem_guard", return_value=None):
+            res, ok = self._exec({"service": "ocr", "action": "start"}, True)
+        self.assertTrue(ok)
+        self.assertIn("ocr : starting", res)
+        act.assert_called_once_with("ocr", "start")
+
+    def test_relancaison_arrete_puis_redemarre(self):
+        with patch.object(assistance, "_sidecar_action", return_value=(True, "")) as act, \
+             patch.object(assistance, "_sidecar_status", return_value="running"), \
+             patch.object(assistance, "_mem_guard", return_value=None):
+            res, ok = self._exec({"service": "asr", "action": "restart"}, True)
+        self.assertTrue(ok)
+        self.assertEqual([c.args for c in act.call_args_list],
+                         [("asr", "stop"), ("asr", "start")])
+
+    def test_la_garde_memoire_bloque_le_demarrage(self):
+        """On unified memory a sidecar that overflows takes the chat model with
+        it: the guard refuses BEFORE the start."""
+        with patch.object(assistance, "_mem_guard", return_value="Mémoire insuffisante"), \
+             patch.object(assistance, "_sidecar_action") as act:
+            res, ok = self._exec({"service": "image", "action": "start"}, True)
+        self.assertFalse(ok)
+        self.assertIn("Mémoire insuffisante", res)
+        act.assert_not_called()
+
+    def test_service_ou_action_inconnue(self):
+        res, ok = self._exec({"service": "imprimerie", "action": "start"}, True)
+        self.assertFalse(ok)
+        self.assertIn("imprimerie", res)
+        res2, ok2 = self._exec({"service": "ocr", "action": "démolir"}, True)
+        self.assertFalse(ok2)
+
+
 class SupportSensibleActionsTest(unittest.TestCase):
     """Support sensitive actions only run on confirmation.
 

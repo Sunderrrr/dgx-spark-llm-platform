@@ -491,6 +491,14 @@ its duration. **Dictation** works there too (the same Whisper sidecar as the
 playground), and the thinking is kept in the thread, so a reload still opens the
 diagnosis instead of only its conclusion.
 
+It also **sees every service's real state** (ocr, video, voice, asr, image,
+music: `running` when it actually answers, `starting` while it loads, `stopped`,
+`failed`) and can **relaunch one** (start / restart / stop) — admin-only, and
+like launching a model it goes through an in-chat confirmation. The answer
+carries the service's new state, so « relancé, il démarre » is a fact, not a
+hope; the unified-memory guard runs before any start, since a sidecar that
+overflows takes the chat model down with it.
+
 Sensitive actions — revoking a key, launching or stopping the model on the GPU —
 are **never executed on the model's word**: it files a request, the chat shows a
 **Confirmer / Annuler** button, and only your click runs it (single-use token,

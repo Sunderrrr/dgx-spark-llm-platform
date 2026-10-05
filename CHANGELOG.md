@@ -19,6 +19,18 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **Support — it reads the services' logs on demand** (« qu'il puisse appeler
+  une sorte de MCP ou autre, pas que dans le system prompt »). A `read_logs`
+  tool (admin-only, read-only) pulls the tail of whatever service matters —
+  model runner, ocr, video, voice, asr, image, music — through the runner,
+  which is the only process holding the scoped docker/journalctl rights. The
+  blind 12-line log tail that used to be injected on every troubleshooting
+  question is **gone from the system prompt**: the model now reads what it
+  needs, once, and answers from the exact cause written there. 3 new tests,
+  including one that pins the logs' ABSENCE from the context.
+
 ## [0.1.7] - 2026-10-05
 
 The Support closes the gap between « it diagnoses » and « it repairs »: it now

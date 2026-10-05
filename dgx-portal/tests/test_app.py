@@ -1853,6 +1853,44 @@ class SupportServicesTest(unittest.TestCase):
         self.assertIn("Mémoire insuffisante", res)
         act.assert_not_called()
 
+    def test_les_logs_se_lisent_a_la_demande(self):
+        """`read_logs` pulls the tail of a service — the logs are NOT in the
+        prompt (« pas que dans le system prompt »)."""
+        with patch.object(assistance, "get_db"), \
+             patch.object(assistance, "sidecar_logs",
+                          return_value=["erreur: poids introuvable", "fin"]) as lire:
+            res, ok = assistance._exec_support_tool(
+                "read_logs", {"service": "asr", "lines": 50}, "demo", "Demo", True)
+        self.assertTrue(ok)
+        self.assertIn("erreur: poids introuvable", res)
+        lire.assert_called_once_with("asr", 50)
+
+    def test_les_logs_sont_admin_seulement(self):
+        with patch.object(assistance, "get_db"):
+            res, ok = assistance._exec_support_tool(
+                "read_logs", {"service": "model"}, "demo", "Demo", False)
+        self.assertFalse(ok)
+        self.assertIn("administrateurs", res)
+        self.assertIn("read_logs", {t["function"]["name"]
+                                    for t in assistance._support_tools(True)})
+        self.assertNotIn("read_logs", {t["function"]["name"]
+                                       for t in assistance._support_tools(False)})
+
+    def test_les_logs_ne_sont_plus_injectes_dans_le_contexte(self):
+        """The context only points at the tool: a turn must not carry a blind
+        log tail it did not ask for."""
+        assistance._services_cache['at'] = 0.0
+        with patch.object(assistance, "_sidecar_status", return_value="running"), \
+             patch.object(assistance, "runner_status", return_value={"status": "running"}), \
+             patch.object(assistance, "runner_logs",
+                          return_value=["LIGNE_DE_LOG_QUI_NE_DOIT_PAS_APPARAITRE"]), \
+             patch.object(assistance, "get_db") as gdb:
+            gdb.return_value.execute.return_value.fetchall.return_value = []
+            ctx = assistance._support_context(
+                "demo", True, user_msg="le modèle renvoie une erreur 500")
+        self.assertNotIn("LIGNE_DE_LOG_QUI_NE_DOIT_PAS_APPARAITRE", ctx)
+        self.assertIn("read_logs", ctx)
+
     def test_service_ou_action_inconnue(self):
         res, ok = self._exec({"service": "imprimerie", "action": "start"}, True)
         self.assertFalse(ok)

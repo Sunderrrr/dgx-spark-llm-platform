@@ -921,6 +921,28 @@ def _music_launch(model_id):
 # Routine access lines (health/status polls) → noise that drowns the useful logs.
 _LOG_NOISE_RE = re.compile(r'"GET /(?:v1/models|metrics|health\S*|version|ping)\b')
 
+def sidecar_logs(kind, n=120):
+    """Tail of a SERVICE's logs, pulled on demand (« model » = the runner's own
+    buffer, any other name = that sidecar's container).
+
+    The logs are deliberately NOT injected in a prompt: a Support turn that
+    dumps them costs context on every single request, while the cause of a
+    failure is worth reading once, precisely. The runner is the only process
+    holding the scoped docker/journalctl rights.
+    """
+    if kind == 'model':
+        return runner_logs(n)
+    try:
+        r = requests.get(f"{RUNNER_URL}/{kind}/logs", headers=_runner_headers(), timeout=10)
+        if r.ok:
+            lines = _drop_log_noise(r.json().get('logs', []))
+            return [l[:400] for l in lines[-n:]]
+        _log.warning("sidecar_logs(%s) : le runner a repondu %s", kind, r.status_code)
+    except Exception as e:                                   # noqa: BLE001
+        _log.warning("sidecar_logs(%s) : %s", kind, type(e).__name__)
+    return []
+
+
 def _drop_log_noise(lines):
     return [l for l in lines if not _LOG_NOISE_RE.search(l)]
 

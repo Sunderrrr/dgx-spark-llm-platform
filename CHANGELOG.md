@@ -37,8 +37,11 @@ away.
   relay dropped them: nothing let the operator see what the assistant weighed
   before answering. The reasoning is now streamed as `reasoning_content` (the
   playground's contract) and rendered in the same collapsible block — open
-  while it runs, folded on the first answer word with its measured duration
-  (« thought for 20 s » measured live). The stray `think` tags some models leak
+  while it runs — clock ticking, « Thinking… for 12 s » — then folded on the
+  first answer word with its measured duration (« thought for 20 s », verified
+  live). The handover is explicit: the moment the thinking starts, the block
+  replaces the waiting spinner, so the reasoning → writing boundary is visible
+  there too. The stray `think` tags some models leak
   *into their answer text* stay hidden: those are text, not a structured
   reasoning. `ReasoningBlock` moved to the shared components, and two backend
   tests lock both halves of that contract.

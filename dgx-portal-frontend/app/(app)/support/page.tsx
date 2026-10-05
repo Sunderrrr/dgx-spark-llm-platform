@@ -27,6 +27,7 @@ import {
   ArrowUpIcon,
   PaperClipIcon,
   ArrowDownTrayIcon,
+  ArrowUturnLeftIcon,
 } from "@heroicons/react/24/outline";
 import {
   KeyIcon,
@@ -181,6 +182,11 @@ export default function SupportPage() {
   // thread (missing CSRF token, copy impossible) is displayed here. Without
   // this, these buttons were SILENT no-ops.
   const [erreurUi, setErreurUi] = useState<string | null>(null);
+  // « je veux arriver sur support et que la conv soit clear » : on ARRIVE à
+  // zéro, systématiquement. Le fil du tour précédent reste consultable de côté
+  // (« Reprendre ») — perdre une conversation parce qu'on a rechargé la page
+  // serait un autre travers — mais il ne s'impose jamais.
+  const [threadPrecedent, setThreadPrecedent] = useState<ChatMsg[] | null>(null);
 
   // The welcome message depends on the language, known only after the first
   // render (read from localStorage then /api/whoami) — impossible to freeze
@@ -206,9 +212,8 @@ export default function SupportPage() {
     getJSON<{ running_models: string[] }>("/api/playground/data").then((d) =>
       setRunningModel(d.running_models[0] || null),
     );
-    // Thread kept server-side: a reload no longer loses the conversation.
-    // We never overwrite the local state if the user has already written (race
-    // between this answer and a first send from them).
+    // The previous thread is fetched but NOT applied: the page always starts
+    // clear. It waits behind a « Reprendre » button for whoever wants it.
     getJSON<{ messages?: { role: string; content: string }[] }>("/api/support/thread")
       .then((d) => {
         const restored = (d.messages ?? [])
@@ -219,18 +224,13 @@ export default function SupportPage() {
               role: m.role as ChatMsg["role"],
               content: m.content,
               model: brut.model,
-              // The thinking is kept too: the diagnosis stays readable after a
-              // reload, instead of vanishing with the page.
+              // The thinking is kept too: the diagnosis stays readable,
+              // instead of vanishing with the page.
               reasoning: brut.reasoning,
               reasoningMs: brut.reasoningMs,
             };
           });
-        if (restored.length) {
-          setMessages((prev) => (prev.length ? prev : restored));
-          // Open at the LAST word, like every chat app: a reloaded thread
-          // greeted the reader with the scroll-up button.
-          setTimeout(() => descendreToutEnBas(), 60);
-        }
+        if (restored.length && !messages.length) setThreadPrecedent(restored);
       })
       .catch(() => {});
     // Dynamic welcome: without an API key, we put its creation front and center.
@@ -594,6 +594,27 @@ export default function SupportPage() {
             }
             composer={
               <VStack gap={2} padding={4}>
+                {messages.length === 0 && threadPrecedent && (
+                  <ClickableCard
+                    label={t("Reprendre la conversation précédente")}
+                    variant="muted"
+                    onClick={() => {
+                      setMessages(threadPrecedent);
+                      setThreadPrecedent(null);
+                      // Open at the last word once the thread is on screen.
+                      setTimeout(() => descendreToutEnBas(), 60);
+                    }}>
+                    <HStack gap={2} vAlign="center">
+                      <Icon icon={ArrowUturnLeftIcon} size="sm" color="secondary" />
+                      <VStack gap={0}>
+                        <Text weight="semibold">{t("Reprendre la conversation précédente")}</Text>
+                        <Text type="supporting" color="secondary">
+                          {t("Elle n'est pas chargée : le Support démarre toujours à zéro.")}
+                        </Text>
+                      </VStack>
+                    </HStack>
+                  </ClickableCard>
+                )}
                 {messages.length === 0 && (
                   <Grid columns={{ minWidth: 220, max: 2 }} gap={3} width="100%">
                     {suggestions.map((s) => (

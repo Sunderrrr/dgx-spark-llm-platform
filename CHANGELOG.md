@@ -19,6 +19,15 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Changed
+
+- **Support — it starts clear, every time** (« je veux arriver sur support et
+  que la conv soit clear »). The page used to reload the last thread behind
+  the reader's back; now arriving = a blank conversation, always. The previous
+  thread is still kept server-side and offered behind a discreet « Reprendre »
+  card — losing a whole conversation to an accidental reload would be the
+  opposite defect — but it never imposes itself.
+
 ## [0.1.9] - 2026-10-05
 
 Completes 0.1.8's log reading: LiteLLM's logs are covered too, so `read_logs`

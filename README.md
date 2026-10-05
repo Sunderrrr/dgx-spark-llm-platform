@@ -463,8 +463,29 @@ instead of letting you submit into a dead end.
 An AI assistant that sees your keys (masked), budget, the model catalog and server
 status, and can **act for you**: create a key, revoke one, request budget, request
 a model (admins also get launch/stop). Actions are always scoped server-side to the
-logged-in user; impactful ones require in-chat confirmation. Two MCP servers are worth registering out of the box —
-[`scripts/mcp-essentiels.sh`](scripts/mcp-essentiels.sh) does it per account:
+logged-in user; impactful ones require in-chat confirmation. `scripts/mcp-essentiels.sh` registers a per-account pack of ten — **two that
+work straight away**, and **eight that wait for their own key**:
+
+| | |
+|---|---|
+| **context7** | *current* library and framework docs (APIs, versions, changes) — « how do I integrate X » answered from documentation, not training data |
+| **deepwiki** | Q&A over GitHub repositories' documentation (llama.cpp, vLLM, LiteLLM…) |
+| **github · sentry · cloudflare · slack · notion · linear · figma · stripe** | the usual suspects — repos/PRs, errors, DNS & tunnels, team chat, docs, issues, designs, payments |
+
+Those eight are registered **disabled on purpose** (« juste ne les active pas
+tant que les user n'ont pas set les api key »): they answer 401 until the
+account's own token is pasted in Settings → MCP — and **writing the key is what
+switches the server on**, automatically. Each one's description says which
+token format it expects (`Bearer ghp_…`, `xoxb-…`, `sk_…`…). The per-account
+cap stays at 10 servers.
+
+**Gmail** has no public remote MCP endpoint (checked 2026-10-05: no such host,
+and the aggregators — Zapier, Composio — redirect to their own authentication):
+it needs either a local server (refused by the SSRF guard, by design) or a
+per-user aggregator URL, registered by hand with its key.
+
+Two MCP servers were worth the first step —
+(The two above are the ones registered enabled:)
 
 - **context7** (`mcp.context7.com`) — *current* library and framework docs:
   APIs, versions, recent changes. For « how do I integrate X » questions the

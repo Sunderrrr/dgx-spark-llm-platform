@@ -1865,6 +1865,21 @@ class SupportServicesTest(unittest.TestCase):
         self.assertIn("erreur: poids introuvable", res)
         lire.assert_called_once_with("asr", 50)
 
+    def test_les_logs_de_litellm_se_lisent_sans_le_runner(self):
+        """The proxy writes to the SHARED volume: its logs are read from the
+        file, no runner involved (a runner restart would kill the model)."""
+        with patch.object(assistance, "get_db"), \
+             patch("sidecars.open", create=True) as ouvrir:
+            ouvrir.side_effect = FileNotFoundError
+            res, ok = assistance._exec_support_tool(
+                "read_logs", {"service": "litellm"}, "demo", "Demo", True)
+        self.assertTrue(ok)          # absent = « aucun log disponible », pas une erreur
+        self.assertIn("litellm", res)
+        self.assertIn("read_logs", {t["function"]["name"] for t in assistance._support_tools(True)})
+        self.assertIn("litellm", [t["function"]["parameters"]["properties"]["service"]["enum"]
+                                  for t in assistance._support_tools(True)
+                                  if t["function"]["name"] == "read_logs"][0])
+
     def test_les_logs_sont_admin_seulement(self):
         with patch.object(assistance, "get_db"):
             res, ok = assistance._exec_support_tool(

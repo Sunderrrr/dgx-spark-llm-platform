@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-05
+
+The Support reads the services' logs the right way: pulled on demand through a
+tool, never stuffed into the prompt.
+
 ### Added
 
 - **Support — it reads the services' logs on demand** (« qu'il puisse appeler
@@ -434,7 +439,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.4...v0.1.5

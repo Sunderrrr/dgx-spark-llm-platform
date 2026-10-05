@@ -53,6 +53,7 @@ import {
 import type { SupportConfirmRequest, ToolCallEvent } from "@/lib/api";
 import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 import { ReasoningBlock } from "../_components/ReasoningBlock";
+import { useStickToBottom } from "@/lib/useStickToBottom";
 import { useT, tServeur } from "@/lib/i18n";
 import { copierTexte } from "@/lib/copier";
 import { texteNotice } from "@/lib/notices";
@@ -72,6 +73,10 @@ type ChatMsg = {
   reasoning?: string;
   /** Thinking duration in ms (first reasoning chunk → first content chunk). */
   reasoningMs?: number;
+  /** The model that produced this answer (attribution shown above it). Kept in
+   *  the server-side thread, so a reloaded conversation still says WHO answered
+   *  — never "whatever model runs today". */
+  model?: string;
   /** Sensitive action proposed by the model (cronos_confirm): nothing is
    * executed until the user has clicked Confirmer/Annuler. */
   pendingAction?: SupportConfirmRequest;
@@ -163,6 +168,18 @@ export default function SupportPage() {
   // overwriting an ongoing conversation.
   const displayMessages = messages.length ? messages : [{ role: "assistant" as const, content: t(WELCOME_MESSAGE_FR) }];
 
+  // Follow the bottom while an answer streams, stop as soon as the reader
+  // scrolls up, and offer a « Descendre » button — the very same mechanism as
+  // the playground. The default ChatLayout button says « Scroll to bottom »
+  // (untranslated), which was the one visible on every reload.
+  const dernier = messages[messages.length - 1];
+  const fluxDep = `${dernier?.content?.length ?? 0}:${dernier?.reasoning?.length ?? 0}`;
+  const {
+    setRef: suitLeBasSetRef,
+    showButton: montrerDescendre,
+    scrollToBottom: descendreToutEnBas,
+  } = useStickToBottom(fluxDep, isSending);
+
   useEffect(() => {
     getJSON<{ running_models: string[] }>("/api/playground/data").then((d) =>
       setRunningModel(d.running_models[0] || null),
@@ -174,14 +191,26 @@ export default function SupportPage() {
       .then((d) => {
         const restored = (d.messages ?? [])
           .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m) => ({ role: m.role as ChatMsg["role"], content: m.content }));
-        if (restored.length) setMessages((prev) => (prev.length ? prev : restored));
+          .map((m) => ({
+            role: m.role as ChatMsg["role"],
+            content: m.content,
+            model: (m as { model?: string }).model,
+          }));
+        if (restored.length) {
+          setMessages((prev) => (prev.length ? prev : restored));
+          // Open at the LAST word, like every chat app: a reloaded thread
+          // greeted the reader with the scroll-up button.
+          setTimeout(() => descendreToutEnBas(), 60);
+        }
       })
       .catch(() => {});
     // Dynamic welcome: without an API key, we put its creation front and center.
     getJSON<{ user_keys?: unknown[] }>("/api/keys")
       .then((d) => setHasApiKey((d.user_keys ?? []).length > 0))
       .catch(() => {});
+    // Mount effect, ONCE: the thread is restored (and scrolled to its end) at
+    // load, never again. `descendreToutEnBas` is deliberately not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function runStream(nextMessages: ChatMsg[]) {
@@ -196,7 +225,7 @@ export default function SupportPage() {
       ...prev,
       [nextMessages.length]: { commentOpen: false, comment: "", busy: false, sent: false },
     }));
-    setMessages([...nextMessages, { role: "assistant", content: "", ts: startTs }]);
+    setMessages([...nextMessages, { role: "assistant", content: "", ts: startTs, model: runningModel ?? undefined }]);
     setIsSending(true);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -459,6 +488,17 @@ export default function SupportPage() {
           <VStack height="100%">
           <ChatLayout
             density="spacious"
+            ref={suitLeBasSetRef}
+            scrollButton={
+              montrerDescendre ? (
+                <Button
+                  label={t("Descendre")}
+                  variant="secondary"
+                  size="sm"
+                  onClick={descendreToutEnBas}
+                />
+              ) : null
+            }
             composer={
               <VStack gap={2} padding={4}>
                 {messages.length === 0 && (
@@ -543,8 +583,8 @@ export default function SupportPage() {
                        bubble, the answer as plain text, and WHO is answering
                        named above (the model, as in the reference shots). */
                     name={
-                      m.role === "assistant" && runningModel ? (
-                        <Text type="supporting" color="secondary">{runningModel}</Text>
+                      m.role === "assistant" && m.model ? (
+                        <Text type="supporting" color="secondary">{m.model}</Text>
                       ) : undefined
                     }
                     metadata={

@@ -19,6 +19,20 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Support — the name above an answer is the model that WROTE it** (« dès que
+  je refresh j'ai cette conv : qwen38-flash-next … »). The line introduced in
+  0.1.4 read the *currently running* model, so a reloaded thread attributed old
+  answers to whatever model runs today — and the welcome message, which is the
+  UI's greeting and not an answer at all, carried a model name too. Each
+  message now travels with its own model (kept in the server-side thread), and
+  the name only appears when it is actually known.
+- **Support — a reloaded thread opens at its end.** It greeted the reader with
+  the scroll button already showing (« Scroll to bottom », untranslated at
+  that). The page now scrolls to the last word on load, and uses the same
+  « Descendre » stick-to-bottom mechanism as the playground.
+
 ## [0.1.4] - 2026-10-05
 
 The Support assistant now reads exactly like the playground — same visual

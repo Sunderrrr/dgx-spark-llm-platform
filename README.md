@@ -474,7 +474,9 @@ create one on *My API keys* rather than silently doing nothing, and a spent budg
 stops it until the quota resets.
 
 It reads exactly like the playground: the **question** in its bubble, the
-**answer** as plain text with the model named above it, and — when the question
+**answer** as plain text with the model that wrote it named above it (kept in
+the thread, so a reloaded conversation still attributes each answer correctly),
+and — when the question
 is complex enough to trigger a reasoning pass — the **thinking** in the same
 collapsible block (open while it runs, folded on the first answer word with its
 measured duration). The reasoning is relayed as it streams (`reasoning_content`),

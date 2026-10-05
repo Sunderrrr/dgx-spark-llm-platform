@@ -19,6 +19,12 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-05
+
+Two things shipped together: the platform stack moves forward, and a reported
+playground defect — « les questions ne marchent plus » — is fixed at its two
+roots and re-verified on the whole playground.
+
 ### Fixed
 
 - **Playground — the clarifying questionnaire works again** (« les questions ne
@@ -323,7 +329,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Sunderrrr/dgx-spark-llm-platform/releases/tag/v0.1.0

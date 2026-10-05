@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-05
+
+The Support closes the gap between « it diagnoses » and « it repairs »: it now
+sees every service's real state, and can relaunch a stopped one.
+
 ### Added
 
 - **Support — it sees the platform's services, and can relaunch one** (« je
@@ -417,7 +422,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.3...v0.1.4

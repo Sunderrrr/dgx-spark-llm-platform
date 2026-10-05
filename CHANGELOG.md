@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-10-05
+
+Completes 0.1.8's log reading: LiteLLM's logs are covered too, so `read_logs`
+spans every service the platform runs on the GPU side plus its gateway.
+
 ### Added
 
 - **Support — LiteLLM's logs join `read_logs`** (« toutes les logs de tous les
@@ -451,7 +456,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.5...v0.1.6

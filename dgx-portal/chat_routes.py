@@ -131,7 +131,11 @@ def support_chat():
     blocked = maintenance_block_sse()
     if blocked:
         return blocked
-    history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:4000]}
+    # `model` travels with each message: the client shows WHO answered above the
+    # answer, and a reloaded thread must not attribute old answers to whatever
+    # model happens to run today.
+    history = [{'role': m.get('role'), 'content': str(m.get('content', ''))[:4000],
+                **({'model': str(m.get('model'))[:80]} if m.get('model') else {})}
                for m in history if m.get('role') in ('user', 'assistant')][-12:]
     wait = _chat_rate_limited(session['username'], 'rl-support')
     if wait:
@@ -520,8 +524,9 @@ def _fin_support_corps(username, history, texte, model, user_key, mem_on, app):
     try:
         with app.app_context():
             db = get_db()
-            fil = [{'role': m['role'], 'content': m['content']} for m in history]
-            fil.append({'role': 'assistant', 'content': texte[:8000]})
+            fil = [{'role': m['role'], 'content': m['content'],
+                    **({'model': m['model']} if m.get('model') else {})} for m in history]
+            fil.append({'role': 'assistant', 'content': texte[:8000], 'model': model})
             db.execute(
                 "INSERT INTO support_thread (username, messages, updated_at) VALUES (?,?,?) "
                 "ON CONFLICT(username) DO UPDATE SET messages=excluded.messages, "

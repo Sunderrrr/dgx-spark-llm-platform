@@ -19,6 +19,27 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **Three more essentials: Hugging Face, Exa, Discord** (« tu n'en a pas
+  d'autre que tu pense essentiel ? »). Two of them work **without any key** and
+  fill real holes:
+  - **huggingface** (`huggingface.co/mcp`) — model and dataset search on the
+    Hub: the very source of the platform's model catalog. « Which model for X »
+    is now answered from the Hub, live.
+  - **exa** (`mcp.exa.ai/mcp`) — web search + page reading: the one thing the
+    assistant could not do at all, look *outside* the documentation (new
+    releases, known incidents, announcements). Verified with real calls on
+    both.
+  - **discord** (waiting for its key, like the previous eight) — the platform
+    already notifies a Discord channel for model and budget requests.
+
+### Changed
+
+- **`MAX_MCP_SERVERS` 10 → 16** — disabled servers cost the model nothing
+  (their tools are never discovered), the cap only bounds the registry, and
+  16 leaves room for an account's own additions on top of the pack.
+
 ## [0.1.12] - 2026-10-05
 
 The MCP pack grows to the usual suspects — registered disabled, each waiting

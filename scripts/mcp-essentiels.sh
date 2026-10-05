@@ -54,6 +54,15 @@ SANS_CLE = [
      "Questions/réponses sur la documentation des dépôts GitHub publics "
      "(llama.cpp, vLLM, LiteLLM…). À utiliser pour comprendre le comportement "
      "d'un projet open source."),
+    ('huggingface', 'https://huggingface.co/mcp',
+     "Hugging Face : recherche de modèles, jeux de données, détail des dépôts "
+     "du Hub — LA source du catalogue de modèles de la plateforme. À utiliser "
+     "pour « quel modèle pour X », « qu'y a-t-il de nouveau », « que vaut ce "
+     "dépôt ». Sans clé."),
+    ('exa', 'https://mcp.exa.ai/mcp',
+     "Recherche web + lecture de page (Exa) — la seule façon pour l'assistant "
+     "d'aller voir ce qui se passe EN DEHORS de la documentation : nouveautés, "
+     "incidents connus, annonces. Sans clé."),
 ]
 
 AVEC_CLE = [
@@ -81,6 +90,9 @@ AVEC_CLE = [
     ('stripe', 'https://mcp.stripe.com',
      "Stripe : paiements, clients, abonnements, factures. "
      "Clé : « Bearer sk_… » (secret key)."),
+    ('discord', 'https://mcp.discord.com/mcp',
+     "Discord : serveurs, canaux, messages — la plateforme y notifie déjà les "
+     "demandes de modèle et de budget. Clé : « Bearer » + un token d'application."),
 ]
 
 ESSENTIELS = SANS_CLE + AVEC_CLE

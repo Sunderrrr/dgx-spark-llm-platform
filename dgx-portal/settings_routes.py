@@ -152,7 +152,10 @@ def _account_limits(username, acct, servers, skills):
 # 16 per worker) for the duration of its timeout. Without a cap, a user can
 # register hundreds of them and make Support unusable for everyone
 # else. Skills only cost a SQLite read, wider cap.
-MAX_MCP_SERVERS = 10
+# Disabled servers cost the model NOTHING (their tools are never discovered):
+# the cap only bounds the registry. 16 leaves room for the account's own
+# additions on top of the pack (scripts/mcp-essentiels.sh).
+MAX_MCP_SERVERS = 16
 MAX_SKILLS = 50
 
 

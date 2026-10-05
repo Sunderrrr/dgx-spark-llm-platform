@@ -463,16 +463,18 @@ instead of letting you submit into a dead end.
 An AI assistant that sees your keys (masked), budget, the model catalog and server
 status, and can **act for you**: create a key, revoke one, request budget, request
 a model (admins also get launch/stop). Actions are always scoped server-side to the
-logged-in user; impactful ones require in-chat confirmation. `scripts/mcp-essentiels.sh` registers a per-account pack of ten — **two that
-work straight away**, and **eight that wait for their own key**:
+logged-in user; impactful ones require in-chat confirmation. `scripts/mcp-essentiels.sh` registers a per-account pack of thirteen — **four
+that work straight away**, and **nine that wait for their own key**:
 
 | | |
 |---|---|
 | **context7** | *current* library and framework docs (APIs, versions, changes) — « how do I integrate X » answered from documentation, not training data |
 | **deepwiki** | Q&A over GitHub repositories' documentation (llama.cpp, vLLM, LiteLLM…) |
-| **github · sentry · cloudflare · slack · notion · linear · figma · stripe** | the usual suspects — repos/PRs, errors, DNS & tunnels, team chat, docs, issues, designs, payments |
+| **huggingface** | model and dataset search on the Hub — the very source of the platform's model catalog |
+| **exa** | web search + page reading: what happens *outside* the documentation (new releases, known incidents) |
+| **github · sentry · cloudflare · slack · notion · linear · figma · stripe · discord** | the usual suspects — repos/PRs, errors, DNS & tunnels, team chat, docs, issues, designs, payments |
 
-Those eight are registered **disabled on purpose** (« juste ne les active pas
+Those nine are registered **disabled on purpose** (« juste ne les active pas
 tant que les user n'ont pas set les api key »): they answer 401 until the
 account's own token is pasted in Settings → MCP — and **writing the key is what
 switches the server on**, automatically. Each one's description says which

@@ -19,6 +19,18 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **Essential MCP servers, registered per account** (« conf des mcp de base
+  que tu pense essentiel »). Two, chosen for what the Support assistant
+  actually lacks: **context7** (current library/framework docs — so « how do I
+  integrate X » is answered from documentation, not training data) and
+  **deepwiki** (Q&A over GitHub repositories). Public endpoints, no key,
+  validated with the platform's own SSRF check. `scripts/mcp-essentiels.sh`
+  registers them for any account, so a rebuilt database or a new user does not
+  quietly lose them. Verified live: the assistant calls them, and the
+  third-party-output guardrail still applies to what they return.
+
 ## [0.1.10] - 2026-10-05
 
 The Support starts clean on every visit, and its whole interface is now covered

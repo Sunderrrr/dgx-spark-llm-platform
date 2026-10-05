@@ -463,7 +463,20 @@ instead of letting you submit into a dead end.
 An AI assistant that sees your keys (masked), budget, the model catalog and server
 status, and can **act for you**: create a key, revoke one, request budget, request
 a model (admins also get launch/stop). Actions are always scoped server-side to the
-logged-in user; impactful ones require in-chat confirmation. It can also call MCP
+logged-in user; impactful ones require in-chat confirmation. Two MCP servers are worth registering out of the box —
+[`scripts/mcp-essentiels.sh`](scripts/mcp-essentiels.sh) does it per account:
+
+- **context7** (`mcp.context7.com`) — *current* library and framework docs:
+  APIs, versions, recent changes. For « how do I integrate X » questions the
+  assistant then answers from the documentation, not from its training data.
+- **deepwiki** (`mcp.deepwiki.com`) — Q&A over GitHub repositories'
+  documentation (llama.cpp, vLLM, LiteLLM…), for « why does this project
+  behave like that ».
+
+Both are public MCP endpoints (no key), validated with the platform's own SSRF
+check at registration, and the guardrail above applies to whatever they return.
+
+It can also call MCP
 servers and skills you configure in Settings — with the guardrail that once
 third-party tool output has entered the conversation, privileged tools are refused
 for the rest of the turn.

@@ -31,6 +31,32 @@ jobs:
       - name: Check version coherence
         run: ./scripts/release.sh --check
 
+  secrets:
+    name: Secret scan (commit messages + diff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Scan the pushed history
+        # A secret that lands in a COMMIT MESSAGE is public the moment the tag
+        # is pushed, and rewriting history afterwards does not make readers
+        # forget (the incident of 2026-10-06). The local hooks stop it at the
+        # entrance — this job is the net for a `--no-verify` push.
+        run: |
+          RE='(-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-[A-Za-z0-9]{24,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,})'
+          PH='(changeme|change-me|placeholder|example|sk-test|sk-changeme|your[-_]?key|xxxxx)'
+          RANGE="${{ github.event.before }}..${{ github.sha }}"
+          case "$RANGE" in 000000*) RANGE="${{ github.sha }}" ;; esac
+          hit=0
+          git log --format=%B "$RANGE" | grep -E "$RE" | grep -Evq "$PH" \
+            && { echo "::error::Secret-looking value in a COMMIT MESSAGE"; hit=1; } || true
+          git diff "$RANGE" 2>/dev/null | grep -E '^\+[^+]' | grep -E "$RE" | grep -Evq "$PH" \
+            && { echo "::error::Secret-looking value in the diff"; hit=1; } || true
+          git diff --diff-filter=AM --name-only "$RANGE" 2>/dev/null | grep -Eq '(^|/)(\.env(\..*)?|DEBUG_USERS\.txt|.*\.pem|.*\.key|id_rsa.*)$' \
+            && { echo "::error::Forbidden file in the push"; hit=1; } || true
+          exit $hit
+
   backend:
     name: Backend tests (unittest, in Docker)
     runs-on: ubuntu-latest

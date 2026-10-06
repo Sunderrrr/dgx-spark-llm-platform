@@ -68,6 +68,32 @@ for range in "${ranges[@]}"; do
     fi
   done < <(git diff --diff-filter=AM --name-only "$range" 2>/dev/null)
 
+  # COMMIT MESSAGES. The leak of 2026-10-06 was not in a file but in a commit
+  # message — this loop did not exist yet. A message is public the moment it is
+  # pushed, and rewriting history afterwards does not make readers forget.
+  while IFS= read -r msg; do
+    [ -z "$msg" ] && continue
+    if printf '%s' "$msg" | grep -qEi "$PLACEHOLDER_RE"; then continue; fi
+    if printf '%s' "$msg" | grep -qE "$SECRET_VALUE_RE"; then
+      fail "Secret-looking value in a COMMIT MESSAGE: $(printf '%.60s' "$msg")"; secret_hit=1
+    fi
+  done < <(git log --format=%B "$range" 2>/dev/null)
+
+  # The LIVE values of .env must appear in NO diff and NO message: a real
+  # credential never looks like a pattern, it looks like a word. Reading the
+  # file is local-only and nothing is echoed (the report names the KEY).
+  if [ -f .env ]; then
+    while IFS='=' read -r cle val; do
+      [ -z "$cle" ] && continue
+      case "$cle" in \#*|'') continue ;; esac
+      [ "${#val}" -lt 8 ] && continue
+      haystack=$(git diff "$range" 2>/dev/null; git log --format=%B "$range" 2>/dev/null)
+      if printf '%s' "$haystack" | grep -qF -- "$val"; then
+        fail "A value from .env ($cle) is in the push."; secret_hit=1
+      fi
+    done < .env
+  fi
+
   # Secret-looking values in added lines only ('+' lines of the diff).
   while IFS= read -r line; do
     content=${line#+}

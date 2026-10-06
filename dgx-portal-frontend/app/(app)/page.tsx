@@ -359,7 +359,7 @@ export default function HomePage() {
                         variant="muted"
                         href={KIND_OPEN[c.kind].href}
                       >
-                        <VStack gap={1}>
+                        <VStack gap={1} height="100%">
                           <HStack gap={2} vAlign="center">
                             <Icon icon={c.icon} size="sm" />
                             <Text weight="semibold" size="sm">{t(c.label)}</Text>
@@ -373,6 +373,10 @@ export default function HomePage() {
                               {data.running_models.find((m) => m.kind === c.kind)?.name}
                             </Text>
                           ) : null}
+                          {/* The elastic keeps every badge on ONE line: the
+                              active cards carry a model name, the idle ones do
+                              not, and without it the row of badges zigzagged. */}
+                          <StackItem size="fill" />
                           <Badge label={on ? t("En ligne") : t("à la demande")} variant={on ? "success" : "neutral"} />
                         </VStack>
                       </ClickableCard>

@@ -24,6 +24,7 @@ import { useT, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
+import { GenerationPlaceholder } from "../_components/GenerationPlaceholder";
 
 type JobStatus = "idle" | "pending" | "running" | "done" | "error" | "cancelled";
 type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string };
@@ -315,16 +316,7 @@ export default function VideoPage() {
                       the layout jump when the result arrived. */}
                   {isBusy && (
                     <AspectRatio ratio={16 / 9} fit="contain">
-                      <VStack
-                        className="video-generating"
-                        height="100%"
-                        width="100%"
-                        hAlign="center"
-                        vAlign="center"
-                        gap={2}
-                      >
-                        <Icon icon={FilmIcon} size="lg" color="secondary" />
-                      </VStack>
+                      <GenerationPlaceholder media="video" />
                     </AspectRatio>
                   )}
                   {status === "done" && promptId && (

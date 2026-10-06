@@ -38,14 +38,18 @@ _IMAGE_TIMEOUT_S = 420
 _HEARTBEAT_EVERY_S = 15
 
 # Same strict rule as web search: a VERB of creation followed, in the same
-# sentence, by a visual object. Past participles (« générée », « dessiné ») do
-# not match (the accent or the final letter breaks the word), nor does
-# « redessine » (\b mid-word does not exist).
+# sentence, by a visual object. Participles DID not match (« généré », « créée »)
+# and numerals did not either (« 4 images » is not « une image ») — measured
+# 2026-10-06: the operator asked « généré en 4K 4 images pour halloween » and the
+# model answered « je ne peux pas générer » because the tool was never armed.
+# Both forms are accepted now. « redessine » still does not match (\b mid-word
+# does not exist).
 _DEMANDE_IMAGE = re.compile(
-    r"\b(?:genere|génère|generer|générer|cree|crée|creer|créer|veux|voudrais|"
+    r"\b(?:genere|génère|generer|générer|généré|générée|générés|générées|"
+    r"cree|crée|creer|créer|créé|créée|créés|créées|veux|voudrais|"
     r"aimerais|fais|faites|generate|create|make|design)\b"
     r"[^.!?\n]{0,40}?"
-    r"\b(?:une?|des|an?)\s+(?:image|dessin|illustration|logo|ic[ôo]ne|avatar|picture|drawing|icon)s?\b"
+    r"\b(?:une?|des|an?|\d+)\s+(?:image|dessin|illustration|logo|ic[ôo]ne|avatar|picture|drawing|icon)s?\b"
     r"|\bdessine\b[^.!?\n]{0,40}"
     r"|\bdraw\b[^.!?\n]{0,40}",
     re.I)
@@ -90,13 +94,29 @@ def _outils_image():
                         'description': "Largeur en pixels (256–1536, défaut 1024)."},
             'hauteur': {'type': 'integer',
                         'description': "Hauteur en pixels (256–1536, défaut 1024)."},
+            'nombre': {'type': 'integer',
+                       'description': "Nombre d'images à produire (1-4, défaut 1)."},
+            'sortie_largeur': {'type': 'integer',
+                               'description': "Largeur FINALE après agrandissement "
+                                              "(jusqu'à 3840 — la 4K — défaut : la taille "
+                                              "de génération)."},
+            'sortie_hauteur': {'type': 'integer',
+                               'description': "Hauteur FINALE après agrandissement "
+                                              "(jusqu'à 3840)."},
         }, 'required': ['prompt']}}}]
 
 
 
 def _annonce_image(args):
     """What we are about to generate, told to the client before doing it."""
-    return {'etape': 'generation', 'outil': 'diffusers',
+    # `nombre` lets the client show ONE placeholder per image to come — the
+    # Image page does this, a single grey square while four are cooking read as
+    # « nothing is happening ».
+    try:
+        nombre = max(1, min(4, int(args.get('nombre') or 1)))
+    except (TypeError, ValueError):
+        nombre = 1
+    return {'etape': 'generation', 'outil': 'diffusers', 'nombre': nombre,
             'question': str(args.get('prompt', ''))[:200]}
 
 
@@ -127,6 +147,22 @@ def _exec_image_tool(args, username, journal):
 
     largeur, hauteur = _dim('largeur', 1024), _dim('hauteur', 1024)
 
+    def _dim_sortie(cle):
+        try:
+            v = int(args.get(cle) or 0)
+        except (TypeError, ValueError):
+            v = 0
+        return max(0, min(3840, v))
+
+    # La 4K se fait par AGRANDISSEMENT, comme sur la page image : la génération
+    # reste dans 256–1536 et c'est la sortie qui va jusqu'à 3840.
+    sortie_largeur, sortie_hauteur = _dim_sortie('sortie_largeur'), _dim_sortie('sortie_hauteur')
+    try:
+        nombre = int(args.get('nombre') or 1)
+    except (TypeError, ValueError):
+        nombre = 1
+    nombre = max(1, min(4, nombre))
+
     if not media_job_slot(username):
         return ("Trop de générations d'images en cours pour ce compte — "
                 "attends la fin des précédentes.")
@@ -134,14 +170,14 @@ def _exec_image_tool(args, username, journal):
     db = get_db()
     db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, count, "
                "done_count, format, created_at) VALUES (?,?,?,?,?,?,?,?)",
-               (username, prompt_id, prompt[:2000], 'running', 1, 0, fmt,
+               (username, prompt_id, prompt[:2000], 'running', nombre, 0, fmt,
                 datetime.now().isoformat()))
     db.commit()
 
     def _run():
         try:
-            image_routes._image_worker(prompt_id, username, prompt, 1, fmt,
-                                       largeur, hauteur)
+            image_routes._image_worker(prompt_id, username, prompt, nombre, fmt,
+                                       largeur, hauteur, sortie_largeur, sortie_hauteur)
         finally:
             media_job_done(username)
 

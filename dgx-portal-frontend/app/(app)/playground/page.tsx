@@ -13,6 +13,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
+import { AspectRatio } from "@astryxdesign/core/AspectRatio";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -73,6 +74,7 @@ import { useDictation } from "@/lib/useDictation";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { DictateButton } from "../_components/DictateButton";
+import { GenerationPlaceholder } from "../_components/GenerationPlaceholder";
 import { BorderBeam } from "border-beam";
 import { VoiceBeam } from "voice-glow";
 import { useThemeMode } from "../../theme-provider";
@@ -468,6 +470,22 @@ function libelleEtapeWeb(
       return { fini: true, texte: `${outil} · ` + (e.erreur
         ? t("génération impossible : {e}").replace("{e}", e.erreur)
         : t("{n} image(s) générée(s)").replace("{n}", String((e.images ?? []).length))) };
+    case "generation_video":
+      return { fini: false,
+        texte: `${outil} · ` + t("génération de la vidéo « {q} »")
+          .replace("{q}", e.question ?? "") };
+    case "generation_video_finie":
+      return { fini: true, texte: `${outil} · ` + (e.erreur
+        ? t("génération vidéo impossible : {e}").replace("{e}", e.erreur)
+        : t("{n} vidéo(s) générée(s)").replace("{n}", String((e.videos ?? []).length))) };
+    case "ocr":
+      return { fini: false,
+        texte: `${outil} · ` + t("lecture du document")
+          + (e.question ? ` « ${e.question} »` : "") };
+    case "ocr_finie":
+      return { fini: true, texte: `${outil} · ` + (e.erreur
+        ? t("lecture impossible : {e}").replace("{e}", e.erreur)
+        : t("{n} caractère(s) extraits").replace("{n}", String(e.caracteres ?? 0))) };
     default:
       return { texte: outil, fini: true };
   }
@@ -2103,8 +2121,12 @@ export default function PlaygroundPage() {
           if (delta.webStep) {
             const e = delta.webStep;
             // A "finished" step replaces its announcement, it is not added.
+            // The portail can send an EMPTY frame ({}) when a tool refused
+            // before doing anything: no step, therefore nothing to replace —
+            // without this guard `etape.endsWith` threw and the answer was
+            // lost as a network error.
             setEtapesWeb((prec) => {
-              const base = e.etape.endsWith("_finie") ? prec.slice(0, -1) : prec;
+              const base = (e.etape ?? "").endsWith("_finie") ? prec.slice(0, -1) : prec;
               return [...base, e].slice(-6);
             });
           }
@@ -3424,19 +3446,43 @@ export default function PlaygroundPage() {
                           ))}
                         </HStack>
                       ) : null}
-                      {/* Recherche web en cours : on dit ce qui est cherché et lu,
-                          au fil de l'eau. Sans ça l'attente est muette pendant
-                          des dizaines de secondes. */}
+                      {/* Outils en cours : on dit ce qui est cherché, lu ou
+                          généré, au fil de l'eau. Sans ça l'attente est muette
+                          pendant des dizaines de secondes. */}
                       {streamingThis && etapesWeb.length > 0 && (
                         <VStack gap={1} padding={2}>
                           {etapesWeb.map((e, k) => {
                             const l = libelleEtapeWeb(e, t);
+                            const media = e.etape === "generation" ? "image"
+                              : e.etape === "generation_video" ? "video" : null;
                             return (
-                              <HStack key={`web-${k}`} gap={2} vAlign="center">
-                                <StatusDot variant={l.fini ? "success" : "accent"}
-                                  isPulsing={!l.fini} label={l.texte} />
-                                <Text type="supporting" color="secondary">{l.texte}</Text>
-                              </HStack>
+                              <VStack key={`web-${k}`} gap={2}>
+                                <HStack gap={2} vAlign="center">
+                                  <StatusDot variant={l.fini ? "success" : "accent"}
+                                    isPulsing={!l.fini} label={l.texte} />
+                                  <Text type="supporting" color="secondary">{l.texte}</Text>
+                                </HStack>
+                                {/* Génération en cours : le MÊME pavé que la page
+                                    Image (carré, photo) ou Vidéo (16/9, pellicule),
+                                    pas un spinner — c'est lui qui occupera la place
+                                    du résultat. UN PAVÉ PAR IMAGE annoncée (le champ
+                                    `nombre` de l'étape) : quatre carrés gris pendant
+                                    quatre images en cuisson, c'est ce que la page
+                                    Image montre, et un seul carré se lisait comme
+                                    « rien ne se passe ». */}
+                                {!l.fini && media && (
+                                  <HStack gap={2} wrap="wrap">
+                                    {Array.from({ length: Math.max(1, Math.min(4, Number((e as { nombre?: number }).nombre) || 1)) })
+                                      .map((_, p) => (
+                                        <VStack key={`gen-${p}`} maxWidth={200} width="100%">
+                                          <AspectRatio ratio={media === "image" ? 1 : 16 / 9} fit="contain">
+                                            <GenerationPlaceholder media={media} />
+                                          </AspectRatio>
+                                        </VStack>
+                                      ))}
+                                  </HStack>
+                                )}
+                              </VStack>
                             );
                           })}
                         </VStack>

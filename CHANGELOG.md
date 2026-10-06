@@ -19,6 +19,40 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **The playground can now generate videos and read documents** (« le playground
+  peut générer une vidéo ou appeler de l'OCR si on lui demande ? »). Two new
+  tools in the image tool's exact shape: `generer_video` (ComfyUI, MiniMax H3 —
+  the same entry point as the Video page) and `lire_document` (Unlimited-OCR, on
+  the attached file — the same extraction as the OCR page). Both arm on an
+  EXPLICIT request, start their sidecar at first use behind a memory guard, and
+  report `video_service_off` / `document_service_off` with the free memory when
+  the service cannot start. 28 new tests.
+
+### Fixed
+
+- **`generer_image` answered « je ne peux pas générer » on the operator's exact
+  request** (« généré en 4K 4 images pour halloween »). Two gaps in the
+  detection: past participles (« généré », « créée ») matched nothing, and
+  « 4 images » is not « une image » (a numeral is not an article) — the tool was
+  never armed. Both forms accepted. The tool also gained `nombre` (1–4) and
+  `sortie_largeur`/`sortie_hauteur`: the Image page has always upscaled to
+  **3840 px** (the 4K), the tool clamped at 1536 and generated ONE image.
+  Measured after: « Voici tes 4 images Halloween en 4K ! » with 4 images shown.
+- **ComfyUI was unreachable from the portal.** The engine deliberately listens
+  on `127.0.0.1:8188` (no auth, not network-reachable) while the container probes
+  `172.19.0.1:8188` — and the `comfyui-relay.service` its own unit describes did
+  not exist. Created: socat bridging the docker gateway to the engine. Before
+  it, every video request died with « le service a démarré mais ne répond pas
+  encore ».
+
+### Changed
+
+- **One generation placeholder per image**, not one: four grey frames while four
+  images cook, exactly like the Image page. A single square read as « nothing is
+  happening ». Same for video (16/9 frame, FilmIcon).
+
 ## [0.1.17] - 2026-10-06
 
 Four sessions of 262 144, an honest memory budget, and the session count

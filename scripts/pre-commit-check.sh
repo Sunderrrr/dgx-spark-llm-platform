@@ -17,8 +17,12 @@ hit=0
 dire() { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; }
 
 # 1. The message about to be committed (the exact hole of 2026-10-06).
-msg=$(git log -1 --format=%B --no-commit-header 2>/dev/null || cat "$1" 2>/dev/null || true)
+# The commit-msg path arrives as \$1; git also keeps the message under
+# .git/MERGE_MSG during a merge. Both are optional — never dereference an
+# unset parameter under `set -u`.
+msg=""
 if [ -n "${1:-}" ] && [ -f "${1:-}" ]; then msg=$(cat "$1"); fi
+if [ -z "$msg" ] && [ -f .git/MERGE_MSG ]; then msg=$(cat .git/MERGE_MSG); fi
 if [ -n "$msg" ]; then
   if printf '%s' "$msg" | grep -qE "$SECRET_VALUE_RE" && ! printf '%s' "$msg" | grep -qEi "$PLACEHOLDER_RE"; then
     dire "Ce message de commit contient ce qui ressemble à un secret."

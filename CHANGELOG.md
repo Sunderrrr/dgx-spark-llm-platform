@@ -19,6 +19,17 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Settings → Skills now lists EVERY skill, defaults included** (« je veux
+  que dans les settings quand l'onglet Compétence on voit les skills que il y a
+  et meme par default »). The tab only showed the *server* skills (the
+  assistant's `use_skill`) — the playground's, and above all the thirteen
+  built-ins, were invisible: the empty state even claimed « Aucune compétence
+  pour l'instant ». A « Playground skills (the « / » menu) » group now lists
+  them all with their `/alias`, name and description — built-ins and the
+  user's own — above the assistant's own group, which is now labelled as such.
+
 ## [0.1.14] - 2026-10-06
 
 Five default skills — the operator's anti-AI SKILL.md verbatim, and four more

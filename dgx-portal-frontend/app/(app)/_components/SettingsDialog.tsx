@@ -62,6 +62,8 @@ type McpServer = {
   has_auth: number;
   created_at: string;
 };
+import { BASE_SKILLS, loadCustomSkills, type Skill as SkillPlayground } from "@/lib/skills";
+
 type Skill = { id: number; name: string; description: string; instructions: string; created_at: string };
 type AvatarChoice = { id: string; label: string };
 type Account = {
@@ -409,6 +411,12 @@ export function SettingsDialog({
   const pct = acct && !acct.unlimited && acct.max_budget ? (acct.spend / acct.max_budget) * 100 : 0;
 
   // Right pane title: section name, or that of the open sub-page.
+  // The playground's skills (the « / » menu): built-in + the user's own. They
+  // live in the browser (lib/skills.ts) and were INVISIBLE here — « on voit les
+  // skills qu'il y a et même par défaut » : the defaults now have a home in the
+  // panel too.
+  const [skillsPlayground] = useState<SkillPlayground[]>(() => [...BASE_SKILLS, ...loadCustomSkills()]);
+
   const paneTitle = isAddingMcp ? "MCP" : isAddingSkill ? "Compétences" : SECTION_TITLES[section];
 
   return (
@@ -1013,6 +1021,29 @@ export function SettingsDialog({
               {/* ── Skills: list ────────────────────────────────── */}
               {section === "skills" && !isAddingSkill && (
                 <VStack gap={4}>
+                  {/* What the « / » menu offers — the defaults included. Read-
+                      only here: a built-in is edited in the source, a personal
+                      one from the playground's creator. */}
+                  <VStack gap={2}>
+                    <Text weight="semibold">{t("Compétences du playground (menu « / »)")}</Text>
+                    <Text type="supporting" color="secondary">
+                      {t("Appelées depuis le composeur en tapant « / ». Les intégrées sont livrées avec la plateforme ; les tiennes sont modifiables depuis le playground.")}
+                    </Text>
+                    <VStack gap={2}>
+                      {skillsPlayground.map((s) => (
+                        <Card key={s.id}>
+                          <HStack gap={2} vAlign="center">
+                            <Badge label={`/${s.alias}`} variant={s.builtin ? "info" : "neutral"} />
+                            <VStack gap={0}>
+                              <Text weight="semibold">{t(s.name)}</Text>
+                              <Text type="supporting" color="secondary">{t(s.description)}</Text>
+                            </VStack>
+                          </HStack>
+                        </Card>
+                      ))}
+                    </VStack>
+                  </VStack>
+                  <Text weight="semibold">{t("Compétences de l'assistant")}</Text>
                   <HStack hAlign="between" vAlign="center" gap={3}>
                     <Text type="supporting" color="secondary">
                       {t("Des instructions réutilisables que tu écris toi-même ; l'assistant les charge quand elles sont utiles à ta demande.")}

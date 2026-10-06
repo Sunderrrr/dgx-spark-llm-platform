@@ -19,6 +19,32 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **Five default skills**, in the spirit of the public Claude skills and the
+  one the operator supplied:
+  - **anti-ia-detection** (`/anti-ia`) — the operator's SKILL.md, verbatim: spot
+    and fix the tells of AI-generated French writing (25 patterns in 5 groups —
+    content, vocabulary, style, chatbot artefacts — plus the part that matters
+    as much as removing the tics: *adding a voice*). Built on
+    Wikipedia:Signs of AI writing, adapted to French.
+  - **email** (`/email`) — a professional email: sharp subject, useful body,
+    right tone; two lengths, no hollow formulas.
+  - **web-design** (`/webdesign`) — a complete, accessible, responsive page in
+    a single HTML file (the playground already writes pages, it now designs
+    them).
+  - **slides** (`/slides`) — a deck where every slide asserts something, with
+    the story first.
+  - **meeting** (`/meeting`) — raw notes into decisions, open points, and an
+    action table (what, who, when). Blanks become « à préciser », never a guess.
+
+### Changed
+
+- **The system prompt cap is 16 000 characters, not 4 000** — a skill's whole
+  instructions live there (the anti-AI one alone is ~8 500), and cutting them
+  in half silently produced half a skill. ~4 000 tokens against a 262k window;
+  the bound stays as a guard against a runaway persona, not as a size budget.
+
 ## [0.1.13] - 2026-10-06
 
 Three more essentials — two of them work without any key and fill real holes.

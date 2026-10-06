@@ -375,6 +375,25 @@ resizable **side panel** where a file or a document is read *as it is written*
 panel each scroll on their own, follow the writing until you scroll up, and then
 offer a « Descendre » button.
 
+**Skills** — type `/` in the composer to call one: a skill is a prepared prompt
+plus a system prompt that shapes the model's behaviour, in the spirit of the
+public Claude skills. Eight ship built-in: `summarize`, `explain`, `code`,
+`logs`, `write`, `translate`, `brainstorm`, `proofread`, plus five more added
+2026-10-06 —
+
+- `/anti-ia` — spot and fix the tells of AI-generated French writing (25
+  patterns in 5 groups, from *Wikipedia: Signs of AI writing* adapted to
+  French; the operator's own SKILL.md), including the part that matters as
+  much as removing the tics: **adding a voice**;
+- `/email` — a professional email: sharp subject, useful body, right tone;
+- `/webdesign` — a complete, accessible, responsive page in one HTML file;
+- `/slides` — a deck where every slide asserts something;
+- `/meeting` — raw notes into decisions, open points and an action table.
+
+Users write their own from the `/` menu (stored in the browser, like the
+snippets), and a skill's instructions go into the system prompt — which is
+bounded at 16 000 characters, enough for the longest of them.
+
 When the request is ambiguous, the model **asks first**: its clarifying
 questions come out as a clickable card (one question at a time, several answers
 allowed, free text per question), and the answers are sent back in one go. The

@@ -1090,7 +1090,12 @@ def playground_chat():
                 del h['images']
 
     # Settings (bounded).
-    system = str(data.get('system', '')).strip()[:4000]
+    # 16 000 characters, not 4 000: a SKILL's whole instructions live here
+    # (the anti-AI one alone is ~8 500), and cutting them in half silently
+    # produced half a skill. ~4 000 tokens is nothing against a 262k window —
+    # the bound stays as a guard against a runaway persona, not as a size
+    # budget. The clock is appended AFTER this truncation (below).
+    system = str(data.get('system', '')).strip()[:16000]
     def _num(v, lo, hi, default, cast):
         try:
             return min(max(cast(v), lo), hi)
@@ -1153,8 +1158,8 @@ def playground_chat():
         _memctx = memoire._mem_inject_context(session['username'])
         if _memctx:
             system = (system + "\n\n" + _memctx) if system else _memctx
-    # The current date/time joins the system prompt AFTER the 4000-char
-    # truncation: the model must never lose its clock to a long persona.
+    # The current date/time joins the system prompt AFTER the truncation above:
+    # the model must never lose its clock to a long persona.
     system = (system + "\n\n" if system else "") + _horodatage()
     msgs = ([{'role': 'system', 'content': system}] if system else []) + history
 

@@ -407,7 +407,43 @@ from websearch_tools import (  # noqa: E402
 
 @app.route('/api/config')
 def api_config():
-    return jsonify({'oidc_enabled': OIDC_ENABLED})
+    """What the login page and the shell need BEFORE any session: SSO offered,
+    and the deployment's own identity (name + logo). Both are branding, not
+    secrets — read on every cold load, hence the tiny cache below."""
+    now = time.time()
+    if now - _config_cache['t'] > 10:
+        _config_cache['v'] = {
+            'oidc_enabled': OIDC_ENABLED,
+            'branding': {
+                'name': get_setting('platform_name', 'Cronos'),
+                'logo': '/api/branding/logo' if get_setting('platform_logo', '') else None,
+            },
+        }
+        _config_cache['t'] = now
+    return jsonify(_config_cache['v'])
+
+
+_config_cache = {'t': 0.0, 'v': None}
+
+
+@app.route('/api/branding/logo')
+def api_branding_logo():
+    """The deployment's logo, uploaded from Admin. Served WITHOUT a session
+    (the login page shows it too), immutable for the browser via the ETag of
+    the stored blob."""
+    row = get_db().execute("SELECT value FROM settings WHERE key='platform_logo'").fetchone()
+    if not row or not row['value']:
+        return ('', 404)
+    import base64
+    try:
+        octets = base64.b64decode(row['value'].split(',', 1)[1])
+    except Exception:
+        return ('', 404)
+    type_mime = 'image/png'
+    if row['value'].startswith('data:image/'):
+        type_mime = row['value'][5:].split(';', 1)[0]
+    return Response(octets, content_type=type_mime,
+                    headers={'Cache-Control': 'public, max-age=3600'})
 
 
 

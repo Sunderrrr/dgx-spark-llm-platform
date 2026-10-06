@@ -57,6 +57,7 @@ import { SettingsDialogContext, type SettingsSection } from "@/lib/settings-dial
    (seen once; 10 out of 10 attempts correct afterwards). The tab favicon,
    for its part, keeps being served from the root. */
 import logoCronos from "@/app/favicon.ico";
+import { useBranding } from "@/lib/branding";
 
 type NotificationItem = {
   id: number;
@@ -107,6 +108,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined);
   const t = useT();
+  const marque = useBranding();
   const router = useRouter();
   // Command palette (Ctrl/Cmd+K): navigation and quick actions.
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -258,7 +260,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           resizable={{ defaultWidth: 260, minWidth: 220, maxWidth: 360 }}
           header={
             <SideNavHeading
-              heading="Cronos"
+              heading={marque.name}
               /* The tab logo (favicon served from the root) also at the
                  top left, right before « Cronos ». empty alt: the info is
                  already carried by the text of the heading that follows. */
@@ -266,7 +268,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 // Static 26 KB favicon: next/image brings nothing here.
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={logoCronos.src}
+                  src={marque.logo ?? logoCronos.src}
                   alt=""
                   style={{ width: "var(--spacing-5)", height: "var(--spacing-5)" }}
                 />

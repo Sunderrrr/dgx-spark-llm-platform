@@ -737,6 +737,10 @@ class GardeDesRoutesTest(unittest.TestCase):
     # savoir dire laquelle.
     PUBLIQUES = {
         'api_config':         "ne renvoie que {oidc_enabled}, lu avant connexion",
+        # The deployment's logo, shown on the LOGIN page — there is no session
+        # yet. It is branding (like the favicon), not user data: the route
+        # serves only the bytes the admin uploaded, never a path.
+        'api_branding_logo':  "logo de la plateforme, affiché sur la page de connexion",
         'login':              "point d'entrée de l'authentification",
         'login_sso':          "redirection vers le fournisseur OIDC",
         'oauth_callback':     "retour du fournisseur OIDC, hors session",

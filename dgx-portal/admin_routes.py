@@ -1534,6 +1534,41 @@ def internal_authcheck():
                               "temporairement indisponible, réessaie plus tard.",
                               'type': 'maintenance_mode'}}), 503
 
+@bp.route('/admin/branding', methods=['POST'])
+@admin_required
+def admin_branding():
+    """The deployment's identity: name in the sidebar, and the logo.
+
+    « personnaliser en fonction de celui qui le déploie » — the operator names
+    their own instance (Cronos is their homelab's name, not the product's).
+    The logo is stored as the uploaded data URL: one row, no filesystem to
+    police, and the size is bounded like every other upload on this portal.
+    """
+    nom = (request.form.get('platform_name') or '').strip()[:60]
+    logo = (request.form.get('platform_logo') or '').strip()
+    if nom and not re.fullmatch(r'[\w .\-\u00c0-\u024f]{1,60}', nom):
+        return jsonify({'ok': False, 'error': "Nom invalide."}), 400
+    if logo and not re.fullmatch(r'data:image/(png|jpeg|webp|svg\+xml|gif);base64,[A-Za-z0-9+/=]+', logo):
+        return jsonify({'ok': False, 'error': "Logo attendu en PNG, JPEG, WebP, SVG ou GIF."}), 400
+    if logo and len(logo) > 2 * 1024 * 1024:
+        return jsonify({'ok': False, 'error': "Logo trop lourd (2 Mo maximum)."}), 400
+    db = get_db()
+    if nom:
+        db.execute("INSERT INTO settings (key, value) VALUES ('platform_name', ?) "
+                   "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (nom,))
+    # '-' is the explicit « remove the logo », like the auth header of an MCP
+    # server: an empty field would mean « change nothing ».
+    if logo == '-':
+        db.execute("DELETE FROM settings WHERE key='platform_logo'")
+    elif logo:
+        db.execute("INSERT INTO settings (key, value) VALUES ('platform_logo', ?) "
+                   "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (logo,))
+    db.commit()
+    log_audit(session['username'], 'branding.modifie', f'nom={nom or "(inchangé)"} '
+              f'logo={"retiré" if logo == "-" else ("posé" if logo else "inchangé")}')
+    return jsonify({'ok': True})
+
+
 @bp.route('/admin/budget/approve/<int:req_id>', methods=['POST'])
 @admin_required
 def approve_budget(req_id):

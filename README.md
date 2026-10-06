@@ -397,6 +397,20 @@ Users write their own from the `/` menu (stored in the browser, like the
 snippets), and a skill's instructions go into the system prompt — which is
 bounded at 16 000 characters, enough for the longest of them.
 
+**Tools** — the model calls the platform's own services when the request
+clearly asks for one, and only then (a mere mention triggers nothing). Five
+ship today, all with the same contract: the sidecar starts at first use behind a
+memory guard, the step is shown live in the conversation, and a stopped service
+answers with a structured notice rather than a bare failure.
+
+| tool | what it does |
+|---|---|
+| `generer_image` | generates 1–4 images from a description, and upscales to **4K** (3840 px) like the Image page. One generation frame per image while they cook. |
+| `generer_video` | generates a short video (ComfyUI, MiniMax H3), the Video page's entry point; a 16/9 frame stands in until it lands. |
+| `lire_document` | runs OCR on an attached scan/photo (Unlimited-OCR) and hands the extracted TEXT back to the model. |
+| `recherche_web` | turns a question into links (SearXNG), with the progress shown. |
+| `lire_pages` | reads the pages found — only URLs from the same search round, each re-checked public before the crawler sees them. |
+
 When the request is ambiguous, the model **asks first**: its clarifying
 questions come out as a clickable card (one question at a time, several answers
 allowed, free text per question), and the answers are sent back in one go. The

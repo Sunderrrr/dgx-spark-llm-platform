@@ -494,6 +494,55 @@ of `/ocr/launch`, `..` refused in absolute paths.
 
 ---
 
+### 3.5 Pen test of 2026-10-06 — three audits, two HIGH closed
+
+A full white-box + black-box pass in three parallel tracks: authentication,
+sessions and access control; injection and unsafe input handling; SSRF,
+network exposure, secrets and supply chain. **No critical finding.** The core
+was already solid — global CSRF with `hmac.compare_digest`, scrypt with a
+dummy-hash timing equalizer, revocable session ids, parameterized SQL
+everywhere, no Jinja, argv-only subprocess behind per-engine allowlists, and
+per-account SQL scoping on every id-bearing route (locked in by
+`tests/test_autorisation_croisee.py`).
+
+**Closed the same day (v0.2.0):**
+
+- **HIGH — ComfyUI was reachable by every container on the docker bridge,
+  without authentication.** The engine executes workflow graphs as the runner
+  user (who owns the HF token) and the relay installed that day exposed it to
+  `litellm` — internet-reachable — postgres and the agents. The firewall now
+  accepts 8188 from the portal only (verified: `litellm → 8188` refused), and
+  the relay unit is the repository one (`BindsTo`/`PartOf` the on-demand
+  sidecar, not enabled at boot).
+- **HIGH — the relay unit had drifted** from the repository copy and was
+  `enabled`, so every boot started ComfyUI (33 GB) and kept that surface open
+  24/7. Reinstalled, disabled.
+- `/internal/authcheck` (Traefik's forwardAuth) answers only to the proxy
+  network and loopback: the 200/503 difference was a key-validity oracle for
+  any peer sharing a network with the portal (the OCR sidecar runs third-party
+  model code on one).
+- The directory is now a DEMOTION CEILING for the admin role — an LDAP/SSO
+  demotion takes effect immediately instead of surviving up to 12 h in an open
+  session. It can take rights away, never grant them.
+- `_client_ip` takes the last `X-Forwarded-For` element (ours), not the
+  client-controlled first one.
+- The HTML preview sends `default-src 'none'` (a generated page could make the
+  viewer's browser fetch arbitrary URLs).
+- The math renderer no longer crashes on crafted markers (prompt-injectable,
+  persisted); the Markdown export escapes HTML; account purge no longer resets
+  other accounts' brute-force counters (`_` is a LIKE wildcard); the video
+  download no longer splices a ComfyUI-controlled filename into a header.
+- `npm audit`: 0 vulnerability.
+
+**Known, open:** the guards that keep a secret OUT of git are in place since the
+same day — `pre-commit` hook (message, staged diff, forbidden filenames, and any
+live `.env` value), the extended pre-push gate, and a CI `secrets` job. Two
+secrets still need ROTATION by the operator (the Authentik → LiteLLM OAuth
+client secret lived in a public commit message, and the SMTP mailbox identity
+is in the git history), plus infrastructure items: an IP allowlist on the
+Traefik routers for `/metrics`, the IPv6 counterpart of the DOCKER-USER
+allowlists, and `litellm` still running as root on the shared bridge.
+
 ## 4. Reporting a vulnerability
 
 This is a personal, self-hosted deployment; there is no bug-bounty programme.

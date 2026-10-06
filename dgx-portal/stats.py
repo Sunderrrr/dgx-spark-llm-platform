@@ -278,8 +278,8 @@ def prefill_dernier(max_age_s=120):
 # being monotone, a drop can only be a reset, and the work already done
 # stays owed.
 #
-# MEASUREMENT of 2026-09-14, not to be simplified into « c'est une
-# relance »: `tokens_predicted_total` went from 158 864 to 47 and
+# MEASUREMENT of 2026-09-14, not to be simplified into « it is a
+# relaunch »: `tokens_predicted_total` went from 158 864 to 47 and
 # `n_decode_total` from 132 694 to 271 **without the process changing**
 # (same pid, 7 h 56 of life, NRestarts=0), while `prompt_tokens_total`
 # stayed at 174 932. So it is not only a restart: a KV cache reset yields
@@ -384,7 +384,7 @@ def _en_vol():
 
     Never raises and guesses nothing: a display comfort, not a dependency.
     A missing or unreadable file gives {} — and the UI already knows how to
-    say « sessions occupees, identites pas encore journalisees ».
+    say « busy sessions, identities not yet logged ».
     """
     conn = None
     try:
@@ -406,8 +406,8 @@ def _en_vol():
                 age = 0.0
             if u not in out or age > out[u]:
                 # The OLDEST request of this account wins: it is the one
-                # carrying the useful information (« cette session tourne
-                # depuis 40 min »). Keeping the most recent would make a
+                # carrying the useful information (« this session has been
+                # running for 40 min »). Keeping the most recent would make a
                 # request stuck behind a two-second round-trip disappear.
                 out[u] = age
         return out
@@ -438,7 +438,7 @@ def _active_users(window_s=1800):
     # The panel must reflect REAL activity. Without this guard it kept names
     # displayed for the whole window while nothing ran anymore: the admin saw
     # « 0 / 8 sessions » yet two listed users. The engine is the only
-    # authority on « est-ce que quelque chose tourne ».
+    # authority on « whether something is running ».
     inflight = _inflight_snapshot()
     en_cours = 0
     try:

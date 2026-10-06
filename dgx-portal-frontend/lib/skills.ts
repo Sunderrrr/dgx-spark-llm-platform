@@ -102,11 +102,10 @@ export const BASE_SKILLS: Skill[] = [
     builtin: true,
   },
   {
-    // SKILL.md fourni par l'opérateur (2026-10-06), fondé sur
-    // Wikipedia:Signs of AI writing (WikiProject AI Cleanup) — un catalogue de
-    // tournures observées sur des milliers de textes IA, ici adapté au
-    // français. Aucun signe pris isolément ne prouve rien : ce sont des
-    // indices à combiner.
+    // SKILL.md provided by the operator (2026-10-06), based on
+    // Wikipedia:Signs of AI writing (WikiProject AI Cleanup) — a catalog of
+    // tells observed across thousands of AI texts, here adapted to French.
+    // No single sign proves anything on its own: they are clues to combine.
     id: "anti-ia-detection",
     name: "Anti-IA — détection et correction",
     alias: "anti-ia",

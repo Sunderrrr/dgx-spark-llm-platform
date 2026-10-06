@@ -215,7 +215,7 @@ def _dimensions_image(data, mime):
     """(width, height) read from the PNG/JPEG/WebP header, or None."""
     try:
         if mime == 'image/png':
-            # Signature puis chunk IHDR : largeur/hauteur en u32 big-endian.
+            # Signature then IHDR chunk: width/height as u32 big-endian.
             if data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR':
                 return None
             return struct.unpack('>II', data[16:24])

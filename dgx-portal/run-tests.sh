@@ -1,28 +1,28 @@
 #!/bin/sh
-# Lance la suite de tests dans un conteneur jetable construit depuis l'image du
-# portail : mêmes dépendances qu'en production, et une base SQLite neuve (aucun
-# volume de DONNÉES monté) — les tests ne touchent donc jamais aux données
-# réelles. Seule exception, en lecture seule : `asr/server.py`, le code du
-# sidecar de dictée (hors image du portail) — monté pour être testé, cf.
-# tests/test_asr_sidecar.py (2026-10-03, scan de couverture).
+# Runs the test suite in a throwaway container built from the portal image:
+# same dependencies as production, and a brand-new SQLite database (no DATA
+# volume mounted) — the tests therefore never touch the real data. Sole
+# exception, read-only: `asr/server.py`, the dictation sidecar code (outside
+# the portal image) — mounted to be tested, cf. tests/test_asr_sidecar.py
+# (2026-10-03, coverage scan).
 #
-#   ./dgx-portal/run-tests.sh            # tout
-#   ./dgx-portal/run-tests.sh test_app   # un seul module
+#   ./dgx-portal/run-tests.sh            # everything
+#   ./dgx-portal/run-tests.sh test_app   # a single module
 set -e
 cd "$(dirname "$0")/.."
-# Le nom de l'image construite dépend du nom du DOSSIER du clone
-# (`<projet>-dgx-portal`), et le `docker run` plus bas doit viser le même : sans
-# cet épinglage, la commande documentée dans le README (« git clone … puis
-# ./dgx-portal/run-tests.sh ») échoue partout ailleurs que dans un dossier nommé
-# « ai-platform », sur un « Unable to find image ». La CI épingle déjà ce nom
-# (.github/workflows/ci.yml), donc les deux suivent désormais la même règle.
+# The name of the built image depends on the clone FOLDER name
+# (`<projet>-dgx-portal`), and the `docker run` below must target the same:
+# without this pinning, the command documented in the README (« git clone …
+# puis ./dgx-portal/run-tests.sh ») fails anywhere but in a folder named
+# « ai-platform », with an « Unable to find image ». CI already pins this
+# name (.github/workflows/ci.yml), so both now follow the same rule.
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ai-platform}"
 docker compose build dgx-portal >/dev/null
-# Les arguments d'unittest se choisissent AVANT l'exec : `${1:+tests.$1}
-# ${1:-discover -s tests}` passait le module DEUX fois (« tests.test_app
-# test_app »), donc chaque exécution d'un seul module finissait sur
-# « FAILED (errors=1) » à cause d'un module introuvable — un faux échec au bout
-# d'une commande que la doc recommande.
+# The unittest arguments are chosen BEFORE the exec: `${1:+tests.$1}
+# ${1:-discover -s tests}` passed the module TWICE (« tests.test_app
+# test_app »), so every single-module run ended with
+# « FAILED (errors=1) » because of a missing module — a false failure at the
+# end of a command the docs recommend.
 if [ -n "${1:-}" ]; then
   set -- "tests.$1"
 else

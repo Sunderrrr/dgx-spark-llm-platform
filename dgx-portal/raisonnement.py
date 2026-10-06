@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Faut-il faire RÉFLÉCHIR le modèle pour cette demande ?
+"""Should the model be made to THINK about this request?
 
-Le raisonnement coûte des tokens et du temps : l'activer à chaque message est
-un gaspillage, le couper partout appauvrit les réponses difficiles. Décision
-donnée par le CONTENU de la demande (2026-10-03 : « active le en fonction de
-ce que les user demandent, pas tout le temps »).
+Reasoning costs tokens and time: enabling it on every message is a waste,
+cutting it everywhere impoverishes the hard answers. The decision comes
+from the CONTENT of the request (2026-10-03: « active le en fonction de ce
+que les user demandent, pas tout le temps »).
 
-Philosophie, assumée : **plutôt sous-déclencher**. Le thinking est cher ; un
-« pourquoi… » en vaut la peine, un « merci » non. Les marqueurs sont mesurés
-sur l'usage réel de la plateforme (questions d'infra, rédaction, code,
-calculs), pas un dictionnaire générique.
+Philosophy, deliberate: **rather under-trigger**. Thinking is expensive; a
+« pourquoi… » is worth it, a « merci » is not. The markers are measured on
+the real usage of the platform (infra questions, writing, code, math), not
+a generic dictionary.
 
-Module autonome (aucune dépendance Flask) : partagé entre le portail
-(chat_routes) et, le cas échéant, le proxy LiteLLM.
+Standalone module (no Flask dependency): shared between the portal
+(chat_routes) and, where applicable, the LiteLLM proxy.
 """
 
-# Un seul de ces mots rend la demande « digne de réflexion ».
+# A single one of these words makes the request « worth thinking about ».
 MARQUEURS = (
     # raisonnement explicite
     'pourquoi', 'comment faire', 'comment puis-je', 'explique', 'expliquer',
@@ -35,7 +35,7 @@ MARQUEURS = (
     'stratégie', 'plan', 'planifier', 'organise', 'étapes', 'procédure',
 )
 
-# Signes structurels : du code ou des maths dans la demande.
+# Structural signs: code or maths in the request.
 MARQUEURS_CODE = ('```', 'def ', 'class ', 'function ', 'SELECT ', 'INSERT ',
                   'import ', '=>', '->', 'docker ', 'systemctl')
 
@@ -43,13 +43,13 @@ MARQUEURS_CODE = ('```', 'def ', 'class ', 'function ', 'SELECT ', 'INSERT ',
 def raisonnablement_complexe(texte):
     """True when the request warrants paying for a reasoning pass.
 
-    `texte` = le dernier message utilisateur (déjà dépouillé des pièces
-    jointes). Règles, dans l'ordre :
-    1. invitation explicite à réfléchir → oui ;
-    2. code ou calcul présent → oui ;
-    3. un marqueur d'analyse dans la demande → oui ;
-    4. deux questions ou plus, ou un message long → oui ;
-    5. sinon → non (y compris les salutations, remerciements, « ok »).
+    `texte` = the last user message (attachments already stripped). Rules,
+    in order:
+    1. explicit invitation to think → yes;
+    2. code or computation present → yes;
+    3. an analysis marker in the request → yes;
+    4. two questions or more, or a long message → yes;
+    5. otherwise → no (including greetings, thanks, « ok »).
     """
     if not texte or not texte.strip():
         return False
@@ -67,7 +67,7 @@ def raisonnablement_complexe(texte):
     # 3. marqueur d'analyse
     if any(m in bas for m in MARQUEURS):
         return True
-    # 4. structure : plusieurs questions, ou demande longue
+    # 4. structure: several questions, or a long request
     if texte.count('?') >= 2:
         return True
     if len(texte) >= 500:

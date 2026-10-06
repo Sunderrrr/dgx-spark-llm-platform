@@ -132,11 +132,11 @@ test("parseAsk: options/questions caps and filtering", () => {
 });
 
 test("parseAsk: éparpillé après un bloc raté — les questions restent cliquables (2026-10-05)", () => {
-  // Contenu RÉELLEMENT vu sur la plateforme le 2026-10-05 : une enveloppe
-  // {"questions": []} vide refermée tout de suite, l'intro mêlée à des débris
-  // JSON, un objet à moitié écrit (« "Qu "options" », sans virgule), puis les
-  // vraies questions posées dans le texte. Avant : le parseur rendait les mains
-  // et le questionnaire sortait en texte nu.
+  // Content REALLY seen on the platform on 2026-10-05: an empty
+  // {"questions": []} envelope closed right away, the intro mixed with JSON
+  // debris, a half-written object (« "Qu "options" », no comma), then the
+  // real questions set in the text. Before: the parser threw up its hands
+  // and the questionnaire came out as raw text.
   const r = parseAsk(
     '{"questions": []}```\n'
     + 'Bien sûr ! Quelques Quel même Bien sûr ! quelques ["Firewall nftables", "SSH", "Pare-feu", "UE", "Deux SSH", "  - "Firewall nftables", " " {"question": "Qu "options": ["Phare", "SSH"],\n'
@@ -149,8 +149,8 @@ test("parseAsk: éparpillé après un bloc raté — les questions restent cliqu
   assert.equal(r.questions.length, 5);
   assert.equal(r.questions[0].question, "Quel rôle Ansible veux-tu ?");
   assert.equal(r.questions[4].question, "Quel niveau de confirmation interactive ?");
-  // L'objet cassé n'est pas une question, et aucun débris JSON ne reste
-  // dans la prose (le modèle avait mêlé son intro à ses questions).
+  // The broken object is not a question, and no JSON debris remains in the
+  // prose (the model had mixed its intro with its questions).
   assert.ok(!r.questions.some((q) => q.question === "Qu"));
   assert.ok(!/[{[]/.test(r.prose), `débris JSON dans la prose : ${r.prose}`);
 });
@@ -174,22 +174,22 @@ test("parseAsk: un vrai fichier qui contient des objets de question n'est pas ma
 });
 
 test("reponseIncomplete: un questionnaire n'est JAMAIS un fichier à reprendre (2026-10-05)", () => {
-  // Le mécanisme de reprise automatique (« reprends au caractère suivant »)
-  // voyait un fichier « texte » non refermé derrière le marqueur « ``` »
-  // orphelin d'un bloc ask raté : il relançait le modèle, qui RÉÉCRIVAIT son
-  // questionnaire — les deux tentatives s'entremêlaient et les questions
-  // sortaient en texte nu. C'est la cause de « les questions ne marchent plus ».
+  // The automatic resume mechanism (« reprends au caractère suivant ») saw an
+  // unclosed « text » file behind the orphan « ``` » marker of a failed ask
+  // block: it relaunched the model, which REWROTE its questionnaire — the
+  // two attempts tangled and the questions came out as raw text. This is
+  // the cause of « les questions ne marchent plus ».
   const casse = '{"questions": []}```\nBien sûr ! quelques ["Firewall", "SSH"] {"question": "Q1", "options": ["A", "B"]}';
   assert.equal(contientQuestions(casse), true);
   assert.equal(reponseIncomplete(casse), false, "un questionnaire ne doit PAS déclencher de reprise");
-  // Un bloc ask propre non plus.
+  // A clean ask block does not count either.
   assert.equal(reponseIncomplete('```ask\n{"questions": [{"question": "Q1", "options": ["A"]}]'), false);
 });
 
 test("reponseIncomplete: un vrai fichier tronqué reste repris", () => {
   assert.equal(reponseIncomplete("```python\ndef carre(n):\n    return n *"), true);
   assert.equal(reponseIncomplete("```html\n<!DOCTYPE html><html><body>ok"), true);
-  // …et un HTML fini, même sans clôture de bloc, ne l'est pas.
+  // …and a finished HTML file, even without a closing block fence, is not.
   assert.equal(reponseIncomplete("```html\n<!DOCTYPE html><html><body>ok</body></html>"), false);
   assert.equal(contientQuestions("```python\nq = {\"question\": \"x\", \"options\": [\"a\"]}\n```"), false);
 });

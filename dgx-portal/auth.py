@@ -89,11 +89,11 @@ def etat_compte(username):
 
     `is_admin` is **None** when the portal has no authoritative source on
     the role: the caller then keeps the one carried by the session. We
-    never infer a demotion from missing data — inventing a « pas admin »
+    never infer a demotion from missing data — inventing a « not admin »
     from a missing row would break a legitimate administrator.
 
     `raison` ('bloque', 'desactive') serves the audit log and the admin
-    diagnosis — never the HTTP answer: telling « ce compte est bloqué » to
+    diagnosis — never the HTTP answer: telling « this account is blocked » to
     whoever presents the right password is still information not to give
     to a third party testing credentials.
     """
@@ -610,7 +610,7 @@ def completer_origine_session():
     """Fills in the IP and user-agent of the CURRENT session when missing.
 
     Sessions opened before these columns were added (2026-09-13) have
-    none: the person saw a dash instead of « ce navigateur, cette IP »,
+    none: the person saw a dash instead of « this browser, this IP »,
     that is exactly the information that lets one spot a session they do
     not recognize. We fill in ONLY the row whose sid is the one of the
     calling cookie — thus their own — and only when the value is absent:

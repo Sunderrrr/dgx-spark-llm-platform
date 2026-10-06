@@ -253,8 +253,8 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
     `incertain` distinguishes a REFUSAL (the runner answered no: nothing
     starts, `motif` carries its exact reason) from a TIMEOUT (no answer in
     the allotted time, while the loading may well be under way).
-    The caller must NOT alert the infra on a doubt: a fake « echec de
-    lancement » gets the administrator used to ignoring alerts and invites
+    The caller must NOT alert the infra on a doubt: a fake « launch
+    failure » gets the administrator used to ignoring alerts and invites
     him to click again — which kills a model being loaded.
 
     Long timeout: when a model is already running, the runner waits for the
@@ -839,7 +839,7 @@ def asr_memoire_ok():
 # cache (5 s) keeps reading « stopped » while the container starts: without
 # this, ONE dictation session issued up to ~20 `docker start` (4 workers x up
 # to 5 cached polls) and as many audit lines — recycling the 500-row audit log
-# that exists to answer « qui a fait quoi ». A SUCCESSFUL start therefore
+# that exists to answer « who did what ». A SUCCESSFUL start therefore
 # silences the next attempts for _ASR_REDARRAGE_S; a FAILED one is retried on
 # the next poll (the throttle only follows a success).
 _ASR_REDARRAGE_S = 60

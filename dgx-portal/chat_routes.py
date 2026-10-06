@@ -275,12 +275,12 @@ def support_chat():
                 except Exception:
                     continue
                 delta = choice.get('delta') or {}
-                # La pensée du modèle (champ renommé `reasoning_content` par
-                # LiteLLM) est relaïée TELLE QUELLE : elle était produite — donc
-                # facturée — puis jetée. Elle s'affiche dans le même bloc
-                # dépliable qu'au playground. Les balises de pensée COULÉES dans
-                # le contenu, elles, restent masquées plus bas : ce sont du texte
-                # parasite, pas un raisonnement structuré.
+                # The model's thought (field renamed `reasoning_content` by
+                # LiteLLM) is relayed AS-IS: it was produced — and billed —
+                # then thrown away. It shows up in the same collapsible block
+                # as in the playground. The thought tags CAST INTO the content,
+                # on the other hand, stay hidden below: they are stray text,
+                # not structured reasoning.
                 rchunk = delta.get('reasoning_content')
                 if rchunk:
                     if _raison_debut[0] is None:

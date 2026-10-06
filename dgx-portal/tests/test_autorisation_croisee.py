@@ -9,7 +9,7 @@ job, opened session, API key.
 Each route below is called by B with A's identifier, and the test requires
 TWO things at once:
 
-  1. the route does not answer « c'est fait » (no 2xx success);
+  1. the route does not answer « it's done » (no 2xx success);
   2. A's data is INTACT after the call.
 
 The second point is the real safety net: a route can answer 404 after
@@ -196,7 +196,7 @@ class AutorisationCroiseeTest(unittest.TestCase):
         self.assertEqual(r.get_json(), {"ok": True, "deleted": 1})
 
     def test_action_inconnue_refusee(self):
-        """An unrecognized action must not answer « c'est fait »."""
+        """An unrecognized action must not answer « it's done »."""
         r = self.client_b.post("/conversations", data={"action": "zz-inconnue"},
                                headers={"X-CSRFToken": self.CSRF})
         self.assertEqual(r.status_code, 400, r.get_data(as_text=True)[:200])

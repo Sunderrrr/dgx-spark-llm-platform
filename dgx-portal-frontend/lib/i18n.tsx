@@ -1783,7 +1783,7 @@ export function useLang() {
   return useContext(I18nContext);
 }
 
-/** t("texte français") — identity in FR, translation in EN. */
+/** t("French text") — identity in FR, translation in EN. */
 export function useT() {
   const { lang } = useContext(I18nContext);
   return useCallback((fr: string) => (lang === "en" ? EN[fr] ?? fr : fr), [lang]);

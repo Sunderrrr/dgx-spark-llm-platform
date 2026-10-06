@@ -1,22 +1,22 @@
 # -*- coding: utf-8 -*-
-"""asr/server.py — la politique de chargement du modèle de dictée.
+"""asr/server.py — the dictation model's loading policy.
 
-C'est ICI que vit toute l'histoire de reprise de la dictée (2026-10-03) : le
-sidecar charge ses poids au démarrage ET retente à la demande
-(`_charger_si_besoin`) — avant, un seul échec CUDA laissait `_pipe` à None
-pour toujours et « relance la dictée » était impossible par construction.
+THIS is where the whole dictation-recovery story lives (2026-10-03): the
+sidecar loads its weights at startup AND retries on demand
+(`_charger_si_besoin`) — before, a single CUDA failure left `_pipe` at None
+forever and « relance la dictée » was impossible by construction.
 
-Le fichier vit HORS de l'image du portail : run-tests.sh le monte en lecture
-seule sous `tests.asr_sidecar`. FastAPI/torch/transformers sont épinglés avant
-l'import — ce qui est testé, c'est la POLTIQUE (reprise, single-flight,
-throttle), pas une runtime CUDA.
+The file lives OUTSIDE the portal image: run-tests.sh mounts it read-only
+as `tests.asr_sidecar`. FastAPI/torch/transformers are pinned before the
+import — what is tested is the POLICY (recovery, single-flight,
+throttle), not a CUDA runtime.
 
-États verrouillés par ces tests :
-- un échec de chargement n'est PAS définitif : la tentative suivante le reprend ;
-- throttle : au plus une tentative par fenêtre (`_RETRY_S`) — le dictaphone
-  interroge toutes les secondes ;
-- single-flight : deux appelants concurrents ne font qu'UNE tentative ;
-- une fois chargé, plus aucune tentative n'est émise.
+States locked in by these tests:
+- a load failure is NOT final: the next attempt picks it up;
+- throttle: at most one attempt per window (`_RETRY_S`) — the dictaphone
+  polls every second;
+- single-flight: two concurrent callers make ONE attempt only;
+- once loaded, no further attempt is ever made.
 """
 import importlib
 import sys
@@ -47,7 +47,7 @@ class _FastAPIStub:
 
 
 def _charge_module(pipeline):
-    """(Re)charge `tests.asr_sidecar` avec des dépendances simulées."""
+    """(Re)loads `tests.asr_sidecar` with stubbed dependencies."""
     for nom in ('fastapi', 'fastapi.responses', 'starlette', 'starlette.concurrency',
                 'torch', 'numpy', 'soundfile', 'transformers'):
         sys.modules.pop(nom, None)
@@ -67,7 +67,7 @@ def _charge_module(pipeline):
 
 
 class ChargementRetentableTest(unittest.TestCase):
-    """La politique `_charger_si_besoin` du sidecar de dictée."""
+    """The `_charger_si_besoin` policy of the dictation sidecar."""
 
     def _module(self, pipeline):
         mod = _charge_module(pipeline)
@@ -77,8 +77,8 @@ class ChargementRetentableTest(unittest.TestCase):
         return mod
 
     def test_un_echec_de_chargement_n_est_pas_definitif(self):
-        """Le défaut du 2026-10-03 : un seul CUDA OOM et la dictée morte à
-        jamais. Ici, la tentative suivante (fenêtre écoulée) REPREND."""
+        """The 2026-10-03 defect: a single CUDA OOM and the dictation dead
+        forever. Here the next attempt (window elapsed) RESUMES."""
         appels = []
         def pipeline(*a, **k):
             appels.append(1)
@@ -94,8 +94,8 @@ class ChargementRetentableTest(unittest.TestCase):
         self.assertIsNone(mod._load_error)                  # l'erreur s'efface
 
     def test_le_throttle_borne_les_tentatives(self):
-        """Le dictaphone interroge toutes les secondes : sans throttle, chaque
-        poll relancerait une allocation CUDA qui échoue."""
+        """The dictaphone polls every second: without a throttle, each
+        poll would retry a failing CUDA allocation."""
         appels = []
         def pipeline(*a, **k):
             appels.append(1)
@@ -107,8 +107,8 @@ class ChargementRetentableTest(unittest.TestCase):
         self.assertEqual(len(appels), 1)                    # une seule tentative
 
     def test_single_flight_deux_appelants_une_tentative(self):
-        """Deux polls concurrents (le dictaphone + la sonde) ne font qu'UNE
-        tentative de chargement, pas deux sur le même GPU."""
+        """Two concurrent polls (the dictaphone + the probe) make ONE
+        load attempt, not two on the same GPU."""
         appels = []
         verrou_appels = threading.Lock()
         def pipeline(*a, **k):

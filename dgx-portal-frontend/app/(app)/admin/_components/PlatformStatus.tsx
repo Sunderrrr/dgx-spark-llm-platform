@@ -10,7 +10,7 @@ import { useT, useLocale } from "@/lib/i18n";
 
 /** Response of GET /admin/platform (admin-only, implemented portal-side).
  * All keys are always present; an unknown value is null — the display
- * must NEVER turn a missing one into « tout va bien ». */
+ * must NEVER turn a missing one into « all is well ». */
 export type PlatformStatusData = {
   disk: { free_gb: number | null; total_gb: number | null; used_pct: number | null };
   backup: { latest: string | null; age_hours: number | null; fresh: boolean | null; count: number | null; readable: boolean };

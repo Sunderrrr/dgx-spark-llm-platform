@@ -241,7 +241,7 @@ class WebAuthnTestCase(unittest.TestCase):
         r = c.post("/api/security/remove", json={"credential_id": cred_id},
                    headers={"X-CSRFToken": "tok"})
         self.assertEqual(r.status_code, 400)
-        # Mauvais mot de passe → 401.
+        # Wrong password → 401.
         r = c.post("/api/security/remove", json={"credential_id": cred_id, "password": "bad"},
                    headers={"X-CSRFToken": "tok"})
         # 400: the session is valid, the confirmation is not. A 401 would make

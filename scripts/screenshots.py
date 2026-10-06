@@ -332,7 +332,7 @@ def _ocr(path):
 
 
 def _forbidden_re():
-    """« données personnelles » patterns: structural ones always active (email
+    """« personal data » patterns: structural ones always active (email
     address, key `sk-…`, access-refusal text), plus the proper names listed in
     the file pointed at by SHOTS_FORBIDDEN_FILE (one pattern per line, `#` for
     comments). Missing variable or unreadable file → structural ones only."""

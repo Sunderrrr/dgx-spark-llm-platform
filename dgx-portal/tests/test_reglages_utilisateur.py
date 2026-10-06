@@ -314,8 +314,8 @@ class AvatarTest(_BaseReglages):
     def test_avatar_genere_remet_a_null(self):
         """The « avatar généré » choice (empty value) must be able to go back.
 
-        It is `NULL` that means « aucun logo choisi, donc avatar créé à
-        partir du pseudo »: without this way back, an account that had taken
+        It is `NULL` that means « no logo chosen, so an avatar created from
+        the nickname »: without this way back, an account that had taken
         a brand logo could never return to the default avatar — and the
         empty value was not even accepted (400).
         """
@@ -584,8 +584,8 @@ class SuppressionCompteTest(_BaseReglages):
         with patch("auth.ldap_authenticate", return_value=(False, None, None)):
             r = self._json_post(c, "/api/account/delete",
                                 {"confirm": "DELETE", "password": "faux"})
-        # 400: the portal answers « la confirmation est fausse », not « tu n'es
-        # pas authentifié » — a 401 would log the user out.
+        # 400: the portal answers « the confirmation is wrong », not « you are
+        # not authenticated » — a 401 would log the user out.
         self.assertEqual(r.status_code, 400)
         with self._db():
             self.assertIsNotNone(portal.get_db().execute(
@@ -661,8 +661,8 @@ class SuppressionCompteTest(_BaseReglages):
 
         The portal KNOWS how to check an LDAP password
         (`_verify_password_locked` queries the directory): the original
-        justification (« un compte d'annuaire n'a aucun mot de passe que le
-        portail puisse vérifier ») only held for SSO. Deletion takes away
+        justification (« a directory account has no password the portal can
+        check ») only held for SSO. Deletion takes away
         API keys and the LiteLLM envelope: it demands the same proof as for
         a local one. Here the directory is unreachable → nothing is purged.
         """

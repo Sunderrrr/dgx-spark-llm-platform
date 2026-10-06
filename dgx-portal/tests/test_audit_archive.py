@@ -1,8 +1,8 @@
 """`log_audit` archives what it evicts (2026-10-02).
 
 The live `audit_log` table is bounded to its last 5000 rows — but the eviction
-used to be a plain DELETE, so the entries one asks for months later (« qui a
-augmenté le quota de qui ») were gone. The trace of admin actions now lands in
+used to be a plain DELETE, so the entries one asks for months later (« who
+raised whose quota ») were gone. The trace of admin actions now lands in
 `audit_log_archive` (same schema), which rides along the SQLite backups.
 """
 import os

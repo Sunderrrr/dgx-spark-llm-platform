@@ -137,7 +137,7 @@ class ActiviteEnVol(CustomLogger):
                           start_time=None, end_time=None):
         self._sur(_retire, kwargs)
 
-    # ── Variantes asynchrones (autres versions / autres chemins) ───────────
+    # ── Asynchronous variants (other versions / other paths) ───────────────
     async def async_log_pre_api_call(self, model, messages, kwargs):
         await self._hors_boucle(_enregistre, kwargs)
 

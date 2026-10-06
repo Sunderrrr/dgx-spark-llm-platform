@@ -278,7 +278,7 @@ export default function AdminPage() {
   // (200 ok, 400 refusal, 404 not found, 409 to confirm, 503 upstream,
   // 507 memory). So we declare victory ONLY on a 2xx carrying a JSON
   // that does not say ok:false; a non-JSON body, a 4xx/5xx or ok:false are
-  // failures. Previously, the catch treated « JSON illisible » as a
+  // failures. Previously, the catch treated « unreadable JSON » as a
   // success: a refused stop was displayed as done. The server sentences
   // (error/message/warning) are free French, not i18n keys — they are
   // displayed as-is.

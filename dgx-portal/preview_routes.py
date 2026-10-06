@@ -31,7 +31,7 @@ def _preview_purge(username):
     The cap used to be global: the 200 most recent previews, all accounts
     mixed. An account chaining generations — exactly what a working session
     on the playground does — therefore evicted the OTHERS' previews, whose
-    iframe started answering 404 (« aperçu introuvable ») in the middle of a
+    iframe started answering 404 (« preview not found ») in the middle of a
     conversation. The per-account cap can now only evict its own previews;
     the global cap remains a size bound for the database (one page can weigh
     400 ko).

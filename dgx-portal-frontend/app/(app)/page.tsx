@@ -13,14 +13,11 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Badge } from "@astryxdesign/core/Badge";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
-import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Table } from "@astryxdesign/core/Table";
 import type { TableColumn } from "@astryxdesign/core/Table";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
 import {
   KeyIcon,
   MagnifyingGlassIcon,
-  MoonIcon,
   CpuChipIcon,
   CircleStackIcon,
   BoltIcon,
@@ -29,7 +26,6 @@ import {
   SpeakerWaveIcon,
   PhotoIcon,
   MusicalNoteIcon,
-  ExclamationTriangleIcon,
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
 import { authFetch, getJSON } from "@/lib/api";
@@ -68,7 +64,7 @@ type ModelHealth = {
   tokens_prompt?: number | null;
   tps_prefill?: number | null;
   // In-flight activity seen by the ENGINE (llama.cpp /slots). Absent for vLLM,
-  // which does not expose /slots: the absence must not read as « personne ne travaille ».
+  // which does not expose /slots: the absence must not read as « nobody is working ».
   slots?: {
     busy: number;
     total: number;
@@ -158,14 +154,6 @@ function sidecarLines(
 }
 
 // What each capability does, in one line (shown on each model card).
-const KIND_DESC: Record<RunningModel["kind"], string> = {
-  chat: "Chat & complétions — API OpenAI-compatible",
-  image: "Génération d'images (texte → image)",
-  music: "Génération musicale (texte → chanson)",
-  video: "Génération de vidéos courtes (texte ou image → vidéo)",
-  ocr: "Extraction de texte et de tableaux depuis images et PDF",
-  voice: "Clonage de voix zéro-shot à partir d'un court échantillon",
-};
 // Destination + label of the « Ouvrir » button on the media service cards.
 // Each capability goes to ITS own page (the « vidéo » fallback was the bug:
 // image and music landed on /video).
@@ -239,11 +227,10 @@ export default function HomePage() {
   const csrf = useCsrf();
   const [data, setData] = useState<HomeData | null>(null);
   // Session in progress seen by the engine (refreshed every second with the
-  // rest of modelhealth): used to tell « rien ne tourne » from « ça tourne mais
-  // aucune identité n'est encore journalisée ».
+  // rest of modelhealth): used to tell « nothing is running » from « it is
+  // running but no identity is logged yet ».
   const slots = data?.modelhealth?.slots ?? null;
   const [loadError, setLoadError] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [recentConvs, setRecentConvs] = useState<Conversation[]>([]);
   const { who } = useWhoami();
 
@@ -266,7 +253,6 @@ export default function HomePage() {
       .then((d) => {
         setData(d);
         setLoadError(false);
-        setLastUpdated(Date.now());
       })
       .catch(() => setLoadError(true));
   }, []);
@@ -352,6 +338,14 @@ export default function HomePage() {
               </HStack>
             </HStack>
 
+            {data === null && loadError ? (
+              <Card>
+                <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
+                  <Text weight="semibold">{t("Impossible de charger le tableau de bord")}</Text>
+                  <Button label={t("Réessayer")} variant="secondary" size="sm" onClick={load} />
+                </HStack>
+              </Card>
+            ) : null}
             {data ? (
               <VStack gap={2}>
                 <Text weight="semibold">{t("Disponibilité par capacité")}</Text>
@@ -370,6 +364,15 @@ export default function HomePage() {
                             <Icon icon={c.icon} size="sm" />
                             <Text weight="semibold" size="sm">{t(c.label)}</Text>
                           </HStack>
+                          {/* The MODEL name, only when it is up: a card that
+                              named a stopped service read as « it works ».
+                              Name above, state below — the whole story in one
+                              glance, and no second block to hunt for it. */}
+                          {on ? (
+                            <Text type="supporting" color="secondary" wordBreak="break-all">
+                              {data.running_models.find((m) => m.kind === c.kind)?.name}
+                            </Text>
+                          ) : null}
                           <Badge label={on ? t("En ligne") : t("à la demande")} variant={on ? "success" : "neutral"} />
                         </VStack>
                       </ClickableCard>
@@ -378,102 +381,6 @@ export default function HomePage() {
                 </Grid>
               </VStack>
             ) : null}
-
-            <VStack gap={2}>
-              <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
-                <Text weight="semibold">{t("Modèles disponibles maintenant")}</Text>
-                {lastUpdated ? (
-                  <Text type="supporting" color="secondary">
-                    {t("Mis à jour")} · {new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                  </Text>
-                ) : null}
-              </HStack>
-              {data === null ? (
-                loadError ? (
-                  <Card>
-                    <VStack gap={2}>
-                      <HStack gap={2} vAlign="center">
-                        <Icon icon={ExclamationTriangleIcon} size="sm" />
-                        <Text weight="semibold">{t("Impossible de charger le tableau de bord")}</Text>
-                      </HStack>
-                      <Text type="supporting" color="secondary">
-                        {t("Le serveur n'a pas répondu. Réessaie dans un instant.")}
-                      </Text>
-                      <HStack>
-                        <Button label={t("Réessayer")} variant="secondary" size="sm" onClick={load} />
-                      </HStack>
-                    </VStack>
-                  </Card>
-                ) : (
-                  <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
-                    {[0, 1, 2].map((i) => (
-                      <Card key={i}>
-                        <VStack gap={2}>
-                          <Skeleton height={16} width={140} />
-                          <Skeleton height={14} width={200} />
-                        </VStack>
-                      </Card>
-                    ))}
-                  </Grid>
-                )
-              ) : data.running_models.length === 0 ? (
-                <EmptyState
-                  icon={<Icon icon={MoonIcon} size="lg" />}
-                  title={t("Aucun modèle actif")}
-                  description={t("Demande le lancement d'un modèle.")}
-                  actions={<Button label={t("Demander un modèle")} variant="secondary" href="/request" />}
-                  isCompact
-                />
-              ) : (
-                <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
-                  {data.running_models.map((m) => (
-                    <Card key={m.name}>
-                      <VStack gap={2} height="100%">
-                        <HStack hAlign="between" vAlign="center">
-                          <Badge label={t("En ligne")} variant="success" />
-                          {m.kind === "ocr" && <Icon icon={DocumentMagnifyingGlassIcon} size="sm" />}
-                          {m.kind === "video" && <Icon icon={FilmIcon} size="sm" />}
-                          {m.kind === "voice" && <Icon icon={SpeakerWaveIcon} size="sm" />}
-                          {m.kind === "image" && <Icon icon={PhotoIcon} size="sm" />}
-                          {m.kind === "music" && <Icon icon={MusicalNoteIcon} size="sm" />}
-                        </HStack>
-                        <Text weight="semibold" wordBreak="break-all">
-                          {m.name}
-                        </Text>
-                        <Text type="supporting" color="secondary">{t(KIND_DESC[m.kind])}</Text>
-                        {m.exposed ? (
-                          <>
-                            <Text type="supporting" color="secondary">
-                              {t("API :")} {data.public_api_url}
-                            </Text>
-                            {data.auto_model && (
-                              <Text type="supporting" color="secondary">
-                                {t("Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.").replace("{model}", data.auto_model)}
-                              </Text>
-                            )}
-                            {/* « Créer une clé API » removed: already at the top
-                                right of the page. */}
-                          </>
-                        ) : (
-                          <>
-                            <Text type="supporting" color="secondary">
-                              {t("Disponible depuis l'application, non exposé par l'API.")}
-                            </Text>
-                            <StackItem size="fill" />
-                            <Button
-                              label={t(KIND_OPEN[m.kind].label)}
-                              variant="secondary"
-                              size="sm"
-                              href={KIND_OPEN[m.kind].href}
-                            />
-                          </>
-                        )}
-                      </VStack>
-                    </Card>
-                  ))}
-                </Grid>
-              )}
-            </VStack>
 
             {recentConvs.length > 0 && (
               <VStack gap={2}>
@@ -692,8 +599,8 @@ export default function HomePage() {
                               <Badge
                                 key={u.username}
                                 variant={u.live ? "success" : "neutral"}
-                                // The age is what distinguishes « il génère là » from « il a
-                                // fini il y a une heure »: a flag alone does not say it,
+                                // The age is what distinguishes « he is generating right now »
+                                // from « he finished an hour ago »: a flag alone does not say it,
                                 // and over 30 minutes the difference is huge.
                                 label={[
                                   u.username,

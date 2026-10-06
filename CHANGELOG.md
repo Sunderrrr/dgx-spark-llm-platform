@@ -19,6 +19,24 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Changed
+
+- **The home page shows the capability view only** (« enleve ça… et mets juste
+  le modèle si il est actif »). The « Modèles disponibles maintenant » block is
+  gone entirely; each capability card now carries THE MODEL NAME when that
+  capability is up — `Chat · qwen38-27b · En ligne`, `Musique · à la demande`.
+  A card naming a stopped service read as « it works »; name above, state below
+  tells the whole story in one glance. A minimal error card keeps a failed
+  load visible (it used to be inside the removed block).
+- **Every code comment is in English** (« passe tous les commentaires en
+  anglais »): 166 comments across 59 files, ~401 lines — Python docstrings, TS
+  doc comments, shell comments, from `dgx-portal/` to `scripts/`. Comments
+  only: the diff was verified to move no literal string, msgid, identifier or
+  path (the UI stays French-first by design, English lives in `lib/i18n.tsx`).
+  The French that remains is quoted VERBATIM text produced by the system or
+  said by a user (UI labels, server messages, model outputs) — 157 lines, all
+  inside quotation marks.
+
 ## [0.2.0] - 2026-10-06
 
 A full penetration test of the platform (three parallel audits: auth and

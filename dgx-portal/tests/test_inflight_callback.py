@@ -65,7 +65,7 @@ class ActiviteEnVolTest(unittest.TestCase):
         self.assertEqual([l[0] for l in self._lignes()], ['c2'])
 
     def test_une_ligne_perimee_est_balayee(self):
-        """Un client tue en plein vol ne declenche ni succes ni echec."""
+        """A client killed mid-flight triggers neither success nor failure."""
         self.mod._enregistre(_kwargs('vieux'))
         conn = sqlite3.connect(self.chemin)
         conn.execute('UPDATE en_vol SET debut=?', (time.time() - 99999,))

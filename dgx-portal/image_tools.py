@@ -154,8 +154,8 @@ def _exec_image_tool(args, username, journal):
             v = 0
         return max(0, min(3840, v))
 
-    # La 4K se fait par AGRANDISSEMENT, comme sur la page image : la génération
-    # reste dans 256–1536 et c'est la sortie qui va jusqu'à 3840.
+    # 4K is done by UPSCALING, like on the image page: the generation stays
+    # within 256–1536 and it is the output that goes up to 3840.
     sortie_largeur, sortie_hauteur = _dim_sortie('sortie_largeur'), _dim_sortie('sortie_hauteur')
     try:
         nombre = int(args.get('nombre') or 1)

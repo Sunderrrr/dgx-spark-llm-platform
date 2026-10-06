@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""`raisonnement.py` — faut-il faire réfléchir le modèle ?
+"""`raisonnement.py` — should the model be made to think about it?
 
 « Active le en fonction de ce que les user demandent, pas tout le temps »
-(2026-10-03). Le raisonnement coûte des tokens et de la latence : ces tests
-verrouillent les DEUX directions — les demandes qui le méritent le déclenchent,
-le bavardage courant ne le déclenche PAS (plutôt sous-déclencher, assumé).
+(2026-10-03). Reasoning costs tokens and latency: these tests lock in BOTH
+directions — the requests that deserve it trigger it, everyday chit-chat
+does NOT trigger it (rather under-trigger, deliberate).
 """
 import unittest
 
@@ -51,7 +51,7 @@ class RaisonnementAutoTest(unittest.TestCase):
         self.assertTrue(raisonnablement_complexe("C'est où ? Et depuis quand ?"))
 
     def test_le_texte_des_pieces_jointes_est_ignore(self):
-        """Ce qui compte, c'est la DEMANDE — pas le fichier joint."""
+        """What counts is the REQUEST — not the attached file."""
         self.assertTrue(raisonnablement_complexe("Analyse ce fichier"))
         self.assertFalse(raisonnablement_complexe("Voilà le fichier demandé."))
 

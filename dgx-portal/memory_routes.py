@@ -345,7 +345,7 @@ def _mem_tools():
 def _exec_memory_tool(name, args, username):
     """Runs a memory tool FOR THE LOGGED-IN USER only.
 
-    The model never chooses « pour qui »: `username` comes from the
+    The model never chooses « for whom »: `username` comes from the
     session, never from the arguments. Nothing is written if memory is off.
     """
     if not _mem_enabled(username):

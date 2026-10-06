@@ -77,11 +77,11 @@ _vllm_health_cache = {'t': 0.0, 'v': None}
 # DURING a request — LiteLLM only writes its row at the end (measured on
 # 2026-09-14: 44 minutes without a single row while two sessions worked),
 # and the engine does not know the client's identity. We thus display what
-# it really knows rather than « personne n'utilise le modele ».
+# it really knows rather than « nobody is using the model ».
 _SLOTS_URL = VLLM_API.rsplit('/v1', 1)[0] + '/slots'
 # llama.cpp does not say SINCE WHEN a task runs, only its identifier: we
-# record the instant each identifier appeared. That gives « cette session
-# travaille depuis 12 min » and lets one tell a stuck request from a merely
+# record the instant each identifier appeared. That gives « this session
+# has been working for 12 min » and lets one tell a stuck request from a merely
 # slow machine.
 _slots_taches = {}
 
@@ -91,7 +91,7 @@ def _slots_activite():
 
     Returns None when the engine publishes no /slots (vLLM) or does not
     answer: the UI then shows nothing rather than a zero that would mean
-    « personne », while it actually means « je ne sais pas ».
+    « nobody », while it actually means « I do not know ».
     """
     try:
         slots = requests.get(_SLOTS_URL, timeout=4).json()
@@ -348,7 +348,7 @@ def _vllm_health_uncached():
         'tokens_prompt': compteurs['entree'],
         'tps_prefill': compteurs['tps_prefill'],
         # In-flight activity, session by session (see _slots_activite): this is
-        # what allows saying « 2 sessions travaillent depuis 12 min » when no
+        # what allows saying « 2 sessions have been working for 12 min » when no
         # identity is logged yet.
         # vLLM publishes no /slots: the counters say HOW MANY sessions work and
         # how many the engine accepts — « je ne vois pas le nombre de session
@@ -372,7 +372,7 @@ def _compteurs_llamacpp(text, modele, generes):
       RATIO is thus a real decode average since startup (158 729 / 11 921,9
       = 13,3 tok/s on this server), stable where the instantaneous
       throughput jumps from 0 to 1,3 then falls back — this is what was
-      missing to answer « les tokens par seconde décodés »;
+      missing to answer « the decoded tokens per second »;
     - `prompt_tokens_total` + the `prompt_tokens_seconds` gauge: the INPUT
       work. This explains the « 0 tok/s » screen while the GPU works:
       measured on 2026-09-14, 4 requests in flight, `n_decode_total`
@@ -472,10 +472,10 @@ def effective_ctx(args, engine='vllm'):
     SINCE llama.cpp 0.5.0 (`--kv-unified-per-slot N`) the per-session window
     is DECLARED, and it is then authoritative: the engine caps the slot at N
     and sizes the pool at n_parallel x N. Neither the division nor the
-    « unifie » rule above applies then. Measured on 2026-09-25 on
+    « unified » rule above applies then. Measured on 2026-09-25 on
     Flash-Next: `--ctx-size 1048576 --parallel 4 --kv-unified
     --kv-unified-per-slot 262144` serves 262144 per session (announced on
-    /props), where the « unifie » rule would have announced 1048576 — five
+    /props), where the « unified » rule would have announced 1048576 — five
     times the real prompt limit, discovered only at failure.
     """
     if engine == 'llamacpp':
@@ -565,8 +565,8 @@ class HfIndisponible(Exception):
     """Hugging Face did not answer with anything usable.
 
     Distinct from a search with no result: the portal must be able to say
-    so. Before, every exception was swallowed and returned `[]`, so « HF est
-    injoignable » displayed as « aucun modèle ne correspond » — the user
+    so. Before, every exception was swallowed and returned `[]`, so « HF is
+    unreachable » displayed as « no model matches » — the user
     concluded their model does not exist."""
 
 
@@ -574,8 +574,8 @@ def _hf_page(params, timeout=8):
     """One HF call → (data, is there a next page). RAISES instead of returning empty.
 
     `has_more` comes from HF's `Link` header (`rel="next"`), which is
-    authoritative. On the UI side, the old heuristic (« la page est pleine
-    donc il y en a d'autres ») showed a « Charger plus » button that could
+    authoritative. On the UI side, the old heuristic (« the page is full so
+    there must be others ») showed a « Charger plus » button that could
     give nothing, and above all hid one when the last page was full.
     """
     try:
@@ -621,7 +621,7 @@ def search_hf_models_page(query, task=None, gb10_only=False, skip=0):
 
     Sorting stays by decreasing downloads: without a query, the page thus
     shows the most used models of Hugging Face (or of the chosen task),
-    which is the most honest way to « explorer le catalogue ».
+    which is the most honest way to « explore the catalog ».
 
     `full=true` adds `gated` (measured: +85 Kio, same response time). This
     field is worth the expense: a gated repo requires an HF token and fails
@@ -660,7 +660,7 @@ def hf_modele_hors_gb10(query, task=None):
     Used to not leave the user in front of a misleading « aucun résultat »:
     when the GB10 filter gives nothing but HF knows some, the UI can say so
     and offer to uncheck the filter. Returns True, False, or None when we
-    do not know — a doubt must not display as a « non ».
+    do not know — a doubt must not display as a « no ».
     """
     if not query:
         return None

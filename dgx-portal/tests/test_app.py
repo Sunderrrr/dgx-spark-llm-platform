@@ -729,8 +729,8 @@ class GardeDesRoutesTest(unittest.TestCase):
     future: the OCR container runs third-party model code
     (`--trust-remote-code`) and shares `ocr_net` with the portal. A public
     route added by oversight would become reachable from that code. If
-    this test fails, the question is not « comment le faire passer » but
-    « cette route a-t-elle vraiment vocation à être publique ».
+    this test fails, the question is not « how to make it pass » but
+    « does this route really have to be public ».
     """
 
     # Each entry is public FOR A REASON. We add none without

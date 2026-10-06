@@ -630,6 +630,9 @@ const EN: Record<string, string> = {
   "Analyse ces logs et trouve la cause de l'erreur : ":
     "Analyse these logs and find the cause of the error: ",
   "Résumer": "Summarise",
+  "Compétences du playground (menu « / »)": "Playground skills (the \"/\" menu)",
+  "Appelées depuis le composeur en tapant « / ». Les intégrées sont livrées avec la plateforme ; les tiennes sont modifiables depuis le playground.": "Called from the composer by typing \"/\". The built-in ones ship with the platform; yours are editable from the playground.",
+  "Compétences de l'assistant": "Assistant skills",
   "Anti-IA — détection et correction": "Anti-AI — detection and rewriting",
   "Repère et corrige les tournures typiques d'un texte généré par IA": "Spot and fix the tells of AI-generated writing",
   "Repère et corrige les tournures d'IA dans ce texte : ": "Spot and fix the AI tells in this text: ",

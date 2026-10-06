@@ -390,6 +390,9 @@ public Claude skills. Eight ship built-in: `summarize`, `explain`, `code`,
 - `/slides` — a deck where every slide asserts something;
 - `/meeting` — raw notes into decisions, open points and an action table.
 
+All of them are listed in **Settings → Skills** (the defaults included, with
+their `/alias`), above the assistant's own skills.
+
 Users write their own from the `/` menu (stored in the browser, like the
 snippets), and a skill's instructions go into the system prompt — which is
 bounded at 16 000 characters, enough for the longest of them.

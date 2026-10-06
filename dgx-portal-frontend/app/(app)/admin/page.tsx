@@ -39,6 +39,7 @@ import { useT, useLocale, tServeur } from "@/lib/i18n";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { UserLookup } from "./_components/UserLookup";
 import { EmailConfig } from "./_components/EmailConfig";
+import { BrandingConfig } from "./_components/BrandingConfig";
 import { PlatformStatus, type PlatformStatusData } from "./_components/PlatformStatus";
 
 type ModelCfg = { id: number; name: string; hf_model_id: string; engine: string; vllm_args: string };
@@ -453,6 +454,9 @@ export default function AdminPage() {
               />
             )}
 
+            {/* The instance identity goes FIRST: it is what the operator
+                changes once, at deploy time. */}
+            <BrandingConfig initialName={undefined} />
             <EmailConfig />
 
             <VStack gap={3}>

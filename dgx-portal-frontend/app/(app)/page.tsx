@@ -659,7 +659,12 @@ export default function HomePage() {
                             two sessions were working, so an empty panel that made it
                             look like the machine was free. The engine, for its part,
                             can describe these sessions — busy, since when, prompt progress. */}
-                        {slots && slots.busy > 0 && (
+                        {/* Shown whenever the engine says HOW MANY sessions it
+                            accepts (vLLM included, since its counters carry
+                            `max_seqs`): « je ne vois pas le nombre de session
+                            dispo » — the total IS the answer, and a free
+                            engine showing nothing looked like a broken panel. */}
+                        {slots && (slots.busy > 0 || slots.total) && (
                           <Text type="supporting" color="secondary" hasTabularNumbers>
                             {t("{n} session(s) en cours sur le moteur").replace("{n}", String(slots.busy))}
                             {slots.total ? ` / ${slots.total}` : ""}

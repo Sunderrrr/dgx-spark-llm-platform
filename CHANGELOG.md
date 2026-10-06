@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-10-06
+
+A new model target — the one chosen by the operator — with speculative
+decoding and vision, on an updated vLLM.
+
 ### Added
 
 - **`qwen38-27b` — `orcarouter/Qwen3.8-27B-Uncensored-NVFP4`, served with the
@@ -613,7 +618,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.15...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.16...HEAD
+[0.1.16]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.12...v0.1.13

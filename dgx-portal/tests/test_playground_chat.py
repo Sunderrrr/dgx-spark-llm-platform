@@ -315,15 +315,16 @@ class ReglagesTest(_BasePlayground):
         self.assertEqual(envoye['max_tokens'], 4096)
         self.assertEqual(envoye['top_p'], 1.0)
 
-    def test_system_tronque_a_4000(self):
+    def test_system_tronque_a_16000(self):
         vus = []
-        self._flux(self._corps(system='x' * 9000),
+        self._flux(self._corps(system='x' * 20000),
                    post=self._amont_unique(_FauxAmont([_fin()]), vus))
-        # Truncated at 4000 chars, then the date/time line is APPENDED: a long
+        # Truncated at 16 000 chars (a skill's whole instructions fit), then the
+        # date/time line is APPENDED: a long
         # persona must never be what cuts the clock.
         contenu = vus[0]['json']['messages'][0]['content']
-        self.assertTrue(contenu.startswith('x' * 4000))
-        self.assertIn('Nous sommes le', contenu[4000:])
+        self.assertTrue(contenu.startswith('x' * 16000))
+        self.assertIn('Nous sommes le', contenu[16000:])
 
     def test_le_system_porte_la_date_et_l_heure_courantes(self):
         """The model has NO clock (MiMo, measured 2026-10-02: « je n'ai pas

@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-10-06
+
+Five default skills — the operator's anti-AI SKILL.md verbatim, and four more
+in the spirit of the public Claude skills.
+
 ### Added
 
 - **Five default skills**, in the spirit of the public Claude skills and the
@@ -563,7 +568,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.13...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.14...HEAD
+[0.1.14]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.10...v0.1.11

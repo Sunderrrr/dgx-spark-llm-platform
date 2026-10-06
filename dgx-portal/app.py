@@ -1,4 +1,5 @@
 import os, re, time, requests
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
@@ -724,24 +725,54 @@ def _budget_remaining(username, default_budget, duration):
 
 
 def _index_data():
+    # The sidecar probes are INDEPENDENT HTTP calls, ~250 ms each when their
+    # cache is cold. Done one after another they made /api/home cost 3.19 s
+    # (measured 2026-10-07: 12 requests.get = 3.10 s of the 3.19 s) — the home
+    # page, its 5 s refresh and the playground's arrival all waited on the SUM.
+    # Run them together: the page now costs the SLOWEST probe, not the total.
+    # No database is touched inside a probe, so the threads are safe here.
+    def _sonde(fonction, *args):
+        # Flask's application context is THREAD-LOCAL: a probe running in a
+        # worker that touches get_db() raised "Working outside of application
+        # context" (measured 2026-10-07, 500 on /api/home). Open one per call.
+        with app.app_context():
+            return fonction(*args)
+
+    with ThreadPoolExecutor(max_workers=10) as _sondes:
+        _f = {
+            'ocr': _sondes.submit(get_ocr_model),
+            'comfy': _sondes.submit(comfyui_is_up),
+            'image': _sondes.submit(image_ready),
+            'music': _sondes.submit(music_ready),
+            'voice': _sondes.submit(get_voice_model),
+            # The MODEL names and the per-sidecar metrics are probes too: left
+            # behind, they kept the first call at 3.1 s (measured) even with the
+            # availability checks running in parallel.
+            'image_model': _sondes.submit(_sonde, get_image_model),
+            'music_model': _sondes.submit(_sonde, get_music_model),
+            'm_ocr': _sondes.submit(_sonde, _sidecar_metrics, 'ocr'),
+            'm_video': _sondes.submit(_sonde, _sidecar_metrics, 'video'),
+            'm_voice': _sondes.submit(_sonde, _sidecar_metrics, 'voice'),
+        }
+        _resultats = {k: f.result() for k, f in _f.items()}
     running = [{'name': m, 'kind': 'chat', 'exposed': True} for m in get_running_models()]
     metrics = {}
-    ocr_model = get_ocr_model()
+    ocr_model = _resultats['ocr']
     if ocr_model:
         running.append({'name': ocr_model, 'kind': 'ocr', 'exposed': False})
-        metrics['ocr'] = _sidecar_metrics('ocr')
-    if comfyui_is_up():
+        metrics['ocr'] = _resultats['m_ocr']
+    if _resultats['comfy']:
         running.append({'name': 'MiniMax-H3', 'kind': 'video', 'exposed': False})
-        metrics['video'] = _sidecar_metrics('video')
-    if image_ready():
-        running.append({'name': get_image_model() or 'Image', 'kind': 'image', 'exposed': False})
-    if music_ready():
-        running.append({'name': get_music_model() or 'Musique', 'kind': 'music', 'exposed': False})
-    voice_model = get_voice_model()
+        metrics['video'] = _resultats['m_video']
+    if _resultats['image']:
+        running.append({'name': _resultats['image_model'] or 'Image', 'kind': 'image', 'exposed': False})
+    if _resultats['music']:
+        running.append({'name': _resultats['music_model'] or 'Musique', 'kind': 'music', 'exposed': False})
+    voice_model = _resultats['voice']
     if voice_model:
         _vlabel = 'Qwen3-TTS' if get_voice_engine() == 'qwen3-tts' else 'Chatterbox'
         running.append({'name': f'{_vlabel} ({voice_model})', 'kind': 'voice', 'exposed': False})
-        metrics['voice'] = _sidecar_metrics('voice')
+        metrics['voice'] = _resultats['m_voice']
     db = get_db()
     my_requests = db.execute(
         "SELECT * FROM model_requests WHERE username=? ORDER BY created_at DESC LIMIT 5",
@@ -1305,7 +1336,7 @@ def api_search():
 
     The contract is the same as the admin actions: the response says what
     really happened. An HF outage returns 503 with `ok: false` — never an
-    empty list, which reads « ton modèle n'existe pas ».
+    empty list, which reads « your model does not exist ».
     """
     query = request.args.get('q', '').strip()
     task  = request.args.get('task', '').strip()
@@ -1463,7 +1494,7 @@ def _start_grant_reaper():
     """Daemon thread: brings expired caps back to their base (every 60 s).
 
     Temporary grants (budget_grants) live on the LiteLLM side: without
-    this sweep, an extra granted « pour 3 jours » would remain the limit
+    this sweep, an extra granted « for 3 days » would remain the limit
     forever as soon as nobody loads the portal. The first run at startup
     catches up on deadlines missed during an outage.
 

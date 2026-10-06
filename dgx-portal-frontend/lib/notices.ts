@@ -14,9 +14,22 @@ export type CronosNotice = {
   status?: number;
   /** Seconds to wait, sent with `chat_rate_limited`. */
   wait?: number;
-  /** Free memory in GiB (MemAvailable), sent with `image_service_off`. */
+  /** Free memory in GiB (MemAvailable), sent with the `*_service_off` notices. */
   libre_gib?: number;
 };
+
+/** The `*_service_off` notices all carry the free memory: under a ~100 GB chat
+ * model the sidecar often simply cannot start, and « the service is stopped »
+ * alone makes a click look like the fix. */
+function avecMemoire(
+  texte: string,
+  notice: CronosNotice,
+  t: (fr: string) => string,
+): string {
+  return notice.libre_gib != null
+    ? texte + " " + t("Mémoire disponible : {n} Gio.").replace("{n}", String(notice.libre_gib))
+    : texte;
+}
 
 export function texteNotice(
   notice: CronosNotice,
@@ -53,15 +66,14 @@ export function texteNotice(
       return t("Peux-tu reformuler ta demande ?");
     case "model_timeout":
       return t("Le modèle n'a pas répondu à temps. Réessaie dans un instant.");
-    case "image_service_off": {
-      let texte = t("La génération d'image est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans image.");
+    case "image_service_off":
       // Free memory: under a ~100 GB model the sidecar often simply cannot
       // start — saying only "the service is stopped" makes a click look enough.
-      if (notice.libre_gib != null) {
-        texte += " " + t("Mémoire disponible : {n} Gio.").replace("{n}", String(notice.libre_gib));
-      }
-      return texte;
-    }
+      return avecMemoire(t("La génération d'image est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans image."), notice, t);
+    case "video_service_off":
+      return avecMemoire(t("La génération vidéo est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans vidéo."), notice, t);
+    case "document_service_off":
+      return avecMemoire(t("La lecture de document est indisponible pour l'instant : le service OCR est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans le document."), notice, t);
     default:
       return notice.id;
   }

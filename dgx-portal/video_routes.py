@@ -5,6 +5,7 @@ the frontend has nothing to change. See memory_routes.py for the full
 reasoning about the endpoints.
 """
 import os
+import sqlite3
 from datetime import datetime
 
 from flask import Blueprint, Response, abort, jsonify, request, send_file, session
@@ -14,7 +15,7 @@ from comfyui_client import (
     _cache_video_local, _comfyui_output_file, _local_video_path,
     comfyui_cancel, comfyui_fetch_video, comfyui_generate, comfyui_status,
 )
-from db import get_db
+from db import DB_PATH, get_db
 from guards import (
     _read_uploaded_image,
     media_block_json,
@@ -95,6 +96,51 @@ def api_video_history():
         (session['username'],)).fetchall()
     return jsonify([dict(r) for r in rows])
 
+def _persister_video(prompt_id, username, st, cree_le=None, duree_ms=None):
+    """Writes a KNOWN ComfyUI result into video_jobs and caches the MP4 locally.
+
+    ComfyUI's in-memory history is volatile (cleared on each service restart),
+    whereas /view reads the file directly from disk — by keeping the path here,
+    the history stays viewable even after a ComfyUI restart.
+
+    Shared by this page's polling route and by the `generer_video` playground
+    tool's worker (video_tools._video_worker): one job ending, handled one way.
+    `cree_le`/`duree_ms` are those of the row ALREADY read by the caller (they
+    are not touched by the UPDATE): the generation duration is written ONCE, on
+    the first « done » — the `duration_ms IS NULL` guard keeps a second writer
+    from doubling it.
+
+    A bare `sqlite3.connect` and not `get_db()`: the worker runs in a daemon
+    THREAD, with no Flask application context — `get_db()` would raise there
+    without leaving a trace (the same trap as image_routes._image_worker).
+    """
+    if st['status'] not in ('done', 'error'):
+        return
+    db = sqlite3.connect(DB_PATH, timeout=5)
+    db.execute(
+        "UPDATE video_jobs SET status=?, video_path=?, video_subfolder=?, video_type=? "
+        "WHERE prompt_id=? AND username=?",
+        (st['status'], st.get('video_path'), st.get('video_subfolder'), st.get('video_type'),
+         prompt_id, username))
+    # Generation duration = time elapsed since creation. Approx. to the polling
+    # period (~5 s), which is negligible on a several-minute generation.
+    if st['status'] == 'done' and duree_ms is None and cree_le:
+        try:
+            dur = int((datetime.now() - datetime.fromisoformat(cree_le)).total_seconds() * 1000)
+            if 0 < dur < 3600000:  # safety bound (< 1 h)
+                db.execute(
+                    "UPDATE video_jobs SET duration_ms=? WHERE prompt_id=? AND username=? AND duration_ms IS NULL",
+                    (dur, prompt_id, username))
+        except Exception:
+            pass
+    db.commit()
+    db.close()
+    # Cache the MP4 to the portal volume while ComfyUI is still up, so it
+    # stays viewable after the video sidecar is stopped.
+    if st['status'] == 'done':
+        _cache_video_local(prompt_id, st)
+
+
 @bp.route('/api/video/status/<prompt_id>')
 @login_required
 def api_video_status(prompt_id):
@@ -112,36 +158,9 @@ def api_video_status(prompt_id):
     if owned['status'] == 'cancelled':
         return jsonify({'status': 'cancelled', 'video_path': None})
     st = comfyui_status(prompt_id)
-    # Persists the result as soon as it's known: ComfyUI's in-memory
-    # history is volatile (cleared on each service restart), whereas
-    # /view reads the file directly from disk — by keeping the path here,
-    # the history stays viewable even after a ComfyUI restart.
-    if st['status'] in ('done', 'error'):
-        get_db().execute(
-            "UPDATE video_jobs SET status=?, video_path=?, video_subfolder=?, video_type=? "
-            "WHERE prompt_id=? AND username=?",
-            (st['status'], st.get('video_path'), st.get('video_subfolder'), st.get('video_type'),
-             prompt_id, session['username']))
-        # Generation duration = time elapsed since creation, set ONCE
-        # (on the first "done"). Approx. to the polling period (~5 s), which
-        # is negligible on a several-minute generation.
-        if st['status'] == 'done':
-            # `created_at`/`duration_ms` come from the row ALREADY read for the IDOR
-            # check: they are not touched by the UPDATE above.
-            if owned['duration_ms'] is None and owned['created_at']:
-                try:
-                    dur = int((datetime.now() - datetime.fromisoformat(owned['created_at'])).total_seconds() * 1000)
-                    if 0 < dur < 3600000:  # safety bound (< 1 h)
-                        get_db().execute(
-                            "UPDATE video_jobs SET duration_ms=? WHERE prompt_id=? AND username=? AND duration_ms IS NULL",
-                            (dur, prompt_id, session['username']))
-                except Exception:
-                    pass
-        get_db().commit()
-        # Cache the MP4 to the portal volume while ComfyUI is still up, so it
-        # stays viewable after the video sidecar is stopped.
-        if st['status'] == 'done':
-            _cache_video_local(prompt_id, st)
+    # Persists the result as soon as it's known (see _persister_video above).
+    _persister_video(prompt_id, session['username'], st,
+                     owned['created_at'], owned['duration_ms'])
     return jsonify(st)
 
 

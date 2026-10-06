@@ -18,7 +18,9 @@ import time
 import requests
 
 import websearch
+import document_tools
 import image_tools
+import video_tools
 from db import get_db
 
 LITELLM_URL = os.environ.get('LITELLM_URL', 'http://litellm:4000')
@@ -306,13 +308,16 @@ def _texte_des_trouvailles(trouvailles):
 
 
 def _phase_outils(model, msgs, user_key, journal, trouvailles,
-                  web_ok=True, img_ok=False, username=''):
-    """Lets the model search or generate before answering. Modifies `msgs`
+                  web_ok=True, img_ok=False, username='',
+                  video_ok=False, doc_ok=False, pieces=()):
+    """Lets the model search, read or generate before answering. Modifies `msgs`
     in place.
 
-    `web_ok` arms recherche_web/lire_pages, `img_ok` arms generer_image;
-    without either, the phase does not start (we do not call the model with
-    `tools: []` — some templates make it mute).
+    `web_ok` arms recherche_web/lire_pages, `img_ok` generer_image, `video_ok`
+    generer_video and `doc_ok` lire_document; without any of them, the phase
+    does not start (we do not call the model with `tools: []` — some templates
+    make it mute). `pieces` carries the conversation's attached images, the
+    only input lire_document can read.
 
     GENERATOR: it renders SSE comments along the way. Without them, the
     client receives nothing during the whole phase — several seconds of
@@ -325,7 +330,9 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
     """
     court = _contexte_outils(msgs)
     _outils = ((_web_tools() if web_ok else []) +
-               (image_tools._outils_image() if img_ok else []))
+               (image_tools._outils_image() if img_ok else []) +
+               (video_tools._outils_video() if video_ok else []) +
+               (document_tools._outils_document() if doc_ok else []))
     if not _outils:
         return
     _fin = time.monotonic() + DELAI_MAX_OUTILS
@@ -388,7 +395,7 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
                 args = json.loads(fn.get('arguments') or '{}')
             except Exception:
                 args = {}
-            # A search, a read or an image generation takes several seconds.
+            # A search, a read or a generation takes several seconds.
             # We tell the client WHAT WE ARE DOING before doing it: without
             # that the wait is silent and nobody knows what is happening. It
             # also keeps the stream open, otherwise the proxy cuts before the
@@ -401,6 +408,19 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
                 # A generation consumes almost all of the phase budget: we
                 # extend it, otherwise the final model round would be refused
                 # by the deadline right after a perfectly successful image.
+                _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
+            elif fn.get('name') == 'generer_video':
+                yield "data: " + json.dumps({'cronos_web': video_tools._annonce_video(args)}) + "\n\n"
+                # GENERATOR: same contract as the image tool — the phase
+                # budget is extended, a video takes MINUTES.
+                resultat = yield from video_tools._exec_video_tool(args, username, journal)
+                _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
+            elif fn.get('name') == 'lire_document':
+                yield "data: " + json.dumps({'cronos_web': document_tools._annonce_document(args)}) + "\n\n"
+                # GENERATOR: heartbeats while the OCR sidecar extracts the
+                # text of the attachment, text as return value.
+                resultat = yield from document_tools._exec_document_tool(
+                    args, username, journal, pieces)
                 _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
             else:
                 yield "data: " + json.dumps({'cronos_web': _annonce(fn.get('name', ''), args)}) + "\n\n"

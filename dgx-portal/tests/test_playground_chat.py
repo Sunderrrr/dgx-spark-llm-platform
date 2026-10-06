@@ -100,7 +100,7 @@ class _BasePlayground(unittest.TestCase):
 
     def _standard(self, stack, post=None, running=('fake-model',),
                   keys=({'key': 'sk-user-123'},), limites=None, entree=None,
-                  web=False, image=False, memoire_off=True):
+                  web=False, image=False, video=False, doc=False, memoire_off=True):
         stack.enter_context(patch.object(chat, 'maintenance_block_sse', return_value=None))
         stack.enter_context(patch.object(chat, '_chat_rate_limited', return_value=None))
         stack.enter_context(patch.object(chat, 'get_running_models', return_value=list(running)))
@@ -110,6 +110,10 @@ class _BasePlayground(unittest.TestCase):
         stack.enter_context(patch.object(chat, 'websearch_active', return_value=web))
         stack.enter_context(patch.object(chat, 'image_disponible', return_value=image))
         stack.enter_context(patch.object(chat, '_image_demandee', return_value=image))
+        stack.enter_context(patch.object(chat, 'video_disponible', return_value=video))
+        stack.enter_context(patch.object(chat, '_video_demandee', return_value=video))
+        stack.enter_context(patch.object(chat, 'document_disponible', return_value=doc))
+        stack.enter_context(patch.object(chat, '_document_demandee', return_value=doc))
         if memoire_off:
             stack.enter_context(patch.object(chat.memoire, '_mem_enabled', return_value=False))
         if limites is not None:
@@ -274,6 +278,54 @@ class FluxSSETest(_BasePlayground):
                 session['auth_at'] = int(time.time())
                 corps = chat.playground_chat().get_data(as_text=True)
         self.assertNotIn('image_service_off', corps)
+
+    def test_demande_de_video_service_arrete_notice(self):
+        """EXPLICIT video request with ComfyUI off and not even startable: same
+        trap as the image one — the model would answer « je ne peux pas générer
+        de vidéos » while the platform can, it is the service that is missing."""
+        with ExitStack() as stack:
+            self._standard(stack, post=self._amont_unique(
+                _FauxAmont([_delta("Je ne peux pas générer de vidéo."), _fin()])))
+            stack.enter_context(patch.object(chat, '_video_demandee', return_value=True))
+            stack.enter_context(patch.object(chat, 'video_disponible', return_value=False))
+            with portal.app.test_request_context(
+                    '/playground/chat', method='POST',
+                    json=self._corps(msgs=[{'role': 'user',
+                                            'content': 'Crée une vidéo de chat.'}])):
+                session['username'] = 'demo'
+                session['auth_at'] = int(time.time())
+                corps = chat.playground_chat().get_data(as_text=True)
+        self.assertIn('cronos_notice', corps)
+        self.assertIn('video_service_off', corps)
+        # The free memory goes with it: under a ~100 GB chat model the sidecar
+        # often simply cannot start, and « the service is stopped » alone makes
+        # a click look like the fix.
+        self.assertIn('libre_gib', corps)
+
+    def test_demande_de_document_service_arrete_notice(self):
+        """EXPLICIT read request with the OCR sidecar off: the model would
+        answer « je ne sais pas lire ce document » — false, the platform can."""
+        with ExitStack() as stack:
+            self._standard(stack, post=self._amont_unique(
+                _FauxAmont([_delta("Je ne peux pas lire ce document."), _fin()])))
+            stack.enter_context(patch.object(chat, '_document_demandee', return_value=True))
+            stack.enter_context(patch.object(chat, 'document_disponible', return_value=False))
+            with portal.app.test_request_context(
+                    '/playground/chat', method='POST',
+                    json=self._corps(msgs=[{'role': 'user',
+                                            'content': 'Lis ce document joint.'}])):
+                session['username'] = 'demo'
+                session['auth_at'] = int(time.time())
+                corps = chat.playground_chat().get_data(as_text=True)
+        self.assertIn('cronos_notice', corps)
+        self.assertIn('document_service_off', corps)
+
+    def test_aucune_notice_sans_demande_explicite(self):
+        """A service off that nobody asked for says nothing: the notice is tied
+        to the REQUEST, never to the service state alone."""
+        corps = self._flux(self._corps(), post=self._amont_unique(
+            _FauxAmont([_delta('Voilà.'), _fin()])))
+        self.assertNotIn('service_off', corps)
 
     def test_timeout_de_lecture_est_une_erreur_de_transport(self):
         """LiteLLM unreachable is NOT a model error: the answer must say so, not
@@ -765,6 +817,33 @@ class PhaseOutilsTest(_BasePlayground):
         amont = _FauxAmont([_delta('Bonjour'), _fin()])
         corps = self._flux(self._corps(), post=self._amont_unique(amont), web=False)
         self.assertNotIn('cronos_web', corps)
+
+    def test_pieces_jointes_atteignent_l_outil_document(self):
+        """The attachments are collected BEFORE the vision bounding: a model
+        without a projector gets no image, but `lire_document` must still read
+        what the user joined — that is exactly the model that needs the OCR."""
+        vu = {}
+
+        def _phase(*a, **k):
+            vu.update(k)
+            return
+            yield                       # empty generator
+
+        with ExitStack() as stack:
+            self._standard(stack, post=self._amont_unique(
+                _FauxAmont([_delta('Voilà.'), _fin()])), doc=True)
+            stack.enter_context(patch.object(chat, '_phase_outils', side_effect=_phase))
+            stack.enter_context(patch.object(chat, '_playground_model_vision',
+                                             return_value={'fake-model': False}))
+            with portal.app.test_request_context(
+                    '/playground/chat', method='POST',
+                    json=self._corps(msgs=[{'role': 'user', 'content': 'Lis ce document.',
+                                            'images': [IMG]}])):
+                session['username'] = 'demo'
+                session['auth_at'] = int(time.time())
+                chat.playground_chat().get_data(as_text=True)
+        self.assertTrue(vu.get('doc_ok'))
+        self.assertEqual(vu.get('pieces'), [IMG])
 
 
 # ── 6. Playground data ────────────────────────────────────────────────────

@@ -60,6 +60,8 @@ from vllm_health import ctx_split, effective_ctx, get_running_models
 from websearch_tools import (_phase_outils, _recherche_pertinente,
                              _texte_des_trouvailles, websearch_active)
 from image_tools import _image_demandee, image_disponible
+from video_tools import _video_demandee, video_disponible
+from document_tools import _document_demandee, document_disponible
 
 _log = logging.getLogger('app')
 
@@ -685,6 +687,11 @@ def _playground_model_limits():
 # each costs a full encoding at prefill. Beyond that, we keep the most
 # RECENT ones — the question almost always concerns the last one.
 IMAGES_MAX_REQUETE = 8
+# Attachments kept for the `lire_document` tool. Collected BEFORE the vision
+# bounding below: the tool reads what the user JOINED, and a model without a
+# projector is exactly the one that needs it. Almost always the newest one is
+# the one being discussed — a handful of candidates is plenty.
+PIECES_JOINTES_MAX = 12
 # Weight of an image in the "character" estimates of the window: ~1 500
 # tokens (image ~1 Mpx), at the pessimistic ratio of 3 characters per token.
 IMAGE_POIDS_CHARS = 1500 * 3
@@ -1064,6 +1071,10 @@ def playground_chat():
         history.append(h)
     if not history:
         return Response(_sse_notice('empty_message'), mimetype='text/event-stream')
+    # Attached images, taken here and NOT after the vision bounding (below):
+    # `lire_document` reads what the user joined even when the chosen model
+    # cannot see it — the bounding only describes what the model itself gets.
+    pieces = [u for h in history for u in (h.get('images') or [])][-PIECES_JOINTES_MAX:]
     blocked = maintenance_block_sse()
     if blocked:
         return blocked
@@ -1179,6 +1190,19 @@ def playground_chat():
     _img_service = image_disponible()
     _img_ok = (_img_demandee and _img_service
                and maintenance_block_sse() is None)
+    # Video tool: same bar as the image one — EXPLICIT request only. The
+    # service state is kept for the same reason: it also warns the user when
+    # ComfyUI is off and cannot be started (cronos_notice video_service_off).
+    _vid_demandee = _video_demandee(history)
+    _vid_service = video_disponible()
+    _vid_ok = (_vid_demandee and _vid_service
+               and maintenance_block_sse() is None)
+    # Document reading (OCR): explicit request too — « décris cette image » is
+    # the model's own job, `lire_document` extracts TEXT from a joined file.
+    _doc_demandee = _document_demandee(history)
+    _doc_service = document_disponible()
+    _doc_ok = (_doc_demandee and _doc_service
+               and maintenance_block_sse() is None)
 
     # The output cap ADDS to the prompt in the context window: beyond it,
     # vLLM refuses the request (400 ContextWindowExceededError) instead of answering.
@@ -1227,17 +1251,31 @@ def playground_chat():
             yield ("data: " + json.dumps(
                 {'cronos_notice': {'id': 'image_service_off',
                                    'libre_gib': _memoire_disponible_gib()}}) + "\n\n")
+        # Same notice for the video and document tools: same trap, the model
+        # would answer « je ne peux pas générer de vidéo » / « je ne sais pas
+        # lire ce document » while the platform can — it is the service that is
+        # missing (and not even startable: the tool is only declared when it is).
+        if _vid_demandee and not _vid_service:
+            yield ("data: " + json.dumps(
+                {'cronos_notice': {'id': 'video_service_off',
+                                   'libre_gib': _memoire_disponible_gib()}}) + "\n\n")
+        if _doc_demandee and not _doc_service:
+            yield ("data: " + json.dumps(
+                {'cronos_notice': {'id': 'document_service_off',
+                                   'libre_gib': _memoire_disponible_gib()}}) + "\n\n")
         # The TTFT stopwatch starts HERE, before the tool phase: it is the delay
         # actually suffered by the person who asked the question. It was taken
         # after the search (just before the final POST), so a request that spent
         # 40 s searching and reading announced « TTFT 1,2 s ».
         _t0 = time.monotonic()
-        if _web_ok or _img_ok:
+        if _web_ok or _img_ok or _vid_ok or _doc_ok:
             yield ": recherche\n\n"
             _journal, _trouvailles = [], []
             for _etape in _phase_outils(model, msgs, user_key, _journal,
                                         _trouvailles, web_ok=_web_ok,
-                                        img_ok=_img_ok, username=_who):
+                                        img_ok=_img_ok, username=_who,
+                                        video_ok=_vid_ok, doc_ok=_doc_ok,
+                                        pieces=pieces):
                 yield _etape
             # Re-injection AS TEXT, into the last user message.
             _txt = _texte_des_trouvailles(_trouvailles)

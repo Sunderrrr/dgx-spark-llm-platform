@@ -71,8 +71,10 @@ dialog::backdrop {
   }
 }
 
-/* Placeholder de génération vidéo : occupe la place exacte de la vidéo à
-   venir pendant le rendu. Même raison que ci-dessus pour le CSS brut. */
+/* Placeholder de génération (image ou vidéo) : occupe la place exacte du
+   média à venir pendant le rendu. Même raison que ci-dessus pour le CSS brut.
+   Porté par _components/GenerationPlaceholder — pages Image et Vidéo, et
+   pendant qu'un outil du playground génère. */
 @keyframes video-generating-sweep {
   0% {
     background-position: 200% 0;

@@ -601,6 +601,69 @@ def _sidecar_action(kind, action, acteur=None, note=''):
               f"{kind} : {'OK' if ok else 'échec' + detail}" + (f" — {note}" if note else ''))
     return ok, detail
 
+# ── On-demand start from the playground tools ──────────────────────────────
+#
+# The media sidecars are absent from memory when idle. A playground tool that
+# needs one STARTS it at first use (the dictation does the same for `asr`,
+# see below), under the memory guard — on unified memory a sidecar that
+# overflows does not merely fail: the OOM killer takes the served chat model
+# down with it. A start that cannot be attempted is exactly when the tool must
+# tell the user the service is stopped (cronos_notice *_service_off): that is
+# what « available or startable » means for the tool declarations.
+_SIDECAR_REDARRAGE_S = 60        # no immediate retry after a FAILED start
+_demarrages_ondemand = {}        # kind -> (horodatage, reussi)
+_demarrages_verrou = threading.Lock()
+
+
+def sidecar_demarrable(kind):
+    """Would starting `kind` be reasonable, memory-wise? (launch guard)
+
+    `_SIDECAR_MEM_NEED_GB` already carries the model weight plus its margin,
+    so the threshold is the same as the admin's manual start — only the
+    consequence differs: nobody is watching when a tool starts a sidecar on
+    its own, hence the throttle and the plain wording below.
+    """
+    return _mem_guard(kind) is None
+
+
+def sidecar_demarrage_auto(kind, pret, delai_s=240):
+    """(ok, motif) — does `kind` answer, starting it first if needed?
+
+    `pret` is the service's OWN readiness probe (the one the routes already
+    use: `image_ready`, `comfyui_is_up`, `get_ocr_model is not None`…) — a
+    « running » container is not enough, a loading sidecar answers nothing
+    for tens of seconds.
+
+    Throttle: after a FAILED start we answer right away instead of hammering
+    the runner and waiting for nothing — but a start UNDER WAY (ours or
+    another gunicorn worker's) is waited for, since four workers can land on
+    a stopped service at the same moment and `docker start` is a no-op on an
+    already-starting container.
+    """
+    if pret():
+        return True, ''
+    motif = _mem_guard(kind)
+    if motif:
+        return False, motif
+    with _demarrages_verrou:
+        t, reussi = _demarrages_ondemand.get(kind, (0.0, True))
+        recent = time.time() - t < _SIDECAR_REDARRAGE_S
+    if recent and not reussi:
+        return False, "le service est arrêté et son démarrage a échoué à l'instant"
+    if not recent:
+        ok, detail = _sidecar_action(kind, 'start', acteur='système',
+                                     note='démarrage au premier usage (outil du playground)')
+        with _demarrages_verrou:
+            _demarrages_ondemand[kind] = (time.time(), ok)
+        if not ok:
+            return False, f"le service est arrêté et n'a pas pu démarrer{detail}"
+    fin = time.monotonic() + delai_s
+    while time.monotonic() < fin:
+        if pret():
+            return True, ''
+        time.sleep(2)
+    return False, "le service a démarré mais ne répond pas encore"
+
 # ── ASR on-demand: started at first dictation, stopped after an idle window ──
 #
 # The `asr` container (~2.1 GiB of GPU) only serves dictation. While it was

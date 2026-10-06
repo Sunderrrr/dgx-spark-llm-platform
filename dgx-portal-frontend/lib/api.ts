@@ -170,11 +170,13 @@ export async function fetchPlaygroundData(): Promise<PlaygroundData> {
   return res.json();
 }
 
-/** A web search or image generation step, as the backend
- * announces it on the fly. */
+/** A web search, image/video generation or document reading step, as the
+ * backend announces it on the fly. `etape` is optional: the portail sends an
+ * empty frame when a tool refused before doing anything. */
 export type EtapeWeb = {
-  etape: "recherche" | "recherche_finie" | "lecture" | "lecture_finie"
-    | "generation" | "generation_finie" | "inconnue";
+  etape?: "recherche" | "recherche_finie" | "lecture" | "lecture_finie"
+    | "generation" | "generation_finie" | "generation_video"
+    | "generation_video_finie" | "ocr" | "ocr_finie" | "inconnue";
   outil: string;
   question?: string;
   urls?: string[];
@@ -185,6 +187,10 @@ export type EtapeWeb = {
   echecs?: { url: string; raison: string }[];
   /** Addresses of the produced images (successful generation). */
   images?: string[];
+  /** Address of the produced video (successful generation). */
+  videos?: string[];
+  /** Characters of text extracted from the document (OCR). */
+  caracteres?: number;
 };
 
 export type StreamDelta = {

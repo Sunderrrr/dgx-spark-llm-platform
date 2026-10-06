@@ -52,6 +52,10 @@ const EN: Record<string, string> = {
   "Crée d'abord une clé API (page Mes clés API) : cet assistant consomme le budget de ton compte.": "Create an API key first (My API keys page) — this assistant runs on your account budget.",
   "La génération d'image est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans image.":
     "Image generation is currently unavailable: the service is stopped. An admin can start it from the Admin area; the model will answer without an image.",
+  "La génération vidéo est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans vidéo.":
+    "Video generation is currently unavailable: the service is stopped. An admin can start it from the Admin area; the model will answer without a video.",
+  "La lecture de document est indisponible pour l'instant : le service OCR est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans le document.":
+    "Document reading is currently unavailable: the OCR service is stopped. An admin can start it from the Admin area; the model will answer without the document.",
   "Mémoire disponible : {n} Gio.": "Free memory: {n} GiB.",
   // Chat stream notices (cronos_notice, 2026-10-02): the SSE error texts of
   // the playground and the Support chat moved to structured notices.
@@ -488,6 +492,11 @@ const EN: Record<string, string> = {
   "génération de l'image « {q} »": "generating the image “{q}”",
   "génération impossible : {e}": "image generation failed: {e}",
   "{n} image(s) générée(s)": "{n} image(s) generated",
+  "génération de la vidéo « {q} »": "generating the video “{q}”",
+  "génération vidéo impossible : {e}": "video generation failed: {e}",
+  "{n} vidéo(s) générée(s)": "{n} video(s) generated",
+  "lecture du document": "reading the document",
+  "{n} caractère(s) extraits": "{n} character(s) extracted",
   "Plein écran": "Fullscreen",
   "Modification non appliquée": "Edit not applied",
   "Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.":

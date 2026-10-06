@@ -19,6 +19,25 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Changed
+
+- **`qwen38-27b` runs 4 sessions of 262 144, with an honest memory budget**
+  (« je ne vois pas le nombre de session dispo et il me reste 9 Gio de RAM, je
+  veux 4 sessions de 256k »). `--max-num-seqs 4` + `--max-model-len 262144`
+  were set, and `--gpu-memory-utilization` dropped **0.85 → 0.4**: vLLM
+  PRE-ALLOCATES that budget, so 0.85 held ~103 GiB for a real need of ~40 —
+  that is where the 9 GiB went. Measured after the change: **60 GiB free**,
+  sessions 0 / 4, context 262 144.
+
+### Fixed
+
+- **The session count is displayed for vLLM too.** It was fed by llama.cpp's
+  `/slots`, which vLLM does not publish: the line silently disappeared exactly
+  when the reader wanted to know how many sessions were free. The engine
+  counters (`vllm:num_requests_running` + the catalog's `--max-num-seqs`) now
+  feed it — « 0 / 4 » on the home page, and the detailed line no longer hides
+  when the engine is idle (a blank panel looked broken).
+
 ## [0.1.16] - 2026-10-06
 
 A new model target — the one chosen by the operator — with speculative

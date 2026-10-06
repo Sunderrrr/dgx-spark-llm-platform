@@ -116,8 +116,15 @@ def playground_preview_show(pid):
     resp = Response(_preview_avec_rapport(row['html']), mimetype='text/html')
     # `sandbox` in the header → opaque origin, even outside an iframe. The other
     # directives are deliberately absent: the page must be able to run.
+    # `default-src 'none'` is the missing piece: without it a generated page
+    # made the VIEWER's browser fetch scripts/images from any host — a blind
+    # browser-side SSRF and a tracking vector (audit 2026-10-06, L1). The page
+    # keeps its own inline script and styles, and its own images (data:/blob:).
     resp.headers['Content-Security-Policy'] = (
-        'sandbox allow-scripts allow-forms allow-modals allow-popups')
+        'sandbox allow-scripts allow-forms allow-modals allow-popups; '
+        "default-src 'none'; script-src 'unsafe-inline'; "
+        "img-src 'self' data: blob:; style-src 'unsafe-inline'; "
+        "connect-src 'self'; font-src 'self' data:")
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     resp.headers['Cache-Control'] = 'no-store'
     return resp

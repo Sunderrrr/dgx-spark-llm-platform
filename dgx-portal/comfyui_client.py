@@ -209,7 +209,13 @@ def comfyui_is_up():
         return _comfyui_up_cache['v']
     v = False
     try:
-        v = requests.get(f"{COMFYUI_URL}/system_stats", timeout=3).ok
+        # 0.8 s, not 3: this probe runs on EVERY home load (the dashboard polls
+        # every 5 s), and a ComfyUI that is up but busy — or a relay answering
+        # while the engine behind it does not — used to make the whole page wait
+        # 3 s (measured 2026-10-07: this single probe was 3.0 s of the 3.2 s
+        # home load). Availability matters little enough to accept a false
+        # negative; the tool retries at the next call.
+        v = requests.get(f"{COMFYUI_URL}/system_stats", timeout=0.8).ok
     except Exception:
         pass
     _comfyui_up_cache.update(t=now, v=v)

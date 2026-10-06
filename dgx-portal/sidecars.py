@@ -58,6 +58,14 @@ VOICE_REPO_IDS = (
 
 _ocr_model_cache = {'t': 0.0, 'v': None}
 
+# Availability probes answer in a few milliseconds when the service is up, and
+# NEVER when it is down (the sidecar network drops the packets). 3 s of timeout
+# meant a stopped sidecar cost 3 s to EVERY home load — and /api/home probes
+# six of them (measured 2026-10-07: 3.19 s, 12 requests.get). A false negative
+# costs one retry on the next call; a slow probe costs every user, every 5 s.
+_SONDE_DELAI = 0.8
+
+
 def get_ocr_model():
     """Model served by the OCR container (baidu/Unlimited-OCR), a separate vLLM
     with its own /v1/models — never mixed with get_running_models() on which
@@ -74,7 +82,7 @@ def get_ocr_model():
     # admin page when OCR was stopped. Process state is cached for 5 s.
     if _sidecar_proc_status('ocr') == 'running':
         try:
-            r = requests.get(f"{OCR_URL}/models", timeout=3)
+            r = requests.get(f"{OCR_URL}/models", timeout=_SONDE_DELAI)
             if r.ok:
                 data = r.json().get('data', [])
                 if data:
@@ -101,7 +109,7 @@ def get_voice_model():
     # stopped (otherwise a full ~3 s timeout, sidecar network in DROP).
     if _sidecar_proc_status('voice') == 'running':
         try:
-            r = requests.get(f"{VOICE_URL}/api/model-info", timeout=3)
+            r = requests.get(f"{VOICE_URL}/api/model-info", timeout=_SONDE_DELAI)
             if r.ok:
                 data = r.json()
                 if data.get('loaded'):
@@ -125,7 +133,7 @@ def _asr_info():
         return _asr_info_cache['v']
     info = {}
     try:
-        r = requests.get(f"{ASR_URL}/api/model-info", timeout=3)
+        r = requests.get(f"{ASR_URL}/api/model-info", timeout=_SONDE_DELAI)
         if r.ok:
             info = r.json() or {}
     except Exception:
@@ -168,7 +176,7 @@ def image_ready():
 
 def get_image_model():
     try:
-        r = requests.get(f"{IMAGE_URL}/model-info", timeout=3)
+        r = requests.get(f"{IMAGE_URL}/model-info", timeout=_SONDE_DELAI)
         if r.ok:
             return r.json().get('model')
     except Exception:
@@ -184,7 +192,7 @@ def music_ready():
 
 def get_music_model():
     try:
-        r = requests.get(f"{MUSIC_URL}/model-info", timeout=3)
+        r = requests.get(f"{MUSIC_URL}/model-info", timeout=_SONDE_DELAI)
         if r.ok:
             return r.json().get('model')
     except Exception:

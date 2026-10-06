@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-10-06
+
+Four sessions of 262 144, an honest memory budget, and the session count
+displayed for vLLM.
+
 ### Changed
 
 - **`qwen38-27b` runs 4 sessions of 262 144, with an honest memory budget**
@@ -637,7 +642,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.16...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.17...HEAD
+[0.1.17]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.13...v0.1.14

@@ -61,20 +61,30 @@ function echapperHtml(s: string) {
  * expression in `dangerouslySetInnerHTML` let a tag written in a model
  * answer come out alive (only the CSP stopped it). See the browser test.
  */
-export function rendreMath(formule: Formule): string {
+export function rendreMath(formule: Formule | undefined): string {
+  // Un marqueur dont l'index ne vient PAS de `protegerMaths` (du texte modèle
+  // qui écho \uE0000\uE001, ou un index hors tableau) rendait `formules[n]`
+  // undefined : la fonction jetait dans le `try` puis de nouveau dans le
+  // `catch`, et l'exception cassait le rendu React — la conversation entière,
+  // rappelée à chaque rechargement puisqu'elle est persistée (audit
+  // 2026-10-06, F1). Null-safe désormais, et la sortie reste échappée.
+  const latex = String(formule?.latex ?? "");
   try {
-    return katex.renderToString(formule.latex, {
-      throwOnError: false, output: "html", displayMode: formule.display,
+    return katex.renderToString(latex, {
+      throwOnError: false, output: "html", displayMode: formule?.display ?? false,
     });
   } catch {
-    return echapperHtml(formule.latex);
+    return echapperHtml(latex);
   }
 }
 
 /** Replaces each formula with a marker, and returns the kept LaTeX source. */
 export function protegerMaths(src: string): { texte: string; formules: Formule[] } {
   const formules: Formule[] = [];
-  const texte = src.replace(
+  // Les deux caractaires de remplacement privés ne sont PAS du texte légitime :
+  // un modèle qui les émet littéralement fabriquerait de faux marqueurs. On les
+  // retire avant de numéroter.
+  const texte = src.replace(/[\uE000\uE001]/g, "").replace(
     MOTIF,
     (tout: string, code?: string, affichage?: string, enLigne?: string, parenthese?: string) => {
       if (code !== undefined) return tout; // code region: untouched
@@ -90,9 +100,15 @@ export function protegerMaths(src: string): { texte: string; formules: Formule[]
 export function pluginMaths(formules: Formule[]): MarkdownInlinePlugin {
   return {
     pattern: MOTIF_MARQUE,
-    render: (match, key) => (
-      <span key={key} className="cronos-inline-math"
-            dangerouslySetInnerHTML={{ __html: rendreMath(formules[Number(match[1])]) }} />
-    ),
+    render: (match, key) => {
+      const formule = formules[Number(match[1])];
+      // Hors tableau ou marqueur fabriqué : on rend le texte tel quel plutôt
+      // que de planter (voir rendreMath).
+      if (!formule) return <span key={key}>{match[0]}</span>;
+      return (
+        <span key={key} className="cronos-inline-math"
+              dangerouslySetInnerHTML={{ __html: rendreMath(formule) }} />
+      );
+    },
   };
 }

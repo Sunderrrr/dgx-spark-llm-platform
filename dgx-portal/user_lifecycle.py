@@ -167,8 +167,9 @@ def purger_donnees(username):
     # an account recreated under the same name would be born already locked.
     try:
         total += db.execute(
-            "DELETE FROM login_attempts WHERE key=? OR key LIKE ?",
-            (f"user:{username}", f"%|{username}")).rowcount
+            "DELETE FROM login_attempts WHERE key=? OR key LIKE ? ESCAPE '\\'",
+            (f"user:{username}",
+             f"%|{username.replace(chr(92), chr(92)*2).replace('%', chr(92)+'%').replace('_', chr(92)+'_')}")).rowcount
     except sqlite3.Error:
         pass
     db.commit()

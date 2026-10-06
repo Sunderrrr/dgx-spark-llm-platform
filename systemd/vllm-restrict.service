@@ -23,12 +23,17 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/sh -c '\
 iptables -D INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP 2>/dev/null || true; \
-for PORT in 8000 8001 8188; do \
+# 8188 (ComfyUI) is NOT a model API: it has no auth at all and executes
+  # workflow graphs as the runner user. Only the PORTAL may reach it (audit
+  # 2026-10-06, H1) — the /16 also let litellm, postgres and the agents in.
+  # The IP is the portal container's on ai-platform_default (docker inspect
+  # dgx-portal): it changes if the container is recreated — update it here.
+  for PORT in 8000 8001; do \
   iptables -C INPUT -p tcp --dport $PORT -j DROP 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -j DROP; \
   iptables -C INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT; \
   iptables -C INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT; \
 done; \
-iptables -I INPUT 1 -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP'
+iptables -C INPUT -p tcp --dport 8188 -s 172.22.0.2 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport 8188 -s 172.22.0.2 -j ACCEPT; \niptables -I INPUT 1 -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP'
 ExecStop=/bin/sh -c '\
 iptables -D INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP 2>/dev/null || true; \
 for PORT in 8000 8001 8188; do \

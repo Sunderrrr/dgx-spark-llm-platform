@@ -111,7 +111,20 @@ def etat_compte(username):
     # recorded login; if there is none, we have no opinion.
     src = db.execute(
         "SELECT last_is_admin FROM user_sources WHERE username=?", (username,)).fetchone()
-    return True, (bool(src['last_is_admin']) if src is not None else None), None
+    snapshot = bool(src['last_is_admin']) if src is not None else None
+    # The snapshot is written at LOGIN: a directory-side demotion (removal from
+    # cn=adm_cronos) left the session fully admin for up to SESSION_MAX_AGE
+    # (12 h) — incident response silently failed (audit 2026-10-06, M3). The
+    # live directory, through its 60 s cache, is now a DEMOTION CEILING: it can
+    # take the right away immediately, never grant one the snapshot does not
+    # have (a directory outage must not invent an admin).
+    # The ceiling only makes sense when a directory EXISTS to contradict the
+    # snapshot: without one (tests, local-only installs) the live lookup would
+    # answer False for everyone and silently demote every SSO admin.
+    annuaire = bool(LDAP_BIND_DN and LDAP_BIND_PW)
+    if snapshot is None:
+        return True, None, None
+    return True, (snapshot and is_admin_username(username)) if annuaire else snapshot, None
 
 
 def _revalide_session():
@@ -534,7 +547,10 @@ def _client_ip():
     cf = _valid_ip((request.headers.get('Cf-Connecting-Ip') or '').strip())
     if cf:
         return cf
-    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+    # The LAST element is the one OUR trusted hop appended; the first is
+    # client-controlled and let a caller rotate a fake prefix to obtain a fresh
+    # lockout key on every attempt (audit 2026-10-06, L2).
+    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')[-1].strip()
     if _valid_ip(fwd):
         return fwd
     return request.remote_addr or 'unknown'

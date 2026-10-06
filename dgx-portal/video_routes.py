@@ -225,4 +225,7 @@ def video_file(prompt_id):
     if upstream is None:
         abort(503)
     return Response(upstream.iter_content(chunk_size=65536), mimetype='video/mp4',
-                    headers={'Content-Disposition': f'inline; filename="{st["video_path"]}"'})
+                    # Le nom vient de ComfyUI : il ne va PAS dans l'en-tête (un guillemet
+                # casse la chaîne, un CRLF fait une 500). Le navigateur nommera
+                # le fichier à partir de l'URL.
+                headers={'Content-Disposition': 'inline'})

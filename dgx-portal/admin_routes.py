@@ -15,6 +15,7 @@ endpoint was unreachable.
 import json
 import os
 import re
+import ipaddress
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -1509,6 +1510,21 @@ def internal_authcheck():
     """
     if not maintenance_active():
         return ('', 200)
+    # Only Traefik (the 172.19.0.0/16 bridge) may ask: without this, any peer
+    # sharing a network with the portal — the OCR sidecar runs third-party model
+    # code on one — turns the 200/503 difference into a KEY-VALIDITY ORACLE
+    # (audit 2026-10-06, L1). Answer the maintenance message regardless.
+    def _depuis_proxy():
+        try:
+            ip = ipaddress.ip_address(request.remote_addr or '')
+            return (ip in ipaddress.ip_network('172.19.0.0/16')
+                    or ip in ipaddress.ip_network('127.0.0.0/8'))
+        except ValueError:
+            return False
+    if not _depuis_proxy():
+        return jsonify({'error': {'message': "Mode maintenance en cours — l'API est "
+                                  "temporairement indisponible, réessaie plus tard.",
+                                  'type': 'maintenance_mode'}}), 503
     auth = request.headers.get('Authorization', '')
     token = auth[7:] if auth.lower().startswith('bearer ') else ''
     row = get_db().execute("SELECT username FROM api_keys WHERE key_value=?", (token,)).fetchone() if token else None

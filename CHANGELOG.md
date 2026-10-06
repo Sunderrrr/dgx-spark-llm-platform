@@ -19,6 +19,63 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-06
+
+A full penetration test of the platform (three parallel audits: auth and
+access control, injection and unsafe input handling, SSRF / exposure /
+secrets), with the fixes. No critical finding; two HIGH, both on the media
+path, both closed.
+
+### Security
+
+- **HIGH — ComfyUI was reachable by every container on the docker bridge,
+  without any authentication.** The relay installed earlier today exposed the
+  engine (which executes workflow graphs as the runner user and holds the HF
+  token in its home) to `litellm` — internet-exposed — postgres and the agents.
+  The firewall now accepts 8188 from the PORTAL's address only, verified live:
+  `litellm → 8188` is refused. The relay unit is the repository one again
+  (`BindsTo`/`PartOf` the on-demand sidecar, not enabled at boot — the
+  installed copy dragged ComfyUI (33 GB) in at every boot).
+- **HIGH — the relay unit had drifted** from the repository copy and was
+  `enabled`: at every boot it started the relay AND ComfyUI, keeping the above
+  surface up 24/7. Reinstalled and disabled.
+- `/internal/authcheck` (Traefik's forwardAuth) now only answers to the proxy
+  network and loopback: the 200/503 difference was a KEY-VALIDITY oracle for
+  any peer sharing a network with the portal (the OCR sidecar runs third-party
+  model code on one).
+- The directory is now a DEMOTION CEILING for the admin role: removing an
+  LDAP/SSO account from `cn=adm_cronos` takes the rights away immediately
+  instead of leaving the session admin for up to 12 h. It can only take away,
+  never grant — a directory outage must not invent an admin.
+- `_client_ip` takes the LAST `X-Forwarded-For` element (the one appended by
+  our trusted hop), not the first, which was client-controlled: a caller could
+  rotate a fake prefix to obtain a fresh lockout key on every attempt.
+- The HTML preview now sends `default-src 'none'`: a generated page could make
+  the viewer's browser fetch arbitrary URLs (blind browser-side SSRF).
+- The math renderer no longer crashes on crafted markers: a literal
+  `\uE000<n>\uE001` in model output (prompt-injectable through the web/OCR
+  tools) threw twice and broke the whole conversation — persisted, so it
+  re-crashed on every reload. Marker indices are bounds-checked and the two
+  private-use characters are stripped from input.
+- The Markdown export escapes HTML: `</details><img onerror=…>` in a reasoning
+  block became live markup when the file was opened in a permissive viewer.
+- Account purge no longer resets OTHER accounts' brute-force counters: `_` is a
+  LIKE wildcard and `john_` used to delete the rows of `johnX` (escaped now).
+- The video download no longer splices a ComfyUI-controlled filename into
+  `Content-Disposition` (quote/CRLF injection).
+- `npm audit`: 0 vulnerability (the `sharp` and `source-map-js` advisories are
+  gone from the shipped frontend).
+
+### Known, for the operator
+
+Two secrets need ROTATION (the values are not repeated here): the Authentik
+→ LiteLLM OAuth client secret appears verbatim in a public commit message, and
+the SMTP mailbox identity sits in tracked files and the git history. Also open,
+at the infrastructure level: the `/metrics` direct-to-origin bypass (an
+IP allowlist on the Traefik routers), the IPv6 counterpart of the
+DOCKER-USER allowlists, and `litellm` still running as root on the shared
+bridge. None is reachable from the internet today.
+
 ## [0.1.18] - 2026-10-06
 
 The playground generates videos, reads documents, and makes 4K images — with
@@ -681,7 +738,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.18...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.18...v0.2.0
 [0.1.18]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.15...v0.1.16

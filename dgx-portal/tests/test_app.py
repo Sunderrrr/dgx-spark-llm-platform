@@ -465,9 +465,12 @@ class ClientIpTest(unittest.TestCase):
                                    'X-Forwarded-For': '10.0.0.1, 172.19.0.5'}),
                          '203.0.113.10')
 
-    def test_retombe_sur_le_premier_x_forwarded_for(self):
+    def test_retombe_sur_le_dernier_x_forwarded_for(self):
+        # The LAST element is the one OUR trusted hop appended; the first is
+        # client-controlled and let a caller rotate a fake prefix to get a fresh
+        # lockout key on every attempt (audit 2026-10-06, L2).
         self.assertEqual(self._ip({'X-Forwarded-For': '203.0.113.10, 172.19.0.5'}),
-                         '203.0.113.10')
+                         '172.19.0.5')
 
     def test_retombe_sur_remote_addr(self):
         self.assertEqual(self._ip({}), '172.19.0.5')

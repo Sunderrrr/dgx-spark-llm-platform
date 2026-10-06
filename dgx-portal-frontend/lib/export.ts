@@ -30,21 +30,31 @@ export function convTitleFallback(
   return first.slice(0, 80).trim() || fallback;
 }
 
+/** HTML-escapes a field before it goes into the exported file.
+ *  The EXPORT is a document opened elsewhere (Obsidian, Typora, VS Code in
+ *  permissive mode, or simply renamed .html): a model answer containing
+ *  `</details><img src=x onerror=…>` became live markup there. Model output is
+ *  untrusted — it only ever leaves as text (audit 2026-10-06, F2). */
+function echapperHtml(v: string): string {
+  return v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 /** Conversation → readable Markdown, exported as .md.
  *  `t` is passed as a parameter: this is a module function, so no hook is
  *  called here. The reasoning, when there is one, goes into a folded block: it
  *  is part of the exchange, but it must not bury the answer. */
 export function convAsMarkdown(conv: ExportConversation, t: (s: string) => string): string {
-  const lines = [`# ${conv.title}`, "", `_${t("Modèle :")} ${conv.model || "—"}_`, "", "---", ""];
+  const lines = [`# ${echapperHtml(conv.title)}`, "", `_${t("Modèle :")} ${echapperHtml(conv.model || "—")}_`, "", "---", ""];
   for (const m of conv.messages) {
     if (m.hidden) continue;
     lines.push(m.role === "user" ? `**${t("Vous :")}**` : `**${t("Assistant :")}**`);
     lines.push("");
     if (m.reasoning) {
       const duree = m.reasoningMs ? ` (${Math.round(m.reasoningMs / 1000)} s)` : "";
-      lines.push(`<details><summary>${t("Réflexion")}${duree}</summary>`, "", m.reasoning, "", "</details>", "");
+      lines.push(`<details><summary>${t("Réflexion")}${duree}</summary>`, "", echapperHtml(m.reasoning), "", "</details>", "");
     }
-    lines.push(m.content, "");
+    lines.push(echapperHtml(m.content), "");
   }
   return lines.join("\n");
 }

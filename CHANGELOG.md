@@ -19,6 +19,11 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-10-06
+
+The playground generates videos, reads documents, and makes 4K images — with
+one generation frame per image, like the Image page.
+
 ### Added
 
 - **The playground can now generate videos and read documents** (« le playground
@@ -676,7 +681,8 @@ been repaired by hand; each one broke a *clone*, a *nightly job* or a *restore*.
   dependencies, sidecars): findings, fixes and the items left to the operator are
   recorded in `SECURITY.md` §3.4.
 
-[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.17...HEAD
+[Unreleased]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.18...HEAD
+[0.1.18]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/Sunderrrr/dgx-spark-llm-platform/compare/v0.1.14...v0.1.15

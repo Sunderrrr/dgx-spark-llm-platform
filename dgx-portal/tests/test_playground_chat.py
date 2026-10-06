@@ -435,7 +435,7 @@ class ReglagesTest(_BasePlayground):
                        ('ctx-test', '--ctx-size 1048576 --parallel 4 --n-predict 65536',
                         'llamacpp', 'test/ctx-test', '2026-09-14T00:00:00'))
             db.commit()
-            # 1048576 / 4 slots - 65536 de marge de sortie = 196608, exactement
+            # 1048576 / 4 slots - 65536 of output margin = 196608, exactly
             # what LiteLLM advertises in production.
             self.assertEqual(chat._playground_input_limit('ctx-test'), 196608)
             # And the WINDOW is worth the per-slot context: this gap (262 144
@@ -1146,11 +1146,10 @@ class DicteeTest(_BasePlayground):
 
 
 class JaugeDebitCableeTest(_BasePlayground):
-    """Le câblage relay → jauge vivante (scan C, 2026-10-03). Sans cette
-    assertion, si le relay cessait d'appeler _inflight_tokens /
-    _ratio_dernier / _prefill_dernier, le « 0 tok/s » reviendrait
-    SILENCIEUSEMENT : les tests de stats.* ne voient que les fonctions, pas
-    celui qui les appelle."""
+    """The relay → live gauge wiring (scan C, 2026-10-03). Without this
+    assertion, if the relay stopped calling _inflight_tokens /
+    _ratio_dernier / _prefill_dernier, the « 0 tok/s » would come back
+    SILENTLY: the stats.* tests only see the functions, not the caller."""
 
     def test_le_relais_alimente_compteur_ratio_et_prefill(self):
         amont = _FauxAmont([_delta('Bonjour '), _delta('le monde'),
@@ -1169,26 +1168,26 @@ class JaugeDebitCableeTest(_BasePlayground):
                 session['username'] = 'demo'
                 session['auth_at'] = int(time.time())
                 chat.playground_chat().get_data(as_text=True)
-        # 1. le compteur vivant est alimenté, caractères croissants, avec le
-        #    début de décodage (le dénominateur du débit)
+        # 1. the live counter is fed, growing characters, with the decode
+        #    start (the rate denominator)
         self.assertTrue(tokens, "le relay n'alimente plus la jauge — « 0 tok/s » silencieux")
         vus = [a[1] for a in tokens]
         self.assertEqual(vus, sorted(vus))
         self.assertTrue(any(a[2] for a in tokens), "le début de décodage n'est pas transmis")
-        # 2. la calibration reçoit le compte EXACT de l'usage (16 car. émis, 12 tokens)
+        # 2. the calibration receives the EXACT usage count (16 chars emitted, 12 tokens)
         self.assertEqual(ratio, [(16, 12)])
-        # 3. le préfill reçoit prompt_tokens (340) et un TTFT mesuré
+        # 3. the prefill receives prompt_tokens (340) and a measured TTFT
         self.assertEqual(len(prefill), 1)
         self.assertEqual(prefill[0][0], 340)
         self.assertGreater(prefill[0][1], 0)
 
 
 class RaisonnementAutoTest(_BasePlayground):
-    """Le thinking suit la DEMANDE, pas un interrupteur figé (2026-10-03 :
+    """The thinking follows the REQUEST, not a fixed switch (2026-10-03 :
     « active le en fonction de ce que les user demandent, pas tout le
-    temps »). Le défaut est `auto` ; une saisie explicite (true/false) gagne
-    toujours ; les appels internes (titres, résumés, recherche) restent
-    volontairement sans réflexion."""
+    temps »). The default is `auto`; an explicit entry (true/false) always
+    wins; internal calls (titles, summaries, search) stay deliberately
+    without reasoning."""
 
     def _ctk(self, corps):
         vus = []

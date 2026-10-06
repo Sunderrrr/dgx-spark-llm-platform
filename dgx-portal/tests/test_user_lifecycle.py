@@ -603,8 +603,8 @@ class OrigineSessionTest(BaseComptes):
         with portal.app.app_context():
             row = portal.get_db().execute(
                 "SELECT ip FROM user_sessions WHERE sid=?", (autrui,)).fetchone()
-        # Writing the admin's IP there would make the row say « cette session
-        # vient de l'admin » — a lie in the only view used to spot an unknown
+        # Writing the admin's IP there would make the row say « this session
+        # comes from the admin » — a lie in the only view used to spot an unknown
         # session.
         self.assertIsNone(row['ip'])
 

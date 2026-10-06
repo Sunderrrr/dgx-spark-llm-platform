@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Health probe for the « cœur » services of CrOS — email alert (host).
+"""Health probe for the « core » services of CrOS — email alert (host).
 
 We probe the always-up core of the platform and send an email to ADMIN_EMAIL
 when a service falls and then recovers. Like the maintenance failover, sending

@@ -88,7 +88,7 @@ export function KeysContent() {
     getJSON<DiscordStatus>("/api/discord/status").then(setDiscord).catch(() => {});
   }
 
-  /** Runs a form action and only says « c'est fait » when it is true.
+  /** Runs a form action and only says « it's done » when it is true.
    *
    * The four actions of this tab went through `postForm`, which returns
    * NEITHER the status NOR the response body: every failure (LiteLLM

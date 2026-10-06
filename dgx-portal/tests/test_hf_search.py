@@ -4,12 +4,12 @@ Written on 2026-09-13, after observing live that `search_hf_models`
 swallowed EVERY exception to return `[]`. Two consequences, both checked
 in the code before the fix:
 
-1. **« HF est injoignable » displayed as « aucun modèle ne correspond ».**
+1. **« HF is unreachable » displayed as « no model matches ».**
    The user looking for a model concluded it did not exist. The function
    now raises `HfIndisponible` and `/api/search` answers 503 with
    `{ok: false, error}` — the admin actions contract.
 2. **The GB10 filter made a misleading « aucun résultat ».** The frequent
-   case is not « ce modèle n'existe pas » but « il n'est pas taggé gb10 ».
+   case is not « this model does not exist » but « it is not tagged gb10 ».
    The answer thus carries `hors_gb10` (True / False / None = we do not
    know), which lets the UI offer the unlocking gesture instead of leaving
    the user at a dead end.

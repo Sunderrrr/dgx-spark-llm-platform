@@ -64,17 +64,17 @@ export default function SearchPage() {
   const [results, setResults] = useState<HfModel[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  // « HF n'a pas répondu » and « aucun modèle ne correspond » are two
+  // « HF did not answer » and « no model matches » are two
   // different situations: confusing them led the user to conclude their model
   // did not exist. The server now tells the two apart (503 + code hf_indisponible vs empty 200).
   const [error, setError] = useState<string | null>(null);
   // The GB10 filter yields nothing, but HF knows some outside it: we say so.
   const [horsGb10, setHorsGb10] = useState<boolean | null>(null);
   // Is an HF token configured server-side? Its value never leaves the
-  // server: the UI only knows « il y en a un / il n'y en a pas ».
+  // server: the UI only knows « there is one / there is none ».
   const [hfToken, setHfToken] = useState<boolean | null>(null);
   // `has_more` comes from Hugging Face's `Link` header, so it is exact —
-  // the old heuristic (« la page est pleine ») showed a button that could
+  // the old heuristic (« the page is full ») showed a button that could
   // yield nothing and hid one when the last page was full.
   const [hasMore, setHasMore] = useState(false);
   // Each search carries a number: a late answer to a previous keystroke
@@ -210,7 +210,7 @@ export default function SearchPage() {
                       : t("Tape un nom de modèle pour explorer Hugging Face.")
                 }
                 description={
-                  // « Ce modèle n'existe pas » and « il est mal orthographié » look
+                  // « this model does not exist » and « it is misspelled » look
                   // alike: the Hugging Face search runs over the repo NAME (not its
                   // description), so « orith1.5 » does not find
                   // « Ornith-1.5 ». Say it, and give the link that lets one

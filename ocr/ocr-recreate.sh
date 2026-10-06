@@ -5,7 +5,7 @@
 # Python side (_validate_vllm_args, engine="ocr"): this script trusts that
 # upstream validation and only performs the recreation.
 #
-# $1 = hf_model_id (ex: baidu/Unlimited-OCR)
+# $1 = hf_model_id (e.g. baidu/Unlimited-OCR)
 # $@ (from $2) = already-validated vLLM flags (token list, never interpreted
 # by a shell: docker run receives them as the container's argv, not as docker
 # options — docker stops parsing options at the image name).

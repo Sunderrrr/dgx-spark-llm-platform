@@ -35,7 +35,7 @@ from db import get_db, log_audit
 # blocking decides an ACCESS. Confusing them made a purge — the normal
 # gesture when a directory employee leaves, who has no local row — UNBLOCK
 # the account silently: it became loggable again, with platform and GPU
-# access. The route promises though to erase « sans toucher à son accès »,
+# access. The route promises though to erase « without touching its access »,
 # and the docs say offboarding remains blocking.
 TABLES_PURGEES = (
     'announcement_state',

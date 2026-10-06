@@ -182,10 +182,10 @@ export default function SupportPage() {
   // thread (missing CSRF token, copy impossible) is displayed here. Without
   // this, these buttons were SILENT no-ops.
   const [erreurUi, setErreurUi] = useState<string | null>(null);
-  // « je veux arriver sur support et que la conv soit clear » : on ARRIVE à
-  // zéro, systématiquement. Le fil du tour précédent reste consultable de côté
-  // (« Reprendre ») — perdre une conversation parce qu'on a rechargé la page
-  // serait un autre travers — mais il ne s'impose jamais.
+  // « je veux arriver sur support et que la conv soit clear »: we ALWAYS land
+  // at zero, systematically. The previous turn's thread stays available on
+  // the side (« Reprendre ») — losing a conversation because the page was
+  // reloaded would be another flaw — but it never imposes itself.
   const [threadPrecedent, setThreadPrecedent] = useState<ChatMsg[] | null>(null);
 
   // The welcome message depends on the language, known only after the first

@@ -41,7 +41,7 @@ def log_audit(username, action, detail):
         # We only keep recent history in the LIVE table (sensitive actions are
         # rare). 500 rows recycled within a few days on this machine (account
         # lockouts and session revocations write there too, not only model
-        # launches): « qui a fait quoi la semaine dernière » became
+        # launches): « who did what last week » became
         # unanswerable at the very moment it was asked. Hence 5000.
         # The evicted rows are ARCHIVED, not deleted (2026-10-02): the trace of
         # admin actions must survive, and the plain DELETE that stood here threw
@@ -497,7 +497,7 @@ def init_db():
         db.execute(f"INSERT INTO user_prefs_new ({cols}) SELECT {cols} FROM user_prefs")
         db.execute("DROP TABLE user_prefs")
         db.execute("ALTER TABLE user_prefs_new RENAME TO user_prefs")
-        # « pour tous les users »: accounts created before the switch carry their
+        # « for all users »: accounts created before the switch carry their
         # original 0 (never an explicit refusal, the feature predating it by a
         # week) — all moved to 1, once only.
         db.execute("UPDATE user_prefs SET memory_enabled=1")

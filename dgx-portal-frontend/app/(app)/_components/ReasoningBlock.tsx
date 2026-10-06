@@ -1,23 +1,24 @@
 "use client";
 
 /**
- * ReasoningBlock — le bloc de réflexion, rendu façon LM Studio.
+ * ReasoningBlock — the reasoning block, rendered LM Studio-style.
  *
- * Le rendu visé (captures de référence dans /home/mael/Images) tient en deux
- * états, et la DIFFÉRENCE entre les deux est ce qui fait le style :
+ * The target rendering (reference screenshots in /home/mael/Images) comes
+ * in two states, and the DIFFERENCE between the two is what makes the
+ * style:
  *
- *   - replié : une simple ligne posée sur le fond de page — chevron, libellé
- *     atténué, durée — sans la moindre boîte autour. Exactement la ligne
- *     « › Thought for 7.04 seconds » de LM Studio ;
- *   - déplié : la même ligne, et SOUS elle une bulle (fond subtil, liseré,
- *     coins) qui porte le texte de la pensée. La bulle n'existe que dépliée :
- *     « la réflexion dans une bulle si tu développes ».
+ *   - collapsed: a single line laid on the page background — chevron,
+ *     dimmed label, duration — without the slightest box around it. Exactly
+ *     the « › Thought for 7.04 seconds » line from LM Studio;
+ *   - expanded: the same line, and UNDER it a bubble (subtle background,
+ *     border, corners) carrying the thought text. The bubble only exists
+ *     expanded: « la réflexion dans une bulle si tu développes ».
  *
- * La frontière réflexion → écriture se VOIT, elle aussi : pendant la pensée la
- * ligne porte un point qui pulse et un chrono qui tourne (« Réflexion en
- * cours… 12 s ») ; au premier mot de la réponse le chrono s'arrête sur la
- * durée réelle et le bloc se replie de lui-même. C'est ce repli, chrono figé,
- * qui dit « il écrit maintenant ».
+ * The reasoning → writing boundary can be SEEN too: while thinking, the
+ * line carries a pulsing dot and a running timer (« Réflexion en
+ * cours… 12 s »); at the first word of the answer the timer stops on the
+ * real duration and the block collapses on its own. It is that collapse,
+ * timer frozen, that says « he is writing now ».
  */
 import { useEffect, useRef, useState } from "react";
 import { Collapsible } from "@astryxdesign/core/Collapsible";

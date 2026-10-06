@@ -82,7 +82,7 @@ export async function sendJSON<T = { ok: boolean; error?: string }>(
  * 413, « Clé créée ! » on a failed creation, avatar refused), so the
  * `Response` is now RETURNED. For an action whose result matters,
  * read the status or go through `postFormVerifie`; if you do not need to
- * know, the user does not either — but then do not display « c'est fait ».
+ * know, the user does not either — but then do not display « it's done ».
  */
 export async function postForm(url: string, csrf: string, data: Record<string, string>): Promise<Response> {
   return authFetch(url, {
@@ -361,8 +361,8 @@ export async function streamSupportChat(
     signal,
   });
   await readSSE(res, (json) => {
-    // La pensée du modèle (`reasoning_content`, renommé par LiteLLM) : même
-    // contrat que le playground, donc même bloc de réflexion à l'écran.
+    // The model's thought (`reasoning_content`, renamed by LiteLLM): same
+    // contract as the playground, hence the same reasoning block on screen.
     const raison = json.choices?.[0]?.delta?.reasoning_content;
     if (raison) onReasoning?.(raison);
     const content = json.choices?.[0]?.delta?.content;

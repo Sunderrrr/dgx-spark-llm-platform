@@ -324,7 +324,7 @@ def skills_route():
     return ('', 204)
 
 
-# ── Compte : sessions ouvertes et mot de passe ──────────────────────────────
+# ── Account: open sessions and password ─────────────────────────────────────
 # Added on 2026-09-13. The portal could revoke an account's sessions (admin
 # side) but the user could neither SEE them, nor cut the one of a lost
 # device; and a local account could not change its password without going
@@ -520,8 +520,8 @@ def api_account_delete():
     # `_verify_password_locked` queries the directory. The old test (`if
     # local:`) only covered local accounts: for a directory account, the only
     # proof asked was the cookie, while deletion takes away the API keys and
-    # the LiteLLM envelope. The comment that justified this hole (« un compte
-    # d'annuaire n'a aucun mot de passe que le portail puisse vérifier ») was
+    # the LiteLLM envelope. The comment that justified this hole (« a directory
+    # account has no password the portal can check ») was
     # only true for SSO, where `_verify_password_locked` answers 400 by
     # itself. An account of unknown origin (`inconnu`) keeps the previous
     # behaviour: requiring a password nobody can verify would make leaving

@@ -62,7 +62,7 @@ ADMIN_EMAIL   = os.environ.get('ADMIN_EMAIL', '')
 # Admin dashboard URL (for the CTA of notification emails). If empty, the
 # « Open the Admin dashboard » button is not rendered in the HTML template.
 ADMIN_URL     = os.environ.get('ADMIN_URL', '')
-# Anti-spam window for « lancer une catégorie média » requests (seconds).
+# Anti-spam window for « launch a media category » requests (seconds).
 MEDIA_REQUEST_COOLDOWN_S = int(os.environ.get('MEDIA_REQUEST_COOLDOWN_S', '1800'))
 # Default account budget: 200 M tokens / week (2026-09-08, operator choice —
 # previously 0,002 « dollar-ish » inherited from a LiteLLM trial, then 60

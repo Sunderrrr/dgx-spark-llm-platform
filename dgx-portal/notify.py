@@ -143,7 +143,7 @@ def notify_discord(model_id, username, fullname, reason):
 
     The function returned nothing: the caller could thus not tell the user
     whether the admin had really been warned, and `bool(None)` announced
-    « non prévenu » even when the message had gone out. The three failure
+    « not warned » even when the message had gone out. The three failure
     cases (webhook not configured, network, error response) are False.
     """
     if not DISCORD_WH:

@@ -200,7 +200,7 @@ def _verify_password_locked(username: str, password: str):
     _login_fail(ukey)
     # 400 and NOT 401: the session is perfectly valid, it is the
     # CONFIRMATION that is wrong. The client interprets a 401 as « session
-    # expirée » and sends the user back to /login (`authFetch`): mistyping the
+    # expired » and sends the user back to /login (`authFetch`): mistyping the
     # password while adding a key thus LOGGED THEM OUT, instead of showing
     # « Mot de passe incorrect. » — observed in browser testing.
     return False, ({"error": "Mot de passe incorrect."}, 400)
@@ -261,7 +261,7 @@ def finish_registration(username: str, credential, nonce: str, label: str):
     # is globally unique, and a client-supplied identifier was enough to take
     # away ANOTHER account's row. The victim lost more than their key:
     # `user_security.enabled` stayed at 1 with no registered key, so every
-    # login ended in « aucune passkey » — a definitive lockout until admin
+    # login ended in « no passkey » — a definitive lockout until admin
     # intervention. The two other accesses to this table were already scoped;
     # this one was the only one that was not.
     db.execute("DELETE FROM webauthn_credentials WHERE username=? AND credential_id=?",

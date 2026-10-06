@@ -231,7 +231,7 @@ export function SettingsDialog({
 
   /** Sends a settings form and returns an actionable verdict.
    *
-   * Several actions of this dialog went out « à l'aveugle »: `void
+   * Several actions of this dialog went out « blindly »: `void
    * postForm(...)` for the theme, the language and the avatar, an `await
    * postFormJSON(...)` whose `ok` was ignored for the MCP toggle, a
    * `postForm` without status for the deletions. A refused preference thus
@@ -394,8 +394,8 @@ export function SettingsDialog({
 
   async function selectAvatar(avatarId: string) {
     const precedent = data?.avatar_id ?? null;
-    // `""` (« généré » choice) normalizes to `null`: it is how the rest of the
-    // application represents « aucun logo choisi », and thus the generated avatar.
+    // `""` (« generated » choice) normalizes to `null`: it is how the rest of the
+    // application represents « no logo chosen », and thus the generated avatar.
     const normalise = avatarId || null;
     setData((prev) => (prev ? { ...prev, avatar_id: normalise } : prev));
     if (await envoyerForm("/settings/avatar", { avatar_id: avatarId })) {

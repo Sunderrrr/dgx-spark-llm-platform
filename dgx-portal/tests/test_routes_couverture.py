@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Routes utilisateur sans AUCUN test — trouvées par le scan de couverture
-du 2026-10-03 (P1 : « zones utilisateur non protégées »).
+"""User routes with NO test at all — found by the 2026-10-03 coverage scan
+(P1: « zones utilisateur non protégées »).
 
-Cohérent avec la règle maison : ce qui casse pour un utilisateur doit casser
-un test AVANT de casser la production. Quatre familles :
-- `/skills` : CRUD complet de compétences + isolation par compte ;
-- `/playground/preview` : l'aperçu HTML « bac à sable » (sensible XSS) — un
-  script ne doit jamais sortir de son bac ;
-- `/internal/authcheck` : la porte du mode maintenance (forwardAuth de
-  Traefik) — son contrat exact, les deux branches ;
-- `/api/home` + `/api/modelhealth` : le schéma JSON que le tableau de bord
-  consomme (une clé qui disparaît = un écran vide, silencieusement).
+Consistent with the house rule: what breaks for a user must break a test
+BEFORE breaking production. Four families:
+- `/skills`: full CRUD of skills + per-account isolation;
+- `/playground/preview`: the sandbox HTML preview (XSS-sensitive) — a
+  script must never escape its sandbox;
+- `/internal/authcheck`: the maintenance-mode door (Traefik forwardAuth)
+  — its exact contract, both branches;
+- `/api/home` + `/api/modelhealth`: the JSON schema the dashboard
+  consumes (a missing key = a blank screen, silently).
 """
 import time
 import unittest
@@ -39,7 +39,7 @@ class SessionTest(unittest.TestCase):
 
 
 class CompetencesTest(SessionTest):
-    """CRUD de `/skills` — aucune mention dans tests/ avant ce fichier."""
+    """CRUD of `/skills` — no mention in tests/ before this file."""
 
     def _cree(self, c, nom='ztest-competence'):
         return self._post(c, '/skills', action='create', name=nom,
@@ -52,7 +52,7 @@ class CompetencesTest(SessionTest):
                 "SELECT name FROM skills WHERE username=? ORDER BY id", (username,))]
 
     def _cherche(self, noeud, cle):
-        """Trouve une clé où qu'elle soit nichée dans le payload."""
+        """Finds a key wherever it is nested in the payload."""
         if isinstance(noeud, dict):
             if cle in noeud:
                 return noeud[cle]
@@ -78,7 +78,7 @@ class CompetencesTest(SessionTest):
         r = self._cree(c)
         self.assertTrue(r.get_json().get('ok'), r.get_json())
         self.assertEqual(self._noms('alice'), ['ztest-competence'])
-        # Le compte la voit (payload /api/settings : skill_count + limits).
+        # The account sees it (/api/settings payload: skill_count + limits).
         params = c.get('/api/settings').get_json()
         self.assertEqual(self._cherche(params, 'skill_count'), 1)
         ident = self._ident('alice')
@@ -104,8 +104,8 @@ class CompetencesTest(SessionTest):
         self.assertIn('déjà', r.get_json().get('error', ''))
 
     def test_isolation_par_compte(self):
-        """Un autre compte ne voit ni ne supprime ma compétence (le DELETE
-        porte `WHERE username=?` — cette ligne le verrouille)."""
+        """Another account neither sees nor deletes my skill (the DELETE
+        carries `WHERE username=?` — this line locks it in)."""
         c_alice = self._client('alice')
         self._cree(c_alice)
         ident = self._ident('alice')
@@ -116,9 +116,9 @@ class CompetencesTest(SessionTest):
 
 
 class ApercuSandboxeTest(SessionTest):
-    """`/playground/preview` : du HTML fourni par le MODÈLE, servi à
-    l'utilisateur — la surface XSS de la plateforme. Le bac à sable est le
-    seul rempart : ces assertions le verrouillent."""
+    """`/playground/preview`: HTML supplied by the MODEL, served to the
+    user — the platform's XSS surface. The sandbox is the only rampart:
+    these assertions lock it in."""
 
     def test_apercu_est_servi_en_bac_a_sable(self):
         c = self._client()
@@ -141,8 +141,8 @@ class ApercuSandboxeTest(SessionTest):
 
 
 class AuthcheckMaintenanceTest(SessionTest):
-    """`/internal/authcheck` : la porte que Traefik interroge pour le mode
-    maintenance. Deux branches, deux contrats — aucun n'était testé."""
+    """`/internal/authcheck`: the door Traefik asks about for the maintenance
+    mode. Two branches, two contracts — neither was tested."""
 
     def setUp(self):
         from db import get_db, set_setting
@@ -194,9 +194,9 @@ class AuthcheckMaintenanceTest(SessionTest):
 
 
 class SchemaTableauDeBordTest(SessionTest):
-    """Le schéma JSON de `/api/modelhealth` et `/api/home` : le tableau de
-    bord lit ces clés directement — leur disparition ne lèverait qu'un écran
-    vide, silencieusement. Le moteur est simulé : on teste LE SCHÉMA."""
+    """The JSON schema of `/api/modelhealth` and `/api/home`: the dashboard
+    reads these keys directly — their disappearance would only raise a
+    blank screen, silently. The engine is stubbed: we test THE SCHEMA."""
 
     CLES_SANTE = ('running', 'tps', 'tps_moyen', 'tps_prefill', 'ttft',
                   'sessions', 'metrics')
@@ -219,10 +219,10 @@ class SchemaTableauDeBordTest(SessionTest):
 
 
 class MentionMemoirePartageeTest(unittest.TestCase):
-    """Point produit 2, option (a) : les erreurs des services médias portent la
-    mémoire réellement libre. Mesuré le 2026-10-03 : MiMo tient ~100 des
-    121,6 Go — « le service est arrêté » seul faisait croire qu'un clic
-    suffisait, alors qu'un sidecar DÉMARRÉ peut encore manquer de mémoire."""
+    """Product point 2, option (a): the media service errors carry the
+    really free memory. Measured 2026-10-03: MiMo holds ~100 of the
+    121.6 GiB — « le service est arrêté » alone made one believe a click
+    was enough, while a STARTED sidecar can still be short on memory."""
 
     def test_la_mention_porte_la_memoire_libre(self):
         from unittest import mock

@@ -5,7 +5,7 @@ only upstream server is a Gradio demo. So we expose the bare minimum ourselves
 for dgx-portal.
 
 Deliberate difference from the Chatterbox service: ONE multipart call (/clone)
-instead of « uploader la référence puis générer ». Chatterbox kept the
+instead of « upload the reference then generate ». Chatterbox kept the
 reference clip on disk without ever deleting it (a TTL purge had to be added);
 here the audio never leaves memory.
 """

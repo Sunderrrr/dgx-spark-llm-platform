@@ -62,12 +62,12 @@ function echapperHtml(s: string) {
  * answer come out alive (only the CSP stopped it). See the browser test.
  */
 export function rendreMath(formule: Formule | undefined): string {
-  // Un marqueur dont l'index ne vient PAS de `protegerMaths` (du texte modèle
-  // qui écho \uE0000\uE001, ou un index hors tableau) rendait `formules[n]`
-  // undefined : la fonction jetait dans le `try` puis de nouveau dans le
-  // `catch`, et l'exception cassait le rendu React — la conversation entière,
-  // rappelée à chaque rechargement puisqu'elle est persistée (audit
-  // 2026-10-06, F1). Null-safe désormais, et la sortie reste échappée.
+  // A marker whose index does NOT come from `protegerMaths` (model text
+  // echoing \uE0000\uE001, or an out-of-bounds index) made `formules[n]`
+  // undefined: the function threw in the `try` then again in the `catch`,
+  // and the exception broke the React rendering — the whole conversation,
+  // replayed at every reload since it is persisted (audit 2026-10-06, F1).
+  // Null-safe now, and the output stays escaped.
   const latex = String(formule?.latex ?? "");
   try {
     return katex.renderToString(latex, {
@@ -81,9 +81,9 @@ export function rendreMath(formule: Formule | undefined): string {
 /** Replaces each formula with a marker, and returns the kept LaTeX source. */
 export function protegerMaths(src: string): { texte: string; formules: Formule[] } {
   const formules: Formule[] = [];
-  // Les deux caractaires de remplacement privés ne sont PAS du texte légitime :
-  // un modèle qui les émet littéralement fabriquerait de faux marqueurs. On les
-  // retire avant de numéroter.
+  // The two private replacement characters are NOT legitimate text: a model
+  // emitting them literally would fabricate fake markers. We remove them
+  // before numbering.
   const texte = src.replace(/[\uE000\uE001]/g, "").replace(
     MOTIF,
     (tout: string, code?: string, affichage?: string, enLigne?: string, parenthese?: string) => {
@@ -102,8 +102,8 @@ export function pluginMaths(formules: Formule[]): MarkdownInlinePlugin {
     pattern: MOTIF_MARQUE,
     render: (match, key) => {
       const formule = formules[Number(match[1])];
-      // Hors tableau ou marqueur fabriqué : on rend le texte tel quel plutôt
-      // que de planter (voir rendreMath).
+      // Out of bounds or fabricated marker: we render the text as-is rather
+      // than crash (see rendreMath).
       if (!formule) return <span key={key}>{match[0]}</span>;
       return (
         <span key={key} className="cronos-inline-math"

@@ -4,15 +4,15 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { VStack } from "@astryxdesign/core/Stack";
 import { FilmIcon, PhotoIcon } from "@heroicons/react/24/outline";
 
-/** Le pavé « génération en cours » des pages Image et Vidéo (balayage
- * `.video-generating` de globals.css) : occupe la place exacte du média à
- * venir pendant le rendu, au lieu d'un spinner qui laisse le saut de mise en
- * page quand le résultat arrive.
+/** The « génération en cours » tile of the Image and Video pages (the
+ * `.video-generating` sweep of globals.css): it takes the exact place of
+ * the media to come during rendering, instead of a spinner that leaves the
+ * layout jump when the result arrives.
  *
- * Le même que dans ces deux pages, donc le même dans le playground quand
- * `generer_image` / `generer_video` tournent : une seule pièce à faire
- * bouger. L'ICÔNE dit quel média arrive (photo ou pellicule) — le reste est
- * la classe CSS, qui gère déjà `prefers-reduced-motion`. */
+ * The same one as in those two pages, hence the same one in the playground
+ * when `generer_image` / `generer_video` run: a single piece to keep
+ * moving. The ICON says which media is coming (photo or film strip) — the
+ * rest is the CSS class, which already handles `prefers-reduced-motion`. */
 export function GenerationPlaceholder({ media }: { media: "image" | "video" }) {
   return (
     <VStack

@@ -619,7 +619,7 @@ function savePinnedIds(ids: string[]) {
   try {
     localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
   } catch {
-    /* stockage indisponible (mode privé) : on ignore */
+    /* storage unavailable (private mode): we ignore it */
   }
 }
 
@@ -642,7 +642,7 @@ function saveSnippets(list: Snippet[]) {
   try {
     localStorage.setItem(SNIPPET_KEY, JSON.stringify(list));
   } catch {
-    /* stockage indisponible : on ignore */
+    /* storage unavailable (private mode): we ignore it */
   }
 }
 
@@ -682,7 +682,7 @@ function saveArtifactRenames(m: Record<string, string>) {
   try {
     localStorage.setItem(ARTIFACT_RENAME_KEY, JSON.stringify(m));
   } catch {
-    /* stockage indisponible : on ignore */
+    /* storage unavailable (private mode): we ignore it */
   }
 }
 function artifactRenameKey(convId: string | null, a: Artifact): string {
@@ -741,7 +741,7 @@ function enregistrerReglages(settings: Settings, provenance: Provenance) {
         : { system: settings.system, provenance };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, ...persona }));
   } catch {
-    /* stockage indisponible (mode privé) : on ignore */
+    /* storage unavailable (private mode): we ignore it */
   }
 }
 
@@ -833,8 +833,8 @@ function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => st
       // the condition was never true and an HTML page with no announced name
       // always came out as « fichier-2.html ».
       if (info?.ext === "html" && n === 1) title = "index.html";
-      // Nom de repli traduit : un fichier téléchargé ne doit pas garder un nom
-      // français en mode anglais.
+      // Translated fallback name: a downloaded file must not keep a French
+      // name in English mode.
       else title = info
         ? t("fichier-{n}.{ext}").replace("{n}", String(n + 1)).replace("{ext}", info.ext)
         : t("fichier-{n}.txt").replace("{n}", String(n + 1));
@@ -1295,16 +1295,17 @@ export default function PlaygroundPage() {
   useEffect(() => { messagesRef.current = messages; });
 
   // ── Thread auto-scroll during generation ───────────────────────────────────
-  // Suivre le bas du flux pendant qu'il pousse — et S'ARRÊTER dès que le
-  // lecteur remonte. Le mécanisme d'avant posait son écouteur au MONTAGE de
-  // la page (deps []) sur `.astryx-chat-layout` : or ChatLayout n'existe pas
-  // encore à ce moment-là — il ne s'affiche qu'à la première conversation
-  // (ternaire `isFirstEmpty`) — donc l'écouteur n'était JAMAIS posé,
-  // `suitLeBas` restait figé à true et l'épinglage ramenait en bas à CHAQUE
-  // rendu : « je ne peux plus monter quand il réfléchit ». Le hook maison
-  // (useStickToBottom, déjà en service pour le panneau live et les logs
-  // admin) s'attache par REF : il se pose quand l'élément apparaît, et se
-  // réarme sur la vraie distance au bas (48 px), pas sur un delta de scroll.
+  // Follow the bottom of the stream while it pushes — and STOP as soon as the
+  // reader scrolls up. The old mechanism attached its listener at page MOUNT
+  // (deps []) on `.astryx-chat-layout`: but ChatLayout does not exist yet at
+  // that point — it only shows up at the first conversation (the
+  // `isFirstEmpty` ternary) — so the listener was NEVER attached,
+  // `suitLeBas` stayed stuck at true and pinning pulled back to the bottom
+  // on EVERY render: « je ne peux plus monter quand il réfléchit ». The
+  // home-made hook (useStickToBottom, already in service for the live panel
+  // and the admin logs) attaches by REF: it lands when the element appears,
+  // and re-arms on the real distance to the bottom (48 px), not on a scroll
+  // delta.
   const dernier = messages[messages.length - 1];
   const fluxDep = `${dernier?.content?.length ?? 0}:${dernier?.reasoning?.length ?? 0}`;
   const {
@@ -1312,16 +1313,16 @@ export default function PlaygroundPage() {
     showButton: montrerDescendre,
     scrollToBottom: descendreToutEnBas,
   } = useStickToBottom(fluxDep, streaming);
-  // Le conteneur de défilement est la RACINE de ChatLayout, et elle seule.
-  // Cause racine du « la scrollbar ne marche pas » (2026-10-04) : on passait
-  // `scrollRef` à ChatLayout avec un ref JAMAIS rattaché à un élément —
-  // ChatLayout cesse alors d'être auto-défilant (`isSelfScrolling = !scrollRef`)
-  // et rend sa racine en `overflow: visible` : AUCUN conteneur de défilement
-  // n'existait dans la colonne de chat, ni la molette ni la barre ne faisaient
-  // quoi que ce soit (mesure : `scrollHeight` 1278 pour `clientHeight` 817 et
-  // `scrollTop` toujours 0). Ici `suitLeBasSetRef` EST le ref de rappel de la
-  // racine : il s'attache quand la conversation apparaît (ChatLayout n'existe
-  // pas sur la page vide), et sert au suivi du bas comme au bouton « Descendre ».
+  // The scroll container is the ROOT of ChatLayout, and it alone.
+  // Root cause of « la scrollbar ne marche pas » (2026-10-04): we passed
+  // `scrollRef` to ChatLayout with a ref NEVER attached to an element —
+  // ChatLayout then stops being self-scrolling (`isSelfScrolling = !scrollRef`)
+  // and renders its root as `overflow: visible`: NO scroll container existed
+  // in the chat column, neither the wheel nor the bar did anything (measured:
+  // `scrollHeight` 1278 for `clientHeight` 817 and `scrollTop` always 0).
+  // Here `suitLeBasSetRef` IS the root's callback ref: it attaches when the
+  // conversation appears (ChatLayout does not exist on the empty page), and
+  // it serves the bottom-following as well as the « Descendre » button.
 
   const updateQueue = (q: QueuedMsg[]) => {
     queuedRef.current = q;
@@ -1419,8 +1420,8 @@ export default function PlaygroundPage() {
     if (plein) { setPlein(false); return; }
     setArtifact(null);
     setLiveDocOpen(false);
-    // Un volet refermé le reste : la rédaction en cours ne doit pas le rouvrir
-    // derrière l'utilisateur (le ref sert au bilan de fin de flux).
+    // A closed panel stays closed: an in-progress draft must not reopen it
+    // behind the user (the ref serves the end-of-stream summary).
     liveDocOpenRef.current = false;
   };
   const openLiveDoc = () => { setLiveDocOpen(true); liveDocOpenRef.current = true; };
@@ -1784,7 +1785,7 @@ export default function PlaygroundPage() {
       };
       void persistConversation(csrf, item);
     } catch {
-      // silencieux : on garde le titre provisoire (début du prompt)
+      // silent: we keep the provisional title (start of the prompt)
     }
   }
 
@@ -2020,14 +2021,14 @@ export default function PlaygroundPage() {
     // New send: the reader wants to see the answer arrive, we rearm the tracking.
     descendreToutEnBas();   // on re-suit le bas quand on envoie
     // « quand un texte est lancé je veux garder la barre latérale, là il la fait
-    // disparaitre » : une rédaction de DOCUMENT s'affiche dans le panneau dès le
-    // premier mot, comme l'écriture d'un fichier de code le fait déjà — avant,
-    // `liveDocOpen` ne devenait vrai qu'au clic sur la carte du chat, et pendant
-    // toute la rédaction le panneau restait absent (ou figé sur le fichier
-    // précédent). L'état reste celui de la VOLONTÉ de l'utilisateur : « Fermer »
-    // pendant la rédaction le remet à faux et rien ne rouvre, la carte
-    // « Ouvrir le document en cours de rédaction » le remet à vrai. Sur
-    // téléphone il n'y a pas de panneau : le texte défile alors dans le chat.
+    // disparaitre »: a DOCUMENT draft shows up in the panel from the very first
+    // word, the way writing a code file already does — before, `liveDocOpen`
+    // only became true on a click on the chat card, and for the whole draft the
+    // panel stayed absent (or stuck on the previous file). The state remains
+    // that of the user's WILL: « Fermer » during the draft sets it back to false
+    // and nothing reopens it, the « Ouvrir le document en cours de rédaction »
+    // card sets it back to true. On phones there is no panel: the text then
+    // scrolls in the chat.
     const redactionDoc =
       isDocTask(nextMessages[nextMessages.length - 1]?.content ?? "") && !isNarrow;
     setLiveDocOpen(redactionDoc);
@@ -2274,7 +2275,7 @@ export default function PlaygroundPage() {
         }]);
         return;
       }
-      // Trop de reprises d'affilée : le bandeau et le bouton prennent le relais.
+      // Too many resumes in a row: the banner and the button take over.
     }
     reprisesRef.current = 0;
     setReprise(0);
@@ -3353,9 +3354,9 @@ export default function PlaygroundPage() {
                     <ChatMessageBubble
                       variant={m.role === "user" ? "filled" : "ghost"}
                       className={m.role === "user" ? "bulle-question" : undefined}
-                      /* Le nom du modèle au-dessus du contenu, comme LM Studio
-                         (« google/gemma-4-e4b » sous la question) : il dit QUI
-                         parle, et il marque le début de la réponse. */
+                      /* The model name above the content, like LM Studio
+                         (« google/gemma-4-e4b » under the question): it says WHO
+                         is speaking, and it marks the start of the answer. */
                       name={
                         m.role === "assistant" ? (
                           <Text type="supporting" color="secondary">{model}</Text>

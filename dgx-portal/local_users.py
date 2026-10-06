@@ -67,7 +67,7 @@ def _sync_local_user_budget(username, row):
     """Propagates the local account's effective quota to LiteLLM (create + update).
 
     Returns False if the envelope could NOT be written. The old version
-    swallowed the exception: the admin saw « compte créé » while the quota
+    swallowed the exception: the admin saw « account created » while the quota
     did not exist on the LiteLLM side, i.e. a de facto unlimited account. A
     quota failure is a security failure, it must surface to the caller.
     """

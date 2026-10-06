@@ -42,7 +42,7 @@ export function EmailConfig() {
   // False on server render as on first client render (so no hydration
   // mismatch), true right after mount: that is what allows SENDER_ADDRESS
   // to enter the DOM client-side only. Like the ThemeProvider for its local
-  // preferences, it is the « synchroniser depuis un système externe » case
+  // preferences, it is the « syncing from an external system » case
   // the rule targets — not a render cascade.
   const [monte, setMonte] = useState(false);
 

@@ -282,7 +282,7 @@ export function SecurityContent() {
   const otherSessions = sessions.filter((s) => !s.current);
   // Password source: stated by the server (`/api/whoami` then
   // `/api/account/sessions` as fallback). As long as we do not know, we do NOT
-  // display the form: the old `?? true` assumed « compte local » by default and
+  // display the form: the old `?? true` assumed « local account » by default and
   // therefore showed a password changer to an SSO account — the server
   // refused it afterwards, but only after the fact.
   const gestion = who?.password_managed_by ?? sess?.password_managed_by;

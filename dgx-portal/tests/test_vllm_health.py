@@ -171,7 +171,7 @@ class ContexteEffectifTest(unittest.TestCase):
         Measured on 2026-09-25 (Flash-Next): with `--ctx-size 1048576
         --parallel 4 --kv-unified --kv-unified-per-slot 262144` the engine
         serves 262144 per session — that is what it announces on /props. The
-        « unifie » rule above would have announced 1048576, five times the
+        « unified » rule above would have announced 1048576, five times the
         real prompt limit, discovered only at the failure of the request.
         """
         self.assertEqual(
@@ -437,7 +437,7 @@ class SlotsActifsTest(unittest.TestCase):
         self.assertEqual(a['total'], 4)
 
     def test_l_ingestion_du_prompt_est_sommee(self):
-        """« ou en est le prompt »: 23 000 of the 27 000 ingested tokens."""
+        """« where is the prompt »: 23 000 of the 27 000 ingested tokens."""
         a = self._activite(_SLOTS_OCCUPES)
         self.assertEqual(a['prompt_ingere'], 27000)
         self.assertEqual(a['prompt_traite'], 23000)
@@ -631,8 +631,8 @@ class DebitVivantTest(unittest.TestCase):
             self.assertAlmostEqual(stats.debit_decode_live(), 13.0, delta=0.5)
 
     def test_le_decodage_ne_divise_plus_par_le_temps_d_attente(self):
-        # 60 s de file + 10 s de decodage : l'age de la requete diluerait (0,86
-        # tok/s) ; le bon denominateur donne 6 tok/s.
+        # 60 s of queue + 10 s of decoding: the request age would dilute it
+        # (0.86 tok/s); the right denominator gives 6 tok/s.
         self._insere('a', 60, 70, decode_age_s=10)
         with mock.patch.object(stats, 'DB_PATH', self.chemin):
             self.assertAlmostEqual(stats.debit_decode_live(), 6.0, delta=0.2)

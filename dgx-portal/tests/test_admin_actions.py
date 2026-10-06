@@ -7,12 +7,12 @@ defects are locked in there, all verified by reading the code before the fix:
    `flash(...)` + `redirect(...)`. The flash is rendered by NO template (the
    UI is Next.js, `get_flashed_messages` exists nowhere in the repo) and the
    HTML body of the redirect made `res.json()` fail on the client, whose
-   `catch` concluded « action effectuée ». A refused model stop, a budget
+   `catch` concluded « action done ». A refused model stop, a budget
    not applied on LiteLLM or a model registration failure thus displayed as
    successes. The single contract is `{ok, error}` + honest status, and the
    doubt (`incertain`) is distinguished from the refusal.
 
-2. **Missing guardrails.** Editing an account had neither the « dernier
+2. **Missing guardrails.** Editing an account had neither the « last
    admin » guard nor the self-protection that deletion and blocking have:
    one POST was enough to cut one's own hand, and the account-state
    revalidation at every request makes the access loss immediate. The
@@ -44,7 +44,7 @@ MDP = 'MotDePasse123'
 
 
 class BaseAdmin(unittest.TestCase):
-    """Socle : deux admins locaux, un compte simple, un admin d'annuaire."""
+    """Fixture: two local admins, a plain account, a directory admin."""
 
     def setUp(self):
         portal.app.config['TESTING'] = True

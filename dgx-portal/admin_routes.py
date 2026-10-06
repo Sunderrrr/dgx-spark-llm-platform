@@ -311,7 +311,7 @@ def _etat_portail():
 def admin_platform():
     """State of the PLATFORM (disk, backup, incidents, served model).
 
-    Distinct from `/api/health`, which only answers « les services répondent-ils »:
+    Distinct from `/api/health`, which only answers « do the services respond »:
     here we answer the questions asked during an incident — is there space
     left, did last night's backup happen, which incidents has the
     monitor opened, how long has the model been running.
@@ -338,7 +338,7 @@ def launch_model():
     ok, motif, incertain = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
                                          cfg['engine'] or 'vllm')
     if ok:
-        # The « tel modele remplace tel autre » announcement no longer goes out
+        # The « model X replaces model Y » announcement no longer goes out
         # here but from _suivre_lancement, when the model is ACTUALLY served:
         # accepting is not serving, and announcing a model that will never start
         # is a lie visible by all users.
@@ -356,7 +356,7 @@ def launch_model():
     # JSON response, not a redirect: `act()` on the frontend side reads {ok, error}
     # and treats any NON-JSON response as a success (its own comment says so).
     # This route redirected, so a refused launch displayed as successful and
-    # the administrator saw « rien se passer ». Observed on 04/09: two
+    # the administrator saw « nothing happening ». Observed on 04/09: two
     # attempts refused with 400, no trace on screen.
     if ok:
         return _json_ok(f"Lancement de {name} accepté — chargement en cours.")
@@ -851,7 +851,7 @@ def api_admin_users():
         # authority, and it is the portal: as soon as a `local_users` row
         # exists, `auth.etat_compte` rules on it alone (`_local_user_is_admin`)
         # and rewrites `session['is_admin']` — whatever `last_source`. The Users
-        # page claimed the opposite (« l'annuaire gagne »): a local admin account
+        # page claimed the opposite (« the directory wins »): a local admin account
         # removed from `cn=adm_cronos` stayed admin in practice, with no signal
         # for the operator who had just done it. So we display what applies, and
         # the comment says the same thing as auth.py.
@@ -866,7 +866,7 @@ def api_admin_users():
         # via the directory (SSO/LDAP) is effectively managed by Authentik, even
         # if a historical local_users row still exists (edit actions remain
         # available because the row exists, but its rights/budget are delegated).
-        # A directory account stays « géré par l'annuaire » even if a
+        # A directory account stays « managed by the directory » even if a
         # historical local row remains; without a local row, the directory is
         # the only possible authority.
         managed_by = 'repertoire' if (mu is None or last_source in ('sso', 'ldap')) else 'local'
@@ -1036,7 +1036,7 @@ def admin_users_update(uid):
     # password or fixing its name rewrote the LiteLLM envelope from
     # local_users — which ERASED a grant in progress, since budget_grants only
     # lives on the LiteLLM side. The reaper then noticed the drift, concluded
-    # « l'admin est intervenu entre-temps » and deleted the row: the account
+    # « the admin stepped in meanwhile » and deleted the row: the account
     # lost its quota with nobody being warned.
     recharge = request.form.get('enabled') in ('1', 'true', 'on')
     if {'group', 'max_budget'} & set(request.form.keys()) or recharge:
@@ -1468,11 +1468,11 @@ def toggle_maintenance():
     sent = notify_maintenance_email(now_on, session.get('username', ''),
                                     session.get('fullname', ''))
     # The audit was missing on the toggle: yet it is the action that cuts
-    # access for everyone, and « qui a active la maintenance a 3 h du matin »
+    # access for everyone, and « who enabled the maintenance at 3 a.m. »
     # has until now had no answer in the database.
     log_audit(session.get('username'), 'maintenance',
               'activé' if now_on else 'désactivé')
-    # The « email non envoyé » flash was rendered by nobody: the SMTP warning
+    # The « email not sent » flash was rendered by nobody: the SMTP warning
     # documented as visible by the operator was not. It now goes out
     # in the JSON response, hence in the UI banner.
     avert = None
@@ -1617,7 +1617,7 @@ def approve_budget(req_id):
                      f"Budget accordé : +{amount_val:,.0f} tokens.".replace(',', ' '))
     # Granting a budget was NOT audited: yet it is the action with the richest
     # incident history on this machine (the 6,7e12 tokens typo),
-    # and « qui a augmente le quota de qui » must have an answer in the database.
+    # and « who raised whose quota » must have an answer in the database.
     log_audit(session.get('username'), 'budget.approve',
               f"{breq['username']} +{amount_val:.0f} tokens"
               + (f" (temporaire, retour à {grant['base_budget'] if grant else current_budget:.0f} "
@@ -1642,7 +1642,7 @@ def set_user_budget(username):
 
     0 is REFUSED. Measured on this instance: `user/update` with `max_budget: 0`
     does leave 0 in the database (LiteLLM does not interpret it as
-    « illimité »), so the account is really capped at zero tokens — a
+    « unlimited »), so the account is really capped at zero tokens — a
     « je mets 0 pour lever la limite » cuts access. Blocking has the same
     effect, reversible and with a recorded reason.
     """

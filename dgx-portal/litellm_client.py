@@ -236,7 +236,7 @@ def renommer_cle_litellm(key_value, nouvel_alias):
 # Brought over from app.py on 28/08. This removes the last patch:
 # sidecars.py called app._point_auto_model via a deferred import for lack of
 # a way to import it without a cycle. It now lives here, with the rest of
-# client LiteLLM, et sidecars l'importe normalement.
+# the LiteLLM client, and sidecars imports it normally.
 
 def _litellm_model_entry(name):
     """(id, full entry) of the LiteLLM entry carrying this model_name.
@@ -374,7 +374,7 @@ def _unregister_litellm_model(name):
     It returned NOTHING (and swallowed its exceptions): the caller announced
     « retiré de LiteLLM » without ever knowing whether it was true, and a
     LiteLLM entry without a catalog row is a routing that no screen allows
-    cleaning up anymore. Returning False = « je n'ai pas pu », for the caller
+    cleaning up anymore. Returning False = « I could not », for the caller
     to say so.
     """
     if not LITELLM_KEY:

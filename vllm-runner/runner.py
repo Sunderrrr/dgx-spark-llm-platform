@@ -961,6 +961,13 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
         "HOME": os.environ.get("HOME", "/root"),
         "HF_HOME": HF_HOME,
         "PYTHONUNBUFFERED": "1",
+        # FlashInfer ships its kernels in a companion package (`flashinfer-cubin`)
+        # whose version trails the Python one (0.6.13 vs 0.7.0.post1 — there is
+        # no 0.7 cubin on PyPI). Their version gate is checked at IMPORT and
+        # kills vLLM outright, while the kernels we use on GB10 are the CUTLASS
+        # paths, not those cubins. Bypass the check rather than pin a stale
+        # flashinfer-python (that dragged torch back to 2.10 and broke vLLM).
+        "FLASHINFER_DISABLE_VERSION_CHECK": "1",
         # DeepGEMM E8M0 breaks FP8 MoE on Blackwell/GB10 ("Unknown SF
         # transformation") and degrades accuracy (vLLM partially auto-disables
         # it) → we turn it off entirely, CUTLASS fallback.

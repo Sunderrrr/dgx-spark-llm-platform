@@ -19,6 +19,36 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **`qwen38-27b` — `orcarouter/Qwen3.8-27B-Uncensored-NVFP4`, served with the
+  DFlash 2 drafter and VISION** (« pour le paramètre je veux qu'il prenne les
+  images »). The target is the Uncensored 27B in NVFP4 (CutlassNvFp4 GEMM
+  verified in the engine log), the draft is `z-lab/Qwen3.8-27B-DFlash2`
+  (block-diffusion speculative decoding — its 48 CUDA graphs are captured at
+  load), and `--limit-mm-per-prompt {"image":8,"video":2}` declares the vision
+  the platform already knows how to use. Verified live: text answers in 0.8 s,
+  and a real image is read correctly (« Quelle est la couleur dominante ? » →
+  « Rouge »). The previously downloaded `Qwen/Qwen3.8-27B` (55.6 GB) was
+  **deleted** — the wrong target.
+
+### Changed
+
+- **vLLM 0.24.0 → 0.31.0** (the default binary). DFlash support is in it
+  (`@register_speculator("dflash")`), and the GB10 is properly recognised
+  (sm_121).
+
+### Fixed
+
+- **FlashInfer's version gate no longer kills vLLM.** Its kernels live in a
+  companion package (`flashinfer-cubin`) whose version trails the Python one
+  (0.6.13 vs 0.7.0.post1 — there is no 0.7 cubin on PyPI): the check runs at
+  IMPORT and aborted the engine outright. Aligning the packages is a trap —
+  `flashinfer-python==0.6.13` drags **torch back to 2.10** and breaks vLLM
+  entirely (measured). The runner now injects
+  `FLASHINFER_DISABLE_VERSION_CHECK=1` into the model's environment (its spawn
+  uses a minimal env, so a systemd variable never reached the process).
+
 ## [0.1.15] - 2026-10-06
 
 The Skills tab shows every skill there is — the thirteen defaults included.

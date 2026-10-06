@@ -646,6 +646,7 @@ const EN: Record<string, string> = {
   "Choisir un logo": "Choose a logo",
   "Retirer le logo": "Remove the logo",
   "Aucun logo : la favicon par défaut est utilisée.": "No logo: the default favicon is used.",
+  "Échec de l'enregistrement": "Could not save.",
   "Identité enregistrée.": "Identity saved.",
   "Logo trop lourd (2 Mo maximum).": "Logo too large (2 MB max).",
   "Enregistrement…": "Saving…",

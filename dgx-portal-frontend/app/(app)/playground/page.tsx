@@ -3,80 +3,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { useToast } from "@astryxdesign/core/Toast";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
-import { Card } from "@astryxdesign/core/Card";
-import { Toolbar } from "@astryxdesign/core/Toolbar";
-import { useResizable, ResizeHandle } from "@astryxdesign/core/Resizable";
+import { useResizable } from "@astryxdesign/core/Resizable";
 import { Heading } from "@astryxdesign/core/Heading";
-import { TextInput } from "@astryxdesign/core/TextInput";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
-import { AspectRatio } from "@astryxdesign/core/AspectRatio";
-import { Badge } from "@astryxdesign/core/Badge";
-import { Banner } from "@astryxdesign/core/Banner";
-import { Selector } from "@astryxdesign/core/Selector";
-// Wrapper that closes over the dependency's URL filter (see lib/markdown.tsx).
-import { MarkdownSur as Markdown } from "@/lib/markdown";
-import { ReasoningBlock } from "../_components/ReasoningBlock";
-import { CodeBlock } from "@astryxdesign/core/CodeBlock";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { Token } from "@astryxdesign/core/Token";
-import { Thumbnail } from "@astryxdesign/core/Thumbnail";
-import { Lightbox } from "@astryxdesign/core/Lightbox";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { ProgressBar } from "@astryxdesign/core/ProgressBar";
-import { ClickableCard } from "@astryxdesign/core/ClickableCard";
-import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import {
   ChatLayout,
   ChatMessageList,
-  ChatMessage,
-  ChatMessageBubble,
-  ChatMessageMetadata,
-  ChatComposer,
-  ChatComposerDrawer,
-  ChatComposerInput,
 } from "@astryxdesign/core/Chat";
-import StarSolidIcon from "@heroicons/react/24/solid/StarIcon";
 import {
-  PaperClipIcon,
-  Cog6ToothIcon,
-  ArrowDownTrayIcon,
-  ArrowDownIcon,
-  ClipboardDocumentIcon,
-  StarIcon,
-  BookmarkIcon,
-  LinkIcon,
-  ArrowPathIcon,
-  CheckIcon,
-  PencilIcon,
-  PlusIcon,
-  ClockIcon,
-  TrashIcon,
   SparklesIcon,
-  DocumentMagnifyingGlassIcon,
-  DocumentTextIcon,
-  XMarkIcon,
-  PaperAirplaneIcon,
-  ArrowUpIcon,
-  StopIcon,
-  KeyIcon,
-  ArrowsPointingOutIcon,
-  BoltIcon,
 } from "@heroicons/react/24/outline";
-import { useT, useLocale, tServeur } from "@/lib/i18n";
+import { useT, tServeur } from "@/lib/i18n";
 import { useWhoami } from "@/lib/whoami";
 import { useCsrf } from "@/lib/useCsrf";
 import { useSettingsDialog } from "@/lib/settings-dialog";
 import { useDictation } from "@/lib/useDictation";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { useStickToBottom } from "@/lib/useStickToBottom";
-import { DictateButton } from "../_components/DictateButton";
-import { GenerationPlaceholder } from "../_components/GenerationPlaceholder";
-import { BorderBeam } from "border-beam";
-import { VoiceBeam } from "voice-glow";
 import { useThemeMode } from "../../theme-provider";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
@@ -84,15 +30,36 @@ import { type EtapeWeb, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/
 // System notices (cronos_notice) are shared with the Support assistant,
 // which also runs on the user's key: see lib/notices.ts.
 import { texteNotice } from "@/lib/notices";
-import { copierTexte } from "@/lib/copier";
 import {
   convAsJson, convAsMarkdown, convTitleFallback, downloadText, type ExportConversation,
 } from "@/lib/export";
 // Pure model-output parsers, extracted for unit tests (tests/playground-parsers.test.ts).
+import { parseAsk, contenuCloture, openCodeFence } from "@/lib/playground-parsers";
+// Thread/artifact helpers shared with the extracted child components
+// (message bubbles, document panel): moved out verbatim, behaviour unchanged.
 import {
-  parseAsk, parseEdits, estBlocQuestions, contenuCloture, corpsDeSuite, recoller, openCodeFence,
-  reponseIncomplete,
-} from "@/lib/playground-parsers";
+  type Artifact,
+  type QueuedMsg,
+  type Snippet,
+  type Tab,
+  MAX_REPRISES_AUTO,
+  PROMPT_INTEGRAL,
+  PROMPT_REPRISE_COMPLET,
+  REPRISE_INSTRUCTION,
+  abandonDeclare,
+  docTitleFromContent,
+  estReprise,
+  fichierLaisseOuvert,
+  fichiersJusqua,
+  isDocTask,
+  mimePourLangage,
+  nomTelechargeable,
+  parseArtifacts,
+  slugify,
+  titleFromContext,
+  tourAvorte,
+  trimAfterAsk,
+} from "@/lib/playground-thread";
 
 import {
   fetchConversation,
@@ -101,13 +68,18 @@ import {
   removeConversation,
   migrateLegacyConversations,
 } from "@/lib/conversations";
-import { AskQuestion } from "./_components/AskQuestion";
-import { fmtK } from "./_components/ContextMeter";
-import { ContextRing } from "./_components/ContextRing";
-import { SettingsPanel } from "./_components/SettingsPanel";
-import { SkillsMenu } from "./_components/SkillsMenu";
+import { PlaygroundActions } from "./_components/PlaygroundActions";
+import { PlaygroundComposer } from "./_components/PlaygroundComposer";
+import { ContextDialog } from "./_components/ContextDialog";
+import { DocumentPanel, type DocumentPanelProps } from "./_components/DocumentPanel";
+import { HistoryDialog } from "./_components/HistoryDialog";
+import { SettingsOverlay } from "./_components/SettingsOverlay";
+import { SnippetsDialog } from "./_components/SnippetsDialog";
+import { SummaryDialog } from "./_components/SummaryDialog";
+import { DocumentPanelFullscreen } from "./_components/DocumentPanelFullscreen";
+import { ThreadMessage } from "./_components/ThreadMessage";
+import { ThreadTabs } from "./_components/ThreadTabs";
 import { SkillCreator } from "./_components/SkillCreator";
-import { ThinkingIndicator } from "../_components/ThinkingIndicator";
 import { BASE_SKILLS, type Skill, loadCustomSkills, saveCustomSkills, skillMatches } from "@/lib/skills";
 
 const DEFAULT_SETTINGS: Settings = {
@@ -256,16 +228,6 @@ function pourSauvegarde(msgs: ChatMsg[]) {
     Infinity, IMAGES_BUDGET_SAUVEGARDE);
 }
 
-// Something the assistant produced worth showing in the side panel (canvas/
-// artifact style) and copying in one click: a code "file" or a long "document"
-// (e.g. a rewritten/reformatted text).
-type Artifact =
-  | { kind: "code"; title: string; lang: string; content: string }
-  | { kind: "doc"; title: string; content: string };
-
-// Below this length a document-task answer is probably a clarifying question →
-// keep it inline rather than filing it as a document.
-const DOC_MIN_CHARS = 400;
 
 // Appended to the system prompt so the model can ask the user one or several
 // multiple-choice clarifying questions (rendered as selectable answers, submitted
@@ -318,293 +280,6 @@ const PLACEHOLDER_TEXTS = [
 // « / » commands that open the skill creator.
 const SLASH_CREATE_COMMANDS = ["skill-creator", "create", "new", "creer", "competence", "compétence"];
 
-/** Does the answer stop in the middle of a file?
- *
- * The token ceiling is not the only way to end up truncated: a model of
- * this size sometimes lets go in the middle of a large file and emits its end
- * of sequence mid-expression. The counter then says « terminé » while the
- * file is unusable, and nothing allowed a resume.
- */
-/** Is the script of this HTML page closed?
- *
- * Seen in production: the model writes `</script></body></html>` while a
- * brace remains open in the middle. The file looks finished — it does end with
- * `</html>` — but its JavaScript does not run at all (« Unexpected end of
- * input »), blank canvas, dead page. Checking the end tag is therefore not enough.
- *
- * We CANNOT rely on `new Function` to know this: the portal's CSP
- * (`script-src 'self' 'nonce-…'`, without `unsafe-eval`) forbids it in the browser,
- * and the thrown exception is then not even a SyntaxError. So we count the
- * blocks ourselves, skipping strings, templates, comments and regular
- * expression literals — otherwise the slightest brace in a text would skew
- * everything.
- */
-function profondeurFinale(code: string): number {
-  let i = 0, prof = 0;
-  const n = code.length;
-  // Stack of template literals `...${ ... }...`: inside a ${}, we are back in code.
-  const gabarits: number[] = [];
-  let precedent = "";                       // last significant character
-  const avantRegex = /[(,=:[!&|?{};+\-*%~^<>]/;
-  const motsAvantRegex = /(?:^|[^\w$])(?:return|typeof|instanceof|in|of|new|delete|void|do|else|case|yield|await)$/;
-  while (i < n) {
-    const c = code[i];
-    // — comments
-    if (c === "/" && code[i + 1] === "/") { while (i < n && code[i] !== "\n") i++; continue; }
-    if (c === "/" && code[i + 1] === "*") { i += 2; while (i < n && !(code[i] === "*" && code[i + 1] === "/")) i++; i += 2; continue; }
-    // — strings
-    if (c === "'" || c === '"') {
-      const q = c; i++;
-      while (i < n && code[i] !== q) { if (code[i] === "\\") i++; i++; }
-      i++; precedent = "x"; continue;
-    }
-    // — templates
-    if (c === "`") {
-      i++;
-      for (;;) {
-        if (i >= n) return 1;               // template never closed → truncated
-        if (code[i] === "\\") { i += 2; continue; }
-        if (code[i] === "`") { i++; break; }
-        if (code[i] === "$" && code[i + 1] === "{") { gabarits.push(prof); prof++; i += 2; break; }
-        i++;
-      }
-      precedent = "x"; continue;
-    }
-    // — regular expression literal
-    if (c === "/" && (precedent === "" || avantRegex.test(precedent)
-                      || motsAvantRegex.test(code.slice(Math.max(0, i - 12), i)))) {
-      i++;
-      let classe = false;
-      while (i < n) {
-        if (code[i] === "\\") { i += 2; continue; }
-        if (code[i] === "[") classe = true;
-        else if (code[i] === "]") classe = false;
-        else if (code[i] === "/" && !classe) { i++; break; }
-        else if (code[i] === "\n") break;   // not a regex after all
-        i++;
-      }
-      precedent = "x"; continue;
-    }
-    if (c === "{" || c === "(" || c === "[") prof++;
-    else if (c === "}" || c === ")" || c === "]") {
-      prof--;
-      // A brace closing a `${…}` drops back into the template.
-      if (gabarits.length && prof === gabarits[gabarits.length - 1]) {
-        gabarits.pop();
-        i++;
-        // back into the template until its backtick
-        for (;;) {
-          if (i >= n) return 1;
-          if (code[i] === "\\") { i += 2; continue; }
-          if (code[i] === "`") { i++; break; }
-          if (code[i] === "$" && code[i + 1] === "{") { gabarits.push(prof); prof++; i += 2; break; }
-          i++;
-        }
-        precedent = "x"; continue;
-      }
-    }
-    if (!/\s/.test(c)) precedent = c;
-    i++;
-  }
-  return prof;
-}
-
-const memoScript = new Map<string, boolean>();
-
-function scriptCasse(contenu: string): boolean {
-  const cache = memoScript.get(contenu);
-  if (cache !== undefined) return cache;
-  let casse = false;
-  for (const m of contenu.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
-    const attrs = m[1] || "";
-    if (/\bsrc\s*=/i.test(attrs)) continue;                       // external script
-    if (/type\s*=\s*["']?(?!text\/javascript|application\/javascript)[^"'\s>]+/i.test(attrs)) continue;
-    const code = m[2];
-    if (!code.trim()) continue;
-    // A block still open at the end = unusable file. We only report THIS
-    // direction: an excess of closers would more likely come from an imperfect
-    // reading on our side than from a real defect.
-    if (profondeurFinale(code) > 0) { casse = true; break; }
-  }
-  if (memoScript.size > 40) memoScript.clear();
-  memoScript.set(contenu, casse);
-  return casse;
-}
-
-/** What a web-search step displays, in plain words.
- *
- * The model spends several tens of seconds searching and reading before
- * answering. Without this feed, the wait is totally silent and nobody knows
- * what is going on — this was the first usage feedback we got on it.
- */
-function libelleEtapeWeb(
-  e: EtapeWeb,
-  t: (s: string) => string,
-): { texte: string; fini: boolean } {
-  const outil = e.outil;
-  switch (e.etape) {
-    case "recherche":
-      return { fini: false,
-        texte: `${outil} · ` + t("recherche « {q} »").replace("{q}", e.question ?? "") };
-    case "recherche_finie":
-      return { fini: true, texte: `${outil} · ` + (e.erreur
-        ? t("recherche impossible : {e}").replace("{e}", e.erreur)
-        : t("{n} résultat(s) pour « {q} »")
-            .replace("{n}", String(e.nombre ?? 0)).replace("{q}", e.question ?? "")) };
-    case "lecture":
-      return { fini: false,
-        texte: `${outil} · ` + t("lecture de {n} page(s)")
-          .replace("{n}", String((e.urls ?? []).length)) };
-    case "lecture_finie": {
-      const rates = (e.echecs ?? []).length;
-      return { fini: true, texte: `${outil} · ` + (e.erreur
-        ? t("lecture impossible : {e}").replace("{e}", e.erreur)
-        : t("{n} page(s) lue(s)").replace("{n}", String(e.lues ?? 0))
-          + (rates ? t(", {n} inaccessible(s)").replace("{n}", String(rates)) : "")) };
-    }
-    case "generation":
-      return { fini: false,
-        texte: `${outil} · ` + t("génération de l'image « {q} »")
-          .replace("{q}", e.question ?? "") };
-    case "generation_finie":
-      return { fini: true, texte: `${outil} · ` + (e.erreur
-        ? t("génération impossible : {e}").replace("{e}", e.erreur)
-        : t("{n} image(s) générée(s)").replace("{n}", String((e.images ?? []).length))) };
-    case "generation_video":
-      return { fini: false,
-        texte: `${outil} · ` + t("génération de la vidéo « {q} »")
-          .replace("{q}", e.question ?? "") };
-    case "generation_video_finie":
-      return { fini: true, texte: `${outil} · ` + (e.erreur
-        ? t("génération vidéo impossible : {e}").replace("{e}", e.erreur)
-        : t("{n} vidéo(s) générée(s)").replace("{n}", String((e.videos ?? []).length))) };
-    case "ocr":
-      return { fini: false,
-        texte: `${outil} · ` + t("lecture du document")
-          + (e.question ? ` « ${e.question} »` : "") };
-    case "ocr_finie":
-      return { fini: true, texte: `${outil} · ` + (e.erreur
-        ? t("lecture impossible : {e}").replace("{e}", e.erreur)
-        : t("{n} caractère(s) extraits").replace("{n}", String(e.caracteres ?? 0))) };
-    default:
-      return { texte: outil, fini: true };
-  }
-}
-
-/** Did the model announce something and then close its turn?
- *
- * Seen in production: « Bien sûr ! Quelques précisions pour bien t'aider : » — 13
- * tokens, then a normal model stop (the server log confirms a clean stop,
- * no network cut, no ceiling). The announced questions block never arrives and
- * the user is left with an introductory sentence all by itself.
- *
- * A WHOLE answer that ends with a colon, without the slightest code block,
- * is never a finished answer: it promises a continuation that never came.
- */
-function tourAvorte(m: ChatMsg | undefined): boolean {
-  if (!m || m.role !== "assistant") return false;
-  const t = m.content.trim();
-  // Beyond that, it is a real answer that happens to end with « : » (an introduced
-  // list, for example) — not an aborted turn.
-  if (!t || t.length > 400 || t.includes("```")) return false;
-  if (/[:：]$/.test(t)) return true;
-  // Same thing, in another form: the NAME of the announced file, then nothing.
-  // Measured on 2026-10-02 on MiMo: « `roles/nginx_reverse_proxy/tasks/main.yml` »
-  // — 8 tokens, normal model stop, and the expected Ansible role never arrives.
-  // Required: an extension starting with a letter, AND backticks or a
-  // directory — otherwise « 3.14 » or « google.com » would be redone in a loop.
-  const derniere = t.split("\n").pop()!.trim();
-  const nu = derniere.replace(/^`(.*)`$/, "$1");
-  const chemin = /^[\w.\/-]*[\w-]\.[A-Za-z][A-Za-z0-9]{0,7}$/.test(nu) || BARE_FILES.test(nu);
-  return chemin && (nu !== derniere || nu.includes("/"));
-}
-
-const PROMPT_REPRISE = "Continue exactement là où tu t'es arrêté";
-const PROMPT_REPRISE_COMPLET =
-  PROMPT_REPRISE + ", sans rien répéter et sans réintroduire ta réponse. "
-  + "Reprends au caractère suivant, et va jusqu'au bout du fichier.";
-const PROMPT_INTEGRAL =
-  "Tu viens d'abreger ce fichier alors que je l'ai demande complet. "
-  + "Reecris-le en ENTIER, de la premiere a la derniere ligne, sans aucune coupure, "
-  + "sans resume et sans « reste inchange ». Il n'y a aucune limite d'affichage.";
-const REPRISE_INSTRUCTION = `Your previous reply was cut off in the middle of a file. Output ONLY the missing remainder of that file, starting at the exact character where you stopped. Do not repeat anything already written, do not re-introduce, do not summarise, and do not use an edit block — just continue the raw content until the file is complete.`;
-
-/** Consecutive automatic resumes before handing back to the user. */
-// Raised from 3 to 10: a single large file takes about ten segments
-// (measured: 2 400 to 14 000 tokens per resume), and at 3 the chain still
-// handed back on an unfinished file. Still bounded: a resume
-// that loops without making progress must return to the user, not run forever.
-const MAX_REPRISES_AUTO = 10;
-
-/** Is this hidden message the resume request issued by « Continuer » ? */
-function estReprise(m: ChatMsg | undefined): boolean {
-  return !!m && m.role === "user" && !!m.hidden && m.content.startsWith(PROMPT_REPRISE);
-}
-
-/** Cuts what the model wrote AFTER its questions block.
- *
- * The instruction asks it to stop at the block, but it sometimes starts again
- * and generates up to the token ceiling (seen: 4096 for a ~150 question).
- * This text is not displayed — yet it ends up in the history
- * sent back to the model on the next turn, which then answers anything or
- * nothing. We keep the introduction and the block, we drop the rest.
- */
-function trimAfterAsk(content: string): string {
-  const i = content.indexOf("```ask");
-  if (i < 0) return content;
-  const close = content.indexOf("```", i + 6);
-  return close < 0 ? content : content.slice(0, close + 3);
-}
-
-// Whether the user's request is a "document" task (correct / rewrite / reformat /
-// draft / "make a document/report/note…"). Only then is the answer treated as a
-// document. Accent- and language-insensitive (FR + EN). Plain "explain"/"summarize"
-// stays inline.
-function isDocTask(prompt: string): boolean {
-  const p = prompt.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  // (a) Correction / rewrite / reformat tasks.
-  if (/(corrig|reformul|reecri|reecrire|redig|remet(s)? en forme|met(s)? en forme|mise en forme|orthograph|\brelis\b|relire|proofread|rewrite|re-?format|rephrase|\bcorrect\b|clean ?up|\bedit this\b|\bfix the\b)/.test(p)) return true;
-  // (b) "Produce a document / report / note / letter / …": a create verb near a doc noun.
-  if (/(fais|fait|faire|cree|creer|genere|generer|ecri|redig|prepar|make|create|write|draft|produce|compose|generate|prepare)[\s\S]{0,30}(document|rapport|report|\bnote\b|compte[- ]?rendu|fiche|guide|essai|essay|lettre|letter|courriel|e-?mail|\bmail\b|article|synthese|memo|dossier|cahier|resume)/.test(p)) return true;
-  return false;
-}
-
-// Turn an assistant answer into prose (chat) + artifacts (side panel).
-// Deterministic — no reliance on the model's own formatting:
-//  - Document task with a substantial answer → the WHOLE answer is ONE document
-//    artifact; the chat shows only a short line + a card (no duplication, no
-//    stray code-block cards for tables/ascii inside the document).
-//  - Otherwise → substantial fenced code blocks become file artifacts, the rest
-//    of the prose stays inline.
-// Name a generated document from its own content: the first Markdown heading,
-// else the first non-empty line, stripped of Markdown decoration. Returns
-// "Document" while a stream hasn't produced a usable title line yet.
-function docTitleFromContent(content: string): string {
-  const text = content.trim();
-  if (!text) return "Document";
-  const heading = text.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/m);
-  let raw = heading ? heading[1] : (text.split("\n").find((l) => l.trim().length > 0) ?? "");
-  raw = raw
-    .replace(/[*_`~#>]/g, "")          // md emphasis / fences / quotes / hashes
-    .replace(/^\s*[-•]+\s+/, "")       // bullet markers
-    .replace(/^\s*\d+[.)]\s+/, "")     // numbered markers
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!raw) return "Document";
-  return raw.length > 60 ? raw.slice(0, 57).trimEnd() + "…" : raw;
-}
-
-// A filesystem-safe slug for the download filename.
-function slugify(s: string): string {
-  const base = s
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-  return base || "document";
-}
-
 // Pinned (starred) conversations: a personal preference stored in the browser —
 // no backend migration, shared on this machine.
 const PINNED_KEY = "cronos.pinned.conversations";
@@ -628,8 +303,6 @@ function savePinnedIds(ids: string[]) {
 // `inlinePlugins` applies PER text node, and the parser splits text at
 // every backslash — so the formula was never recognized. Protecting
 // LaTeX now happens BEFORE the parser.
-// Snippets / reusable prompts, saved by the user (browser).
-type Snippet = { id: string; label: string; content: string };
 const SNIPPET_KEY = "cronos.snippets";
 function loadSnippets(): Snippet[] {
   try {
@@ -651,15 +324,6 @@ function saveSnippets(list: Snippet[]) {
 // tab); we only save/restore each tab's snapshot on
 // switch. Switching is disabled during a stream so as not to cut a
 // answer in progress.
-type Tab = {
-  id: string;
-  title: string;
-  currentId: string | null;
-  model: string;
-  settings: Settings;
-  attachments: Attachment[];
-  messages: ChatMsg[];
-};
 let tabSeq = 0;
 function newTabId() {
   tabSeq += 1;
@@ -745,422 +409,7 @@ function enregistrerReglages(settings: Settings, provenance: Provenance) {
   }
 }
 
-// Extensions recognized as FILES. Deliberately a closed list: without
-// it, « ansible.builtin.reboot » or « os_family['debian'] » would pass for
-// file names and produce absurd titles.
-const FILE_EXT = new RegExp(
-  "\\.(ya?ml|json|jsonc|toml|ini|cfg|conf|env|py|js|mjs|cjs|ts|tsx|jsx|sh|bash|zsh|" +
-  "go|rs|rb|php|java|kt|c|h|cpp|sql|html|css|scss|md|txt|log|xml|service|tf|gradle)$",
-  "i");
-const BARE_FILES = /^(Dockerfile|Makefile|Vagrantfile|Jenkinsfile|Procfile)$/i;
 
-/** File name announced right BEFORE a code block.
- *
- * A model almost always writes « ### 2. `tasks/main.yml` » then the block.
- * Without reading this context, artifacts were named « file 1 », « yaml · 2 »… —
- * cards one could no longer tell which file they belonged to,
- * while the prose just above did name the files.
- */
-function titleFromContext(before: string): string {
-  // Only look back to the PREVIOUS block: beyond that, we pick up
-  // comments written INSIDE the previous block (« # defaults/main.yml »)
-  // and name the current file with the previous one's name.
-  const finBlocPrecedent = before.lastIndexOf("```");
-  const zone = finBlocPrecedent >= 0 ? before.slice(finBlocPrecedent + 3) : before;
-  const tail = zone.slice(-300);
-  const candidats: string[] = [];
-  // 1) between backticks — the most reliable form
-  for (const m of tail.matchAll(/`([^`\n]{1,80})`/g)) candidats.push(m[1].trim());
-  // 2) otherwise a token that looks like a path
-  for (const m of tail.matchAll(/(?:^|[\s(*_"'>])([\w.-]+(?:\/[\w.-]+)*)(?=[\s:,)*_"'.]|$)/gm)) {
-    candidats.push(m[1].trim());
-  }
-  for (let i = candidats.length - 1; i >= 0; i--) {
-    const c = candidats[i].replace(/^[.\/]+/, "");
-    if (!c || c.length > 80) continue;
-    if (FILE_EXT.test(c) || BARE_FILES.test(c)) return c;
-  }
-  return "";
-}
-
-/** `t` is passed as a parameter (module function): the fallback title of
- *  unnamed artifacts follows the displayed language, including on download. */
-function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => string): { prose: string; artifacts: Artifact[] } {
-  const text = content.trim();
-  // A message containing a real code block is a FILE, never a
-  // document: taking it for a document returned the whole message — question
-  // included — under a .md name. It depended on `allowDoc`, hence on the
-  // PREVIOUS message, hence behavior that changed after an F5.
-  const aDuCode = /```[^\n`]*\n[\s\S]{120,}?```/.test(text) || /<!DOCTYPE html|<html[\s>]/i.test(text);
-  if (allowDoc && !aDuCode && text.length >= DOC_MIN_CHARS) {
-    return { prose: "", artifacts: [{ kind: "doc", title: docTitleFromContent(text), content: text }] };
-  }
-  const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
-  const artifacts: Artifact[] = [];
-  let prose = "";
-  let lastIndex = 0;
-  let m: RegExpExecArray | null;
-  let n = 0;
-  while ((m = fence.exec(content)) !== null) {
-    const body = m[2].replace(/\n$/, "");
-    const info = m[1].trim();
-    const first = info.split(/\s+/)[0] || "";
-    // ```ask and ```edit are PROTOCOL, never files. `edit` was not a
-    // problem as long as an unclosed block was not extracted; since we force-close
-    // fences, a truncated edit block came out as « fichier-2.txt ».
-    if (first === "edit" || estBlocQuestions(first, body)) continue;
-    let lang = first;
-    let title = "";
-    if (first.includes(".")) { title = first; lang = first.split(".").pop() || ""; }
-    const named = info.match(/(?:title|file|filename)=(\S+)/i);
-    if (named) title = named[1];
-    // The name announced in the prose just above beats a number.
-    if (!title) title = titleFromContext(content.slice(0, m.index));
-    // A block WHOSE FILE NAME IS ANNOUNCED is a file, even a short one: otherwise
-    // an Ansible role came out with two files as cards and the third — shorter —
-    // left in the chat, for the same thing. A short anonymous snippet
-    // however stays in the thread: it is an illustration, not a deliverable.
-    const substantial = !!title || body.length >= 200 || body.split("\n").length >= 6;
-    if (!substantial) continue;
-    n += 1;
-    // Fallback name: a real file name, not a label. « html · 1 » used to
-    // download as « html · 1.txt » — neither readable nor openable.
-    if (!title) {
-      const info = LANG_INFO[(lang || "").toLowerCase()];
-      // A lone HTML page is named index.html — that is what one expects of it,
-      // and it opens as is. Others keep a neutral numbered name.
-      // `n` was just incremented: the FIRST block has n === 1. With `n === 0`
-      // the condition was never true and an HTML page with no announced name
-      // always came out as « fichier-2.html ».
-      if (info?.ext === "html" && n === 1) title = "index.html";
-      // Translated fallback name: a downloaded file must not keep a French
-      // name in English mode.
-      else title = info
-        ? t("fichier-{n}.{ext}").replace("{n}", String(n + 1)).replace("{ext}", info.ext)
-        : t("fichier-{n}.txt").replace("{n}", String(n + 1));
-    }
-    artifacts.push({ kind: "code", title, lang: lang || "text", content: body });
-    prose += content.slice(lastIndex, m.index);
-    lastIndex = fence.lastIndex;
-  }
-  prose += content.slice(lastIndex);
-
-  // Safety net: an HTML document written WITHOUT a code block. The model often
-  // forgets the closing for a large file — then no file came out
-  // at all, so no card, no preview, no download. The user
-  // fell back on exporting the conversation (button since removed, it lent
-  // itself to confusion): hence a .md containing the question and the prose.
-  if (!artifacts.length) {
-    const html = content.match(/<!DOCTYPE html[\s\S]*?<\/html\s*>|<html[\s\S]*?<\/html\s*>/i);
-    if (html && html[0].length >= 200) {
-      const avant = content.slice(0, html.index ?? 0);
-      const titre = titleFromContext(avant) || "page.html";
-      artifacts.push({
-        kind: "code",
-        title: /\.html?$/i.test(titre) ? titre : "page.html",
-        lang: "html",
-        content: html[0],
-      });
-      return { prose: (avant + content.slice((html.index ?? 0) + html[0].length)).trim(), artifacts };
-    }
-  }
-  return { prose: prose.trim(), artifacts };
-}
-
-// Extension and content type per language. Without an extension, the browser adds
-// « .txt » from the MIME type: a file named « html · 1 » downloaded as
-// « html · 1.txt », unreadable and unopenable.
-const LANG_INFO: Record<string, { ext: string; mime: string }> = {
-  html: { ext: "html", mime: "text/html" },
-  htm: { ext: "html", mime: "text/html" },
-  css: { ext: "css", mime: "text/css" },
-  javascript: { ext: "js", mime: "text/javascript" },
-  js: { ext: "js", mime: "text/javascript" },
-  typescript: { ext: "ts", mime: "text/plain" },
-  ts: { ext: "ts", mime: "text/plain" },
-  tsx: { ext: "tsx", mime: "text/plain" },
-  jsx: { ext: "jsx", mime: "text/plain" },
-  json: { ext: "json", mime: "application/json" },
-  yaml: { ext: "yml", mime: "text/yaml" },
-  yml: { ext: "yml", mime: "text/yaml" },
-  toml: { ext: "toml", mime: "text/plain" },
-  python: { ext: "py", mime: "text/x-python" },
-  py: { ext: "py", mime: "text/x-python" },
-  bash: { ext: "sh", mime: "text/x-shellscript" },
-  sh: { ext: "sh", mime: "text/x-shellscript" },
-  shell: { ext: "sh", mime: "text/x-shellscript" },
-  sql: { ext: "sql", mime: "text/plain" },
-  xml: { ext: "xml", mime: "text/xml" },
-  markdown: { ext: "md", mime: "text/markdown" },
-  md: { ext: "md", mime: "text/markdown" },
-  go: { ext: "go", mime: "text/plain" },
-  rust: { ext: "rs", mime: "text/plain" },
-  rs: { ext: "rs", mime: "text/plain" },
-  java: { ext: "java", mime: "text/plain" },
-  c: { ext: "c", mime: "text/plain" },
-  cpp: { ext: "cpp", mime: "text/plain" },
-  php: { ext: "php", mime: "text/plain" },
-  ruby: { ext: "rb", mime: "text/plain" },
-};
-
-/** Actually downloadable name: no space nor « · », and always an extension
- *  consistent with the language. */
-function nomTelechargeable(titre: string, lang: string): string {
-  if (/\.[a-z0-9]{1,6}$/i.test(titre)) return titre;
-  const info = LANG_INFO[(lang || "").toLowerCase()];
-  const base = titre.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "fichier";
-  return info ? `${base}.${info.ext}` : `${base}.txt`;
-}
-
-function mimePourLangage(lang: string): string {
-  return LANG_INFO[(lang || "").toLowerCase()]?.mime ?? "text/plain";
-}
-
-/** Is this block a snippet of an already known file, rather than a version? */
-function estFragment(
-  ancien: { content: string; lang: string } | undefined,
-  nouveau: string,
-): boolean {
-  if (!ancien) return false;
-  // Deliberately conservative thresholds: we only reject an update if the
-  // known file is already substantial AND the new block is less than
-  // two thirds of it. A real rewrite that shortens a bit still passes.
-  return ancien.content.length > 800 && nouveau.length < ancien.content.length * 0.66;
-}
-
-// Title given for lack of a better one (« fichier-2.html »): the model did not
-// name its block. Both forms — French and English — exist, the name is
-// built in the displayed language (parseArtifacts receives t).
-const TITRE_GENERIQUE = /^(?:fichier|file)-\d+\.[a-z0-9]{1,6}$/i;
-
-/** The files for which THIS message contains only a snippet.
- *
- * Two forms, both seen in the wild:
- *  - the block carries the file name but is much shorter → named snippet;
- *  - the block is not named at all (« voici la partie corrigée ») while a
- *    much larger file of the same language already exists → anonymous snippet.
- */
-function fragmentsDuMessage(messages: ChatMsg[], index: number, t: (s: string) => string): string[] {
-  const m = messages[index];
-  if (!m || m.role !== "assistant") return [];
-  const avant = fichiersJusqua(messages, index - 1, t);
-  const noms: string[] = [];
-  for (const a of parseArtifacts(contenuCloture(m.content), false, t).artifacts) {
-    if (a.kind !== "code") continue;
-    if (estFragment(avant.get(a.title), a.content)) { noms.push(a.title); continue; }
-    if (!TITRE_GENERIQUE.test(a.title)) continue;
-    // Anonymous block: which known file of the same language could it belong to?
-    const candidat = [...avant.entries()]
-      .filter(([, f]) => f.lang === a.lang)
-      .find(([, f]) => estFragment(f, a.content));
-    if (candidat) noms.push(candidat[0]);
-  }
-  if (noms.length) return noms;
-
-  // Last case, the most frequent: a SHORT unnamed block (« voici la partie
-  // corrigée »). Too small to become a file, it stays in the thread — but
-  // the user, meanwhile, expected their fixed file. So we look at raw blocks,
-  // not only those promoted to files.
-  if (!avant.size) return [];
-  for (const f of m.content.matchAll(/```([^\n`]*)\n([\s\S]*?)```/g)) {
-    const lang = (f[1].trim().split(/\s+/)[0] || "").toLowerCase();
-    if (lang === "edit" || estBlocQuestions(lang, f[2])) continue;
-    const corps = f[2];
-    const candidat = [...avant.entries()].find(
-      ([, fic]) => (!lang || fic.lang.toLowerCase() === lang) && estFragment(fic, corps));
-    if (candidat) return [candidat[0]];
-  }
-  return [];
-}
-
-/** Current state of each file in the conversation, up to the `index` message.
- *
- * DERIVED from the thread, never stored: a file = its last complete version, to
- * which the subsequent edits are applied in order. Nothing to
- * synchronize, hence nothing that can go out of sync — reloading the
- * conversation rebuilds exactly the same state.
- */
-function fichiersJusqua(
-  messages: ChatMsg[],
-  index: number,
-  t: (s: string) => string,
-): Map<string, { content: string; lang: string }> {
-  const fichiers = new Map<string, { content: string; lang: string }>();
-  // The file left in the lurch by the previous message: a resume completes it
-  // instead of opening a second file with half of the content.
-  let inacheve: string | null = null;
-  for (let i = 0; i <= index && i < messages.length; i++) {
-    const m = messages[i];
-    if (m.role !== "assistant") continue;
-    // A resume only glues onto a file REALLY left open.
-    // Falling back to the last known file seemed prudent, but glued
-    // the continuation onto an already finished file: two </html>, unbalanced braces.
-    const cible = inacheve ? fichiers.get(inacheve) : undefined;
-    // A protocol block is NOT the file's continuation: the model answered
-    // « Continue » with a ```edit (seen in production). Gluing it would have
-    // injected JSON in the middle of the HTML — we treat it as a normal message.
-    const protocole = /```(?:edit|ask)\b/.test(m.content);
-    if (estReprise(messages[i - 1]) && !protocole && !cible) {
-      // Resume with nothing to complete (the file was already finished): its content
-      // is not a file. Making one produced the « fichier-2.txt » card
-      // filled with half a script.
-      inacheve = null;
-      continue;
-    }
-    if (cible && !protocole && estReprise(messages[i - 1])) {
-      const fusion: string = recoller(cible.content, corpsDeSuite(m.content));
-      fichiers.set(inacheve!, { ...cible, content: fusion });
-      // A resume can itself be cut. Its fence count says nothing
-      // (it starts in the middle of a block): it is the rebuilt file that
-      // decides whether it stays open — OR the token ceiling itself. The rebuilt
-      // file has no fences left, and `reponseIncomplete` then only
-      // recognizes an HTML without </html>: a Python script cut by the ceiling passed
-      // for finished, and the NEXT resume was dropped — the end of the file
-      // disappeared (measured on 2026-10-01 on MiMo: file stopped at `p_del`).
-      inacheve = m.truncated || reponseIncomplete(fusion) ? inacheve : null;
-      continue;
-    }
-    // A SINGLE parse per message (the old `fichierInacheve` re-parsed the same
-    // content just before): `fichiersJusqua` is called for every message on
-    // every render, so the duplicate cost quadratic per token received, and
-    // `fusionDuMessage`/`appliquerEdits` also call it twice per message.
-    const fences = m.content.match(/```/g);
-    const arts = parseArtifacts(contenuCloture(m.content), false, t).artifacts;
-    const dernierArt = arts[arts.length - 1];
-    // The file this message leaves unfinished, if any: odd fence count
-    // (unclosed block) and last code-type artifact.
-    inacheve = (fences && fences.length % 2 === 1 && dernierArt && dernierArt.kind === "code")
-      ? dernierArt.title : null;
-    for (const [rang, a] of arts.entries()) {
-      if (a.kind !== "code") continue;
-      // The block the cut left open is the version BEING written,
-      // not a snippet: without this, the resume glued onto the previous complete
-      // version. We still keep a floor, so that a stub of
-      // a few lines does not destroy a finished file.
-      const precedent = fichiers.get(a.title);
-      if (rang === arts.length - 1 && a.title === inacheve
-          && (!precedent || a.content.length >= precedent.content.length * 0.25)) {
-        fichiers.set(a.title, { content: a.content, lang: a.lang });
-        continue;
-      }
-      // A block MUCH shorter than an already known file of the same name is a
-      // SNIPPET (« voici la partie corrigée »), not a new version. Taking it
-      // for the file replaced 400 lines with 20, and the panel
-      // displayed this stub as if it were the file.
-      if (estFragment(fichiers.get(a.title), a.content)) continue;
-      fichiers.set(a.title, { content: a.content, lang: a.lang });
-    }
-    for (const e of parseEdits(m.content)) {
-      // The model may name « index.html » a file saved as
-      // « site/index.html »: we fall back to a suffix match.
-      const cle =
-        (fichiers.has(e.file) && e.file) ||
-        [...fichiers.keys()].find((k) => k === e.file || k.endsWith("/" + e.file) || e.file.endsWith("/" + k));
-      if (!cle) continue;
-      const cible = fichiers.get(cle)!;
-      if (!cible.content.includes(e.find)) continue;   // anchor not found: we invent nothing
-      fichiers.set(cle, { ...cible, content: cible.content.replace(e.find, e.replace) });
-    }
-  }
-  return fichiers;
-}
-
-/** The file a resume message just completed.
- *
- * This message only contains the end of the file: what must be shown is the
- * whole rebuilt file, not the half it carries.
- */
-function fusionDuMessage(messages: ChatMsg[], index: number, t: (s: string) => string): Artifact[] {
-  const m = messages[index];
-  if (!m || m.role !== "assistant" || !estReprise(messages[index - 1])) return [];
-  const avant = fichiersJusqua(messages, index - 1, t);
-  const apres = fichiersJusqua(messages, index, t);
-  const out: Artifact[] = [];
-  for (const [titre, f] of apres) {
-    const a = avant.get(titre);
-    if (a && a.content !== f.content) {
-      out.push({ kind: "code", title: titre, lang: f.lang, content: f.content });
-    }
-  }
-  return out;
-}
-
-/** Does this message leave a file unfinished, resumes included?
- *  (`t` only to pass through to fusionDuMessage: only the content matters here.) */
-function fichierLaisseOuvert(messages: ChatMsg[], index: number, t: (s: string) => string): boolean {
-  const m = messages[index];
-  if (!m || m.role !== "assistant") return false;
-  // A resume starts IN THE MIDDLE of a block: it has no opening fence, so
-  // its fence count is always odd. Trusting it restarted one resume after
-  // another while the file was closed. Only the rebuilt file decides.
-  if (estReprise(messages[index - 1])) {
-    const fusion = fusionDuMessage(messages, index, t);
-    return fusion.length ? fusion.some((f) => reponseIncomplete(f.content)) : false;
-  }
-  return reponseIncomplete(m.content);
-}
-
-/* The model that ADMITS it abbreviated.
- *
- * Case seen in prod on 22/08: « Le fichier est trop long pour être affiché en
- * entier ici », followed by a truncated file. Such a message can perfectly well
- * close its fence — the file then looks finished and fichierLaisseOuvert() sees
- * nothing, while the model itself just said content is missing.
- *
- * Each pattern is an explicit ADMISSION, never an ordinary phrasing: « version
- * simplifiée » or « pour résumer » are deliberately absent, they appear
- * in perfectly complete answers and would trigger resumes in a
- * loop (already experienced with proseIncomplete, which destroyed an entire
- * conversation in four resumes before being removed).
- */
-const ABANDON_DECLARE =
-  /trop\s+(?:long|volumineux|gros)[^.\n]{0,80}?(?:affich|ici\b|ce\s+message)/i;
-const ABANDON_DECLARE_ALT = [
-  /too\s+(?:long|large)[^.\n]{0,80}?(?:display|show\b|here\b|message)/i,
-  /je\s+ne\s+peux\s+pas\s+(?:l['’]?)?(?:affich|[ée]crire)[^.\n]{0,60}?(?:int[ée]gralit|en\s+entier)/i,
-  /(?:reste|suite)\s+du\s+(?:code|fichier)\s+(?:inchang|identique|omis)/i,
-  /rest\s+of\s+the\s+(?:code|file)[^.\n]{0,30}?unchanged/i,
-  /\.\.\.\s*\(\s*(?:suite|reste)/i,
-];
-
-function abandonDeclare(content: string): boolean {
-  // Only on a message that claims to deliver code: the same sentence in
-  // a prose answer signals nothing to resume.
-  if (!content.includes("```")) return false;
-  return ABANDON_DECLARE.test(content) || ABANDON_DECLARE_ALT.some((r) => r.test(content));
-}
-
-function messageIncomplet(messages: ChatMsg[], index: number, t: (s: string) => string): boolean {
-  const m = messages[index];
-  if (!m || m.role !== "assistant") return false;
-  return fichierLaisseOuvert(messages, index, t) || abandonDeclare(m.content);
-}
-
-
-/** The edits of a message, with the result and any failures. */
-function appliquerEdits(messages: ChatMsg[], index: number, t: (s: string) => string): {
-  fichiers: Artifact[];
-  echecs: string[];
-} {
-  const edits = parseEdits(messages[index]?.content ?? "");
-  if (!edits.length) return { fichiers: [], echecs: [] };
-  const avant = fichiersJusqua(messages, index - 1, t);
-  const apres = fichiersJusqua(messages, index, t);
-  const echecs: string[] = [];
-  const touches = new Map<string, Artifact>();
-  for (const e of edits) {
-    const cle =
-      (avant.has(e.file) && e.file) ||
-      [...avant.keys()].find((k) => k === e.file || k.endsWith("/" + e.file) || e.file.endsWith("/" + k));
-    if (!cle) { echecs.push(e.file || "?"); continue; }
-    if (!avant.get(cle)!.content.includes(e.find)) { echecs.push(cle); continue; }
-    const f = apres.get(cle)!;
-    touches.set(cle, { kind: "code", title: cle, lang: f.lang, content: f.content });
-  }
-  return { fichiers: [...touches.values()], echecs };
-}
-
-type QueuedMsg = { content: string; text: string; attachmentCount?: number; images?: string[]; ts: number };
 
 // Playground settings panel: target width, and safety margin to the
 // window edge (= --spacing-2). See toggleSettings for the clamping.
@@ -1169,7 +418,6 @@ const MARGE_PANNEAU_REGLAGES = 8;
 
 export default function PlaygroundPage() {
   const t = useT();
-  const numLocale = useLocale();
   // The composer's two effects (border beam, voice halo) paint
   // according to the background: we give them the APPLICATION mode, not `auto`,
   // because Astryx only sets `data-theme` for dark (see ThinkingIndicator).
@@ -1519,10 +767,10 @@ export default function PlaygroundPage() {
     if (!msgs.length) return convId;
     const title = (msgs.find((m) => m.role === "user")?.content || t("Conversation")).slice(0, 80);
     const item: Conversation = {
-      // eslint-disable-next-line react-hooks/purity
+       
       id: convId ?? String(Date.now()),
       title,
-      // eslint-disable-next-line react-hooks/purity
+       
       ts: Date.now(),
       model: activeModel,
       // `hidden` is part of the message: without it, an answer to questions
@@ -1719,7 +967,7 @@ export default function PlaygroundPage() {
   function saveSnippet() {
     const content = input.trim();
     if (!content) return;
-    // eslint-disable-next-line react-hooks/purity -- called from a handler
+     
     const snip: Snippet = { id: String(Date.now()), label: content.slice(0, 60), content };
     setSnippets((prev) => { const next = [...prev, snip]; saveSnippets(next); return next; });
   }
@@ -1779,7 +1027,7 @@ export default function PlaygroundPage() {
       setTabs((prev) => prev.map((t) => (t.id === tabId || t.currentId === convId ? { ...t, title, currentId: convId } : t)));
       const item: Conversation = {
         id: convId, title,
-        // eslint-disable-next-line react-hooks/purity -- handler async
+         
         ts: Date.now(), model: titleModel,
         messages: pourSauvegarde(msgs),
       };
@@ -2035,12 +1283,12 @@ export default function PlaygroundPage() {
     liveDocOpenRef.current = redactionDoc;
     const controller = new AbortController();
     abortRef.current = controller;
-    // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
+     
     const startTs = Date.now();
     const withPlaceholder = [...nextMessages, { role: "assistant", content: "", ts: startTs } as ChatMsg];
     setMessages(withPlaceholder);
 
-    // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
+     
     const t0 = performance.now();
     liveCharsRef.current = 0;
     liveStartRef.current = null;
@@ -2162,7 +1410,7 @@ export default function PlaygroundPage() {
       acc = t("Le modèle n'a renvoyé aucune réponse.");
     }
 
-    // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
+     
     const te = performance.now();
     const finalMessages = [...nextMessages];
     if (acc || reason) {
@@ -2270,7 +1518,7 @@ export default function PlaygroundPage() {
         const suite = laisseOuvert ? PROMPT_REPRISE_COMPLET : PROMPT_INTEGRAL;
         void runStream([...finalMessages, {
           role: "user", content: suite,
-          // eslint-disable-next-line react-hooks/purity -- called from a handler
+           
           ts: Date.now(), hidden: true,
         }]);
         return;
@@ -2318,7 +1566,7 @@ export default function PlaygroundPage() {
     // Mid-generation, the message goes to the queue (validated by the
     // « Envoyer » button of its bubble) instead of being silently lost.
     if (streaming) {
-      // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
+       
       updateQueue([...queuedRef.current, { content: full, text, attachmentCount, images, ts: Date.now() }]);
       setInput("");
       setAttachments([]);
@@ -2329,7 +1577,7 @@ export default function PlaygroundPage() {
       // everything that precedes it, we replace this message + the rest with the
       // new version.
       ...(editingIdx !== null ? messages.slice(0, editingIdx) : messages),
-      // eslint-disable-next-line react-hooks/purity -- send() only runs from a handler
+       
       { role: "user", content: full, ts: Date.now(), attachmentCount, images },
     ];
     setMessages(nextMessages);
@@ -2387,7 +1635,7 @@ export default function PlaygroundPage() {
     if (!t2) return;
     // `hidden`: the answers go to the model but are not shown in the chat — the
     // user's choices already live in the (now locked) question card.
-    // eslint-disable-next-line react-hooks/purity -- answer() only runs from a handler
+     
     const nextMessages: ChatMsg[] = [...messages, { role: "user", content: t2, ts: Date.now(), hidden: true }];
     setMessages(nextMessages);
     void runStream(nextMessages);
@@ -2403,7 +1651,7 @@ export default function PlaygroundPage() {
           + "avec la correction intégrée. Un seul bloc de code, aucun extrait, "
           + "aucune ligne omise, pas de « ... » ni de commentaire du type "
           + "« reste inchangé ».",
-        // eslint-disable-next-line react-hooks/purity -- called from a handler
+         
         ts: Date.now(), hidden: true },
     ];
     setMessages(nextMessages);
@@ -2417,7 +1665,7 @@ export default function PlaygroundPage() {
       ...messages,
       { role: "user",
         content: PROMPT_REPRISE_COMPLET,
-        // eslint-disable-next-line react-hooks/purity -- called from a handler
+         
         ts: Date.now(), hidden: true },
     ];
     setMessages(nextMessages);
@@ -2438,7 +1686,7 @@ export default function PlaygroundPage() {
           + "(« Unexpected end of input » — un bloc n'est jamais refermé), donc la page reste "
           + "vide. Renvoie le fichier COMPLET et corrigé, en entier, du début à la fin, "
           + "sous le même nom. Vérifie que chaque accolade et chaque parenthèse est refermée.",
-        // eslint-disable-next-line react-hooks/purity -- called from a handler
+         
         ts: Date.now(), hidden: true },
     ];
     setMessages(nextMessages);
@@ -2456,7 +1704,7 @@ export default function PlaygroundPage() {
           + "(vérifie notamment que les fonctions appelées existent bien dans la version "
           + "de bibliothèque que tu utilises) et renvoie le fichier COMPLET corrigé, "
           + "en entier, sous le même nom.",
-        // eslint-disable-next-line react-hooks/purity -- called from a handler
+         
         ts: Date.now(), hidden: true },
     ];
     setMessages(nextMessages);
@@ -2764,296 +2012,92 @@ export default function PlaygroundPage() {
   // conversation) and centered on the first message. Bottom bar: Attacher (left),
   // model selector + mic/send button (right).
   const composerNode = (
-    <VStack gap={2} padding={4}>
-      {/* Édition en place : la conversation reste affichée, on signale que le
-          prochain envoi rebranchera depuis le message édité, avec annulation. */}
-      {editingIdx !== null && (
-        <Banner
-          status="info"
-          title={t("Message en cours de modification")}
-          description={t("Le prochain envoi remplacera ce message et la suite de la conversation.")}
-          endContent={
-            <Button
-              label={t("Annuler")}
-              variant="ghost"
-              size="sm"
-              onClick={() => { setEditingIdx(null); setInput(""); }}
-            />
-          }
-        />
-      )}
-      {/* Sans clé API, le playground ne peut rien envoyer : il tourne sur
-          la clé de l'utilisateur. On le dit AVANT la première question,
-          avec le bouton qui mène pile au bon endroit — plutôt que de
-          laisser découvrir le problème par un message d'erreur. */}
-      {hasKey === false && (
-        <Banner
-          status="warning"
-          title={t("Aucune clé API")}
-          description={t(
-            "Le playground consomme le budget de ton compte via ta clé API. Crée-en une pour pouvoir discuter avec le modèle.",
-          )}
-          endContent={
-            <Button
-              label={t("Créer une clé API")}
-              variant="primary"
-              size="sm"
-              icon={<Icon icon={KeyIcon} size="sm" />}
-              onClick={() => openSettings("keys")}
-            />
-          }
-        />
-      )}
-      {/* File d'attente, juste au-dessus du compositeur : les messages
-          tapés pendant une génération attendent ici et partent seuls dès
-          qu'elle se termine. Les actions ne servent qu'à ne pas attendre
-          (Envoyer), reprendre le texte (Modifier) ou annuler (croix). */}
-      {queued.length > 0 && (
-        <Card
-          variant="muted"
-          padding={3}
-          style={{ border: "var(--border-width) solid var(--color-border-emphasized)" }}>
-          <VStack gap={2}>
-            <HStack hAlign="between" vAlign="center" gap={2}>
-              <HStack gap={2} vAlign="center">
-                <Text weight="semibold">{t("Messages en attente")}</Text>
-                <Badge label={String(queued.length)} variant="warning" />
-              </HStack>
-              <Icon icon={ClockIcon} size="sm" color="secondary" />
-            </HStack>
-            {queued.map((q, i) => (
-              <HStack key={`queued-${q.ts}-${i}`} gap={2} vAlign="center">
-                <StackItem size="fill">
-                  <Text maxLines={1} color="secondary">{q.text || q.content}</Text>
-                </StackItem>
-                <Button
-                  label={t("Modifier")}
-                  variant="ghost"
-                  size="sm"
-                  icon={<Icon icon={PencilIcon} size="sm" />}
-                  onClick={() => editQueued(i)}
-                />
-                <Button
-                  label={t("Envoyer")}
-                  variant="secondary"
-                  size="sm"
-                  icon={<Icon icon={PaperAirplaneIcon} size="sm" />}
-                  onClick={() => sendQueuedNow(i)}
-                />
-                <Button
-                  label={t("Retirer")}
-                  variant="ghost"
-                  size="sm"
-                  isIconOnly
-                  icon={<Icon icon={XMarkIcon} size="sm" />}
-                  onClick={() => discardQueued(i)}
-                />
-              </HStack>
-            ))}
-            <Text type="supporting" color="secondary">
-              {streaming
-                ? t("Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.")
-                : t("Envoi imminent…")}
-            </Text>
-          </VStack>
-        </Card>
-      )}
-      {/* Deux effets, deux signaux, UN SEUL hôte : la carte du composeur.
-          Le faisceau tourne pendant que le modèle travaille, le halo monte avec
-          la voix pendant la dictée — au repos, le composeur reste sobre, c'est
-          ce qui en fait des signaux et pas des ornements.
-
-          Les deux enveloppent la carte, et non le champ de saisie : c'est le
-          « chat input » de la librairie (sa lumière naît du bord bas de son
-          hôte) et le seul élément qui ait une surface et un rayon. Le champ,
-          lui, est un ruban transparent de 30 px sans rayon : la lumière y
-          flottait au-dessus du texte, avec les coins de 16 px du repli de la
-          librairie dans une carte qui en fait 28.
-
-          `borderRadius` est fourni à la main (cf. `rayonComposeur`) : la
-          détection automatique des deux librairies lit leur PREMIER ENFANT, et
-          celui de `border-beam` est sa propre balise `<style>` — 0 px, donc le
-          repli de 16 px, coins visiblement plus carrés que la carte. Le rognage
-          des deux enveloppes, lui, est réglé dans globals.css (`overflow: clip`
-          élargi de 8 px) : c'est lui, et non le `clip-path` des calques, qui
-          contient les lumières. */}
-      <BorderBeam active={streaming} theme={mode === "system" ? "auto" : mode}
-                  borderRadius={rayonComposeur}
-                  className="composeur-cadre">
-      <VoiceBeam stream={dictation.stream}
-                 active={dictation.isRecording || dictation.isTranscribing}
-                 processing={dictation.isTranscribing}
-                 theme={mode === "system" ? "auto" : mode}
-                 borderRadius={rayonComposeur}
-                 className="composeur-halo">
-      <ChatComposer
-        value={input}
-        onChange={handleInput}
-        onSubmit={send}
-        isStopShown={streaming}
-        onStop={stop}
-        placeholder={placeholderText}
-        input={
-          <ChatComposerInput value={input} onChange={handleInput} onSubmit={send}
-                                  // Pasting or dropping a file in the input:
-                                  // the component calls `onFiles` — the page did not
-                                  // pass it, so the event was swallowed without
-                                  // saying anything (unconditional `preventDefault()`).
-                                  onFiles={(files) => handleFiles(files as unknown as FileList)} />
-        }
-        drawer={
-          attachments.length ? (
-            <ChatComposerDrawer count={attachments.length} label={t("Fichiers joints")}>
-              <VStack gap={2}>
-                {attachments.some((f) => f.image) && (
-                  <HStack gap={1} wrap="wrap">
-                    {attachments.map((f, i) => f.image ? (
-                      <Thumbnail
-                        key={f.name + i}
-                        src={f.image}
-                        alt={f.name}
-                        label={f.name}
-                        onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                      />
-                    ) : null)}
-                  </HStack>
-                )}
-                {attachments.some((f) => !f.image) && (
-                  <HStack gap={1} wrap="wrap">
-                    {attachments.map((f, i) => f.image ? null : (
-                      <Token
-                        key={f.name + i}
-                        label={`${f.name} (${Math.ceil(f.content.length / 1024)} Ko)`}
-                        onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                      />
-                    ))}
-                  </HStack>
-                )}
-              </VStack>
-            </ChatComposerDrawer>
-          ) : undefined
-        }
-        footerActions={
-          <Button
-            label={modelVision[model] ? t("Joindre un fichier ou une image") : t("Joindre un fichier")}
-            variant="ghost"
-            size="sm"
-            isIconOnly
-            icon={<Icon icon={PaperClipIcon} size="sm" />}
-            onClick={() => fileInputRef.current?.click()}
-          />
-        }
-        sendActions={
-          <Selector
-            label={t("Modèle")}
-            isLabelHidden
-            size="sm"
-            placeholder={t("Aucun modèle actif")}
-            options={runningModels}
-            value={model}
-            onChange={(v) => setModel(v ?? "")}
-          />
-        }
-        sendButton={
-          streaming ? (
-            <Button
-              label={t("Arrêter")}
-              variant="primary"
-              isIconOnly
-              size="md"
-              icon={<Icon icon={StopIcon} size="sm" />}
-              onClick={stop}
-            />
-          ) : input.trim().length > 0 || attachments.length > 0 ? (
-            <Button
-              label={t("Envoyer")}
-              variant="primary"
-              isIconOnly
-              size="md"
-              icon={<Icon icon={ArrowUpIcon} size="sm" />}
-              onClick={() => send(input)}
-            />
-          ) : (
-            <DictateButton dictation={dictation} isDisabled={false} size="md" />
-          )
-        }
-      />
-      </VoiceBeam>
-      </BorderBeam>
-      {/* Menu des compétences : affiché dès qu'on tape « / » (pour en
-          sélectionner une) juste sous le champ. */}
-      {slashQuery !== null && (
-        <SkillsMenu
-          baseSkills={baseHits}
-          customSkills={customHits}
-          query={slashQuery}
-          selectedIndex={effectiveSel}
-          onSelect={selectSkill}
-          onCreate={() => openSkillCreator()}
-          onEdit={(s) => openSkillCreator(s)}
-          onDelete={deleteCustomSkill}
-        />
-      )}
-      {imageVue && (
-        <Lightbox
-          isOpen
-          onOpenChange={(o) => { if (!o) setImageVue(null); }}
-          media={imageVue.srcs.map((src, k) => ({ src, alt: t("Image jointe {n}").replace("{n}", String(k + 1)) }))}
-          index={imageVue.index}
-          onIndexChange={(index) => setImageVue((v) => (v ? { ...v, index } : v))}
-          hasZoom
-        />
-      )}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept={modelVision[model] ? `${ATTACH_ACCEPT},${IMAGE_ACCEPT}` : ATTACH_ACCEPT}
-        style={{ display: "none" }}
-        onChange={(e) => handleFiles(e.target.files)}
-      />
-      {/* L'indice de bas de composeur est réservé aux écrans LARGES. Mesuré au
-          gabarit 390 px : les boutons en occupent 236 des 326 px, il ne reste
-          que ~82 px au texte, qui s'y étale sur 5 lignes — la rangée monte à
-          100 px de haut, plus que la carte de saisie elle-même (94 px). Sur
-          bureau le même texte tient sur une ligne (338 px, rangée de 28 px).
-          Rien n'est perdu sur téléphone : le sélecteur de fichiers filtre déjà
-          par `accept`, et le budget du compte est affiché sur l'accueil.
-          `hAlign` suit, sinon la disparition du premier enfant ramènerait les
-          boutons à gauche. */}
-      <HStack hAlign={isNarrow ? "end" : "between"} gap={2}>
-        {!isNarrow && (
-          <Text type="supporting" color="secondary">{t("Fichiers texte uniquement. Les tokens comptent sur ton budget.")}</Text>
-        )}
-        <HStack gap={2}>
-          <Button
-            label={t("Snippets")}
-            variant="ghost"
-            size="sm"
-            icon={<Icon icon={BookmarkIcon} size="sm" />}
-            onClick={() => setSnippetsOpen(true)}
-          />
-          <Button
-            label={t("Compétences")}
-            variant="ghost"
-            size="sm"
-            icon={<Icon icon={BoltIcon} size="sm" />}
-            onClick={() => setSkillCreatorOpen(true)}
-          />
-          {messages.length > 0 && (
-            <Button
-              label={t("Fenêtre de contexte")}
-              variant="ghost"
-              size="sm"
-              isIconOnly
-              icon={<ContextRing used={used} max={max} />}
-              onClick={() => setCtxOpen(true)}
-            />
-          )}
-        </HStack>
-      </HStack>
-    </VStack>
+    <PlaygroundComposer
+      input={input}
+      handleInput={handleInput}
+      send={send}
+      stop={stop}
+      streaming={streaming}
+      editingIdx={editingIdx}
+      setEditingIdx={setEditingIdx}
+      setInput={setInput}
+      hasKey={hasKey}
+      openSettings={openSettings}
+      queued={queued}
+      editQueued={editQueued}
+      sendQueuedNow={sendQueuedNow}
+      discardQueued={discardQueued}
+      mode={mode}
+      dictation={dictation}
+      rayonComposeur={rayonComposeur}
+      placeholderText={placeholderText}
+      attachments={attachments}
+      setAttachments={setAttachments}
+      handleFiles={handleFiles}
+      fileInputRef={fileInputRef}
+      fileAccept={modelVision[model] ? `${ATTACH_ACCEPT},${IMAGE_ACCEPT}` : ATTACH_ACCEPT}
+      modelVision={modelVision}
+      model={model}
+      setModel={setModel}
+      runningModels={runningModels}
+      slashQuery={slashQuery}
+      baseHits={baseHits}
+      customHits={customHits}
+      effectiveSel={effectiveSel}
+      selectSkill={selectSkill}
+      openSkillCreator={openSkillCreator}
+      deleteCustomSkill={deleteCustomSkill}
+      imageVue={imageVue}
+      setImageVue={setImageVue}
+      isNarrow={isNarrow}
+      setSnippetsOpen={setSnippetsOpen}
+      setSkillCreatorOpen={setSkillCreatorOpen}
+      setCtxOpen={setCtxOpen}
+      used={used}
+      max={max}
+      hasMessages={messages.length > 0}
+    />
   );
+
+  // Everything the two document-panel layouts need, gathered in one plain
+  // object (same values as before the extraction — see the derivations above).
+  const panelProps: DocumentPanelProps = {
+    panelIsCode,
+    panelTitle,
+    panelSubtitle,
+    panelContent,
+    panelLang,
+    panelEstHtml,
+    panelDownloadName,
+    panelDownloadMime,
+    showLive,
+    canRenamePanel,
+    renamingArtifact,
+    renameArtifactValue,
+    setRenamingArtifact,
+    setRenameArtifactValue,
+    epingle,
+    commitArtifactRename,
+    htmlPreview,
+    setHtmlPreview,
+    previewUrl,
+    erreurApercu,
+    streaming,
+    corrigerErreur,
+    refApercu,
+    panelScrollRef,
+    onPanelScroll,
+    showPanelJump,
+    panelJumpDown,
+    onClose: () => {
+      setArtifact(null);
+      setLiveDocOpen(false);
+      liveDocOpenRef.current = false;
+    },
+    artifactResize,
+    setPlein,
+    fermerPanneau,
+  };
 
   return (
     <Layout
@@ -3066,80 +2110,22 @@ export default function PlaygroundPage() {
               <Heading level={2}>{t("Playground")}</Heading>
               <Text type="supporting" color="secondary">{t("Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.")}</Text>
             </VStack>
-            <HStack gap={2}>
-              <Button
-                label={t("Nouvelle conversation")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={PlusIcon} size="sm" />}
-                isIconOnly
-                // `newConversation` bails out while an answer is generating: a
-                // active button with a silent click made it look like a failure. We say
-                // the unavailability instead of ignoring it — like « Nouvel onglet ».
-                isDisabled={streaming}
-                onClick={newConversation}
-              />
-              <Button
-                label={t("Historique")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={ClockIcon} size="sm" />}
-                onClick={() => setHistoryOpen(true)}
-              />
-              <Button
-                label={t("Exporter")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-                isIconOnly
-                onClick={() => exportConversation({ title: convTitleFallback(messages, t("Conversation")), model, messages }, "md")}
-              />
-              <Button
-                label={shared ? t("Lien copié") : t("Partager")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={LinkIcon} size="sm" />}
-                isIconOnly
-                isDisabled={!currentId}
-                onClick={() => currentId && shareConversation(currentId)}
-              />
-              {/* Réglages : panneau ancré SOUS la roue crantée, en overlay
-                  fixe — la page ne bouge pas (voir toggleSettings). */}
-              <Button
-                label={t("Réglages")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-                isIconOnly
-                onClick={(e) => toggleSettings(e.currentTarget)}
-              />
-              <Button
-                label={t("Titrer automatiquement")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={SparklesIcon} size="sm" />}
-                isIconOnly
-                isDisabled={busyTitle || !currentId || !messages.length}
-                onClick={genTitle}
-              />
-              <Button
-                label={t("Résumer")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={DocumentTextIcon} size="sm" />}
-                isIconOnly
-                isDisabled={!messages.length}
-                onClick={genSummary}
-              />
-              <Button
-                label={t("Contexte")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={DocumentMagnifyingGlassIcon} size="sm" />}
-                isIconOnly
-                onClick={() => setCtxOpen(true)}
-              />
-            </HStack>
+            <PlaygroundActions
+              streaming={streaming}
+              newConversation={newConversation}
+              setHistoryOpen={setHistoryOpen}
+              exportConversation={exportConversation}
+              messages={messages}
+              model={model}
+              shared={shared}
+              currentId={currentId}
+              shareConversation={shareConversation}
+              toggleSettings={toggleSettings}
+              busyTitle={busyTitle}
+              genTitle={genTitle}
+              genSummary={genSummary}
+              setCtxOpen={setCtxOpen}
+            />
           </HStack>
         </LayoutHeader>
       }
@@ -3162,43 +2148,14 @@ export default function PlaygroundPage() {
           <HStack height="100%">
           <StackItem size="fill">
           <VStack height="100%">
-          {/* Onglets : plusieurs conversations ouvertes. Basculement désactivé
-              pendant un flux (l'état live est celui de la génération en cours). */}
-          {tabs.length > 0 && (
-            <VStack gap={1} padding={2}>
-              <HStack gap={2} vAlign="center" wrap="wrap">
-                {tabs.map((tb) => (
-                  <HStack key={tb.id} gap={1} vAlign="center">
-                    <Button
-                      label={tb.title || t("Nouvelle conversation")}
-                      variant={tb.id === activeTabId ? "secondary" : "ghost"}
-                      size="sm"
-                      onClick={() => switchTab(tb.id)}
-                    />
-                    <Button
-                      label={t("Fermer")}
-                      variant="ghost"
-                      size="sm"
-                      // Closing a tab mid-generation was refused
-                      // silently by `closeTab`: we show it.
-                      isDisabled={streaming}
-                      isIconOnly
-                      icon={<Icon icon={XMarkIcon} size="sm" />}
-                      onClick={() => closeTab(tb.id)}
-                    />
-                  </HStack>
-                ))}
-                <Button
-                  label={t("Nouvel onglet")}
-                  variant="ghost"
-                  size="sm"
-                  icon={<Icon icon={PlusIcon} size="sm" />}
-                  isDisabled={streaming}
-                  onClick={newTab}
-                />
-              </HStack>
-            </VStack>
-          )}
+          <ThreadTabs
+            tabs={tabs}
+            activeTabId={activeTabId}
+            streaming={streaming}
+            switchTab={switchTab}
+            closeTab={closeTab}
+            newTab={newTab}
+          />
           {isFirstEmpty ? (
             <StackItem size="fill">
               <VStack width="100%" height="100%" vAlign="center" hAlign="center" gap={4} padding={4}>
@@ -3233,567 +2190,42 @@ export default function PlaygroundPage() {
                   <Text type="supporting" color="secondary">{t("Écris ton message ci-dessous pour commencer.")}</Text>
                 </VStack>
               }>
-                {messages.map((m, i) => {
-                  // Hidden messages (e.g. answers submitted from a question card)
-                  // are sent to the model but never shown in the chat.
-                  if (m.hidden) return null;
-                  const isLast = i === messages.length - 1;
-                  const streamingThis = streaming && isLast;
-                  const isThinking = streamingThis && m.role === "assistant" && !m.content && !m.reasoning;
-                  const prevAttachments = messages[i - 1]?.attachmentCount;
-                  const canRegenerateThis = m.role === "assistant" && isLast && !streaming;
-                  // Once a reply finishes, detect artifacts (code files / long
-                  // documents) so they get a card in the bubble + the copyable panel.
-                  // A clarifying question the model asked (rendered as clickable
-                  // answers). Takes precedence over document/code artifact detection.
-                  const ask = m.role === "assistant" && !streamingThis ? parseAsk(m.content) : null;
-                  // FINISHED files become cards right away, without
-                  // waiting for the answer to end: parseArtifacts only extracts
-                  // blocks whose closing fence has arrived, the one in progress stays
-                  // aside (panel) and not in the chat. `allowDoc` stays reserved
-                  // for the end: flipping the whole message into a document mid-stream
-                  // would make the already read text disappear.
-                  // The file being written goes into the panel: we
-                  // remove it once and for all from the analyzed content, so it
-                  // comes out neither as a card nor in the chat prose.
-                  const contenuAffiche =
-                    streamingThis && isLast && liveCode ? m.content.slice(0, liveCode.start) : m.content;
-                  const arts = m.role === "assistant" && !ask
-                    ? parseArtifacts(
-                        // Never-closed fence: we close it, otherwise the
-                        // cut file stays as raw code in the middle of the bubble.
-                        streamingThis ? contenuAffiche : contenuCloture(contenuAffiche),
-                        !streamingThis && isDocTask(messages[i - 1]?.content ?? ""), t)
-                    : null;
-                  // Resume message: it only carries the end of the file.
-                  const suite = m.role === "assistant" && !streamingThis
-                    ? fusionDuMessage(messages, i, t)
-                    : [];
-                  // A message may contain only EDITS: the file
-                  // to show is then the result, not what the message contains.
-                  const modifs = m.role === "assistant" && !streamingThis
-                    ? appliquerEdits(messages, i, t)
-                    : { fichiers: [], echecs: [] };
-                  // The model returned « la partie corrigée » instead of the file.
-                  const fragments = m.role === "assistant" && !streamingThis
-                    ? fragmentsDuMessage(messages, i, t)
-                    : [];
-                  // The stream broke AFTER delivering text: this is not a
-                  // heuristic, it is an observed error. Without this flag, the
-                  // answer stopped mid-word with nothing to explain it.
-                  const coupeReseau = !!m.isError && m.role === "assistant"
-                    && m.content.length > 200 && !streamingThis;
-                  // A RESUME message only shows the rebuilt file. If
-                  // there was nothing to complete, it shows no file: its
-                  // content is the continuation of a text, not a deliverable. Without this test,
-                  // the « fichier-2.txt » card (half a script) came back into the thread.
-                  const estSuite = m.role === "assistant" && !streamingThis
-                    && estReprise(messages[i - 1]);
-                  const items = estSuite
-                    ? [...suite, ...modifs.fichiers]
-                    : [...(arts?.artifacts ?? []), ...modifs.fichiers];
-                  // A file ending with </html> but whose script does not compile
-                  // is unusable: nothing reported it, the page stayed blank.
-                  const fichierCasse = !streamingThis
-                    ? items.find((a) => a.kind === "code" && scriptCasse(a.content))
-                    : undefined;
-                  // When the model puts everything in the artifact and writes nothing
-                  // outside, still show a short line in the chat (not an empty bubble).
-                  const emptyMsg = items.some((a) => a.kind === "doc")
-                    ? t("Voici le document — ouvre-le pour le lire ou le copier.")
-                    : t("Voici le fichier — ouvre-le pour le copier.");
-                  // While streaming, hide a half-written ```ask block (raw JSON) —
-                  // the question UI appears once the block is complete.
-                  // What is left to display in the chat during the stream: neither the
-                  // half-written ```ask block (raw JSON), nor the file being
-                  // written — the latter is written in the panel.
-                  const streamingBody =
-                    streamingThis && m.content.includes("```ask")
-                      ? m.content.split("```ask")[0]
-                      : streamingThis && m.content.includes("```edit")
-                        ? m.content.split("```edit")[0]
-                        : contenuAffiche;
-                  // With a question card, show only the model's short intro
-                  // sentence (its first line) — never the questions/options text,
-                  // which live in the interactive card.
-                  const askIntro = ask ? (ask.prose.split("\n").map((s) => s.trim()).find(Boolean) ?? "").slice(0, 280) : "";
-                  // The ```edit block itself has no business in the chat: we
-                  // keep the explanation sentence, the result goes to a card.
-                  // The ```edit block is ALWAYS removed from the chat, even when it
-                  // could not be applied: it is protocol, not an answer. In
-                  // case of failure, the banner below explains it.
-                  const contientEdit = m.content.includes("```edit");
-                  // A resume has no prose to show: all its content is
-                  // the end of the file, already glued into the card.
-                  const proseHorsEdit = estSuite && suite.length
-                    ? ""
-                    : (arts?.prose ?? m.content)
-                        .replace(/```edit[\s\S]*?(?:```|$)/g, "")
-                        .trim();
-                  const bodyText = ask
-                    ? askIntro
-                    : items.length
-                      ? (proseHorsEdit || emptyMsg)
-                      : contientEdit && !streamingThis
-                        ? (proseHorsEdit || t("Modification proposée."))
-                        : streamingBody;
-                  // Block present but nothing applied and nothing reported: the parser
-                  // could not read it at all. Must be said, otherwise the answer looks empty.
-                  const editIllisible =
-                    contientEdit && !streamingThis && !modifs.fichiers.length && !modifs.echecs.length;
-                  // A document being streamed shows only a live-updating card in
-                  // the chat (its raw text streams into the side panel instead).
-                  // On a narrow screen there is no panel: the card would hide
-                  // the very text being written, so we let it flow in the chat —
-                  // exactly like a code file.
-                  const streamingDoc =
-                    streamingThis && m.role === "assistant" && m.content.length > 0 && !isNarrow &&
-                    isDocTask(messages[i - 1]?.content ?? "");
-                  return (
-                  <ChatMessage key={i} sender={m.role}>
-                    <ChatMessageBubble
-                      variant={m.role === "user" ? "filled" : "ghost"}
-                      className={m.role === "user" ? "bulle-question" : undefined}
-                      /* The model name above the content, like LM Studio
-                         (« google/gemma-4-e4b » under the question): it says WHO
-                         is speaking, and it marks the start of the answer. */
-                      name={
-                        m.role === "assistant" ? (
-                          <Text type="supporting" color="secondary">{model}</Text>
-                        ) : undefined
-                      }
-                      metadata={
-                        !isThinking && m.ts ? (
-                          <ChatMessageMetadata
-                            timestamp={<Timestamp value={m.ts} format="time" />}
-                            status={m.isError ? "error" : undefined}
-                            footer={
-                              m.role === "assistant" && (m.tokens || m.tokensPerSec || canRegenerateThis || (streamingThis && liveStats)) ? (
-                                <HStack gap={1} vAlign="center">
-                                  <Text type="supporting" color="secondary">
-                                    {streamingThis && liveStats
-                                      ? // During the stream: counted on the SSE deltas, hence « ~ ».
-                                        // An automatic resume is announced: otherwise the answer
-                                        // seems to come out of nowhere.
-                                        (reprise
-                                          ? `${t("Reprise automatique")} ${reprise}/${MAX_REPRISES_AUTO} · `
-                                          : "") + `~${liveStats.tokens} tokens · ${liveStats.tps} tok/s`
-                                      : [
-                                          m.tokens ? `${m.tokens} tokens` : null,
-                                          m.tokensPerSec ? `${m.tokensPerSec} tok/s` : null,
-                                          m.ttft ? `TTFT ${m.ttft}s` : null,
-                                        ]
-                                          .filter(Boolean)
-                                          .join(" · ")}
-                                  </Text>
-                                  <Button
-                                    label={t("Copier")}
-                                    variant="ghost"
-                                    size="sm"
-                                    isIconOnly
-                                    icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                    onClick={() => void copierTexte(m.content, () =>
-                                      showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))}
-                                  />
-                                  {canRegenerateThis && (
-                                    <Button
-                                      label={t("Régénérer")}
-                                      variant="ghost"
-                                      size="sm"
-                                      isIconOnly
-                                      icon={<Icon icon={ArrowPathIcon} size="sm" />}
-                                      onClick={regenerate}
-                                    />
-                                  )}
-                                </HStack>
-                              ) : m.role === "user" ? (
-                                <HStack gap={1} vAlign="center">
-                                  {editingIdx === i && (
-                                    <StatusDot variant="accent" isPulsing label={t("En modification")} />
-                                  )}
-                                  <Button
-                                    label={t("Éditer")}
-                                    variant="ghost"
-                                    size="sm"
-                                    isIconOnly
-                                    icon={<Icon icon={PencilIcon} size="sm" />}
-                                    onClick={() => editMessage(i)}
-                                  />
-                                  <Button
-                                    label={t("Copier")}
-                                    variant="ghost"
-                                    size="sm"
-                                    isIconOnly
-                                    icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                    onClick={() => void copierTexte(m.content, () =>
-                                      showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))}
-                                  />
-                                </HStack>
-                              ) : undefined
-                            }
-                          />
-                        ) : undefined
-                      }>
-                      {m.role === "user" && m.images?.length ? (
-                        <HStack gap={1} wrap="wrap">
-                          {m.images.map((src, k) => (
-                            <Thumbnail
-                              key={k}
-                              src={src}
-                              alt={t("Image jointe {n}").replace("{n}", String(k + 1))}
-                              label={t("Image jointe {n}").replace("{n}", String(k + 1))}
-                              onClick={() => setImageVue({ srcs: m.images ?? [], index: k })}
-                            />
-                          ))}
-                        </HStack>
-                      ) : null}
-                      {/* Outils en cours : on dit ce qui est cherché, lu ou
-                          généré, au fil de l'eau. Sans ça l'attente est muette
-                          pendant des dizaines de secondes. */}
-                      {streamingThis && etapesWeb.length > 0 && (
-                        <VStack gap={1} padding={2}>
-                          {etapesWeb.map((e, k) => {
-                            const l = libelleEtapeWeb(e, t);
-                            const media = e.etape === "generation" ? "image"
-                              : e.etape === "generation_video" ? "video" : null;
-                            return (
-                              <VStack key={`web-${k}`} gap={2}>
-                                <HStack gap={2} vAlign="center">
-                                  <StatusDot variant={l.fini ? "success" : "accent"}
-                                    isPulsing={!l.fini} label={l.texte} />
-                                  <Text type="supporting" color="secondary">{l.texte}</Text>
-                                </HStack>
-                                {/* Génération en cours : le MÊME pavé que la page
-                                    Image (carré, photo) ou Vidéo (16/9, pellicule),
-                                    pas un spinner — c'est lui qui occupera la place
-                                    du résultat. UN PAVÉ PAR IMAGE annoncée (le champ
-                                    `nombre` de l'étape) : quatre carrés gris pendant
-                                    quatre images en cuisson, c'est ce que la page
-                                    Image montre, et un seul carré se lisait comme
-                                    « rien ne se passe ». */}
-                                {!l.fini && media && (
-                                  <HStack gap={2} wrap="wrap">
-                                    {Array.from({ length: Math.max(1, Math.min(4, Number((e as { nombre?: number }).nombre) || 1)) })
-                                      .map((_, p) => (
-                                        <VStack key={`gen-${p}`} maxWidth={200} width="100%">
-                                          <AspectRatio ratio={media === "image" ? 1 : 16 / 9} fit="contain">
-                                            <GenerationPlaceholder media={media} />
-                                          </AspectRatio>
-                                        </VStack>
-                                      ))}
-                                  </HStack>
-                                )}
-                              </VStack>
-                            );
-                          })}
-                        </VStack>
-                      )}
-                      {isThinking && etapesWeb.length === 0 ? (
-                        <ThinkingIndicator fixedLabel={prevAttachments ? t("Lecture du fichier…") : undefined} />
-                      ) : streamingDoc ? (
-                        <ClickableCard
-                          label={t("Ouvrir le document en cours de rédaction")}
-                          variant="muted"
-                          onClick={openLiveDoc}>
-                          <HStack gap={2} vAlign="center">
-                            <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
-                            <VStack gap={0}>
-                              <Text weight="semibold">{docTitleFromContent(m.content)}</Text>
-                              <Text type="supporting" color="secondary">{t("Rédaction en cours…")}</Text>
-                            </VStack>
-                          </HStack>
-                        </ClickableCard>
-                      ) : ask ? (
-                        <VStack gap={2}>
-                          <ReasoningBlock reasoning={m.reasoning || ""} ms={m.reasoningMs} />
-                          {bodyText.trim() ? <Markdown>{bodyText}</Markdown> : null}
-                          <AskQuestion
-                            questions={ask.questions}
-                            answered={!isLast}
-                            onSubmit={(ans) =>
-                              answer(
-                                ask.questions.length === 1
-                                  ? ans[0]
-                                  : ask.questions.map((q, k) => `${q.question}\n→ ${ans[k]}`).join("\n\n"),
-                              )
-                            }
-                          />
-                        </VStack>
-                      ) : (
-                        <VStack gap={2}>
-                          <ReasoningBlock reasoning={m.reasoning || ""} ms={m.reasoningMs} streaming={streamingThis && !bodyText.trim()} />
-                          {/* Le fondu court du PREMIER mot de la réponse, quand
-                              il y a eu une réflexion : c'est le moment exact où
-                              le bloc de réflexion se replie — la frontière
-                              réflexion → écriture, enfin visible. */}
-                          <Markdown
-                            className={m.reasoning && bodyText.trim() ? "apparition-ecriture" : undefined}
-                            isStreaming={streamingThis}>
-                            {bodyText || " "}
-                          </Markdown>
-                          {/* Une modification dont l'ancre n'existe pas dans le
-                              fichier ne s'applique PAS. On le dit, plutôt que de
-                              laisser croire que la correction est faite. */}
-                          {fragments.length > 0 && (
-                            <Banner
-                              status="warning"
-                              title={t("Seul un extrait a été renvoyé")}
-                              description={t(
-                                "Le modèle a donné la partie corrigée, pas le fichier complet. La version précédente reste ouverte dans le volet.",
-                              )}
-                              endContent={
-                                isLast ? (
-                                  <Button
-                                    label={t("Demander le fichier complet")}
-                                    variant="primary"
-                                    size="sm"
-                                    isDisabled={streaming}
-                                    onClick={() => demanderFichierComplet(fragments[0])}
-                                  />
-                                ) : undefined
-                              }
-                            />
-                          )}
-                          {(modifs.echecs.length > 0 || editIllisible) && (
-                            <Banner
-                              status="warning"
-                              title={t("Modification non appliquée")}
-                              description={
-                                editIllisible
-                                  ? t("La modification proposée n'a pas pu être lue. Redemande la correction, ou demande le fichier complet.")
-                                  : t("Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.")
-                              }
-                            />
-                          )}
-                          {fichierCasse && (
-                            <Banner
-                              status="warning"
-                              title={t("Fichier inutilisable")}
-                              description={t("Le fichier se termine bien, mais son JavaScript ne compile pas — un bloc n'est jamais refermé, donc la page reste vide.")}
-                              endContent={
-                                isLast ? (
-                                  <Button
-                                    label={t("Refaire le fichier")}
-                                    variant="primary"
-                                    size="sm"
-                                    isDisabled={streaming}
-                                    onClick={() => refaireFichier(fichierCasse.title)}
-                                  />
-                                ) : undefined
-                              }
-                            />
-                          )}
-                          {/* Coupé par le plafond de tokens : sans ce message, la
-                              réponse s'arrête en plein mot et rien ne l'explique. */}
-                          {(m.truncated || coupeReseau || (!streamingThis && messageIncomplet(messages, i, t))) && !streamingThis && (
-                            <Banner
-                              status="warning"
-                              title={t("Réponse coupée")}
-                              description={
-                                m.truncated
-                                  ? t("Le plafond de tokens a été atteint. Reprends la suite, ou augmente « Max tokens » dans les réglages.")
-                                  : coupeReseau
-                                  ? t("La connexion s'est interrompue pendant la génération. Reprends la suite — ce qui est déjà écrit est conservé.")
-                                  : t("Le fichier s'arrête avant sa fin et les reprises automatiques n'ont pas suffi. Relance la suite, ou demande-lui de l'écrire en plusieurs fichiers.")
-                              }
-                              endContent={
-                                isLast ? (
-                                  <Button
-                                    label={t("Continuer")}
-                                    variant="primary"
-                                    size="sm"
-                                    isDisabled={streaming}
-                                    onClick={continuer}
-                                  />
-                                ) : undefined
-                              }
-                            />
-                          )}
-                          {items.map((a, ai) => (
-                            <ClickableCard
-                              key={ai}
-                              label={a.kind === "code" ? `${t("Ouvrir le fichier")} ${renamedTitle(a)}` : t("Ouvrir le document")}
-                              variant="muted"
-                              onClick={() => { setArtifact(a); setRenamingArtifact(false); }}>
-                              <HStack gap={2} vAlign="center">
-                                <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
-                                <VStack gap={0}>
-                                  <Text weight="semibold">{renamedTitle(a)}</Text>
-                                  <Text type="supporting" color="secondary">
-                                    {a.kind === "code" ? a.lang : t("Ouvrir et copier dans le volet")}
-                                  </Text>
-                                </VStack>
-                              </HStack>
-                            </ClickableCard>
-                          ))}
-                        </VStack>
-                      )}
-                    </ChatMessageBubble>
-                  </ChatMessage>
-                  );
-                })}
+                {messages.map((m, i) => (
+                  <ThreadMessage
+                    key={i}
+                    m={m}
+                    i={i}
+                    messages={messages}
+                    streaming={streaming}
+                    liveCode={liveCode}
+                    isNarrow={isNarrow}
+                    etapesWeb={etapesWeb}
+                    editingIdx={editingIdx}
+                    liveStats={liveStats}
+                    reprise={reprise}
+                    model={model}
+                    renamedTitle={renamedTitle}
+                    onAnswer={answer}
+                    onDemanderFichierComplet={demanderFichierComplet}
+                    onRefaireFichier={refaireFichier}
+                    onContinuer={continuer}
+                    onRegenerate={regenerate}
+                    onEditMessage={editMessage}
+                    onOpenImage={setImageVue}
+                    onOpenArtifact={(a) => {
+                      setArtifact(a);
+                      setRenamingArtifact(false);
+                    }}
+                    onOpenLiveDoc={openLiveDoc}
+                  />
+                ))}
             </ChatMessageList>
           </ChatLayout>
           )}
           </VStack>
           </StackItem>
           {(artifact || showLive || dernierFini) && !isNarrow && (
-            <>
-              <ResizeHandle
-                direction="horizontal"
-                resizable={artifactResize.props}
-                isReversed
-                pillPlacement="start"
-                hasDivider
-                label={t("Redimensionner le panneau")}
-              />
-              <Card
-                variant="transparent"
-                height="100%"
-                style={{ width: artifactResize.size, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
-                <Toolbar
-                  label={panelIsCode ? t("Fichier") : t("Document")}
-                  dividers={["bottom"]}
-                  startContent={
-                    renamingArtifact && canRenamePanel ? (
-                      <TextInput
-                        label={t("Nouveau nom du fichier")}
-                        value={renameArtifactValue}
-                        onChange={setRenameArtifactValue}
-                        onEnter={() => epingle && commitArtifactRename(epingle, renameArtifactValue)}
-                        isLabelHidden
-                        size="sm"
-                      />
-                    ) : (
-                      <HStack gap={2} vAlign="center">
-                        <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
-                        <VStack gap={0}>
-                          <Text weight="semibold">{panelTitle}</Text>
-                          {panelSubtitle ? <Text type="supporting" color="secondary">{panelSubtitle}</Text> : null}
-                        </VStack>
-                      </HStack>
-                    )
-                  }
-                  endContent={
-                    renamingArtifact && canRenamePanel ? (
-                      <>
-                        <Button label={t("Valider")} variant="ghost" size="sm" isIconOnly
-                          icon={<Icon icon={CheckIcon} size="sm" />}
-                          onClick={() => epingle && commitArtifactRename(epingle, renameArtifactValue)} />
-                        <Button label={t("Annuler")} variant="ghost" size="sm" isIconOnly
-                          icon={<Icon icon={XMarkIcon} size="sm" />}
-                          onClick={() => setRenamingArtifact(false)} />
-                      </>
-                    ) : (
-                      <>
-                        {canRenamePanel && (
-                          <Button label={t("Renommer ce fichier")} variant="ghost" size="sm" isIconOnly
-                            icon={<Icon icon={PencilIcon} size="sm" />}
-                            onClick={() => { setRenameArtifactValue(panelTitle); setRenamingArtifact(true); }} />
-                        )}
-                        <Button label={t("Plein écran")} variant="ghost" size="sm" isIconOnly
-                          icon={<Icon icon={ArrowsPointingOutIcon} size="sm" />}
-                          onClick={() => setPlein(true)} />
-                        <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly
-                          icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-                          onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
-                        <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
-                          icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                          onClick={() => void copierTexte(panelContent, () =>
-                            showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))} />
-                        <Button label={t("Fermer")} variant="ghost" size="sm" isIconOnly
-                          icon={<Icon icon={XMarkIcon} size="sm" />}
-                          onClick={() => { setArtifact(null); setLiveDocOpen(false); liveDocOpenRef.current = false; }} />
-                      </>
-                    )
-                  }
-                />
-                {panelEstHtml && (
-                  <HStack padding={3}>
-                    <SegmentedControl
-                      label={t("Affichage")}
-                      value={htmlPreview ? "apercu" : "code"}
-                      onChange={(v) => setHtmlPreview(v === "apercu")}
-                      size="sm">
-                      <SegmentedControlItem value="apercu" label={t("Aperçu")} />
-                      <SegmentedControlItem value="code" label={t("Code source")} />
-                    </SegmentedControl>
-                  </HStack>
-                )}
-                {panelEstHtml && htmlPreview && erreurApercu ? (
-                  /* The page opens but raises an error: it is well-formed and
-                     yet unusable. Without this banner, the user sees an
-                     empty or frozen preview with no idea why. */
-                  <HStack padding={3}>
-                    <Banner
-                      status="warning"
-                      title={t("La page ne s'exécute pas")}
-                      description={erreurApercu}
-                      endContent={
-                        <Button
-                          label={t("Corriger")}
-                          variant="primary"
-                          size="sm"
-                          isDisabled={streaming}
-                          onClick={() => corrigerErreur(panelTitle, erreurApercu)}
-                        />
-                      }
-                    />
-                  </HStack>
-                ) : null}
-                {panelEstHtml && htmlPreview ? (
-                  /* Model-generated page, in an ISOLATED iframe.
-                     `allow-scripts` WITHOUT `allow-same-origin`: the page can
-                     run — otherwise buttons and interactions are dead, which
-                     makes the preview useless for an interactive page — but its
-                     origin stays OPAQUE. It can therefore neither read session
-                     cookies, nor touch the DOM of the hosting page, nor
-                     call the API with the user's rights.
-                     `allow-same-origin` must NEVER be added here: combined with
-                     `allow-scripts`, it cancels the sandbox and a generated HTML
-                     would become code executed in our own origin. */
-                  <iframe
-                    ref={refApercu}
-                    title={panelTitle}
-                    src={previewUrl}
-                    sandbox="allow-scripts allow-forms allow-popups"
-                    style={{
-                      flex: 1,
-                      minHeight: 0,
-                      width: "100%",
-                      border: "none",
-                      background: "var(--color-background-surface)",
-                    }}
-                  />
-                ) : (
-                <VStack ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable style={{ flex: 1, minHeight: 0 }}>
-                  {/* Valeurs unifiées : pendant le flux il n'y a pas encore
-                      d'artefact épinglé, mais bien un fichier à afficher. */}
-                  {/* `flexShrink: 0` : SANS ça le CodeBlock rétrécit à la
-                      hauteur du corps (ses deux étages sont des items flex en
-                      `flex: 0 1 auto`, `min-height` résolu à 0 puisque leur
-                      `overflow` n'est pas `visible`) et son PROPRE conteneur
-                      interne devient le seul à défiler — le corps, lui, ne
-                      déborde jamais : le suivi automatique et le bouton
-                      « Descendre », branchés sur le corps, ne servaient à
-                      rien. Empêcher le rétrécissement rend au corps sa place
-                      d'UNIQUE conteneur de défilement, pour le code comme pour
-                      les documents (mesuré : corps 792/792 contre code interne
-                      5 716/720). */}
-                  {panelIsCode
-                    ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped container="section" style={{ flexShrink: 0 }} />
-                    : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
-                </VStack>
-                )}
-                {showPanelJump && (
-                  <HStack style={{ position: "absolute", bottom: "var(--spacing-4)", left: "50%", transform: "translateX(-50%)", zIndex: 2 }}>
-                    <Button label={t("Descendre")} variant="primary" size="sm"
-                      icon={<Icon icon={ArrowDownIcon} size="sm" />}
-                      onClick={panelJumpDown} />
-                  </HStack>
-                )}
-              </Card>
-            </>
+            <DocumentPanel {...panelProps} />
           )}
           {/* Historique : UNE ligne par conversation, corbeille au bout. Cliquer la
               ligne ouvre la conversation (et referme le panneau) ; cliquer la
@@ -3804,179 +2236,47 @@ export default function PlaygroundPage() {
               Pas de focus trap, pas d'élément caché à révéler : ouvrir ne
               déclenche AUCUN défilement — le chat reste exactement où il est. */}
           {isSettingsOpen && settingsPos && (
-            <HStack
-              className="playground-settings-panel"
-              style={{ position: "fixed", top: settingsPos.top, right: settingsPos.right,
-                       width: settingsPos.largeur, zIndex: 30 }}
-            >
-              <Card style={{ width: "100%" }}>
-                <VStack gap={2}>
-                  <HStack vAlign="center">
-                    <StackItem size="fill">
-                      <Text weight="semibold">{t("Réglages du playground")}</Text>
-                    </StackItem>
-                    <Button
-                      label={t("Fermer")}
-                      variant="ghost"
-                      size="sm"
-                      isIconOnly
-                      icon={<Icon icon={XMarkIcon} size="sm" />}
-                      onClick={() => setIsSettingsOpen(false)}
-                    />
-                  </HStack>
-                  <VStack gap={3} style={{ overflowY: "auto", maxHeight: settingsPos.maxH }} isScrollable>
-                    <SettingsPanel
-                      settings={settings}
-                      onChange={setSettings}
-                      contexte={modelLimits[model]}
-                      provenance={systemProvenance}
-                      onProvenance={setSystemProvenance}
-                    />
-                  </VStack>
-                </VStack>
-              </Card>
-            </HStack>
+            <SettingsOverlay
+              settingsPos={settingsPos}
+              setIsSettingsOpen={setIsSettingsOpen}
+              settings={settings}
+              setSettings={setSettings}
+              contexte={modelLimits[model]}
+              systemProvenance={systemProvenance}
+              setSystemProvenance={setSystemProvenance}
+            />
           )}
-          <Dialog isOpen={historyOpen} onOpenChange={(o) => { if (!o) setHistoryOpen(false); }} width={560}>
-            <DialogHeader
-              title={t("Historique")}
-              subtitle={`${conversations.length} ${t("conversations")}`}
-              hasDivider
-              onOpenChange={(o) => { if (!o) setHistoryOpen(false); }}
-            />
-            <VStack padding={3} gap={2}>
-              <TextInput
-                label={t("Rechercher")}
-                isLabelHidden
-                size="sm"
-                value={histQuery}
-                onChange={setHistQuery}
-                placeholder={t("Rechercher une conversation")}
-              />
-              <VStack gap={1} height={470} isScrollable>
-              {visibleConvs.length === 0 ? (
-                <Text color="secondary">{q ? t("Aucun résultat") : t("Aucune conversation")}</Text>
-              ) : (
-                visibleConvs.map((conv) =>
-                  renamingId === conv.id ? (
-                    <HStack key={conv.id} gap={2} vAlign="center">
-                      <StackItem size="fill">
-                        <TextInput
-                          label={t("Renommer")}
-                          isLabelHidden
-                          value={renameValue}
-                          onChange={setRenameValue}
-                          size="sm"
-                          hasAutoFocus
-                          onEnter={() => commitRename(conv.id)}
-                        />
-                      </StackItem>
-                      <Button label={t("Valider")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={CheckIcon} size="sm" />} onClick={() => commitRename(conv.id)} />
-                      <Button label={t("Annuler")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => setRenamingId(null)} />
-                    </HStack>
-                  ) : (
-                    <HStack key={conv.id} gap={2} vAlign="center">
-                      <StackItem size="fill">
-                        <ClickableCard
-                          label={conv.title || t("Conversation")}
-                          variant={conv.id === currentId ? "default" : "muted"}
-                          onClick={() => { selectConversation(conv); setHistoryOpen(false); }}>
-                          <VStack gap={0}>
-                            <Text maxLines={1}>{conv.title || t("Conversation")}</Text>
-                            <Text type="supporting" color="secondary">
-                              <Timestamp value={conv.ts} format="date_time" />
-                            </Text>
-                          </VStack>
-                        </ClickableCard>
-                      </StackItem>
-                      <Button
-                        label={pinnedIds.includes(conv.id) ? t("Désépingler") : t("Épingler")}
-                        variant="ghost"
-                        size="sm"
-                        isIconOnly
-                        icon={<Icon icon={pinnedIds.includes(conv.id) ? StarSolidIcon : StarIcon} size="sm" color={pinnedIds.includes(conv.id) ? "accent" : "inherit"} />}
-                        onClick={() => togglePinned(conv.id)}
-                      />
-                      <Button
-                        label={t("Renommer")}
-                        variant="ghost"
-                        size="sm"
-                        isIconOnly
-                        icon={<Icon icon={PencilIcon} size="sm" />}
-                        onClick={() => startRename(conv.id, conv.title)}
-                      />
-                      <Button
-                        label={t("Exporter JSON")}
-                        variant="ghost"
-                        size="sm"
-                        isIconOnly
-                        icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                        onClick={() => exportConversation({ title: conv.title || t("Conversation"), model: conv.model || "", messages: conv.messages }, "json")}
-                      />
-                      <Button
-                        label={t("Partager")}
-                        variant="ghost"
-                        size="sm"
-                        isIconOnly
-                        icon={<Icon icon={LinkIcon} size="sm" />}
-                        onClick={() => shareConversation(conv.id)}
-                      />
-                      <Button
-                        label={t("Supprimer")}
-                        variant="ghost"
-                        size="sm"
-                        isIconOnly
-                        icon={<Icon icon={TrashIcon} size="sm" />}
-                        onClick={() => deleteConversation(conv.id)}
-                      />
-                    </HStack>
-                  ),
-                )
-              )}
-              </VStack>
-            </VStack>
-          </Dialog>
-          <Dialog isOpen={snippetsOpen} onOpenChange={(o) => { if (!o) setSnippetsOpen(false); }} width={480}>
-            <DialogHeader
-              title={t("Snippets")}
-              subtitle={t("Prompts réutilisables")}
-              hasDivider
-              onOpenChange={(o) => { if (!o) setSnippetsOpen(false); }}
-            />
-            <VStack padding={3} gap={3}>
-              <Button
-                label={t("Enregistrer le prompt courant en snippet")}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={PlusIcon} size="sm" />}
-                isDisabled={!input.trim()}
-                onClick={saveSnippet}
-              />
-              {snippets.length === 0 ? (
-                <Text color="secondary">{t("Aucun snippet")}</Text>
-              ) : (
-                <VStack gap={1} height={380} isScrollable>
-                  {snippets.map((s) => (
-                    <HStack key={s.id} gap={2} vAlign="center">
-                      <StackItem size="fill">
-                        <ClickableCard label={s.label} variant="muted" onClick={() => insertSnippet(s.content)}>
-                          <Text maxLines={2} type="supporting" color="secondary">{s.content}</Text>
-                        </ClickableCard>
-                      </StackItem>
-                      <Button
-                        label={t("Supprimer")}
-                        variant="ghost"
-                        size="sm"
-                        isIconOnly
-                        icon={<Icon icon={TrashIcon} size="sm" />}
-                        onClick={() => deleteSnippet(s.id)}
-                      />
-                    </HStack>
-                  ))}
-                </VStack>
-              )}
-            </VStack>
-          </Dialog>
+          <HistoryDialog
+            historyOpen={historyOpen}
+            setHistoryOpen={setHistoryOpen}
+            count={conversations.length}
+            histQuery={histQuery}
+            setHistQuery={setHistQuery}
+            q={q}
+            visibleConvs={visibleConvs}
+            currentId={currentId}
+            renamingId={renamingId}
+            setRenamingId={setRenamingId}
+            renameValue={renameValue}
+            setRenameValue={setRenameValue}
+            commitRename={commitRename}
+            pinnedIds={pinnedIds}
+            togglePinned={togglePinned}
+            startRename={startRename}
+            selectConversation={selectConversation}
+            exportConversation={exportConversation}
+            shareConversation={shareConversation}
+            deleteConversation={deleteConversation}
+          />
+          <SnippetsDialog
+            snippetsOpen={snippetsOpen}
+            setSnippetsOpen={setSnippetsOpen}
+            input={input}
+            saveSnippet={saveSnippet}
+            snippets={snippets}
+            insertSnippet={insertSnippet}
+            deleteSnippet={deleteSnippet}
+          />
           <SkillCreator
             open={skillCreatorOpen}
             onOpenChange={(o) => {
@@ -3988,204 +2288,25 @@ export default function PlaygroundPage() {
             onSave={(s) => (editingSkill ? updateCustomSkill(s) : addCustomSkill(s))}
             onDelete={deleteCustomSkill}
           />
-          <Dialog isOpen={summaryOpen} onOpenChange={(o) => { if (!o) setSummaryOpen(false); }} width={560}>
-            <DialogHeader
-              title={t("Résumé de la conversation")}
-              hasDivider
-              onOpenChange={(o) => { if (!o) setSummaryOpen(false); }}
-            />
-            <VStack padding={3} gap={3}>
-              <Text type="supporting" color="secondary">{summary}</Text>
-              <HStack hAlign="end" gap={2}>
-                <Button
-                  label={t("Copier")}
-                  variant="secondary"
-                  size="sm"
-                  icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                  onClick={() => void copierTexte(summary, () =>
-                    showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))}
-                />
-              </HStack>
-            </VStack>
-          </Dialog>
-          <Dialog isOpen={ctxOpen} onOpenChange={(o) => { if (!o) setCtxOpen(false); }} width={560}>
-            <DialogHeader
-              title={t("Fenêtre de contexte")}
-              subtitle={t("Ce que le modèle voit pour ce tour")}
-              hasDivider
-              onOpenChange={(o) => { if (!o) setCtxOpen(false); }}
-            />
-            <VStack padding={3} gap={3}>
-              {/* Total + barre de progression */}
-              <VStack gap={1}>
-                <HStack hAlign="between" vAlign="center">
-                  <Text weight="semibold">{t("Utilisation du contexte")}</Text>
-                  <Text type="supporting" color="secondary" hasTabularNumbers>
-                    {fmtK(used)} / {fmtK(max)} {t("tokens")}
-                  </Text>
-                </HStack>
-                <ProgressBar label={t("Utilisation du contexte")} isLabelHidden value={used} max={max} variant={ctxLevel} />
-              </VStack>
-              {/* Entrée / sortie : le contexte n'est pas un bloc opaque — on sépare
-                  ce qui le remplit (prompt) de ce qui est produit (réponse). */}
-              <VStack gap={1}>
-                <Text type="label">{t("Entrée / sortie")}</Text>
-                <HStack gap={2} vAlign="center">
-                  <StatusDot variant="accent" label={t("Entrée (prompt)")} />
-                  <Text type="supporting">{t("Entrée (prompt)")}</Text>
-                  <StackItem size="fill" />
-                  <Text type="supporting" color="secondary" hasTabularNumbers>{inTokens.toLocaleString(numLocale)} {t("tokens")}</Text>
-                </HStack>
-                <HStack gap={2} vAlign="center">
-                  <StatusDot variant="neutral" label={t("Sortie (généré)")} />
-                  <Text type="supporting">{t("Sortie (généré)")}</Text>
-                  <StackItem size="fill" />
-                  <Text type="supporting" color="secondary" hasTabularNumbers>
-                    {ioTokens ? `${outTokens.toLocaleString(numLocale)} ${t("tokens")}` : "—"}
-                  </Text>
-                </HStack>
-              </VStack>
-              {/* Répartition : prompt système vs messages/fichiers */}
-              <VStack gap={1}>
-                <Text type="label">{t("Répartition")}</Text>
-                <HStack gap={2} vAlign="center">
-                  <StatusDot variant="accent" label={t("System prompt")} />
-                  <Text type="supporting">{t("System prompt")}</Text>
-                  <StackItem size="fill" />
-                  <Text type="supporting" color="secondary" hasTabularNumbers>{sysPct} %</Text>
-                </HStack>
-                <HStack gap={2} vAlign="center">
-                  <StatusDot variant="neutral" label={t("Messages")} />
-                  <Text type="supporting">{t("Messages")}</Text>
-                  <StackItem size="fill" />
-                  <Text type="supporting" color="secondary" hasTabularNumbers>{msgPct} %</Text>
-                </HStack>
-              </VStack>
-              <HStack gap={2} vAlign="center" wrap="wrap">
-                {model && <Badge label={model} variant="info" />}
-                <Badge label={`${Math.round((used / max) * 100)} % ${t("contexte")}`} variant="info" />
-                {convTokens > 0 && (
-                  <Badge label={`${convTokens.toLocaleString(numLocale)} ${t("tokens")}`} variant="info" />
-                )}
-              </HStack>
-              {settings.system ? (
-                <VStack gap={1}>
-                  <Text type="label">{t("System prompt")}</Text>
-                  <Text type="supporting" color="secondary">{settings.system}</Text>
-                </VStack>
-              ) : (
-                <Text type="supporting" color="secondary">{t("Aucun system prompt.")}</Text>
-              )}
-              <VStack gap={1}>
-                <Text type="label">{t("Fichiers joints")}</Text>
-                {attachments.length === 0 ? (
-                  <Text type="supporting" color="secondary">{t("Aucun fichier.")}</Text>
-                ) : (
-                  attachments.map((f, i) => (
-                    <HStack key={i} gap={2} vAlign="center">
-                      <Text type="supporting" color="secondary">{f.name}</Text>
-                      <Text type="supporting" color="secondary">
-                        {f.image ? t("image") : `${Math.ceil(f.content.length / 1024)} Ko`}
-                      </Text>
-                    </HStack>
-                  ))
-                )}
-              </VStack>
-              <Text type="supporting" color="secondary">
-                {t("La fenêtre de contexte = entrée (system prompt + messages + fichiers) + sortie (réponse générée). Le % indique la part utilisée.")}
-              </Text>
-            </VStack>
-          </Dialog>
+          <SummaryDialog summaryOpen={summaryOpen} setSummaryOpen={setSummaryOpen} summary={summary} />
+          <ContextDialog
+            ctxOpen={ctxOpen}
+            setCtxOpen={setCtxOpen}
+            used={used}
+            max={max}
+            inTokens={inTokens}
+            outTokens={outTokens}
+            hasIo={!!ioTokens}
+            sysPct={sysPct}
+            msgPct={msgPct}
+            ctxLevel={ctxLevel}
+            model={model}
+            convTokens={convTokens}
+            systemPrompt={settings.system}
+            attachments={attachments}
+          />
           {(artifact || showLive) && (isNarrow || plein) && (
-            <Dialog isOpen onOpenChange={(o) => { if (!o) fermerPanneau(); }} variant="fullscreen">
-              <Layout
-                header={
-                  <DialogHeader
-                    title={panelTitle}
-                    subtitle={panelSubtitle || undefined}
-                    hasDivider
-                    onOpenChange={(o) => { if (!o) fermerPanneau(); }}
-                    endContent={
-                      <HStack gap={1} vAlign="center">
-                        {renamingArtifact && canRenamePanel ? (
-                          <>
-                            <Button label={t("Valider")} variant="ghost" size="sm" isIconOnly
-                              icon={<Icon icon={CheckIcon} size="sm" />}
-                              onClick={() => epingle && commitArtifactRename(epingle, renameArtifactValue)} />
-                            <Button label={t("Annuler")} variant="ghost" size="sm" isIconOnly
-                              icon={<Icon icon={XMarkIcon} size="sm" />}
-                              onClick={() => setRenamingArtifact(false)} />
-                          </>
-                        ) : (
-                          <>
-                            {canRenamePanel && (
-                              <Button label={t("Renommer ce fichier")} variant="ghost" size="sm" isIconOnly
-                                icon={<Icon icon={PencilIcon} size="sm" />}
-                                onClick={() => { setRenameArtifactValue(panelTitle); setRenamingArtifact(true); }} />
-                            )}
-                            <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly
-                              icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-                              onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
-                            <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
-                              icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                              onClick={() => void copierTexte(panelContent, () =>
-                            showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))} />
-                          </>
-                        )}
-                      </HStack>
-                    }
-                    startContent={
-                      renamingArtifact && canRenamePanel ? (
-                        <TextInput
-                          label={t("Nouveau nom du fichier")}
-                          value={renameArtifactValue}
-                          onChange={setRenameArtifactValue}
-                          onEnter={() => epingle && commitArtifactRename(epingle, renameArtifactValue)}
-                          isLabelHidden
-                          size="sm"
-                        />
-                      ) : panelEstHtml ? (
-                        <SegmentedControl
-                          label={t("Affichage")}
-                          value={htmlPreview ? "apercu" : "code"}
-                          onChange={(v) => setHtmlPreview(v === "apercu")}
-                          size="sm">
-                          <SegmentedControlItem value="apercu" label={t("Aperçu")} />
-                          <SegmentedControlItem value="code" label={t("Code source")} />
-                        </SegmentedControl>
-                      ) : undefined
-                    }
-                  />
-                }
-                content={
-                  panelEstHtml && htmlPreview ? (
-                    /* Same isolated preview as in the panel: full screen is meant
-                       precisely to WATCH the page, not re-read its code. */
-                    <iframe
-                      ref={refApercu}
-                      title={panelTitle}
-                      src={previewUrl}
-                      sandbox="allow-scripts allow-forms allow-popups"
-                      style={{ width: "100%", height: "100%", border: "none",
-                               background: "var(--color-background-surface)" }}
-                    />
-                  ) : (
-                  <LayoutContent ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable>
-                    {panelIsCode
-                      ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped container="section" style={{ flexShrink: 0 }} />
-                      : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
-                  </LayoutContent>
-                  )
-                }
-              />
-              {showPanelJump && (
-                <HStack style={{ position: "fixed", bottom: "var(--spacing-6)", left: "50%", transform: "translateX(-50%)", zIndex: 10 }}>
-                  <Button label={t("Descendre")} variant="primary" size="sm"
-                    icon={<Icon icon={ArrowDownIcon} size="sm" />}
-                    onClick={panelJumpDown} />
-                </HStack>
-              )}
-            </Dialog>
+            <DocumentPanelFullscreen {...panelProps} />
           )}
           </HStack>
         </LayoutContent>

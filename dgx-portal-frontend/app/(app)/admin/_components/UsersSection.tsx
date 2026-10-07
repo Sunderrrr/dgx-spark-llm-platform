@@ -16,12 +16,7 @@ import { Pagination } from "@astryxdesign/core/Pagination";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { MoreMenu } from "@astryxdesign/core/MoreMenu";
 import type { DropdownMenuOption } from "@astryxdesign/core/DropdownMenu";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
-import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { Banner } from "@astryxdesign/core/Banner";
 import { useToast } from "@astryxdesign/core/Toast";
 import {
   PlusIcon,
@@ -38,76 +33,20 @@ import {
 import { getJSON, postFormJSON, sendJSON } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
 import { UserAvatar } from "@/lib/user-avatar";
-import { useIsNarrow } from "@/lib/useIsNarrow";
-import { SessionsList, type AccountSession } from "../../_components/SessionsList";
 
-type LocalUser = {
-  username: string;
-  fullname: string | null;
-  /** Chosen brand logo; `null` = avatar generated from the username. */
-  avatar_id: string | null;
-  sources: string[];
-  managed: boolean;
-  managed_by: "local" | "repertoire";
-  id: number | null;
-  group_name: string | null;
-  enabled: number;
-  is_admin: number | null;
-  effective_admin: boolean | null;
-  role_source: "local" | "sso" | "ldap" | "externe" | null;
-  last_source: string | null;
-  effective_budget: number | null;
-  unlimited: boolean;
-  spend: number;
-  key_count: number;
-  last_seen: string | null;
-  // Blocking / locking state returned by /api/admin/users. A blocked
-  // account is refused at login whatever its source (LDAP/SSO included);
-  // locked_minutes is the temporary lock after too many login failures.
-  blocked: boolean;
-  block_reason: string | null;
-  blocked_at: string | null;
-  locked_minutes: number;
-};
-type Group = { name: string; max_budget: number | null; is_admin: number };
-type UsersData = { users: LocalUser[]; groups: Group[]; default_budget: number };
-
-// Response of GET /admin/users/<username>/detail. Any field can be missing
-// (LDAP/SSO account without a local row, user without a LiteLLM profile…).
-type AdminUserDetail = {
-  ok?: boolean;
-  username?: string | null;
-  fullname?: string | null;
-  sources?: string | null; // "ldap,sso" — comma-separated string, not an array
-  last_source?: string | null;
-  last_seen?: string | null;
-  role?: string | null;
-  enabled?: boolean;
-  local?: boolean;
-  group?: string | null;
-  max_budget?: number | null;
-  effective_budget?: number | null;
-  blocked?: { blocked?: boolean; reason?: string | null; at?: string | null; by?: string | null } | null;
-  litellm?: { exists?: boolean; max_budget?: number | null; spend?: number | null; budget_duration?: string | null } | null;
-  keys?: { alias?: string | null; created_at?: string | null; spend?: number | null }[] | null;
-  memory_facts?: number | null;
-  conversations?: number | null;
-  sessions?: AccountSession[] | null;
-  audit?: { action?: string | null; detail?: string | null; by?: string | null; at?: string | null }[] | null;
-};
-
-// Category tags (auth source) → non-semantic color variants.
-const SOURCE_META: Record<string, { label: string; variant: "green" | "orange" | "blue" | "purple" | "neutral" }> = {
-  local: { label: "Local", variant: "green" },
-  ldap: { label: "LDAP", variant: "blue" },
-  sso: { label: "SSO", variant: "purple" },
-  externe: { label: "Externe", variant: "neutral" },
-};
-
-const BOOL_OPTS = (t: (s: string) => string) => [
-  { label: t("Non"), value: "0" },
-  { label: t("Oui"), value: "1" },
-];
+import {
+  SOURCE_META,
+  type AdminUserDetail,
+  type LocalUser,
+  type UsersData,
+} from "./users/shared";
+import { UserCreateDialog } from "./users/UserCreateDialog";
+import { GroupCreateDialog } from "./users/GroupCreateDialog";
+import { PasswordResetDialog } from "./users/PasswordResetDialog";
+import { BlockAccountDialog } from "./users/BlockAccountDialog";
+import { DeleteAccountDialog } from "./users/DeleteAccountDialog";
+import { PurgeAccountDialog } from "./users/PurgeAccountDialog";
+import { UserDetailDialog } from "./users/UserDetailDialog";
 
 // Pagination of the users table (client-side).
 const PAGE_SIZE = 10;
@@ -129,7 +68,6 @@ function Tile({ icon, value, label, locale }: { icon: typeof UsersIcon; value: n
 
 export function UsersSection({ csrf }: { csrf: string }) {
   const t = useT();
-  const isNarrow = useIsNarrow();
   const showToast = useToast();
   const numLocale = useLocale();
   const [data, setData] = useState<UsersData | null>(null);
@@ -608,352 +546,81 @@ export function UsersSection({ csrf }: { csrf: string }) {
         </VStack>
       </Card>
 
-      {/* New user dialog */}
-      <Dialog isOpen={userDialog} onOpenChange={(o) => { setUserDialog(o); if (!o) setFormWarning(null); }} purpose="form" width={isNarrow ? "94vw" : 520}>
-        <Layout
-          header={<DialogHeader title={t("Nouvel utilisateur")} hasDivider onOpenChange={(o) => { setUserDialog(o); if (!o) setFormWarning(null); }} />}
-          content={
-            <LayoutContent padding={4} isScrollable>
-              <VStack gap={3}>
-                {formWarning && <Banner status="warning" title={formWarning} />}
-                <TextInput label={t("Identifiant")} value={nu.username} onChange={(v) => setNu({ ...nu, username: v })} placeholder="jdupont" />
-                <TextInput label={t("Nom complet")} value={nu.fullname} onChange={(v) => setNu({ ...nu, fullname: v })} placeholder="Jean Dupont" />
-                <TextInput label={t("Mot de passe")} type="password" value={nu.password} onChange={(v) => setNu({ ...nu, password: v })} />
-                <Selector label={t("Groupe")} value={nu.group} onChange={(v) => setNu({ ...nu, group: v ?? "" })} options={groupOptions} />
-                <TextInput label={t("Quota (vide = groupe/défaut)")} value={nu.max_budget} onChange={(v) => setNu({ ...nu, max_budget: v })} placeholder={data ? fmtBudget(data.default_budget) : ""} />
-                <Selector label={t("Admin")} value={nu.is_admin} onChange={(v) => setNu({ ...nu, is_admin: v ?? "0" })} options={BOOL_OPTS(t)} />
-              </VStack>
-            </LayoutContent>
-          }
-          footer={
-            <LayoutFooter>
-              <HStack gap={2} hAlign="end">
-                <Button label={t("Annuler")} variant="ghost" onClick={() => { setFormWarning(null); setUserDialog(false); }} />
-                <Button label={t("Créer")} variant="primary" onClick={createUser} isDisabled={!nu.username || nu.password.length < 8} />
-              </HStack>
-            </LayoutFooter>
-          }
-        />
-      </Dialog>
+      <UserCreateDialog
+        userDialog={userDialog}
+        setUserDialog={setUserDialog}
+        setFormWarning={setFormWarning}
+        formWarning={formWarning}
+        nu={nu}
+        setNu={setNu}
+        groupOptions={groupOptions}
+        data={data}
+        fmtBudget={fmtBudget}
+        createUser={createUser}
+      />
 
-      {/* New group dialog */}
-      <Dialog isOpen={groupDialog} onOpenChange={(o) => { setGroupDialog(o); if (!o) setFormWarning(null); }} purpose="form" width={isNarrow ? "94vw" : 480}>
-        <Layout
-          header={<DialogHeader title={t("Nouveau groupe")} hasDivider onOpenChange={(o) => { setGroupDialog(o); if (!o) setFormWarning(null); }} />}
-          content={
-            <LayoutContent padding={4} isScrollable>
-              <VStack gap={3}>
-                {formWarning && <Banner status="warning" title={formWarning} />}
-                <TextInput label={t("Nom du groupe")} value={ng.name} onChange={(v) => setNg({ ...ng, name: v })} placeholder="équipe-data" />
-                <TextInput label={t("Quota / j (optionnel)")} value={ng.max_budget} onChange={(v) => setNg({ ...ng, max_budget: v })} />
-                <Selector label={t("Admin par défaut")} value={ng.is_admin} onChange={(v) => setNg({ ...ng, is_admin: v ?? "0" })} options={BOOL_OPTS(t)} />
-              </VStack>
-            </LayoutContent>
-          }
-          footer={
-            <LayoutFooter>
-              <HStack gap={2} hAlign="end">
-                <Button label={t("Annuler")} variant="ghost" onClick={() => { setFormWarning(null); setGroupDialog(false); }} />
-                <Button label={t("Ajouter le groupe")} variant="primary" onClick={createGroup} isDisabled={!ng.name} />
-              </HStack>
-            </LayoutFooter>
-          }
-        />
-      </Dialog>
+      <GroupCreateDialog
+        groupDialog={groupDialog}
+        setGroupDialog={setGroupDialog}
+        setFormWarning={setFormWarning}
+        formWarning={formWarning}
+        ng={ng}
+        setNg={setNg}
+        createGroup={createGroup}
+      />
 
-      {/* Reset password dialog */}
-      <Dialog isOpen={pwUser != null} onOpenChange={(o) => { if (!o) { setPwUser(null); setFormWarning(null); } }} purpose="form" width={isNarrow ? "94vw" : 440}>
-        <Layout
-          header={<DialogHeader title={t("Réinitialiser le mot de passe")} subtitle={pwUser?.username} hasDivider onOpenChange={(o) => { if (!o) { setPwUser(null); setFormWarning(null); } }} />}
-          content={
-            <LayoutContent padding={4}>
-              <VStack gap={3}>
-                {formWarning && <Banner status="warning" title={formWarning} />}
-                <TextInput label={t("Nouveau mot de passe (8 caractères min.)")} type="password" value={pw} onChange={setPw} />
-              </VStack>
-            </LayoutContent>
-          }
-          footer={
-            <LayoutFooter>
-              <HStack gap={2} hAlign="end">
-                <Button label={t("Annuler")} variant="ghost" onClick={() => { setFormWarning(null); setPwUser(null); }} />
-                <Button label={t("Enregistrer")} variant="primary" onClick={submitPassword} isDisabled={pw.length < 8} />
-              </HStack>
-            </LayoutFooter>
-          }
-        />
-      </Dialog>
+      <PasswordResetDialog
+        pwUser={pwUser}
+        setPwUser={setPwUser}
+        setFormWarning={setFormWarning}
+        formWarning={formWarning}
+        pw={pw}
+        setPw={setPw}
+        submitPassword={submitPassword}
+      />
 
-      {/* Block dialog — the reason is optional but requested */}
-      <Dialog isOpen={blockUser != null} onOpenChange={(o) => { if (!o) setBlockUser(null); }} purpose="form" width={isNarrow ? "94vw" : 440}>
-        <Layout
-          header={<DialogHeader title={t("Bloquer ce compte")} subtitle={blockUser?.username} hasDivider onOpenChange={(o) => { if (!o) setBlockUser(null); }} />}
-          content={
-            <LayoutContent padding={4}>
-              <VStack gap={3}>
-                <Text type="supporting" color="secondary">
-                  {t("Le compte sera refusé au login, quelle que soit la source d'authentification, et ses sessions actives seront révoquées.")}
-                </Text>
-                <TextInput label={t("Raison (optionnel)")} value={blockReason} onChange={setBlockReason} />
-              </VStack>
-            </LayoutContent>
-          }
-          footer={
-            <LayoutFooter>
-              <HStack gap={2} hAlign="end">
-                <Button label={t("Annuler")} variant="ghost" onClick={() => setBlockUser(null)} />
-                <Button label={t("Bloquer")} variant="destructive" onClick={submitBlock} isLoading={blockBusy} />
-              </HStack>
-            </LayoutFooter>
-          }
-        />
-      </Dialog>
+      <BlockAccountDialog
+        blockUser={blockUser}
+        setBlockUser={setBlockUser}
+        blockReason={blockReason}
+        setBlockReason={setBlockReason}
+        submitBlock={submitBlock}
+        blockBusy={blockBusy}
+      />
 
-      {/* Delete dialog — destructive: confirmation by typing DELETE */}
-      <Dialog isOpen={delUser != null} onOpenChange={(o) => { if (!o) { setDelUser(null); setDelWarning(null); } }} purpose="form" width={isNarrow ? "94vw" : 480}>
-        <Layout
-          header={<DialogHeader title={t("Supprimer ce compte")} subtitle={delUser?.username} hasDivider onOpenChange={(o) => { if (!o) { setDelUser(null); setDelWarning(null); } }} />}
-          content={
-            <LayoutContent padding={4}>
-              <VStack gap={3}>
-                <Text type="supporting" color="secondary">
-                  {t("Cette action est définitive : elle révoque les clés API et les sessions du compte, supprime son enveloppe LiteLLM ET ses données personnelles (mémoires, conversations, préférences, passkeys).")}
-                </Text>
-                {/* Success warning: some keys could not be revoked
-                    on the LiteLLM side — to be read, never silent. */}
-                {delWarning && <Banner status="warning" title={delWarning} />}
-                <TextInput label={t("Tapez DELETE pour confirmer")} value={delConfirm} onChange={setDelConfirm} />
-                {delError && <Banner status="error" title={delError} />}
-              </VStack>
-            </LayoutContent>
-          }
-          footer={
-            <LayoutFooter>
-              <HStack gap={2} hAlign="end">
-                <Button label={t("Annuler")} variant="ghost" onClick={() => { setDelUser(null); setDelWarning(null); }} />
-                <Button label={t("Supprimer définitivement")} variant="destructive" onClick={submitDelete}
-                  isLoading={delBusy} isDisabled={delConfirm !== "DELETE"} />
-              </HStack>
-            </LayoutFooter>
-          }
-        />
-      </Dialog>
+      <DeleteAccountDialog
+        delUser={delUser}
+        setDelUser={setDelUser}
+        delWarning={delWarning}
+        setDelWarning={setDelWarning}
+        delConfirm={delConfirm}
+        setDelConfirm={setDelConfirm}
+        delError={delError}
+        submitDelete={submitDelete}
+        delBusy={delBusy}
+      />
 
-      {/* Purge dialog — directory accounts (LDAP/SSO): erases the data,
-          NOT the access; Bloquer is what does the offboarding. */}
-      <Dialog isOpen={purgeUser != null} onOpenChange={(o) => { if (!o) setPurgeUser(null); }} purpose="form" width={isNarrow ? "94vw" : 480}>
-        <Layout
-          header={<DialogHeader title={t("Purger les données")} subtitle={purgeUser?.username} hasDivider onOpenChange={(o) => { if (!o) setPurgeUser(null); }} />}
-          content={
-            <LayoutContent padding={4}>
-              <VStack gap={3}>
-                <Text type="supporting" color="secondary">
-                  {t("Cette action efface DÉFINITIVEMENT les données du compte : mémoires, conversations, liens de partage, préférences et clés API.")}
-                </Text>
-                <Text type="supporting" color="secondary">
-                  {t("Elle ne retire pas l'accès : un compte LDAP/SSO peut se reconnecter et repartira d'un compte vide. Pour retirer l'accès, utilise Bloquer.")}
-                </Text>
-                <TextInput label={t("Tapez DELETE pour confirmer")} value={purgeConfirm} onChange={setPurgeConfirm} />
-                {purgeError && <Banner status="error" title={purgeError} />}
-              </VStack>
-            </LayoutContent>
-          }
-          footer={
-            <LayoutFooter>
-              <HStack gap={2} hAlign="end">
-                <Button label={t("Annuler")} variant="ghost" onClick={() => setPurgeUser(null)} />
-                <Button label={t("Purger")} variant="destructive" onClick={submitPurge}
-                  isLoading={purgeBusy} isDisabled={purgeConfirm !== "DELETE"} />
-              </HStack>
-            </LayoutFooter>
-          }
-        />
-      </Dialog>
+      <PurgeAccountDialog
+        purgeUser={purgeUser}
+        setPurgeUser={setPurgeUser}
+        purgeConfirm={purgeConfirm}
+        setPurgeConfirm={setPurgeConfirm}
+        purgeError={purgeError}
+        submitPurge={submitPurge}
+        purgeBusy={purgeBusy}
+      />
 
-      {/* Detail drawer — identity, budget, keys, sessions and audit of the account */}
-      <Dialog isOpen={detailUser != null} onOpenChange={(o) => { if (!o) setDetailUser(null); }} purpose="form" width={isNarrow ? "94vw" : 640}>
-        <Layout
-          header={<DialogHeader title={t("Détails du compte")} subtitle={detailUser?.username} hasDivider onOpenChange={(o) => { if (!o) setDetailUser(null); }} />}
-          content={
-            <LayoutContent padding={4} isScrollable>
-              {detailError ? <Banner status="error" title={detailError} /> : null}
-              {detailLoading && !detail ? (
-                <HStack hAlign="center" padding={4}>
-                  <HStack width={200}>
-                    <ProgressBar label={t("Chargement…")} isIndeterminate isLabelHidden />
-                  </HStack>
-                </HStack>
-              ) : detail ? (
-                <VStack gap={4}>
-                  {/* Identity, role, sources, last activity */}
-                  <HStack gap={3} vAlign="center">
-                    <UserAvatar
-                      avatarId={detailUser?.avatar_id}
-                      username={detailUser?.username || detail.username}
-                      name={detail.fullname || detail.username || detailUser?.username}
-                      size="md"
-                    />
-                    <VStack gap={0}>
-                      <HStack gap={2} vAlign="center" wrap="wrap">
-                        <Text weight="semibold">{detail.username ?? detailUser?.username}</Text>
-                        {detail.role === "admin" ? <Badge label={t("Admin")} variant="warning" /> : null}
-                        {detail.blocked?.blocked ? <Badge label={t("Bloqué")} variant="error" /> : null}
-                        {detail.enabled === false ? <Badge label={t("Désactivé")} variant="error" /> : null}
-                      </HStack>
-                      {detail.fullname ? <Text type="supporting" color="secondary">{detail.fullname}</Text> : null}
-                      <HStack gap={1} vAlign="center" wrap="wrap">
-                        {detailSources.map((s) => {
-                          const m = SOURCE_META[s] ?? { label: s, variant: "neutral" as const };
-                          return <Badge key={s} label={t(m.label)} variant={m.variant} />;
-                        })}
-                        {detail.last_source ? (
-                          <Text type="supporting" color="secondary">
-                            {t("Dernière source")} : {detail.last_source.toUpperCase()}
-                          </Text>
-                        ) : null}
-                      </HStack>
-                      {detail.last_seen ? (
-                        <Text type="supporting" color="secondary">
-                          {t("Dernière activité")} : <Timestamp value={detail.last_seen} format="date_time" />
-                        </Text>
-                      ) : null}
-                    </VStack>
-                  </HStack>
-
-                  {/* Active block: reason, author, date */}
-                  {detail.blocked?.blocked ? (
-                    <HStack gap={2} vAlign="center" wrap="wrap">
-                      <Badge label={t("Bloqué")} variant="error" />
-                      {detail.blocked.reason ? <Text type="supporting" color="secondary">{detail.blocked.reason}</Text> : null}
-                      {detail.blocked.by ? <Text type="supporting" color="secondary">{t("par")} {detail.blocked.by}</Text> : null}
-                      {detail.blocked.at ? <Timestamp value={detail.blocked.at} format="date_time" /> : null}
-                    </HStack>
-                  ) : null}
-
-                  {/* Budget: override → effective, and LiteLLM spend */}
-                  <VStack gap={2}>
-                    <Text weight="semibold">{t("Budget")}</Text>
-                    <HStack hAlign="between">
-                      <Text type="supporting" color="secondary">{t("Surcharge utilisateur")}</Text>
-                      <Text hasTabularNumbers>{detail.max_budget != null ? fmtBudget(detail.max_budget) : "—"}</Text>
-                    </HStack>
-                    <HStack hAlign="between">
-                      <Text type="supporting" color="secondary">{t("Quota effectif")}</Text>
-                      <Text hasTabularNumbers>
-                        {detail.effective_budget != null ? `${fmtBudget(detail.effective_budget)} ${t(detail.effective_budget > 1 ? "tokens" : "token")}` : "—"}
-                      </Text>
-                    </HStack>
-                    <HStack hAlign="between">
-                      <Text type="supporting" color="secondary">{t("Dépensé (LiteLLM)")}</Text>
-                      <Text hasTabularNumbers>
-                        {detail.litellm?.exists ? `${fmtBudget(detail.litellm.spend ?? 0)} ${t((detail.litellm.spend ?? 0) > 1 ? "tokens" : "token")}` : t("Aucun profil LiteLLM")}
-                      </Text>
-                    </HStack>
-                    {detail.litellm?.budget_duration ? (
-                      <HStack hAlign="between">
-                        <Text type="supporting" color="secondary">{t("Fenêtre de budget")}</Text>
-                        <Text>{detail.litellm.budget_duration}</Text>
-                      </HStack>
-                    ) : null}
-                    {detail.group ? (
-                      <HStack hAlign="between">
-                        <Text type="supporting" color="secondary">{t("Groupe")}</Text>
-                        <Text>{detail.group}</Text>
-                      </HStack>
-                    ) : null}
-                  </VStack>
-
-                  {/* Keys — alias, creation, spend. Never any key value:
-                      the payload cannot contain any. */}
-                  <VStack gap={2}>
-                    <Text weight="semibold">{t("Clés")}</Text>
-                    {(detail.keys ?? []).length === 0 ? (
-                      <Text type="supporting" color="secondary">{t("Aucune clé pour l'instant.")}</Text>
-                    ) : (
-                      <List hasDividers>
-                        {(detail.keys ?? []).map((k, i) => (
-                          <ListItem
-                            key={`${k.alias ?? ""}-${i}`}
-                            startContent={<Icon icon={KeyIcon} size="sm" color="secondary" />}
-                            label={k.alias || t("Sans nom")}
-                            description={k.created_at ? <Timestamp value={k.created_at} format="date_time" /> : undefined}
-                            endContent={
-                              <Text type="supporting" color="secondary" hasTabularNumbers>
-                                {`${Math.round(k.spend ?? 0).toLocaleString(numLocale)} ${t(Math.round(k.spend ?? 0) > 1 ? "tokens" : "token")}`}
-                              </Text>
-                            }
-                          />
-                        ))}
-                      </List>
-                    )}
-                  </VStack>
-
-                  {/* Memory & conversations */}
-                  <HStack gap={4} vAlign="center">
-                    <HStack gap={1} vAlign="center">
-                      <Text type="supporting" color="secondary">{t("Mémoire")} :</Text>
-                      <Text hasTabularNumbers>{detail.memory_facts ?? 0}</Text>
-                    </HStack>
-                    <HStack gap={1} vAlign="center">
-                      <Text type="supporting" color="secondary">{t("Conversations")} :</Text>
-                      <Text hasTabularNumbers>{detail.conversations ?? 0}</Text>
-                    </HStack>
-                  </HStack>
-
-                  {/* Sessions — same layout as the self-service list */}
-                  <VStack gap={2}>
-                    <HStack hAlign="between" vAlign="center" wrap="wrap" gap={2}>
-                      <Text weight="semibold">{t("Sessions")}</Text>
-                      <Button
-                        label={t("Révoquer toutes ses sessions")}
-                        variant="secondary"
-                        size="sm"
-                        isLoading={sessRevoking}
-                        isDisabled={(detail.sessions ?? []).length === 0}
-                        onClick={revokeDetailSessions}
-                      />
-                    </HStack>
-                    <SessionsList sessions={detail.sessions ?? []} />
-                  </VStack>
-
-                  {/* Recent audit */}
-                  <VStack gap={2}>
-                    <Text weight="semibold">{t("Dernières actions de ce compte")}</Text>
-                    {(detail.audit ?? []).length === 0 ? (
-                      <Text type="supporting" color="secondary">{t("Aucune entrée")}</Text>
-                    ) : (
-                      <List hasDividers>
-                        {(detail.audit ?? []).map((a, i) => (
-                          <ListItem
-                            key={`${a.action ?? ""}-${i}`}
-                            label={a.action || "—"}
-                            description={
-                              <VStack gap={0}>
-                                {a.detail ? <Text type="supporting" color="secondary">{a.detail}</Text> : null}
-                                <HStack gap={1} vAlign="center">
-                                  {a.by ? <Text type="supporting" color="secondary">{a.by}</Text> : null}
-                                  {a.at ? <Timestamp value={a.at} format="date_time" /> : null}
-                                </HStack>
-                              </VStack>
-                            }
-                          />
-                        ))}
-                      </List>
-                    )}
-                  </VStack>
-                </VStack>
-              ) : null}
-            </LayoutContent>
-          }
-          footer={
-            <LayoutFooter>
-              <HStack gap={2} hAlign="end">
-                <Button label={t("Fermer")} variant="ghost" onClick={() => setDetailUser(null)} />
-              </HStack>
-            </LayoutFooter>
-          }
-        />
-      </Dialog>
+      <UserDetailDialog
+        detailUser={detailUser}
+        setDetailUser={setDetailUser}
+        detail={detail}
+        detailLoading={detailLoading}
+        detailError={detailError}
+        detailSources={detailSources}
+        fmtBudget={fmtBudget}
+        sessRevoking={sessRevoking}
+        revokeDetailSessions={revokeDetailSessions}
+      />
     </VStack>
   );
 }

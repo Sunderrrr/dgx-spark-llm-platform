@@ -32,7 +32,8 @@ import time
 from datetime import datetime
 
 from comfyui_client import comfyui_generate, comfyui_is_up, comfyui_status
-from db import DB_PATH, get_db
+from db import get_db
+from sidecars import attendre_job_media
 from guards import media_job_done, media_job_slot
 from sidecars import sidecar_demarrable, sidecar_demarrage_auto
 from video_routes import _persister_video
@@ -194,26 +195,13 @@ def _exec_video_tool(args, username, journal):
     threading.Thread(target=_video_worker,
                      args=(prompt_id, username, cree_le), daemon=True).start()
 
+    # The wait loop is shared with the image tool (sidecars.attendre_job_media):
+    # the same 18 lines used to live in BOTH tools (audit 2026-10-07).
     statut = 'running'
-    debut = time.monotonic()
-    prochain_battement = time.monotonic() + _HEARTBEAT_EVERY_S
-    while time.monotonic() - debut < _VIDEO_TIMEOUT_S:
-        time.sleep(_POLL_INTERVAL_S)
-        try:
-            c = sqlite3.connect(DB_PATH, timeout=5)
-            row = c.execute("SELECT status FROM video_jobs "
-                            "WHERE prompt_id=? AND username=?",
-                            (prompt_id, username)).fetchone()
-            c.close()
-        except Exception:
-            row = None
-        if row:
-            statut = row[0]
-        if statut != 'running':
-            break
-        if time.monotonic() >= prochain_battement:
-            yield ": battement\n\n"
-            prochain_battement = time.monotonic() + _HEARTBEAT_EVERY_S
+    # `yield from` FORWARDS the heartbeats to the chat stream (see image_tools).
+    ligne = yield from attendre_job_media('video_jobs', prompt_id, username, _VIDEO_TIMEOUT_S)
+    if ligne:
+        statut = ligne.get('status')
 
     urls = [f"/video/file/{prompt_id}"] if statut == 'done' else []
     if statut == 'running':

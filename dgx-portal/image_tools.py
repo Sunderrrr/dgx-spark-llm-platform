@@ -24,7 +24,8 @@ import threading
 import time
 from datetime import datetime
 
-from db import DB_PATH, get_db
+from db import get_db
+from sidecars import attendre_job_media
 from guards import media_job_done, media_job_slot
 from sidecars import image_ready
 
@@ -183,26 +184,14 @@ def _exec_image_tool(args, username, journal):
 
     threading.Thread(target=_run, daemon=True).start()
 
+    # The wait loop is shared with the video tool (sidecars.attendre_job_media):
+    # same poll, same heartbeat, one place to change.
     statut, fait = 'running', 0
-    debut = time.monotonic()
-    prochain_battement = time.monotonic() + _HEARTBEAT_EVERY_S
-    while time.monotonic() - debut < _IMAGE_TIMEOUT_S:
-        time.sleep(_POLL_INTERVAL_S)
-        try:
-            c = sqlite3.connect(DB_PATH, timeout=5)
-            row = c.execute("SELECT status, done_count FROM image_jobs "
-                            "WHERE prompt_id=? AND username=?",
-                            (prompt_id, username)).fetchone()
-            c.close()
-        except Exception:
-            row = None
-        if row:
-            statut, fait = row[0], row[1]
-        if statut != 'running':
-            break
-        if time.monotonic() >= prochain_battement:
-            yield ": battement\n\n"
-            prochain_battement = time.monotonic() + _HEARTBEAT_EVERY_S
+    # `yield from` FORWARDS the heartbeats to the chat stream: a plain
+    # next() loop would swallow them and the client would see silence.
+    ligne = yield from attendre_job_media('image_jobs', prompt_id, username, _IMAGE_TIMEOUT_S)
+    if ligne:
+        statut, fait = ligne.get('status'), ligne.get('done_count') or 0
 
     urls = ([f"/image/file/{prompt_id}/{i}" for i in range(fait)]
             if statut == 'done' else [])

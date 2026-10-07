@@ -66,6 +66,41 @@ _ocr_model_cache = {'t': 0.0, 'v': None}
 _SONDE_DELAI = 0.8
 
 
+def attendre_job_media(table, prompt_id, username, delai_s):
+    """Polls a media job row until it is done, yielding SSE heartbeats.
+
+    The image and video tools each carried this loop VERBATIM (18 identical
+    lines, audit 2026-10-07): same sqlite3 poll, same `: battement` heartbeat,
+    same `media_job_done` release. One generator now — a heartbeat cadence or
+    a timeout change lands once.
+
+    `table` is the jobs table (image_jobs / video_jobs), validated by the
+    caller; the row is read with a bare connection because the generator runs
+    in a thread without a Flask context.
+    """
+    import sqlite3 as _sq
+    from db import DB_PATH
+    debut = time.monotonic()
+    prochain = debut + 15
+    while time.monotonic() - debut < delai_s:
+        time.sleep(2)
+        try:
+            c = _sq.connect(DB_PATH, timeout=5)
+            c.row_factory = _sq.Row
+            row = c.execute(f"SELECT * FROM {table} WHERE prompt_id=? AND username=?",
+                            (prompt_id, username)).fetchone()
+            c.close()
+            row = dict(row) if row else None
+        except Exception:
+            row = None
+        if row and row.get('status') not in ('running', 'pending'):
+            return row
+        if time.monotonic() >= prochain:
+            yield ": battement\n\n"
+            prochain = time.monotonic() + 15
+    return None
+
+
 def get_ocr_model():
     """Model served by the OCR container (baidu/Unlimited-OCR), a separate vLLM
     with its own /v1/models — never mixed with get_running_models() on which

@@ -147,7 +147,6 @@ const EN: Record<string, string> = {
   "Traducteur": "Translator",
   "Analyste": "Analyst",
   "Socratique": "Socratic",
-  "Effacer le system prompt": "Clear system prompt",
   "Snippets": "Snippets",
   "Prompts réutilisables": "Reusable prompts",
   "Enregistrer le prompt courant en snippet": "Save current prompt as a snippet",
@@ -156,7 +155,6 @@ const EN: Record<string, string> = {
   "Résumé de la conversation": "Conversation summary",
   "Impossible de générer le résumé.": "Unable to generate the summary.",
   "Contexte": "Context",
-  "Contexte injecté": "Injected context",
   "System prompt": "System prompt",
   "Ce que le modèle voit pour ce tour": "What the model sees for this turn",
   "Aucun system prompt.": "No system prompt.",
@@ -177,7 +175,6 @@ const EN: Record<string, string> = {
   "Format": "Format",
   "Résolution": "Resolution",
   "Générer {n} images": "Generate {n} images",
-  "Génération en cours… {d}/{n}": "Generating… {d}/{n}",
   "images": "images",
   "Service de génération injoignable.": "Generation service unreachable.",
   "diffusers · text-to-image": "diffusers · text-to-image",
@@ -213,8 +210,6 @@ const EN: Record<string, string> = {
   "Apparence": "Appearance",
   "MCP": "MCP",
   "Compétences": "Skills",
-  "Clés API, serveurs MCP, compétences et personnalisation.":
-    "API keys, MCP servers, skills and personalisation.",
 
   // — My account —
   "Tokens totaux": "Total tokens",
@@ -355,10 +350,8 @@ const EN: Record<string, string> = {
   "Mes clés API": "My API keys",
   "Modèles disponibles maintenant": "Models available now",
   "Aucun modèle actif": "No active model",
-  "Demande le lancement d'un modèle.": "Request that a model be launched.",
   "En ligne": "Online",
   "Créer une clé API": "Create an API key",
-  "Disponible depuis l'application, non exposé par l'API.": "Available from the app, not exposed via the API.",
   "Ouvrir l'OCR": "Open OCR",
   "Ouvrir la génération vidéo": "Open video generation",
   "État du serveur": "Server status",
@@ -369,25 +362,17 @@ const EN: Record<string, string> = {
   "Débit": "Throughput",
   "Sessions": "Sessions",
   "Requêtes servies": "Requests served",
-  "Qui utilise le modèle · 2 dernières min · visible admin uniquement":
-    "Who's using the model · last 2 min · admin only",
   "Personne n'utilise le modèle en ce moment.":
     "No one is using the model right now.",
   "Mon utilisation — aujourd'hui": "My usage — today",
   "Tokens · 24 h": "Tokens · 24h",
   "Clés actives": "Active keys",
-  "Crée des clés personnelles pour accéder aux modèles via l'API OpenAI-compatible.":
-    "Create personal keys to access models through the OpenAI-compatible API.",
   "Limite :": "Limit:",
   "Illimitée (admin)": "Unlimited (admin)",
-  "Gérer mes clés": "Manage my keys",
   "Catalogue HuggingFace": "HuggingFace catalog",
   "Parcours les modèles disponibles et demande le lancement de celui qui t'intéresse.":
     "Browse available models and request the one you're interested in.",
   "Explorer les modèles": "Explore models",
-  "Tu connais un modèle que tu veux tester ? Envoie une demande à l'admin.":
-    "Know a model you want to try? Send a request to the admin.",
-  "Faire une demande": "Send a request",
   "Mes dernières demandes": "My recent requests",
   "Modèle": "Model",
   "Raison": "Reason",
@@ -396,8 +381,6 @@ const EN: Record<string, string> = {
   "En attente": "Pending",
   "Retirer": "Remove",
   "Mémoire": "Memory",
-  "Ce que l'assistant retient de toi, et que tu contrôles entièrement.":
-    "What the assistant remembers about you, entirely under your control.",
   "Activer la mémoire": "Enable memory",
   "Désactivée par défaut. Une fois activée, l'assistant peut retenir des informations durables te concernant pour les réutiliser plus tard.":
     "Off by default. Once enabled, the assistant can keep durable information about you and reuse it later.",
@@ -510,8 +493,6 @@ const EN: Record<string, string> = {
   "Demander le fichier complet": "Ask for the whole file",
   "Ouvrir": "Open",
   "conversations": "conversations",
-  "Le fichier s'arrête avant sa fin — le modèle s'est interrompu tout seul. Reprends la suite.":
-    "The file stops before its end — the model gave up on its own. Pick up where it left off.",
   "Messages en attente": "Queued messages",
   "Envoi imminent…": "Sending now…",
   "Envoi automatique dès la fin de la réponse. « Envoyer » interrompt et passe à ce message.":
@@ -565,7 +546,6 @@ const EN: Record<string, string> = {
   // — Playground —
   "Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.":
     "Chat live with an active model — advanced settings, attachments, streaming replies, on your account budget.",
-  "Rien à exporter.": "Nothing to export.",
   // Markdown export of a conversation (convAsMarkdown receives t as a parameter);
   // « Assistant : » is spelled the same in both languages, the key stays visible
   // for the translator.
@@ -580,16 +560,12 @@ const EN: Record<string, string> = {
   "« {name} » dépasse 96 Ko — trop gros pour le contexte.": "« {name} » exceeds 96 KB — too large for the context.",
   "Erreur réseau.": "Network error.",
   "Le modèle n'a renvoyé aucune réponse.": "The model returned no response.",
-  "Écris ton message… (Entrée pour envoyer, Maj+Entrée = saut de ligne)":
-    "Write your message… (Enter to send, Shift+Enter for a new line)",
   "Utilisation du contexte": "Context usage",
   "System prompt (optionnel)": "System prompt (optional)",
   "Ex : Tu es un assistant concis et technique.": "E.g. You are a concise, technical assistant.",
   "Température": "Temperature",
   "Max tokens": "Max tokens",
   "Top-p": "Top-p",
-  "Activer la réflexion du modèle (plus lent, plus coûteux)":
-    "Let the model think first (slower, more expensive)",
   "Cette conversation n'a pas pu être chargée.":
     "This conversation could not be loaded.",
   "Conversation non enregistrée — elle disparaîtra au rechargement.":
@@ -625,17 +601,10 @@ const EN: Record<string, string> = {
   "Aucun — conversation à nu": "None — plain conversation",
   "Personnalisé": "Custom",
   "Génération": "Generation",
-  "Code Python": "Python code",
   "Génère une fonction, un script ou un test": "Generate a function, a script or a test",
-  "Écris une fonction Python qui vérifie si un nombre est premier.":
-    "Write a Python function that checks whether a number is prime.",
   "Expliquer": "Explain",
   "Décompose un sujet technique simplement": "Break down a technical topic simply",
-  "Explique la mémoire unifiée du DGX Spark en termes simples.":
-    "Explain the DGX Spark's unified memory in simple terms.",
   "Analyser des logs": "Analyse logs",
-  "Trouve la cause d'une erreur dans un extrait de logs":
-    "Find the cause of an error in a log excerpt",
   "Analyse ces logs et trouve la cause de l'erreur : ":
     "Analyse these logs and find the cause of the error: ",
   "Résumer": "Summarise",
@@ -672,7 +641,6 @@ const EN: Record<string, string> = {
   "Décisions, actions, responsables — à partir de notes brutes": "Decisions, actions, owners — from raw notes",
   "Fais le compte rendu de ces notes de réunion : ": "Turn these meeting notes into minutes: ",
   "Condense un texte en points clés": "Condense a text into key points",
-  "Résume ce texte en 3 points : ": "Summarise this text in 3 points: ",
   // Names of the built-in skills (lib/skills.ts): French msgids translated at
   // display time; "Résumer", "Expliquer", "Analyser des logs" and "Code"
   // already exist above.
@@ -709,14 +677,11 @@ const EN: Record<string, string> = {
   "Chargement des utilisateurs": "Loading users",
   "Mis à jour": "Updated",
   "Impossible de charger le tableau de bord": "Unable to load the dashboard",
-  "Le serveur n'a pas répondu. Réessaie dans un instant.": "The server did not respond. Try again in a moment.",
   "Aucune demande de modèle pour l'instant.": "No model request yet.",
   "à la demande": "on demand",
   "Disponibilité par capacité": "Availability by capability",
   "Lancer une conversation": "Start a conversation",
   "Reprendre une conversation": "Resume a conversation",
-  "Discuter avec le modèle actif": "Chat with the active model",
-  "Accès rapide": "Quick access",
   "Tout voir": "See all",
   "Fenêtre de contexte": "Context window",
   "Répartition": "Breakdown",
@@ -835,10 +800,6 @@ const EN: Record<string, string> = {
   "Modèles": "Models",
   "Demandes": "Requests",
   "Activité en direct": "Live activity",
-  "État vivant du moteur et de la machine — rien à actionner ici.":
-    "The engine and the machine, live — nothing to act on here.",
-  "Le moteur ne publie pas l'état de ses sessions.":
-    "The engine does not publish its session state.",
   "Filtrer le catalogue": "Filter the catalog",
   "Nom ou identifiant (ex : llama-3-8b, Qwen)": "Name or identifier (e.g. llama-3-8b, Qwen)",
   "Aucun modèle ne correspond.": "No model matches.",
@@ -849,7 +810,6 @@ const EN: Record<string, string> = {
     "Your account does not have the rights to view this page.",
   "Retour à l'accueil": "Back to home",
   "Action effectuée.": "Action completed.",
-  "Modèles vLLM": "vLLM models",
   "Démarrage…": "Starting…",
   "Échec du chargement": "Loading failed",
   "Le modèle de dictée n'a pas pu se charger :": "The dictation model could not be loaded:",
@@ -860,8 +820,6 @@ const EN: Record<string, string> = {
   "Arrêter": "Stop",
   "Démarrer": "Start",
   "Injoignable": "Unreachable",
-  "OCR & Vidéo": "OCR & Video",
-  "Catalogue OCR": "OCR catalog",
   "Ajouter un modèle OCR": "Add an OCR model",
   "Nom (ex: unlimited-ocr)": "Name (e.g. unlimited-ocr)",
   "Lancer": "Launch",
@@ -885,7 +843,6 @@ const EN: Record<string, string> = {
   "Refusées": "Rejected",
   "Limite de tokens par défaut (nouvelles clés)": "Default token limit (new keys)",
   "Tokens générés": "Generated tokens",
-  "Débit décodé": "Decode rate",
   "Prefill": "Prefill",
   "{n} tokens d'entrée": "{n} input tokens",
   "Qui utilise le modèle · 30 dernières minutes · visible admin uniquement": "Who is using the model · last 30 minutes · admin only",
@@ -903,24 +860,10 @@ const EN: Record<string, string> = {
   "req": "req",
   "tok": "tok",
   "moyenne {n} tok/s": "{n} tok/s average",
-  "dont {n} depuis ce lancement": "{n} of it in this run",
-  "Entrée traitée": "Input processed",
-  "prefill {n} tok/s": "prefill {n} tok/s",
   "Durée (ex: 1d, 7d, 12h)": "Duration (e.g. 1d, 7d, 12h)",
   "Appliquer": "Apply",
   "Demandes de tokens": "Token requests",
-  "Consommation par utilisateur": "Consumption per user",
-  "Utilisation OCR par utilisateur": "OCR usage per user",
-  "Ne passe pas par une clé API — jamais visible dans la conso LiteLLM ci-dessus.":
-    "Does not go through an API key — never visible in the LiteLLM consumption above.",
-  "Extractions": "Extractions",
-  "Utilisation vidéo par utilisateur": "Video usage per user",
-  "Générations": "Generations",
   "Dernière utilisation": "Last used",
-  "Chat & complétions — API OpenAI-compatible": "Chat & completions — OpenAI-compatible API",
-  "Extraction de texte et de tableaux depuis images et PDF": "Text and table extraction from images and PDFs",
-  "Génération de vidéos courtes (texte ou image → vidéo)": "Short video generation (text or image → video)",
-  "Clonage de voix zéro-shot à partir d'un court échantillon": "Zero-shot voice cloning from a short sample",
   "Services média": "Media services",
   "en direct": "live",
   "Erreur lors de l'envoi de la demande.": "Error while sending the request.",
@@ -939,8 +882,6 @@ const EN: Record<string, string> = {
   "Aucun groupe pour l'instant.": "No groups yet.",
   "Réinitialiser le mot de passe": "Reset password",
   "Nouveau mot de passe (8 caractères min.)": "New password (8 characters min.)",
-  "Ouvrir en document": "Open as document",
-  "Redimensionner le document": "Resize the document",
   "Ouvrir le fichier": "Open file",
   "Ouvrir le document": "Open document",
   "Voici le document — ouvre-le pour le lire ou le copier.": "Here's the document — open it to read or copy it.",
@@ -1019,8 +960,6 @@ const EN: Record<string, string> = {
   "La liaison Discord n'est pas configurée.": "Discord linking isn't configured.",
   "Fichier": "File",
   "Redimensionner le panneau": "Resize the panel",
-  "Astuce : appelle « {model} » comme nom de modèle pour toujours cibler le modèle en cours — sans changer ton code à chaque bascule.":
-    "Tip: use “{model}” as the model name to always target the current model — no code change when it switches.",
   "recommandé": "recommended",
   "Modèle virtuel : route toujours vers le modèle chat actuellement chargé — ton code n'a rien à changer quand l'admin bascule de modèle. Choisis un modèle nommé pour t'épingler à celui-là.":
     "Virtual model: always routes to the chat model currently loaded — your code needs no change when the admin switches models. Pick a named model to pin to that one.",
@@ -1051,7 +990,6 @@ const EN: Record<string, string> = {
   "Demandes de modèles": "Model requests",
   "Utilisateur": "User",
   "Budget actuel": "Current budget",
-  "Budget / jour": "Budget / day",
   "Clés": "Keys",
   "Action": "Action",
   "Approuver": "Approve",
@@ -1083,8 +1021,6 @@ const EN: Record<string, string> = {
   "Nouvelle conversation": "New conversation",
   "Historique": "History",
   "Aucune conversation": "No conversations",
-  "Supprimer cette conversation": "Delete this conversation",
-  "Exporter en Markdown": "Export as Markdown",
   "Joindre un fichier": "Attach a file",
   "Joindre un fichier ou une image": "Attach a file or an image",
   "« {name} » : ce modèle ne lit pas les images.": "\"{name}\": this model can't read images.",
@@ -1098,7 +1034,6 @@ const EN: Record<string, string> = {
   "Fichiers texte uniquement. Les tokens comptent sur ton budget.":
     "Text files only. Tokens count against your budget.",
   "Raisonnement": "Reasoning",
-  "Sur quoi veux-tu travailler ?": "What do you want to work on?",
   "Dicter": "Dictate",
   "Arrêter la dictée": "Stop dictation",
   "Transcription…": "Transcribing…",
@@ -1127,7 +1062,6 @@ const EN: Record<string, string> = {
   "Vue du résultat": "Result view",
   "Texte": "Text",
   "Zones détectées": "Detected zones",
-  "détecté(e)": "detected",
   "Élément détecté": "Element detected",
   "Le résultat s'affichera ici": "The result will appear here",
   "Choisis une image à gauche puis lance l'extraction.":
@@ -1168,8 +1102,6 @@ const EN: Record<string, string> = {
   "Trop court : enregistre au moins 6 secondes de voix.":
     "Too short: record at least 6 seconds of speech.",
   "Échantillon vocal de référence": "Reference voice sample",
-  "WAV ou MP3 — 15 Mo max, plus de 5 secondes de voix claire.":
-    "WAV or MP3 — 15 MB max, more than 5 seconds of clear speech.",
   "Texte à lire": "Text to read",
   "Ex : Bonjour, ceci est un test de clonage vocal.":
     "E.g. Hello, this is a voice cloning test.",
@@ -1177,7 +1109,6 @@ const EN: Record<string, string> = {
   "Voix prête.": "Voice ready.",
   "Service voix injoignable.": "Voice service unreachable.",
   "Ouvrir le clonage de voix": "Open voice cloning",
-  "Catalogue voix": "Voice catalog",
   "Backends": "Backends",
   "Catalogue": "Catalog",
   "Type de modèle": "Model type",
@@ -1190,9 +1121,7 @@ const EN: Record<string, string> = {
   // not change: only the label is translated).
   "Qwen3-TTS 1.7B (10 langues)": "Qwen3-TTS 1.7B (10 languages)",
   "Qwen3-TTS 0.6B (10 langues)": "Qwen3-TTS 0.6B (10 languages)",
-  "Nom (ex: chatterbox-turbo)": "Name (e.g. chatterbox-turbo)",
   "Variante": "Variant",
-  "Utilisation voix par utilisateur": "Voice usage per user",
   // "Enregistrer" alone is already taken by the "Save" meaning (Settings) — the
   // French text serving as the key, we need a distinct label here.
   "Langue du texte": "Text language",
@@ -1211,8 +1140,6 @@ const EN: Record<string, string> = {
   "Enregistrement en cours": "Recording",
   "Enregistrement": "Recording",
   "Réenregistrer": "Record again",
-  "Trop court : le modèle exige plus de 5 secondes de voix.":
-    "Too short: the model requires more than 5 seconds of speech.",
   "Micro inaccessible — autorise l'accès au microphone dans ton navigateur.":
     "Microphone unavailable — allow microphone access in your browser.",
   "Impossible de convertir l'enregistrement.": "Could not convert the recording.",
@@ -1252,10 +1179,8 @@ const EN: Record<string, string> = {
   "toi": "you",
 
   // — Home / activity (continued) —
-  "Moins → Plus": "Less → More",
 
   // — Settings: Usage (continued) —
-  "Maximum 20 messages par minute.": "Maximum 20 messages per minute.",
   "% utilisé": "% used",
 
   // — Support (continued) —
@@ -1280,7 +1205,6 @@ const EN: Record<string, string> = {
   "LDAP": "LDAP",
   "SSO": "SSO",
   "Local": "Local",
-  "Géré à l'extérieur": "Managed externally",
   "Géré": "Managed",
   "Ici": "Here",
   "via": "via",
@@ -1291,7 +1215,6 @@ const EN: Record<string, string> = {
   "Oui": "Yes",
   "Utilisateurs": "Users",
   "Comptes locaux gérés ici (mots de passe hachés). Le quota vient de la surcharge de l'utilisateur, sinon du groupe, sinon du défaut global.": "Local accounts managed here (hashed passwords). Quota comes from the user's override, else the group, else the global default.",
-  "Créer un utilisateur": "Create a user",
   "Nom complet": "Full name",
   "Quota (vide = groupe/défaut)": "Quota (empty = group/default)",
   "Aucun groupe": "No group",
@@ -1299,15 +1222,12 @@ const EN: Record<string, string> = {
   "Quota / j": "Quota / day",
   // « par jour » suffix appended after a number (card of a group).
   "/ j": "/ d",
-  "hérité": "inherited",
   "Actif": "Active",
   "Désactivé": "Disabled",
   "Actions": "Actions",
   "Retirer admin": "Remove admin",
   "Rendre admin": "Make admin",
   "Nouveau mot de passe": "New password",
-  "Nouveau mot de passe (8 caractères min.) :": "New password (8 characters min.):",
-  "Supprimer cet utilisateur ?": "Delete this user?",
   "Groupes": "Groups",
   "quota par défaut": "default quota",
   "Supprimer ce groupe ?": "Delete this group?",
@@ -1360,12 +1280,10 @@ const EN: Record<string, string> = {
   "Langue inconnue.": "Unknown language.",
   "Modèle OCR introuvable.": "OCR model not found.",
   "Identifiant invalide (a-z, 0-9, . _ - , max 64).": "Invalid username (a-z, 0-9, . _ - , max 64).",
-  "Mot de passe : 8 caractères minimum.": "Password: 8 characters minimum.",
   "Cet utilisateur existe déjà.": "This user already exists.",
   "Groupe inconnu.": "Unknown group.",
   "Utilisateur introuvable.": "User not found.",
   "Nom de groupe invalide (max 40).": "Invalid group name (max 40).",
-  "Le quota doit être un entier positif.": "The quota must be a positive integer.",
   "Quota invalide.": "Invalid quota.",
   "Un prompt texte est requis.": "A text prompt is required.",
   "ComfyUI inaccessible ou requête refusée.": "ComfyUI unreachable or request refused.",
@@ -1379,8 +1297,6 @@ const EN: Record<string, string> = {
   "Mode maintenance en cours — réessaie plus tard.": "Maintenance in progress — try again later.",
   // ── Two-factor authentication with a security key (WebAuthn / passkeys) ──
   "Sécurité": "Security",
-  "Double authentification par clé de sécurité (passkey, YubiKey, 1Password) — pas de TOTP.":
-    "Two-factor authentication with a security key (passkey, YubiKey, 1Password) — no TOTP.",
   "Exiger une clé de sécurité au login": "Require a security key at login",
   "Ta clé sera demandée après le mot de passe (local ou LDAP).":
     "Your key will be requested after the password (local or LDAP).",
@@ -1417,8 +1333,6 @@ const EN: Record<string, string> = {
   "Demande envoyée au responsable.": "Request sent to the admin.",
   "La demande a échoué.": "The request failed.",
   // ── Home: media service cards (« Ouvrir » button) ──
-  "Génération d'images (texte → image)": "Image generation (text → image)",
-  "Génération musicale (texte → chanson)": "Music generation (text → song)",
   "Ouvrir le chat": "Open chat",
   "Ouvrir la génération d'image": "Open image generation",
   "Ouvrir la génération musicale": "Open music generation",
@@ -1458,8 +1372,6 @@ const EN: Record<string, string> = {
   "Changer le mot de passe": "Change password",
   "Mot de passe modifié.": "Password changed.",
   "Les deux nouveaux mots de passe ne correspondent pas.": "The two new passwords don't match.",
-  "Compte LDAP/SSO : le mot de passe est géré dans l'annuaire, pas ici.":
-    "LDAP/SSO account: the password is managed in your directory, not here.",
 
   // ── Admin: blocking, account details, deletion ──
   "Bloquer…": "Block…",
@@ -1511,11 +1423,8 @@ const EN: Record<string, string> = {
   "Lancer {name} ?": "Launch {name}?",
   "Le modèle sera chargé en mémoire unifiée — le lancement peut prendre plusieurs minutes.":
     "The model will be loaded into unified memory — launching can take several minutes.",
-  "Supprimer {name} du catalogue ?": "Delete {name} from the catalogue?",
   "Supprimer {name} ?": "Delete {name}?",
   "Le modèle sera retiré du catalogue et du routage LiteLLM, et ses fichiers seront effacés du disque (sauf s'ils servent à un autre modèle). Pour le retélécharger, il faudra le réinstaller. Un modèle en cours doit d'abord être arrêté.": "The model will be removed from the catalogue and from LiteLLM routing, and its files will be erased from disk (unless another model uses them). To use it again it must be reinstalled. A running model must be stopped first.",
-  "L'entrée sera retirée du catalogue et du routage LiteLLM (ça n'arrête pas un modèle en cours).":
-    "The entry will be removed from the catalogue and from LiteLLM routing (this does not stop a running model).",
   "Activer le mode maintenance ?": "Enable maintenance mode?",
   "Désactiver le mode maintenance ?": "Disable maintenance mode?",
   "Le trafic non-admin vers les routes de génération sera refusé ; les admins gardent l'accès.":

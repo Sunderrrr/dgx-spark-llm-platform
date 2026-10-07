@@ -78,6 +78,34 @@ TRANSPORT_ERR = -1
 # The frontend proxy cuts after 60 s without A SINGLE byte (IDLE_TIMEOUT_MS).
 _SUPPORT_PING_S = 8
 
+
+def _ouvrir_flux_avec_pings(chat, ping_s):
+    """Opens the model stream in a thread and beats time while it starts.
+
+    The POST must return its response object BEFORE the first token arrives,
+    and on a cold worker that takes seconds: running it in the thread and
+    yielding `: ping` keeps the SSE connection open (the reverse proxy cuts an
+    idle stream). Both chat routes had this choreography verbatim — support and
+    playground differ only in the cadence (audit 2026-10-07).
+    """
+    boite = {}
+
+    def _ouvre():
+        try:
+            boite['r'] = chat(stream=True)
+        except Exception as e:              # noqa: BLE001
+            boite['e'] = e
+
+    fil = threading.Thread(target=_ouvre, daemon=True)
+    fil.start()
+    while fil.is_alive():
+        fil.join(ping_s)
+        if fil.is_alive():
+            yield ": ping\n\n"
+    if 'e' in boite:
+        raise boite['e']
+    return boite['r']
+
 def _sse_text(text):
     """A single SSE frame carrying a text fragment, as-is."""
     return f"data: {json.dumps({'choices': [{'delta': {'content': text}}]})}\n\n"
@@ -227,24 +255,8 @@ def support_chat():
             # cuts after 60 s without a byte. So we open the request in a
             # thread and beat time while waiting: this is exactly the remedy
             # already applied to the playground, which was missing here.
-            boite = {}
-
-            def _ouvre():
-                try:
-                    boite['r'] = _chat(with_tools, stream=True)
-                except Exception as e:              # noqa: BLE001
-                    boite['e'] = e
-
-            fil = threading.Thread(target=_ouvre, daemon=True)
-            fil.start()
-            while fil.is_alive():
-                fil.join(_SUPPORT_PING_S)
-                if fil.is_alive():
-                    yield ": ping\n\n"
-            if 'e' in boite:
-                # Connectivity failure, not a model error (see TRANSPORT_ERR).
-                raise boite['e']
-            r = boite['r']
+            r = yield from _ouvrir_flux_avec_pings(
+                lambda stream=True: _chat(with_tools, stream), _SUPPORT_PING_S)
         except Exception:
             # Connectivity failure, not a model error (see TRANSPORT_ERR).
             return '', [], TRANSPORT_ERR

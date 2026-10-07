@@ -99,10 +99,6 @@ def _mask_key(k):
     return (k[:6] + '…' + k[-4:]) if k and len(k) > 12 else '—'
 
 
-_LOG_HINT_RE = re.compile(
-    r'log|erreur|error|marche pas|répond|repond|crash|plante|lent|500|502|503|bug|'
-    r'démarr|demarr|charge|timeout|down|hs|ko', re.I)
-
 def _support_context(username, is_admin, user_msg=''):
     """Context injected into the bot, STRICTLY limited to the logged-in user.
     The (large) server logs are included only if the question is about a technical

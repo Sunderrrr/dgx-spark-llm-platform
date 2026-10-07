@@ -7,15 +7,16 @@
 import { VStack } from "@astryxdesign/core/Stack";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { useRouter } from "next/navigation";
 import { useT } from "@/lib/i18n";
 import { PlatformStatus, type PlatformStatusData } from "./PlatformStatus";
-import { LiveActivity } from "./LiveActivity";
 import type { AdminTabProps } from "./adminTypes";
 
 export function OverviewTab({ platform, data, actionDisabled, setConfirmAction }: {
   platform: PlatformStatusData | null;
 } & Pick<AdminTabProps, "data" | "actionDisabled" | "setConfirmAction">) {
   const t = useT();
+  const router = useRouter();
   return (
     <VStack gap={6}>
       {/* The maintenance switch lives HERE, not in Système: it is a STATE of
@@ -43,6 +44,10 @@ export function OverviewTab({ platform, data, actionDisabled, setConfirmAction }
       {/* Dashboard widget (disk, backup, monitor, served model, counters):
           refreshed by the same 8 s poll as the rest of the page — the data
           flows down, no second timer. */}
+      {/* The live-activity card is deliberately NOT here (« dans la zone
+          admin je ne veux pas ça »): the home page already carries it, and an
+          admin page that duplicates the dashboard becomes the fourre-tout it
+          was reworked to stop being. */}
       <PlatformStatus status={platform} />
       {/* Work waiting for the operator — visible from the overview so a
           pending approval is never discovered by accident, but the ACTION
@@ -60,14 +65,11 @@ export function OverviewTab({ platform, data, actionDisabled, setConfirmAction }
               label={t("Ouvrir les demandes")}
               variant="secondary"
               size="sm"
-              onClick={() => {
-                if (typeof window !== "undefined") window.location.href = "/admin?tab=requests";
-              }}
+              onClick={() => router.push("/admin?tab=requests")}
             />
           }
         />
       ) : null}
-      <LiveActivity />
     </VStack>
   );
 }

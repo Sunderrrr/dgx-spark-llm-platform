@@ -154,7 +154,6 @@ export function LiveActivity() {
       <VStack gap={4}>
         <HStack gap={2} vAlign="center" hAlign="between" wrap="wrap">
           <Text weight="semibold">{t("Activité en direct")}</Text>
-          <Text type="supporting" color="secondary">{t("État vivant du moteur et de la machine — rien à actionner ici.")}</Text>
         </HStack>
 
         {/* Throughput and sessions, straight from the engine counters. */}

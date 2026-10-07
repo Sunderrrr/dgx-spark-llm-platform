@@ -12,7 +12,6 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Banner } from "@astryxdesign/core/Banner";
 import { Table } from "@astryxdesign/core/Table";
 import type { TableColumn } from "@astryxdesign/core/Table";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
@@ -23,7 +22,7 @@ import { EmailConfig } from "./EmailConfig";
 import { LogsPanel, type LogKind } from "./LogsPanel";
 import type { AdminTabProps, AuditRow } from "./adminTypes";
 
-export function SystemTab({ data, act, actionDisabled, setConfirmAction, audit, logKind, onLogKindChange, logs, sidecarLogs }: AdminTabProps & {
+export function SystemTab({ data, act, actionDisabled,  audit, logKind, onLogKindChange, logs, sidecarLogs }: AdminTabProps & {
   audit: AuditRow[];
   logKind: LogKind;
   onLogKindChange: (kind: LogKind) => void;
@@ -49,25 +48,6 @@ export function SystemTab({ data, act, actionDisabled, setConfirmAction, audit, 
         logs={logs}
         sidecarLogs={sidecarLogs}
       />
-
-      {data && (
-        <Banner
-          status={data.maintenance_mode ? "warning" : "info"}
-          title={data.maintenance_mode ? t("Mode maintenance actif") : t("Mode maintenance")}
-          description={t(
-            "Bloque l'accès à l'API et au chat/OCR/vidéo pour les non-admins, sans arrêter les modèles. Les admins gardent l'accès.",
-          )}
-          endContent={
-            <Button
-              label={data.maintenance_mode ? t("Désactiver") : t("Activer")}
-              variant={data.maintenance_mode ? "secondary" : "primary"}
-              size="sm"
-              isDisabled={actionDisabled}
-              onClick={() => setConfirmAction({ kind: "maintenance" })}
-            />
-          }
-        />
-      )}
 
       {/* Announcements are recorded then broadcast (Discord DM + webhook):
           this is the only Discord-facing control of the admin. */}

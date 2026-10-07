@@ -8,36 +8,19 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
-import { Card } from "@astryxdesign/core/Card";
-import { TextInput } from "@astryxdesign/core/TextInput";
-import { TextArea } from "@astryxdesign/core/TextArea";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
-import { Badge } from "@astryxdesign/core/Badge";
-import { Switch } from "@astryxdesign/core/Switch";
 import { Divider } from "@astryxdesign/core/Divider";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { SelectableCard } from "@astryxdesign/core/SelectableCard";
 import { UserAvatar } from "@/lib/user-avatar";
-import { Grid } from "@astryxdesign/core/Grid";
-import { Avatar } from "@astryxdesign/core/Avatar";
-import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { useToast } from "@astryxdesign/core/Toast";
 import {
   KeyIcon,
-  PlusIcon,
-  TrashIcon,
-  PencilSquareIcon,
   ServerStackIcon,
   SparklesIcon,
   UserCircleIcon,
   UserIcon,
   ChartBarIcon,
   SwatchIcon,
-  ArrowPathIcon,
-  SunIcon,
-  MoonIcon,
-  ComputerDesktopIcon,
   ArrowLeftIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
@@ -46,70 +29,18 @@ import { authFetch, getJSON, postFormJSON } from "@/lib/api";
 import { KeysContent } from "../keys/_components/KeysContent";
 import { MemoryContent } from "../memory/_components/MemoryContent";
 import { useThemeMode } from "../../theme-provider";
-import { THEMES, type ThemeId } from "@/lib/themes";
-import { useLang, useT, useLocale, type Lang } from "@/lib/i18n";
+import { useLang, useT, type Lang } from "@/lib/i18n";
+import { type ThemeId } from "@/lib/themes";
 import { useIsNarrow } from "@/lib/useIsNarrow";
-import { ActivityHeatmap, type ActivityDay } from "./ActivityHeatmap";
-import { SecurityContent } from "./SecurityContent";
 
-type McpServer = {
-  id: number;
-  name: string;
-  url: string;
-  description: string;
-  allowed_tools: string;
-  enabled: number;
-  has_auth: number;
-  created_at: string;
-};
 import { BASE_SKILLS, loadCustomSkills, type Skill as SkillPlayground } from "@/lib/skills";
-
-type Skill = { id: number; name: string; description: string; instructions: string; created_at: string };
-type AvatarChoice = { id: string; label: string };
-type Account = {
-  username: string;
-  fullname: string;
-  is_admin: boolean;
-  spend: number;
-  max_budget: number | null;
-  // End of the LiteLLM envelope period: that is where `spend` restarts from zero.
-  budget_reset_at: string | null;
-  budget_duration: string;
-  unlimited: boolean;
-  key_count: number;
-  mcp_count: number;
-  skill_count: number;
-};
-type Activity = {
-  days: ActivityDay[];
-  total: number;
-  prompt: number;
-  completion: number;
-  peak: number;
-  peak_day: string | null;
-  active_days: number;
-  avg: number;
-};
-type Limit = {
-  key: string;
-  label: string;
-  desc: string;
-  used: number | null;
-  max: number | null;
-  unit: string;
-  unlimited: boolean;
-};
-type SettingsData = {
-  activity: Activity;
-  limits: Limit[];
-  mcp_servers: McpServer[];
-  skills: Skill[];
-  avatar_id: string | null;
-  avatars: AvatarChoice[];
-  account: Account;
-};
-
-type Section = "account" | "usage" | "keys" | "memory" | "avatar" | "appearance" | "mcp" | "skills";
+import { EMPTY_ACTIVITY, type Section, type SettingsData } from "./settings/types";
+import { AccountSection } from "./settings/AccountSection";
+import { UsageSection } from "./settings/UsageSection";
+import { AppearanceSection } from "./settings/AppearanceSection";
+import { AvatarSection } from "./settings/AvatarSection";
+import { McpSection } from "./settings/McpSection";
+import { SkillsSection } from "./settings/SkillsSection";
 
 const SECTIONS: { group: string; items: { id: Section; label: string; icon: typeof UserIcon }[] }[] = [
   {
@@ -146,24 +77,6 @@ const SECTION_TITLES: Record<Section, string> = {
 // Constant dialog size, whatever the displayed section.
 const DIALOG_HEIGHT = "min(86vh, 700px)";
 
-// The locale is passed by the component: the formatting follows the
-// displayed language and a helper outside a component cannot call a hook.
-function fmt(n: number, numLocale: string) {
-  return Math.round(n).toLocaleString(numLocale);
-}
-
-/** 12,400 → "12 k": the top tiles must stay readable. */
-function compact(n: number) {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1).replace(/\.0$/, "")} G`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1).replace(/\.0$/, "")} M`;
-  if (n >= 1e3) return `${Math.round(n / 1e3)} k`;
-  return String(Math.round(n));
-}
-
-const EMPTY_ACTIVITY: Activity = {
-  days: [], total: 0, prompt: 0, completion: 0,
-  peak: 0, peak_day: null, active_days: 0, avg: 0,
-};
 
 export function SettingsDialog({
   isOpen,
@@ -182,7 +95,6 @@ export function SettingsDialog({
   const { mode, setMode, themeId, setThemeId } = useThemeMode();
   const { lang, setLang } = useLang();
   const t = useT();
-  const numLocale = useLocale();
   const isNarrow = useIsNarrow();
   const [section, setSection] = useState<Section>("account");
   // When opening with a requested section (e.g. "keys" from the home page),
@@ -535,280 +447,17 @@ export function SettingsDialog({
             <LayoutContent padding={5} isScrollable>
               {/* ── My account ─────────────────────────────────────────── */}
               {section === "account" && acct && (
-                <VStack gap={5}>
-                  <VStack gap={2} hAlign="center">
-                    <UserAvatar avatarId={data?.avatar_id} username={acct.username}
-                                name={acct.fullname} size="xl" />
-                    <Heading level={2}>{acct.fullname}</Heading>
-                    <HStack gap={2} vAlign="center">
-                      <Text type="supporting" color="secondary">
-                        {acct.username}
-                      </Text>
-                      {acct.is_admin && <Badge label="Admin" variant="warning" />}
-                    </HStack>
-                  </VStack>
-
-                  <Card padding={0}>
-                    <Grid columns={4}>
-                      {[
-                        { v: compact(act.total), l: "Tokens totaux" },
-                        { v: compact(act.peak), l: "Pic journalier" },
-                        { v: String(act.active_days), l: "Jours actifs" },
-                        { v: compact(act.avg), l: "Moyenne / jour" },
-                      ].map((s) => (
-                        <VStack key={s.l} gap={0} hAlign="center" padding={4}>
-                          <Text size="xl" weight="bold" hasTabularNumbers>
-                            {s.v}
-                          </Text>
-                          <Text type="supporting" color="secondary">
-                            {t(s.l)}
-                          </Text>
-                        </VStack>
-                      ))}
-                    </Grid>
-                  </Card>
-
-                  <VStack gap={2}>
-                    <HStack hAlign="between" vAlign="center">
-                      <Text type="supporting" color="secondary">{t("ACTIVITÉ TOKENS")}</Text>
-                      <Text type="supporting" color="secondary">{t("6 derniers mois")}</Text>
-                    </HStack>
-                    <Card>
-                      <ActivityHeatmap days={act.days} />
-                    </Card>
-                  </VStack>
-
-                  <Grid columns={2} gap={4}>
-                    <VStack gap={2}>
-                      <Text weight="semibold">{t("Insights d'activité")}</Text>
-                      <VStack gap={1}>
-                        {[
-                          ["Total période", fmt(act.total, numLocale)],
-                          ["Pic journalier", act.peak_day ? `${new Date(act.peak_day + "T00:00:00").toLocaleDateString(numLocale)} — ${fmt(act.peak, numLocale)}` : "—"],
-                          ["Jours actifs", String(act.active_days)],
-                        ].map(([l, v]) => (
-                          <HStack key={l} hAlign="between" gap={3}>
-                            <Text type="supporting" color="secondary">{t(l)}</Text>
-                            <Text type="supporting" hasTabularNumbers>{v}</Text>
-                          </HStack>
-                        ))}
-                      </VStack>
-                    </VStack>
-                    <VStack gap={2}>
-                      <Text weight="semibold">{t("Répartition tokens")}</Text>
-                      <VStack gap={1}>
-                        {[
-                          ["Entrée (prompt)", fmt(act.prompt, numLocale)],
-                          ["Sortie (généré)", fmt(act.completion, numLocale)],
-                          ["Clés API actives", String(acct.key_count)],
-                        ].map(([l, v]) => (
-                          <HStack key={l} hAlign="between" gap={3}>
-                            <Text type="supporting" color="secondary">{t(l)}</Text>
-                            <Text type="supporting" hasTabularNumbers>{v}</Text>
-                          </HStack>
-                        ))}
-                      </VStack>
-                    </VStack>
-                  </Grid>
-
-                  <VStack gap={2}>
-                    <Text weight="semibold">{t("Budget")}</Text>
-                    <Card>
-                      {acct.unlimited ? (
-                        <HStack>
-                          <Badge label={t("Budget illimité (admin)")} variant="warning" />
-                        </HStack>
-                      ) : (
-                        <VStack gap={2}>
-                          <HStack hAlign="between">
-                            <Text type="supporting" color="secondary">
-                              {t("Consommé sur la période")}
-                            </Text>
-                            <Text type="supporting" color="secondary" hasTabularNumbers>
-                              {fmt(acct.spend, numLocale)} / {fmt(acct.max_budget || 0, numLocale)} tokens
-                            </Text>
-                          </HStack>
-                          <ProgressBar
-                            label={t("Budget")}
-                            isLabelHidden
-                            value={Math.min(pct, 100)}
-                            variant={pct >= 90 ? "error" : pct >= 70 ? "warning" : "success"}
-                          />
-                          {/* The counter restarts from zero at the LiteLLM
-                              envelope reset date (weekly by default).
-                              Showing it avoids believing in a daily quota
-                              that never climbs back. */}
-                          {acct.budget_reset_at ? (
-                            <Text type="supporting" color="secondary">
-                              {t("Remis à zéro le {date}.").replace(
-                                "{date}", new Date(acct.budget_reset_at).toLocaleDateString(numLocale),
-                              )}
-                            </Text>
-                          ) : null}
-                        </VStack>
-                      )}
-                    </Card>
-                  </VStack>
-
-                  <SecurityContent />
-                </VStack>
+                <AccountSection acct={acct} act={act} avatarId={data?.avatar_id} pct={pct} />
               )}
 
               {/* ── Usage ──────────────────────────────────────────────── */}
               {section === "usage" && (
-                <VStack gap={4}>
-                  <HStack hAlign="between" vAlign="start" gap={3}>
-                    <VStack gap={0}>
-                      <Text weight="semibold">{t("Vos limites d'utilisation")}</Text>
-                      <Text type="supporting" color="secondary">{t("Suivez la consommation de votre compte sur chaque quota disponible.")}</Text>
-                    </VStack>
-                    <Button
-                      label={t("Rafraîchir")}
-                      variant="ghost"
-                      size="sm"
-                      isIconOnly
-                      icon={<Icon icon={ArrowPathIcon} size="sm" />}
-                      onClick={refresh}
-                    />
-                  </HStack>
-                  <VStack gap={4}>
-                    {limits.map((l) => {
-                      const pourcent =
-                        l.unlimited || !l.max || l.used === null
-                          ? null
-                          : Math.min(100, Math.round((l.used / l.max) * 100));
-                      return (
-                        <HStack key={l.key} gap={4} vAlign="center" hAlign="between">
-                          <VStack gap={0} width="45%">
-                            <Text weight="semibold">{t(l.label)}</Text>
-                            <Text type="supporting" color="secondary">
-                              {t(l.desc)}
-                            </Text>
-                          </VStack>
-                          <HStack gap={3} vAlign="center" width="50%">
-                            {pourcent === null ? (
-                              <Badge
-                                label={l.unlimited ? t("Illimité") : `${fmt(l.max ?? 0, numLocale)} ${l.unit}`}
-                                variant={l.unlimited ? "warning" : "neutral"}
-                              />
-                            ) : (
-                              <>
-                                <ProgressBar
-                                  label={t(l.label)}
-                                  isLabelHidden
-                                  value={pourcent}
-                                  variant={pourcent >= 90 ? "error" : pourcent >= 70 ? "warning" : "success"}
-                                />
-                                <Text type="supporting" color="secondary" hasTabularNumbers>
-                                  {pourcent} {t("% utilisé")}
-                                </Text>
-                              </>
-                            )}
-                          </HStack>
-                        </HStack>
-                      );
-                    })}
-                  </VStack>
-                  <Divider />
-                  <Text type="supporting" color="secondary">
-                    {t("Besoin d'augmenter tes limites ? Demande plus de tokens depuis l'onglet « Clés API », ou passe par l'assistant Support.")}
-                  </Text>
-                </VStack>
+                <UsageSection limits={limits} refresh={refresh} />
               )}
 
               {/* ── Appearance ──────────────────────────────────────────── */}
               {section === "appearance" && (
-                <VStack gap={5}>
-                  <VStack gap={2}>
-                    <Text type="supporting" color="secondary">{t("THÈME")}</Text>
-                    <Text type="supporting" color="secondary">
-                      {t("Ajuste l'apparence de l'interface.")}
-                    </Text>
-                    <Grid columns={3} gap={3}>
-                      {[
-                        { id: "light", label: "Clair", icon: SunIcon },
-                        { id: "dark", label: "Sombre", icon: MoonIcon },
-                        { id: "system", label: "Système", icon: ComputerDesktopIcon },
-                      ].map((opt) => (
-                        <SelectableCard
-                          key={opt.id}
-                          label={t(opt.label)}
-                          isSelected={mode === opt.id}
-                          onChange={() => setMode(opt.id as "light" | "dark" | "system")}
-                          padding={3}>
-                          <VStack gap={2} hAlign="center">
-                            <Icon icon={opt.icon} size="md" color="secondary" />
-                            <Text weight="semibold">{t(opt.label)}</Text>
-                          </VStack>
-                        </SelectableCard>
-                      ))}
-                    </Grid>
-                  </VStack>
-                  <VStack gap={2}>
-                    <Text type="supporting" color="secondary">
-                      {t("COULEUR D'ACCENT")}
-                    </Text>
-                    <Text type="supporting" color="secondary">
-                      {t("Change la couleur principale de l'interface.")}
-                    </Text>
-                    <Grid columns={{ minWidth: 92, max: 5 }} gap={3}>
-                      {THEMES.map((th) => (
-                        <SelectableCard
-                          key={th.id}
-                          label={t(th.label)}
-                          isSelected={themeId === th.id}
-                          onChange={() => selectTheme(th.id)}
-                          padding={3}>
-                          <VStack gap={2} hAlign="center">
-                            {/* Preview swatch: the only place where a raw
-                                color is legitimate — it's the sample
-                                itself, not a themed interface element. */}
-                            <span
-                              aria-hidden="true"
-                              style={{
-                                width: 28,
-                                height: 28,
-                                borderRadius: "50%",
-                                background: th.swatch,
-                                border: "1px solid var(--color-border)",
-                              }}
-                            />
-                            <Text type="supporting" color="secondary">
-                              {t(th.label)}
-                            </Text>
-                          </VStack>
-                        </SelectableCard>
-                      ))}
-                    </Grid>
-                  </VStack>
-
-                  <VStack gap={2}>
-                    <Text type="supporting" color="secondary">
-                      {t("LANGUE")}
-                    </Text>
-                    <Text type="supporting" color="secondary">
-                      {t("Choisis la langue de l'interface.")}
-                    </Text>
-                    <Grid columns={2} gap={3}>
-                      {([
-                        { id: "fr", label: t("Français"), drapeau: "🇫🇷" },
-                        { id: "en", label: t("Anglais"), drapeau: "🇬🇧" },
-                      ] as const).map((l) => (
-                        <SelectableCard
-                          key={l.id}
-                          label={l.label}
-                          isSelected={lang === l.id}
-                          onChange={() => selectLang(l.id)}
-                          padding={3}>
-                          <HStack gap={2} vAlign="center">
-                            <Text>{l.drapeau}</Text>
-                            <Text weight="semibold">{l.label}</Text>
-                          </HStack>
-                        </SelectableCard>
-                      ))}
-                    </Grid>
-                  </VStack>
-                </VStack>
+                <AppearanceSection mode={mode} setMode={setMode} themeId={themeId} selectTheme={selectTheme} lang={lang} selectLang={selectLang} />
               )}
 
               {/* ── API keys ───────────────────────────────────────────── */}
@@ -817,336 +466,34 @@ export function SettingsDialog({
 
               {/* ── Personalization ───────────────────────────────────── */}
               {section === "avatar" && (
-                <VStack gap={3}>
-                  <Text type="supporting" color="secondary">
-                    {t("Par défaut, ton avatar est créé à partir de ton pseudo. Tu peux aussi choisir un logo de marque d'IA — pas d'import d'image personnelle.")}
-                  </Text>
-                  <Grid columns={{ minWidth: 110, max: 5 }} gap={3}>
-                    {/* Waits for the settings: before, the handle is unknown and the
-                        monogram would show « ? » while the request runs. */}
-                    {data && (
-                      <SelectableCard
-                        key="genere"
-                        label={t("Généré depuis mon pseudo")}
-                        isSelected={!data.avatar_id}
-                        onChange={() => selectAvatar("")}
-                        padding={3}>
-                        <VStack gap={2} hAlign="center">
-                          <UserAvatar
-                            username={data.account?.username}
-                            name={acct?.fullname}
-                            size="lg"
-                          />
-                          <Text type="supporting" color="secondary">
-                            {t("Généré depuis mon pseudo")}
-                          </Text>
-                        </VStack>
-                      </SelectableCard>
-                    )}
-                    {data?.avatars.map((a) => (
-                      <SelectableCard
-                        key={a.id}
-                        label={a.label}
-                        isSelected={data.avatar_id === a.id}
-                        onChange={() => selectAvatar(a.id)}
-                        padding={3}>
-                        <VStack gap={2} hAlign="center">
-                          <Avatar src={`/avatars/${a.id}.svg`} name={a.label} size="lg" />
-                          <Text type="supporting" color="secondary">
-                            {a.label}
-                          </Text>
-                        </VStack>
-                      </SelectableCard>
-                    ))}
-                  </Grid>
-                </VStack>
+                <AvatarSection data={data} acct={acct} selectAvatar={selectAvatar} />
               )}
 
-              {/* ── MCP: list ────────────────────────────────────────── */}
-              {section === "mcp" && !isAddingMcp && (
-                <VStack gap={4}>
-                  <HStack hAlign="between" vAlign="center" gap={3}>
-                    <Text type="supporting" color="secondary">
-                      {t("Connecte un serveur MCP distant en HTTPS : ses outils deviennent utilisables par l'assistant Support.")}
-                    </Text>
-                    <Button
-                      label={t("Connecter un MCP")}
-                      variant="primary"
-                      size="sm"
-                      icon={<Icon icon={PlusIcon} size="sm" />}
-                      onClick={() => {
-                        setEditingMcpId(null);
-                        setMcpForm({ name: "", url: "", description: "", allowedTools: "", auth: "" });
-                        setIsAddingMcp(true);
-                      }}
-                    />
-                  </HStack>
-                  {data && data.mcp_servers.length === 0 ? (
-                    <EmptyState
-                      icon={<Icon icon={ServerStackIcon} size="lg" />}
-                      title={t("Aucun serveur MCP connecté.")}
-                      description={t("Connecte un serveur pour étendre les capacités de l'assistant.")}
-                    />
-                  ) : (
-                    <VStack gap={3}>
-                      {data?.mcp_servers.map((s) => (
-                        <Card key={s.id}>
-                          <VStack gap={2}>
-                            <HStack hAlign="between" vAlign="start" gap={3}>
-                              <VStack gap={0}>
-                                <HStack gap={2} vAlign="center">
-                                  <Text weight="semibold">{s.name}</Text>
-                                  {s.has_auth ? <Badge label={t("Auth")} variant="success" /> : null}
-                                </HStack>
-                                <Text type="supporting" color="secondary" wordBreak="break-all">
-                                  {s.url}
-                                </Text>
-                              </VStack>
-                              <HStack gap={2} vAlign="center">
-                                <Switch
-                                  label={t("Serveur activé")}
-                                  isLabelHidden
-                                  value={!!s.enabled}
-                                  onChange={(v) => toggleMcp(s.id, v)}
-                                />
-                                <Button
-                                  label={t("Modifier")}
-                                  variant="ghost"
-                                  size="sm"
-                                  isIconOnly
-                                  icon={<Icon icon={PencilSquareIcon} size="sm" />}
-                                  onClick={() => {
-                                    setEditingMcpId(s.id);
-                                    setMcpForm({
-                                      name: s.name,
-                                      url: s.url,
-                                      description: s.description || "",
-                                      allowedTools: s.allowed_tools || "",
-                                      auth: "",
-                                    });
-                                    setIsAddingMcp(true);
-                                  }}
-                                />
-                                <Button
-                                  label={t("Supprimer")}
-                                  variant="ghost"
-                                  size="sm"
-                                  isIconOnly
-                                  icon={<Icon icon={TrashIcon} size="sm" />}
-                                  onClick={() => deleteMcp(s.id, s.name)}
-                                />
-                              </HStack>
-                            </HStack>
-                            {s.description && (
-                              <Text type="supporting" color="secondary">
-                                {s.description}
-                              </Text>
-                            )}
-                            {s.allowed_tools && (
-                              <Text type="supporting" color="secondary">
-                                {t("Outils autorisés :")} {s.allowed_tools}
-                              </Text>
-                            )}
-                          </VStack>
-                        </Card>
-                      ))}
-                    </VStack>
-                  )}
-                </VStack>
-              )}
+              <McpSection
+                active={section === "mcp"}
+                data={data}
+                isAddingMcp={isAddingMcp}
+                setIsAddingMcp={setIsAddingMcp}
+                editingMcpId={editingMcpId}
+                setEditingMcpId={setEditingMcpId}
+                mcpForm={mcpForm}
+                setMcpForm={setMcpForm}
+                toggleMcp={toggleMcp}
+                deleteMcp={deleteMcp}
+              />
 
-              {/* ── MCP: form ───────────────────────────────────── */}
-              {section === "mcp" && isAddingMcp && (
-                <VStack gap={4}>
-                  <VStack gap={0}>
-                    <Text weight="semibold">{editingMcpId ? t("Modifier le serveur MCP") : t("Connecter un MCP personnalisé")}</Text>
-                    <Text type="supporting" color="secondary">
-                      {t("Configurez la connexion et la façon dont ses outils peuvent être utilisés.")}
-                    </Text>
-                  </VStack>
-                  <Card>
-                    <VStack gap={4}>
-                      <Grid columns={2} gap={4}>
-                        <TextInput
-                          label={t("Nom")}
-                          value={mcpForm.name}
-                          onChange={(v) => setMcpForm((f) => ({ ...f, name: v }))}
-                          placeholder={t("Exemple : notion_workspace")}
-                          description={t("Lettres, chiffres, underscores et tirets uniquement.")}
-                        />
-                        <TextInput
-                          label={t("URL du serveur")}
-                          value={mcpForm.url}
-                          onChange={(v) => setMcpForm((f) => ({ ...f, url: v }))}
-                          placeholder="https://mcp.example.com/sse"
-                        />
-                      </Grid>
-                      <TextArea
-                        label={t("Description (optionnel)")}
-                        value={mcpForm.description}
-                        onChange={(v) => setMcpForm((f) => ({ ...f, description: v }))}
-                        placeholder={t("Ce que fournit ce serveur")}
-                        rows={2}
-                      />
-                      <Grid columns={2} gap={4}>
-                        <TextInput
-                          label={t("Outils autorisés (optionnel)")}
-                          value={mcpForm.allowedTools}
-                          onChange={(v) => setMcpForm((f) => ({ ...f, allowedTools: v }))}
-                          placeholder="search, create_page, …"
-                          description={t("Séparez par des virgules. Vide = tous les outils.")}
-                        />
-                        <TextInput
-                          label={t("Autorisation (optionnel)")}
-                          // A Bearer token is masked like a password: it
-                          // stayed readable in clear text while typing (screen
-                          // sharing, screenshot). It is never re-served by the
-                          // server (`/api/settings` only exposes `has_auth`).
-                          type="password"
-                          value={mcpForm.auth}
-                          onChange={(v) => setMcpForm((f) => ({ ...f, auth: v }))}
-                          placeholder={t("Bearer token ou secret")}
-                          description={
-                            editingMcpId
-                              ? t("Laisser vide pour conserver le secret actuel ; « - » pour le retirer.")
-                              : t("Envoyé en en-tête Authorization.")
-                          }
-                        />
-                      </Grid>
-                    </VStack>
-                  </Card>
-                </VStack>
-              )}
-
-              {/* ── Skills: list ────────────────────────────────── */}
-              {section === "skills" && !isAddingSkill && (
-                <VStack gap={4}>
-                  {/* What the « / » menu offers — the defaults included. Read-
-                      only here: a built-in is edited in the source, a personal
-                      one from the playground's creator. */}
-                  <VStack gap={2}>
-                    <Text weight="semibold">{t("Compétences du playground (menu « / »)")}</Text>
-                    <Text type="supporting" color="secondary">
-                      {t("Appelées depuis le composeur en tapant « / ». Les intégrées sont livrées avec la plateforme ; les tiennes sont modifiables depuis le playground.")}
-                    </Text>
-                    <VStack gap={2}>
-                      {skillsPlayground.map((s) => (
-                        <Card key={s.id}>
-                          <HStack gap={2} vAlign="center">
-                            <Badge label={`/${s.alias}`} variant={s.builtin ? "info" : "neutral"} />
-                            <VStack gap={0}>
-                              <Text weight="semibold">{t(s.name)}</Text>
-                              <Text type="supporting" color="secondary">{t(s.description)}</Text>
-                            </VStack>
-                          </HStack>
-                        </Card>
-                      ))}
-                    </VStack>
-                  </VStack>
-                  <Text weight="semibold">{t("Compétences de l'assistant")}</Text>
-                  <HStack hAlign="between" vAlign="center" gap={3}>
-                    <Text type="supporting" color="secondary">
-                      {t("Des instructions réutilisables que tu écris toi-même ; l'assistant les charge quand elles sont utiles à ta demande.")}
-                    </Text>
-                    <Button
-                      label={t("Nouvelle compétence")}
-                      variant="primary"
-                      size="sm"
-                      icon={<Icon icon={PlusIcon} size="sm" />}
-                      onClick={() => {
-                        setEditingSkillId(null);
-                        setSkillForm({ name: "", description: "", instructions: "" });
-                        setIsAddingSkill(true);
-                      }}
-                    />
-                  </HStack>
-                  {data && data.skills.length === 0 ? (
-                    <EmptyState
-                      icon={<Icon icon={SparklesIcon} size="lg" />}
-                      title={t("Aucune compétence pour l'instant.")}
-                      description={t("Crée une compétence pour guider l'assistant sur une tâche récurrente.")}
-                    />
-                  ) : (
-                    <VStack gap={3}>
-                      {data?.skills.map((s) => (
-                        <Card key={s.id}>
-                          <HStack hAlign="between" vAlign="start" gap={3}>
-                            <VStack gap={0}>
-                              <Text weight="semibold">{s.name}</Text>
-                              <Text type="supporting" color="secondary">
-                                {s.description}
-                              </Text>
-                            </VStack>
-                            <HStack gap={1}>
-                              <Button
-                                label={t("Modifier")}
-                                variant="ghost"
-                                size="sm"
-                                isIconOnly
-                                icon={<Icon icon={PencilSquareIcon} size="sm" />}
-                                onClick={() => {
-                                  setEditingSkillId(s.id);
-                                  setSkillForm({
-                                    name: s.name,
-                                    description: s.description,
-                                    instructions: s.instructions || "",
-                                  });
-                                  setIsAddingSkill(true);
-                                }}
-                              />
-                              <Button
-                                label={t("Supprimer")}
-                                variant="ghost"
-                                size="sm"
-                                isIconOnly
-                                icon={<Icon icon={TrashIcon} size="sm" />}
-                                onClick={() => deleteSkill(s.id, s.name)}
-                              />
-                            </HStack>
-                          </HStack>
-                        </Card>
-                      ))}
-                    </VStack>
-                  )}
-                </VStack>
-              )}
-
-              {/* ── Skills: form ───────────────────────────── */}
-              {section === "skills" && isAddingSkill && (
-                <VStack gap={4}>
-                  <VStack gap={0}>
-                    <Text weight="semibold">{editingSkillId ? t("Modifier la compétence") : t("Créer une compétence")}</Text>
-                    <Text type="supporting" color="secondary">
-                      {t("L'assistant chargera ces instructions en contexte quand la compétence s'applique.")}
-                    </Text>
-                  </VStack>
-                  <Card>
-                    <VStack gap={4}>
-                      <Grid columns={2} gap={4}>
-                        <TextInput
-                          label={t("Nom")}
-                          value={skillForm.name}
-                          onChange={(v) => setSkillForm((f) => ({ ...f, name: v }))}
-                          placeholder={t("Exemple : analyse-de-logs")}
-                        />
-                        <TextInput
-                          label={t("Description")}
-                          value={skillForm.description}
-                          onChange={(v) => setSkillForm((f) => ({ ...f, description: v }))}
-                          placeholder={t("Quand l'utiliser, en une phrase")}
-                        />
-                      </Grid>
-                      <TextArea
-                        label={t("Instructions")}
-                        value={skillForm.instructions}
-                        onChange={(v) => setSkillForm((f) => ({ ...f, instructions: v }))}
-                        placeholder={t("Instructions détaillées que l'assistant chargera en contexte…")}
-                        rows={10}
-                      />
-                    </VStack>
-                  </Card>
-                </VStack>
-              )}
+              <SkillsSection
+                active={section === "skills"}
+                data={data}
+                skillsPlayground={skillsPlayground}
+                isAddingSkill={isAddingSkill}
+                setIsAddingSkill={setIsAddingSkill}
+                editingSkillId={editingSkillId}
+                setEditingSkillId={setEditingSkillId}
+                skillForm={skillForm}
+                setSkillForm={setSkillForm}
+                deleteSkill={deleteSkill}
+              />
             </LayoutContent>
               }
               footer={

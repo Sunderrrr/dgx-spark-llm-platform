@@ -21,6 +21,25 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Changed
 
+- **The frontend giants are broken up** (« regarde s'il y a des choses trop
+  compliquées dans le code, simplifie-le »). The playground page goes from 4195
+  to 2316 lines, SettingsDialog from 1179 to 526, UsersSection from 959 to 626
+  — each keeps its data layer, every section becomes its own component:
+  `PlaygroundComposer`, `ThreadMessage`, `DocumentPanel`, the dialogs, the
+  settings sections, the user dialogs. Verified in a real browser: message sent
+  and streamed back, reasoning block expandable, settings panel and history
+  intact (303 tokens · 27.2 tok/s · TTFT 2.27 s).
+
+### Added
+
+- **The API speed is measured and shown** (« un indicateur de vitesse »):
+  `latency.py` keeps a rolling window of `/api` and `/admin` request durations
+  in memory (no database write per request), and the home page shows the
+  median, the p95 and the sample count. The p95 tells you WHERE to look before
+  anyone complains: it read 943 ms on the first cold `/api/home` of the day.
+
+### Changed
+
 - **The admin page is segmented into five tabs** (« la page admin devient un
   fourre-tout… propose moi quelque chose »): Vue d'ensemble / Modèles /
   Utilisateurs / Demandes / Système. `admin/page.tsx` goes from 1340 lines to

@@ -852,7 +852,7 @@ def api_admin_users():
         # exists, `auth.etat_compte` rules on it alone (`_local_user_is_admin`)
         # and rewrites `session['is_admin']` — whatever `last_source`. The Users
         # page claimed the opposite (« the directory wins »): a local admin account
-        # removed from `cn=adm_cronos` stayed admin in practice, with no signal
+        # removed from `cn=<groupe-admin>` stayed admin in practice, with no signal
         # for the operator who had just done it. So we display what applies, and
         # the comment says the same thing as auth.py.
         if mu is not None:

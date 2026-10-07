@@ -628,7 +628,7 @@ def oauth_callback():
 
     groups = userinfo.get('groups')
     if isinstance(groups, list):
-        # Authentik returns group names ("adm_cronos"); _is_admin_group
+        # Authentik returns group names ("<groupe-admin>"); _is_admin_group
         # also covers the case where it would be a full DN. The directory
         # lookup above already gave us is_admin from memberOf; the `groups`
         # claim is treated as a secondary signal only when present.

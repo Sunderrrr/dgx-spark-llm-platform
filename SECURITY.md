@@ -39,7 +39,7 @@ network.
 | Anonymous internet | nothing | — |
 | Authenticated user (LDAP / SSO / local) | their own keys, budget, conversations, media jobs | anything scoped to another account, any admin action |
 | API key holder | inference within the account budget | portal routes, admin routes |
-| **Admin** (`adm_cronos`) | model lifecycle, sidecar lifecycle, accounts, quotas, maintenance | — (see [accepted risks](#3-accepted-risks)) |
+| **Admin** (the deployment's admin group) | model lifecycle, sidecar lifecycle, accounts, quotas, maintenance | — (see [accepted risks](#3-accepted-risks)) |
 | `vllm-runner` (host daemon) | spawning vLLM, scoped `sudo` on sidecar wrappers | arbitrary host commands, docker socket |
 | Third-party model code (OCR, HF repos) | nothing | — it is treated as hostile |
 

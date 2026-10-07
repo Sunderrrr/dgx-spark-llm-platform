@@ -193,7 +193,7 @@ it belongs to Postgres and LiteLLM.
 | `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.cronos.website/v1`) |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Authentik `dgx-spark` OIDC app |
 | `OIDC_METADATA_URL` / `OIDC_REDIRECT_URI` / `OIDC_LOGOUT_URL` | OIDC endpoints |
-| `OIDC_ADMIN_GROUP` | Group granting the admin role (default `adm_cronos`) |
+| `OIDC_ADMIN_GROUP` | Group granting the admin role (set it to yours) |
 | `SESSION_COOKIE_SECURE` | `1` behind an HTTPS proxy (Traefik), `0` for plain-HTTP LAN |
 | `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Default per-account budget (default 200 M tokens / week) |
 | `DISCORD_WEBHOOK_URL`, `SMTP_*`, `ADMIN_EMAIL` | Request notifications |
@@ -215,7 +215,7 @@ Two methods, handled by [`auth.py`](dgx-portal/auth.py):
 
 - **OIDC SSO (Authentik)** — primary. "Sign in with Cronos SSO". Flow:
   `/login/sso` → Authentik → `/api/oauth2-redirect`. Admin comes from the `groups`
-  claim (`adm_cronos`), falling back to an LDAP lookup by username if absent.
+  claim (the admin group), falling back to an LDAP lookup by username if absent.
 - **LDAP (Authentik)** — username/password fallback: direct bind, injection-escaped,
   empty-password binds rejected, with brute-force lockout (6 fails / 15 min)
   persisted in SQLite so it survives a redeploy and is shared across workers.

@@ -141,8 +141,11 @@ services:
     environment:
       SECRET_KEY: ${WEBUI_SECRET_KEY}
       LDAP_URI: ldap://100.73.45.103:389
-      LDAP_BASE: dc=cronos,dc=lan
-      LDAP_BIND_DN: cn=ldap,ou=users,dc=cronos,dc=lan
+      # The deployment's OWN directory details live in .env, never in
+      # this file: it is a public repository, and the base DN names
+      # the operator's domain (audit 2026-10-07).
+      LDAP_BASE: ${LDAP_BASE}
+      LDAP_BIND_DN: ${LDAP_BIND_DN}
       LDAP_BIND_PW: ${LDAP_BIND_PW}
       LITELLM_URL: http://litellm:4001
       # Overridable for tests (fake sidecar); default = image_net sidecar.
@@ -198,7 +201,7 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
       OIDC_REDIRECT_URI: https://dgx.cronos.website/api/oauth2-redirect
       OIDC_LOGOUT_URL: https://gjallarhorn.cronos.website/application/o/dgx/end-session/
-      OIDC_ADMIN_GROUP: adm_cronos
+      OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP}
       # App served over HTTPS behind Traefik → Secure session cookie
       SESSION_COOKIE_SECURE: "1"
     volumes:

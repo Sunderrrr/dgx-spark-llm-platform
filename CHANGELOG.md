@@ -93,7 +93,7 @@ path, both closed.
   any peer sharing a network with the portal (the OCR sidecar runs third-party
   model code on one).
 - The directory is now a DEMOTION CEILING for the admin role: removing an
-  LDAP/SSO account from `cn=adm_cronos` takes the rights away immediately
+  LDAP/SSO account from `cn=<groupe-admin>` takes the rights away immediately
   instead of leaving the session admin for up to 12 h. It can only take away,
   never grant — a directory outage must not invent an admin.
 - `_client_ip` takes the LAST `X-Forwarded-For` element (the one appended by

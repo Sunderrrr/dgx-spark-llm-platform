@@ -14,10 +14,10 @@ import os
 # `cn` attribute (the `uid` is an internal Authentik hash, NOT the username),
 # and the display name is `displayName`.
 LDAP_URI        = os.environ.get('LDAP_URI', 'ldap://100.73.45.103:389')
-LDAP_BASE       = os.environ.get('LDAP_BASE', 'dc=cronos,dc=lan')
+LDAP_BASE       = os.environ.get('LDAP_BASE', 'dc=example,dc=org')
 LDAP_BIND_DN    = os.environ.get('LDAP_BIND_DN', '')
 LDAP_BIND_PW    = os.environ.get('LDAP_BIND_PW', '')
-# Account RDN, relative to LDAP_BASE (ou=users here; the old lldap was ou=people).
+# Account RDN, relative to LDAP_BASE (the deployment's own layout).
 LDAP_USERS_DN   = os.environ.get('LDAP_USERS_DN', 'ou=users')
 # Attribute used as login identifier (cn here; the old lldap was uid).
 LDAP_LOGIN_ATTR = os.environ.get('LDAP_LOGIN_ATTR', 'cn')
@@ -86,7 +86,7 @@ OIDC_CLIENT_ID     = os.environ.get('OIDC_CLIENT_ID', '')
 OIDC_CLIENT_SECRET = os.environ.get('OIDC_CLIENT_SECRET', '')
 OIDC_REDIRECT_URI  = os.environ.get('OIDC_REDIRECT_URI', '')
 OIDC_LOGOUT_URL    = os.environ.get('OIDC_LOGOUT_URL', '')
-OIDC_ADMIN_GROUP   = os.environ.get('OIDC_ADMIN_GROUP', 'adm_cronos')
+OIDC_ADMIN_GROUP   = os.environ.get('OIDC_ADMIN_GROUP', 'admins')
 OIDC_ENABLED       = bool(OIDC_METADATA_URL and OIDC_CLIENT_ID and OIDC_CLIENT_SECRET)
 
 

@@ -639,6 +639,9 @@ const EN: Record<string, string> = {
   "Analyse ces logs et trouve la cause de l'erreur : ":
     "Analyse these logs and find the cause of the error: ",
   "Résumer": "Summarise",
+  "{n} demande(s) en attente de décision": "{n} request(s) awaiting a decision",
+  "Des modèles ou des budgets attendent ton approbation.": "Models or budgets are waiting for your approval.",
+  "Ouvrir les demandes": "Open requests",
   "Identité de la plateforme": "Platform identity",
   "Le nom et le logo affichés en haut à gauche — à l'image de celui qui déploie l'instance.": "The name and logo shown top left — the identity of whoever deploys the instance.",
   "Nom de l'instance": "Instance name",

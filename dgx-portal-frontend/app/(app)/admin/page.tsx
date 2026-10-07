@@ -264,7 +264,9 @@ export default function AdminPage() {
               <Tab value="system" label={t("Système")} />
             </TabList>
 
-            {tab === "overview" && <OverviewTab platform={platform} />}
+            {tab === "overview" && (
+              <OverviewTab platform={platform} data={data} actionDisabled={actionDisabled} setConfirmAction={setConfirmAction} />
+            )}
             {tab === "models" && <ModelsTab {...tabProps} />}
             {tab === "users" && <UsersTab {...tabProps} />}
             {tab === "requests" && <RequestsTab {...tabProps} />}

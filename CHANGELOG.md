@@ -35,6 +35,14 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Added
 
+- **The maintenance switch moved to the overview** (« je veux ça sur vue
+  d'ensemble »): it is a STATE of the platform and the one thing an operator
+  reaches for when something is wrong — not a configuration form. The verbose
+  introduction of the live-activity card is gone too; the numbers speak.
+- **A signpost for pending decisions**: when models or budgets wait, the
+  overview says how many and points to the Demandes tab — the action stays
+  there (one action = one tab), but a pending approval is never discovered by
+  accident.
 - **« Activité en direct »** in the admin overview: sessions / memory /
   throughput + who uses the model — the state an admin had to open the home
   page to see. Missing data shows « — », never a 0 that means « I don't know ».

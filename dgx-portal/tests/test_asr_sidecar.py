@@ -23,7 +23,6 @@ import sys
 import threading
 import types
 import unittest
-from unittest import mock
 
 
 def _stub(nom, **attributs):

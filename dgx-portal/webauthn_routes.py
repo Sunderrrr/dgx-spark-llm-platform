@@ -41,8 +41,10 @@ from auth import (_apply_session, _login_fail, _login_locked, _login_reset,
                    est_bloque, login_required)
 from config import WEBAUTHN_ORIGIN, WEBAUTHN_REQUIRE_UV, WEBAUTHN_RP_ID, WEBAUTHN_RP_NAME
 from db import get_db, log_audit
+# `passkey_possible` is gone (orphan, audit 2026-10-07): the callers read
+# `gestion["passkey"]` directly.
 from local_users import (GESTION_LDAP, GESTION_PORTAIL, GESTION_SSO, _local_user_auth,
-                          gestion_mot_de_passe, passkey_possible)
+                          gestion_mot_de_passe)
 
 bp = Blueprint("webauthn", __name__)
 

@@ -611,6 +611,7 @@ const EN: Record<string, string> = {
   "{n} demande(s) en attente de décision": "{n} request(s) awaiting a decision",
   "Des modèles ou des budgets attendent ton approbation.": "Models or budgets are waiting for your approval.",
   "Ouvrir les demandes": "Open requests",
+  "Réponse API : médiane {a} ms · p95 {b} ms sur {n} appels": "API response: median {a} ms · p95 {b} ms over {n} calls",
   "Identité de la plateforme": "Platform identity",
   "Le nom et le logo affichés en haut à gauche — à l'image de celui qui déploie l'instance.": "The name and logo shown top left — the identity of whoever deploys the instance.",
   "Nom de l'instance": "Instance name",

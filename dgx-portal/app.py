@@ -10,6 +10,10 @@ _SECRET_FAIBLES = {'changeme', 'secret', 'dev', 'test', 'password', 'changeme!'}
 
 app = Flask(__name__)
 
+# How long the API takes, measured on every request (see latency.py).
+from latency import _bp as _latence_bp, enregistrer as _latence_enregistrer  # noqa: E402
+app.register_blueprint(_latence_bp)
+
 # The session-cookie signing key is the portal's most critical secret: the Flask
 # cookie is SIGNED but not encrypted, so whoever knows the key can forge
 # `{'username': 'admin', 'is_admin': True}` and impersonate that account.
@@ -75,6 +79,25 @@ _CSP = ("default-src 'self'; "
         "font-src 'self'; "
         "img-src 'self' data:; connect-src 'self'; "
         "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+
+@app.before_request
+def _chronometrer_debut():
+    # Only the API surface is measured: pages and assets would drown the
+    # signal an operator reads (latency.py explains the window).
+    from flask import request as _rq
+    if _rq.path.startswith(('/api/', '/admin')) and _rq.endpoint != 'latence.api_latence':
+        from flask import g as _g
+        _g._t0 = time.perf_counter()
+
+
+@app.after_request
+def _chronometrer_fin(resp):
+    from flask import g as _g
+    t0 = getattr(_g, '_t0', None)
+    if t0 is not None:
+        _latence_enregistrer(request.path, time.perf_counter() - t0)
+    return resp
+
 
 @app.after_request
 def _security_headers(resp):

@@ -231,11 +231,25 @@ export default function HomePage() {
   // running but no identity is logged yet ».
   const slots = data?.modelhealth?.slots ?? null;
   const [loadError, setLoadError] = useState(false);
+  // How fast the API answers, measured on the server over its rolling window:
+  // the number that says a regression has crept in BEFORE anyone complains.
+  const [latence, setLatence] = useState<{ p50_ms: number | null; p95_ms: number | null; n: number } | null>(null);
   const [recentConvs, setRecentConvs] = useState<Conversation[]>([]);
   const { who } = useWhoami();
 
   // Resume a conversation: the most recent ones, to open the playground on
   // them. Loaded once on mount (light round-trip, no csrf).
+  useEffect(() => {
+    let vivant = true;
+    const lire = () =>
+      fetch("/api/latence")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (vivant && d) setLatence(d); })
+        .catch(() => {});
+    lire();
+    const id = setInterval(lire, 30000);
+    return () => { vivant = false; clearInterval(id); };
+  }, []);
   useEffect(() => {
     let annule = false;
     fetchConversations()
@@ -383,6 +397,16 @@ export default function HomePage() {
                     );
                   })}
                 </Grid>
+                {/* Measured speed, kept honest: no number means « not enough
+                    samples », never a zero that reads as instant. */}
+                {latence && latence.p50_ms != null ? (
+                  <Text type="supporting" color="secondary">
+                    {t("Réponse API : médiane {a} ms · p95 {b} ms sur {n} appels")
+                      .replace("{a}", String(latence.p50_ms))
+                      .replace("{b}", String(latence.p95_ms ?? "—"))
+                      .replace("{n}", String(latence.n))}
+                  </Text>
+                ) : null}
               </VStack>
             ) : null}
 

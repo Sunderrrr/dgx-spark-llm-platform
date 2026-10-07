@@ -827,6 +827,20 @@ const EN: Record<string, string> = {
   "Administration": "Administration",
   "Pilotage des modèles, quotas de tokens et demandes des utilisateurs.":
     "Model control, token quotas and user requests.",
+  // Tabs of the admin page (?tab=<id> deep links).
+  "Vue d'ensemble": "Overview",
+  "Modèles": "Models",
+  "Demandes": "Requests",
+  "Activité en direct": "Live activity",
+  "État vivant du moteur et de la machine — rien à actionner ici.":
+    "The engine and the machine, live — nothing to act on here.",
+  "Le moteur ne publie pas l'état de ses sessions.":
+    "The engine does not publish its session state.",
+  "Filtrer le catalogue": "Filter the catalog",
+  "Nom ou identifiant (ex : llama-3-8b, Qwen)": "Name or identifier (e.g. llama-3-8b, Qwen)",
+  "Aucun modèle ne correspond.": "No model matches.",
+  "Tout replier": "Collapse all",
+  "Tout déplier": "Expand all",
   "Accès réservé aux administrateurs": "Administrators only",
   "Ton compte n'a pas les droits nécessaires pour voir cette page.":
     "Your account does not have the rights to view this page.",

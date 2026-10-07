@@ -21,6 +21,29 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Changed
 
+- **The admin page is segmented into five tabs** (« la page admin devient un
+  fourre-tout… propose moi quelque chose »): Vue d'ensemble / Modèles /
+  Utilisateurs / Demandes / Système. `admin/page.tsx` goes from 1340 lines to
+  297 — the shell keeps the data layer (one 8 s poll, the SSE log stream, the
+  single in-flight lock and one confirm dialog), each section moves to
+  `admin/_components/`. One action = one tab; the default tab shows state, not
+  forms. Deep link `?tab=models` (unknown id falls back to the overview).
+- **The model `qwen38-flash-next` now serves
+  `ukisai/Swift-1.5-Qwen3.8-Flash-Next-GGUF` in IQ3_XS** (87 GB, 3 shards +
+  the BF16 projector), with the SAME engine arguments as before. Verified with
+  a real generation.
+
+### Added
+
+- **« Activité en direct »** in the admin overview: sessions / memory /
+  throughput + who uses the model — the state an admin had to open the home
+  page to see. Missing data shows « — », never a 0 that means « I don't know ».
+- **A catalog filter** (name + identifier, case-insensitive) on the Modèles
+  tab, and **fold + copy** on the log block (`copierTexte`, which works over
+  plain HTTP unlike the CodeBlock's clipboard button).
+
+### Changed
+
 - **The home page shows the capability view only** (« enleve ça… et mets juste
   le modèle si il est actif »). The « Modèles disponibles maintenant » block is
   gone entirely; each capability card now carries THE MODEL NAME when that

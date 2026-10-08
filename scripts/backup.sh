@@ -61,7 +61,8 @@ $S3 ls "$BUCKET/cronos-$STAMP.tar.gz" >/dev/null
 TAILLE=$(du -h "$ARCHIVE" | cut -f1)
 echo "✓ sauvegardée : cronos-$STAMP.tar.gz ($TAILLE) → $BUCKET"
 
-# The bucket is not infinite either: keep the last 14 archives.
-$S3 ls "$BUCKET/" 2>/dev/null | awk '{print $4}' | sort -r | tail -n +15 | while read -r vieux; do
+# Retention: 7 days (operator, 2026-10-09). A daily archive is one per
+# night — the eighth oldest is a week old and out of the window.
+$S3 ls "$BUCKET/" 2>/dev/null | awk '{print $4}' | sort -r | tail -n +8 | while read -r vieux; do
   [ -n "$vieux" ] && { $S3 del "$BUCKET/$vieux" >/dev/null; echo "· purgé : $vieux"; }
 done

@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { useT } from "@/lib/i18n";
 import { PlatformStatus, type PlatformStatusData } from "./PlatformStatus";
 import type { AdminTabProps } from "./adminTypes";
+import { ValidationPanel } from "./ValidationPanel";
 
 export function OverviewTab({ platform, data, actionDisabled, setConfirmAction }: {
   platform: PlatformStatusData | null;
@@ -44,6 +45,7 @@ export function OverviewTab({ platform, data, actionDisabled, setConfirmAction }
       {/* Dashboard widget (disk, backup, monitor, served model, counters):
           refreshed by the same 8 s poll as the rest of the page — the data
           flows down, no second timer. */}
+      <ValidationPanel actionDisabled={actionDisabled} />
       {/* The live-activity card is deliberately NOT here (« dans la zone
           admin je ne veux pas ça »): the home page already carries it, and an
           admin page that duplicates the dashboard becomes the fourre-tout it

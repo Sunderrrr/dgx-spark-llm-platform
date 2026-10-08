@@ -17,6 +17,7 @@ import os
 import re
 import ipaddress
 import sqlite3
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -1533,6 +1534,72 @@ def internal_authcheck():
     return jsonify({'error': {'message': "Mode maintenance en cours — l'API est "
                               "temporairement indisponible, réessaie plus tard.",
                               'type': 'maintenance_mode'}}), 503
+
+@bp.route('/admin/valider', methods=['POST'])
+@admin_required
+def admin_valider():
+    """Runs the full validation pipeline on demand, from the admin.
+
+    « je puisse lancer un test qui teste tout et me dise si tout va bien ou là
+    où ça n'a pas marché » — scripts/valider.sh is the whole thing (code gates,
+    running service, user journeys, health). It takes minutes, so it runs in a
+    thread and the UI polls the state: a synchronous route would time out long
+    before the journeys finish.
+
+    ONE run at a time: the journeys use the demo account and a shared
+    conversation state, two overlapping runs would fight each other and report
+    nonsense.
+    """
+    with _valideur['v']:
+        if _valideur['en_cours']:
+            return jsonify({'ok': False, 'error': "Une vérification est déjà en cours."}), 409
+        _valideur.update(en_cours=True, debut=time.time(), sortie=[], code=None)
+
+    def _lancer():
+        import subprocess
+        try:
+            p = subprocess.Popen(['/root/ai-platform/scripts/valider.sh'],
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 text=True, bufsize=1)
+            for ligne in p.stdout:
+                with _valideur['v']:
+                    _valideur['sortie'].append(ligne.rstrip())
+                    # The log is a tail, not an ever-growing string: the panel
+                    # shows the last lines, and a runaway output must not eat
+                    # the portal's memory.
+                    if len(_valideur['sortie']) > 400:
+                        del _valideur['sortie'][:len(_valideur['sortie']) - 400]
+            _valideur['code'] = p.wait()
+        except Exception as e:                      # noqa: BLE001
+            with _valideur['v']:
+                _valideur['sortie'].append(f"Erreur: {e}")
+                _valideur['code'] = 1
+        finally:
+            with _valideur['v']:
+                _valideur['en_cours'] = False
+
+    threading.Thread(target=_lancer, daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@bp.route('/admin/valider/etat')
+@admin_required
+def admin_valider_etat():
+    """Progress + the output tail + the verdict, polled by the panel."""
+    with _valideur['v']:
+        return jsonify({
+            'ok': True,
+            'en_cours': _valideur['en_cours'],
+            'duree_s': round(time.time() - _valideur['debut']) if _valideur['debut'] else 0,
+            'code': _valideur['code'],
+            'sortie': _valideur['sortie'][-120:],
+            'reussi': _valideur['code'] == 0 if _valideur['code'] is not None else None,
+        })
+
+
+_valideur = {'en_cours': False, 'debut': None, 'sortie': [], 'code': None,
+             'v': threading.Lock()}
+
 
 @bp.route('/admin/branding', methods=['POST'])
 @admin_required

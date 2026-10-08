@@ -59,7 +59,7 @@ services:
     # 1.102.1 AND 1.104.0: zero call site), and a class implementing only them
     # gets a table, no rows, and total silence. Send one real request and look
     # at `runtime/inflight.db`.
-    image: ghcr.io/berriai/litellm@sha256:625981c83410a3ea68eb0697590a57ec1d764d634514d54fa5db0591077ee839
+    image: ghcr.io/berriai/litellm@sha256:c1465d3eeb7c9f864f8a7bd057a694f9f3c092419ecdea1a9004624747b42e0e
     container_name: litellm
     restart: unless-stopped
     # Hardening (parity with dgx-portal/frontend): LiteLLM is a Python app that
@@ -316,7 +316,7 @@ services:
     logging: *logging
     # Digest-pinned (repro + anti supply-chain). To update:
     # docker pull searxng/searxng:latest then replace the sha above.
-    image: searxng/searxng@sha256:d4c2726944b38e71434ee31cb95047f5acf8acae9a06f7ad586b28cc9d4ebfd1
+    image: searxng/searxng@sha256:d3e684e0d23e584740494029b67d75889934ca2812106f877bb81588fd2cbc0b
     container_name: searxng
     restart: unless-stopped
     environment:

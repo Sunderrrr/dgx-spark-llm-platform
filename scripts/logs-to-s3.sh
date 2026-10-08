@@ -5,6 +5,7 @@
 # forensic read is a `s3cmd ls`, and the backup archive stays what it should
 # be: the data. Compressed daily, rotated out after 14 days, same as the
 # backups.
+# Retention: 7 archives, i.e. 7 days.
 set -eu
 S3CFG=/root/ai-platform/secrets/s3-garage.cfg
 BUCKET=s3://dgx/logs
@@ -29,6 +30,6 @@ $S3 put "$ARCHIVE" "$BUCKET/journaux-$STAMP.tar.gz" >/dev/null
 $S3 ls "$BUCKET/journaux-$STAMP.tar.gz" >/dev/null
 echo "✓ journaux : journaux-$STAMP.tar.gz ($(du -h "$ARCHIVE" | cut -f1)) → $BUCKET"
 
-$S3 ls "$BUCKET/" 2>/dev/null | awk '{print $4}' | sort -r | tail -n +15 | while read -r vieux; do
+$S3 ls "$BUCKET/" 2>/dev/null | awk '{print $4}' | sort -r | tail -n +8 | while read -r vieux; do
   [ -n "$vieux" ] && $S3 del "$BUCKET/$vieux" >/dev/null
 done

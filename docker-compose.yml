@@ -115,7 +115,30 @@ services:
     # GRACEFUL SHUTDOWN: `sh` is PID 1 and would swallow SIGTERM, so the
     # signal is trapped and forwarded to the proxy. The log is bounded: past
     # 20 MB it is rotated once at startup (`.1`), never grown forever.
-    entrypoint: ["sh", "-c", "sleep 5; size=`stat -c%s /run/cronos/litellm.log 2>/dev/null || echo 0`; if [ $size -gt 20000000 ]; then mv /run/cronos/litellm.log /run/cronos/litellm.log.1; fi; /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4001 >> /run/cronos/litellm.log 2>&1 & app=$!; trap 'kill -TERM $app' TERM INT; wait $app"]
+    # Rewritten 2026-10-08: the previous one-liner died on its own test —
+    # `stat` printed nothing (no file yet), `size` stayed EMPTY, and
+    # `[ -gt 20000000 ]` aborted the script BEFORE the proxy ever started
+    # (« sh: 20000000: unknown operand », then « you need to specify whom to
+    # kill » on `kill -TERM $app`). Every API key answered 401/timeout because
+    # NOTHING listened. Defaults matter: `${size:-0}` and a quoted comparison.
+    # Rewritten 2026-10-08. The previous one-liner died on its own test: `stat`
+    # printed nothing (no file yet), `size` stayed EMPTY, `[ -gt 20000000 ]`
+    # aborted the script BEFORE the proxy ever started (« sh: 20000000: unknown
+    # operand », then « you need to specify whom to kill » on `kill -TERM $app`).
+    # Every API key failed because NOTHING was listening. `exec` replaces the
+    # shell so SIGTERM reaches the proxy directly — no trap, no $!, nothing to
+    # get wrong; the log keeps its 20 MB rotation at startup.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        sleep 5
+        size=$(stat -c%s /run/cronos/litellm.log 2>/dev/null || echo 0)
+        # `sh` chokes on an empty comparison: default it BEFORE testing.
+        size=${size:-0}
+        case "$size" in *[!0-9]*) size=0 ;; esac
+        if [ "$size" -gt 20000000 ]; then mv /run/cronos/litellm.log /run/cronos/litellm.log.1; fi
+        exec /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4001 >> /run/cronos/litellm.log 2>&1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

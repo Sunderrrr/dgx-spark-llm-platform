@@ -75,7 +75,7 @@ services:
       - no-new-privileges:true
     # NO published port: LiteLLM is reachable only from the Docker network.
     # Traefik (`http://litellm:4001`) and the portal (LITELLM_URL) go through
-    # there; external access goes through ${DGX_API:-https://api.example.org}, which
+    # there; external access goes through ${PUBLIC_API_URL:-https://api.cronos.website/v1}, which
     # additionally applies the maintenance forwardAuth — which the old
     # published port bypassed.
     volumes:
@@ -103,10 +103,10 @@ services:
       # SSO Authentik (create an OIDC app "litellm" in Authentik, scope: openid profile email)
       GENERIC_CLIENT_ID: ${AUTHENTIK_LITELLM_CLIENT_ID}
       GENERIC_CLIENT_SECRET: ${AUTHENTIK_LITELLM_CLIENT_SECRET}
-      GENERIC_AUTHORIZATION_ENDPOINT: ${DGX_SSO_DOMAIN_URL:-https://sso.example.org}/application/o/authorize/
-      GENERIC_TOKEN_ENDPOINT: ${DGX_SSO_DOMAIN_URL:-https://sso.example.org}/application/o/token/
-      GENERIC_USERINFO_ENDPOINT: ${DGX_SSO_DOMAIN_URL:-https://sso.example.org}/application/o/userinfo/
-      GENERIC_REDIRECT_URI: ${DGX_PORTAL_URL:-http://portal.example.org:4001}/sso/callback
+      GENERIC_AUTHORIZATION_ENDPOINT: https://gjallarhorn.cronos.website/application/o/authorize/
+      GENERIC_TOKEN_ENDPOINT: https://gjallarhorn.cronos.website/application/o/token/
+      GENERIC_USERINFO_ENDPOINT: https://gjallarhorn.cronos.website/application/o/userinfo/
+      GENERIC_REDIRECT_URI: ${DGX_PORTAL_URL:-http://dgx.cronos.lan:4001}/sso/callback
       GENERIC_CLIENT_SCOPE: "openid profile email"
     # The proxy also writes to /run/dgx/litellm.log (shared with dgx-portal,
     # mounted read-only there) so the Support can read its logs with the same
@@ -214,16 +214,16 @@ services:
       # Transcription (Playground dictation): same, dedicated asr_net network.
       ASR_URL: http://asr:8006
       # Public URL of the OpenAI-compatible API shown to users
-      PUBLIC_API_URL: ${DGX_API:-https://api.example.org}/v1
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-https://api.cronos.website/v1}/v1
       # LiteLLM database for consumption stats (ranking + hourly graph)
       LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       TZ_DISPLAY: Europe/Paris
       # ── SSO / OIDC (Authentik) ──
-      OIDC_METADATA_URL: ${DGX_SSO_DOMAIN_URL:-https://sso.example.org}/application/o/dgx/.well-known/openid-configuration
+      OIDC_METADATA_URL: https://gjallarhorn.cronos.website/application/o/dgx/.well-known/openid-configuration
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
-      OIDC_REDIRECT_URI: https://${DGX_PORTAL_HOST:-portal.example.org}/api/oauth2-redirect
-      OIDC_LOGOUT_URL: ${DGX_SSO_DOMAIN_URL:-https://sso.example.org}/application/o/dgx/end-session/
+      OIDC_REDIRECT_URI: https://dgx.cronos.website/api/oauth2-redirect
+      OIDC_LOGOUT_URL: https://gjallarhorn.cronos.website/application/o/dgx/end-session/
       OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP}
       # App served over HTTPS behind Traefik → Secure session cookie
       SESSION_COOKIE_SECURE: "1"
@@ -411,9 +411,9 @@ networks:
 # Change in its config:
 #   OLLAMA_BASE_URL  →  remove
 #   Add:
-#     OPENAI_API_BASE_URL=${DGX_API:-https://api.example.org}/v1
+#     OPENAI_API_BASE_URL=${PUBLIC_API_URL:-https://api.cronos.website/v1}/v1
 #       (and NOT http://dgx.cronos.lan:4001: LiteLLM listens only on the
 #        internal docker network, no port is published on the host — the only
-#        path from outside is Traefik → ${DGX_API:-https://api.example.org})
+#        path from outside is Traefik → ${PUBLIC_API_URL:-https://api.cronos.website/v1})
 #     OPENAI_API_KEY=<LITELLM_MASTER_KEY>
 # Keep everything else (Authentik SSO, roles, etc.) identical.

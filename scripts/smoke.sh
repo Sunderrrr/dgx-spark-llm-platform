@@ -12,7 +12,7 @@
 # refuses to call a deploy done until this returns 0.
 # Le monde extérieur (chemins, domaines, bucket) vient de .env — voir
 # scripts/config.sh : rien en dur dans ce script.
-. "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+DGX_VERIFIER_DOMAINES=1 . "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
 set -u
 

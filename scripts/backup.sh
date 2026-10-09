@@ -63,6 +63,11 @@ $S3 put "$ARCHIVE" "$BUCKET/dgx-$STAMP.tar.gz" >/dev/null
 $S3 ls "$BUCKET/dgx-$STAMP.tar.gz" >/dev/null
 
 TAILLE=$(du -h "$ARCHIVE" | cut -f1)
+# Etat local pour le panneau d'admin : il lit /var/backups, pas S3.
+mkdir -p /var/backups/dgx
+printf '{"derniere":"%s","fichier":"dgx-%s.tar.gz","taille":"%s","destination":"%s"}' \
+  "$(date -Iseconds)" "$STAMP" "$TAILLE" "$BUCKET" > /var/backups/dgx/etat.json
+
 echo "✓ sauvegardée : dgx-$STAMP.tar.gz ($TAILLE) → $BUCKET"
 
 # Retention: 7 days (operator, 2026-10-09). A daily archive is one per

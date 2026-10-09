@@ -250,11 +250,22 @@ export default function HomePage() {
     const id = setInterval(lire, 30000);
     return () => { vivant = false; clearInterval(id); };
   }, []);
+  // The three first loads used to land one by one and the page FILLED IN waves.
+  // They are launched together and only publish their state once the main data
+  // is there: one complete render, not three partial ones.
   useEffect(() => {
     let annule = false;
-    fetchConversations()
-      .then((c) => { if (!annule) setRecentConvs(c); })
-      .catch(() => {});
+    Promise.allSettled([fetchConversations(), getJSON<HomeData>("/api/home")])
+      .then(([convs, home]) => {
+        if (annule) return;
+        if (convs.status === "fulfilled") setRecentConvs(convs.value);
+        if (home.status === "fulfilled") {
+          setData(home.value);
+          setLoadError(false);
+        } else {
+          setLoadError(true);
+        }
+      });
     return () => { annule = true; };
   }, []);
 

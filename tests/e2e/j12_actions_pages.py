@@ -14,6 +14,8 @@ fait CE QU'UN UTILISATEUR FAIT :
             service est annoncé honnêtement (disponible / à la demande) —
             pas de génération lourde ici (couverte par « outil image »).
 """
+from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys
 import time

@@ -7,6 +7,8 @@ Le sidecar de génération démarre À LA DEMANDE : le parcours patiente jusqu'�
 exigé : l'outil se déclenche, et une image réelle (chargée, de taille non
 nulle) apparaît dans la conversation.
 """
+from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys
 import time

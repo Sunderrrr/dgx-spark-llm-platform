@@ -10,10 +10,14 @@
 #
 # Run it by hand (`./scripts/smoke.sh`) or through `scripts/deploy.sh`, which
 # refuses to call a deploy done until this returns 0.
+# Le monde extérieur (chemins, domaines, bucket) vient de .env — voir
+# scripts/config.sh : rien en dur dans ce script.
+. "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
 set -u
 
-BASE=${SMOKE_BASE:-https://dgx.example.org}
-API=${SMOKE_API:-https://api.example.org}
+BASE=${SMOKE_BASE:-${DGX_WEB}}
+API=${SMOKE_API:-${DGX_API}}
 ECHEC=0
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }

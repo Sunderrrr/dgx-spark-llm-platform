@@ -5,6 +5,8 @@
 Le bouton « Exporter » doit produire un VRAI fichier Markdown : non vide,
 titré, avec les tours de parole (le modèle exporté est nommé).
 """
+from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import sys
 import time
 

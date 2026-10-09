@@ -215,7 +215,7 @@ def comfyui_is_up():
         # 3 s (measured 2026-10-07: this single probe was 3.0 s of the 3.2 s
         # home load). Availability matters little enough to accept a false
         # negative; the tool retries at the next call.
-        v = requests.get(f"{COMFYUI_URL}/system_stats", timeout=0.8).ok
+        v = requests.get(f"{COMFYUI_URL}/system_stats", timeout=0.3).ok
     except Exception:
         pass
     _comfyui_up_cache.update(t=now, v=v)

@@ -12,7 +12,7 @@
 # something that works. The deployer overrides what differs in `.env`.
 #
 #   DGX_ROOT        the checkout (default: this repository)
-#   DGX_WEB         the web UI origin (default: https://dgx.example.org)
+#   DGX_WEB         the web UI origin (default: https://example.org)
 #   DGX_API         the API origin (default: https://api.example.org)
 #   DGX_S3_CFG      s3cmd configuration file (default: <root>/secrets/s3-garage.cfg)
 #   DGX_S3_BUCKET   where the backups go (default: s3://dgx/backups)
@@ -38,7 +38,7 @@ if [ -f "$_RACINE/.env" ]; then
 fi
 
 export DGX_ROOT="${DGX_ROOT:-$_RACINE}"
-export DGX_WEB="${DGX_WEB:-https://dgx.example.org}"
+export DGX_WEB="${DGX_WEB:-https://example.org}"
 export DGX_API="${DGX_API:-https://api.example.org}"
 export DGX_S3_CFG="${DGX_S3_CFG:-$DGX_ROOT/secrets/s3-garage.cfg}"
 export DGX_S3_BUCKET="${DGX_S3_BUCKET:-s3://dgx/backups}"

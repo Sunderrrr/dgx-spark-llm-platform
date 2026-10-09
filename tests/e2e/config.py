@@ -22,7 +22,7 @@ if _env.exists():
             os.environ[cle] = val.strip()
 
 RACINE = Path(os.environ.get("DGX_ROOT", _RACINE))
-WEB = os.environ.get("DGX_WEB", "https://dgx.example.org")
+WEB = os.environ.get("DGX_WEB", "https://example.org")
 # The bare hostname (no scheme): cookies and assertions speak of a domain.
 DOMAINE = WEB.split("//", 1)[-1].split("/", 1)[0]
 # The identity provider the SSO redirects to — the journey checks the

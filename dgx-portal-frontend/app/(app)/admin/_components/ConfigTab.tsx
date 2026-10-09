@@ -108,8 +108,10 @@ export function ConfigTab() {
                 <VStack gap={2}>
                   <Text weight="semibold">{t(cat.titre)}</Text>
                   {groupe.map((l) => (
-                    <HStack key={l.nom} gap={3} vAlign="center" wrap="wrap">
-                      <VStack gap={0} style={{ minWidth: "var(--spacing-48)" }}>
+                    <HStack key={l.nom} gap={3} vAlign="center">
+                      {/* One column for the label, one for the control: with
+                          `wrap` and a variable label the inputs zigzagged. */}
+                      <VStack gap={0} style={{ width: "var(--spacing-64)", flexShrink: 0 }}>
                         <Text weight="semibold" size="sm">{t(l.libelle)}</Text>
                         <Text type="supporting" color="secondary">
                           {t("Source : {s}").replace("{s}", l.source)}

@@ -52,7 +52,7 @@ services:
     # the sha below with the new digest (and check the version with: docker run
     # --rm --entrypoint python <image> -c "from importlib.metadata import
     # version; print(version('litellm'))"). AFTER ANY UPDATE, re-check that the
-    # `cronos_inflight` callback is still DISPATCHED: the module relies on the
+    # `dgx_inflight` callback is still DISPATCHED: the module relies on the
     # synchronous hooks (`log_pre_api_call` / `log_success_event` /
     # `log_failure_event`) — the async twins (`async_log_pre_api_call`) are
     # declared by `CustomLogger` but never called by LiteLLM (verified on
@@ -75,40 +75,40 @@ services:
       - no-new-privileges:true
     # NO published port: LiteLLM is reachable only from the Docker network.
     # Traefik (`http://litellm:4001`) and the portal (LITELLM_URL) go through
-    # there; external access goes through https://api.cronos.website, which
+    # there; external access goes through https://api.dgx.website, which
     # additionally applies the maintenance forwardAuth — which the old
     # published port bypassed.
     volumes:
       # The proxy config is READ-ONLY: LiteLLM reads it at startup and never
       # writes it (its models live in Postgres, `store_model_in_db: true`).
       # Writable, it was a persistence path for a compromised proxy —
-      # `/run/cronos` being mounted writable right next to it, it could drop a
+      # `/run/dgx` being mounted writable right next to it, it could drop a
       # plugin there and have it loaded at the next restart.
       - ./litellm/config.yaml:/app/config.yaml:ro
       # IN-FLIGHT activity (who is generating right now): small SQLite written
-      # by the `cronos_inflight` callback, read by the portal. The module is
+      # by the `dgx_inflight` callback, read by the portal. The module is
       # mounted separately to stay readable, and PYTHONPATH=/app makes it
       # importable.
-      - ./dgx-portal/litellm_inflight.py:/app/cronos_inflight.py:ro
-      - ./runtime:/run/cronos
+      - ./dgx-portal/litellm_inflight.py:/app/dgx_inflight.py:ro
+      - ./runtime:/run/dgx
     environment:
       PYTHONPATH: /app
-      CRONOS_INFLIGHT_DB: /run/cronos/inflight.db
+      DGX_INFLIGHT_DB: /run/dgx/inflight.db
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       # Turns off the admin UI (/ui, /sso): it was publicly reachable via
-      # api.cronos.website and concentrated the whole master key on an exposed
+      # api.dgx.website and concentrated the whole master key on an exposed
       # login form. Admin goes through the portal (dgx-portal), not this UI.
       DISABLE_ADMIN_UI: "True"
       # SSO Authentik (create an OIDC app "litellm" in Authentik, scope: openid profile email)
       GENERIC_CLIENT_ID: ${AUTHENTIK_LITELLM_CLIENT_ID}
       GENERIC_CLIENT_SECRET: ${AUTHENTIK_LITELLM_CLIENT_SECRET}
-      GENERIC_AUTHORIZATION_ENDPOINT: https://gjallarhorn.cronos.website/application/o/authorize/
-      GENERIC_TOKEN_ENDPOINT: https://gjallarhorn.cronos.website/application/o/token/
-      GENERIC_USERINFO_ENDPOINT: https://gjallarhorn.cronos.website/application/o/userinfo/
-      GENERIC_REDIRECT_URI: http://dgx.cronos.lan:4001/sso/callback
+      GENERIC_AUTHORIZATION_ENDPOINT: https://gjallarhorn.dgx.website/application/o/authorize/
+      GENERIC_TOKEN_ENDPOINT: https://gjallarhorn.dgx.website/application/o/token/
+      GENERIC_USERINFO_ENDPOINT: https://gjallarhorn.dgx.website/application/o/userinfo/
+      GENERIC_REDIRECT_URI: http://dgx.dgx.lan:4001/sso/callback
       GENERIC_CLIENT_SCOPE: "openid profile email"
-    # The proxy also writes to /run/cronos/litellm.log (shared with dgx-portal,
+    # The proxy also writes to /run/dgx/litellm.log (shared with dgx-portal,
     # mounted read-only there) so the Support can read its logs with the same
     # `read_logs` tool as the GPU services — without going through the runner
     # (a runner restart would kill the served model). The wrapper keeps the
@@ -133,12 +133,12 @@ services:
       - -c
       - |
         sleep 5
-        size=$(stat -c%s /run/cronos/litellm.log 2>/dev/null || echo 0)
+        size=$(stat -c%s /run/dgx/litellm.log 2>/dev/null || echo 0)
         # `sh` chokes on an empty comparison: default it BEFORE testing.
         size=${size:-0}
         case "$size" in *[!0-9]*) size=0 ;; esac
-        if [ "$size" -gt 20000000 ]; then mv /run/cronos/litellm.log /run/cronos/litellm.log.1; fi
-        exec /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4001 >> /run/cronos/litellm.log 2>&1
+        if [ "$size" -gt 20000000 ]; then mv /run/dgx/litellm.log /run/dgx/litellm.log.1; fi
+        exec /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4001 >> /run/dgx/litellm.log 2>&1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -214,16 +214,16 @@ services:
       # Transcription (Playground dictation): same, dedicated asr_net network.
       ASR_URL: http://asr:8006
       # Public URL of the OpenAI-compatible API shown to users
-      PUBLIC_API_URL: https://api.cronos.website/v1
+      PUBLIC_API_URL: https://api.dgx.website/v1
       # LiteLLM database for consumption stats (ranking + hourly graph)
       LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       TZ_DISPLAY: Europe/Paris
       # ── SSO / OIDC (Authentik) ──
-      OIDC_METADATA_URL: https://gjallarhorn.cronos.website/application/o/dgx/.well-known/openid-configuration
+      OIDC_METADATA_URL: https://gjallarhorn.dgx.website/application/o/dgx/.well-known/openid-configuration
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
-      OIDC_REDIRECT_URI: https://dgx.cronos.website/api/oauth2-redirect
-      OIDC_LOGOUT_URL: https://gjallarhorn.cronos.website/application/o/dgx/end-session/
+      OIDC_REDIRECT_URI: https://dgx.dgx.website/api/oauth2-redirect
+      OIDC_LOGOUT_URL: https://gjallarhorn.dgx.website/application/o/dgx/end-session/
       OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP}
       # App served over HTTPS behind Traefik → Secure session cookie
       SESSION_COOKIE_SECURE: "1"
@@ -232,7 +232,7 @@ services:
       # Proxy in-flight activity, READ-ONLY: LiteLLM is the only writer, and a
       # compromised portal must not be able to touch what the proxy writes (nor
       # the reverse). Absent = the panel falls back to the finished rows only.
-      - ./runtime:/run/cronos:ro
+      - ./runtime:/run/dgx:ro
       # ComfyUI's video output, read-only: lets the portal serve past videos
       # from disk even when the video sidecar (ComfyUI) is stopped to free the GPU.
       - /root/ComfyUI/output:/comfyui-output:ro
@@ -240,7 +240,7 @@ services:
       # portal's last dump, measured as root by the monitor. The dump folder
       # itself is NOT mounted — it is 0700 root and the dumps 0600, and that is
       # on purpose: they hold the whole database.
-      - /var/lib/cronos-monitor:/var/lib/cronos-monitor:ro
+      - /var/lib/dgx-monitor:/var/lib/dgx-monitor:ro
       # Same token, caller side.
       - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
       # Hugging Face token, OPTIONAL, read-only: it makes gated repos visible in
@@ -292,7 +292,7 @@ services:
       web_net: {}
 
   # ─── DGX Portal Frontend — Next.js + Astryx, full new UI ───────────────────
-  # Takes over port 5000 (the one cronos-docker-restrict.service already
+  # Takes over port 5000 (the one dgx-docker-restrict.service already
   # filters and Traefik routes to): nothing to change on the firewall/Traefik
   # side, they keep targeting ":5000", which now serves this container.
   # Anything that is not a known Next page is forwarded internally to
@@ -405,13 +405,13 @@ networks:
   web_net:
 
 # ─── OpenWebUI ────────────────────────────────────────────────────────────────
-# OpenWebUI runs on your other server (vor.cronos.website).
+# OpenWebUI runs on your other server (vor.dgx.website).
 # Change in its config:
 #   OLLAMA_BASE_URL  →  remove
 #   Add:
-#     OPENAI_API_BASE_URL=https://api.cronos.website/v1
-#       (and NOT http://dgx.cronos.lan:4001: LiteLLM listens only on the
+#     OPENAI_API_BASE_URL=https://api.dgx.website/v1
+#       (and NOT http://dgx.dgx.lan:4001: LiteLLM listens only on the
 #        internal docker network, no port is published on the host — the only
-#        path from outside is Traefik → https://api.cronos.website)
+#        path from outside is Traefik → https://api.dgx.website)
 #     OPENAI_API_KEY=<LITELLM_MASTER_KEY>
 # Keep everything else (Authentik SSO, roles, etc.) identical.

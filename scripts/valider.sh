@@ -148,11 +148,11 @@ verifier_disque() {
 
 verifier_s3() {
   # La sauvegarde doit être JOIGNABLE : un backup qu'on ne peut pas lister
-  # n'existe pas (la fraîcheur des dumps est surveillée par cronos-monitor).
+  # n'existe pas (la fraîcheur des dumps est surveillée par dgx-monitor).
   local sortie
-  sortie=$(timeout 60 s3cmd -c secrets/s3-garage.cfg ls ${CRONOS_S3_BUCKET}/ 2>&1) || {
+  sortie=$(timeout 60 s3cmd -c secrets/s3-garage.cfg ls ${DGX_S3_BUCKET}/ 2>&1) || {
     echo "s3cmd a échoué : $(printf '%s' "$sortie" | tail -2)"; return 1; }
-  if [ -z "$sortie" ]; then echo "${CRONOS_S3_BUCKET}/ est vide ou illisible"; return 1; fi
+  if [ -z "$sortie" ]; then echo "${DGX_S3_BUCKET}/ est vide ou illisible"; return 1; fi
   echo "dernières sauvegardes visibles :"
   printf '%s\n' "$sortie" | tail -3
 }
@@ -171,7 +171,7 @@ for outil in docker node npm python3 timeout s3cmd curl; do
     exit 2
   fi
 done
-PYTHON_E2E=${PYTHON_E2E:-${CRONOS_PYTEST_BIN}}
+PYTHON_E2E=${PYTHON_E2E:-${DGX_PYTEST_BIN}}
 if [ ! -x "$PYTHON_E2E" ]; then
   printf '%s✗ prérequis manquant : %s (interpréteur Playwright)%s\n' "$ROUGE" "$PYTHON_E2E" "$RST"
   exit 2
@@ -260,7 +260,7 @@ if groupe_demande 4; then
   lancer "4.1 Mémoire disponible (seuil configurable)" 60 bash -c verifier_memoire
   lancer "4.2 Modèle servi en état « running »" 60 bash -c verifier_modele
   lancer "4.3 Disque sous le plafond" 60 bash -c verifier_disque
-  lancer "4.4 Sauvegarde S3 joignable (s3cmd ls ${CRONOS_S3_BUCKET}/)" 120 bash -c verifier_s3
+  lancer "4.4 Sauvegarde S3 joignable (s3cmd ls ${DGX_S3_BUCKET}/)" 120 bash -c verifier_s3
   conclure_groupe "Santé & ressources" "$GROUPE_OK" "$GROUPE_TOTAL"
 fi
 

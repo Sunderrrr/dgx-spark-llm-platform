@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-push safety gate for Cronos.
+# Pre-push safety gate for DGX.
 #
 # Three checks, all must pass before code leaves the box:
 #   1. Secret scan — refuses to push a diff that adds a secret file

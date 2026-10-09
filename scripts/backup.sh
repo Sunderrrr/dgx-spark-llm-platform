@@ -27,10 +27,10 @@
 
 set -eu
 
-S3CFG=${CRONOS_ROOT}/secrets/s3-garage.cfg
-BUCKET=${CRONOS_S3_BUCKET}
+S3CFG=${DGX_ROOT}/secrets/s3-garage.cfg
+BUCKET=${DGX_S3_BUCKET}
 STAMP=$(date +%Y-%m-%d_%H%M)
-TMP=$(mktemp -d /tmp/cronos-backup.XXXXXX)
+TMP=$(mktemp -d /tmp/dgx-backup.XXXXXX)
 trap 'rm -rf "$TMP" "$ARCHIVE"' EXIT
 
 [ -f "$S3CFG" ] || { echo "✗ $S3CFG manquant — sauvegarde impossible." >&2; exit 1; }
@@ -52,18 +52,18 @@ echo "· base LiteLLM (postgres)"
 docker exec litellm-postgres pg_dump -U litellm -d litellm > "$TMP/litellm.sql" 2>/dev/null
 
 echo "· configuration et identité"
-cp ${CRONOS_ROOT}/docker-compose.yml "$TMP/docker-compose.yml"
-cp ${CRONOS_ROOT}/.env "$TMP/env" 2>/dev/null || true
-tar -C ${CRONOS_ROOT} -czf "$TMP/secrets.tar.gz" secrets 2>/dev/null || true
+cp ${DGX_ROOT}/docker-compose.yml "$TMP/docker-compose.yml"
+cp ${DGX_ROOT}/.env "$TMP/env" 2>/dev/null || true
+tar -C ${DGX_ROOT} -czf "$TMP/secrets.tar.gz" secrets 2>/dev/null || true
 
 echo "· envoi"
-ARCHIVE="/tmp/cronos-$STAMP.tar.gz"
+ARCHIVE="/tmp/dgx-$STAMP.tar.gz"
 tar -C "$TMP" -czf "$ARCHIVE" . >/dev/null 2>&1
-$S3 put "$ARCHIVE" "$BUCKET/cronos-$STAMP.tar.gz" >/dev/null
-$S3 ls "$BUCKET/cronos-$STAMP.tar.gz" >/dev/null
+$S3 put "$ARCHIVE" "$BUCKET/dgx-$STAMP.tar.gz" >/dev/null
+$S3 ls "$BUCKET/dgx-$STAMP.tar.gz" >/dev/null
 
 TAILLE=$(du -h "$ARCHIVE" | cut -f1)
-echo "✓ sauvegardée : cronos-$STAMP.tar.gz ($TAILLE) → $BUCKET"
+echo "✓ sauvegardée : dgx-$STAMP.tar.gz ($TAILLE) → $BUCKET"
 
 # Retention: 7 days (operator, 2026-10-09). A daily archive is one per
 # night — the eighth oldest is a week old and out of the window.

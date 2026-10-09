@@ -16,8 +16,8 @@
 
 set -u
 
-BASE=${SMOKE_BASE:-${CRONOS_WEB}}
-API=${SMOKE_API:-${CRONOS_API}}
+BASE=${SMOKE_BASE:-${DGX_WEB}}
+API=${SMOKE_API:-${DGX_API}}
 ECHEC=0
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }

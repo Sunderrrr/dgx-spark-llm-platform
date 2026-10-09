@@ -40,7 +40,7 @@ def inventaire(dump_file: str | None) -> list[dict]:
         with open(dump_file, encoding="utf-8") as f:
             return json.load(f)["routes"]
     # Image de test : build identique à run-tests.sh, puis dump dans le
-    # conteneur jetable. CRONOS_NO_REAPER=1 : aucun thread de fond.
+    # conteneur jetable. DGX_NO_REAPER=1 : aucun thread de fond.
     build = subprocess.run(["docker", "compose", "build", "dgx-portal"],
                            cwd=REPO, capture_output=True, text=True,
                            timeout=DELAI_BUILD_S)
@@ -52,7 +52,7 @@ def inventaire(dump_file: str | None) -> list[dict]:
         ["docker", "run", "--rm",
          "-e", "SECRET_KEY=test-secret-0123456789abcdef0123456789abcdef",
          "-e", "LITELLM_MASTER_KEY=sk-test",
-         "-e", "CRONOS_NO_REAPER=1",
+         "-e", "DGX_NO_REAPER=1",
          "-v", f"{script}:/app/dump_routes.py:ro",
          "--entrypoint", "python", IMAGE, "/app/dump_routes.py"],
         capture_output=True, text=True, timeout=DELAI_DUMP_S)

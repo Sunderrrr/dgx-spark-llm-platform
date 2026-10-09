@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The journals, on their own stream: high volume, low value next to the data.
 #
-# « tien les logs de mon s3 garage » — they land under ${CRONOS_S3_LOGS}/ so a
+# « tien les logs de mon s3 garage » — they land under ${DGX_S3_LOGS}/ so a
 # forensic read is a `s3cmd ls`, and the backup archive stays what it should
 # be: the data. Compressed daily, rotated out after 14 days, same as the
 # backups.
@@ -11,10 +11,10 @@
 . "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
 set -eu
-S3CFG=${CRONOS_ROOT}/secrets/s3-garage.cfg
-BUCKET=${CRONOS_S3_LOGS}
+S3CFG=${DGX_ROOT}/secrets/s3-garage.cfg
+BUCKET=${DGX_S3_LOGS}
 STAMP=$(date +%Y-%m-%d)
-TMP=$(mktemp -d /tmp/cronos-logs.XXXXXX)
+TMP=$(mktemp -d /tmp/dgx-logs.XXXXXX)
 trap 'rm -rf "$TMP" "$ARCHIVE"' EXIT
 S3="s3cmd -c $S3CFG"
 

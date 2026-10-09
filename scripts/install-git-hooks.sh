@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the Cronos git hooks into .git/hooks. Idempotent — run it once per
+# Installs the DGX git hooks into .git/hooks. Idempotent — run it once per
 # clone (the .git dir isn't tracked, so hooks don't travel with the repo).
 set -eu
 cd "$(dirname "$0")/.."

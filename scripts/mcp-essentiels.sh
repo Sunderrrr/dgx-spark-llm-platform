@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Register the ESSENTIAL MCP servers for a Cronos account.
+# Register the ESSENTIAL MCP servers for a DGX account.
 #
 # Why a script and not just rows in the database: these two servers are what
 # the Support assistant needs to answer « how do I integrate X » from CURRENT

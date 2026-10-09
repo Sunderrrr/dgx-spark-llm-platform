@@ -14,7 +14,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
 set -eu
-cd ${CRONOS_ROOT}
+cd ${DGX_ROOT}
 
 SERVICES=${*:-"dgx-portal dgx-portal-frontend"}
 

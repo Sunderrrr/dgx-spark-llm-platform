@@ -11,15 +11,15 @@
 # Each value has a default that matches a plain clone: `source` this, get
 # something that works. The deployer overrides what differs in `.env`.
 #
-#   CRONOS_ROOT        the checkout (default: this repository)
-#   CRONOS_WEB         the web UI origin (default: https://dgx.cronos.website)
-#   CRONOS_API         the API origin (default: https://api.cronos.website)
-#   CRONOS_S3_CFG      s3cmd configuration file (default: <root>/secrets/s3-garage.cfg)
-#   CRONOS_S3_BUCKET   where the backups go (default: s3://dgx/backups)
-#   CRONOS_S3_LOGS     where the journals go (default: s3://dgx/logs)
-#   CRONOS_DEMO_USER   demo account used by the validation journeys
-#   CRONOS_DEMO_PASS   file holding its password (never the password itself)
-#   CRONOS_PYTEST_BIN  the python that carries Playwright
+#   DGX_ROOT        the checkout (default: this repository)
+#   DGX_WEB         the web UI origin (default: https://example.org)
+#   DGX_API         the API origin (default: https://api.example.org)
+#   DGX_S3_CFG      s3cmd configuration file (default: <root>/secrets/s3-garage.cfg)
+#   DGX_S3_BUCKET   where the backups go (default: s3://dgx/backups)
+#   DGX_S3_LOGS     where the journals go (default: s3://dgx/logs)
+#   DGX_DEMO_USER   demo account used by the validation journeys
+#   DGX_DEMO_PASS   file holding its password (never the password itself)
+#   DGX_PYTEST_BIN  the python that carries Playwright
 
 # Where is this repository? Derive it from the script, don't guess.
 _RACINE=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -32,17 +32,17 @@ if [ -f "$_RACINE/.env" ]; then
   while IFS='=' read -r cle val; do
     case "$cle" in ''|\#*) continue ;; esac
     case "$cle" in
-      CRONOS_*) export "$cle=${val:-}" ;;
+      DGX_*) export "$cle=${val:-}" ;;
     esac
   done < "$_RACINE/.env"
 fi
 
-export CRONOS_ROOT="${CRONOS_ROOT:-$_RACINE}"
-export CRONOS_WEB="${CRONOS_WEB:-https://dgx.cronos.website}"
-export CRONOS_API="${CRONOS_API:-https://api.cronos.website}"
-export CRONOS_S3_CFG="${CRONOS_S3_CFG:-$CRONOS_ROOT/secrets/s3-garage.cfg}"
-export CRONOS_S3_BUCKET="${CRONOS_S3_BUCKET:-s3://dgx/backups}"
-export CRONOS_S3_LOGS="${CRONOS_S3_LOGS:-s3://dgx/logs}"
-export CRONOS_DEMO_USER="${CRONOS_DEMO_USER:-demo}"
-export CRONOS_DEMO_PASS="${CRONOS_DEMO_PASS:-/root/shots/demo-credentials}"
-export CRONOS_PYTEST_BIN="${CRONOS_PYTEST_BIN:-/root/shots-venv/bin/python}"
+export DGX_ROOT="${DGX_ROOT:-$_RACINE}"
+export DGX_WEB="${DGX_WEB:-https://example.org}"
+export DGX_API="${DGX_API:-https://api.example.org}"
+export DGX_S3_CFG="${DGX_S3_CFG:-$DGX_ROOT/secrets/s3-garage.cfg}"
+export DGX_S3_BUCKET="${DGX_S3_BUCKET:-s3://dgx/backups}"
+export DGX_S3_LOGS="${DGX_S3_LOGS:-s3://dgx/logs}"
+export DGX_DEMO_USER="${DGX_DEMO_USER:-demo}"
+export DGX_DEMO_PASS="${DGX_DEMO_PASS:-/root/shots/demo-credentials}"
+export DGX_PYTEST_BIN="${DGX_PYTEST_BIN:-/root/shots-venv/bin/python}"

@@ -36,6 +36,10 @@
 #
 # Les journaux complets restent dans runtime/validation/<horodatage>/.
 # ─────────────────────────────────────────────────────────────────────────────
+# Le monde extérieur (chemins, domaines, bucket) vient de .env — voir
+# scripts/config.sh : rien en dur dans ce script.
+. "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
 set -u
 cd "$(dirname "$0")/.."
 
@@ -146,9 +150,9 @@ verifier_s3() {
   # La sauvegarde doit être JOIGNABLE : un backup qu'on ne peut pas lister
   # n'existe pas (la fraîcheur des dumps est surveillée par cronos-monitor).
   local sortie
-  sortie=$(timeout 60 s3cmd -c secrets/s3-garage.cfg ls s3://dgx/backups/ 2>&1) || {
+  sortie=$(timeout 60 s3cmd -c secrets/s3-garage.cfg ls ${CRONOS_S3_BUCKET}/ 2>&1) || {
     echo "s3cmd a échoué : $(printf '%s' "$sortie" | tail -2)"; return 1; }
-  if [ -z "$sortie" ]; then echo "s3://dgx/backups/ est vide ou illisible"; return 1; fi
+  if [ -z "$sortie" ]; then echo "${CRONOS_S3_BUCKET}/ est vide ou illisible"; return 1; fi
   echo "dernières sauvegardes visibles :"
   printf '%s\n' "$sortie" | tail -3
 }
@@ -167,7 +171,7 @@ for outil in docker node npm python3 timeout s3cmd curl; do
     exit 2
   fi
 done
-PYTHON_E2E=${PYTHON_E2E:-/root/shots-venv/bin/python}
+PYTHON_E2E=${PYTHON_E2E:-${CRONOS_PYTEST_BIN}}
 if [ ! -x "$PYTHON_E2E" ]; then
   printf '%s✗ prérequis manquant : %s (interpréteur Playwright)%s\n' "$ROUGE" "$PYTHON_E2E" "$RST"
   exit 2
@@ -256,7 +260,7 @@ if groupe_demande 4; then
   lancer "4.1 Mémoire disponible (seuil configurable)" 60 bash -c verifier_memoire
   lancer "4.2 Modèle servi en état « running »" 60 bash -c verifier_modele
   lancer "4.3 Disque sous le plafond" 60 bash -c verifier_disque
-  lancer "4.4 Sauvegarde S3 joignable (s3cmd ls s3://dgx/backups/)" 120 bash -c verifier_s3
+  lancer "4.4 Sauvegarde S3 joignable (s3cmd ls ${CRONOS_S3_BUCKET}/)" 120 bash -c verifier_s3
   conclure_groupe "Santé & ressources" "$GROUPE_OK" "$GROUPE_TOTAL"
 fi
 

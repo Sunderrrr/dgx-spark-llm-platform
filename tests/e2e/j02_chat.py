@@ -6,6 +6,8 @@ Envoie un message dans le playground, exige une réponse diffusée en flux,
 le nom du modèle au-dessus de la réponse et le pied de message avec les
 tokens et le TTFT (mesuré côté portail).
 """
+from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys
 

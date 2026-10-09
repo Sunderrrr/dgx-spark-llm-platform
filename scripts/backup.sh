@@ -21,10 +21,14 @@
 # that costs 100 GiB is a backup nobody keeps.
 #
 # The S3 credentials live in secrets/s3-garage.cfg (0600), never in git.
+# Le monde extérieur (chemins, domaines, bucket) vient de .env — voir
+# scripts/config.sh : rien en dur dans ce script.
+. "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
 set -eu
 
-S3CFG=/root/ai-platform/secrets/s3-garage.cfg
-BUCKET=s3://dgx/backups
+S3CFG=${CRONOS_ROOT}/secrets/s3-garage.cfg
+BUCKET=${CRONOS_S3_BUCKET}
 STAMP=$(date +%Y-%m-%d_%H%M)
 TMP=$(mktemp -d /tmp/cronos-backup.XXXXXX)
 trap 'rm -rf "$TMP" "$ARCHIVE"' EXIT
@@ -48,9 +52,9 @@ echo "· base LiteLLM (postgres)"
 docker exec litellm-postgres pg_dump -U litellm -d litellm > "$TMP/litellm.sql" 2>/dev/null
 
 echo "· configuration et identité"
-cp /root/ai-platform/docker-compose.yml "$TMP/docker-compose.yml"
-cp /root/ai-platform/.env "$TMP/env" 2>/dev/null || true
-tar -C /root/ai-platform -czf "$TMP/secrets.tar.gz" secrets 2>/dev/null || true
+cp ${CRONOS_ROOT}/docker-compose.yml "$TMP/docker-compose.yml"
+cp ${CRONOS_ROOT}/.env "$TMP/env" 2>/dev/null || true
+tar -C ${CRONOS_ROOT} -czf "$TMP/secrets.tar.gz" secrets 2>/dev/null || true
 
 echo "· envoi"
 ARCHIVE="/tmp/cronos-$STAMP.tar.gz"

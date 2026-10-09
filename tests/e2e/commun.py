@@ -2,7 +2,7 @@
 """Commun aux parcours e2e (tests/e2e/) — le socle, jamais le parcours lui-même.
 
 Chaque parcours (j*.py) est un script autonome lancé par `scripts/valider.sh`
-avec /root/shots-venv/bin/python (Playwright y est installé). Ce module donne :
+avec {PYTEST_BIN} (Playwright y est installé). Ce module donne :
 
 - la configuration (compte démo, bases, mot de passe lu dans un fichier hors
   dépôt — jamais affiché, jamais journalisé) ;
@@ -19,6 +19,8 @@ l'infrastructure.
 """
 from __future__ import annotations
 
+from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import os
 import re
 import signal
@@ -29,10 +31,10 @@ import urllib.request
 import json as _json
 
 # ── Configuration ────────────────────────────────────────────────────────────
-BASE = os.environ.get("E2E_BASE", "https://dgx.cronos.website")
-API = os.environ.get("E2E_API", "https://api.cronos.website")
+BASE = os.environ.get("E2E_BASE", WEB)
+API = os.environ.get("E2E_API", API)
 UTILISATEUR = os.environ.get("E2E_USER", "demo")
-FICHIER_MDP = os.environ.get("E2E_PW_FILE", "/root/shots/demo-credentials")
+FICHIER_MDP = os.environ.get("E2E_PW_FILE", "{DEMO_PASS}")
 # User-Agent réel : Cloudflare refuse l'UA par défaut de Python (erreur 1010).
 UA = ("Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")

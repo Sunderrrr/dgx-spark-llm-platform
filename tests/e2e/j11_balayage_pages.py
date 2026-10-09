@@ -13,6 +13,8 @@ des réglages, /keys n'a plus de page (supprimée volontairement — la liste de
 clés vit dans Réglages → Clés API, couverte par le parcours « clés API »).
 Les deux sont vérifiées pour CE qu'elles sont, avec un mot à l'écran.
 """
+from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys
 import time

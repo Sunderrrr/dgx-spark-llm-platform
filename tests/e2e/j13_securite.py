@@ -9,6 +9,8 @@ Traefik) :
     l'extérieur du réseau du proxy — ni sur le domaine web, ni sur le domaine
     API.
 """
+from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import sys
 
 import commun as c

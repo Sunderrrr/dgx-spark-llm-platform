@@ -4,13 +4,15 @@
 
 Depuis l'interface (Réglages → Clés API) : création avec un libellé ; la clé
 est affichée UNE fois (contrat : jamais réaffichée ensuite) ; elle figure dans
-la liste ; elle génère une complétion via https://api.cronos.website avec le
+la liste ; elle génère une complétion via API avec le
 modèle `auto-model` (l'APPEL passe par le domaine public, jamais par un port
 interne) ; puis elle est RÉVOQUÉE et l'API la refuse désormais (401).
 
 Nettoyage GARANTI (try/finally) : la clé créée par le test est toujours
 révoquée, même en cas d'échec — le compte démo n'est pas pollué.
 """
+from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys
 import time
@@ -145,7 +147,7 @@ def main() -> int:
             contenu = (((donnees or {}).get("choices") or [{}])[0]
                        .get("message", {}).get("content") if donnees else None)
             if statut != 200 or not (contenu or "").strip():
-                p.rate("complétion via https://api.cronos.website",
+                p.rate("complétion via API",
                        f"200 avec une réponse (modèle auto-model) depuis {c.API}",
                        f"HTTP {statut} — {corps[:200]!r}")
             p.ok("complétion via le domaine de l'API",

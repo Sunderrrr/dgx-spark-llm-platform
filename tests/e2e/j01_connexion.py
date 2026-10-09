@@ -9,6 +9,8 @@ session ; et la PRÉSENCE du parcours SSO (le bouton + la redirection OIDC vers
 le fournisseur — traverser Authentik est impossible en automatisé : 2FA/LDAP,
 c'est le contrat testable ici).
 """
+from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys
 
@@ -72,7 +74,7 @@ def main() -> int:
         # ── 5. Session invalide : on revient au login, sans écran blanc ─────
         b2, ctx2 = c.nouveau_contexte(pw)
         ctx2.add_cookies([{"name": "session", "value": "jeton.invalide.e2e",
-                           "domain": "dgx.cronos.website", "path": "/"}])
+                           "domain": DOMAINE, "path": "/"}])
         page2 = ctx2.new_page()
         page2.goto(f"{c.BASE}/playground", wait_until="domcontentloaded")
         page2.wait_for_timeout(2500)
@@ -110,8 +112,8 @@ def main() -> int:
         if statut not in (301, 302, 303, 307, 308):
             p.rate("redirection SSO (/login/sso)", "un code 30x",
                    f"HTTP {statut} — {corps[:120]!r}")
-        if "gjallarhorn.cronos.website" not in location:
-            p.rate("fournisseur OIDC", "Location vers gjallarhorn.cronos.website",
+        if "DOMAINE_SSO" not in location:
+            p.rate("fournisseur OIDC", "Location vers DOMAINE_SSO",
                    f"Location {location[:120]!r}")
         p.ok("redirection SSO", f"30x vers {location.split('/')[2]}")
 

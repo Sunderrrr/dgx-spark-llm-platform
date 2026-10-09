@@ -9,8 +9,12 @@
 #
 #   ./scripts/deploy.sh                # portal + frontend
 #   ./scripts/deploy.sh litellm searxng
+# Le monde extérieur (chemins, domaines, bucket) vient de .env — voir
+# scripts/config.sh : rien en dur dans ce script.
+. "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
 set -eu
-cd /root/ai-platform
+cd ${CRONOS_ROOT}
 
 SERVICES=${*:-"dgx-portal dgx-portal-frontend"}
 

@@ -1557,8 +1557,18 @@ def admin_valider():
 
     def _lancer():
         import subprocess
+        # The pipeline needs Docker and the HOST — a container cannot run it.
+        # The portal writes a REQUEST FILE and a systemd .path unit picks it up
+        # (`dgx-validation.path` → `dgx-validation.service`): the container
+        # never executes anything on the host, which is the whole point.
         try:
-            p = subprocess.Popen(['/root/ai-platform/scripts/valider.sh'],
+            import pathlib
+            demande = pathlib.Path('/run/dgx/validation/demande.txt')
+            demande.parent.mkdir(parents=True, exist_ok=True)
+            demande.write_text(str(time.time()))
+            # The run itself is the host's job; we watch its log.
+            log = pathlib.Path('/run/dgx/validation/courante.log')
+            p = subprocess.Popen(['tail', '-F', str(log)],
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True, bufsize=1)
             for ligne in p.stdout:

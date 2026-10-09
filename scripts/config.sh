@@ -46,3 +46,19 @@ export DGX_S3_LOGS="${DGX_S3_LOGS:-s3://dgx/logs}"
 export DGX_DEMO_USER="${DGX_DEMO_USER:-demo}"
 export DGX_DEMO_PASS="${DGX_DEMO_PASS:-/root/shots/demo-credentials}"
 export DGX_PYTEST_BIN="${DGX_PYTEST_BIN:-/root/shots-venv/bin/python}"
+
+# The deployer's values are the point of all this: if a domain is still the
+# generic default, say so LOUDLY instead of probing example.org and reporting
+# « the site is down » — which is a lie about the platform and a truth about
+# the configuration.
+_valide() {
+  case "$1" in
+    *example.org|*example.com)
+      printf '\033[31m✗ %s est encore la valeur par défaut (%s).\033[0m\n' "$2" "$1" >&2
+      printf '   Ajoute-la à .env — voir .machine/env-domains-a-ajouter.txt\n' >&2
+      return 1 ;;
+  esac
+  return 0
+}
+_valide "$DGX_WEB" DGX_WEB || exit 2
+_valide "$DGX_API" DGX_API || exit 2

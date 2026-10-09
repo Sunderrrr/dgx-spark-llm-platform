@@ -30,6 +30,7 @@ import { authFetch, getJSON, ForbiddenError } from "@/lib/api";
 import { useT, tServeur } from "@/lib/i18n";
 import type { PlatformStatusData } from "./_components/PlatformStatus";
 import { OverviewTab } from "./_components/OverviewTab";
+import { ConfigTab } from "./_components/ConfigTab";
 import { ModelsTab } from "./_components/ModelsTab";
 import { UsersTab } from "./_components/UsersTab";
 import { RequestsTab } from "./_components/RequestsTab";
@@ -43,7 +44,7 @@ const MAX_LOG_LINES = 600;
 /** The five tabs. The `id` is what the URL carries (`?tab=models`) so an
  *  operator can share a link straight to a tab; unknown ids are ignored and
  *  the page falls back to Vue d'ensemble without an error. */
-const TABS = ["overview", "models", "users", "requests", "system"] as const;
+const TABS = ["overview", "models", "users", "requests", "config", "system"] as const;
 type TabId = (typeof TABS)[number];
 const DEFAULT_TAB: TabId = "overview";
 
@@ -261,6 +262,7 @@ export default function AdminPage() {
               <Tab value="models" label={t("Modèles")} />
               <Tab value="users" label={t("Utilisateurs")} />
               <Tab value="requests" label={t("Demandes")} />
+              <Tab value="config" label={t("Configuration")} />
               <Tab value="system" label={t("Système")} />
             </TabList>
 
@@ -270,6 +272,7 @@ export default function AdminPage() {
             {tab === "models" && <ModelsTab {...tabProps} />}
             {tab === "users" && <UsersTab {...tabProps} />}
             {tab === "requests" && <RequestsTab {...tabProps} />}
+            {tab === "config" && <ConfigTab />}
             {tab === "system" && (
               <SystemTab
                 {...tabProps}

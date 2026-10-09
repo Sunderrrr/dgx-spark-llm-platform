@@ -191,8 +191,8 @@ def api_admin():
 # shell. The two paths are mounted read-only in the container and the
 # dumps are 0600 root: we only read NAMES and dates, never dump
 # content.
-_BACKUP_DIR = os.environ.get('BACKUP_DIR', '/var/backups/cronos')
-_MONITOR_STATE = os.environ.get('MONITOR_STATE', '/var/lib/cronos-monitor/state.json')
+_BACKUP_DIR = os.environ.get('BACKUP_DIR', '/var/backups/dgx')
+_MONITOR_STATE = os.environ.get('MONITOR_STATE', '/var/lib/dgx-monitor/state.json')
 _SEUIL_SAUVEGARDE_H = 26      # the dump runs at 03:00: beyond 26 h, it is late
 
 
@@ -213,7 +213,7 @@ def _etat_sauvegarde():
     """Freshness of the portal's latest dump (name + date, never the content).
 
     The normal source is the **host monitor state**, which runs as root every
-    5 min and copies what it measured there: `/var/backups/cronos` is 0700
+    5 min and copies what it measured there: `/var/backups/dgx` is 0700
     root and the dumps are 0600 (they contain the whole database), so the
     container CANNOT list them. We keep direct folder reading as fallback: if
     the mount exists and is readable one day, it serves; otherwise

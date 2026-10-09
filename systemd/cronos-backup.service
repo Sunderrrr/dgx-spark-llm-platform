@@ -6,16 +6,16 @@ Requires=docker.service
 [Service]
 Type=oneshot
 # Runs as root: access to the docker socket (container dumps).
-ExecStart=/usr/bin/python3 /root/ai-platform/monitoring/backup.py --dir /var/backups/cronos
+ExecStart=/usr/bin/python3 /root/ai-platform/monitoring/backup.py --dir /var/backups/dgx
 TimeoutStartSec=300
 # Hardening (2026-09-24): see cronos-monitor.service. Here writes are limited
-# to the dumps (`/var/backups/cronos`); the PostgreSQL dump goes through the
+# to the dumps (`/var/backups/dgx`); the PostgreSQL dump goes through the
 # docker daemon, so the CLI needs no capability.
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/var/backups/cronos /root/.docker
+ReadWritePaths=/var/backups/dgx /root/.docker
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

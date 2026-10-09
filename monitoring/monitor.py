@@ -41,7 +41,7 @@ from email.mime.text import MIMEText
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_FILE = os.path.join(ROOT, ".env")
-STATE = "/var/lib/cronos-monitor/state.json"
+STATE = "/var/lib/dgx-monitor/state.json"
 APP_NAME = "DGX platform"
 
 # Probed services: (key, type, target, expected). « expect » = HTTP codes that
@@ -56,7 +56,7 @@ SERVICES = [
 ]
 
 # Nightly backup: a dump too old = incident (retention/maintenance).
-BACKUP_DIR = "/var/backups/cronos"
+BACKUP_DIR = "/var/backups/dgx"
 BACKUP_MAX_AGE_H = 26  # cronos-backup tourne à 03:00 → < 26 h = toujours frais
 
 # Data integrity: on 04/09/2026 the contents of portal.db were reset and nobody
@@ -114,7 +114,7 @@ def _backup_fresh():
 
     `info` (name, age, number of dumps) is copied into the sticky state so the
     PORTAL can display it: it is the only channel readable by the container,
-    where `/var/backups/cronos` is 0700 root and the dumps 0600 — that is on
+    where `/var/backups/dgx` is 0700 root and the dumps 0600 — that is on
     purpose, they hold the whole database. The monitor itself runs as root.
     """
     import glob
@@ -320,7 +320,7 @@ def main():
     # The state written is rebuilt here, not copied from `cur`: we keep only the
     # sticky (`down`) and the watermark in it. `backup` is added explicitly
     # because it is the ONLY channel through which the portal can show the
-    # freshness of the dump — `/var/backups/cronos` is 0700 root, the container
+    # freshness of the dump — `/var/backups/dgx` is 0700 root, the container
     # sees nothing there.
     _save_state(args.state, {"down": sorted(down), "data_watermark": wm,
                              "backup": cur.get("backup") or {}})

@@ -60,5 +60,9 @@ _valide() {
   esac
   return 0
 }
-_valide "$DGX_WEB" DGX_WEB || exit 2
-_valide "$DGX_API" DGX_API || exit 2
+# Only the scripts that PROBE a domain need one (smoke, validation). A backup
+# or a log shipment must run whatever the domain is called.
+if [ "${DGX_VERIFIER_DOMAINES:-}" = "1" ]; then
+  _valide "$DGX_WEB" DGX_WEB || exit 2
+  _valide "$DGX_API" DGX_API || exit 2
+fi

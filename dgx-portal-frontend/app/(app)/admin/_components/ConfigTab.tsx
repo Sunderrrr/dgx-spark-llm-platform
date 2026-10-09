@@ -27,6 +27,22 @@ type Ligne = {
   source: string;
 };
 
+type Categorie = { titre: string; mots: string[] };
+
+// « la partie configuration dans l'admin est horrible, améliore ça, fais des
+// catégories » — one card per concern, so the eye finds LDAP without reading
+// fourteen labels. A new field goes to its category by its prefix.
+const CATEGORIES: Categorie[] = [
+  { titre: "LDAP", mots: ["ldap_"] },
+  { titre: "SSO / Authentification", mots: ["oidc_"] },
+  { titre: "SMTP / Courriel", mots: ["smtp_"] },
+];
+
+function categorieDe(nom: string): Categorie {
+  return CATEGORIES.find((c) => c.mots.some((m) => nom.startsWith(m)))
+    ?? { titre: "Autres", mots: [] };
+}
+
 export function ConfigTab() {
   const t = useT();
   const csrf = useCsrf();
@@ -85,29 +101,39 @@ export function ConfigTab() {
               {t("LDAP, SSO, SMTP — l'interface d'abord, .env ensuite, le défaut en dernier. Un secret n'est jamais affiché.")}
             </Text>
           </VStack>
-          {lignes.map((l) => (
-            <HStack key={l.nom} gap={3} vAlign="center" wrap="wrap">
-              <VStack gap={0} style={{ minWidth: "var(--spacing-48)" }}>
-                <Text weight="semibold" size="sm">{t(l.libelle)}</Text>
-                <Text type="supporting" color="secondary">
-                  {t("Source : {s}").replace("{s}", l.source)}
-                </Text>
-              </VStack>
-              {l.secret ? (
-                <Badge
-                  label={l.configure ? t("Configuré") : t("Absent")}
-                  variant={l.configure ? "success" : "neutral"}
-                />
-              ) : (
-                <TextInput
-                  label=""
-                  value={brouillon[l.nom] ?? ""}
-                  placeholder={l.configure ? t("(valeur présente)") : t("(non défini)")}
-                  onChange={(v) => setBrouillon((b) => ({ ...b, [l.nom]: v }))}
-                />
-              )}
-            </HStack>
-          ))}
+          {CATEGORIES.map((cat) => {
+            const groupe = lignes.filter((l) => categorieDe(l.nom).titre === cat.titre);
+            return groupe.length === 0 ? null : (
+              <Card key={cat.titre}>
+                <VStack gap={2}>
+                  <Text weight="semibold">{t(cat.titre)}</Text>
+                  {groupe.map((l) => (
+                    <HStack key={l.nom} gap={3} vAlign="center" wrap="wrap">
+                      <VStack gap={0} style={{ minWidth: "var(--spacing-48)" }}>
+                        <Text weight="semibold" size="sm">{t(l.libelle)}</Text>
+                        <Text type="supporting" color="secondary">
+                          {t("Source : {s}").replace("{s}", l.source)}
+                        </Text>
+                      </VStack>
+                      {l.secret ? (
+                        <Badge
+                          label={l.configure ? t("Configuré") : t("Absent")}
+                          variant={l.configure ? "success" : "neutral"}
+                        />
+                      ) : (
+                        <TextInput
+                          label=""
+                          value={brouillon[l.nom] ?? ""}
+                          placeholder={l.configure ? t("(valeur présente)") : t("(non défini)")}
+                          onChange={(v) => setBrouillon((b) => ({ ...b, [l.nom]: v }))}
+                        />
+                      )}
+                    </HStack>
+                  ))}
+                </VStack>
+              </Card>
+            );
+          })}
           <HStack>
             <Button
               label={envoi ? t("Enregistrement…") : t("Enregistrer")}

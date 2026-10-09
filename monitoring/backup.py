@@ -3,7 +3,7 @@
 
 The goal is a *local*, reproducible backup, with retention. It is NOT meant to
 be pushed anywhere: the dumps hold the DB data (tokens, etc.) and go to a
-directory outside the repo (/var/backups/cronos).
+directory outside the repo (/var/backups/dgx).
 
 What is backed up:
   - dgx-portal   → SQLite /app/data/portal.db (consistent snapshot via the
@@ -14,7 +14,7 @@ Usage :
   python3 backup.py            # backup + retention
   python3 backup.py --list     # list existing backups
   python3 backup.py --keep N   # keep N backups (default 14)
-  python3 backup.py --dir PATH # destination directory (default /var/backups/cronos)
+  python3 backup.py --dir PATH # destination directory (default /var/backups/dgx)
 """
 import argparse
 import glob
@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 
-DEST = "/var/backups/cronos"
+DEST = "/var/backups/dgx"
 KEEP = 14
 
 # Generated files mounted from the portal volume. The jobs are trimmed

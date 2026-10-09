@@ -241,6 +241,8 @@ services:
       # itself is NOT mounted — it is 0700 root and the dumps 0600, and that is
       # on purpose: they hold the whole database.
       - /var/lib/dgx-monitor:/var/lib/dgx-monitor:ro
+      # The backup script writes its state here; the admin panel reads it.
+      - /var/backups/dgx:/var/backups/dgx:ro
       # Same token, caller side.
       - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
       # Hugging Face token, OPTIONAL, read-only: it makes gated repos visible in

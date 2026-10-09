@@ -5,7 +5,7 @@
 Une conversation naît d'un message ; elle apparaît dans l'historique ; elle
 porte un nom qu'on peut changer ; et en la rouvrant on retrouve l'échange.
 """
-from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
                     S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys

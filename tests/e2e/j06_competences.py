@@ -5,7 +5,7 @@
 Tape « / » : le menu des compétences s'ouvre. Sélectionne une compétence :
 son prompt est inséré dans le composeur (et son prompt système est appliqué).
 """
-from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
                     S3_CFG, S3_BUCKET, PYTEST_BIN)
 import sys
 

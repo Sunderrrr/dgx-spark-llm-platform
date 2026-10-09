@@ -6,7 +6,7 @@ Une demande de recherche doit montrer l'avancement (« recherche « … » »,
 « lecture de N page(s) ») PENDANT le flux, et la réponse doit citer des
 sources (des adresses web apparaissent dans la réponse).
 """
-from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
                     S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys

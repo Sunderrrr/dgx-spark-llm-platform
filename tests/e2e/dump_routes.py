@@ -13,8 +13,8 @@ C'est la matière première de `verifier_couverture.py` : la comparaison avec
 mailles SILENCIEUSEMENT — elle doit être couverte par un parcours ou exclue
 avec une motivation écrite.
 """
-from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
-                    S3_CFG, S3_BUCKET, PYTEST_BIN)
+# No dependency on e2e_config: this runs ALONE inside the test image, with
+# only this file mounted. Keep it self-contained.
 import json
 import os
 import sys

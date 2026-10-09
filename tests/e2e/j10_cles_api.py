@@ -11,7 +11,7 @@ interne) ; puis elle est RÉVOQUÉE et l'API la refuse désormais (401).
 Nettoyage GARANTI (try/finally) : la clé créée par le test est toujours
 révoquée, même en cas d'échec — le compte démo n'est pas pollué.
 """
-from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
                     S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys

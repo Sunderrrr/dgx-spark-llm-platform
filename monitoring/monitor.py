@@ -118,8 +118,27 @@ def _backup_fresh():
     purpose, they hold the whole database. The monitor itself runs as root.
     """
     import glob
+    from datetime import datetime
     import time
     try:
+        # The backups now go to the operator's S3 bucket; the script leaves a
+        # STATE FILE here (`etat.json`) — reading that is the honest check:
+        # a local .db glob went blind the day the destination moved (2026-10-09).
+        etat = os.path.join(BACKUP_DIR, "etat.json")
+        if os.path.exists(etat):
+            with open(etat, encoding="utf-8") as f:
+                info = json.load(f)
+            stamp = info.get("derniere", "")
+            try:
+                ts = datetime.fromisoformat(stamp)
+                age = (datetime.now(ts.tzinfo) - ts).total_seconds() / 3600
+            except Exception:
+                age = None
+            if age is not None and age <= BACKUP_MAX_AGE_H:
+                return True, f"last backup {age:.1f}h ago → {info.get('destination', '?')}", {
+                    "latest": info.get("fichier"), "age_hours": round(age, 1), "count": 1}
+            return False, f"last backup {age:.1f}h old (> {BACKUP_MAX_AGE_H}h)", {
+                "latest": info.get("fichier"), "age_hours": round(age, 1) if age else None, "count": 1}
         files = glob.glob(os.path.join(BACKUP_DIR, "portal-*.db"))
     except Exception:
         files = []

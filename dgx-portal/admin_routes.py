@@ -1601,6 +1601,35 @@ _valideur = {'en_cours': False, 'debut': None, 'sortie': [], 'code': None,
              'v': threading.Lock()}
 
 
+@bp.route('/admin/config', methods=['GET', 'POST'])
+@admin_required
+def admin_config():
+    """Instance configuration from the admin: LDAP, SSO, SMTP.
+
+    « je veux que sur l'admin on puisse conf le ldap, le sso, le smtp, bref
+    tout … c'est mieux que les vars importantes soient stockées sur l'interface
+    web » — .env is the starting point, the database wins, and a secret is only
+    ever reported as configured/absent, never shown. The panel also says WHERE
+    each value comes from (interface / .env / défaut) — the first question when
+    a setting « does not take ».
+    """
+    from parametres import CONFIGURABLE, definir, etat_config
+    if request.method == 'GET':
+        return jsonify({'ok': True, 'config': etat_config(),
+                        'champs': [{'nom': n, 'libelle': l, 'secret': s}
+                                   for n, l, s in CONFIGURABLE]})
+    # An empty field means « back to the .env value »; a secret is only written
+    # when the operator types one, never echoed back.
+    modifies = 0
+    for nom, _libelle, _secret in CONFIGURABLE:
+        if nom in request.form:
+            definir(nom, request.form.get(nom, '').strip())
+            modifies += 1
+    log_audit(session['username'], 'config.modifiee',
+              f'{modifies} valeur(s) — LDAP/SSO/SMTP')
+    return jsonify({'ok': True, 'modifies': modifies})
+
+
 @bp.route('/admin/branding', methods=['POST'])
 @admin_required
 def admin_branding():

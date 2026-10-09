@@ -68,9 +68,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     // reading localStorage in the initializer would make the SSR render
     // diverge, cf. comment above). So we disable the rule on these three lines.
     /* eslint-disable react-hooks/set-state-in-effect */
-    setModeState(readLocal<Mode>("cronos_theme_mode", "system"));
-    setThemeIdState(readLocal<ThemeId>("cronos_theme_id", "neutral"));
-    setLangState(readLocal<Lang>("cronos_lang", "fr"));
+    setModeState(readLocal<Mode>("dgx_theme_mode", "system"));
+    setThemeIdState(readLocal<ThemeId>("dgx_theme_id", "neutral"));
+    setLangState(readLocal<Lang>("dgx_lang", "fr"));
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
@@ -83,28 +83,28 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (!who) return;
     if (who.theme_id) {
       setThemeIdState(who.theme_id as ThemeId);
-      window.localStorage.setItem("cronos_theme_id", who.theme_id);
+      window.localStorage.setItem("dgx_theme_id", who.theme_id);
     }
     if (who.lang) {
       setLangState(who.lang as Lang);
-      window.localStorage.setItem("cronos_lang", who.lang);
+      window.localStorage.setItem("dgx_lang", who.lang);
     }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [who]);
 
   function setMode(m: Mode) {
     setModeState(m);
-    window.localStorage.setItem("cronos_theme_mode", m);
+    window.localStorage.setItem("dgx_theme_mode", m);
   }
 
   function setThemeId(t: ThemeId) {
     setThemeIdState(t);
-    window.localStorage.setItem("cronos_theme_id", t);
+    window.localStorage.setItem("dgx_theme_id", t);
   }
 
   function setLang(l: Lang) {
     setLangState(l);
-    window.localStorage.setItem("cronos_lang", l);
+    window.localStorage.setItem("dgx_lang", l);
   }
 
   return (

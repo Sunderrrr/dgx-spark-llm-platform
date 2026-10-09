@@ -298,7 +298,7 @@ def _sse_notice(nid, done=True, **args):
     end path already emits `data: [DONE]`, and a second sentinel would change
     the stream shape. Mirrors _sse_chunks(done=...).
     """
-    payload = json.dumps({'cronos_notice': {'id': nid, **args}})
+    payload = json.dumps({'dgx_notice': {'id': nid, **args}})
     fin = "\n\ndata: [DONE]\n\n" if done else "\n\n"
     return f"data: {payload}{fin}"
 

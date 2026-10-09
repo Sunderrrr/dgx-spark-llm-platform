@@ -535,7 +535,7 @@ HF_TASKS = ('text-generation', 'text2text-generation', 'conversational',
 # The token lives in ./secrets/hf_token (0600, git-ignored) and is mounted
 # READ-ONLY in the portal. It is NEVER returned by a route nor logged:
 # only its presence is (`hf_jeton_present`).
-HF_TOKEN_FILE = os.environ.get('CRONOS_HF_TOKEN_FILE', '/run/secrets/hf_token')
+HF_TOKEN_FILE = os.environ.get('DGX_HF_TOKEN_FILE', '/run/secrets/hf_token')
 
 
 def _hf_token():

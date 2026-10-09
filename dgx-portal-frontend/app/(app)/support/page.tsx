@@ -66,7 +66,7 @@ import { DictateButton } from "../_components/DictateButton";
 import { useT, tServeur } from "@/lib/i18n";
 import { copierTexte } from "@/lib/copier";
 import { texteNotice } from "@/lib/notices";
-import type { CronosNotice } from "@/lib/notices";
+import type { DgxNotice } from "@/lib/notices";
 
 type ChatMsg = {
   role: "user" | "assistant";
@@ -86,7 +86,7 @@ type ChatMsg = {
    *  the server-side thread, so a reloaded conversation still says WHO answered
    *  — never "whatever model runs today". */
   model?: string;
-  /** Sensitive action proposed by the model (cronos_confirm): nothing is
+  /** Sensitive action proposed by the model (dgx_confirm): nothing is
    * executed until the user has clicked Confirmer/Annuler. */
   pendingAction?: SupportConfirmRequest;
 };
@@ -285,7 +285,7 @@ export default function SupportPage() {
     // playground. We display the reason as-is — otherwise they would only see
     // an empty answer, without knowing what to fix.
     let notice = "";
-    const onNotice = (n: CronosNotice) => {
+    const onNotice = (n: DgxNotice) => {
       notice = texteNotice(n, t);
       updateLast({ content: notice, isError: true });
     };

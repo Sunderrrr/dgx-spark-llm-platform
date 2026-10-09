@@ -340,7 +340,7 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
         if time.monotonic() > _fin:
             journal.append({'etape': 'delai', 'outil': 'recherche',
                             'erreur': "Recherche interrompue : trop longue."})
-            yield "data: " + json.dumps({'cronos_web': journal[-1]}) + "\n\n"
+            yield "data: " + json.dumps({'dgx_web': journal[-1]}) + "\n\n"
             return
         try:
             r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
@@ -355,14 +355,14 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
             # silence was the worst case — the user had asked for a search and got a
             # normal-looking answer.
             _log.warning("outils %s : appel de decision injoignable (%s)", username, e)
-            yield "data: " + json.dumps({'cronos_web': {
+            yield "data: " + json.dumps({'dgx_web': {
                 'etape': 'recherche_finie', 'outil': 'litellm', 'nombre': 0,
                 'erreur': "assistant injoignable"}}) + "\n\n"
             return
         if not r.ok:
             _log.warning("outils %s : decision d'outil refusee (HTTP %s)",
                          username, r.status_code)
-            yield "data: " + json.dumps({'cronos_web': {
+            yield "data: " + json.dumps({'dgx_web': {
                 'etape': 'recherche_finie', 'outil': 'litellm', 'nombre': 0,
                 'erreur': f"assistant en erreur ({r.status_code})"}}) + "\n\n"
             return
@@ -370,7 +370,7 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
             choix = (r.json().get('choices') or [{}])[0]
         except Exception:                           # noqa: BLE001
             _log.warning("outils %s : reponse de decision illisible", username)
-            yield "data: " + json.dumps({'cronos_web': {
+            yield "data: " + json.dumps({'dgx_web': {
                 'etape': 'recherche_finie', 'outil': 'litellm', 'nombre': 0,
                 'erreur': "réponse illisible"}}) + "\n\n"
             return
@@ -401,7 +401,7 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
             # also keeps the stream open, otherwise the proxy cuts before the
             # first token.
             if fn.get('name') == 'generer_image':
-                yield "data: " + json.dumps({'cronos_web': image_tools._annonce_image(args)}) + "\n\n"
+                yield "data: " + json.dumps({'dgx_web': image_tools._annonce_image(args)}) + "\n\n"
                 # GENERATOR: SSE heartbeats during the generation, final text
                 # as return value.
                 resultat = yield from image_tools._exec_image_tool(args, username, journal)
@@ -410,20 +410,20 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
                 # by the deadline right after a perfectly successful image.
                 _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
             elif fn.get('name') == 'generer_video':
-                yield "data: " + json.dumps({'cronos_web': video_tools._annonce_video(args)}) + "\n\n"
+                yield "data: " + json.dumps({'dgx_web': video_tools._annonce_video(args)}) + "\n\n"
                 # GENERATOR: same contract as the image tool — the phase
                 # budget is extended, a video takes MINUTES.
                 resultat = yield from video_tools._exec_video_tool(args, username, journal)
                 _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
             elif fn.get('name') == 'lire_document':
-                yield "data: " + json.dumps({'cronos_web': document_tools._annonce_document(args)}) + "\n\n"
+                yield "data: " + json.dumps({'dgx_web': document_tools._annonce_document(args)}) + "\n\n"
                 # GENERATOR: heartbeats while the OCR sidecar extracts the
                 # text of the attachment, text as return value.
                 resultat = yield from document_tools._exec_document_tool(
                     args, username, journal, pieces)
                 _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
             else:
-                yield "data: " + json.dumps({'cronos_web': _annonce(fn.get('name', ''), args)}) + "\n\n"
+                yield "data: " + json.dumps({'dgx_web': _annonce(fn.get('name', ''), args)}) + "\n\n"
                 # GENERATOR: SSE heartbeats during execution (a page read can
                 # take 90 s), final text as return value.
                 try:
@@ -434,10 +434,10 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
                                  fn.get('name', ''), e)
                     journal.append({'etape': 'recherche_finie', 'outil': 'recherche',
                                     'nombre': 0, 'erreur': "outil en panne"})
-                    yield "data: " + json.dumps({'cronos_web': journal[-1]}) + "\n\n"
+                    yield "data: " + json.dumps({'dgx_web': journal[-1]}) + "\n\n"
                     resultat = ("La recherche a échoué (outil en panne). Dis-le "
                                 "tel quel à l'utilisateur.")
-            yield "data: " + json.dumps({'cronos_web': journal[-1] if journal else {}}) + "\n\n"
+            yield "data: " + json.dumps({'dgx_web': journal[-1] if journal else {}}) + "\n\n"
 
             court.append({'role': 'tool', 'tool_call_id': appel.get('id', ''),
                           'name': fn.get('name', ''),

@@ -9,7 +9,7 @@ makes a test fail, with the explanation of what to do.
    the network during the suite becomes a zombie again (the global
    `requests` mocks catch it at random). THREE exist (budget reaper, ASR
    watcher, launch follower) and all three are behind the
-   `CRONOS_NO_REAPER` seam. A fourth must be too.
+   `DGX_NO_REAPER` seam. A fourth must be too.
 2. `patch.object(<module>.requests, …)` in the tests: these mocks patch
    the `requests` package SHARED by the whole process — the exact cause
    of the flake. The existing sites are frozen; any new one should prefer
@@ -41,17 +41,17 @@ class ThreadsArrierePlanGelTest(unittest.TestCase):
             for n, ligne in enumerate(texte.splitlines(), 1):
                 if 'threading.Thread(' in ligne and 'name=' in ligne:
                     sites.append(f"{f.name}:{n}")
-                    if 'CRONOS_NO_REAPER' not in texte:
+                    if 'DGX_NO_REAPER' not in texte:
                         sans_couture.append(f"{f.name}:{n}")
         self.assertLessEqual(
             len(sites), self.MAX_THREADS_NOMMES,
             "Nouveau thread de longue vie détecté : " + ", ".join(sites) +
-            " — il doit être derrière `CRONOS_NO_REAPER=1` (comme les 3 "
+            " — il doit être derrière `DGX_NO_REAPER=1` (comme les 3 "
             "existants : reaper budget, veilleur ASR, suivi-lancement), sans "
             "quoi il réouvre la classe de flake du 2026-10-02.")
         self.assertEqual(
             sans_couture, [],
-            "Thread de longue vie dans un fichier SANS couture CRONOS_NO_REAPER : "
+            "Thread de longue vie dans un fichier SANS couture DGX_NO_REAPER : "
             + ", ".join(sans_couture))
 
 

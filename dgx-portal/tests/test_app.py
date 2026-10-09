@@ -1613,7 +1613,7 @@ class SupportBillingTest(unittest.TestCase):
 
 
 class SupportNoticesStructureesTest(unittest.TestCase):
-    """The Support chat SSE ERROR texts are STRUCTURED notices (`cronos_notice`):
+    """The Support chat SSE ERROR texts are STRUCTURED notices (`dgx_notice`):
     the server sends an id (+ `wait`/`status` arguments), the frontend writes
     the sentence. The ids are a CONTRACT with `texteNotice` (an unknown id
     displays as raw id), so each one is locked byte-identical here.
@@ -1666,7 +1666,7 @@ class SupportNoticesStructureesTest(unittest.TestCase):
         for ligne in corps.splitlines():
             if ligne.startswith("data: ") and ligne != "data: [DONE]":
                 payload = json.loads(ligne[6:])
-                if "cronos_notice" in payload:
+                if "dgx_notice" in payload:
                     out.append(payload)
         return out
 
@@ -1691,44 +1691,44 @@ class SupportNoticesStructureesTest(unittest.TestCase):
         code, corps = self._flux(messages=())
         self.assertEqual(code, 400)
         self.assertEqual(self._notices(corps),
-                         [{"cronos_notice": {"id": "empty_message"}}])
+                         [{"dgx_notice": {"id": "empty_message"}}])
 
     def test_plafond_attente_notice(self):
         code, corps = self._flux(wait=7)
         self.assertEqual(self._notices(corps),
-                         [{"cronos_notice": {"id": "chat_rate_limited", "wait": 7}}])
+                         [{"dgx_notice": {"id": "chat_rate_limited", "wait": 7}}])
         self.assertNotIn("Trop de", corps)
 
     def test_aucun_modele_notice(self):
         code, corps = self._flux(running=())
         self.assertEqual(self._notices(corps),
-                         [{"cronos_notice": {"id": "no_model_running"}}])
+                         [{"dgx_notice": {"id": "no_model_running"}}])
 
     def test_amont_injoignable_notice(self):
         import requests as _rq
         code, corps = self._flux(post=_rq.exceptions.ConnectionError("coupé"))
         self.assertEqual(self._notices(corps),
-                         [{"cronos_notice": {"id": "model_unreachable"}}])
+                         [{"dgx_notice": {"id": "model_unreachable"}}])
         self.assertIn("data: [DONE]", corps)
 
     def test_amont_en_erreur_notice_statut(self):
         code, corps = self._flux(
             post=lambda *a, **k: self._Flux([], ok=False, status_code=500))
         self.assertEqual(self._notices(corps),
-                         [{"cronos_notice": {"id": "model_replied_error",
+                         [{"dgx_notice": {"id": "model_replied_error",
                                              "status": 500}}])
 
     def test_reponse_vide_notice(self):
         code, corps = self._flux(post=lambda *a, **k: self._Flux(["data: [DONE]"]))
         self.assertEqual(self._notices(corps),
-                         [{"cronos_notice": {"id": "empty_reply"}}])
+                         [{"dgx_notice": {"id": "empty_reply"}}])
 
     def test_lecture_timeout_notice(self):
         import requests as _rq
         code, corps = self._flux(
             post=lambda *a, **k: self._Flux([], erreur=_rq.exceptions.ReadTimeout()))
         self.assertEqual(self._notices(corps),
-                         [{"cronos_notice": {"id": "model_timeout"}}])
+                         [{"dgx_notice": {"id": "model_timeout"}}])
 
     def _boucle_d_outils(self, final):
         """4 tool rounds, then the forced final turn served by `final`."""
@@ -1777,12 +1777,12 @@ class SupportNoticesStructureesTest(unittest.TestCase):
     def test_modele_occupe_apres_boucle_d_outils(self):
         code, corps = self._boucle_d_outils(self._Flux([], ok=False, status_code=503))
         self.assertEqual(self._notices(corps),
-                         [{"cronos_notice": {"id": "model_busy"}}])
+                         [{"dgx_notice": {"id": "model_busy"}}])
 
     def test_reformulation_apres_boucle_d_outils(self):
         code, corps = self._boucle_d_outils(self._Flux(["data: [DONE]"]))
         self.assertEqual(self._notices(corps),
-                         [{"cronos_notice": {"id": "reformulate"}}])
+                         [{"dgx_notice": {"id": "reformulate"}}])
 
 
 class SupportServicesTest(unittest.TestCase):
@@ -2014,7 +2014,7 @@ class SupportSensibleActionsTest(unittest.TestCase):
             body = r.get_data(as_text=True)
         # Nothing was executed, and the UI receives what it needs to show the button.
         exec_tool.assert_not_called()
-        self.assertIn("cronos_confirm", body)
+        self.assertIn("dgx_confirm", body)
         self.assertIn("revoke_api_key", body)
         with portal.app.app_context():
             row = portal.get_db().execute(
@@ -2093,7 +2093,7 @@ class SupportSensibleActionsTest(unittest.TestCase):
             r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
                                     json={"messages": [{"role": "user", "content": "crée une clé"}]})
             self.assertEqual(r.status_code, 200)
-            self.assertNotIn("cronos_confirm", r.get_data(as_text=True))
+            self.assertNotIn("dgx_confirm", r.get_data(as_text=True))
         self.assertEqual(exec_tool.call_count, 1)
 
     def test_contexte_contient_les_actions_recentes(self):
@@ -2202,7 +2202,7 @@ class SupportInjectionGuardTest(unittest.TestCase):
             body = r.get_data(as_text=True)
         # No execution, no confirmation proposal: the refusal is clean.
         exec_tool.assert_not_called()
-        self.assertNotIn("cronos_confirm", body)
+        self.assertNotIn("dgx_confirm", body)
         # The SSE body is JSON: accents are escaped there (\u00e9), so we
         # check the ASCII part of the message.
         self.assertIn("Action bloqu", body)
@@ -2254,7 +2254,7 @@ class SupportInjectionGuardTest(unittest.TestCase):
             body = r.get_data(as_text=True)
         # No execution, no confirmation proposal: the refusal is clean.
         exec_tool.assert_not_called()
-        self.assertNotIn("cronos_confirm", body)
+        self.assertNotIn("dgx_confirm", body)
         self.assertIn("Action bloqu", body)
         with portal.app.app_context():
             db = portal.get_db()

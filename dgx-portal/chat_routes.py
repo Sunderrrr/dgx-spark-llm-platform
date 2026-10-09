@@ -126,7 +126,7 @@ def _sse_raisonnement(text):
 def _sse_chunks(text, done=True):
     """Sends ALREADY-known text, in a few frames. Now only serves the
     "reasoning block" fallback (the error messages have become structured
-    `cronos_notice` events, translated by the frontend): the common case goes
+    `dgx_notice` events, translated by the frontend): the common case goes
     through _run_turn(), which relays the model's real stream.
 
     No delay here: it only imitated a fake typing effect and
@@ -146,7 +146,7 @@ def _sse_confirm_event(token, tool, label, target):
     The token stays on the client AND server side: it is never placed in the
     model's context, so an indirect injection cannot replay it.
     """
-    payload = json.dumps({'cronos_confirm': {'token': token, 'tool': tool,
+    payload = json.dumps({'dgx_confirm': {'token': token, 'tool': tool,
                                              'label': label, 'target': target}})
     return f"data: {payload}\n\n"
 
@@ -1163,7 +1163,7 @@ def playground_chat():
     user_key = keys[0]['key']
     # Quota guard BEFORE everything: on the reliable accounting (SpendLogs),
     # not just the LiteLLM counter (see guards.quota_depasse_reset). The event
-    # is STRUCTURED (cronos_notice): the frontend translates it into the UI
+    # is STRUCTURED (dgx_notice): the frontend translates it into the UI
     # language.
     _quota_reset = quota_depasse_reset(session['username'])
     if _quota_reset is not None:
@@ -1204,7 +1204,7 @@ def playground_chat():
                and maintenance_block_sse() is None)
     # Video tool: same bar as the image one — EXPLICIT request only. The
     # service state is kept for the same reason: it also warns the user when
-    # ComfyUI is off and cannot be started (cronos_notice video_service_off).
+    # ComfyUI is off and cannot be started (dgx_notice video_service_off).
     _vid_demandee = _video_demandee(history)
     _vid_service = video_disponible()
     _vid_ok = (_vid_demandee and _vid_service
@@ -1261,7 +1261,7 @@ def playground_chat():
         # one click would be enough.
         if _img_demandee and not _img_service:
             yield ("data: " + json.dumps(
-                {'cronos_notice': {'id': 'image_service_off',
+                {'dgx_notice': {'id': 'image_service_off',
                                    'libre_gib': _memoire_disponible_gib()}}) + "\n\n")
         # Same notice for the video and document tools: same trap, the model
         # would answer « je ne peux pas générer de vidéo » / « je ne sais pas
@@ -1269,11 +1269,11 @@ def playground_chat():
         # missing (and not even startable: the tool is only declared when it is).
         if _vid_demandee and not _vid_service:
             yield ("data: " + json.dumps(
-                {'cronos_notice': {'id': 'video_service_off',
+                {'dgx_notice': {'id': 'video_service_off',
                                    'libre_gib': _memoire_disponible_gib()}}) + "\n\n")
         if _doc_demandee and not _doc_service:
             yield ("data: " + json.dumps(
-                {'cronos_notice': {'id': 'document_service_off',
+                {'dgx_notice': {'id': 'document_service_off',
                                    'libre_gib': _memoire_disponible_gib()}}) + "\n\n")
         # The TTFT stopwatch starts HERE, before the tool phase: it is the delay
         # actually suffered by the person who asked the question. It was taken

@@ -42,10 +42,10 @@ import sqlite3
 import sys
 import time
 
-CHEMIN = os.environ.get('CRONOS_INFLIGHT_DB', '/run/cronos/inflight.db')
+CHEMIN = os.environ.get('DGX_INFLIGHT_DB', '/run/dgx/inflight.db')
 # Past this point the row is considered orphaned: a client killed mid-flight
 # triggers neither success nor failure, so nobody would come and remove it.
-PEREMPTION_S = float(os.environ.get('CRONOS_INFLIGHT_TTL', '7200'))
+PEREMPTION_S = float(os.environ.get('DGX_INFLIGHT_TTL', '7200'))
 
 try:
     from litellm.integrations.custom_logger import CustomLogger
@@ -153,14 +153,14 @@ class ActiviteEnVol(CustomLogger):
         try:
             fn(kwargs)
         except Exception as e:                        # noqa: BLE001 — never fatal
-            print('cronos_inflight: %s: %s' % (type(e).__name__, e), file=sys.stderr)
+            print('dgx_inflight: %s: %s' % (type(e).__name__, e), file=sys.stderr)
 
     @staticmethod
     async def _hors_boucle(fn, kwargs):
         try:
             await asyncio.to_thread(fn, kwargs)
         except Exception as e:                        # noqa: BLE001 — never fatal
-            print('cronos_inflight: %s: %s' % (type(e).__name__, e), file=sys.stderr)
+            print('dgx_inflight: %s: %s' % (type(e).__name__, e), file=sys.stderr)
 
 
 en_vol = ActiviteEnVol()

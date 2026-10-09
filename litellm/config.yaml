@@ -44,4 +44,4 @@ litellm_settings:
   # working). This callback records the opening at start and removes it at the
   # end, into a small SQLite the portal mounts read-only. It cannot fail a
   # request: every error is traced then ignored.
-  callbacks: ["cronos_inflight.en_vol"]
+  callbacks: ["dgx_inflight.en_vol"]

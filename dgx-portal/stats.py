@@ -376,7 +376,7 @@ def _compte_depuis_alias(alias):
 # at the end (measured on 2026-09-14: 44 minutes without a single row
 # while two sessions worked). Absent => we fall back on the finished rows;
 # the writing happens on the LiteLLM side, the portal only reads.
-_EN_VOL_DB = os.environ.get('CRONOS_INFLIGHT_DB', '/run/cronos/inflight.db')
+_EN_VOL_DB = os.environ.get('DGX_INFLIGHT_DB', '/run/dgx/inflight.db')
 
 
 def _en_vol():

@@ -27,7 +27,7 @@ import { useThemeMode } from "../../theme-provider";
 
 import type { Attachment, ChatMsg, Conversation, Settings } from "@/lib/types";
 import { type EtapeWeb, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
-// System notices (cronos_notice) are shared with the Support assistant,
+// System notices (dgx_notice) are shared with the Support assistant,
 // which also runs on the user's key: see lib/notices.ts.
 import { texteNotice } from "@/lib/notices";
 import {
@@ -282,7 +282,7 @@ const SLASH_CREATE_COMMANDS = ["skill-creator", "create", "new", "creer", "compe
 
 // Pinned (starred) conversations: a personal preference stored in the browser —
 // no backend migration, shared on this machine.
-const PINNED_KEY = "cronos.pinned.conversations";
+const PINNED_KEY = "dgx.pinned.conversations";
 function loadPinnedIds(): string[] {
   try {
     return (JSON.parse(localStorage.getItem(PINNED_KEY) || "[]") as string[]);
@@ -303,7 +303,7 @@ function savePinnedIds(ids: string[]) {
 // `inlinePlugins` applies PER text node, and the parser splits text at
 // every backslash — so the formula was never recognized. Protecting
 // LaTeX now happens BEFORE the parser.
-const SNIPPET_KEY = "cronos.snippets";
+const SNIPPET_KEY = "dgx.snippets";
 function loadSnippets(): Snippet[] {
   try {
     return (JSON.parse(localStorage.getItem(SNIPPET_KEY) || "[]") as Snippet[]);
@@ -334,7 +334,7 @@ function newTabId() {
 // (file names are made unique by the model) and persisted in
 // localStorage to survive a reload; `convId` prevents the same name
 // (`fichier-1.yml`) in two conversations from renaming each other.
-const ARTIFACT_RENAME_KEY = "cronos.artifact.renames";
+const ARTIFACT_RENAME_KEY = "dgx.artifact.renames";
 function loadArtifactRenames(): Record<string, string> {
   try {
     return JSON.parse(localStorage.getItem(ARTIFACT_RENAME_KEY) || "{}") as Record<string, string>;
@@ -361,7 +361,7 @@ function artifactRenameKey(convId: string | null, a: Artifact): string {
 // loaded ONCE at mount, saved on every change. Per browser, like every other
 // playground preference: a server-side copy would follow the account, this one
 // needs no migration and restores without a single loading frame.
-const SETTINGS_KEY = "cronos.playground.settings";
+const SETTINGS_KEY = "dgx.playground.settings";
 type Provenance = "persona" | "skill" | "manual";
 type ReglagesStockes = { settings: Settings; provenance: Provenance };
 function chargerReglages(): ReglagesStockes {
@@ -1874,8 +1874,8 @@ export default function PlaygroundPage() {
   useEffect(() => {
     function surMessage(e: MessageEvent) {
       if (!e.source || !apercuWindows.current.has(e.source as Window)) return;
-      const d = e.data as { cronosPreviewError?: unknown } | null;
-      const msg = d && typeof d.cronosPreviewError === "string" ? d.cronosPreviewError : null;
+      const d = e.data as { dgxPreviewError?: unknown } | null;
+      const msg = d && typeof d.dgxPreviewError === "string" ? d.dgxPreviewError : null;
       if (!msg) return;
       // Content produced by the generated page: never interpreted, only displayed.
       setErreurApercu((prec) => prec || msg.slice(0, 300));

@@ -444,11 +444,11 @@ def _suivre_lancement(model_name, fenetre_s=None):
                 _log.warning("suivi de lancement : alerte impossible", exc_info=True)
 
     # Same test seam as the two other background threads (budget reaper, ASR
-    # reaper): CRONOS_NO_REAPER=1 keeps the suite free of threads that call the
+    # reaper): DGX_NO_REAPER=1 keeps the suite free of threads that call the
     # runner over HTTP while tests mock `requests` globally — the exact motif of
     # the 2026-10-02 intermittent failure (scan C: this thread had NEITHER seam
     # NOR test).
-    if os.environ.get('CRONOS_NO_REAPER') == '1':
+    if os.environ.get('DGX_NO_REAPER') == '1':
         return
     threading.Thread(target=_boucle, name='suivi-lancement', daemon=True).start()
 
@@ -670,7 +670,7 @@ def _sidecar_action(kind, action, acteur=None, note=''):
 # see below), under the memory guard — on unified memory a sidecar that
 # overflows does not merely fail: the OOM killer takes the served chat model
 # down with it. A start that cannot be attempted is exactly when the tool must
-# tell the user the service is stopped (cronos_notice *_service_off): that is
+# tell the user the service is stopped (dgx_notice *_service_off): that is
 # what « available or startable » means for the tool declarations.
 _SIDECAR_REDARRAGE_S = 60        # no immediate retry after a FAILED start
 _demarrages_ondemand = {}        # kind -> (horodatage, reussi)
@@ -1063,7 +1063,7 @@ def sidecar_logs(kind, n=120):
         # docker rights, and above all no runner restart (which would kill the
         # served model). The `.1` file is the rotated previous log.
         out = []
-        for chemin in ('/run/cronos/litellm.log', '/run/cronos/litellm.log.1'):
+        for chemin in ('/run/dgx/litellm.log', '/run/dgx/litellm.log.1'):
             try:
                 with open(chemin, encoding='utf-8', errors='replace') as f:
                     out.extend(f.readlines())

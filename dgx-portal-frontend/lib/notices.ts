@@ -1,4 +1,4 @@
-/** Server system notices (`cronos_notice`): French msgid + arguments.
+/** Server system notices (`dgx_notice`): French msgid + arguments.
  *
  * Translated at render time into the UI language — the i18n contract
  * (French = key) applies as for the rest of the UI; the server
@@ -8,7 +8,7 @@
  * user's API key, hence on their budget, and can receive the same
  * refusals (no key created, quota exhausted).
  */
-export type CronosNotice = {
+export type DgxNotice = {
   id: string;
   reset?: string;
   status?: number;
@@ -23,7 +23,7 @@ export type CronosNotice = {
  * alone makes a click look like the fix. */
 function avecMemoire(
   texte: string,
-  notice: CronosNotice,
+  notice: DgxNotice,
   t: (fr: string) => string,
 ): string {
   return notice.libre_gib != null
@@ -32,7 +32,7 @@ function avecMemoire(
 }
 
 export function texteNotice(
-  notice: CronosNotice,
+  notice: DgxNotice,
   t: (fr: string) => string,
 ): string {
   switch (notice.id) {

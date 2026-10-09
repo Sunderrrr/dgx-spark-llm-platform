@@ -32,6 +32,6 @@ exec docker run --rm \
   -v "$PWD/asr/server.py:/app/tests/asr_sidecar.py:ro" \
   -e SECRET_KEY=test-secret-0123456789abcdef0123456789abcdef \
   -e LITELLM_MASTER_KEY=sk-test \
-  -e CRONOS_NO_REAPER=1 \
+  -e DGX_NO_REAPER=1 \
   --entrypoint python ai-platform-dgx-portal \
   -m unittest "$@" -v

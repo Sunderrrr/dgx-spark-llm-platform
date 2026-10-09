@@ -947,7 +947,7 @@ def docs():
     base = _h.escape(PUBLIC_API_URL)
     auto = _h.escape(AUTO_MODEL_NAME)
     curl_chat = f"""curl {base}/v1/chat/completions \\
-  -H "Authorization: Bearer $CRONOS_KEY" \\
+  -H "Authorization: Bearer $DGX_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{{"model": "{auto}", "messages": [{{"role": "user", "content": "Bonjour"}}]}}'"""
     py_chat = ('from openai import OpenAI\n'
@@ -976,7 +976,7 @@ def docs():
 </div>
 <h2 style="font:700 18px system-ui">GET /v1/models</h2>
 <p style="color:#6b7280">Liste les modèles disponibles.</p>
-<pre style="background:#0f172a;color:#e2e8f0;padding:12px 16px;border-radius:8px;overflow:auto">{_h.escape('curl ' + base + '/v1/models -H "Authorization: Bearer $CRONOS_KEY"')}</pre>
+<pre style="background:#0f172a;color:#e2e8f0;padding:12px 16px;border-radius:8px;overflow:auto">{_h.escape('curl ' + base + '/v1/models -H "Authorization: Bearer $DGX_KEY"')}</pre>
 <h2 style="font:700 18px system-ui">POST /v1/chat/completions</h2>
 <p style="color:#6b7280">Génération (streaming via <code>"stream": true</code>).</p>
 <pre style="background:#0f172a;color:#e2e8f0;padding:12px 16px;border-radius:8px;overflow:auto">{_h.escape(curl_chat)}</pre>
@@ -1557,7 +1557,7 @@ def _start_grant_reaper():
     forever as soon as nobody loads the portal. The first run at startup
     catches up on deadlines missed during an outage.
 
-    CRONOS_NO_REAPER=1 keeps the thread from starting — the test-suite seam
+    DGX_NO_REAPER=1 keeps the thread from starting — the test-suite seam
     (same family as ASR_ONDEMAND_DIR). Measured 2026-10-02: the thread calls
     LiteLLM through `requests.post`, which several tests mock GLOBALLY, so a
     60-second wakeup landing inside one of those tests made it fail
@@ -1565,7 +1565,7 @@ def _start_grant_reaper():
     haunted the gate. A test must not depend on nobody else in the process
     making an HTTP call, and the suite has no real reaper work to do.
     """
-    if os.environ.get('CRONOS_NO_REAPER') == '1':
+    if os.environ.get('DGX_NO_REAPER') == '1':
         return
     import threading
 
@@ -1592,9 +1592,9 @@ _start_grant_reaper()
 # reboot, `restart: unless-stopped` brings the `asr` container back and nothing
 # stopped it before the first dictation + 10 min idle — 2.1 GiB of GPU held for
 # nothing on a box that runs on fumes. Same test seam as the budget reaper:
-# CRONOS_NO_REAPER=1 keeps the suite free of background threads. Idempotent —
+# DGX_NO_REAPER=1 keeps the suite free of background threads. Idempotent —
 # each gunicorn worker gets its own thread, exactly like the lazy start.
-if os.environ.get('CRONOS_NO_REAPER') != '1':
+if os.environ.get('DGX_NO_REAPER') != '1':
     try:
         from sidecars import asr_demarrer_veilleur
         asr_demarrer_veilleur()

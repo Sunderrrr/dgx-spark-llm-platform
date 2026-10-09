@@ -1,5 +1,5 @@
 import type { PlaygroundData, Settings } from "./types";
-import type { CronosNotice } from "./notices";
+import type { DgxNotice } from "./notices";
 
 function redirectToLogin(): never {
   if (typeof window !== "undefined") {
@@ -215,7 +215,7 @@ export type ToolCallEvent = {
   error?: string;
 };
 
-/** Sensitive action proposed by the Support assistant (`cronos_confirm`
+/** Sensitive action proposed by the Support assistant (`dgx_confirm`
  * frame of the /support/chat stream: key revocation, model launch/stop).
  * NOTHING is executed until the user has clicked: the opaque, single-use,
  * account-bound token only goes out with the POST /support/confirm — it
@@ -231,9 +231,9 @@ export type SupportConfirmRequest = {
 type SSEPayload = {
   usage?: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number };
   choices?: { delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }[];
-  cronos_web?: EtapeWeb;
-  cronos_notice?: { id: string; reset?: string; status?: number };
-  cronos_confirm?: SupportConfirmRequest;
+  dgx_web?: EtapeWeb;
+  dgx_notice?: { id: string; reset?: string; status?: number };
+  dgx_confirm?: SupportConfirmRequest;
   tool_call?: ToolCallEvent;
 };
 
@@ -302,8 +302,8 @@ export async function streamChat(
     // "length" = response truncated by max_tokens, to be flagged to the reader.
     if (json.choices?.[0]?.finish_reason === "length") onDelta({ truncated: true });
     // Web search: separate event, never mixed into the response text.
-    if (json.cronos_web) onDelta({ webStep: json.cronos_web });
-    if (json.cronos_notice) onDelta({ notice: json.cronos_notice });
+    if (json.dgx_web) onDelta({ webStep: json.dgx_web });
+    if (json.dgx_notice) onDelta({ notice: json.dgx_notice });
     const delta = json.choices?.[0]?.delta;
     if (delta?.reasoning_content) onDelta({ reasoningChunk: delta.reasoning_content });
     if (delta?.content) onDelta({ contentChunk: delta.content });
@@ -332,15 +332,15 @@ export async function streamOcr(
 }
 
 /** Reads the SSE stream from /support/chat: text, tool invocations (ChatToolCalls),
- * system notices (cronos_notice) and sensitive-action confirmation requests
- * (cronos_confirm).
+ * system notices (dgx_notice) and sensitive-action confirmation requests
+ * (dgx_confirm).
  *
- * `onNotice` receives the server's system notices (cronos_notice): Support
+ * `onNotice` receives the server's system notices (dgx_notice): Support
  * runs on the user's API key, hence on their budget, and can therefore
  * answer « pas de clé » or « quota dépassé » — exactly like the playground.
  * Without this reminder, these refusals showed up as an empty answer.
  *
- * `onConfirm` receives the confirmation requests (cronos_confirm): the model
+ * `onConfirm` receives the confirmation requests (dgx_confirm): the model
  * asked for a SENSITIVE action (key revocation, model launch/stop),
  * nothing is executed — the UI displays Confirmer/Annuler and the click
  * (confirmSupportAction) decides. */
@@ -350,7 +350,7 @@ export async function streamSupportChat(
   signal: AbortSignal,
   onChunk: (content: string) => void,
   onToolCall?: (event: ToolCallEvent) => void,
-  onNotice?: (notice: CronosNotice) => void,
+  onNotice?: (notice: DgxNotice) => void,
   onConfirm?: (request: SupportConfirmRequest) => void,
   onReasoning?: (chunk: string) => void,
 ): Promise<void> {
@@ -368,8 +368,8 @@ export async function streamSupportChat(
     const content = json.choices?.[0]?.delta?.content;
     if (content) onChunk(content);
     if (json.tool_call) onToolCall?.(json.tool_call);
-    if (json.cronos_notice) onNotice?.(json.cronos_notice);
-    if (json.cronos_confirm) onConfirm?.(json.cronos_confirm);
+    if (json.dgx_notice) onNotice?.(json.dgx_notice);
+    if (json.dgx_confirm) onConfirm?.(json.dgx_confirm);
   });
 }
 

@@ -1,6 +1,6 @@
 """Tests of the LiteLLM in-flight activity callback (`dgx-portal/litellm_inflight.py`).
 
-This module runs INSIDE the proxy (mounted as `cronos_inflight`), but its
+This module runs INSIDE the proxy (mounted as `dgx_inflight`), but its
 logic is critical: it is the only source naming a user while they generate.
 Two properties to freeze, the first one non-negotiable:
 
@@ -19,13 +19,13 @@ from unittest import mock
 
 # The module lives in dgx-portal/ (not in litellm/) because the test
 # container only mounts that folder: this is what keeps it covered by CI.
-# LiteLLM, for its part, gets it mounted as `cronos_inflight` — see docker-compose.yml.
+# LiteLLM, for its part, gets it mounted as `dgx_inflight` — see docker-compose.yml.
 import litellm_inflight
 
 
 def _charge(chemin_db):
     """Reloads the module with a throwaway tracking file."""
-    os.environ['CRONOS_INFLIGHT_DB'] = chemin_db
+    os.environ['DGX_INFLIGHT_DB'] = chemin_db
     importlib.reload(litellm_inflight)
     return litellm_inflight
 

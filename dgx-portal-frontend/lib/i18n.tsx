@@ -57,7 +57,7 @@ const EN: Record<string, string> = {
   "La lecture de document est indisponible pour l'instant : le service OCR est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans le document.":
     "Document reading is currently unavailable: the OCR service is stopped. An admin can start it from the Admin area; the model will answer without the document.",
   "Mémoire disponible : {n} Gio.": "Free memory: {n} GiB.",
-  // Chat stream notices (cronos_notice, 2026-10-02): the SSE error texts of
+  // Chat stream notices (dgx_notice, 2026-10-02): the SSE error texts of
   // the playground and the Support chat moved to structured notices.
   "Aucun message à envoyer.": "No message to send.",
   "Trop de messages d'affilée — réessaie dans {wait} s.": "Too many messages in a row — try again in {wait} s.",

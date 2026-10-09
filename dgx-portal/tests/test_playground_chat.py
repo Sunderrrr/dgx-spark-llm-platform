@@ -228,7 +228,7 @@ class FluxSSETest(_BasePlayground):
     def test_quota_depasse_notice_structuree(self):
         amont = _FauxAmont([], statut=429)
         corps = self._flux(self._corps(), post=self._amont_unique(amont))
-        self.assertIn('cronos_notice', corps)
+        self.assertIn('dgx_notice', corps)
         self.assertIn('quota_exceeded', corps)
 
     def test_erreur_modele_notice_structuree(self):
@@ -256,7 +256,7 @@ class FluxSSETest(_BasePlayground):
                 session['username'] = 'demo'
                 session['auth_at'] = int(time.time())
                 corps = chat.playground_chat().get_data(as_text=True)
-        self.assertIn('cronos_notice', corps)
+        self.assertIn('dgx_notice', corps)
         self.assertIn('image_service_off', corps)
 
     def test_demande_d_image_service_pret_sans_notice(self):
@@ -295,7 +295,7 @@ class FluxSSETest(_BasePlayground):
                 session['username'] = 'demo'
                 session['auth_at'] = int(time.time())
                 corps = chat.playground_chat().get_data(as_text=True)
-        self.assertIn('cronos_notice', corps)
+        self.assertIn('dgx_notice', corps)
         self.assertIn('video_service_off', corps)
         # The free memory goes with it: under a ~100 GB chat model the sidecar
         # often simply cannot start, and « the service is stopped » alone makes
@@ -317,7 +317,7 @@ class FluxSSETest(_BasePlayground):
                 session['username'] = 'demo'
                 session['auth_at'] = int(time.time())
                 corps = chat.playground_chat().get_data(as_text=True)
-        self.assertIn('cronos_notice', corps)
+        self.assertIn('dgx_notice', corps)
         self.assertIn('document_service_off', corps)
 
     def test_aucune_notice_sans_demande_explicite(self):
@@ -334,7 +334,7 @@ class FluxSSETest(_BasePlayground):
         import requests as _rq
         corps = self._flux(self._corps(),
                            post=self._amont_unique(None, erreur=_rq.exceptions.ConnectTimeout()))
-        self.assertIn('cronos_notice', corps)
+        self.assertIn('dgx_notice', corps)
         self.assertIn('model_unreachable', corps)
         self.assertNotIn('erreur (0)', corps)
         # The READ timeout (anti-stuck slot) is "no answer in time", which is
@@ -558,7 +558,7 @@ class GardesTest(_BasePlayground):
 
     def test_rate_limit_notice_structuree_sans_phrase(self):
         """The rate-limit refusal is a STRUCTURED notice, exactly
-        `{"cronos_notice": {"id": "chat_rate_limited", "wait": N}}`: the server
+        `{"dgx_notice": {"id": "chat_rate_limited", "wait": N}}`: the server
         sends the id and the wait, the frontend writes the sentence. No raw
         French sentence may leak into the stream."""
         with ExitStack() as stack:
@@ -572,7 +572,7 @@ class GardesTest(_BasePlayground):
         trames = [l for l in corps.splitlines() if l.startswith('data: ')]
         payloads = [json.loads(l[6:]) for l in trames if l != 'data: [DONE]']
         self.assertEqual(payloads,
-                         [{'cronos_notice': {'id': 'chat_rate_limited', 'wait': 12}}])
+                         [{'dgx_notice': {'id': 'chat_rate_limited', 'wait': 12}}])
         self.assertEqual(trames[-1], 'data: [DONE]')
         for phrase in ('Trop de', 'réessaie', 'messages', 'choices'):
             self.assertNotIn(phrase, corps)
@@ -791,7 +791,7 @@ class PhaseOutilsTest(_BasePlayground):
             return amont
 
         corps = self._flux(self._corps(), post=_post, web=True)
-        self.assertIn('cronos_web', corps)
+        self.assertIn('dgx_web', corps)
         self.assertIn('injoignable', corps)
 
     def test_outil_en_panne_est_dit_au_client(self):
@@ -816,7 +816,7 @@ class PhaseOutilsTest(_BasePlayground):
     def test_phase_outils_absente_sans_recherche(self):
         amont = _FauxAmont([_delta('Bonjour'), _fin()])
         corps = self._flux(self._corps(), post=self._amont_unique(amont), web=False)
-        self.assertNotIn('cronos_web', corps)
+        self.assertNotIn('dgx_web', corps)
 
     def test_pieces_jointes_atteignent_l_outil_document(self):
         """The attachments are collected BEFORE the vision bounding: a model

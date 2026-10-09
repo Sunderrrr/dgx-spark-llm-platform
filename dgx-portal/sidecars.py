@@ -63,7 +63,26 @@ _ocr_model_cache = {'t': 0.0, 'v': None}
 # meant a stopped sidecar cost 3 s to EVERY home load — and /api/home probes
 # six of them (measured 2026-10-07: 3.19 s, 12 requests.get). A false negative
 # costs one retry on the next call; a slow probe costs every user, every 5 s.
-_SONDE_DELAI = 0.8
+_SONDE_DELAI = 0.3
+
+# Availability is a SLOW property to learn (a stopped sidecar costs the whole
+# timeout) and a FAST one to invalidate (the user just clicked Start). Cache it
+# for 20 s: the home page polls every 5 s and used to pay the SUM of six
+# probes whenever the cache was cold — measured 2026-10-09, /api/home at
+# 965 ms, the slowest probe being ComfyUI's 0.8 s.
+_SONDE_CACHE = {}
+_SONDE_CLE_DUREE = 20
+
+
+def _sonde_memo(key, fn):
+    import time as _t
+    now = _t.time()
+    hit = _SONDE_CACHE.get(key)
+    if hit and now - hit[0] < _SONDE_CLE_DUREE:
+        return hit[1]
+    v = fn()
+    _SONDE_CACHE[key] = (now, v)
+    return v
 
 
 def attendre_job_media(table, prompt_id, username, delai_s):

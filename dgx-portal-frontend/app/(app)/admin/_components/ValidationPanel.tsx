@@ -33,10 +33,10 @@ export function ValidationPanel({ actionDisabled }: { actionDisabled: boolean })
   const t = useT();
   const csrf = useCsrf();
   const [etat, setEtat] = useState<Etat | null>(null);
-  // The journal is APPENDED to, never swapped: a CodeBlock re-rendered from
-  // scratch every 2 s reads as a flicker (« les logs apparaissent et
-  // disparaissent »). Keep the rendered lines and add only the new ones.
-  const rendu = useRef<string[]>([]);
+  // The journal only ever GROWS: a CodeBlock re-rendered from scratch every 2 s
+  // reads as a flicker (« les logs apparaissent et disparaissent »). State, not
+  // a ref — a ref is not reactive and React forbids reading one at render.
+  const [rendu, setRendu] = useState<string[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const minuterie = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -46,6 +46,7 @@ export function ValidationPanel({ actionDisabled }: { actionDisabled: boolean })
       if (r.ok) {
         const d = await r.json();
         setEtat(d);
+        setRendu((avant) => (d.sortie && d.sortie.length > avant.length ? d.sortie : avant));
       }
     } catch {
       /* the next poll will retry */
@@ -113,15 +114,9 @@ export function ValidationPanel({ actionDisabled }: { actionDisabled: boolean })
         {erreur ? <Text color="secondary">{erreur}</Text> : null}
         {/* The failing line is the product: a red dot tells you WHERE to look,
             the last lines tell you WHAT happened. */}
-        {(() => {
-          // Append-only: never re-render the whole journal, only grow it.
-          if (etat && etat.sortie.length > rendu.current.length) {
-            rendu.current = etat.sortie;
-          }
-          return rendu.current.length > 0 ? (
-            <CodeBlock code={rendu.current.join("\n")} maxHeight={280} />
-          ) : null;
-        })()}
+        {rendu.length > 0 ? (
+          <CodeBlock code={rendu.join("\n")} maxHeight={280} />
+        ) : null}
       </VStack>
     </Card>
   );

@@ -1571,6 +1571,7 @@ def admin_valider():
             p = subprocess.Popen(['tail', '-F', str(log)],
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True, bufsize=1)
+            debut = time.time()
             for ligne in p.stdout:
                 with _valideur['v']:
                     _valideur['sortie'].append(ligne.rstrip())
@@ -1579,7 +1580,14 @@ def admin_valider():
                     # the portal's memory.
                     if len(_valideur['sortie']) > 400:
                         del _valideur['sortie'][:len(_valideur['sortie']) - 400]
-            _valideur['code'] = p.wait()
+                # `tail -F` NEVER exits — without this the run stays « en cours »
+                # forever and the panel refuses the next one (measured 2026-10-10,
+                # « une vérification est déjà en cours » alors que rien ne tournait).
+                # Stop when the verdict lands, or after a hard time bound.
+                if 'VERDICT GLOBAL' in ligne or time.time() - debut > 1200:
+                    p.kill()
+                    break
+            _valideur['code'] = 0 if any('TOUT EST VERT' in x for x in _valideur['sortie']) else 1
         except Exception as e:                      # noqa: BLE001
             with _valideur['v']:
                 _valideur['sortie'].append(f"Erreur: {e}")

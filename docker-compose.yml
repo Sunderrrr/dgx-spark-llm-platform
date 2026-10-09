@@ -233,6 +233,10 @@ services:
       # compromised portal must not be able to touch what the proxy writes (nor
       # the reverse). Absent = the panel falls back to the finished rows only.
       - ./runtime:/run/dgx:ro
+      # The admin button writes a REQUEST here; the host's .path unit picks it
+      # up and runs the validation. Writable on purpose, and only this: the
+      # rest of runtime/ stays read-only for the container.
+      - ./runtime/validation:/run/dgx/validation
       # ComfyUI's video output, read-only: lets the portal serve past videos
       # from disk even when the video sidecar (ComfyUI) is stopped to free the GPU.
       - /root/ComfyUI/output:/comfyui-output:ro

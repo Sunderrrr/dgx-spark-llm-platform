@@ -9,7 +9,7 @@ session ; et la PRÉSENCE du parcours SSO (le bouton + la redirection OIDC vers
 le fournisseur — traverser Authentik est impossible en automatisé : 2FA/LDAP,
 c'est le contrat testable ici).
 """
-from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
                     S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys
@@ -96,12 +96,24 @@ def main() -> int:
             page3 = ctx3.new_page()
             page3.goto(f"{c.BASE}/login", wait_until="domcontentloaded")
             bouton = page3.get_by_role("button", name=re.compile(r"SSO", re.I)).first
-            try:
-                bouton.wait_for(state="visible", timeout=15000)
-            except Exception:
+            # The button appears once /api/config answers — on a cold page that
+            # is one fetch later than the form. Two attempts, 30 s apart: a
+            # single 15 s wait flagged a healthy page as broken twice.
+            vu = False
+            for essai in range(2):
+                try:
+                    bouton.wait_for(state="visible", timeout=30000)
+                    vu = True
+                    break
+                except Exception:
+                    if essai == 0:
+                        b3.goto(f"{c.BASE}/login", wait_until="networkidle")
+                        bouton = b3.locator("text=SSO").first
+            if not vu:
                 p.rate("bouton SSO offert", "un bouton « Se connecter avec le SSO » visible",
                        "aucun bouton SSO sur la page de connexion")
-            p.ok("bouton SSO", "offert sur la page de connexion")
+            else:
+                p.ok("bouton SSO", "offert sur la page de connexion")
             b3.close()
 
     # ── 7. SSO : /login/sso redirige vers le fournisseur OIDC ───────────────
@@ -112,7 +124,7 @@ def main() -> int:
         if statut not in (301, 302, 303, 307, 308):
             p.rate("redirection SSO (/login/sso)", "un code 30x",
                    f"HTTP {statut} — {corps[:120]!r}")
-        if "DOMAINE_SSO" not in location:
+        if DOMAINE_SSO not in location:
             p.rate("fournisseur OIDC", "Location vers DOMAINE_SSO",
                    f"Location {location[:120]!r}")
         p.ok("redirection SSO", f"30x vers {location.split('/')[2]}")

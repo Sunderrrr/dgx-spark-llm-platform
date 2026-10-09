@@ -6,7 +6,7 @@ Force la réflexion à « Toujours » dans les réglages du playground, envoie u
 question qui fait réfléchir, et exige : le bloc de réflexion apparaît ET se
 déploie (le texte de la pensée est lisible).
 """
-from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
                     S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys

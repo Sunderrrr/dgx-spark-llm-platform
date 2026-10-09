@@ -19,7 +19,7 @@ l'infrastructure.
 """
 from __future__ import annotations
 
-from config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
+from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
                     S3_CFG, S3_BUCKET, PYTEST_BIN)
 import os
 import re
@@ -34,7 +34,7 @@ import json as _json
 BASE = os.environ.get("E2E_BASE", WEB)
 API = os.environ.get("E2E_API", API)
 UTILISATEUR = os.environ.get("E2E_USER", "demo")
-FICHIER_MDP = os.environ.get("E2E_PW_FILE", "{DEMO_PASS}")
+FICHIER_MDP = os.environ.get("E2E_PW_FILE", DEMO_PASS)
 # User-Agent réel : Cloudflare refuse l'UA par défaut de Python (erreur 1010).
 UA = ("Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")

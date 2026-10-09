@@ -16,6 +16,9 @@ de l'inventaire qui ne correspond plus à ce registre fait rougir le contrôle.
 """
 
 ROUTES = {
+    # La route de configuration (LDAP/SSO/SMTP) : le parcours admin ouvre son
+    # onglet et y lit les champs — couverte, pas exclue.
+    "admin.admin_config": ("parcours", "j09_admin — l'onglet Configuration s'y affiche et s'y lit"),
     'admin.add_model_cfg': ('exclu', 'action admin à effet réel : jamais déclenchée par un parcours (la validation doit rester sûre en production — aucun lancement, aucune écriture)'),
     'admin.add_ocr_cfg': ('exclu', 'action admin à effet réel : jamais déclenchée par un parcours (la validation doit rester sûre en production — aucun lancement, aucune écriture)'),
     'admin.add_voice_cfg': ('exclu', 'action admin à effet réel : jamais déclenchée par un parcours (la validation doit rester sûre en production — aucun lancement, aucune écriture)'),

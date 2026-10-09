@@ -66,7 +66,7 @@ import { DictateButton } from "../_components/DictateButton";
 import { useT, tServeur } from "@/lib/i18n";
 import { copierTexte } from "@/lib/copier";
 import { texteNotice } from "@/lib/notices";
-import type { DGXNotice } from "@/lib/notices";
+import type { DgxNotice } from "@/lib/notices";
 
 type ChatMsg = {
   role: "user" | "assistant";
@@ -285,7 +285,7 @@ export default function SupportPage() {
     // playground. We display the reason as-is — otherwise they would only see
     // an empty answer, without knowing what to fix.
     let notice = "";
-    const onNotice = (n: DGXNotice) => {
+    const onNotice = (n: DgxNotice) => {
       notice = texteNotice(n, t);
       updateLast({ content: notice, isError: true });
     };

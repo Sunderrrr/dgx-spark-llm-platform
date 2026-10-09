@@ -8,7 +8,7 @@
  * user's API key, hence on their budget, and can receive the same
  * refusals (no key created, quota exhausted).
  */
-export type DGXNotice = {
+export type DgxNotice = {
   id: string;
   reset?: string;
   status?: number;
@@ -23,7 +23,7 @@ export type DGXNotice = {
  * alone makes a click look like the fix. */
 function avecMemoire(
   texte: string,
-  notice: DGXNotice,
+  notice: DgxNotice,
   t: (fr: string) => string,
 ): string {
   return notice.libre_gib != null
@@ -32,7 +32,7 @@ function avecMemoire(
 }
 
 export function texteNotice(
-  notice: DGXNotice,
+  notice: DgxNotice,
   t: (fr: string) => string,
 ): string {
   switch (notice.id) {

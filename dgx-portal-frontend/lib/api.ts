@@ -1,5 +1,5 @@
 import type { PlaygroundData, Settings } from "./types";
-import type { DGXNotice } from "./notices";
+import type { DgxNotice } from "./notices";
 
 function redirectToLogin(): never {
   if (typeof window !== "undefined") {
@@ -350,7 +350,7 @@ export async function streamSupportChat(
   signal: AbortSignal,
   onChunk: (content: string) => void,
   onToolCall?: (event: ToolCallEvent) => void,
-  onNotice?: (notice: DGXNotice) => void,
+  onNotice?: (notice: DgxNotice) => void,
   onConfirm?: (request: SupportConfirmRequest) => void,
   onReasoning?: (chunk: string) => void,
 ): Promise<void> {

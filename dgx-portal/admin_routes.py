@@ -55,7 +55,8 @@ from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       get_music_model, get_ocr_model, get_voice_model,
                       runner_delete_files, runner_launch, runner_logs, runner_metrics,
                       runner_status, runner_stop)
-from stats import (_active_users, admin_get_ocr_usage,
+from directory import etats_annuaire
+from stats import (_account_activity, _active_users, admin_get_ocr_usage,
                    admin_get_user_consumption, admin_get_video_usage,
                    admin_get_voice_usage, user_hourly)
 from vllm_health import get_running_models, guess_engine, vllm_health
@@ -832,6 +833,10 @@ def api_admin_users():
                         "ORDER BY name").fetchall()
     groupes = {g['name']: g for g in groups}
     names = set(managed) | set(recorded) | set(spend)
+    # Accounts the portal does not own (LDAP, SSO): their state lives in the
+    # directory. One search for all of them, cached a minute; None when the
+    # directory cannot be asked (the UI then shows nothing, it never guesses).
+    annuaire = etats_annuaire([n for n in names if n not in managed])
     out = []
     for name in sorted(names):
         srcs = set()
@@ -899,6 +904,7 @@ def api_admin_users():
             'block_reason': (blocked[name]['reason'] if name in blocked else None),
             'blocked_at': (blocked[name]['blocked_at'] if name in blocked else None),
             'locked_minutes': locked.get(name, 0),
+            'directory_status': (annuaire or {}).get(name) if mu is None else None,
         })
     return jsonify({'users': out, 'groups': [dict(g) for g in groups],
                     'default_budget': float(get_setting('default_key_budget', KEY_BUDGET))})
@@ -1381,6 +1387,11 @@ def admin_user_detail(username):
         'conversations': donnees['conversations'],
         'sessions': sessions,
         'audit': audit,
+        # The same 6-month daily series as « Mon compte »: which days the
+        # account was actually active, whatever its source (local, LDAP, SSO).
+        'activity': _account_activity(username),
+        'directory_status': ((etats_annuaire([username]) or {}).get(username)
+                             if mu is None else None),
         'donnees': donnees,
     })
 

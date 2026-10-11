@@ -1638,6 +1638,16 @@ if os.environ.get('DGX_NO_REAPER') != '1':
     except Exception:                                        # noqa: BLE001
         pass
 
+# The directory states of LDAP/SSO accounts (Users page) are read in the
+# background — a bind alone costs seconds. Start the first read now, so the
+# first visit of the page already has them. Same seam as the reapers.
+if os.environ.get('DGX_NO_REAPER') != '1':
+    try:
+        from directory import etats_annuaire
+        etats_annuaire([])
+    except Exception:                                        # noqa: BLE001
+        pass
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
 

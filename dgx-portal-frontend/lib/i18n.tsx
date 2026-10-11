@@ -217,6 +217,8 @@ const EN: Record<string, string> = {
   "Jours actifs": "Active days",
   "Moyenne / jour": "Average / day",
   "ACTIVITÉ TOKENS": "TOKEN ACTIVITY",
+  "Désactivé dans l'annuaire": "Disabled in the directory",
+  "Absent de l'annuaire": "Not in the directory",
   "6 derniers mois": "Last 6 months",
   "Insights d'activité": "Activity insights",
   "Répartition tokens": "Token breakdown",

@@ -23,6 +23,7 @@ import secrets
 import os
 import time
 import unittest
+from unittest import mock
 from unittest.mock import patch
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -417,6 +418,41 @@ class DetailTest(BaseComptes):
         r = admin.get(f'/admin/users/{ANNUAIRE}/detail')
         self.assertEqual(r.status_code, 200)
         self.assertFalse(r.get_json()['local'])
+
+    def test_detail_porte_l_activite_et_l_etat_annuaire(self):
+        """The admin sees the same 6-month activity as the account's own
+        settings, and, for a directory account, its state in the directory."""
+        import admin_routes
+        serie = {'days': [{'date': '2026-10-10', 'tokens': 42}], 'total': 42, 'prompt': 40,
+                 'completion': 2, 'peak': 42, 'peak_day': '2026-10-10', 'active_days': 1, 'avg': 42}
+        admin = self._client(ADMIN, is_admin=True)
+        with mock.patch.object(admin_routes, '_account_activity', return_value=serie) as act, \
+             mock.patch.object(admin_routes, 'etats_annuaire',
+                               return_value={ANNUAIRE: 'desactive'}):
+            body = admin.get(f'/admin/users/{ANNUAIRE}/detail').get_json()
+            local = admin.get(f'/admin/users/{CIBLE}/detail').get_json()
+        act.assert_any_call(ANNUAIRE)
+        self.assertEqual(body['activity']['active_days'], 1)
+        self.assertEqual(body['directory_status'], 'desactive')
+        self.assertIsNone(local['directory_status'], "a local account's state is `enabled`")
+
+    def test_liste_porte_l_etat_annuaire_des_comptes_non_locaux(self):
+        import admin_routes
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute("INSERT OR REPLACE INTO user_sources (username, sources, fullname, last_source, "
+                       "last_seen, last_is_admin) VALUES (?,?,?,?,?,?)",
+                       (ANNUAIRE, 'ldap', ANNUAIRE, 'ldap', '2026-10-11T10:00:00', 0))
+            db.commit()
+        admin = self._client(ADMIN, is_admin=True)
+        with mock.patch.object(admin_routes, 'etats_annuaire',
+                               side_effect=lambda noms: {n: 'actif' for n in noms}) as etats:
+            users = {u['username']: u for u in admin.get('/api/admin/users').get_json()['users']}
+        demandes = set(etats.call_args[0][0])
+        self.assertIn(ANNUAIRE, demandes)
+        self.assertNotIn(CIBLE, demandes, "a local account is not looked up")
+        self.assertEqual(users[ANNUAIRE]['directory_status'], 'actif')
+        self.assertIsNone(users[CIBLE]['directory_status'])
 
     def test_liste_des_comptes_expose_etat_de_blocage(self):
         admin = self._client(ADMIN, is_admin=True)

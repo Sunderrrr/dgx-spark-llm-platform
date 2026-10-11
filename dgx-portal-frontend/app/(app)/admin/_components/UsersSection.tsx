@@ -35,6 +35,7 @@ import { useT, useLocale } from "@/lib/i18n";
 import { UserAvatar } from "@/lib/user-avatar";
 
 import {
+  DIRECTORY_STATUS_META,
   SOURCE_META,
   type AdminUserDetail,
   type LocalUser,
@@ -419,13 +420,18 @@ export function UsersSection({
         const lockedHint = u.locked_minutes > 0
           ? t("verrouillé après trop d'échecs, {n} min").replace("{n}", String(u.locked_minutes))
           : null;
-        if (!u.blocked && !lockedHint && !u.managed) return <Text color="secondary">—</Text>;
+        // LDAP/SSO accounts: the state the DIRECTORY gives (active, disabled
+        // there, or gone) — the portal owns no « enabled » flag for them.
+        const annuaire = !u.managed && u.directory_status ? DIRECTORY_STATUS_META[u.directory_status] : null;
+        if (!u.blocked && !lockedHint && !u.managed && !annuaire) return <Text color="secondary">—</Text>;
         return (
           <VStack gap={0}>
             {u.blocked ? (
               <Badge label={t("Bloqué")} variant="error" />
             ) : u.managed ? (
               u.enabled ? <Badge label={t("Actif")} variant="success" /> : <Badge label={t("Désactivé")} variant="error" />
+            ) : annuaire ? (
+              <Badge label={t(annuaire.label)} variant={annuaire.variant} />
             ) : null}
             {u.blocked && u.block_reason ? (
               <Text type="supporting" color="secondary" maxLines={1}>{u.block_reason}</Text>

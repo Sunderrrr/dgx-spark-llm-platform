@@ -1,6 +1,6 @@
 // Shared types and helpers of the admin users section and its per-dialog
 // components. Extracted VERBATIM from app/(app)/admin/_components/UsersSection.tsx.
-
+import type { Activity } from "../../../_components/settings/types";
 import type { AccountSession } from "../../../_components/SessionsList";
 
 export type LocalUser = {
@@ -30,6 +30,18 @@ export type LocalUser = {
   block_reason: string | null;
   blocked_at: string | null;
   locked_minutes: number;
+  /** LDAP/SSO accounts: their state in the directory, null when it could not
+   *  be asked (and for local accounts, whose state is `enabled`). */
+  directory_status?: DirectoryStatus | null;
+};
+
+export type DirectoryStatus = "actif" | "desactive" | "absent";
+
+/** How a directory state is shown (badge label + variant). */
+export const DIRECTORY_STATUS_META: Record<DirectoryStatus, { label: string; variant: "success" | "error" | "warning" }> = {
+  actif: { label: "Actif", variant: "success" },
+  desactive: { label: "Désactivé dans l'annuaire", variant: "error" },
+  absent: { label: "Absent de l'annuaire", variant: "warning" },
 };
 export type Group = { name: string; max_budget: number | null; is_admin: number };
 export type UsersData = { users: LocalUser[]; groups: Group[]; default_budget: number };
@@ -56,6 +68,9 @@ export type AdminUserDetail = {
   conversations?: number | null;
   sessions?: AccountSession[] | null;
   audit?: { action?: string | null; detail?: string | null; by?: string | null; at?: string | null }[] | null;
+  /** Daily token series over 6 months (same as the account's own settings). */
+  activity?: Activity | null;
+  directory_status?: DirectoryStatus | null;
 };
 
 // Category tags (auth source) → non-semantic color variants.

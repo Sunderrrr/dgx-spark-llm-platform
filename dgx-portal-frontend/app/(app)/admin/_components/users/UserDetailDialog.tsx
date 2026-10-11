@@ -21,7 +21,11 @@ import { useT, useLocale } from "@/lib/i18n";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { UserAvatar } from "@/lib/user-avatar";
 import { SessionsList } from "../../../_components/SessionsList";
-import { SOURCE_META, type AdminUserDetail, type LocalUser } from "./shared";
+import { ActivityHeatmap } from "../../../_components/ActivityHeatmap";
+import { compact } from "../../../_components/settings/format";
+import { Card } from "@astryxdesign/core/Card";
+import { Grid } from "@astryxdesign/core/Grid";
+import { DIRECTORY_STATUS_META, SOURCE_META, type AdminUserDetail, type LocalUser } from "./shared";
 
 export type UserDetailDialogProps = {
   detailUser: LocalUser | null;
@@ -80,6 +84,12 @@ export function UserDetailDialog({
                         {detail.role === "admin" ? <Badge label={t("Admin")} variant="warning" /> : null}
                         {detail.blocked?.blocked ? <Badge label={t("Bloqué")} variant="error" /> : null}
                         {detail.enabled === false ? <Badge label={t("Désactivé")} variant="error" /> : null}
+                        {detail.directory_status ? (
+                          <Badge
+                            label={t(DIRECTORY_STATUS_META[detail.directory_status].label)}
+                            variant={DIRECTORY_STATUS_META[detail.directory_status].variant}
+                          />
+                        ) : null}
                       </HStack>
                       {detail.fullname ? <Text type="supporting" color="secondary">{detail.fullname}</Text> : null}
                       <HStack gap={1} vAlign="center" wrap="wrap">
@@ -143,6 +153,35 @@ export function UserDetailDialog({
                       </HStack>
                     ) : null}
                   </VStack>
+
+                  {/* Token activity over 6 months — the same view as the
+                      account's own « Mon compte »: which days it was active. */}
+                  {detail.activity ? (
+                    <VStack gap={2}>
+                      <Card padding={0}>
+                        <Grid columns={4}>
+                          {[
+                            { v: compact(detail.activity.total), l: "Tokens totaux" },
+                            { v: compact(detail.activity.peak), l: "Pic journalier" },
+                            { v: String(detail.activity.active_days), l: "Jours actifs" },
+                            { v: compact(detail.activity.avg), l: "Moyenne / jour" },
+                          ].map((s) => (
+                            <VStack key={s.l} gap={0} hAlign="center" padding={3}>
+                              <Text size="lg" weight="bold" hasTabularNumbers>{s.v}</Text>
+                              <Text type="supporting" color="secondary">{t(s.l)}</Text>
+                            </VStack>
+                          ))}
+                        </Grid>
+                      </Card>
+                      <HStack hAlign="between" vAlign="center">
+                        <Text type="supporting" color="secondary">{t("ACTIVITÉ TOKENS")}</Text>
+                        <Text type="supporting" color="secondary">{t("6 derniers mois")}</Text>
+                      </HStack>
+                      <Card>
+                        <ActivityHeatmap days={detail.activity.days} />
+                      </Card>
+                    </VStack>
+                  ) : null}
 
                   {/* Keys — alias, creation, spend. Never any key value:
                       the payload cannot contain any. */}

@@ -75,6 +75,13 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Added
 
+- Admin → Users → account detail shows the account's 6-month token activity
+  (totals, active days, daily heatmap), the same view as its own « Mon compte ».
+- LDAP/SSO accounts show their state in the directory (active, disabled there,
+  or absent) in the Users list and detail. The directory is read in the
+  background (Authentik's LDAP bind alone costs ~3 s) and an unreachable
+  directory never marks anyone absent.
+
 - **The API speed is measured and shown** (« un indicateur de vitesse »):
   `latency.py` keeps a rolling window of `/api` and `/admin` request durations
   in memory (no database write per request), and the home page shows the

@@ -59,7 +59,7 @@ Four groups, each with its own verdict:
 Guarantees: safe to run **at any moment**, even while someone uses the platform
 (no destructive action, no restart, no `--force-recreate`; journeys use only the
 demo account and clean up after themselves — on exit, failure included, the
-run revokes the demo-account sessions it opened, `tests/e2e/fermer_sessions.py`);
+run revokes the demo-account sessions it opened, `tests/e2e/close_sessions.py`);
 every check is time-bounded; a
 failure speaks (« ✗ <check> » + the tail of the log + the full log path);
 readable by a human AND by a git hook / CI (no TTY required, `NO_COLOR`
@@ -84,8 +84,7 @@ VALIDATE_VERBOSE=1 ./scripts/validate.sh    # show the checks' output
 
 Full logs stay in `runtime/validation/<timestamp>/`. The probed origins come
 from `.env` (`DGX_WEB`, `DGX_API` — see `.env.example`; `DGX_SSO_DOMAIN` optionally pins the SSO redirect's host); the
-script refuses to run on the example values. `scripts/valider.sh` is the former
-name and still works.
+script refuses to run on the example values.
 
 ## Tests and the pre-push gate
 
@@ -175,7 +174,7 @@ Shell traps that cost real time:
   - to read an unminified hydration error, run `next dev` on the host against
     the portal's compose address (`BACKEND_URL=http://<dgx-portal IP>:5000`)
     and listen to `pageerror` — `next dev` rewrites `AGENTS.md`, restore it.
-  `j11_balayage_pages` fails on any hydration error.
+  `j11_page_sweep` fails on any hydration error.
 - **Chat SSE errors are structured notices** (`dgx_notice` ids, FR msgids in
   `lib/notices.ts`, EN in `lib/i18n.tsx`): the server writes no sentence.
 - **Conventions for commits and pull requests** are in

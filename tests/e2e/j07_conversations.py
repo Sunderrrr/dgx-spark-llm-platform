@@ -1,102 +1,99 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Parcours « conversations » — créer, retrouver, renommer, rouvrir.
+"""Journey « conversations » — create, find, rename, reopen.
 
-Une conversation naît d'un message ; elle apparaît dans l'historique ; elle
-porte un nom qu'on peut changer ; et en la rouvrant on retrouve l'échange.
+A conversation is born from a message; it appears in the history; it carries a
+name that can be changed; and reopening it brings the exchange back.
 """
-from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
-                    S3_CFG, S3_BUCKET, PYTEST_BIN)
-import re
 import sys
 import time
 
-import commun as c
+import common as c
 
-NOM = "conversations"
-DELAIS_S = 360
+NAME = "conversations"
+TIME_LIMIT_S = 360
 
 
 def main() -> int:
-    p = c.Parcours(NOM)
-    c.borne(DELAIS_S)
-    marqueur = f"e2e-conversations-{time.strftime('%H%M%S')}"
-    question = f"{marqueur} — réponds simplement par le mot « reçu »."
+    p = c.Journey(NAME)
+    c.time_limit(TIME_LIMIT_S)
+    marker = f"e2e-conversations-{time.strftime('%H%M%S')}"
+    question = f"{marker} — just answer with the word « received »."
 
-    with c.lancer_playwright() as pw:
-        b, ctx = c.nouveau_contexte(pw)
+    with c.start_playwright() as pw:
+        b, ctx = c.new_context(pw)
         page = ctx.new_page()
-        c.connexion(page, p)
-        c.ouvrir_playground(page)
+        c.login(page, p)
+        c.open_playground(page)
 
-        # ── 1. Une conversation naît d'un message ───────────────────────────
-        c.bouton(page, "Nouvelle conversation", "New conversation").first.click()
+        # ── 1. A conversation is born from a message ────────────────────────
+        c.button(page, "Nouvelle conversation", "New conversation").first.click()
         page.wait_for_timeout(500)
-        c.envoyer_message(page, question)
-        c.attendre_stream(page, p, delai_s=240)
-        p.ok("conversation créée", f"question « {marqueur} » envoyée et répondue")
+        c.send_message(page, question)
+        c.wait_for_stream(page, p, timeout_s=240)
+        p.ok("conversation created", f"question « {marker} » sent and answered")
 
-        # ── 2. Elle est listée dans l'historique ────────────────────────────
-        c.bouton(page, "Historique", "History").first.click()
-        dialogue = page.get_by_role("dialog")
-        dialogue.last.wait_for(state="visible", timeout=15000)
-        # On filtre sur le marqueur : la liste de la démo est longue, et le
-        # fil permet de viser la bonne ligne pour la suite.
-        recherche = dialogue.last.get_by_placeholder(
-            c.alternance("Rechercher une conversation", "Search conversations")).first
-        recherche.fill(marqueur)
+        # ── 2. It is listed in the history ──────────────────────────────────
+        c.button(page, "Historique", "History").first.click()
+        dialog = page.get_by_role("dialog")
+        dialog.last.wait_for(state="visible", timeout=15000)
+        # Filter on the marker: the demo account's list is long, and the
+        # filter lets the next steps aim at the right row.
+        search = dialog.last.get_by_placeholder(
+            c.either_label("Rechercher une conversation", "Search conversations")).first
+        search.fill(marker)
         page.wait_for_timeout(800)
-        corps_dialogue = dialogue.last.inner_text()
-        if marqueur not in corps_dialogue:
-            p.rate("conversation listée dans l'historique",
-                   f"une ligne contenant « {marqueur} »",
-                   f"absente du dialogue d'historique — contenu : {corps_dialogue[:200]!r}")
-        p.ok("listée dans l'historique", "trouvée par la recherche de l'historique")
+        dialog_text = dialog.last.inner_text()
+        if marker not in dialog_text:
+            p.fail("conversation listed in the history",
+                   f"a row containing « {marker} »",
+                   f"absent from the history dialog — content: {dialog_text[:200]!r}")
+        p.ok("listed in the history", "found by the history search")
 
-        # ── 3. Elle se renomme ─────────────────────────────────────────────
-        nouveau_nom = f"Valider e2e {time.strftime('%H%M%S')}"
-        c.bouton(dialogue.last, "Renommer", "Rename").first.click()
+        # ── 3. It can be renamed ────────────────────────────────────────────
+        new_name = f"e2e validation {time.strftime('%H%M%S')}"
+        c.button(dialog.last, "Renommer", "Rename").first.click()
         page.wait_for_timeout(500)
-        champ_nom = dialogue.last.get_by_label(c.alternance("Renommer", "Rename")).first
+        name_field = dialog.last.get_by_label(c.either_label("Renommer", "Rename")).first
         try:
-            champ_nom.wait_for(state="visible", timeout=10000)
+            name_field.wait_for(state="visible", timeout=10000)
         except Exception:
-            p.rate("champ de renommage", "un champ « Renommer » dans la ligne",
-                   "aucun champ de saisie apparu après le clic sur « Renommer »")
-        champ_nom.fill(nouveau_nom)
-        c.bouton(dialogue.last, "Valider", "Confirm").first.click()
+            p.fail("rename field", "a « Rename » field in the row",
+                   "no input appeared after clicking « Rename »")
+        name_field.fill(new_name)
+        c.button(dialog.last, "Valider", "Confirm").first.click()
         page.wait_for_timeout(1200)
-        # Le filtre de recherche porte encore l'ancien marqueur : on cherche
-        # maintenant le NOUVEAU nom (sinon la liste reste vide et le contrôle
-        # croirait le renommage raté).
-        recherche.fill(nouveau_nom)
+        # The search filter still holds the old marker: search the NEW name now
+        # (otherwise the list stays empty and the check would think the rename
+        # failed).
+        search.fill(new_name)
         page.wait_for_timeout(800)
-        corps_dialogue = dialogue.last.inner_text()
-        if nouveau_nom not in corps_dialogue:
-            p.rate("conversation renommée",
-                   f"le nouveau nom « {nouveau_nom} » dans l'historique",
-                   f"toujours « {corps_dialogue[:200]!r} »")
-        p.ok("conversation renommée", f"« {nouveau_nom} »")
+        dialog_text = dialog.last.inner_text()
+        if new_name not in dialog_text:
+            p.fail("conversation renamed",
+                   f"the new name « {new_name} » in the history",
+                   f"still « {dialog_text[:200]!r} »")
+        p.ok("conversation renamed", f"« {new_name} »")
 
-        # ── 4. Elle se rouvre avec son contenu ──────────────────────────────
-        dialogue.last.get_by_text(nouveau_nom).first.click()
+        # ── 4. It reopens with its content ──────────────────────────────────
+        dialog.last.get_by_text(new_name).first.click()
         page.wait_for_timeout(1500)
-        corps_page = page.locator("body").inner_text()
-        if marqueur not in corps_page:
-            p.rate("réouverture de la conversation",
-                   f"le fil rouvert avec la question « {marqueur} »",
-                   f"question absente de la page — extrait : {corps_page[-200:]!r}")
-        p.ok("conversation rouverte", "le fil retrouve la question posée")
+        page_text = page.locator("body").inner_text()
+        if marker not in page_text:
+            p.fail("conversation reopened",
+                   f"the thread reopened with the question « {marker} »",
+                   f"question absent from the page — excerpt: {page_text[-200:]!r}")
+        p.ok("conversation reopened", "the thread brings the question back")
 
         b.close()
 
-    p.fin()
+    p.done()
     return 0
 
 
 if __name__ == "__main__":
     try:
         code = main()
-    except BaseException as e:  # noqa: BLE001
-        code = c.fin_parcours_echec(NOM, e)
+    except BaseException as e:  # noqa: BLE001 — a failure must speak, not propagate
+        code = c.journey_failed(NAME, e)
     sys.exit(code)

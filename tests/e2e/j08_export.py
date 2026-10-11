@@ -1,82 +1,81 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Parcours « export » — repartir avec la conversation.
+"""Journey « export » — leaving with the conversation.
 
-Le bouton « Exporter » doit produire un VRAI fichier Markdown : non vide,
-titré, avec les tours de parole (le modèle exporté est nommé).
+The « Export » button must produce a REAL Markdown file: not empty, titled,
+with the turns of speech (the exported model is named).
 """
-from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
-                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import sys
 import time
 
-import commun as c
+import common as c
 
-NOM = "export"
-DELAIS_S = 300
+NAME = "export"
+TIME_LIMIT_S = 300
 
 
 def main() -> int:
-    p = c.Parcours(NOM)
-    c.borne(DELAIS_S)
+    p = c.Journey(NAME)
+    c.time_limit(TIME_LIMIT_S)
 
-    with c.lancer_playwright() as pw:
-        b, ctx = c.nouveau_contexte(pw)
+    with c.start_playwright() as pw:
+        b, ctx = c.new_context(pw)
         page = ctx.new_page()
-        c.connexion(page, p)
-        c.ouvrir_playground(page)
+        c.login(page, p)
+        c.open_playground(page)
 
-        # ── 1. Une conversation à exporter ──────────────────────────────────
-        question = f"e2e-export-{time.strftime('%H%M%S')} — réponds par le mot « prêt »."
-        c.envoyer_message(page, question)
-        c.attendre_stream(page, p, delai_s=240)
-        p.ok("conversation prête", "question + réponse enregistrées")
+        # ── 1. A conversation to export ─────────────────────────────────────
+        question = f"e2e-export-{time.strftime('%H%M%S')} — answer with the word « ready »."
+        c.send_message(page, question)
+        c.wait_for_stream(page, p, timeout_s=240)
+        p.ok("conversation ready", "question + answer saved")
 
-        # ── 2. « Exporter » produit un téléchargement ───────────────────────
+        # ── 2. « Export » produces a download ───────────────────────────────
         try:
             with page.expect_download(timeout=30000) as info:
-                c.bouton(page, "Exporter", "Export").first.click()
-            telechargement = info.value
+                c.button(page, "Exporter", "Export").first.click()
+            download = info.value
         except Exception:
-            p.rate("téléchargement de l'export",
-                   "un fichier téléchargé après le clic sur « Exporter »",
-                   "aucun téléchargement en 30 s")
-        chemin = telechargement.path()
-        if chemin is None:
-            p.rate("fichier exporté", "un fichier sur disque", "aucun chemin de téléchargement")
-        with open(chemin, encoding="utf-8") as f:
-            contenu = f.read()
-        p.ok("fichier exporté", f"{telechargement.suggested_filename!r}, {len(contenu)} caractères")
+            p.fail("export download",
+                   "a file downloaded after clicking « Export »",
+                   "no download within 30 s")
+        path = download.path()
+        if path is None:
+            p.fail("exported file", "a file on disk", "no download path")
+        with open(path, encoding="utf-8") as f:
+            content = f.read()
+        p.ok("exported file", f"{download.suggested_filename!r}, {len(content)} characters")
 
-        # ── 3. C'est du Markdown non vide et structuré ──────────────────────
-        problemes = []
-        if len(contenu.strip()) < 80:
-            problemes.append(f"{len(contenu.strip())} caractère(s)")
-        if not contenu.lstrip().startswith("#"):
-            problemes.append("pas de titre Markdown « # … »")
-        if "Modèle :" not in contenu and "Model:" not in contenu:
-            problemes.append("pas de ligne « Modèle : »")
-        if not ("Vous :" in contenu or "You:" in contenu):
-            problemes.append("pas de tour « Vous : »")
-        if not ("Assistant :" in contenu or "Assistant:" in contenu):
-            problemes.append("pas de tour « Assistant : »")
-        if question[:40] not in contenu:
-            problemes.append("la question posée est absente de l'export")
-        if problemes:
-            p.rate("contenu Markdown de l'export",
-                   "un Markdown titré avec les tours de parole et la question",
-                   " ; ".join(problemes) + f" — extrait {contenu[:150]!r}")
-        p.ok("contenu Markdown", f"{len(contenu.splitlines())} lignes, titres et tours de parole")
+        # ── 3. It is non-empty, structured Markdown ─────────────────────────
+        # The export follows the interface language: both labels are accepted.
+        problems = []
+        if len(content.strip()) < 80:
+            problems.append(f"{len(content.strip())} character(s)")
+        if not content.lstrip().startswith("#"):
+            problems.append("no Markdown « # … » title")
+        if "Modèle :" not in content and "Model:" not in content:
+            problems.append("no « Model: » line")
+        if not ("Vous :" in content or "You:" in content):
+            problems.append("no « You: » turn")
+        if not ("Assistant :" in content or "Assistant:" in content):
+            problems.append("no « Assistant: » turn")
+        if question[:40] not in content:
+            problems.append("the question asked is missing from the export")
+        if problems:
+            p.fail("export Markdown content",
+                   "a titled Markdown with the turns of speech and the question",
+                   "; ".join(problems) + f" — excerpt {content[:150]!r}")
+        p.ok("Markdown content", f"{len(content.splitlines())} lines, titles and turns of speech")
 
         b.close()
 
-    p.fin()
+    p.done()
     return 0
 
 
 if __name__ == "__main__":
     try:
         code = main()
-    except BaseException as e:  # noqa: BLE001
-        code = c.fin_parcours_echec(NOM, e)
+    except BaseException as e:  # noqa: BLE001 — a failure must speak, not propagate
+        code = c.journey_failed(NAME, e)
     sys.exit(code)

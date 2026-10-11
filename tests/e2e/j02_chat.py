@@ -1,109 +1,103 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Parcours « chat » — la fonction première : parler au modèle servi.
+"""Journey « chat » — the core function: talking to the served model.
 
-Envoie un message dans le playground, exige une réponse diffusée en flux,
-le nom du modèle au-dessus de la réponse et le pied de message avec les
-tokens et le TTFT (mesuré côté portail).
+Sends a message in the playground and requires a streamed answer, the model's
+name above the answer, and the message footer with the tokens and the TTFT
+(measured by the portal).
 """
-from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_USER,
-                    S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys
 import time
 
-import commun as c
+import common as c
 
-NOM = "chat"
-DELAIS_S = 360
+NAME = "chat"
+TIME_LIMIT_S = 360
 
-QUESTION = ("Explique en deux phrases seulement ce qu'est un cache de contexte "
-            "pour un modèle de langage.")
+QUESTION = ("Explain in two sentences only what a context cache is "
+            "for a language model.")
 
 
 def main() -> int:
-    p = c.Parcours(NOM)
-    c.borne(DELAIS_S)
+    p = c.Journey(NAME)
+    c.time_limit(TIME_LIMIT_S)
 
-    with c.lancer_playwright() as pw:
-        b, ctx = c.nouveau_contexte(pw)
+    with c.start_playwright() as pw:
+        b, ctx = c.new_context(pw)
         page = ctx.new_page()
-        c.connexion(page, p)
-        c.ouvrir_playground(page)
-        p.ok("playground ouvert", "composeur visible")
+        c.login(page, p)
+        c.open_playground(page)
+        p.ok("playground open", "composer visible")
 
-        # Le nom du modèle annoncé par le sélecteur : c'est lui qu'on veut
-        # retrouver AU-DESSUS de la réponse (« qui parle »).
-        selecteur = page.get_by_role("combobox").first
-        modele = ""
+        # The model name announced by the selector: it is what we want to find
+        # again ABOVE the answer (« who speaks »).
+        selector = page.get_by_role("combobox").first
+        model = ""
         # The selector renders its placeholder before the model list arrives:
         # reading it at once captured « No active model » (run 20261011-133040)
         # and failed the name check further down. Wait for a real name.
         placeholders = ("No active model", "Aucun modèle actif")
         try:
-            selecteur.wait_for(state="visible", timeout=15000)
-            fin = time.monotonic() + 30
-            while time.monotonic() < fin:
-                modele = selecteur.inner_text().strip().split("\n")[0]
-                if modele and not modele.startswith(placeholders):
+            selector.wait_for(state="visible", timeout=15000)
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                model = selector.inner_text().strip().split("\n")[0]
+                if model and not model.startswith(placeholders):
                     break
                 page.wait_for_timeout(250)
         except Exception:
             pass
-        if modele.startswith(placeholders):
-            p.rate("modèle annoncé dans le sélecteur", "the served model's name",
-                   f"still « {modele} » after 30 s — the portal sees no running model")
-        if not modele:
-            # Repli : le modèle servi, annoncé par l'API publique de la page.
-            statut, _, corps = c.http("GET", f"{c.BASE}/api/config")
-            modele = "modèle"
-        apparitions_avant = page.locator("body").inner_text().count(modele) if modele else 0
-        p.ok("modèle annoncé dans le sélecteur", f"« {modele} »")
+        if model.startswith(placeholders):
+            p.fail("model announced in the selector", "the served model's name",
+                   f"still « {model} » after 30 s — the portal sees no running model")
+        if not model:
+            model = "model"
+        count_before = page.locator("body").inner_text().count(model) if model else 0
+        p.ok("model announced in the selector", f"« {model} »")
 
-        c.envoyer_message(page, QUESTION)
-        c.attendre_stream(page, p, delai_s=300)
-        p.ok("réponse diffusée en flux",
-             "bouton « Arrêter » apparu puis disparu")
+        c.send_message(page, QUESTION)
+        c.wait_for_stream(page, p, timeout_s=300)
+        p.ok("answer streamed", "« Stop » button appeared then disappeared")
 
-        corps_page = page.locator("body").inner_text()
-        # Le texte de la réponse : le fil entier moins la question.
-        reponse = corps_page.replace(QUESTION, "", 1)
-        if len(reponse.strip()) < 40:
-            p.rate("contenu de la réponse", "au moins 40 caractères de réponse",
-                   f"{len(reponse.strip())} caractère(s) — extrait {reponse.strip()[:120]!r}")
-        p.ok("contenu de la réponse", f"{len(reponse.strip())} caractères")
+        page_text = page.locator("body").inner_text()
+        # The answer's text: the whole thread minus the question.
+        answer = page_text.replace(QUESTION, "", 1)
+        if len(answer.strip()) < 40:
+            p.fail("answer content", "at least 40 characters of answer",
+                   f"{len(answer.strip())} character(s) — excerpt {answer.strip()[:120]!r}")
+        p.ok("answer content", f"{len(answer.strip())} characters")
 
-        # Nom du modèle : il doit apparaître une fois de plus qu'avant l'envoi
-        # (le sélecteur + le nom au-dessus de la réponse).
-        apparitions_apres = corps_page.count(modele)
-        if modele and apparitions_apres <= apparitions_avant:
-            p.rate("nom du modèle au-dessus de la réponse",
-                   f"« {modele} » répété au-dessus de la réponse "
-                   f"({apparitions_avant} → plus)",
-                   f"{apparitions_avant} occurrence(s) avant, {apparitions_apres} après")
-        p.ok("nom du modèle affiché", f"« {modele} » au-dessus de la réponse")
+        # Model name: it must appear once more than before sending (the
+        # selector + the name above the answer).
+        count_after = page_text.count(model)
+        if model and count_after <= count_before:
+            p.fail("model name above the answer",
+                   f"« {model} » repeated above the answer ({count_before} → more)",
+                   f"{count_before} occurrence(s) before, {count_after} after")
+        p.ok("model name shown", f"« {model} » above the answer")
 
-        # Pied de message : tokens + TTFT (les deux, sinon le pied est absent).
-        pieds = page.get_by_text(re.compile(r"TTFT", re.I))
-        if pieds.count() == 0:
-            p.rate("pied de message (tokens / TTFT)",
-                   "un pied « N tokens · … · TTFT Xs » sous la réponse",
-                   f"aucun texte TTFT dans la page — extrait du fil : {corps_page[-300:]!r}")
-        pied = pieds.first.inner_text()
-        if not re.search(r"token", pied, re.I):
-            p.rate("pied de message (tokens / TTFT)",
-                   "le nombre de tokens dans le même pied", f"pied trouvé : {pied!r}")
-        p.ok("pied de message", f"« {pied.strip()} »")
+        # Message footer: tokens + TTFT (both, or the footer is missing).
+        footers = page.get_by_text(re.compile(r"TTFT", re.I))
+        if footers.count() == 0:
+            p.fail("message footer (tokens / TTFT)",
+                   "a « N tokens · … · TTFT Xs » footer under the answer",
+                   f"no TTFT text in the page — thread excerpt: {page_text[-300:]!r}")
+        footer = footers.first.inner_text()
+        if not re.search(r"token", footer, re.I):
+            p.fail("message footer (tokens / TTFT)",
+                   "the token count in the same footer", f"footer found: {footer!r}")
+        p.ok("message footer", f"« {footer.strip()} »")
 
         b.close()
 
-    p.fin()
+    p.done()
     return 0
 
 
 if __name__ == "__main__":
     try:
         code = main()
-    except BaseException as e:  # noqa: BLE001
-        code = c.fin_parcours_echec(NOM, e)
+    except BaseException as e:  # noqa: BLE001 — a failure must speak, not propagate
+        code = c.journey_failed(NAME, e)
     sys.exit(code)

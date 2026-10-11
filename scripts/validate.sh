@@ -237,7 +237,7 @@ fi
 # every run left ~15 live sessions for 12 h. Close the ones THIS run opened, on
 # any exit — failure and interruption included.
 close_journey_sessions() {
-  (cd tests/e2e && "$PYTHON_E2E" fermer_sessions.py "$START") || true
+  (cd tests/e2e && "$PYTHON_E2E" close_sessions.py "$START") || true
 }
 if group_wanted 3; then trap close_journey_sessions EXIT; fi
 
@@ -283,20 +283,20 @@ if group_wanted 3; then
   # <label>|<script>|<timeout_s>|<flags> — m: needs the served model,
   # h: memory-heavy (starts a browser or loads a model next to the served one).
   JOURNEYS=(
-    "3.1 Journey « login » (login, session, SSO)|j01_connexion|300|"
+    "3.1 Journey « login » (login, session, SSO)|j01_login|300|"
     "3.2 Journey « chat » (stream, model, tokens/TTFT)|j02_chat|480|m"
-    "3.3 Journey « reasoning » (thinking block)|j03_reflexion|480|m"
-    "3.4 Journey « skills » (/ menu)|j06_competences|240|"
+    "3.3 Journey « reasoning » (thinking block)|j03_reasoning|480|m"
+    "3.4 Journey « skills » (/ menu)|j06_skills|240|"
     "3.5 Journey « conversations » (create/rename/reopen)|j07_conversations|480|m"
     "3.6 Journey « export » (Markdown)|j08_export|420|m"
-    "3.7 Journey « web search » (steps + sources)|j05_recherche_web|600|mh"
-    "3.8 Journey « image tool » (real image, on-demand sidecar)|j04_outil_image|660|mh"
-    "3.9 Journey « admin » (5 tabs, deep link, filter)|j09_admin|420|"
-    "3.10 Journey « API keys » (create, domain usage, revoke)|j10_cles_api|420|m"
-    "3.11 Journey « page sweep »|j11_balayage_pages|540|"
-    "3.12 Journey « page actions » (incl. Support assistant)|j12_actions_pages|720|m"
-    "3.13 Journey « security » (metrics/authcheck closed)|j13_securite|240|"
-    "3.14 Route coverage (every route tested or justified)|verifier_couverture|600|"
+    "3.7 Journey « web search » (steps + sources)|j05_web_search|600|mh"
+    "3.8 Journey « image tool » (real image, on-demand sidecar)|j04_image_tool|660|mh"
+    "3.9 Journey « admin » (6 tabs, deep link, filter)|j09_admin|420|"
+    "3.10 Journey « API keys » (create, domain usage, revoke)|j10_api_keys|420|m"
+    "3.11 Journey « page sweep »|j11_page_sweep|540|"
+    "3.12 Journey « page actions » (incl. Support assistant)|j12_page_actions|720|m"
+    "3.13 Journey « security » (metrics/authcheck closed)|j13_security|240|"
+    "3.14 Route coverage (every route tested or justified)|check_coverage|600|"
   )
   for entry in "${JOURNEYS[@]}"; do
     IFS='|' read -r label name limit flags <<<"$entry"
@@ -312,8 +312,8 @@ if group_wanted 3; then
       fi
     fi
     before=$(model_state); since=$(date +%s)
-    if [ "$name" = "verifier_couverture" ]; then
-      run_check "$label" "$limit" python3 tests/e2e/verifier_couverture.py
+    if [ "$name" = "check_coverage" ]; then
+      run_check "$label" "$limit" python3 tests/e2e/check_coverage.py
     else
       run_check "$label" "$limit" "$PYTHON_E2E" "tests/e2e/$name.py"
     fi

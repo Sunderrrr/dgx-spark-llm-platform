@@ -26,6 +26,7 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { useCsrf } from "@/lib/useCsrf";
 import { useT, tServeur } from "@/lib/i18n";
 import { copierTexte } from "@/lib/copier";
+import { BrandingConfig } from "./BrandingConfig";
 
 type Ligne = {
   nom: string;
@@ -304,6 +305,8 @@ export function ConfigTab() {
           {t("Tout se règle ici, sans redémarrage. Un secret n'est jamais réaffiché : laisse son champ vide pour le garder.")}
         </Text>
       </VStack>
+      {/* The instance's identity first: what the operator sets once, at deploy. */}
+      <BrandingConfig />
       {SECTIONS.map((section) => {
         const champs = parSection[section.id] ?? [];
         if (!champs.length) return null;

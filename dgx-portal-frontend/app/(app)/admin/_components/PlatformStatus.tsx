@@ -16,7 +16,9 @@ export type PlatformStatusData = {
   backup: { latest: string | null; age_hours: number | null; fresh: boolean | null; count: number | null; readable: boolean };
   monitor: { readable: boolean; active_incidents: string[]; since: string | null };
   model: { name: string | null; status: string | null; uptime_s: number | null };
-  portal: { db_mb: number | null; active_sessions: number | null; local_users: number | null; active_keys: number | null };
+  portal: { db_mb: number | null; active_sessions: number | null; connected_users?: number | null; local_users: number | null; active_keys: number | null };
+  memory?: { available_gib: number | null; low_gib: number };
+  directory?: { readable: boolean; actif?: number; desactive?: number; absent?: number };
   maintenance: boolean;
   checked_at: number | null;
 };
@@ -114,9 +116,30 @@ export function PlatformStatus({ status }: { status: PlatformStatusData | null }
   const portal = status?.portal ?? null;
   const portalParts: string[] = [];
   if (portal?.db_mb != null) portalParts.push(t("base {v} Mo").replace("{v}", fmt(portal.db_mb)));
+  if (portal?.connected_users != null) portalParts.push(`${fmt(portal.connected_users, 0)} ${t("personnes connectées")}`);
   if (portal?.active_sessions != null) portalParts.push(`${fmt(portal.active_sessions, 0)} ${t("sessions actives")}`);
   if (portal?.local_users != null) portalParts.push(`${fmt(portal.local_users, 0)} ${t("comptes locaux")}`);
   if (portal?.active_keys != null) portalParts.push(`${fmt(portal.active_keys, 0)} ${t("clés actives")}`);
+
+  // Memory: below the floor, on-demand sidecars and heavy checks cannot start.
+  const memory = status?.memory ?? null;
+  const memKnown = memory?.available_gib != null;
+  const memLow = memKnown && memory!.available_gib! < memory!.low_gib;
+  const memValue = memKnown
+    ? t("{v} Gio disponibles").replace("{v}", fmt(memory!.available_gib!))
+      + (memLow ? ` — ${t("sous {s} Gio : les services à la demande et les vérifications lourdes ne démarrent pas")
+        .replace("{s}", fmt(memory!.low_gib, 0))}` : "")
+    : "—";
+
+  // Directory: accounts disabled or gone there still hold their keys here.
+  const directory = status?.directory ?? null;
+  const dirAlert = !!directory?.readable && ((directory.desactive ?? 0) + (directory.absent ?? 0)) > 0;
+  const dirParts: string[] = [];
+  if (directory?.readable) {
+    dirParts.push(`${fmt(directory.actif ?? 0, 0)} ${t("actifs")}`);
+    if (directory.desactive) dirParts.push(`${fmt(directory.desactive, 0)} ${t("désactivés")}`);
+    if (directory.absent) dirParts.push(`${fmt(directory.absent, 0)} ${t("absents de l'annuaire")}`);
+  }
 
   const checkedAt = status?.checked_at != null ? new Date(status.checked_at * 1000) : null;
 
@@ -163,6 +186,22 @@ export function PlatformStatus({ status }: { status: PlatformStatusData | null }
               dotLabel={model === null ? t("état inconnu") : modelLabel}
               value={modelParts.length > 0 ? modelParts.join(" · ") : "—"}
             />
+            {memory ? (
+              <StatusRow
+                label={t("Mémoire")}
+                dotVariant={memKnown ? (memLow ? "warning" : "success") : "neutral"}
+                dotLabel={memKnown ? (memLow ? t("Mémoire faible") : t("Mémoire suffisante")) : t("état inconnu")}
+                value={memValue}
+              />
+            ) : null}
+            {directory ? (
+              <StatusRow
+                label={t("Annuaire")}
+                dotVariant={!directory.readable ? "neutral" : dirAlert ? "warning" : "success"}
+                dotLabel={!directory.readable ? t("annuaire non lu") : dirAlert ? t("Comptes à vérifier") : t("Tous les comptes actifs")}
+                value={directory.readable ? dirParts.join(" · ") : t("annuaire non lu (pas encore, ou injoignable)")}
+              />
+            ) : null}
             <StatusRow
               label={t("Portail")}
               dotVariant={null}

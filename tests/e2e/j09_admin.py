@@ -24,7 +24,7 @@ DELAIS_S = 300
 ONGLETS = [
     ("overview", "Vue d'ensemble", "Overview", "Mode maintenance", "Maintenance mode"),
     ("models", "Modèles", "Models", "Filtrer le catalogue", "Filter the catalog"),
-    ("users", "Utilisateurs", "Users", "Groupes", "Groups"),
+    ("users", "Utilisateurs", "Users", "Comptes, groupes et droits", "Accounts, groups and rights"),
     ("requests", "Demandes", "Requests", "Budget actuel", "Current budget"),
     ("config", "Configuration", "Configuration", "Annuaire LDAP", "LDAP directory"),
     ("system", "Système", "System", "Publier une annonce", "Publish an announcement"),

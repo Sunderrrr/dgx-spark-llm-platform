@@ -57,7 +57,24 @@ export type Group = {
   /** Local accounts in it + directory accounts the directory puts in it. */
   members?: number;
 };
-export type UsersData = { users: LocalUser[]; groups: Group[]; default_budget: number };
+export type UsersData = {
+  users: LocalUser[];
+  groups: Group[];
+  default_budget: number;
+  /** The quota period, e.g. « 7d »: every cap is per period, not per day. */
+  budget_duration?: string;
+};
+
+/** « / semaine » for 7d, « / jour » for 1d, « / 30 jours » for 30d… — a msgid
+ *  and its value, the caller translates. */
+export function periodeQuota(duree: string | undefined): { msgid: string; n?: number } {
+  const m = /^(\d+)\s*d$/.exec((duree ?? "7d").trim());
+  const jours = m ? Number(m[1]) : NaN;
+  if (jours === 1) return { msgid: "/ jour" };
+  if (jours === 7) return { msgid: "/ semaine" };
+  if (Number.isFinite(jours)) return { msgid: "/ {n} jours", n: jours };
+  return { msgid: "/ période" };
+}
 
 // Response of GET /admin/users/<username>/detail. Any field can be missing
 // (LDAP/SSO account without a local row, user without a LiteLLM profile…).
@@ -84,6 +101,10 @@ export type AdminUserDetail = {
   /** Daily token series over 6 months (same as the account's own settings). */
   activity?: Activity | null;
   directory_status?: DirectoryStatus | null;
+  /** Jobs per media page: how many, and the last one. */
+  media?: Record<"image" | "music" | "video" | "voice" | "ocr", { count: number; last: string | null }> | null;
+  /** The account's last model requests. */
+  model_requests?: { model_id: string; status: string; created_at: string }[] | null;
 };
 
 // Category tags (auth source) → non-semantic color variants.

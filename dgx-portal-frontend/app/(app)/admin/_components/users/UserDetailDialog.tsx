@@ -183,6 +183,46 @@ export function UserDetailDialog({
                     </VStack>
                   ) : null}
 
+                  {/* Media pages: how much each was used, and when last. */}
+                  {detail.media && Object.values(detail.media).some((m) => m.count > 0) ? (
+                    <VStack gap={2}>
+                      <Text weight="semibold">{t("Médias")}</Text>
+                      {([
+                        ["image", "Images"], ["music", "Musique"], ["video", "Vidéo"],
+                        ["voice", "Voix"], ["ocr", "OCR"],
+                      ] as const).map(([k, libelle]) => {
+                        const m = detail.media![k];
+                        return m.count > 0 ? (
+                          <HStack key={k} hAlign="between">
+                            <Text type="supporting" color="secondary">{t(libelle)}</Text>
+                            <HStack gap={2} vAlign="center">
+                              <Text hasTabularNumbers>{m.count.toLocaleString(numLocale)}</Text>
+                              {m.last ? <ClientTimestamp value={m.last} format="auto" /> : null}
+                            </HStack>
+                          </HStack>
+                        ) : null;
+                      })}
+                    </VStack>
+                  ) : null}
+
+                  {(detail.model_requests ?? []).length > 0 ? (
+                    <VStack gap={2}>
+                      <Text weight="semibold">{t("Demandes de modèle")}</Text>
+                      {detail.model_requests!.map((r) => (
+                        <HStack key={`${r.model_id}-${r.created_at}`} hAlign="between" gap={2}>
+                          <Text maxLines={1}>{r.model_id}</Text>
+                          <HStack gap={2} vAlign="center">
+                            <Badge
+                              label={t(r.status === "done" ? "Acceptée" : r.status === "rejected" ? "Refusée" : "En attente")}
+                              variant={r.status === "done" ? "success" : r.status === "rejected" ? "error" : "neutral"}
+                            />
+                            <ClientTimestamp value={r.created_at} format="date" />
+                          </HStack>
+                        </HStack>
+                      ))}
+                    </VStack>
+                  ) : null}
+
                   {/* Keys — alias, creation, spend. Never any key value:
                       the payload cannot contain any. */}
                   <VStack gap={2}>

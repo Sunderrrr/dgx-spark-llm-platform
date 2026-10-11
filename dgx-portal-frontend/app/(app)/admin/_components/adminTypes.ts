@@ -24,7 +24,6 @@ export type BudgetRequest = {
 export type BudgetGrant = { username: string; base_budget: number; current_budget: number; expires_at: string };
 export type SpendRow = { username: string; tokens: number; max_budget: number | null; unlimited: boolean; key_count: number };
 export type AuditRow = { id: number; username: string; action: string; detail: string; created_at: string };
-export type UsageRow = { username: string; c: number; last: string };
 export type VStatus = { status: string; model: string | null; pid: number | null; engine?: string };
 
 export type AdminData = {
@@ -32,9 +31,6 @@ export type AdminData = {
   running_models: string[];
   stats: { pending: number; done: number; rejected: number; budget_pending: number };
   spend_data: SpendRow[];
-  ocr_usage: UsageRow[];
-  video_usage: UsageRow[];
-  voice_usage: UsageRow[];
   model_cfgs: ModelCfg[];
   v_status: VStatus;
   init_logs: string[];

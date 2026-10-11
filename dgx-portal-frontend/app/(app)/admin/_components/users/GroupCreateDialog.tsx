@@ -52,7 +52,7 @@ export function GroupCreateDialog({
               <VStack gap={3}>
                 {formWarning && <Banner status="warning" title={formWarning} />}
                 <TextInput label={t("Nom du groupe")} value={ng.name} onChange={(v) => setNg({ ...ng, name: v })} placeholder="équipe-data" isDisabled={editing} />
-                <TextInput label={t("Quota / j (optionnel)")} value={ng.max_budget} onChange={(v) => setNg({ ...ng, max_budget: v })} />
+                <TextInput label={t("Quota en tokens par période (optionnel)")} value={ng.max_budget} onChange={(v) => setNg({ ...ng, max_budget: v })} />
                 <Selector label={t("Admin par défaut")} value={ng.is_admin} onChange={(v) => setNg({ ...ng, is_admin: v ?? "0" })} options={BOOL_OPTS(t)} />
               </VStack>
             </LayoutContent>

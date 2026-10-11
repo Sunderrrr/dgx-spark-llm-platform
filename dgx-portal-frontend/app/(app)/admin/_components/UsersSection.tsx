@@ -9,6 +9,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Table } from "@astryxdesign/core/Table";
 import type { TableColumn } from "@astryxdesign/core/Table";
@@ -38,6 +39,7 @@ import { UserAvatar } from "@/lib/user-avatar";
 import {
   DIRECTORY_STATUS_META,
   SOURCE_META,
+  periodeQuota,
   type AdminUserDetail,
   type LocalUser,
   type UsersData,
@@ -197,6 +199,9 @@ export function UsersSection({
 
   const users = useMemo(() => data?.users ?? [], [data]);
   const groups = data?.groups ?? [];
+  // The quota period (« / semaine »): every cap on this page is per period.
+  const p = periodeQuota(data?.budget_duration);
+  const periode = t(p.msgid).replace("{n}", String(p.n ?? ""));
 
   // Overview counters for the stat tiles.
   const stats = useMemo(() => {
@@ -387,12 +392,11 @@ export function UsersSection({
             size="sm"
           />
           <VStack gap={0}>
-            <HStack gap={1} vAlign="center">
-              <Text weight="semibold">{u.username}</Text>
-              {/* The instance's owner: the other admins cannot touch it. */}
-              {u.owner ? <Badge label={t("Propriétaire")} variant="info" /> : null}
-            </HStack>
+            <Text weight="semibold">{u.username}</Text>
             {u.fullname ? <Text type="supporting" color="secondary">{u.fullname}</Text> : null}
+            {/* The instance's owner: the other admins cannot touch it. On its
+                own line: next to the name it split « mdupont » in two. */}
+            {u.owner ? <HStack><Badge label={t("Propriétaire")} variant="info" /></HStack> : null}
           </VStack>
         </HStack>
       ) },
@@ -412,7 +416,7 @@ export function UsersSection({
         const noms = u.group_name ? [u.group_name] : (u.directory_groups ?? []);
         return noms.length ? <Text maxLines={2}>{noms.join(", ")}</Text> : "—";
       } },
-    { key: "effective_budget", header: t("Quota / j"), renderCell: (u) =>
+    { key: "effective_budget", header: `${t("Quota")} ${periode}`, renderCell: (u) =>
         u.unlimited ? <Text color="secondary">{t("Illimité")}</Text>
         : u.effective_budget != null ? <Text hasTabularNumbers>{fmtBudget(u.effective_budget)}</Text>
         : <Text color="secondary">—</Text> },
@@ -435,14 +439,20 @@ export function UsersSection({
         // there, or gone) — the portal owns no « enabled » flag for them.
         const annuaire = !u.managed && u.directory_status ? DIRECTORY_STATUS_META[u.directory_status] : null;
         if (!u.blocked && !lockedHint && !u.managed && !annuaire) return <Text color="secondary">—</Text>;
+        // A dot and a word, not a filled pill on every row: the normal state
+        // stays quiet, only the abnormal ones draw the eye.
+        const etat: { label: string; variant: "success" | "error" | "warning" } | null =
+          u.blocked ? { label: "Bloqué", variant: "error" }
+          : u.managed ? (u.enabled ? { label: "Actif", variant: "success" } : { label: "Désactivé", variant: "error" })
+          : annuaire;
         return (
           <VStack gap={0}>
-            {u.blocked ? (
-              <Badge label={t("Bloqué")} variant="error" />
-            ) : u.managed ? (
-              u.enabled ? <Badge label={t("Actif")} variant="success" /> : <Badge label={t("Désactivé")} variant="error" />
-            ) : annuaire ? (
-              <Badge label={t(annuaire.label)} variant={annuaire.variant} />
+            {etat ? (
+              <HStack gap={2} vAlign="center">
+                <StatusDot variant={etat.variant} label={t(etat.label)} />
+                <Text color={etat.variant === "success" ? "secondary" : undefined}
+                  weight={etat.variant === "success" ? undefined : "semibold"}>{t(etat.label)}</Text>
+              </HStack>
             ) : null}
             {u.blocked && u.block_reason ? (
               <Text type="supporting" color="secondary" maxLines={1}>{u.block_reason}</Text>
@@ -574,7 +584,7 @@ export function UsersSection({
                         variant={SOURCE_META[src]?.variant ?? "neutral"} />
                     ))}
                     <Text type="supporting" color="secondary">
-                      {g.max_budget != null ? `${fmtBudget(g.max_budget)} ${t("/ j")}` : t("quota par défaut")}
+                      {g.max_budget != null ? `${fmtBudget(g.max_budget)} ${periode}` : t("quota par défaut")}
                       {g.is_admin ? ` · ${t("admin")}` : ""}
                       {` · ${t("{n} membre(s)").replace("{n}", String(g.members ?? 0))}`}
                     </Text>

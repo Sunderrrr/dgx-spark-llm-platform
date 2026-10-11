@@ -56,6 +56,15 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Fixed
 
+- Admin → Système → identity no longer starts on « DGX »: saving the card
+  silently renamed the instance back to the default.
+- The overview's « active sessions » counted revoked ones too; it now counts
+  live sessions, and shows the people signed in.
+- The group quota of a directory account was held back by ANY grant row,
+  expired or not (an ISO date compared with a number).
+- Quotas were labelled « per day » while they are per period (7 days by
+  default): the Users table and groups now show the real period.
+
 - The Admin and Users pages are server-rendered too: the dashboard, audit log, platform snapshot and account list come with the HTML, `?tab=` opens the right tab directly, and a non-admin gets the « reserved » page at once instead of after a 403 round-trip.
 - Pages are server-rendered with their data: a full load shows the filled page at first paint (150-240 ms, no client data request) instead of an empty page filled one round-trip later; identity, branding, palette and language come with the HTML (no default flashing first). The playground's long-standing hydration error (#418) is fixed — `border-beam` resolved « auto » differently on the server — and the page sweep now fails on any hydration error.
 - Page changes are 3-5x faster (≈400-750 ms → 110-290 ms until the page's data is in): the group-wide `loading.tsx` (the home skeleton, shown on every page and costing React's 300 ms fallback throttle) is gone, visited pages are reused for 30 s (`staleTimes`), media pages read the new light `/api/running-models` instead of `/api/home`, the home page no longer fetches `/api/home` twice, the ComfyUI probe refreshes in the background, and the model search no longer debounces its first query.
@@ -85,6 +94,14 @@ fails if `package.json` and the newest version here have drifted apart.
   intact (303 tokens · 27.2 tok/s · TTFT 2.27 s).
 
 ### Added
+
+- Admin rework: the identity card moved to Configuration and the duplicate
+  « Notification emails » card left Système; Admin → Utilisateurs no longer
+  repeats the account table of the Users page (it keeps the quota policy and a
+  link); the account detail gained media usage and model requests (what the
+  removed « search a user » card showed); the status column is a dot and a
+  word; the platform status shows free memory and the directory accounts to
+  check; « add a model » is a guided dialog with per-engine examples.
 
 - Admin → Config reworked: one card per service (LDAP, SSO, e-mail, Discord,
   security) with its state (active / incomplete / off) and a « Tester » button

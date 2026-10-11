@@ -37,7 +37,6 @@ import {
 
 export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: AdminTabProps) {
   const t = useT();
-  const [newModel, setNewModel] = useState({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
   const [newOcr, setNewOcr] = useState({ name: "", hf_model_id: "", vllm_args: "" });
   const [newVoice, setNewVoice] = useState({ name: "", repo_id: "Qwen3-TTS-12Hz-1.7B-Base" });
   const [catalogKind, setCatalogKind] = useState<CatalogKind>("llm");
@@ -253,7 +252,12 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
             list and the add-form fields, instead of the three separate
             sections (vLLM / OCR / voice) from before. */}
         <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
-          <Text weight="semibold">{t("Catalogue")}</Text>
+          <HStack gap={3} vAlign="center">
+            <Text weight="semibold">{t("Catalogue")}</Text>
+            {catalogKind === "llm" ? (
+              <AddModelDialog isDisabled={actionDisabled} onSubmit={(params) => act("/admin/model/add", params)} />
+            ) : null}
+          </HStack>
           <SegmentedControl label={t("Type de modèle")} value={catalogKind} onChange={(v) => setCatalogKind(v as CatalogKind)}>
             <SegmentedControlItem value="llm" label={t("LLM")} />
             <SegmentedControlItem value="ocr" label="OCR" />
@@ -307,36 +311,6 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
               </Card>
             ))}
             {llmCfgs.length === 0 && emptyCatalog}
-            <Card>
-              <VStack gap={2}>
-                <Text type="supporting" color="secondary">{t("Ajouter un modèle")}</Text>
-                <TextInput label={t("Nom")} isLabelHidden value={newModel.name} onChange={(v) => setNewModel((s) => ({ ...s, name: v }))} placeholder={t("Nom (ex: llama-3-8b)")} size="sm" />
-                <TextInput label={t("HF ID")} isLabelHidden value={newModel.hf_model_id} onChange={(v) => setNewModel((s) => ({ ...s, hf_model_id: v }))} placeholder={t("HF ID")} size="sm" />
-                <Selector
-                  label={t("Moteur")}
-                  isLabelHidden
-                  value={newModel.engine}
-                  onChange={(v) => setNewModel((s) => ({ ...s, engine: v ?? "vllm" }))}
-                  options={[
-                    { value: "vllm", label: "vLLM (safetensors)" },
-                    { value: "llamacpp", label: "llama.cpp (GGUF)" },
-                    { value: "ds4", label: "ds4 (GGUF NVFP4)" },
-                  ]}
-                />
-                <TextInput label={t("Args")} isLabelHidden value={newModel.vllm_args} onChange={(v) => setNewModel((s) => ({ ...s, vllm_args: v }))} placeholder={t("Args du moteur")} size="sm" />
-                <Button
-                  label={t("Ajouter")}
-                  variant="secondary"
-                  size="sm"
-                  icon={<Icon icon={PlusIcon} size="sm" />}
-                  onClick={async () => {
-                    await act("/admin/model/add", newModel);
-                    setNewModel({ name: "", hf_model_id: "", engine: "vllm", vllm_args: "" });
-                  }}
-                  isDisabled={actionDisabled}
-                />
-              </VStack>
-            </Card>
           </Grid>
         )}
 
@@ -550,6 +524,105 @@ function ArgsEditForm({ cfg, isDisabled, onSubmit }: {
                 }
                 // On failure, the dialog stays open (the error is already toasted
                 // by act()): the admin can fix and resubmit.
+              }}
+            />
+          </HStack>
+        </VStack>
+      </Dialog>
+    </>
+  );
+}
+
+/** What each engine expects, shown in the « add a model » dialog: the kind of
+ *  identifier and an example of arguments (the runner allow-lists them). */
+const MOTEURS: Record<string, { label: string; id: string; idExemple: string; args: string }> = {
+  vllm: {
+    label: "vLLM (safetensors)",
+    id: "Dépôt Hugging Face (organisation/modèle).",
+    idExemple: "Qwen/Qwen3-8B",
+    args: "--max-model-len 32768 --gpu-memory-utilization 0.85",
+  },
+  llamacpp: {
+    label: "llama.cpp (GGUF)",
+    id: "Dépôt Hugging Face, ou local:<dossier> pour un GGUF déjà téléchargé.",
+    idExemple: "local:qwen38-27b-gguf",
+    args: "--ctx-size 262144 --parallel 4 --n-gpu-layers 999 --flash-attn on",
+  },
+  ds4: {
+    label: "ds4 (GGUF NVFP4)",
+    id: "Dépôt Hugging Face, ou local:<dossier> pour un GGUF déjà téléchargé.",
+    idExemple: "local:deepseek-v4-flash",
+    args: "--ctx-size 131072",
+  },
+};
+
+/** « Ajouter un modèle » (POST /admin/model/add) in a dialog: the inline card
+ *  squeezed four unlabelled fields into a catalog tile, with nothing saying
+ *  what an « HF ID » or the engine args look like for the chosen engine. */
+function AddModelDialog({ isDisabled, onSubmit }: {
+  isDisabled: boolean;
+  onSubmit: (params: Record<string, string>) => Promise<ActResult>;
+}) {
+  const t = useT();
+  const vide = { name: "", hf_model_id: "", engine: "vllm", vllm_args: "" };
+  const [isOpen, setIsOpen] = useState(false);
+  const [m, setM] = useState(vide);
+  const moteur = MOTEURS[m.engine] ?? MOTEURS.vllm;
+  return (
+    <>
+      <Button
+        label={t("Ajouter un modèle")}
+        variant="secondary"
+        size="sm"
+        icon={<Icon icon={PlusIcon} size="sm" />}
+        isDisabled={isDisabled}
+        onClick={() => { setM(vide); setIsOpen(true); }}
+      />
+      <Dialog isOpen={isOpen} onOpenChange={setIsOpen} purpose="form">
+        <DialogHeader title={t("Ajouter un modèle")} subtitle={t("Le modèle rejoint le catalogue ; il se lance ensuite depuis sa carte.")} />
+        <VStack gap={3}>
+          <Selector
+            label={t("Moteur")}
+            value={m.engine}
+            onChange={(v) => setM((s) => ({ ...s, engine: v ?? "vllm" }))}
+            options={Object.entries(MOTEURS).map(([value, e]) => ({ value, label: e.label }))}
+          />
+          <TextInput
+            label={t("Nom")}
+            description={t("Nom affiché, et nom du modèle dans l'API.")}
+            value={m.name}
+            onChange={(v) => setM((s) => ({ ...s, name: v }))}
+            placeholder={t("ex. {v}").replace("{v}", "qwen3-8b")}
+            size="sm"
+          />
+          <TextInput
+            label={t("Identifiant du modèle")}
+            description={t(moteur.id)}
+            value={m.hf_model_id}
+            onChange={(v) => setM((s) => ({ ...s, hf_model_id: v }))}
+            placeholder={t("ex. {v}").replace("{v}", moteur.idExemple)}
+            size="sm"
+          />
+          <TextInput
+            label={t("Args du moteur (optionnels)")}
+            description={t("Le runner les vérifie au lancement : une option non autorisée y est refusée.")}
+            value={m.vllm_args}
+            onChange={(v) => setM((s) => ({ ...s, vllm_args: v }))}
+            placeholder={t("ex. {v}").replace("{v}", moteur.args)}
+            size="sm"
+          />
+          <HStack gap={2} hAlign="end">
+            <Button label={t("Annuler")} variant="ghost" size="sm" onClick={() => setIsOpen(false)} />
+            <Button
+              label={t("Ajouter")}
+              variant="primary"
+              size="sm"
+              icon={<Icon icon={PlusIcon} size="sm" />}
+              isDisabled={isDisabled || !m.name.trim() || !m.hf_model_id.trim()}
+              onClick={async () => {
+                const res = await onSubmit({ ...m, name: m.name.trim(), hf_model_id: m.hf_model_id.trim() });
+                // On failure the dialog stays open (act() toasts the reason).
+                if (res.ok) setIsOpen(false);
               }}
             />
           </HStack>

@@ -438,6 +438,9 @@ class DetailTest(BaseComptes):
         act.assert_any_call(ANNUAIRE)
         self.assertEqual(body['activity']['active_days'], 1)
         self.assertEqual(body['directory_status'], 'desactive')
+        self.assertEqual(set(body['media']), {'image', 'music', 'video', 'voice', 'ocr'})
+        self.assertEqual(body['media']['image']['count'], 0)
+        self.assertEqual(body['model_requests'], [])
         self.assertIsNone(local['directory_status'], "a local account's state is `enabled`")
 
     def test_liste_porte_l_etat_annuaire_des_comptes_non_locaux(self):

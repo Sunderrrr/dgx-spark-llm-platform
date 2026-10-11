@@ -1,8 +1,8 @@
 "use client";
 
-// Système — the machine's own configuration: logs, maintenance mode,
-// announcement (broadcast to Discord), instance identity, notification email,
-// and the audit journal. One action = one tab.
+// Système — what the machine does: logs, announcements (broadcast to Discord)
+// and the audit journal. Everything that is SET (identity, e-mail, LDAP, SSO,
+// Discord) lives in the Configuration tab.
 
 import { useState } from "react";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
@@ -17,8 +17,6 @@ import type { TableColumn } from "@astryxdesign/core/Table";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { MegaphoneIcon, ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
-import { BrandingConfig } from "./BrandingConfig";
-import { EmailConfig } from "./EmailConfig";
 import { LogsPanel, type LogKind } from "./LogsPanel";
 import type { AdminTabProps, AuditRow } from "./adminTypes";
 
@@ -71,11 +69,6 @@ export function SystemTab({ data, act, actionDisabled,  audit, logKind, onLogKin
           </HStack>
         </VStack>
       </Card>
-
-      {/* The instance identity goes FIRST: it is what the operator
-          changes once, at deploy time. */}
-      <BrandingConfig initialName={undefined} />
-      <EmailConfig />
 
       <VStack gap={2}>
         <Text weight="semibold">{t("Journal d'audit")}</Text>

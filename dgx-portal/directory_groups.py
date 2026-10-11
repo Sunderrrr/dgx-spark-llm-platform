@@ -97,8 +97,11 @@ def appliquer_quota_groupes(username):
                         (username,)).fetchone()
         if rs is None or rs['budget_manual']:
             return None
+        # expires_at is ISO text in UTC (admin_routes writes utcnow().isoformat()):
+        # compared with a number, SQLite ranks any text above it — every grant,
+        # expired or not, looked running.
         if db.execute("SELECT 1 FROM budget_grants WHERE username=? AND expires_at > ?",
-                      (username, datetime.now().timestamp())).fetchone():
+                      (username, datetime.utcnow().isoformat())).fetchone():
             return None
         _, quota = droits_par_groupes(username)
         precedent = rs['budget_auto']

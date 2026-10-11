@@ -13,18 +13,15 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { useToast } from "@astryxdesign/core/Toast";
-import { CheckIcon } from "@heroicons/react/24/outline";
+import { CheckIcon, UsersIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormVerifie } from "@/lib/api";
 import { useT, useLocale, tServeur } from "@/lib/i18n";
-import { UserLookup } from "./UserLookup";
-import { UsersSection } from "./UsersSection";
 import { fmtCompact, type AdminTabProps, type SpendRow } from "./adminTypes";
 
 export function UsersTab({ data, act, actionDisabled }: AdminTabProps) {
   const t = useT();
   const numLocale = useLocale();
-  const csrf = useCsrf();
   // Default quotas form. Pre-filled on the FIRST load only: re-syncing it on
   // every 8 s poll overwrote the admin's input under their fingers, and it was
   // the stale value that was sent on the click on « Appliquer ».
@@ -38,17 +35,22 @@ export function UsersTab({ data, act, actionDisabled }: AdminTabProps) {
 
   return (
     <VStack gap={6}>
-      <UserLookup
-        spend={data?.spend_data ?? []}
-        ocr={data?.ocr_usage ?? []}
-        video={data?.video_usage ?? []}
-        voice={data?.voice_usage ?? []}
-        requests={data?.requests ?? []}
-      />
-
-      {/* Local accounts, groups, roles, blocking: full management of who can
-          log in. Same component as the /users page (which stays where it is). */}
-      <UsersSection csrf={csrf} />
+      {/* The account list lives on ONE page, Utilisateurs (sidebar): this tab
+          showed the very same table under a « search a user » card that the
+          table's own search and the account detail already covered. Here:
+          the quota policy. */}
+      <Card>
+        <HStack hAlign="between" vAlign="center" gap={3} wrap="wrap">
+          <VStack gap={0}>
+            <Text weight="semibold">{t("Comptes, groupes et droits")}</Text>
+            <Text type="supporting" color="secondary">
+              {t("La liste des comptes, leurs groupes, leurs rôles, leur activité et leur blocage se gèrent dans la page Utilisateurs.")}
+            </Text>
+          </VStack>
+          <Button label={t("Ouvrir la page Utilisateurs")} variant="secondary" size="sm" href="/users"
+            icon={<Icon icon={UsersIcon} size="sm" />} />
+        </HStack>
+      </Card>
 
       <VStack gap={2}>
         <Text weight="semibold">{t("Limite de tokens par défaut (nouvelles clés)")}</Text>

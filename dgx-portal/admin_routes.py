@@ -58,9 +58,8 @@ from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
 from directory import etats_annuaire
 from directory_groups import recalculer_membres
 from proprietaire import est_proprietaire, proprietaire
-from stats import (_account_activity, _active_users, admin_get_ocr_usage,
-                   admin_get_user_consumption, admin_get_video_usage,
-                   admin_get_voice_usage, user_hourly)
+from stats import (_account_activity, _active_users,
+                   admin_get_user_consumption, user_hourly)
 from vllm_health import get_running_models, guess_engine, vllm_health
 
 bp = Blueprint('admin', __name__)
@@ -168,9 +167,6 @@ def api_admin():
     return jsonify({
         'requests': [dict(r) for r in all_reqs],
         'stats': stats,
-        'ocr_usage': admin_get_ocr_usage(),
-        'video_usage': admin_get_video_usage(),
-        'voice_usage': admin_get_voice_usage(),
         'maintenance_mode': maintenance_active(),
         'model_cfgs': [dict(r) for r in model_cfgs],
         'ocr_cfgs': [dict(r) for r in ocr_cfgs],
@@ -294,22 +290,55 @@ def _etat_portail():
         taille = round(os.path.getsize(chemin) / 1024 ** 2, 1) if chemin else None
     except Exception:                                            # noqa: BLE001
         taille = None
-    maintenant = datetime.utcnow().isoformat()
+    maintenant = time.time()
     return {
         'db_mb': taille,
+        # Live sessions only: revoked ones (logout, admin cut) were counted too
+        # — « 247 active sessions » for 229 real ones (2026-10-12).
         'active_sessions': db.execute(
-            "SELECT COUNT(*) AS n FROM user_sessions WHERE expires_at > ?",
-            (time.time(),)).fetchone()['n'],
+            "SELECT COUNT(*) AS n FROM user_sessions WHERE revoked = 0 AND expires_at > ?",
+            (maintenant,)).fetchone()['n'],
+        # The people behind them: one browser per machine makes the session
+        # count read like an audience it is not.
+        'connected_users': db.execute(
+            "SELECT COUNT(DISTINCT username) AS n FROM user_sessions "
+            "WHERE revoked = 0 AND expires_at > ?", (maintenant,)).fetchone()['n'],
         'local_users': db.execute(
             "SELECT COUNT(*) AS n FROM local_users WHERE enabled=1").fetchone()['n'],
         'active_keys': db.execute(
             "SELECT COUNT(*) AS n FROM api_keys").fetchone()['n'],
-        'budget_grants': db.execute(
+        'budget_grants': db.execute(       # expires_at: ISO text, UTC
             "SELECT COUNT(*) AS n FROM budget_grants WHERE expires_at > ?",
-            (maintenant,)).fetchone()['n'],
+            (datetime.utcnow().isoformat(),)).fetchone()['n'],
         'audit_entries': db.execute("SELECT COUNT(*) AS n FROM audit_log").fetchone()['n'],
     }
 
+
+
+def _etat_memoire():
+    """Free memory (MemAvailable): what decides whether an on-demand sidecar or
+    a heavy validation journey can start next to the served model."""
+    from sidecars import _mem_available_gb
+    v = _mem_available_gb()
+    return {'available_gib': None if v is None else round(float(v), 1),
+            # Same floor as the validation's heavy journeys and the ASR start.
+            'low_gib': 8}
+
+
+def _etat_annuaire():
+    """The directory accounts by state (directory.py snapshot): one disabled
+    or gone there still holds API keys here until someone looks."""
+    db = get_db()
+    noms = [r['username'] for r in db.execute(
+        "SELECT s.username FROM user_sources s LEFT JOIN local_users l "
+        "ON l.username = s.username WHERE l.username IS NULL").fetchall()]
+    etats = etats_annuaire(noms)
+    if etats is None:
+        return {'readable': False}
+    compte = {'actif': 0, 'desactive': 0, 'absent': 0}
+    for e in etats.values():
+        compte[e] = compte.get(e, 0) + 1
+    return {'readable': True, **compte}
 
 @bp.route('/admin/platform')
 @admin_required
@@ -327,6 +356,8 @@ def admin_platform():
         'monitor': _etat_moniteur(),
         'model': _etat_modele(),
         'portal': _etat_portail(),
+        'memory': _etat_memoire(),
+        'directory': _etat_annuaire(),
         'maintenance': maintenance_active(),
         'checked_at': int(time.time()),
     })
@@ -936,7 +967,10 @@ def api_admin_users():
     return jsonify({'users': out,
                     'groups': [{**dict(g), 'sources': [x for x in (g['sources'] or '').split(',') if x],
                                 'members': membres.get(g['name'], 0)} for g in groups],
-                    'default_budget': float(get_setting('default_key_budget', KEY_BUDGET))})
+                    'default_budget': float(get_setting('default_key_budget', KEY_BUDGET)),
+                    # The quota period (« 7d »): every cap of this page is per period,
+                    # not per day as the UI used to say.
+                    'budget_duration': get_setting('default_key_duration', KEY_DURATION)})
 
 @bp.route('/admin/audit')
 @admin_required
@@ -1434,6 +1468,16 @@ def admin_user_detail(username):
         # The same 6-month daily series as « Mon compte »: which days the
         # account was actually active, whatever its source (local, LDAP, SSO).
         'activity': _account_activity(username),
+        # Media usage and model requests: what the « Rechercher un utilisateur »
+        # card of the Users tab showed — now in the one place an admin opens.
+        'media': {k: dict(zip(('count', 'last'), db.execute(
+            f"SELECT COUNT(*), MAX(created_at) FROM {t} WHERE username=?", (username,)).fetchone()))
+                  for k, t in (('image', 'image_jobs'), ('music', 'music_jobs'),
+                               ('video', 'video_jobs'), ('voice', 'voice_jobs'),
+                               ('ocr', 'ocr_jobs'))},
+        'model_requests': [dict(r) for r in db.execute(
+            "SELECT model_id, status, created_at FROM model_requests WHERE username=? "
+            "ORDER BY created_at DESC LIMIT 10", (username,)).fetchall()],
         'directory_status': ((etats_annuaire([username]) or {}).get(username)
                              if mu is None else None),
         'donnees': donnees,

@@ -19,6 +19,7 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormJSON } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { useBranding } from "@/lib/branding";
 
 /** The logo is sent as the uploaded data URL: one row in `settings`, no
  *  filesystem to police, and the server bounds it (2 Mo) like every other
@@ -29,7 +30,11 @@ export function BrandingConfig({ initialName }: { initialName?: string }) {
   const t = useT();
   const csrf = useCsrf();
   const showToast = useToast();
-  const [nom, setNom] = useState(initialName || "DGX");
+  // The REAL current name (server-rendered branding), not « DGX »: the field
+  // used to start on the default, so saving anything else on this card
+  // silently renamed the instance back to « DGX ».
+  const marque = useBranding();
+  const [nom, setNom] = useState(initialName || marque.name);
   const [logo, setLogo] = useState<string | null>(null);
   const [apercu, setApercu] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);

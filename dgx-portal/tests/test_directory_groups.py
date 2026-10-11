@@ -8,6 +8,7 @@ overwritten by a group quota.
 """
 import time
 import unittest
+from datetime import datetime, timedelta
 from unittest import mock
 
 import app as portal
@@ -143,10 +144,16 @@ class DroitsEtQuotaTest(BaseGroupes):
             db.execute("UPDATE user_sources SET budget_manual=0 WHERE username=?", (COMPTE,))
             db.execute("INSERT INTO budget_grants (username, base_budget, current_budget, expires_at, "
                        "created_at, updated_at) VALUES (?,?,?,?,?,?)",
-                       (COMPTE, 1, 2, time.time() + 3600, '2026-10-11', '2026-10-11'))
+                       (COMPTE, 1, 2, (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+                        '2026-10-11', '2026-10-11'))
             db.commit()
             self.assertIsNone(dg.appliquer_quota_groupes(COMPTE))
             self.maj.assert_not_called()
+            # An EXPIRED grant no longer holds the group quota back.
+            db.execute("UPDATE budget_grants SET expires_at=? WHERE username=?",
+                       ((datetime.utcnow() - timedelta(hours=1)).isoformat(), COMPTE))
+            db.commit()
+            self.assertEqual(dg.appliquer_quota_groupes(COMPTE), 1000)
 
     def test_un_compte_local_n_est_pas_concerne(self):
         with portal.app.app_context():

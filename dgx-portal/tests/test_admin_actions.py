@@ -500,6 +500,36 @@ class EtatPlateformeTest(BaseAdmin):
         self.assertFalse(d['backup']['readable'])
         self.assertFalse(d['monitor']['readable'])
 
+    def test_memoire_annuaire_et_sessions_vivantes(self):
+        import admin_routes
+        c = self._client(ADMIN1)
+        with portal.app.app_context():
+            db = portal.get_db()
+            now = time.time()
+            for sid, revoquee in (('ztest-sess-vive', 0), ('ztest-sess-revoquee', 1)):
+                db.execute("INSERT OR REPLACE INTO user_sessions (sid, username, auth_at, expires_at, "
+                           "revoked, created_at) VALUES (?,?,?,?,?,?)",
+                           (sid, ADMIN1, now, now + 3600, revoquee, now))
+            db.commit()
+            vivantes = db.execute("SELECT COUNT(*) FROM user_sessions WHERE revoked=0 "
+                                  "AND expires_at > ?", (now,)).fetchone()[0]
+        try:
+            with patch.object(admin_routes, 'etats_annuaire',
+                              side_effect=lambda noms: {n: 'absent' for n in noms}):
+                d = c.get('/admin/platform').get_json()
+        finally:
+            with portal.app.app_context():
+                portal.get_db().execute("DELETE FROM user_sessions WHERE sid LIKE 'ztest-sess-%'")
+                portal.get_db().commit()
+        # Revoked sessions are not « active » (« 247 » for 229 real ones).
+        self.assertEqual(d['portal']['active_sessions'], vivantes)
+        self.assertGreaterEqual(d['portal']['connected_users'], 1)
+        self.assertEqual(d['memory']['low_gib'], 8)
+        self.assertTrue(d['directory']['readable'])
+        self.assertEqual(d['directory']['actif'], 0)
+        with patch.object(admin_routes, 'etats_annuaire', return_value=None):
+            self.assertFalse(c.get('/admin/platform').get_json()['directory']['readable'])
+
     def test_etat_plateforme_refuse_un_non_admin(self):
         c = self._client(SIMPLE, is_admin=False)
         # 302 to /login for a browser request, 403 for an API call: in both

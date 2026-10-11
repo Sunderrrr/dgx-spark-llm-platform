@@ -949,33 +949,6 @@ def admin_get_user_consumption():
         u['tokens'] = toks.get(uid, 0)
     return sorted(users.values(), key=lambda u: u['tokens'], reverse=True)
 
-def admin_get_ocr_usage():
-    """OCR and video never go through a LiteLLM API key (internal backend,
-    not exposed — cf. get_ocr_model()/comfyui_is_up()): LiteLLM_SpendLogs knows
-    nothing about them. Only the local ocr_jobs/video_jobs tables know who
-    uses them.
-    """
-    rows = get_db().execute(
-        "SELECT username, COUNT(*) AS c, MAX(created_at) AS last "
-        "FROM ocr_jobs GROUP BY username ORDER BY c DESC"
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-def admin_get_video_usage():
-    rows = get_db().execute(
-        "SELECT username, COUNT(*) AS c, MAX(created_at) AS last "
-        "FROM video_jobs GROUP BY username ORDER BY c DESC"
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-def admin_get_voice_usage():
-    rows = get_db().execute(
-        "SELECT username, COUNT(*) AS c, MAX(created_at) AS last "
-        "FROM voice_jobs GROUP BY username ORDER BY c DESC"
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-
 # ── TTFT actually measured ────────────────────────────────────────────────
 # llama.cpp publishes no TTFT in /metrics, but it returns a `timings` PER
 # REQUEST (including in the last SSE fragment), whose `prompt_ms` is

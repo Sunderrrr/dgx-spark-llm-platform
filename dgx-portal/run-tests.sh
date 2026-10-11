@@ -17,6 +17,13 @@ cd "$(dirname "$0")/.."
 # « ai-platform », with an « Unable to find image ». CI already pins this
 # name (.github/workflows/ci.yml), so both now follow the same rule.
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ai-platform}"
+# docker-compose.yml requires DGX_WEB and DGX_API, and `compose build`
+# interpolates the whole file. The build does not use them, so a clone without
+# a .env (CI, a fresh checkout) gets placeholders; a real .env still wins.
+if [ ! -f .env ]; then
+  export DGX_WEB="${DGX_WEB:-https://dgx.example.org}"
+  export DGX_API="${DGX_API:-https://api.example.org}"
+fi
 docker compose build dgx-portal >/dev/null
 # The unittest arguments are chosen BEFORE the exec: `${1:+tests.$1}
 # ${1:-discover -s tests}` passed the module TWICE (« tests.test_app

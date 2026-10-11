@@ -45,6 +45,7 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Fixed
 
+- CI: the secret scan no longer rejects `.env.example` as a forbidden file, and `run-tests.sh` works in a clone without `.env` (placeholder `DGX_WEB`/`DGX_API` for the image build only).
 - The API URL shown to users read `…/v1/v1` (compose appended `/v1` to a value
   that already ended with it).
 - HTML preview errors never reached the playground (sent and listened for under two different message names).

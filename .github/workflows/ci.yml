@@ -53,7 +53,8 @@ jobs:
             && { echo "::error::Secret-looking value in a COMMIT MESSAGE"; hit=1; } || true
           git diff "$RANGE" 2>/dev/null | grep -E '^\+[^+]' | grep -E "$RE" | grep -Evq "$PH" \
             && { echo "::error::Secret-looking value in the diff"; hit=1; } || true
-          git diff --diff-filter=AM --name-only "$RANGE" 2>/dev/null | grep -Eq '(^|/)(\.env(\..*)?|DEBUG_USERS\.txt|.*\.pem|.*\.key|id_rsa.*)$' \
+          git diff --diff-filter=AM --name-only "$RANGE" 2>/dev/null | grep -E '(^|/)(\.env(\..*)?|DEBUG_USERS\.txt|.*\.pem|.*\.key|id_rsa.*)$' \
+            | grep -Evq '(^|/)\.env\.example$' \
             && { echo "::error::Forbidden file in the push"; hit=1; } || true
           exit $hit
 

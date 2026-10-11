@@ -15,6 +15,7 @@ import { fetchCsrfToken } from "@/lib/api";
 import { getPasskeyAssertion } from "@/lib/webauthn";
 import { useT, tServeur } from "@/lib/i18n";
 import { useBranding } from "@/lib/branding";
+import { OwnerSetup } from "./OwnerSetup";
 
 // Self-hosted (public/login-bg*.jpg) to respect the CSP img-src 'self' —
 // no dependency on an external CDN. Photos: snowy forests, Nordic landscapes (Unsplash).
@@ -25,6 +26,8 @@ export default function LoginPage() {
   const marque = useBranding();
   const [csrf, setCsrf] = useState("");
   const [oidcEnabled, setOidcEnabled] = useState(false);
+  // A fresh instance: nobody administers it, the page creates the owner.
+  const [setupRequired, setSetupRequired] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -49,7 +52,10 @@ export default function LoginPage() {
     fetchCsrfToken().then(setCsrf).catch(() => {});
     fetch("/api/config")
       .then((r) => (r.ok ? r.json() : { oidc_enabled: false }))
-      .then((d) => setOidcEnabled(d.oidc_enabled))
+      .then((d) => {
+        setOidcEnabled(d.oidc_enabled);
+        setSetupRequired(!!d.setup_required);
+      })
       .catch(() => {});
   }, []);
 
@@ -160,6 +166,7 @@ export default function LoginPage() {
             <Text type="body" color="secondary" size="sm">{t("Plateforme IA privée · NVIDIA DGX Spark")}</Text>
           </VStack>
 
+          {setupRequired ? <OwnerSetup csrf={csrf} /> : (<>
           {error && <Banner status="error" title={error} />}
 
           <VStack gap={3}>
@@ -199,6 +206,7 @@ export default function LoginPage() {
               />
             </>
           )}
+          </>)}
         </VStack>
       </Card>
     </Center>

@@ -35,6 +35,8 @@ export type LocalUser = {
   directory_status?: DirectoryStatus | null;
   /** LDAP/SSO groups of the account (merged by name), from its last login. */
   directory_groups?: string[];
+  /** The instance's owner (created at first start): out of reach of the other admins. */
+  owner?: boolean;
 };
 
 export type DirectoryStatus = "actif" | "desactive" | "absent";

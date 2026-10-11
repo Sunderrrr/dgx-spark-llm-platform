@@ -235,14 +235,59 @@ DGX · {APP_NAME} — automated monitoring message
 </div></body></html>"""
 
 
-def _send(subject, down):
+# SMTP lives in the portal database (Admin → Config, keys cfg_*), no longer in
+# .env. The monitor cannot open that database itself (0700 volume, no
+# CAP_DAC_OVERRIDE — see PORTAL_DB), so it reads it through the container like
+# the counters above, and keeps a root-only copy: the alert that matters most is
+# sent when the portal is DOWN, precisely when the container cannot answer.
+_SMTP_CLES = {"SMTP_HOST": "cfg_smtp_host", "SMTP_PORT": "cfg_smtp_port",
+              "SMTP_USER": "cfg_smtp_user", "SMTP_PASSWORD": "cfg_smtp_pass",
+              "SMTP_FROM": "cfg_smtp_from", "ADMIN_EMAIL": "cfg_admin_email"}
+SMTP_CACHE = "/var/lib/dgx-monitor/smtp.json"     # 0600, root
+SMTP_CODE = (
+    "import json,sqlite3;c=sqlite3.connect('file:/app/data/portal.db?mode=ro',uri=True);"
+    "print(json.dumps(dict(c.execute(\"SELECT key,value FROM settings WHERE key IN "
+    + "(" + ",".join("'%s'" % v for v in _SMTP_CLES.values()) + ")" + "\").fetchall())))"
+)
+
+
+def _smtp_settings():
+    """The SMTP settings: from the portal (cached), else the last cached copy,
+    else .env (an instance that has not started the version that moved them)."""
+    import subprocess
     env = _load_env()
+    vals = {k: env.get(k, "") for k in _SMTP_CLES}
+    lus = None
+    try:
+        r = subprocess.run(["docker", "exec", "dgx-portal", "python3", "-c", SMTP_CODE],
+                           capture_output=True, text=True, timeout=15)
+        if r.returncode == 0:
+            lus = json.loads(r.stdout)
+            fd = os.open(SMTP_CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump(lus, f)
+    except Exception as exc:  # noqa: BLE001
+        print(f"portal settings unreadable ({exc})")
+    if lus is None:
+        try:
+            with open(SMTP_CACHE) as f:
+                lus = json.load(f)
+        except (OSError, ValueError):
+            lus = {}
+    for k, cle in _SMTP_CLES.items():
+        if lus.get(cle):
+            vals[k] = lus[cle]
+    return vals
+
+
+def _send(subject, down):
+    env = _smtp_settings()
     host, user, passwd = env.get("SMTP_HOST"), env.get("SMTP_USER"), env.get("SMTP_PASSWORD")
     to = env.get("ADMIN_EMAIL")
     if not (host and user and passwd and to):
         print("SMTP not configured — no email sent.")
         return False
-    port = int(env.get("SMTP_PORT", "587"))
+    port = int(env.get("SMTP_PORT") or "587")
     sender = env.get("SMTP_FROM") or f'{APP_NAME} <{user}>'
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -294,6 +339,9 @@ def main():
         return 0 if ok else 1
 
     state = _load_state(args.state)
+    # Refresh the root-only SMTP copy while the portal answers: it is what the
+    # alert uses on the day the portal itself is down.
+    _smtp_settings()
     prev_down = set(state.get("down", []))
     wm = state.get("data_watermark") or {}
 

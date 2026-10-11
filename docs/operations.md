@@ -214,7 +214,7 @@ search — it only extracts URLs it is given). Rules that are not obvious:
 
 An admin toggle that blocks non-admin API/portal traffic **without stopping any
 model**, enforced both in the portal and at the edge (Traefik forwardAuth on
-`/internal/authcheck/`). Every toggle notifies `ADMIN_EMAIL`; destructive actions
+`/internal/authcheck/`). Every toggle notifies the alert recipient (Admin → Config); destructive actions
 ask for confirmation first.
 
 ## Counters and the dashboard
@@ -314,7 +314,10 @@ root** on the host (access to the docker socket + the 600 `.env`).
 - **`dgx-monitor.timer`/`.service`** (every 5 min) → `monitoring/monitor.py`:
   probes the always-up **core** (vllm-runner `:8001`, containers traefik /
   litellm / litellm-postgres / dgx-portal / dgx-portal-frontend) and sends an
-  alert email to `ADMIN_EMAIL` when a service goes down, then a recovery email.
+  alert email to the alert recipient (Admin → Config) when a service goes down,
+  then a recovery email. The SMTP settings are read through the portal
+  container and kept in a root-only copy (`/var/lib/dgx-monitor/smtp.json`), so
+  the alert still goes out when the portal itself is down.
   **Data integrity**: a conversations/media-jobs watermark is stored in the sticky
   state; a drop below 40 % of the watermark (database reset — happened on
   04/09/2026, stayed invisible for 3 days) triggers the same alert. **Sticky**

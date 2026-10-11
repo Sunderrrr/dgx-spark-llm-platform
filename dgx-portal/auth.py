@@ -24,7 +24,6 @@ from ldap3 import ALL, SIMPLE, Connection, Server
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 
-from config import LDAP_BIND_DN, LDAP_BIND_PW
 from parametres import ldap_config, parametre
 from db import get_db, log_audit
 from local_users import _local_user_is_admin
@@ -328,7 +327,7 @@ def _local_user_admin(username):
 
 def _is_admin_group(dn):
     """True if one of the DN's RDN components is exactly cn=<admin group>
-    (Admin → Config « SSO — groupe administrateur », else OIDC_ADMIN_GROUP).
+    (Admin → Config « SSO — groupe administrateur », default « admins »).
     Avoids the false positive of a plain substring test (the group « admins »
     would match cn=admins_readonly, cn=notadmins, etc.).
     """
@@ -352,7 +351,7 @@ def ldap_authenticate(username, password, avec_groupes=False):
     if not password or not USERNAME_RE.match(username):
         return _rendu(False, False, username)
     try:
-        c = ldap_config()    # read live: Admin → Config wins over .env
+        c = ldap_config()    # read live from Admin → Config
         server = Server(c['uri'], get_info=ALL)
         # Anti-injection escaping: RDN for the bind DN, filter for the search.
         user_dn = f"{c['login_attr']}={escape_rdn(username)},{c['users_dn']},{c['base']}"
@@ -385,12 +384,12 @@ def ldap_authenticate(username, password, avec_groupes=False):
 
 def ldap_lookup_email(username):
     """User's email via the LDAP service account (to notify them)."""
-    if not (LDAP_BIND_DN and LDAP_BIND_PW) or not USERNAME_RE.match(username or ''):
+    c = ldap_config()        # read live from Admin → Config
+    if not (c['bind_dn'] and c['bind_pw']) or not USERNAME_RE.match(username or ''):
         return None
     try:
-        c = ldap_config()    # read live: Admin → Config wins over .env
-        conn = Connection(Server(c['uri'], get_info=ALL), user=LDAP_BIND_DN,
-                          password=LDAP_BIND_PW, authentication=SIMPLE, auto_bind=True)
+        conn = Connection(Server(c['uri'], get_info=ALL), user=c['bind_dn'],
+                          password=c['bind_pw'], authentication=SIMPLE, auto_bind=True)
         conn.search(search_base=f"{c['users_dn']},{c['base']}",
                     search_filter=f"({c['login_attr']}={escape_filter_chars(username)})", attributes=['mail'])
         email = None
@@ -422,12 +421,12 @@ def ldap_resolve_sso_identity(sub=None, email=None, avec_groupes=False):
     """
     def _rendu(nom, is_admin, plein, groupes=()):
         return (nom, is_admin, plein, list(groupes)) if avec_groupes else (nom, is_admin, plein)
-    if not (LDAP_BIND_DN and LDAP_BIND_PW):
+    c = ldap_config()        # read live from Admin → Config
+    if not (c['bind_dn'] and c['bind_pw']):
         return _rendu(None, False, None)
     try:
-        c = ldap_config()    # read live: Admin → Config wins over .env
-        conn = Connection(Server(c['uri'], get_info=ALL), user=LDAP_BIND_DN,
-                          password=LDAP_BIND_PW, authentication=SIMPLE, auto_bind=True)
+        conn = Connection(Server(c['uri'], get_info=ALL), user=c['bind_dn'],
+                          password=c['bind_pw'], authentication=SIMPLE, auto_bind=True)
         entry = None
         # 1) bind by the immutable sub (Authentik LDAP maps it to `uid`).
         if sub and re.match(r'^[a-zA-Z0-9._:@-]{1,256}$', sub):

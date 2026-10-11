@@ -11,6 +11,10 @@ import unittest
 from unittest.mock import patch
 
 import app as portal
+try:                                     # discovery runs tests/ as top level
+    from reglages_test import reglages
+except ImportError:                      # single module: tests.test_x
+    from tests.reglages_test import reglages
 import config
 import db
 import parametres
@@ -66,8 +70,7 @@ class PlatformIdentityTest(unittest.TestCase):
         self.assertGreater(expires, time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
 
     def test_security_txt_without_contact_is_404(self):
-        with patch.object(portal, 'ADMIN_EMAIL', ''), \
-             patch.dict(os.environ, {'DGX_SECURITY_CONTACT': ''}):
+        with reglages(security_contact='', admin_email=''):
             r = portal.app.test_client().get('/.well-known/security.txt')
         self.assertEqual(r.status_code, 404)
 

@@ -33,7 +33,7 @@ from auth import (USERNAME_RE,
                   admin_required, bloquer_compte, completer_origine_session,
                   debloque_compte, est_bloque, is_admin_username, ldap_lookup_email,
                   login_required)
-from config import ADMIN_EMAIL, KEY_BUDGET, KEY_DURATION, PUBLIC_WEB_URL, RUNNER_URL
+from config import KEY_BUDGET, KEY_DURATION, PUBLIC_WEB_URL, RUNNER_URL
 from parametres import smtp_config
 from db import (add_notification, get_db, get_setting, log_audit, maintenance_active,
                 platform_name, set_setting)
@@ -57,6 +57,7 @@ from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       runner_status, runner_stop)
 from directory import etats_annuaire
 from directory_groups import recalculer_membres
+from proprietaire import est_proprietaire, proprietaire
 from stats import (_account_activity, _active_users, admin_get_ocr_usage,
                    admin_get_user_consumption, admin_get_video_usage,
                    admin_get_voice_usage, user_hourly)
@@ -416,6 +417,16 @@ def _json_erreur(message, code=400, **extra):
     corps = {'ok': False, 'error': message}
     corps.update(extra)
     return jsonify(corps), code
+
+
+def _proprietaire_protege(username):
+    """The OWNER (proprietaire.py) is out of reach of the other admins: no
+    deletion, demotion, disabling, password change or block. A JSON refusal,
+    or None when the action may proceed."""
+    if est_proprietaire(username) and session.get('username') != username:
+        return _json_erreur("Ce compte est le propriétaire de l'instance : seul "
+                            "lui-même peut le modifier.", 403)
+    return None
 
 
 @bp.route('/admin/announce', methods=['POST'])
@@ -843,6 +854,7 @@ def api_admin_users():
     # directory. One search for all of them, cached a minute; None when the
     # directory cannot be asked (the UI then shows nothing, it never guesses).
     annuaire = etats_annuaire([n for n in names if n not in managed])
+    proprio = proprietaire()
     out = []
     for name in sorted(names):
         srcs = set()
@@ -912,6 +924,7 @@ def api_admin_users():
             'locked_minutes': locked.get(name, 0),
             'directory_status': (annuaire or {}).get(name) if mu is None else None,
             'directory_groups': groupes_annuaire.get(name, []),
+            'owner': name == proprio,
         })
     # Members per group: local accounts (their one group) + directory accounts.
     membres = {}
@@ -987,6 +1000,9 @@ def admin_users_update(uid):
     row = db.execute("SELECT * FROM local_users WHERE id=?", (uid,)).fetchone()
     if not row:
         return jsonify({'ok': False, 'error': "Utilisateur introuvable."}), 404
+    refus = _proprietaire_protege(row['username'])
+    if refus:
+        return refus
     sets, vals = [], []
     password = request.form.get('password', '')
     if password:
@@ -1216,6 +1232,9 @@ def admin_users_delete(uid):
     if username == moi:
         return jsonify({'ok': False,
                         'error': "Tu ne peux pas supprimer ton propre compte."}), 400
+    refus = _proprietaire_protege(username)
+    if refus:
+        return refus
     if _local_user_is_admin(row) and _dernier_admin_local(username):
         return jsonify({'ok': False,
                         'error': "Dernier administrateur local : nomme un autre "
@@ -1287,6 +1306,9 @@ def admin_user_block(username):
     """
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
+    refus = _proprietaire_protege(username)
+    if refus:
+        return refus
     if username == session.get('username'):
         return jsonify({'ok': False, 'error': "Tu ne peux pas bloquer ton propre compte."}), 400
     if est_bloque(username):
@@ -1514,7 +1536,7 @@ def toggle_maintenance():
     # documented as visible by the operator was not. It now goes out
     # in the JSON response, hence in the UI banner.
     avert = None
-    if smtp_config()['configured'] and ADMIN_EMAIL and not sent:
+    if smtp_config()['configured'] and smtp_config()['admin_email'] and not sent:
         avert = "L'email d'alerte n'a pas pu être envoyé — vérifie la config SMTP."
     return _json_ok("Mode maintenance activé." if now_on else "Mode maintenance désactivé.",
                     maintenance_mode=now_on, warning=avert)
@@ -1525,18 +1547,18 @@ def admin_email_config():
     """Status of the email config (host / user / password / admin) — never
     returns the password."""
     smtp = smtp_config()
-    configured = bool(smtp['configured'] and ADMIN_EMAIL)
-    return jsonify({'configured': configured, 'admin_email': ADMIN_EMAIL,
+    configured = bool(smtp['configured'] and smtp['admin_email'])
+    return jsonify({'configured': configured, 'admin_email': smtp['admin_email'],
                     'sender': sender_address(), 'smtp_host': smtp['host'] or ''})
 
 @bp.route('/admin/email/test', methods=['POST'])
 @admin_required
 def admin_email_test():
-    """Sends a test email to ADMIN_EMAIL to validate SMTP."""
-    if not smtp_config()['configured'] or not ADMIN_EMAIL:
+    """Sends a test email to the alert recipient to validate SMTP."""
+    if not smtp_config()['configured'] or not smtp_config()['admin_email']:
         return jsonify({'ok': False, 'configured': False,
                         'error': "SMTP non configuré (renseigne-le dans Admin → Config, "
-                                 "ou SMTP_HOST / SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL)."}), 400
+                                 "hôte, utilisateur, mot de passe et destinataire des alertes)."}), 400
     ok = send_test_email()
     return jsonify({'ok': bool(ok), 'configured': True})
 

@@ -2,9 +2,9 @@
 Description=Empeche le conteneur OCR d'ouvrir une connexion vers le portail
 # The OCR container is the ONLY one running with --trust-remote-code: a
 # malicious HF repo (chosen by an admin from the catalog) executes arbitrary
-# code in it. Yet dgx-portal is multi-homed on ocr_net and carries in its
-# environment LITELLM_MASTER_KEY, RUNNER_TOKEN, LDAP_BIND_PW, OIDC_CLIENT_SECRET,
-# SECRET_KEY and SMTP_PASSWORD.
+# code in it. Yet dgx-portal is multi-homed on ocr_net and holds
+# LITELLM_MASTER_KEY, RUNNER_TOKEN and SECRET_KEY in its environment, and the
+# LDAP, SSO and SMTP secrets in its database.
 #
 # Recount on 2026-09-13: out of 146 portal routes, 11 are unguarded — the
 # login flow, CSRF, forwardAuth, /healthz, /metrics (refused with 403 as soon

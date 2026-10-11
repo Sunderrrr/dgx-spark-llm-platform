@@ -188,11 +188,13 @@ cat <<EOF
 $(log "Bootstrap complete")
 Next steps:
   1. Edit  $REPO_DIR/.env : set DGX_WEB and DGX_API (docker compose refuses
-     to start without them) and the secrets: LDAP_BIND_DN/PW, ADMIN_EMAIL,
-     DISCORD_WEBHOOK_URL. LDAP, SSO and SMTP are then set from the portal,
-     Admin → Config (no redeploy needed).
+     to start without them). Nothing else is required there.
   2. Start the stack:      cd $REPO_DIR && docker compose up -d
-  3. Open the portal on :5000  →  Admin  →  launch a model from the catalog.
+  3. Open DGX_WEB: the login page creates the OWNER account. It asks for the
+     setup token printed in the portal's log:
+       docker logs dgx-portal 2>&1 | grep setup
+  4. Admin → Config: LDAP, SSO and e-mail (all optional). Then Admin → launch
+     a model from the catalog.
 
 Firewall note: the portal's 5000 (published to container 3000) is open to
 Traefik only, and LiteLLM publishes NO port at all — the API is reachable

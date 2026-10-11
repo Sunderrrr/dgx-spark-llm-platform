@@ -1,4 +1,4 @@
-import os, re, time, requests
+import os, re, sys, time, requests
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, session, redirect, url_for, flash, g, jsonify, Response
 from datetime import datetime, timedelta
@@ -152,13 +152,11 @@ app.context_processor(_inject_csrf)
 # Configuration: see config.py (2nd piece of the shared core, with db.py).
 from config import (  # noqa: E402
     AUTO_MODEL_NAME, AVATAR_IDS, AVATAR_LABELS, LANGS, THEME_IDS, VLLM_API_BASE,
-    LDAP_URI, LDAP_BASE, LDAP_BIND_DN, LDAP_BIND_PW,
     LITELLM_URL, LITELLM_KEY, VLLM_API,
     RUNNER_URL, RUNNER_TOKEN, COMFYUI_URL, OCR_URL,
     VOICE_URL, ASR_URL, MUSIC_URL, DISCORD_WH,
     DISCORD_BOT_TOKEN, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI,
-    DISCORD_LINK_ENABLED, DISCORD_API, SMTP_HOST, SMTP_PORT,
-    SMTP_USER, SMTP_PASS, SMTP_FROM, ADMIN_EMAIL,
+    DISCORD_LINK_ENABLED, DISCORD_API,
     KEY_BUDGET, KEY_DURATION, PUBLIC_API_URL, PUBLIC_WEB_URL, LITELLM_DB_URL,
     MEDIA_REQUEST_COOLDOWN_S,
     LOCAL_TZ,
@@ -180,6 +178,8 @@ from db import (  # noqa: E402  (see comment below)
 # and rebuilt when it changes: see sso_client.py.
 from parametres import oidc_config, parametre  # noqa: E402
 from sso_client import sso_client  # noqa: E402
+from proprietaire import (  # noqa: E402
+    creer_proprietaire, jeton_setup, jeton_valide, setup_requis)
 from directory_groups import (  # noqa: E402
     appliquer_quota_groupes, droits_par_groupes, importer_groupes)
 
@@ -263,7 +263,7 @@ from auth import (  # noqa: E402
 from local_users import (  # noqa: E402
     _local_group, _local_user_auth, _local_user_effective_budget,
     _local_user_is_admin, _parse_budget, _record_user_source,
-    _sync_local_user_budget, gestion_mot_de_passe,
+    _sync_local_user_budget, gestion_mot_de_passe, password_policy_error,
 )
 
 # ── Discord account linking (OAuth2 "identify") ──────────────────────────────
@@ -424,7 +424,46 @@ def api_config():
             },
         }
         _config_cache['t'] = now
-    return jsonify(_config_cache['v'])
+    # Live, not cached: the login page switches to sign-in the moment the owner
+    # exists (one settings read once it does).
+    return jsonify({**_config_cache['v'], 'setup_required': setup_requis()})
+
+
+@app.route('/api/setup', methods=['POST'])
+def api_setup():
+    """Creates the OWNER account of a fresh instance (proprietaire.py).
+
+    Public by necessity — nobody can be logged in yet — and therefore gated by
+    the setup token from the server's log. Refused as soon as anything
+    administers the instance. On success the owner is logged in."""
+    if not setup_requis():
+        return jsonify({'ok': False, 'error': "Cette instance a déjà un administrateur."}), 409
+    ip = _client_ip()
+    cle = f"{ip}|setup"
+    attente = _login_locked(cle)
+    if attente:
+        return jsonify({'ok': False, 'error': f"Trop d'essais. Réessaie dans {attente // 60 + 1} min."}), 429
+    data = request.get_json(silent=True) or request.form
+    if not jeton_valide(str(data.get('token', ''))):
+        _login_fail(cle)
+        return jsonify({'ok': False, 'code': 'jeton_invalide',
+                        'error': "Jeton de configuration invalide."}), 403
+    username = str(data.get('username', '')).strip().lower()
+    password = str(data.get('password', ''))
+    fullname = str(data.get('fullname', '')).strip()[:120] or username
+    if not USERNAME_RE.match(username):
+        return jsonify({'ok': False, 'error': "Identifiant invalide (a-z, 0-9, . _ - , max 64)."}), 400
+    err = password_policy_error(password, username)
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+    _login_reset(cle)
+    creer_proprietaire(username, fullname, password)
+    row = get_db().execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
+    _sync_local_user_budget(username, row)
+    log_audit(username, 'setup.owner', "compte propriétaire créé au premier lancement")
+    _record_user_source(username, 'local', fullname, True)
+    _apply_session(username, fullname, True, via_sso=False)
+    return jsonify({'ok': True})
 
 
 _config_cache = {'t': 0.0, 'v': None}
@@ -914,7 +953,7 @@ def security_txt():
     expires: `Expires` is always six months ahead.
     """
     # Admin → Config « Sécurité — contact », else ADMIN_EMAIL; neither = 404.
-    contact = (parametre('security_contact') or ADMIN_EMAIL or '').strip()
+    contact = (parametre('security_contact') or parametre('admin_email') or '').strip()
     if not contact:
         return Response("no security contact configured\n", status=404, mimetype="text/plain")
     if not re.match(r'^(https://|mailto:)', contact):
@@ -1596,6 +1635,22 @@ app.register_blueprint(webauthn_bp)
 
 with app.app_context():
     init_db()
+    # LDAP, SSO and SMTP now live in the database only (Admin → Config). An
+    # older deployment's .env values are copied in ONCE, at the first start of
+    # this version — then .env is never read for them again.
+    from parametres import importer_env_une_fois
+    _importes = importer_env_une_fois()
+    if _importes:
+        print(f"[config] importé depuis .env (une seule fois) : {', '.join(_importes)}",
+              file=sys.stderr, flush=True)
+    # A fresh instance: nobody administers it yet. The setup token goes to the
+    # log (and data/setup-token); the login page asks for it with the owner.
+    _jeton = jeton_setup()
+    if _jeton:
+        # stderr: the log shows it (`docker logs dgx-portal 2>&1 | grep setup`),
+        # and nothing that parses the portal's stdout sees it.
+        print("[setup] Aucun administrateur : ouvre le portail pour créer le compte "
+              f"propriétaire. Jeton de configuration : {_jeton}", file=sys.stderr, flush=True)
     # The avatar set went from generic shapes ("avatar-01"…) to AI
     # logos: we clear preferences pointing to a vanished id,
     # otherwise the <img> would hit a 404 for those accounts.

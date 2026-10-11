@@ -29,6 +29,10 @@ from unittest.mock import patch
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import app as portal
+try:                                     # discovery runs tests/ as top level
+    from reglages_test import reglages
+except ImportError:                      # single module: tests.test_x
+    from tests.reglages_test import reglages
 import litellm_client
 import user_lifecycle
 
@@ -779,7 +783,7 @@ class NotificationMotDePasseTest(unittest.TestCase):
             _time.sleep(1.5)
             return 'quelqu-un@example.com'
 
-        with patch.dict(os.environ, {'SMTP_HOST': 'smtp.example'}), \
+        with reglages(smtp_host='smtp.example'), \
              patch('auth.ldap_lookup_email', side_effect=_lent), \
              patch('notify.send_user_email',
                    side_effect=lambda *a, **k: vus.append(a) or True):

@@ -1,36 +1,35 @@
-"""Instance configuration: base > .env > code default.
+"""Instance configuration: set from the web interface, nowhere else.
 
-« je veux que sur l'admin on puisse conf le ldap, le sso, le smtp, bref tout …
-c'est mieux que les vars importantes soient stockées sur l'interface web et non
-dans les fichiers » (operator, 2026-10-09). `.env` is the STARTING point — it
-carries the secrets — but the values an operator tunes live in the database and
-are editable from Admin, without touching a file or redeploying.
+« je veux que le SSO, le LDAP et le SMTP soient configurables que depuis
+l'interface web […] je n'aime pas avoir trop de choses dans le .env »
+(operator, 2026-10-11). `.env` keeps what the stack needs to START (its two
+public origins and the generated infrastructure secrets); everything an
+operator tunes — LDAP, SSO, SMTP, the alert recipient, the security contact —
+lives in the portal database and is edited from Admin → Config:
 
-The precedence is the whole point:
-  1. the `settings` table, written from Admin (wins);
-  2. the environment, written in `.env` (the deployer's first answer);
-  3. the code default (a plain clone).
+  1. the `settings` table, written from Admin;
+  2. the code default (a fresh install: nothing configured, local accounts only).
 
-Secrets are a separate matter: they NEVER come from the database and never go
-to the browser. A key is reported as « configured » or « absent », never shown.
+An older deployment that still carries these values in `.env` is not cut off:
+at the first start of this version they are copied into the database once
+(`importer_env_une_fois`), after which `.env` is never read for them again and
+the lines can be deleted.
+
+Secrets (passwords, client secret) are written from the browser but never read
+back: the panel only says « configured » or « absent ».
 """
-from db import get_db, read_setting, set_setting
+import os
 
-# The keys an operator tunes from Admin: (key, label, secret?, env var, code
-# default). The env var is the `.env` fallback — named as the platform has
-# always named it (SMTP_PASSWORD, not SMTP_PASS: the panel used to report a
-# configured password as « absent »). A secret is only reported as
-# configured/absent, never sent to the browser.
-#
-# These are read LIVE (`parametre`) by the code that uses them — LDAP login,
-# the SSO client, e-mail sending, security.txt — so a change made in Admin
-# applies on the next request, without a redeploy. Until 2026-10-11 the panel
-# stored the values but nothing read them: only the .env value was ever used.
+from db import get_db, get_setting, read_setting, set_setting
+
+# (key, label, secret?, legacy env var — read ONCE by the import, code default)
 CONFIGURABLE = [
     ('ldap_uri',        'LDAP — URI', False, 'LDAP_URI', ''),
     ('ldap_base',       'LDAP — base DN', False, 'LDAP_BASE', 'dc=example,dc=org'),
     ('ldap_users_dn',   'LDAP — RDN des comptes', False, 'LDAP_USERS_DN', 'ou=users'),
     ('ldap_login_attr', 'LDAP — attribut de connexion', False, 'LDAP_LOGIN_ATTR', 'cn'),
+    ('ldap_bind_dn',    'LDAP — compte de service (DN)', False, 'LDAP_BIND_DN', ''),
+    ('ldap_bind_pw',    'LDAP — mot de passe du compte de service', True, 'LDAP_BIND_PW', ''),
     ('oidc_metadata_url', 'SSO — metadata URL', False, 'OIDC_METADATA_URL', ''),
     ('oidc_client_id',  'SSO — client ID', False, 'OIDC_CLIENT_ID', ''),
     ('oidc_client_secret', 'SSO — client secret', True, 'OIDC_CLIENT_SECRET', ''),
@@ -39,42 +38,57 @@ CONFIGURABLE = [
     ('oidc_logout_url', 'SSO — URL de déconnexion', False, 'OIDC_LOGOUT_URL', ''),
     ('smtp_host',       'SMTP — hôte', False, 'SMTP_HOST', ''),
     ('smtp_port',       'SMTP — port', False, 'SMTP_PORT', '587'),
-    ('smtp_user',       'SMTP — utilisateur', True, 'SMTP_USER', ''),
+    ('smtp_user',       'SMTP — utilisateur', False, 'SMTP_USER', ''),
     ('smtp_pass',       'SMTP — mot de passe', True, 'SMTP_PASSWORD', ''),
     ('smtp_from',       'SMTP — adresse expéditrice', False, 'SMTP_FROM', ''),
+    ('admin_email',     'SMTP — destinataire des alertes', False, 'ADMIN_EMAIL', ''),
     ('security_contact', 'Sécurité — contact (security.txt)', False, 'DGX_SECURITY_CONTACT', ''),
 ]
 _PAR_NOM = {c[0]: c for c in CONFIGURABLE}
 
-
-def _env_de(nom):
-    entree = _PAR_NOM.get(nom)
-    return entree[3] if entree else nom.upper()
+# Sent by the panel to clear a secret (an empty secret field means « unchanged »:
+# the browser never has the value to send it back).
+EFFACER = '__effacer__'
 
 
 def parametre(nom, defaut=None):
-    """The effective value: the database, then the environment, then the default."""
+    """The effective value: the database, else the code default."""
     bdd = read_setting('cfg_' + nom, '')    # works in notification threads too
     if bdd:
         return bdd
-    import os
     if defaut is None:
         entree = _PAR_NOM.get(nom)
         defaut = entree[4] if entree else ''
-    return os.environ.get(_env_de(nom), '') or defaut
+    return defaut
+
+
+def importer_env_une_fois():
+    """Copies the legacy `.env` values into the database, ONCE per instance.
+
+    Only empty settings are filled, then a marker is set: from then on an
+    operator who clears a field in Admin means it, a value left in `.env` does
+    not come back at the next restart. Returns the keys imported."""
+    if get_setting('cfg_env_importe', ''):
+        return []
+    importes = []
+    for nom, _libelle, _secret, env, _defaut in CONFIGURABLE:
+        v = (os.environ.get(env) or '').strip()
+        if v and not read_setting('cfg_' + nom, ''):
+            set_setting('cfg_' + nom, v)
+            importes.append(nom)
+    set_setting('cfg_env_importe', '1')
+    return importes
 
 
 def ldap_config():
-    """LDAP connection details. The service account (bind DN/password) stays a
-    .env secret; it is not editable from the browser."""
-    import os
+    """LDAP connection details, service account included."""
     return {
         'uri': parametre('ldap_uri'),
         'base': parametre('ldap_base'),
         'users_dn': parametre('ldap_users_dn'),
         'login_attr': parametre('ldap_login_attr'),
-        'bind_dn': os.environ.get('LDAP_BIND_DN', ''),
-        'bind_pw': os.environ.get('LDAP_BIND_PW', ''),
+        'bind_dn': parametre('ldap_bind_dn'),
+        'bind_pw': parametre('ldap_bind_pw'),
     }
 
 
@@ -91,19 +105,26 @@ def smtp_config():
     except ValueError:
         port = 587
     c = {'host': parametre('smtp_host'), 'port': port, 'user': parametre('smtp_user'),
-         'password': parametre('smtp_pass'), 'from': parametre('smtp_from')}
+         'password': parametre('smtp_pass'), 'from': parametre('smtp_from'),
+         'admin_email': parametre('admin_email')}
     c['configured'] = bool(c['host'] and c['user'] and c['password'])
     return c
 
 
 def definir(nom, valeur):
-    """Writes a value from Admin. An empty field means « back to .env ». """
-    if valeur:
+    """Writes a value from Admin. An empty field means « back to the default »;
+    for a secret, only EFFACER clears it (empty = unchanged)."""
+    entree = _PAR_NOM.get(nom)
+    secret = bool(entree and entree[2])
+    if secret and not valeur:
+        return False
+    if valeur and valeur != EFFACER:
         set_setting('cfg_' + nom, valeur)
     else:
         db = get_db()
         db.execute("DELETE FROM settings WHERE key=?", ('cfg_' + nom,))
         db.commit()
+    return True
 
 
 def etat_config():
@@ -120,15 +141,6 @@ def etat_config():
             'configure': bool(v),
             # where the value comes from — the operator's first question
             # when a setting « does not take ».
-            'source': ('interface' if _valeur_bdd(nom) else ('.env' if _valeur_env(nom) else 'défaut')),
+            'source': 'interface' if read_setting('cfg_' + nom, '') else 'défaut',
         })
     return out
-
-
-def _valeur_bdd(nom):
-    return bool(read_setting('cfg_' + nom, ''))
-
-
-def _valeur_env(nom):
-    import os
-    return bool(os.environ.get(_env_de(nom)))

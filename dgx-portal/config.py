@@ -9,18 +9,8 @@ This module only imports `os`: it cannot create any cycle.
 """
 import os
 
-# ── LDAP ─────────────────────────────────────────────────────────────────────
-# Authentik server: accounts live under ou=users, the login identifier is the
-# `cn` attribute (the `uid` is an internal Authentik hash, NOT the username),
-# and the display name is `displayName`.
-LDAP_URI        = os.environ.get('LDAP_URI', '')   # empty = no directory
-LDAP_BASE       = os.environ.get('LDAP_BASE', 'dc=example,dc=org')
-LDAP_BIND_DN    = os.environ.get('LDAP_BIND_DN', '')
-LDAP_BIND_PW    = os.environ.get('LDAP_BIND_PW', '')
-# Account RDN, relative to LDAP_BASE (the deployment's own layout).
-LDAP_USERS_DN   = os.environ.get('LDAP_USERS_DN', 'ou=users')
-# Attribute used as login identifier (cn here; the old lldap was uid).
-LDAP_LOGIN_ATTR = os.environ.get('LDAP_LOGIN_ATTR', 'cn')
+# LDAP, SSO and SMTP are NOT here: they are set from Admin → Config and read
+# live from the database (parametres.py). `.env` only starts the stack.
 
 # ── Services internes ────────────────────────────────────────────────────────
 LITELLM_URL   = os.environ.get('LITELLM_URL', 'http://litellm:4000')
@@ -53,15 +43,6 @@ DISCORD_CLIENT_SECRET = os.environ.get('DISCORD_CLIENT_SECRET', '')
 DISCORD_REDIRECT_URI  = os.environ.get('DISCORD_REDIRECT_URI', '')
 DISCORD_LINK_ENABLED  = bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET)
 DISCORD_API           = 'https://discord.com/api/v10'
-SMTP_HOST     = os.environ.get('SMTP_HOST', '')
-SMTP_PORT     = int(os.environ.get('SMTP_PORT', '587'))
-SMTP_USER     = os.environ.get('SMTP_USER', '')
-SMTP_PASS     = os.environ.get('SMTP_PASSWORD', '')
-SMTP_FROM     = os.environ.get('SMTP_FROM', '')
-ADMIN_EMAIL   = os.environ.get('ADMIN_EMAIL', '')
-# Admin dashboard URL (for the CTA of notification emails). If empty, the
-# « Open the Admin dashboard » button is not rendered in the HTML template.
-ADMIN_URL     = os.environ.get('ADMIN_URL', '')
 # Anti-spam window for « launch a media category » requests (seconds).
 MEDIA_REQUEST_COOLDOWN_S = int(os.environ.get('MEDIA_REQUEST_COOLDOWN_S', '1800'))
 # Default account budget: 200 M tokens / week (2026-09-08, operator choice —
@@ -74,6 +55,9 @@ KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '7d')
 # Public origins of this deployment (.env: DGX_WEB, DGX_API). Example values
 # by default: a fresh install must say « example.org », never someone's domain.
 PUBLIC_WEB_URL = os.environ.get('DGX_WEB', 'https://example.org').rstrip('/')
+# The admin dashboard, for the « Open the Admin dashboard » button of the
+# notification e-mails: derived from the public origin, nothing to configure.
+ADMIN_URL = f'{PUBLIC_WEB_URL}/admin'
 # Public URL of the OpenAI-compatible API, shown to users.
 PUBLIC_API_URL = os.environ.get(
     'PUBLIC_API_URL',
@@ -84,16 +68,6 @@ AUTO_MODEL_NAME = os.environ.get('AUTO_MODEL_NAME', 'auto-model')
 # LiteLLM database (Postgres) for timestamped consumption stats.
 LITELLM_DB_URL = os.environ.get('LITELLM_DATABASE_URL', '')
 LOCAL_TZ       = os.environ.get('TZ_DISPLAY', 'Europe/Paris')
-
-# ── SSO / OIDC (Authentik) ───────────────────────────────────────────────────
-OIDC_METADATA_URL  = os.environ.get('OIDC_METADATA_URL', '')
-OIDC_CLIENT_ID     = os.environ.get('OIDC_CLIENT_ID', '')
-OIDC_CLIENT_SECRET = os.environ.get('OIDC_CLIENT_SECRET', '')
-OIDC_REDIRECT_URI  = os.environ.get('OIDC_REDIRECT_URI', '')
-OIDC_LOGOUT_URL    = os.environ.get('OIDC_LOGOUT_URL', '')
-OIDC_ADMIN_GROUP   = os.environ.get('OIDC_ADMIN_GROUP', 'admins')
-OIDC_ENABLED       = bool(OIDC_METADATA_URL and OIDC_CLIENT_ID and OIDC_CLIENT_SECRET)
-
 
 # ── WebAuthn / passkeys (2FA by security key) ───────────────────────────────
 # The passkey is bound to the EXACT origin (scheme+host): the public web

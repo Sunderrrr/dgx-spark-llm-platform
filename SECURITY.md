@@ -47,9 +47,9 @@ network.
 
 `dgx-portal` is deliberately attached to **every** sidecar network — it is the
 only component that talks to all of them. That makes it the one process whose
-compromise matters most: it holds `LITELLM_MASTER_KEY`, `RUNNER_TOKEN`,
-`LDAP_BIND_PW`, `OIDC_CLIENT_SECRET`, `SECRET_KEY` and `SMTP_PASSWORD` in its
-environment.
+compromise matters most: it holds `LITELLM_MASTER_KEY`, `RUNNER_TOKEN` and
+`SECRET_KEY` in its environment, and the LDAP service-account password, the SSO
+client secret and the SMTP password in its database (set from Admin → Config).
 
 The sidecars themselves are **not** multi-homed: each sits on its own network
 and can reach neither LiteLLM, nor Postgres, nor Traefik — nor each other, with

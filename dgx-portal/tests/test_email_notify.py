@@ -12,38 +12,26 @@ import unittest
 from unittest.mock import patch
 
 import app as portal
-import notify as notify_mod
 from notify import notify_maintenance_email, notify_media_request_email
+try:                                     # discovery runs tests/ as top level
+    from reglages_test import reglages
+except ImportError:                      # single module: tests.test_x
+    from tests.reglages_test import reglages
 
 
 class NotifyGuardsTest(unittest.TestCase):
     """Without SMTP config (test image), the sends are safe no-ops."""
 
-    def _without_smtp(self):
-        # The SMTP settings are read live (Admin → Config, then .env).
-        self._env = patch.dict(os.environ, {'SMTP_HOST': '', 'SMTP_USER': '', 'SMTP_PASSWORD': ''})
-        self._env.start()
-        orig = notify_mod.ADMIN_EMAIL
-        notify_mod.ADMIN_EMAIL = ""
-        return orig
-
-    def _restore(self, orig):
-        self._env.stop()
-        notify_mod.ADMIN_EMAIL = orig
+    # The SMTP settings and the alert recipient live in Admin → Config.
+    SANS_SMTP = dict(smtp_host='', smtp_user='', smtp_pass='', admin_email='')
 
     def test_maintenance_email_noop_sans_config(self):
-        orig = self._without_smtp()
-        try:
+        with reglages(**self.SANS_SMTP), portal.app.app_context():
             self.assertIs(notify_maintenance_email(True, "demo", "Demo"), False)
-        finally:
-            self._restore(orig)
 
     def test_media_request_email_noop_sans_config(self):
-        orig = self._without_smtp()
-        try:
+        with reglages(**self.SANS_SMTP), portal.app.app_context():
             self.assertIs(notify_media_request_email("image", "demo", "Demo"), False)
-        finally:
-            self._restore(orig)
 
 
 class MediaRequestRouteTest(unittest.TestCase):
@@ -143,19 +131,17 @@ class AdminEmailRouteTest(unittest.TestCase):
         portal.app.config["TESTING"] = True
         import admin_routes as ar
         self.ar = ar
-        self._admin_email = ar.ADMIN_EMAIL
         self._send = ar.send_test_email
 
     def tearDown(self):
-        self.ar.ADMIN_EMAIL = self._admin_email
         self.ar.send_test_email = self._send
 
-    def _smtp(self, value):
-        """Host, user and password all set to `value` (read live from the env)."""
-        env = patch.dict(os.environ, {'SMTP_HOST': value, 'SMTP_USER': value,
-                                      'SMTP_PASSWORD': value})
-        env.start()
-        self.addCleanup(env.stop)
+    def _smtp(self, value, admin_email=''):
+        """Host, user and password all set to `value`, plus the alert recipient
+        (Admin → Config, read live)."""
+        cm = reglages(smtp_host=value, smtp_user=value, smtp_pass=value, admin_email=admin_email)
+        cm.__enter__()
+        self.addCleanup(cm.__exit__, None, None, None)
 
     def _admin(self):
         c = portal.app.test_client()
@@ -168,7 +154,6 @@ class AdminEmailRouteTest(unittest.TestCase):
 
     def test_config_renvoie_statut_sans_mot_de_passe(self):
         self._smtp("")
-        self.ar.ADMIN_EMAIL = ""
         r = self._admin().get("/admin/email/config")
         self.assertEqual(r.status_code, 200)
         body = r.get_json()
@@ -186,14 +171,12 @@ class AdminEmailRouteTest(unittest.TestCase):
 
     def test_email_test_non_configuré_400(self):
         self._smtp("")
-        self.ar.ADMIN_EMAIL = ""
         r = self._admin().post("/admin/email/test", headers={"X-CSRFToken": "tok"})
         self.assertEqual(r.status_code, 400)
         self.assertFalse(r.get_json()["ok"])
 
     def test_email_test_configuré_appelle_send(self):
-        self._smtp("x")
-        self.ar.ADMIN_EMAIL = "admin@example.com"
+        self._smtp("x", admin_email="admin@example.com")
         self.ar.send_test_email = lambda: True
         r = self._admin().post("/admin/email/test", headers={"X-CSRFToken": "tok"})
         self.assertEqual(r.status_code, 200)

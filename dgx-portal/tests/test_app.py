@@ -770,6 +770,9 @@ class GardeDesRoutesTest(unittest.TestCase):
         'admin.internal_authcheck': "appelé par Traefik (forwardAuth), jamais par un "
                                     "navigateur ; ne renvoie aucune donnée",
         'static':             "fichiers statiques servis par Flask",
+        'api_setup':          "owner creation on a fresh instance: nobody can be logged in "
+                              "yet; gated by the setup token from the server log, and refused "
+                              "as soon as anything administers the instance",
         'security_txt':       "RFC 9116 security contact: public by definition, "
                               "only the configured contact and canonical URL",
         'healthz':            "liveness publique (healthcheck / sonde) : ne renvoie "

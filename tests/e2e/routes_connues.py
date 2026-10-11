@@ -96,6 +96,7 @@ ROUTES = {
     'api_ranking': ('parcours', 'j12_actions_pages (classement)'),
     'api_search': ('parcours', 'j12_actions_pages (recherche HF)'),
     'api_session': ('parcours', 'j01_connexion (redirection serveur + contrôle connecté)'),
+    'api_setup': ('parcours', 'j01_connexion (refusée sur une instance déjà administrée)'),
     'api_whoami': ('parcours', 'j01_connexion (coquille)'),
     'asr.api_transcribe': ('exclu', 'dictée vocale : nécessite un micro (matériel)'),
     'asr.api_transcribe_available': ('parcours', 'j02_chat (bouton dictée)'),

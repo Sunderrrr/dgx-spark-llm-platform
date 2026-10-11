@@ -21,6 +21,17 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Breaking (deployment)
 
+- **LDAP, SSO and SMTP are configured from the web only** (Admin → Config).
+  `.env` keeps what starts the stack: `DGX_WEB`, `DGX_API` and the generated
+  infrastructure secrets. The LDAP service account and the alert recipient are
+  now set in the panel too, and secrets are write-only there (typed, never
+  shown back, clearable). An existing deployment's `LDAP_*`, `OIDC_*`, `SMTP_*`
+  and `ADMIN_EMAIL` values are imported into the database once, at the first
+  start of this version; afterwards `.env` is never read for them and the lines
+  can be removed. `ADMIN_URL` is gone (the e-mail button points at
+  `DGX_WEB/admin`). The host monitor reads the SMTP settings through the portal
+  and keeps a root-only copy for the day the portal is down.
+
 - **No deployment-specific name or value left in the repository.** Two
   variables are now required in `.env`, and `docker compose` refuses to start
   without them (it used to fall back to hard-coded domains): `DGX_WEB` and
@@ -74,6 +85,12 @@ fails if `package.json` and the newest version here have drifted apart.
   intact (303 tokens · 27.2 tok/s · TTFT 2.27 s).
 
 ### Added
+
+- **Owner account on first start.** A fresh instance has no account: the login
+  page creates the owner, a local admin the other admins cannot delete, demote,
+  disable or block. It requires the setup token printed in the portal's log
+  (`docker logs dgx-portal 2>&1 | grep setup`), single-use, and is offered only
+  while nothing administers the instance.
 
 - LDAP and SSO groups come down into the portal's groups: LDAP `memberOf`
   and the SSO token's `groups` claim at each login, and the LDAP groups also

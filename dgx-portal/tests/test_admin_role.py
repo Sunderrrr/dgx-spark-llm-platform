@@ -13,6 +13,10 @@ import unittest
 from unittest.mock import patch
 
 import app as portal
+try:                                     # discovery runs tests/ as top level
+    from reglages_test import reglages
+except ImportError:                      # single module: tests.test_x
+    from tests.reglages_test import reglages
 import auth
 
 USER = 'ztest-sso-role'
@@ -46,8 +50,7 @@ class AdminRoleTest(unittest.TestCase):
 
     def test_session_role_comes_from_last_login_without_ldap(self):
         self._record(True)
-        with portal.app.app_context(), \
-             patch.multiple(auth, LDAP_BIND_DN='cn=svc', LDAP_BIND_PW='x'):
+        with reglages(ldap_bind_dn='cn=svc', ldap_bind_pw='x'), portal.app.app_context():
             start = time.perf_counter()
             self.assertEqual(auth.etat_compte(USER), (True, True, None))
             self.assertLess(time.perf_counter() - start, 0.2)
@@ -75,12 +78,11 @@ class AdminRoleTest(unittest.TestCase):
             self.assertFalse(auth.is_admin_username(USER))
 
     def test_admin_group_is_configurable(self):
-        with patch.dict(os.environ, {'OIDC_ADMIN_GROUP': 'dgx-admins'}):
+        with reglages(oidc_admin_group='dgx-admins'), portal.app.app_context():
             self.assertTrue(auth._is_admin_group('cn=dgx-admins,ou=groups,dc=example,dc=org'))
             self.assertFalse(auth._is_admin_group('cn=dgx-admins-ro,ou=groups,dc=example,dc=org'))
             self.assertFalse(auth._is_admin_group('cn=admins,ou=groups,dc=example,dc=org'))
-        with patch.dict(os.environ, {'OIDC_ADMIN_GROUP': ''}), \
-             patch('auth.parametre', return_value=''):
+        with patch('auth.parametre', return_value=''):
             self.assertFalse(auth._is_admin_group('cn=,ou=groups'))
 
 

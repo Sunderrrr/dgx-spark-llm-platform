@@ -18,8 +18,8 @@ from email.mime.text import MIMEText
 import requests
 
 from db import platform_name
-from config import ADMIN_EMAIL, ADMIN_URL, DISCORD_WH
-from parametres import smtp_config
+from config import ADMIN_URL, DISCORD_WH
+from parametres import parametre, smtp_config
 
 # Application name shown by the mail client (gmail shows « DGX platform »).
 # The sending address stays the authenticated SMTP account (SMTP_USER / SMTP_FROM).
@@ -196,7 +196,7 @@ def notify_budget_discord(username, fullname, key_alias, current_budget, reason)
 def notify_email(model_id, username, fullname, reason):
     """Admin email: model addition request."""
     return _send(
-        ADMIN_EMAIL,
+        parametre('admin_email'),
         f"[DGX platform] New model request — {model_id}",
         "New model request",
         rows=[("User", f"{fullname or username} ({username})"),
@@ -212,7 +212,7 @@ def notify_budget_email(username, fullname, key_alias, current_budget, reason):
     """Email admin : demande d'augmentation de budget (tokens)."""
     budget_str = f"{current_budget:,.0f} tokens" if current_budget is not None else "—"
     return _send(
-        ADMIN_EMAIL,
+        parametre('admin_email'),
         f"[DGX platform] Token increase request — {username}",
         "Token increase request",
         rows=[("User", f"{fullname} ({username})"),
@@ -236,7 +236,7 @@ def notify_maintenance_email(enabled, by_username, by_fullname):
     state = "enabled" if enabled else "disabled"
     heading = "Maintenance mode enabled" if enabled else "Maintenance mode disabled"
     return _send(
-        ADMIN_EMAIL,
+        parametre('admin_email'),
         f"[DGX platform] Maintenance {state}",
         heading,
         rows=[("By", f"{by_fullname or by_username or '—'} ({by_username})")],
@@ -249,7 +249,7 @@ def notify_maintenance_email(enabled, by_username, by_fullname):
 def notify_media_request_email(category, username, fullname):
     """Admin email: request to launch a model from a media category."""
     return _send(
-        ADMIN_EMAIL,
+        parametre('admin_email'),
         f"[DGX platform] {category} model requested",
         f"{category} model requested",
         rows=[("User", f"{fullname or username} ({username})"),
@@ -262,7 +262,7 @@ def notify_media_request_email(category, username, fullname):
 def notify_infra_alert_email(kind, detail):
     """Admin email: infra incident (model launch failure, etc.)."""
     return _send(
-        ADMIN_EMAIL,
+        parametre('admin_email'),
         f"[DGX platform] Alert — {kind}",
         "Platform alert",
         rows=[("Kind", kind), ("Detail", detail or "—")],
@@ -274,7 +274,7 @@ def notify_infra_alert_email(kind, detail):
 def send_test_email():
     """SMTP test email (Admin button). Returns True if the send succeeded."""
     return _send(
-        ADMIN_EMAIL,
+        parametre('admin_email'),
         "[DGX platform] SMTP test",
         "SMTP test",
         rows=[("Sender", APP_NAME), ("Instance", platform_name())],

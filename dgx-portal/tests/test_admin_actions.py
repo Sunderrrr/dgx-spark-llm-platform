@@ -33,6 +33,10 @@ from werkzeug.security import generate_password_hash
 
 import admin_routes
 import app as portal
+try:                                     # discovery runs tests/ as top level
+    from reglages_test import reglages
+except ImportError:                      # single module: tests.test_x
+    from tests.reglages_test import reglages
 import litellm_client
 import local_users
 import sidecars
@@ -214,9 +218,8 @@ class ContratJsonTest(BaseAdmin):
     def test_maintenance_auditee_et_avertissement_surface(self):
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'notify_maintenance_email', return_value=False), \
-             patch.dict(os.environ, {'SMTP_HOST': 'smtp.example', 'SMTP_USER': 'u',
-                                     'SMTP_PASSWORD': 'p'}), \
-             patch.object(admin_routes, 'ADMIN_EMAIL', 'a@example'):
+             reglages(smtp_host='smtp.example', smtp_user='u', smtp_pass='p',
+                      admin_email='a@example'):
             r = self._post(c, '/admin/maintenance/toggle')
         self.assertEqual(r.status_code, 200)
         corps = r.get_json()

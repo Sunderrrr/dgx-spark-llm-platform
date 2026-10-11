@@ -387,7 +387,11 @@ export function UsersSection({
             size="sm"
           />
           <VStack gap={0}>
-            <Text weight="semibold">{u.username}</Text>
+            <HStack gap={1} vAlign="center">
+              <Text weight="semibold">{u.username}</Text>
+              {/* The instance's owner: the other admins cannot touch it. */}
+              {u.owner ? <Badge label={t("Propriétaire")} variant="info" /> : null}
+            </HStack>
             {u.fullname ? <Text type="supporting" color="secondary">{u.fullname}</Text> : null}
           </VStack>
         </HStack>

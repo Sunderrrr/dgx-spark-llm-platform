@@ -35,6 +35,17 @@ def main() -> int:
     oidc = bool(cfg.get("oidc_enabled"))
     p.ok("configuration publique", f"instance « {nom_instance} », oidc_enabled={oidc}")
 
+    # ── 1a. An administered instance offers NO owner setup, and refuses it ──
+    if cfg.get("setup_required") is not False:
+        p.rate("création du propriétaire fermée", "setup_required=false (instance administrée)",
+               f"setup_required={cfg.get('setup_required')!r}")
+    statut, _, corps = c.http("POST", f"{c.BASE}/api/setup",
+                              corps={"token": "e2e", "username": "e2e", "password": "x"})
+    if statut not in (400, 403, 409):
+        p.rate("création du propriétaire refusée", "4xx (instance déjà administrée)",
+               f"HTTP {statut} — {corps[:120]!r}")
+    p.ok("création du propriétaire", f"fermée (setup_required=false, POST /api/setup → {statut})")
+
     # ── 1b. Logged out, a page is refused by the SERVER: a 307 to /login
     #        before any markup (it used to serve the empty home page for ~1 s
     #        until a data fetch came back 401) ──────────────────────────────

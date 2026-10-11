@@ -3,9 +3,9 @@
 #
 # All PURELY INTERNAL secrets (LiteLLM master key, Postgres password, Flask
 # session key, portal↔runner token) are generated here: after this script, the
-# stack starts with no "changeme" value left anywhere on an internal path. Only
-# the secrets that depend on external services (LDAP, OIDC/Authentik, SMTP,
-# Discord) remain to be filled in by hand.
+# stack starts with no "changeme" value left anywhere on an internal path.
+# LDAP, SSO and SMTP are NOT .env matters: they are set from the web interface
+# (Admin → Config) once the owner account exists.
 set -e
 
 # ── Technical artifacts derived from secrets, generated BEFORE the .env guard ──
@@ -68,6 +68,7 @@ echo "  LITELLM_MASTER_KEY written to .env (needed for the LiteLLM dashboard —
 echo "  read it with: grep LITELLM_MASTER_KEY .env). Not printed here to keep it"
 echo "  out of terminal scrollback / CI logs."
 echo ""
-echo "À remplir à la main (dépendances externes) : LDAP_BIND_PW,"
-echo "OIDC_CLIENT_SECRET / AUTHENTIK_LITELLM_CLIENT_SECRET, SMTP_*, ADMIN_EMAIL,"
-echo "DISCORD_WEBHOOK_URL — puis : docker compose up -d"
+echo "Next: set DGX_WEB and DGX_API in .env, then: docker compose up -d"
+echo "Then open DGX_WEB and create the OWNER account; the setup token is in:"
+echo "  docker logs dgx-portal 2>&1 | grep setup"
+echo "LDAP, SSO and e-mail are configured from Admin → Config."

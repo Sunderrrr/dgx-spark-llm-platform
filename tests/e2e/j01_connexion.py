@@ -124,9 +124,20 @@ def main() -> int:
         if statut not in (301, 302, 303, 307, 308):
             p.rate("redirection SSO (/login/sso)", "un code 30x",
                    f"HTTP {statut} — {corps[:120]!r}")
-        if DOMAINE_SSO not in location:
-            p.rate("fournisseur OIDC", "Location vers DOMAINE_SSO",
-                   f"Location {location[:120]!r}")
+        # No configured IdP domain needed: the provider is set in Admin → Config.
+        # A real OIDC authorize redirect leaves for ANOTHER host over https and
+        # carries our client_id and a redirect_uri that comes back here.
+        from urllib.parse import parse_qs, unquote, urlparse
+        cible = urlparse(location)
+        params = parse_qs(cible.query)
+        retour = unquote((params.get("redirect_uri") or [""])[0])
+        if (cible.scheme != "https" or not cible.hostname or cible.hostname == DOMAINE
+                or not params.get("client_id") or DOMAINE not in retour
+                or (DOMAINE_SSO and cible.hostname != DOMAINE_SSO)):
+            p.rate("fournisseur OIDC",
+                   "https Location to the IdP with client_id and a redirect_uri back to "
+                   + DOMAINE + (f" (IdP {DOMAINE_SSO})" if DOMAINE_SSO else ""),
+                   f"Location {location[:160]!r}")
         p.ok("redirection SSO", f"30x vers {location.split('/')[2]}")
 
     p.fin()

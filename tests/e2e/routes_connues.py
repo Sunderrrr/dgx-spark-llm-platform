@@ -153,6 +153,7 @@ ROUTES = {
     'preview.playground_preview_create': ('exclu', 'aperçu HTML généré par le playground : non utilisé par les parcours'),
     'preview.playground_preview_show': ('exclu', 'aperçu HTML généré par le playground : non utilisé par les parcours'),
     'prom_metrics': ('parcours', 'j13_securite (refus public vérifié)'),
+    'security_txt': ('parcours', 'j13_securite (published, current Expires)'),
     'request_model': ('parcours', 'j12_actions_pages (formulaire /request)'),
     'settings.api_account_delete': ('exclu', 'suppression de compte : destructif'),
     'settings.api_account_password': ('exclu', 'changement de mot de passe : modifierait le compte de démo'),

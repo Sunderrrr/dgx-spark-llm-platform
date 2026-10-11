@@ -1,8 +1,8 @@
-// Explicitly blocks /internal/* on the public domain (dgx.example.org).
+// Explicitly blocks /internal/* on the public web domain.
 // Without this route, next.config.ts's `fallback` rewrite would proxy any
 // unrecognized path to Flask as-is — including /internal/authcheck,
 // which is only ever meant to be called BY Traefik internally (forwardAuth on
-// the api.example.org router, cf. routes.yml), never via this frontend. A
+// the public API router, cf. routes.yml), never via this frontend. A
 // real Next.js route takes precedence over the fallback rewrite, so this handler
 // intercepts the request before it reaches Flask.
 function blocked() {

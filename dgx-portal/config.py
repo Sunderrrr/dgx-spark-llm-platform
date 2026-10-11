@@ -13,7 +13,7 @@ import os
 # Authentik server: accounts live under ou=users, the login identifier is the
 # `cn` attribute (the `uid` is an internal Authentik hash, NOT the username),
 # and the display name is `displayName`.
-LDAP_URI        = os.environ.get('LDAP_URI', 'ldap://100.64.45.103:389')
+LDAP_URI        = os.environ.get('LDAP_URI', '')   # empty = no directory
 LDAP_BASE       = os.environ.get('LDAP_BASE', 'dc=example,dc=org')
 LDAP_BIND_DN    = os.environ.get('LDAP_BIND_DN', '')
 LDAP_BIND_PW    = os.environ.get('LDAP_BIND_PW', '')
@@ -71,8 +71,13 @@ MEDIA_REQUEST_COOLDOWN_S = int(os.environ.get('MEDIA_REQUEST_COOLDOWN_S', '1800'
 KEY_BUDGET    = float(os.environ.get('KEY_MAX_BUDGET', '200000000'))
 KEY_DURATION  = os.environ.get('KEY_BUDGET_DURATION', '7d')
 
+# Public origins of this deployment (.env: DGX_WEB, DGX_API). Example values
+# by default: a fresh install must say « example.org », never someone's domain.
+PUBLIC_WEB_URL = os.environ.get('DGX_WEB', 'https://example.org').rstrip('/')
 # Public URL of the OpenAI-compatible API, shown to users.
-PUBLIC_API_URL = os.environ.get('PUBLIC_API_URL', 'https://api.example.org/v1')
+PUBLIC_API_URL = os.environ.get(
+    'PUBLIC_API_URL',
+    os.environ.get('DGX_API', 'https://api.example.org').rstrip('/') + '/v1')
 # Upstream as seen by LiteLLM, and name of the virtual model that follows the active model.
 VLLM_API_BASE = os.environ.get('VLLM_API_BASE', 'http://host.docker.internal:8000/v1')
 AUTO_MODEL_NAME = os.environ.get('AUTO_MODEL_NAME', 'auto-model')
@@ -91,14 +96,14 @@ OIDC_ENABLED       = bool(OIDC_METADATA_URL and OIDC_CLIENT_ID and OIDC_CLIENT_S
 
 
 # ── WebAuthn / passkeys (2FA by security key) ───────────────────────────────
-# The passkey is bound to the EXACT origin (scheme+host). Public access goes
-# through https://dgx.example.org (Cloudflare → Traefik); that is the
-# origin users declare to the browser, hence the one the key is bound to. A
-# key registered here will NOT work from another origin (e.g.
-# http://dgx.example.lan, different scheme/host).
-WEBAUTHN_RP_ID   = os.environ.get('WEBAUTHN_RP_ID', 'dgx.example.org')
+# The passkey is bound to the EXACT origin (scheme+host): the public web
+# origin (DGX_WEB) by default. A key registered there will NOT work from
+# another origin (e.g. a LAN address over http, different scheme/host).
+# Changing WEBAUTHN_RP_ID invalidates every registered key; the name does not.
+WEBAUTHN_ORIGIN  = os.environ.get('WEBAUTHN_ORIGIN', PUBLIC_WEB_URL)
+WEBAUTHN_RP_ID   = os.environ.get('WEBAUTHN_RP_ID',
+                                  WEBAUTHN_ORIGIN.split('//', 1)[-1].split('/', 1)[0].split(':', 1)[0])
 WEBAUTHN_RP_NAME = os.environ.get('WEBAUTHN_RP_NAME', 'DGX')
-WEBAUTHN_ORIGIN  = os.environ.get('WEBAUTHN_ORIGIN', 'https://dgx.example.org')
 # Require user verification (PIN/biometrics) on top of presence.
 # Off by default: a "touch-only" physical key (classic YubiKey) does NO user
 # verification — requiring it would block those keys. `preferred` requires

@@ -34,8 +34,20 @@ import requests
 
 _BLOCKED_HOSTNAMES = {
     'litellm', 'postgres', 'vllm-runner', 'dgx-portal', 'dgx-portal-frontend',
-    'ldap.example.lan', 'host.docker.internal', 'localhost',
+    'host.docker.internal', 'localhost',
 }
+
+
+def _ldap_host():
+    """The deployment's own directory server, by name (its IP is caught by
+    _is_blocked_ip when private; the name may resolve elsewhere from outside).
+    Read live: the URI is editable from Admin → Config."""
+    try:
+        from parametres import parametre
+        uri = parametre('ldap_uri')
+    except Exception:
+        return ''
+    return (urlparse(uri).hostname or '').lower() if uri else ''
 
 
 def _is_blocked_ip(ip_str):
@@ -71,7 +83,7 @@ def resolve_validated_mcp_ip(url):
     host = parsed.hostname or ''
     if not host:
         return False, "URL invalide (pas d'hôte).", None
-    if host.lower() in _BLOCKED_HOSTNAMES:
+    if host.lower() in _BLOCKED_HOSTNAMES or (host.lower() == _ldap_host() != ''):
         return False, "Cet hôte n'est pas autorisé.", None
     try:
         infos = socket.getaddrinfo(host, None)

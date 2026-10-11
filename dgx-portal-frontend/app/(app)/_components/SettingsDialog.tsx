@@ -10,6 +10,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
+import { useBranding } from "@/lib/branding";
 import { Divider } from "@astryxdesign/core/Divider";
 import { UserAvatar } from "@/lib/user-avatar";
 import { useToast } from "@astryxdesign/core/Toast";
@@ -95,6 +96,7 @@ export function SettingsDialog({
   const { mode, setMode, themeId, setThemeId } = useThemeMode();
   const { lang, setLang } = useLang();
   const t = useT();
+  const marque = useBranding();
   const isNarrow = useIsNarrow();
   const [section, setSection] = useState<Section>("account");
   // When opening with a requested section (e.g. "keys" from the home page),
@@ -354,7 +356,7 @@ export function SettingsDialog({
             <VStack height="100%" hAlign="stretch">
               <HStack padding={4} gap={2} vAlign="center">
                 <Icon icon={SparklesIcon} size="sm" color="accent" />
-                <Text weight="bold">DGX</Text>
+                <Text weight="bold">{marque.name}</Text>
               </HStack>
               <VStack gap={4} paddingInline={2} height="100%">
                 {SECTIONS.map((grp) => (

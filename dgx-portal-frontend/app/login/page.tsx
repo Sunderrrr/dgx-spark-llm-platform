@@ -14,6 +14,7 @@ import { ShieldCheckIcon, ArrowRightOnRectangleIcon, CpuChipIcon } from "@heroic
 import { fetchCsrfToken } from "@/lib/api";
 import { getPasskeyAssertion } from "@/lib/webauthn";
 import { useT, tServeur } from "@/lib/i18n";
+import { useBranding } from "@/lib/branding";
 
 // Self-hosted (public/login-bg*.jpg) to respect the CSP img-src 'self' —
 // no dependency on an external CDN. Photos: snowy forests, Nordic landscapes (Unsplash).
@@ -21,6 +22,7 @@ const BACKGROUNDS = ["/login-bg.jpg", "/login-bg-2.jpg", "/login-bg-3.jpg"];
 
 export default function LoginPage() {
   const t = useT();
+  const marque = useBranding();
   const [csrf, setCsrf] = useState("");
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [username, setUsername] = useState("");
@@ -153,7 +155,7 @@ export default function LoginPage() {
           <VStack gap={1} hAlign="center">
             <Icon icon={CpuChipIcon} size="lg" color="accent" />
             <Text type="display-1" as="h1">
-              DGX
+              {marque.name}
             </Text>
             <Text type="body" color="secondary" size="sm">{t("Plateforme IA privée · NVIDIA DGX Spark")}</Text>
           </VStack>
@@ -187,7 +189,7 @@ export default function LoginPage() {
             <>
               <Divider label={t("Ou")} />
               <Button
-                label={t("Se connecter avec le SSO DGX")}
+                label={t("Se connecter avec le SSO {name}").replace("{name}", marque.name)}
                 variant="secondary"
                 size="lg"
                 icon={<Icon icon={ShieldCheckIcon} size="sm" />}

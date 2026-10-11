@@ -17,7 +17,7 @@ body:
         - Portal (API, budgets, accounts, sessions)
         - Frontend (a page in the web interface)
         - Playground
-        - DGX assistant (/support)
+        - Support assistant (/support)
         - Memory
         - A media page (OCR, voice, video, image, music)
         - Model lifecycle / runner

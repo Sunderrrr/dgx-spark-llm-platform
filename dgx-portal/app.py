@@ -31,7 +31,7 @@ app.secret_key = _SECRET_KEY
 
 # Behind Traefik (TLS terminated at the proxy, forwarded as HTTP to the container):
 # trust the X-Forwarded-* headers so Flask knows the real
-# scheme (https) and the external host (dgx.example.org).
+# scheme (https) and the external host (DGX_WEB).
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # ── Session hardening ────────────────────────────────────────────────────────
@@ -42,7 +42,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 #   return (Authentik → /api/oauth2-redirect) recovers the OAuth state in session.
 # Secure: cookie sent only over HTTPS. Production is TLS-gated (Cloudflare →
 # Traefik), so the SECURE default is on. A LAN-only box reached over plain
-# HTTP (http://dgx.example.lan:5000) must set SESSION_COOKIE_SECURE=0 in .env,
+# HTTP (e.g. http://<lan host>:5000) must set SESSION_COOKIE_SECURE=0 in .env,
 # otherwise the browser won't send the cookie over HTTP and login breaks there.
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -159,10 +159,9 @@ from config import (  # noqa: E402
     DISCORD_BOT_TOKEN, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI,
     DISCORD_LINK_ENABLED, DISCORD_API, SMTP_HOST, SMTP_PORT,
     SMTP_USER, SMTP_PASS, SMTP_FROM, ADMIN_EMAIL,
-    KEY_BUDGET, KEY_DURATION, PUBLIC_API_URL, LITELLM_DB_URL,
+    KEY_BUDGET, KEY_DURATION, PUBLIC_API_URL, PUBLIC_WEB_URL, LITELLM_DB_URL,
     MEDIA_REQUEST_COOLDOWN_S,
-    LOCAL_TZ, OIDC_METADATA_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET,
-    OIDC_REDIRECT_URI, OIDC_LOGOUT_URL, OIDC_ADMIN_GROUP, OIDC_ENABLED,
+    LOCAL_TZ,
 )
 # Account auth: local_users (hashed) → LDAP → SSO, in that order. The
 # plaintext debug/file fallback was removed (see git history at the 4a59c6f
@@ -172,35 +171,15 @@ from config import (  # noqa: E402
 
 from db import (  # noqa: E402  (see comment below)
     DB_PATH, _spend_conn, close_db, get_db, get_setting, init_db, log_audit,
-    maintenance_active, notification_unread, set_setting,
+    maintenance_active, notification_unread, platform_name, set_setting,
 )
 
 # ── SSO / OIDC (Authentik) ───────────────────────────────────────────────────
 
-oauth = None
-if OIDC_ENABLED:
-    from authlib.integrations.flask_client import OAuth
-    oauth = OAuth(app)
-    # sso (Cloudflare) returns 403 to non-browser User-Agents,
-    # including authlib's when it fetches the OIDC metadata. So we fetch it
-    # ourselves (browser UA) and pass the endpoints directly (via **_md);
-    # `user_agent` covers the later token/userinfo calls.
-    _md = {}
-    try:
-        import requests as _requests
-        _md = _requests.get(OIDC_METADATA_URL, timeout=15,
-                            headers={'User-Agent': 'Mozilla/5.0 (DGX portal)'}).json()
-    except Exception as e:
-        app.logger.warning("SSO: metadata OIDC injoignable (%s)", e)
-    oauth.register(
-        name='authentik',
-        client_id=OIDC_CLIENT_ID,
-        client_secret=OIDC_CLIENT_SECRET,
-        server_metadata_url=(OIDC_METADATA_URL if not _md else None),
-        client_kwargs={'scope': 'openid profile email'},
-        user_agent='Mozilla/5.0 (DGX portal)',
-        **_md,
-    )
+# The client is built from the LIVE configuration (Admin → Config, then .env)
+# and rebuilt when it changes: see sso_client.py.
+from parametres import oidc_config, parametre  # noqa: E402
+from sso_client import sso_client  # noqa: E402
 
 # ── DB ─────────────────────────────────────────────────────────────────────
 
@@ -436,9 +415,9 @@ def api_config():
     now = time.time()
     if now - _config_cache['t'] > 10:
         _config_cache['v'] = {
-            'oidc_enabled': OIDC_ENABLED,
+            'oidc_enabled': oidc_config()['enabled'],
             'branding': {
-                'name': get_setting('platform_name', 'DGX'),
+                'name': platform_name(),
                 'logo': '/api/branding/logo' if get_setting('platform_logo', '') else None,
             },
         }
@@ -588,19 +567,22 @@ def _safe_next(target):
 
 @app.route('/login/sso')
 def login_sso():
-    if not OIDC_ENABLED:
+    client = sso_client(app)
+    if client is None:
         flash("Le SSO n'est pas configuré.", "danger")
         return redirect(url_for('login'))
     session['sso_next'] = _safe_next(request.args.get('next'))
-    return oauth.authentik.authorize_redirect(OIDC_REDIRECT_URI or url_for('oauth_callback', _external=True))
+    return client.authorize_redirect(oidc_config()['redirect_uri']
+                                     or url_for('oauth_callback', _external=True))
 
 
 @app.route('/api/oauth2-redirect')
 def oauth_callback():
-    if not OIDC_ENABLED:
+    client = sso_client(app)
+    if client is None:
         return redirect(url_for('login'))
     try:
-        token = oauth.authentik.authorize_access_token()
+        token = client.authorize_access_token()
     except Exception:
         flash("Échec de la connexion SSO. Réessaie.", "danger")
         return redirect(url_for('login'))
@@ -608,7 +590,7 @@ def oauth_callback():
     userinfo = token.get('userinfo') or {}
     if not userinfo:
         try:
-            userinfo = oauth.authentik.userinfo(token=token)
+            userinfo = client.userinfo(token=token)
         except Exception:
             userinfo = {}
 
@@ -655,7 +637,8 @@ def oauth_callback():
         # also covers the case where it would be a full DN. The directory
         # lookup above already gave us is_admin from memberOf; the `groups`
         # claim is treated as a secondary signal only when present.
-        is_admin = is_admin or any(g == OIDC_ADMIN_GROUP or _is_admin_group(g) for g in groups)
+        groupe_admin = oidc_config()['admin_group']
+        is_admin = is_admin or any(g == groupe_admin or _is_admin_group(g) for g in groups)
 
     if _refus_si_bloque(username):
         # The password does not come into play here: identity is proven by the
@@ -684,8 +667,9 @@ def logout():
     session.clear()
     # RP-initiated logout: if the user logged in via SSO, we also
     # send them to Authentik's end-session to close the IdP session.
-    if was_sso and OIDC_LOGOUT_URL:
-        return redirect(OIDC_LOGOUT_URL)
+    logout_url = oidc_config()['logout_url'] if was_sso else ''
+    if logout_url:
+        return redirect(logout_url)
     return redirect(url_for('login'))
 
 _SIDECAR_METRICS_CACHE = {}
@@ -890,6 +874,30 @@ def healthz():
     return jsonify({'ok': True, 'time': int(time.time())})
 
 
+@app.route('/.well-known/security.txt')
+def security_txt():
+    """RFC 9116 contact file, built from the deployment's own config.
+
+    It was a static file carrying one operator's address and domain, and it
+    had silently expired (an expired security.txt must be ignored). Generated,
+    it names this deployment's contact (editable in Admin → Config) and never
+    expires: `Expires` is always six months ahead.
+    """
+    # Admin → Config « Sécurité — contact », else ADMIN_EMAIL; neither = 404.
+    contact = (parametre('security_contact') or ADMIN_EMAIL or '').strip()
+    if not contact:
+        return Response("no security contact configured\n", status=404, mimetype="text/plain")
+    if not re.match(r'^(https://|mailto:)', contact):
+        contact = f'mailto:{contact}'
+    expires = (datetime.utcnow() + timedelta(days=180)).strftime('%Y-%m-%dT00:00:00Z')
+    body = (f"# Report a security issue on {platform_name()}.\n"
+            f"Contact: {contact}\n"
+            f"Expires: {expires}\n"
+            f"Preferred-Languages: en, fr\n"
+            f"Canonical: {PUBLIC_WEB_URL}/.well-known/security.txt\n")
+    return Response(body, mimetype='text/plain')
+
+
 @app.route('/metrics')
 def prom_metrics():
     """Prometheus exposition (text) — for scraping with Grafana.
@@ -897,7 +905,7 @@ def prom_metrics():
     Public by choice on the LAN/netbird network: this is the standard for a
     metrics pull. However it must NOT reach the internet, and yet it was
     reachable there: the frontend's catch-all rewrite relays `/:path*` to
-    Flask, so /metrics was served at `dgx.example.org`
+    Flask, so /metrics was served on the public web domain
     (CPU/RAM/GPU/temperature/online model to whoever asked).
 
     Guard kept: a request that crosses the Cloudflare edge always carries the
@@ -919,6 +927,7 @@ def prom_metrics():
     online = 1 if m.get('model_status') == 'running' else 0
 
     def _g(name, doc, value):
+        # Prefix `dgx_` (renamed on 2026-10-11: scrape queries must follow).
         return f"# HELP dgx_{name} {doc}\n# TYPE dgx_{name} gauge\ndgx_{name} {value}"
 
     parts = [
@@ -964,10 +973,10 @@ def docs():
                'console.log(r.choices[0].message.content);')
     html_doc = f"""<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Docs API — DGX</title></head>
+<title>Docs API — {_h.escape(platform_name())}</title></head>
 <body style="margin:0;background:#f9fafb;color:#111827;font:15px/1.6 system-ui">
 <div style="max-width:860px;margin:0 auto;padding:32px 20px">
-<h1 style="font:700 26px system-ui;margin:0 0 4px">API DGX</h1>
+<h1 style="font:700 26px system-ui;margin:0 0 4px">API {_h.escape(platform_name())}</h1>
 <p style="margin:0 0 24px;color:#6b7280">Compatible OpenAI — crée une clé puis appelle comme un provider classique. URL de base : <code>{base}</code></p>
 <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:20px 24px;margin:0 0 24px">
 <h2 style="font:700 16px system-ui;margin:0 0 8px">Modèles actuellement servis</h2>

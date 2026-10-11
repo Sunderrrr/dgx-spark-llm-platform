@@ -7,6 +7,7 @@ comes from the last login (SSO token group / directory entry), stored in
 user_sources.last_is_admin. These tests lock that: no LDAP on the request
 path, one source for sessions and API keys, the admin group is configurable.
 """
+import os
 import time
 import unittest
 from unittest.mock import patch
@@ -74,11 +75,12 @@ class AdminRoleTest(unittest.TestCase):
             self.assertFalse(auth.is_admin_username(USER))
 
     def test_admin_group_is_configurable(self):
-        with patch.object(auth, 'OIDC_ADMIN_GROUP', 'dgx-admins'):
+        with patch.dict(os.environ, {'OIDC_ADMIN_GROUP': 'dgx-admins'}):
             self.assertTrue(auth._is_admin_group('cn=dgx-admins,ou=groups,dc=example,dc=org'))
             self.assertFalse(auth._is_admin_group('cn=dgx-admins-ro,ou=groups,dc=example,dc=org'))
             self.assertFalse(auth._is_admin_group('cn=admins,ou=groups,dc=example,dc=org'))
-        with patch.object(auth, 'OIDC_ADMIN_GROUP', ''):
+        with patch.dict(os.environ, {'OIDC_ADMIN_GROUP': ''}), \
+             patch('auth.parametre', return_value=''):
             self.assertFalse(auth._is_admin_group('cn=,ou=groups'))
 
 

@@ -50,7 +50,7 @@ from stats import (_inflight_end, _inflight_start, _inflight_tokens,
                    enregistrer_ratio as _ratio_dernier, enregistrer_ttft)
 from sidecars import _mem_available_gb
 from raisonnement import raisonnablement_complexe
-from support import (GUARDED_TOOLS, OUTILS_REFUSES_SI_EXTERNE, SUPPORT_SYSTEM,
+from support import (GUARDED_TOOLS, OUTILS_REFUSES_SI_EXTERNE, SUPPORT_SYSTEM, support_text,
                      TOOL_LABELS, _clean_reply,
                      _exec_mcp_tool, _exec_skill, _exec_support_tool,
                      _sse_tool_event, _support_context, _support_tool_target,
@@ -206,7 +206,7 @@ def support_chat():
         if _memctx:
             ctx += "\n\n" + _memctx
     msgs = ([{'role': 'system',
-              'content': SUPPORT_SYSTEM + "\n\n### CONTEXTE\n" + _horodatage()
+              'content': support_text(SUPPORT_SYSTEM) + "\n\n### CONTEXTE\n" + _horodatage()
               + "\n" + ctx}] + history)
     extra_tools, extra_routing = _user_extra_tools(username)
     tools = _support_tools(is_admin) + extra_tools

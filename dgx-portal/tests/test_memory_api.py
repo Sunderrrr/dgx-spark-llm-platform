@@ -219,6 +219,15 @@ class ImportExportApiTest(MemoryApiBase):
         faits = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
         self.assertEqual(faits, ['Tourne en 0.27.'])
 
+    def test_import_accepts_exports_made_before_the_rename(self):
+        doc = self.client.get('/api/memory/export').get_json()
+        doc['schema'] = 'dgx-memory'      # what older exports carry
+        self.client.post('/api/memory/purge', headers={'X-CSRFToken': self.csrf})
+        r = self.client.post('/api/memory/import', json=doc, headers={'X-CSRFToken': self.csrf})
+        self.assertEqual(r.status_code, 200)
+        faits = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
+        self.assertEqual(faits, ['Tourne en 0.27.'])
+
     def test_import_duplique_ne_cree_pas_de_double(self):
         doc = self.client.get('/api/memory/export').get_json()
         self.client.post('/api/memory/import', json=doc, headers={'X-CSRFToken': self.csrf})
@@ -520,19 +529,19 @@ class ParcoursTest(MemoryApiBase):
         super().tearDown()
 
     def test_deux_sauts(self):
-        # DGX —> vLLM —> CUDA: from DGX, 1 jump sees vLLM, 2 jumps CUDA.
-        memoire._mem_add_fact(self.USER, 'DGX', 'sert avec', 'DGX sert avec vLLM.', obj='vLLM')
+        # Portail —> vLLM —> CUDA: from Portail, 1 jump sees vLLM, 2 jumps CUDA.
+        memoire._mem_add_fact(self.USER, 'Portail', 'sert avec', 'Portail sert avec vLLM.', obj='vLLM')
         memoire._mem_add_fact(self.USER, 'vLLM', 'repose sur', 'vLLM repose sur CUDA.', obj='CUDA')
-        un = {f['fact'] for f in memoire._mem_recall(self.USER, 'DGX', hops=1)}
-        deux = {f['fact'] for f in memoire._mem_recall(self.USER, 'DGX', hops=2)}
-        self.assertIn('DGX sert avec vLLM.', un)
+        un = {f['fact'] for f in memoire._mem_recall(self.USER, 'Portail', hops=1)}
+        deux = {f['fact'] for f in memoire._mem_recall(self.USER, 'Portail', hops=2)}
+        self.assertIn('Portail sert avec vLLM.', un)
         self.assertIn('vLLM repose sur CUDA.', deux)
         self.assertTrue(deux.issuperset(un))
 
     def test_composante_non_reliee_exclue(self):
-        memoire._mem_add_fact(self.USER, 'DGX', 'sert avec', 'DGX sert avec vLLM.', obj='vLLM')
+        memoire._mem_add_fact(self.USER, 'Portail', 'sert avec', 'Portail sert avec vLLM.', obj='vLLM')
         memoire._mem_add_fact(self.USER, 'Cuisine', 'aime', 'Aime le curry.')
-        faits = {f['fact'] for f in memoire._mem_recall(self.USER, 'DGX', hops=2)}
+        faits = {f['fact'] for f in memoire._mem_recall(self.USER, 'Portail', hops=2)}
         self.assertNotIn('Aime le curry.', faits)
 
     def test_cycle_ne_boucle_pas(self):

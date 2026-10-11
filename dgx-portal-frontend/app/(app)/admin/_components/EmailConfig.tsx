@@ -13,10 +13,10 @@ import { useCsrf } from "@/lib/useCsrf";
 import { getJSON, sendJSON, ForbiddenError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
-type Config = { configured?: boolean; admin_email?: string };
+type Config = { configured?: boolean; admin_email?: string; sender?: string; smtp_host?: string };
 type TestResp = { ok?: boolean; error?: { message?: string } };
 
-/** Sender address of the portal (SMTP_FROM). It is written into the DOM
+/** Sender address of the portal (SMTP_FROM, from /admin/email/config). It is written into the DOM
  *  only AFTER mount, and never in the HTML rendered by the server:
  *  Cloudflare (Scrape Shield) rewrites every email address of the SERVER-side
  *  HTML into <a class="__cf_email__">[email protected]</a>. React then receives a DOM
@@ -26,7 +26,6 @@ type TestResp = { ok?: boolean; error?: { message?: string } };
  *  never client-created nodes: arriving after mount, the address is intact.
  *  (Removing the email obfuscation in Cloudflare would lift the constraint,
  *  but the portal cannot rely on that setting.) */
-const SENDER_ADDRESS = "no-reply@example.org";
 
 /**
  * « Emails de notification » block of the Admin page: states whether SMTP is
@@ -40,7 +39,7 @@ export function EmailConfig() {
   const [cfg, setCfg] = useState<Config | null>(null);
   const [sending, setSending] = useState(false);
   // False on server render as on first client render (so no hydration
-  // mismatch), true right after mount: that is what allows SENDER_ADDRESS
+  // mismatch), true right after mount: that is what allows the sender address
   // to enter the DOM client-side only. Like the ThemeProvider for its local
   // preferences, it is the « syncing from an external system » case
   // the rule targets — not a render cascade.
@@ -90,8 +89,9 @@ export function EmailConfig() {
           )}
         </HStack>
         <Text type="supporting" color="secondary">
-          {t("Envoi depuis {adresse} via Zoho ; les notifications admin partent vers l'adresse ci-dessous.")
-            .replace("{adresse}", monte ? SENDER_ADDRESS : t("le portail"))}
+          {t("Envoi depuis {adresse} via {serveur} ; les notifications admin partent vers l'adresse ci-dessous.")
+            .replace("{adresse}", monte && cfg?.sender ? cfg.sender : t("le portail"))
+            .replace("{serveur}", cfg?.smtp_host || "SMTP")}
         </Text>
         <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
           <Text type="supporting" color="secondary" wordBreak="break-all">

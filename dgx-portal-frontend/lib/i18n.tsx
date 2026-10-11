@@ -20,8 +20,8 @@ const EN: Record<string, string> = {
   // rewrites the server-side HTML email addresses and would break hydration
   // (cf. SENDER_ADDRESS in EmailConfig.tsx). The pre-mount fallback is a
   // neutral word, never an address.
-  "Envoi depuis {adresse} via Zoho ; les notifications admin partent vers l'adresse ci-dessous.":
-    "Sent from {adresse} via Zoho; admin notifications go to the address below.",
+  "Envoi depuis {adresse} via {serveur} ; les notifications admin partent vers l'adresse ci-dessous.":
+    "Sent from {adresse} via {serveur}; admin notifications go to the address below.",
   "le portail": "the portal",
   "Envoyer un test": "Send a test",
   "Email de test envoyé.": "Test email sent.",
@@ -636,7 +636,7 @@ const EN: Record<string, string> = {
   "Identité de la plateforme": "Platform identity",
   "Le nom et le logo affichés en haut à gauche — à l'image de celui qui déploie l'instance.": "The name and logo shown top left — the identity of whoever deploys the instance.",
   "Nom de l'instance": "Instance name",
-  "Ex : DGX": "e.g. DGX",
+  "Ex : Acme AI": "e.g. Acme AI",
   "Choisir un logo": "Choose a logo",
   "Retirer le logo": "Remove the logo",
   "Aucun logo : la favicon par défaut est utilisée.": "No logo: the default favicon is used.",
@@ -1026,7 +1026,7 @@ const EN: Record<string, string> = {
   "Mot de passe": "Password",
   "Se connecter": "Sign in",
   "Ou": "Or",
-  "Se connecter avec le SSO DGX": "Sign in with DGX SSO",
+  "Se connecter avec le SSO {name}": "Sign in with {name} SSO",
 
   // — Playground / Support —
   "Reprendre la conversation précédente": "Resume the previous conversation",
@@ -1206,8 +1206,8 @@ const EN: Record<string, string> = {
   "% utilisé": "% used",
 
   // — Support (continued) —
-  "Bonjour 👋 Je suis **DGX**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.":
-    "Hi 👋 I'm **DGX**, the platform's assistant. I can help you troubleshoot (keys, quota, models, OpenCode/Hermes integration…) but I can also **act on your behalf**: create a key, request budget, request a model. Tell me what you need.",
+  "Bonjour 👋 Je suis **{name}**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.":
+    "Hi 👋 I'm **{name}**, the platform's assistant. I can help you troubleshoot (keys, quota, models, OpenCode/Hermes integration…) but I can also **act on your behalf**: create a key, request budget, request a model. Tell me what you need.",
 
   // — Tool-call labels (Support assistant) —
   "Révoquer une clé API": "Revoke an API key",
@@ -1714,8 +1714,8 @@ const EN: Record<string, string> = {
     "Last local administrator: appoint another administrator before blocking this one.",
   "Mode maintenance en cours — l'API est temporairement indisponible, réessaie plus tard.":
     "Maintenance in progress — the API is temporarily unavailable, try again later.",
-  "SMTP non configuré (renseigne SMTP_HOST / SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL).":
-    "SMTP not configured (set SMTP_HOST / SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL).",
+  "SMTP non configuré (renseigne-le dans Admin → Config, ou SMTP_HOST / SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL).":
+    "SMTP not configured (set it in Admin → Config, or SMTP_HOST / SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL).",
   "Catégorie inconnue.": "Unknown category.",
   "Champs manquants.": "Missing fields.",
 };

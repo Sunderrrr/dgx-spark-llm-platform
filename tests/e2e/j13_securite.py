@@ -64,6 +64,19 @@ def main() -> int:
         p.ok(f"{domaine}/internal/authcheck",
              f"HTTP {statut} — non joignable depuis l'extérieur")
 
+    # RFC 9116: a security contact that is published, current and canonical.
+    # The static file it replaced had silently expired (2026-08-29).
+    statut, _, corps = c.http("GET", f"{WEB}/.well-known/security.txt", delai_s=20)
+    texte = corps.decode("utf-8", "replace") if isinstance(corps, (bytes, bytearray)) else str(corps or "")
+    if statut != 200 or "Contact:" not in texte or "Expires:" not in texte:
+        p.rate("security.txt published", "HTTP 200 with Contact and Expires",
+               f"HTTP {statut} — {texte[:120]!r}")
+    import datetime as _dt
+    expire = texte.split("Expires:", 1)[1].split()[0]
+    if expire <= _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"):
+        p.rate("security.txt current", "an Expires date in the future", expire)
+    p.ok("security.txt", f"contact published, expires {expire}")
+
     p.fin()
     return 0
 

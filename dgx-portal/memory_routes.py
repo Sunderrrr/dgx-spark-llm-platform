@@ -18,7 +18,12 @@ from datetime import datetime
 from flask import Blueprint, Response, jsonify, request, session
 
 from auth import login_required
-from db import get_db
+from db import get_db, platform_name
+
+# The JSON export's schema tag. Exports made before the rename carry the old
+# tag and must stay importable: that is the user's own data.
+MEMORY_SCHEMA = 'dgx-memory'
+MEMORY_SCHEMA_LEGACY = ('dgx-memory',)
 
 bp = Blueprint('memory', __name__)
 
@@ -493,7 +498,7 @@ def _mem_export_doc(username):
             'source': e['source'],
         })
     return {
-        'schema': 'dgx-memory',
+        'schema': MEMORY_SCHEMA,
         'version': EXPORT_SCHEMA_VERSION,
         'username': username,
         'exported_at': datetime.now().isoformat(),
@@ -519,7 +524,7 @@ def api_memory_export():
 def api_memory_export_md():
     """Downloads the memory as human-readable Markdown."""
     doc = _mem_export_doc(session['username'])
-    lines = ["# Ce que DGX sait de moi", "",
+    lines = [f"# Ce que {platform_name()} sait de moi", "",
              f"> Exporté le {doc['exported_at'][:19].replace('T', ' ')} — "
              f"{len(doc['edges'])} fait(s), {len(doc['nodes'])} sujet(s).", ""]
     # Group the facts by subject (label of the source node).
@@ -562,7 +567,7 @@ def _validate_import_doc(doc):
     """Validates the structure of an import JSON. Returns (msg, None) if invalid."""
     if not isinstance(doc, dict):
         return "Document JSON invalide (objet attendu).", None
-    if doc.get('schema') != 'dgx-memory':
+    if doc.get('schema') not in (MEMORY_SCHEMA, *MEMORY_SCHEMA_LEGACY):
         return "Format non reconnu (clé 'schema' manquante ou incorrecte).", None
     nodes = doc.get('nodes')
     edges = doc.get('edges')
@@ -655,7 +660,7 @@ def api_memory_import():
 
 
 # ── Import Markdown ─────────────────────────────────────────────────────────
-# Accepts a generic .md (DGX export, but also Markdown from Claude or
+# Accepts a generic .md (our own export, but also Markdown from Claude or
 # ChatGPT) and extracts the facts to store them. Tolerant: we only reject
 # the truly unclassifiable lines, never the whole file for one parasite
 # line.
@@ -790,7 +795,7 @@ def _md_parse(text):
 def api_memory_import_md():
     """Imports a memory from a (generic) Markdown file, in merge mode.
 
-    The Markdown can come from DGX' « Exporter (Markdown) », or from a
+    The Markdown can come from the portal's « Exporter (Markdown) », or from a
     Claude/ChatGPT export (titles = subjects, bullets = facts). Tolerant
     grammar: an unrecognized line is skipped, never a global failure.
     """

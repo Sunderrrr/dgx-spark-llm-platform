@@ -308,7 +308,7 @@ are contracts, not decoration:
 
 ## Monitoring and backups (host, systemd)
 
-Two systemd timers + two scripts (in [`monitoring/`](../monitoring/)), running **as
+Systemd timers + scripts (in [`monitoring/`](../monitoring/) and [`scripts/`](../scripts/)), running **as
 root** on the host (access to the docker socket + the 600 `.env`).
 
 - **`dgx-monitor.timer`/`.service`** (every 5 min) → `monitoring/monitor.py`:
@@ -322,16 +322,21 @@ root** on the host (access to the docker socket + the 600 `.env`).
   sidecars are **on-demand**: not probed, to avoid false positives. The monitor
   also probes the **freshness of the portal dump** (`/var/backups/dgx/portal-*.db`
   < 26 h): a missing/old backup counts as a service down.
-- **`dgx-backup.timer`/`.service`** (daily 03:00) → `monitoring/backup.py`:
-  SQLite dump of `/app/data/portal.db` (consistent snapshot via `sqlite3.backup`)
-  and `pg_dump -Fc` of the LiteLLM database (no password: trust auth inside the
-  container). Destination `/var/backups/dgx/`, retention 14 files (`--keep`).
-  **These dumps contain the DB data — never pushed.** After the dump, **purge of
-  orphan files** from the portal volume (image_files/music_files whose prefix no
-  job references any more, 7 days grace; `--no-purge`, `--purge-dry-run`). The
-  portal also writes a `.db_initialized` marker: marker present + empty database
-  at startup → infra alert. Restoration: `docker cp` of the `.db`/`.dump` then
-  open/`pg_restore`.
+- **`dgx-backup.timer`/`.service`** (daily 03:00) → `scripts/backup.sh`:
+  consistent SQLite copy of the portal database, `pg_dump` of the LiteLLM
+  database, `docker-compose.yml`, `.env` and `secrets/`, archived and uploaded
+  to `DGX_S3_BUCKET`, then **listed back from the bucket** before the run counts
+  as a success; retention 7 archives. It writes `/var/backups/dgx/etat.json`,
+  which the monitor and the Admin card read. **The archive contains `.env` and
+  the databases — the bucket must be private.** `monitoring/backup.py` (local
+  dumps + purge of orphan media files) is kept as a manual tool, not scheduled.
+  The portal also writes a `.db_initialized` marker: marker present + empty
+  database at startup → infra alert. Restoration: download the archive, then
+  `docker cp` of the `.db`/SQL dump and `pg_restore`/`psql`.
+- **`dgx-logs.timer`/`.service`** (daily 03:30) → `scripts/logs-to-s3.sh`:
+  ships the platform logs to `DGX_S3_LOGS`.
+- **`dgx-validation.path`/`.service`** → `scripts/validate.sh`, started when the
+  Admin's « run the validation » button writes `runtime/validation/demande.txt`.
 
 Health endpoints (portal side): `GET /healthz` — minimal **public** liveness
 `{ok, time}` (healthcheck / probe); `GET /api/health` — aggregated **connected**

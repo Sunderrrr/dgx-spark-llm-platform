@@ -18,7 +18,7 @@ from flask import Blueprint, Response, abort, jsonify, request, session
 
 from auth import login_required
 from config import AVATAR_IDS, LANGS, THEME_IDS
-from db import get_db
+from db import get_db, platform_name
 
 bp = Blueprint('conversations', __name__)
 
@@ -274,7 +274,7 @@ def share_view(token):
 <h1 style="font:700 22px system-ui;margin:0 0 4px">{title}</h1>
 <p style="margin:0 0 24px;color:#6b7280;font:13px system-ui">Modèle : {model or "—"}</p>
 {body}
-<p style="margin-top:32px;color:#9ca3af;font:12px system-ui">Partagé depuis DGX</p>
+<p style="margin-top:32px;color:#9ca3af;font:12px system-ui">Partagé depuis {html.escape(platform_name())}</p>
 </div></body></html>"""
     return Response(html_doc, mimetype='text/html')
 

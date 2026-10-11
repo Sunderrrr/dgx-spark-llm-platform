@@ -56,7 +56,7 @@ import { SettingsDialogContext, type SettingsSection } from "@/lib/settings-dial
    the old black logo stayed displayed — a failed entry can stick the same way
    (seen once; 10 out of 10 attempts correct afterwards). The tab favicon,
    for its part, keeps being served from the root. */
-import logoDGX from "@/app/favicon.ico";
+import logoDefaut from "@/app/favicon.ico";
 import { useBranding } from "@/lib/branding";
 
 type NotificationItem = {
@@ -262,13 +262,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <SideNavHeading
               heading={marque.name}
               /* The tab logo (favicon served from the root) also at the
-                 top left, right before « DGX ». empty alt: the info is
+                 top left, right before the instance name. empty alt: the info is
                  already carried by the text of the heading that follows. */
               icon={
                 // Static 26 KB favicon: next/image brings nothing here.
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={marque.logo ?? logoDGX.src}
+                  src={marque.logo ?? logoDefaut.src}
                   alt=""
                   style={{ width: "var(--spacing-5)", height: "var(--spacing-5)" }}
                 />

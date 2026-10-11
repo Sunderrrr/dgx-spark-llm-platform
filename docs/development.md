@@ -81,7 +81,7 @@ VALIDATE_VERBOSE=1 ./scripts/validate.sh    # show the checks' output
 ```
 
 Full logs stay in `runtime/validation/<timestamp>/`. The probed origins come
-from `.env` (`DGX_WEB`, `DGX_API`, `DGX_SSO_DOMAIN` — see `.env.example`); the
+from `.env` (`DGX_WEB`, `DGX_API` — see `.env.example`; `DGX_SSO_DOMAIN` optionally pins the SSO redirect's host); the
 script refuses to run on the example values. `scripts/valider.sh` is the former
 name and still works.
 

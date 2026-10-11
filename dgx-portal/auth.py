@@ -24,8 +24,8 @@ from ldap3 import ALL, SIMPLE, Connection, Server
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 
-from config import (LDAP_BASE, LDAP_BIND_DN, LDAP_BIND_PW,
-                    LDAP_LOGIN_ATTR, LDAP_URI, LDAP_USERS_DN, OIDC_ADMIN_GROUP)
+from config import LDAP_BIND_DN, LDAP_BIND_PW
+from parametres import ldap_config, parametre
 from db import get_db, log_audit
 from local_users import _local_user_is_admin
 
@@ -327,11 +327,12 @@ def _local_user_admin(username):
 # ── LDAP ──
 
 def _is_admin_group(dn):
-    """True if one of the DN's RDN components is exactly cn=<OIDC_ADMIN_GROUP>.
+    """True if one of the DN's RDN components is exactly cn=<admin group>
+    (Admin → Config « SSO — groupe administrateur », else OIDC_ADMIN_GROUP).
     Avoids the false positive of a plain substring test (the group « admins »
     would match cn=admins_readonly, cn=notadmins, etc.).
     """
-    groupe = (OIDC_ADMIN_GROUP or '').strip().lower()
+    groupe = (parametre('oidc_admin_group') or '').strip().lower()
     if not groupe:
         return False
     for part in dn.split(','):
@@ -348,14 +349,15 @@ def ldap_authenticate(username, password):
     if not password or not USERNAME_RE.match(username):
         return False, False, username
     try:
-        server = Server(LDAP_URI, get_info=ALL)
+        c = ldap_config()    # read live: Admin → Config wins over .env
+        server = Server(c['uri'], get_info=ALL)
         # Anti-injection escaping: RDN for the bind DN, filter for the search.
-        user_dn = f"{LDAP_LOGIN_ATTR}={escape_rdn(username)},{LDAP_USERS_DN},{LDAP_BASE}"
+        user_dn = f"{c['login_attr']}={escape_rdn(username)},{c['users_dn']},{c['base']}"
         conn = Connection(server, user=user_dn, password=password,
                           authentication=SIMPLE, auto_bind=True)
         conn.search(
-            search_base=f"{LDAP_USERS_DN},{LDAP_BASE}",
-            search_filter=f"({LDAP_LOGIN_ATTR}={escape_filter_chars(username)})",
+            search_base=f"{c['users_dn']},{c['base']}",
+            search_filter=f"({c['login_attr']}={escape_filter_chars(username)})",
             attributes=['cn', 'displayName', 'memberOf']
         )
         if not conn.entries:
@@ -383,10 +385,11 @@ def ldap_lookup_email(username):
     if not (LDAP_BIND_DN and LDAP_BIND_PW) or not USERNAME_RE.match(username or ''):
         return None
     try:
-        conn = Connection(Server(LDAP_URI, get_info=ALL), user=LDAP_BIND_DN,
+        c = ldap_config()    # read live: Admin → Config wins over .env
+        conn = Connection(Server(c['uri'], get_info=ALL), user=LDAP_BIND_DN,
                           password=LDAP_BIND_PW, authentication=SIMPLE, auto_bind=True)
-        conn.search(search_base=f"{LDAP_USERS_DN},{LDAP_BASE}",
-                    search_filter=f"({LDAP_LOGIN_ATTR}={escape_filter_chars(username)})", attributes=['mail'])
+        conn.search(search_base=f"{c['users_dn']},{c['base']}",
+                    search_filter=f"({c['login_attr']}={escape_filter_chars(username)})", attributes=['mail'])
         email = None
         if conn.entries and hasattr(conn.entries[0], 'mail') and conn.entries[0].mail:
             email = str(conn.entries[0].mail)
@@ -416,19 +419,20 @@ def ldap_resolve_sso_identity(sub=None, email=None):
     if not (LDAP_BIND_DN and LDAP_BIND_PW):
         return None, False, None
     try:
-        conn = Connection(Server(LDAP_URI, get_info=ALL), user=LDAP_BIND_DN,
+        c = ldap_config()    # read live: Admin → Config wins over .env
+        conn = Connection(Server(c['uri'], get_info=ALL), user=LDAP_BIND_DN,
                           password=LDAP_BIND_PW, authentication=SIMPLE, auto_bind=True)
         entry = None
         # 1) bind by the immutable sub (Authentik LDAP maps it to `uid`).
         if sub and re.match(r'^[a-zA-Z0-9._:@-]{1,256}$', sub):
-            conn.search(search_base=f"{LDAP_USERS_DN},{LDAP_BASE}",
+            conn.search(search_base=f"{c['users_dn']},{c['base']}",
                         search_filter=f"(uid={escape_filter_chars(sub)})",
                         attributes=['cn', 'displayName', 'mail', 'memberOf'])
             if conn.entries:
                 entry = conn.entries[0]
         # 2) fall back to the verified email (unique directory key).
         if entry is None and email and '@' in email:
-            conn.search(search_base=f"{LDAP_USERS_DN},{LDAP_BASE}",
+            conn.search(search_base=f"{c['users_dn']},{c['base']}",
                         search_filter=f"(mail={escape_filter_chars(email)})",
                         attributes=['cn', 'displayName', 'mail', 'memberOf'])
             if conn.entries:

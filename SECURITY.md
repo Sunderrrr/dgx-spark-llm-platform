@@ -1,10 +1,10 @@
-# Security — DGX
+# Security — DGX platform
 
-Security posture of the DGX platform: what it trusts, what it enforces, and
+Security posture of the platform: what it trusts, what it enforces, and
 what it knowingly accepts. Audience is operators and auditors; it is meant to be
 read on its own, without the [README](README.md).
 
-One sentence of context: DGX runs on a **single NVIDIA DGX Spark** (GB10,
+One sentence of context: the platform runs on a **single NVIDIA DGX Spark** (GB10,
 128 GB unified memory, aarch64). One box, multi-user, production. There is no
 second machine to fall back on, and every sidecar shares the same memory pool —
 which is why several controls below are about *resource* abuse, not just access.
@@ -122,7 +122,7 @@ administration agents, both started outside `docker-compose.yml`, mount it
   with no `cap_drop` and no `no-new-privileges`. That directory holds the Traefik
   PKI (the ACME state file, `0600`) and the dynamic routing config: the container
   can therefore reach host root *and* rewrite TLS material and routing. Nothing
-  in the DGX stack needs it. See §3.3 — it is the one open item here that is
+  in the stack needs it. See §3.3 — it is the one open item here that is
   an operator decision, not a code fix.
 
 A compromise of either is host-root equivalent, so their tokens stay protected

@@ -24,7 +24,7 @@ jobs is enough to orphan them.
 import sqlite3
 import threading
 
-from config import SMTP_HOST
+from parametres import smtp_config
 from db import get_db, log_audit
 
 # Tables attached to an account, purged at its deletion. `local_users` is
@@ -258,7 +258,7 @@ def prevenir_mot_de_passe_change(username, par_admin=None):
     notification now goes out in a daemon thread: it can neither fail
     loudly nor make anyone wait. Returns False only when there is no SMTP.
     """
-    if not SMTP_HOST:
+    if not smtp_config()['host']:
         return False
     threading.Thread(target=_envoyer_notification_mot_de_passe,
                      args=(username, par_admin),

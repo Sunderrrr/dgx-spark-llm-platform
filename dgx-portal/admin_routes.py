@@ -8,7 +8,7 @@ No url_prefix: all URLs stay identical to the character. The `admin` view
 (GET /admin, 204) was REMOVED on 2026-09-17: it existed only as the target of
 the `url_for('admin')` calls of the action routes, and those routes have all
 answered JSON since 2026-09-13 — not a single `url_for('admin')` remains.
-Verified live before removing it: https://dgx.example.org/admin
+Verified live before removing it: <public web origin>/admin
 answers `text/html` (it is the Next.js page serving /admin), so the Flask
 endpoint was unreachable.
 """
@@ -33,9 +33,10 @@ from auth import (USERNAME_RE,
                   admin_required, bloquer_compte, completer_origine_session,
                   debloque_compte, est_bloque, is_admin_username, ldap_lookup_email,
                   login_required)
-from config import (ADMIN_EMAIL, KEY_BUDGET, KEY_DURATION, RUNNER_URL,
-                    SMTP_HOST, SMTP_PASS, SMTP_USER)
-from db import add_notification, get_db, get_setting, log_audit, maintenance_active, set_setting
+from config import ADMIN_EMAIL, KEY_BUDGET, KEY_DURATION, PUBLIC_WEB_URL, RUNNER_URL
+from parametres import smtp_config
+from db import (add_notification, get_db, get_setting, log_audit, maintenance_active,
+                platform_name, set_setting)
 from litellm_client import (_litellm_user_info, _register_litellm_model,
                             _unregister_litellm_model,
                             get_user_keys, litellm_update_user_budget)
@@ -43,7 +44,7 @@ from local_users import (MAX_BUDGET, _local_group, _local_user_effective_budget,
                          _local_user_is_admin, _parse_budget,
                          _sync_local_user_budget, password_policy_error)
 from notify import (notify_infra_alert_email, notify_maintenance_email,
-                    send_test_email, send_user_email)
+                    send_test_email, send_user_email, sender_address)
 from user_lifecycle import (compter_donnees, deprovisionner_compte,
                             prevenir_mot_de_passe_change, revoquer_cles_compte)
 from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
@@ -1477,7 +1478,7 @@ def toggle_maintenance():
     # documented as visible by the operator was not. It now goes out
     # in the JSON response, hence in the UI banner.
     avert = None
-    if all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]) and not sent:
+    if smtp_config()['configured'] and ADMIN_EMAIL and not sent:
         avert = "L'email d'alerte n'a pas pu être envoyé — vérifie la config SMTP."
     return _json_ok("Mode maintenance activé." if now_on else "Mode maintenance désactivé.",
                     maintenance_mode=now_on, warning=avert)
@@ -1487,17 +1488,19 @@ def toggle_maintenance():
 def admin_email_config():
     """Status of the email config (host / user / password / admin) — never
     returns the password."""
-    configured = bool(all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]))
-    return jsonify({'configured': configured, 'admin_email': ADMIN_EMAIL})
+    smtp = smtp_config()
+    configured = bool(smtp['configured'] and ADMIN_EMAIL)
+    return jsonify({'configured': configured, 'admin_email': ADMIN_EMAIL,
+                    'sender': sender_address(), 'smtp_host': smtp['host'] or ''})
 
 @bp.route('/admin/email/test', methods=['POST'])
 @admin_required
 def admin_email_test():
     """Sends a test email to ADMIN_EMAIL to validate SMTP."""
-    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]) or not ADMIN_EMAIL:
+    if not smtp_config()['configured'] or not ADMIN_EMAIL:
         return jsonify({'ok': False, 'configured': False,
-                        'error': "SMTP non configuré (renseigne SMTP_HOST / "
-                                 "SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL)."}), 400
+                        'error': "SMTP non configuré (renseigne-le dans Admin → Config, "
+                                 "ou SMTP_HOST / SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL)."}), 400
     ok = send_test_email()
     return jsonify({'ok': bool(ok), 'configured': True})
 
@@ -1505,7 +1508,7 @@ def admin_email_test():
 def internal_authcheck():
     """Called by Traefik (forwardAuth middleware on the public `api`
     router), never by the browser: decides whether an external request to
-    api.example.org passes or gets the maintenance message. Outside
+    the public API domain passes or gets the maintenance message. Outside
     maintenance mode, always 200 with no check (no cost added to the
     normal path).
     """
@@ -1639,16 +1642,16 @@ def admin_config():
     if request.method == 'GET':
         return jsonify({'ok': True, 'config': etat_config(),
                         'champs': [{'nom': n, 'libelle': l, 'secret': s}
-                                   for n, l, s in CONFIGURABLE]})
+                                   for n, l, s, _e, _d in CONFIGURABLE]})
     # An empty field means « back to the .env value »; a secret is only written
     # when the operator types one, never echoed back.
     modifies = 0
-    for nom, _libelle, _secret in CONFIGURABLE:
+    for nom, _libelle, _secret, _env, _defaut in CONFIGURABLE:
         if nom in request.form:
             definir(nom, request.form.get(nom, '').strip())
             modifies += 1
     log_audit(session['username'], 'config.modifiee',
-              f'{modifies} valeur(s) — LDAP/SSO/SMTP')
+              f'{modifies} valeur(s) — LDAP/SSO/SMTP/sécurité')
     return jsonify({'ok': True, 'modifies': modifies})
 
 
@@ -1658,7 +1661,7 @@ def admin_branding():
     """The deployment's identity: name in the sidebar, and the logo.
 
     « personnaliser en fonction de celui qui le déploie » — the operator names
-    their own instance (DGX is their homelab's name, not the product's).
+    their own instance; « DGX » is only the default (db.platform_name).
     The logo is stored as the uploaded data URL: one row, no filesystem to
     police, and the size is bounded like every other upload on this portal.
     """
@@ -2047,11 +2050,12 @@ def update_request(req_id):
     # Notifies the requester by email that their model is available.
     email = ldap_lookup_email(req['username'])
     if email:
-        send_user_email(email, "[DGX] Ton modèle est disponible",
+        nom_instance = platform_name()
+        send_user_email(email, f"[{nom_instance}] Ton modèle est disponible",
                         f"Bonne nouvelle — le modèle que tu as demandé est validé et "
-                        f"disponible sur la plateforme DGX :\n\n  {req['model_id']}\n\n"
+                        f"disponible sur la plateforme {nom_instance} :\n\n  {req['model_id']}\n\n"
                         f"Tu peux l'utiliser via l'API / le Playground une fois lancé.\n"
-                        f"https://dgx.example.org/\n")
+                        f"{PUBLIC_WEB_URL}/\n")
     if deja:
         return _json_ok(f"Modèle déjà dans le catalogue sous « {nom} ».")
     add_announcement('model_add', nom)

@@ -17,7 +17,7 @@ import secrets
 import time
 from datetime import datetime
 
-from db import get_db
+from db import get_db, platform_name
 from litellm_client import (_litellm_user_info, create_litellm_key,
                             get_user_keys, revoke_litellm_key)
 from mcp_client import MCPClient, MCPError, list_tools_cached
@@ -30,13 +30,13 @@ from stats import user_hourly
 from vllm_health import effective_ctx, get_running_models
 
 SUPPORT_FAQ = (
-    "FAQ plateforme DGX :\n"
+    "FAQ plateforme __PLATFORM__ :\n"
     "- Plateforme IA interne et GRATUITE (pas de facturation, pas de plan payant).\n"
     "- API compatible OpenAI. Endpoint public : configuré dans « Mes clés API ».\n"
     "- Budget PAR COMPTE, partagé par toutes les clés d'un même utilisateur, "
     "réinitialisé chaque jour. Le quota compte les vrais tokens : 1 token de prompt = 1, 1 token généré = 1.\n"
     "- Obtenir plus de budget : demande envoyée à un admin (bouton « Demander plus de "
-    "tokens » ou via toi, DGX). Un admin valide.\n"
+    "tokens » ou via toi, __PLATFORM__). Un admin valide.\n"
     "- Demander un nouveau modèle : via la page « Demander un modèle » (identifiant "
     "Hugging Face) ou via toi ; un admin le valide puis le lance.\n"
     "- Intégrations : OpenCode, Hermes Agent, Codex, Aider, Cursor, Continue, "
@@ -44,8 +44,13 @@ SUPPORT_FAQ = (
     "- Un seul modèle tourne à la fois sur le GPU (mémoire unifiée du DGX Spark)."
 )
 
+def support_text(text):
+    """A support prompt with the instance name (Admin → Branding) filled in."""
+    return text.replace('__PLATFORM__', platform_name())
+
+
 SUPPORT_SYSTEM = (
-    "Tu es DGX, l'assistant IA de la plateforme DGX (NVIDIA DGX Spark, "
+    "Tu es __PLATFORM__, l'assistant IA de la plateforme __PLATFORM__ (NVIDIA DGX Spark, "
     "auto-hébergée). Tu aides les utilisateurs en français, de façon concise et "
     "concrète, sur les clés API, le budget/quota, les intégrations, l'accès aux "
     "modèles et le dépannage.\n"
@@ -212,7 +217,7 @@ def _support_context(username, is_admin, user_msg=''):
                      "sont utiles pour répondre (panne, erreur, démarrage), lis-les "
                      "avec l'outil read_logs, puis cite la cause trouvée.")
 
-    return SUPPORT_FAQ + "\n\n" + "\n".join(lines)
+    return support_text(SUPPORT_FAQ) + "\n\n" + "\n".join(lines)
 
 
 def _support_tools(is_admin):

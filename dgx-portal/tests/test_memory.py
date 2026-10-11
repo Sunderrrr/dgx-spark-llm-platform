@@ -212,11 +212,11 @@ class RappelTest(MemoryTestBase):
 
     def test_alias_par_l_objet_relie(self):
         # A fact linking two subjects must be found from either one.
-        memoire._mem_add_fact(self.USER, 'DGX', 'sert avec', "DGX sert ses modèles avec vLLM.",
+        memoire._mem_add_fact(self.USER, 'Portail', 'sert avec', "Portail sert ses modèles avec vLLM.",
                              obj='vLLM')
-        depuis_dgx = [f['fact'] for f in memoire._mem_recall(self.USER, 'DGX')]
+        depuis_portail = [f['fact'] for f in memoire._mem_recall(self.USER, 'Portail')]
         depuis_vllm = [f['fact'] for f in memoire._mem_recall(self.USER, 'vLLM')]
-        self.assertEqual(depuis_dgx, depuis_vllm)
+        self.assertEqual(depuis_portail, depuis_vllm)
         self.assertEqual(len(depuis_vllm), 1)
 
     def test_sujet_isole_ne_ramene_pas_le_reste(self):

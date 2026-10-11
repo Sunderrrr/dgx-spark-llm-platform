@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 
 // The deployment's own identity: name in the sidebar, and the logo.
 //
-// « personnaliser en fonction de celui qui le déploie » — DGX is THIS
-// operator's homelab name, not the product's. Both values come from
+// « personnaliser en fonction de celui qui le déploie » — the operator names
+// their own instance; « DGX » is only the default. Both values come from
 // `/api/config`, which is public (the login page shows the identity too) and
 // cached ten seconds server-side: one fetch per session, kept in module state
 // so every shell re-render reads the same answer instead of asking again.

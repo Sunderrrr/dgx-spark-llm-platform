@@ -34,7 +34,7 @@ Path: `api.example.org` (**Cloudflare, proxied**) → **Traefik** →
 `http://litellm:4001`. LiteLLM listens on **4001 inside the Docker network** and
 publishes **no host port at all**; Traefik is attached to the same compose network
 and reaches it by service name (the portal does the same, via `LITELLM_URL`). The
-host name `dgx.example.lan:4001` that this page used to give answers nothing — do
+host name `dgx.lan:4001` that this page used to give answers nothing — do
 not route to the host.
 Keep the route on `4001`, never to the runner (`8001`) or the engine (`8000`).
 Consider a per-key rate limit (rpm/tpm) in

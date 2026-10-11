@@ -18,7 +18,7 @@ from config import DISCORD_API, DISCORD_BOT_TOKEN
 # DB_PATH in addition to get_db: the broadcast runs in a THREAD, which has no
 # Flask context and therefore opens its own connection (same reason as the
 # image/video jobs — see the get_db docstring).
-from db import DB_PATH, get_setting
+from db import DB_PATH, get_setting, platform_name
 
 # Distinct from the admin webhook above: here the *bot* sends a private message
 # to each user who opted in by linking their Discord account. A DM needs a mutual
@@ -96,5 +96,5 @@ def _discord_announce(kind, a='', b=''):
             txt += f"\n{b}"
     else:
         return
-    txt += "\n\n— DGX"
+    txt += f"\n\n— {platform_name()}"
     discord_broadcast(txt)

@@ -20,6 +20,7 @@ counter-intuitive:
    from the last recorded login.
 """
 import secrets
+import os
 import time
 import unittest
 from unittest.mock import patch
@@ -696,7 +697,7 @@ class NotificationMotDePasseTest(unittest.TestCase):
     must break nothing when the email is not configured."""
 
     def test_sans_smtp_rien_ne_part_et_rien_ne_leve(self):
-        with patch.object(user_lifecycle, 'SMTP_HOST', ''):
+        with patch.dict(os.environ, {'SMTP_HOST': ''}):
             self.assertFalse(user_lifecycle.prevenir_mot_de_passe_change(CIBLE))
 
     def test_annuaire_injoignable_ne_leve_pas(self):
@@ -742,7 +743,7 @@ class NotificationMotDePasseTest(unittest.TestCase):
             _time.sleep(1.5)
             return 'quelqu-un@example.com'
 
-        with patch.object(user_lifecycle, 'SMTP_HOST', 'smtp.zoho.com'), \
+        with patch.dict(os.environ, {'SMTP_HOST': 'smtp.example'}), \
              patch('auth.ldap_lookup_email', side_effect=_lent), \
              patch('notify.send_user_email',
                    side_effect=lambda *a, **k: vus.append(a) or True):

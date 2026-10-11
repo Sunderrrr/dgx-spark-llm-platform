@@ -57,7 +57,7 @@ SERVICES = [
 
 # Nightly backup: a dump too old = incident (retention/maintenance).
 BACKUP_DIR = "/var/backups/dgx"
-BACKUP_MAX_AGE_H = 26  # dgx-backup tourne à 03:00 → < 26 h = toujours frais
+BACKUP_MAX_AGE_H = 26  # dgx-backup runs at 03:00 → under 26 h = always fresh
 
 # Data integrity: on 04/09/2026 the contents of portal.db were reset and nobody
 # noticed for three days. We keep a WATERMARK of the data volume seen and alert

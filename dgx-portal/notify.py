@@ -17,21 +17,25 @@ from email.mime.text import MIMEText
 
 import requests
 
-from config import (ADMIN_EMAIL, ADMIN_URL, DISCORD_WH, SMTP_FROM, SMTP_HOST,
-                    SMTP_PASS, SMTP_PORT, SMTP_USER)
+from db import platform_name
+from config import ADMIN_EMAIL, ADMIN_URL, DISCORD_WH
+from parametres import smtp_config
 
 # Application name shown by the mail client (gmail shows « DGX platform »).
-# The sending address stays the authenticated SMTP account (no-reply@example.org).
+# The sending address stays the authenticated SMTP account (SMTP_USER / SMTP_FROM).
 APP_NAME = "DGX platform"
+
+
+def sender_address():
+    """The bare sending address: the one in `Name <addr>` SMTP_FROM, else the SMTP account."""
+    c = smtp_config()
+    m = re.search(r"<([^>]+)>", c['from'] or "")
+    return m.group(1) if m else (c['user'] or "")
 
 
 def _sender():
     """Full « From » address: `<APP_NAME> <<SMTP account>>`."""
-    addr = SMTP_USER
-    m = re.search(r"<([^>]+)>", SMTP_FROM or "")
-    if m:
-        addr = m.group(1)
-    return f"{APP_NAME} <{addr}>"
+    return f"{APP_NAME} <{sender_address()}>"
 
 
 # ── Gabarit d'email (HTML + texte alternatif) ───────────────────────────────
@@ -88,7 +92,7 @@ def _render_html(heading, rows, body, footnote, cta_url=None):
  {cta_html}
 </td></tr>
 <tr><td style="padding:16px 30px;background:#f9fafb;border-top:1px solid #eef0f2;color:#9ca3af;font-size:12px;">
- DGX&nbsp;·&nbsp;DGX platform&nbsp;·&nbsp;Automated message&nbsp;·&nbsp;{datetime.utcnow().strftime('%d %b %Y, %H:%M UTC')}
+ {html.escape(platform_name())}&nbsp;·&nbsp;Automated message&nbsp;·&nbsp;{datetime.utcnow().strftime('%d %b %Y, %H:%M UTC')}
 </td></tr>
 </table>
 </td></tr>
@@ -105,7 +109,7 @@ def _email_parts(heading, rows, body, footnote, cta_url=None):
         text.append(body)
     if footnote:
         text.extend(["", footnote])
-    text.extend(["", "— DGX · DGX platform"])
+    text.extend(["", f"— {platform_name()}"])
     return ("\n".join(text),
             _render_html(heading, rows, body, footnote, cta_url))
 
@@ -113,7 +117,8 @@ def _email_parts(heading, rows, body, footnote, cta_url=None):
 def _send(to_email, subject, heading, rows=None, body=None, footnote=None,
           cta_url=None):
     """Sends an HTML email + alternative text to `to_email`. Returns True/False."""
-    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]) or not to_email:
+    smtp = smtp_config()          # read live: Admin → Config wins over .env
+    if not smtp['configured'] or not to_email:
         return False
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
@@ -126,9 +131,9 @@ def _send(to_email, subject, heading, rows=None, body=None, footnote=None,
     msg.attach(MIMEText(text, 'plain'))
     msg.attach(MIMEText(html_body, 'html'))
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+        with smtplib.SMTP(smtp['host'], smtp['port']) as s:
             s.starttls()
-            s.login(SMTP_USER, SMTP_PASS)
+            s.login(smtp['user'], smtp['password'])
             s.sendmail(msg['From'], [to_email], msg.as_string())
         return True
     except Exception as e:
@@ -272,7 +277,7 @@ def send_test_email():
         ADMIN_EMAIL,
         "[DGX platform] SMTP test",
         "SMTP test",
-        rows=[("Sender", APP_NAME), ("Environment", "DGX / DGX platform")],
+        rows=[("Sender", APP_NAME), ("Instance", platform_name())],
         body="The SMTP configuration works. Nice!",
         cta_url=ADMIN_URL,
     )

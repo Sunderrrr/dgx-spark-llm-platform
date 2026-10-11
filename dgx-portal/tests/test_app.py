@@ -755,6 +755,8 @@ class GardeDesRoutesTest(unittest.TestCase):
         'admin.internal_authcheck': "appelé par Traefik (forwardAuth), jamais par un "
                                     "navigateur ; ne renvoie aucune donnée",
         'static':             "fichiers statiques servis par Flask",
+        'security_txt':       "RFC 9116 security contact: public by definition, "
+                              "only the configured contact and canonical URL",
         'healthz':            "liveness publique (healthcheck / sonde) : ne renvoie "
                               "que {ok, time}, rien d'interné",
         'prom_metrics':       "métriques Prometheus (texte) pour Grafana : publique "
@@ -1151,7 +1153,7 @@ class PromMetricsTest(unittest.TestCase):
     def test_metrics_refuse_via_cloudflare(self):
         """Cloudflare sets Cf-Connecting-Ip on EVERY request crossing the
         edge: its presence proves the call comes from the internet
-        (dgx.example.org), not the LAN/netbird, so we serve no host metrics."""
+        (the public web domain), not the LAN/netbird, so we serve no host metrics."""
         c = portal.app.test_client()
         r = c.get("/metrics", headers={"Cf-Connecting-Ip": "203.0.113.7"})
         self.assertEqual(r.status_code, 403)

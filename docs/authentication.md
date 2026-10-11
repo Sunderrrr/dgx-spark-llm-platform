@@ -64,7 +64,7 @@ that cannot work.
 
 **Passkeys** (WebAuthn/FIDO2, not TOTP) are bound to the **origin**
 (`WEBAUTHN_ORIGIN`, e.g. `https://dgx.example.org`) — a key registered there
-does not work from `http://dgx.example.lan`. `WEBAUTHN_REQUIRE_UV` (default off)
+does not work from `http://dgx.lan`. `WEBAUTHN_REQUIRE_UV` (default off)
 accepts "touch-only" keys; enabling it would require PIN/biometrics. Any
 deletion/disabling requires a password re-verification. One-time challenges are
 stored in `pending_webauthn`, TTL 5 min.

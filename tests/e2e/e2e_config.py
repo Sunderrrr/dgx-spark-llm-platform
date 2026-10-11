@@ -25,9 +25,10 @@ RACINE = Path(os.environ.get("DGX_ROOT", _RACINE))
 WEB = os.environ.get("DGX_WEB", "https://example.org")
 # The bare hostname (no scheme): cookies and assertions speak of a domain.
 DOMAINE = WEB.split("//", 1)[-1].split("/", 1)[0]
-# The identity provider the SSO redirects to — the journey checks the
-# redirect, never the provider itself.
-DOMAINE_SSO = os.environ.get("DGX_SSO_DOMAIN", "sso.example.org")
+# Optional: the identity provider's host, to pin the SSO redirect to it. The
+# provider itself is configured in Admin → Config; without this variable the
+# journey checks the redirect's shape (another host, client_id, redirect_uri).
+DOMAINE_SSO = os.environ.get("DGX_SSO_DOMAIN", "")
 API = os.environ.get("DGX_API", "https://api.example.org")
 S3_CFG = os.environ.get("DGX_S3_CFG", str(RACINE / "secrets/s3-garage.cfg"))
 S3_BUCKET = os.environ.get("DGX_S3_BUCKET", "s3://dgx/backups")

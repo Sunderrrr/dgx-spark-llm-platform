@@ -24,6 +24,7 @@ defects are locked in there, all verified by reading the code before the fix:
    and the quota resynchronization was unconditional — so a simple rename
    erased an ongoing grant.
 """
+import os
 import time
 import unittest
 from unittest.mock import patch
@@ -213,9 +214,8 @@ class ContratJsonTest(BaseAdmin):
     def test_maintenance_auditee_et_avertissement_surface(self):
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'notify_maintenance_email', return_value=False), \
-             patch.object(admin_routes, 'SMTP_HOST', 'smtp.example'), \
-             patch.object(admin_routes, 'SMTP_USER', 'u'), \
-             patch.object(admin_routes, 'SMTP_PASS', 'p'), \
+             patch.dict(os.environ, {'SMTP_HOST': 'smtp.example', 'SMTP_USER': 'u',
+                                     'SMTP_PASSWORD': 'p'}), \
              patch.object(admin_routes, 'ADMIN_EMAIL', 'a@example'):
             r = self._post(c, '/admin/maintenance/toggle')
         self.assertEqual(r.status_code, 200)

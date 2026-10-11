@@ -23,8 +23,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from webauthn.helpers import encode_cbor
 from werkzeug.security import generate_password_hash
 
-RP_ID = "dgx.example.org"
-ORIGIN = "https://dgx.example.org"
+# The deployment's own values (derived from DGX_WEB), never a hard-coded domain.
+from config import WEBAUTHN_ORIGIN as ORIGIN, WEBAUTHN_RP_ID as RP_ID  # noqa: E402
 
 
 def _b64url(b):

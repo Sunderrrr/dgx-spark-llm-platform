@@ -3,7 +3,7 @@
 
 The produced file is `dgx-portal-frontend/app/favicon.ico`, served by Next at
 the site root. It is used in TWO places, deliberately: the browser tab icon,
-and the logo at the top left of the sidebar, right before « DGX »
+and the logo at the top left of the sidebar, right before the instance name
 (`app/(app)/layout.tsx`, `SideNavHeading` → `icon`). One source for both: so
 replacing the logo updates both at once.
 

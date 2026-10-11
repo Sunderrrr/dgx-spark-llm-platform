@@ -1,8 +1,8 @@
 "use client";
 // The deployment's identity: the instance name and its logo.
 //
-// « personnaliser en fonction de celui qui le déploie » — DGX is THIS
-// operator's homelab name, not the product's. The name shows top left in the
+// « personnaliser en fonction de celui qui le déploie » — the operator names
+// their own instance (« DGX » by default). The name shows top left in the
 // sidebar (and in the settings dialog); the logo replaces the built-in favicon
 // next to it. Both live in the `settings` table so a redeployed instance keeps
 // them, and both are served to the login page too (no session yet).
@@ -80,7 +80,7 @@ export function BrandingConfig({ initialName }: { initialName?: string }) {
           label={t("Nom de l'instance")}
           value={nom}
           onChange={setNom}
-          placeholder={t("Ex : DGX")}
+          placeholder={t("Ex : Acme AI")}
         />
         <HStack gap={3} vAlign="center" wrap="wrap">
           <Button

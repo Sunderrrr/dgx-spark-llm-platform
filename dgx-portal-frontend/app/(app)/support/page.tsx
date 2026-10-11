@@ -64,6 +64,7 @@ import { convAsMarkdown, convTitleFallback, downloadText } from "@/lib/export";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 import { useT, tServeur } from "@/lib/i18n";
+import { useBranding } from "@/lib/branding";
 import { copierTexte } from "@/lib/copier";
 import { texteNotice } from "@/lib/notices";
 import type { DgxNotice } from "@/lib/notices";
@@ -152,10 +153,11 @@ const ATTACH_EXTENSIONS = ATTACH_ACCEPT.split(",").map((e) => e.trim().toLowerCa
 const MAX_ATTACHMENT_BYTES = 96 * 1024;
 
 const WELCOME_MESSAGE_FR =
-  "Bonjour 👋 Je suis **DGX**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.";
+  "Bonjour 👋 Je suis **{name}**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.";
 
 export default function SupportPage() {
   const t = useT();
+  const marque = useBranding();
   const csrf = useCsrf();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -194,7 +196,7 @@ export default function SupportPage() {
   // message has been sent, rather than storing it: it thus stays always
   // up to date if the language changes before the first send, without ever
   // overwriting an ongoing conversation.
-  const displayMessages = messages.length ? messages : [{ role: "assistant" as const, content: t(WELCOME_MESSAGE_FR) }];
+  const displayMessages = messages.length ? messages : [{ role: "assistant" as const, content: t(WELCOME_MESSAGE_FR).replace("{name}", marque.name) }];
 
   // Follow the bottom while an answer streams, stop as soon as the reader
   // scrolls up, and offer a « Descendre » button — the very same mechanism as

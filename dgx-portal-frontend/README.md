@@ -1,6 +1,6 @@
 # dgx-portal-frontend
 
-The web UI for **DGX**, the DGX Spark self-service LLM platform. Built with
+The web UI of the DGX Spark self-service LLM platform. Built with
 **Next.js 16** (App Router) and Meta's **Astryx** design system (React +
 StyleX). It owns the platform's public port (`:5000`) and covers every page:
 home, playground, OCR, video, image, music, voice, memory, keys, search,
@@ -123,7 +123,7 @@ app/
 │   ├── voice/                     # voice cloning (Qwen3-TTS default, Chatterbox fallback);
 │   │                              #   mic recording or file upload; page adapts to the loaded
 │   │                              #   engine; audio served by Flask at /voice/audio/<job id>
-│   ├── support/                   # streaming chat with the DGX assistant (tool-calling)
+│   ├── support/                   # streaming chat with the Support assistant (tool-calling)
 │   ├── image/, music/, memory/      # generation pages + the memory graph
 │   ├── keys/, search/, ranking/, request/, users/, admin/
 │   └── _components/

@@ -125,6 +125,38 @@ def get_setting(key, default=None):
     return row['value'] if row else default
 
 
+def read_setting(key, default=''):
+    """A setting, from a request OR from a background thread.
+
+    get_setting needs the Flask app context; notification threads (e-mail,
+    Discord) have none, and used to fall back silently to the .env/code value
+    — a name or an SMTP server set in Admin was ignored exactly there. Outside
+    a context, one short read-only connection answers instead.
+    """
+    try:
+        from flask import has_app_context
+        if has_app_context():
+            return get_setting(key, default)
+        con = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=2)
+        try:
+            row = con.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        finally:
+            con.close()
+        return row[0] if row else default
+    except Exception:
+        return default
+
+
+def platform_name():
+    """The instance name (Admin → Branding), « DGX » when unset.
+
+    The ONE place the name comes from: e-mails, the Support assistant, exports
+    and shared pages all follow the deployer's branding instead of a name baked
+    into the code.
+    """
+    return (read_setting('platform_name', '') or '').strip() or 'DGX'
+
+
 def set_setting(key, value):
     db = get_db()
     db.execute(

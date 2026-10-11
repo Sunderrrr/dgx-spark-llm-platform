@@ -75,7 +75,7 @@ services:
       - no-new-privileges:true
     # NO published port: LiteLLM is reachable only from the Docker network.
     # Traefik (`http://litellm:4001`) and the portal (LITELLM_URL) go through
-    # there; external access goes through ${PUBLIC_API_URL:-https://api.example.org/v1}, which
+    # there; external access goes through ${DGX_API}/v1, which
     # additionally applies the maintenance forwardAuth — which the old
     # published port bypassed.
     volumes:
@@ -97,17 +97,10 @@ services:
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       # Turns off the admin UI (/ui, /sso): it was publicly reachable via
-      # api.example.org and concentrated the whole master key on an exposed
+      # the public API domain and concentrated the whole master key on an exposed
       # login form. Admin goes through the portal (dgx-portal), not this UI.
       DISABLE_ADMIN_UI: "True"
-      # SSO Authentik (create an OIDC app "litellm" in Authentik, scope: openid profile email)
-      GENERIC_CLIENT_ID: ${AUTHENTIK_LITELLM_CLIENT_ID}
-      GENERIC_CLIENT_SECRET: ${AUTHENTIK_LITELLM_CLIENT_SECRET}
-      GENERIC_AUTHORIZATION_ENDPOINT: https://sso.example.org/application/o/authorize/
-      GENERIC_TOKEN_ENDPOINT: https://sso.example.org/application/o/token/
-      GENERIC_USERINFO_ENDPOINT: https://sso.example.org/application/o/userinfo/
-      GENERIC_REDIRECT_URI: ${DGX_PORTAL_URL:-http://dgx.example.lan:4001}/sso/callback
-      GENERIC_CLIENT_SCOPE: "openid profile email"
+      # No LiteLLM SSO settings: they only served the admin UI disabled above.
     # The proxy also writes to /run/dgx/litellm.log (shared with dgx-portal,
     # mounted read-only there) so the Support can read its logs with the same
     # `read_logs` tool as the GPU services — without going through the runner
@@ -128,16 +121,19 @@ services:
     # Every API key failed because NOTHING was listening. `exec` replaces the
     # shell so SIGTERM reaches the proxy directly — no trap, no $!, nothing to
     # get wrong; the log keeps its 20 MB rotation at startup.
+    # `$$` everywhere: compose interpolates `$size` itself, so the script used
+    # to run `case "" in` and `[ "" -gt 20000000 ]` — the rotation never fired
+    # (and compose warned « The "size" variable is not set » on every command).
     entrypoint:
       - sh
       - -c
       - |
         sleep 5
-        size=$(stat -c%s /run/dgx/litellm.log 2>/dev/null || echo 0)
+        size=$$(stat -c%s /run/dgx/litellm.log 2>/dev/null || echo 0)
         # `sh` chokes on an empty comparison: default it BEFORE testing.
-        size=${size:-0}
-        case "$size" in *[!0-9]*) size=0 ;; esac
-        if [ "$size" -gt 20000000 ]; then mv /run/dgx/litellm.log /run/dgx/litellm.log.1; fi
+        size=$${size:-0}
+        case "$$size" in *[!0-9]*) size=0 ;; esac
+        if [ "$$size" -gt 20000000 ]; then mv /run/dgx/litellm.log /run/dgx/litellm.log.1; fi
         exec /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4001 >> /run/dgx/litellm.log 2>&1
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -163,7 +159,7 @@ services:
       - ALL
     environment:
       SECRET_KEY: ${WEBUI_SECRET_KEY}
-      LDAP_URI: ldap://100.64.45.103:389
+      LDAP_URI: ${LDAP_URI:-}
       # The deployment's OWN directory details live in .env, never in
       # this file: it is a public repository, and the base DN names
       # the operator's domain (audit 2026-10-07).
@@ -213,17 +209,23 @@ services:
       VOICE_URL: http://voice:8004
       # Transcription (Playground dictation): same, dedicated asr_net network.
       ASR_URL: http://asr:8006
-      # Public URL of the OpenAI-compatible API shown to users
-      PUBLIC_API_URL: ${PUBLIC_API_URL:-https://api.example.org/v1}/v1
+      # Public URL of the OpenAI-compatible API shown to users. It was
+      # `${PUBLIC_API_URL:-…/v1}/v1`, which displayed « …/v1/v1 » to every user.
+      PUBLIC_API_URL: ${DGX_API:?set DGX_API in .env (see .env.example)}/v1
+      # The public web origin: e-mail links and the passkey (WebAuthn) origin.
+      DGX_WEB: ${DGX_WEB:?set DGX_WEB in .env (see .env.example)}
       # LiteLLM database for consumption stats (ranking + hourly graph)
       LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       TZ_DISPLAY: Europe/Paris
       # ── SSO / OIDC (Authentik) ──
-      OIDC_METADATA_URL: https://sso.example.org/application/o/dgx/.well-known/openid-configuration
+      # LDAP, SSO, SMTP and the security contact are set in Admin → Config
+      # (stored in the portal database, read live). A .env value is only the
+      # fallback when the panel field is empty.
+      OIDC_METADATA_URL: ${OIDC_METADATA_URL:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
-      OIDC_REDIRECT_URI: https://dgx.example.org/api/oauth2-redirect
-      OIDC_LOGOUT_URL: https://sso.example.org/application/o/dgx/end-session/
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      OIDC_LOGOUT_URL: ${OIDC_LOGOUT_URL:-}
       OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP}
       # App served over HTTPS behind Traefik → Secure session cookie
       SESSION_COOKIE_SECURE: "1"
@@ -411,13 +413,13 @@ networks:
   web_net:
 
 # ─── OpenWebUI ────────────────────────────────────────────────────────────────
-# OpenWebUI runs on your other server (other.example.org).
+# If OpenWebUI runs on another server:
 # Change in its config:
 #   OLLAMA_BASE_URL  →  remove
 #   Add:
-#     OPENAI_API_BASE_URL=${PUBLIC_API_URL:-https://api.example.org/v1}/v1
-#       (and NOT http://dgx.example.lan:4001: LiteLLM listens only on the
+#     OPENAI_API_BASE_URL=${DGX_API}/v1
+#       (and NOT http://<this host>:4001: LiteLLM listens only on the
 #        internal docker network, no port is published on the host — the only
-#        path from outside is Traefik → ${PUBLIC_API_URL:-https://api.example.org/v1})
+#        path from outside is Traefik → ${DGX_API}/v1)
 #     OPENAI_API_KEY=<LITELLM_MASTER_KEY>
 # Keep everything else (Authentik SSO, roles, etc.) identical.

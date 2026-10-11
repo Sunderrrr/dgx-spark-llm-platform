@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Screenshots of the DGX portal — DARK theme, ENGLISH UI,
+"""Screenshots of the portal — DARK theme, ENGLISH UI,
 dedicated demonstration account.
 
 Why a script rather than hand-taken screenshots: the image set published in
@@ -53,7 +53,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-BASE = os.environ.get("SHOTS_BASE", "https://dgx.example.org")
+BASE = os.environ.get("SHOTS_BASE", os.environ.get("DGX_WEB", "https://example.org"))
 USER = "demo"
 PW_FILE = os.environ.get("SHOTS_PW_FILE", "/root/shots/demo-credentials")
 try:
@@ -358,7 +358,7 @@ def verify(folder="assets"):
     expected = {
         "dashboard": [r"Demo", r"Availability"],
         "playground": [r"LiteLLM|platform"],
-        "support": [r"DGX", r"message"],
+        "support": [r"assistant", r"message"],
         "ocr": [r"OCR"], "voice": [r"Voice"], "video": [r"Video"],
         "image": [r"Image"], "music": [r"Music"],
         "memory": [r"Memor"], "search": [r"model"], "request": [r"Request"],

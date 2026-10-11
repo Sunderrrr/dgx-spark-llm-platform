@@ -2,7 +2,7 @@
  * Text copying, with a fallback where `navigator.clipboard` does not exist.
  *
  * The Clipboard API requires a SECURE CONTEXT: on the LAN over HTTP
- * (`http://dgx.example.lan`) it is `undefined`. Everywhere the code did
+ * (`http://<lan host>`) it is `undefined`. Everywhere the code did
  * `navigator.clipboard?.writeText(...)`, the `?.` therefore swallowed the
  * call without doing anything — visible button, click with no effect, no
  * message. It was particularly costly in the Clés API tab, whose whole

@@ -96,7 +96,7 @@ _MOTS_DE_PASSE_INTERDITS = {
     'password', 'password1', 'password123', 'motdepasse', 'motdepasse1',
     '12345678', '123456789', '1234567890', 'azertyui', 'azertyuiop',
     'qwertyui', 'qwertyuiop', 'admin123', 'administrateur', 'changeme',
-    'dgx123', 'dgxspark', 'iloveyou', 'soleil123', '00000000',
+    'dgxspark', 'iloveyou', 'soleil123', '00000000',
 }
 
 

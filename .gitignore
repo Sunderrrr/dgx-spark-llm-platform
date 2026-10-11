@@ -68,3 +68,8 @@ CLAUDE.md
 # Runtime state shared between containers (proxy in-flight activity, read by
 # the portal). Holds API key aliases and account names: never in git.
 runtime/
+
+# Editor swap/lock files (nano writes ..env.swp while .env is open)
+*.swp
+*.swo
+*~

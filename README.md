@@ -91,7 +91,7 @@ go to **Admin**, and launch a model from the catalog. The detailed guide
 ## How to validate a change
 
 ```bash
-./scripts/valider.sh     # run after EVERY modification
+./scripts/validate.sh     # run after EVERY modification
 ```
 
 One command, four groups: code gates (724 backend tests, frontend, types, lint,
@@ -115,7 +115,7 @@ the gate that catches it. Details and the engineering loop:
 | [docs/api.md](docs/api.md) | endpoint, `auto-model`, integration snippets, request contract |
 | [docs/operations.md](docs/operations.md) | model launch, auto-resume, engines, sidecars, systemd, monitoring |
 | [docs/security.md](docs/security.md) | posture, accepted risks, the pen test — points to `SECURITY.md` |
-| [docs/development.md](docs/development.md) | engineering loop, tests, `valider.sh`, conventions, screenshots, versioning |
+| [docs/development.md](docs/development.md) | engineering loop, tests, `validate.sh`, conventions, screenshots, versioning |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | the known traps: GB10 memory, docker networking, the runner |
 
 Companion documents: [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md) ·

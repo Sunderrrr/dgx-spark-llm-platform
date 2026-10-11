@@ -10,6 +10,7 @@ from e2e_config import (WEB, API, DOMAINE, DOMAINE_SSO, RACINE, DEMO_PASS, DEMO_
                     S3_CFG, S3_BUCKET, PYTEST_BIN)
 import re
 import sys
+import time
 
 import commun as c
 
@@ -35,11 +36,23 @@ def main() -> int:
         # retrouver AU-DESSUS de la réponse (« qui parle »).
         selecteur = page.get_by_role("combobox").first
         modele = ""
+        # The selector renders its placeholder before the model list arrives:
+        # reading it at once captured « No active model » (run 20261011-133040)
+        # and failed the name check further down. Wait for a real name.
+        placeholders = ("No active model", "Aucun modèle actif")
         try:
             selecteur.wait_for(state="visible", timeout=15000)
-            modele = selecteur.inner_text().strip().split("\n")[0]
+            fin = time.monotonic() + 30
+            while time.monotonic() < fin:
+                modele = selecteur.inner_text().strip().split("\n")[0]
+                if modele and not modele.startswith(placeholders):
+                    break
+                page.wait_for_timeout(250)
         except Exception:
             pass
+        if modele.startswith(placeholders):
+            p.rate("modèle annoncé dans le sélecteur", "the served model's name",
+                   f"still « {modele} » after 30 s — the portal sees no running model")
         if not modele:
             # Repli : le modèle servi, annoncé par l'API publique de la page.
             statut, _, corps = c.http("GET", f"{c.BASE}/api/config")

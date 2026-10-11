@@ -20,6 +20,7 @@
 #   DGX_DEMO_USER   demo account used by the validation journeys
 #   DGX_DEMO_PASS   file holding its password (never the password itself)
 #   DGX_PYTEST_BIN  the python that carries Playwright
+#   DGX_RUNNER_URL  the model runner's control API (default: http://127.0.0.1:8001)
 
 # Where is this repository? Derive it from the script, don't guess.
 _RACINE=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -46,6 +47,7 @@ export DGX_S3_LOGS="${DGX_S3_LOGS:-s3://dgx/logs}"
 export DGX_DEMO_USER="${DGX_DEMO_USER:-demo}"
 export DGX_DEMO_PASS="${DGX_DEMO_PASS:-/root/shots/demo-credentials}"
 export DGX_PYTEST_BIN="${DGX_PYTEST_BIN:-/root/shots-venv/bin/python}"
+export DGX_RUNNER_URL="${DGX_RUNNER_URL:-http://127.0.0.1:8001}"
 
 # The deployer's values are the point of all this: if a domain is still the
 # generic default, say so LOUDLY instead of probing example.org and reporting
@@ -54,8 +56,8 @@ export DGX_PYTEST_BIN="${DGX_PYTEST_BIN:-/root/shots-venv/bin/python}"
 _valide() {
   case "$1" in
     *example.org|*example.com)
-      printf '\033[31m✗ %s est encore la valeur par défaut (%s).\033[0m\n' "$2" "$1" >&2
-      printf '   Ajoute-la à .env — voir .machine/env-domains-a-ajouter.txt\n' >&2
+      printf '\033[31m✗ %s is still the default value (%s).\033[0m\n' "$2" "$1" >&2
+      printf '   Set it in .env — see the DGX_* block of .env.example\n' >&2
       return 1 ;;
   esac
   return 0

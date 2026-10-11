@@ -1,6 +1,6 @@
 "use client";
 // Run the FULL validation pipeline from the admin: code gates, running
-// service, user journeys, health — the same `scripts/valider.sh` a developer
+// service, user journeys, health — the same `scripts/validate.sh` a developer
 // runs before pushing, on demand.
 //
 // « je puisse lancer un test qui teste tout et me dise si tout va bien ou là où

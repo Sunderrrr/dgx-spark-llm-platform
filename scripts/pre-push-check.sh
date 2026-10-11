@@ -82,12 +82,14 @@ for range in "${ranges[@]}"; do
   # The LIVE values of .env must appear in NO diff and NO message: a real
   # credential never looks like a pattern, it looks like a word. Reading the
   # file is local-only and nothing is echoed (the report names the KEY).
+  # ADDED lines only (and messages): removing a site value from a tracked file
+  # publishes nothing new and must not block the push that removes it.
   if [ -f .env ]; then
+    haystack=$(git diff -U0 "$range" 2>/dev/null | grep -E '^\+[^+]'; git log --format=%B "$range" 2>/dev/null)
     while IFS='=' read -r cle val; do
       [ -z "$cle" ] && continue
       case "$cle" in \#*|'') continue ;; esac
       [ "${#val}" -lt 8 ] && continue
-      haystack=$(git diff "$range" 2>/dev/null; git log --format=%B "$range" 2>/dev/null)
       if printf '%s' "$haystack" | grep -qF -- "$val"; then
         fail "A value from .env ($cle) is in the push."; secret_hit=1
       fi

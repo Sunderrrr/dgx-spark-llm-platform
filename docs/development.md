@@ -29,10 +29,10 @@ visible in what you write:
 The loop is a default, not a ritual: a one-line fix doesn't need a formal options
 table. Scale the ceremony to the risk.
 
-## The validation pipeline — `./scripts/valider.sh`
+## The validation pipeline — `./scripts/validate.sh`
 
-**`./scripts/valider.sh` runs after EVERY modification**, before anything is
-called done. It is the whole thing: code gates (724 backend tests, frontend,
+**`./scripts/validate.sh` runs after EVERY modification**, before anything is
+called done. It is the whole thing: code gates (the full backend suite, frontend,
 types, lint, i18n, secret scan), the running service, 14 user journeys
 (login/SSO, chat, reasoning, image, web search, skills, conversations, export,
 admin, API keys, page sweep, page actions, security, route coverage of 158
@@ -63,13 +63,27 @@ failure speaks (« ✗ <check> » + the tail of the log + the full log path);
 readable by a human AND by a git hook / CI (no TTY required, `NO_COLOR`
 respected); non-zero exit if ANYTHING fails.
 
+The served model is protected and failures are not counted twice:
+
+- memory-heavy journeys (web search starts a browser, the image tool loads a
+  model) are **not run** when `MemAvailable` is under
+  `VALIDATE_HEAVY_MEM_MIN_GIB` (default 8): on unified memory, earlyoom would
+  pick the model server — a validation run once killed it that way;
+- a journey that needs the model first waits (up to `VALIDATE_MODEL_WAIT_S`,
+  default 420 s) for it to be `running`, instead of failing in cascade;
+- when the model goes down during a journey, the run says so, with the
+  matching earlyoom lines.
+
 ```bash
-./scripts/valider.sh                       # everything
-VALIDER_GROUPES=1,2 ./scripts/valider.sh   # only these groups
-VALIDER_VERBEUX=1 ./scripts/valider.sh     # show the checks' output
+./scripts/validate.sh                       # everything
+VALIDATE_GROUPS=1,2 ./scripts/validate.sh   # only these groups
+VALIDATE_VERBOSE=1 ./scripts/validate.sh    # show the checks' output
 ```
 
-Full logs stay in `runtime/validation/<timestamp>/`.
+Full logs stay in `runtime/validation/<timestamp>/`. The probed origins come
+from `.env` (`DGX_WEB`, `DGX_API`, `DGX_SSO_DOMAIN` — see `.env.example`); the
+script refuses to run on the example values. `scripts/valider.sh` is the former
+name and still works.
 
 ## Tests and the pre-push gate
 

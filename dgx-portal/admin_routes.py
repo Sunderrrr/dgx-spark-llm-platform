@@ -1541,7 +1541,7 @@ def admin_valider():
     """Runs the full validation pipeline on demand, from the admin.
 
     « je puisse lancer un test qui teste tout et me dise si tout va bien ou là
-    où ça n'a pas marché » — scripts/valider.sh is the whole thing (code gates,
+    où ça n'a pas marché » — scripts/validate.sh is the whole thing (code gates,
     running service, user journeys, health). It takes minutes, so it runs in a
     thread and the UI polls the state: a synchronous route would time out long
     before the journeys finish.
@@ -1584,10 +1584,14 @@ def admin_valider():
                 # forever and the panel refuses the next one (measured 2026-10-10,
                 # « une vérification est déjà en cours » alors que rien ne tournait).
                 # Stop when the verdict lands, or after a hard time bound.
-                if 'VERDICT GLOBAL' in ligne or time.time() - debut > 1200:
+                # scripts/validate.sh prints « OVERALL VERDICT »; the former
+                # French pipeline printed « VERDICT GLOBAL » (older logs).
+                if ('OVERALL VERDICT' in ligne or 'VERDICT GLOBAL' in ligne
+                        or time.time() - debut > 1200):
                     p.kill()
                     break
-            _valideur['code'] = 0 if any('TOUT EST VERT' in x for x in _valideur['sortie']) else 1
+            _valideur['code'] = 0 if any('ALL GREEN' in x or 'TOUT EST VERT' in x
+                                         for x in _valideur['sortie']) else 1
         except Exception as e:                      # noqa: BLE001
             with _valideur['v']:
                 _valideur['sortie'].append(f"Erreur: {e}")

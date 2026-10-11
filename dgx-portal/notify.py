@@ -283,3 +283,17 @@ def send_test_email():
         body="The SMTP configuration works. Nice!",
         cta_url=ADMIN_URL,
     )
+
+
+def notify_discord_test():
+    """Posts a test message on the admin-alert webhook (Admin → Config →
+    « Tester »). True when Discord accepted it."""
+    webhook = discord_config()['webhook']
+    if not webhook:
+        return False
+    try:
+        return requests.post(webhook, json={"content": "Test du webhook depuis le portail : "
+                                            "les alertes admin arriveront ici."},
+                             timeout=5).ok
+    except Exception:                                            # noqa: BLE001
+        return False

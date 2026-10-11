@@ -9,6 +9,7 @@ configuration change.
 """
 import os
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -150,3 +151,71 @@ class DiscordConfigTest(unittest.TestCase):
             self.assertEqual(parametres.discord_config()['webhook'], 'https://discord.invalid/hook')
             etat = {e['nom']: e for e in parametres.etat_config()}
             self.assertEqual(etat['discord_webhook_url']['valeur'], '', "a webhook is a secret")
+
+
+class ConfigTestRouteTest(unittest.TestCase):
+    """Admin → Config « Tester »: each section answers {ok, message}, on the
+    saved values, and says what is missing instead of failing blindly."""
+
+    ADMIN = 'ztest-cfg-admin'
+
+    def setUp(self):
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute("DELETE FROM local_users WHERE username=?", (self.ADMIN,))
+            db.execute("INSERT INTO local_users (username, password_hash, is_admin, enabled, "
+                       "created_at) VALUES (?, 'x', 1, 1, '2026-10-12')", (self.ADMIN,))
+            db.commit()
+            self.avant = {k: portal.get_db().execute(
+                "SELECT value FROM settings WHERE key=?", ('cfg_' + k,)).fetchone()
+                for k in ('ldap_uri', 'oidc_metadata_url', 'smtp_host', 'discord_webhook_url')}
+            for k in self.avant:
+                parametres.definir(k, parametres.EFFACER)
+        self.c = portal.app.test_client()
+        with self.c.session_transaction() as s:
+            s.update(csrf='tok', username=self.ADMIN, is_admin=True, auth_at=int(time.time()))
+
+    def tearDown(self):
+        with portal.app.app_context():
+            for k, row in self.avant.items():
+                parametres.definir(k, row['value'] if row else parametres.EFFACER)
+            db = portal.get_db()
+            db.execute("DELETE FROM local_users WHERE username=?", (self.ADMIN,))
+            db.execute("DELETE FROM audit_log WHERE username=?", (self.ADMIN,))
+            db.commit()
+
+    def _test(self, partie):
+        return self.c.post(f'/admin/config/test/{partie}', headers={'X-CSRFToken': 'tok'})
+
+    def test_sections_non_configurees_le_disent(self):
+        for partie, mot in (('ldap', 'URI'), ('sso', 'URL'), ('smtp', 'requis'),
+                            ('discord', 'webhook')):
+            r = self._test(partie)
+            self.assertEqual(r.status_code, 200, partie)
+            body = r.get_json()
+            self.assertFalse(body['ok'], partie)
+            self.assertIn(mot, body['message'], partie)
+        self.assertEqual(self._test('autre').status_code, 404)
+
+    def test_sso_lit_les_metadonnees(self):
+        import sso_client
+        with portal.app.app_context():
+            parametres.definir('oidc_metadata_url', 'https://idp.example/.well-known/openid-configuration')
+        md = {'issuer': 'https://idp.example', 'authorization_endpoint': 'a', 'token_endpoint': 't'}
+        with patch.object(sso_client, '_metadata', return_value=md):
+            body = self._test('sso').get_json()
+        self.assertIn('https://idp.example', body['message'])
+
+    def test_discord_publie_sur_le_webhook(self):
+        import admin_routes
+        with portal.app.app_context():
+            parametres.definir('discord_webhook_url', 'https://discord.invalid/hook')
+        with patch.object(admin_routes, 'notify_discord_test', return_value=True):
+            self.assertTrue(self._test('discord').get_json()['ok'])
+
+    def test_les_valeurs_par_defaut_et_les_suggestions(self):
+        body = self.c.get('/admin/config').get_json()
+        lignes = {l['nom']: l for l in body['config']}
+        self.assertEqual(lignes['ldap_login_attr']['defaut'], 'cn')
+        self.assertEqual(lignes['smtp_pass']['defaut'], '')
+        self.assertTrue(body['suggestions']['oidc_redirect_uri'].endswith('/api/oauth2-redirect'))

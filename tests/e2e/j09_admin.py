@@ -6,7 +6,7 @@ Nécessite `is_admin` : le flag est POSÉ puis RETIRÉ sur le compte démo
 (`local_users.is_admin`), toujours en try/finally — un parcours ne laisse
 jamais un droit derrière lui. Motif : la page Admin n'est pas testable autrement.
 
-Couvre : les cinq onglets ; le lien profond ?tab=models ; le filtre du
+Couvre : les six onglets ; le lien profond ?tab=models ; le filtre du
 catalogue qui restreint vraiment la liste ; la page /users avec la liste des
 comptes. Lecture SEULEMENT : aucun lancement, aucune suppression, aucun
 redémarrage — le parcours ne pilote jamais le modèle servi.
@@ -26,6 +26,7 @@ ONGLETS = [
     ("models", "Modèles", "Models", "Filtrer le catalogue", "Filter the catalog"),
     ("users", "Utilisateurs", "Users", "Groupes", "Groups"),
     ("requests", "Demandes", "Requests", "Budget actuel", "Current budget"),
+    ("config", "Configuration", "Configuration", "Annuaire LDAP", "LDAP directory"),
     ("system", "Système", "System", "Publier une annonce", "Publish an announcement"),
 ]
 

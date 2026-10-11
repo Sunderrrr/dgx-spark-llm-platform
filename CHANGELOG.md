@@ -86,6 +86,14 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Added
 
+- Admin → Config reworked: one card per service (LDAP, SSO, e-mail, Discord,
+  security) with its state (active / incomplete / off) and a « Tester » button
+  that checks the saved values — LDAP binds with the service account and counts
+  the accounts, SSO reads the provider's metadata, e-mail sends the test
+  message, Discord posts on the webhook. Short labels with help and examples,
+  the redirect URIs to declare at the provider (copyable), and save/cancel per
+  card, enabled only when something changed.
+
 - Discord (admin-alert webhook, announcement bot, account linking) is set from
   Admin → Config too; the `.env` import now remembers each key it considered,
   so keys added to the panel later still get their one import. The owner can

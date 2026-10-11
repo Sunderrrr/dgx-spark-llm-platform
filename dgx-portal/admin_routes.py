@@ -43,7 +43,7 @@ from litellm_client import (_litellm_user_info, _register_litellm_model,
 from local_users import (MAX_BUDGET, _local_group, _local_user_effective_budget,
                          _local_user_is_admin, _parse_budget,
                          _sync_local_user_budget, password_policy_error)
-from notify import (notify_infra_alert_email, notify_maintenance_email,
+from notify import (notify_discord_test, notify_infra_alert_email, notify_maintenance_email,
                     send_test_email, send_user_email, sender_address)
 from user_lifecycle import (compter_donnees, deprovisionner_compte,
                             prevenir_mot_de_passe_change, revoquer_cles_compte)
@@ -1708,7 +1708,14 @@ def admin_config():
     if request.method == 'GET':
         return jsonify({'ok': True, 'config': etat_config(),
                         'champs': [{'nom': n, 'libelle': l, 'secret': s}
-                                   for n, l, s, _e, _d in CONFIGURABLE]})
+                                   for n, l, s, _e, _d in CONFIGURABLE],
+                        # What to declare at the providers: the URIs this
+                        # instance answers on (used when the field is empty).
+                        'suggestions': {
+                            'oidc_redirect_uri': f'{PUBLIC_WEB_URL}/api/oauth2-redirect',
+                            'oidc_post_logout': f'{PUBLIC_WEB_URL}/',
+                            'discord_redirect_uri': f'{PUBLIC_WEB_URL}/discord/callback',
+                        }})
     # An empty field means « back to the .env value »; a secret is only written
     # when the operator types one, never echoed back.
     modifies = 0
@@ -1719,6 +1726,93 @@ def admin_config():
     log_audit(session['username'], 'config.modifiee',
               f'{modifies} valeur(s) — LDAP/SSO/SMTP/sécurité')
     return jsonify({'ok': True, 'modifies': modifies})
+
+
+def _tester_ldap():
+    from ldap3 import NONE, SIMPLE, Connection, Server
+    from parametres import ldap_config
+    c = ldap_config()
+    if not c['uri']:
+        return False, "Aucune URI LDAP renseignée."
+    if not (c['bind_dn'] and c['bind_pw']):
+        return False, "Le compte de service (DN et mot de passe) est requis."
+    try:
+        conn = Connection(Server(c['uri'], get_info=NONE, connect_timeout=5),
+                          user=c['bind_dn'], password=c['bind_pw'],
+                          authentication=SIMPLE, auto_bind=True, receive_timeout=15)
+    except Exception as exc:                                     # noqa: BLE001
+        return False, f"Connexion ou authentification refusée : {exc}"[:300]
+    try:
+        conn.search(f"{c['users_dn']},{c['base']}", f"({c['login_attr']}=*)",
+                    attributes=[c['login_attr']], size_limit=1000)
+        n = len(conn.entries)
+    except Exception as exc:                                     # noqa: BLE001
+        return False, f"Connecté, mais la recherche des comptes échoue : {exc}"[:300]
+    finally:
+        try:
+            conn.unbind()
+        except Exception:                                        # noqa: BLE001
+            pass
+    if not n:
+        return False, (f"Connecté, mais aucun compte sous {c['users_dn']},{c['base']} "
+                       f"avec l'attribut {c['login_attr']}.")
+    return True, f"Connexion réussie : {n} compte(s) trouvé(s)."
+
+
+def _tester_sso():
+    from parametres import oidc_config
+    from sso_client import _metadata
+    c = oidc_config()
+    if not c['metadata_url']:
+        return False, "Aucune URL de métadonnées renseignée."
+    md = _metadata(c['metadata_url'])
+    manque = [k for k in ('issuer', 'authorization_endpoint', 'token_endpoint') if not md.get(k)]
+    if manque:
+        return False, ("Métadonnées illisibles ou incomplètes "
+                       f"({', '.join(manque)} absent) : vérifie l'URL.")
+    if not (c['client_id'] and c['client_secret']):
+        return False, f"Fournisseur joignable ({md['issuer']}), mais client ID et secret sont requis."
+    return True, f"Fournisseur joignable : {md['issuer']}."
+
+
+def _tester_smtp():
+    c = smtp_config()
+    if not c['configured']:
+        return False, "Hôte, utilisateur et mot de passe SMTP sont requis."
+    if not c['admin_email']:
+        return False, "Renseigne le destinataire des alertes : le test lui est envoyé."
+    if send_test_email():
+        return True, f"E-mail de test envoyé à {c['admin_email']}."
+    return False, "L'envoi a échoué : vérifie l'hôte, le port et les identifiants."
+
+
+def _tester_discord():
+    from parametres import discord_config
+    d = discord_config()
+    if not d['webhook']:
+        return False, "Aucun webhook renseigné."
+    if notify_discord_test():
+        return True, "Message de test publié sur le webhook."
+    return False, "Le webhook a refusé le message : vérifie son URL."
+
+
+_TESTS = {'ldap': _tester_ldap, 'sso': _tester_sso, 'smtp': _tester_smtp,
+          'discord': _tester_discord}
+
+
+@bp.route('/admin/config/test/<partie>', methods=['POST'])
+@admin_required
+def admin_config_test(partie):
+    """« Tester » of a section of Admin → Config, on the SAVED values: LDAP
+    binds with the service account and counts the accounts, SSO reads the
+    provider's metadata, SMTP sends the test e-mail, Discord posts on the
+    webhook. Always 200 with {ok, message}: a failed test is an answer."""
+    test = _TESTS.get(partie)
+    if test is None:
+        return _json_erreur("Section inconnue.", 404)
+    ok, message = test()
+    log_audit(session.get('username'), 'config.test', f"{partie} : {'ok' if ok else 'échec'}")
+    return jsonify({'ok': ok, 'message': message})
 
 
 @bp.route('/admin/branding', methods=['POST'])

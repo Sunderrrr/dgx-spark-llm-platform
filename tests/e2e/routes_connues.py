@@ -19,6 +19,7 @@ ROUTES = {
     # La route de configuration (LDAP/SSO/SMTP) : le parcours admin ouvre son
     # onglet et y lit les champs — couverte, pas exclue.
     "admin.admin_config": ("parcours", "j09_admin — l'onglet Configuration s'y affiche et s'y lit"),
+    "admin.admin_config_test": ("exclu", "boutons « Tester » d'Admin → Config : contactent l'annuaire, le fournisseur SSO, le SMTP (e-mail réel) et Discord — couverts par test_live_config.ConfigTestRouteTest"),
     'admin.add_model_cfg': ('exclu', 'action admin à effet réel : jamais déclenchée par un parcours (la validation doit rester sûre en production — aucun lancement, aucune écriture)'),
     'admin.add_ocr_cfg': ('exclu', 'action admin à effet réel : jamais déclenchée par un parcours (la validation doit rester sûre en production — aucun lancement, aucune écriture)'),
     'admin.add_voice_cfg': ('exclu', 'action admin à effet réel : jamais déclenchée par un parcours (la validation doit rester sûre en production — aucun lancement, aucune écriture)'),

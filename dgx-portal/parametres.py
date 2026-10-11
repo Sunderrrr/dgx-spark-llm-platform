@@ -169,5 +169,7 @@ def etat_config():
             # where the value comes from — the operator's first question
             # when a setting « does not take ».
             'source': 'interface' if read_setting('cfg_' + nom, '') else 'défaut',
+            # The code default, shown as the field's placeholder (never a secret).
+            'defaut': '' if secret else _defaut,
         })
     return out

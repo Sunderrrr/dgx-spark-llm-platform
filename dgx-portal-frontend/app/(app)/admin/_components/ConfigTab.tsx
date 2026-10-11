@@ -24,7 +24,7 @@ import { Code } from "@astryxdesign/core/Code";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { useToast } from "@astryxdesign/core/Toast";
 import { useCsrf } from "@/lib/useCsrf";
-import { useT } from "@/lib/i18n";
+import { useT, tServeur } from "@/lib/i18n";
 import { copierTexte } from "@/lib/copier";
 
 type Ligne = {
@@ -218,7 +218,10 @@ export function ConfigTab() {
         headers: { "X-CSRFToken": csrf },
       });
       const d = await r.json().catch(() => ({}));
-      setTest((x) => ({ ...x, [section.id]: { enCours: false, ok: !!d?.ok, message: d?.message || d?.error } }));
+      // The server answers in French (as all its messages); tServeur shows the
+      // English template when the interface is in English.
+      const brut: string = d?.message || d?.error || "";
+      setTest((x) => ({ ...x, [section.id]: { enCours: false, ok: !!d?.ok, message: brut ? tServeur(brut, t) : "" } }));
     } catch {
       setTest((x) => ({ ...x, [section.id]: { enCours: false, ok: false, message: t("Le test n'a pas pu être lancé.") } }));
     }

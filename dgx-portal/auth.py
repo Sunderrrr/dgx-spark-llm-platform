@@ -341,13 +341,16 @@ def _is_admin_group(dn):
             return True
     return False
 
-def ldap_authenticate(username, password):
-    """Return (ok, is_admin, display_name)."""
+def ldap_authenticate(username, password, avec_groupes=False):
+    """Return (ok, is_admin, display_name) — plus the account's memberOf DNs
+    as a 4th value with `avec_groupes` (directory groups import)."""
+    def _rendu(ok, is_admin, nom, groupes=()):
+        return (ok, is_admin, nom, list(groupes)) if avec_groupes else (ok, is_admin, nom)
     # Strict rejection: an empty password triggers an LDAP "unauthenticated bind"
     # that succeeds on some directories → authentication bypass.
     # An identifier outside the allowed charset is refused before any LDAP access.
     if not password or not USERNAME_RE.match(username):
-        return False, False, username
+        return _rendu(False, False, username)
     try:
         c = ldap_config()    # read live: Admin → Config wins over .env
         server = Server(c['uri'], get_info=ALL)
@@ -362,7 +365,7 @@ def ldap_authenticate(username, password):
         )
         if not conn.entries:
             conn.unbind()
-            return False, False, username
+            return _rendu(False, False, username)
         entry = conn.entries[0]
         # displayName (e.g. « Alice Dupont ») when present; else cn, else the
         # identifier. Authentik stores displayName base64 for accents, ldap3
@@ -376,9 +379,9 @@ def ldap_authenticate(username, password):
         groups = [str(g) for g in entry.memberOf] if hasattr(entry, 'memberOf') else []
         is_admin = any(_is_admin_group(g) for g in groups)
         conn.unbind()
-        return True, is_admin, fullname
+        return _rendu(True, is_admin, fullname, groups)
     except Exception:
-        return False, False, username
+        return _rendu(False, False, username)
 
 def ldap_lookup_email(username):
     """User's email via the LDAP service account (to notify them)."""
@@ -398,7 +401,7 @@ def ldap_lookup_email(username):
     except Exception:
         return None
 
-def ldap_resolve_sso_identity(sub=None, email=None):
+def ldap_resolve_sso_identity(sub=None, email=None, avec_groupes=False):
     """Resolves the canonical *username* (cn) for an SSO login, from the
     authoritative LDAP directory — never from user-editable OIDC claims.
 
@@ -414,10 +417,13 @@ def ldap_resolve_sso_identity(sub=None, email=None):
 
     Returns (username, is_admin, fullname) or (None, False, None) when the
     directory does not recognise the identity — the caller then REFUSES the
-    login (fail closed) rather than trusting the token's own username.
+    login (fail closed) rather than trusting the token's own username. With
+    `avec_groupes`, the account's memberOf DNs come as a 4th value.
     """
+    def _rendu(nom, is_admin, plein, groupes=()):
+        return (nom, is_admin, plein, list(groupes)) if avec_groupes else (nom, is_admin, plein)
     if not (LDAP_BIND_DN and LDAP_BIND_PW):
-        return None, False, None
+        return _rendu(None, False, None)
     try:
         c = ldap_config()    # read live: Admin → Config wins over .env
         conn = Connection(Server(c['uri'], get_info=ALL), user=LDAP_BIND_DN,
@@ -439,19 +445,19 @@ def ldap_resolve_sso_identity(sub=None, email=None):
                 entry = conn.entries[0]
         if entry is None:
             conn.unbind()
-            return None, False, None
+            return _rendu(None, False, None)
         username = str(entry.cn) if hasattr(entry, 'cn') and entry.cn else None
         if not username or not USERNAME_RE.match(username):
             conn.unbind()
-            return None, False, None
+            return _rendu(None, False, None)
         fullname = (str(entry.displayName) if hasattr(entry, 'displayName') and getattr(entry, 'displayName')
                     else username)
         groups = [str(g) for g in entry.memberOf] if hasattr(entry, 'memberOf') else []
         is_admin = any(_is_admin_group(g) for g in groups)
         conn.unbind()
-        return username, is_admin, fullname
+        return _rendu(username, is_admin, fullname, groups)
     except Exception:
-        return None, False, None
+        return _rendu(None, False, None)
 
 
 # ── Anti-brute-force (persisted in database) ──

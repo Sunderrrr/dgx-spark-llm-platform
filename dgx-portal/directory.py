@@ -76,8 +76,9 @@ def etat_entree(attrs):
 
 
 def lire_annuaire():
-    """{login (lowercase): ACTIF | DESACTIVE} for every user of the directory,
-    or None when it cannot be asked. Slow (seconds): background only."""
+    """{'etats': {login: ACTIF | DESACTIVE}, 'groupes': {login: [group names]}}
+    for every user of the directory (logins lowercase), or None when it cannot
+    be asked. Slow (seconds): background only."""
     c = ldap_config()
     try:
         conn = _connexion(c)
@@ -86,12 +87,12 @@ def lire_annuaire():
     if conn is None:
         return None
     attr = c['login_attr']
-    etats = {}
+    etats, groupes = {}, {}
     try:
         for e in conn.extend.standard.paged_search(
                 f"{c['users_dn']},{c['base']}", f'({escape_filter_chars(attr)}=*)',
                 attributes=[attr, 'ak-active', 'userAccountControl',
-                            'nsAccountLock', 'pwdAccountLockedTime'],
+                            'nsAccountLock', 'pwdAccountLockedTime', 'memberOf'],
                 paged_size=500, generator=True):
             if e.get('type') != 'searchResEntry':
                 continue
@@ -100,6 +101,7 @@ def lire_annuaire():
             nom = nom[0] if isinstance(nom, (list, tuple)) and nom else nom
             if nom:
                 etats[str(nom).lower()] = etat_entree(d)
+                groupes[str(nom).lower()] = noms_de_groupes(d.get('memberOf') or [])
     except Exception:
         return None
     finally:
@@ -107,19 +109,27 @@ def lire_annuaire():
             conn.unbind()
         except Exception:
             pass
-    return etats
+    return {'etats': etats, 'groupes': groupes}
 
 
-def _rafraichir():
+def _rafraichir(app):
     try:
-        etats = lire_annuaire()
+        lu = lire_annuaire()
         with _verrou:
             # A failed read keeps the previous answer (an outage must not turn
             # every account « absent »), but stops it from being refreshed
             # every call: retried after the same delay.
-            if etats is not None:
-                _etat['etats'] = etats
+            if lu is not None:
+                _etat['etats'] = lu['etats']
             _etat['t'] = time.time()
+        if lu is not None and app is not None:
+            # The same read brings the LDAP groups down for the accounts the
+            # portal knows, between logins too (a removal included).
+            with app.app_context():
+                from directory_groups import synchroniser_groupes_ldap
+                synchroniser_groupes_ldap(lu['groupes'])
+    except Exception as exc:                                     # noqa: BLE001
+        print(f'[directory] synchronisation des groupes impossible : {exc}')
     finally:
         _etat['en_cours'] = False
 
@@ -136,9 +146,15 @@ def etats_annuaire(usernames):
             _etat['en_cours'] = True
         etats = _etat['etats']
     if lancer:
+        # The read runs outside the request: it needs the app to write groups.
+        try:
+            from flask import current_app
+            app = current_app._get_current_object()
+        except RuntimeError:
+            app = None
         # Short-lived (one read): unnamed, unlike the long-lived threads
         # test_garde_regressions counts.
-        threading.Thread(target=_rafraichir, daemon=True).start()
+        threading.Thread(target=_rafraichir, args=(app,), daemon=True).start()
     if etats is None:
         return None
     return {u: etats.get(u.lower(), ABSENT) for u in noms}

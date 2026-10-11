@@ -180,6 +180,8 @@ from db import (  # noqa: E402  (see comment below)
 # and rebuilt when it changes: see sso_client.py.
 from parametres import oidc_config, parametre  # noqa: E402
 from sso_client import sso_client  # noqa: E402
+from directory_groups import (  # noqa: E402
+    appliquer_quota_groupes, droits_par_groupes, importer_groupes)
 
 # ── DB ─────────────────────────────────────────────────────────────────────
 
@@ -520,13 +522,17 @@ def login():
                                 'nonce': payload['nonce']})
             _apply_session(username, l_name, l_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
-        ok, is_admin, fullname = ldap_authenticate(username, password)
+        ok, is_admin, fullname, groupes_ldap = ldap_authenticate(username, password, avec_groupes=True)
         if ok:
             refus = _refus_si_bloque(username)
             if refus:
                 return refus
             _login_reset(key); _login_reset(ukey)
+            # The directory groups come down with the login (directory_groups):
+            # an admin group of the portal makes its members admins too.
+            is_admin = _importer_groupes_annuaire(username, {'ldap': groupes_ldap}, is_admin)
             _record_user_source(username, 'ldap', fullname, is_admin)
+            appliquer_quota_groupes(username)
             if _webauthn_enabled(username):
                 payload = start_login(username, fullname, is_admin, 'ldap')
                 return jsonify({'webauthn_required': True,
@@ -621,7 +627,7 @@ def oauth_callback():
         log_audit('sso', 'sso.email_non_verifie',
                   f'repli sur l\'adresse refusé pour sub={sub[:64]} (email_verified=false)')
         email = ''
-    username, is_admin, fullname = ldap_resolve_sso_identity(sub, email)
+    username, is_admin, fullname, groupes_ldap = ldap_resolve_sso_identity(sub, email, avec_groupes=True)
     if username is None:
         flash("SSO : identité non reconnue dans le répertoire.", "danger")
         return redirect(url_for('login'))
@@ -647,7 +653,13 @@ def oauth_callback():
         # (a Flask flash would be displayed nowhere).
         return redirect(url_for('login', refus='bloque'))
     nxt = session.pop('sso_next', None)
+    # Both come down: the directory's memberOf (looked up above) and the
+    # token's own `groups` claim — same names merge into one portal group.
+    is_admin = _importer_groupes_annuaire(
+        username, {'ldap': groupes_ldap, 'sso': groups if isinstance(groups, list) else None},
+        is_admin)
     _record_user_source(username, 'sso', fullname, is_admin)
+    appliquer_quota_groupes(username)
     _apply_session(username, fullname, is_admin, via_sso=True)
     return redirect(_safe_next(nxt))
 
@@ -658,6 +670,17 @@ app.register_blueprint(discord_bp)
 # POST only: on GET, any third-party page could log the user out
 # with a simple <img src="https://.../logout">, outside the CSRF
 # guard (which only covers unsafe methods).
+def _importer_groupes_annuaire(username, par_source, is_admin):
+    """Imports the account's directory groups and returns its admin right
+    with the groups' own (an admin group of the portal). Never fails a login."""
+    try:
+        importer_groupes(username, par_source)
+        return bool(is_admin) or droits_par_groupes(username)[0]
+    except Exception as exc:                                     # noqa: BLE001
+        app.logger.warning("import des groupes de %s impossible : %s", username, exc)
+        return is_admin
+
+
 @app.route('/logout', methods=['POST'])
 def logout():
     was_sso = session.get('sso')
@@ -1644,7 +1667,8 @@ if os.environ.get('DGX_NO_REAPER') != '1':
 if os.environ.get('DGX_NO_REAPER') != '1':
     try:
         from directory import etats_annuaire
-        etats_annuaire([])
+        with app.app_context():          # the read also writes the LDAP groups
+            etats_annuaire([])
     except Exception:                                        # noqa: BLE001
         pass
 

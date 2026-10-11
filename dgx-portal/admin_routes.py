@@ -56,6 +56,7 @@ from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       runner_delete_files, runner_launch, runner_logs, runner_metrics,
                       runner_status, runner_stop)
 from directory import etats_annuaire
+from directory_groups import recalculer_membres
 from stats import (_account_activity, _active_users, admin_get_ocr_usage,
                    admin_get_user_consumption, admin_get_video_usage,
                    admin_get_voice_usage, user_hourly)
@@ -829,9 +830,14 @@ def api_admin_users():
     # The groups table is small and was ALREADY read after the loop
     # (for the response): we load it here and pass it to the helpers, which
     # removes the 2 SELECTs per account of `_local_group`.
-    groups = db.execute("SELECT name, max_budget, is_admin FROM user_groups "
+    groups = db.execute("SELECT name, max_budget, is_admin, sources FROM user_groups "
                         "ORDER BY name").fetchall()
     groupes = {g['name']: g for g in groups}
+    # Directory groups (LDAP memberOf, SSO claim), merged: one name per group.
+    groupes_annuaire = {}
+    for r in db.execute("SELECT DISTINCT d.username, d.group_name FROM user_directory_groups d "
+                        "JOIN user_groups g ON g.name = d.group_name ORDER BY d.group_name").fetchall():
+        groupes_annuaire.setdefault(r['username'], []).append(r['group_name'])
     names = set(managed) | set(recorded) | set(spend)
     # Accounts the portal does not own (LDAP, SSO): their state lives in the
     # directory. One search for all of them, cached a minute; None when the
@@ -905,8 +911,16 @@ def api_admin_users():
             'blocked_at': (blocked[name]['blocked_at'] if name in blocked else None),
             'locked_minutes': locked.get(name, 0),
             'directory_status': (annuaire or {}).get(name) if mu is None else None,
+            'directory_groups': groupes_annuaire.get(name, []),
         })
-    return jsonify({'users': out, 'groups': [dict(g) for g in groups],
+    # Members per group: local accounts (their one group) + directory accounts.
+    membres = {}
+    for u in out:
+        for g in set(([u['group_name']] if u['group_name'] else []) + u['directory_groups']):
+            membres[g] = membres.get(g, 0) + 1
+    return jsonify({'users': out,
+                    'groups': [{**dict(g), 'sources': [x for x in (g['sources'] or '').split(',') if x],
+                                'members': membres.get(g['name'], 0)} for g in groups],
                     'default_budget': float(get_setting('default_key_budget', KEY_BUDGET))})
 
 @bp.route('/admin/audit')
@@ -1399,13 +1413,19 @@ def admin_user_detail(username):
 @admin_required
 def admin_groups_create():
     name = request.form.get('name', '').strip()
-    if not re.match(r'^[\w .-]{1,40}$', name):
-        return jsonify({'ok': False, 'error': "Nom de groupe invalide (max 40)."}), 400
+    # 80: directory groups come down with their own names (« authentik Admins »).
+    if not re.match(r'^[\w .-]{1,80}$', name):
+        return jsonify({'ok': False, 'error': "Nom de groupe invalide (max 80)."}), 400
     budget, err = _parse_budget(request.form.get('max_budget'))
     if err:
         return jsonify({'ok': False, 'error': err}), 400
     is_admin = request.form.get('is_admin') in ('1', 'true', 'on')
     db = get_db()
+    # Groups merge by name whatever the case (an LDAP « Famille » and an SSO
+    # « famille » are one group): editing goes to the existing row.
+    existant = db.execute("SELECT name FROM user_groups WHERE lower(name)=lower(?)", (name,)).fetchone()
+    if existant:
+        name = existant['name']
     # Symmetric case of deletion: editing an existing group to REMOVE its
     # admin right (upsert ON CONFLICT) makes its members lose their rights —
     # without going through deletion. Same guard.
@@ -1425,6 +1445,8 @@ def admin_groups_create():
     # Propagates the group's new quota to its members (who have no override).
     for u in db.execute("SELECT * FROM local_users WHERE group_name=? AND max_budget IS NULL", (name,)):
         _sync_local_user_budget(u['username'], u)
+    # ...and to its directory members (LDAP/SSO), admin right included.
+    recalculer_membres(name)
     log_audit(session.get('username'), 'group.create', f"groupe {name}")
     return jsonify({'ok': True})
 
@@ -1447,6 +1469,9 @@ def admin_groups_delete(name):
     db.execute("UPDATE local_users SET group_name=NULL WHERE group_name=?", (name,))
     db.execute("DELETE FROM user_groups WHERE name=?", (name,))
     db.commit()
+    # Directory members lose what the group granted, at once. (A directory
+    # group comes back at its members' next login, without quota or right.)
+    recalculer_membres(name)
     # The members lose the group's quota: their NEW effective cap
     # (personal override, else global default) must be rewritten on the LiteLLM
     # side. Group creation did it, deletion did not — the members therefore
@@ -1832,6 +1857,9 @@ def set_user_budget(username):
     if not litellm_update_user_budget(username, value, budget_duration=grant_duration):
         return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 503)
     db.execute("DELETE FROM budget_grants WHERE username=?", (username,))
+    # A directory account's group quota no longer overwrites this cap at login.
+    db.execute("UPDATE user_sources SET budget_manual=1, budget_auto=NULL WHERE username=?",
+               (username,))
     db.commit()
     log_audit(session.get('username', '?'), 'budget_set', f'{username}={value:.0f}')
     _fmt = lambda n: f"{n:,.0f}".replace(',', ' ')  # noqa: E731

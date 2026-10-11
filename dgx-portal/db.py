@@ -783,6 +783,31 @@ def init_db():
     us_cols = {r[1] for r in db.execute("PRAGMA table_info(user_sources)")}
     if 'last_is_admin' not in us_cols:
         db.execute("ALTER TABLE user_sources ADD COLUMN last_is_admin INTEGER")
+    # Directory groups (2026-10-11): LDAP memberOf and the SSO token's `groups`
+    # claim are imported at each login. A group is ONE row whatever brought it
+    # — same name in LDAP and SSO (and a local group of that name) is merged —
+    # and `sources` says where it comes from. Existing groups are local.
+    if 'budget_manual' not in us_cols:
+        # Set by Admin → « Redéfinir le budget »: the group quota no longer
+        # overwrites this directory account's cap at login.
+        db.execute("ALTER TABLE user_sources ADD COLUMN budget_manual INTEGER NOT NULL DEFAULT 0")
+    if 'budget_auto' not in us_cols:
+        # The last cap a group quota wrote (directory_groups): tells « left its
+        # quota group » (back to the default) from « never had one » (untouched).
+        db.execute("ALTER TABLE user_sources ADD COLUMN budget_auto REAL")
+    grp_cols = {r[1] for r in db.execute("PRAGMA table_info(user_groups)")}
+    if 'sources' not in grp_cols:
+        db.execute("ALTER TABLE user_groups ADD COLUMN sources TEXT NOT NULL DEFAULT 'local'")
+    db.executescript('''
+        CREATE TABLE IF NOT EXISTS user_directory_groups (
+            username   TEXT NOT NULL,
+            group_name TEXT NOT NULL,
+            source     TEXT NOT NULL,      -- 'ldap' | 'sso'
+            seen_at    TEXT NOT NULL,
+            PRIMARY KEY (username, source, group_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_udg_group ON user_directory_groups(group_name);
+    ''')
     # Migration: IP and user-agent of sessions opened BEFORE their addition.
     # Existing rows keep NULL — the session list will show « inconnu » for
     # them, which is exact.

@@ -75,6 +75,15 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Added
 
+- LDAP and SSO groups come down into the portal's groups: LDAP `memberOf`
+  and the SSO token's `groups` claim at each login, and the LDAP groups also
+  between logins (with the background directory read, removals included). A
+  group is one row whatever brought it — the same name in LDAP, in SSO or as a
+  local group is merged — and shows its sources and member count. Its admin
+  right and quota apply to its directory members (the most generous quota
+  wins); a budget an admin set by hand, or a running grant, is never
+  overwritten. Groups can now be edited in place.
+
 - Admin → Users → account detail shows the account's 6-month token activity
   (totals, active days, daily heatmap), the same view as its own « Mon compte ».
 - LDAP/SSO accounts show their state in the directory (active, disabled there,

@@ -33,6 +33,8 @@ export type LocalUser = {
   /** LDAP/SSO accounts: their state in the directory, null when it could not
    *  be asked (and for local accounts, whose state is `enabled`). */
   directory_status?: DirectoryStatus | null;
+  /** LDAP/SSO groups of the account (merged by name), from its last login. */
+  directory_groups?: string[];
 };
 
 export type DirectoryStatus = "actif" | "desactive" | "absent";
@@ -43,7 +45,16 @@ export const DIRECTORY_STATUS_META: Record<DirectoryStatus, { label: string; var
   desactive: { label: "Désactivé dans l'annuaire", variant: "error" },
   absent: { label: "Absent de l'annuaire", variant: "warning" },
 };
-export type Group = { name: string; max_budget: number | null; is_admin: number };
+export type Group = {
+  name: string;
+  max_budget: number | null;
+  is_admin: number;
+  /** Where it comes from: "local", "ldap", "sso" — one group whatever brought
+   *  it (same names are merged). */
+  sources?: string[];
+  /** Local accounts in it + directory accounts the directory puts in it. */
+  members?: number;
+};
 export type UsersData = { users: LocalUser[]; groups: Group[]; default_budget: number };
 
 // Response of GET /admin/users/<username>/detail. Any field can be missing

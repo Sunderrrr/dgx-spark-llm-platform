@@ -66,6 +66,7 @@ TABLES_PURGEES = (
     'user_security',
     'user_sessions',
     'user_sources',
+    'user_directory_groups',   # directory group memberships (directory_groups.py)
     'video_jobs',
     'voice_jobs',
     'webauthn_credentials',

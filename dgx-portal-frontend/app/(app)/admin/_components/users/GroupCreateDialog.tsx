@@ -24,6 +24,9 @@ export type GroupCreateDialogProps = {
   ng: NewGroupForm;
   setNg: Dispatch<SetStateAction<NewGroupForm>>;
   createGroup: () => void;
+  /** Editing an existing group (local or brought down from the directory):
+   *  its name is fixed, its quota and admin right change. */
+  editing?: boolean;
 };
 
 export function GroupCreateDialog({
@@ -34,6 +37,7 @@ export function GroupCreateDialog({
   ng,
   setNg,
   createGroup,
+  editing = false,
 }: GroupCreateDialogProps) {
   const t = useT();
   const isNarrow = useIsNarrow();
@@ -42,12 +46,12 @@ export function GroupCreateDialog({
       {/* New group dialog */}
       <Dialog isOpen={groupDialog} onOpenChange={(o) => { setGroupDialog(o); if (!o) setFormWarning(null); }} purpose="form" width={isNarrow ? "94vw" : 480}>
         <Layout
-          header={<DialogHeader title={t("Nouveau groupe")} hasDivider onOpenChange={(o) => { setGroupDialog(o); if (!o) setFormWarning(null); }} />}
+          header={<DialogHeader title={t(editing ? "Modifier le groupe" : "Nouveau groupe")} hasDivider onOpenChange={(o) => { setGroupDialog(o); if (!o) setFormWarning(null); }} />}
           content={
             <LayoutContent padding={4} isScrollable>
               <VStack gap={3}>
                 {formWarning && <Banner status="warning" title={formWarning} />}
-                <TextInput label={t("Nom du groupe")} value={ng.name} onChange={(v) => setNg({ ...ng, name: v })} placeholder="équipe-data" />
+                <TextInput label={t("Nom du groupe")} value={ng.name} onChange={(v) => setNg({ ...ng, name: v })} placeholder="équipe-data" isDisabled={editing} />
                 <TextInput label={t("Quota / j (optionnel)")} value={ng.max_budget} onChange={(v) => setNg({ ...ng, max_budget: v })} />
                 <Selector label={t("Admin par défaut")} value={ng.is_admin} onChange={(v) => setNg({ ...ng, is_admin: v ?? "0" })} options={BOOL_OPTS(t)} />
               </VStack>
@@ -57,7 +61,7 @@ export function GroupCreateDialog({
             <LayoutFooter>
               <HStack gap={2} hAlign="end">
                 <Button label={t("Annuler")} variant="ghost" onClick={() => { setFormWarning(null); setGroupDialog(false); }} />
-                <Button label={t("Ajouter le groupe")} variant="primary" onClick={createGroup} isDisabled={!ng.name} />
+                <Button label={t(editing ? "Enregistrer" : "Ajouter le groupe")} variant="primary" onClick={createGroup} isDisabled={!ng.name} />
               </HStack>
             </LayoutFooter>
           }

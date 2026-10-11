@@ -67,7 +67,9 @@ class LireAnnuaireTest(unittest.TestCase):
                       {'cn': ['bob'], 'ak-active': ['FALSE']}])
         with mock.patch.object(directory, 'ldap_config', return_value=CONFIG), \
              mock.patch.object(directory, '_connexion', return_value=conn):
-            self.assertEqual(directory.lire_annuaire(), {'alice': 'actif', 'bob': 'desactive'})
+            lu = directory.lire_annuaire()
+        self.assertEqual(lu['etats'], {'alice': 'actif', 'bob': 'desactive'})
+        self.assertEqual(lu['groupes'], {'alice': [], 'bob': []})
         self.assertEqual(conn.filtres, ['(cn=*)'])
 
     def test_annuaire_injoignable(self):
@@ -99,7 +101,7 @@ class EtatsAnnuaireTest(unittest.TestCase):
 
         def lente():
             fini.wait(5)
-            return {'alice': 'actif'}
+            return {'etats': {'alice': 'actif'}, 'groupes': {}}
         with mock.patch.object(directory, 'lire_annuaire', side_effect=lente):
             t0 = time.perf_counter()
             self.assertIsNone(directory.etats_annuaire(['alice']))

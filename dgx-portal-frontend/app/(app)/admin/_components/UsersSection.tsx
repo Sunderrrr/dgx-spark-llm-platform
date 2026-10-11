@@ -29,6 +29,7 @@ import {
   UsersIcon,
   EyeIcon,
   ArchiveBoxXMarkIcon,
+  PencilSquareIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON, postFormJSON, sendJSON } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
@@ -98,6 +99,7 @@ export function UsersSection({
   const [pw, setPw] = useState("");
   const [nu, setNu] = useState({ username: "", password: "", fullname: "", group: "", max_budget: "", is_admin: "0" });
   const [ng, setNg] = useState({ name: "", max_budget: "", is_admin: "0" });
+  const [groupeEdite, setGroupeEdite] = useState(false);
   // Blocking an account (reason requested, optional).
   const [blockUser, setBlockUser] = useState<LocalUser | null>(null);
   const [blockReason, setBlockReason] = useState("");
@@ -400,7 +402,12 @@ export function UsersSection({
       ) },
     { key: "managed", header: t("Géré"), renderCell: (u) =>
         u.managed_by === "local" ? <Badge label={t("Ici")} variant="green" /> : <Badge label="Authentik" variant="neutral" /> },
-    { key: "group_name", header: t("Groupe"), renderCell: (u) => u.group_name || "—" },
+    { key: "group_name", header: t("Groupe"), renderCell: (u) => {
+        // A local account has one portal group; an LDAP/SSO account the groups
+        // its directory gives it (merged by name).
+        const noms = u.group_name ? [u.group_name] : (u.directory_groups ?? []);
+        return noms.length ? <Text maxLines={2}>{noms.join(", ")}</Text> : "—";
+      } },
     { key: "effective_budget", header: t("Quota / j"), renderCell: (u) =>
         u.unlimited ? <Text color="secondary">{t("Illimité")}</Text>
         : u.effective_budget != null ? <Text hasTabularNumbers>{fmtBudget(u.effective_budget)}</Text>
@@ -487,7 +494,12 @@ export function UsersSection({
         </Text>
         <HStack gap={2}>
           <Button label={t("Nouveau groupe")} variant="secondary" size="sm"
-            icon={<Icon icon={PlusIcon} size="sm" />} onClick={() => { setFormWarning(null); setGroupDialog(true); }} />
+            icon={<Icon icon={PlusIcon} size="sm" />} onClick={() => {
+              setFormWarning(null);
+              setNg({ name: "", max_budget: "", is_admin: "0" });
+              setGroupeEdite(false);
+              setGroupDialog(true);
+            }} />
           <Button label={t("Nouvel utilisateur")} variant="primary" size="sm"
             icon={<Icon icon={UserPlusIcon} size="sm" />} onClick={() => { setFormWarning(null); setUserDialog(true); }} />
         </HStack>
@@ -551,16 +563,39 @@ export function UsersSection({
             <VStack gap={1}>
               {groups.map((g) => (
                 <HStack key={g.name} hAlign="between" vAlign="center">
-                  <HStack gap={2} vAlign="center">
+                  <HStack gap={2} vAlign="center" wrap="wrap">
                     <Text weight="semibold">{g.name}</Text>
+                    {(g.sources ?? []).map((src) => (
+                      <Badge key={src} label={SOURCE_META[src]?.label ?? src}
+                        variant={SOURCE_META[src]?.variant ?? "neutral"} />
+                    ))}
                     <Text type="supporting" color="secondary">
                       {g.max_budget != null ? `${fmtBudget(g.max_budget)} ${t("/ j")}` : t("quota par défaut")}
                       {g.is_admin ? ` · ${t("admin")}` : ""}
+                      {` · ${t("{n} membre(s)").replace("{n}", String(g.members ?? 0))}`}
                     </Text>
                   </HStack>
-                  <Button label={t("Supprimer")} variant="ghost" size="sm" isIconOnly
-                    icon={<Icon icon={TrashIcon} size="sm" />}
-                    onClick={() => { if (window.confirm(t("Supprimer ce groupe ?"))) act(`/admin/groups/delete/${encodeURIComponent(g.name)}`, {}); }} />
+                  <HStack gap={1}>
+                    <Button label={t("Modifier")} variant="ghost" size="sm" isIconOnly
+                      icon={<Icon icon={PencilSquareIcon} size="sm" />}
+                      onClick={() => {
+                        setNg({ name: g.name, max_budget: g.max_budget != null ? String(g.max_budget) : "",
+                                is_admin: g.is_admin ? "1" : "0" });
+                        setGroupeEdite(true);
+                        setGroupDialog(true);
+                      }} />
+                    <Button label={t("Supprimer")} variant="ghost" size="sm" isIconOnly
+                      icon={<Icon icon={TrashIcon} size="sm" />}
+                      onClick={() => {
+                        // A group the directory brings comes back at its
+                        // members' next login, without quota or right.
+                        const annuaire = (g.sources ?? []).some((x) => x === "ldap" || x === "sso");
+                        const msg = annuaire
+                          ? t("Supprimer ce groupe ? Il vient de l'annuaire : il reviendra à la prochaine connexion d'un membre, sans quota ni droit.")
+                          : t("Supprimer ce groupe ?");
+                        if (window.confirm(msg)) act(`/admin/groups/delete/${encodeURIComponent(g.name)}`, {});
+                      }} />
+                  </HStack>
                 </HStack>
               ))}
             </VStack>
@@ -591,6 +626,7 @@ export function UsersSection({
         ng={ng}
         setNg={setNg}
         createGroup={createGroup}
+        editing={groupeEdite}
       />
 
       <PasswordResetDialog

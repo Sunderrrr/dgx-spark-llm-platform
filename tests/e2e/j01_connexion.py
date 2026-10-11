@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """Parcours « connexion » — la porte d'entrée du service, jusqu'au bout.
 
-Couvre : la page de connexion et le couple identifiants du compte démo ;
+Couvre : la redirection serveur d'un visiteur sans session (aucune page vide
+servie) ; la page de connexion et le couple identifiants du compte démo ;
 l'identité de l'instance dans l'en-tête ; une session invalide qui renvoie au
 login (pas d'écran blanc, pas de 500) ; la déconnexion qui efface vraiment la
 session ; et la PRÉSENCE du parcours SSO (le bouton + la redirection OIDC vers
@@ -34,6 +35,21 @@ def main() -> int:
     oidc = bool(cfg.get("oidc_enabled"))
     p.ok("configuration publique", f"instance « {nom_instance} », oidc_enabled={oidc}")
 
+    # ── 1b. Logged out, a page is refused by the SERVER: a 307 to /login
+    #        before any markup (it used to serve the empty home page for ~1 s
+    #        until a data fetch came back 401) ──────────────────────────────
+    statut, entetes, corps = c.http("GET", f"{c.BASE}/", suivre_redirections=False)
+    location = entetes.get("Location") or entetes.get("location") or ""
+    if statut not in (302, 303, 307, 308) or not location.rstrip("/").endswith("/login"):
+        p.rate("redirection serveur sans session",
+               "GET / → 30x vers /login, sans page",
+               f"HTTP {statut}, Location {location[:120]!r}")
+    statut, _, corps = c.http("GET", f"{c.BASE}/api/session")
+    if statut != 401:
+        p.rate("contrôle de session sans cookie (/api/session)", "401",
+               f"HTTP {statut} — {corps[:120]!r}")
+    p.ok("redirection serveur", "GET / sans session → /login, /api/session → 401")
+
     with c.lancer_playwright() as pw:
         # ── 2. La page de connexion se charge et accepte le compte démo ─────
         b, ctx = c.nouveau_contexte(pw)
@@ -49,6 +65,11 @@ def main() -> int:
         if "/login" in page.url:
             p.rate("identification", "redirection vers l'accueil", f"URL {page.url}")
         p.ok("identification du compte démo", f"atterrie à {page.url}")
+        statut_session = ctx.request.get(f"{c.BASE}/api/session").status
+        if statut_session != 204:
+            p.rate("contrôle de session connecté (/api/session)", "204",
+                   f"HTTP {statut_session}")
+        p.ok("contrôle de session", "/api/session → 204 une fois connecté")
 
         # ── 3. L'en-tête porte le nom de l'instance ─────────────────────────
         page.wait_for_timeout(1200)

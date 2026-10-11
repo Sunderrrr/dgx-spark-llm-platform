@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { SESSION_COOKIE, checkRedirects, gateDecision } from "./lib/session-gate";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
 
@@ -13,7 +14,27 @@ const OWN_ROUTE_HANDLERS = new Set([
   "/api/ocr/extract",
 ]);
 
-export function proxy(request: NextRequest) {
+// The Flask check is a few ms on the compose network; past this, serve the
+// page anyway (lib/session-gate.ts explains why failing open is right).
+const SESSION_CHECK_TIMEOUT_MS = 1500;
+
+function toLogin(request: NextRequest, setCookie?: string | null): NextResponse {
+  // Next rejects a relative Location (500 "Invalid URL"). nextUrl takes its
+  // host from the Host header Traefik forwards (the public one); the scheme
+  // comes from X-Forwarded-Proto, the container itself only speaks http.
+  const url = request.nextUrl.clone();
+  url.pathname = "/login";
+  url.search = "";
+  const proto = request.headers.get("x-forwarded-proto");
+  if (proto === "https" || proto === "http") url.protocol = `${proto}:`;
+  const res = NextResponse.redirect(url, 307);
+  // Flask clears an expired/revoked session on its 401: pass that on, so the
+  // next visit skips the check entirely.
+  if (setCookie) res.headers.set("Set-Cookie", setCookie);
+  return res;
+}
+
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // /internal/* (notably /internal/authcheck) is only ever meant to be called
@@ -35,6 +56,33 @@ export function proxy(request: NextRequest) {
   // method instead of maintaining a list of colliding paths.
   if (request.method !== "GET" && request.method !== "HEAD" && !OWN_ROUTE_HANDLERS.has(pathname)) {
     return NextResponse.rewrite(new URL(pathname + request.nextUrl.search, BACKEND_URL));
+  }
+
+  // A logged-out visitor is sent to /login before any page markup goes out,
+  // instead of seeing the empty home page until a data fetch answers 401.
+  const gate = gateDecision({
+    method: request.method,
+    pathname,
+    hasSessionCookie: request.cookies.has(SESSION_COOKIE),
+    isRscRequest: request.headers.has("rsc"),
+  });
+  if (gate === "redirect") return toLogin(request);
+  if (gate === "check") {
+    let status: number | null = null;
+    let setCookie: string | null = null;
+    try {
+      const r = await fetch(new URL("/api/session", BACKEND_URL), {
+        headers: { cookie: request.headers.get("cookie") ?? "" },
+        redirect: "manual",
+        cache: "no-store",
+        signal: AbortSignal.timeout(SESSION_CHECK_TIMEOUT_MS),
+      });
+      status = r.status;
+      setCookie = r.headers.get("set-cookie");
+    } catch {
+      status = null;
+    }
+    if (checkRedirects(status)) return toLogin(request, setCookie);
   }
 
   // Nonce-based CSP on script-src, generated fresh per request. style-src

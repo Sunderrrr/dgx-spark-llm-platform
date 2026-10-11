@@ -242,6 +242,21 @@ class AuthGateTest(unittest.TestCase):
             r = self.client.get(route)
             self.assertIn(r.status_code, (302, 401, 403), f"{route} -> {r.status_code}")
 
+    def test_api_session_dit_si_le_navigateur_est_connecte(self):
+        # The Next.js proxy redirects to /login on a 401 and ONLY on a 401
+        # (lib/session-gate.ts): a 302 here would serve the empty page again.
+        self.assertEqual(self.client.get('/api/session').status_code, 401)
+        with self.client.session_transaction() as s:
+            s['username'] = 'demo'
+            s['auth_at'] = int(time.time())
+        r = self.client.get('/api/session')
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(r.data, b'')
+        # An expired session answers 401 too, and Flask clears it.
+        with self.client.session_transaction() as s:
+            s['auth_at'] = 0
+        self.assertEqual(self.client.get('/api/session').status_code, 401)
+
 
 class McpToolNameTest(unittest.TestCase):
     """A hostile MCP server must not be able to mask a built-in tool."""

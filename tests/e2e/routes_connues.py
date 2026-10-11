@@ -94,6 +94,7 @@ ROUTES = {
     'api_pending_count': ('parcours', 'j11_balayage_pages (coquille)'),
     'api_ranking': ('parcours', 'j12_actions_pages (classement)'),
     'api_search': ('parcours', 'j12_actions_pages (recherche HF)'),
+    'api_session': ('parcours', 'j01_connexion (redirection serveur + contrôle connecté)'),
     'api_whoami': ('parcours', 'j01_connexion (coquille)'),
     'asr.api_transcribe': ('exclu', 'dictée vocale : nécessite un micro (matériel)'),
     'asr.api_transcribe_available': ('parcours', 'j02_chat (bouton dictée)'),

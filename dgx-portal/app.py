@@ -1058,6 +1058,16 @@ def api_health():
     })
 
 
+@app.route('/api/session')
+@login_required
+def api_session():
+    """Cheapest "is this browser logged in?" answer: 204, or 401 from the
+    decorator (expired or revoked session included). The Next.js proxy asks it
+    before serving a page, so a logged-out visitor is sent to /login without
+    first seeing an empty page."""
+    return ('', 204)
+
+
 @app.route('/api/whoami')
 @login_required
 def api_whoami():

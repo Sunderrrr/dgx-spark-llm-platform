@@ -45,6 +45,7 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Fixed
 
+- Opening the portal while logged out no longer shows the empty home page for a second: the frontend proxy redirects to `/login` server-side (no session cookie, or `/api/session` answers 401).
 - CI: the secret scan no longer rejects `.env.example` as a forbidden file, and `run-tests.sh` works in a clone without `.env` (placeholder `DGX_WEB`/`DGX_API` for the image build only).
 - The API URL shown to users read `…/v1/v1` (compose appended `/v1` to a value
   that already ended with it).

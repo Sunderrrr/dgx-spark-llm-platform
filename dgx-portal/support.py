@@ -167,11 +167,11 @@ def _support_context(username, is_admin, user_msg=''):
     # Every service, so a « ça ne marche pas » is answered from FACTS: the
     # state is read here, not guessed, and a stopped one can be relaunched
     # with the `manage_service` tool.
-    etats = services_etat()
-    lignes_svc = [f"  - {k} : {v}" for k, v in etats.items()]
+    states = services_state()
+    service_lines = [f"  - {k} : {v}" for k, v in states.items()]
     lines.append("Services de la plateforme (running = prêt à servir, "
                  "starting = en chargement, stopped = arrêté, failed = en "
-                 "échec de chargement) :\n" + "\n".join(lignes_svc))
+                 "échec de chargement) :\n" + "\n".join(service_lines))
 
     # ── User's pending requests ─────────────
     mreqs = db.execute("SELECT model_id, status FROM model_requests WHERE username=? "
@@ -330,12 +330,12 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
                 n = max(1, min(300, int(args.get('lines') or 80)))
             except (TypeError, ValueError):
                 n = 80
-            lignes = sidecar_logs(kind, n)
-            if not lignes:
+            lines = sidecar_logs(kind, n)
+            if not lines:
                 return (f"Aucun log disponible pour « {kind} » : service injoignable, "
                         "ou tampon vide (rien n'a encore été écrit)."), True
-            return (f"Logs de « {kind} » ({len(lignes)} dernières lignes) :\n"
-                    + "\n".join(lignes)), True
+            return (f"Logs de « {kind} » ({len(lines)} dernières lignes) :\n"
+                    + "\n".join(lines)), True
 
         if name == 'manage_service':
             if not is_admin:
@@ -357,8 +357,8 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
                 _sidecar_action(kind, 'stop')
                 time.sleep(2)
             ok, detail = _sidecar_action(kind, 'start' if action != 'stop' else 'stop')
-            etat = _sidecar_status(kind)
-            return (f"{kind} : {etat}" + (f" — {detail}" if detail else ""), bool(ok))
+            state = _sidecar_status(kind)
+            return (f"{kind} : {state}" + (f" — {detail}" if detail else ""), bool(ok))
 
         if name == 'request_budget':
             reason = (args.get('reason') or '').strip()
@@ -399,7 +399,7 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
                              (mname,)).fetchone()
             if not cfg:
                 return f"Modèle « {mname} » introuvable dans le catalogue.", False
-            ok, motif, incertain = runner_launch(cfg['hf_model_id'], cfg['name'],
+            ok, launch_reason, incertain = runner_launch(cfg['hf_model_id'], cfg['name'],
                                                  cfg['vllm_args'] or '',
                                                  cfg['engine'] or 'vllm')
             # The announcement is no longer made here: _suivre_lancement emits it when
@@ -410,17 +410,17 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
                 return (f"Le runner n'a pas répondu dans le délai : le lancement de "
                         f"« {mname} » est peut-être en cours. Vérifie l'état avant de "
                         f"relancer."), False
-            return f"Lancement refusé : {motif}", False
+            return f"Lancement refusé : {launch_reason}", False
 
         if name == 'stop_model':
             if not is_admin:
                 return "Action réservée aux admins.", False
-            ok, motif, incertain = runner_stop()
+            ok, launch_reason, incertain = runner_stop()
             if ok:
                 return "Modèle arrêté.", True
             if incertain:
                 return "Le runner n'a pas répondu dans le délai : l'arrêt est peut-être en cours.", False
-            return f"Échec de l'arrêt : {motif}", False
+            return f"Échec de l'arrêt : {launch_reason}", False
 
         return f"Outil inconnu : {name}", False
     except Exception as e:
@@ -446,22 +446,22 @@ SERVICE_LOG_KINDS = ('model', 'litellm') + SERVICE_KINDS
 _services_cache = {'at': 0.0, 'etat': {}}
 
 
-def services_etat():
+def services_state():
     """{kind: 'running' | 'starting' | 'failed' | 'stopped' | …} for every
     service, plus the chat model's runner. What « ça ne marche pas » means
     before anyone opens a shell."""
     now = time.time()
     if now - _services_cache['at'] < 15:
         return _services_cache['etat']
-    etat = {}
+    state = {}
     for kind in SERVICE_KINDS:
         try:
-            etat[kind] = _sidecar_status(kind)
+            state[kind] = _sidecar_status(kind)
         except Exception:
-            etat[kind] = 'unreachable'
+            state[kind] = 'unreachable'
     _services_cache['at'] = now
-    _services_cache['etat'] = etat
-    return etat
+    _services_cache['etat'] = state
+    return state
 
 GUARDED_TOOLS = {'revoke_api_key', 'launch_model', 'stop_model', 'manage_service'}
 
@@ -473,7 +473,7 @@ GUARDED_TOOLS = {'revoke_api_key', 'launch_model', 'stop_model', 'manage_service
 # reading its value in the model's context (thus in the kept thread). After
 # reading external content we therefore refuse those tools too; creation
 # stays direct in the normal case.
-OUTILS_REFUSES_SI_EXTERNE = GUARDED_TOOLS | {'create_api_key'}
+TOOLS_REFUSED_IF_EXTERNAL = GUARDED_TOOLS | {'create_api_key'}
 
 # ── Confirmation of sensitive actions ─────────────────────────────────────
 # The prompt asks the model to get these actions confirmed, but a prompt is
@@ -486,7 +486,7 @@ PENDING_TTL = 600      # 10 min: past that, the request is stale
 PENDING_MAX = 5        # pending requests kept per user
 
 
-def creer_action_en_attente(username, tool, args, label, target):
+def create_pending_action(username, tool, args, label, target):
     """Submits a confirmation request and returns its token (opaque)."""
     token = secrets.token_urlsafe(24)
     db = get_db()
@@ -506,7 +506,7 @@ def creer_action_en_attente(username, tool, args, label, target):
     return token
 
 
-def action_en_attente(username, token):
+def pending_action(username, token):
     """THIS user's request, if still valid (None otherwise)."""
     if not token:
         return None
@@ -520,7 +520,7 @@ def action_en_attente(username, token):
     return row
 
 
-def cloturer_action(username, token, statut):
+def close_action(username, token, status_value):
     """Closes the request and says whether it was US who did it.
 
     This is what guarantees single use: the UPDATE is conditioned on
@@ -530,7 +530,7 @@ def cloturer_action(username, token, statut):
     db = get_db()
     cur = db.execute(
         "UPDATE pending_actions SET status=? WHERE token=? AND username=? AND status='pending'",
-        (statut, token, username))
+        (status_value, token, username))
     db.commit()
     return cur.rowcount == 1
 

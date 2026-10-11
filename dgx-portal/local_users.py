@@ -15,7 +15,7 @@ from config import KEY_BUDGET, KEY_DURATION
 from db import get_db, get_setting
 from litellm_client import _ensure_litellm_user, litellm_update_user_budget
 
-def _local_group(name, groupes=None):
+def _local_group(name, groups=None):
     """Row of group `name`, or None.
 
     `groupes` (name → row) avoids one SELECT per call when the caller has
@@ -25,25 +25,25 @@ def _local_group(name, groupes=None):
     """
     if not name:
         return None
-    if groupes is not None:
-        return groupes.get(name)
+    if groups is not None:
+        return groups.get(name)
     return get_db().execute("SELECT * FROM user_groups WHERE name=?", (name,)).fetchone()
 
-def _local_user_effective_budget(row, groupes=None):
+def _local_user_effective_budget(row, groups=None):
     """Effective quota: user override → group quota → global default."""
     if row['max_budget'] is not None:
         return row['max_budget']
-    g = _local_group(row['group_name'], groupes)
+    g = _local_group(row['group_name'], groups)
     if g and g['max_budget'] is not None:
         return g['max_budget']
     return float(get_setting('default_key_budget', KEY_BUDGET))
 
-def _local_user_is_admin(row, groupes=None):
-    g = _local_group(row['group_name'], groupes)
+def _local_user_is_admin(row, groups=None):
+    g = _local_group(row['group_name'], groups)
     return bool(row['is_admin']) or bool(g['is_admin'] if g else 0)
 
 # Throwaway hash to even out the response time (cf. enumeration oracle).
-_HASH_FACTICE = generate_password_hash('mot-de-passe-factice')
+_DUMMY_HASH = generate_password_hash('mot-de-passe-factice')
 
 
 def _local_user_auth(username, password):
@@ -57,7 +57,7 @@ def _local_user_auth(username, password):
         # response time told « compte local existant » from « inexistant » (a free
         # enumeration oracle, without triggering the lock: identical body and
         # status).
-        check_password_hash(_HASH_FACTICE, password or '')
+        check_password_hash(_DUMMY_HASH, password or '')
         return False, False, None
     if not check_password_hash(row['password_hash'], password):
         return False, False, None
@@ -81,9 +81,9 @@ def _sync_local_user_budget(username, row):
         # without a reset window, i.e. with a lifelong cap — the gotcha recorded on
         # 2026-09-08. Writing the duration everywhere avoids having to remember
         # which of the two readings applies.
-        duree = get_setting('default_key_duration', KEY_DURATION)
-        _ensure_litellm_user(username, eff, duree)
-        return bool(litellm_update_user_budget(username, eff, budget_duration=duree))
+        duration = get_setting('default_key_duration', KEY_DURATION)
+        _ensure_litellm_user(username, eff, duration)
+        return bool(litellm_update_user_budget(username, eff, budget_duration=duration))
     except Exception as exc:                                     # noqa: BLE001
         print(f'[local_users] quota NON appliqué pour {username} : {exc}')
         return False
@@ -92,7 +92,7 @@ def _sync_local_user_budget(username, row):
 # Passwords refused even at 8 characters: these are the first tried by
 # credential stuffing, and a local account has no guaranteed second factor
 # to save the day (the passkey is optional).
-_MOTS_DE_PASSE_INTERDITS = {
+_FORBIDDEN_PASSWORDS = {
     'password', 'password1', 'password123', 'motdepasse', 'motdepasse1',
     '12345678', '123456789', '1234567890', 'azertyui', 'azertyuiop',
     'qwertyui', 'qwertyuiop', 'admin123', 'administrateur', 'changeme',
@@ -110,7 +110,7 @@ def password_policy_error(password, username=None):
     if not password or len(password) < 8:
         return 'Mot de passe trop court (8 caractères minimum).'
     p = password.lower()
-    if p in _MOTS_DE_PASSE_INTERDITS:
+    if p in _FORBIDDEN_PASSWORDS:
         return 'Ce mot de passe est trop courant : choisis-en un autre.'
     if username:
         u = username.lower()
@@ -187,13 +187,13 @@ def _parse_budget(raw):
 #   4. else → we do NOT know, and we say so.
 # The absence of a recorded source is not proof of absence: this is already
 # the rule of `auth.etat_compte`, and the opposite had logged everyone out.
-GESTION_PORTAIL = 'portail'
-GESTION_LDAP = 'annuaire-ldap'
-GESTION_SSO = 'fournisseur-sso'
-GESTION_INCONNUE = 'inconnu'
+MANAGED_PORTAL = 'portail'
+MANAGED_LDAP = 'annuaire-ldap'
+MANAGED_SSO = 'fournisseur-sso'
+MANAGED_UNKNOWN = 'inconnu'
 
 
-def gestion_mot_de_passe(username):
+def password_management(username):
     """{'gestion', 'sources', 'local'}: who holds the account's password.
 
     Serves the UI, which shows the change form only when
@@ -208,15 +208,15 @@ def gestion_mot_de_passe(username):
                      (username,)).fetchone()
     sources = sorted(s for s in ((row['sources'] if row else '') or '').split(',') if s)
     if local:
-        gestion = GESTION_PORTAIL
+        management = MANAGED_PORTAL
     elif 'ldap' in sources:
-        gestion = GESTION_LDAP
+        management = MANAGED_LDAP
     elif 'sso' in sources:
-        gestion = GESTION_SSO
+        management = MANAGED_SSO
     else:
-        gestion = GESTION_INCONNUE
-    return {'gestion': gestion, 'sources': sources, 'local': local,
-            'passkey': gestion in (GESTION_PORTAIL, GESTION_LDAP)}
+        management = MANAGED_UNKNOWN
+    return {'gestion': management, 'sources': sources, 'local': local,
+            'passkey': management in (MANAGED_PORTAL, MANAGED_LDAP)}
 
 
 def passkey_possible(username):
@@ -227,4 +227,4 @@ def passkey_possible(username):
     check: showing it the switch would only lead to « Mot de passe
     incorrect », which is false. Product scope: local + LDAP.
     """
-    return gestion_mot_de_passe(username)['passkey']
+    return password_management(username)['passkey']

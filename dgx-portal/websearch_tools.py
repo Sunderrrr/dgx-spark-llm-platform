@@ -32,57 +32,57 @@ LITELLM_URL = os.environ.get('LITELLM_URL', 'http://litellm:4000')
 #   2. the final answer, streamed, exactly as before.
 # Splitting this way avoids reassembling fragmented tool calls from
 # deltas, and the visible answer always arrives token by token.
-MAX_TOURS_OUTILS = 3
+MAX_TOOL_ROUNDS = 3
 # Time cap of the tool phase. Legitimate or not, a search must never
 # monopolize the wait: past this, we answer with what was found.
 # A single page read can take a minute and a half.
-DELAI_MAX_OUTILS = 60
+TOOLS_MAX_DELAY = 60
 # What the tool phase re-reads to decide whether to search. Deliberately
 # SHORT: deciding « faut-il une recherche ? » does not call for re-reading a
 # 65 Ko file. Passing it the whole conversation added a full preloading
 # BEFORE the answer — measured: 30 s on 100 Ko of context, over 60 s beyond,
 # and the client gave up (« Network error ») on slightly old conversations
 # while a fresh conversation worked.
-OUTILS_MSG_MAX = 1500      # per message
-OUTILS_TOTAL_MAX = 8000    # in total
-OUTILS_DERNIERS = 6        # number of messages re-read
+TOOLS_MSG_MAX = 1500      # per message
+TOOLS_TOTAL_MAX = 8000    # in total
+TOOLS_LAST = 6        # number of messages re-read
 # What is then added to `court` (tool results) was bounded by NOTHING:
 # `OUTILS_TOTAL_MAX` only applies to the starting conversation, and each
 # round stacked up to 4 results of 20 000 characters, reposted IN FULL on
 # the next round. The 2nd round prompt reached ~88 000 characters, the 3rd
 # even more — a preload of several tens of seconds, without a single byte
 # sent to the client meanwhile. We bound per result AND in total.
-OUTILS_RESULTAT_PROMPT = 6000   # per tool result (the digest is enough to decide)
-OUTILS_PROMPT_MAX = 40000       # in total in `court`
+TOOLS_RESULT_PROMPT = 6000   # per tool result (the digest is enough to decide)
+TOOLS_PROMPT_MAX = 40000       # in total in `court`
 # A search tool is SYNCHRONOUS and can block for a very long time:
 # `lire_pages` waits `websearch.TIMEOUT_LECTURE` per page (90 s), while the
 # frontend proxy cuts after 60 s WITHOUT A SINGLE BYTE (IDLE_TIMEOUT_MS). The
 # result was thus lost and the user saw « Erreur réseau » although the read
 # had succeeded. We run the tool in a thread and emit an SSE comment while
 # waiting — same remedy as image generation.
-BATTEMENT_OUTIL_S = 8
+TOOL_HEARTBEAT_S = 8
 
 _log = logging.getLogger('app')
 
 
-def _contexte_outils(msgs):
+def _tools_context(msgs):
     """Lightweight version of the conversation, for the tool decision alone."""
-    systeme = [m for m in msgs[:1] if m.get('role') == 'system']
-    reste = msgs[len(systeme):]
-    court, total = [], 0
-    for m in reversed(reste[-OUTILS_DERNIERS:]):
+    system_part = [m for m in msgs[:1] if m.get('role') == 'system']
+    remaining = msgs[len(system_part):]
+    short_text, total = [], 0
+    for m in reversed(remaining[-TOOLS_LAST:]):
         c = str(m.get('content', ''))
-        if len(c) > OUTILS_MSG_MAX:
+        if len(c) > TOOLS_MSG_MAX:
             # We keep the START and the END: the request is often at the top, the last
             # instruction at the tail; the belly of a big file does not help.
-            moitie = OUTILS_MSG_MAX // 2
-            c = c[:moitie] + "\n…\n" + c[-moitie:]
-        if total + len(c) > OUTILS_TOTAL_MAX and court:
+            half = TOOLS_MSG_MAX // 2
+            c = c[:half] + "\n…\n" + c[-half:]
+        if total + len(c) > TOOLS_TOTAL_MAX and short_text:
             break
         total += len(c)
-        court.append({'role': m.get('role'), 'content': c})
-    return [{'role': m['role'], 'content': str(m.get('content', ''))[:OUTILS_MSG_MAX]}
-            for m in systeme] + list(reversed(court))
+        short_text.append({'role': m.get('role'), 'content': c})
+    return [{'role': m['role'], 'content': str(m.get('content', ''))[:TOOLS_MSG_MAX]}
+            for m in system_part] + list(reversed(short_text))
 
 
 # Search only goes out on an EXPLICIT DIRECTIVE.
@@ -105,7 +105,7 @@ def _contexte_outils(msgs):
 # sentence: a REQUEST (« cherche sur internet », « fais une recherche »,
 # « google-le ») triggers; a DESCRIPTION of what the user is looking for
 # (« je cherche à… », « est en ligne ») does not.
-_DEMANDE_RECHERCHE = re.compile(
+_SEARCH_REQUEST = re.compile(
     r"(?:cherche|recherche|regarde|va voir|renseigne-toi|informe-toi)"
     r"[^.!?\n]{0,30}?\b(?:sur (?:le )?(?:web|internet|net)|sur google)"
     r"|(?:fais|lance|effectue)[^.!?\n]{0,20}?\brecherche\b"
@@ -114,7 +114,7 @@ _DEMANDE_RECHERCHE = re.compile(
     re.I)
 
 
-def _texte_de_la_demande(contenu):
+def _request_text(content):
     """What the user WROTE, without the file they pasted.
 
     Searching for the intent in the whole message amounted to searching it
@@ -123,7 +123,7 @@ def _texte_de_la_demande(contenu):
     request, which overrides the file veto. Three searches went out on
     « "index (2).html" », all empty.
     """
-    t = re.sub(r"```[\s\S]*?```", " ", contenu or "")     # delimited blocks
+    t = re.sub(r"```[\s\S]*?```", " ", content or "")     # delimited blocks
     t = re.sub(r"<[^>]{1,300}>", " ", t)                    # glued tags
     t = re.sub(r"https?://\S+", " ", t)                     # adresses (google, etc.)
     if len(t) > 1200:
@@ -133,13 +133,13 @@ def _texte_de_la_demande(contenu):
     return t
 
 
-def _recherche_pertinente(history):
+def _search_relevant(history):
     """Should we merely OFFER the search tools for this round?"""
-    dernier = next((m for m in reversed(history) if m.get('role') == 'user'), None)
-    texte = _texte_de_la_demande(str((dernier or {}).get('content', '')))
+    last = next((m for m in reversed(history) if m.get('role') == 'user'), None)
+    text = _request_text(str((last or {}).get('content', '')))
     # An explicit directive, and nothing else. It beats everything else: if
     # someone writes « cherche sur internet », that is what they want.
-    return bool(_DEMANDE_RECHERCHE.search(texte))
+    return bool(_SEARCH_REQUEST.search(text))
 
 
 def websearch_active(username):
@@ -148,7 +148,7 @@ def websearch_active(username):
         "SELECT websearch_enabled FROM user_prefs WHERE username=?", (username,)).fetchone()
     if row is not None and not row['websearch_enabled']:
         return False
-    return websearch.disponible()
+    return websearch.available()
 
 
 def _web_tools():
@@ -178,22 +178,22 @@ def _web_tools():
     ]
 
 
-def _annonce(nom, args):
+def _announce(name, args):
     """What we are about to do, told to the client before doing it."""
-    if nom == 'recherche_web':
+    if name == 'recherche_web':
         return {'etape': 'recherche', 'outil': 'searxng',
                 'question': str(args.get('question', ''))[:200]}
-    if nom == 'lire_pages':
+    if name == 'lire_pages':
         urls = [str(u) for u in (args.get('urls') or [])][:websearch.MAX_PAGES]
         return {'etape': 'lecture', 'outil': 'crawl4ai', 'urls': urls}
-    return {'etape': 'inconnue', 'outil': nom}
+    return {'etape': 'inconnue', 'outil': name}
 
 
-def _exec_web_tool(nom, args, journal):
+def _exec_web_tool(name, args, journal):
     """Executes a tool and returns the text to hand back to the model."""
-    if nom == 'recherche_web':
+    if name == 'recherche_web':
         question = str(args.get('question', ''))[:400]
-        res, err = websearch.rechercher(question, args.get('nombre', 6))
+        res, err = websearch.search(question, args.get('nombre', 6))
         journal.append({'etape': 'recherche_finie', 'outil': 'searxng',
                         'question': question, 'nombre': len(res), 'erreur': err,
                         'sources': [{'titre': r['titre'], 'url': r['url']} for r in res[:8]]})
@@ -202,7 +202,7 @@ def _exec_web_tool(nom, args, journal):
         if not res:
             return "Aucun résultat."
         return json.dumps({'resultats': res}, ensure_ascii=False)
-    if nom == 'lire_pages':
+    if name == 'lire_pages':
         urls = [str(u) for u in (args.get('urls') or [])][:websearch.MAX_PAGES]
         # The instruction « n'utilise que les adresses des résultats » lived in the
         # tool DESCRIPTION, thus aimed at the model — that is, at the least
@@ -213,29 +213,29 @@ def _exec_web_tool(nom, args, journal):
         # address and have the crawler fetch), and it closes arbitrary URL opening
         # at the same time. The refusal is EXPLICIT so the model falls back on the
         # extracts instead of retrying.
-        connues = {s['url'] for entree in journal if entree.get('etape') == 'recherche_finie'
-                   for s in (entree.get('sources') or [])}
-        refusees = [u for u in urls if u not in connues]
-        urls = [u for u in urls if u in connues]
+        known_set = {s['url'] for entry in journal if entry.get('etape') == 'recherche_finie'
+                   for s in (entry.get('sources') or [])}
+        refused = [u for u in urls if u not in known_set]
+        urls = [u for u in urls if u in known_set]
         if not urls:
             return ("Aucune de ces adresses ne vient d'une recherche de cette "
                     "conversation : je ne peux ouvrir que les résultats affichés. "
-                    "Refusées : " + ", ".join(refusees[:4]))
-        pages, err = websearch.lire(urls)
+                    "Refusées : " + ", ".join(refused[:4]))
+        pages, err = websearch.read(urls)
         journal.append({'etape': 'lecture_finie', 'outil': 'crawl4ai', 'urls': urls,
                         'lues': sum(1 for p in pages if p.get('contenu')), 'erreur': err,
-                        'refusees': refusees,
+                        'refusees': refused,
                         'echecs': [{'url': p['url'], 'raison': p['erreur']}
                                    for p in pages if p.get('erreur')]})
         if err:
             return f"La lecture a échoué : {err}"
         suite = (" (adresses refusées, hors résultats de recherche : "
-                 + ", ".join(refusees[:4]) + ")") if refusees else ""
+                 + ", ".join(refused[:4]) + ")") if refused else ""
         return json.dumps({'pages': pages}, ensure_ascii=False) + suite
     return "Outil inconnu."
 
 
-def _borner_prompt_outils(court):
+def _bound_tools_prompt(short_text):
     """Brings `court` back under OUTILS_PROMPT_MAX by dropping the OLDEST tools.
 
     We drop a COMPLETE round — the assistant message carrying the `tool_calls`
@@ -243,23 +243,23 @@ def _borner_prompt_outils(court):
     models' chat template fail. The original conversation (`court`
     before any addition) is never touched: it is already bounded.
     """
-    def _taille(msgs):
+    def _size(msgs):
         return sum(len(str(m.get('content') or '')) for m in msgs)
 
-    total = _taille(court)
-    while total > OUTILS_PROMPT_MAX:
-        idx = next((i for i, m in enumerate(court)
+    total = _size(short_text)
+    while total > TOOLS_PROMPT_MAX:
+        idx = next((i for i, m in enumerate(short_text)
                     if m.get('role') == 'assistant' and m.get('tool_calls')), None)
         if idx is None:
             break
-        fin = idx + 1
-        while fin < len(court) and court[fin].get('role') == 'tool':
-            fin += 1
-        total -= _taille(court[idx:fin])
-        del court[idx:fin]
+        end = idx + 1
+        while end < len(short_text) and short_text[end].get('role') == 'tool':
+            end += 1
+        total -= _size(short_text[idx:end])
+        del short_text[idx:end]
 
 
-def _exec_web_tool_avec_battements(nom, args, journal):
+def _exec_web_tool_with_heartbeats(name, args, journal):
     """GENERATOR: runs a web tool while beating time during the wait.
 
     Yields (generator return value) the text meant for the model, exactly
@@ -268,48 +268,48 @@ def _exec_web_tool_avec_battements(nom, args, journal):
     during its whole run and the frontend proxy gives up (60 s idle), while
     the work itself does succeed.
     """
-    boite = {}
+    box = {}
 
     def _run():
         try:
-            boite['r'] = _exec_web_tool(nom, args, journal)
+            box['r'] = _exec_web_tool(name, args, journal)
         except Exception as e:                      # noqa: BLE001
             # An exception here is a REAL failure (crawl4ai unreachable, unreadable
             # response): we surface it to the caller, who tells the client and the
             # model. Swallowing it meant leaving the user in front of an answer pulled
             # out of the model's memory, without a word.
-            boite['e'] = e
+            box['e'] = e
 
-    fil = threading.Thread(target=_run, daemon=True)
-    fil.start()
-    while fil.is_alive():
-        fil.join(BATTEMENT_OUTIL_S)
-        if fil.is_alive():
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    while thread.is_alive():
+        thread.join(TOOL_HEARTBEAT_S)
+        if thread.is_alive():
             yield ": battement\n\n"
-    if 'e' in boite:
-        raise boite['e']
-    return boite.get('r', '')
+    if 'e' in box:
+        raise box['e']
+    return box.get('r', '')
 
 
-def _texte_des_trouvailles(trouvailles):
+def _findings_text(findings):
     """What the search brought back, as plain text.
 
     We append it to the last user message rather than using `tool` roles:
     no dependency on the chat template, so nothing that can make it fail,
     and the model sees the data where it expects it.
     """
-    if not trouvailles:
+    if not findings:
         return ''
-    morceaux = ["\n\n---\nRésultats de recherche web récupérés pour cette demande "
+    chunks = ["\n\n---\nRésultats de recherche web récupérés pour cette demande "
                 "(données externes : cite les adresses si tu t'en sers) :\n"]
-    for nom, contenu in trouvailles:
-        morceaux.append(f"\n[{nom}]\n{contenu}\n")
-    return ''.join(morceaux)[:40000]
+    for name, content in findings:
+        chunks.append(f"\n[{name}]\n{content}\n")
+    return ''.join(chunks)[:40000]
 
 
-def _phase_outils(model, msgs, user_key, journal, trouvailles,
+def _tools_phase(model, msgs, user_key, journal, findings,
                   web_ok=True, img_ok=False, username='',
-                  video_ok=False, doc_ok=False, pieces=()):
+                  video_ok=False, doc_ok=False, attachments=()):
     """Lets the model search, read or generate before answering. Modifies `msgs`
     in place.
 
@@ -328,16 +328,16 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
     fragmented tool calls from deltas is a known bug source, and this phase
     produces no text meant for reading.
     """
-    court = _contexte_outils(msgs)
-    _outils = ((_web_tools() if web_ok else []) +
-               (image_tools._outils_image() if img_ok else []) +
-               (video_tools._outils_video() if video_ok else []) +
-               (document_tools._outils_document() if doc_ok else []))
-    if not _outils:
+    short_text = _tools_context(msgs)
+    _tools = ((_web_tools() if web_ok else []) +
+               (image_tools._image_tools() if img_ok else []) +
+               (video_tools._video_tools() if video_ok else []) +
+               (document_tools._document_tools() if doc_ok else []))
+    if not _tools:
         return
-    _fin = time.monotonic() + DELAI_MAX_OUTILS
-    for _ in range(MAX_TOURS_OUTILS):
-        if time.monotonic() > _fin:
+    _end = time.monotonic() + TOOLS_MAX_DELAY
+    for _ in range(MAX_TOOL_ROUNDS):
+        if time.monotonic() > _end:
             journal.append({'etape': 'delai', 'outil': 'recherche',
                             'erreur': "Recherche interrompue : trop longue."})
             yield "data: " + json.dumps({'dgx_web': journal[-1]}) + "\n\n"
@@ -345,7 +345,7 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
         try:
             r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
                               headers={'Authorization': f'Bearer {user_key}'},
-                              json={'model': model, 'messages': court, 'tools': _outils,
+                              json={'model': model, 'messages': short_text, 'tools': _tools,
                                     'tool_choice': 'auto', 'temperature': 0.2,
                                     'max_tokens': 1024,
                                     'chat_template_kwargs': {'enable_thinking': False}},
@@ -367,16 +367,16 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
                 'erreur': f"assistant en erreur ({r.status_code})"}}) + "\n\n"
             return
         try:
-            choix = (r.json().get('choices') or [{}])[0]
+            choice = (r.json().get('choices') or [{}])[0]
         except Exception:                           # noqa: BLE001
             _log.warning("outils %s : reponse de decision illisible", username)
             yield "data: " + json.dumps({'dgx_web': {
                 'etape': 'recherche_finie', 'outil': 'litellm', 'nombre': 0,
                 'erreur': "réponse illisible"}}) + "\n\n"
             return
-        message = choix.get('message') or {}
-        appels = message.get('tool_calls') or []
-        if not appels:
+        message = choice.get('message') or {}
+        calls = message.get('tool_calls') or []
+        if not calls:
             return                      # the model needs no tool: we answer
         # The tool exchange lives only in `court`: the FINAL request must contain
         # no protocol-format message. Sending `tool_calls` and `tool`-role messages
@@ -385,12 +385,12 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
         # « The model returned no response ». What was found is reinjected as
         # TEXT, further down, by
         # `_texte_des_trouvailles`.
-        court.append({'role': 'assistant', 'content': message.get('content') or '',
-                      'tool_calls': appels})
-        for appel in appels[:4]:
-            if time.monotonic() > _fin:
+        short_text.append({'role': 'assistant', 'content': message.get('content') or '',
+                      'tool_calls': calls})
+        for call in calls[:4]:
+            if time.monotonic() > _end:
                 break
-            fn = (appel.get('function') or {})
+            fn = (call.get('function') or {})
             try:
                 args = json.loads(fn.get('arguments') or '{}')
             except Exception:
@@ -401,33 +401,33 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
             # also keeps the stream open, otherwise the proxy cuts before the
             # first token.
             if fn.get('name') == 'generer_image':
-                yield "data: " + json.dumps({'dgx_web': image_tools._annonce_image(args)}) + "\n\n"
+                yield "data: " + json.dumps({'dgx_web': image_tools._announce_image(args)}) + "\n\n"
                 # GENERATOR: SSE heartbeats during the generation, final text
                 # as return value.
-                resultat = yield from image_tools._exec_image_tool(args, username, journal)
+                result = yield from image_tools._exec_image_tool(args, username, journal)
                 # A generation consumes almost all of the phase budget: we
                 # extend it, otherwise the final model round would be refused
                 # by the deadline right after a perfectly successful image.
-                _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
+                _end = max(_end, time.monotonic() + TOOLS_MAX_DELAY)
             elif fn.get('name') == 'generer_video':
-                yield "data: " + json.dumps({'dgx_web': video_tools._annonce_video(args)}) + "\n\n"
+                yield "data: " + json.dumps({'dgx_web': video_tools._announce_video(args)}) + "\n\n"
                 # GENERATOR: same contract as the image tool — the phase
                 # budget is extended, a video takes MINUTES.
-                resultat = yield from video_tools._exec_video_tool(args, username, journal)
-                _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
+                result = yield from video_tools._exec_video_tool(args, username, journal)
+                _end = max(_end, time.monotonic() + TOOLS_MAX_DELAY)
             elif fn.get('name') == 'lire_document':
-                yield "data: " + json.dumps({'dgx_web': document_tools._annonce_document(args)}) + "\n\n"
+                yield "data: " + json.dumps({'dgx_web': document_tools._announce_document(args)}) + "\n\n"
                 # GENERATOR: heartbeats while the OCR sidecar extracts the
                 # text of the attachment, text as return value.
-                resultat = yield from document_tools._exec_document_tool(
-                    args, username, journal, pieces)
-                _fin = max(_fin, time.monotonic() + DELAI_MAX_OUTILS)
+                result = yield from document_tools._exec_document_tool(
+                    args, username, journal, attachments)
+                _end = max(_end, time.monotonic() + TOOLS_MAX_DELAY)
             else:
-                yield "data: " + json.dumps({'dgx_web': _annonce(fn.get('name', ''), args)}) + "\n\n"
+                yield "data: " + json.dumps({'dgx_web': _announce(fn.get('name', ''), args)}) + "\n\n"
                 # GENERATOR: SSE heartbeats during execution (a page read can
                 # take 90 s), final text as return value.
                 try:
-                    resultat = yield from _exec_web_tool_avec_battements(
+                    result = yield from _exec_web_tool_with_heartbeats(
                         fn.get('name', ''), args, journal)
                 except Exception as e:              # noqa: BLE001
                     _log.warning("outils %s : %s a leve (%s)", username,
@@ -435,12 +435,12 @@ def _phase_outils(model, msgs, user_key, journal, trouvailles,
                     journal.append({'etape': 'recherche_finie', 'outil': 'recherche',
                                     'nombre': 0, 'erreur': "outil en panne"})
                     yield "data: " + json.dumps({'dgx_web': journal[-1]}) + "\n\n"
-                    resultat = ("La recherche a échoué (outil en panne). Dis-le "
+                    result = ("La recherche a échoué (outil en panne). Dis-le "
                                 "tel quel à l'utilisateur.")
             yield "data: " + json.dumps({'dgx_web': journal[-1] if journal else {}}) + "\n\n"
 
-            court.append({'role': 'tool', 'tool_call_id': appel.get('id', ''),
+            short_text.append({'role': 'tool', 'tool_call_id': call.get('id', ''),
                           'name': fn.get('name', ''),
-                          'content': resultat[:OUTILS_RESULTAT_PROMPT]})
-            trouvailles.append((fn.get('name', ''), resultat[:20000]))
-            _borner_prompt_outils(court)
+                          'content': result[:TOOLS_RESULT_PROMPT]})
+            findings.append((fn.get('name', ''), result[:20000]))
+            _bound_tools_prompt(short_text)

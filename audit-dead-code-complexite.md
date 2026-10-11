@@ -18,14 +18,14 @@ verified case by case and excluded.
 
 | # | Location | What | Proof it is orphan |
 |---|----------|------|--------------------|
-| 1 | `dgx-portal/local_users.py:222-232` | function `passkey_possible(username)` | zero callers repo-wide (name appears only at its def + two *comments* in webauthn_routes.py:365/393); the code that needs the answer uses `gestion["passkey"]` (`webauthn_routes.py:367`, `settings_routes.py:371`, `app.py:1053`). Tests reference only the JSON key string `"passkey_possible"` (test_reglages_utilisateur.py:542), not the function. |
+| 1 | `dgx-portal/local_users.py:222-232` | function `passkey_possible(username)` | zero callers repo-wide (name appears only at its def + two *comments* in webauthn_routes.py:365/393); the code that needs the answer uses `gestion["passkey"]` (`webauthn_routes.py:367`, `settings_routes.py:371`, `app.py:1053`). Tests reference only the JSON key string `"passkey_possible"` (test_user_settings.py:542), not the function. |
 | 2 | `dgx-portal/webauthn_routes.py:45` | import `passkey_possible` | same as #1; never referenced in the file (only in comments). |
 | 3 | `dgx-portal/settings_routes.py:18` | import `check_password_hash` | used 0× in the file (only a comment at :450); `local_users.py:12` has its own import; no `from settings_routes import check_password_hash` anywhere. |
 | 4 | `dgx-portal/support.py:102-103` | `_LOG_HINT_RE` | compiled regex referenced 0× anywhere — leftover of the removed "logs only when the question is technical" heuristic (`_support_context` no longer filters on the message). |
 | 5 | `dgx-portal/support.py:106` | parameter `user_msg` of `_support_context` | assigned, never read (vulture 100 %). Vestigial, not unreachable: `chat_routes.py:170` and tests (test_app.py:1809, 1912) still *pass* it. Deleting it is behaviour-identical but requires updating those 3 call sites. |
 | 6 | `dgx-portal-frontend/app/(app)/playground/_components/SettingsPanel.tsx:10` | import `Switch` | tsc `--noUnusedLocals` + eslint `no-unused-vars` both flag it; no JSX use. |
 | 7 | `dgx-portal/tests/test_asr_sidecar.py:26` | `from unittest import mock` | never used in the file (the stubs use `types.ModuleType`). |
-| 8 | `dgx-portal/tests/test_gardes_media.py:27` | local `db = portal.get_db()` | never read; the next 3 lines call `portal.get_db()` again. |
+| 8 | `dgx-portal/tests/test_media_guards.py:27` | local `db = portal.get_db()` | never read; the next 3 lines call `portal.get_db()` again. |
 | 9 | `dgx-portal/app.py:3` | `g` in the `from flask import …` line | unused; it is **not** part of the documented re-export surface (that covers the `from <module> import` blocks, app.py:100-101). |
 | 10 | `dgx-portal-frontend/lib/i18n.tsx` | **86 unreachable EN msgids** (list below) | see §i18n. |
 
@@ -133,7 +133,7 @@ are ComfyUI templates).
 
 | # | Location | Problem | Proposed simplification | Risk |
 |---|----------|---------|-------------------------|------|
-| 1 | `dgx-portal/chat_routes.py:128-510` (`support_chat`, 382 ln) vs `:1053-1541` (`playground_chat`, 488 ln) | two chat pipelines with twin SSE choreography: 15 byte-identical non-trivial lines (the `use_tools=False` retry, the `_sse_notice` error paths, the `data: [DONE]` emission, the `untrusted_seen` guard shape) and two copies of the "open the POST in a thread + `: ping` while waiting" opener (`_run_turn` :230-247) | extract module-level `_ouvrir_flux_avec_pings()` + `_erreur_tour(status)` helpers used by both; leave each pipeline's threading model alone | low |
+| 1 | `dgx-portal/chat_routes.py:128-510` (`support_chat`, 382 ln) vs `:1053-1541` (`playground_chat`, 488 ln) | two chat pipelines with twin SSE choreography: 15 byte-identical non-trivial lines (the `use_tools=False` retry, the `_sse_notice` error paths, the `data: [DONE]` emission, the `untrusted_seen` guard shape) and two copies of the "open the POST in a thread + `: ping` while waiting" opener (`_run_turn` :230-247) | extract module-level `_open_stream_with_pings()` + `_erreur_tour(status)` helpers used by both; leave each pipeline's threading model alone | low |
 | 2 | `dgx-portal/image_tools.py:123-218` `_exec_image_tool` vs `dgx-portal/video_tools.py:148-238` `_exec_video_tool` | the job-wait loop is verbatim in both (18 identical lines: `sqlite3.connect(DB_PATH, timeout=5)`, `status != 'running'`, `: battement` heartbeat every `_HEARTBEAT_EVERY_S`, `media_job_done`) | extract `_attendre_job(table, prompt_id, username, timeout_s)` generator yielding the heartbeats, called by both tools | low |
 | 3 | `app/(app)/playground/page.tsx:1170` `PlaygroundPage` (3026 ln), `_components/SettingsDialog.tsx:168` (1012), `admin/_components/UsersSection.tsx:130` (830), `support/page.tsx:157` (743), `page.tsx:222 HomePage` (594) | single components far past the point where their JSX can be reviewed | extract cohesive blocks as child components taking plain props (Settings tabs, user table rows, home cards) | medium (re-render identity / memo semantics must be preserved) |
 | 4 | `dgx-portal/chat_routes.py:1341-1439` (nesting to depth **7** inside `playground_chat`'s tool phase), `ocr_routes.py:135-138` (depth 7), `websearch_tools.py:418-429`, `stats.py:510-514` | deep conditional pyramids | pull each `if` level into a `_xxx_etape()` function or invert with early `continue`/`return`; structure moves, values don't | low |
@@ -142,7 +142,7 @@ are ComfyUI templates).
 | 7 | `dgx-portal/vllm_health.py:222` `_vllm_health_uncached` (140 ln) | three engine dialects (llamacpp `/metrics`, vLLM, TabbyAPI/SpendLogs) in one body | one `_compteurs_<engine>()` per branch, dict merged at the end | low |
 | 8 | `dgx-portal/stats.py:700` `ranking_full` (147 ln) + `:421 _active_users` (139 ln) | SQL and row shaping interleaved | split the shaping (share/delta/trend) into `_forme_classement(rows)` — pure, byte-identical | low |
 | 9 | `vllm-runner/runner.py:889` `_start_process` (118 ln) | log-capture wiring + spawn + failure bookkeeping in one block | extract the `_logs` capture setup into `_capturer_logs(proc)` | low |
-| 10 | `dgx-portal/settings_routes.py:164` `mcp_servers_route` (111 ln), `app.py:1177` `keys` (119 ln), `support.py:292 _exec_support_tool` (135 ln), `websearch_tools.py:310 _phase_outils` (137 ln) | borderline length; mixed validation + IO | split the validation prelude from the IO; no behaviour change | low |
+| 10 | `dgx-portal/settings_routes.py:164` `mcp_servers_route` (111 ln), `app.py:1177` `keys` (119 ln), `support.py:292 _exec_support_tool` (135 ln), `websearch_tools.py:310 _tools_phase` (137 ln) | borderline length; mixed validation + IO | split the validation prelude from the IO; no behaviour change | low |
 
 No `if False` / impossible-state branches found anywhere (grep + AST), and only
 one mild boolean-parameter pair (`chat_routes._chat(with_tools, stream)`) — the

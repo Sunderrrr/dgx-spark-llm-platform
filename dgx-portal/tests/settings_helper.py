@@ -7,19 +7,19 @@ settings as the admin panel would, and restores exactly what was there.
 from contextlib import contextmanager
 
 import app as portal
-import parametres
+import instance_config
 
 
 @contextmanager
-def reglages(**valeurs):
+def live_settings(**values):
     with portal.app.app_context():
-        avant = {k: portal.get_db().execute(
-            "SELECT value FROM settings WHERE key=?", ('cfg_' + k,)).fetchone() for k in valeurs}
-        for k, v in valeurs.items():
-            parametres.definir(k, v if v else parametres.EFFACER)
+        before = {k: portal.get_db().execute(
+            "SELECT value FROM settings WHERE key=?", ('cfg_' + k,)).fetchone() for k in values}
+        for k, v in values.items():
+            instance_config.set_value(k, v if v else instance_config.CLEAR)
     try:
         yield
     finally:
         with portal.app.app_context():
-            for k, row in avant.items():
-                parametres.definir(k, row['value'] if row else parametres.EFFACER)
+            for k, row in before.items():
+                instance_config.set_value(k, row['value'] if row else instance_config.CLEAR)

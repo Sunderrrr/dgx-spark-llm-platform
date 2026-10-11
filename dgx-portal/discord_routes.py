@@ -22,7 +22,7 @@ from flask import (Blueprint, flash, jsonify, redirect, request, session,
 
 from auth import login_required
 from config import DISCORD_API
-from parametres import discord_config
+from instance_config import discord_config
 from db import get_db
 
 bp = Blueprint('discord', __name__)

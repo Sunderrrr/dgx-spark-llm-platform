@@ -41,8 +41,8 @@ class SessionTest(unittest.TestCase):
 class CompetencesTest(SessionTest):
     """CRUD of `/skills` — no mention in tests/ before this file."""
 
-    def _cree(self, c, nom='ztest-competence'):
-        return self._post(c, '/skills', action='create', name=nom,
+    def _cree(self, c, name='ztest-competence'):
+        return self._post(c, '/skills', action='create', name=name,
                           description='pour les tests', instructions='fais ceci')
 
     def _noms(self, username):
@@ -51,18 +51,18 @@ class CompetencesTest(SessionTest):
             return [r['name'] for r in get_db().execute(
                 "SELECT name FROM skills WHERE username=? ORDER BY id", (username,))]
 
-    def _cherche(self, noeud, cle):
+    def _cherche(self, noeud, key):
         """Finds a key wherever it is nested in the payload."""
         if isinstance(noeud, dict):
-            if cle in noeud:
-                return noeud[cle]
+            if key in noeud:
+                return noeud[key]
             for v in noeud.values():
-                r = self._cherche(v, cle)
+                r = self._cherche(v, key)
                 if r is not None:
                     return r
         elif isinstance(noeud, list):
             for v in noeud:
-                r = self._cherche(v, cle)
+                r = self._cherche(v, key)
                 if r is not None:
                     return r
         return None
@@ -208,9 +208,9 @@ class SchemaTableauDeBordTest(SessionTest):
         with mock.patch('app.vllm_health', return_value=sante):
             r = self._client().get('/api/modelhealth')
         self.assertEqual(r.status_code, 200)
-        corps = r.get_json()
+        body = r.get_json()
         for k in self.CLES_SANTE:
-            self.assertIn(k, corps, f"clé disparue du tableau de bord : {k}")
+            self.assertIn(k, body, f"clé disparue du tableau de bord : {k}")
 
     def test_home_repond_un_json_exploitable(self):
         r = self._client().get('/api/home')
@@ -226,17 +226,17 @@ class MentionMemoirePartageeTest(unittest.TestCase):
 
     def test_la_mention_porte_la_memoire_libre(self):
         from unittest import mock
-        from sidecars import mention_memoire_partagee
+        from sidecars import shared_memory_note
         with mock.patch('sidecars._mem_available_gb', return_value=9.7):
-            m = mention_memoire_partagee()
+            m = shared_memory_note()
         self.assertIn('9.7 Go libres', m)
         self.assertIn('Admin', m)
 
     def test_sans_mesure_il_n_y_a_pas_de_faux_chiffre(self):
         from unittest import mock
-        from sidecars import mention_memoire_partagee
+        from sidecars import shared_memory_note
         with mock.patch('sidecars._mem_available_gb', return_value=None):
-            self.assertEqual(mention_memoire_partagee(), "")
+            self.assertEqual(shared_memory_note(), "")
 
     def test_les_erreurs_media_la_portent(self):
         from unittest import mock

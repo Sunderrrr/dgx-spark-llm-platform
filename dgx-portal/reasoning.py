@@ -16,7 +16,7 @@ Standalone module (no Flask dependency): shared between the portal
 """
 
 # A single one of these words makes the request « worth thinking about ».
-MARQUEURS = (
+MARKERS = (
     # raisonnement explicite
     'pourquoi', 'comment faire', 'comment puis-je', 'explique', 'expliquer',
     'démontre', 'prouve', 'raisonne', 'réfléchis', 'étape par étape',
@@ -36,11 +36,11 @@ MARQUEURS = (
 )
 
 # Structural signs: code or maths in the request.
-MARQUEURS_CODE = ('```', 'def ', 'class ', 'function ', 'SELECT ', 'INSERT ',
+CODE_MARKERS = ('```', 'def ', 'class ', 'function ', 'SELECT ', 'INSERT ',
                   'import ', '=>', '->', 'docker ', 'systemctl')
 
 
-def raisonnablement_complexe(texte):
+def reasonably_complex(text):
     """True when the request warrants paying for a reasoning pass.
 
     `texte` = the last user message (attachments already stripped). Rules,
@@ -51,25 +51,25 @@ def raisonnablement_complexe(texte):
     4. two questions or more, or a long message → yes;
     5. otherwise → no (including greetings, thanks, « ok »).
     """
-    if not texte or not texte.strip():
+    if not text or not text.strip():
         return False
-    bas = texte.lower()
+    low = text.lower()
     # 1. demande explicite
-    if any(m in bas for m in ('réfléchis', 'raisonne', 'étape par étape',
+    if any(m in low for m in ('réfléchis', 'raisonne', 'étape par étape',
                               'step by step', 'pas à pas', 'réfléchir')):
         return True
     # 2. code / maths
-    if any(m in texte for m in MARQUEURS_CODE):
+    if any(m in text for m in CODE_MARKERS):
         return True
-    if sum(ch.isdigit() for ch in texte) >= 4 and any(
-            op in texte for op in ('+', '-', '*', '/', '=', '%')):
+    if sum(ch.isdigit() for ch in text) >= 4 and any(
+            op in text for op in ('+', '-', '*', '/', '=', '%')):
         return True
     # 3. marqueur d'analyse
-    if any(m in bas for m in MARQUEURS):
+    if any(m in low for m in MARKERS):
         return True
     # 4. structure: several questions, or a long request
-    if texte.count('?') >= 2:
+    if text.count('?') >= 2:
         return True
-    if len(texte) >= 500:
+    if len(text) >= 500:
         return True
     return False

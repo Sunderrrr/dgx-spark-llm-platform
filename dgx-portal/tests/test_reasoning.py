@@ -8,7 +8,7 @@ does NOT trigger it (rather under-trigger, deliberate).
 """
 import unittest
 
-from raisonnement import raisonnablement_complexe
+from reasoning import reasonably_complex
 
 
 class RaisonnementAutoTest(unittest.TestCase):
@@ -27,8 +27,8 @@ class RaisonnementAutoTest(unittest.TestCase):
             "Analyse cette requête SQL et optimise-la.",
             "Peux-tu expliquer ce chiffrement ?" ,
         ]
-        for texte in pour_oui:
-            self.assertTrue(raisonnablement_complexe(texte), f"aurait dû réfléchir : {texte!r}")
+        for text in pour_oui:
+            self.assertTrue(reasonably_complex(text), f"aurait dû réfléchir : {text!r}")
 
     def test_le_quotidien_ne_declenche_pas(self):
         pour_non = [
@@ -43,17 +43,17 @@ class RaisonnementAutoTest(unittest.TestCase):
             "Traduis : The cat sleeps.",
             "Écris une phrase sur la pluie.",
         ]
-        for texte in pour_non:
-            self.assertFalse(raisonnablement_complexe(texte), f"n'aurait pas dû réfléchir : {texte!r}")
+        for text in pour_non:
+            self.assertFalse(reasonably_complex(text), f"n'aurait pas dû réfléchir : {text!r}")
 
     def test_un_message_long_ou_multi_questions_declenche(self):
-        self.assertTrue(raisonnablement_complexe("Raconte-moi " + "l'histoire de la machine. " * 30))
-        self.assertTrue(raisonnablement_complexe("C'est où ? Et depuis quand ?"))
+        self.assertTrue(reasonably_complex("Raconte-moi " + "l'histoire de la machine. " * 30))
+        self.assertTrue(reasonably_complex("C'est où ? Et depuis quand ?"))
 
     def test_le_texte_des_pieces_jointes_est_ignore(self):
         """What counts is the REQUEST — not the attached file."""
-        self.assertTrue(raisonnablement_complexe("Analyse ce fichier"))
-        self.assertFalse(raisonnablement_complexe("Voilà le fichier demandé."))
+        self.assertTrue(reasonably_complex("Analyse ce fichier"))
+        self.assertFalse(reasonably_complex("Voilà le fichier demandé."))
 
 
 if __name__ == '__main__':

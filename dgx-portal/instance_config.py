@@ -49,25 +49,25 @@ CONFIGURABLE = [
     ('discord_redirect_uri', 'Discord — URI de retour', False, 'DISCORD_REDIRECT_URI', ''),
     ('security_contact', 'Sécurité — contact (security.txt)', False, 'DGX_SECURITY_CONTACT', ''),
 ]
-_PAR_NOM = {c[0]: c for c in CONFIGURABLE}
+_BY_NAME = {c[0]: c for c in CONFIGURABLE}
 
 # Sent by the panel to clear a secret (an empty secret field means « unchanged »:
 # the browser never has the value to send it back).
-EFFACER = '__effacer__'
+CLEAR = '__effacer__'
 
 
-def parametre(nom, defaut=None):
+def setting(name, default=None):
     """The effective value: the database, else the code default."""
-    bdd = read_setting('cfg_' + nom, '')    # works in notification threads too
-    if bdd:
-        return bdd
-    if defaut is None:
-        entree = _PAR_NOM.get(nom)
-        defaut = entree[4] if entree else ''
-    return defaut
+    db_value = read_setting('cfg_' + name, '')    # works in notification threads too
+    if db_value:
+        return db_value
+    if default is None:
+        entry = _BY_NAME.get(name)
+        default = entry[4] if entry else ''
+    return default
 
 
-def importer_env_une_fois():
+def import_env_once():
     """Copies the legacy `.env` values into the database, ONCE per key.
 
     Only empty settings are filled, and every key considered is remembered
@@ -75,40 +75,40 @@ def importer_env_une_fois():
     means it, a value left in `.env` does not come back at the next restart —
     while a key added to the panel later (Discord, 2026-10-11) still gets its
     one import. Returns the keys imported."""
-    marque = get_setting('cfg_env_importe', '') or ''
-    if marque == '1':
+    brand = get_setting('cfg_env_importe', '') or ''
+    if brand == '1':
         # The first version kept a plain flag, set before Discord joined the
         # panel: every non-Discord key had been considered.
-        traitees = {c[0] for c in CONFIGURABLE if not c[0].startswith('discord_')}
+        considered = {c[0] for c in CONFIGURABLE if not c[0].startswith('discord_')}
     else:
-        traitees = {k for k in marque.split(',') if k}
-    importes = []
-    for nom, _libelle, _secret, env, _defaut in CONFIGURABLE:
-        if nom in traitees:
+        considered = {k for k in brand.split(',') if k}
+    imported = []
+    for name, _label, _secret, env, _default in CONFIGURABLE:
+        if name in considered:
             continue
         v = (os.environ.get(env) or '').strip()
-        if v and not read_setting('cfg_' + nom, ''):
-            set_setting('cfg_' + nom, v)
-            importes.append(nom)
-        traitees.add(nom)
-    set_setting('cfg_env_importe', ','.join(sorted(traitees)))
-    return importes
+        if v and not read_setting('cfg_' + name, ''):
+            set_setting('cfg_' + name, v)
+            imported.append(name)
+        considered.add(name)
+    set_setting('cfg_env_importe', ','.join(sorted(considered)))
+    return imported
 
 
 def ldap_config():
     """LDAP connection details, service account included."""
     return {
-        'uri': parametre('ldap_uri'),
-        'base': parametre('ldap_base'),
-        'users_dn': parametre('ldap_users_dn'),
-        'login_attr': parametre('ldap_login_attr'),
-        'bind_dn': parametre('ldap_bind_dn'),
-        'bind_pw': parametre('ldap_bind_pw'),
+        'uri': setting('ldap_uri'),
+        'base': setting('ldap_base'),
+        'users_dn': setting('ldap_users_dn'),
+        'login_attr': setting('ldap_login_attr'),
+        'bind_dn': setting('ldap_bind_dn'),
+        'bind_pw': setting('ldap_bind_pw'),
     }
 
 
 def oidc_config():
-    c = {k: parametre('oidc_' + k) for k in
+    c = {k: setting('oidc_' + k) for k in
          ('metadata_url', 'client_id', 'client_secret', 'admin_group', 'redirect_uri', 'logout_url')}
     c['enabled'] = bool(c['metadata_url'] and c['client_id'] and c['client_secret'])
     return c
@@ -116,12 +116,12 @@ def oidc_config():
 
 def smtp_config():
     try:
-        port = int(parametre('smtp_port') or 587)
+        port = int(setting('smtp_port') or 587)
     except ValueError:
         port = 587
-    c = {'host': parametre('smtp_host'), 'port': port, 'user': parametre('smtp_user'),
-         'password': parametre('smtp_pass'), 'from': parametre('smtp_from'),
-         'admin_email': parametre('admin_email')}
+    c = {'host': setting('smtp_host'), 'port': port, 'user': setting('smtp_user'),
+         'password': setting('smtp_pass'), 'from': setting('smtp_from'),
+         'admin_email': setting('admin_email')}
     c['configured'] = bool(c['host'] and c['user'] and c['password'])
     return c
 
@@ -129,47 +129,47 @@ def smtp_config():
 def discord_config():
     """Discord: the admin-alert webhook, the bot that DMs announcements, and the
     OAuth2 app that links accounts. Each part is off while its fields are empty."""
-    c = {'webhook': parametre('discord_webhook_url'),
-         'bot_token': parametre('discord_bot_token'),
-         'client_id': parametre('discord_client_id'),
-         'client_secret': parametre('discord_client_secret'),
-         'redirect_uri': parametre('discord_redirect_uri')}
+    c = {'webhook': setting('discord_webhook_url'),
+         'bot_token': setting('discord_bot_token'),
+         'client_id': setting('discord_client_id'),
+         'client_secret': setting('discord_client_secret'),
+         'redirect_uri': setting('discord_redirect_uri')}
     c['link_enabled'] = bool(c['client_id'] and c['client_secret'])
     return c
 
 
-def definir(nom, valeur):
+def set_value(name, value):
     """Writes a value from Admin. An empty field means « back to the default »;
     for a secret, only EFFACER clears it (empty = unchanged)."""
-    entree = _PAR_NOM.get(nom)
-    secret = bool(entree and entree[2])
-    if secret and not valeur:
+    entry = _BY_NAME.get(name)
+    secret = bool(entry and entry[2])
+    if secret and not value:
         return False
-    if valeur and valeur != EFFACER:
-        set_setting('cfg_' + nom, valeur)
+    if value and value != CLEAR:
+        set_setting('cfg_' + name, value)
     else:
         db = get_db()
-        db.execute("DELETE FROM settings WHERE key=?", ('cfg_' + nom,))
+        db.execute("DELETE FROM settings WHERE key=?", ('cfg_' + name,))
         db.commit()
     return True
 
 
-def etat_config():
+def config_state():
     """What the admin panel shows: the value if it is NOT a secret, and only
     « configured/absent » if it is."""
     out = []
-    for nom, libelle, secret, _env, _defaut in CONFIGURABLE:
-        v = parametre(nom)
+    for name, label, secret, _env, _default in CONFIGURABLE:
+        v = setting(name)
         out.append({
-            'nom': nom,
-            'libelle': libelle,
+            'nom': name,
+            'libelle': label,
             'secret': secret,
             'valeur': '' if secret else v,
             'configure': bool(v),
             # where the value comes from — the operator's first question
             # when a setting « does not take ».
-            'source': 'interface' if read_setting('cfg_' + nom, '') else 'défaut',
+            'source': 'interface' if read_setting('cfg_' + name, '') else 'défaut',
             # The code default, shown as the field's placeholder (never a secret).
-            'defaut': '' if secret else _defaut,
+            'defaut': '' if secret else _default,
         })
     return out

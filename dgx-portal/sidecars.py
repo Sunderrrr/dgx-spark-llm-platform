@@ -38,11 +38,11 @@ _log = logging.getLogger('app')
 # This is NOT a failure — the operation is probably under way. The caller
 # must therefore neither alert the infra nor invite the operator to click
 # again (relaunching a model being loaded kills it: golden rule).
-_MOTIF_DELAI_LANCEMENT = (
+_LAUNCH_TIMEOUT_PATTERN = (
     "Le runner n'a pas répondu dans le délai imparti (150 s) : le lancement est "
     "peut-être toujours en cours. Vérifie l'état du modèle AVANT de relancer — "
     "relancer tuerait un modèle en cours de chargement.")
-_MOTIF_DELAI_ARRET = (
+_STOP_TIMEOUT_PATTERN = (
     "Le runner n'a pas répondu dans le délai imparti (45 s) : l'arrêt est "
     "peut-être toujours en cours. Vérifie l'état du modèle avant de réessayer.")
 
@@ -63,29 +63,29 @@ _ocr_model_cache = {'t': 0.0, 'v': None}
 # meant a stopped sidecar cost 3 s to EVERY home load — and /api/home probes
 # six of them (measured 2026-10-07: 3.19 s, 12 requests.get). A false negative
 # costs one retry on the next call; a slow probe costs every user, every 5 s.
-_SONDE_DELAI = 0.3
+_PROBE_TIMEOUT = 0.3
 
 # Availability is a SLOW property to learn (a stopped sidecar costs the whole
 # timeout) and a FAST one to invalidate (the user just clicked Start). Cache it
 # for 20 s: the home page polls every 5 s and used to pay the SUM of six
 # probes whenever the cache was cold — measured 2026-10-09, /api/home at
 # 965 ms, the slowest probe being ComfyUI's 0.8 s.
-_SONDE_CACHE = {}
-_SONDE_CLE_DUREE = 20
+_PROBE_CACHE = {}
+_PROBE_KEY_TTL = 20
 
 
-def _sonde_memo(key, fn):
+def _probe_memo(key, fn):
     import time as _t
     now = _t.time()
-    hit = _SONDE_CACHE.get(key)
-    if hit and now - hit[0] < _SONDE_CLE_DUREE:
+    hit = _PROBE_CACHE.get(key)
+    if hit and now - hit[0] < _PROBE_KEY_TTL:
         return hit[1]
     v = fn()
-    _SONDE_CACHE[key] = (now, v)
+    _PROBE_CACHE[key] = (now, v)
     return v
 
 
-def attendre_job_media(table, prompt_id, username, delai_s):
+def wait_media_job(table, prompt_id, username, timeout_s):
     """Polls a media job row until it is done, yielding SSE heartbeats.
 
     The image and video tools each carried this loop VERBATIM (18 identical
@@ -99,9 +99,9 @@ def attendre_job_media(table, prompt_id, username, delai_s):
     """
     import sqlite3 as _sq
     from db import DB_PATH
-    debut = time.monotonic()
-    prochain = debut + 15
-    while time.monotonic() - debut < delai_s:
+    start = time.monotonic()
+    next_item = start + 15
+    while time.monotonic() - start < timeout_s:
         time.sleep(2)
         try:
             c = _sq.connect(DB_PATH, timeout=5)
@@ -114,9 +114,9 @@ def attendre_job_media(table, prompt_id, username, delai_s):
             row = None
         if row and row.get('status') not in ('running', 'pending'):
             return row
-        if time.monotonic() >= prochain:
+        if time.monotonic() >= next_item:
             yield ": battement\n\n"
-            prochain = time.monotonic() + 15
+            next_item = time.monotonic() + 15
     return None
 
 
@@ -136,7 +136,7 @@ def get_ocr_model():
     # admin page when OCR was stopped. Process state is cached for 5 s.
     if _sidecar_proc_status('ocr') == 'running':
         try:
-            r = requests.get(f"{OCR_URL}/models", timeout=_SONDE_DELAI)
+            r = requests.get(f"{OCR_URL}/models", timeout=_PROBE_TIMEOUT)
             if r.ok:
                 data = r.json().get('data', [])
                 if data:
@@ -163,7 +163,7 @@ def get_voice_model():
     # stopped (otherwise a full ~3 s timeout, sidecar network in DROP).
     if _sidecar_proc_status('voice') == 'running':
         try:
-            r = requests.get(f"{VOICE_URL}/api/model-info", timeout=_SONDE_DELAI)
+            r = requests.get(f"{VOICE_URL}/api/model-info", timeout=_PROBE_TIMEOUT)
             if r.ok:
                 data = r.json()
                 if data.get('loaded'):
@@ -187,7 +187,7 @@ def _asr_info():
         return _asr_info_cache['v']
     info = {}
     try:
-        r = requests.get(f"{ASR_URL}/api/model-info", timeout=_SONDE_DELAI)
+        r = requests.get(f"{ASR_URL}/api/model-info", timeout=_PROBE_TIMEOUT)
         if r.ok:
             info = r.json() or {}
     except Exception:
@@ -230,7 +230,7 @@ def image_ready():
 
 def get_image_model():
     try:
-        r = requests.get(f"{IMAGE_URL}/model-info", timeout=_SONDE_DELAI)
+        r = requests.get(f"{IMAGE_URL}/model-info", timeout=_PROBE_TIMEOUT)
         if r.ok:
             return r.json().get('model')
     except Exception:
@@ -246,14 +246,14 @@ def music_ready():
 
 def get_music_model():
     try:
-        r = requests.get(f"{MUSIC_URL}/model-info", timeout=_SONDE_DELAI)
+        r = requests.get(f"{MUSIC_URL}/model-info", timeout=_PROBE_TIMEOUT)
         if r.ok:
             return r.json().get('model')
     except Exception:
         pass
     return None
 
-def mention_memoire_partagee():
+def shared_memory_note():
     """Suffix for media errors: a stopped service is only HALF the story.
 
     Measured 2026-10-03 (product point 2): MiMo holds ~100 of the 121.6 GiB —
@@ -268,7 +268,7 @@ def mention_memoire_partagee():
             f"arrête-le depuis Admin pour en libérer.")
 
 
-def motif_refus(r):
+def refusal_reason(r):
     """Refusal reason from a runner response, `''` if there is nothing to read.
 
     The runner answers `{"detail": "..."}` when it refuses a launch; the rest
@@ -337,17 +337,17 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
             # on failure — see _suivre_lancement.
             _register_litellm_model(model_name, vllm_args, engine or 'vllm')
             _point_auto_model(model_name, vllm_args, engine or 'vllm')
-            _suivre_lancement(model_name)
+            _follow_launch(model_name)
             return True, '', False
         # The runner REFUSES with a precise reason (flag outside the allow-list,
         # missing engine, GGUF not found). Throwing it away and announcing only a
         # generic failure sends the administrator looking in the wrong place: seen
         # on 04/09, « flag not allowed: --llama-next » shown as « Runner inaccessible ».
         try:
-            motif = (r.json() or {}).get('error') or r.text[:200]
+            reason = (r.json() or {}).get('error') or r.text[:200]
         except Exception:                                    # noqa: BLE001
-            motif = r.text[:200]
-        return False, f"{motif} (HTTP {r.status_code})", False
+            reason = r.text[:200]
+        return False, f"{reason} (HTTP {r.status_code})", False
     try:
         return _once()
     except requests.exceptions.ConnectionError:
@@ -360,11 +360,11 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
         try:
             return _once()
         except requests.exceptions.Timeout:
-            return False, _MOTIF_DELAI_LANCEMENT, True
+            return False, _LAUNCH_TIMEOUT_PATTERN, True
         except Exception:
             return False, "runner injoignable", False
     except requests.exceptions.Timeout:
-        return False, _MOTIF_DELAI_LANCEMENT, True
+        return False, _LAUNCH_TIMEOUT_PATTERN, True
     except Exception as e:                                   # noqa: BLE001
         return False, f"runner injoignable ({type(e).__name__})", False
 
@@ -372,10 +372,10 @@ def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
 # (weights + FlashInfer kernel compilation on first startup), and the
 # runner's watchdog retries up to 3 times: the attempts need time before
 # concluding failure.
-_FENETRE_DEMARRAGE_S = 900
-_INTERVALLE_SUIVI_S = 5
+_START_WINDOW_S = 900
+_FOLLOW_INTERVAL_S = 5
 
-def _suivre_lancement(model_name, fenetre_s=None):
+def _follow_launch(model_name, window_s=None):
     """Checks AFTER THE FACT that an accepted launch really succeeded, and says so.
 
     The runner answers « starting » right at the Popen: accepting is not
@@ -392,8 +392,8 @@ def _suivre_lancement(model_name, fenetre_s=None):
     held by act() on the UI side, and the runner's log stream already shows
     progress to the client).
     """
-    fenetre = _FENETRE_DEMARRAGE_S if fenetre_s is None else fenetre_s
-    annonce, audit = _announce_launch, log_audit
+    window = _START_WINDOW_S if window_s is None else window_s
+    announcement, audit = _announce_launch, log_audit
     try:
         ctx = current_app._get_current_object()
     except Exception:                                        # noqa: BLE001
@@ -401,20 +401,20 @@ def _suivre_lancement(model_name, fenetre_s=None):
         # rather than fail loudly — the launch itself did happen.
         return
 
-    def _boucle():
-        fin = time.time() + fenetre
-        while time.time() < fin:
-            time.sleep(_INTERVALLE_SUIVI_S)
-            etat = runner_status()
-            nom, statut = etat.get('model'), etat.get('status')
-            if nom and nom != model_name and statut in ('running', 'starting'):
+    def _loop():
+        end = time.time() + window
+        while time.time() < end:
+            time.sleep(_FOLLOW_INTERVAL_S)
+            state = runner_status()
+            name, status_value = state.get('model'), state.get('status')
+            if name and name != model_name and status_value in ('running', 'starting'):
                 # ANOTHER model was launched in the meantime: this is no longer our
                 # business (and a deliberate stop must not trigger an alert).
                 return
-            if nom == model_name and statut == 'running':
+            if name == model_name and status_value == 'running':
                 with ctx.app_context():
                     try:
-                        annonce(model_name)
+                        announcement(model_name)
                         audit('systeme', 'model.servi',
                               f"{model_name} chargé et en service")
                         # The runner exposes no time of entry into service: we thus
@@ -427,18 +427,18 @@ def _suivre_lancement(model_name, fenetre_s=None):
                     except Exception:                        # noqa: BLE001
                         _log.warning("suivi de lancement : annonce impossible", exc_info=True)
                 return
-            if nom == model_name and statut == 'error':
+            if name == model_name and status_value == 'error':
                 break
         with ctx.app_context():
             try:
                 audit('systeme', 'model.echec_apres_lancement',
                       f"{model_name} accepté par le runner mais jamais en service "
-                      f"dans les {int(fenetre)} s")
+                      f"dans les {int(window)} s")
                 from notify import notify_infra_alert_email
                 notify_infra_alert_email(
                     "Chat model never came up",
                     f"{model_name}: le runner a accepté le lancement mais le modèle "
-                    f"n'est pas en service après {int(fenetre)} s. La plateforme n'a "
+                    f"n'est pas en service après {int(window)} s. La plateforme n'a "
                     f"probablement AUCUN modèle servi — vérifie les logs du runner.")
             except Exception:                                # noqa: BLE001
                 _log.warning("suivi de lancement : alerte impossible", exc_info=True)
@@ -450,7 +450,7 @@ def _suivre_lancement(model_name, fenetre_s=None):
     # NOR test).
     if os.environ.get('DGX_NO_REAPER') == '1':
         return
-    threading.Thread(target=_boucle, name='suivi-lancement', daemon=True).start()
+    threading.Thread(target=_loop, name='suivi-lancement', daemon=True).start()
 
 def runner_stop():
     """Stops the served model. Returns (ok, motif, incertain).
@@ -465,7 +465,7 @@ def runner_stop():
             return True, '', False
         return False, f"le runner a refusé l'arrêt (HTTP {r.status_code})", False
     except requests.exceptions.Timeout:
-        return False, _MOTIF_DELAI_ARRET, True
+        return False, _STOP_TIMEOUT_PATTERN, True
     except Exception as e:                                   # noqa: BLE001
         return False, f"runner injoignable ({type(e).__name__})", False
 
@@ -479,12 +479,12 @@ def runner_delete_files(hf_model_id):
     try:
         r = requests.post(f"{RUNNER_URL}/models/delete-files", headers=_runner_headers(),
                           json={'hf_model_id': hf_model_id}, timeout=620)
-        corps = r.json() if r.content else {}
+        body = r.json() if r.content else {}
         if r.ok:
-            return True, int(corps.get('bytes') or 0), ''
-        if r.status_code == 404 and corps.get('absent'):
+            return True, int(body.get('bytes') or 0), ''
+        if r.status_code == 404 and body.get('absent'):
             return True, 0, 'aucun fichier sur le disque'
-        return False, 0, corps.get('error') or f"HTTP {r.status_code}"
+        return False, 0, body.get('error') or f"HTTP {r.status_code}"
     except Exception as e:                                   # noqa: BLE001
         return False, 0, f"runner injoignable ({type(e).__name__})"
 
@@ -607,7 +607,7 @@ def _sidecar_start_json(kind):
         # (asr_epingler): the admin asked for it, it must not be stopped behind
         # their back ten minutes later. The pin is time-limited on purpose —
         # see asr_epingler for the honest limits of that behaviour.
-        asr_epingler()
+        asr_pin()
     return jsonify({'ok': bool(ok),
                     'error': None if ok else f"Échec du démarrage {kind}.{detail}"}), (200 if ok else 503)
 
@@ -619,11 +619,11 @@ def _sidecar_stop_json(kind):
     """
     ok, detail = _sidecar_action(kind, 'stop')
     if kind == 'asr' and ok:
-        asr_depingler()   # a manual stop also clears any manual-start pin
+        asr_unpin()   # a manual stop also clears any manual-start pin
     return jsonify({'ok': bool(ok),
                     'error': None if ok else f"Échec de l'arrêt {kind}.{detail}"}), (200 if ok else 503)
 
-def _sidecar_action(kind, action, acteur=None, note=''):
+def _sidecar_action(kind, action, actor=None, note=''):
     """(ok, detail) — `detail` carries the exact reason returned by the runner.
 
     Throwing it away left the administrator with only a « Échec du démarrage
@@ -641,25 +641,25 @@ def _sidecar_action(kind, action, acteur=None, note=''):
         r = requests.post(f"{RUNNER_URL}/{kind}/{action}", headers=_runner_headers(), timeout=30)
         ok = r.ok
         if not ok:
-            motif = ''
+            reason = ''
             try:
-                corps = r.json() or {}
-                motif = corps.get('detail') or corps.get('error') or ''
+                body = r.json() or {}
+                reason = body.get('detail') or body.get('error') or ''
             except Exception:                                # noqa: BLE001
-                motif = (r.text or '')[:200]
-            motif = str(motif).strip()
-            detail = f" ({motif})" if motif else f" (HTTP {r.status_code})"
+                reason = (r.text or '')[:200]
+            reason = str(reason).strip()
+            detail = f" ({reason})" if reason else f" (HTTP {r.status_code})"
     except Exception as e:                                   # noqa: BLE001
         detail = f" ({type(e).__name__})"
-    if acteur is None:
+    if actor is None:
         # `session.get` RAISES outside a request context (the idle reaper runs
         # in a background thread): an audit lookup must never break the action
         # it is describing.
         try:
-            acteur = session.get('username')
+            actor = session.get('username')
         except Exception:                                # noqa: BLE001
-            acteur = None
-    log_audit(acteur, f'sidecar.{action}',
+            actor = None
+    log_audit(actor, f'sidecar.{action}',
               f"{kind} : {'OK' if ok else 'échec' + detail}" + (f" — {note}" if note else ''))
     return ok, detail
 
@@ -672,12 +672,12 @@ def _sidecar_action(kind, action, acteur=None, note=''):
 # down with it. A start that cannot be attempted is exactly when the tool must
 # tell the user the service is stopped (dgx_notice *_service_off): that is
 # what « available or startable » means for the tool declarations.
-_SIDECAR_REDARRAGE_S = 60        # no immediate retry after a FAILED start
-_demarrages_ondemand = {}        # kind -> (horodatage, reussi)
-_demarrages_verrou = threading.Lock()
+_SIDECAR_RESTART_S = 60        # no immediate retry after a FAILED start
+_ondemand_starts = {}        # kind -> (horodatage, reussi)
+_starts_lock = threading.Lock()
 
 
-def sidecar_demarrable(kind):
+def sidecar_startable(kind):
     """Would starting `kind` be reasonable, memory-wise? (launch guard)
 
     `_SIDECAR_MEM_NEED_GB` already carries the model weight plus its margin,
@@ -688,7 +688,7 @@ def sidecar_demarrable(kind):
     return _mem_guard(kind) is None
 
 
-def sidecar_demarrage_auto(kind, pret, delai_s=240):
+def sidecar_autostart(kind, ready, timeout_s=240):
     """(ok, motif) — does `kind` answer, starting it first if needed?
 
     `pret` is the service's OWN readiness probe (the one the routes already
@@ -702,26 +702,26 @@ def sidecar_demarrage_auto(kind, pret, delai_s=240):
     a stopped service at the same moment and `docker start` is a no-op on an
     already-starting container.
     """
-    if pret():
+    if ready():
         return True, ''
-    motif = _mem_guard(kind)
-    if motif:
-        return False, motif
-    with _demarrages_verrou:
-        t, reussi = _demarrages_ondemand.get(kind, (0.0, True))
-        recent = time.time() - t < _SIDECAR_REDARRAGE_S
-    if recent and not reussi:
+    reason = _mem_guard(kind)
+    if reason:
+        return False, reason
+    with _starts_lock:
+        t, succeeded = _ondemand_starts.get(kind, (0.0, True))
+        recent = time.time() - t < _SIDECAR_RESTART_S
+    if recent and not succeeded:
         return False, "le service est arrêté et son démarrage a échoué à l'instant"
     if not recent:
-        ok, detail = _sidecar_action(kind, 'start', acteur='système',
+        ok, detail = _sidecar_action(kind, 'start', actor='système',
                                      note='démarrage au premier usage (outil du playground)')
-        with _demarrages_verrou:
-            _demarrages_ondemand[kind] = (time.time(), ok)
+        with _starts_lock:
+            _ondemand_starts[kind] = (time.time(), ok)
         if not ok:
             return False, f"le service est arrêté et n'a pas pu démarrer{detail}"
-    fin = time.monotonic() + delai_s
-    while time.monotonic() < fin:
-        if pret():
+    end = time.monotonic() + timeout_s
+    while time.monotonic() < end:
+        if ready():
             return True, ''
         time.sleep(2)
     return False, "le service a démarré mais ne répond pas encore"
@@ -741,15 +741,15 @@ def sidecar_demarrage_auto(kind, pret, delai_s=240):
 # (ASR_ONDEMAND_DIR overrides, for tests): they only need to be shared by the
 # workers of one portal container — losing them costs at most one extra idle
 # window after a portal restart.
-_ASR_INACTIVITE_S = 600       # 10 min without a transcription → stop the container
-_ASR_EPINGLE_S = 3600         # a manual admin start suppresses the reaper for 1 h
-_ASR_APPEL_MAX_S = 300        # in-flight marker older than this is stale (a call is bounded at 180 s)
-_ASR_VIGILANCE_S = 30         # reaper wake-up period
-_ASR_VERROU_MAX_S = 60        # a stop lock older than this is treated as abandoned
+_ASR_IDLE_S = 600       # 10 min without a transcription → stop the container
+_ASR_PIN_S = 3600         # a manual admin start suppresses the reaper for 1 h
+_ASR_CALL_MAX_S = 300        # in-flight marker older than this is stale (a call is bounded at 180 s)
+_ASR_WATCH_S = 30         # reaper wake-up period
+_ASR_LOCK_MAX_S = 60        # a stop lock older than this is treated as abandoned
 _ASR_AUTO_MIN_GIB = 8         # MemAvailable headroom required for an AUTOMATIC start
 
 
-def _asr_etat_dir():
+def _asr_state_dir():
     """Directory holding the shared on-demand state (overridable for tests)."""
     d = os.environ.get('ASR_ONDEMAND_DIR', '/tmp/dgx-asr-ondemand')
     try:
@@ -759,9 +759,9 @@ def _asr_etat_dir():
         pass
     return d
 
-def asr_note_activite():
+def asr_note_activity():
     """Reset the idle clock — shared by all workers through the file's mtime."""
-    p = os.path.join(_asr_etat_dir(), 'activite')
+    p = os.path.join(_asr_state_dir(), 'activite')
     try:
         with open(p, 'a'):
             pass
@@ -769,15 +769,15 @@ def asr_note_activite():
     except OSError:
         pass
 
-def asr_inactivite_s():
+def asr_idle_s():
     """Seconds since the last dictation call, None if none was ever recorded."""
     try:
-        return time.time() - os.path.getmtime(os.path.join(_asr_etat_dir(), 'activite'))
+        return time.time() - os.path.getmtime(os.path.join(_asr_state_dir(), 'activite'))
     except OSError:
         return None
 
 @contextlib.contextmanager
-def asr_appel_en_vol():
+def asr_call_in_flight():
     """Marks one transcription call as IN FLIGHT (cross-worker marker file).
 
     The reaper never stops `asr` while a marker exists. The idle clock is also
@@ -786,31 +786,31 @@ def asr_appel_en_vol():
     expires after _ASR_APPEL_MAX_S (asr_appels_en_vol) — it must not block the
     reaper forever.
     """
-    marqueur = None
+    marker = None
     try:
-        fd, marqueur = tempfile.mkstemp(dir=os.path.join(_asr_etat_dir(), 'en_vol'))
+        fd, marker = tempfile.mkstemp(dir=os.path.join(_asr_state_dir(), 'en_vol'))
         os.close(fd)
     except OSError:
-        marqueur = None
+        marker = None
     try:
         yield
     finally:
-        if marqueur:
+        if marker:
             try:
-                os.remove(marqueur)
+                os.remove(marker)
             except OSError:
                 pass
-        asr_note_activite()
+        asr_note_activity()
 
-def asr_appels_en_vol():
+def asr_calls_in_flight():
     """Number of transcription calls in flight right now (stale markers dropped)."""
-    d = os.path.join(_asr_etat_dir(), 'en_vol')
+    d = os.path.join(_asr_state_dir(), 'en_vol')
     n = 0
     try:
-        for nom in os.listdir(d):
-            p = os.path.join(d, nom)
+        for name in os.listdir(d):
+            p = os.path.join(d, name)
             try:
-                if time.time() - os.path.getmtime(p) < _ASR_APPEL_MAX_S:
+                if time.time() - os.path.getmtime(p) < _ASR_CALL_MAX_S:
                     n += 1
                 else:
                     os.remove(p)   # worker died mid-call
@@ -820,7 +820,7 @@ def asr_appels_en_vol():
         pass
     return n
 
-def asr_epingler(duree_s=None):
+def asr_pin(duration_s=None):
     """PIN the container against the idle reaper (called on a manual admin start).
 
     Time-limited on purpose (_ASR_EPINGLE_S): an admin who starts dictation from
@@ -832,42 +832,42 @@ def asr_epingler(duree_s=None):
     extra idle window before the next automatic stop).
     """
     try:
-        with open(os.path.join(_asr_etat_dir(), 'epingle'), 'w') as f:
-            f.write(str(time.time() + (duree_s or _ASR_EPINGLE_S)))
+        with open(os.path.join(_asr_state_dir(), 'epingle'), 'w') as f:
+            f.write(str(time.time() + (duration_s or _ASR_PIN_S)))
     except OSError:
         pass
-    asr_note_activite()
+    asr_note_activity()
 
-def asr_depingler():
+def asr_unpin():
     try:
-        os.remove(os.path.join(_asr_etat_dir(), 'epingle'))
+        os.remove(os.path.join(_asr_state_dir(), 'epingle'))
     except OSError:
         pass
 
-def _asr_epinglee():
+def _asr_pinned():
     try:
-        with open(os.path.join(_asr_etat_dir(), 'epingle')) as f:
-            jusque = float(f.read().strip())
+        with open(os.path.join(_asr_state_dir(), 'epingle')) as f:
+            until = float(f.read().strip())
     except (OSError, ValueError):
         return False
-    return time.time() < jusque
+    return time.time() < until
 
-def asr_arret_autorise():
+def asr_stop_allowed():
     """True when the reaper may stop `asr`: no call in flight, not pinned, and
     no transcription for _ASR_INACTIVITE_S. Cheap on purpose: files only."""
-    if asr_appels_en_vol():
+    if asr_calls_in_flight():
         return False
-    if _asr_epinglee():
+    if _asr_pinned():
         return False
-    inact = asr_inactivite_s()
-    if inact is None:
+    idle = asr_idle_s()
+    if idle is None:
         # Nothing recorded yet (portal just (re)started): ARM the clock instead
         # of treating « no data » as « idle forever ».
-        asr_note_activite()
+        asr_note_activity()
         return False
-    return inact >= _ASR_INACTIVITE_S
+    return idle >= _ASR_IDLE_S
 
-def asr_memoire_ok():
+def asr_memory_ok():
     """(ok, motif) — memory guard for an AUTOMATIC start of the dictation.
 
     Deliberately stricter than _mem_guard('asr') (5 GiB, kept unchanged for the
@@ -879,13 +879,13 @@ def asr_memoire_ok():
     it is read straight from /proc/meminfo (_mem_available_gb). Unreadable → we
     do NOT start: a guard we cannot evaluate is not a guard.
     """
-    dispo = _mem_available_gb()
-    if dispo is None:
+    avail = _mem_available_gb()
+    if avail is None:
         return False, ("Mémoire disponible illisible : la dictée ne démarre pas toute "
                        "seule sans ce garde-fou. Réessaie plus tard.")
-    if dispo < _ASR_AUTO_MIN_GIB:
+    if avail < _ASR_AUTO_MIN_GIB:
         return False, (f"Mémoire insuffisante pour démarrer la dictée "
-                       f"({dispo:.1f} Go disponibles, ~{_ASR_AUTO_MIN_GIB} Go nécessaires) : "
+                       f"({avail:.1f} Go disponibles, ~{_ASR_AUTO_MIN_GIB} Go nécessaires) : "
                        f"le modèle de chat en a besoin. Libère de la mémoire, puis réessaie.")
     return True, ''
 
@@ -896,10 +896,10 @@ def asr_memoire_ok():
 # that exists to answer « who did what ». A SUCCESSFUL start therefore
 # silences the next attempts for _ASR_REDARRAGE_S; a FAILED one is retried on
 # the next poll (the throttle only follows a success).
-_ASR_REDARRAGE_S = 60
-_asr_demarrage_auto_t = 0.0
+_ASR_RESTART_S = 60
+_asr_autostart_t = 0.0
 
-def asr_demarrage_auto():
+def asr_autostart():
     """(ok, detail) — start `asr` for a dictation, throttled after a success.
 
     Same runner helper as the admin start — `_sidecar_action('asr', 'start')`,
@@ -907,18 +907,18 @@ def asr_demarrage_auto():
     is shelled out, and the action is audited like a manual start (with the
     request's user as actor).
     """
-    global _asr_demarrage_auto_t
-    if time.time() - _asr_demarrage_auto_t < _ASR_REDARRAGE_S:
+    global _asr_autostart_t
+    if time.time() - _asr_autostart_t < _ASR_RESTART_S:
         return True, ''   # a start is already under way: keep saying « démarrage »
     ok, detail = _sidecar_action('asr', 'start')
     if ok:
-        _asr_demarrage_auto_t = time.time()
+        _asr_autostart_t = time.time()
     return ok, detail
 
-_asr_veilleur_verrou = threading.Lock()
-_asr_veilleur_demarre = False
+_asr_watcher_lock = threading.Lock()
+_asr_watcher_started = False
 
-def asr_demarrer_veilleur():
+def asr_start_watcher():
     """Start (once per process) the thread that stops `asr` when idle.
 
     Lazy and DB-free: launched from the first transcription request; the loop
@@ -927,25 +927,25 @@ def asr_demarrer_veilleur():
     idempotent (`docker stop` on a stopped container is a no-op) and a lock
     file keeps several workers from stopping at the same instant.
     """
-    global _asr_veilleur_demarre
-    if _asr_veilleur_demarre:
+    global _asr_watcher_started
+    if _asr_watcher_started:
         return False
-    with _asr_veilleur_verrou:
-        if _asr_veilleur_demarre:
+    with _asr_watcher_lock:
+        if _asr_watcher_started:
             return False
-        _asr_veilleur_demarre = True
-        threading.Thread(target=_asr_veilleur_boucle, name='asr-veilleur', daemon=True).start()
+        _asr_watcher_started = True
+        threading.Thread(target=_asr_watcher_loop, name='asr-veilleur', daemon=True).start()
         return True
 
-def _asr_veilleur_boucle():
+def _asr_watcher_loop():
     while True:
-        time.sleep(_ASR_VIGILANCE_S)
+        time.sleep(_ASR_WATCH_S)
         try:
-            _asr_veilleur_passe()
+            _asr_watcher_pass()
         except Exception:                                # noqa: BLE001
             _log.warning("veilleur ASR : passage en erreur", exc_info=True)
 
-def _asr_veilleur_passe():
+def _asr_watcher_pass():
     """One reaper pass: stop `asr` if the dictation has been idle long enough.
 
     Returns True only when a stop was actually ordered. It never stops while a
@@ -955,34 +955,34 @@ def _asr_veilleur_passe():
     wide against a 10-minute condition, and the request path's own recovery
     (auto-start + retry-later payload) covers it anyway.
     """
-    if not asr_arret_autorise():
+    if not asr_stop_allowed():
         return False
     # Single actor among the workers: a lock FILE, atomic everywhere. The
     # others skip this pass — their own comes 30 s later and finds the clock
     # reset. An abandoned lock (killed pass) expires after _ASR_VERROU_MAX_S.
-    verrou = os.path.join(_asr_etat_dir(), 'verrou-arret')
+    verrou = os.path.join(_asr_state_dir(), 'verrou-arret')
     try:
         os.close(os.open(verrou, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
     except FileExistsError:
         try:
-            if time.time() - os.path.getmtime(verrou) > _ASR_VERROU_MAX_S:
+            if time.time() - os.path.getmtime(verrou) > _ASR_LOCK_MAX_S:
                 os.remove(verrou)
         except OSError:
             pass
         return False
     try:
-        if not asr_arret_autorise():   # last look: a call may have started
+        if not asr_stop_allowed():   # last look: a call may have started
             return False
         if _sidecar_proc_status('asr') != 'running':
             # Already stopped (or runner unreachable): `docker stop` would be a
             # no-op at best and an audit lie at worst. Reset the clock so this
             # does not re-probe the runner every 30 s while the sidecar is down.
-            asr_note_activite()
+            asr_note_activity()
             return False
         ok, _detail = _sidecar_action(
-            'asr', 'stop', acteur='système',
-            note=f"arrêt automatique après {int(_ASR_INACTIVITE_S / 60)} min d'inactivité")
-        asr_note_activite()   # rearm the clock whatever the outcome: no docker hammering
+            'asr', 'stop', actor='système',
+            note=f"arrêt automatique après {int(_ASR_IDLE_S / 60)} min d'inactivité")
+        asr_note_activity()   # rearm the clock whatever the outcome: no docker hammering
         return bool(ok)
     finally:
         try:
@@ -998,7 +998,7 @@ def _ocr_launch(hf_id, args):
     try:
         r = requests.post(f"{RUNNER_URL}/ocr/launch", headers=_runner_headers(),
                           json={'hf_model_id': hf_id, 'vllm_args': args or ''}, timeout=90)
-        return r.ok, motif_refus(r)
+        return r.ok, refusal_reason(r)
     except Exception as e:
         return False, str(e)
 
@@ -1010,7 +1010,7 @@ def _voice_launch(repo_id):
     try:
         r = requests.post(f"{RUNNER_URL}/voice/launch", headers=_runner_headers(),
                           json={'repo_id': repo_id}, timeout=90)
-        return r.ok, motif_refus(r)
+        return r.ok, refusal_reason(r)
     except Exception as e:
         return False, str(e)
 
@@ -1026,7 +1026,7 @@ def _image_launch(model_id):
     try:
         r = requests.post(f"{RUNNER_URL}/image/launch", headers=_runner_headers(),
                           json={'model_id': model_id}, timeout=180)
-        return r.ok, motif_refus(r)
+        return r.ok, refusal_reason(r)
     except Exception as e:
         return False, str(e)
 
@@ -1039,7 +1039,7 @@ def _music_launch(model_id):
     try:
         r = requests.post(f"{RUNNER_URL}/music/launch", headers=_runner_headers(),
                           json={'model_id': model_id}, timeout=180)
-        return r.ok, motif_refus(r)
+        return r.ok, refusal_reason(r)
     except Exception as e:
         return False, str(e)
 
@@ -1063,9 +1063,9 @@ def sidecar_logs(kind, n=120):
         # docker rights, and above all no runner restart (which would kill the
         # served model). The `.1` file is the rotated previous log.
         out = []
-        for chemin in ('/run/dgx/litellm.log', '/run/dgx/litellm.log.1'):
+        for path in ('/run/dgx/litellm.log', '/run/dgx/litellm.log.1'):
             try:
-                with open(chemin, encoding='utf-8', errors='replace') as f:
+                with open(path, encoding='utf-8', errors='replace') as f:
                     out.extend(f.readlines())
             except OSError:
                 pass
@@ -1092,12 +1092,12 @@ def _drop_log_noise(lines):
 # `runner_logs` returned an empty list and the admin panel displayed « ce
 # modele n'est pas demarre » while it was running. The first useful lines
 # only appeared beyond 1 500.
-_RUNNER_LOGS_TAMPON = 2000
+_RUNNER_LOGS_BUFFER = 2000
 
 def runner_logs(n=150):
     try:
         r = requests.get(f"{RUNNER_URL}/logs", headers=_runner_headers(),
-                         params={'n': _RUNNER_LOGS_TAMPON}, timeout=5)
+                         params={'n': _RUNNER_LOGS_BUFFER}, timeout=5)
         if r.ok:
             return _drop_log_noise(r.json().get('logs', []))[-n:]
         _log.warning("runner_logs : le runner a repondu %s", r.status_code)

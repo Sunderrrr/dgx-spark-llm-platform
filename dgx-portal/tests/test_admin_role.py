@@ -14,9 +14,9 @@ from unittest.mock import patch
 
 import app as portal
 try:                                     # discovery runs tests/ as top level
-    from reglages_test import reglages
+    from settings_helper import live_settings
 except ImportError:                      # single module: tests.test_x
-    from tests.reglages_test import reglages
+    from tests.settings_helper import live_settings
 import auth
 
 USER = 'ztest-sso-role'
@@ -50,14 +50,14 @@ class AdminRoleTest(unittest.TestCase):
 
     def test_session_role_comes_from_last_login_without_ldap(self):
         self._record(True)
-        with reglages(ldap_bind_dn='cn=svc', ldap_bind_pw='x'), portal.app.app_context():
+        with live_settings(ldap_bind_dn='cn=svc', ldap_bind_pw='x'), portal.app.app_context():
             start = time.perf_counter()
-            self.assertEqual(auth.etat_compte(USER), (True, True, None))
+            self.assertEqual(auth.account_state(USER), (True, True, None))
             self.assertLess(time.perf_counter() - start, 0.2)
 
     def test_unknown_account_has_no_opinion(self):
         with portal.app.app_context():
-            self.assertEqual(auth.etat_compte(USER), (True, None, None))
+            self.assertEqual(auth.account_state(USER), (True, None, None))
 
     def test_api_key_and_session_share_one_source(self):
         self._record(True)
@@ -66,7 +66,7 @@ class AdminRoleTest(unittest.TestCase):
         self._record(False)
         with portal.app.app_context():
             self.assertFalse(auth.is_admin_username(USER))
-            self.assertEqual(auth.etat_compte(USER)[1], False)
+            self.assertEqual(auth.account_state(USER)[1], False)
 
     def test_blocked_account_is_never_admin(self):
         self._record(True)
@@ -78,11 +78,11 @@ class AdminRoleTest(unittest.TestCase):
             self.assertFalse(auth.is_admin_username(USER))
 
     def test_admin_group_is_configurable(self):
-        with reglages(oidc_admin_group='dgx-admins'), portal.app.app_context():
+        with live_settings(oidc_admin_group='dgx-admins'), portal.app.app_context():
             self.assertTrue(auth._is_admin_group('cn=dgx-admins,ou=groups,dc=example,dc=org'))
             self.assertFalse(auth._is_admin_group('cn=dgx-admins-ro,ou=groups,dc=example,dc=org'))
             self.assertFalse(auth._is_admin_group('cn=admins,ou=groups,dc=example,dc=org'))
-        with patch('auth.parametre', return_value=''):
+        with patch('auth.setting', return_value=''):
             self.assertFalse(auth._is_admin_group('cn=,ou=groups'))
 
 

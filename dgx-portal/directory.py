@@ -24,16 +24,16 @@ import time
 from ldap3 import NONE, SIMPLE, Connection, Server
 from ldap3.utils.conv import escape_filter_chars
 
-from parametres import ldap_config
+from instance_config import ldap_config
 
-ACTIF, DESACTIVE, ABSENT = 'actif', 'desactive', 'absent'
+ACTIVE, DISABLED, ABSENT = 'actif', 'desactive', 'absent'
 
 # A bind on Authentik's LDAP outpost alone costs ~3 s (measured 2026-10-11),
 # a search ~0.7 s: the directory is NEVER asked on a request's path. One search
 # of ALL its users is refreshed in the background, and pages read that.
-_FRAIS_S = 120
-_etat = {'t': 0.0, 'etats': None, 'en_cours': False}
-_verrou = threading.Lock()
+_FRESH_S = 120
+_state = {'t': 0.0, 'states': None, 'running': False}
+_lock = threading.Lock()
 
 
 def _connexion(c):
@@ -47,36 +47,36 @@ def _connexion(c):
                       authentication=SIMPLE, auto_bind=True, receive_timeout=15)
 
 
-def _vrai(v):
+def _true(v):
     return str(v).strip().upper() in ('TRUE', '1', 'YES')
 
 
-def etat_entree(attrs):
+def entry_state(attrs):
     """ACTIF or DESACTIVE from one entry's attributes (a dict of lists)."""
-    def premier(nom):
-        v = attrs.get(nom)
+    def first(name):
+        v = attrs.get(name)
         if isinstance(v, (list, tuple)):
             return v[0] if v else None
         return v
-    ak = premier('ak-active')
-    if ak is not None and not _vrai(ak):
-        return DESACTIVE
-    uac = premier('userAccountControl')
+    ak = first('ak-active')
+    if ak is not None and not _true(ak):
+        return DISABLED
+    uac = first('userAccountControl')
     if uac is not None:
         try:
             if int(uac) & 2:
-                return DESACTIVE
+                return DISABLED
         except (TypeError, ValueError):
             pass
-    if _vrai(premier('nsAccountLock') or ''):
-        return DESACTIVE
-    if premier('pwdAccountLockedTime'):
-        return DESACTIVE
-    return ACTIF
+    if _true(first('nsAccountLock') or ''):
+        return DISABLED
+    if first('pwdAccountLockedTime'):
+        return DISABLED
+    return ACTIVE
 
 
-def lire_annuaire():
-    """{'etats': {login: ACTIF | DESACTIVE}, 'groupes': {login: [group names]}}
+def read_directory():
+    """{'states': {login: ACTIF | DESACTIVE}, 'groups': {login: [group names]}}
     for every user of the directory (logins lowercase), or None when it cannot
     be asked. Slow (seconds): background only."""
     c = ldap_config()
@@ -87,7 +87,7 @@ def lire_annuaire():
     if conn is None:
         return None
     attr = c['login_attr']
-    etats, groupes = {}, {}
+    states, groups = {}, {}
     try:
         for e in conn.extend.standard.paged_search(
                 f"{c['users_dn']},{c['base']}", f'({escape_filter_chars(attr)}=*)',
@@ -97,11 +97,11 @@ def lire_annuaire():
             if e.get('type') != 'searchResEntry':
                 continue
             d = e.get('attributes') or {}
-            nom = d.get(attr)
-            nom = nom[0] if isinstance(nom, (list, tuple)) and nom else nom
-            if nom:
-                etats[str(nom).lower()] = etat_entree(d)
-                groupes[str(nom).lower()] = noms_de_groupes(d.get('memberOf') or [])
+            name = d.get(attr)
+            name = name[0] if isinstance(name, (list, tuple)) and name else name
+            if name:
+                states[str(name).lower()] = entry_state(d)
+                groups[str(name).lower()] = group_names(d.get('memberOf') or [])
     except Exception:
         return None
     finally:
@@ -109,43 +109,43 @@ def lire_annuaire():
             conn.unbind()
         except Exception:
             pass
-    return {'etats': etats, 'groupes': groupes}
+    return {'states': states, 'groups': groups}
 
 
-def _rafraichir(app):
+def _refresh(app):
     try:
-        lu = lire_annuaire()
-        with _verrou:
+        read_result = read_directory()
+        with _lock:
             # A failed read keeps the previous answer (an outage must not turn
             # every account « absent »), but stops it from being refreshed
             # every call: retried after the same delay.
-            if lu is not None:
-                _etat['etats'] = lu['etats']
-            _etat['t'] = time.time()
-        if lu is not None and app is not None:
+            if read_result is not None:
+                _state['states'] = read_result['states']
+            _state['t'] = time.time()
+        if read_result is not None and app is not None:
             # The same read brings the LDAP groups down for the accounts the
             # portal knows, between logins too (a removal included).
             with app.app_context():
-                from directory_groups import synchroniser_groupes_ldap
-                synchroniser_groupes_ldap(lu['groupes'])
+                from directory_groups import sync_ldap_groups
+                sync_ldap_groups(read_result['groups'])
     except Exception as exc:                                     # noqa: BLE001
         print(f'[directory] synchronisation des groupes impossible : {exc}')
     finally:
-        _etat['en_cours'] = False
+        _state['running'] = False
 
 
-def etats_annuaire(usernames):
+def directory_states_for(usernames):
     """{username: ACTIF | DESACTIVE | ABSENT} for these accounts, from the last
     background read — None until one succeeded. Never waits on the directory:
     a stale read schedules a refresh and answers with what it has."""
-    noms = [u for u in usernames if u]
-    with _verrou:
-        perime = time.time() - _etat['t'] > _FRAIS_S
-        lancer = perime and not _etat['en_cours']
-        if lancer:
-            _etat['en_cours'] = True
-        etats = _etat['etats']
-    if lancer:
+    names = [u for u in usernames if u]
+    with _lock:
+        stale = time.time() - _state['t'] > _FRESH_S
+        launch = stale and not _state['running']
+        if launch:
+            _state['running'] = True
+        states = _state['states']
+    if launch:
         # The read runs outside the request: it needs the app to write groups.
         try:
             from flask import current_app
@@ -153,17 +153,17 @@ def etats_annuaire(usernames):
         except RuntimeError:
             app = None
         # Short-lived (one read): unnamed, unlike the long-lived threads
-        # test_garde_regressions counts.
-        threading.Thread(target=_rafraichir, args=(app,), daemon=True).start()
-    if etats is None:
+        # test_regression_guards counts.
+        threading.Thread(target=_refresh, args=(app,), daemon=True).start()
+    if states is None:
         return None
-    return {u: etats.get(u.lower(), ABSENT) for u in noms}
+    return {u: states.get(u.lower(), ABSENT) for u in names}
 
 
-def noms_de_groupes(valeurs):
+def group_names(values):
     """Group names from memberOf DNs or plain names (a token's claim)."""
-    noms = []
-    for v in valeurs or []:
+    names = []
+    for v in values or []:
         v = str(v).strip()
         if not v:
             continue
@@ -172,6 +172,6 @@ def noms_de_groupes(valeurs):
             if attr.strip().lower() != 'cn':
                 continue
             v = val.strip()
-        if v and v not in noms:
-            noms.append(v)
-    return noms
+        if v and v not in names:
+            names.append(v)
+    return names

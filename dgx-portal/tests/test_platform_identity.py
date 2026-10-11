@@ -12,12 +12,12 @@ from unittest.mock import patch
 
 import app as portal
 try:                                     # discovery runs tests/ as top level
-    from reglages_test import reglages
+    from settings_helper import live_settings
 except ImportError:                      # single module: tests.test_x
-    from tests.reglages_test import reglages
+    from tests.settings_helper import live_settings
 import config
 import db
-import parametres
+import instance_config
 import support
 
 
@@ -32,7 +32,7 @@ class PlatformIdentityTest(unittest.TestCase):
 
     def _reset_contact(self):
         with portal.app.app_context():
-            parametres.definir('security_contact', '')
+            instance_config.set_value('security_contact', '')
 
     def _reset_name(self):
         with portal.app.app_context():
@@ -58,7 +58,7 @@ class PlatformIdentityTest(unittest.TestCase):
 
     def test_security_txt_names_this_deployment_and_never_expires(self):
         with portal.app.app_context():
-            parametres.definir('security_contact', 'sec@example.net')
+            instance_config.set_value('security_contact', 'sec@example.net')
         self.addCleanup(self._reset_contact)
         with patch.object(portal, 'PUBLIC_WEB_URL', 'https://ai.example.net'):
             r = portal.app.test_client().get('/.well-known/security.txt')
@@ -70,7 +70,7 @@ class PlatformIdentityTest(unittest.TestCase):
         self.assertGreater(expires, time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
 
     def test_security_txt_without_contact_is_404(self):
-        with reglages(security_contact='', admin_email=''):
+        with live_settings(security_contact='', admin_email=''):
             r = portal.app.test_client().get('/.well-known/security.txt')
         self.assertEqual(r.status_code, 404)
 

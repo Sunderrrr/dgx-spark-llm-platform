@@ -34,34 +34,34 @@ from flask import (Blueprint, Response, current_app, jsonify, request, session,
 
 from auth import login_required
 from config import AUTO_MODEL_NAME, LITELLM_URL, LOCAL_TZ
-from conversation_routes import MSG_MAX_CHARS, images_valides
+from conversation_routes import MSG_MAX_CHARS, valid_images
 from db import get_db, log_audit
 
 from guards import (_chat_rate_limited, _sse_msg, _sse_notice,
                     maintenance_block_json, maintenance_block_sse,
-                    quota_depasse_reset)
+                    quota_exceeded_reset)
 from litellm_client import _litellm_user_info, get_user_keys
 # Memory (per-user knowledge graph) lives in its own blueprint:
 # the chat only uses its read (injection into the system) and its write
 # (post-turn extraction) — never an HTTP route between the two.
-import memory_routes as memoire
+import memory_routes as memory
 from stats import (_inflight_end, _inflight_start, _inflight_tokens,
-                   enregistrer_prefill as _prefill_dernier,
-                   enregistrer_ratio as _ratio_dernier, enregistrer_ttft)
+                   record_prefill as _prefill_last,
+                   record_ratio as _ratio_last, record_ttft)
 from sidecars import _mem_available_gb
-from raisonnement import raisonnablement_complexe
-from support import (GUARDED_TOOLS, OUTILS_REFUSES_SI_EXTERNE, SUPPORT_SYSTEM, support_text,
+from reasoning import reasonably_complex
+from support import (GUARDED_TOOLS, TOOLS_REFUSED_IF_EXTERNAL, SUPPORT_SYSTEM, support_text,
                      TOOL_LABELS, _clean_reply,
                      _exec_mcp_tool, _exec_skill, _exec_support_tool,
                      _sse_tool_event, _support_context, _support_tool_target,
-                     _support_tools, _user_extra_tools, action_en_attente,
-                     cloturer_action, creer_action_en_attente)
+                     _support_tools, _user_extra_tools, pending_action,
+                     close_action, create_pending_action)
 from vllm_health import ctx_split, effective_ctx, get_running_models
-from websearch_tools import (_phase_outils, _recherche_pertinente,
-                             _texte_des_trouvailles, websearch_active)
-from image_tools import _image_demandee, image_disponible
-from video_tools import _video_demandee, video_disponible
-from document_tools import _document_demandee, document_disponible
+from websearch_tools import (_tools_phase, _search_relevant,
+                             _findings_text, websearch_active)
+from image_tools import _image_requested, image_available
+from video_tools import _video_requested, video_available
+from document_tools import _document_requested, document_available
 
 _log = logging.getLogger('app')
 
@@ -79,7 +79,7 @@ TRANSPORT_ERR = -1
 _SUPPORT_PING_S = 8
 
 
-def _ouvrir_flux_avec_pings(chat, ping_s):
+def _open_stream_with_pings(chat, ping_s):
     """Opens the model stream in a thread and beats time while it starts.
 
     The POST must return its response object BEFORE the first token arrives,
@@ -88,30 +88,30 @@ def _ouvrir_flux_avec_pings(chat, ping_s):
     idle stream). Both chat routes had this choreography verbatim — support and
     playground differ only in the cadence (audit 2026-10-07).
     """
-    boite = {}
+    box = {}
 
-    def _ouvre():
+    def _open():
         try:
-            boite['r'] = chat(stream=True)
+            box['r'] = chat(stream=True)
         except Exception as e:              # noqa: BLE001
-            boite['e'] = e
+            box['e'] = e
 
-    fil = threading.Thread(target=_ouvre, daemon=True)
-    fil.start()
-    while fil.is_alive():
-        fil.join(ping_s)
-        if fil.is_alive():
+    thread = threading.Thread(target=_open, daemon=True)
+    thread.start()
+    while thread.is_alive():
+        thread.join(ping_s)
+        if thread.is_alive():
             yield ": ping\n\n"
-    if 'e' in boite:
-        raise boite['e']
-    return boite['r']
+    if 'e' in box:
+        raise box['e']
+    return box['r']
 
 def _sse_text(text):
     """A single SSE frame carrying a text fragment, as-is."""
     return f"data: {json.dumps({'choices': [{'delta': {'content': text}}]})}\n\n"
 
 
-def _sse_raisonnement(text):
+def _sse_reasoning(text):
     """A reasoning frame, in the shape LiteLLM produces and the client reads
     (`lib/api.ts` turns `delta.reasoning_content` into a `reasoningChunk`).
 
@@ -190,7 +190,7 @@ def support_chat():
     if not keys:
         return Response(_sse_notice('no_api_key'), mimetype='text/event-stream')
     user_key = keys[0]['key']
-    _quota_reset = quota_depasse_reset(username)
+    _quota_reset = quota_exceeded_reset(username)
     if _quota_reset is not None:
         return Response(_sse_notice('quota_exceeded', reset=_quota_reset),
                         mimetype='text/event-stream')
@@ -200,24 +200,24 @@ def support_chat():
     # asked the same questions at every session (« tu as des clés ? ») while
     # the fact graph exists. Framed as data, bounded, and re-checked
     # at write time on the extraction side.
-    _mem_on = memoire._mem_enabled(username)
+    _mem_on = memory._mem_enabled(username)
     if _mem_on:
-        _memctx = memoire._mem_inject_context(username)
+        _memctx = memory._mem_inject_context(username)
         if _memctx:
             ctx += "\n\n" + _memctx
     msgs = ([{'role': 'system',
-              'content': support_text(SUPPORT_SYSTEM) + "\n\n### CONTEXTE\n" + _horodatage()
+              'content': support_text(SUPPORT_SYSTEM) + "\n\n### CONTEXTE\n" + _timestamp()
               + "\n" + ctx}] + history)
     extra_tools, extra_routing = _user_extra_tools(username)
     tools = _support_tools(is_admin) + extra_tools
 
     # Thinking: same rule as the playground — decided by the ASKED question,
     # never always-on (2026-10-03).
-    _raisonne = raisonnablement_complexe(_dernier_message_utilisateur(history))
+    _reasons = reasonably_complex(_last_user_message(history))
 
     def _chat(with_tools, stream):
         body = {'model': model, 'messages': msgs, 'temperature': 0.3, 'max_tokens': 4096,
-                'chat_template_kwargs': {'enable_thinking': _raisonne}}
+                'chat_template_kwargs': {'enable_thinking': _reasons}}
         if with_tools:
             body['tools'] = tools
             body['tool_choice'] = 'auto'
@@ -255,7 +255,7 @@ def support_chat():
             # cuts after 60 s without a byte. So we open the request in a
             # thread and beat time while waiting: this is exactly the remedy
             # already applied to the playground, which was missing here.
-            r = yield from _ouvrir_flux_avec_pings(
+            r = yield from _open_stream_with_pings(
                 lambda stream=True: _chat(with_tools, stream), _SUPPORT_PING_S)
         except Exception:
             # Connectivity failure, not a model error (see TRANSPORT_ERR).
@@ -295,11 +295,11 @@ def support_chat():
                 # not structured reasoning.
                 rchunk = delta.get('reasoning_content')
                 if rchunk:
-                    if _raison_debut[0] is None:
-                        _raison_debut[0] = time.monotonic()
-                    _raison.append(rchunk)
+                    if _reasoning_start[0] is None:
+                        _reasoning_start[0] = time.monotonic()
+                    _reason.append(rchunk)
                     last_emit = time.monotonic()
-                    yield _sse_raisonnement(rchunk)
+                    yield _sse_reasoning(rchunk)
                 for tc in delta.get('tool_calls') or []:
                     slot = tool_acc.setdefault(tc.get('index', 0),
                                                {'id': None, 'name': '', 'args': ''})
@@ -313,8 +313,8 @@ def support_chat():
                 chunk = delta.get('content')
                 if not chunk:
                     continue
-                if _fin_pensee[0] is None and _raison_debut[0] is not None:
-                    _fin_pensee[0] = time.monotonic()
+                if _thought_end[0] is None and _reasoning_start[0] is not None:
+                    _thought_end[0] = time.monotonic()
                 parts.append(chunk)
                 if thinking:
                     # We hide the reasoning, but watch for its close:
@@ -364,16 +364,16 @@ def support_chat():
                  for s in tool_acc.values() if s['name']]
         return content, calls, 200
 
-    _reponse = []      # model text, for the memory write and the thread save
+    _response = []      # model text, for the memory write and the thread save
     # The thinking is kept too: the client shows it, and a reloaded thread must
     # still open it — otherwise the diagnosis disappears with the page.
-    _raison = []
-    _raison_debut = [None]
-    _fin_pensee = [None]
+    _reason = []
+    _reasoning_start = [None]
+    _thought_end = [None]
     # An INTERRUPTED response (closed tab, « Arrêter », model error) must
     # neither be kept as a discussion thread nor serve as material for
     # memory extraction: we only memorize what ran to completion.
-    _etat = {'fini': False}
+    _state = {'fini': False}
 
     def _gen_inner():
         # SSE comment emitted BEFORE any work: it forces the response
@@ -409,7 +409,7 @@ def support_chat():
                 # Turn text, kept for the memory write and the
                 # thread save (the client, for its part, receives the stream).
                 if content:
-                    _reponse.append(content)
+                    _response.append(content)
                 if status == TRANSPORT_ERR:
                     yield _sse_notice('model_unreachable', done=False)
                     yield "data: [DONE]\n\n"
@@ -426,7 +426,7 @@ def support_chat():
                     if not streamed_any:
                         yield _sse_notice('empty_reply', done=False)
                     else:
-                        _etat['fini'] = True     # complete reply (see _fin_support)
+                        _state['fini'] = True     # complete reply (see _fin_support)
                     yield "data: [DONE]\n\n"
                     return
                 # The model calls tools → we run them server-side then loop again.
@@ -453,7 +453,7 @@ def support_chat():
                         label = TOOL_LABELS.get(fname, fname)
                         target = _support_tool_target(fname, a)
                         exec_fn = lambda: _exec_support_tool(fname, a, username, fullname, is_admin)
-                    if untrusted_seen and fname in OUTILS_REFUSES_SI_EXTERNE:
+                    if untrusted_seen and fname in TOOLS_REFUSED_IF_EXTERNAL:
                         yield _sse_tool_event(tc_id, label, target, 'running')
                         yield _sse_tool_event(
                             tc_id, label, target, 'error', duration_ms=0,
@@ -471,7 +471,7 @@ def support_chat():
                     # its context: an indirect injection therefore cannot
                     # replay it, unlike a prompt instruction.
                     if not route and fname in GUARDED_TOOLS:
-                        tok = creer_action_en_attente(username, fname, a, label, target)
+                        tok = create_pending_action(username, fname, a, label, target)
                         yield _sse_confirm_event(tok, fname, label, target)
                         msgs.append({'role': 'tool', 'tool_call_id': tc.get('id'),
                                      'content': "NON EXÉCUTÉ : l'action est en attente de "
@@ -498,8 +498,8 @@ def support_chat():
             elif not content.strip():
                 yield _sse_notice('reformulate', done=False)
             else:
-                _reponse.append(content)
-                _etat['fini'] = True             # complete reply (see _fin_support)
+                _response.append(content)
+                _state['fini'] = True             # complete reply (see _fin_support)
             yield "data: [DONE]\n\n"
         except Exception:
             yield _sse_notice('model_timeout', done=False)
@@ -511,18 +511,18 @@ def support_chat():
             yield from _gen_inner()
         finally:
             _inflight_end(_rid)
-            _duree = (round(((_fin_pensee[0] or time.monotonic()) - _raison_debut[0]) * 1000)
-                      if _raison_debut[0] is not None else None)
-            _fin_support(username, history, _reponse, model, user_key, _mem_on,
-                         _etat['fini'], current_app._get_current_object(),
-                         raison="".join(_raison), raison_ms=_duree)
+            _duration = (round(((_thought_end[0] or time.monotonic()) - _reasoning_start[0]) * 1000)
+                      if _reasoning_start[0] is not None else None)
+            _finish_support(username, history, _response, model, user_key, _mem_on,
+                         _state['fini'], current_app._get_current_object(),
+                         reason="".join(_reason), reasoning_ms=_duration)
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-def _fin_support(username, history, reponse, model, user_key, mem_on, fini, app,
-                 raison='', raison_ms=None):
+def _finish_support(username, history, response, model, user_key, mem_on, finished, app,
+                 reason='', reasoning_ms=None):
     """After the Support turn: saves the thread and extracts durable facts.
 
     Best effort and OUTSIDE the request (daemon thread): the client is already
@@ -531,10 +531,10 @@ def _fin_support(username, history, reponse, model, user_key, mem_on, fini, app,
     would raise "Working outside of application context" (bug already seen on
     the playground side, invisible because the exception was swallowed).
     """
-    texte = "".join(reponse).strip()
-    if not texte:
+    text = "".join(response).strip()
+    if not text:
         return
-    if not fini:
+    if not finished:
         # Interrupted response (closed tab, Stop button, model error): we
         # keep the previous turn rather than freezing a reply cut mid-word,
         # and draw no durable fact from it for memory.
@@ -542,39 +542,39 @@ def _fin_support(username, history, reponse, model, user_key, mem_on, fini, app,
         return
     # The body is separated from the thread launch: tests can call it
     # directly, without racing a daemon thread.
-    threading.Thread(target=_fin_support_corps,
-                     args=(username, history, texte, model, user_key, mem_on, app,
-                           raison, raison_ms),
+    threading.Thread(target=_finish_support_body,
+                     args=(username, history, text, model, user_key, mem_on, app,
+                           reason, reasoning_ms),
                      daemon=True).start()
 
 
-def _fin_support_corps(username, history, texte, model, user_key, mem_on, app,
-                       raison='', raison_ms=None):
+def _finish_support_body(username, history, text, model, user_key, mem_on, app,
+                       reason='', reasoning_ms=None):
     """End-of-turn work body (outside the request, callable from tests)."""
-    extraits = [{'role': m['role'], 'content': m['content']} for m in history[-4:]]
-    extraits.append({'role': 'assistant', 'content': texte[:4000]})
+    excerpts = [{'role': m['role'], 'content': m['content']} for m in history[-4:]]
+    excerpts.append({'role': 'assistant', 'content': text[:4000]})
     try:
         with app.app_context():
             db = get_db()
-            fil = [{'role': m['role'], 'content': m['content'],
+            thread = [{'role': m['role'], 'content': m['content'],
                     **({'model': m['model']} if m.get('model') else {}),
                     **({'reasoning': m['reasoning']} if m.get('reasoning') else {}),
                     **({'reasoningMs': m['reasoningMs']} if m.get('reasoningMs') else {})}
                    for m in history]
-            fil.append({'role': 'assistant', 'content': texte[:8000], 'model': model,
-                        **({'reasoning': raison[:8000]} if raison else {}),
-                        **({'reasoningMs': raison_ms} if raison_ms else {})})
+            thread.append({'role': 'assistant', 'content': text[:8000], 'model': model,
+                        **({'reasoning': reason[:8000]} if reason else {}),
+                        **({'reasoningMs': reasoning_ms} if reasoning_ms else {})})
             db.execute(
                 "INSERT INTO support_thread (username, messages, updated_at) VALUES (?,?,?) "
                 "ON CONFLICT(username) DO UPDATE SET messages=excluded.messages, "
                 "updated_at=excluded.updated_at",
-                (username, json.dumps(fil[-40:], ensure_ascii=False), time.time()))
+                (username, json.dumps(thread[-40:], ensure_ascii=False), time.time()))
             db.commit()
     except Exception as e:
         _log.warning("support %s : fil non sauvegarde (%s)", username, e)
     if mem_on:
         try:
-            _mem_extraire_et_sauver(username, model, user_key, extraits, app)
+            _mem_extract_and_save(username, model, user_key, excerpts, app)
         except Exception as e:
             _log.warning("support %s : extraction memoire echouee (%s)", username, e)
 
@@ -594,21 +594,21 @@ def support_confirm():
     # A non-string token is treated as absent: this is the only execution
     # path for the Support's guarded tools, it must not answer 500 on
     # malformed input (audit of 2026-10-02).
-    jeton = data.get('token')
-    token = jeton.strip() if isinstance(jeton, str) else ''
+    raw_token = data.get('token')
+    token = raw_token.strip() if isinstance(raw_token, str) else ''
     if not token:
         return jsonify({'error': 'Demande inconnue.'}), 400
     username = session['username']
-    act = action_en_attente(username, token)
+    act = pending_action(username, token)
     if not act:
         return jsonify({'error': "Cette demande a expiré (ou a déjà été traitée)."}), 404
     label = act['label'] or act['tool']
     if data.get('cancel'):
-        cloturer_action(username, token, 'cancelled')
+        close_action(username, token, 'cancelled')
         log_audit(username, 'support.action_annulee', label)
         return jsonify({'ok': True, 'message': f"Action annulée : {label}."})
     # Single use: the conditional UPDATE settles a double click.
-    if not cloturer_action(username, token, 'done'):
+    if not close_action(username, token, 'done'):
         return jsonify({'error': "Cette demande a déjà été traitée."}), 409
     try:
         args = json.loads(act['args'] or '{}')
@@ -698,18 +698,18 @@ def _playground_model_limits():
 # Number of images sent to the model per request, all conversations combined:
 # each costs a full encoding at prefill. Beyond that, we keep the most
 # RECENT ones — the question almost always concerns the last one.
-IMAGES_MAX_REQUETE = 8
+MAX_IMAGES_PER_REQUEST = 8
 # Attachments kept for the `lire_document` tool. Collected BEFORE the vision
 # bounding below: the tool reads what the user JOINED, and a model without a
 # projector is exactly the one that needs it. Almost always the newest one is
 # the one being discussed — a handful of candidates is plenty.
-PIECES_JOINTES_MAX = 12
+MAX_ATTACHMENTS = 12
 # Weight of an image in the "character" estimates of the window: ~1 500
 # tokens (image ~1 Mpx), at the pessimistic ratio of 3 characters per token.
-IMAGE_POIDS_CHARS = 1500 * 3
+IMAGE_WEIGHT_CHARS = 1500 * 3
 
 
-def _modele_voit(vllm_args, engine):
+def _model_sees(vllm_args, engine):
     """Does the model of this catalog entry read images? Read from ITS arguments.
 
     llama.cpp only sees with a projector (`--mmproj`); TabbyAPI only with
@@ -727,7 +727,7 @@ def _modele_voit(vllm_args, engine):
 
 
 def _playground_model_vision():
-    vision = {row['name']: _modele_voit(row['vllm_args'], row['engine'] or 'vllm')
+    vision = {row['name']: _model_sees(row['vllm_args'], row['engine'] or 'vllm')
               for row in get_db().execute("SELECT name, vllm_args, engine FROM model_configs")}
     running = get_running_models()
     if running:
@@ -735,7 +735,7 @@ def _playground_model_vision():
     return vision
 
 
-def _horodatage():
+def _timestamp():
     """« Nous sommes le vendredi 2 octobre 2026 à 15:42 (Europe/Paris). »
 
     The model has NO clock: asked « quelle date sommes-nous ? », MiMo answered
@@ -747,14 +747,14 @@ def _horodatage():
     is C and `%A` would answer in English whatever the interface language.
     """
     n = datetime.now(ZoneInfo(LOCAL_TZ))
-    jours = ('lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche')
-    mois = ('janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet',
+    days = ('lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche')
+    months = ('janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet',
             'août', 'septembre', 'octobre', 'novembre', 'décembre')
-    return (f"Nous sommes le {jours[n.weekday()]} {n.day} {mois[n.month - 1]} "
+    return (f"Nous sommes le {days[n.weekday()]} {n.day} {months[n.month - 1]} "
             f"{n.year} à {n:%H:%M} ({LOCAL_TZ}).")
 
 
-def _dernier_message_utilisateur(history):
+def _last_user_message(history):
     """Last user message, TEXT only (attachments stripped): the heuristic
     reads what was ASKED, not what was uploaded."""
     for h in reversed(history or []):
@@ -768,7 +768,7 @@ def _dernier_message_utilisateur(history):
     return ''
 
 
-def _memoire_disponible_gib():
+def _available_memory_gib():
     """Free memory in GiB (`MemAvailable`), or None if unreadable.
 
     Delegates to `sidecars._mem_available_gb` — the SAME single source the
@@ -781,9 +781,9 @@ def _memoire_disponible_gib():
 
 
 
-def _poids(m):
+def _weight(m):
     """Weight of a message in the window estimates (characters)."""
-    return len(m.get('content') or '') + IMAGE_POIDS_CHARS * len(m.get('images') or ())
+    return len(m.get('content') or '') + IMAGE_WEIGHT_CHARS * len(m.get('images') or ())
 
 
 def _msgs_api(msgs):
@@ -830,10 +830,10 @@ def _playground_input_limit(model):
         if row is None:
             return None
     try:
-        entree = ctx_split(row['vllm_args'], row['engine'] or 'vllm')[0]
+        entry = ctx_split(row['vllm_args'], row['engine'] or 'vllm')[0]
     except Exception:                                # noqa: BLE001
         return None
-    return entree or None
+    return entry or None
 
 
 # ── JSON API for the Next.js/Astryx frontend driver (same origin, via Traefik) ───
@@ -867,23 +867,23 @@ def api_playground_data():
 # rights — while being able to run its own JavaScript.
 
 
-_FICHIER_ANNONCE = re.compile(r"`([\w./-]+\.[A-Za-z0-9]{1,6})`[^\n]{0,40}$")
+_ANNOUNCEMENT_FILE = re.compile(r"`([\w./-]+\.[A-Za-z0-9]{1,6})`[^\n]{0,40}$")
 
 
-def _cle_fichier(info, avant):
+def _file_key(info, before):
     """Under what name is this code block known?"""
-    premier = (info or '').strip().split()[0] if (info or '').strip() else ''
-    if '.' in premier:
-        return premier                       # ```index.html
+    first = (info or '').strip().split()[0] if (info or '').strip() else ''
+    if '.' in first:
+        return first                       # ```index.html
     # « Voici `index.html` : » just above the block.
-    for ligne in reversed((avant or '').split('\n')[-4:]):
-        m = _FICHIER_ANNONCE.search(ligne.strip())
+    for line in reversed((before or '').split('\n')[-4:]):
+        m = _ANNOUNCEMENT_FILE.search(line.strip())
         if m:
             return m.group(1)
-    return premier or 'bloc'                 # failing that, the language
+    return first or 'bloc'                 # failing that, the language
 
 
-def _sans_versions_perimees(history):
+def _without_stale_versions(history):
     """Keeps only the LAST version of each file.
 
     Measured on real conversations: half the context replayed at every
@@ -899,15 +899,15 @@ def _sans_versions_perimees(history):
     """
     fence = re.compile(r"```([^\n`]*)\n([\s\S]*?)```")
     # 1st pass: where is the last version of each file?
-    dernier = {}
+    last = {}
     for i, m in enumerate(history):
         if m.get('role') != 'assistant':
             continue
         for f in fence.finditer(m.get('content') or ''):
             if len(f.group(2)) < 2000:       # a short excerpt supersedes nothing
                 continue
-            dernier[_cle_fichier(f.group(1), (m.get('content') or '')[:f.start()])] = i
-    if not dernier:
+            last[_file_key(f.group(1), (m.get('content') or '')[:f.start()])] = i
+    if not last:
         return history
     # 2nd pass: we replace the outdated versions with a line.
     out = []
@@ -915,19 +915,19 @@ def _sans_versions_perimees(history):
         if m.get('role') != 'assistant':
             out.append(m)
             continue
-        contenu = m.get('content') or ''
+        content = m.get('content') or ''
 
-        def _remplace(f, _i=i, _c=contenu):
-            corps, info = f.group(2), f.group(1)
-            if len(corps) < 2000:
+        def _replace(f, _i=i, _c=content):
+            body, info = f.group(2), f.group(1)
+            if len(body) < 2000:
                 return f.group(0)
-            cle = _cle_fichier(info, _c[:f.start()])
-            if dernier.get(cle) == _i:
+            key = _file_key(info, _c[:f.start()])
+            if last.get(key) == _i:
                 return f.group(0)            # this is the current version
-            return (f"```\n[version précédente de `{cle}` retirée du contexte — "
+            return (f"```\n[version précédente de `{key}` retirée du contexte — "
                     f"la version à jour figure plus bas dans la conversation]\n```")
 
-        out.append({**m, 'content': fence.sub(_remplace, contenu)})
+        out.append({**m, 'content': fence.sub(_replace, content)})
     return out
 
 
@@ -945,15 +945,15 @@ def _history_for_model(history, system, ctx):
     to newest: losing an old turn is repairable, amputating the last
     file is not. The last exchange is always kept.
     """
-    history = _sans_versions_perimees(history)
+    history = _without_stale_versions(history)
     if not ctx:
         return history
     # ~3 characters per token, deliberately pessimistic (the real ratio is ~4), and
     # we reserve room to answer.
     budget = max(20_000, (ctx - 8192) * 3)
-    total = sum(_poids(m) for m in history) + len(system or '')
+    total = sum(_weight(m) for m in history) + len(system or '')
     while len(history) > 2 and total > budget:
-        total -= _poids(history[0])
+        total -= _weight(history[0])
         history = history[1:]
     return history
 
@@ -983,7 +983,7 @@ _MEM_EXTRACT_SYSTEM = (
 ) % _MEM_EXTRACT_MAX_FACTS
 
 
-def _mem_extraire_et_sauver(username, model, user_key, extraits, _app):
+def _mem_extract_and_save(username, model, user_key, excerpts, _app):
     """Post-response turn: proposes facts and memorizes them (best effort).
 
     Never raises: extraction is a bonus, a failure must not show up on the
@@ -996,11 +996,11 @@ def _mem_extraire_et_sauver(username, model, user_key, extraits, _app):
     """
     try:
         with _app.app_context():
-            if not memoire._mem_enabled(username):
+            if not memory._mem_enabled(username):
                 return
             convo = []
             total = 0
-            for m in extraits:
+            for m in excerpts:
                 chunk = f"{m['role']}: {m['content'][:2000]}"
                 convo.append(chunk)
                 total += len(chunk) + 1
@@ -1011,13 +1011,13 @@ def _mem_extraire_et_sauver(username, model, user_key, extraits, _app):
             # The already known relations, so that an UPDATE reuses exactly
             # the same relation (that is what triggers replacement of the old
             # fact instead of a duplicate). Bounded: this is a hint, not a dump.
-            connues = {}
-            for e in memoire._mem_graph(username, include_expired=False)['edges']:
-                connues.setdefault(e['subject'], set())
-                if len(connues[e['subject']]) < 5:
-                    connues[e['subject']].add(e['relation'])
+            known_set = {}
+            for e in memory._mem_graph(username, include_expired=False)['edges']:
+                known_set.setdefault(e['subject'], set())
+                if len(known_set[e['subject']]) < 5:
+                    known_set[e['subject']].add(e['relation'])
             index = "\n".join(f"- {s} : {', '.join(sorted(r))}"
-                              for s, r in sorted(connues.items())[:30])
+                              for s, r in sorted(known_set.items())[:30])
             if index:
                 convo.append("Relations déjà mémorisées (réutilise la même relation "
                              "pour mettre à jour) :\n" + index)
@@ -1033,28 +1033,28 @@ def _mem_extraire_et_sauver(username, model, user_key, extraits, _app):
             _log.warning("memoire extraction %s : modele %s a repondu %s",
                          username, model, r.status_code)
             return
-        texte = ((r.json().get('choices') or [{}])[0].get('message') or {}).get('content') or ''
-        if 'RIEN' in texte[:40]:
+        text = ((r.json().get('choices') or [{}])[0].get('message') or {}).get('content') or ''
+        if 'RIEN' in text[:40]:
             return
-        retenus = 0
+        kept = 0
         with _app.app_context():
-            for ligne in texte.splitlines():
-                ligne = ligne.strip().lstrip('-').strip()
-                if not ligne or '|' not in ligne or retenus >= _MEM_EXTRACT_MAX_FACTS:
+            for line in text.splitlines():
+                line = line.strip().lstrip('-').strip()
+                if not line or '|' not in line or kept >= _MEM_EXTRACT_MAX_FACTS:
                     continue
-                parts = [p.strip() for p in ligne.split('|')]
+                parts = [p.strip() for p in line.split('|')]
                 if len(parts) < 3 or not parts[0] or not parts[2]:
                     continue
-                msg, ok = memoire._exec_memory_tool('save_memory', {
-                    'subject': parts[0][:memoire.MEM_MAX_NAME_LEN],
+                msg, ok = memory._exec_memory_tool('save_memory', {
+                    'subject': parts[0][:memory.MEM_MAX_NAME_LEN],
                     'relation': parts[1][:80],
-                    'fact': parts[2][:memoire.MEM_MAX_FACT_LEN],
-                    **({'object': parts[3][:memoire.MEM_MAX_NAME_LEN]} if len(parts) > 3 and parts[3] else {}),
+                    'fact': parts[2][:memory.MEM_MAX_FACT_LEN],
+                    **({'object': parts[3][:memory.MEM_MAX_NAME_LEN]} if len(parts) > 3 and parts[3] else {}),
                 }, username)
                 if ok:
-                    retenus += 1
-            if retenus:
-                _log.info("memoire extraction %s : %d fait(s) retenu(s)", username, retenus)
+                    kept += 1
+            if kept:
+                _log.info("memoire extraction %s : %d fait(s) retenu(s)", username, kept)
     except Exception as exc:                             # noqa: BLE001
         _log.warning("memoire extraction %s : echec (%s: %s)",
                      username, type(exc).__name__, exc)
@@ -1078,7 +1078,7 @@ def playground_chat():
         if not isinstance(m, dict) or m.get('role') not in ('user', 'assistant'):
             continue
         h = {'role': m['role'], 'content': str(m.get('content', ''))[:MSG_MAX_CHARS]}
-        if m['role'] == 'user' and (imgs := images_valides(m)):
+        if m['role'] == 'user' and (imgs := valid_images(m)):
             h['images'] = imgs
         history.append(h)
     if not history:
@@ -1086,7 +1086,7 @@ def playground_chat():
     # Attached images, taken here and NOT after the vision bounding (below):
     # `lire_document` reads what the user joined even when the chosen model
     # cannot see it — the bounding only describes what the model itself gets.
-    pieces = [u for h in history for u in (h.get('images') or [])][-PIECES_JOINTES_MAX:]
+    attachments = [u for h in history for u in (h.get('images') or [])][-MAX_ATTACHMENTS:]
     blocked = maintenance_block_sse()
     if blocked:
         return blocked
@@ -1101,14 +1101,14 @@ def playground_chat():
     # Images: dropped if THIS model does not read them (a conversation started
     # on a model that sees, resumed on another, does not end in 400), and
     # bounded to the IMAGES_MAX_REQUETE most recent ones.
-    _voit = _playground_model_vision().get(model, False)
-    _reste_img = IMAGES_MAX_REQUETE if _voit else 0
+    _sees = _playground_model_vision().get(model, False)
+    _img_remaining = MAX_IMAGES_PER_REQUEST if _sees else 0
     for h in reversed(history):
         if 'images' in h:
-            garde = h['images'][-_reste_img:] if _reste_img else []
-            _reste_img -= len(garde)
-            if garde:
-                h['images'] = garde
+            guard = h['images'][-_img_remaining:] if _img_remaining else []
+            _img_remaining -= len(guard)
+            if guard:
+                h['images'] = guard
             else:
                 del h['images']
 
@@ -1133,13 +1133,13 @@ def playground_chat():
     # demandent, pas tout le temps » (2026-10-03). An explicit true/false
     # (the button) always wins; a bare boolean stays explicit for older
     # clients. Thinking ON also SHOWS the reasoning block.
-    brut = data.get('reasoning', 'auto')
-    if isinstance(brut, bool):
-        mode = 'on' if brut else 'off'
+    raw = data.get('reasoning', 'auto')
+    if isinstance(raw, bool):
+        mode = 'on' if raw else 'off'
     else:
-        mode = str(brut).strip().lower() or 'auto'
+        mode = str(raw).strip().lower() or 'auto'
     if mode == 'auto':
-        reasoning = raisonnablement_complexe(_dernier_message_utilisateur(history))
+        reasoning = reasonably_complex(_last_user_message(history))
     else:
         reasoning = mode not in ('off', 'false', '0', 'non')
     # Reasoning depth (chat_template_kwargs.reasoning_effort): the model's
@@ -1151,9 +1151,9 @@ def playground_chat():
     # measured), so accepting it could only produce a wasted round-trip paid
     # twice in prefill, the requested effort being ignored anyway. The UI
     # never offered it (Par défaut / Basse / Moyenne / Maximale).
-    effort_valide = str(data.get('reasoning_effort') or '').strip().lower()
-    if effort_valide not in ('low', 'medium', 'xhigh'):
-        effort_valide = None
+    valid_effort = str(data.get('reasoning_effort') or '').strip().lower()
+    if valid_effort not in ('low', 'medium', 'xhigh'):
+        valid_effort = None
 
     # The playground consumes the user's BUDGET → we use THEIR key
     # (shared by the account). LiteLLM thus applies the quota (429 if exceeded).
@@ -1165,7 +1165,7 @@ def playground_chat():
     # not just the LiteLLM counter (see guards.quota_depasse_reset). The event
     # is STRUCTURED (dgx_notice): the frontend translates it into the UI
     # language.
-    _quota_reset = quota_depasse_reset(session['username'])
+    _quota_reset = quota_exceeded_reset(session['username'])
     if _quota_reset is not None:
         return Response(_sse_notice('quota_exceeded', reset=_quota_reset),
                         mimetype='text/event-stream')
@@ -1176,21 +1176,21 @@ def playground_chat():
     # person is injected into the SYSTEM, otherwise the model answers « je ne
     # connais rien de vous » while the graph exists. Bounded (see
     # _mem_inject_context) and framed as data.
-    _mem_on = memoire._mem_enabled(session['username'])
+    _mem_on = memory._mem_enabled(session['username'])
     if _mem_on:
-        _memctx = memoire._mem_inject_context(session['username'])
+        _memctx = memory._mem_inject_context(session['username'])
         if _memctx:
             system = (system + "\n\n" + _memctx) if system else _memctx
     # The current date/time joins the system prompt AFTER the truncation above:
     # the model must never lose its clock to a long persona.
-    system = (system + "\n\n" if system else "") + _horodatage()
+    system = (system + "\n\n" if system else "") + _timestamp()
     msgs = ([{'role': 'system', 'content': system}] if system else []) + history
 
     # Web search: decided here, EXECUTED in the stream (see below). Doing it
     # before returning the response left the client without a single byte
     # for several seconds — the frontend proxy gave up before the
     # generation even started.
-    _web_ok = (data.get('web') is not False and _recherche_pertinente(history)
+    _web_ok = (data.get('web') is not False and _search_relevant(history)
                and websearch_active(session['username']))
     # Image tool: same bar as search — EXPLICIT request only.
     # Maintenance blocks just like the Image page (admins pass through).
@@ -1198,22 +1198,22 @@ def playground_chat():
     # the sidecar is off (measured on 2026-10-02 with MiMo — without it the model
     # answers « je ne peux pas générer d'images », which is false: the platform
     # can do it, it is the service that is missing).
-    _img_demandee = _image_demandee(history)
-    _img_service = image_disponible()
-    _img_ok = (_img_demandee and _img_service
+    _img_requested = _image_requested(history)
+    _img_service = image_available()
+    _img_ok = (_img_requested and _img_service
                and maintenance_block_sse() is None)
     # Video tool: same bar as the image one — EXPLICIT request only. The
     # service state is kept for the same reason: it also warns the user when
     # ComfyUI is off and cannot be started (dgx_notice video_service_off).
-    _vid_demandee = _video_demandee(history)
-    _vid_service = video_disponible()
-    _vid_ok = (_vid_demandee and _vid_service
+    _vid_requested = _video_requested(history)
+    _vid_service = video_available()
+    _vid_ok = (_vid_requested and _vid_service
                and maintenance_block_sse() is None)
     # Document reading (OCR): explicit request too — « décris cette image » is
     # the model's own job, `lire_document` extracts TEXT from a joined file.
-    _doc_demandee = _document_demandee(history)
-    _doc_service = document_disponible()
-    _doc_ok = (_doc_demandee and _doc_service
+    _doc_requested = _document_requested(history)
+    _doc_service = document_available()
+    _doc_ok = (_doc_requested and _doc_service
                and maintenance_block_sse() is None)
 
     # The output cap ADDS to the prompt in the context window: beyond it,
@@ -1225,16 +1225,16 @@ def playground_chat():
     if ctx:
         # ~3 characters per token: deliberately PESSIMISTIC (the real ratio is
         # closer to 4). Better to leave ourselves a bit less room than to refuse.
-        approx_prompt = sum(_poids(m) for m in msgs) // 3
-        reste = ctx - approx_prompt - 512      # 512: margin for the chat template
-        max_tokens = max(256, min(max_tokens, reste))
+        approx_prompt = sum(_weight(m) for m in msgs) // 3
+        remaining = ctx - approx_prompt - 512      # 512: margin for the chat template
+        max_tokens = max(256, min(max_tokens, remaining))
 
     _who = session['username']
     def gen():
         _rid = _inflight_start(_who)   # live "who's using the model" — SpendLogs only logs at request end
         # `_out` only arrives at the very last chunk: on a stream abandoned
         # mid-way it is None. `_octets` measures real progress.
-        _finish, _out, _octets = None, None, 0
+        _finish, _out, _bytes = None, None, 0
         # Arms the upstream reader thread (defined below): raised in the
         # generator's `finally`, so on normal end, error OR client departure.
         _stop = threading.Event()
@@ -1259,22 +1259,22 @@ def playground_chat():
         # memory: under MiMo (~100 GB resident) the sidecar often simply cannot
         # start, and "the service is stopped" alone leaves the reader thinking
         # one click would be enough.
-        if _img_demandee and not _img_service:
+        if _img_requested and not _img_service:
             yield ("data: " + json.dumps(
                 {'dgx_notice': {'id': 'image_service_off',
-                                   'libre_gib': _memoire_disponible_gib()}}) + "\n\n")
+                                   'libre_gib': _available_memory_gib()}}) + "\n\n")
         # Same notice for the video and document tools: same trap, the model
         # would answer « je ne peux pas générer de vidéo » / « je ne sais pas
         # lire ce document » while the platform can — it is the service that is
         # missing (and not even startable: the tool is only declared when it is).
-        if _vid_demandee and not _vid_service:
+        if _vid_requested and not _vid_service:
             yield ("data: " + json.dumps(
                 {'dgx_notice': {'id': 'video_service_off',
-                                   'libre_gib': _memoire_disponible_gib()}}) + "\n\n")
-        if _doc_demandee and not _doc_service:
+                                   'libre_gib': _available_memory_gib()}}) + "\n\n")
+        if _doc_requested and not _doc_service:
             yield ("data: " + json.dumps(
                 {'dgx_notice': {'id': 'document_service_off',
-                                   'libre_gib': _memoire_disponible_gib()}}) + "\n\n")
+                                   'libre_gib': _available_memory_gib()}}) + "\n\n")
         # The TTFT stopwatch starts HERE, before the tool phase: it is the delay
         # actually suffered by the person who asked the question. It was taken
         # after the search (just before the final POST), so a request that spent
@@ -1282,15 +1282,15 @@ def playground_chat():
         _t0 = time.monotonic()
         if _web_ok or _img_ok or _vid_ok or _doc_ok:
             yield ": recherche\n\n"
-            _journal, _trouvailles = [], []
-            for _etape in _phase_outils(model, msgs, user_key, _journal,
-                                        _trouvailles, web_ok=_web_ok,
+            _journal, _findings = [], []
+            for _step in _tools_phase(model, msgs, user_key, _journal,
+                                        _findings, web_ok=_web_ok,
                                         img_ok=_img_ok, username=_who,
                                         video_ok=_vid_ok, doc_ok=_doc_ok,
-                                        pieces=pieces):
-                yield _etape
+                                        attachments=attachments):
+                yield _step
             # Re-injection AS TEXT, into the last user message.
-            _txt = _texte_des_trouvailles(_trouvailles)
+            _txt = _findings_text(_findings)
             if _txt:
                 for _k in range(len(msgs) - 1, -1, -1):
                     if msgs[_k].get('role') == 'user':
@@ -1316,10 +1316,10 @@ def playground_chat():
             # 120 to 300 s: nothing arrives during prefill, and a conversation
             # carrying a large file can spend more than two minutes there.
             _file = queue.Queue(maxsize=1000)
-            _amont = {}
+            _upstream = {}
 
-            def _lecteur():
-                def _ouvre(ctk):
+            def _reader():
+                def _open(ctk):
                     return requests.post(f"{LITELLM_URL}/v1/chat/completions",
                                          headers={'Authorization': f'Bearer {user_key}'},
                                          json={'model': model, 'messages': _msgs_api(msgs), 'stream': True,
@@ -1330,21 +1330,21 @@ def playground_chat():
                                          stream=True, timeout=(10, 300))
                 try:
                     _ctk = {'enable_thinking': reasoning}
-                    if effort_valide:
-                        _ctk['reasoning_effort'] = effort_valide
-                    r = _ouvre(_ctk)
-                    if not r.ok and effort_valide and r.status_code == 500:
+                    if valid_effort:
+                        _ctk['reasoning_effort'] = valid_effort
+                    r = _open(_ctk)
+                    if not r.ok and valid_effort and r.status_code == 500:
                         # The template of THIS model rejects the requested value
                         # (each validates its own: the current Qwen3.8 only
                         # accepts xhigh/medium/low). We retry once WITHOUT effort
                         # rather than killing the turn on a 500 Jinja.
                         r.close()
                         _log.info("playground %s : reasoning_effort=%s refuse par le "
-                                  "modele — retente sans", _who, effort_valide)
-                        r = _ouvre({'enable_thinking': reasoning})
+                                  "modele — retente sans", _who, valid_effort)
+                        r = _open({'enable_thinking': reasoning})
                     with r:
                         if not r.ok:
-                            _amont['statut'] = r.status_code
+                            _upstream['statut'] = r.status_code
                             return
                         for _l in r.iter_lines():
                             # The client is gone: we exit the `with`, which closes the
@@ -1367,14 +1367,14 @@ def playground_chat():
                     except queue.Full:
                         pass
 
-            _fil = threading.Thread(target=_lecteur, daemon=True)
+            _thread = threading.Thread(target=_reader, daemon=True)
             _ttft_vu = False
             _ttft_s = None     # measured TTFT (prefill rate below)
-            _chars_vus = 0     # live gauge: chars seen (tokens = chars/ratio)
+            _chars_seen = 0     # live gauge: chars seen (tokens = chars/ratio)
             _maj_direct = 0.0  # gauge written at most once per second
-            _premier_tok_wall = None  # first-token wall time (decode-rate denominator)
-            _reponse = []      # full model text, for memory extraction
-            _fil.start()
+            _first_tok_wall = None  # first-token wall time (decode-rate denominator)
+            _response = []      # full model text, for memory extraction
+            _thread.start()
             while True:
                 try:
                     line = _file.get(timeout=5)
@@ -1402,8 +1402,8 @@ def playground_chat():
                             if _dc:
                                 if not _ttft_vu:
                                     _ttft_s = time.monotonic() - _t0
-                                    _premier_tok_wall = time.time()
-                                    enregistrer_ttft(_ttft_s * 1000)
+                                    _first_tok_wall = time.time()
+                                    record_ttft(_ttft_s * 1000)
                                     _ttft_vu = True
                                 # Live decode gauge (2026-10-02): TabbyAPI
                                 # publishes no /metrics and its stream carries no
@@ -1412,18 +1412,18 @@ def playground_chat():
                                 # tokens = chars / ratio_chars_par_token(), the
                                 # ratio calibrated on the exact `usage` of each
                                 # finished request (see stats.py). 1 write/second.
-                                _chars_vus += _dc
+                                _chars_seen += _dc
                                 if time.monotonic() - _maj_direct >= 1.0:
                                     _maj_direct = time.monotonic()
-                                    _inflight_tokens(_rid, _chars_vus, _premier_tok_wall)
+                                    _inflight_tokens(_rid, _chars_seen, _first_tok_wall)
                         except Exception:
                             pass
-                    if _mem_on and txt.startswith('data: ') and '"delta"' in txt and len(_reponse) < 400:
+                    if _mem_on and txt.startswith('data: ') and '"delta"' in txt and len(_response) < 400:
                         try:
                             _dc = ((json.loads(txt[6:]).get('choices') or [{}])[0]
                                    .get('delta') or {}).get('content')
                             if _dc:
-                                _reponse.append(_dc)
+                                _response.append(_dc)
                         except Exception:
                             pass
                     # Ground truth on the end of generation: without this trace,
@@ -1447,20 +1447,20 @@ def playground_chat():
                                     # but the TTFT is measured here and
                                     # prompt_tokens is exact — their ratio IS
                                     # what the user waited.
-                                    _prefill_dernier(_pt, _ttft_s)
+                                    _prefill_last(_pt, _ttft_s)
                                 if _out:
                                     # Calibration of the live estimate,
                                     # INDEPENDENT of the prefill gauge above.
-                                    _ratio_dernier(_chars_vus, _out)
+                                    _ratio_last(_chars_seen, _out)
                         except Exception:
                             pass
-                    _octets += len(txt)
+                    _bytes += len(txt)
                     yield txt + "\n\n"
-            if _amont.get('statut'):
+            if _upstream.get('statut'):
                 # Status picked up in the thread: the generator no longer sees the
                 # HTTP response itself, only what the thread reports back to it.
                 # STRUCTURED notices: the frontend translates (FR/EN) at render.
-                if _amont['statut'] == 429:
+                if _upstream['statut'] == 429:
                     _reset = ''
                     try:
                         _reset = (_litellm_user_info(_who).get('budget_reset_at') or '')[:16].replace('T', ' ')
@@ -1468,7 +1468,7 @@ def playground_chat():
                         pass
                     yield _sse_notice('quota_exceeded', reset=_reset)
                 else:
-                    yield _sse_notice('model_replied_error', status=_amont['statut'])
+                    yield _sse_notice('model_replied_error', status=_upstream['statut'])
                 return
             if _finish is None:
                 # The upstream stream closed WITHOUT announcing an end. For
@@ -1477,7 +1477,7 @@ def playground_chat():
                 # while it is cut mid-word. We say so explicitly, otherwise
                 # nothing signals it and the truncated reply passes for finished.
                 _log.warning("playground %s : flux amont ferme sans finish_reason "
-                                   "apres %s octets — reponse coupee", _who, _octets)
+                                   "apres %s octets — reponse coupee", _who, _bytes)
                 yield ("data: " + json.dumps({'choices': [{'delta': {},
                        'finish_reason': 'length'}]}) + "\n\n")
                 # `[DONE]` was MISSING here, while the three other end paths
@@ -1509,13 +1509,13 @@ def playground_chat():
                 # context: we pass it the app object (a current_app proxy would
                 # not survive the teardown of the generator's context) + the
                 # recent conversation and the obtained reply.
-                _extraits = [{'role': m['role'], 'content': m['content']}
+                _excerpts = [{'role': m['role'], 'content': m['content']}
                              for m in history[-4:]]
-                _extraits.append({'role': 'assistant',
-                                  'content': "".join(_reponse)[:4000]})
+                _excerpts.append({'role': 'assistant',
+                                  'content': "".join(_response)[:4000]})
                 threading.Thread(
-                    target=_mem_extraire_et_sauver,
-                    args=(session['username'], model, user_key, _extraits,
+                    target=_mem_extract_and_save,
+                    args=(session['username'], model, user_key, _excerpts,
                           current_app._get_current_object()),
                     daemon=True).start()
         except GeneratorExit:
@@ -1523,7 +1523,7 @@ def playground_chat():
             # tab). This is NOT an Exception: without this case, the most
             # frequent cut left no trace on the server side.
             _log.warning("playground %s : generateur ferme apres %s octets / %s tokens "
-                               "(client parti en cours de flux)", _who, _octets, _out)
+                               "(client parti en cours de flux)", _who, _bytes, _out)
             raise
         except Exception as _e:
             _log.warning("playground %s : flux interrompu (%s)", _who, type(_e).__name__)
@@ -1593,9 +1593,9 @@ def playground_title():
     # up to 120 s, a client-side loop sufficed to saturate the 64 threads.
     # The cap is SPECIFIC to these routes: sharing `rl-playground` would halve
     # the message budget, since the title goes out after the first message.
-    refus = maintenance_block_json()
-    if refus:
-        return refus
+    refusal = maintenance_block_json()
+    if refusal:
+        return refusal
     wait = _chat_rate_limited(session['username'], 'rl-titre')
     if wait:
         return jsonify({'error': f"Trop de requêtes. Réessaie dans {wait} s."}), 429
@@ -1622,9 +1622,9 @@ def playground_summarize():
     """Summary of the conversation (condensed context, reusable afterwards)."""
     # Same guards as the auto-title (see the comment of `playground_title`),
     # with its own budget: this is an explicitly triggered call.
-    refus = maintenance_block_json()
-    if refus:
-        return refus
+    refusal = maintenance_block_json()
+    if refusal:
+        return refusal
     wait = _chat_rate_limited(session['username'], 'rl-resume')
     if wait:
         return jsonify({'error': f"Trop de requêtes. Réessaie dans {wait} s."}), 429
@@ -1637,9 +1637,9 @@ def playground_summarize():
             for m in data.get('messages', []) if m.get('role') in ('user', 'assistant')]
     if not msgs:
         return jsonify({'summary': ''})
-    abrev = [{'role': 'system', 'content': "Résume cette conversation en quelques phrases claires (français). Garde les décisions, fichiers créés et points importants. Sois concis."},
+    abbrev = [{'role': 'system', 'content': "Résume cette conversation en quelques phrases claires (français). Garde les décisions, fichiers créés et points importants. Sois concis."},
              {'role': 'user', 'content': "\n\n".join(f"{m['role']}: {m['content']}" for m in msgs[-12:])}]
-    summary, err = _non_stream(abrev, model, max_tokens=500, temperature=0.2)
+    summary, err = _non_stream(abbrev, model, max_tokens=500, temperature=0.2)
     if err:
         return jsonify({'error': err}), 503
     return jsonify({'summary': summary or ''})

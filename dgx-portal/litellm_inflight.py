@@ -42,10 +42,10 @@ import sqlite3
 import sys
 import time
 
-CHEMIN = os.environ.get('DGX_INFLIGHT_DB', '/run/dgx/inflight.db')
+PATH = os.environ.get('DGX_INFLIGHT_DB', '/run/dgx/inflight.db')
 # Past this point the row is considered orphaned: a client killed mid-flight
 # triggers neither success nor failure, so nobody would come and remove it.
-PEREMPTION_S = float(os.environ.get('DGX_INFLIGHT_TTL', '7200'))
+EXPIRY_S = float(os.environ.get('DGX_INFLIGHT_TTL', '7200'))
 
 try:
     from litellm.integrations.custom_logger import CustomLogger
@@ -54,14 +54,14 @@ except Exception:                                    # hors conteneur LiteLLM
         pass
 
 
-def _ouvre():
-    dossier = os.path.dirname(CHEMIN)
-    if dossier:
-        os.makedirs(dossier, mode=0o700, exist_ok=True)
-    conn = sqlite3.connect(CHEMIN, timeout=2)
+def _open():
+    folder = os.path.dirname(PATH)
+    if folder:
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+    conn = sqlite3.connect(PATH, timeout=2)
     # 0600: key aliases and account names are business data (2026-10-03 scan).
     try:
-        os.chmod(CHEMIN, 0o600)
+        os.chmod(PATH, 0o600)
     except OSError:
         pass
     conn.execute('CREATE TABLE IF NOT EXISTS en_vol ('
@@ -70,7 +70,7 @@ def _ouvre():
     return conn
 
 
-def _identite(kwargs):
+def _identity(kwargs):
     """(key, alias, user_id, model) as LiteLLM gives them for a request.
 
     The key is LiteLLM's call identifier: it is what allows removing exactly
@@ -78,45 +78,45 @@ def _identite(kwargs):
     """
     params = (kwargs or {}).get('litellm_params') or {}
     meta = params.get('metadata') or {}
-    cle = (kwargs.get('litellm_call_id') or meta.get('litellm_call_id')
+    key = (kwargs.get('litellm_call_id') or meta.get('litellm_call_id')
            or meta.get('user_api_key') or '')
-    return (str(cle),
+    return (str(key),
             str(meta.get('user_api_key_alias') or ''),
             str(meta.get('user_api_key_user_id') or meta.get('user_id') or ''),
             str(kwargs.get('model') or meta.get('model') or ''))
 
 
-def _enregistre(kwargs):
+def _record(kwargs):
     """Records a request opening. Returns 1 if a row was written."""
-    cle, alias, user_id, modele = _identite(kwargs)
-    if not cle:
+    key, alias, user_id, model_name = _identity(kwargs)
+    if not key:
         return 0
-    conn = _ouvre()
+    conn = _open()
     try:
-        conn.execute('DELETE FROM en_vol WHERE debut < ?', (time.time() - PEREMPTION_S,))
+        conn.execute('DELETE FROM en_vol WHERE debut < ?', (time.time() - EXPIRY_S,))
         conn.execute('INSERT OR REPLACE INTO en_vol (cle, alias, user_id, modele, debut) '
-                     'VALUES (?,?,?,?,?)', (cle, alias, user_id, modele, time.time()))
+                     'VALUES (?,?,?,?,?)', (key, alias, user_id, model_name, time.time()))
         conn.commit()
         return 1
     finally:
         conn.close()
 
 
-def _retire(kwargs):
+def _remove(kwargs):
     """Removes the row of a finished request, on success as on failure."""
-    cle, _, _, _ = _identite(kwargs)
-    if not cle:
+    key, _, _, _ = _identity(kwargs)
+    if not key:
         return 0
-    conn = _ouvre()
+    conn = _open()
     try:
-        cur = conn.execute('DELETE FROM en_vol WHERE cle = ?', (cle,))
+        cur = conn.execute('DELETE FROM en_vol WHERE cle = ?', (key,))
         conn.commit()
         return cur.rowcount
     finally:
         conn.close()
 
 
-class ActiviteEnVol(CustomLogger):
+class InflightActivity(CustomLogger):
     """LiteLLM hooks: opening at start, removal at the end (success or failure).
 
     The SYNCHRONOUS methods are the only ones this version calls (see the
@@ -127,28 +127,28 @@ class ActiviteEnVol(CustomLogger):
 
     # ── Paths actually taken by the proxy ───────────────────────────────────
     def log_pre_api_call(self, model=None, messages=None, kwargs=None):
-        self._sur(_enregistre, kwargs)
+        self._safe(_record, kwargs)
 
     def log_success_event(self, kwargs=None, response_obj=None,
                           start_time=None, end_time=None):
-        self._sur(_retire, kwargs)
+        self._safe(_remove, kwargs)
 
     def log_failure_event(self, kwargs=None, response_obj=None,
                           start_time=None, end_time=None):
-        self._sur(_retire, kwargs)
+        self._safe(_remove, kwargs)
 
     # ── Asynchronous variants (other versions / other paths) ───────────────
     async def async_log_pre_api_call(self, model, messages, kwargs):
-        await self._hors_boucle(_enregistre, kwargs)
+        await self._off_loop(_record, kwargs)
 
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
-        await self._hors_boucle(_retire, kwargs)
+        await self._off_loop(_remove, kwargs)
 
     async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
-        await self._hors_boucle(_retire, kwargs)
+        await self._off_loop(_remove, kwargs)
 
     @staticmethod
-    def _sur(fn, kwargs):
+    def _safe(fn, kwargs):
         """Synchronous call: a write error must never propagate."""
         try:
             fn(kwargs)
@@ -156,11 +156,11 @@ class ActiviteEnVol(CustomLogger):
             print('dgx_inflight: %s: %s' % (type(e).__name__, e), file=sys.stderr)
 
     @staticmethod
-    async def _hors_boucle(fn, kwargs):
+    async def _off_loop(fn, kwargs):
         try:
             await asyncio.to_thread(fn, kwargs)
         except Exception as e:                        # noqa: BLE001 — never fatal
             print('dgx_inflight: %s: %s' % (type(e).__name__, e), file=sys.stderr)
 
 
-en_vol = ActiviteEnVol()
+inflight = InflightActivity()

@@ -60,9 +60,9 @@ class _BaseMedia(unittest.TestCase):
         return client.post(url, data=data or {},
                            headers={"X-CSRFToken": self.CSRF})
 
-    def _maintenance(self, actif):
+    def _maintenance(self, active):
         with self._db():
-            set_setting('maintenance_mode', '1' if actif else '0')
+            set_setting('maintenance_mode', '1' if active else '0')
 
 
 class MaintenanceTest(_BaseMedia):

@@ -134,9 +134,9 @@ def ocr_extract_stream(image_bytes, mime, instruction, on_done):
                     payload = decoded[len('data: '):].strip()
                     if payload and payload != '[DONE]':
                         try:
-                            piece = json.loads(payload)['choices'][0]['delta'].get('content')
-                            if piece:
-                                full.append(piece)
+                            attachment = json.loads(payload)['choices'][0]['delta'].get('content')
+                            if attachment:
+                                full.append(attachment)
                         except Exception:
                             pass
     except Exception:

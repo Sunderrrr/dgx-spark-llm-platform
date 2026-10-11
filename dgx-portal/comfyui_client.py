@@ -236,11 +236,11 @@ def comfyui_is_up():
         return _comfyui_up_cache['v']
     if _comfyui_up_cache['t']:
         with _comfyui_up_lock:
-            lancer = not _comfyui_up_cache['refreshing']
+            launch = not _comfyui_up_cache['refreshing']
             _comfyui_up_cache['refreshing'] = True
-        if lancer:
+        if launch:
             # Short-lived (one probe): unnamed, unlike the long-lived threads
-            # test_garde_regressions counts.
+            # test_regression_guards counts.
             threading.Thread(target=_refresh_comfyui, daemon=True).start()
         return _comfyui_up_cache['v']
     v = _probe_comfyui()

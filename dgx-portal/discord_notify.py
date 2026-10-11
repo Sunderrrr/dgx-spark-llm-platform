@@ -15,7 +15,7 @@ import time
 import requests
 
 from config import DISCORD_API
-from parametres import discord_config
+from instance_config import discord_config
 # DB_PATH in addition to get_db: the broadcast runs in a THREAD, which has no
 # Flask context and therefore opens its own connection (same reason as the
 # image/video jobs — see the get_db docstring).

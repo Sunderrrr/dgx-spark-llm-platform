@@ -21,7 +21,7 @@ import stats
 
 def _metrics_vllm(gen="1000", succes=("42", "8"), ttft=("12.5", "50")):
     """Rend un /metrics vLLM realiste : metriques etiquetees, lignes a sommer."""
-    lignes = [
+    lines = [
         'vllm:generation_tokens_total{model_name="m"} %s' % gen,
         'vllm:num_requests_running{model_name="m"} 2.0',
         'vllm:num_requests_waiting{model_name="m"} 1.0',
@@ -30,7 +30,7 @@ def _metrics_vllm(gen="1000", succes=("42", "8"), ttft=("12.5", "50")):
         'vllm:time_to_first_token_seconds_sum{model_name="m"} %s' % ttft[0],
         'vllm:time_to_first_token_seconds_count{model_name="m"} %s' % ttft[1],
     ]
-    return "\n".join(lignes) + "\n"
+    return "\n".join(lines) + "\n"
 
 
 _METRICS_LLAMA = ("llamacpp:tokens_predicted_total 39080\n"
@@ -41,16 +41,16 @@ _METRICS_LLAMA = ("llamacpp:tokens_predicted_total 39080\n"
                   "llamacpp:requests_deferred 0\n")
 
 
-def _sante(engine, texte):
+def _sante(engine, text):
     """Calls vllm_health() pretending `engine` serves `texte`."""
-    ligne = {'engine': engine}
+    line = {'engine': engine}
     faux_db = types.SimpleNamespace(
-        execute=lambda *a, **k: types.SimpleNamespace(fetchone=lambda: ligne))
+        execute=lambda *a, **k: types.SimpleNamespace(fetchone=lambda: line))
     vllm_health._vllm_health_cache['t'] = 0.0
     with mock.patch.object(vllm_health, 'get_running_models', return_value=['m']), \
          mock.patch.object(vllm_health, 'get_db', return_value=faux_db), \
          mock.patch.object(vllm_health.requests, 'get',
-                           return_value=types.SimpleNamespace(text=texte)):
+                           return_value=types.SimpleNamespace(text=text)):
         return vllm_health.vllm_health()
 
 
@@ -83,7 +83,7 @@ class SanteVllmTest(unittest.TestCase):
         On `ttft_cnt == 0` it would display, for a just-launched vLLM, the
         TTFT left by the previous engine.
         """
-        with mock.patch('stats.ttft_mesure', return_value=9.99):
+        with mock.patch('stats.measured_ttft', return_value=9.99):
             d = _sante('vllm', _metrics_vllm("0", succes=("0", "0"), ttft=("0", "0")))
         self.assertEqual(d['requests'], 0)
         self.assertIsNone(d['ttft'])
@@ -96,7 +96,7 @@ class SanteLlamacppTest(unittest.TestCase):
         self.assertIsNone(_sante('llamacpp', _METRICS_LLAMA)['requests'])
 
     def test_ttft_repris_de_la_mesure_du_portail(self):
-        with mock.patch('stats.ttft_mesure', return_value=0.27):
+        with mock.patch('stats.measured_ttft', return_value=0.27):
             self.assertEqual(_sante('llamacpp', _METRICS_LLAMA)['ttft'], 0.27)
 
     def test_debit_lu_sur_n_decode_total_le_seul_a_avancer(self):
@@ -128,12 +128,12 @@ class SanteLlamacppTest(unittest.TestCase):
                 "llamacpp:tokens_predicted_seconds_total 1235.5\n"
                 "llamacpp:predicted_tokens_seconds 0\n"
                 "llamacpp:requests_deferred 0\n")
-        actif = base + "llamacpp:requests_processing 1\n"
+        active = base + "llamacpp:requests_processing 1\n"
         repos = base + "llamacpp:requests_processing 0\n"
-        _sante('llamacpp', actif + "llamacpp:n_decode_total 1000\n")
+        _sante('llamacpp', active + "llamacpp:n_decode_total 1000\n")
         time.sleep(1.05)
         # a generation happened: non-zero throughput
-        self.assertTrue(_sante('llamacpp', actif + "llamacpp:n_decode_total 1030\n")['tps'] > 0)
+        self.assertTrue(_sante('llamacpp', active + "llamacpp:n_decode_total 1030\n")['tps'] > 0)
         time.sleep(1.05)
         # the counter stopped moving: nobody uses the model
         self.assertEqual(_sante('llamacpp', repos + "llamacpp:n_decode_total 1030\n")['tps'], 0.0)
@@ -273,7 +273,7 @@ class CompteursCumulesTest(unittest.TestCase):
     """
 
     def test_les_compteurs_du_moteur_sont_exposes(self):
-        with mock.patch('stats.cumuler_tokens_generes', return_value=999999):
+        with mock.patch('stats.accumulate_generated_tokens', return_value=999999):
             s = _sante('llamacpp', _METRICS_LLAMA_COMPLET)
         self.assertEqual(s['tokens_generated'], 158729)
         self.assertEqual(s['tokens_prompt'], 1815000)
@@ -310,7 +310,7 @@ class CompteursCumulesTest(unittest.TestCase):
         self.assertEqual(s['tokens_generated'], 1000)
 
     def test_un_echec_du_cumul_ne_casse_pas_la_sante(self):
-        with mock.patch('stats.cumuler_tokens_generes', side_effect=RuntimeError('db')):
+        with mock.patch('stats.accumulate_generated_tokens', side_effect=RuntimeError('db')):
             s = _sante('llamacpp', _METRICS_LLAMA_COMPLET)
         self.assertIsNone(s['tokens_generated_total'])
         self.assertEqual(s['tokens_generated'], 158729)
@@ -347,9 +347,9 @@ class CumulTokensGeneresTest(unittest.TestCase):
     every relaunch, so the cumulative must not fall with it — and above all
     never count the same launch twice."""
 
-    def _cumul(self, db, valeur):
+    def _cumul(self, db, value):
         with mock.patch.object(stats, 'get_db', return_value=db):
-            return stats.cumuler_tokens_generes('modele', valeur)
+            return stats.accumulate_generated_tokens('modele', value)
 
     def test_premier_releve(self):
         self.assertEqual(self._cumul(_FausseDb(), 100), 100)
@@ -372,8 +372,8 @@ class CumulTokensGeneresTest(unittest.TestCase):
 
     def test_le_cumul_ne_recule_jamais(self):
         db = _FausseDb()
-        valeurs = [500, 800, 12, 40, 3, 60]
-        cumuls = [self._cumul(db, v) for v in valeurs]
+        values = [500, 800, 12, 40, 3, 60]
+        cumuls = [self._cumul(db, v) for v in values]
         self.assertEqual(cumuls, sorted(cumuls), cumuls)
 
     def test_aucune_ecriture_quand_rien_ne_bouge(self):
@@ -388,8 +388,8 @@ class CumulTokensGeneresTest(unittest.TestCase):
     def test_sans_modele_ni_valeur_rien_n_est_tente(self):
         db = _FausseDb()
         with mock.patch.object(stats, 'get_db', return_value=db):
-            self.assertIsNone(stats.cumuler_tokens_generes('', 100))
-            self.assertIsNone(stats.cumuler_tokens_generes('modele', None))
+            self.assertIsNone(stats.accumulate_generated_tokens('', 100))
+            self.assertIsNone(stats.accumulate_generated_tokens('modele', None))
         self.assertEqual(db.ecritures, [])
 
 
@@ -424,12 +424,12 @@ class SlotsActifsTest(unittest.TestCase):
     """
 
     def setUp(self):
-        vllm_health._slots_taches.clear()
+        vllm_health._slots_tasks.clear()
         vllm_health._vllm_health_cache['t'] = 0.0
 
     def _activite(self, slots):
         with mock.patch.object(vllm_health.requests, 'get', side_effect=_avec_slots(slots)):
-            return vllm_health._slots_activite()
+            return vllm_health._slots_activity()
 
     def test_seules_les_sessions_en_traitement_comptent(self):
         a = self._activite(_SLOTS_OCCUPES)
@@ -447,32 +447,32 @@ class SlotsActifsTest(unittest.TestCase):
         self._activite(_SLOTS_OCCUPES)
         self.assertIsNotNone(self._activite(_SLOTS_OCCUPES)['plus_ancien_s'])
         # Task seen 10 minutes ago: it is the age that must come out.
-        vllm_health._slots_taches[279] = time.time() - 600
+        vllm_health._slots_tasks[279] = time.time() - 600
         a = self._activite(_SLOTS_OCCUPES)
         self.assertTrue(598 < a['plus_ancien_s'] < 604, a['plus_ancien_s'])
 
     def test_une_tache_terminee_sort_du_suivi(self):
         """Otherwise the task table would grow forever."""
         self._activite(_SLOTS_OCCUPES)
-        self.assertIn(279, vllm_health._slots_taches)
+        self.assertIn(279, vllm_health._slots_tasks)
         self._activite([s for s in _SLOTS_OCCUPES if s['id'] != 0])
-        self.assertNotIn(279, vllm_health._slots_taches)
-        self.assertIn(1334, vllm_health._slots_taches)
+        self.assertNotIn(279, vllm_health._slots_tasks)
+        self.assertIn(1334, vllm_health._slots_tasks)
 
     def test_moteur_sans_slots_renvoie_none_et_pas_zero(self):
         """vLLM exposes no /slots, and a probe failure is not « personne »."""
         with mock.patch.object(vllm_health.requests, 'get',
                                side_effect=RuntimeError('injoignable')):
-            self.assertIsNone(vllm_health._slots_activite())
+            self.assertIsNone(vllm_health._slots_activity())
 
     def test_la_sante_porte_l_activite_des_slots(self):
         def _get(url, **k):
             if url.endswith('/slots'):
                 return types.SimpleNamespace(json=lambda: _SLOTS_OCCUPES)
             return types.SimpleNamespace(text=_METRICS_LLAMA_COMPLET)
-        ligne = {'engine': 'llamacpp'}
+        line = {'engine': 'llamacpp'}
         faux_db = types.SimpleNamespace(
-            execute=lambda *a, **k: types.SimpleNamespace(fetchone=lambda: ligne))
+            execute=lambda *a, **k: types.SimpleNamespace(fetchone=lambda: line))
         vllm_health._vllm_health_cache['t'] = 0.0
         with mock.patch.object(vllm_health, 'get_running_models', return_value=['m']), \
              mock.patch.object(vllm_health, 'get_db', return_value=faux_db), \
@@ -491,54 +491,54 @@ class EnVolStatsTest(unittest.TestCase):
     """
 
     def setUp(self):
-        self.dossier = tempfile.mkdtemp()
-        self.chemin = os.path.join(self.dossier, 'inflight.db')
-        self._avant = stats._EN_VOL_DB
-        stats._EN_VOL_DB = self.chemin
+        self.folder = tempfile.mkdtemp()
+        self.path = os.path.join(self.folder, 'inflight.db')
+        self._avant = stats._INFLIGHT_DB
+        stats._INFLIGHT_DB = self.path
 
     def tearDown(self):
-        stats._EN_VOL_DB = self._avant
-        shutil.rmtree(self.dossier, ignore_errors=True)
+        stats._INFLIGHT_DB = self._avant
+        shutil.rmtree(self.folder, ignore_errors=True)
 
-    def _ecrit(self, lignes):
-        conn = sqlite3.connect(self.chemin)
+    def _ecrit(self, lines):
+        conn = sqlite3.connect(self.path)
         conn.execute('CREATE TABLE IF NOT EXISTS en_vol (cle TEXT PRIMARY KEY, alias TEXT, '
                      'user_id TEXT, modele TEXT, debut REAL NOT NULL)')
-        for cle, alias, user_id, age in lignes:
+        for key, alias, user_id, age in lines:
             conn.execute('INSERT INTO en_vol VALUES (?,?,?,?,?)',
-                         (cle, alias, user_id, 'm', time.time() - age))
+                         (key, alias, user_id, 'm', time.time() - age))
         conn.commit()
         conn.close()
 
     def test_un_alias_connu_donne_le_compte(self):
-        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'alice'):
+        with mock.patch.object(stats, '_account_exists', side_effect=lambda n: n == 'alice'):
             self._ecrit([('c1', 'Opencode-alice', '', 12)])
-            actifs = stats._en_vol()
-        self.assertEqual(list(actifs), ['alice'])
-        self.assertTrue(11 < actifs['alice'] < 15, actifs)
+            actives = stats._inflight()
+        self.assertEqual(list(actives), ['alice'])
+        self.assertTrue(11 < actives['alice'] < 15, actives)
 
     def test_un_alias_inconnu_ne_devine_aucun_nom(self):
         """Better to display nothing than an invented name."""
-        with mock.patch.object(stats, '_compte_existe', return_value=False):
+        with mock.patch.object(stats, '_account_exists', return_value=False):
             self._ecrit([('c1', 'Opencode-Omarchy', 'personne-connu', 5)])
-            self.assertEqual(stats._en_vol(), {})
+            self.assertEqual(stats._inflight(), {})
 
     def test_le_user_id_sert_de_repli(self):
-        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'bob'):
+        with mock.patch.object(stats, '_account_exists', side_effect=lambda n: n == 'bob'):
             self._ecrit([('c1', '', 'bob', 3)])
-            self.assertEqual(list(stats._en_vol()), ['bob'])
+            self.assertEqual(list(stats._inflight()), ['bob'])
 
     def test_la_plus_ancienne_requete_gagne(self):
-        with mock.patch.object(stats, '_compte_existe', side_effect=lambda n: n == 'alice'):
+        with mock.patch.object(stats, '_account_exists', side_effect=lambda n: n == 'alice'):
             self._ecrit([('c1', 'alice-1', '', 2), ('c2', 'alice-2', '', 300)])
-            self.assertTrue(stats._en_vol()['alice'] > 290)
+            self.assertTrue(stats._inflight()['alice'] > 290)
 
     def test_fichier_absent_ou_illisible_ne_leve_pas(self):
-        self.assertEqual(stats._en_vol(), {})          # absent
-        with open(self.chemin, 'w') as f:
+        self.assertEqual(stats._inflight(), {})          # absent
+        with open(self.path, 'w') as f:
             f.write('ceci n est pas une base sqlite')
-        with mock.patch.object(stats, '_compte_existe', return_value=True):
-            self.assertEqual(stats._en_vol(), {})      # illisible
+        with mock.patch.object(stats, '_account_exists', return_value=True):
+            self.assertEqual(stats._inflight(), {})      # illisible
 
 
 class ModelesConnusTest(unittest.TestCase):
@@ -554,46 +554,46 @@ class ModelesConnusTest(unittest.TestCase):
     def setUp(self):
         vllm_health._rm_cache.update(t=0.0, v=[], ok=0.0)
 
-    def _sonde(self, reponse=None, erreur=None):
+    def _probe(self, response=None, error_text=None):
         def _get(*a, **k):
-            if erreur:
-                raise erreur
-            return reponse
+            if error_text:
+                raise error_text
+            return response
         return mock.patch.object(vllm_health.requests, 'get', side_effect=_get)
 
     def test_sonde_en_echec_conserve_la_derniere_liste_connue(self):
         rep = mock.Mock(ok=True)
         rep.json.return_value = {'data': [{'id': 'm1'}]}
-        with self._sonde(reponse=rep):
+        with self._probe(response=rep):
             self.assertEqual(vllm_health.get_running_models(), ['m1'])
         vllm_health._rm_cache['t'] = 0.0          # force a new probe
-        with self._sonde(erreur=ConnectionError('fige pendant le prefill')):
+        with self._probe(error_text=ConnectionError('fige pendant le prefill')):
             self.assertEqual(vllm_health.get_running_models(), ['m1'])
 
     def test_liste_perimee_finalement_videe(self):
         vllm_health._rm_cache.update(t=0.0, v=['m1'],
                                      ok=time.time() - vllm_health._RM_GRACE_S - 1)
-        with self._sonde(erreur=ConnectionError('moteur mort')):
+        with self._probe(error_text=ConnectionError('moteur mort')):
             self.assertEqual(vllm_health.get_running_models(), [])
 
     def test_reponse_vraiment_videe_vide_la_liste(self):
         vllm_health._rm_cache.update(t=0.0, v=['m1'], ok=time.time())
         rep = mock.Mock(ok=True)
         rep.json.return_value = {'data': []}
-        with self._sonde(reponse=rep):
+        with self._probe(response=rep):
             self.assertEqual(vllm_health.get_running_models(), [])   # preuve d'absence
 
     def test_sonde_en_echec_ne_reessaie_pas_a_chaque_appel(self):
         vllm_health._rm_cache.update(t=0.0, v=['m1'], ok=time.time())
-        appels = []
+        calls = []
         def _get(*a, **k):
-            appels.append(1)
+            calls.append(1)
             raise ConnectionError('fige')
         with mock.patch.object(vllm_health.requests, 'get', side_effect=_get):
             vllm_health.get_running_models()
             vllm_health.get_running_models()
             vllm_health.get_running_models()
-        self.assertEqual(len(appels), 1)          # le cache de 5 s protege le moteur fige
+        self.assertEqual(len(calls), 1)          # le cache de 5 s protege le moteur fige
 
 
 class DebitVivantTest(unittest.TestCase):
@@ -610,15 +610,15 @@ class DebitVivantTest(unittest.TestCase):
 
     def setUp(self):
         import tempfile
-        self.chemin = tempfile.mkdtemp() + '/t.db'
-        c = sqlite3.connect(self.chemin)
+        self.path = tempfile.mkdtemp() + '/t.db'
+        c = sqlite3.connect(self.path)
         c.execute("""CREATE TABLE inflight_requests (
             id TEXT PRIMARY KEY, username TEXT, started_at REAL,
             tokens INTEGER NOT NULL DEFAULT 0, decode_since REAL)""")
         c.commit(); c.close()
 
     def _insere(self, rid, tokens, age_s, decode_age_s=None):
-        c = sqlite3.connect(self.chemin)
+        c = sqlite3.connect(self.path)
         c.execute("INSERT INTO inflight_requests VALUES (?,?,?,?,?)",
                   (rid, 'alice', time.time() - age_s, tokens,
                    time.time() - decode_age_s if decode_age_s is not None else None))
@@ -627,60 +627,60 @@ class DebitVivantTest(unittest.TestCase):
     def test_debit_somme_les_taux_en_cours(self):
         self._insere('a', 100, 30, decode_age_s=10)      # 10 tok/s de DECODAGE
         self._insere('b', 60, 200, decode_age_s=20)      # 3 tok/s
-        with mock.patch.object(stats, 'DB_PATH', self.chemin):
-            self.assertAlmostEqual(stats.debit_decode_live(), 13.0, delta=0.5)
+        with mock.patch.object(stats, 'DB_PATH', self.path):
+            self.assertAlmostEqual(stats.live_decode_rate(), 13.0, delta=0.5)
 
     def test_le_decodage_ne_divise_plus_par_le_temps_d_attente(self):
         # 60 s of queue + 10 s of decoding: the request age would dilute it
         # (0.86 tok/s); the right denominator gives 6 tok/s.
         self._insere('a', 60, 70, decode_age_s=10)
-        with mock.patch.object(stats, 'DB_PATH', self.chemin):
-            self.assertAlmostEqual(stats.debit_decode_live(), 6.0, delta=0.2)
+        with mock.patch.object(stats, 'DB_PATH', self.path):
+            self.assertAlmostEqual(stats.live_decode_rate(), 6.0, delta=0.2)
 
     def test_aucune_requete_en_cours_dit_zero(self):
-        with mock.patch.object(stats, 'DB_PATH', self.chemin):
-            self.assertEqual(stats.debit_decode_live(), 0.0)
+        with mock.patch.object(stats, 'DB_PATH', self.path):
+            self.assertEqual(stats.live_decode_rate(), 0.0)
 
     def test_requete_toute_jeune_ne_divise_pas_par_zero(self):
         self._insere('a', 50, 5, decode_age_s=0.2)      # < 1 s : ignoree
-        with mock.patch.object(stats, 'DB_PATH', self.chemin):
-            self.assertEqual(stats.debit_decode_live(), 0.0)
+        with mock.patch.object(stats, 'DB_PATH', self.path):
+            self.assertEqual(stats.live_decode_rate(), 0.0)
 
     def test_le_compteur_estime_les_tokens_avec_le_ratio_calibre(self):
         self._insere('a', 0, 5)
-        with mock.patch.object(stats, 'DB_PATH', self.chemin), \
-             mock.patch.object(stats, 'ratio_chars_par_token', return_value=2.0):
+        with mock.patch.object(stats, 'DB_PATH', self.path), \
+             mock.patch.object(stats, 'ratio_chars_per_token', return_value=2.0):
             stats._inflight_tokens('a', 240, time.time() - 5)   # 240 car. / 2 = 120 tok
-            self.assertAlmostEqual(stats.debit_decode_live(), 24.0, delta=0.5)  # 120/5
-        c = sqlite3.connect(self.chemin)
+            self.assertAlmostEqual(stats.live_decode_rate(), 24.0, delta=0.5)  # 120/5
+        c = sqlite3.connect(self.path)
         ds = c.execute("SELECT decode_since FROM inflight_requests WHERE id='a'").fetchone()[0]
         c.close()
         self.assertIsNotNone(ds)       # le debut de decodage est retenu
 
     def test_le_debut_de_decodage_est_garde_premier_arrive(self):
         self._insere('a', 0, 5)
-        premier = time.time() - 8
-        with mock.patch.object(stats, 'DB_PATH', self.chemin):
-            stats._inflight_tokens('a', 100, premier)
+        first = time.time() - 8
+        with mock.patch.object(stats, 'DB_PATH', self.path):
+            stats._inflight_tokens('a', 100, first)
             stats._inflight_tokens('a', 200, time.time())   # ne doit pas ecraser
-        c = sqlite3.connect(self.chemin)
+        c = sqlite3.connect(self.path)
         ds = c.execute("SELECT decode_since FROM inflight_requests WHERE id='a'").fetchone()[0]
         c.close()
-        self.assertAlmostEqual(ds, premier, delta=0.01)
+        self.assertAlmostEqual(ds, first, delta=0.01)
 
     def test_le_ratio_se_calibre_sur_le_compte_exact(self):
         with mock.patch('db.get_setting') as get_s, mock.patch('db.set_setting') as set_s:
             vals = {}
             set_s.side_effect = lambda k, v: vals.__setitem__(k, v)
             get_s.side_effect = lambda k, d=None: vals.get(k, d)
-            self.assertEqual(stats.ratio_chars_par_token(), 4.0)      # avant calibration
-            stats.enregistrer_ratio(344, 100)                          # 3,44 car./token
-            self.assertAlmostEqual(stats.ratio_chars_par_token(), 3.44, delta=0.01)
-            stats.enregistrer_ratio(400, 100)                          # lissage 0.7/0.3
-            self.assertAlmostEqual(stats.ratio_chars_par_token(),
+            self.assertEqual(stats.ratio_chars_per_token(), 4.0)      # avant calibration
+            stats.record_ratio(344, 100)                          # 3,44 car./token
+            self.assertAlmostEqual(stats.ratio_chars_per_token(), 3.44, delta=0.01)
+            stats.record_ratio(400, 100)                          # lissage 0.7/0.3
+            self.assertAlmostEqual(stats.ratio_chars_per_token(),
                                    round(0.7 * 3.44 + 0.3 * 4.0, 3), delta=0.01)
-            stats.enregistrer_ratio(10, 2)                             # echantillon trop petit : ignore
-            self.assertAlmostEqual(stats.ratio_chars_par_token(),
+            stats.record_ratio(10, 2)                             # echantillon trop petit : ignore
+            self.assertAlmostEqual(stats.ratio_chars_per_token(),
                                    round(0.7 * 3.44 + 0.3 * 4.0, 3), delta=0.01)
 
     def test_prefill_dernier_est_une_jauge_qui_s_efface(self):
@@ -688,20 +688,20 @@ class DebitVivantTest(unittest.TestCase):
             vals = {}
             set_s.side_effect = lambda k, v: vals.__setitem__(k, v)
             get_s.side_effect = lambda k, d=None: vals.get(k, d)
-            stats.enregistrer_prefill(1000, 4.0)         # 250 tok/s
-            self.assertAlmostEqual(stats.prefill_dernier(), 250.0, delta=0.1)
+            stats.record_prefill(1000, 4.0)         # 250 tok/s
+            self.assertAlmostEqual(stats.prefill_last(), 250.0, delta=0.1)
             vals['prefill_rate_at'] = time.time() - 9999
-            self.assertIsNone(stats.prefill_dernier())   # perime -> rien, jamais 0
+            self.assertIsNone(stats.prefill_last())   # perime -> rien, jamais 0
 
     def test_sante_sans_metrics_expose_le_debit_vivant(self):
-        with mock.patch.object(stats, 'debit_decode_live', return_value=12.5), \
-             mock.patch.object(stats, 'prefill_dernier', return_value=250.0), \
-             mock.patch.object(stats, 'flux_depuis_spendlogs', return_value={}), \
-             mock.patch.object(stats, 'ttft_mesure', return_value=None), \
-             mock.patch.object(stats, 'cumuler_tokens_generes', return_value=1), \
+        with mock.patch.object(stats, 'live_decode_rate', return_value=12.5), \
+             mock.patch.object(stats, 'prefill_last', return_value=250.0), \
+             mock.patch.object(stats, 'flow_from_spendlogs', return_value={}), \
+             mock.patch.object(stats, 'measured_ttft', return_value=None), \
+             mock.patch.object(stats, 'accumulate_generated_tokens', return_value=1), \
              mock.patch.object(vllm_health, 'get_db') as gdb:
             gdb.return_value.execute.return_value.fetchone.return_value = None
-            d = vllm_health._sante_sans_metrics('m', 'exllamav3')
+            d = vllm_health._health_without_metrics('m', 'exllamav3')
         self.assertEqual(d['tps'], 12.5)
         self.assertEqual(d['tps_prefill'], 250.0)
         self.assertIs(d['metrics'], False)

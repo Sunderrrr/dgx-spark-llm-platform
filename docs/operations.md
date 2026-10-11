@@ -200,7 +200,7 @@ search — it only extracts URLs it is given). Rules that are not obvious:
   postgres or traefik, and `dgx-web-restrict.service` drops every new
   connection from `web_net` to the host. Never attach it to `default`.
 - **Every URL is resolved and checked public before it reaches the crawler**
-  (`websearch.url_publique`). The network cannot do this: a hostile page can
+  (`websearch.public_url`). The network cannot do this: a hostile page can
   redirect anywhere.
 - Extraction settings were chosen by measurement (`test_websearch.py`):
   `ignore_links` + `excluded_tags` cut 61–75 % of volume without losing substance.
@@ -287,7 +287,7 @@ are contracts, not decoration:
   LiteLLM's SpendLogs, plus a live decode gauge: `chat_routes` counts the
   streamed characters (`tokens ≈ chars/4`, calibrated later on the exact
   `usage.completion_tokens` of each finished request — measured 3.44 chars/token
-  on MiMo) and `stats.debit_decode_live()` divides by the **decode time**, not
+  on MiMo) and `stats.live_decode_rate()` divides by the **decode time**, not
   the request age. The prefill rate = `usage.prompt_tokens / measured TTFT`.
 - **LiteLLM does not throttle throughput** (verified 2026-09-11: 33.0 tok/s
   non-stream and 33.3 streaming through the proxy against 32.2 direct). A lower

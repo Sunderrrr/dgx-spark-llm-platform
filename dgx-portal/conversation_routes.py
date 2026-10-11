@@ -37,16 +37,16 @@ CONV_MAX_CHARS = 2_000_000
 # Only `data:` URLs pass, never an address: the engine would otherwise go
 # fetch it itself on the internal network (SSRF).
 IMAGE_DATA_URL = re.compile(r'data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}')
-IMAGES_PAR_MESSAGE = 4
+IMAGES_PER_MESSAGE = 4
 IMAGE_MAX_CHARS = 3_000_000
 
 
-def images_valides(m):
+def valid_images(m):
     """A message's images, filtered: image data: URLs, bounded."""
     imgs = m.get('images') if isinstance(m, dict) else None
     if not isinstance(imgs, list):
         return []
-    return [u for u in imgs[:IMAGES_PAR_MESSAGE]
+    return [u for u in imgs[:IMAGES_PER_MESSAGE]
             if isinstance(u, str) and len(u) <= IMAGE_MAX_CHARS and IMAGE_DATA_URL.fullmatch(u)]
 
 
@@ -58,7 +58,7 @@ CONVERSATIONS_MAX = 30           # per user — beyond that, we purge the oldest
 # messages of the most recent ones while they fit in the budget, and
 # `messages_omis` for the others — which `GET /api/conversations/<id>`
 # renders on demand when one is opened.
-LISTE_MAX_OCTETS = 8_000_000
+LIST_MAX_BYTES = 8_000_000
 
 
 def _messages_json(row):
@@ -75,7 +75,7 @@ def api_conversations():
     rows = get_db().execute(
         "SELECT client_id, title, model, messages, updated_at FROM conversations "
         "WHERE username=? ORDER BY updated_at DESC", (session['username'],))
-    out, octets = [], 0
+    out, size_bytes = [], 0
     for r in rows:
         messages = _messages_json(r)
         if messages is None:
@@ -85,9 +85,9 @@ def api_conversations():
         # The FIRST conversation is always served in full, even if it exceeds the
         # budget on its own: a screen opening on an empty thread would be worse
         # than the latency we are trying to avoid.
-        if not out or octets + len(r['messages']) <= LISTE_MAX_OCTETS:
+        if not out or size_bytes + len(r['messages']) <= LIST_MAX_BYTES:
             item['messages'] = messages
-            octets += len(r['messages'])
+            size_bytes += len(r['messages'])
         else:
             item['messages'] = []
             item['messages_omis'] = True
@@ -155,15 +155,15 @@ def conversations_route():
                      # lost what the model had seen. Counted in
                      # CONV_MAX_CHARS like the rest: a too heavy conversation
                      # loses its oldest messages, images included.
-                     **({'images': imgs} if (imgs := images_valides(m)) and m.get('role') == 'user' else {})}
+                     **({'images': imgs} if (imgs := valid_images(m)) and m.get('role') == 'user' else {})}
                     for m in messages if m.get('role') in ('user', 'assistant')][-60:]
         # INCREMENTAL trim: re-serializing 2 Mo at every removed message cost up
         # to 60 serializations per save, in the gunicorn thread. We measure once,
         # then decrement by the size of the removed message.
         total = len(json.dumps(messages, ensure_ascii=False))
         while total > CONV_MAX_CHARS and len(messages) > 1:
-            retire = messages.pop(0)
-            total -= len(json.dumps(retire, ensure_ascii=False)) + 2
+            removed = messages.pop(0)
+            total -= len(json.dumps(removed, ensure_ascii=False)) + 2
         # Safety net: if the approximation was wrong, we finish with the exact
         # measurement. It only runs on a mismatch, never in the common case.
         while len(json.dumps(messages, ensure_ascii=False)) > CONV_MAX_CHARS and len(messages) > 1:
@@ -192,7 +192,7 @@ def conversations_route():
         # longer claims to have deleted anything. We no longer answer 204:
         # `postFormVerifie` reads a 204 as a success, so a deletion that had
         # deleted nothing displayed as done (found by
-        # tests/test_autorisation_croisee.py).
+        # tests/test_cross_authorization.py).
         return jsonify({'ok': True, 'deleted': cur.rowcount})
     return jsonify({'ok': False, 'error': f"Action inconnue : {action!r}"}), 400
 

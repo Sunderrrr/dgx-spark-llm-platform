@@ -32,7 +32,7 @@ import re
 import threading
 import time
 
-from sidecars import get_ocr_model, sidecar_demarrable, sidecar_demarrage_auto
+from sidecars import get_ocr_model, sidecar_startable, sidecar_autostart
 
 # Wait between two polls of the extraction thread. The OCR call is a single
 # streamed request (no job row): we only watch the thread that consumes it.
@@ -45,7 +45,7 @@ _HEARTBEAT_EVERY_S = 15
 # What the model receives back. An extraction is text to quote from, not a file
 # to store: the tool result already goes through the 6 000-char digest bound of
 # _phase_outils, this one caps what is kept for the final re-injection.
-_TEXTE_MAX = 20000
+_TEXT_MAX = 20000
 # Same default as the /ocr page: the extraction task token of Unlimited-OCR.
 _INSTRUCTION = 'document parsing.'
 
@@ -53,19 +53,19 @@ _INSTRUCTION = 'document parsing.'
 # in the same sentence, by a document object (or the reverse). « Décris cette
 # image » is NOT here on purpose: describing is the model's own job, this tool
 # extracts text.
-_VERBES_LECTURE = (r"lis|lire|lit|transcris|transcrire|transcription|extrais|"
+_READ_VERBS = (r"lis|lire|lit|transcris|transcrire|transcription|extrais|"
                   r"extraire|extraction|reconnais|reconna[îi]tre|saisis|saisir|"
                   r"d[ée]chiffre|d[ée]chiffrer|d[ée]crypte|d[ée]crypter|"
                   r"lecture|ocr|que contient|que dit|read|transcribe|extract")
-_OBJETS_DOCUMENT = (r"documents?|pi[èe]ces? jointes?|fichiers? joints?|images?|"
+_DOCUMENT_OBJECTS = (r"documents?|pi[èe]ces? jointes?|fichiers? joints?|images?|"
                     r"pictures?|photos?|factures?|invoices?|re[çc]us?|receipts?|"
                     r"tickets?|bons? de commande|formulaire|contrats?|notes? de "
                     r"frais|manuscrits?|lettres?|scans?|num[ée]ris[ée]s?|textes?|"
                     r"captures? d.?[eé]cran|attestations?|bulletins?|pages?")
 
-_DEMANDE_DOCUMENT = re.compile(
-    rf"\b(?:{_VERBES_LECTURE})\b[^.!?\n]{{0,40}}\b(?:{_OBJETS_DOCUMENT})\b"
-    rf"|\b(?:{_OBJETS_DOCUMENT})\b[^.!?\n]{{0,30}}\b(?:{_VERBES_LECTURE})\b"
+_DOCUMENT_REQUEST = re.compile(
+    rf"\b(?:{_READ_VERBS})\b[^.!?\n]{{0,40}}\b(?:{_DOCUMENT_OBJECTS})\b"
+    rf"|\b(?:{_DOCUMENT_OBJECTS})\b[^.!?\n]{{0,30}}\b(?:{_READ_VERBS})\b"
     rf"|\bocr\b",
     re.I)
 
@@ -73,35 +73,35 @@ _DEMANDE_DOCUMENT = re.compile(
 # of code is already in the conversation as text, and an « image disque » is
 # not a page to OCR. Tested on the sentence fragment that matched, not on the
 # whole message.
-_PAS_UN_DOCUMENT = re.compile(
+_NOT_A_DOCUMENT = re.compile(
     r"\b(?:web|internet|en ligne|site|url|adresse|html|code|source|répertoire|"
     r"depot|dépôt|github|documentation|manuel|docker|conteneur|container|disque|"
     r"disk|iso|syst[èe]me|systeme)\b",
     re.I)
 
 
-def _document_demandee(history):
+def _document_requested(history):
     """Does the user EXPLICITLY ask for a document to be read?"""
-    from websearch_tools import _texte_de_la_demande   # import tardif : cycle sinon
-    dernier = next((m for m in reversed(history) if m.get('role') == 'user'), None)
-    texte = _texte_de_la_demande(str((dernier or {}).get('content', '')))
+    from websearch_tools import _request_text   # import tardif : cycle sinon
+    last = next((m for m in reversed(history) if m.get('role') == 'user'), None)
+    text = _request_text(str((last or {}).get('content', '')))
     # Every matched occurrence is checked: « lis la page web » falls to the
     # guard, « lis la facture jointe » passes.
-    return any(not _PAS_UN_DOCUMENT.search(texte[m.start():m.end() + 40])
-               for m in _DEMANDE_DOCUMENT.finditer(texte))
+    return any(not _NOT_A_DOCUMENT.search(text[m.start():m.end() + 40])
+               for m in _DOCUMENT_REQUEST.finditer(text))
 
 
-def document_disponible():
+def document_available():
     """Is the OCR service ready, or at least startable? (tool declaration)
 
     The same rule as image_disponible, extended to « startable »: the sidecar
     is on-demand, and a tool that could not start it must not even be
     declared — the model would deny a capability the platform HAS.
     """
-    return get_ocr_model() is not None or sidecar_demarrable('ocr')
+    return get_ocr_model() is not None or sidecar_startable('ocr')
 
 
-def _outils_document():
+def _document_tools():
     return [{'type': 'function', 'function': {
         'name': 'lire_document',
         'description': (
@@ -118,13 +118,13 @@ def _outils_document():
 
 
 
-def _annonce_document(args):
+def _announce_document(args):
     """What we are about to read, told to the client before doing it."""
     return {'etape': 'ocr', 'outil': 'unlimited-ocr',
             'question': str(args.get('fichier', ''))[:200]}
 
 
-def _piece_jointe(pieces, fichier):
+def _attachment(attachments, file_path):
     """(data-URL of the attachment to read, its display name).
 
     The images travel WITHOUT their file name (see the module docstring): a
@@ -132,26 +132,26 @@ def _piece_jointe(pieces, fichier):
     jointe 2 » all mean the second one. Everything else falls back to the
     newest attachment.
     """
-    if not pieces:
+    if not attachments:
         return None, ''
-    nom = str(fichier or '').strip()
-    chiffres = re.findall(r'\d+', nom)
-    if chiffres:
-        n = int(chiffres[-1])
-        if 1 <= n <= len(pieces):
-            return pieces[n - 1], nom or f"pièce jointe {n}"
-    return pieces[-1], nom
+    name = str(file_path or '').strip()
+    digits = re.findall(r'\d+', name)
+    if digits:
+        n = int(digits[-1])
+        if 1 <= n <= len(attachments):
+            return attachments[n - 1], name or f"pièce jointe {n}"
+    return attachments[-1], name
 
 
 def _decode_data_url(url):
     """(mime, bytes) of an image data URL — the shape attachments already
     travel in (conversation_routes.IMAGE_DATA_URL validates them)."""
-    entete, b64 = str(url).split(',', 1)
-    mime = entete[len('data:'):].split(';')[0] or 'image/png'
+    header, b64 = str(url).split(',', 1)
+    mime = header[len('data:'):].split(';')[0] or 'image/png'
     return mime, base64.b64decode(b64)
 
 
-def _exec_document_tool(args, username, journal, pieces):
+def _exec_document_tool(args, username, journal, attachments):
     """Extract the text of the attachment and return it to the model.
 
     GENERATOR: yields SSE heartbeats while the OCR sidecar works; the extracted
@@ -159,21 +159,21 @@ def _exec_document_tool(args, username, journal, pieces):
     """
     import ocr_routes   # import tardif : image_tools fait de même sur image_routes
 
-    cible, nom = _piece_jointe(pieces, args.get('fichier'))
-    if cible is None:
+    target, name = _attachment(attachments, args.get('fichier'))
+    if target is None:
         return ("Aucune image jointe à cette conversation : je ne peux lire "
                 "aucun document. Demande à l'utilisateur d'en joindre une.")
     # Service on demand: the OCR sidecar starts at first use, under the memory
     # guard — a refusal is said plainly, the user is not left guessing why.
-    ok, motif = sidecar_demarrage_auto('ocr', lambda: get_ocr_model() is not None)
+    ok, reason = sidecar_autostart('ocr', lambda: get_ocr_model() is not None)
     if not ok:
         journal.append({'etape': 'ocr_finie', 'outil': 'unlimited-ocr',
-                        'question': nom, 'caracteres': 0, 'erreur': motif})
-        return (f"Le service de lecture est indisponible : {motif}. "
+                        'question': name, 'caracteres': 0, 'erreur': reason})
+        return (f"Le service de lecture est indisponible : {reason}. "
                 "Dis-le tel quel à l'utilisateur.")
-    mime, octets = _decode_data_url(cible)
+    mime, size_bytes = _decode_data_url(target)
 
-    boite = {}
+    box = {}
     def _run():
         vu = []
         try:
@@ -181,37 +181,37 @@ def _exec_document_tool(args, username, journal, pieces):
             # relaying the sidecar's own stream. We drop the frames and keep
             # only the text it gathers, via on_done.
             for _ in ocr_routes.ocr_extract_stream(
-                    octets, mime, _INSTRUCTION, vu.append):
+                    size_bytes, mime, _INSTRUCTION, vu.append):
                 pass
-            boite['texte'] = vu[0] if vu else ''
+            box['texte'] = vu[0] if vu else ''
         except Exception as e:                     # noqa: BLE001
-            boite['e'] = e
+            box['e'] = e
 
-    fil = threading.Thread(target=_run, daemon=True)
-    fil.start()
-    debut = time.monotonic()
-    prochain_battement = time.monotonic() + _HEARTBEAT_EVERY_S
-    while fil.is_alive() and time.monotonic() - debut < _DOC_TIMEOUT_S:
-        fil.join(_POLL_INTERVAL_S)
-        if fil.is_alive() and time.monotonic() >= prochain_battement:
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    start = time.monotonic()
+    next_heartbeat = time.monotonic() + _HEARTBEAT_EVERY_S
+    while thread.is_alive() and time.monotonic() - start < _DOC_TIMEOUT_S:
+        thread.join(_POLL_INTERVAL_S)
+        if thread.is_alive() and time.monotonic() >= next_heartbeat:
             yield ": battement\n\n"
-            prochain_battement = time.monotonic() + _HEARTBEAT_EVERY_S
-    if fil.is_alive():
+            next_heartbeat = time.monotonic() + _HEARTBEAT_EVERY_S
+    if thread.is_alive():
         journal.append({'etape': 'ocr_finie', 'outil': 'unlimited-ocr',
-                        'question': nom, 'caracteres': 0,
+                        'question': name, 'caracteres': 0,
                         'erreur': "Lecture interrompue : trop longue."})
         return ("La lecture du document a pris trop de temps et a été "
                 "interrompue. Dis-le tel quel à l'utilisateur.")
 
-    texte = str(boite.get('texte') or '').strip()
-    if not texte:
-        motif = (str(boite['e'])[:120] if 'e' in boite
+    text = str(box.get('texte') or '').strip()
+    if not text:
+        reason = (str(box['e'])[:120] if 'e' in box
                  else "service en difficulté ou image illisible")
         journal.append({'etape': 'ocr_finie', 'outil': 'unlimited-ocr',
-                        'question': nom, 'caracteres': 0, 'erreur': motif})
-        return ("Aucun texte n'a pu être extrait de ce document (" + motif +
+                        'question': name, 'caracteres': 0, 'erreur': reason})
+        return ("Aucun texte n'a pu être extrait de ce document (" + reason +
                 "). Dis-le tel quel à l'utilisateur.")
     journal.append({'etape': 'ocr_finie', 'outil': 'unlimited-ocr',
-                    'question': nom, 'caracteres': len(texte), 'erreur': None})
+                    'question': name, 'caracteres': len(text), 'erreur': None})
     return ("Texte extrait du document par OCR (brut, dactylographié ou "
-            "manuscrit — cite-le, ne le réécris pas) :\n\n" + texte[:_TEXTE_MAX])
+            "manuscrit — cite-le, ne le réécris pas) :\n\n" + text[:_TEXT_MAX])

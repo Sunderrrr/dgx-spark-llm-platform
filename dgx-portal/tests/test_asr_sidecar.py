@@ -25,11 +25,11 @@ import types
 import unittest
 
 
-def _stub(nom, **attributs):
-    m = types.ModuleType(nom)
+def _stub(name, **attributs):
+    m = types.ModuleType(name)
     for k, v in attributs.items():
         setattr(m, k, v)
-    sys.modules[nom] = m
+    sys.modules[name] = m
     return m
 
 
@@ -47,9 +47,9 @@ class _FastAPIStub:
 
 def _charge_module(pipeline):
     """(Re)loads `tests.asr_sidecar` with stubbed dependencies."""
-    for nom in ('fastapi', 'fastapi.responses', 'starlette', 'starlette.concurrency',
+    for name in ('fastapi', 'fastapi.responses', 'starlette', 'starlette.concurrency',
                 'torch', 'numpy', 'soundfile', 'transformers'):
-        sys.modules.pop(nom, None)
+        sys.modules.pop(name, None)
     _stub('fastapi', FastAPI=_FastAPIStub, File=lambda *a, **k: None,
           Form=lambda *a, **k: None, UploadFile=object,
           HTTPException=type('HTTPException', (Exception,), {'__init__': lambda self, *a, **k: None}))
@@ -78,10 +78,10 @@ class ChargementRetentableTest(unittest.TestCase):
     def test_un_echec_de_chargement_n_est_pas_definitif(self):
         """The 2026-10-03 defect: a single CUDA OOM and the dictation dead
         forever. Here the next attempt (window elapsed) RESUMES."""
-        appels = []
+        calls = []
         def pipeline(*a, **k):
-            appels.append(1)
-            if len(appels) == 1:
+            calls.append(1)
+            if len(calls) == 1:
                 raise RuntimeError('CUDA error: out of memory')
             return 'PIPELINE-OK'
         mod = self._module(pipeline)
@@ -89,54 +89,54 @@ class ChargementRetentableTest(unittest.TestCase):
         self.assertIn('out of memory', mod._load_error)
         mod._RETRY_S = 0.0                                  # fenêtre écoulée
         self.assertTrue(mod._charger_si_besoin())           # 2e essai : succès
-        self.assertEqual(len(appels), 2)
+        self.assertEqual(len(calls), 2)
         self.assertIsNone(mod._load_error)                  # l'erreur s'efface
 
     def test_le_throttle_borne_les_tentatives(self):
         """The dictaphone polls every second: without a throttle, each
         poll would retry a failing CUDA allocation."""
-        appels = []
+        calls = []
         def pipeline(*a, **k):
-            appels.append(1)
+            calls.append(1)
             raise RuntimeError('CUDA error: out of memory')
         mod = self._module(pipeline)
         self.assertFalse(mod._charger_si_besoin())
         for _ in range(5):                                  # dans la fenêtre
             self.assertFalse(mod._charger_si_besoin())
-        self.assertEqual(len(appels), 1)                    # une seule tentative
+        self.assertEqual(len(calls), 1)                    # une seule tentative
 
     def test_single_flight_deux_appelants_une_tentative(self):
         """Two concurrent polls (the dictaphone + the probe) make ONE
         load attempt, not two on the same GPU."""
-        appels = []
+        calls = []
         verrou_appels = threading.Lock()
         def pipeline(*a, **k):
             with verrou_appels:
-                appels.append(1)
+                calls.append(1)
             return 'PIPELINE-OK'
         mod = self._module(pipeline)
         mod._RETRY_S = 0.0
-        resultats = []
-        def appel():
-            resultats.append(mod._charger_si_besoin())
-        fils = [threading.Thread(target=appel) for _ in range(4)]
+        results = []
+        def call():
+            results.append(mod._charger_si_besoin())
+        fils = [threading.Thread(target=call) for _ in range(4)]
         for f in fils:
             f.start()
         for f in fils:
             f.join()
-        self.assertEqual(len(appels), 1)                    # single-flight
-        self.assertTrue(all(resultats))                     # tous voient « chargé »
+        self.assertEqual(len(calls), 1)                    # single-flight
+        self.assertTrue(all(results))                     # tous voient « chargé »
 
     def test_charge_plus_aucune_tentative(self):
-        appels = []
+        calls = []
         def pipeline(*a, **k):
-            appels.append(1)
+            calls.append(1)
             return 'PIPELINE-OK'
         mod = self._module(pipeline)
         mod._RETRY_S = 0.0
         self.assertTrue(mod._charger_si_besoin())
         self.assertTrue(mod._charger_si_besoin())
-        self.assertEqual(len(appels), 1)
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == '__main__':

@@ -87,8 +87,8 @@ def _tokens_by_model(since_utc=None):
     `GROUP BY` scans the WHOLE `LiteLLM_SpendLogs` table (50 000 rows on
     2026-09-14). The value is a cumulative, it does not move by the second.
     """
-    cle = since_utc.isoformat() if since_utc is not None else ''
-    hit = _TOKENS_BY_MODEL_CACHE.get(cle)
+    key = since_utc.isoformat() if since_utc is not None else ''
+    hit = _TOKENS_BY_MODEL_CACHE.get(key)
     if hit and time.time() - hit[0] < _TOKENS_BY_MODEL_TTL:
         return hit[1]
     conn = _spend_conn()
@@ -104,10 +104,10 @@ def _tokens_by_model(since_utc=None):
             params.append(since_utc)
         q += ' GROUP BY model ORDER BY 2 DESC'
         cur.execute(q, params)
-        resultat = [{'model': model or 'inconnu', 'tokens': int(toks or 0)}
+        result = [{'model': model or 'inconnu', 'tokens': int(toks or 0)}
                     for model, toks in cur.fetchall()]
-        _TOKENS_BY_MODEL_CACHE[cle] = (time.time(), resultat)
-        return resultat
+        _TOKENS_BY_MODEL_CACHE[key] = (time.time(), result)
+        return result
     except Exception:
         return []
     finally:
@@ -133,7 +133,7 @@ def _inflight_end(rid):
     except Exception:
         pass
 
-def _inflight_tokens(rid, chars, depuis=None):
+def _inflight_tokens(rid, chars, since=None):
     """Live progress of an in-flight request (decode gauge).
 
     `chars` is what the relay SAW; the stored `tokens` is an estimate,
@@ -148,21 +148,21 @@ def _inflight_tokens(rid, chars, depuis=None):
     12 tok/s displayed against ~19 real).
     """
     try:
-        estime = int(chars / ratio_chars_par_token())
+        estimated = int(chars / ratio_chars_per_token())
         c = sqlite3.connect(DB_PATH, timeout=5)
-        if depuis:
+        if since:
             c.execute("UPDATE inflight_requests SET tokens=?, "
                       "decode_since=COALESCE(decode_since, ?) WHERE id=?",
-                      (estime, float(depuis), rid))
+                      (estimated, float(since), rid))
         else:
-            c.execute("UPDATE inflight_requests SET tokens=? WHERE id=?", (estime, rid))
+            c.execute("UPDATE inflight_requests SET tokens=? WHERE id=?", (estimated, rid))
         c.commit()
         c.close()
     except Exception:                                        # noqa: BLE001
         pass
 
 
-def enregistrer_ratio(chars, tokens):
+def record_ratio(chars, tokens):
     """Calibrate the live estimate on the EXACT token count (usage at the end).
 
     Moving average (0.3), guarded to sane bounds and to samples big enough to
@@ -173,14 +173,14 @@ def enregistrer_ratio(chars, tokens):
             r = float(chars) / float(tokens)
             if 0.5 <= r <= 10:
                 from db import get_setting, set_setting
-                ancien = get_setting('chars_par_token')
+                old = get_setting('chars_par_token')
                 set_setting('chars_par_token',
-                            round(r if not ancien else 0.7 * float(ancien) + 0.3 * r, 3))
+                            round(r if not old else 0.7 * float(old) + 0.3 * r, 3))
     except Exception:                                        # noqa: BLE001
         pass
 
 
-def ratio_chars_par_token():
+def ratio_chars_per_token():
     """Calibrated chars/token for the live estimate (4.0 until calibrated)."""
     try:
         from db import get_setting
@@ -204,7 +204,7 @@ def _inflight_snapshot():
     return out
 
 
-def debit_decode_live():
+def live_decode_rate():
     """Live decode throughput of the IN-FLIGHT requests, in tok/s.
 
     TabbyAPI publishes no /metrics and its stream carries NO token counter
@@ -222,10 +222,10 @@ def debit_decode_live():
         c = sqlite3.connect(DB_PATH, timeout=5)
         now = time.time()
         total = 0.0
-        for tok, debut, ds in c.execute(
+        for tok, start, ds in c.execute(
                 "SELECT tokens, started_at, decode_since FROM inflight_requests "
                 "WHERE tokens > 0"):
-            age = now - float(ds or debut)
+            age = now - float(ds or start)
             if age > 1:
                 total += float(tok) / age
         c.close()
@@ -234,7 +234,7 @@ def debit_decode_live():
         return None
 
 
-def enregistrer_prefill(prompt_tokens, ttft_s):
+def record_prefill(prompt_tokens, ttft_s):
     """Rate of the LAST prefill, in tok/s (gauge, like llamacpp's
     `prompt_tokens_seconds`: the last value seen, not a current average).
 
@@ -253,7 +253,7 @@ def enregistrer_prefill(prompt_tokens, ttft_s):
         pass
 
 
-def prefill_dernier(max_age_s=120):
+def prefill_last(max_age_s=120):
     """Last observed prefill rate (tok/s), or None when nothing is fresh.
 
     Fading with age keeps the house convention: the UI shows NOTHING rather
@@ -292,23 +292,23 @@ def prefill_dernier(max_age_s=120):
 # worst the tokens generated during those few seconds before the reset.
 # For an accounting figure, the reference is on the LiteLLM side —
 # SUM(completion_tokens) on SpendLogs read 21 984 293 on 2026-09-14, and covers the whole platform.
-def cumuler_tokens_generes(modele, valeur):
+def accumulate_generated_tokens(model_name, value):
     """Total of the tokens generated by this model, resets included.
 
     Returns None if the model is unknown or the database unreachable: the
     caller then displays the current launch's counter, never a zero that
     would suggest a reset.
     """
-    if not modele or valeur is None:
+    if not model_name or value is None:
         return None
-    valeur = int(valeur)
+    value = int(value)
     try:
         db = get_db()
         row = db.execute("SELECT base, dernier FROM model_counters WHERE model=?",
-                         (modele,)).fetchone()
+                         (model_name,)).fetchone()
         if row is None:
             base = 0
-        elif valeur >= row['dernier']:
+        elif value >= row['dernier']:
             base = row['base']                      # counter still running
         else:
             base = row['base'] + row['dernier']     # reset: we archive the previous one
@@ -318,19 +318,19 @@ def cumuler_tokens_generes(modele, valeur):
         # two are false, then `valeur == row['dernier']`, so the « counter still
         # running » branch was taken and `base` already equals
         # `row['base']`.
-        if row is None or valeur != row['dernier']:
+        if row is None or value != row['dernier']:
             db.execute(
                 "INSERT INTO model_counters (model, base, dernier, maj) VALUES (?,?,?,?) "
                 "ON CONFLICT(model) DO UPDATE SET base=excluded.base, "
                 "dernier=excluded.dernier, maj=excluded.maj",
-                (modele, base, valeur, time.time()))
+                (model_name, base, value, time.time()))
             db.commit()
-        return base + valeur
+        return base + value
     except Exception:
         return None
 
 
-def _compte_existe(nom):
+def _account_exists(name):
     """Does this name match an account known to the platform?
 
     Only used to VALIDATE a name guessed from an API key alias: without this
@@ -338,11 +338,11 @@ def _compte_existe(nom):
     and not local_users: LDAP/SSO accounts have no local row, only
     user_prefs sees them all.
     """
-    if not nom:
+    if not name:
         return False
     try:
         return get_db().execute(
-            "SELECT 1 FROM user_prefs WHERE username=? LIMIT 1", (nom,)).fetchone() is not None
+            "SELECT 1 FROM user_prefs WHERE username=? LIMIT 1", (name,)).fetchone() is not None
     except Exception:
         return False
 
@@ -355,7 +355,7 @@ def _compte_existe(nom):
 # non-stop. Not more than 180 s either: beyond, the panel keeps names of
 # long-gone users. It is the guard on engine activity that really bounds
 # — engine idle, panel empty, whatever the window.
-def _compte_depuis_alias(alias):
+def _account_from_alias(alias):
     """Account name guessed from an API key alias, or '' when doubtful.
 
     Aliases of the form « alice-1783112817 » or « Opencode-Omarchy »: we
@@ -364,9 +364,9 @@ def _compte_depuis_alias(alias):
     with SpendLogs: a single resolution logic, hence a single place to get
     it wrong.
     """
-    for morceau in re.split(r'[-_]', alias or ''):
-        if morceau and _compte_existe(morceau):
-            return morceau
+    for chunk in re.split(r'[-_]', alias or ''):
+        if chunk and _account_exists(chunk):
+            return chunk
     return ''
 
 
@@ -376,10 +376,10 @@ def _compte_depuis_alias(alias):
 # at the end (measured on 2026-09-14: 44 minutes without a single row
 # while two sessions worked). Absent => we fall back on the finished rows;
 # the writing happens on the LiteLLM side, the portal only reads.
-_EN_VOL_DB = os.environ.get('DGX_INFLIGHT_DB', '/run/dgx/inflight.db')
+_INFLIGHT_DB = os.environ.get('DGX_INFLIGHT_DB', '/run/dgx/inflight.db')
 
 
-def _en_vol():
+def _inflight():
     """In-flight requests: {account: age_in_seconds}.
 
     Never raises and guesses nothing: a display comfort, not a dependency.
@@ -388,20 +388,20 @@ def _en_vol():
     """
     conn = None
     try:
-        conn = sqlite3.connect('file:%s?mode=ro' % _EN_VOL_DB, uri=True, timeout=2)
-        maintenant = time.time()
+        conn = sqlite3.connect('file:%s?mode=ro' % _INFLIGHT_DB, uri=True, timeout=2)
+        now_ts = time.time()
         out = {}
-        for alias, user_id, debut in conn.execute('SELECT alias, user_id, debut FROM en_vol'):
+        for alias, user_id, start in conn.execute('SELECT alias, user_id, debut FROM en_vol'):
             # user_id is the account for keys created by the portal, but a key
             # created elsewhere can carry anything: we validate, as for
             # the alias.
-            u = _compte_depuis_alias(alias)
-            if not u and user_id and _compte_existe(str(user_id)):
+            u = _account_from_alias(alias)
+            if not u and user_id and _account_exists(str(user_id)):
                 u = str(user_id)
             if not u:
                 continue
             try:
-                age = max(0.0, maintenant - float(debut))
+                age = max(0.0, now_ts - float(start))
             except (TypeError, ValueError):
                 age = 0.0
             if u not in out or age > out[u]:
@@ -440,16 +440,16 @@ def _active_users(window_s=1800):
     # « 0 / 8 sessions » yet two listed users. The engine is the only
     # authority on « whether something is running ».
     inflight = _inflight_snapshot()
-    en_cours = 0
+    busy = 0
     try:
         h = vllm_health() or {}
-        en_cours = int(h.get('running') or 0) + int(h.get('waiting') or 0)
+        busy = int(h.get('running') or 0) + int(h.get('waiting') or 0)
     except Exception:
         # Engine unreachable: we do NOT empty the panel on a mere probe failure,
         # else a metrics error would make it look like nobody uses the model. We
         # fall back on the SpendLogs window alone.
-        en_cours = -1
-    if not inflight and en_cours == 0:
+        busy = -1
+    if not inflight and busy == 0:
         return []
     agg = {}
     conn = _spend_conn()
@@ -481,8 +481,8 @@ def _active_users(window_s=1800):
                         'FROM "LiteLLM_SpendLogs" '
                         'WHERE "startTime" >= %s AND COALESCE("endTime", "startTime") >= %s '
                         'GROUP BY api_key', (large, since))
-            maintenant = datetime.now(ZoneInfo('UTC')).replace(tzinfo=None)
-            for api_key, cnt, toks, col_user, alias, dernier in cur.fetchall():
+            now_ts = datetime.now(ZoneInfo('UTC')).replace(tzinfo=None)
+            for api_key, cnt, toks, col_user, alias, last in cur.fetchall():
                 if api_key in _NON_USER_KEYS:
                     continue
                 # Three attribution sources, from most to least reliable.
@@ -492,7 +492,7 @@ def _active_users(window_s=1800):
                 # metadata.user was added) has no such mapping.
                 u = umap.get(api_key) or (col_user or '').strip()
                 if not u and alias:
-                    u = _compte_depuis_alias(alias)
+                    u = _account_from_alias(alias)
                 if not u:
                     u = f"cle {str(api_key)[:8]}…"
                 a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
@@ -506,21 +506,21 @@ def _active_users(window_s=1800):
                 # traffic), and two identically displayed users can be one
                 # minute apart. We keep the minimum, i.e. the most recent
                 # activity of that user.
-                if dernier is not None:
+                if last is not None:
                     try:
-                        age = (maintenant - dernier).total_seconds()
+                        age = (now_ts - last).total_seconds()
                     except TypeError:
                         age = None
                     if age is not None and (a['derniere_s'] is None or age < a['derniere_s']):
                         a['derniere_s'] = max(0.0, age)
-                if en_cours > 0 and a['derniere_s'] is not None and a['derniere_s'] < 15:
+                if busy > 0 and a['derniere_s'] is not None and a['derniere_s'] < 15:
                     # The engine is processing something AND this user just
                     # emitted: it is them (or one of them). The in-flight
                     # registry only sees the portal, so without this an API client
                     # was NEVER marked « live ».
                     #
                     # The 15 s threshold is essential since the window went to
-                    # 30 min: without it, `en_cours > 0` lit up « live » for
+                    # 30 min: without it, `busy > 0` lit up « live » for
                     # everyone at once, including an account whose last request
                     # dated back 40 minutes. A doubt is no proof of
                     # activity.
@@ -544,7 +544,7 @@ def _active_users(window_s=1800):
     # on a deduction, while here it is observed. `depuis_s` says how long the
     # request has been running — a 40-minute request is not the same thing as
     # a one-second round-trip.
-    for u, age in _en_vol().items():
+    for u, age in _inflight().items():
         a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
                                'live': False, 'derniere_s': None})
         a['live'] = True
@@ -641,7 +641,7 @@ def _key_user_map(conn):
     _key_user_map_cache.update(t=time.time(), v=mapping)
     return mapping
 
-def _comptes_connus():
+def _known_accounts():
     """Accounts that really exist: local, or recorded as a login source.
 
     Used to tell a PERSON from a leftover. Keys created for a test — or
@@ -658,13 +658,13 @@ def _comptes_connus():
     """
     try:
         db = get_db()
-        noms = {r['username'] for r in db.execute('SELECT username FROM local_users')}
-        noms |= {r['username'] for r in db.execute('SELECT DISTINCT username FROM user_sources')}
-        return noms
+        names = {r['username'] for r in db.execute('SELECT username FROM local_users')}
+        names |= {r['username'] for r in db.execute('SELECT DISTINCT username FROM user_sources')}
+        return names
     except Exception:
         return None
 
-def _valeur_metrique(prompt, completion, metric):
+def _metric_value(prompt, completion, metric):
     """The figure we RANK on: the input, the generated, or both."""
     if metric == 'completion':
         return completion or 0
@@ -758,7 +758,7 @@ def ranking_full(period='day', me=None, metric='total'):
         cur_start_utc = cur_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         prev_start_utc = prev_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         umap = _key_user_map(conn)
-        connus = _comptes_connus()
+        known = _known_accounts()
         cur = conn.cursor()
         if bucket_kind == 'hour':
             bexpr = "EXTRACT(HOUR FROM ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::int"
@@ -783,7 +783,7 @@ def ranking_full(period='day', me=None, metric='total'):
             a['tokens'] += p + c; a['prompt'] += p; a['completion'] += c
             # The trend follows the displayed metric, not the total: a context
             # curve does not have the same shape as a generation curve.
-            v = _valeur_metrique(p, c, metric)
+            v = _metric_value(p, c, metric)
             if v:
                 a['spark'][b] = a['spark'].get(b, 0) + v
         # Previous period, same metric: a delta compares what is
@@ -802,43 +802,43 @@ def ranking_full(period='day', me=None, metric='total'):
                 if api_key in _NON_USER_KEYS:
                     continue
                 u = umap.get(api_key, 'inconnu')
-                prev[u] = prev.get(u, 0) + _valeur_metrique(p, c, metric)
+                prev[u] = prev.get(u, 0) + _metric_value(p, c, metric)
         # The metric is computed ONCE per account: it serves the sort, the
         # total, the share and the delta.
         for a in agg.values():
-            a['value'] = _valeur_metrique(a['prompt'], a['completion'], metric)
+            a['value'] = _metric_value(a['prompt'], a['completion'], metric)
 
-        def est_residu(u):
+        def is_residue(u):
             """Row that is nobody's account — see `_comptes_connus`."""
-            return u == 'inconnu' or (connus is not None and u not in connus)
+            return u == 'inconnu' or (known is not None and u not in known)
 
-        def ligne(u, a, rang):
+        def line(u, a, rank):
             pv = prev.get(u, 0)
-            residu = est_residu(u)
+            residue = is_residue(u)
             return {
-                'rank': rang, 'username': u, 'is_me': u == me,
-                'is_unattributed': residu,
+                'rank': rank, 'username': u, 'is_me': u == me,
+                'is_unattributed': residue,
                 'value': int(a['value']),                 # what we rank on
                 'tokens': int(a['tokens']),
                 'prompt': int(a['prompt']), 'completion': int(a['completion']),
                 'share_pct': (a['value'] / total * 100) if total else 0,
                 # No delta on an unattributed row: its « +290 919 % » of the
                 # month compares nothing useful, and a leftover has no history.
-                'delta': None if residu or not pv else (a['value'] - pv) / pv * 100,
+                'delta': None if residue or not pv else (a['value'] - pv) / pv * 100,
                 'trend': [a['spark'].get(b, 0) for b in buckets],
             }
 
-        actifs = [(u, a) for u, a in agg.items() if a['value'] > 0 and not est_residu(u)]
-        autres = [(u, a) for u, a in agg.items() if a['value'] > 0 and est_residu(u)]
-        actifs.sort(key=lambda x: x[1]['value'], reverse=True)
-        autres.sort(key=lambda x: x[1]['value'], reverse=True)
-        total = sum(a['value'] for _, a in actifs + autres)
-        total_actifs = sum(a['value'] for _, a in actifs)
-        rows = [ligne(u, a, i + 1) for i, (u, a) in enumerate(actifs)]
-        rows += [ligne(u, a, None) for u, a in autres]
+        actives = [(u, a) for u, a in agg.items() if a['value'] > 0 and not is_residue(u)]
+        others = [(u, a) for u, a in agg.items() if a['value'] > 0 and is_residue(u)]
+        actives.sort(key=lambda x: x[1]['value'], reverse=True)
+        others.sort(key=lambda x: x[1]['value'], reverse=True)
+        total = sum(a['value'] for _, a in actives + others)
+        total_active = sum(a['value'] for _, a in actives)
+        rows = [line(u, a, i + 1) for i, (u, a) in enumerate(actives)]
+        rows += [line(u, a, None) for u, a in others]
         return {'period': period, 'metric': metric, 'rows': rows,
-                'active_count': len(actifs), 'total': round(total),
-                'avg': round(total_actifs / len(actifs)) if actifs else 0,
+                'active_count': len(actives), 'total': round(total),
+                'avg': round(total_active / len(actives)) if actives else 0,
                 'has_prev': period != 'all'}
     except Exception:
         return empty
@@ -962,21 +962,21 @@ def admin_get_user_consumption():
 _TTFT_ALPHA = 0.2
 
 
-def enregistrer_ttft(ms):
+def record_ttft(ms):
     """Integrates a TTFT measurement (milliseconds) into the moving average."""
     try:
         ms = float(ms)
         if ms <= 0 or ms > 600_000:      # guard: aberrant measurement ignored
             return
         from db import get_setting, set_setting
-        ancien = get_setting('ttft_ms_ewma')
-        nouveau = ms if ancien is None else (1 - _TTFT_ALPHA) * float(ancien) + _TTFT_ALPHA * ms
-        set_setting('ttft_ms_ewma', round(nouveau, 1))
+        old = get_setting('ttft_ms_ewma')
+        new_value = ms if old is None else (1 - _TTFT_ALPHA) * float(old) + _TTFT_ALPHA * ms
+        set_setting('ttft_ms_ewma', round(new_value, 1))
     except Exception:                                        # noqa: BLE001
         pass                                                 # never blocking
 
 
-def ttft_mesure():
+def measured_ttft():
     """Moving average of the TTFT in seconds, or None if nothing measured yet."""
     try:
         from db import get_setting
@@ -986,7 +986,7 @@ def ttft_mesure():
         return None
 
 
-def flux_depuis_spendlogs(fenetre_s=60):
+def flow_from_spendlogs(window_s=60):
     """Throughput figures for the engines that publish NO /metrics (TabbyAPI).
 
     `vllm_health()` scrapes /metrics for the decode rate and the cumulative
@@ -1014,20 +1014,20 @@ def flux_depuis_spendlogs(fenetre_s=60):
                     'SUM(COALESCE(prompt_tokens, 0)), '
                     'COALESCE(SUM(EXTRACT(EPOCH FROM ("endTime" - "startTime"))), 0) '
                     'FROM "LiteLLM_SpendLogs" WHERE "endTime" IS NOT NULL')
-        requetes, generes, entree, secondes = cur.fetchone()
-        generes, entree = int(generes or 0), int(entree or 0)
-        secondes = float(secondes or 0)
+        requests_list, generated, entry, seconds = cur.fetchone()
+        generated, entry = int(generated or 0), int(entry or 0)
+        seconds = float(seconds or 0)
         cur.execute('SELECT COALESCE(SUM(COALESCE(completion_tokens, 0)), 0) '
                     'FROM "LiteLLM_SpendLogs" WHERE "endTime" >= %s',
-                    (datetime.utcnow() - timedelta(seconds=fenetre_s),))
-        recents = int(cur.fetchone()[0] or 0)
+                    (datetime.utcnow() - timedelta(seconds=window_s),))
+        recent = int(cur.fetchone()[0] or 0)
         return {
-            'requetes': int(requetes or 0),
-            'generes': generes,
-            'entree': entree,
-            'secondes_generation': secondes,
-            'tps_moyen': round(generes / secondes, 1) if secondes >= 300 else None,
-            'debit': round(recents / fenetre_s, 1),
+            'requetes': int(requests_list or 0),
+            'generes': generated,
+            'entree': entry,
+            'secondes_generation': seconds,
+            'tps_moyen': round(generated / seconds, 1) if seconds >= 300 else None,
+            'debit': round(recent / window_s, 1),
         }
     except Exception:                                        # noqa: BLE001
         return None

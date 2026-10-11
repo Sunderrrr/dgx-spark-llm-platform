@@ -25,7 +25,7 @@ from auth import login_required
 from config import VOICE_URL
 from db import get_db
 from guards import _MAX_VOICE_UPLOAD_BYTES, media_block_json
-from sidecars import motif_refus
+from sidecars import refusal_reason
 
 bp = Blueprint('voice', __name__)
 
@@ -129,7 +129,7 @@ def voice_clone(reference_bytes, reference_mime, text, language='en', ref_text='
                 data={'text': text, 'language': language, 'ref_text': ref_text or ''},
                 timeout=180)
             if not r.ok:
-                return None, motif_refus(r) or "Échec de la génération vocale."
+                return None, refusal_reason(r) or "Échec de la génération vocale."
             return r.content, None
         except requests.exceptions.Timeout:
             return None, "Le service voix a mis trop de temps à répondre."
@@ -167,7 +167,7 @@ def voice_clone(reference_bytes, reference_mime, text, language='en', ref_text='
             'language': language,
         }, timeout=120)
         if not r.ok:
-            detail = motif_refus(r)
+            detail = refusal_reason(r)
             # Chatterbox refuses any sample of 5 s or less with a plain
             # internal assertion, surfaced here as "failed to synthesize" without
             # any usable hint. It's by far the most frequent cause
@@ -186,9 +186,9 @@ def voice_clone(reference_bytes, reference_mime, text, language='en', ref_text='
 @bp.route('/api/voice/generate', methods=['POST'])
 @login_required
 def api_voice_generate():
-    refus = media_block_json()
-    if refus:
-        return refus
+    refusal = media_block_json()
+    if refusal:
+        return refusal
     ref_bytes, err_or_mime = _read_uploaded_audio()
     if ref_bytes is None:
         return jsonify({'error': err_or_mime}), 400

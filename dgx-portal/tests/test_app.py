@@ -44,9 +44,9 @@ class SafeNextTest(unittest.TestCase):
         self.assertEqual(self._resolve('/keys'), '/keys')
 
     def test_bloque_les_redirections_externes(self):
-        for cible in ('https://evil.com', '//evil.com', 'http://evil.com',
+        for target in ('https://evil.com', '//evil.com', 'http://evil.com',
                       '/\\evil.com', '/\tevil', '/\nevil'):
-            self.assertEqual(self._resolve(cible), '/', cible)
+            self.assertEqual(self._resolve(target), '/', target)
 
     def test_cible_vide(self):
         self.assertEqual(self._resolve(''), '/')
@@ -69,12 +69,12 @@ class LoginLockoutTest(unittest.TestCase):
         self.ctx.pop()
 
     def test_verrouille_apres_le_seuil(self):
-        cle = 'ip-test|bob'
+        key = 'ip-test|bob'
         for _ in range(portal.LOGIN_MAX_FAILS - 1):
-            portal._login_fail(cle)
-        self.assertEqual(portal._login_locked(cle), 0)
-        portal._login_fail(cle)
-        self.assertGreater(portal._login_locked(cle), 0)
+            portal._login_fail(key)
+        self.assertEqual(portal._login_locked(key), 0)
+        portal._login_fail(key)
+        self.assertGreater(portal._login_locked(key), 0)
 
     def test_persiste_en_base(self):
         portal._login_fail('ip-test|bob')
@@ -83,23 +83,23 @@ class LoginLockoutTest(unittest.TestCase):
         self.assertEqual(row['fails'], 1)
 
     def test_reset_efface_le_compteur(self):
-        cle = 'ip-test|bob'
+        key = 'ip-test|bob'
         for _ in range(portal.LOGIN_MAX_FAILS):
-            portal._login_fail(cle)
-        portal._login_reset(cle)
-        self.assertEqual(portal._login_locked(cle), 0)
+            portal._login_fail(key)
+        portal._login_reset(key)
+        self.assertEqual(portal._login_locked(key), 0)
 
     def test_fenetre_glissante(self):
-        cle = 'ip-test|bob'
-        portal._login_fail(cle)
+        key = 'ip-test|bob'
+        portal._login_fail(key)
         # Backdates the first attempt beyond the window: the counter must
         # restart from zero rather than accumulate forever.
         portal.get_db().execute("UPDATE login_attempts SET first_at=? WHERE key=?",
-                                (time.time() - portal.LOGIN_WINDOW - 10, cle))
+                                (time.time() - portal.LOGIN_WINDOW - 10, key))
         portal.get_db().commit()
-        portal._login_fail(cle)
+        portal._login_fail(key)
         row = portal.get_db().execute(
-            "SELECT fails FROM login_attempts WHERE key=?", (cle,)).fetchone()
+            "SELECT fails FROM login_attempts WHERE key=?", (key,)).fetchone()
         self.assertEqual(row['fails'], 1)
 
 
@@ -267,8 +267,8 @@ class McpToolNameTest(unittest.TestCase):
     def test_pas_de_collision_avec_les_outils_integres(self):
         integres = {'create_api_key', 'revoke_api_key', 'request_budget',
                     'request_model', 'launch_model', 'stop_model', 'use_skill'}
-        for nom in list(integres) + ['../create_api_key', 'create api key']:
-            self.assertNotIn(assistance._mcp_tool_name(1, nom), integres)
+        for name in list(integres) + ['../create_api_key', 'create api key']:
+            self.assertNotIn(assistance._mcp_tool_name(1, name), integres)
 
     def test_caracteres_dangereux_neutralises(self):
         genere = assistance._mcp_tool_name(1, 'a b/c\\d"e')
@@ -357,12 +357,12 @@ class GuardedToolsTest(unittest.TestCase):
     injection."""
 
     def test_les_actions_destructives_sont_gardees(self):
-        for nom in ('revoke_api_key', 'launch_model', 'stop_model'):
-            self.assertIn(nom, assistance.GUARDED_TOOLS)
+        for name in ('revoke_api_key', 'launch_model', 'stop_model'):
+            self.assertIn(name, assistance.GUARDED_TOOLS)
 
     def test_les_actions_inoffensives_ne_le_sont_pas(self):
-        for nom in ('request_budget', 'request_model', 'list_models'):
-            self.assertNotIn(nom, assistance.GUARDED_TOOLS)
+        for name in ('request_budget', 'request_model', 'list_models'):
+            self.assertNotIn(name, assistance.GUARDED_TOOLS)
 
 
 class OidcUsernameTest(unittest.TestCase):
@@ -371,13 +371,13 @@ class OidcUsernameTest(unittest.TestCase):
     same filter as the LDAP path."""
 
     def test_accepte_un_identifiant_normal(self):
-        for nom in ('alice', 'jean.dupont', 'a-b_c', 'x' * 64):
-            self.assertTrue(portal.USERNAME_RE.match(nom), nom)
+        for name in ('alice', 'jean.dupont', 'a-b_c', 'x' * 64):
+            self.assertTrue(portal.USERNAME_RE.match(name), name)
 
     def test_rejette_les_identifiants_forges(self):
-        for nom in ('', 'a' * 65, '../admin', 'bob@evil.com', 'bob bob',
+        for name in ('', 'a' * 65, '../admin', 'bob@evil.com', 'bob bob',
                     'bob\nadmin', "bob'--", 'bob/../root'):
-            self.assertIsNone(portal.USERNAME_RE.match(nom), nom)
+            self.assertIsNone(portal.USERNAME_RE.match(name), name)
 
 
 class CsrfLazyTest(unittest.TestCase):
@@ -389,23 +389,23 @@ class CsrfLazyTest(unittest.TestCase):
 
     def test_une_requete_anonyme_ne_cree_pas_de_session(self):
         client = portal.app.test_client()
-        reponse = client.get('/api/whoami')
-        self.assertEqual(reponse.status_code, 401)
-        self.assertNotIn('Set-Cookie', reponse.headers)
+        response = client.get('/api/whoami')
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn('Set-Cookie', response.headers)
 
     def test_api_csrf_cree_le_jeton_et_le_rend(self):
         client = portal.app.test_client()
-        reponse = client.get('/api/csrf')
-        self.assertEqual(reponse.status_code, 200)
-        self.assertTrue(reponse.get_json()['token'])
-        self.assertIn('Set-Cookie', reponse.headers)
+        response = client.get('/api/csrf')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()['token'])
+        self.assertIn('Set-Cookie', response.headers)
 
     def test_le_jeton_est_stable_entre_deux_appels(self):
         client = portal.app.test_client()
-        premier = client.get('/api/csrf').get_json()['token']
+        first = client.get('/api/csrf').get_json()['token']
         # An interleaved request must not rotate the token.
         client.get('/api/whoami')
-        self.assertEqual(client.get('/api/csrf').get_json()['token'], premier)
+        self.assertEqual(client.get('/api/csrf').get_json()['token'], first)
 
     def test_post_sans_session_refuse(self):
         client = portal.app.test_client()
@@ -450,8 +450,8 @@ class CsrfApresConnexionTest(unittest.TestCase):
             s['is_admin'] = False
             s['sso'] = True
             s['auth_at'] = int(time.time())
-        reponse = client.post('/logout', data={'csrf_token': 'jeton-du-client'})
-        self.assertEqual(reponse.status_code, 302)
+        response = client.post('/logout', data={'csrf_token': 'jeton-du-client'})
+        self.assertEqual(response.status_code, 302)
 
     def test_la_deconnexion_refuse_toujours_un_jeton_invente(self):
         """The fix must not turn the guard into a sieve."""
@@ -552,25 +552,25 @@ class ContexteOutilsTest(unittest.TestCase):
     def test_un_gros_message_est_raccourci(self):
         msgs = [{'role': 'user', 'content': 'x' * 65_000},
                 {'role': 'user', 'content': 'et maintenant ?'}]
-        out = outils_web._contexte_outils(msgs)
-        self.assertTrue(all(len(m['content']) <= outils_web.OUTILS_MSG_MAX + 8 for m in out))
+        out = outils_web._tools_context(msgs)
+        self.assertTrue(all(len(m['content']) <= outils_web.TOOLS_MSG_MAX + 8 for m in out))
 
     def test_le_total_reste_borne(self):
         msgs = [{'role': 'user', 'content': 'y' * 20_000} for _ in range(20)]
-        out = outils_web._contexte_outils(msgs)
+        out = outils_web._tools_context(msgs)
         self.assertLessEqual(sum(len(m['content']) for m in out),
-                             outils_web.OUTILS_TOTAL_MAX + outils_web.OUTILS_MSG_MAX)
+                             outils_web.TOOLS_TOTAL_MAX + outils_web.TOOLS_MSG_MAX)
 
     def test_le_dernier_message_est_toujours_la(self):
         msgs = [{'role': 'user', 'content': 'z' * 30_000} for _ in range(10)]
         msgs.append({'role': 'user', 'content': 'CE QUE JE DEMANDE'})
-        out = outils_web._contexte_outils(msgs)
+        out = outils_web._tools_context(msgs)
         self.assertIn('CE QUE JE DEMANDE', out[-1]['content'])
 
     def test_le_systeme_est_conserve_en_tete(self):
         msgs = [{'role': 'system', 'content': 'consignes'},
                 {'role': 'user', 'content': 'bonjour'}]
-        out = outils_web._contexte_outils(msgs)
+        out = outils_web._tools_context(msgs)
         self.assertEqual(out[0]['role'], 'system')
         self.assertIn('consignes', out[0]['content'])
 
@@ -578,14 +578,14 @@ class ContexteOutilsTest(unittest.TestCase):
         # The request is often at the top, the last instruction at the tail: it is
         # the belly of the file that teaches nothing.
         msgs = [{'role': 'user', 'content': 'DEBUT' + 'm' * 60_000 + 'FIN'}]
-        out = outils_web._contexte_outils(msgs)
+        out = outils_web._tools_context(msgs)
         self.assertIn('DEBUT', out[-1]['content'])
         self.assertIn('FIN', out[-1]['content'])
 
     def test_conversation_courte_passe_telle_quelle(self):
         msgs = [{'role': 'user', 'content': 'salut'},
                 {'role': 'assistant', 'content': 'bonjour'}]
-        self.assertEqual([m['content'] for m in outils_web._contexte_outils(msgs)],
+        self.assertEqual([m['content'] for m in outils_web._tools_context(msgs)],
                          ['salut', 'bonjour'])
 
 
@@ -611,7 +611,7 @@ class PertinenceRechercheTest(unittest.TestCase):
                   "const source = ctx.createBufferSource();",
                   "quelles sont les dernières nouvelles ?",
                   "quel est le prix du bitcoin ?"):
-            self.assertFalse(outils_web._recherche_pertinente(self._u(t)), t)
+            self.assertFalse(outils_web._search_relevant(self._u(t)), t)
 
     def test_les_directives_explicites(self):
         for t in ("cherche sur internet les règles du blackjack",
@@ -624,7 +624,7 @@ class PertinenceRechercheTest(unittest.TestCase):
                   # « en ligne » is no longer a target: it describes a state more
                   # often than it names the web (« site en ligne »).
                   "renseigne-toi sur internet là-dessus"):
-            self.assertTrue(outils_web._recherche_pertinente(self._u(t)), t)
+            self.assertTrue(outils_web._search_relevant(self._u(t)), t)
 
     def test_mettre_en_ligne_ne_declenche_pas(self):
         # 2026-09: « en ligne » describes a state; « je cherche à mettre mon
@@ -632,15 +632,15 @@ class PertinenceRechercheTest(unittest.TestCase):
         for t in ("je cherche à mettre mon site en ligne",
                   "regarde pourquoi mon serveur n'est plus en ligne",
                   "fais-moi un jeu d'échecs en ligne"):
-            self.assertFalse(outils_web._recherche_pertinente(self._u(t)), t)
+            self.assertFalse(outils_web._search_relevant(self._u(t)), t)
 
     def test_la_directive_marche_meme_avec_un_fichier_colle(self):
         h = [{'role': 'user', 'content': "```html\n" + ("x" * 5000)
               + "\n```\n\ncherche sur internet la doc de cette balise"}]
-        self.assertTrue(outils_web._recherche_pertinente(h))
+        self.assertTrue(outils_web._search_relevant(h))
 
     def test_conversation_vide(self):
-        self.assertFalse(outils_web._recherche_pertinente([]))
+        self.assertFalse(outils_web._search_relevant([]))
 
 
 class VersionsPerimeesTest(unittest.TestCase):
@@ -650,18 +650,18 @@ class VersionsPerimeesTest(unittest.TestCase):
     thread were old versions of the same file, replayed at every message.
     """
 
-    def _msg(self, role, contenu):
-        return {'role': role, 'content': contenu}
+    def _msg(self, role, content):
+        return {'role': role, 'content': content}
 
-    def _fichier(self, nom, marqueur, n=3000):
-        return f"Voici `{nom}` :\n\n```html\n<!-- {marqueur} -->\n" + ("x" * n) + "\n```"
+    def _fichier(self, name, marker, n=3000):
+        return f"Voici `{name}` :\n\n```html\n<!-- {marker} -->\n" + ("x" * n) + "\n```"
 
     def test_seule_la_derniere_version_survit(self):
         h = [self._msg('user', 'fais un jeu'),
              self._msg('assistant', self._fichier('index.html', 'V1')),
              self._msg('user', 'corrige'),
              self._msg('assistant', self._fichier('index.html', 'V2'))]
-        out = chat._sans_versions_perimees(h)
+        out = chat._without_stale_versions(h)
         self.assertNotIn('V1', out[1]['content'])
         self.assertIn('version précédente', out[1]['content'])
         self.assertIn('V2', out[3]['content'])
@@ -669,7 +669,7 @@ class VersionsPerimeesTest(unittest.TestCase):
     def test_deux_fichiers_distincts_gardent_chacun_leur_version(self):
         h = [self._msg('assistant', self._fichier('index.html', 'HTML1')),
              self._msg('assistant', self._fichier('style.css', 'CSS1'))]
-        out = chat._sans_versions_perimees(h)
+        out = chat._without_stale_versions(h)
         self.assertIn('HTML1', out[0]['content'])
         self.assertIn('CSS1', out[1]['content'])
 
@@ -677,30 +677,30 @@ class VersionsPerimeesTest(unittest.TestCase):
         colle = "```html\n<!-- COLLE -->\n" + ("y" * 3000) + "\n```"
         h = [self._msg('user', colle),
              self._msg('assistant', self._fichier('index.html', 'V1'))]
-        out = chat._sans_versions_perimees(h)
+        out = chat._without_stale_versions(h)
         self.assertIn('COLLE', out[0]['content'])
 
     def test_un_court_extrait_ne_perime_rien(self):
         h = [self._msg('assistant', self._fichier('index.html', 'V1')),
              self._msg('assistant', "Regarde :\n\n```js\nconst a = 1;\n```")]
-        out = chat._sans_versions_perimees(h)
+        out = chat._without_stale_versions(h)
         self.assertIn('V1', out[0]['content'])
 
     def test_la_prose_autour_du_bloc_est_conservee(self):
         h = [self._msg('assistant', self._fichier('index.html', 'V1') + "\n\nJ'ai ajouté le son."),
              self._msg('assistant', self._fichier('index.html', 'V2'))]
-        out = chat._sans_versions_perimees(h)
+        out = chat._without_stale_versions(h)
         self.assertIn("J'ai ajouté le son.", out[0]['content'])
 
     def test_le_gain_est_reel(self):
         h = [self._msg('assistant', self._fichier('index.html', f'V{i}', 20000)) for i in range(4)]
-        avant = sum(len(m['content']) for m in h)
-        apres = sum(len(m['content']) for m in chat._sans_versions_perimees(h))
-        self.assertLess(apres, avant * 0.4)
+        before = sum(len(m['content']) for m in h)
+        apres = sum(len(m['content']) for m in chat._without_stale_versions(h))
+        self.assertLess(apres, before * 0.4)
 
     def test_conversation_sans_code_inchangee(self):
         h = [self._msg('user', 'bonjour'), self._msg('assistant', 'salut')]
-        self.assertEqual(chat._sans_versions_perimees(h), h)
+        self.assertEqual(chat._without_stale_versions(h), h)
 
 
 class TrouvaillesTest(unittest.TestCase):
@@ -712,19 +712,19 @@ class TrouvaillesTest(unittest.TestCase):
     """
 
     def test_rien_trouve_rien_ajoute(self):
-        self.assertEqual(outils_web._texte_des_trouvailles([]), '')
+        self.assertEqual(outils_web._findings_text([]), '')
 
     def test_le_contenu_est_repris_et_cadre_comme_externe(self):
-        t = outils_web._texte_des_trouvailles([('recherche_web', '{"resultats": [{"url": "https://x.fr"}]}')])
+        t = outils_web._findings_text([('recherche_web', '{"resultats": [{"url": "https://x.fr"}]}')])
         self.assertIn('https://x.fr', t)
         self.assertIn('externes', t)
 
     def test_le_texte_reste_borne(self):
-        t = outils_web._texte_des_trouvailles([('lire_pages', 'x' * 200_000)])
+        t = outils_web._findings_text([('lire_pages', 'x' * 200_000)])
         self.assertLessEqual(len(t), 40_000)
 
     def test_plusieurs_appels_sont_tous_repris(self):
-        t = outils_web._texte_des_trouvailles([('recherche_web', 'AAA'), ('lire_pages', 'BBB')])
+        t = outils_web._findings_text([('recherche_web', 'AAA'), ('lire_pages', 'BBB')])
         self.assertIn('AAA', t)
         self.assertIn('BBB', t)
 
@@ -800,8 +800,8 @@ class GardeDesRoutesTest(unittest.TestCase):
 
     def test_la_liste_des_publiques_ne_pourrit_pas(self):
         """An entry matching no route anymore must disappear."""
-        connues = {r.endpoint for r in portal.app.url_map.iter_rules()}
-        self.assertEqual(set(self.PUBLIQUES) - connues, set(),
+        known_set = {r.endpoint for r in portal.app.url_map.iter_rules()}
+        self.assertEqual(set(self.PUBLIQUES) - known_set, set(),
                          "entrée(s) obsolète(s) dans PUBLIQUES")
 
     def test_le_marqueur_est_bien_pose(self):
@@ -831,37 +831,37 @@ class NomsResolublesTest(unittest.TestCase):
         'image_routes', 'music_routes', 'voice_routes', 'asr_routes', 'ocr_routes',
     ]
 
-    def _noms_non_resolus(self, chemin):
-        arbre = ast.parse(io.open(chemin, encoding='utf-8').read())
-        connus = set(dir(builtins)) | {'__file__', '__name__', '__doc__'}
+    def _noms_non_resolus(self, path):
+        arbre = ast.parse(io.open(path, encoding='utf-8').read())
+        known = set(dir(builtins)) | {'__file__', '__name__', '__doc__'}
         for n in ast.walk(arbre):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                connus.add(n.name)
+                known.add(n.name)
             elif isinstance(n, (ast.Import, ast.ImportFrom)):
                 for a in n.names:
-                    connus.add((a.asname or a.name).split('.')[0])
+                    known.add((a.asname or a.name).split('.')[0])
             elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
-                connus.add(n.id)
+                known.add(n.id)
             elif isinstance(n, ast.arg):
-                connus.add(n.arg)
+                known.add(n.arg)
             elif isinstance(n, ast.ExceptHandler) and n.name:
-                connus.add(n.name)
+                known.add(n.name)
             elif isinstance(n, ast.Global):
-                connus.update(n.names)
+                known.update(n.names)
         return sorted({n.id for n in ast.walk(arbre)
                        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
-                       and n.id not in connus})
+                       and n.id not in known})
 
     def test_chaque_module_resout_tous_ses_noms(self):
         racine = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for nom in self.MODULES:
-            chemin = os.path.join(racine, f'{nom}.py')
-            if not os.path.exists(chemin):
+        for name in self.MODULES:
+            path = os.path.join(racine, f'{name}.py')
+            if not os.path.exists(path):
                 continue
-            with self.subTest(module=nom):
+            with self.subTest(module=name):
                 self.assertEqual(
-                    self._noms_non_resolus(chemin), [],
-                    f"{nom}.py charge un nom défini nulle part — il lèvera un "
+                    self._noms_non_resolus(path), [],
+                    f"{name}.py charge un nom défini nulle part — il lèvera un "
                     "NameError à l'appel. Réimporte-le depuis le module qui le "
                     "définit désormais.")
 
@@ -1079,8 +1079,8 @@ class BudgetGrantsTest(unittest.TestCase):
         with portal.app.app_context(), \
              patch.object(admin_routes, '_litellm_user_info', return_value={'max_budget': 250000000}), \
              patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
-            ramenes = admin_routes.revert_expired_grants()
-        self.assertEqual(ramenes, 1)
+            brought_back = admin_routes.revert_expired_grants()
+        self.assertEqual(brought_back, 1)
         args = up.call_args
         self.assertEqual(args.args[1], 200000000)          # …to the base, nothing else
         with portal.app.app_context():
@@ -1097,8 +1097,8 @@ class BudgetGrantsTest(unittest.TestCase):
         with portal.app.app_context(), \
              patch.object(admin_routes, '_litellm_user_info', return_value={'max_budget': 50000000}), \
              patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
-            ramenes = admin_routes.revert_expired_grants()
-        self.assertEqual(ramenes, 0)
+            brought_back = admin_routes.revert_expired_grants()
+        self.assertEqual(brought_back, 0)
         up.assert_not_called()                             # the admin decision is authoritative
 
     def test_redefinir_le_plafond_a_la_baisse(self):
@@ -1588,29 +1588,29 @@ class SupportBillingTest(unittest.TestCase):
 
     def test_support_utilise_la_cle_de_l_utilisateur(self):
         import unittest.mock as mock
-        vus = []
+        seen = []
 
         def _post(url, headers=None, json=None, timeout=None, stream=False):
-            vus.append(headers or {})
+            seen.append(headers or {})
             return self._FakeStream()
 
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
-             mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
-             mock.patch.object(chat, "_fin_support"), \
+             mock.patch.object(chat, "quota_exceeded_reset", return_value=None), \
+             mock.patch.object(chat, "_finish_support"), \
              mock.patch.object(chat.requests, "post", side_effect=_post):
             r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
                                     json={"messages": [{"role": "user", "content": "Salut"}]})
             self.assertEqual(r.status_code, 200)
             r.get_data(as_text=True)      # forces the execution of the SSE generator
-        self.assertTrue(vus, "aucun appel au modèle n'a été fait")
-        self.assertEqual(vus[0].get("Authorization"), "Bearer sk-user-123")
+        self.assertTrue(seen, "aucun appel au modèle n'a été fait")
+        self.assertEqual(seen[0].get("Authorization"), "Bearer sk-user-123")
 
     def test_support_sans_cle_notifie_et_n_appelle_pas_le_modele(self):
         import unittest.mock as mock
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[]), \
-             mock.patch.object(chat, "_fin_support"), \
+             mock.patch.object(chat, "_finish_support"), \
              mock.patch.object(chat.requests, "post", side_effect=AssertionError("appel modèle interdit")):
             r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
                                     json={"messages": [{"role": "user", "content": "Salut"}]})
@@ -1621,8 +1621,8 @@ class SupportBillingTest(unittest.TestCase):
         import unittest.mock as mock
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
-             mock.patch.object(chat, "quota_depasse_reset", return_value=3600), \
-             mock.patch.object(chat, "_fin_support"), \
+             mock.patch.object(chat, "quota_exceeded_reset", return_value=3600), \
+             mock.patch.object(chat, "_finish_support"), \
              mock.patch.object(chat.requests, "post", side_effect=AssertionError("appel modèle interdit")):
             r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
                                     json={"messages": [{"role": "user", "content": "Salut"}]})
@@ -1646,18 +1646,18 @@ class SupportNoticesStructureesTest(unittest.TestCase):
     class _Flux:
         """Fake upstream stream: a list of frames, or an error to raise."""
 
-        def __init__(self, frames, ok=True, status_code=200, erreur=None):
+        def __init__(self, frames, ok=True, status_code=200, error_text=None):
             self.frames = list(frames)
             self.ok = ok
             self.status_code = status_code
-            self.erreur = erreur
+            self.error_text = error_text
 
         def close(self):
             pass
 
         def iter_lines(self, decode_unicode=False):
-            if self.erreur is not None:
-                raise self.erreur
+            if self.error_text is not None:
+                raise self.error_text
             yield from self.frames
 
     @staticmethod
@@ -1680,12 +1680,12 @@ class SupportNoticesStructureesTest(unittest.TestCase):
         return c
 
     @staticmethod
-    def _notices(corps):
+    def _notices(body):
         """The notice payloads of the stream (`[DONE]` and tool events aside)."""
         out = []
-        for ligne in corps.splitlines():
-            if ligne.startswith("data: ") and ligne != "data: [DONE]":
-                payload = json.loads(ligne[6:])
+        for line in body.splitlines():
+            if line.startswith("data: ") and line != "data: [DONE]":
+                payload = json.loads(line[6:])
                 if "dgx_notice" in payload:
                     out.append(payload)
         return out
@@ -1696,11 +1696,11 @@ class SupportNoticesStructureesTest(unittest.TestCase):
         msgs = [{"role": role, "content": content} for role, content in messages]
         with patch.object(chat, "get_running_models", return_value=list(running)), \
              patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
-             patch.object(chat, "quota_depasse_reset", return_value=None), \
+             patch.object(chat, "quota_exceeded_reset", return_value=None), \
              patch.object(chat, "_chat_rate_limited", return_value=wait), \
              patch.object(chat, "_user_extra_tools", return_value=([], {})), \
              patch.object(chat, "_exec_support_tool", return_value=("ok", True)), \
-             patch.object(chat, "_fin_support"), \
+             patch.object(chat, "_finish_support"), \
              patch.object(chat.requests, "post",
                           side_effect=post or AssertionError("appel interdit")):
             r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
@@ -1708,57 +1708,57 @@ class SupportNoticesStructureesTest(unittest.TestCase):
             return r.status_code, r.get_data(as_text=True)
 
     def test_message_vide_notice(self):
-        code, corps = self._flux(messages=())
+        code, body = self._flux(messages=())
         self.assertEqual(code, 400)
-        self.assertEqual(self._notices(corps),
+        self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "empty_message"}}])
 
     def test_plafond_attente_notice(self):
-        code, corps = self._flux(wait=7)
-        self.assertEqual(self._notices(corps),
+        code, body = self._flux(wait=7)
+        self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "chat_rate_limited", "wait": 7}}])
-        self.assertNotIn("Trop de", corps)
+        self.assertNotIn("Trop de", body)
 
     def test_aucun_modele_notice(self):
-        code, corps = self._flux(running=())
-        self.assertEqual(self._notices(corps),
+        code, body = self._flux(running=())
+        self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "no_model_running"}}])
 
     def test_amont_injoignable_notice(self):
         import requests as _rq
-        code, corps = self._flux(post=_rq.exceptions.ConnectionError("coupé"))
-        self.assertEqual(self._notices(corps),
+        code, body = self._flux(post=_rq.exceptions.ConnectionError("coupé"))
+        self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "model_unreachable"}}])
-        self.assertIn("data: [DONE]", corps)
+        self.assertIn("data: [DONE]", body)
 
     def test_amont_en_erreur_notice_statut(self):
-        code, corps = self._flux(
+        code, body = self._flux(
             post=lambda *a, **k: self._Flux([], ok=False, status_code=500))
-        self.assertEqual(self._notices(corps),
+        self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "model_replied_error",
                                              "status": 500}}])
 
     def test_reponse_vide_notice(self):
-        code, corps = self._flux(post=lambda *a, **k: self._Flux(["data: [DONE]"]))
-        self.assertEqual(self._notices(corps),
+        code, body = self._flux(post=lambda *a, **k: self._Flux(["data: [DONE]"]))
+        self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "empty_reply"}}])
 
     def test_lecture_timeout_notice(self):
         import requests as _rq
-        code, corps = self._flux(
-            post=lambda *a, **k: self._Flux([], erreur=_rq.exceptions.ReadTimeout()))
-        self.assertEqual(self._notices(corps),
+        code, body = self._flux(
+            post=lambda *a, **k: self._Flux([], error_text=_rq.exceptions.ReadTimeout()))
+        self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "model_timeout"}}])
 
     def _boucle_d_outils(self, final):
         """4 tool rounds, then the forced final turn served by `final`."""
-        appels = {"n": 0}
+        calls = {"n": 0}
         outil = self._Flux([self._frame_outil("request_budget", {"alias": "a"}),
                             "data: [DONE]"])
 
         def _post(*a, **k):
-            appels["n"] += 1
-            return outil if appels["n"] <= 4 else final
+            calls["n"] += 1
+            return outil if calls["n"] <= 4 else final
         return self._flux(post=_post)
 
     @staticmethod
@@ -1776,10 +1776,10 @@ class SupportNoticesStructureesTest(unittest.TestCase):
         frames = [self._frame_raisonnement("je pese les options"),
                   self._frame_texte("la reponse"),
                   "data: [DONE]"]
-        code, corps = self._flux(post=lambda *a, **k: self._Flux(frames))
+        code, body = self._flux(post=lambda *a, **k: self._Flux(frames))
         self.assertEqual(code, 200)
-        self.assertIn('"reasoning_content": "je pese les options"', corps)
-        self.assertIn('"content": "la reponse"', corps)
+        self.assertIn('"reasoning_content": "je pese les options"', body)
+        self.assertIn('"content": "la reponse"', body)
 
     def test_la_balise_de_pensee_dans_le_contenu_reste_masquee(self):
         """A think tag COUPLED INTO the content is a parasite, not a structured
@@ -1789,19 +1789,19 @@ class SupportNoticesStructureesTest(unittest.TestCase):
 
         frames = [_c("<think>"), _c("mon raisonnement interne"),
                   _c("</think>"), _c("la reponse finale"), "data: [DONE]"]
-        code, corps = self._flux(post=lambda *a, **k: self._Flux(frames))
+        code, body = self._flux(post=lambda *a, **k: self._Flux(frames))
         self.assertEqual(code, 200)
-        self.assertNotIn("mon raisonnement interne", corps)
-        self.assertIn("la reponse finale", corps)
+        self.assertNotIn("mon raisonnement interne", body)
+        self.assertIn("la reponse finale", body)
 
     def test_modele_occupe_apres_boucle_d_outils(self):
-        code, corps = self._boucle_d_outils(self._Flux([], ok=False, status_code=503))
-        self.assertEqual(self._notices(corps),
+        code, body = self._boucle_d_outils(self._Flux([], ok=False, status_code=503))
+        self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "model_busy"}}])
 
     def test_reformulation_apres_boucle_d_outils(self):
-        code, corps = self._boucle_d_outils(self._Flux(["data: [DONE]"]))
-        self.assertEqual(self._notices(corps),
+        code, body = self._boucle_d_outils(self._Flux(["data: [DONE]"]))
+        self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "reformulate"}}])
 
 
@@ -1833,14 +1833,14 @@ class SupportServicesTest(unittest.TestCase):
 
     def test_loutil_n_est_propose_qu_aux_admins(self):
         noms_admin = {t["function"]["name"] for t in assistance._support_tools(True)}
-        noms = {t["function"]["name"] for t in assistance._support_tools(False)}
+        names = {t["function"]["name"] for t in assistance._support_tools(False)}
         self.assertIn("manage_service", noms_admin)
-        self.assertNotIn("manage_service", noms)
+        self.assertNotIn("manage_service", names)
 
     def test_loutil_est_garde_pour_la_confirmation(self):
         """manage_service is guarded: the model only SUBMITS it."""
         self.assertIn("manage_service", assistance.GUARDED_TOOLS)
-        self.assertIn("manage_service", assistance.OUTILS_REFUSES_SI_EXTERNE)
+        self.assertIn("manage_service", assistance.TOOLS_REFUSED_IF_EXTERNAL)
 
     def _exec(self, args, is_admin):
         with patch.object(assistance, "get_db"):
@@ -1885,12 +1885,12 @@ class SupportServicesTest(unittest.TestCase):
         prompt (« pas que dans le system prompt »)."""
         with patch.object(assistance, "get_db"), \
              patch.object(assistance, "sidecar_logs",
-                          return_value=["erreur: poids introuvable", "fin"]) as lire:
+                          return_value=["erreur: poids introuvable", "fin"]) as read:
             res, ok = assistance._exec_support_tool(
                 "read_logs", {"service": "asr", "lines": 50}, "demo", "Demo", True)
         self.assertTrue(ok)
         self.assertIn("erreur: poids introuvable", res)
-        lire.assert_called_once_with("asr", 50)
+        read.assert_called_once_with("asr", 50)
 
     def test_les_logs_de_litellm_se_lisent_sans_le_runner(self):
         """The proxy writes to the SHARED volume: its logs are read from the
@@ -1976,8 +1976,8 @@ class SupportSensibleActionsTest(unittest.TestCase):
         return "data: " + json.dumps({"choices": [{"delta": delta}]})
 
     @staticmethod
-    def _frame_texte(texte):
-        return "data: " + json.dumps({"choices": [{"delta": {"content": texte}}]})
+    def _frame_texte(text):
+        return "data: " + json.dumps({"choices": [{"delta": {"content": text}}]})
 
     def _client(self, username="demo"):
         c = portal.app.test_client()
@@ -2003,7 +2003,7 @@ class SupportSensibleActionsTest(unittest.TestCase):
     def _creer_demande(self, username="demo", tool="revoke_api_key",
                        args=None, label="Révocation de clé", target="test"):
         with portal.app.app_context():
-            return assistance.creer_action_en_attente(username, tool, args or {"alias": "test"},
+            return assistance.create_pending_action(username, tool, args or {"alias": "test"},
                                                       label, target)
 
     def test_action_sensible_non_executee_sans_confirmation(self):
@@ -2011,11 +2011,11 @@ class SupportSensibleActionsTest(unittest.TestCase):
         frames = [[self._frame_outil("revoke_api_key", {"alias": "test"}), "data: [DONE]"],
                   [self._frame_texte("Je peux révoquer cette clé — confirme ci-dessous."),
                    "data: [DONE]"]]
-        appels = {"n": 0}
+        calls = {"n": 0}
 
         def _post(url, headers=None, json=None, timeout=None, stream=False):
-            i = min(appels["n"], len(frames) - 1)
-            appels["n"] += 1
+            i = min(calls["n"], len(frames) - 1)
+            calls["n"] += 1
             return self._Flux(frames[i])
 
         # `_fin_support` is neutralized: it is a thread started after the
@@ -2023,9 +2023,9 @@ class SupportSensibleActionsTest(unittest.TestCase):
         # once the round is over and would steal a simulated frame from the next test.
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
-             mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
+             mock.patch.object(chat, "quota_exceeded_reset", return_value=None), \
              mock.patch.object(chat, "requests") as mock_requests, \
-             mock.patch.object(chat, "_fin_support"), \
+             mock.patch.object(chat, "_finish_support"), \
              mock.patch.object(chat, "_exec_support_tool") as exec_tool:
             mock_requests.post.side_effect = _post
             r = self._client().post("/support/chat", headers={"X-CSRFToken": self.CSRF},
@@ -2096,16 +2096,16 @@ class SupportSensibleActionsTest(unittest.TestCase):
         import unittest.mock as mock
         frames = [[self._frame_outil("create_api_key", {"alias": "ma-cle"}), "data: [DONE]"],
                   [self._frame_texte("C'est fait."), "data: [DONE]"]]
-        appels = {"n": 0}
+        calls = {"n": 0}
 
         def _post(url, headers=None, json=None, timeout=None, stream=False):
-            i = min(appels["n"], len(frames) - 1)
-            appels["n"] += 1
+            i = min(calls["n"], len(frames) - 1)
+            calls["n"] += 1
             return self._Flux(frames[i])
 
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
-             mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
+             mock.patch.object(chat, "quota_exceeded_reset", return_value=None), \
              mock.patch.object(chat, "requests") as mock_requests, \
              mock.patch.object(chat, "_exec_support_tool",
                                return_value=("Clé créée.", True)) as exec_tool:
@@ -2210,11 +2210,11 @@ class SupportInjectionGuardTest(unittest.TestCase):
             s["csrf"] = self.CSRF
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user"}]), \
-             mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
+             mock.patch.object(chat, "quota_exceeded_reset", return_value=None), \
              mock.patch.object(chat, "_user_extra_tools", return_value=([], routing)), \
              mock.patch.object(chat, "_exec_mcp_tool", return_value=("texte d'un tiers", True)), \
              mock.patch.object(chat, "requests") as mock_requests, \
-             mock.patch.object(chat, "_fin_support"), \
+             mock.patch.object(chat, "_finish_support"), \
              mock.patch.object(chat, "_exec_support_tool") as exec_tool:
             mock_requests.post.side_effect = _post
             r = c.post("/support/chat", headers={"X-CSRFToken": self.CSRF},
@@ -2262,11 +2262,11 @@ class SupportInjectionGuardTest(unittest.TestCase):
             s["csrf"] = self.CSRF
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user"}]), \
-             mock.patch.object(chat, "quota_depasse_reset", return_value=None), \
+             mock.patch.object(chat, "quota_exceeded_reset", return_value=None), \
              mock.patch.object(chat, "_user_extra_tools", return_value=([], routing)), \
              mock.patch.object(chat, "_exec_mcp_tool", return_value=("texte d'un tiers", True)), \
              mock.patch.object(chat, "requests") as mock_requests, \
-             mock.patch.object(chat, "_fin_support"), \
+             mock.patch.object(chat, "_finish_support"), \
              mock.patch.object(chat, "_exec_support_tool") as exec_tool:
             mock_requests.post.side_effect = _post
             r = c.post("/support/chat", headers={"X-CSRFToken": self.CSRF},
@@ -2306,22 +2306,22 @@ class SupportFinDeTourTest(unittest.TestCase):
 
     HIST = [{"role": "user", "content": "question"}, {"role": "assistant", "content": "réponse"}]
 
-    def _fil(self):
+    def _thread(self):
         with portal.app.app_context():
             row = portal.get_db().execute(
                 "SELECT messages FROM support_thread WHERE username='demo'").fetchone()
         return json.loads(row["messages"]) if row else None
 
     def test_reponse_complete_sauve_le_fil(self):
-        chat._fin_support_corps("demo", self.HIST, "réponse finale", "fake", "sk-x",
+        chat._finish_support_body("demo", self.HIST, "réponse finale", "fake", "sk-x",
                                 False, portal.app)
-        fil = self._fil()
-        self.assertEqual([m["content"] for m in fil], ["question", "réponse", "réponse finale"])
+        thread = self._thread()
+        self.assertEqual([m["content"] for m in thread], ["question", "réponse", "réponse finale"])
 
     def test_reponse_interrompue_ne_sauve_rien(self):
-        chat._fin_support("demo", self.HIST, ["réponse à moitié écri"], "fake", "sk-x",
+        chat._finish_support("demo", self.HIST, ["réponse à moitié écri"], "fake", "sk-x",
                           False, False, portal.app)
-        self.assertIsNone(self._fil(), "une réponse coupée ne doit pas devenir le fil")
+        self.assertIsNone(self._thread(), "une réponse coupée ne doit pas devenir le fil")
 
 
 class RunningModelsLegerTest(unittest.TestCase):
@@ -2369,16 +2369,16 @@ class SondeComfyuiTest(unittest.TestCase):
             self.assertEqual(sonde.call_count, 1)
         # Expired: the stale value comes back at once, the refresh runs behind.
         self.cc._comfyui_up_cache['t'] = time.time() - 60
-        fini = threading.Event()
+        finished = threading.Event()
         def lente():
-            fini.wait(5)
+            finished.wait(5)
             return False
         with mock.patch.object(self.cc, "_probe_comfyui", side_effect=lente):
             t0 = time.perf_counter()
             self.assertTrue(self.cc.comfyui_is_up())
             self.assertTrue(self.cc.comfyui_is_up())   # one refresh at a time
             self.assertLess(time.perf_counter() - t0, 0.5)
-            fini.set()
+            finished.set()
             for _ in range(100):
                 if not self.cc._comfyui_up_cache['refreshing']:
                     break

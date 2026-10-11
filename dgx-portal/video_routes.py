@@ -20,7 +20,7 @@ from guards import (
     _read_uploaded_image,
     media_block_json,
 )
-from sidecars import mention_memoire_partagee
+from sidecars import shared_memory_note
 
 bp = Blueprint('video', __name__)
 
@@ -29,9 +29,9 @@ VIDEO_HISTORY_LIMIT = 10
 @bp.route('/api/video/generate', methods=['POST'])
 @login_required
 def api_video_generate():
-    refus = media_block_json()
-    if refus:
-        return refus
+    refusal = media_block_json()
+    if refusal:
+        return refusal
     # Optional image: absent → text-only generation (T2V). Provided but
     # invalid (wrong format/too heavy) → always a 400 error, as
     # before — only the total ABSENCE of the field switches to T2V.
@@ -55,7 +55,7 @@ def api_video_generate():
         # through intact (verified on this exact route, both ways). Every
         # user-facing "upstream unavailable" answer in the portal uses 503 for
         # that reason.
-        return jsonify({'error': "ComfyUI inaccessible ou requête refusée." + mention_memoire_partagee()}), 503
+        return jsonify({'error': "ComfyUI inaccessible ou requête refusée." + shared_memory_note()}), 503
     db = get_db()
     db.execute("INSERT INTO video_jobs (username, prompt_id, prompt, created_at, req_duration_s) VALUES (?,?,?,?,?)",
                (session['username'], prompt_id, prompt_text, datetime.now().isoformat(), int(duration)))
@@ -77,11 +77,11 @@ def api_video_generate():
                      ORDER BY id DESC LIMIT ?)""",
                (session['username'], session['username'], VIDEO_HISTORY_LIMIT))
     db.commit()
-    for ancien in evinces:
-        chemin = _local_video_path(ancien)
+    for old in evinces:
+        path = _local_video_path(old)
         try:
-            if chemin and os.path.isfile(chemin):
-                os.remove(chemin)
+            if path and os.path.isfile(path):
+                os.remove(path)
         except OSError:
             # A file we fail to delete must not fail the ongoing generation: the orphan
             # sweep will pick it up again.
@@ -96,7 +96,7 @@ def api_video_history():
         (session['username'],)).fetchall()
     return jsonify([dict(r) for r in rows])
 
-def _persister_video(prompt_id, username, st, cree_le=None, duree_ms=None):
+def _persist_video(prompt_id, username, st, created_at=None, duration_ms=None):
     """Writes a KNOWN ComfyUI result into video_jobs and caches the MP4 locally.
 
     ComfyUI's in-memory history is volatile (cleared on each service restart),
@@ -124,13 +124,13 @@ def _persister_video(prompt_id, username, st, cree_le=None, duree_ms=None):
          prompt_id, username))
     # Generation duration = time elapsed since creation. Approx. to the polling
     # period (~5 s), which is negligible on a several-minute generation.
-    if st['status'] == 'done' and duree_ms is None and cree_le:
+    if st['status'] == 'done' and duration_ms is None and created_at:
         try:
-            dur = int((datetime.now() - datetime.fromisoformat(cree_le)).total_seconds() * 1000)
-            if 0 < dur < 3600000:  # safety bound (< 1 h)
+            hard = int((datetime.now() - datetime.fromisoformat(created_at)).total_seconds() * 1000)
+            if 0 < hard < 3600000:  # safety bound (< 1 h)
                 db.execute(
                     "UPDATE video_jobs SET duration_ms=? WHERE prompt_id=? AND username=? AND duration_ms IS NULL",
-                    (dur, prompt_id, username))
+                    (hard, prompt_id, username))
         except Exception:
             pass
     db.commit()
@@ -159,7 +159,7 @@ def api_video_status(prompt_id):
         return jsonify({'status': 'cancelled', 'video_path': None})
     st = comfyui_status(prompt_id)
     # Persists the result as soon as it's known (see _persister_video above).
-    _persister_video(prompt_id, session['username'], st,
+    _persist_video(prompt_id, session['username'], st,
                      owned['created_at'], owned['duration_ms'])
     return jsonify(st)
 

@@ -81,13 +81,13 @@ class _BaseReglages(unittest.TestCase):
 class ClesApiTest(_BaseReglages):
     """`POST /keys`: creation, revocation, budget request."""
 
-    def _insere_cle(self, valeur="sk-test-123", alias="poste-test", user="demo"):
+    def _insere_cle(self, value="sk-test-123", alias="poste-test", user="demo"):
         with self._db():
             db = portal.get_db()
-            db.execute("DELETE FROM api_keys WHERE key_value=?", (valeur,))
+            db.execute("DELETE FROM api_keys WHERE key_value=?", (value,))
             db.execute(
                 "INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) "
-                "VALUES (?,?,?,?)", (user, alias, valeur, "2026-09-14T00:00:00"))
+                "VALUES (?,?,?,?)", (user, alias, value, "2026-09-14T00:00:00"))
             db.commit()
 
     def test_creation_reussie_rend_la_cle(self):
@@ -96,16 +96,16 @@ class ClesApiTest(_BaseReglages):
         with patch.object(portal, "create_litellm_key", return_value="sk-neuve-999"):
             r = self._post(c, "/keys", {"action": "create", "key_name": "mon-laptop"})
         self.assertEqual(r.status_code, 200)
-        corps = r.get_json()
-        self.assertTrue(corps["ok"])
-        self.assertEqual(corps["key"], "sk-neuve-999")
-        self.assertEqual(corps["key_alias"], "mon-laptop")
+        body = r.get_json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["key"], "sk-neuve-999")
+        self.assertEqual(body["key_alias"], "mon-laptop")
         with self._db():
-            ligne = portal.get_db().execute(
+            line = portal.get_db().execute(
                 "SELECT key_alias FROM api_keys WHERE key_value=?",
                 ("sk-neuve-999",)).fetchone()
-        self.assertIsNotNone(ligne, "la clé créée doit être consignée en base")
-        self.assertEqual(ligne["key_alias"], "mon-laptop")
+        self.assertIsNotNone(line, "la clé créée doit être consignée en base")
+        self.assertEqual(line["key_alias"], "mon-laptop")
 
     def test_creation_ratee_dit_503_et_ne_ment_pas(self):
         """LiteLLM mute: before, the UI announced « Clé créée ! »."""
@@ -113,31 +113,31 @@ class ClesApiTest(_BaseReglages):
         with patch.object(portal, "create_litellm_key", return_value=None):
             r = self._post(c, "/keys", {"action": "create", "key_name": "x"})
         self.assertEqual(r.status_code, 503)
-        corps = r.get_json()
-        self.assertFalse(corps["ok"])
-        self.assertTrue(corps["error"])
+        body = r.get_json()
+        self.assertFalse(body["ok"])
+        self.assertTrue(body["error"])
         with self._db():
-            ligne = portal.get_db().execute(
+            line = portal.get_db().execute(
                 "SELECT 1 FROM api_keys WHERE key_alias='x'").fetchone()
-        self.assertIsNone(ligne, "aucune clé ne doit être consignée quand la création échoue")
+        self.assertIsNone(line, "aucune clé ne doit être consignée quand la création échoue")
 
     def test_creation_sans_nom_genere_un_alias(self):
         c = self._client()
-        vus = {}
+        seen = {}
 
         def _faux(alias, username, is_admin=False):
-            vus["alias"] = alias
+            seen["alias"] = alias
             return "sk-auto-1"
 
         with patch.object(portal, "create_litellm_key", side_effect=_faux):
             r = self._post(c, "/keys", {"action": "create", "key_name": "  "})
         self.assertTrue(r.get_json()["ok"])
-        self.assertTrue(vus["alias"].startswith("demo-"),
-                        f"alias généré inattendu : {vus['alias']!r}")
+        self.assertTrue(seen["alias"].startswith("demo-"),
+                        f"alias généré inattendu : {seen['alias']!r}")
 
     def test_revocation_dune_cle_dun_autre_compte_refusee(self):
         """Anti-IDOR: the key exists, but not on THIS account."""
-        self._insere_cle(valeur="sk-autrui", user="autre")
+        self._insere_cle(value="sk-autrui", user="autre")
         c = self._client("demo")
         with patch.object(portal, "revoke_litellm_key", return_value=True):
             r = self._post(c, "/keys", {"action": "revoke", "key": "sk-autrui"})
@@ -146,28 +146,28 @@ class ClesApiTest(_BaseReglages):
 
     def test_revocation_ratee_dit_que_la_cle_est_encore_valide(self):
         """The dangerous lie: « Clé révoquée. » while it still works."""
-        self._insere_cle(valeur="sk-vive")
+        self._insere_cle(value="sk-vive")
         c = self._client()
         with patch.object(portal, "revoke_litellm_key", return_value=False):
             r = self._post(c, "/keys", {"action": "revoke", "key": "sk-vive"})
         self.assertEqual(r.status_code, 503)
         self.assertIn("encore valide", r.get_json()["error"])
         with self._db():
-            ligne = portal.get_db().execute(
+            line = portal.get_db().execute(
                 "SELECT 1 FROM api_keys WHERE key_value='sk-vive'").fetchone()
-        self.assertIsNotNone(ligne, "une révocation ratée ne doit PAS retirer la ligne")
+        self.assertIsNotNone(line, "une révocation ratée ne doit PAS retirer la ligne")
 
     def test_revocation_reussie_supprime_la_ligne(self):
-        self._insere_cle(valeur="sk-amortir")
+        self._insere_cle(value="sk-amortir")
         c = self._client()
         with patch.object(portal, "revoke_litellm_key", return_value=True):
             r = self._post(c, "/keys", {"action": "revoke", "key": "sk-amortir"})
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()["ok"])
         with self._db():
-            ligne = portal.get_db().execute(
+            line = portal.get_db().execute(
                 "SELECT 1 FROM api_keys WHERE key_value='sk-amortir'").fetchone()
-        self.assertIsNone(ligne)
+        self.assertIsNone(line)
 
     def test_demande_de_budget_deja_en_attente_refusee(self):
         """The button displayed « Demande envoyée ! » while the server refused."""
@@ -182,9 +182,9 @@ class ClesApiTest(_BaseReglages):
         c = self._client()
         r = self._post(c, "/keys", {"action": "request_budget", "reason": "encore"})
         self.assertEqual(r.status_code, 409)
-        corps = r.get_json()
-        self.assertFalse(corps["ok"])
-        self.assertEqual(corps["code"], "deja_en_attente",
+        body = r.get_json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["code"], "deja_en_attente",
                          "un refus stable doit porter un code traduisible")
 
     def test_demande_de_budget_inseree(self):
@@ -237,19 +237,19 @@ class McpActivationTest(_BaseReglages):
             db.execute("DELETE FROM mcp_servers WHERE username=?", (self.USER,))
             db.commit()
 
-    def _insere(self, auth=None, actif=0):
+    def _insere(self, auth=None, active=0):
         with self._db():
             db = portal.get_db()
             db.execute(
                 "INSERT INTO mcp_servers (username, name, url, auth_header, description, "
                 "allowed_tools, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)",
                 (self.USER, "github", "https://api.githubcopilot.com/mcp/", auth,
-                 "Dépôts GitHub", "", actif, "2026-10-05T00:00:00"))
+                 "Dépôts GitHub", "", active, "2026-10-05T00:00:00"))
             db.commit()
             return db.execute("SELECT id FROM mcp_servers WHERE username=?",
                               (self.USER,)).fetchone()['id']
 
-    def _etat(self, ident):
+    def _state(self, ident):
         with self._db():
             r = portal.get_db().execute(
                 "SELECT enabled, auth_header FROM mcp_servers WHERE id=?", (ident,)).fetchone()
@@ -267,25 +267,25 @@ class McpActivationTest(_BaseReglages):
             return self._post(client, "/mcp", base)
 
     def test_ecrire_la_cle_active_le_serveur(self):
-        ident = self._insere(auth=None, actif=0)
+        ident = self._insere(auth=None, active=0)
         r = self._update(self._client(self.USER), ident, auth_header="Bearer ghp_test")
         self.assertTrue(r.get_json().get('ok'), r.get_json())
-        self.assertEqual(self._etat(ident), (1, "Bearer ghp_test"))
+        self.assertEqual(self._state(ident), (1, "Bearer ghp_test"))
 
     def test_sans_cle_le_serveur_reste_inactif(self):
         """Redisplaying the form without touching the key keeps it off: an
         incomplete configuration must never become active by accident."""
-        ident = self._insere(auth=None, actif=0)
+        ident = self._insere(auth=None, active=0)
         r = self._update(self._client(self.USER), ident, auth_header="")
         self.assertTrue(r.get_json().get('ok'), r.get_json())
-        self.assertEqual(self._etat(ident), (0, None))
+        self.assertEqual(self._state(ident), (0, None))
 
     def test_un_serveur_deja_actif_ne_s_eteint_pas(self):
         """A key-less server (context7…) toggled ON stays ON when edited."""
-        ident = self._insere(auth=None, actif=1)
+        ident = self._insere(auth=None, active=1)
         r = self._update(self._client(self.USER), ident, auth_header="")
         self.assertTrue(r.get_json().get('ok'), r.get_json())
-        self.assertEqual(self._etat(ident), (1, None))
+        self.assertEqual(self._state(ident), (1, None))
 
 
 class AvatarTest(_BaseReglages):
@@ -306,10 +306,10 @@ class AvatarTest(_BaseReglages):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()["ok"])
         with self._db():
-            ligne = portal.get_db().execute(
+            line = portal.get_db().execute(
                 "SELECT avatar_id FROM user_prefs WHERE username='demo'").fetchone()
-        self.assertIsNotNone(ligne)
-        self.assertEqual(ligne["avatar_id"], avatars[0])
+        self.assertIsNotNone(line)
+        self.assertEqual(line["avatar_id"], avatars[0])
 
     def test_avatar_genere_remet_a_null(self):
         """The « avatar généré » choice (empty value) must be able to go back.
@@ -331,9 +331,9 @@ class AvatarTest(_BaseReglages):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()["ok"])
         with self._db():
-            ligne = portal.get_db().execute(
+            line = portal.get_db().execute(
                 "SELECT avatar_id FROM user_prefs WHERE username='demo'").fetchone()
-        self.assertIsNone(ligne["avatar_id"])
+        self.assertIsNone(line["avatar_id"])
 
     def test_avatar_genere_accepte_en_toutes_lettres(self):
         """`genere` is accepted as a synonym of the empty value."""
@@ -341,9 +341,9 @@ class AvatarTest(_BaseReglages):
         r = self._post(c, "/settings/avatar", {"avatar_id": "genere"})
         self.assertEqual(r.status_code, 200)
         with self._db():
-            ligne = portal.get_db().execute(
+            line = portal.get_db().execute(
                 "SELECT avatar_id FROM user_prefs WHERE username='demo'").fetchone()
-        self.assertIsNone(ligne["avatar_id"])
+        self.assertIsNone(line["avatar_id"])
 
 
 class ApparenceTest(_BaseReglages):
@@ -368,49 +368,49 @@ class ApparenceTest(_BaseReglages):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()["ok"])
         with self._db():
-            ligne = portal.get_db().execute(
+            line = portal.get_db().execute(
                 "SELECT theme_id, lang FROM user_prefs WHERE username='demo'").fetchone()
-        self.assertEqual(ligne["theme_id"], theme)
-        self.assertEqual(ligne["lang"], "fr")
+        self.assertEqual(line["theme_id"], theme)
+        self.assertEqual(line["lang"], "fr")
 
 
 class RenommageCleTest(_BaseReglages):
     """`action=rename`: the alias is what lets one find their key back."""
 
-    def _insere_cle(self, valeur="sk-ren-1", alias="poste-test", user="demo"):
+    def _insere_cle(self, value="sk-ren-1", alias="poste-test", user="demo"):
         with self._db():
             db = portal.get_db()
-            db.execute("DELETE FROM api_keys WHERE key_value=?", (valeur,))
+            db.execute("DELETE FROM api_keys WHERE key_value=?", (value,))
             db.execute(
                 "INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) "
-                "VALUES (?,?,?,?)", (user, alias, valeur, "2026-09-14T00:00:00"))
+                "VALUES (?,?,?,?)", (user, alias, value, "2026-09-14T00:00:00"))
             db.commit()
 
-    def _alias(self, valeur):
+    def _alias(self, value):
         with self._db():
-            ligne = portal.get_db().execute(
-                "SELECT key_alias FROM api_keys WHERE key_value=?", (valeur,)).fetchone()
-        return ligne["key_alias"] if ligne else None
+            line = portal.get_db().execute(
+                "SELECT key_alias FROM api_keys WHERE key_value=?", (value,)).fetchone()
+        return line["key_alias"] if line else None
 
     def test_renommage_reussi_des_deux_cotes(self):
         """Portal AND LiteLLM: else the two views diverge."""
         self._insere_cle()
         c = self._client()
-        appels = []
-        with patch.object(portal, "renommer_cle_litellm",
-                          side_effect=lambda k, a: appels.append((k, a)) or True):
+        calls = []
+        with patch.object(portal, "rename_litellm_key",
+                          side_effect=lambda k, a: calls.append((k, a)) or True):
             r = self._post(c, "/keys", {"action": "rename", "key": "sk-ren-1",
                                         "key_name": "portable-nora"})
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()["ok"])
         self.assertEqual(self._alias("sk-ren-1"), "portable-nora")
-        self.assertEqual(appels, [("sk-ren-1", "portable-nora")],
+        self.assertEqual(calls, [("sk-ren-1", "portable-nora")],
                          "l'alias doit aussi partir chez LiteLLM")
 
     def test_renommage_dune_cle_dun_autre_compte_refuse(self):
-        self._insere_cle(valeur="sk-autrui-ren", user="autre")
+        self._insere_cle(value="sk-autrui-ren", user="autre")
         c = self._client("demo")
-        with patch.object(portal, "renommer_cle_litellm", return_value=True) as faux:
+        with patch.object(portal, "rename_litellm_key", return_value=True) as faux:
             r = self._post(c, "/keys", {"action": "rename", "key": "sk-autrui-ren",
                                         "key_name": "a-moi"})
         self.assertEqual(r.status_code, 404)
@@ -421,7 +421,7 @@ class RenommageCleTest(_BaseReglages):
         """A half-done rename would be worse than no rename."""
         self._insere_cle()
         c = self._client()
-        with patch.object(portal, "renommer_cle_litellm", return_value=False):
+        with patch.object(portal, "rename_litellm_key", return_value=False):
             r = self._post(c, "/keys", {"action": "rename", "key": "sk-ren-1",
                                         "key_name": "portable-nora"})
         self.assertEqual(r.status_code, 503)
@@ -430,10 +430,10 @@ class RenommageCleTest(_BaseReglages):
                          "le portail ne doit pas renommer si LiteLLM a refusé")
 
     def test_alias_deja_pris_refuse(self):
-        self._insere_cle(valeur="sk-a", alias="portable")
-        self._insere_cle(valeur="sk-b", alias="bureau")
+        self._insere_cle(value="sk-a", alias="portable")
+        self._insere_cle(value="sk-b", alias="bureau")
         c = self._client()
-        with patch.object(portal, "renommer_cle_litellm", return_value=True) as faux:
+        with patch.object(portal, "rename_litellm_key", return_value=True) as faux:
             r = self._post(c, "/keys", {"action": "rename", "key": "sk-b",
                                         "key_name": "portable"})
         self.assertEqual(r.status_code, 409)
@@ -443,7 +443,7 @@ class RenommageCleTest(_BaseReglages):
     def test_nom_vide_refuse(self):
         self._insere_cle()
         c = self._client()
-        with patch.object(portal, "renommer_cle_litellm", return_value=True) as faux:
+        with patch.object(portal, "rename_litellm_key", return_value=True) as faux:
             r = self._post(c, "/keys", {"action": "rename", "key": "sk-ren-1",
                                         "key_name": "   "})
         self.assertEqual(r.status_code, 400)
@@ -454,7 +454,7 @@ class RenommageCleTest(_BaseReglages):
         """A 4000-character alias would break the list display."""
         self._insere_cle()
         c = self._client()
-        with patch.object(portal, "renommer_cle_litellm", return_value=True):
+        with patch.object(portal, "rename_litellm_key", return_value=True):
             r = self._post(c, "/keys", {"action": "rename", "key": "sk-ren-1",
                                         "key_name": "mon portable " + "x" * 100})
         self.assertEqual(r.status_code, 200)
@@ -470,7 +470,7 @@ class SourceMotDePasseTest(_BaseReglages):
     def test_compte_local(self):
         self._insere_local("zz-gestion-local")
         with self._db():
-            info = portal.gestion_mot_de_passe("zz-gestion-local")
+            info = portal.password_management("zz-gestion-local")
         self.assertEqual(info["gestion"], "portail")
         self.assertTrue(info["passkey"])
         self._nettoie("zz-gestion-local")
@@ -478,7 +478,7 @@ class SourceMotDePasseTest(_BaseReglages):
     def test_compte_ldap(self):
         self._insere_source("zz-gestion-ldap", "ldap")
         with self._db():
-            info = portal.gestion_mot_de_passe("zz-gestion-ldap")
+            info = portal.password_management("zz-gestion-ldap")
         self.assertEqual(info["gestion"], "annuaire-ldap")
         self.assertTrue(info["passkey"], "la 2FA reste possible pour un compte LDAP")
         self._nettoie("zz-gestion-ldap")
@@ -486,7 +486,7 @@ class SourceMotDePasseTest(_BaseReglages):
     def test_compte_sso(self):
         self._insere_source("zz-gestion-sso", "sso")
         with self._db():
-            info = portal.gestion_mot_de_passe("zz-gestion-sso")
+            info = portal.password_management("zz-gestion-sso")
         self.assertEqual(info["gestion"], "fournisseur-sso")
         self.assertFalse(info["passkey"],
                          "un compte SSO n'a pas de mot de passe vérifiable ici")
@@ -496,7 +496,7 @@ class SourceMotDePasseTest(_BaseReglages):
         """Missing data ≠ no password: we do not guess."""
         self._nettoie("zz-gestion-inconnu")
         with self._db():
-            info = portal.gestion_mot_de_passe("zz-gestion-inconnu")
+            info = portal.password_management("zz-gestion-inconnu")
         self.assertEqual(info["gestion"], "inconnu")
         self.assertFalse(info["local"])
 
@@ -505,7 +505,7 @@ class SourceMotDePasseTest(_BaseReglages):
         self._insere_local("zz-gestion-mixte")
         self._insere_source("zz-gestion-mixte", "local,sso")
         with self._db():
-            info = portal.gestion_mot_de_passe("zz-gestion-mixte")
+            info = portal.password_management("zz-gestion-mixte")
         self.assertEqual(info["gestion"], "portail")
         self._nettoie("zz-gestion-mixte")
 
@@ -537,16 +537,16 @@ class SecuriteCompteTest(_BaseReglages):
         c = self._client("zz-sec-local")
         r = c.get("/api/security")
         self.assertEqual(r.status_code, 200)
-        corps = r.get_json()
-        self.assertEqual(corps["password_managed_by"], "portail")
-        self.assertTrue(corps["passkey_possible"])
+        body = r.get_json()
+        self.assertEqual(body["password_managed_by"], "portail")
+        self.assertTrue(body["passkey_possible"])
 
     def test_whoami_porte_la_source(self):
         self._insere_local("zz-sec-who")
         c = self._client("zz-sec-who")
-        corps = c.get("/api/whoami").get_json()
-        self.assertEqual(corps["password_managed_by"], "portail")
-        self.assertTrue(corps["local_account"])
+        body = c.get("/api/whoami").get_json()
+        self.assertEqual(body["password_managed_by"], "portail")
+        self.assertTrue(body["local_account"])
         self._nettoie("zz-sec-who")
 
 
@@ -605,11 +605,11 @@ class SuppressionCompteTest(_BaseReglages):
         """
         self._insere_local("zz-del-5")
         c = self._client("zz-del-5")
-        with patch("auth.ldap_authenticate") as annuaire:
+        with patch("auth.ldap_authenticate") as directory_states:
             r = self._json_post(c, "/api/account/delete",
                                 {"confirm": "DELETE", "password": "faux"})
         self.assertEqual(r.status_code, 400)
-        self.assertFalse(annuaire.called,
+        self.assertFalse(directory_states.called,
                          "un compte dont le PORTAIL detient le mot de passe ne doit "
                          "pas interroger l'annuaire")
         self._nettoie("zz-del-5")
@@ -626,9 +626,9 @@ class SuppressionCompteTest(_BaseReglages):
             r = self._json_post(c, "/api/account/delete",
                                 {"confirm": "DELETE", "password": "Motdepasse1!"})
         self.assertEqual(r.status_code, 200)
-        corps = r.get_json()
-        self.assertTrue(corps["ok"])
-        self.assertTrue(corps["deleted"])
+        body = r.get_json()
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["deleted"])
         with self._db():
             db = portal.get_db()
             self.assertIsNone(db.execute(
@@ -698,9 +698,9 @@ class SuppressionCompteTest(_BaseReglages):
         with self._patch_litellm():
             r = self._json_post(c, "/api/account/delete", {"confirm": "DELETE"})
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
-        corps = r.get_json()
-        self.assertTrue(corps["ok"])
-        self.assertFalse(corps["deleted"],
+        body = r.get_json()
+        self.assertTrue(body["ok"])
+        self.assertFalse(body["deleted"],
                          "un compte d'annuaire n'est pas supprimé par le portail")
         with self._db():
             self.assertIsNone(portal.get_db().execute(

@@ -38,27 +38,27 @@ def get_user_keys(username):
         conn.close()
     except Exception:
         return []
-    infos = _infos_cles([k['key_value'] for k in local_keys])
+    infos = _key_infos([k['key_value'] for k in local_keys])
     result = []
     for k in local_keys:
-        depuis_litellm = infos.get(k['key_value'], {})
+        from_litellm = infos.get(k['key_value'], {})
         result.append({
             'key_alias': k['key_alias'],
             'key': k['key_value'],
             'created_at': k['created_at'],
-            'spend': depuis_litellm.get('spend', 0),
-            'max_budget': depuis_litellm.get('max_budget'),
-            'budget_reset_at': depuis_litellm.get('budget_reset_at'),
+            'spend': from_litellm.get('spend', 0),
+            'max_budget': from_litellm.get('max_budget'),
+            'budget_reset_at': from_litellm.get('budget_reset_at'),
             # Last call with this key (LiteLLM's `last_active` column).
             # It was missing: one could not tell the key used this morning from one
             # created six months ago and never used — so no way to know which one to
             # revoke safely. `None` = never used according to LiteLLM, which is
             # information, not a gap.
-            'last_active': depuis_litellm.get('last_active'),
+            'last_active': from_litellm.get('last_active'),
         })
     return result
 
-def _infos_cles(cles):
+def _key_infos(keys):
     """spend / max_budget / budget_reset_at for a list of keys IN CLEAR.
 
     Reads the LiteLLM database directly rather than its HTTP /key/info
@@ -75,10 +75,10 @@ def _infos_cles(cles):
     LiteLLM stores the sha256 of the key, never the key: we hash to join.
     Returns {cle_en_clair: {...}}; a missing key simply has no entry.
     """
-    cles = [c for c in cles if c]
-    if not cles:
+    keys = [c for c in keys if c]
+    if not keys:
         return {}
-    par_hash = {hashlib.sha256(c.encode()).hexdigest(): c for c in cles}
+    by_hash = {hashlib.sha256(c.encode()).hexdigest(): c for c in keys}
     conn = _spend_conn()
     if not conn:
         _log.warning("infos cles : base LiteLLM injoignable, budgets affiches a 0")
@@ -87,17 +87,17 @@ def _infos_cles(cles):
         cur = conn.cursor()
         cur.execute('SELECT token, spend, max_budget, budget_reset_at, last_active '
                     'FROM "LiteLLM_VerificationToken" WHERE token = ANY(%s)',
-                    (list(par_hash),))
+                    (list(by_hash),))
         # `last_active` can be NULL (key never used): we keep the None, the UI
         # renders « Jamais utilisée ». The type varies with the LiteLLM version
         # (timestamp or text): we accept both — an exception here would drop the
         # WHOLE block into the `except`, thus showing 0 spent for keys that did
         # consume.
-        return {par_hash[t]: {'spend': sp or 0, 'max_budget': mb,
+        return {by_hash[t]: {'spend': sp or 0, 'max_budget': mb,
                               'budget_reset_at': br or '',
-                              'last_active': (la.isoformat() if hasattr(la, 'isoformat')
-                                              else (str(la) if la else None))}
-                for t, sp, mb, br, la in cur.fetchall() if t in par_hash}
+                              'last_active': (last_active.isoformat() if hasattr(last_active, 'isoformat')
+                                              else (str(last_active) if last_active else None))}
+                for t, sp, mb, br, last_active in cur.fetchall() if t in by_hash}
     except Exception as e:                                   # noqa: BLE001
         _log.warning("infos cles : lecture LiteLLM impossible (%s)", type(e).__name__)
         return {}
@@ -211,7 +211,7 @@ def revoke_litellm_key(key_value):
     return r.ok
 
 
-def renommer_cle_litellm(key_value, nouvel_alias):
+def rename_litellm_key(key_value, new_alias):
     """Updates the key alias AT LiteLLM, not only in the portal.
 
     The alias is duplicated: the portal keeps a copy (`api_keys.key_alias`)
@@ -226,7 +226,7 @@ def renommer_cle_litellm(key_value, nouvel_alias):
     """
     try:
         r = requests.post(f"{LITELLM_URL}/key/update", headers=litellm_headers(),
-                          json={"key": key_value, "key_alias": nouvel_alias}, timeout=5)
+                          json={"key": key_value, "key_alias": new_alias}, timeout=5)
         return r.ok
     except Exception:
         return False
@@ -258,21 +258,21 @@ def _litellm_model_id(name):
     """LiteLLM id of the model carrying this model_name, or None."""
     return _litellm_model_entry(name)[0]
 
-def _restaurer_modele(entree):
+def _restore_model(entry):
     """Reinstalls a LiteLLM entry as it was (best effort).
 
     `model_info` is filtered: LiteLLM refuses at creation the fields it
     generates itself (`id`, `db_model`). Returns True if the restoration was
     accepted.
     """
-    info = {k: v for k, v in (entree.get('model_info') or {}).items()
+    info = {k: v for k, v in (entry.get('model_info') or {}).items()
             if k not in ('id', 'db_model')}
-    corps = {'model_name': entree.get('model_name'),
-             'litellm_params': entree.get('litellm_params') or {},
+    body = {'model_name': entry.get('model_name'),
+             'litellm_params': entry.get('litellm_params') or {},
              'model_info': info}
     try:
         r = requests.post(f"{LITELLM_URL}/model/new", headers=litellm_headers(),
-                          json=corps, timeout=8)
+                          json=body, timeout=8)
         return r.status_code < 300
     except Exception:
         return False
@@ -324,7 +324,7 @@ def _litellm_upsert(public_name, upstream, max_input, max_output):
         },
     }
     try:
-        existing, entree_avant = _litellm_model_entry(public_name)
+        existing, entry_before = _litellm_model_entry(public_name)
         if existing:
             requests.post(f"{LITELLM_URL}/model/delete", headers=litellm_headers(),
                           json={"id": existing}, timeout=5)
@@ -337,11 +337,11 @@ def _litellm_upsert(public_name, upstream, max_input, max_output):
         # avoid leaving two entries of the same name). So we put back the old one —
         # captured BEFORE the deletion, otherwise there is nothing left to
         # restaurer.
-        if existing and entree_avant:
-            restaure = _restaurer_modele(entree_avant)
+        if existing and entry_before:
+            restored = _restore_model(entry_before)
             _log.warning("LiteLLM : création de « %s » refusée (HTTP %s) — entrée "
                          "précédente %s", public_name, r.status_code,
-                         "restaurée" if restaure else "PERDUE")
+                         "restaurée" if restored else "PERDUE")
         return False
     except Exception:
         return False

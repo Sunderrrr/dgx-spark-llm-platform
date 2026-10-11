@@ -15,12 +15,12 @@ import document_tools
 class DeclenchementTest(unittest.TestCase):
     """The document tool only arms on an explicit request from the user."""
 
-    def _demandee(self, texte):
-        return document_tools._document_demandee(
-            [{'role': 'user', 'content': texte}])
+    def _demandee(self, text):
+        return document_tools._document_requested(
+            [{'role': 'user', 'content': text}])
 
     def test_directives_explicites(self):
-        for texte in (
+        for text in (
             "lis ce document joint",
             "peux-tu lire la pièce jointe ?",
             "transcris cette facture",
@@ -32,10 +32,10 @@ class DeclenchementTest(unittest.TestCase):
             "read the attached document",
             "transcribe this receipt",
         ):
-            self.assertTrue(self._demandee(texte), texte)
+            self.assertTrue(self._demandee(text), text)
 
     def test_faux_positifs_jamais(self):
-        for texte in (
+        for text in (
             # A MENTIONED document is not a document to READ.
             "le document que tu as rédigé hier",
             "la facture de janvier est dans le dépôt",
@@ -46,7 +46,7 @@ class DeclenchementTest(unittest.TestCase):
             "lis le code source du module",
             "va voir le site du projet",
         ):
-            self.assertFalse(self._demandee(texte), texte)
+            self.assertFalse(self._demandee(text), text)
 
     def test_le_code_colle_ne_declenche_rien(self):
         # Same trap as for search and images: pasted code that TALKS about
@@ -60,34 +60,34 @@ class PiecesJointesTest(unittest.TestCase):
     """Which attachment is read: the one the model names, else the newest."""
 
     def test_la_plus_recente_par_defaut(self):
-        self.assertEqual(document_tools._piece_jointe(['a', 'b', 'c'], ''), ('c', ''))
+        self.assertEqual(document_tools._attachment(['a', 'b', 'c'], ''), ('c', ''))
 
     def test_le_modele_peut_nommer_la_piece(self):
         # Images travel WITHOUT their file name (data URLs), so a name can
         # only aim at a PLACE — « 2 », « image-2.jpg » and « pièce jointe 2 ».
-        for nom in ('2', 'image-2.jpg', 'pièce jointe 2'):
-            self.assertEqual(document_tools._piece_jointe(['a', 'b', 'c'], nom)[0],
-                             'b', nom)
+        for name in ('2', 'image-2.jpg', 'pièce jointe 2'):
+            self.assertEqual(document_tools._attachment(['a', 'b', 'c'], name)[0],
+                             'b', name)
 
     def test_nom_hors_portee_retombe_sur_la_plus_recente(self):
-        self.assertEqual(document_tools._piece_jointe(['a', 'b'], 'facture_2026.png')[0], 'b')
+        self.assertEqual(document_tools._attachment(['a', 'b'], 'facture_2026.png')[0], 'b')
 
     def test_aucune_piece_jointe(self):
-        self.assertEqual(document_tools._piece_jointe([], 'x'), (None, ''))
+        self.assertEqual(document_tools._attachment([], 'x'), (None, ''))
 
 
 class _FauxOcr:
     """Fake OCR sidecar response (the same shape as the /ocr page's stream)."""
 
-    def __init__(self, texte, ok=True):
+    def __init__(self, text, ok=True):
         self.ok = ok
-        self.lignes = [("data: " + json.dumps(
-            {'choices': [{'delta': {'content': texte}}]})).encode(),
+        self.lines = [("data: " + json.dumps(
+            {'choices': [{'delta': {'content': text}}]})).encode(),
             b'data: [DONE]']
 
     def iter_lines(self, decode_unicode=False):
-        for ligne in self.lignes:
-            yield ligne
+        for line in self.lines:
+            yield line
 
     def __enter__(self):
         return self
@@ -105,35 +105,35 @@ class ExecutionTest(unittest.TestCase):
 
     PIECE = 'data:image/png;base64,' + 'aGVsbG8='   # « hello »
 
-    def _lancer(self, args, journal, pieces, reponse):
+    def _launch(self, args, journal, attachments, response):
         """Runs the tool generator to its end and returns its text."""
         with ExitStack() as stack:
             stack.enter_context(mock.patch(
                 'ocr_routes.get_ocr_model', return_value='baidu/Unlimited-OCR'))
             stack.enter_context(mock.patch(
-                'ocr_routes.requests.post', return_value=reponse))
+                'ocr_routes.requests.post', return_value=response))
             stack.enter_context(mock.patch.object(
-                document_tools, 'sidecar_demarrage_auto',
+                document_tools, 'sidecar_autostart',
                 return_value=(True, '')))
             import app as portal
             with portal.app.test_request_context():
                 gen = document_tools._exec_document_tool(
-                    args, 'zz-test-doc', journal, pieces)
-                resultat, battements = None, []
+                    args, 'zz-test-doc', journal, attachments)
+                result, battements = None, []
                 while True:
                     try:
                         battements.append(next(gen))
                     except StopIteration as arret:
-                        resultat = arret.value
+                        result = arret.value
                         break
-        return resultat, battements
+        return result, battements
 
     def test_extraction_reussie(self):
         journal = []
-        resultat, battements = self._lancer(
+        result, battements = self._launch(
             {'fichier': 'facture.png'}, journal, [self.PIECE],
             _FauxOcr("Facture n° 42 — total 130 €"))
-        self.assertIn("Facture n° 42", resultat)
+        self.assertIn("Facture n° 42", result)
         self.assertEqual(journal[-1]['etape'], 'ocr_finie')
         self.assertEqual(journal[-1]['question'], 'facture.png')
         self.assertEqual(journal[-1]['erreur'], None)
@@ -141,20 +141,20 @@ class ExecutionTest(unittest.TestCase):
 
     def test_la_plus_recente_est_lue_sans_nom(self):
         journal = []
-        resultat, _ = self._lancer(
+        result, _ = self._launch(
             {}, journal, [self.PIECE, self.PIECE], _FauxOcr("la plus récente"))
-        self.assertIn("la plus récente", resultat)
+        self.assertIn("la plus récente", result)
 
     def test_aucune_piece_jointe_dit_le_faire(self):
         journal = []
-        resultat, _ = self._lancer({}, journal, [], _FauxOcr("inutile"))
-        self.assertIn('Aucune image jointe', resultat)
+        result, _ = self._launch({}, journal, [], _FauxOcr("inutile"))
+        self.assertIn('Aucune image jointe', result)
         self.assertEqual(journal, [])
 
     def test_extraction_vide_dit_le_motif(self):
         journal = []
-        resultat, _ = self._lancer({}, journal, [self.PIECE], _FauxOcr(""))
-        self.assertIn('Aucun texte n\'a pu être extrait', resultat)
+        result, _ = self._launch({}, journal, [self.PIECE], _FauxOcr(""))
+        self.assertIn('Aucun texte n\'a pu être extrait', result)
         self.assertEqual(journal[-1]['caracteres'], 0)
         self.assertIsNotNone(journal[-1]['erreur'])
 
@@ -164,7 +164,7 @@ class ExecutionTest(unittest.TestCase):
         journal = []
         with ExitStack() as stack:
             stack.enter_context(mock.patch.object(
-                document_tools, 'sidecar_demarrage_auto',
+                document_tools, 'sidecar_autostart',
                 return_value=(False, "mémoire insuffisante")))
             import app as portal
             with portal.app.test_request_context():
@@ -173,9 +173,9 @@ class ExecutionTest(unittest.TestCase):
                 try:
                     next(gen)
                 except StopIteration as arret:
-                    resultat = arret.value
-        self.assertIn('indisponible', resultat)
-        self.assertIn('mémoire insuffisante', resultat)
+                    result = arret.value
+        self.assertIn('indisponible', result)
+        self.assertIn('mémoire insuffisante', result)
         self.assertEqual(journal[-1]['erreur'], "mémoire insuffisante")
 
 
@@ -185,13 +185,13 @@ class PhaseOutilsTest(unittest.TestCase):
     def test_phase_avec_document(self):
         import websearch_tools
 
-        appels = {'tour': 0}
+        calls = {'tour': 0}
 
         def faux_litellm(url, **kw):
-            appels['tour'] += 1
+            calls['tour'] += 1
             r = mock.Mock()
             r.ok = True
-            if appels['tour'] == 1:
+            if calls['tour'] == 1:
                 r.json = lambda: {'choices': [{'message': {
                     'content': '', 'tool_calls': [{'id': 'appel1', 'function': {
                         'name': 'lire_document',
@@ -201,7 +201,7 @@ class PhaseOutilsTest(unittest.TestCase):
                     'content': 'Voici le texte.', 'tool_calls': []}}]}
             return r
 
-        journal, trouvailles = [], []
+        journal, findings = [], []
         # websearch_tools and ocr_routes share the SAME `requests` module: a
         # single patch, routed on the URL — two patches would overwrite each
         # other (the same trap as in test_image_tools).
@@ -215,18 +215,18 @@ class PhaseOutilsTest(unittest.TestCase):
             stack.enter_context(mock.patch(
                 'ocr_routes.get_ocr_model', return_value='baidu/Unlimited-OCR'))
             stack.enter_context(mock.patch.object(
-                document_tools, 'sidecar_demarrage_auto', return_value=(True, '')))
+                document_tools, 'sidecar_autostart', return_value=(True, '')))
             import app as portal
             with portal.app.test_request_context():
                 msgs = [{'role': 'user', 'content': 'lis ce document'}]
-                etapes = list(websearch_tools._phase_outils(
-                    'modele-test', msgs, 'cle', journal, trouvailles,
+                etapes = list(websearch_tools._tools_phase(
+                    'modele-test', msgs, 'cle', journal, findings,
                     web_ok=False, doc_ok=True, username='zz-test-doc',
-                    pieces=[ExecutionTest.PIECE]))
+                    attachments=[ExecutionTest.PIECE]))
         annonces = [e for e in etapes if '"ocr"' in e]
         self.assertTrue(annonces, etapes)
-        self.assertTrue(any('Total : 130 €' in contenu for _n, contenu in trouvailles),
-                        trouvailles)
+        self.assertTrue(any('Total : 130 €' in content for _n, content in findings),
+                        findings)
         self.assertEqual(journal[-1]['outil'], 'unlimited-ocr')
 
 

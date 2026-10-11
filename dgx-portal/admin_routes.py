@@ -30,11 +30,11 @@ from werkzeug.security import generate_password_hash
 from announcements import add_announcement
 from auth import (USERNAME_RE,
                   _revoke_user_sessions,
-                  admin_required, bloquer_compte, completer_origine_session,
-                  debloque_compte, est_bloque, is_admin_username, ldap_lookup_email,
+                  admin_required, block_account, complete_session_origin,
+                  unblock_account, is_blocked, is_admin_username, ldap_lookup_email,
                   login_required)
 from config import KEY_BUDGET, KEY_DURATION, PUBLIC_WEB_URL, RUNNER_URL
-from parametres import smtp_config
+from instance_config import smtp_config
 from db import (add_notification, get_db, get_setting, log_audit, maintenance_active,
                 platform_name, set_setting)
 from litellm_client import (_litellm_user_info, _register_litellm_model,
@@ -45,8 +45,8 @@ from local_users import (MAX_BUDGET, _local_group, _local_user_effective_budget,
                          _sync_local_user_budget, password_policy_error)
 from notify import (notify_discord_test, notify_infra_alert_email, notify_maintenance_email,
                     send_test_email, send_user_email, sender_address)
-from user_lifecycle import (compter_donnees, deprovisionner_compte,
-                            prevenir_mot_de_passe_change, revoquer_cles_compte)
+from user_lifecycle import (count_data, deprovision_account,
+                            notify_password_changed, revoke_account_keys)
 from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       _image_launch, _mem_guard, _music_launch, _ocr_launch,
                       _runner_headers, _sidecar_start_json,
@@ -55,9 +55,9 @@ from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
                       get_music_model, get_ocr_model, get_voice_model,
                       runner_delete_files, runner_launch, runner_logs, runner_metrics,
                       runner_status, runner_stop)
-from directory import etats_annuaire
-from directory_groups import recalculer_membres
-from proprietaire import est_proprietaire, proprietaire
+from directory import directory_states_for
+from directory_groups import recompute_members
+from owner import is_owner, owner
 from stats import (_account_activity, _active_users,
                    admin_get_user_consumption, user_hourly)
 from vllm_health import get_running_models, guess_engine, vllm_health
@@ -108,13 +108,13 @@ def api_admin():
     # table made it read four times. `SUM(<condition>)` counts exactly
     # like a filtered COUNT; `or 0` covers the empty table (SUM returns NULL
     # where COUNT returned 0).
-    compte = db.execute(
+    account = db.execute(
         "SELECT SUM(status='pending') AS pending, SUM(status='done') AS done, "
         "SUM(status='rejected') AS rejected FROM model_requests").fetchone()
     stats = {
-        'pending':  compte['pending'] or 0,
-        'done':     compte['done'] or 0,
-        'rejected': compte['rejected'] or 0,
+        'pending':  account['pending'] or 0,
+        'done':     account['done'] or 0,
+        'rejected': account['rejected'] or 0,
         'budget_pending': db.execute("SELECT COUNT(*) AS n FROM budget_requests "
                                      "WHERE status='pending'").fetchone()['n'],
         'requests_shown': len(all_reqs),
@@ -193,23 +193,23 @@ def api_admin():
 # content.
 _BACKUP_DIR = os.environ.get('BACKUP_DIR', '/var/backups/dgx')
 _MONITOR_STATE = os.environ.get('MONITOR_STATE', '/var/lib/dgx-monitor/state.json')
-_SEUIL_SAUVEGARDE_H = 26      # the dump runs at 03:00: beyond 26 h, it is late
+_BACKUP_THRESHOLD_H = 26      # the dump runs at 03:00: beyond 26 h, it is late
 
 
-def _etat_disque():
+def _disk_state():
     """Space on the data volume — same filesystem as the host."""
     try:
         st = os.statvfs('/app/data')
         total = st.f_frsize * st.f_blocks
-        libre = st.f_frsize * st.f_bavail
-        return {'free_gb': round(libre / 1024 ** 3, 1),
+        free = st.f_frsize * st.f_bavail
+        return {'free_gb': round(free / 1024 ** 3, 1),
                 'total_gb': round(total / 1024 ** 3, 1),
-                'used_pct': round(100 * (total - libre) / total, 1) if total else None}
+                'used_pct': round(100 * (total - free) / total, 1) if total else None}
     except Exception:                                            # noqa: BLE001
         return {'free_gb': None, 'total_gb': None, 'used_pct': None}
 
 
-def _etat_sauvegarde():
+def _backup_state():
     """Freshness of the portal's latest dump (name + date, never the content).
 
     The normal source is the **host monitor state**, which runs as root every
@@ -222,36 +222,36 @@ def _etat_sauvegarde():
     """
     try:
         with open(_MONITOR_STATE, encoding='utf-8') as f:
-            sauvegarde = (json.load(f) or {}).get('backup') or {}
-        if sauvegarde.get('latest'):
-            age = sauvegarde.get('age_hours')
-            return {'latest': sauvegarde['latest'], 'age_hours': age,
-                    'fresh': bool(sauvegarde.get('up')) if age is not None else None,
-                    'count': sauvegarde.get('count'), 'readable': True}
+            backup = (json.load(f) or {}).get('backup') or {}
+        if backup.get('latest'):
+            age = backup.get('age_hours')
+            return {'latest': backup['latest'], 'age_hours': age,
+                    'fresh': bool(backup.get('up')) if age is not None else None,
+                    'count': backup.get('count'), 'readable': True}
     except Exception:                                            # noqa: BLE001
         pass
     try:
-        noms = [n for n in os.listdir(_BACKUP_DIR)
+        names = [n for n in os.listdir(_BACKUP_DIR)
                 if n.startswith('portal-') and n.endswith('.db')]
-        if not noms:
+        if not names:
             return {'latest': None, 'age_hours': None, 'fresh': False,
                     'count': 0, 'readable': True}
-        mtimes = {n: os.stat(os.path.join(_BACKUP_DIR, n)).st_mtime for n in noms}
-        dernier = max(mtimes, key=mtimes.get)
-        age = (time.time() - mtimes[dernier]) / 3600
-        return {'latest': dernier, 'age_hours': round(age, 1),
-                'fresh': age <= _SEUIL_SAUVEGARDE_H, 'count': len(noms), 'readable': True}
+        mtimes = {n: os.stat(os.path.join(_BACKUP_DIR, n)).st_mtime for n in names}
+        last = max(mtimes, key=mtimes.get)
+        age = (time.time() - mtimes[last]) / 3600
+        return {'latest': last, 'age_hours': round(age, 1),
+                'fresh': age <= _BACKUP_THRESHOLD_H, 'count': len(names), 'readable': True}
     except Exception:                                            # noqa: BLE001
         return {'latest': None, 'age_hours': None, 'fresh': None,
                 'count': None, 'readable': False}
 
 
-def _etat_moniteur():
+def _monitor_state():
     """Current incidents according to the host monitor's sticky state."""
     try:
         with open(_MONITOR_STATE, encoding='utf-8') as f:
-            etat = json.load(f)
-        down = etat.get('down') or []
+            state = json.load(f)
+        down = state.get('down') or []
         if isinstance(down, dict):
             down = [k for k, v in down.items() if v]
         return {'readable': True,
@@ -267,42 +267,42 @@ def _etat_moniteur():
         return {'readable': False, 'active_incidents': None, 'since': None}
 
 
-def _etat_modele():
+def _model_state():
     """Served model + since when, according to what the PORTAL observed."""
     st = runner_status()
-    nom, statut = st.get('model'), st.get('status')
+    name, status_value = st.get('model'), st.get('status')
     uptime = None
-    if statut == 'running':
+    if status_value == 'running':
         try:
             observe = json.loads(get_setting('model_servi', '') or '{}')
-            if observe.get('nom') == nom and observe.get('depuis'):
+            if observe.get('nom') == name and observe.get('depuis'):
                 uptime = max(0, int(time.time() - float(observe['depuis'])))
         except Exception:                                        # noqa: BLE001
             uptime = None
-    return {'name': nom, 'status': statut, 'uptime_s': uptime}
+    return {'name': name, 'status': status_value, 'uptime_s': uptime}
 
 
-def _etat_portail():
+def _portal_state():
     db = get_db()
-    taille = None
+    size = None
     try:
-        chemin = db.execute("PRAGMA database_list").fetchone()[2]
-        taille = round(os.path.getsize(chemin) / 1024 ** 2, 1) if chemin else None
+        path = db.execute("PRAGMA database_list").fetchone()[2]
+        size = round(os.path.getsize(path) / 1024 ** 2, 1) if path else None
     except Exception:                                            # noqa: BLE001
-        taille = None
-    maintenant = time.time()
+        size = None
+    now_ts = time.time()
     return {
-        'db_mb': taille,
+        'db_mb': size,
         # Live sessions only: revoked ones (logout, admin cut) were counted too
         # — « 247 active sessions » for 229 real ones (2026-10-12).
         'active_sessions': db.execute(
             "SELECT COUNT(*) AS n FROM user_sessions WHERE revoked = 0 AND expires_at > ?",
-            (maintenant,)).fetchone()['n'],
+            (now_ts,)).fetchone()['n'],
         # The people behind them: one browser per machine makes the session
         # count read like an audience it is not.
         'connected_users': db.execute(
             "SELECT COUNT(DISTINCT username) AS n FROM user_sessions "
-            "WHERE revoked = 0 AND expires_at > ?", (maintenant,)).fetchone()['n'],
+            "WHERE revoked = 0 AND expires_at > ?", (now_ts,)).fetchone()['n'],
         'local_users': db.execute(
             "SELECT COUNT(*) AS n FROM local_users WHERE enabled=1").fetchone()['n'],
         'active_keys': db.execute(
@@ -315,7 +315,7 @@ def _etat_portail():
 
 
 
-def _etat_memoire():
+def _memory_state():
     """Free memory (MemAvailable): what decides whether an on-demand sidecar or
     a heavy validation journey can start next to the served model."""
     from sidecars import _mem_available_gb
@@ -325,20 +325,20 @@ def _etat_memoire():
             'low_gib': 8}
 
 
-def _etat_annuaire():
+def _directory_state():
     """The directory accounts by state (directory.py snapshot): one disabled
     or gone there still holds API keys here until someone looks."""
     db = get_db()
-    noms = [r['username'] for r in db.execute(
+    names = [r['username'] for r in db.execute(
         "SELECT s.username FROM user_sources s LEFT JOIN local_users l "
         "ON l.username = s.username WHERE l.username IS NULL").fetchall()]
-    etats = etats_annuaire(noms)
-    if etats is None:
+    states = directory_states_for(names)
+    if states is None:
         return {'readable': False}
-    compte = {'actif': 0, 'desactive': 0, 'absent': 0}
-    for e in etats.values():
-        compte[e] = compte.get(e, 0) + 1
-    return {'readable': True, **compte}
+    account = {'actif': 0, 'desactive': 0, 'absent': 0}
+    for e in states.values():
+        account[e] = account.get(e, 0) + 1
+    return {'readable': True, **account}
 
 @bp.route('/admin/platform')
 @admin_required
@@ -351,13 +351,13 @@ def admin_platform():
     monitor opened, how long has the model been running.
     """
     return jsonify({
-        'disk': _etat_disque(),
-        'backup': _etat_sauvegarde(),
-        'monitor': _etat_moniteur(),
-        'model': _etat_modele(),
-        'portal': _etat_portail(),
-        'memory': _etat_memoire(),
-        'directory': _etat_annuaire(),
+        'disk': _disk_state(),
+        'backup': _backup_state(),
+        'monitor': _monitor_state(),
+        'model': _model_state(),
+        'portal': _portal_state(),
+        'memory': _memory_state(),
+        'directory': _directory_state(),
         'maintenance': maintenance_active(),
         'checked_at': int(time.time()),
     })
@@ -371,7 +371,7 @@ def launch_model():
     cfg  = db.execute("SELECT * FROM model_configs WHERE name=?", (name,)).fetchone()
     if not cfg:
         return jsonify({'ok': False, 'error': "Modèle introuvable."}), 404
-    ok, motif, incertain = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
+    ok, reason, incertain = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
                                          cfg['engine'] or 'vllm')
     if ok:
         # The « model X replaces model Y » announcement no longer goes out
@@ -381,14 +381,14 @@ def launch_model():
         log_audit(session.get('username'), 'model.launch', f"lancement de {name}")
     else:
         log_audit(session.get('username'), 'model.launch_échec',
-                  f"lancement de {name} : {motif}"
+                  f"lancement de {name} : {reason}"
                   + (" (délai dépassé, issue inconnue)" if incertain else " (refusé)"))
         # No infra alert on a DOUBT: the launch may still be in progress.
         # A false "launch failure" trains the administrator to ignore
         # alerts — and invites a relaunch, which kills a model being loaded.
         if not incertain:
             notify_infra_alert_email(
-                "Chat model launch failed", f"{name}: {motif or 'launch refused'}")
+                "Chat model launch failed", f"{name}: {reason or 'launch refused'}")
     # JSON response, not a redirect: `act()` on the frontend side reads {ok, error}
     # and treats any NON-JSON response as a success (its own comment says so).
     # This route redirected, so a refused launch displayed as successful and
@@ -396,7 +396,7 @@ def launch_model():
     # attempts refused with 400, no trace on screen.
     if ok:
         return _json_ok(f"Lancement de {name} accepté — chargement en cours.")
-    return _json_erreur(motif or "Lancement refusé par le runner.",
+    return _json_error(reason or "Lancement refusé par le runner.",
                         202 if incertain else 503, incertain=incertain)
 
 @bp.route('/api/announcements')
@@ -425,14 +425,14 @@ def api_announcements_seen():
 
 def _json_ok(message=None, **extra):
     """Admin action success: {ok: true} + free fields."""
-    corps = {'ok': True}
+    body = {'ok': True}
     if message:
-        corps['message'] = message
-    corps.update(extra)
-    return jsonify(corps)
+        body['message'] = message
+    body.update(extra)
+    return jsonify(body)
 
 
-def _json_erreur(message, code=400, **extra):
+def _json_error(message, code=400, **extra):
     """Admin action refusal: {ok: false, error} + free fields.
 
     SINGLE contract of all admin actions. About twenty routes
@@ -445,17 +445,17 @@ def _json_erreur(message, code=400, **extra):
     model launch had been fixed this way on 04/09; the fix had never
     been generalized to its neighbours.
     """
-    corps = {'ok': False, 'error': message}
-    corps.update(extra)
-    return jsonify(corps), code
+    body = {'ok': False, 'error': message}
+    body.update(extra)
+    return jsonify(body), code
 
 
-def _proprietaire_protege(username):
+def _owner_protected(username):
     """The OWNER (proprietaire.py) is out of reach of the other admins: no
     deletion, demotion, disabling, password change or block. A JSON refusal,
     or None when the action may proceed."""
-    if est_proprietaire(username) and session.get('username') != username:
-        return _json_erreur("Ce compte est le propriétaire de l'instance : seul "
+    if is_owner(username) and session.get('username') != username:
+        return _json_error("Ce compte est le propriétaire de l'instance : seul "
                             "lui-même peut le modifier.", 403)
     return None
 
@@ -466,7 +466,7 @@ def admin_announce():
     title = request.form.get('title', '').strip()[:120]
     body  = request.form.get('body', '').strip()[:600]
     if not title:
-        return _json_erreur("Titre requis pour l'annonce.")
+        return _json_error("Titre requis pour l'annonce.")
     add_announcement('site', title, body)
     log_audit(session.get('username'), 'announce', f"annonce : {title}")
     return _json_ok("Annonce publiée — elle s'affichera à l'ouverture du site.")
@@ -474,15 +474,15 @@ def admin_announce():
 @bp.route('/admin/model/stop', methods=['POST'])
 @admin_required
 def stop_model():
-    ok, motif, incertain = runner_stop()
+    ok, reason, incertain = runner_stop()
     log_audit(session.get('username'), 'model.stop',
-              "arrêt du modèle de chat" if ok else f"échec de l'arrêt : {motif}")
+              "arrêt du modèle de chat" if ok else f"échec de l'arrêt : {reason}")
     if ok:
         return _json_ok("Modèle arrêté.")
     # `incertain` = the runner did not answer within the delay, the stop may
     # still be in progress. We say so as-is rather than claiming a failure:
     # an operator who believes it failed clicks again.
-    return _json_erreur(motif or "Échec de l'arrêt du modèle.", 202 if incertain else 503,
+    return _json_error(reason or "Échec de l'arrêt du modèle.", 202 if incertain else 503,
                         incertain=incertain)
 
 @bp.route('/admin/ocr/start', methods=['POST'])
@@ -512,14 +512,14 @@ def add_ocr_cfg():
     hf_id = request.form.get('hf_model_id', '').strip()
     args  = request.form.get('vllm_args', '').strip()
     if not name or not hf_id:
-        return _json_erreur("Nom et HF model ID requis.")
+        return _json_error("Nom et HF model ID requis.")
     db = get_db()
     try:
         db.execute("INSERT INTO ocr_configs (name, hf_model_id, vllm_args, added_at) VALUES (?,?,?,?)",
                    (name, hf_id, args, datetime.now().isoformat()))
         db.commit()
     except sqlite3.IntegrityError:
-        return _json_erreur("Un modèle OCR avec ce nom existe déjà.", 409)
+        return _json_error("Un modèle OCR avec ce nom existe déjà.", 409)
     log_audit(session.get('username'), 'ocr.catalog.add', f"{name} ({hf_id})")
     return _json_ok(f"Modèle OCR {name} ajouté au catalogue.")
 
@@ -529,7 +529,7 @@ def delete_ocr_cfg(cid):
     db = get_db()
     row = db.execute("SELECT name FROM ocr_configs WHERE id=?", (cid,)).fetchone()
     if not row:
-        return _json_erreur("Modèle OCR introuvable.", 404)
+        return _json_error("Modèle OCR introuvable.", 404)
     db.execute("DELETE FROM ocr_configs WHERE id=?", (cid,))
     db.commit()
     log_audit(session.get('username'), 'ocr.catalog.delete', row['name'])
@@ -636,14 +636,14 @@ def add_voice_cfg():
     name    = re.sub(r'[^a-zA-Z0-9_-]', '-', request.form.get('name', '').strip())[:40]
     repo_id = request.form.get('repo_id', '').strip()
     if not name or repo_id not in VOICE_REPO_IDS:
-        return _json_erreur("Nom et variante requis (variante hors liste autorisée).")
+        return _json_error("Nom et variante requis (variante hors liste autorisée).")
     db = get_db()
     try:
         db.execute("INSERT INTO voice_configs (name, repo_id, added_at) VALUES (?,?,?)",
                    (name, repo_id, datetime.now().isoformat()))
         db.commit()
     except sqlite3.IntegrityError:
-        return _json_erreur("Un modèle voix avec ce nom existe déjà.", 409)
+        return _json_error("Un modèle voix avec ce nom existe déjà.", 409)
     log_audit(session.get('username'), 'voice.catalog.add', f"{name} ({repo_id})")
     return _json_ok(f"Modèle voix {name} ajouté au catalogue.")
 
@@ -653,7 +653,7 @@ def delete_voice_cfg(cid):
     db = get_db()
     row = db.execute("SELECT name FROM voice_configs WHERE id=?", (cid,)).fetchone()
     if not row:
-        return _json_erreur("Modèle voix introuvable.", 404)
+        return _json_error("Modèle voix introuvable.", 404)
     db.execute("DELETE FROM voice_configs WHERE id=?", (cid,))
     db.commit()
     log_audit(session.get('username'), 'voice.catalog.delete', row['name'])
@@ -665,14 +665,14 @@ def launch_voice_cfg():
     name = request.form.get('voice_name', '').strip()
     cfg = get_db().execute("SELECT * FROM voice_configs WHERE name=?", (name,)).fetchone()
     if not cfg:
-        return _json_erreur("Modèle voix introuvable.", 404)
+        return _json_error("Modèle voix introuvable.", 404)
     # Same memory guard as OCR, image and music: recreating the voice
     # container reloads a model (~15 Go), and this route was the ONLY one of the
     # four not to set it — on unified memory, an OOM kills the biggest RSS,
     # i.e. the served chat model.
     err = _mem_guard('voice')
     if err:
-        return _json_erreur(err, 507)
+        return _json_error(err, 507)
     ok, detail = _voice_launch(cfg['repo_id'])
     log_audit(session.get('username'), 'voice.launch',
               f"relance voix {cfg['repo_id']}" if ok else f"échec relance voix : {detail}")
@@ -680,7 +680,7 @@ def launch_voice_cfg():
         notify_infra_alert_email("Voice model launch failed", f"{name}: {detail}")
     if ok:
         return _json_ok(f"Relance voix avec {name} en cours…")
-    return _json_erreur(f"Échec de la relance voix : {detail}", 503)
+    return _json_error(f"Échec de la relance voix : {detail}", 503)
 
 @bp.route('/admin/model/add', methods=['POST'])
 @admin_required
@@ -692,7 +692,7 @@ def add_model_cfg():
     if engine not in ('vllm', 'llamacpp', 'ds4', 'exllamav3'):
         engine = 'vllm'
     if not name or not hf_id:
-        return _json_erreur("Nom et HF model ID requis.")
+        return _json_error("Nom et HF model ID requis.")
     # No shape validation on hf_id here, deliberately: `local:<name>`
     # (local GGUF) is a legitimate identifier, which the « org/nom » regex of
     # image and music would refuse. The runner keeps its own shape guard
@@ -704,7 +704,7 @@ def add_model_cfg():
                    (name, hf_id, args, engine, datetime.now().isoformat()))
         db.commit()
     except sqlite3.IntegrityError:
-        return _json_erreur("Un modèle avec ce nom existe déjà.", 409)
+        return _json_error("Un modèle avec ce nom existe déjà.", 409)
     add_announcement('model_add', name)
     ok = _register_litellm_model(name, args, engine)
     log_audit(session.get('username'), 'model.add',
@@ -727,7 +727,7 @@ def edit_model_cfg(mid):
     db = get_db()
     row = db.execute("SELECT name, engine FROM model_configs WHERE id=?", (mid,)).fetchone()
     if not row:
-        return _json_erreur("Modèle introuvable dans le catalogue.", 404)
+        return _json_error("Modèle introuvable dans le catalogue.", 404)
     db.execute("UPDATE model_configs SET vllm_args=? WHERE id=?", (args, mid))
     db.commit()
     # The registration result was IGNORED and the route announced
@@ -756,16 +756,16 @@ def delete_model_cfg(mid):
     db = get_db()
     row = db.execute("SELECT name, hf_model_id FROM model_configs WHERE id=?", (mid,)).fetchone()
     if not row:
-        return _json_erreur("Modèle introuvable dans le catalogue.", 404)
-    nom, hf_id = row['name'], row['hf_model_id']
+        return _json_error("Modèle introuvable dans le catalogue.", 404)
+    name, hf_id = row['name'], row['hf_model_id']
     # The SERVED model: its weights are being read by the engine, and the
     # runner would relaunch at next startup a model with no files. We ask to
     # stop it first rather than leaving a half-done state.
-    if nom in (get_running_models() or []):
-        return _json_erreur(
-            f"{nom} est le modèle actuellement servi : arrête-le d'abord, puis "
+    if name in (get_running_models() or []):
+        return _json_error(
+            f"{name} est le modèle actuellement servi : arrête-le d'abord, puis "
             f"supprime-le (ses fichiers seront effacés du disque).", 409)
-    partage = [r['name'] for r in db.execute(
+    share = [r['name'] for r in db.execute(
         "SELECT name FROM model_configs WHERE hf_model_id=? AND id<>? "
         "UNION SELECT name FROM ocr_configs WHERE hf_model_id=?", (hf_id, mid, hf_id))]
     db.execute("DELETE FROM model_configs WHERE id=?", (mid,))
@@ -773,38 +773,38 @@ def delete_model_cfg(mid):
     # The result was ignored: the UI announced « retiré de LiteLLM » even
     # when the entry survived there, and a LiteLLM entry without a catalog row
     # is a routing that no screen can clean up anymore.
-    deregistre = _unregister_litellm_model(nom)
+    deregistered = _unregister_litellm_model(name)
     # The announcement feed is a "what's new", not a log: keeping
     # « modèle X ajouté » for a model just removed announces to users
     # something that no longer exists. The fact remains recorded
     # in the audit, only the feed is cleaned up.
-    retires = db.execute("DELETE FROM announcements WHERE kind='model_add' AND a=?",
-                         (nom,)).rowcount
+    removed_items = db.execute("DELETE FROM announcements WHERE kind='model_add' AND a=?",
+                         (name,)).rowcount
     db.commit()
-    avertissements = []
-    if partage:
-        fichiers = f"fichiers conservés (utilisés aussi par {', '.join(partage)})"
-        avertissements.append(f"Fichiers conservés : {', '.join(partage)} les utilise aussi.")
+    warnings = []
+    if share:
+        files = f"fichiers conservés (utilisés aussi par {', '.join(share)})"
+        warnings.append(f"Fichiers conservés : {', '.join(share)} les utilise aussi.")
     else:
-        ok_f, octets, motif = runner_delete_files(hf_id)
+        ok_f, size_bytes, reason = runner_delete_files(hf_id)
         if ok_f:
-            taille = (f"{octets / 2**30:.1f} Gio" if octets >= 2**30
-                      else f"{max(1, round(octets / 2**20))} Mio")
-            fichiers = (f"{taille} effacés du disque" if octets
+            size = (f"{size_bytes / 2**30:.1f} Gio" if size_bytes >= 2**30
+                      else f"{max(1, round(size_bytes / 2**20))} Mio")
+            files = (f"{size} effacés du disque" if size_bytes
                         else "aucun fichier sur le disque")
         else:
-            fichiers = f"fichiers NON effacés ({motif})"
-            avertissements.append(f"Les fichiers n'ont pas pu être effacés : {motif}")
-    if not deregistre:
-        avertissements.append("L'entrée LiteLLM n'a pas pu être retirée : elle survit sans "
+            files = f"fichiers NON effacés ({reason})"
+            warnings.append(f"Les fichiers n'ont pas pu être effacés : {reason}")
+    if not deregistered:
+        warnings.append("L'entrée LiteLLM n'a pas pu être retirée : elle survit sans "
                               "ligne de catalogue. Vérifie la passerelle.")
     log_audit(session.get('username'), 'model.delete',
-              f"{nom} — retiré du catalogue, LiteLLM "
-              f"{'dérégistré' if deregistre else 'NON DÉRÉGISTRÉ'}, {fichiers}, "
-              f"{retires} annonce(s) retirée(s)")
-    message = f"{nom} supprimé : catalogue, LiteLLM, {fichiers}."
-    if avertissements:
-        return _json_ok(message, warning=" ".join(avertissements))
+              f"{name} — retiré du catalogue, LiteLLM "
+              f"{'dérégistré' if deregistered else 'NON DÉRÉGISTRÉ'}, {files}, "
+              f"{removed_items} annonce(s) retirée(s)")
+    message = f"{name} supprimé : catalogue, LiteLLM, {files}."
+    if warnings:
+        return _json_ok(message, warning=" ".join(warnings))
     return _json_ok(message)
 
 @bp.route('/admin/settings', methods=['POST'])
@@ -824,17 +824,17 @@ def update_settings():
         if not (0 < budget_val <= MAX_BUDGET):
             raise ValueError
     except (ValueError, OverflowError):
-        return _json_erreur("Le nombre de tokens par défaut doit être un nombre "
+        return _json_error("Le nombre de tokens par défaut doit être un nombre "
                             f"positif, au plus {MAX_BUDGET:.0e}.")
     if not re.match(r'^\d+[smhd]$', duration):
-        return _json_erreur("Durée invalide (ex: 1d, 7d, 30d, 12h).")
-    ancien = get_setting('default_key_budget', None)
+        return _json_error("Durée invalide (ex: 1d, 7d, 30d, 12h).")
+    old = get_setting('default_key_budget', None)
     set_setting('default_key_budget', budget_val)
     set_setting('default_key_duration', duration)
     # The GLOBAL cap was not audited, although it applies to every account
     # without override nor group: it is the widest action of the page.
     log_audit(session.get('username'), 'settings.budget',
-              f"plafond global {ancien} → {budget_val:.0f} tokens / {duration}")
+              f"plafond global {old} → {budget_val:.0f} tokens / {duration}")
     return _json_ok(f"Limite globale mise à jour : {budget_val:,.0f} tokens / {duration}."
                     .replace(',', ' '))
 
@@ -866,26 +866,26 @@ def api_admin_users():
     now = datetime.now().timestamp()
     for r in db.execute("SELECT key, locked_until FROM login_attempts WHERE locked_until > ?",
                         (now,)).fetchall():
-        compte = r['key'].split('|')[-1].removeprefix('user:')
-        locked[compte] = max(locked.get(compte, 0), int((r['locked_until'] - now) // 60) + 1)
+        account = r['key'].split('|')[-1].removeprefix('user:')
+        locked[account] = max(locked.get(account, 0), int((r['locked_until'] - now) // 60) + 1)
 
     # The groups table is small and was ALREADY read after the loop
     # (for the response): we load it here and pass it to the helpers, which
     # removes the 2 SELECTs per account of `_local_group`.
     groups = db.execute("SELECT name, max_budget, is_admin, sources FROM user_groups "
                         "ORDER BY name").fetchall()
-    groupes = {g['name']: g for g in groups}
+    groups_by_name = {g['name']: g for g in groups}
     # Directory groups (LDAP memberOf, SSO claim), merged: one name per group.
-    groupes_annuaire = {}
+    directory_groups_by_user = {}
     for r in db.execute("SELECT DISTINCT d.username, d.group_name FROM user_directory_groups d "
                         "JOIN user_groups g ON g.name = d.group_name ORDER BY d.group_name").fetchall():
-        groupes_annuaire.setdefault(r['username'], []).append(r['group_name'])
+        directory_groups_by_user.setdefault(r['username'], []).append(r['group_name'])
     names = set(managed) | set(recorded) | set(spend)
     # Accounts the portal does not own (LDAP, SSO): their state lives in the
     # directory. One search for all of them, cached a minute; None when the
     # directory cannot be asked (the UI then shows nothing, it never guesses).
-    annuaire = etats_annuaire([n for n in names if n not in managed])
-    proprio = proprietaire()
+    directory_states = directory_states_for([n for n in names if n not in managed])
+    owner_name = owner()
     out = []
     for name in sorted(names):
         srcs = set()
@@ -896,13 +896,13 @@ def api_admin_users():
         # Used the platform but no source observed → external (LDAP/SSO).
         if not srcs and name in spend:
             srcs.add('externe')
-        mu = managed.get(name)
-        fullname = (mu['fullname'] if mu else None) or (recorded[name]['fullname'] if name in recorded else None)
+        local_row = managed.get(name)
+        fullname = (local_row['fullname'] if local_row else None) or (recorded[name]['fullname'] if name in recorded else None)
         sp = spend.get(name)
         rs = recorded.get(name)
         last_source = rs['last_source'] if rs else None
         last_is_admin = rs['last_is_admin'] if rs else None
-        local_admin = _local_user_is_admin(mu, groupes) if mu else None
+        local_admin = _local_user_is_admin(local_row, groups_by_name) if local_row else None
         # EFFECTIVE role, as it is actually APPLIED to requests. A single
         # authority, and it is the portal: as soon as a `local_users` row
         # exists, `auth.etat_compte` rules on it alone (`_local_user_is_admin`)
@@ -911,7 +911,7 @@ def api_admin_users():
         # removed from `cn=<groupe-admin>` stayed admin in practice, with no signal
         # for the operator who had just done it. So we display what applies, and
         # the comment says the same thing as auth.py.
-        if mu is not None:
+        if local_row is not None:
             effective_admin = local_admin
             role_source = 'local'
         else:
@@ -925,24 +925,24 @@ def api_admin_users():
         # A directory account stays « managed by the directory » even if a
         # historical local row remains; without a local row, the directory is
         # the only possible authority.
-        managed_by = 'repertoire' if (mu is None or last_source in ('sso', 'ldap')) else 'local'
-        if name == proprio:
+        managed_by = 'repertoire' if (local_row is None or last_source in ('sso', 'ldap')) else 'local'
+        if name == owner_name:
             effective_admin = True       # the owner is always an admin (auth.etat_compte)
         out.append({
             'username': name,
             'fullname': fullname,
             'avatar_id': avatars.get(name),
             'sources': sorted(srcs),
-            'managed': bool(mu),
+            'managed': bool(local_row),
             'managed_by': managed_by,
-            'id': mu['id'] if mu else None,
-            'group_name': mu['group_name'] if mu else None,
-            'enabled': mu['enabled'] if mu else 1,
-            'is_admin': mu['is_admin'] if mu else None,
+            'id': local_row['id'] if local_row else None,
+            'group_name': local_row['group_name'] if local_row else None,
+            'enabled': local_row['enabled'] if local_row else 1,
+            'is_admin': local_row['is_admin'] if local_row else None,
             'effective_admin': effective_admin,
             'role_source': role_source,
             'last_source': last_source,
-            'effective_budget': (_local_user_effective_budget(mu, groupes) if mu
+            'effective_budget': (_local_user_effective_budget(local_row, groups_by_name) if local_row
                                  else (sp['max_budget'] if sp else None)),
             'unlimited': (sp['unlimited'] if sp else False),
             'spend': (sp['spend'] if sp else 0),
@@ -955,18 +955,18 @@ def api_admin_users():
             'block_reason': (blocked[name]['reason'] if name in blocked else None),
             'blocked_at': (blocked[name]['blocked_at'] if name in blocked else None),
             'locked_minutes': locked.get(name, 0),
-            'directory_status': (annuaire or {}).get(name) if mu is None else None,
-            'directory_groups': groupes_annuaire.get(name, []),
-            'owner': name == proprio,
+            'directory_status': (directory_states or {}).get(name) if local_row is None else None,
+            'directory_groups': directory_groups_by_user.get(name, []),
+            'owner': name == owner_name,
         })
     # Members per group: local accounts (their one group) + directory accounts.
-    membres = {}
+    members = {}
     for u in out:
         for g in set(([u['group_name']] if u['group_name'] else []) + u['directory_groups']):
-            membres[g] = membres.get(g, 0) + 1
+            members[g] = members.get(g, 0) + 1
     return jsonify({'users': out,
                     'groups': [{**dict(g), 'sources': [x for x in (g['sources'] or '').split(',') if x],
-                                'members': membres.get(g['name'], 0)} for g in groups],
+                                'members': members.get(g['name'], 0)} for g in groups],
                     'default_budget': float(get_setting('default_key_budget', KEY_BUDGET)),
                     # The quota period (« 7d »): every cap of this page is per period,
                     # not per day as the UI used to say.
@@ -1036,9 +1036,9 @@ def admin_users_update(uid):
     row = db.execute("SELECT * FROM local_users WHERE id=?", (uid,)).fetchone()
     if not row:
         return jsonify({'ok': False, 'error': "Utilisateur introuvable."}), 404
-    refus = _proprietaire_protege(row['username'])
-    if refus:
-        return refus
+    refusal = _owner_protected(row['username'])
+    if refusal:
+        return refusal
     sets, vals = [], []
     password = request.form.get('password', '')
     if password:
@@ -1057,11 +1057,11 @@ def admin_users_update(uid):
         # could send it empty and lose the administration (audit of
         # 2026-10-02). We simulate the state AFTER the change, not just
         # `is_admin`.
-        nouveau_groupe = _local_group(group) if group else None
-        if not (row['is_admin'] or (nouveau_groupe and nouveau_groupe['is_admin'])):
-            refus = _refus_retrait_admin(row, "retirer du groupe administrateur")
-            if refus:
-                return _json_erreur(refus, 409)
+        new_group = _local_group(group) if group else None
+        if not (row['is_admin'] or (new_group and new_group['is_admin'])):
+            refusal = _admin_removal_refusal(row, "retirer du groupe administrateur")
+            if refusal:
+                return _json_error(refusal, 409)
         sets.append("group_name=?"); vals.append(group)
     if 'max_budget' in request.form:
         budget, err = _parse_budget(request.form.get('max_budget'))
@@ -1069,19 +1069,19 @@ def admin_users_update(uid):
             return jsonify({'ok': False, 'error': err}), 400
         sets.append("max_budget=?"); vals.append(budget)
     if 'is_admin' in request.form:
-        nouveau_admin = int(request.form.get('is_admin') in ('1', 'true', 'on'))
-        if not nouveau_admin:
-            refus = _refus_retrait_admin(row, "rétrograder")
-            if refus:
-                return _json_erreur(refus, 409)
-        sets.append("is_admin=?"); vals.append(nouveau_admin)
+        new_admin = int(request.form.get('is_admin') in ('1', 'true', 'on'))
+        if not new_admin:
+            refusal = _admin_removal_refusal(row, "rétrograder")
+            if refusal:
+                return _json_error(refusal, 409)
+        sets.append("is_admin=?"); vals.append(new_admin)
     if 'enabled' in request.form:
-        nouvel_actif = int(request.form.get('enabled') in ('1', 'true', 'on'))
-        if not nouvel_actif:
-            refus = _refus_retrait_admin(row, "désactiver")
-            if refus:
-                return _json_erreur(refus, 409)
-        sets.append("enabled=?"); vals.append(nouvel_actif)
+        new_active = int(request.form.get('enabled') in ('1', 'true', 'on'))
+        if not new_active:
+            refusal = _admin_removal_refusal(row, "désactiver")
+            if refusal:
+                return _json_error(refusal, 409)
+        sets.append("enabled=?"); vals.append(new_active)
     if 'fullname' in request.form:
         sets.append("fullname=?"); vals.append(request.form.get('fullname', '').strip()[:120] or None)
     if sets:
@@ -1090,53 +1090,53 @@ def admin_users_update(uid):
     updated = db.execute("SELECT * FROM local_users WHERE id=?", (uid,)).fetchone()
     # Locking an account (enabled=0) immediately revokes its sessions:
     # it loses its access without waiting for HTTP expiration.
-    revoquees = 0
-    cles_ko = 0
+    revoked = 0
+    keys_failed = 0
     if 'enabled' in request.form and not updated['enabled']:
-        revoquees = _revoke_user_sessions(updated['username'])
+        revoked = _revoke_user_sessions(updated['username'])
         # Disabling cuts PORTAL access, not API access: LiteLLM validates the
         # keys itself and the portal is not in the path. Without this
         # revocation, a « désactivé » account kept a working key
         # (audit of 2026-10-02) — the same hole as blocking, on the other
         # offboarding path.
-        cles_ok, cles_ko, cles_total = revoquer_cles_compte(
+        keys_ok, keys_failed, keys_total = revoke_account_keys(
             updated['username'], session.get('username'), 'désactivation du compte')
     if password:
         # Changing the password must close the OTHER sessions: without that,
         # a change motivated by doubt about a stolen cookie protected
         # nothing, the old session continuing to validate.
-        revoquees = max(revoquees, _revoke_user_sessions(updated['username']))
+        revoked = max(revoked, _revoke_user_sessions(updated['username']))
     # The quota resync was UNCONDITIONAL: renaming an account, changing its
     # password or fixing its name rewrote the LiteLLM envelope from
     # local_users — which ERASED a grant in progress, since budget_grants only
     # lives on the LiteLLM side. The reaper then noticed the drift, concluded
     # « the admin stepped in meanwhile » and deleted the row: the account
     # lost its quota with nobody being warned.
-    recharge = request.form.get('enabled') in ('1', 'true', 'on')
-    if {'group', 'max_budget'} & set(request.form.keys()) or recharge:
+    reloaded = request.form.get('enabled') in ('1', 'true', 'on')
+    if {'group', 'max_budget'} & set(request.form.keys()) or reloaded:
         quota_ok = _sync_local_user_budget(updated['username'], updated)
     else:
         quota_ok = True
     log_audit(session.get('username'), 'user.update',
               f"mise à jour de {updated['username']}"
-              + (f" — mot de passe changé par l'admin, {revoquees} session(s) fermée(s)"
+              + (f" — mot de passe changé par l'admin, {revoked} session(s) fermée(s)"
                  if password else '')
-              + (f" — compte désactivé, {revoquees} session(s) fermée(s)"
+              + (f" — compte désactivé, {revoked} session(s) fermée(s)"
                  if 'enabled' in request.form and not updated['enabled'] else '')
-              + (f" — {cles_ko} clé(s) API NON révoquée(s)" if cles_ko else '')
+              + (f" — {keys_failed} clé(s) API NON révoquée(s)" if keys_failed else '')
               + ('' if quota_ok else ' — QUOTA NON APPLIQUÉ'))
     if password:
-        prevenir_mot_de_passe_change(updated['username'], par_admin=session.get('username'))
-    avertissements = []
+        notify_password_changed(updated['username'], by_admin=session.get('username'))
+    warnings = []
     if not quota_ok:
-        avertissements.append("le quota n'a PAS pu être appliqué sur LiteLLM : "
+        warnings.append("le quota n'a PAS pu être appliqué sur LiteLLM : "
                               "redéfinis le budget du compte")
-    if cles_ko:
-        avertissements.append(f"{cles_ko} clé(s) API n'ont PAS pu être révoquées : "
+    if keys_failed:
+        warnings.append(f"{keys_failed} clé(s) API n'ont PAS pu être révoquées : "
                               "vérifie côté LiteLLM avant de considérer ce compte comme parti")
-    if avertissements:
+    if warnings:
         return jsonify({'ok': True,
-                        'warning': "Modifications enregistrées, mais " + " ; ".join(avertissements) + "."})
+                        'warning': "Modifications enregistrées, mais " + " ; ".join(warnings) + "."})
     return jsonify({'ok': True})
 
 
@@ -1145,9 +1145,9 @@ def admin_users_update(uid):
 def admin_revoke_sessions(username):
     """Revokes at will all active sessions of an account (even a
     stolen cookie becomes unusable immediately)."""
-    refus = _proprietaire_protege(username)
-    if refus:
-        return refus
+    refusal = _owner_protected(username)
+    if refusal:
+        return refusal
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
     n = _revoke_user_sessions(username)
@@ -1157,7 +1157,7 @@ def admin_revoke_sessions(username):
               f"{username} — {n} session(s) révoquée(s)")
     return jsonify({'ok': True, 'revoked': n})
 
-def _corps():
+def _body():
     """Request body, form OR JSON.
 
     The Admin sends form data (postForm) and the new UI JSON (fetch): reading
@@ -1170,7 +1170,7 @@ def _corps():
     return request.form
 
 
-def _dernier_admin_local(username):
+def _last_local_admin(username):
     """True if `username` is the last active LOCAL administrator.
 
     The portal would then have nobody left to administer it locally —
@@ -1193,7 +1193,7 @@ def _dernier_admin_local(username):
     return True
 
 
-def _admins_locaux_apres(simulation):
+def _local_admins_after(simulation):
     """Counts the active local admins AFTER a simulated removal.
 
     `simulation` = {username: (is_admin, group_name)} of the accounts whose
@@ -1207,12 +1207,12 @@ def _admins_locaux_apres(simulation):
     for r in db.execute(
             "SELECT * FROM local_users WHERE enabled=1 "
             "AND username NOT IN (SELECT username FROM blocked_users)").fetchall():
-        etat = simulation.get(r['username'])
-        if etat is None:
+        state = simulation.get(r['username'])
+        if state is None:
             if _local_user_is_admin(r):
                 n += 1
             continue
-        is_admin, group_name = etat
+        is_admin, group_name = state
         if is_admin:
             n += 1
             continue
@@ -1222,7 +1222,7 @@ def _admins_locaux_apres(simulation):
     return n
 
 
-def _refus_retrait_admin(row, action):
+def _admin_removal_refusal(row, action):
     """Reason for refusal when removing the admin rights of `row` is forbidden.
 
     Two cases, same reason: the portal would become locally unadministrable.
@@ -1241,7 +1241,7 @@ def _refus_retrait_admin(row, action):
     if row['username'] == session.get('username'):
         return (f"Tu ne peux pas te {action} toi-même : tu perdrais immédiatement "
                 f"l'accès à l'administration. Demande-le à un autre administrateur.")
-    if _admins_locaux_apres({row['username']: (0, None)}) == 0:
+    if _local_admins_after({row['username']: (0, None)}) == 0:
         return (f"{row['username']} est le dernier administrateur local actif : le "
                 f"portail n'aurait plus personne pour l'administrer en local.")
     return None
@@ -1267,37 +1267,37 @@ def admin_users_delete(uid):
     if not row:
         return jsonify({'ok': False, 'error': "Utilisateur introuvable."}), 404
     username = row['username']
-    moi = session.get('username')
-    if username == moi:
+    me = session.get('username')
+    if username == me:
         return jsonify({'ok': False,
                         'error': "Tu ne peux pas supprimer ton propre compte."}), 400
-    refus = _proprietaire_protege(username)
-    if refus:
-        return refus
-    if _local_user_is_admin(row) and _dernier_admin_local(username):
+    refusal = _owner_protected(username)
+    if refusal:
+        return refusal
+    if _local_user_is_admin(row) and _last_local_admin(username):
         return jsonify({'ok': False,
                         'error': "Dernier administrateur local : nomme un autre "
                                  "administrateur avant de supprimer celui-ci."}), 400
-    donnees = compter_donnees(username)
-    if (_corps().get('confirm') or '').strip().upper() != 'DELETE':
-        return jsonify({'ok': False, 'needs_confirm': True, 'donnees': donnees,
+    data_counts = count_data(username)
+    if (_body().get('confirm') or '').strip().upper() != 'DELETE':
+        return jsonify({'ok': False, 'needs_confirm': True, 'donnees': data_counts,
                         'error': "Confirmation requise : cette suppression emporte "
                                  "les accès ET les données du compte."}), 409
     # The local row first: it carries the access, and everything after it
     # concerns it (keys, envelope, data) without depending on it.
     db.execute("DELETE FROM local_users WHERE id=?", (uid,))
     db.commit()
-    rapport = deprovisionner_compte(username, moi)
-    reponse = {'ok': True, 'purged': rapport}
+    report = deprovision_account(username, me)
+    response = {'ok': True, 'purged': report}
     # API access is half the problem: if LiteLLM did not answer, some
     # keys may still work, and the admin must know it right away
     # rather than discovering it in the audit log.
-    if rapport['keys_failed'] or not rapport['litellm_user']:
-        reponse['warning'] = (
-            f"{rapport['keys_failed']} clé(s) n'ont pas pu être révoquées et/ou "
+    if report['keys_failed'] or not report['litellm_user']:
+        response['warning'] = (
+            f"{report['keys_failed']} clé(s) n'ont pas pu être révoquées et/ou "
             "l'enveloppe LiteLLM n'a pas pu être supprimée (service injoignable) : "
             "vérifie les clés de ce compte dans LiteLLM avant de le considérer comme parti.")
-    return jsonify(reponse)
+    return jsonify(response)
 
 
 @bp.route('/admin/users/<username>/purge', methods=['POST'])
@@ -1312,9 +1312,9 @@ def admin_user_purge(username):
     access: BLOCKING remains the offboarding lever, since a directory
     account can log back in and would then find an empty account.
     """
-    refus = _proprietaire_protege(username)
-    if refus:
-        return refus
+    refusal = _owner_protected(username)
+    if refusal:
+        return refusal
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
     if username == session.get('username'):
@@ -1325,14 +1325,14 @@ def admin_user_purge(username):
         return jsonify({'ok': False,
                         'error': "Ce compte est local : utilise la suppression, "
                                  "qui retire aussi l'accès."}), 400
-    if (_corps().get('confirm') or '').strip().upper() != 'DELETE':
+    if (_body().get('confirm') or '').strip().upper() != 'DELETE':
         return jsonify({'ok': False, 'needs_confirm': True,
-                        'donnees': compter_donnees(username),
+                        'donnees': count_data(username),
                         'error': "Confirmation requise : cette opération efface "
                                  "définitivement les données du compte."}), 409
-    rapport = deprovisionner_compte(username, session.get('username'),
+    report = deprovision_account(username, session.get('username'),
                                     action='user.purge')
-    return jsonify({'ok': True, 'purged': rapport})
+    return jsonify({'ok': True, 'purged': report})
 
 
 @bp.route('/admin/users/<username>/block', methods=['POST'])
@@ -1348,32 +1348,32 @@ def admin_user_block(username):
     """
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
-    refus = _proprietaire_protege(username)
-    if refus:
-        return refus
+    refusal = _owner_protected(username)
+    if refusal:
+        return refusal
     if username == session.get('username'):
         return jsonify({'ok': False, 'error': "Tu ne peux pas bloquer ton propre compte."}), 400
-    if est_bloque(username):
+    if is_blocked(username):
         return jsonify({'ok': True, 'revoked_sessions': 0, 'deja_bloque': True})
     row = get_db().execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
-    if row is not None and _local_user_is_admin(row) and _dernier_admin_local(username):
+    if row is not None and _local_user_is_admin(row) and _last_local_admin(username):
         return jsonify({'ok': False,
                         'error': "Dernier administrateur local : nomme un autre "
                                  "administrateur avant de bloquer celui-ci."}), 400
-    raison = (_corps().get('reason') or '').strip()[:200] or None
-    rapport = bloquer_compte(username, raison, session.get('username'))
-    reponse = {'ok': True,
-               'revoked_sessions': rapport['sessions'],
-               'revoked_keys': rapport['keys_revoked'],
-               'keys_total': rapport['keys']}
+    reason = (_body().get('reason') or '').strip()[:200] or None
+    report = block_account(username, reason, session.get('username'))
+    response = {'ok': True,
+               'revoked_sessions': report['sessions'],
+               'revoked_keys': report['keys_revoked'],
+               'keys_total': report['keys']}
     # A revocation failure must NEVER be silent: a key that LiteLLM refused
     # to remove remains a live access to the GPU, and the admin must know it
     # right away (audit of 2026-10-02).
-    if rapport['keys_failed']:
-        reponse['warning'] = (f"{rapport['keys_failed']} clé(s) API n'ont PAS pu être "
+    if report['keys_failed']:
+        response['warning'] = (f"{report['keys_failed']} clé(s) API n'ont PAS pu être "
                               f"révoquées — vérifie côté LiteLLM avant de considérer "
                               f"ce compte comme parti.")
-    return jsonify(reponse)
+    return jsonify(response)
 
 
 @bp.route('/admin/users/<username>/unblock', methods=['POST'])
@@ -1381,7 +1381,7 @@ def admin_user_block(username):
 def admin_user_unblock(username):
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
-    n = debloque_compte(username, session.get('username'))
+    n = unblock_account(username, session.get('username'))
     return jsonify({'ok': True, 'debloque': bool(n)})
 
 
@@ -1398,21 +1398,21 @@ def admin_user_detail(username):
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
     db = get_db()
-    mu = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
+    local_row = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
     rs = db.execute("SELECT * FROM user_sources WHERE username=?", (username,)).fetchone()
     bl = db.execute("SELECT * FROM blocked_users WHERE username=?", (username,)).fetchone()
     litellm = _litellm_user_info(username)
-    donnees = compter_donnees(username)
-    cles = []
+    data_counts = count_data(username)
+    keys = []
     for k in (get_user_keys(username) or []):
-        cles.append({'alias': k.get('key_alias'), 'created_at': k.get('created_at'),
+        keys.append({'alias': k.get('key_alias'), 'created_at': k.get('created_at'),
                      'spend': k.get('spend', 0)})
     # The row of the calling sid is its own: if the admin opens their own
     # account, it is filled in like in self-service (session opened before
     # the IP/user-agent columns were added). That of ANOTHER account is never
     # touched — one would not write the admin's IP into someone else's session.
-    completer_origine_session()
-    sid_courant = session.get('sid')
+    complete_session_origin()
+    current_sid = session.get('sid')
     now = datetime.now().timestamp()
     sessions = []
     for r in db.execute(
@@ -1424,7 +1424,7 @@ def admin_user_detail(username):
             'id': (r['sid'] or '')[:12],
             'created_at': r['created_at'], 'expires_at': r['expires_at'],
             'ip': r['ip'], 'user_agent': r['user_agent'],
-            'current': bool(sid_courant and r['sid'] == sid_courant),
+            'current': bool(current_sid and r['sid'] == current_sid),
         })
     # Actions PERFORMED by this account (audit_log.username is the actor, the
     # target is in `detail`): this is the useful reading for an admin account.
@@ -1433,24 +1433,24 @@ def admin_user_detail(username):
                  "SELECT action, detail, created_at FROM audit_log WHERE username=? "
                  "ORDER BY id DESC LIMIT 20", (username,)).fetchall()]
     last_source = rs['last_source'] if rs else None
-    if mu is not None:
+    if local_row is not None:
         # Same single authority as the list (and as `auth.etat_compte`): the
         # local row rules, the directory is not added to it.
-        role = 'admin' if _local_user_is_admin(mu) else 'user'
+        role = 'admin' if _local_user_is_admin(local_row) else 'user'
     else:
         role = 'admin' if (rs and rs['last_is_admin']) else 'user'
     return jsonify({
         'ok': True,
         'username': username,
-        'fullname': (mu['fullname'] if mu else None) or (rs['fullname'] if rs else None),
+        'fullname': (local_row['fullname'] if local_row else None) or (rs['fullname'] if rs else None),
         'sources': (rs['sources'] if rs else '') or '',
         'last_source': last_source,
         'last_seen': rs['last_seen'] if rs else None,
-        'local': mu is not None,
-        'enabled': bool(mu['enabled']) if mu is not None else True,
-        'group': mu['group_name'] if mu else None,
-        'max_budget': mu['max_budget'] if mu else None,
-        'effective_budget': _local_user_effective_budget(mu) if mu else litellm['max_budget'],
+        'local': local_row is not None,
+        'enabled': bool(local_row['enabled']) if local_row is not None else True,
+        'group': local_row['group_name'] if local_row else None,
+        'max_budget': local_row['max_budget'] if local_row else None,
+        'effective_budget': _local_user_effective_budget(local_row) if local_row else litellm['max_budget'],
         'role': role,
         'blocked': {'blocked': bl is not None,
                     'reason': bl['reason'] if bl else None,
@@ -1460,9 +1460,9 @@ def admin_user_detail(username):
                     'max_budget': litellm.get('max_budget'),
                     'spend': litellm.get('spend', 0),
                     'budget_duration': litellm.get('budget_reset_at') or None},
-        'keys': cles,
-        'memory_facts': donnees['memory_facts'],
-        'conversations': donnees['conversations'],
+        'keys': keys,
+        'memory_facts': data_counts['memory_facts'],
+        'conversations': data_counts['conversations'],
         'sessions': sessions,
         'audit': audit,
         # The same 6-month daily series as « Mon compte »: which days the
@@ -1478,9 +1478,9 @@ def admin_user_detail(username):
         'model_requests': [dict(r) for r in db.execute(
             "SELECT model_id, status, created_at FROM model_requests WHERE username=? "
             "ORDER BY created_at DESC LIMIT 10", (username,)).fetchall()],
-        'directory_status': ((etats_annuaire([username]) or {}).get(username)
-                             if mu is None else None),
-        'donnees': donnees,
+        'directory_status': ((directory_states_for([username]) or {}).get(username)
+                             if local_row is None else None),
+        'donnees': data_counts,
     })
 
 @bp.route('/admin/groups/create', methods=['POST'])
@@ -1497,18 +1497,18 @@ def admin_groups_create():
     db = get_db()
     # Groups merge by name whatever the case (an LDAP « Famille » and an SSO
     # « famille » are one group): editing goes to the existing row.
-    existant = db.execute("SELECT name FROM user_groups WHERE lower(name)=lower(?)", (name,)).fetchone()
-    if existant:
-        name = existant['name']
+    existing = db.execute("SELECT name FROM user_groups WHERE lower(name)=lower(?)", (name,)).fetchone()
+    if existing:
+        name = existing['name']
     # Symmetric case of deletion: editing an existing group to REMOVE its
     # admin right (upsert ON CONFLICT) makes its members lose their rights —
     # without going through deletion. Same guard.
-    ancien = _local_group(name)
-    if ancien and ancien['is_admin'] and not is_admin:
-        membres = db.execute("SELECT * FROM local_users WHERE group_name=?", (name,)).fetchall()
-        if any(_local_user_is_admin(m) for m in membres) and \
-                _admins_locaux_apres({m['username']: (0, None) for m in membres}) == 0:
-            return _json_erreur(
+    old = _local_group(name)
+    if old and old['is_admin'] and not is_admin:
+        members = db.execute("SELECT * FROM local_users WHERE group_name=?", (name,)).fetchall()
+        if any(_local_user_is_admin(m) for m in members) and \
+                _local_admins_after({m['username']: (0, None) for m in members}) == 0:
+            return _json_error(
                 f"Retirer le droit d'administration du groupe {name} laisserait le "
                 f"portail sans aucun administrateur local. Ajoute un autre "
                 f"administrateur local d'abord.", 409)
@@ -1520,7 +1520,7 @@ def admin_groups_create():
     for u in db.execute("SELECT * FROM local_users WHERE group_name=? AND max_budget IS NULL", (name,)):
         _sync_local_user_budget(u['username'], u)
     # ...and to its directory members (LDAP/SSO), admin right included.
-    recalculer_membres(name)
+    recompute_members(name)
     log_audit(session.get('username'), 'group.create', f"groupe {name}")
     return jsonify({'ok': True})
 
@@ -1528,15 +1528,15 @@ def admin_groups_create():
 @admin_required
 def admin_groups_delete(name):
     db = get_db()
-    membres = db.execute("SELECT * FROM local_users WHERE group_name=?", (name,)).fetchall()
+    members = db.execute("SELECT * FROM local_users WHERE group_name=?", (name,)).fetchall()
     # A group can CARRY the admin rights of its members
     # (user_groups.is_admin): deleting it can therefore leave the portal with
     # no local administrator at all, exactly like demoting the last one. The
     # group deletion checked nothing.
-    groupe = _local_group(name)
-    if groupe and groupe['is_admin'] and any(_local_user_is_admin(m) for m in membres):
-        if _admins_locaux_apres({m['username']: (0, None) for m in membres}) == 0:
-            return _json_erreur(
+    group = _local_group(name)
+    if group and group['is_admin'] and any(_local_user_is_admin(m) for m in members):
+        if _local_admins_after({m['username']: (0, None) for m in members}) == 0:
+            return _json_error(
                 f"Le groupe {name} porte les droits d'administration de ses membres et "
                 f"aucun administrateur local ne subsisterait après sa suppression. "
                 f"Ajoute un autre administrateur local d'abord.", 409)
@@ -1545,24 +1545,24 @@ def admin_groups_delete(name):
     db.commit()
     # Directory members lose what the group granted, at once. (A directory
     # group comes back at its members' next login, without quota or right.)
-    recalculer_membres(name)
+    recompute_members(name)
     # The members lose the group's quota: their NEW effective cap
     # (personal override, else global default) must be rewritten on the LiteLLM
     # side. Group creation did it, deletion did not — the members therefore
     # silently kept an envelope sometimes more generous than the default, that
     # is, a phantom quota.
-    echecs = []
-    for m in membres:
+    failures = []
+    for m in members:
         if m['max_budget'] is not None:
             continue                     # personal cap: nothing to propagate
-        frais = db.execute("SELECT * FROM local_users WHERE username=?",
+        fresh = db.execute("SELECT * FROM local_users WHERE username=?",
                            (m['username'],)).fetchone()
-        if frais and not _sync_local_user_budget(m['username'], frais):
-            echecs.append(m['username'])
+        if fresh and not _sync_local_user_budget(m['username'], fresh):
+            failures.append(m['username'])
     log_audit(session.get('username'), 'group.delete',
-              f"suppression du groupe {name} — {len(membres)} membre(s) rebasculé(s) "
-              f"sur le défaut" + (f", QUOTA NON APPLIQUÉ pour {', '.join(echecs)}" if echecs else ""))
-    return jsonify({'ok': True, 'membres': len(membres), 'echecs_quota': echecs})
+              f"suppression du groupe {name} — {len(members)} membre(s) rebasculé(s) "
+              f"sur le défaut" + (f", QUOTA NON APPLIQUÉ pour {', '.join(failures)}" if failures else ""))
+    return jsonify({'ok': True, 'membres': len(members), 'echecs_quota': failures})
 
 @bp.route('/admin/maintenance/toggle', methods=['POST'])
 @admin_required
@@ -1628,14 +1628,14 @@ def internal_authcheck():
     # sharing a network with the portal — the OCR sidecar runs third-party model
     # code on one — turns the 200/503 difference into a KEY-VALIDITY ORACLE
     # (audit 2026-10-06, L1). Answer the maintenance message regardless.
-    def _depuis_proxy():
+    def _from_proxy():
         try:
             ip = ipaddress.ip_address(request.remote_addr or '')
             return (ip in ipaddress.ip_network('172.19.0.0/16')
                     or ip in ipaddress.ip_network('127.0.0.0/8'))
         except ValueError:
             return False
-    if not _depuis_proxy():
+    if not _from_proxy():
         return jsonify({'error': {'message': "Mode maintenance en cours — l'API est "
                                   "temporairement indisponible, réessaie plus tard.",
                                   'type': 'maintenance_mode'}}), 503
@@ -1650,7 +1650,7 @@ def internal_authcheck():
 
 @bp.route('/admin/valider', methods=['POST'])
 @admin_required
-def admin_valider():
+def admin_validate():
     """Runs the full validation pipeline on demand, from the admin.
 
     « je puisse lancer un test qui teste tout et me dise si tout va bien ou là
@@ -1663,12 +1663,12 @@ def admin_valider():
     conversation state, two overlapping runs would fight each other and report
     nonsense.
     """
-    with _valideur['v']:
-        if _valideur['en_cours']:
+    with _validator['v']:
+        if _validator['running']:
             return jsonify({'ok': False, 'error': "Une vérification est déjà en cours."}), 409
-        _valideur.update(en_cours=True, debut=time.time(), sortie=[], code=None)
+        _validator.update(running=True, start=time.time(), output=[], code=None)
 
-    def _lancer():
+    def _launch():
         import subprocess
         # The pipeline needs Docker and the HOST — a container cannot run it.
         # The portal writes a REQUEST FILE and a systemd .path unit picks it up
@@ -1676,63 +1676,63 @@ def admin_valider():
         # never executes anything on the host, which is the whole point.
         try:
             import pathlib
-            demande = pathlib.Path('/run/dgx/validation/demande.txt')
-            demande.parent.mkdir(parents=True, exist_ok=True)
-            demande.write_text(str(time.time()))
+            request_row = pathlib.Path('/run/dgx/validation/demande.txt')
+            request_row.parent.mkdir(parents=True, exist_ok=True)
+            request_row.write_text(str(time.time()))
             # The run itself is the host's job; we watch its log.
             log = pathlib.Path('/run/dgx/validation/courante.log')
             p = subprocess.Popen(['tail', '-F', str(log)],
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True, bufsize=1)
-            debut = time.time()
-            for ligne in p.stdout:
-                with _valideur['v']:
-                    _valideur['sortie'].append(ligne.rstrip())
+            start = time.time()
+            for line in p.stdout:
+                with _validator['v']:
+                    _validator['output'].append(line.rstrip())
                     # The log is a tail, not an ever-growing string: the panel
                     # shows the last lines, and a runaway output must not eat
                     # the portal's memory.
-                    if len(_valideur['sortie']) > 400:
-                        del _valideur['sortie'][:len(_valideur['sortie']) - 400]
+                    if len(_validator['output']) > 400:
+                        del _validator['output'][:len(_validator['output']) - 400]
                 # `tail -F` NEVER exits — without this the run stays « en cours »
                 # forever and the panel refuses the next one (measured 2026-10-10,
                 # « une vérification est déjà en cours » alors que rien ne tournait).
                 # Stop when the verdict lands, or after a hard time bound.
                 # scripts/validate.sh prints « OVERALL VERDICT »; the former
                 # French pipeline printed « VERDICT GLOBAL » (older logs).
-                if ('OVERALL VERDICT' in ligne or 'VERDICT GLOBAL' in ligne
-                        or time.time() - debut > 1200):
+                if ('OVERALL VERDICT' in line or 'VERDICT GLOBAL' in line
+                        or time.time() - start > 1200):
                     p.kill()
                     break
-            _valideur['code'] = 0 if any('ALL GREEN' in x or 'TOUT EST VERT' in x
-                                         for x in _valideur['sortie']) else 1
+            _validator['code'] = 0 if any('ALL GREEN' in x or 'TOUT EST VERT' in x
+                                         for x in _validator['output']) else 1
         except Exception as e:                      # noqa: BLE001
-            with _valideur['v']:
-                _valideur['sortie'].append(f"Erreur: {e}")
-                _valideur['code'] = 1
+            with _validator['v']:
+                _validator['output'].append(f"Erreur: {e}")
+                _validator['code'] = 1
         finally:
-            with _valideur['v']:
-                _valideur['en_cours'] = False
+            with _validator['v']:
+                _validator['running'] = False
 
-    threading.Thread(target=_lancer, daemon=True).start()
+    threading.Thread(target=_launch, daemon=True).start()
     return jsonify({'ok': True})
 
 
 @bp.route('/admin/valider/etat')
 @admin_required
-def admin_valider_etat():
+def admin_validate_state():
     """Progress + the output tail + the verdict, polled by the panel."""
-    with _valideur['v']:
+    with _validator['v']:
         return jsonify({
             'ok': True,
-            'en_cours': _valideur['en_cours'],
-            'duree_s': round(time.time() - _valideur['debut']) if _valideur['debut'] else 0,
-            'code': _valideur['code'],
-            'sortie': _valideur['sortie'][-120:],
-            'reussi': _valideur['code'] == 0 if _valideur['code'] is not None else None,
+            'en_cours': _validator['running'],
+            'duree_s': round(time.time() - _validator['start']) if _validator['start'] else 0,
+            'code': _validator['code'],
+            'sortie': _validator['output'][-120:],
+            'reussi': _validator['code'] == 0 if _validator['code'] is not None else None,
         })
 
 
-_valideur = {'en_cours': False, 'debut': None, 'sortie': [], 'code': None,
+_validator = {'running': False, 'start': None, 'output': [], 'code': None,
              'v': threading.Lock()}
 
 
@@ -1748,9 +1748,9 @@ def admin_config():
     each value comes from (interface / .env / défaut) — the first question when
     a setting « does not take ».
     """
-    from parametres import CONFIGURABLE, definir, etat_config
+    from instance_config import CONFIGURABLE, set_value, config_state
     if request.method == 'GET':
-        return jsonify({'ok': True, 'config': etat_config(),
+        return jsonify({'ok': True, 'config': config_state(),
                         'champs': [{'nom': n, 'libelle': l, 'secret': s}
                                    for n, l, s, _e, _d in CONFIGURABLE],
                         # What to declare at the providers: the URIs this
@@ -1763,9 +1763,9 @@ def admin_config():
     # An empty field means « back to the .env value »; a secret is only written
     # when the operator types one, never echoed back.
     modifies = 0
-    for nom, _libelle, _secret, _env, _defaut in CONFIGURABLE:
-        if nom in request.form:
-            definir(nom, request.form.get(nom, '').strip())
+    for name, _label, _secret, _env, _default in CONFIGURABLE:
+        if name in request.form:
+            set_value(name, request.form.get(name, '').strip())
             modifies += 1
     log_audit(session['username'], 'config.modifiee',
               f'{modifies} valeur(s) — LDAP/SSO/SMTP/sécurité')
@@ -1774,7 +1774,7 @@ def admin_config():
 
 def _tester_ldap():
     from ldap3 import NONE, SIMPLE, Connection, Server
-    from parametres import ldap_config
+    from instance_config import ldap_config
     c = ldap_config()
     if not c['uri']:
         return False, "Aucune URI LDAP renseignée."
@@ -1804,16 +1804,16 @@ def _tester_ldap():
 
 
 def _tester_sso():
-    from parametres import oidc_config
+    from instance_config import oidc_config
     from sso_client import _metadata
     c = oidc_config()
     if not c['metadata_url']:
         return False, "Aucune URL de métadonnées renseignée."
     md = _metadata(c['metadata_url'])
-    manque = [k for k in ('issuer', 'authorization_endpoint', 'token_endpoint') if not md.get(k)]
-    if manque:
+    missing = [k for k in ('issuer', 'authorization_endpoint', 'token_endpoint') if not md.get(k)]
+    if missing:
         return False, ("Métadonnées illisibles ou incomplètes "
-                       f"({', '.join(manque)} absent) : vérifie l'URL.")
+                       f"({', '.join(missing)} absent) : vérifie l'URL.")
     if not (c['client_id'] and c['client_secret']):
         return False, f"Fournisseur joignable ({md['issuer']}), mais client ID et secret sont requis."
     return True, f"Fournisseur joignable : {md['issuer']}."
@@ -1831,7 +1831,7 @@ def _tester_smtp():
 
 
 def _tester_discord():
-    from parametres import discord_config
+    from instance_config import discord_config
     d = discord_config()
     if not d['webhook']:
         return False, "Aucun webhook renseigné."
@@ -1844,18 +1844,18 @@ _TESTS = {'ldap': _tester_ldap, 'sso': _tester_sso, 'smtp': _tester_smtp,
           'discord': _tester_discord}
 
 
-@bp.route('/admin/config/test/<partie>', methods=['POST'])
+@bp.route('/admin/config/test/<part>', methods=['POST'])
 @admin_required
-def admin_config_test(partie):
+def admin_config_test(part):
     """« Tester » of a section of Admin → Config, on the SAVED values: LDAP
     binds with the service account and counts the accounts, SSO reads the
     provider's metadata, SMTP sends the test e-mail, Discord posts on the
     webhook. Always 200 with {ok, message}: a failed test is an answer."""
-    test = _TESTS.get(partie)
+    test = _TESTS.get(part)
     if test is None:
-        return _json_erreur("Section inconnue.", 404)
+        return _json_error("Section inconnue.", 404)
     ok, message = test()
-    log_audit(session.get('username'), 'config.test', f"{partie} : {'ok' if ok else 'échec'}")
+    log_audit(session.get('username'), 'config.test', f"{part} : {'ok' if ok else 'échec'}")
     return jsonify({'ok': ok, 'message': message})
 
 
@@ -1869,18 +1869,18 @@ def admin_branding():
     The logo is stored as the uploaded data URL: one row, no filesystem to
     police, and the size is bounded like every other upload on this portal.
     """
-    nom = (request.form.get('platform_name') or '').strip()[:60]
+    name = (request.form.get('platform_name') or '').strip()[:60]
     logo = (request.form.get('platform_logo') or '').strip()
-    if nom and not re.fullmatch(r'[\w .\-\u00c0-\u024f]{1,60}', nom):
+    if name and not re.fullmatch(r'[\w .\-\u00c0-\u024f]{1,60}', name):
         return jsonify({'ok': False, 'error': "Nom invalide."}), 400
     if logo and not re.fullmatch(r'data:image/(png|jpeg|webp|svg\+xml|gif);base64,[A-Za-z0-9+/=]+', logo):
         return jsonify({'ok': False, 'error': "Logo attendu en PNG, JPEG, WebP, SVG ou GIF."}), 400
     if logo and len(logo) > 2 * 1024 * 1024:
         return jsonify({'ok': False, 'error': "Logo trop lourd (2 Mo maximum)."}), 400
     db = get_db()
-    if nom:
+    if name:
         db.execute("INSERT INTO settings (key, value) VALUES ('platform_name', ?) "
-                   "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (nom,))
+                   "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (name,))
     # '-' is the explicit « remove the logo », like the auth header of an MCP
     # server: an empty field would mean « change nothing ».
     if logo == '-':
@@ -1889,7 +1889,7 @@ def admin_branding():
         db.execute("INSERT INTO settings (key, value) VALUES ('platform_logo', ?) "
                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (logo,))
     db.commit()
-    log_audit(session['username'], 'branding.modifie', f'nom={nom or "(inchangé)"} '
+    log_audit(session['username'], 'branding.modifie', f'nom={name or "(inchangé)"} '
               f'logo={"retiré" if logo == "-" else ("posé" if logo else "inchangé")}')
     return jsonify({'ok': True})
 
@@ -1901,19 +1901,19 @@ def approve_budget(req_id):
     db = get_db()
     breq = db.execute("SELECT * FROM budget_requests WHERE id=?", (req_id,)).fetchone()
     if not breq or breq['status'] != 'pending':
-        return _json_erreur("Demande introuvable ou déjà traitée.", 404)
+        return _json_error("Demande introuvable ou déjà traitée.", 404)
     try:
         amount_val = float(amount)
         if amount_val <= 0:
             raise ValueError
     except ValueError:
-        return _json_erreur("Le montant à ajouter doit être un nombre positif.")
+        return _json_error("Le montant à ajouter doit être un nombre positif.")
     if amount_val > 1_000_000_000_000:
         # Guardrail: an absurd amount (typo « 6666726666666 ») makes the
         # account unlimited de facto — it happened on this server without
         # anyone seeing it. Beyond 1e12 tokens, it is a typing
         # error, we refuse.
-        return _json_erreur("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.")
+        return _json_error("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.")
     # Budget at the ACCOUNT level: we increment the LiteLLM user's envelope.
     info = _litellm_user_info(breq['username'])
     current_budget = info.get('max_budget') or 0
@@ -1927,17 +1927,17 @@ def approve_budget(req_id):
     grant = db.execute(
         "SELECT * FROM budget_grants WHERE username=? AND expires_at > ?",
         (breq['username'], datetime.utcnow().isoformat())).fetchone()
-    duree = request.form.get('grant_days', '').strip()
+    duration = request.form.get('grant_days', '').strip()
     expires_at = None
-    if duree:
+    if duration:
         try:
-            jours = int(duree)
-            if not 1 <= jours <= 365:
+            days = int(duration)
+            if not 1 <= days <= 365:
                 raise ValueError
         except ValueError:
-            return _json_erreur("Durée de la subvention : nombre de jours entre 1 et 365 "
+            return _json_error("Durée de la subvention : nombre de jours entre 1 et 365 "
                                 "(vide = permanent).")
-        expires_at = (datetime.utcnow() + timedelta(days=jours)).isoformat()
+        expires_at = (datetime.utcnow() + timedelta(days=days)).isoformat()
     if expires_at:
         # TEMPORARY grant: the base cap is frozen ONCE (at the first
         # boost); a 2nd boost during the period stacks on top of it,
@@ -1946,7 +1946,7 @@ def approve_budget(req_id):
         new_budget = (grant['current_budget'] if grant else base) + amount_val
         if not litellm_update_user_budget(breq['username'], new_budget,
                                           budget_duration=grant_duration):
-            return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 503)
+            return _json_error("Erreur lors de la mise à jour du budget sur LiteLLM.", 503)
         now_iso = datetime.utcnow().isoformat()
         if grant:
             db.execute(
@@ -1961,7 +1961,7 @@ def approve_budget(req_id):
         new_budget = current_budget + amount_val
         if not litellm_update_user_budget(breq['username'], new_budget,
                                           budget_duration=grant_duration):
-            return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 503)
+            return _json_error("Erreur lors de la mise à jour du budget sur LiteLLM.", 503)
         if grant:
             # PERMANENT raise during a grant: it must survive the deadline,
             # so it raises the base cap itself.
@@ -2006,9 +2006,9 @@ def set_user_budget(username):
     « je mets 0 pour lever la limite » cuts access. Blocking has the same
     effect, reversible and with a recorded reason.
     """
-    refus = _proprietaire_protege(username)
-    if refus:
-        return refus
+    refusal = _owner_protected(username)
+    if refusal:
+        return refusal
     db = get_db()
     raw = request.form.get('budget', '').strip()
     try:
@@ -2016,17 +2016,17 @@ def set_user_budget(username):
         if value <= 0:
             raise ValueError
     except ValueError:
-        return _json_erreur(
+        return _json_error(
             "Budget : nombre strictement positif attendu (tokens). Pour couper "
             "l'accès d'un compte, utilise le blocage du compte — réversible et "
             "tracé ; un budget de 0 le plafonne réellement à zéro token.")
     if value > 1_000_000_000_000:
         # Same guardrail as approval: beyond 1e12 tokens it is a typo that
         # makes the account unlimited de facto.
-        return _json_erreur("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.")
+        return _json_error("Montant irréaliste (> 1e12 tokens) — vérifie la saisie.")
     grant_duration = get_setting('default_key_duration', KEY_DURATION)
     if not litellm_update_user_budget(username, value, budget_duration=grant_duration):
-        return _json_erreur("Erreur lors de la mise à jour du budget sur LiteLLM.", 503)
+        return _json_error("Erreur lors de la mise à jour du budget sur LiteLLM.", 503)
     db.execute("DELETE FROM budget_grants WHERE username=?", (username,))
     # A directory account's group quota no longer overwrites this cap at login.
     db.execute("UPDATE user_sources SET budget_manual=1, budget_auto=NULL WHERE username=?",
@@ -2050,11 +2050,11 @@ def revert_expired_grants():
     if not rows:
         return 0
     grant_duration = get_setting('default_key_duration', KEY_DURATION)
-    ramenes = 0
+    brought_back = 0
     for g in rows:
         info = _litellm_user_info(g['username'])
-        actuel = info.get('max_budget')
-        if actuel is None or abs(actuel - g['current_budget']) < 1:
+        current = info.get('max_budget')
+        if current is None or abs(current - g['current_budget']) < 1:
             # Nobody has touched the cap since the boost: we return to the base.
             if not litellm_update_user_budget(g['username'], g['base_budget'],
                                               budget_duration=grant_duration):
@@ -2068,12 +2068,12 @@ def revert_expired_grants():
                           f"{g['username']} : retour au plafond de base non appliqué "
                           f"(LiteLLM injoignable ?), nouvelle tentative au prochain passage")
                 continue
-            ramenes += 1
+            brought_back += 1
         # Otherwise the admin intervened in the meantime: the grant is simply
         # forgotten, we do NOT overwrite their decision.
         db.execute("DELETE FROM budget_grants WHERE id=?", (g['id'],))
     db.commit()
-    return ramenes
+    return brought_back
 
 @bp.route('/admin/budget/reject/<int:req_id>', methods=['POST'])
 @admin_required
@@ -2081,7 +2081,7 @@ def reject_budget(req_id):
     db = get_db()
     breq = db.execute("SELECT username FROM budget_requests WHERE id=?", (req_id,)).fetchone()
     if not breq:
-        return _json_erreur("Demande introuvable.", 404)
+        return _json_error("Demande introuvable.", 404)
     db.execute(
         "UPDATE budget_requests SET status='rejected', updated_at=? WHERE id=?",
         (datetime.now().isoformat(), req_id)
@@ -2213,30 +2213,30 @@ def _add_model_to_catalog(db, hf_id):
 def update_request(req_id):
     status = request.form.get('status')
     if status not in ('pending', 'done', 'rejected'):
-        return _json_erreur("Statut invalide.")
+        return _json_error("Statut invalide.")
     db = get_db()
     req = db.execute("SELECT username, model_id FROM model_requests WHERE id=?", (req_id,)).fetchone()
     if not req:
-        return _json_erreur("Demande introuvable.", 404)
+        return _json_error("Demande introuvable.", 404)
 
-    nom, deja, routage_ok = None, False, True
+    name, already, routing_ok = None, False, True
     if status == 'done' and req['model_id']:
         # We REGISTER first, we announce after. The request was marked
         # « Lancé ✓ » and the email « ton modèle est disponible » went out BEFORE
         # knowing whether the LiteLLM registration had succeeded; the failure
         # only appeared in a flash the UI did not render. The requester thus
         # learned they could use a model that was not routed.
-        nom, deja = _add_model_to_catalog(db, req['model_id'])
-        cfg = db.execute("SELECT vllm_args, engine FROM model_configs WHERE name=?", (nom,)).fetchone()
-        routage_ok = _register_litellm_model(
-            nom, cfg['vllm_args'] if cfg else DEFAULT_VLLM_ARGS,
+        name, already = _add_model_to_catalog(db, req['model_id'])
+        cfg = db.execute("SELECT vllm_args, engine FROM model_configs WHERE name=?", (name,)).fetchone()
+        routing_ok = _register_litellm_model(
+            name, cfg['vllm_args'] if cfg else DEFAULT_VLLM_ARGS,
             (cfg['engine'] if cfg else 'vllm') or 'vllm')
-        if not routage_ok:
+        if not routing_ok:
             db.commit()          # the catalog itself is up to date
             log_audit(session.get('username'), 'request.routage_echec',
-                      f"demande #{req_id} ({nom}) : catalogue OK, LiteLLM non enregistré")
-            return _json_erreur(
-                f"Le modèle « {nom} » est dans le catalogue, mais son enregistrement "
+                      f"demande #{req_id} ({name}) : catalogue OK, LiteLLM non enregistré")
+            return _json_error(
+                f"Le modèle « {name} » est dans le catalogue, mais son enregistrement "
                 f"LiteLLM a échoué : la demande reste EN ATTENTE et le demandeur n'est "
                 f"pas prévenu (il ne pourrait pas l'utiliser). Réessaie.", 503)
 
@@ -2252,7 +2252,7 @@ def update_request(req_id):
             add_notification(req['username'], 'request', "Ta demande de modèle a été refusée.")
 
     log_audit(session.get('username'), 'request.status',
-              f"demande #{req_id} → {status}" + (f" ({nom})" if nom else ""))
+              f"demande #{req_id} → {status}" + (f" ({name})" if name else ""))
 
     if status != 'done' or not req['model_id']:
         return _json_ok("Demande mise à jour.")
@@ -2260,16 +2260,16 @@ def update_request(req_id):
     # Notifies the requester by email that their model is available.
     email = ldap_lookup_email(req['username'])
     if email:
-        nom_instance = platform_name()
-        send_user_email(email, f"[{nom_instance}] Ton modèle est disponible",
+        instance_name = platform_name()
+        send_user_email(email, f"[{instance_name}] Ton modèle est disponible",
                         f"Bonne nouvelle — le modèle que tu as demandé est validé et "
-                        f"disponible sur la plateforme {nom_instance} :\n\n  {req['model_id']}\n\n"
+                        f"disponible sur la plateforme {instance_name} :\n\n  {req['model_id']}\n\n"
                         f"Tu peux l'utiliser via l'API / le Playground une fois lancé.\n"
                         f"{PUBLIC_WEB_URL}/\n")
-    if deja:
-        return _json_ok(f"Modèle déjà dans le catalogue sous « {nom} ».")
-    add_announcement('model_add', nom)
-    return _json_ok(f"Modèle « {nom} » ajouté au catalogue et routé par LiteLLM — "
+    if already:
+        return _json_ok(f"Modèle déjà dans le catalogue sous « {name} ».")
+    add_announcement('model_add', name)
+    return _json_ok(f"Modèle « {name} » ajouté au catalogue et routé par LiteLLM — "
                     f"vérifie ses args vLLM puis lance-le.")
 
 
@@ -2283,17 +2283,17 @@ def admin_support_feedback():
     to fix), bounded.
     """
     db = get_db()
-    tot = db.execute("SELECT COUNT(*) c, SUM(CASE WHEN vote>0 THEN 1 ELSE 0 END) p "
+    total_count = db.execute("SELECT COUNT(*) c, SUM(CASE WHEN vote>0 THEN 1 ELSE 0 END) p "
                      "FROM support_feedback").fetchone()
-    par_user = db.execute(
+    by_user = db.execute(
         "SELECT username, COUNT(*) c, SUM(CASE WHEN vote>0 THEN 1 ELSE 0 END) p "
         "FROM support_feedback GROUP BY username ORDER BY c DESC LIMIT 20").fetchall()
-    recents = db.execute(
+    recent = db.execute(
         "SELECT username, vote, comment, question, answer, model, created_at "
         "FROM support_feedback ORDER BY id DESC LIMIT 50").fetchall()
     return jsonify({
-        'total': tot['c'] or 0,
-        'positifs': tot['p'] or 0,
-        'par_utilisateur': [dict(r) for r in par_user],
-        'recents': [dict(r) for r in recents],
+        'total': total_count['c'] or 0,
+        'positifs': total_count['p'] or 0,
+        'par_utilisateur': [dict(r) for r in by_user],
+        'recents': [dict(r) for r in recent],
     })

@@ -52,7 +52,7 @@ sequences. No forced rotation nor character classes: they push towards predictab
 passwords. Deleting a **group** resynchronizes its members onto their new effective
 cap.
 
-**Where the password lives, the portal says it** (`local_users.gestion_mot_de_passe`):
+**Where the password lives, the portal says it** (`local_users.password_management`):
 a `local_users` row is authoritative (« portail »), else ldap → « annuaire », else
 sso → « fournisseur d'identité », else `inconnu` — a case where the card explains
 where to change it instead of showing a doomed form, and where 2FA disappears.

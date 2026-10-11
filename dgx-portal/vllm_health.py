@@ -61,14 +61,14 @@ _llama_tps = {'t': 0.0, 'dec': None}
 
 def _prom_sum(text, metric):
     """Sum of a Prometheus metric's samples (exact name, labels ignored)."""
-    tot, found = 0.0, False
+    total_count, found = 0.0, False
     for line in text.splitlines():
         if line.startswith(metric) and len(line) > len(metric) and line[len(metric)] in ' {':
             try:
-                tot += float(line.rsplit(' ', 1)[1]); found = True
+                total_count += float(line.rsplit(' ', 1)[1]); found = True
             except (ValueError, IndexError):
                 pass
-    return tot if found else None
+    return total_count if found else None
 
 _vllm_health_cache = {'t': 0.0, 'v': None}
 
@@ -83,10 +83,10 @@ _SLOTS_URL = VLLM_API.rsplit('/v1', 1)[0] + '/slots'
 # record the instant each identifier appeared. That gives « this session
 # has been working for 12 min » and lets one tell a stuck request from a merely
 # slow machine.
-_slots_taches = {}
+_slots_tasks = {}
 
 
-def _slots_activite():
+def _slots_activity():
     """What the engine is doing right now, session by session.
 
     Returns None when the engine publishes no /slots (vLLM) or does not
@@ -100,29 +100,29 @@ def _slots_activite():
     if not isinstance(slots, list):
         return None
     now = time.time()
-    actifs = [s for s in slots if s.get('is_processing')]
-    vus, plus_ancien, ingere, traite = set(), None, 0, 0
-    for s in actifs:
+    actives = [s for s in slots if s.get('is_processing')]
+    seen, oldest, ingested, processed = set(), None, 0, 0
+    for s in actives:
         t = s.get('id_task')
         if t is None:
             continue
-        vus.add(t)
-        debut = _slots_taches.get(t, now)
-        _slots_taches[t] = debut
-        age = now - debut
-        plus_ancien = age if plus_ancien is None else max(plus_ancien, age)
-        ingere += int(s.get('n_prompt_tokens') or 0)
-        traite += int(s.get('n_prompt_tokens_processed') or 0)
+        seen.add(t)
+        start = _slots_tasks.get(t, now)
+        _slots_tasks[t] = start
+        age = now - start
+        oldest = age if oldest is None else max(oldest, age)
+        ingested += int(s.get('n_prompt_tokens') or 0)
+        processed += int(s.get('n_prompt_tokens_processed') or 0)
     # Cleanup: a task no longer processed leaves the tracking, else the table
     # would grow forever (it lives in memory, a restart empties it).
-    for t in [t for t in _slots_taches if t not in vus]:
-        _slots_taches.pop(t, None)
+    for t in [t for t in _slots_tasks if t not in seen]:
+        _slots_tasks.pop(t, None)
     return {
-        'busy': len(actifs),
+        'busy': len(actives),
         'total': len(slots),
-        'plus_ancien_s': round(plus_ancien) if plus_ancien is not None else None,
-        'prompt_ingere': ingere,
-        'prompt_traite': traite,
+        'plus_ancien_s': round(oldest) if oldest is not None else None,
+        'prompt_ingere': ingested,
+        'prompt_traite': processed,
     }
 
 def vllm_health():
@@ -164,7 +164,7 @@ _METRIC_NAMES = {
     },
 }
 
-def _sante_sans_metrics(modele, engine):
+def _health_without_metrics(model_name, engine):
     """Health dict for an engine that publishes NO /metrics (TabbyAPI).
 
     `metrics` stays False so the UI can say the figures do not come from the
@@ -175,28 +175,28 @@ def _sante_sans_metrics(modele, engine):
     keeps its cross-relaunch role via `cumuler_tokens_generes`. The TTFT is the
     one actually measured by chat_routes (same source as llama.cpp).
     """
-    from stats import (cumuler_tokens_generes, debit_decode_live,
-                       flux_depuis_spendlogs, prefill_dernier, ttft_mesure)
-    flux = flux_depuis_spendlogs() or {}
+    from stats import (accumulate_generated_tokens, live_decode_rate,
+                       flow_from_spendlogs, prefill_last, measured_ttft)
+    flux = flow_from_spendlogs() or {}
     max_seqs = ctx_in = ctx_out = None
     try:
         row = get_db().execute("SELECT vllm_args FROM model_configs WHERE name=?",
-                               (modele,)).fetchone()
+                               (model_name,)).fetchone()
         if row:
             max_seqs = max_seqs_of(row['vllm_args'], engine)
             ctx_in, ctx_out = ctx_split(row['vllm_args'], engine)
     except Exception:
         pass
-    generes = flux.get('generes')
-    cumul = None
+    generated = flux.get('generes')
+    cumulative = None
     try:
-        if generes is not None:
-            cumul = cumuler_tokens_generes(modele, generes)
+        if generated is not None:
+            cumulative = accumulate_generated_tokens(model_name, generated)
     except Exception:
-        cumul = None
+        cumulative = None
     return {
         'up': True,
-        'model': modele,
+        'model': model_name,
         'engine': engine,
         'metrics': False,
         'running': None,
@@ -207,15 +207,15 @@ def _sante_sans_metrics(modele, engine):
         # Live decode rate of the IN-FLIGHT requests (see
         # stats.debit_decode_live): the SpendLogs figure only lands at the end
         # of a request and read « 0 tok/s » while the model was generating.
-        'tps': debit_decode_live(),
-        'ttft': ttft_mesure(),
+        'tps': live_decode_rate(),
+        'ttft': measured_ttft(),
         'requests': flux.get('requetes'),
         'tokens_generated': None,
-        'tokens_generated_total': cumul,
+        'tokens_generated_total': cumulative,
         'tps_moyen': flux.get('tps_moyen'),
         'tokens_prompt': flux.get('entree'),
-        'tps_prefill': prefill_dernier(),
-        'slots': _slots_activite(),
+        'tps_prefill': prefill_last(),
+        'slots': _slots_activity(),
     }
 
 
@@ -232,17 +232,17 @@ def _vllm_health_uncached():
     except Exception:
         pass
     try:
-        reponse = requests.get(_VLLM_METRICS_URL, timeout=4)
+        response = requests.get(_VLLM_METRICS_URL, timeout=4)
         # No raise_for_status: the /metrics probe is best-effort and its fakes
         # (tests) only carry `text`. TabbyAPI answers 404 with a body — that is
         # the "no /metrics" case, not a transport error.
-        if getattr(reponse, 'status_code', 200) >= 400:
-            return _sante_sans_metrics(running[0], engine)
-        text = reponse.text
+        if getattr(response, 'status_code', 200) >= 400:
+            return _health_without_metrics(running[0], engine)
+        text = response.text
     except Exception:
         # Unreachable engine: fall back to the LiteLLM SpendLogs rather than
         # leaving the dashboard at "—".
-        return _sante_sans_metrics(running[0], engine)
+        return _health_without_metrics(running[0], engine)
     M = _METRIC_NAMES.get(engine, _METRIC_NAMES['vllm'])
     gen = _prom_sum(text, M['gen']) or 0.0
     now = time.time()
@@ -270,12 +270,12 @@ def _vllm_health_uncached():
         dec = _prom_sum(text, 'llamacpp:n_decode_total') or 0.0
         p_t, p_dec = _llama_tps['t'], _llama_tps['dec']
         if p_dec is not None and now > p_t and dec >= p_dec:
-            pas = (dec - p_dec) / (now - p_t)
+            step_rate = (dec - p_dec) / (now - p_t)
             # Nothing generated since the last reading => 0, the truth when nobody
             # uses the model. The `max(..., 1)` covers the window overlapping the END
             # of a generation: tokens were produced while the slot counter already
             # fell back to zero, without it we would wrongly display 0.
-            tps = round(pas * max(running_now, 1), 1) if pas > 0 else 0.0
+            tps = round(step_rate * max(running_now, 1), 1) if step_rate > 0 else 0.0
         else:
             tps = 0.0        # first reading of the process: nothing to compare
         _llama_tps.update(t=now, dec=dec)
@@ -297,10 +297,10 @@ def _vllm_health_uncached():
     # on `ttft_cnt == 0` would display, for a freshly launched vLLM that has
     # served nothing yet, a measurement inherited from the previous engine.
     # vLLM publishes its own histogram: we do not mix the two.
-    ttft_mesure_s = None
+    measured_ttft_s = None
     if M.get('ttft_cnt') is None:
-        from stats import ttft_mesure
-        ttft_mesure_s = ttft_mesure()
+        from stats import measured_ttft
+        measured_ttft_s = measured_ttft()
     # Concurrent generation slots of the active model (--max-num-seqs / --parallel)
     # → "X / N sessions busy" on the home page.
     max_seqs = None
@@ -316,17 +316,17 @@ def _vllm_health_uncached():
     # Cumulative counters. llama.cpp publishes enough to compute an EXACT
     # average since startup; vLLM only gives totals, hence no average.
     if engine == 'llamacpp':
-        compteurs, cumul = _compteurs_llamacpp(text, running[0], gen)
+        counters, cumulative = _llamacpp_counters(text, running[0], gen)
     else:
-        entree_v = _prom_sum(text, 'vllm:prompt_tokens_total')
-        compteurs = {'generes': int(gen) if gen else 0, 'tps_moyen': None,
-                     'entree': int(entree_v) if entree_v is not None else None,
+        entry_v = _prom_sum(text, 'vllm:prompt_tokens_total')
+        counters = {'generes': int(gen) if gen else 0, 'tps_moyen': None,
+                     'entree': int(entry_v) if entry_v is not None else None,
                      'tps_prefill': None}
         try:
-            from stats import cumuler_tokens_generes
-            cumul = cumuler_tokens_generes(running[0], compteurs['generes'])
+            from stats import accumulate_generated_tokens
+            cumulative = accumulate_generated_tokens(running[0], counters['generes'])
         except Exception:
-            cumul = None
+            cumulative = None
     return {
         'up': True,
         'model': running[0],
@@ -338,15 +338,15 @@ def _vllm_health_uncached():
         'ctx_in': ctx_in,
         'ctx_out': ctx_out,
         'tps': round(tps, 1) if tps is not None else None,
-        'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else ttft_mesure_s,
+        'ttft': round(ttft_sum / ttft_cnt, 2) if ttft_cnt else measured_ttft_s,
         'requests': (int(_prom_sum(text, M['requests']) or 0)
                      if M.get('requests') else None),
         # Cumulative counters since the engine STARTUP (see _compteurs_llamacpp).
-        'tokens_generated': compteurs['generes'],
-        'tokens_generated_total': cumul,
-        'tps_moyen': compteurs['tps_moyen'],
-        'tokens_prompt': compteurs['entree'],
-        'tps_prefill': compteurs['tps_prefill'],
+        'tokens_generated': counters['generes'],
+        'tokens_generated_total': cumulative,
+        'tps_moyen': counters['tps_moyen'],
+        'tokens_prompt': counters['entree'],
+        'tps_prefill': counters['tps_prefill'],
         # In-flight activity, session by session (see _slots_activite): this is
         # what allows saying « 2 sessions have been working for 12 min » when no
         # identity is logged yet.
@@ -354,14 +354,14 @@ def _vllm_health_uncached():
         # how many the engine accepts — « je ne vois pas le nombre de session
         # dispo » was this hole. Fewer details than llama.cpp (no age, no
         # ingestion), but the number the reader wants is there.
-        'slots': _slots_activite() or (
+        'slots': _slots_activity() or (
             {'busy': running_now, 'total': max_seqs, 'plus_ancien_s': None,
              'prompt_ingere': 0, 'prompt_traite': 0}
             if max_seqs else None),
     }
 
 
-def _compteurs_llamacpp(text, modele, generes):
+def _llamacpp_counters(text, model_name, generated):
     """Engine cumulative counters, and the cumulative kept across its relaunches.
 
     Three readings, all exact because they come from engine counters and not
@@ -380,15 +380,15 @@ def _compteurs_llamacpp(text, modele, generes):
       model re-reads huge contexts, so it spends most of its time in input;
       displaying « 0 » without saying so is exact but misleading.
     """
-    vides = {'generes': None, 'tps_moyen': None, 'entree': None, 'tps_prefill': None}
-    if not modele:
-        return vides, None
+    empties = {'generes': None, 'tps_moyen': None, 'entree': None, 'tps_prefill': None}
+    if not model_name:
+        return empties, None
     try:
-        secondes = _prom_sum(text, 'llamacpp:tokens_predicted_seconds_total') or 0.0
-        entree = _prom_sum(text, 'llamacpp:prompt_tokens_total')
+        seconds = _prom_sum(text, 'llamacpp:tokens_predicted_seconds_total') or 0.0
+        entry = _prom_sum(text, 'llamacpp:prompt_tokens_total')
         prefill = _prom_sum(text, 'llamacpp:prompt_tokens_seconds')
-        compteurs = {
-            'generes': int(generes) if generes else 0,
+        counters = {
+            'generes': int(generated) if generated else 0,
             # Threshold of 300 s of cumulative generation — a CHOICE, not a
             # measurement: over a few tens of seconds the average means nothing.
             # This is not theoretical: measured on 2026-09-14, the engine
@@ -397,21 +397,21 @@ def _compteurs_llamacpp(text, modele, generes):
             # would be worse than nothing, so the UI hides the line until the
             # engine has generated five minutes since its reset. The cumulative
             # total, for its part, stays right in every case.
-            'tps_moyen': round(generes / secondes, 1) if secondes >= 300 else None,
-            'entree': int(entree) if entree is not None else None,
+            'tps_moyen': round(generated / seconds, 1) if seconds >= 300 else None,
+            'entree': int(entry) if entry is not None else None,
             'tps_prefill': round(prefill, 1) if prefill else None,
         }
     except Exception:
-        return vides, None
+        return empties, None
     # The cumulative that SURVIVES a relaunch: this is what « garder les
     # tokens générés » means. A read failure must not deprive the display: we
     # return the current launch's counter, without cumulative.
     try:
-        from stats import cumuler_tokens_generes
-        cumul = cumuler_tokens_generes(modele, compteurs['generes'])
+        from stats import accumulate_generated_tokens
+        cumulative = accumulate_generated_tokens(model_name, counters['generes'])
     except Exception:
-        cumul = None
-    return compteurs, cumul
+        cumulative = None
+    return counters, cumulative
 
 # HF tag carried by models actually tested on DGX Spark / GB10.
 GB10_TAG = 'gb10'
@@ -479,18 +479,18 @@ def effective_ctx(args, engine='vllm'):
     times the real prompt limit, discovered only at failure.
     """
     if engine == 'llamacpp':
-        par_slot = _arg_int(args, 'kv-unified-per-slot', 0) or 0
-        if par_slot > 0:
-            return par_slot
+        per_slot = _arg_int(args, 'kv-unified-per-slot', 0) or 0
+        if per_slot > 0:
+            return per_slot
     ctx = ctx_of(args, engine)
     if ctx is None:
         return None
     if engine == 'llamacpp':
-        jetons = (args or '').split()
-        if '--kv-unified' in jetons and '--no-kv-unified' not in jetons:
+        tokens_list = (args or '').split()
+        if '--kv-unified' in tokens_list and '--no-kv-unified' not in tokens_list:
             return ctx
-        par = _arg_int(args, 'parallel', 1) or 1
-        return ctx // par
+        by = _arg_int(args, 'parallel', 1) or 1
+        return ctx // by
     return ctx
 
 def ctx_split(vllm_args, engine='vllm'):
@@ -509,8 +509,8 @@ def ctx_split(vllm_args, engine='vllm'):
         # The hardcoded cap should not decide instead of the model: Qwen
         # recommends up to 262144 reasoning tokens and 131072 final answer
         # tokens on Flash-Next, far beyond these 64k.
-        demande = _arg_int(vllm_args, 'n-predict')
-        out_reserve = (demande if demande and 0 < demande < slot
+        request_row = _arg_int(vllm_args, 'n-predict')
+        out_reserve = (request_row if request_row and 0 < request_row < slot
                        else min(65536, slot // 3))
         return max(slot - out_reserve, 1024), out_reserve
     return slot, min(slot // 2, 262144)
@@ -540,10 +540,10 @@ HF_TOKEN_FILE = os.environ.get('DGX_HF_TOKEN_FILE', '/run/secrets/hf_token')
 
 def _hf_token():
     """The HF token, or ''. Never returned, never written to a log."""
-    jeton = (os.environ.get('HF_TOKEN')
+    token = (os.environ.get('HF_TOKEN')
              or os.environ.get('HUGGING_FACE_HUB_TOKEN') or '').strip()
-    if jeton:
-        return jeton
+    if token:
+        return token
     try:
         with open(HF_TOKEN_FILE, encoding='utf-8') as f:
             return f.read().strip()
@@ -551,17 +551,17 @@ def _hf_token():
         return ''
 
 
-def hf_jeton_present():
+def hf_token_present():
     """Is there an HF token? The UI may say so, the value never leaves."""
     return bool(_hf_token())
 
 
 def _hf_headers():
-    jeton = _hf_token()
-    return {'Authorization': f'Bearer {jeton}'} if jeton else {}
+    token = _hf_token()
+    return {'Authorization': f'Bearer {token}'} if token else {}
 
 
-class HfIndisponible(Exception):
+class HfUnavailable(Exception):
     """Hugging Face did not answer with anything usable.
 
     Distinct from a search with no result: the portal must be able to say
@@ -582,22 +582,22 @@ def _hf_page(params, timeout=8):
         r = requests.get('https://huggingface.co/api/models', params=params,
                          headers=_hf_headers(), timeout=timeout)
     except requests.RequestException as e:
-        raise HfIndisponible(f"HF injoignable ({type(e).__name__})") from e
+        raise HfUnavailable(f"HF injoignable ({type(e).__name__})") from e
     if not r.ok:
         # A present but refused token is not an HF outage: saying so
         # helps understand it must be replaced, not waited on.
         if r.status_code in (401, 403) and _hf_token():
-            raise HfIndisponible("jeton Hugging Face refusé")
-        raise HfIndisponible(f"HF a répondu {r.status_code}")
+            raise HfUnavailable("jeton Hugging Face refusé")
+        raise HfUnavailable(f"HF a répondu {r.status_code}")
     try:
         data = r.json()
     except ValueError as e:
-        raise HfIndisponible("réponse HF illisible") from e
+        raise HfUnavailable("réponse HF illisible") from e
     try:
-        suivant = 'rel="next"' in (r.headers.get('Link') or '')
+        following = 'rel="next"' in (r.headers.get('Link') or '')
     except (TypeError, AttributeError):
-        suivant = False
-    return data, suivant
+        following = False
+    return data, following
 
 
 def _hf_models(params, timeout=8):
@@ -654,7 +654,7 @@ def search_hf_models(query, task=None, gb10_only=False, skip=0):
     return search_hf_models_page(query, task, gb10_only, skip)[0]
 
 
-def hf_modele_hors_gb10(query, task=None):
+def hf_model_outside_gb10(query, task=None):
     """Are there models for this search WITHOUT the gb10 filter?
 
     Used to not leave the user in front of a misleading « aucun résultat »:
@@ -669,5 +669,5 @@ def hf_modele_hors_gb10(query, task=None):
         params['filter'] = [task]
     try:
         return bool(_hf_models(params))
-    except HfIndisponible:
+    except HfUnavailable:
         return None

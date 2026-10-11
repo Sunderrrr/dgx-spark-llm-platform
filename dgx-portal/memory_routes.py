@@ -393,11 +393,11 @@ def api_memory_enabled():
     the purge that erases, so that stopping the collection does not
     surprisingly destroy what was already validated."""
     data = request.get_json(silent=True) or {}
-    actif = bool(data.get('enabled'))
-    _mem_set_enabled(session['username'], actif)
+    active = bool(data.get('enabled'))
+    _mem_set_enabled(session['username'], active)
     # We return the WRITTEN value: re-reading it asked for a SELECT to
     # confirm what we had just written in the same transaction.
-    return jsonify({'ok': True, 'enabled': actif})
+    return jsonify({'ok': True, 'enabled': active})
 
 
 @bp.route('/api/memory/facts', methods=['POST'])
@@ -533,12 +533,12 @@ def api_memory_export_md():
         by_subject.setdefault(e['subject'], []).append(e)
     # Index of nodes by name: the linear `next(...)` in the subjects loop
     # re-read the whole list at each turn (O(n²) on a big graph).
-    noeuds = {n['name']: n for n in doc['nodes']}
+    nodes = {n['name']: n for n in doc['nodes']}
     for subject in sorted(by_subject, key=str.lower):
         lines.append(f"## {subject}")
         facts = by_subject[subject]
         # The subject's aliases, for information.
-        node = noeuds.get(subject)
+        node = nodes.get(subject)
         if node and node['aliases']:
             lines.append(f"_alias : {', '.join(node['aliases'])}_")
         for e in facts:
@@ -549,11 +549,11 @@ def api_memory_export_md():
                 lines.append(f"- **{rel}** : {e['fact']}")
         lines.append("")
     # Subjects without any fact (isolated nodes) — flag them to lose nothing.
-    subjects_faits = set(f['subject'] for f in doc['edges'])
-    orphelins = [n for n in doc['nodes'] if n['name'] not in subjects_faits]
-    if orphelins:
+    subjects_done = set(f['subject'] for f in doc['edges'])
+    orphans = [n for n in doc['nodes'] if n['name'] not in subjects_done]
+    if orphans:
         lines.append("## Sujets sans fait")
-        for n in sorted(orphelins, key=lambda x: str.lower(x['name'])):
+        for n in sorted(orphans, key=lambda x: str.lower(x['name'])):
             lines.append(f"- {n['name']} ({n['kind']})")
         lines.append("")
     payload = "\n".join(lines)

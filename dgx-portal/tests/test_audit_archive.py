@@ -24,7 +24,7 @@ class ArchivageAuditTest(unittest.TestCase):
         c.commit()
         c.close()
 
-    def _compte(self, sql):
+    def _account(self, sql):
         c = sqlite3.connect(self.db_path)
         try:
             return c.execute(sql).fetchone()[0]
@@ -36,10 +36,10 @@ class ArchivageAuditTest(unittest.TestCase):
         with patch('db.DB_PATH', self.db_path):
             for i in range(5010):
                 db.log_audit('demo', 'test.action', f'ligne {i}')
-        self.assertEqual(self._compte("SELECT COUNT(*) FROM audit_log"), 5000)
-        self.assertEqual(self._compte("SELECT COUNT(*) FROM audit_log_archive"), 10)
+        self.assertEqual(self._account("SELECT COUNT(*) FROM audit_log"), 5000)
+        self.assertEqual(self._account("SELECT COUNT(*) FROM audit_log_archive"), 10)
         # Nothing is lost: the 5010 identifiers are spread over the two tables.
-        self.assertEqual(self._compte(
+        self.assertEqual(self._account(
             "SELECT COUNT(*) FROM (SELECT id FROM audit_log "
             "UNION SELECT id FROM audit_log_archive)"), 5010)
 
@@ -50,17 +50,17 @@ class ArchivageAuditTest(unittest.TestCase):
                 db.log_audit('demo', 'test.action', f'ligne {i}')
         c = sqlite3.connect(self.db_path)
         try:
-            lignes = c.execute("SELECT detail FROM audit_log_archive ORDER BY id").fetchall()
+            lines = c.execute("SELECT detail FROM audit_log_archive ORDER BY id").fetchall()
         finally:
             c.close()
-        self.assertEqual([l[0] for l in lignes], ['ligne 0', 'ligne 1', 'ligne 2'])
+        self.assertEqual([l[0] for l in lines], ['ligne 0', 'ligne 1', 'ligne 2'])
 
     def test_une_ecriture_legere_ne_declenche_rien_d_autre(self):
         import db
         with patch('db.DB_PATH', self.db_path):
             db.log_audit('demo', 'test.action', 'une seule ligne')
-        self.assertEqual(self._compte("SELECT COUNT(*) FROM audit_log"), 1)
-        self.assertEqual(self._compte("SELECT COUNT(*) FROM audit_log_archive"), 0)
+        self.assertEqual(self._account("SELECT COUNT(*) FROM audit_log"), 1)
+        self.assertEqual(self._account("SELECT COUNT(*) FROM audit_log_archive"), 0)
 
 
 if __name__ == '__main__':

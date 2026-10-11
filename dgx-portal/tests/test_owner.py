@@ -10,7 +10,7 @@ import time
 import unittest
 
 import app as portal
-import proprietaire
+import owner
 
 OWNER = 'ztest-owner'
 AUTRE_ADMIN = 'ztest-autre-admin'
@@ -35,7 +35,7 @@ class BaseSetup(unittest.TestCase):
             db.execute("UPDATE user_sources SET last_is_admin=0 WHERE last_is_admin=1")
             db.execute("UPDATE user_groups SET is_admin=0 WHERE is_admin=1")
             db.execute("DELETE FROM settings WHERE key IN (?,?)",
-                       (proprietaire.CLE_PROPRIETAIRE, proprietaire.CLE_JETON))
+                       (owner.OWNER_KEY, owner.TOKEN_KEY))
             db.commit()
         self.addCleanup(self._restaure)
 
@@ -49,7 +49,7 @@ class BaseSetup(unittest.TestCase):
                     db.execute(f"DELETE FROM {t} WHERE {col} LIKE ?", (f'%{u}%',))
             db.execute("DELETE FROM login_attempts WHERE key LIKE '%|setup'")
             db.execute("DELETE FROM settings WHERE key IN (?,?)",
-                       (proprietaire.CLE_PROPRIETAIRE, proprietaire.CLE_JETON))
+                       (owner.OWNER_KEY, owner.TOKEN_KEY))
             for i in self._admins:
                 db.execute("UPDATE local_users SET enabled=1 WHERE id=?", (i,))
             for u in self._annuaire:
@@ -64,13 +64,13 @@ class BaseSetup(unittest.TestCase):
             s['csrf'] = 'tok'
         return c
 
-    def _setup(self, c, **corps):
-        return c.post('/api/setup', json=corps,
+    def _setup(self, c, **body):
+        return c.post('/api/setup', json=body,
                       headers={'X-CSRFToken': 'tok', 'Cf-Connecting-Ip': '82.67.54.190'})
 
-    def _jeton(self):
+    def _token(self):
         with portal.app.app_context():
-            return proprietaire.jeton_setup()
+            return owner.setup_token()
 
 
 class SetupTest(BaseSetup):
@@ -78,33 +78,33 @@ class SetupTest(BaseSetup):
     def test_instance_neuve_propose_la_creation(self):
         r = portal.app.test_client().get('/api/config')
         self.assertTrue(r.get_json()['setup_required'])
-        self.assertTrue(self._jeton())
+        self.assertTrue(self._token())
 
     def test_jeton_obligatoire(self):
-        self._jeton()
+        self._token()
         r = self._setup(self._client(), token='faux', username=OWNER, password=MDP)
         self.assertEqual(r.status_code, 403)
         with portal.app.app_context():
-            self.assertEqual(proprietaire.proprietaire(), '')
+            self.assertEqual(owner.owner(), '')
 
     def test_mot_de_passe_soumis_a_la_politique(self):
-        r = self._setup(self._client(), token=self._jeton(), username=OWNER, password='12345678')
+        r = self._setup(self._client(), token=self._token(), username=OWNER, password='12345678')
         self.assertEqual(r.status_code, 400)
 
     def test_creation_du_proprietaire_puis_setup_ferme(self):
-        jeton = self._jeton()
+        token = self._token()
         c = self._client()
-        r = self._setup(c, token=jeton, username=OWNER, fullname='Owner', password=MDP)
+        r = self._setup(c, token=token, username=OWNER, fullname='Owner', password=MDP)
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         with c.session_transaction() as s:
             self.assertEqual(s['username'], OWNER)
             self.assertTrue(s['is_admin'])
         with portal.app.app_context():
-            self.assertEqual(proprietaire.proprietaire(), OWNER)
-            self.assertFalse(proprietaire.setup_requis())
-            self.assertIsNone(proprietaire.jeton_setup(), "the token is single-use")
+            self.assertEqual(owner.owner(), OWNER)
+            self.assertFalse(owner.setup_required())
+            self.assertIsNone(owner.setup_token(), "the token is single-use")
         self.assertFalse(portal.app.test_client().get('/api/config').get_json()['setup_required'])
-        r = self._setup(self._client(), token=jeton, username='ztest-second', password=MDP)
+        r = self._setup(self._client(), token=token, username='ztest-second', password=MDP)
         self.assertEqual(r.status_code, 409)
 
     def test_un_admin_existant_ferme_le_setup(self):
@@ -113,15 +113,15 @@ class SetupTest(BaseSetup):
             db.execute("INSERT INTO local_users (username, password_hash, is_admin, enabled, "
                        "created_at) VALUES (?, 'x', 1, 1, ?)", (AUTRE_ADMIN, time.time()))
             db.commit()
-            self.assertFalse(proprietaire.setup_requis())
-            self.assertIsNone(proprietaire.jeton_setup())
+            self.assertFalse(owner.setup_required())
+            self.assertIsNone(owner.setup_token())
 
 
 class ProtectionTest(BaseSetup):
 
     def setUp(self):
         super().setUp()
-        self.assertEqual(self._setup(self._client(), token=self._jeton(), username=OWNER,
+        self.assertEqual(self._setup(self._client(), token=self._token(), username=OWNER,
                                      password=MDP).status_code, 200)
         with portal.app.app_context():
             db = portal.get_db()
@@ -159,7 +159,7 @@ class ProtectionTest(BaseSetup):
 
     def test_la_liste_signale_le_proprietaire(self):
         from unittest import mock
-        with mock.patch('admin_routes.etats_annuaire', return_value=None):
+        with mock.patch('admin_routes.directory_states_for', return_value=None):
             users = {u['username']: u for u in
                      self._admin(OWNER).get('/api/admin/users').get_json()['users']}
         self.assertTrue(users[OWNER]['owner'])
@@ -185,7 +185,7 @@ class ProprietaireAnnuaireTest(BaseSetup):
             db.execute("INSERT INTO local_users (username, password_hash, is_admin, enabled, "
                        "created_at) VALUES (?, 'x', 1, 1, ?)", (AUTRE_ADMIN, time.time()))
             db.commit()
-            portal.set_setting(proprietaire.CLE_PROPRIETAIRE, self.SSO)
+            portal.set_setting(owner.OWNER_KEY, self.SSO)
 
         def _menage():
             with portal.app.app_context():
@@ -197,7 +197,7 @@ class ProprietaireAnnuaireTest(BaseSetup):
     def test_toujours_admin_meme_retire_du_groupe(self):
         import auth
         with portal.app.app_context():
-            self.assertEqual(auth.etat_compte(self.SSO), (True, True, None))
+            self.assertEqual(auth.account_state(self.SSO), (True, True, None))
             self.assertTrue(auth.is_admin_username(self.SSO))
 
     def test_les_autres_admins_ne_peuvent_ni_purger_ni_couper_ni_plafonner(self):

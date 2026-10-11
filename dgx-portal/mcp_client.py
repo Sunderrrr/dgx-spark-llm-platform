@@ -43,8 +43,8 @@ def _ldap_host():
     _is_blocked_ip when private; the name may resolve elsewhere from outside).
     Read live: the URI is editable from Admin → Config."""
     try:
-        from parametres import parametre
-        uri = parametre('ldap_uri')
+        from instance_config import setting
+        uri = setting('ldap_uri')
     except Exception:
         return ''
     return (urlparse(uri).hostname or '').lower() if uri else ''

@@ -38,7 +38,7 @@ export default function LoginPage() {
     // Refusal returned by the SSO callback: the URL flag is read client-side,
     // not via useSearchParams (which would require a Suspense boundary at
     // pre-render, for a fully static page).
-    if (new URLSearchParams(window.location.search).get("refus") === "bloque") {
+    if (new URLSearchParams(window.location.search).get("refused") === "blocked") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setError(t("Accès révoqué pour ce compte. Contacte un administrateur."));
     }

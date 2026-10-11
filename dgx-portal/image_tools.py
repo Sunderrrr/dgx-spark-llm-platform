@@ -25,7 +25,7 @@ import time
 from datetime import datetime
 
 from db import get_db
-from sidecars import attendre_job_media
+from sidecars import wait_media_job
 from guards import media_job_done, media_job_slot
 from sidecars import image_ready
 
@@ -45,7 +45,7 @@ _HEARTBEAT_EVERY_S = 15
 # model answered « je ne peux pas générer » because the tool was never armed.
 # Both forms are accepted now. « redessine » still does not match (\b mid-word
 # does not exist).
-_DEMANDE_IMAGE = re.compile(
+_IMAGE_REQUEST = re.compile(
     r"\b(?:genere|génère|generer|générer|généré|générée|générés|générées|"
     r"cree|crée|creer|créer|créé|créée|créés|créées|veux|voudrais|"
     r"aimerais|fais|faites|generate|create|make|design)\b"
@@ -58,27 +58,27 @@ _DEMANDE_IMAGE = re.compile(
 # Accepted false positives from system vocabulary: « image docker », « image
 # disque », « image système » are not images to paint. Tested on the sentence
 # fragment that matched, not on the whole message.
-_PAS_UNE_IMAGE = re.compile(r"\b(?:docker|conteneur|container|oci|disque|disk|iso|"
+_NOT_AN_IMAGE = re.compile(r"\b(?:docker|conteneur|container|oci|disque|disk|iso|"
                             r"syst[èe]me|systeme|kernel)\b", re.I)
 
 
-def _image_demandee(history):
+def _image_requested(history):
     """Does the user EXPLICITLY ask for an image to be generated?"""
-    from websearch_tools import _texte_de_la_demande   # import tardif : cycle sinon
-    dernier = next((m for m in reversed(history) if m.get('role') == 'user'), None)
-    texte = _texte_de_la_demande(str((dernier or {}).get('content', '')))
+    from websearch_tools import _request_text   # import tardif : cycle sinon
+    last = next((m for m in reversed(history) if m.get('role') == 'user'), None)
+    text = _request_text(str((last or {}).get('content', '')))
     # Every matched occurrence is checked: « crée une image docker » falls to the
     # guard, « crée une image de chat » passes.
-    return any(not _PAS_UNE_IMAGE.search(texte[m.start():m.end() + 40])
-               for m in _DEMANDE_IMAGE.finditer(texte))
+    return any(not _NOT_AN_IMAGE.search(text[m.start():m.end() + 40])
+               for m in _IMAGE_REQUEST.finditer(text))
 
 
-def image_disponible():
+def image_available():
     """Is the generation sidecar configured and ready?"""
     return image_ready()
 
 
-def _outils_image():
+def _image_tools():
     return [{'type': 'function', 'function': {
         'name': 'generer_image',
         'description': (
@@ -108,16 +108,16 @@ def _outils_image():
 
 
 
-def _annonce_image(args):
+def _announce_image(args):
     """What we are about to generate, told to the client before doing it."""
     # `nombre` lets the client show ONE placeholder per image to come — the
     # Image page does this, a single grey square while four are cooking read as
     # « nothing is happening ».
     try:
-        nombre = max(1, min(4, int(args.get('nombre') or 1)))
+        count_value = max(1, min(4, int(args.get('nombre') or 1)))
     except (TypeError, ValueError):
-        nombre = 1
-    return {'etape': 'generation', 'outil': 'diffusers', 'nombre': nombre,
+        count_value = 1
+    return {'etape': 'generation', 'outil': 'diffusers', 'nombre': count_value,
             'question': str(args.get('prompt', ''))[:200]}
 
 
@@ -139,30 +139,30 @@ def _exec_image_tool(args, username, journal):
     fmt = str(args.get('format', 'png') or 'png').strip().lower()
     fmt = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'webp': 'webp'}.get(fmt, 'png')
 
-    def _dim(cle, defaut):
+    def _dim(key, default):
         try:
-            v = int(args.get(cle) or defaut)
+            v = int(args.get(key) or default)
         except (TypeError, ValueError):
-            v = defaut
+            v = default
         return max(256, min(1536, v))
 
-    largeur, hauteur = _dim('largeur', 1024), _dim('hauteur', 1024)
+    width, height = _dim('largeur', 1024), _dim('hauteur', 1024)
 
-    def _dim_sortie(cle):
+    def _output_dim(key):
         try:
-            v = int(args.get(cle) or 0)
+            v = int(args.get(key) or 0)
         except (TypeError, ValueError):
             v = 0
         return max(0, min(3840, v))
 
     # 4K is done by UPSCALING, like on the image page: the generation stays
     # within 256–1536 and it is the output that goes up to 3840.
-    sortie_largeur, sortie_hauteur = _dim_sortie('sortie_largeur'), _dim_sortie('sortie_hauteur')
+    output_width, output_height = _output_dim('sortie_largeur'), _output_dim('sortie_hauteur')
     try:
-        nombre = int(args.get('nombre') or 1)
+        count_value = int(args.get('nombre') or 1)
     except (TypeError, ValueError):
-        nombre = 1
-    nombre = max(1, min(4, nombre))
+        count_value = 1
+    count_value = max(1, min(4, count_value))
 
     if not media_job_slot(username):
         return ("Trop de générations d'images en cours pour ce compte — "
@@ -171,14 +171,14 @@ def _exec_image_tool(args, username, journal):
     db = get_db()
     db.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, count, "
                "done_count, format, created_at) VALUES (?,?,?,?,?,?,?,?)",
-               (username, prompt_id, prompt[:2000], 'running', nombre, 0, fmt,
+               (username, prompt_id, prompt[:2000], 'running', count_value, 0, fmt,
                 datetime.now().isoformat()))
     db.commit()
 
     def _run():
         try:
-            image_routes._image_worker(prompt_id, username, prompt, nombre, fmt,
-                                       largeur, hauteur, sortie_largeur, sortie_hauteur)
+            image_routes._image_worker(prompt_id, username, prompt, count_value, fmt,
+                                       width, height, output_width, output_height)
         finally:
             media_job_done(username)
 
@@ -186,15 +186,15 @@ def _exec_image_tool(args, username, journal):
 
     # The wait loop is shared with the video tool (sidecars.attendre_job_media):
     # same poll, same heartbeat, one place to change.
-    statut, fait = 'running', 0
+    status_value, fact = 'running', 0
     # `yield from` FORWARDS the heartbeats to the chat stream: a plain
     # next() loop would swallow them and the client would see silence.
-    ligne = yield from attendre_job_media('image_jobs', prompt_id, username, _IMAGE_TIMEOUT_S)
-    if ligne:
-        statut, fait = ligne.get('status'), ligne.get('done_count') or 0
+    line = yield from wait_media_job('image_jobs', prompt_id, username, _IMAGE_TIMEOUT_S)
+    if line:
+        status_value, fact = line.get('status'), line.get('done_count') or 0
 
-    urls = ([f"/image/file/{prompt_id}/{i}" for i in range(fait)]
-            if statut == 'done' else [])
+    urls = ([f"/image/file/{prompt_id}/{i}" for i in range(fact)]
+            if status_value == 'done' else [])
     journal.append({'etape': 'generation_finie', 'outil': 'diffusers',
                     'question': prompt[:200], 'prompt_id': prompt_id,
                     'images': urls,

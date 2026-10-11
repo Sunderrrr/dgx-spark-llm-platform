@@ -6,13 +6,13 @@ from urllib.parse import urlparse
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-_SECRET_FAIBLES = {'changeme', 'secret', 'dev', 'test', 'password', 'changeme!'}
+_WEAK_SECRETS = {'changeme', 'secret', 'dev', 'test', 'password', 'changeme!'}
 
 app = Flask(__name__)
 
 # How long the API takes, measured on every request (see latency.py).
-from latency import _bp as _latence_bp, enregistrer as _latence_enregistrer  # noqa: E402
-app.register_blueprint(_latence_bp)
+from latency import _bp as _latency_bp, record as _latency_record  # noqa: E402
+app.register_blueprint(_latency_bp)
 
 # The session-cookie signing key is the portal's most critical secret: the Flask
 # cookie is SIGNED but not encrypted, so whoever knows the key can forge
@@ -22,7 +22,7 @@ app.register_blueprint(_latence_bp)
 # session is accepted (verified on a throwaway app). So we refuse at startup,
 # loudly, rather than at exploitation time.
 _SECRET_KEY = os.environ['SECRET_KEY']
-if len(_SECRET_KEY) < 32 or _SECRET_KEY.strip().lower() in _SECRET_FAIBLES:
+if len(_SECRET_KEY) < 32 or _SECRET_KEY.strip().lower() in _WEAK_SECRETS:
     raise RuntimeError(
         "SECRET_KEY absente ou non aléatoire : il faut au moins 32 caractères "
         "aléatoires (elle est générée par setup.sh dans .env — ne jamais "
@@ -81,21 +81,21 @@ _CSP = ("default-src 'self'; "
         "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 
 @app.before_request
-def _chronometrer_debut():
+def _timing_start():
     # Only the API surface is measured: pages and assets would drown the
     # signal an operator reads (latency.py explains the window).
     from flask import request as _rq
-    if _rq.path.startswith(('/api/', '/admin')) and _rq.endpoint != 'latence.api_latence':
+    if _rq.path.startswith(('/api/', '/admin')) and _rq.endpoint != 'latency.api_latency':
         from flask import g as _g
         _g._t0 = time.perf_counter()
 
 
 @app.after_request
-def _chronometrer_fin(resp):
+def _timing_end(resp):
     from flask import g as _g
     t0 = getattr(_g, '_t0', None)
     if t0 is not None:
-        _latence_enregistrer(request.path, time.perf_counter() - t0)
+        _latency_record(request.path, time.perf_counter() - t0)
     return resp
 
 
@@ -143,7 +143,7 @@ from auth import (  # noqa: E402
     _apply_session, _client_ip, _csrf_protect, _ensure_csrf,
     _inject_csrf, _is_admin_group, _login_fail, _login_locked,
     _login_reset, _revoke_current_session, _revoke_user_sessions,
-    est_bloque, is_admin_username,
+    is_blocked, is_admin_username,
     ldap_authenticate, ldap_lookup_email,
     ldap_resolve_sso_identity,
 )
@@ -174,12 +174,12 @@ from db import (  # noqa: E402  (see comment below)
 
 # The client is built from the LIVE configuration (Admin → Config, then .env)
 # and rebuilt when it changes: see sso_client.py.
-from parametres import oidc_config, parametre  # noqa: E402
+from instance_config import oidc_config, setting  # noqa: E402
 from sso_client import sso_client  # noqa: E402
-from proprietaire import (  # noqa: E402
-    creer_proprietaire, jeton_setup, jeton_valide, setup_requis)
+from owner import (  # noqa: E402
+    create_owner, setup_token, setup_token_valid, setup_required)
 from directory_groups import (  # noqa: E402
-    appliquer_quota_groupes, droits_par_groupes, importer_groupes)
+    apply_group_quota, rights_from_groups, import_groups)
 
 # ── DB ─────────────────────────────────────────────────────────────────────
 
@@ -198,8 +198,8 @@ from guards import (  # noqa: E402
 
 # LiteLLM client (keys, budgets, accounts): see litellm_client.py
 from litellm_client import (  # noqa: E402
-    _ensure_litellm_user, _infos_cles, _litellm_user_info, create_litellm_key,
-    get_user_keys, litellm_headers, litellm_update_user_budget, renommer_cle_litellm,
+    _ensure_litellm_user, _key_infos, _litellm_user_info, create_litellm_key,
+    get_user_keys, litellm_headers, litellm_update_user_budget, rename_litellm_key,
     revoke_litellm_key,
 )
 
@@ -233,9 +233,9 @@ from comfyui_client import (  # noqa: E402
 
 # vLLM probe (health, throughput, context) + HF search: see vllm_health.py
 from vllm_health import (  # noqa: E402
-    GB10_TAG, HF_TASKS, HfIndisponible, _CTX_FLAG, _SEARCH_PAGE_SIZE, _SEQS_FLAG,
-    _prom_sum, ctx_of, ctx_split, effective_ctx, guess_engine, hf_jeton_present,
-    hf_modele_hors_gb10, max_seqs_of, search_hf_models_page, vllm_health,
+    GB10_TAG, HF_TASKS, HfUnavailable, _CTX_FLAG, _SEARCH_PAGE_SIZE, _SEQS_FLAG,
+    _prom_sum, ctx_of, ctx_split, effective_ctx, guess_engine, hf_token_present,
+    hf_model_outside_gb10, max_seqs_of, search_hf_models_page, vllm_health,
 )
 
 # Notifications (admin mail, Discord webhook): see notify.py
@@ -261,7 +261,7 @@ from auth import (  # noqa: E402
 from local_users import (  # noqa: E402
     _local_group, _local_user_auth, _local_user_effective_budget,
     _local_user_is_admin, _parse_budget, _record_user_source,
-    _sync_local_user_budget, gestion_mot_de_passe, password_policy_error,
+    _sync_local_user_budget, password_management, password_policy_error,
 )
 
 # ── Discord account linking (OAuth2 "identify") ──────────────────────────────
@@ -345,7 +345,7 @@ from webauthn_routes import (  # noqa: E402
 # ── Web search from the playground ───────────────────────────────────────────
 # Moved to websearch_tools.py on 28/08 (see db.py for the shared core).
 from websearch_tools import (  # noqa: E402
-    _phase_outils, _recherche_pertinente, _texte_des_trouvailles, websearch_active,
+    _tools_phase, _search_relevant, _findings_text, websearch_active,
 )
 
 
@@ -424,7 +424,7 @@ def api_config():
         _config_cache['t'] = now
     # Live, not cached: the login page switches to sign-in the moment the owner
     # exists (one settings read once it does).
-    return jsonify({**_config_cache['v'], 'setup_required': setup_requis()})
+    return jsonify({**_config_cache['v'], 'setup_required': setup_required()})
 
 
 @app.route('/api/setup', methods=['POST'])
@@ -434,16 +434,16 @@ def api_setup():
     Public by necessity — nobody can be logged in yet — and therefore gated by
     the setup token from the server's log. Refused as soon as anything
     administers the instance. On success the owner is logged in."""
-    if not setup_requis():
+    if not setup_required():
         return jsonify({'ok': False, 'error': "Cette instance a déjà un administrateur."}), 409
     ip = _client_ip()
-    cle = f"{ip}|setup"
-    attente = _login_locked(cle)
-    if attente:
-        return jsonify({'ok': False, 'error': f"Trop d'essais. Réessaie dans {attente // 60 + 1} min."}), 429
+    key = f"{ip}|setup"
+    waiting = _login_locked(key)
+    if waiting:
+        return jsonify({'ok': False, 'error': f"Trop d'essais. Réessaie dans {waiting // 60 + 1} min."}), 429
     data = request.get_json(silent=True) or request.form
-    if not jeton_valide(str(data.get('token', ''))):
-        _login_fail(cle)
+    if not setup_token_valid(str(data.get('token', ''))):
+        _login_fail(key)
         return jsonify({'ok': False, 'code': 'jeton_invalide',
                         'error': "Jeton de configuration invalide."}), 403
     username = str(data.get('username', '')).strip().lower()
@@ -454,8 +454,8 @@ def api_setup():
     err = password_policy_error(password, username)
     if err:
         return jsonify({'ok': False, 'error': err}), 400
-    _login_reset(cle)
-    creer_proprietaire(username, fullname, password)
+    _login_reset(key)
+    create_owner(username, fullname, password)
     row = get_db().execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
     _sync_local_user_budget(username, row)
     log_audit(username, 'setup.owner', "compte propriétaire créé au premier lancement")
@@ -477,13 +477,13 @@ def api_branding_logo():
         return ('', 404)
     import base64
     try:
-        octets = base64.b64decode(row['value'].split(',', 1)[1])
+        size_bytes = base64.b64decode(row['value'].split(',', 1)[1])
     except Exception:
         return ('', 404)
     type_mime = 'image/png'
     if row['value'].startswith('data:image/'):
         type_mime = row['value'][5:].split(';', 1)[0]
-    return Response(octets, content_type=type_mime,
+    return Response(size_bytes, content_type=type_mime,
                     headers={'Cache-Control': 'public, max-age=3600'})
 
 
@@ -491,7 +491,7 @@ def api_branding_logo():
 
 
 
-def _refus_si_bloque(username):
+def _refuse_if_blocked(username):
     """Refuse a blocked account, AFTER credential verification.
 
     Placed after, and not before: a valid password must be presented to learn
@@ -501,7 +501,7 @@ def _refus_si_bloque(username):
     endlessly. The block is set by an admin (Users → Bloquer): it is the ONLY
     lever for an LDAP/SSO account, which has no row in local_users.
     """
-    if not est_bloque(username):
+    if not is_blocked(username):
         return None
     log_audit(username, 'login.refuse', 'compte bloqué par un administrateur')
     message = "Accès révoqué pour ce compte. Contacte un administrateur."
@@ -546,9 +546,9 @@ def login():
         # before LDAP so as not to depend on its availability.
         l_ok, l_admin, l_name = _local_user_auth(username, password)
         if l_ok:
-            refus = _refus_si_bloque(username)
-            if refus:
-                return refus
+            refusal = _refuse_if_blocked(username)
+            if refusal:
+                return refusal
             _login_reset(key); _login_reset(ukey)
             _record_user_source(username, 'local', l_name, l_admin)
             if _webauthn_enabled(username):
@@ -559,17 +559,17 @@ def login():
                                 'nonce': payload['nonce']})
             _apply_session(username, l_name, l_admin, via_sso=False)
             return redirect(_safe_next(request.args.get('next')))
-        ok, is_admin, fullname, groupes_ldap = ldap_authenticate(username, password, avec_groupes=True)
+        ok, is_admin, fullname, ldap_groups = ldap_authenticate(username, password, with_groups=True)
         if ok:
-            refus = _refus_si_bloque(username)
-            if refus:
-                return refus
+            refusal = _refuse_if_blocked(username)
+            if refusal:
+                return refusal
             _login_reset(key); _login_reset(ukey)
             # The directory groups come down with the login (directory_groups):
             # an admin group of the portal makes its members admins too.
-            is_admin = _importer_groupes_annuaire(username, {'ldap': groupes_ldap}, is_admin)
+            is_admin = _import_directory_groups(username, {'ldap': ldap_groups}, is_admin)
             _record_user_source(username, 'ldap', fullname, is_admin)
-            appliquer_quota_groupes(username)
+            apply_group_quota(username)
             if _webauthn_enabled(username):
                 payload = start_login(username, fullname, is_admin, 'ldap')
                 return jsonify({'webauthn_required': True,
@@ -664,7 +664,7 @@ def oauth_callback():
         log_audit('sso', 'sso.email_non_verifie',
                   f'repli sur l\'adresse refusé pour sub={sub[:64]} (email_verified=false)')
         email = ''
-    username, is_admin, fullname, groupes_ldap = ldap_resolve_sso_identity(sub, email, avec_groupes=True)
+    username, is_admin, fullname, ldap_groups = ldap_resolve_sso_identity(sub, email, with_groups=True)
     if username is None:
         flash("SSO : identité non reconnue dans le répertoire.", "danger")
         return redirect(url_for('login'))
@@ -680,23 +680,23 @@ def oauth_callback():
         # also covers the case where it would be a full DN. The directory
         # lookup above already gave us is_admin from memberOf; the `groups`
         # claim is treated as a secondary signal only when present.
-        groupe_admin = oidc_config()['admin_group']
-        is_admin = is_admin or any(g == groupe_admin or _is_admin_group(g) for g in groups)
+        admin_group = oidc_config()['admin_group']
+        is_admin = is_admin or any(g == admin_group or _is_admin_group(g) for g in groups)
 
-    if _refus_si_bloque(username):
+    if _refuse_if_blocked(username):
         # The password does not come into play here: identity is proven by the
         # directory, but the portal's refusal stands. The URL flag carries the
         # message to the login page, which is rendered by Next.js
         # (a Flask flash would be displayed nowhere).
-        return redirect(url_for('login', refus='bloque'))
+        return redirect(url_for('login', refused='blocked'))
     nxt = session.pop('sso_next', None)
     # Both come down: the directory's memberOf (looked up above) and the
     # token's own `groups` claim — same names merge into one portal group.
-    is_admin = _importer_groupes_annuaire(
-        username, {'ldap': groupes_ldap, 'sso': groups if isinstance(groups, list) else None},
+    is_admin = _import_directory_groups(
+        username, {'ldap': ldap_groups, 'sso': groups if isinstance(groups, list) else None},
         is_admin)
     _record_user_source(username, 'sso', fullname, is_admin)
-    appliquer_quota_groupes(username)
+    apply_group_quota(username)
     _apply_session(username, fullname, is_admin, via_sso=True)
     return redirect(_safe_next(nxt))
 
@@ -707,12 +707,12 @@ app.register_blueprint(discord_bp)
 # POST only: on GET, any third-party page could log the user out
 # with a simple <img src="https://.../logout">, outside the CSRF
 # guard (which only covers unsafe methods).
-def _importer_groupes_annuaire(username, par_source, is_admin):
+def _import_directory_groups(username, by_source, is_admin):
     """Imports the account's directory groups and returns its admin right
     with the groups' own (an admin group of the portal). Never fails a login."""
     try:
-        importer_groupes(username, par_source)
-        return bool(is_admin) or droits_par_groupes(username)[0]
+        import_groups(username, by_source)
+        return bool(is_admin) or rights_from_groups(username)[0]
     except Exception as exc:                                     # noqa: BLE001
         app.logger.warning("import des groupes de %s impossible : %s", username, exc)
         return is_admin
@@ -759,10 +759,10 @@ def _sidecar_metrics(kind):
     # 20 most recent jobs that carry a duration: basis for the averages (time, throughputs).
     recent = db.execute(
         f"SELECT * FROM {tbl} WHERE duration_ms IS NOT NULL ORDER BY id DESC LIMIT 20").fetchall()
-    durs = [r['duration_ms'] for r in recent if r['duration_ms']]
+    hard_items = [r['duration_ms'] for r in recent if r['duration_ms']]
     m = {'count_today': count_today, 'total': total,
-         'avg_ms': round(sum(durs) / len(durs)) if durs else None,
-         'last_ms': durs[0] if durs else None}
+         'avg_ms': round(sum(hard_items) / len(hard_items)) if hard_items else None,
+         'last_ms': hard_items[0] if hard_items else None}
 
     def _avg(vals):
         vals = [v for v in vals if v is not None]
@@ -780,10 +780,10 @@ def _sidecar_metrics(kind):
                     for r in recent if r['audio_ms'] and r['duration_ms']])
         m['rtf'] = round(rtf, 1) if rtf else None
     if kind == 'video':
-        fin = {r['status']: r['c'] for r in db.execute(
+        end = {r['status']: r['c'] for r in db.execute(
             f"SELECT status, COUNT(*) c FROM {tbl} WHERE status IN ('done','error') GROUP BY status")}
-        finished = fin.get('done', 0) + fin.get('error', 0)
-        m['success_rate'] = round(100 * fin.get('done', 0) / finished) if finished else None
+        finished = end.get('done', 0) + end.get('error', 0)
+        m['success_rate'] = round(100 * end.get('done', 0) / finished) if finished else None
         m['video_secs_today'] = db.execute(
             f"SELECT SUM(req_duration_s) FROM {tbl} WHERE created_at >= ? AND req_duration_s IS NOT NULL",
             (today,)).fetchone()[0]
@@ -836,48 +836,48 @@ def _running_and_metrics():
     # page, its 5 s refresh and the playground's arrival all waited on the SUM.
     # Run them together: the page now costs the SLOWEST probe, not the total.
     # No database is touched inside a probe, so the threads are safe here.
-    def _sonde(fonction, *args):
+    def _probe(func, *args):
         # Flask's application context is THREAD-LOCAL: a probe running in a
         # worker that touches get_db() raised "Working outside of application
         # context" (measured 2026-10-07, 500 on /api/home). Open one per call.
         with app.app_context():
-            return fonction(*args)
+            return func(*args)
 
-    with ThreadPoolExecutor(max_workers=10) as _sondes:
+    with ThreadPoolExecutor(max_workers=10) as _probes:
         _f = {
-            'ocr': _sondes.submit(get_ocr_model),
-            'comfy': _sondes.submit(comfyui_is_up),
-            'image': _sondes.submit(image_ready),
-            'music': _sondes.submit(music_ready),
-            'voice': _sondes.submit(get_voice_model),
+            'ocr': _probes.submit(get_ocr_model),
+            'comfy': _probes.submit(comfyui_is_up),
+            'image': _probes.submit(image_ready),
+            'music': _probes.submit(music_ready),
+            'voice': _probes.submit(get_voice_model),
             # The MODEL names and the per-sidecar metrics are probes too: left
             # behind, they kept the first call at 3.1 s (measured) even with the
             # availability checks running in parallel.
-            'image_model': _sondes.submit(_sonde, get_image_model),
-            'music_model': _sondes.submit(_sonde, get_music_model),
-            'm_ocr': _sondes.submit(_sonde, _sidecar_metrics, 'ocr'),
-            'm_video': _sondes.submit(_sonde, _sidecar_metrics, 'video'),
-            'm_voice': _sondes.submit(_sonde, _sidecar_metrics, 'voice'),
+            'image_model': _probes.submit(_probe, get_image_model),
+            'music_model': _probes.submit(_probe, get_music_model),
+            'm_ocr': _probes.submit(_probe, _sidecar_metrics, 'ocr'),
+            'm_video': _probes.submit(_probe, _sidecar_metrics, 'video'),
+            'm_voice': _probes.submit(_probe, _sidecar_metrics, 'voice'),
         }
-        _resultats = {k: f.result() for k, f in _f.items()}
+        _results = {k: f.result() for k, f in _f.items()}
     running = [{'name': m, 'kind': 'chat', 'exposed': True} for m in get_running_models()]
     metrics = {}
-    ocr_model = _resultats['ocr']
+    ocr_model = _results['ocr']
     if ocr_model:
         running.append({'name': ocr_model, 'kind': 'ocr', 'exposed': False})
-        metrics['ocr'] = _resultats['m_ocr']
-    if _resultats['comfy']:
+        metrics['ocr'] = _results['m_ocr']
+    if _results['comfy']:
         running.append({'name': 'MiniMax-H3', 'kind': 'video', 'exposed': False})
-        metrics['video'] = _resultats['m_video']
-    if _resultats['image']:
-        running.append({'name': _resultats['image_model'] or 'Image', 'kind': 'image', 'exposed': False})
-    if _resultats['music']:
-        running.append({'name': _resultats['music_model'] or 'Musique', 'kind': 'music', 'exposed': False})
-    voice_model = _resultats['voice']
+        metrics['video'] = _results['m_video']
+    if _results['image']:
+        running.append({'name': _results['image_model'] or 'Image', 'kind': 'image', 'exposed': False})
+    if _results['music']:
+        running.append({'name': _results['music_model'] or 'Musique', 'kind': 'music', 'exposed': False})
+    voice_model = _results['voice']
     if voice_model:
         _vlabel = 'Qwen3-TTS' if get_voice_engine() == 'qwen3-tts' else 'Chatterbox'
         running.append({'name': f'{_vlabel} ({voice_model})', 'kind': 'voice', 'exposed': False})
-        metrics['voice'] = _resultats['m_voice']
+        metrics['voice'] = _results['m_voice']
     return running, metrics
 
 
@@ -898,9 +898,9 @@ def _index_data():
     _litellm_ui = _litellm_user_info(session['username'])
     effective = _litellm_ui.get('max_budget')
     if effective is None:
-        mu = db.execute("SELECT * FROM local_users WHERE username=?",
+        local_row = db.execute("SELECT * FROM local_users WHERE username=?",
                         (session['username'],)).fetchone()
-        effective = _local_user_effective_budget(mu) if mu else default_budget
+        effective = _local_user_effective_budget(local_row) if local_row else default_budget
     budget_used, budget_remaining = _budget_remaining(session['username'], effective, budget_duration)
     # Date of the envelope's next reset: shown to the user so they know WHEN
     # they get quota back (otherwise « dépassé » seems eternal).
@@ -951,7 +951,7 @@ def security_txt():
     expires: `Expires` is always six months ahead.
     """
     # Admin → Config « Sécurité — contact », else ADMIN_EMAIL; neither = 404.
-    contact = (parametre('security_contact') or parametre('admin_email') or '').strip()
+    contact = (setting('security_contact') or setting('admin_email') or '').strip()
     if not contact:
         return Response("no security contact configured\n", status=404, mimetype="text/plain")
     if not re.match(r'^(https://|mailto:)', contact):
@@ -1144,7 +1144,7 @@ def api_whoami():
     # Who holds this account's password: the portal, the LDAP directory, the
     # SSO provider, or nobody as far as we know. The UI uses it to show the
     # right form — or to say where the password is changed.
-    gestion = gestion_mot_de_passe(session.get('username'))
+    management = password_management(session.get('username'))
     return jsonify({'username': session.get('username'), 'fullname': session.get('fullname'),
                      'is_admin': bool(session.get('is_admin')),
                      'avatar_id': pref['avatar_id'] if pref else None,
@@ -1156,10 +1156,10 @@ def api_whoami():
                      # `local_account` remains for existing callers;
                      # `password_managed_by` says the same thing more precisely
                      # (an account can be local AND have logged in via SSO).
-                     'local_account': gestion['local'],
-                     'password_managed_by': gestion['gestion'],
-                     'auth_sources': gestion['sources'],
-                     'passkey_possible': gestion['passkey'],
+                     'local_account': management['local'],
+                     'password_managed_by': management['gestion'],
+                     'auth_sources': management['sources'],
+                     'passkey_possible': management['passkey'],
                      'maintenance_mode': maintenance_active()})
 
 
@@ -1367,17 +1367,17 @@ def keys():
                                                   "caractère (lettres, chiffres, - ou _)."}), 400
         # An alias already carried by ANOTHER of your keys would make the list
         # ambiguous: that is exactly what the alias exists to avoid.
-        doublon = db.execute(
+        duplicate = db.execute(
             "SELECT 1 FROM api_keys WHERE username=? AND key_alias=? AND key_value<>?",
             (session['username'], alias, k)
         ).fetchone()
-        if doublon:
+        if duplicate:
             return jsonify({'ok': False, 'code': 'alias_deja_utilise',
                             'error': "Tu as déjà une clé nommée ainsi."}), 409
         # LiteLLM first: if we only renamed on our side, its console would keep
         # showing the old name, and the admin could no longer tell who owns a
         # given key.
-        if not renommer_cle_litellm(k, alias):
+        if not rename_litellm_key(k, alias):
             return jsonify({'ok': False,
                             'error': "Le nom n'a PAS pu être changé : LiteLLM n'a pas "
                                      "répondu. La clé est intacte, réessaie."}), 503
@@ -1445,12 +1445,12 @@ def api_keys():
         or {'context': 262144, 'output': 131072}
     # A single read of the setting and ONE call to `_budget_remaining`: the same
     # response repeated them three and two times.
-    duree = get_setting('default_key_duration', KEY_DURATION)
-    budget_used, budget_remaining = _budget_remaining(session['username'], default_budget, duree)
+    duration = get_setting('default_key_duration', KEY_DURATION)
+    budget_used, budget_remaining = _budget_remaining(session['username'], default_budget, duration)
     return jsonify({
         'user_keys': get_user_keys(session['username']),
         'budget_tokens': f"{default_budget:,.0f}".replace(',', ' '),
-        'budget_duration': duree,
+        'budget_duration': duration,
         'budget_used': budget_used,
         'budget_remaining': budget_remaining,
         'account': account,
@@ -1514,7 +1514,7 @@ def api_search():
         return jsonify({'ok': False, 'results': [], 'error': f"Tâche inconnue : {task}."}), 400
     try:
         results, has_more = search_hf_models_page(query, task, gb10_only=gb10, skip=skip)
-    except HfIndisponible as e:
+    except HfUnavailable as e:
         # `code` in addition to `error`: the portal is FR-first, but the UI can
         # translate that case (English only makes sense if it is complete), and
         # the technical detail stays attached for whoever must diagnose.
@@ -1523,15 +1523,15 @@ def api_search():
     # GB10 filter + no result: the user's next question is « est-ce que ça
     # existe ailleurs ? ». We answer it (True/False/None = unknown, and then the
     # UI says nothing).
-    hors_gb10 = None
+    outside_gb10 = None
     if gb10 and query and not results:
-        hors_gb10 = hf_modele_hors_gb10(query, task)
+        outside_gb10 = hf_model_outside_gb10(query, task)
     return jsonify({'ok': True, 'results': results, 'query': query, 'task': task,
                     'gb10_only': gb10, 'skip': skip, 'page_size': _SEARCH_PAGE_SIZE,
-                    'has_more': has_more, 'hors_gb10': hors_gb10,
+                    'has_more': has_more, 'hors_gb10': outside_gb10,
                     # Presence of the token, NEVER its value: it tells the UI
                     # whether gated repositories can appear.
-                    'hf_token': hf_jeton_present()})
+                    'hf_token': hf_token_present()})
 
 
 RANKING_LABELS = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours',
@@ -1561,10 +1561,10 @@ def api_ranking():
     # small, but the page refreshes often. A row absent from the table
     # keeps `None`, i.e. the avatar generated from the nickname — the default of
     # every account, see /api/whoami.
-    avatars = {nom: av for nom, av in get_db().execute(
+    avatars = {name: av for name, av in get_db().execute(
         "SELECT username, avatar_id FROM user_prefs").fetchall()}
-    for ligne in data['rows']:
-        ligne['avatar_id'] = avatars.get(ligne.get('username'))
+    for line in data['rows']:
+        line['avatar_id'] = avatars.get(line.get('username'))
     return jsonify({'rows': data['rows'], 'active_count': data['active_count'],
                     'period': period, 'metric': metric,
                     'total': data['total'], 'avg': data['avg'], 'has_prev': data['has_prev'],
@@ -1579,14 +1579,14 @@ def request_model():
         return ('', 204)
     # JSON first (sendJSON), form as fallback: the route was long called
     # form-encoded and nothing justifies breaking that path.
-    donnees = request.get_json(silent=True) or request.form
+    data_counts = request.get_json(silent=True) or request.form
     # Same bounds as the neighbouring routes (`admin_routes` :1203, `settings_routes`
     # :218): the type is checked along the way, a non-string JSON would otherwise
     # raise an AttributeError in 500 (audit of 2026-10-02).
-    brut_id  = donnees.get('model_id')
-    brut_motif = donnees.get('reason')
-    model_id = (brut_id.strip() if isinstance(brut_id, str) else '')[:200]
-    reason   = (brut_motif.strip() if isinstance(brut_motif, str) else '')[:500]
+    raw_id  = data_counts.get('model_id')
+    raw_reason = data_counts.get('reason')
+    model_id = (raw_id.strip() if isinstance(raw_id, str) else '')[:200]
+    reason   = (raw_reason.strip() if isinstance(raw_reason, str) else '')[:500]
     if not model_id:
         return jsonify({'ok': False, 'code': 'identifiant_requis',
                         'error': "L'identifiant du modèle est requis."}), 400
@@ -1611,12 +1611,12 @@ def request_model():
     email_ok = notify_email(model_id, session['username'], session['fullname'], reason)
     # The request IS recorded: a notification failure is a warning,
     # not an error — but it must show (the admin is warned via these channels).
-    reponse = {'ok': True, 'message': f"Demande envoyée pour « {model_id} » !",
+    response = {'ok': True, 'message': f"Demande envoyée pour « {model_id} » !",
                'discord_sent': bool(discord_ok), 'email_sent': bool(email_ok)}
     if not (discord_ok or email_ok):
-        reponse['warning'] = ("Demande enregistrée, mais l'admin n'a pu être prévenu "
+        response['warning'] = ("Demande enregistrée, mais l'admin n'a pu être prévenu "
                               "(ni Discord ni email).")
-    return jsonify(reponse)
+    return jsonify(response)
 
 # Per-sidecar usage (administration): see stats.py
 
@@ -1636,19 +1636,19 @@ with app.app_context():
     # LDAP, SSO and SMTP now live in the database only (Admin → Config). An
     # older deployment's .env values are copied in ONCE, at the first start of
     # this version — then .env is never read for them again.
-    from parametres import importer_env_une_fois
-    _importes = importer_env_une_fois()
-    if _importes:
-        print(f"[config] importé depuis .env (une seule fois) : {', '.join(_importes)}",
+    from instance_config import import_env_once
+    _imported = import_env_once()
+    if _imported:
+        print(f"[config] importé depuis .env (une seule fois) : {', '.join(_imported)}",
               file=sys.stderr, flush=True)
     # A fresh instance: nobody administers it yet. The setup token goes to the
     # log (and data/setup-token); the login page asks for it with the owner.
-    _jeton = jeton_setup()
-    if _jeton:
+    _token = setup_token()
+    if _token:
         # stderr: the log shows it (`docker logs dgx-portal 2>&1 | grep setup`),
         # and nothing that parses the portal's stdout sees it.
         print("[setup] Aucun administrateur : ouvre le portail pour créer le compte "
-              f"propriétaire. Jeton de configuration : {_jeton}", file=sys.stderr, flush=True)
+              f"propriétaire. Jeton de configuration : {_token}", file=sys.stderr, flush=True)
     # The avatar set went from generic shapes ("avatar-01"…) to AI
     # logos: we clear preferences pointing to a vanished id,
     # otherwise the <img> would hit a 404 for those accounts.
@@ -1689,9 +1689,9 @@ def _start_grant_reaper():
         while True:
             try:
                 with app.app_context():
-                    ramenes = revert_expired_grants()
-                    if ramenes:
-                        app.logger.info("Subventions budgétaires expirées ramenées à la base : %s", ramenes)
+                    brought_back = revert_expired_grants()
+                    if brought_back:
+                        app.logger.info("Subventions budgétaires expirées ramenées à la base : %s", brought_back)
             except Exception:
                 app.logger.exception("reaper budget_grants")
             time.sleep(60)
@@ -1709,8 +1709,8 @@ _start_grant_reaper()
 # each gunicorn worker gets its own thread, exactly like the lazy start.
 if os.environ.get('DGX_NO_REAPER') != '1':
     try:
-        from sidecars import asr_demarrer_veilleur
-        asr_demarrer_veilleur()
+        from sidecars import asr_start_watcher
+        asr_start_watcher()
     except Exception:                                        # noqa: BLE001
         pass
 
@@ -1719,9 +1719,9 @@ if os.environ.get('DGX_NO_REAPER') != '1':
 # first visit of the page already has them. Same seam as the reapers.
 if os.environ.get('DGX_NO_REAPER') != '1':
     try:
-        from directory import etats_annuaire
+        from directory import directory_states_for
         with app.app_context():          # the read also writes the LDAP groups
-            etats_annuaire([])
+            directory_states_for([])
     except Exception:                                        # noqa: BLE001
         pass
 

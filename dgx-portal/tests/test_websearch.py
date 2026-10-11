@@ -12,19 +12,19 @@ import websearch
 import websearch_tools
 
 
-def _lire_avec(texte):
+def _lire_avec(text):
     """Passes `texte` off as the markdown rendered by the crawler."""
     def faux_post(url, **kw):
         r = mock.Mock(); r.raise_for_status = lambda: None
         r.json = lambda: {'results': [{'url': u, 'success': True,
-                                       'markdown': {'raw_markdown': texte},
+                                       'markdown': {'raw_markdown': text},
                                        'metadata': {'title': 't'}}
                                       for u in kw['json']['urls']]}
         return r
     with mock.patch('websearch.requests.post', side_effect=faux_post), \
          mock.patch('websearch.socket.getaddrinfo',
                     return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
-        pages, _ = websearch.lire(['https://exemple.fr/a'])
+        pages, _ = websearch.read(['https://exemple.fr/a'])
     return pages[0]
 
 
@@ -36,12 +36,12 @@ class DeclenchementTest(unittest.TestCase):
     WEB/INTERNET/GOOGLE must be present in the request, else we do not search.
     """
 
-    def _pertinent(self, texte):
-        return websearch_tools._recherche_pertinente(
-            [{'role': 'user', 'content': texte}])
+    def _pertinent(self, text):
+        return websearch_tools._search_relevant(
+            [{'role': 'user', 'content': text}])
 
     def test_directives_explicites(self):
-        for texte in (
+        for text in (
             "cherche sur internet pourquoi vLLM crash au boot",
             "regarde sur le web les prix du DGX Spark",
             "va voir sur internet ce que vaut le poste",
@@ -51,10 +51,10 @@ class DeclenchementTest(unittest.TestCase):
             "search the web for the vllm 0.28 release notes",
             "google-le stp",
         ):
-            self.assertTrue(self._pertinent(texte), texte)
+            self.assertTrue(self._pertinent(text), text)
 
     def test_faux_positifs_jamais(self):
-        for texte in (
+        for text in (
             # « en ligne » describes a state, not a request to search the web.
             "je cherche à mettre mon site en ligne",
             "regarde pourquoi mon serveur n'est plus en ligne",
@@ -64,7 +64,7 @@ class DeclenchementTest(unittest.TestCase):
             "je cherche pourquoi mon conteneur plante au démarrage",
             "cherche dans le code la fonction qui nettoie ça",
         ):
-            self.assertFalse(self._pertinent(texte), texte)
+            self.assertFalse(self._pertinent(text), text)
 
     def test_le_code_colle_ne_declenche_rien(self):
         # A Google link in pasted code must not count as a directive (observed:
@@ -77,7 +77,7 @@ class UrlPubliqueTest(unittest.TestCase):
     def test_schemas_exotiques_refuses(self):
         for u in ('file:///etc/passwd', 'ftp://exemple.fr', 'gopher://x',
                   'javascript:alert(1)', 'data:text/html,<b>x</b>'):
-            ok, err = websearch.url_publique(u)
+            ok, err = websearch.public_url(u)
             self.assertFalse(ok, u)
             self.assertTrue(err)
 
@@ -85,13 +85,13 @@ class UrlPubliqueTest(unittest.TestCase):
         for u in ('http://127.0.0.1/', 'http://10.0.0.5/', 'http://192.168.1.1/',
                   'http://172.19.0.1:8001/', 'http://169.254.169.254/',
                   'http://[::1]/', 'http://100.64.45.103/'):
-            ok, _ = websearch.url_publique(u)
+            ok, _ = websearch.public_url(u)
             self.assertFalse(ok, u)
 
     def test_hote_qui_resout_en_prive_refuse(self):
         with mock.patch('websearch.socket.getaddrinfo',
                         return_value=[(2, 1, 6, '', ('127.0.0.1', 0))]):
-            ok, _ = websearch.url_publique('https://interne.exemple.fr/')
+            ok, _ = websearch.public_url('https://interne.exemple.fr/')
             self.assertFalse(ok)
 
     def test_une_seule_ip_privee_suffit_a_refuser(self):
@@ -99,68 +99,68 @@ class UrlPubliqueTest(unittest.TestCase):
         with mock.patch('websearch.socket.getaddrinfo',
                         return_value=[(2, 1, 6, '', ('93.184.216.34', 0)),
                                       (2, 1, 6, '', ('10.1.2.3', 0))]):
-            ok, _ = websearch.url_publique('https://double.exemple.fr/')
+            ok, _ = websearch.public_url('https://double.exemple.fr/')
             self.assertFalse(ok)
 
     def test_hote_public_accepte(self):
         with mock.patch('websearch.socket.getaddrinfo',
                         return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
-            ok, err = websearch.url_publique('https://exemple.fr/page')
+            ok, err = websearch.public_url('https://exemple.fr/page')
             self.assertTrue(ok, err)
 
     def test_hote_introuvable_refuse(self):
         with mock.patch('websearch.socket.getaddrinfo',
                         side_effect=websearch.socket.gaierror):
-            ok, _ = websearch.url_publique('https://nexistepas.invalid/')
+            ok, _ = websearch.public_url('https://nexistepas.invalid/')
             self.assertFalse(ok)
 
 
 class RechercheTest(unittest.TestCase):
-    def _reponse(self, resultats):
+    def _response(self, results):
         r = mock.Mock()
         r.ok = True
         r.raise_for_status = lambda: None
-        r.json = lambda: {'results': resultats}
+        r.json = lambda: {'results': results}
         return r
 
     def test_les_liens_prives_sont_ecartes_des_resultats(self):
-        with mock.patch('websearch.requests.get', return_value=self._reponse([
+        with mock.patch('websearch.requests.get', return_value=self._response([
             {'url': 'http://127.0.0.1/secret', 'title': 'interne'},
             {'url': 'https://exemple.fr/a', 'title': 'public'},
         ])), mock.patch('websearch.socket.getaddrinfo',
                         return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
-            res, err = websearch.rechercher('test')
+            res, err = websearch.search('test')
         self.assertIsNone(err)
         self.assertEqual([r['url'] for r in res], ['https://exemple.fr/a'])
 
     def test_doublons_supprimes_et_nombre_borne(self):
         items = [{'url': f'https://exemple.fr/{i}', 'title': str(i)} for i in range(30)]
         items += [{'url': 'https://exemple.fr/0', 'title': 'doublon'}]
-        with mock.patch('websearch.requests.get', return_value=self._reponse(items)), \
+        with mock.patch('websearch.requests.get', return_value=self._response(items)), \
              mock.patch('websearch.socket.getaddrinfo',
                         return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
-            res, _ = websearch.rechercher('test', nombre=99)
-        self.assertEqual(len(res), websearch.MAX_RESULTATS)
+            res, _ = websearch.search('test', count_value=99)
+        self.assertEqual(len(res), websearch.MAX_RESULTS)
         self.assertEqual(len({r['url'] for r in res}), len(res))
 
     def test_question_vide_refusee(self):
-        res, err = websearch.rechercher('   ')
+        res, err = websearch.search('   ')
         self.assertEqual(res, [])
         self.assertTrue(err)
 
     def test_moteur_injoignable_ne_leve_pas(self):
         with mock.patch('websearch.requests.get', side_effect=OSError('boum')):
-            res, err = websearch.rechercher('test')
+            res, err = websearch.search('test')
         self.assertEqual(res, [])
         self.assertIn('injoignable', err)
 
 
 class LectureTest(unittest.TestCase):
     def test_une_url_privee_n_est_jamais_transmise_au_crawler(self):
-        appels = []
+        calls = []
 
         def faux_post(url, **kw):
-            appels.append(kw.get('json', {}).get('urls'))
+            calls.append(kw.get('json', {}).get('urls'))
             r = mock.Mock(); r.raise_for_status = lambda: None
             r.json = lambda: {'results': []}
             return r
@@ -168,9 +168,9 @@ class LectureTest(unittest.TestCase):
         with mock.patch('websearch.requests.post', side_effect=faux_post), \
              mock.patch('websearch.socket.getaddrinfo',
                         return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
-            pages, _ = websearch.lire(['http://169.254.169.254/latest/meta-data/',
+            pages, _ = websearch.read(['http://169.254.169.254/latest/meta-data/',
                                        'https://exemple.fr/ok'])
-        self.assertEqual(appels, [['https://exemple.fr/ok']])
+        self.assertEqual(calls, [['https://exemple.fr/ok']])
         self.assertTrue(any(p.get('erreur') for p in pages))
 
     def test_contenu_borne_par_page_et_au_total(self):
@@ -184,7 +184,7 @@ class LectureTest(unittest.TestCase):
         with mock.patch('websearch.requests.post', side_effect=faux_post), \
              mock.patch('websearch.socket.getaddrinfo',
                         return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
-            pages, _ = websearch.lire([f'https://exemple.fr/{i}' for i in range(10)])
+            pages, _ = websearch.read([f'https://exemple.fr/{i}' for i in range(10)])
         self.assertLessEqual(len(pages), websearch.MAX_PAGES)
         for p in pages:
             self.assertLessEqual(len(p.get('contenu', '')), websearch.MAX_CARS_PAGE)
@@ -195,7 +195,7 @@ class LectureTest(unittest.TestCase):
         with mock.patch('websearch.requests.post', side_effect=OSError('boum')), \
              mock.patch('websearch.socket.getaddrinfo',
                         return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
-            pages, err = websearch.lire(['https://exemple.fr/a'])
+            pages, err = websearch.read(['https://exemple.fr/a'])
         self.assertEqual(pages, [])
         self.assertIn('injoignable', err)
 
@@ -210,27 +210,27 @@ class NettoyageTest(unittest.TestCase):
     """
 
     def test_bandeau_retire_mais_article_conserve(self):
-        brut = ("Votre carte de paiement arrive à expiration. Mettez la à jour.\n"
+        raw = ("Votre carte de paiement arrive à expiration. Mettez la à jour.\n"
                 "Continuer sans accepter →\n"
                 "## Dans le Morbihan, la liquidation d'une entreprise du bâtiment\n"
                 "laisse clients, artisans et salariés dans l'impasse.")
-        net = websearch.nettoyer(brut)
+        net = websearch.clean(raw)
         self.assertNotIn('carte de paiement', net)
         self.assertNotIn('Continuer sans accepter', net)
         self.assertIn('Morbihan', net)
 
     def test_prefixe_de_notification_retire_sans_perdre_le_titre(self):
-        brut = ("* Nouvelle notificationEN DIRECT - Guerre en Ukraine : Macron annonce\n"
+        raw = ("* Nouvelle notificationEN DIRECT - Guerre en Ukraine : Macron annonce\n"
                 "* Vidéo Nouvelle notification\"The Voice Kids 2026\" : des gages")
-        net = websearch.nettoyer(brut)
+        net = websearch.clean(raw)
         self.assertNotIn('Nouvelle notification', net)
         self.assertIn('Guerre en Ukraine', net)
 
     def test_les_lignes_courtes_de_code_ne_sont_jamais_retirees(self):
         # A technical doc is full of short lines: filtering by length would
         # destroy the code. We filter only on banner patterns.
-        brut = "async def main():\n    await asyncio.gather(a(), b())\n}\n)\nreturn x"
-        net = websearch.nettoyer(brut)
+        raw = "async def main():\n    await asyncio.gather(a(), b())\n}\n)\nreturn x"
+        net = websearch.clean(raw)
         for l in ('async def main():', 'asyncio.gather', 'return x', '}'):
             self.assertIn(l, net)
 
@@ -259,10 +259,10 @@ class NettoyageTest(unittest.TestCase):
 
 class ReglagesExtractionTest(unittest.TestCase):
     def test_les_reglages_mesures_partent_bien_au_crawler(self):
-        vus = {}
+        seen = {}
 
         def faux_post(url, **kw):
-            vus.update(kw['json']['crawler_config']['params'])
+            seen.update(kw['json']['crawler_config']['params'])
             r = mock.Mock(); r.raise_for_status = lambda: None
             r.json = lambda: {'results': []}
             return r
@@ -270,13 +270,13 @@ class ReglagesExtractionTest(unittest.TestCase):
         with mock.patch('websearch.requests.post', side_effect=faux_post), \
              mock.patch('websearch.socket.getaddrinfo',
                         return_value=[(2, 1, 6, '', ('93.184.216.34', 0))]):
-            websearch.lire(['https://exemple.fr/a'])
-        self.assertTrue(vus['markdown_generator']['params']['options']['ignore_links'])
-        self.assertIn('nav', vus['excluded_tags'])
-        self.assertIn('footer', vus['excluded_tags'])
+            websearch.read(['https://exemple.fr/a'])
+        self.assertTrue(seen['markdown_generator']['params']['options']['ignore_links'])
+        self.assertIn('nav', seen['excluded_tags'])
+        self.assertIn('footer', seen['excluded_tags'])
         # Relevance pruning is deliberately ABSENT: it removed the code blocks
         # of documentation pages.
-        self.assertNotIn('content_filter', vus['markdown_generator']['params'])
+        self.assertNotIn('content_filter', seen['markdown_generator']['params'])
 
 class RedirectionInterneTest(unittest.TestCase):
     """A public seed can redirect inwards: we refuse the PAGE.
@@ -290,10 +290,10 @@ class RedirectionInterneTest(unittest.TestCase):
     since it returns `result.model_dump()`.
     """
 
-    def _pages(self, resultats):
+    def _pages(self, results):
         def faux_post(url, **kw):
             r = mock.Mock(); r.raise_for_status = lambda: None
-            r.json = lambda: {'results': resultats}
+            r.json = lambda: {'results': results}
             return r
         def resout(h, *a, **k):
             if h == 'exemple.fr':
@@ -304,7 +304,7 @@ class RedirectionInterneTest(unittest.TestCase):
 
         with mock.patch('websearch.requests.post', side_effect=faux_post), \
              mock.patch('websearch.socket.getaddrinfo', side_effect=resout):
-            pages, _ = websearch.lire(['https://exemple.fr/a'])
+            pages, _ = websearch.read(['https://exemple.fr/a'])
         return pages[0]
 
     def test_redirection_vers_une_adresse_interne_refusee(self):
@@ -339,10 +339,10 @@ class RedirectionInterneTest(unittest.TestCase):
 
     def test_ignorance_ne_vaut_pas_refus(self):
         """Name that does not resolve on our side: we do NOT discard the page."""
-        self.assertFalse(websearch.cible_interne('https://nom-inconnu-zz.test/x'))
-        self.assertFalse(websearch.cible_interne('pas une url'))
-        self.assertFalse(websearch.cible_interne(''))
-        self.assertTrue(websearch.cible_interne('http://169.254.169.254/latest/'))
+        self.assertFalse(websearch.internal_target('https://nom-inconnu-zz.test/x'))
+        self.assertFalse(websearch.internal_target('pas une url'))
+        self.assertFalse(websearch.internal_target(''))
+        self.assertTrue(websearch.internal_target('http://169.254.169.254/latest/'))
 
     def test_redirection_non_resoluble_conservee(self):
         page = self._pages([{'url': 'https://exemple.fr/a', 'success': True,

@@ -10,7 +10,7 @@ import sqlite3
 import unittest
 from unittest import mock
 
-from db import DB_PATH, DB_RESET_MARKER, _detecte_base_reinitialisee
+from db import DB_PATH, DB_RESET_MARKER, _detect_reset_database
 import app as portal   # noqa: F401  (triggers init_db: full schema)
 
 
@@ -36,21 +36,21 @@ class DetecteurTest(unittest.TestCase):
 
     def test_base_vierge_sans_marqueur_n_alerte_pas(self):
         with mock.patch('notify.notify_infra_alert_email') as alerte:
-            _detecte_base_reinitialisee(self.db)
+            _detect_reset_database(self.db)
         alerte.assert_not_called()
         self.assertFalse(os.path.exists(DB_RESET_MARKER))
 
     def test_base_peuplee_cree_le_marqueur(self):
         self._peuple()
-        _detecte_base_reinitialisee(self.db)
+        _detect_reset_database(self.db)
         self.assertTrue(os.path.exists(DB_RESET_MARKER))
 
     def test_marqueur_present_et_base_vide_alerte(self):
         self._peuple()
-        _detecte_base_reinitialisee(self.db)          # creates the marker
+        _detect_reset_database(self.db)          # creates the marker
         self.db.execute("DELETE FROM conversations")
         with mock.patch('notify.notify_infra_alert_email') as alerte:
-            _detecte_base_reinitialisee(self.db)
+            _detect_reset_database(self.db)
         alerte.assert_called_once()
         sujet = alerte.call_args[0][0]
         self.assertIn('reset', sujet.lower())
@@ -59,7 +59,7 @@ class DetecteurTest(unittest.TestCase):
         # The detector must NEVER fail init_db: on a really closed connection it
         # swallows the error (no exception propagated).
         self.db.close()
-        _detecte_base_reinitialisee(self.db)  # must not raise
+        _detect_reset_database(self.db)  # must not raise
 
 
 if __name__ == '__main__':

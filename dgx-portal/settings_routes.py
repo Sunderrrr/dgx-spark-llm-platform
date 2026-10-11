@@ -17,16 +17,16 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from auth import completer_origine_session, login_required
+from auth import complete_session_origin, login_required
 from config import AVATAR_IDS, AVATAR_LABELS, KEY_BUDGET, KEY_DURATION, LANGS, THEME_IDS
 from conversation_routes import CONVERSATIONS_MAX
 from db import get_db, get_setting, log_audit
 from guards import (ASR_RATE_MAX, CHAT_RATE_MAX, CHAT_RATE_WINDOW,
                     _chat_rate_limited)
 from litellm_client import _litellm_user_info
-from local_users import (GESTION_LDAP, GESTION_PORTAIL, gestion_mot_de_passe,
+from local_users import (MANAGED_LDAP, MANAGED_PORTAL, password_management,
                          password_policy_error)
-from user_lifecycle import compter_donnees, deprovisionner_compte, prevenir_mot_de_passe_change
+from user_lifecycle import count_data, deprovision_account, notify_password_changed
 from mcp_client import MCPClient, MCPError
 from mcp_client import invalidate_tools as _invalidate_mcp_tools
 from mcp_client import validate_mcp_url
@@ -331,7 +331,7 @@ def skills_route():
 # through an administrator — while the reflex, after a doubt, is to change
 # it oneself right away.
 
-def _mes_sessions(username):
+def _my_sessions(username):
     """Account's active sessions, most recent first.
 
     The full sid NEVER leaves: it is the session cookie's secret, and
@@ -340,10 +340,10 @@ def _mes_sessions(username):
     enough to identify a session uniquely.
     """
     now = time.time()
-    sid_courant = session.get('sid')
+    current_sid = session.get('sid')
     # A session opened before the columns were added has no IP nor user-agent:
     # we fill it in here, as long as it is really theirs.
-    completer_origine_session()
+    complete_session_origin()
     out = []
     for r in get_db().execute(
             "SELECT sid, created_at, expires_at, ip, user_agent FROM user_sessions "
@@ -355,7 +355,7 @@ def _mes_sessions(username):
             'expires_at': r['expires_at'],
             'ip': r['ip'],
             'user_agent': r['user_agent'],
-            'current': bool(sid_courant and r['sid'] == sid_courant),
+            'current': bool(current_sid and r['sid'] == current_sid),
         })
     return out
 
@@ -364,11 +364,11 @@ def _mes_sessions(username):
 @login_required
 def api_account_sessions():
     username = session['username']
-    gestion = gestion_mot_de_passe(username)
-    return jsonify({'sessions': _mes_sessions(username),
-                    'local_account': gestion['local'],
-                    'password_managed_by': gestion['gestion'],
-                    'passkey_possible': gestion['passkey']})
+    management = password_management(username)
+    return jsonify({'sessions': _my_sessions(username),
+                    'local_account': management['local'],
+                    'password_managed_by': management['gestion'],
+                    'passkey_possible': management['passkey']})
 
 
 @bp.route('/api/account/sessions/revoke', methods=['POST'])
@@ -381,9 +381,9 @@ def api_account_sessions_revoke():
     it.
     """
     username = session['username']
-    corps = request.get_json(silent=True) or request.form
+    body = request.get_json(silent=True) or request.form
     db = get_db()
-    if corps.get('all') in (True, '1', 'true', 'on'):
+    if body.get('all') in (True, '1', 'true', 'on'):
         n = db.execute(
             "UPDATE user_sessions SET revoked=1 WHERE username=? AND sid<>? AND revoked=0",
             (username, session.get('sid'))).rowcount
@@ -392,26 +392,26 @@ def api_account_sessions_revoke():
                   f"{n} autre(s) session(s) fermée(s) par l'utilisateur")
         return jsonify({'ok': True, 'revoked': n})
 
-    ident = (corps.get('id') or '').strip()
+    ident = (body.get('id') or '').strip()
     if len(ident) < 8:
         return jsonify({'ok': False, 'error': "Identifiant de session invalide."}), 400
-    lignes = db.execute(
+    lines = db.execute(
         "SELECT sid FROM user_sessions WHERE username=? AND revoked=0 AND sid LIKE ?",
         (username, ident + '%')).fetchall()
-    if not lignes:
+    if not lines:
         return jsonify({'ok': False, 'error': "Session introuvable (déjà fermée ?)."}), 404
-    if len(lignes) > 1:
+    if len(lines) > 1:
         # 12 characters of token_urlsafe(32): a collision here means a truncated
         # identifier, we refuse rather than close at random.
         return jsonify({'ok': False,
                         'error': "Identifiant de session ambigu, réessaie."}), 409
-    cible = lignes[0]['sid']
-    db.execute("UPDATE user_sessions SET revoked=1 WHERE sid=?", (cible,))
+    target = lines[0]['sid']
+    db.execute("UPDATE user_sessions SET revoked=1 WHERE sid=?", (target,))
     db.commit()
-    courant = bool(session.get('sid') == cible)
+    current_value = bool(session.get('sid') == target)
     log_audit(username, 'account.sessions.revoke',
-              "fermeture de la session courante" if courant else f"fermeture de la session {ident}")
-    return jsonify({'ok': True, 'revoked': 1, 'current': courant})
+              "fermeture de la session courante" if current_value else f"fermeture de la session {ident}")
+    return jsonify({'ok': True, 'revoked': 1, 'current': current_value})
 
 
 @bp.route('/api/account/password', methods=['POST'])
@@ -423,9 +423,9 @@ def api_account_password():
     and the portal must not suggest otherwise.
     """
     username = session['username']
-    corps = request.get_json(silent=True) or request.form
-    actuel = corps.get('current') or ''
-    nouveau = corps.get('new') or ''
+    body = request.get_json(silent=True) or request.form
+    current = body.get('current') or ''
+    new_value = body.get('new') or ''
     db = get_db()
     row = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
     if row is None:
@@ -440,22 +440,22 @@ def api_account_password():
     # `webauthn_routes._verify_password_locked` applies the ACCOUNT lock,
     # shared with /login, in both directions.
     from webauthn_routes import _verify_password_locked      # late import: cycle app <-> webauthn
-    ok, erreur = _verify_password_locked(username, actuel)
+    ok, error_text = _verify_password_locked(username, current)
     if not ok:
         # Logged: a burst of these failures on a logged-in account is the sign of
         # a stolen session, not a typo.
         log_audit(username, 'account.password.echec', 'mot de passe actuel incorrect')
-        return jsonify(erreur[0]), erreur[1]
+        return jsonify(error_text[0]), error_text[1]
     # `actuel` has just been VALIDATED: comparing the two strings answers the
     # same question as a second `check_password_hash`, without paying a KDF again.
-    if nouveau == actuel:
+    if new_value == current:
         return jsonify({'ok': False,
                         'error': "Le nouveau mot de passe est identique à l'actuel."}), 400
-    err = password_policy_error(nouveau, username)
+    err = password_policy_error(new_value, username)
     if err:
         return jsonify({'ok': False, 'error': err}), 400
     db.execute("UPDATE local_users SET password_hash=? WHERE username=?",
-               (generate_password_hash(nouveau), username))
+               (generate_password_hash(new_value), username))
     db.commit()
     # A password change closes the OTHER sessions: this is exactly what is
     # expected when changing it as a precaution. The current session survives
@@ -466,7 +466,7 @@ def api_account_password():
         (username, session.get('sid'))).rowcount
     db.commit()
     log_audit(username, 'account.password', f'mot de passe changé, {n} session(s) fermée(s)')
-    prevenir_mot_de_passe_change(username)
+    notify_password_changed(username)
     return jsonify({'ok': True})
 
 
@@ -497,20 +497,20 @@ def api_account_delete():
     """
     from webauthn_routes import _verify_password_locked   # late import: avoids a cycle
     username = session['username']
-    corps = request.get_json(silent=True) or request.form
-    if (corps.get('confirm') or '').strip().upper() != 'DELETE':
+    body = request.get_json(silent=True) or request.form
+    if (body.get('confirm') or '').strip().upper() != 'DELETE':
         return jsonify({'ok': False, 'needs_confirm': True,
-                        'donnees': compter_donnees(username),
+                        'donnees': count_data(username),
                         'error': "Confirmation requise : cette suppression est définitive."}), 409
 
     db = get_db()
-    gestion = gestion_mot_de_passe(username)
-    local = gestion['local']
+    management = password_management(username)
+    local = management['local']
     if local:
         # Same guard as on the admin side, but here self-deletion is the goal: it
         # is refused only if it would take away the LAST local admin.
-        from admin_routes import _dernier_admin_local
-        if session.get('is_admin') and _dernier_admin_local(username):
+        from admin_routes import _last_local_admin
+        if session.get('is_admin') and _last_local_admin(username):
             return jsonify({'ok': False,
                             'error': "Tu es le dernier administrateur local : nomme un "
                                      "autre administrateur avant de supprimer ton compte."}), 409
@@ -526,12 +526,12 @@ def api_account_delete():
     # itself. An account of unknown origin (`inconnu`) keeps the previous
     # behaviour: requiring a password nobody can verify would make leaving
     # impossible.
-    if gestion['gestion'] in (GESTION_PORTAIL, GESTION_LDAP):
-        motdepasse = corps.get('password') or ''
-        if not motdepasse:
+    if management['gestion'] in (MANAGED_PORTAL, MANAGED_LDAP):
+        password_value = body.get('password') or ''
+        if not password_value:
             return jsonify({'ok': False,
                             'error': "Mot de passe requis pour supprimer ton compte."}), 400
-        ok, err = _verify_password_locked(username, motdepasse)
+        ok, err = _verify_password_locked(username, password_value)
         if not ok:
             return jsonify(err[0]), err[1]
 
@@ -540,14 +540,14 @@ def api_account_delete():
         # data) goes without it.
         db.execute("DELETE FROM local_users WHERE username=?", (username,))
         db.commit()
-        rapport = deprovisionner_compte(username, username, action='account.self_delete')
-        reponse = {'ok': True, 'deleted': True, 'purged': rapport}
-        if rapport['keys_failed'] or not rapport['litellm_user']:
-            reponse['warning'] = (
-                f"{rapport['keys_failed']} clé(s) n'ont pas pu être révoquées et/ou "
+        report = deprovision_account(username, username, action='account.self_delete')
+        response = {'ok': True, 'deleted': True, 'purged': report}
+        if report['keys_failed'] or not report['litellm_user']:
+            response['warning'] = (
+                f"{report['keys_failed']} clé(s) n'ont pas pu être révoquées et/ou "
                 "l'enveloppe LiteLLM n'a pas pu être supprimée (service injoignable) : "
                 "préviens un administrateur, ces clés peuvent encore fonctionner.")
-        return jsonify(reponse)
+        return jsonify(response)
 
-    rapport = deprovisionner_compte(username, username, action='account.self_purge')
-    return jsonify({'ok': True, 'deleted': False, 'purged': rapport})
+    report = deprovision_account(username, username, action='account.self_purge')
+    return jsonify({'ok': True, 'deleted': False, 'purged': report})

@@ -33,10 +33,10 @@ from datetime import datetime
 
 from comfyui_client import comfyui_generate, comfyui_is_up, comfyui_status
 from db import get_db
-from sidecars import attendre_job_media
+from sidecars import wait_media_job
 from guards import media_job_done, media_job_slot
-from sidecars import sidecar_demarrable, sidecar_demarrage_auto
-from video_routes import _persister_video
+from sidecars import sidecar_startable, sidecar_autostart
+from video_routes import _persist_video
 
 # Wait between two polls of the job row (video_jobs): the worker follows the
 # ComfyUI job in its own daemon thread, we only read its state.
@@ -56,7 +56,7 @@ _HEARTBEAT_EVERY_S = 15
 # « filmé ») do not match, nor does a plain mention of a video. Up to two words
 # may sit between the article and the object (« une COURTE vidéo », « a SHORT
 # movie ») — the image tool's rule leaves them out and misses those phrasings.
-_DEMANDE_VIDEO = re.compile(
+_VIDEO_REQUEST = re.compile(
     r"\b(?:genere|génère|generer|générer|cree|crée|creer|créer|veux|voudrais|"
     r"aimerais|fais|faites|realise|réalise|realiser|réaliser|generate|create|make|"
     r"animate|design)\b"
@@ -68,35 +68,35 @@ _DEMANDE_VIDEO = re.compile(
 # Accepted false positives: « animation CSS », « film de protection »,
 # « clip du presse-papiers » are not videos to render. Tested on the sentence
 # fragment that matched, not on the whole message.
-_PAS_UNE_VIDEO = re.compile(
+_NOT_A_VIDEO = re.compile(
     r"\b(?:css|html|web|react|vue|svelte|composant|interface|bouton|transition|"
     r"page|hover|survol|chargement|loading|curseur|plastique|protecteur|protection|"
     r"alimentaire|étirable|etirable|adh[ée]sif|isolant|windows|bios|presse-papiers)\b",
     re.I)
 
 
-def _video_demandee(history):
+def _video_requested(history):
     """Does the user EXPLICITLY ask for a video to be generated?"""
-    from websearch_tools import _texte_de_la_demande   # import tardif : cycle sinon
-    dernier = next((m for m in reversed(history) if m.get('role') == 'user'), None)
-    texte = _texte_de_la_demande(str((dernier or {}).get('content', '')))
+    from websearch_tools import _request_text   # import tardif : cycle sinon
+    last = next((m for m in reversed(history) if m.get('role') == 'user'), None)
+    text = _request_text(str((last or {}).get('content', '')))
     # Every matched occurrence is checked: « crée une animation CSS » falls to
     # the guard, « crée une animation de chat » passes.
-    return any(not _PAS_UNE_VIDEO.search(texte[m.start():m.end() + 40])
-               for m in _DEMANDE_VIDEO.finditer(texte))
+    return any(not _NOT_A_VIDEO.search(text[m.start():m.end() + 40])
+               for m in _VIDEO_REQUEST.finditer(text))
 
 
-def video_disponible():
+def video_available():
     """Is the video service ready, or at least startable? (tool declaration)
 
     The same rule as image_disponible, extended to « startable »: the sidecar
     is on-demand, and a tool that could not start it must not even be
     declared — the model would deny a capability the platform HAS.
     """
-    return comfyui_is_up() or sidecar_demarrable('video')
+    return comfyui_is_up() or sidecar_startable('video')
 
 
-def _outils_video():
+def _video_tools():
     return [{'type': 'function', 'function': {
         'name': 'generer_video',
         'description': (
@@ -113,13 +113,13 @@ def _outils_video():
 
 
 
-def _annonce_video(args):
+def _announce_video(args):
     """What we are about to generate, told to the client before doing it."""
     return {'etape': 'generation_video', 'outil': 'comfyui',
             'question': str(args.get('prompt', ''))[:200]}
 
 
-def _video_worker(prompt_id, username, cree_le):
+def _video_worker(prompt_id, username, created_at):
     """Follows the ComfyUI job to its end and closes the row (daemon thread).
 
     The Video page does this persistence through its own polling route
@@ -129,19 +129,19 @@ def _video_worker(prompt_id, username, cree_le):
     completes and stays in the history.
     """
     try:
-        fini, sortie = False, None
-        debut = time.monotonic()
-        while time.monotonic() - debut < _VIDEO_JOB_MAX_S:
+        finished, output = False, None
+        start = time.monotonic()
+        while time.monotonic() - start < _VIDEO_JOB_MAX_S:
             time.sleep(_POLL_INTERVAL_S)
             st = comfyui_status(prompt_id)
             if st['status'] in ('done', 'error'):
-                fini, sortie = True, st
+                finished, output = True, st
                 break
-        if not fini:
+        if not finished:
             # A job ComfyUI never finished: closing the row « error » beats
             # leaving it « running » for ever in the Video page history.
-            sortie = {'status': 'error'}
-        _persister_video(prompt_id, username, sortie, cree_le, None)
+            output = {'status': 'error'}
+        _persist_video(prompt_id, username, output, created_at, None)
     finally:
         media_job_done(username)
 
@@ -160,24 +160,24 @@ def _exec_video_tool(args, username, journal):
     if not prompt:
         return "Aucune description fournie : impossible de générer une vidéo."
     try:
-        duree = float(args.get('duree') or 5)
+        duration = float(args.get('duree') or 5)
     except (TypeError, ValueError):
-        duree = 5
-    duree = max(2, min(15, duree))       # bounds of the H3 workflow
+        duration = 5
+    duration = max(2, min(15, duration))       # bounds of the H3 workflow
 
     # Service on demand: ComfyUI starts at first use, under the memory guard —
     # a refusal is said plainly, the user is not left guessing why nothing runs.
-    ok, motif = sidecar_demarrage_auto('video', comfyui_is_up)
+    ok, reason = sidecar_autostart('video', comfyui_is_up)
     if not ok:
         journal.append({'etape': 'generation_video_finie', 'outil': 'comfyui',
-                        'question': prompt[:200], 'videos': [], 'erreur': motif})
-        return (f"Le service vidéo est indisponible : {motif}. "
+                        'question': prompt[:200], 'videos': [], 'erreur': reason})
+        return (f"Le service vidéo est indisponible : {reason}. "
                 "Dis-le tel quel à l'utilisateur.")
     if not media_job_slot(username):
         return ("Trop de générations vidéo en cours pour ce compte — "
                 "attends la fin des précédentes.")
     # T2V (text only): the tool carries no reference image.
-    prompt_id = comfyui_generate(None, prompt, duree)
+    prompt_id = comfyui_generate(None, prompt, duration)
     if not prompt_id:
         media_job_done(username)
         journal.append({'etape': 'generation_video_finie', 'outil': 'comfyui',
@@ -185,26 +185,26 @@ def _exec_video_tool(args, username, journal):
                         'erreur': "ComfyUI inaccessible ou requête refusée."})
         return ("La génération vidéo a échoué (sidecar indisponible ou surchargé). "
                 "Dis-le tel quel à l'utilisateur.")
-    cree_le = datetime.now().isoformat()
+    created_at = datetime.now().isoformat()
     db = get_db()
     # `status` is spelled out: the column defaults to 'pending', and the poll
     # below watches for the worker to leave 'running'.
     db.execute("INSERT INTO video_jobs (username, prompt_id, prompt, status, created_at, req_duration_s) VALUES (?,?,?,?,?,?)",
-               (username, prompt_id, prompt[:2000], 'running', cree_le, int(duree)))
+               (username, prompt_id, prompt[:2000], 'running', created_at, int(duration)))
     db.commit()
     threading.Thread(target=_video_worker,
-                     args=(prompt_id, username, cree_le), daemon=True).start()
+                     args=(prompt_id, username, created_at), daemon=True).start()
 
     # The wait loop is shared with the image tool (sidecars.attendre_job_media):
     # the same 18 lines used to live in BOTH tools (audit 2026-10-07).
-    statut = 'running'
+    status_value = 'running'
     # `yield from` FORWARDS the heartbeats to the chat stream (see image_tools).
-    ligne = yield from attendre_job_media('video_jobs', prompt_id, username, _VIDEO_TIMEOUT_S)
-    if ligne:
-        statut = ligne.get('status')
+    line = yield from wait_media_job('video_jobs', prompt_id, username, _VIDEO_TIMEOUT_S)
+    if line:
+        status_value = line.get('status')
 
-    urls = [f"/video/file/{prompt_id}"] if statut == 'done' else []
-    if statut == 'running':
+    urls = [f"/video/file/{prompt_id}"] if status_value == 'done' else []
+    if status_value == 'running':
         # Not a failure: the worker keeps following the job and the video will
         # land in the Video page history. We say so instead of inventing an
         # error the user would retry — a second generation would cost as much

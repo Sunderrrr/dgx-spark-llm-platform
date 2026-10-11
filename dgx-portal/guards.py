@@ -32,7 +32,7 @@ _QUOTA_CACHE = {}          # username -> (horodatage, verdict)
 _QUOTA_CACHE_TTL = 30      # s: one Postgres aggregate pass per account is enough
 
 
-def quota_depasse_reset(username):
+def quota_exceeded_reset(username):
     """Date of the next reset if the account has exhausted its envelope, else None.
 
     We return the DATA (date), not a sentence: the wording lives on the
@@ -48,9 +48,9 @@ def quota_depasse_reset(username):
         ui = _litellm_user_info(username)
         effective = ui.get('max_budget')
         if effective:
-            duree = get_setting('default_key_duration', KEY_DURATION)
-            jours = int(''.join(c for c in str(duree) if c.isdigit()) or 7)
-            since = datetime.utcnow() - timedelta(days=jours)
+            duration = get_setting('default_key_duration', KEY_DURATION)
+            days = int(''.join(c for c in str(duration) if c.isdigit()) or 7)
+            since = datetime.utcnow() - timedelta(days=days)
             used = int(_real_tokens_by_user(since).get(username, 0) or 0)
             if used >= int(effective):
                 reset = (ui.get('budget_reset_at') or '')[:16].replace('T', ' ')
@@ -80,15 +80,15 @@ def media_block_json():
 CHAT_RATE_MAX    = 20    # requests allowed…
 CHAT_RATE_WINDOW = 60    # …per 60 s window and per user
 
-def _chat_rate_limited(username, bucket, max_requetes=None, fenetre=None):
+def _chat_rate_limited(username, bucket, max_requests=None, window=None):
     """Returns the number of seconds to wait, or 0 if the request can pass.
 
     The cap and the window are PARAMETERS since 2026-09-22: dictation does
     not call ASR at a clicking user's pace, but every second (see
     `dictation_rate_block`), and a single cap cannot describe both
     usages."""
-    max_requetes = CHAT_RATE_MAX if max_requetes is None else max_requetes
-    fenetre = CHAT_RATE_WINDOW if fenetre is None else fenetre
+    max_requests = CHAT_RATE_MAX if max_requests is None else max_requests
+    window = CHAT_RATE_WINDOW if window is None else window
     now = time.time()
     key = f"{bucket}|{username}"
     db = get_db()
@@ -104,14 +104,14 @@ def _chat_rate_limited(username, bucket, max_requetes=None, fenetre=None):
         "INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,1,?,0) "
         "ON CONFLICT(key) DO UPDATE SET fails=fails+1 "
         "WHERE login_attempts.first_at > ? AND login_attempts.fails < ?",
-        (key, now, now - fenetre, max_requetes))
-    compte = cur.rowcount
+        (key, now, now - window, max_requests))
+    account = cur.rowcount
     db.commit()
-    if compte:
+    if account:
         return 0
     row = db.execute("SELECT first_at FROM login_attempts WHERE key=?", (key,)).fetchone()
-    if row and now - row['first_at'] <= fenetre:
-        return max(1, int(fenetre - (now - row['first_at'])))
+    if row and now - row['first_at'] <= window:
+        return max(1, int(window - (now - row['first_at'])))
     # Expired window: reopen it. Two simultaneous requests can both reopen it
     # and the second overwrites the first — the only effect is one uncounted
     # request, once per window.
@@ -226,18 +226,18 @@ def _dimensions_image(data, mime):
             while i + 9 < len(data):
                 if data[i] != 0xFF:
                     return None
-                marqueur = data[i + 1]
-                if marqueur == 0x01 or 0xD0 <= marqueur <= 0xD8:
+                marker = data[i + 1]
+                if marker == 0x01 or 0xD0 <= marker <= 0xD8:
                     i += 2
                     continue
-                taille = struct.unpack('>H', data[i + 2:i + 4])[0]
-                if marqueur in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                size = struct.unpack('>H', data[i + 2:i + 4])[0]
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
                                 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
-                    hauteur, largeur = struct.unpack('>HH', data[i + 5:i + 9])
-                    return largeur, hauteur
-                if marqueur == 0xDA:  # start of data: no SOF left to come
+                    height, width = struct.unpack('>HH', data[i + 5:i + 9])
+                    return width, height
+                if marker == 0xDA:  # start of data: no SOF left to come
                     return None
-                i += 2 + taille
+                i += 2 + size
             return None
         if mime == 'image/webp':
             if data[:4] != b'RIFF' or data[8:12] != b'WEBP':
@@ -290,7 +290,7 @@ def _sse_msg(text):
     return f"data: {payload}\n\ndata: [DONE]\n\n"
 
 
-def _sse_notice(nid, done=True, **args):
+def _sse_notice(nest, done=True, **args):
     """STRUCTURED system notice (e.g. quota exceeded): the frontend translates it
     into the interface language — the server never writes a sentence.
 
@@ -298,9 +298,9 @@ def _sse_notice(nid, done=True, **args):
     end path already emits `data: [DONE]`, and a second sentinel would change
     the stream shape. Mirrors _sse_chunks(done=...).
     """
-    payload = json.dumps({'dgx_notice': {'id': nid, **args}})
-    fin = "\n\ndata: [DONE]\n\n" if done else "\n\n"
-    return f"data: {payload}{fin}"
+    payload = json.dumps({'dgx_notice': {'id': nest, **args}})
+    end = "\n\ndata: [DONE]\n\n" if done else "\n\n"
+    return f"data: {payload}{end}"
 
 
 def maintenance_block_sse():

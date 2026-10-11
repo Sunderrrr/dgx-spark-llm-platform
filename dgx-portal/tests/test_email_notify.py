@@ -14,9 +14,9 @@ from unittest.mock import patch
 import app as portal
 from notify import notify_maintenance_email, notify_media_request_email
 try:                                     # discovery runs tests/ as top level
-    from reglages_test import reglages
+    from settings_helper import live_settings
 except ImportError:                      # single module: tests.test_x
-    from tests.reglages_test import reglages
+    from tests.settings_helper import live_settings
 
 
 class NotifyGuardsTest(unittest.TestCase):
@@ -26,11 +26,11 @@ class NotifyGuardsTest(unittest.TestCase):
     SANS_SMTP = dict(smtp_host='', smtp_user='', smtp_pass='', admin_email='')
 
     def test_maintenance_email_noop_sans_config(self):
-        with reglages(**self.SANS_SMTP), portal.app.app_context():
+        with live_settings(**self.SANS_SMTP), portal.app.app_context():
             self.assertIs(notify_maintenance_email(True, "demo", "Demo"), False)
 
     def test_media_request_email_noop_sans_config(self):
-        with reglages(**self.SANS_SMTP), portal.app.app_context():
+        with live_settings(**self.SANS_SMTP), portal.app.app_context():
             self.assertIs(notify_media_request_email("image", "demo", "Demo"), False)
 
 
@@ -139,7 +139,7 @@ class AdminEmailRouteTest(unittest.TestCase):
     def _smtp(self, value, admin_email=''):
         """Host, user and password all set to `value`, plus the alert recipient
         (Admin → Config, read live)."""
-        cm = reglages(smtp_host=value, smtp_user=value, smtp_pass=value, admin_email=admin_email)
+        cm = live_settings(smtp_host=value, smtp_user=value, smtp_pass=value, admin_email=admin_email)
         cm.__enter__()
         self.addCleanup(cm.__exit__, None, None, None)
 

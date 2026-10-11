@@ -20,9 +20,9 @@ from flask import Blueprint, jsonify, request
 
 from auth import login_required
 from config import ASR_URL
-from sidecars import (asr_appel_en_vol, asr_demarrage_auto, asr_demarrer_veilleur,
-                      asr_is_up, asr_load_error, asr_memoire_ok,
-                      asr_note_activite, _sidecar_proc_status, motif_refus)
+from sidecars import (asr_call_in_flight, asr_autostart, asr_start_watcher,
+                      asr_is_up, asr_load_error, asr_memory_ok,
+                      asr_note_activity, _sidecar_proc_status, refusal_reason)
 from guards import (_MAX_VOICE_UPLOAD_BYTES, dictation_rate_block,
                     maintenance_block_json)
 
@@ -57,52 +57,52 @@ def api_transcribe():
     # On-demand bookkeeping: every REAL attempt resets the idle clock and arms
     # the reaper thread (cheap file state, idempotent — the endpoint is polled
     # every second).
-    asr_note_activite()
-    asr_demarrer_veilleur()
+    asr_note_activity()
+    asr_start_watcher()
     if not asr_is_up():
-        etat = _sidecar_proc_status('asr')
-        reessai = False          # memory freed after a failed load: CALL below
-        if etat in ('running', 'stopped', 'unknown'):
+        state = _sidecar_proc_status('asr')
+        retry = False          # memory freed after a failed load: CALL below
+        if state in ('running', 'stopped', 'unknown'):
             # The runner answers for the container: we KNOW its state, so no
             # fall-through guess. Never block waiting for the model to load.
-            if etat in ('stopped', 'unknown'):
-                ok_mem, motif_mem = asr_memoire_ok()
+            if state in ('stopped', 'unknown'):
+                ok_mem, mem_reason = asr_memory_ok()
                 if not ok_mem:
                     # Honest refusal and NO start: on unified memory a sidecar
                     # that loads with no headroom takes the served chat model
                     # down with it (the OOM killer cannot even see GPU memory).
-                    return jsonify({'error': motif_mem, 'demarrage': False}), 503
+                    return jsonify({'error': mem_reason, 'demarrage': False}), 503
                 # Idempotent by construction: `docker start` on a running
                 # container is a no-op, and a successful start throttles the
                 # next attempts (sidecars.asr_demarrage_auto) — the 1 s polling
                 # must not re-issue one per second while the model loads.
-                ok, detail = asr_demarrage_auto()
+                ok, detail = asr_autostart()
                 if not ok:
                     return jsonify({'error': f"Le service de dictée n'a pas pu démarrer{detail}."}), 503
             else:
-                erreur = asr_load_error()
-                if erreur and not asr_memoire_ok()[0]:
+                error_text = asr_load_error()
+                if error_text and not asr_memory_ok()[0]:
                     # The container runs but published a load failure (« CUDA
                     # error: out of memory ») and memory is STILL tight: saying
                     # nothing would read as slowness — same lesson as the admin
                     # card. The message carries the remedy (free memory, then
                     # relaunch), which the branch below makes real.
-                    return jsonify({'error': f"Le modèle de dictée n'a pas pu se charger : {erreur}"}), 503
-                if erreur:
+                    return jsonify({'error': f"Le modèle de dictée n'a pas pu se charger : {error_text}"}), 503
+                if error_text:
                     # Memory has been freed since the failed load (2026-10-03):
                     # fall THROUGH to the call — the sidecar now retries its load
                     # on demand (asr/server.py `_charger_si_besoin`). The message
                     # promised « relance la dictée »; before, that was impossible
                     # by construction (the load was tried ONCE, at container
                     # startup, and never again).
-                    reessai = True
+                    retry = True
             # Retry-later payload, shaped after what useDictation actually
             # tolerates: a 2xx keeps the 1 s poll silent (anything else is
             # shown as an error), and `text` MUST be a string — the client
             # treats any other type as a failed round. So the starting state
             # rides along an empty text, and the next poll (1 s later) simply
             # finds the sidecar one second closer to ready.
-            if not reessai:
+            if not retry:
                 return jsonify({'text': '', 'demarrage': True}), 200
         # Runner unreachable / no container state: attempt the call anyway —
         # the sidecar may still be up. Error contract below: INPUT ERRORS (4xx)
@@ -111,12 +111,12 @@ def api_transcribe():
         # those bodies with its error page — measured 2026-10-02, the honest
         # message never reached the user).
     try:
-        with asr_appel_en_vol():
+        with asr_call_in_flight():
             r = requests.post(f"{ASR_URL}/transcribe",
                               files={'audio': ('rec.wav', data, 'audio/wav')},
                               data={'language': language}, timeout=180)
         if not r.ok:
-            detail = motif_refus(r)
+            detail = refusal_reason(r)
             # The SIDECAR's code is passed through for what the CLIENT can act
             # on: a recording too short, an unreadable format or a file too
             # large are INPUT ERRORS (400/413) — presenting them as a service
@@ -124,10 +124,10 @@ def api_transcribe():
             # automatically replayed a request that could not work anyway. 503
             # (model not loaded) is kept as-is; every OTHER failure maps to
             # 503, because 502/504 bodies do not survive Cloudflare.
-            statut = r.status_code
-            if 400 <= statut < 500:
-                return jsonify({'error': detail or "Enregistrement refusé."}), statut
-            if statut == 503:
+            status_value = r.status_code
+            if 400 <= status_value < 500:
+                return jsonify({'error': detail or "Enregistrement refusé."}), status_value
+            if status_value == 503:
                 return jsonify({'error': detail or "Modèle de transcription non chargé."}), 503
             return jsonify({'error': detail or "Échec de la transcription."}), 503
         return jsonify({'text': r.json().get('text', '')})

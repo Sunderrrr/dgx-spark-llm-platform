@@ -44,20 +44,20 @@ CONFIG = {'uri': 'ldap://annuaire.example:389', 'base': 'dc=example,dc=org',
 class EtatEntreeTest(unittest.TestCase):
 
     def test_authentik_ak_active(self):
-        self.assertEqual(directory.etat_entree({'ak-active': ['TRUE']}), directory.ACTIF)
-        self.assertEqual(directory.etat_entree({'ak-active': ['FALSE']}), directory.DESACTIVE)
+        self.assertEqual(directory.entry_state({'ak-active': ['TRUE']}), directory.ACTIVE)
+        self.assertEqual(directory.entry_state({'ak-active': ['FALSE']}), directory.DISABLED)
 
     def test_active_directory_bit_desactive(self):
-        self.assertEqual(directory.etat_entree({'userAccountControl': ['514']}), directory.DESACTIVE)
-        self.assertEqual(directory.etat_entree({'userAccountControl': ['512']}), directory.ACTIF)
+        self.assertEqual(directory.entry_state({'userAccountControl': ['514']}), directory.DISABLED)
+        self.assertEqual(directory.entry_state({'userAccountControl': ['512']}), directory.ACTIVE)
 
     def test_389_et_openldap(self):
-        self.assertEqual(directory.etat_entree({'nsAccountLock': ['TRUE']}), directory.DESACTIVE)
-        self.assertEqual(directory.etat_entree({'pwdAccountLockedTime': ['20261011000000Z']}),
-                         directory.DESACTIVE)
+        self.assertEqual(directory.entry_state({'nsAccountLock': ['TRUE']}), directory.DISABLED)
+        self.assertEqual(directory.entry_state({'pwdAccountLockedTime': ['20261011000000Z']}),
+                         directory.DISABLED)
 
     def test_sans_attribut_d_etat_le_compte_est_actif(self):
-        self.assertEqual(directory.etat_entree({'cn': ['alice']}), directory.ACTIF)
+        self.assertEqual(directory.entry_state({'cn': ['alice']}), directory.ACTIVE)
 
 
 class LireAnnuaireTest(unittest.TestCase):
@@ -67,61 +67,61 @@ class LireAnnuaireTest(unittest.TestCase):
                       {'cn': ['bob'], 'ak-active': ['FALSE']}])
         with mock.patch.object(directory, 'ldap_config', return_value=CONFIG), \
              mock.patch.object(directory, '_connexion', return_value=conn):
-            lu = directory.lire_annuaire()
-        self.assertEqual(lu['etats'], {'alice': 'actif', 'bob': 'desactive'})
-        self.assertEqual(lu['groupes'], {'alice': [], 'bob': []})
+            read_result = directory.read_directory()
+        self.assertEqual(read_result['states'], {'alice': 'actif', 'bob': 'desactive'})
+        self.assertEqual(read_result['groups'], {'alice': [], 'bob': []})
         self.assertEqual(conn.filtres, ['(cn=*)'])
 
     def test_annuaire_injoignable(self):
         with mock.patch.object(directory, 'ldap_config', return_value=CONFIG), \
              mock.patch.object(directory, '_connexion', side_effect=OSError('down')):
-            self.assertIsNone(directory.lire_annuaire())
+            self.assertIsNone(directory.read_directory())
 
     def test_annuaire_non_configure(self):
         with mock.patch.object(directory, 'ldap_config', return_value={**CONFIG, 'uri': ''}):
-            self.assertIsNone(directory.lire_annuaire())
+            self.assertIsNone(directory.read_directory())
 
 
 class EtatsAnnuaireTest(unittest.TestCase):
     """The request path never waits on the directory (a bind costs seconds)."""
 
     def setUp(self):
-        self.addCleanup(directory._etat.update, t=0.0, etats=None, en_cours=False)
+        self.addCleanup(directory._state.update, t=0.0, states=None, running=False)
 
     def test_present_desactive_et_absent_depuis_le_cliche(self):
-        directory._etat.update(t=time.time(), etats={'alice': 'actif', 'bob': 'desactive'},
-                               en_cours=False)
-        with mock.patch.object(directory, 'lire_annuaire') as lire:
-            etats = directory.etats_annuaire(['Alice', 'bob', 'carol'])
-        self.assertEqual(etats, {'Alice': 'actif', 'bob': 'desactive', 'carol': 'absent'})
-        lire.assert_not_called()
+        directory._state.update(t=time.time(), states={'alice': 'actif', 'bob': 'desactive'},
+                               running=False)
+        with mock.patch.object(directory, 'read_directory') as read:
+            states = directory.directory_states_for(['Alice', 'bob', 'carol'])
+        self.assertEqual(states, {'Alice': 'actif', 'bob': 'desactive', 'carol': 'absent'})
+        read.assert_not_called()
 
     def test_sans_cliche_rien_n_est_devine_et_la_lecture_part_en_fond(self):
-        fini = threading.Event()
+        finished = threading.Event()
 
         def lente():
-            fini.wait(5)
-            return {'etats': {'alice': 'actif'}, 'groupes': {}}
-        with mock.patch.object(directory, 'lire_annuaire', side_effect=lente):
+            finished.wait(5)
+            return {'states': {'alice': 'actif'}, 'groups': {}}
+        with mock.patch.object(directory, 'read_directory', side_effect=lente):
             t0 = time.perf_counter()
-            self.assertIsNone(directory.etats_annuaire(['alice']))
+            self.assertIsNone(directory.directory_states_for(['alice']))
             self.assertLess(time.perf_counter() - t0, 0.5, "the request must not wait")
-            fini.set()
+            finished.set()
             for _ in range(100):
-                if not directory._etat['en_cours']:
+                if not directory._state['running']:
                     break
                 time.sleep(0.02)
-        self.assertEqual(directory.etats_annuaire(['alice']), {'alice': 'actif'})
+        self.assertEqual(directory.directory_states_for(['alice']), {'alice': 'actif'})
 
     def test_une_panne_garde_le_cliche_precedent(self):
-        directory._etat.update(t=0.0, etats={'alice': 'actif'}, en_cours=False)
-        with mock.patch.object(directory, 'lire_annuaire', return_value=None):
-            directory.etats_annuaire(['alice'])
+        directory._state.update(t=0.0, states={'alice': 'actif'}, running=False)
+        with mock.patch.object(directory, 'read_directory', return_value=None):
+            directory.directory_states_for(['alice'])
             for _ in range(100):
-                if not directory._etat['en_cours']:
+                if not directory._state['running']:
                     break
                 time.sleep(0.02)
-        self.assertEqual(directory.etats_annuaire(['alice']), {'alice': 'actif'},
+        self.assertEqual(directory.directory_states_for(['alice']), {'alice': 'actif'},
                          "an outage does not make everyone absent")
 
 
@@ -129,12 +129,12 @@ class NomsDeGroupesTest(unittest.TestCase):
 
     def test_dn_et_noms_simples(self):
         self.assertEqual(
-            directory.noms_de_groupes(['cn=platform-admins,ou=groups,dc=example,dc=org',
+            directory.group_names(['cn=platform-admins,ou=groups,dc=example,dc=org',
                                        'Famille', 'cn=Famille,ou=groups,dc=x', '']),
             ['platform-admins', 'Famille'])
 
     def test_un_dn_qui_n_est_pas_un_cn_est_ignore(self):
-        self.assertEqual(directory.noms_de_groupes(['ou=groups,dc=x']), [])
+        self.assertEqual(directory.group_names(['ou=groups,dc=x']), [])
 
 
 if __name__ == '__main__':

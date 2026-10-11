@@ -24,7 +24,7 @@ jobs is enough to orphan them.
 import sqlite3
 import threading
 
-from parametres import smtp_config
+from instance_config import smtp_config
 from db import get_db, log_audit
 
 # Tables attached to an account, purged at its deletion. `local_users` is
@@ -37,7 +37,7 @@ from db import get_db, log_audit
 # the account silently: it became loggable again, with platform and GPU
 # access. The route promises though to erase « without touching its access »,
 # and the docs say offboarding remains blocking.
-TABLES_PURGEES = (
+PURGED_TABLES = (
     'announcement_state',
     'api_keys',
     'budget_grants',
@@ -75,32 +75,32 @@ TABLES_PURGEES = (
 _JOBS_MEDIA = ('image_jobs', 'music_jobs', 'ocr_jobs', 'video_jobs', 'voice_jobs')
 
 
-def _compte(table, username, colonne='username'):
+def _account(table, username, column='username'):
     try:
         return get_db().execute(
-            f"SELECT COUNT(*) FROM {table} WHERE {colonne}=?", (username,)).fetchone()[0]
+            f"SELECT COUNT(*) FROM {table} WHERE {column}=?", (username,)).fetchone()[0]
     except sqlite3.Error:
         # Table absent from an older database: nothing to count, nothing to purge.
         return 0
 
 
-def compter_donnees(username):
+def count_data(username):
     """Summary of what will be lost — shown to the admin before they confirm."""
-    cles = _compte('api_keys', username)
+    keys = _account('api_keys', username)
     return {
-        'sessions': _compte('user_sessions', username),
-        'keys': cles,
-        'memory_facts': _compte('memory_nodes', username),
-        'memory_links': _compte('memory_edges', username),
-        'conversations': _compte('conversations', username),
-        'shares': _compte('conversation_shares', username),
-        'media_jobs': sum(_compte(t, username) for t in _JOBS_MEDIA),
-        'preferences': _compte('user_prefs', username),
-        'passkeys': _compte('webauthn_credentials', username),
+        'sessions': _account('user_sessions', username),
+        'keys': keys,
+        'memory_facts': _account('memory_nodes', username),
+        'memory_links': _account('memory_edges', username),
+        'conversations': _account('conversations', username),
+        'shares': _account('conversation_shares', username),
+        'media_jobs': sum(_account(t, username) for t in _JOBS_MEDIA),
+        'preferences': _account('user_prefs', username),
+        'passkeys': _account('webauthn_credentials', username),
     }
 
 
-def _revoquer_cles(username, revoke_litellm_key, log):
+def _revoke_keys(username, revoke_litellm_key, log):
     """Revokes the account's API keys on the LiteLLM side, then forgets their rows.
 
     The clear value comes from `api_keys` (the portal stores it to be able
@@ -110,26 +110,26 @@ def _revoquer_cles(username, revoke_litellm_key, log):
     report says so.
     """
     db = get_db()
-    valeurs = [r['key_value'] for r in db.execute(
+    values = [r['key_value'] for r in db.execute(
         "SELECT key_value FROM api_keys WHERE username=?", (username,)).fetchall()]
-    reussies = echouees = 0
-    for valeur in valeurs:
+    successes = failed = 0
+    for value in values:
         try:
-            if revoke_litellm_key(valeur):
-                reussies += 1
+            if revoke_litellm_key(value):
+                successes += 1
             else:
-                echouees += 1
+                failed += 1
         except Exception as exc:                                 # noqa: BLE001
             log(f'[user_lifecycle] révocation de clé impossible : {exc}')
-            echouees += 1
+            failed += 1
     # The local rows disappear in every case: a key we could not revoke would
     # stay invisible and unmanageable afterwards anyway.
     db.execute("DELETE FROM api_keys WHERE username=?", (username,))
     db.commit()
-    return reussies, echouees, len(valeurs)
+    return successes, failed, len(values)
 
 
-def revoquer_cles_compte(username, par=None, motif=''):
+def revoke_account_keys(username, by=None, reason=''):
     """Revokes an account's API keys and RECORDS it. Returns (ok, ko, total).
 
     Why this path separate from deprovisioning: blocking an account (or
@@ -146,19 +146,19 @@ def revoquer_cles_compte(username, par=None, motif=''):
     """
     from litellm_client import revoke_litellm_key
 
-    reussies, echouees, total = _revoquer_cles(username, revoke_litellm_key, print)
-    log_audit(par or '?', 'user.keys_revoked',
-              f'{username} — {reussies}/{total} clé(s) révoquée(s)'
-              + (f', {echouees} ÉCHEC(S) À RÉVOQUER' if echouees else '')
-              + (f' — {motif}' if motif else ''))
-    return reussies, echouees, total
+    successes, failed, total = _revoke_keys(username, revoke_litellm_key, print)
+    log_audit(by or '?', 'user.keys_revoked',
+              f'{username} — {successes}/{total} clé(s) révoquée(s)'
+              + (f', {failed} ÉCHEC(S) À RÉVOQUER' if failed else '')
+              + (f' — {reason}' if reason else ''))
+    return successes, failed, total
 
 
-def purger_donnees(username):
+def purge_data(username):
     """Erases all data attached to the account. Returns the counts."""
     db = get_db()
     total = 0
-    for table in TABLES_PURGEES:
+    for table in PURGED_TABLES:
         try:
             total += db.execute(
                 f"DELETE FROM {table} WHERE username=?", (username,)).rowcount
@@ -177,7 +177,7 @@ def purger_donnees(username):
     return total
 
 
-def deprovisionner_compte(username, par, purge=True, action='user.delete'):
+def deprovision_account(username, by, purge=True, action='user.delete'):
     """Removes every access of the account, then (purge=True) its data.
 
     The ORDER matters: the keys first — LiteLLM refuses to delete a user
@@ -189,29 +189,29 @@ def deprovisionner_compte(username, par, purge=True, action='user.delete'):
     from auth import _revoke_user_sessions                    # late import: auth already imports this module
     from litellm_client import delete_litellm_user, revoke_litellm_key
 
-    rapport = compter_donnees(username)
-    cles_ok, cles_ko, cles_total = _revoquer_cles(username, revoke_litellm_key, print)
-    rapport['keys_revoked'] = cles_ok
-    rapport['keys_failed'] = cles_ko
-    rapport['keys'] = cles_total
+    report = count_data(username)
+    keys_ok, keys_failed, keys_total = _revoke_keys(username, revoke_litellm_key, print)
+    report['keys_revoked'] = keys_ok
+    report['keys_failed'] = keys_failed
+    report['keys'] = keys_total
 
     sessions = _revoke_user_sessions(username)
-    rapport['sessions'] = sessions
+    report['sessions'] = sessions
 
-    rapport['litellm_user'] = bool(delete_litellm_user(username))
-    rapport['lignes_purgees'] = purger_donnees(username) if purge else 0
+    report['litellm_user'] = bool(delete_litellm_user(username))
+    report['lignes_purgees'] = purge_data(username) if purge else 0
 
-    detail = (f"{username} — {cles_ok}/{cles_total} clé(s) révoquée(s)"
-              + (f", {cles_ko} ÉCHEC(S)" if cles_ko else '')
+    detail = (f"{username} — {keys_ok}/{keys_total} clé(s) révoquée(s)"
+              + (f", {keys_failed} ÉCHEC(S)" if keys_failed else '')
               + f", {sessions} session(s), enveloppe LiteLLM "
-              + ('supprimée' if rapport['litellm_user'] else 'NON supprimée')
-              + (f", {rapport['lignes_purgees']} ligne(s) de données purgée(s)"
+              + ('supprimée' if report['litellm_user'] else 'NON supprimée')
+              + (f", {report['lignes_purgees']} ligne(s) de données purgée(s)"
                  if purge else ', données CONSERVÉES'))
-    log_audit(par, action, detail)
-    return rapport
+    log_audit(by, action, detail)
+    return report
 
 
-def _envoyer_notification_mot_de_passe(username, par_admin=None):
+def _send_password_notification(username, by_admin=None):
     """The real work of the notification (address, then email).
 
     Split from `prevenir_mot_de_passe_change` to be testable without a
@@ -220,19 +220,19 @@ def _envoyer_notification_mot_de_passe(username, par_admin=None):
     try:
         from auth import ldap_lookup_email
         from notify import send_user_email
-        destinataire = ldap_lookup_email(username)
-        if not destinataire:
+        recipient = ldap_lookup_email(username)
+        if not recipient:
             # Local account with no equivalent in the directory: no known
             # address, and we do not invent one.
             print(f'[user_lifecycle] pas d’adresse connue pour {username}, '
                   'notification non envoyée')
             return False
-        auteur = ('Un administrateur a réinitialisé' if par_admin
+        author = ('Un administrateur a réinitialisé' if by_admin
                   else 'Ton mot de passe a été changé')
         return bool(send_user_email(
-            destinataire,
+            recipient,
             'Mot de passe modifié — DGX platform',
-            f"{auteur} le mot de passe du compte « {username} » sur la plateforme DGX.\n\n"
+            f"{author} le mot de passe du compte « {username} » sur la plateforme DGX.\n\n"
             "Si tu n'es pas à l'origine de ce changement, contacte un administrateur "
             "immédiatement : toutes les autres sessions du compte ont été fermées, mais "
             "l'accès à l'API doit être vérifié."))
@@ -241,7 +241,7 @@ def _envoyer_notification_mot_de_passe(username, par_admin=None):
         return False
 
 
-def prevenir_mot_de_passe_change(username, par_admin=None):
+def notify_password_changed(username, by_admin=None):
     """Warns the person concerned that their password just changed, OFF the path.
 
     This is what gives the self-service change its value: someone whose
@@ -261,7 +261,7 @@ def prevenir_mot_de_passe_change(username, par_admin=None):
     """
     if not smtp_config()['host']:
         return False
-    threading.Thread(target=_envoyer_notification_mot_de_passe,
-                     args=(username, par_admin),
+    threading.Thread(target=_send_password_notification,
+                     args=(username, by_admin),
                      name='notif-mot-de-passe', daemon=True).start()
     return True

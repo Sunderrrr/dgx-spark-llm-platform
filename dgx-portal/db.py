@@ -521,11 +521,11 @@ def init_db():
             )''')
         # Copy only the columns that EXIST (a database may predate
         # websearch_enabled): the missing ones take their DEFAULT.
-        colonnes = {r[1] for r in db.execute("PRAGMA table_info(user_prefs)")}
-        communes = [c for c in ('username', 'avatar_id', 'theme_id', 'lang',
+        columns = {r[1] for r in db.execute("PRAGMA table_info(user_prefs)")}
+        common = [c for c in ('username', 'avatar_id', 'theme_id', 'lang',
                                 'onboarded', 'memory_enabled', 'websearch_enabled')
-                    if c in colonnes]
-        cols = ', '.join(communes)
+                    if c in columns]
+        cols = ', '.join(common)
         db.execute(f"INSERT INTO user_prefs_new ({cols}) SELECT {cols} FROM user_prefs")
         db.execute("DROP TABLE user_prefs")
         db.execute("ALTER TABLE user_prefs_new RENAME TO user_prefs")
@@ -829,13 +829,13 @@ def init_db():
     # deployment and reading a session (at EVERY kept request) stayed a
     # scan.
     now = time.time()
-    for requete, args in (
+    for query, args in (
             ("DELETE FROM user_sessions WHERE expires_at < ?", (now - 30 * 86400,)),
             ("DELETE FROM login_attempts WHERE first_at < ?", (now - 7 * 86400,)),
             ("DELETE FROM pending_webauthn WHERE expires_at < ?", (now,)),
     ):
         try:
-            db.execute(requete, args)
+            db.execute(query, args)
         except sqlite3.Error:
             # Table absent from an older database: the sweep is no reason to fail
             # a startup.
@@ -849,7 +849,7 @@ def init_db():
         ('default_key_duration', KEY_DURATION)
     )
     db.commit()
-    _detecte_base_reinitialisee(db)
+    _detect_reset_database(db)
     db.close()
 
 
@@ -863,19 +863,19 @@ def init_db():
 DB_RESET_MARKER = os.path.join(os.path.dirname(DB_PATH), '.db_initialized')
 
 
-def _detecte_base_reinitialisee(db):
+def _detect_reset_database(db):
     """Called at every init_db(): alerts if a database known as populated
     became empty again. The marker is only created ONCE the database is
     populated (at least one known account), never on a fresh install — a
     factory startup must not alert."""
     try:
-        vide = (
+        empty = (
             db.execute("SELECT COUNT(*) FROM user_sources").fetchone()[0] == 0
             and db.execute("SELECT COUNT(*) FROM local_users").fetchone()[0] == 0
             and db.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 0
         )
-        marqueur_present = os.path.exists(DB_RESET_MARKER)
-        if vide and marqueur_present:
+        marker_present = os.path.exists(DB_RESET_MARKER)
+        if empty and marker_present:
             detail = ("portal.db est vide alors que le marqueur "
                       f"{DB_RESET_MARKER} atteste d'une base déjà peuplée — "
                       "réinitialisation suspectée (volume mal monté, db effacée).")
@@ -888,7 +888,7 @@ def _detecte_base_reinitialisee(db):
             except Exception as exc:
                 print(f'[db] email anti-reset impossible : {exc}')
             return
-        if not vide and not marqueur_present:
+        if not empty and not marker_present:
             with open(DB_RESET_MARKER, 'w') as fh:
                 fh.write(datetime.now().isoformat() + '\n')
     except Exception as exc:

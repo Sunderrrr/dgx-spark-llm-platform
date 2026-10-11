@@ -125,12 +125,12 @@ class WebAuthnTestCase(unittest.TestCase):
         pk = begin.get_json()["publicKey"]
         fake = FakeAuthenticator()
         reg = fake.register(pk["challenge"])
-        fin = c.post("/api/security/register/finish",
+        end = c.post("/api/security/register/finish",
                      json={"nonce": begin.get_json()["nonce"], "credential": reg,
                            "label": label},
                      headers={"X-CSRFToken": "tok"})
-        self.assertEqual(fin.status_code, 200, fin.get_data(as_text=True))
-        self.assertTrue(fin.get_json()["ok"])
+        self.assertEqual(end.status_code, 200, end.get_data(as_text=True))
+        self.assertTrue(end.get_json()["ok"])
         return fake
 
     def test_routes_enregistrees(self):

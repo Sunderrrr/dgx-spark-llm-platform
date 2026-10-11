@@ -30,9 +30,9 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import app as portal
 try:                                     # discovery runs tests/ as top level
-    from reglages_test import reglages
+    from settings_helper import live_settings
 except ImportError:                      # single module: tests.test_x
-    from tests.reglages_test import reglages
+    from tests.settings_helper import live_settings
 import litellm_client
 import user_lifecycle
 
@@ -368,17 +368,17 @@ class PurgeCompteAnnuaireTest(BaseComptes):
         self.assertEqual(r.get_json()['purged']['memory_facts'], 1)
         with portal.app.app_context():
             db = portal.get_db()
-            reste = db.execute("SELECT COUNT(*) FROM memory_nodes WHERE username=?",
+            remaining = db.execute("SELECT COUNT(*) FROM memory_nodes WHERE username=?",
                                (ANNUAIRE,)).fetchone()[0]
             trace = db.execute("SELECT action FROM audit_log ORDER BY id DESC").fetchone()[0]
-        self.assertEqual(reste, 0)
+        self.assertEqual(remaining, 0)
         # The audit distinguishes a purge from a deletion: it is not the same
         # gesture, and a directory account can come back.
         self.assertEqual(trace, 'user.purge')
         with portal.app.app_context():
             # Purging is not unblocking: the purge only erases DATA, blocking
             # remains the offboarding lever.
-            self.assertTrue(portal.est_bloque(ANNUAIRE))
+            self.assertTrue(portal.is_blocked(ANNUAIRE))
 
     def test_sans_confirmation_refuse(self):
         admin = self._client(ADMIN, is_admin=True)
@@ -411,8 +411,8 @@ class DetailTest(BaseComptes):
         admin = self._client(ADMIN, is_admin=True)
         r = admin.get(f'/admin/users/{CIBLE}/detail')
         self.assertEqual(r.status_code, 200)
-        corps = r.get_data(as_text=True)
-        self.assertNotIn('sk-secret-a-ne-pas-sortir', corps)
+        raw_text = r.get_data(as_text=True)
+        self.assertNotIn('sk-secret-a-ne-pas-sortir', raw_text)
         body = r.get_json()
         self.assertEqual(body['keys'][0]['alias'], 'captures')
         self.assertTrue(body['local'])
@@ -431,7 +431,7 @@ class DetailTest(BaseComptes):
                  'completion': 2, 'peak': 42, 'peak_day': '2026-10-10', 'active_days': 1, 'avg': 42}
         admin = self._client(ADMIN, is_admin=True)
         with mock.patch.object(admin_routes, '_account_activity', return_value=serie) as act, \
-             mock.patch.object(admin_routes, 'etats_annuaire',
+             mock.patch.object(admin_routes, 'directory_states_for',
                                return_value={ANNUAIRE: 'desactive'}):
             body = admin.get(f'/admin/users/{ANNUAIRE}/detail').get_json()
             local = admin.get(f'/admin/users/{CIBLE}/detail').get_json()
@@ -452,10 +452,10 @@ class DetailTest(BaseComptes):
                        (ANNUAIRE, 'ldap', ANNUAIRE, 'ldap', '2026-10-11T10:00:00', 0))
             db.commit()
         admin = self._client(ADMIN, is_admin=True)
-        with mock.patch.object(admin_routes, 'etats_annuaire',
-                               side_effect=lambda noms: {n: 'actif' for n in noms}) as etats:
+        with mock.patch.object(admin_routes, 'directory_states_for',
+                               side_effect=lambda names: {n: 'actif' for n in names}) as states:
             users = {u['username']: u for u in admin.get('/api/admin/users').get_json()['users']}
-        demandes = set(etats.call_args[0][0])
+        demandes = set(states.call_args[0][0])
         self.assertIn(ANNUAIRE, demandes)
         self.assertNotIn(CIBLE, demandes, "a local account is not looked up")
         self.assertEqual(users[ANNUAIRE]['directory_status'], 'actif')
@@ -692,7 +692,7 @@ class QuotaTest(BaseComptes):
             portal.get_db().commit()
 
     def test_suppression_de_groupe_resynchronise_les_membres(self):
-        vus = []
+        seen = []
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT INTO user_groups (name, max_budget, is_admin, created_at) "
@@ -703,7 +703,7 @@ class QuotaTest(BaseComptes):
         admin = self._client(ADMIN, is_admin=True)
 
         def faux_sync(username, row):
-            vus.append(username)
+            seen.append(username)
             return True
 
         with patch('admin_routes._sync_local_user_budget', side_effect=faux_sync):
@@ -712,14 +712,14 @@ class QuotaTest(BaseComptes):
         self.assertEqual(r.get_json()['membres'], 1)
         # Without this propagation, the member kept the old envelope: a ghost
         # quota, more generous than the default.
-        self.assertEqual(vus, [CIBLE])
+        self.assertEqual(seen, [CIBLE])
         with portal.app.app_context():
             row = portal.get_db().execute(
                 "SELECT group_name FROM local_users WHERE username=?", (CIBLE,)).fetchone()
         self.assertIsNone(row['group_name'])
 
     def test_membre_avec_plafond_propre_non_resynchronise(self):
-        vus = []
+        seen = []
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT INTO user_groups (name, max_budget, is_admin, created_at) "
@@ -729,10 +729,10 @@ class QuotaTest(BaseComptes):
             db.commit()
         admin = self._client(ADMIN, is_admin=True)
         with patch('admin_routes._sync_local_user_budget',
-                   side_effect=lambda u, r: vus.append(u) or True):
+                   side_effect=lambda u, r: seen.append(u) or True):
             self._post(admin, '/admin/groups/delete/ztest-groupe')
         # Their personal cap did not depend on the group: nothing to propagate.
-        self.assertEqual(vus, [])
+        self.assertEqual(seen, [])
 
 
 class NotificationMotDePasseTest(unittest.TestCase):
@@ -741,27 +741,27 @@ class NotificationMotDePasseTest(unittest.TestCase):
 
     def test_sans_smtp_rien_ne_part_et_rien_ne_leve(self):
         with patch.dict(os.environ, {'SMTP_HOST': ''}):
-            self.assertFalse(user_lifecycle.prevenir_mot_de_passe_change(CIBLE))
+            self.assertFalse(user_lifecycle.notify_password_changed(CIBLE))
 
     def test_annuaire_injoignable_ne_leve_pas(self):
         with patch('auth.ldap_lookup_email', side_effect=RuntimeError('annuaire HS')):
             self.assertFalse(
-                user_lifecycle._envoyer_notification_mot_de_passe(CIBLE))
+                user_lifecycle._send_password_notification(CIBLE))
 
     def test_sans_adresse_connue_rien_ne_part(self):
         with patch('auth.ldap_lookup_email', return_value=None), \
              patch('notify.send_user_email') as envoi:
             self.assertFalse(
-                user_lifecycle._envoyer_notification_mot_de_passe(CIBLE))
+                user_lifecycle._send_password_notification(CIBLE))
         self.assertFalse(envoi.called)
 
     def test_envoi_au_bon_destinataire_et_message_distinct(self):
         with patch('auth.ldap_lookup_email', return_value='quelqu-un@example.com'), \
              patch('notify.send_user_email', return_value=True) as envoi:
             self.assertTrue(
-                user_lifecycle._envoyer_notification_mot_de_passe(CIBLE))
-            self.assertTrue(user_lifecycle._envoyer_notification_mot_de_passe(
-                CIBLE, par_admin=ADMIN))
+                user_lifecycle._send_password_notification(CIBLE))
+            self.assertTrue(user_lifecycle._send_password_notification(
+                CIBLE, by_admin=ADMIN))
         self.assertEqual(envoi.call_args_list[0][0][0], 'quelqu-un@example.com')
         # The message says WHO changed the password: this is the whole value
         # of the notification for the person receiving it.
@@ -780,26 +780,26 @@ class NotificationMotDePasseTest(unittest.TestCase):
         the evil.
         """
         import time as _time
-        vus = []
+        seen = []
 
         def _lent(_user):
             _time.sleep(1.5)
             return 'quelqu-un@example.com'
 
-        with reglages(smtp_host='smtp.example'), \
+        with live_settings(smtp_host='smtp.example'), \
              patch('auth.ldap_lookup_email', side_effect=_lent), \
              patch('notify.send_user_email',
-                   side_effect=lambda *a, **k: vus.append(a) or True):
+                   side_effect=lambda *a, **k: seen.append(a) or True):
             t0 = _time.time()
-            self.assertTrue(user_lifecycle.prevenir_mot_de_passe_change(CIBLE))
+            self.assertTrue(user_lifecycle.notify_password_changed(CIBLE))
             ecoule = _time.time() - t0
             self.assertLess(ecoule, 0.5,
                             f"la réponse a attendu l'annuaire ({ecoule:.2f} s)")
             for _ in range(60):                       # up to ~3 s
-                if vus:
+                if seen:
                     break
                 _time.sleep(0.05)
-        self.assertTrue(vus, "la notification doit finir par partir malgré le fil")
+        self.assertTrue(seen, "la notification doit finir par partir malgré le fil")
 
 
 class BalayageHygieneTest(BaseComptes):
@@ -864,7 +864,7 @@ class PurgeInventaireTest(BaseComptes):
                 cols = {r[1] for r in db.execute(f"PRAGMA table_info({t})")}
                 if 'username' in cols:
                     avec_username.add(t)
-        manquantes = avec_username - set(user_lifecycle.TABLES_PURGEES) \
+        manquantes = avec_username - set(user_lifecycle.PURGED_TABLES) \
             - self.NON_PURGEES_VOLONTAIREMENT
         self.assertEqual(
             manquantes, set(),

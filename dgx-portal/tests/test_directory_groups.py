@@ -49,24 +49,24 @@ class BaseGroupes(unittest.TestCase):
                 db.execute("DELETE FROM user_groups WHERE lower(name)=lower(?)", (g,))
             db.commit()
 
-    def _groupe(self, nom):
+    def _group(self, name):
         return portal.get_db().execute(
-            "SELECT * FROM user_groups WHERE lower(name)=lower(?)", (nom,)).fetchone()
+            "SELECT * FROM user_groups WHERE lower(name)=lower(?)", (name,)).fetchone()
 
 
 class FusionTest(BaseGroupes):
 
     def test_meme_groupe_ldap_et_sso_fusionne(self):
         with portal.app.app_context():
-            dg.importer_groupes(COMPTE, {
+            dg.import_groups(COMPTE, {
                 'ldap': ['cn=ztest-famille,ou=groups,dc=example,dc=org'],
                 'sso': ['ZTEST-Famille', 'ztest-labo']})
             rows = portal.get_db().execute(
                 "SELECT name, sources FROM user_groups WHERE lower(name) IN (?,?)",
                 ('ztest-famille', 'ztest-labo')).fetchall()
             self.assertEqual(len(rows), 2, "one row per group, whatever the case")
-            self.assertEqual(self._groupe('ztest-famille')['sources'], 'ldap,sso')
-            self.assertEqual([g['name'] for g in dg.groupes_de(COMPTE)],
+            self.assertEqual(self._group('ztest-famille')['sources'], 'ldap,sso')
+            self.assertEqual([g['name'] for g in dg.groups_of(COMPTE)],
                              ['ztest-famille', 'ztest-labo'])
 
     def test_fusion_avec_un_groupe_local_du_meme_nom(self):
@@ -75,85 +75,85 @@ class FusionTest(BaseGroupes):
             db.execute("INSERT INTO user_groups (name, max_budget, is_admin, created_at, sources) "
                        "VALUES ('ztest-Labo', 5000, 0, '2026-10-11', 'local')")
             db.commit()
-            dg.importer_groupes(COMPTE, {'ldap': ['cn=ztest-labo,ou=groups,dc=x']})
-            self.assertEqual(self._groupe('ztest-labo')['name'], 'ztest-Labo')
-            self.assertEqual(self._groupe('ztest-labo')['sources'], 'ldap,local')
+            dg.import_groups(COMPTE, {'ldap': ['cn=ztest-labo,ou=groups,dc=x']})
+            self.assertEqual(self._group('ztest-labo')['name'], 'ztest-Labo')
+            self.assertEqual(self._group('ztest-labo')['sources'], 'ldap,local')
 
     def test_une_source_absente_garde_ses_appartenances(self):
         with portal.app.app_context():
-            dg.importer_groupes(COMPTE, {'ldap': ['cn=ztest-famille,dc=x']})
-            dg.importer_groupes(COMPTE, {'sso': ['ztest-labo']})
-            self.assertEqual({g['name'] for g in dg.groupes_de(COMPTE)},
+            dg.import_groups(COMPTE, {'ldap': ['cn=ztest-famille,dc=x']})
+            dg.import_groups(COMPTE, {'sso': ['ztest-labo']})
+            self.assertEqual({g['name'] for g in dg.groups_of(COMPTE)},
                              {'ztest-famille', 'ztest-labo'})
-            dg.importer_groupes(COMPTE, {'ldap': []})       # left the LDAP group
-            self.assertEqual({g['name'] for g in dg.groupes_de(COMPTE)}, {'ztest-labo'})
+            dg.import_groups(COMPTE, {'ldap': []})       # left the LDAP group
+            self.assertEqual({g['name'] for g in dg.groups_of(COMPTE)}, {'ztest-labo'})
 
 
 class DroitsEtQuotaTest(BaseGroupes):
 
-    def _cote(self, nom, budget=None, admin=0):
+    def _cote(self, name, budget=None, admin=0):
         db = portal.get_db()
         db.execute("UPDATE user_groups SET max_budget=?, is_admin=? WHERE lower(name)=lower(?)",
-                   (budget, admin, nom))
+                   (budget, admin, name))
         db.commit()
 
     def test_admin_par_droit_de_groupe_ou_groupe_admin_de_l_annuaire(self):
         with portal.app.app_context():
-            dg.importer_groupes(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
-            self.assertFalse(dg.droits_par_groupes(COMPTE)[0])
+            dg.import_groups(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
+            self.assertFalse(dg.rights_from_groups(COMPTE)[0])
             self._cote('ztest-labo', admin=1)
-            self.assertTrue(dg.droits_par_groupes(COMPTE)[0])
-            dg.importer_groupes(AUTRE, {'sso': ['ztest-admins']})
-            with mock.patch.object(dg, 'parametre', return_value='ztest-admins'):
-                self.assertTrue(dg.droits_par_groupes(AUTRE)[0])
+            self.assertTrue(dg.rights_from_groups(COMPTE)[0])
+            dg.import_groups(AUTRE, {'sso': ['ztest-admins']})
+            with mock.patch.object(dg, 'setting', return_value='ztest-admins'):
+                self.assertTrue(dg.rights_from_groups(AUTRE)[0])
 
     def test_le_quota_le_plus_genereux_s_applique(self):
         with portal.app.app_context():
-            dg.importer_groupes(COMPTE, {'ldap': ['cn=ztest-labo,dc=x', 'cn=ztest-famille,dc=x']})
+            dg.import_groups(COMPTE, {'ldap': ['cn=ztest-labo,dc=x', 'cn=ztest-famille,dc=x']})
             self._cote('ztest-labo', budget=1000)
             self._cote('ztest-famille', budget=3000)
-            self.assertEqual(dg.appliquer_quota_groupes(COMPTE), 3000)
+            self.assertEqual(dg.apply_group_quota(COMPTE), 3000)
             self.assertEqual(self.maj.call_args[0][:2], (COMPTE, 3000.0))
             self.maj.reset_mock()
-            self.assertIsNone(dg.appliquer_quota_groupes(COMPTE), "already applied")
+            self.assertIsNone(dg.apply_group_quota(COMPTE), "already applied")
             self.maj.assert_not_called()
 
     def test_quitter_le_groupe_rend_le_defaut(self):
         with portal.app.app_context():
-            dg.importer_groupes(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
+            dg.import_groups(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
             self._cote('ztest-labo', budget=1000)
-            dg.appliquer_quota_groupes(COMPTE)
-            dg.importer_groupes(COMPTE, {'ldap': []})
-            defaut = float(portal.get_setting('default_key_budget', portal.KEY_BUDGET))
-            self.assertEqual(dg.appliquer_quota_groupes(COMPTE), defaut)
+            dg.apply_group_quota(COMPTE)
+            dg.import_groups(COMPTE, {'ldap': []})
+            default = float(portal.get_setting('default_key_budget', portal.KEY_BUDGET))
+            self.assertEqual(dg.apply_group_quota(COMPTE), default)
 
     def test_sans_quota_de_groupe_rien_n_est_touche(self):
         with portal.app.app_context():
-            dg.importer_groupes(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
-            self.assertIsNone(dg.appliquer_quota_groupes(COMPTE))
+            dg.import_groups(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
+            self.assertIsNone(dg.apply_group_quota(COMPTE))
             self.maj.assert_not_called()
 
     def test_budget_manuel_et_derogation_ne_sont_pas_ecrases(self):
         with portal.app.app_context():
             db = portal.get_db()
-            dg.importer_groupes(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
+            dg.import_groups(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
             self._cote('ztest-labo', budget=1000)
             db.execute("UPDATE user_sources SET budget_manual=1 WHERE username=?", (COMPTE,))
             db.commit()
-            self.assertIsNone(dg.appliquer_quota_groupes(COMPTE))
+            self.assertIsNone(dg.apply_group_quota(COMPTE))
             db.execute("UPDATE user_sources SET budget_manual=0 WHERE username=?", (COMPTE,))
             db.execute("INSERT INTO budget_grants (username, base_budget, current_budget, expires_at, "
                        "created_at, updated_at) VALUES (?,?,?,?,?,?)",
                        (COMPTE, 1, 2, (datetime.utcnow() + timedelta(hours=1)).isoformat(),
                         '2026-10-11', '2026-10-11'))
             db.commit()
-            self.assertIsNone(dg.appliquer_quota_groupes(COMPTE))
+            self.assertIsNone(dg.apply_group_quota(COMPTE))
             self.maj.assert_not_called()
             # An EXPIRED grant no longer holds the group quota back.
             db.execute("UPDATE budget_grants SET expires_at=? WHERE username=?",
                        ((datetime.utcnow() - timedelta(hours=1)).isoformat(), COMPTE))
             db.commit()
-            self.assertEqual(dg.appliquer_quota_groupes(COMPTE), 1000)
+            self.assertEqual(dg.apply_group_quota(COMPTE), 1000)
 
     def test_un_compte_local_n_est_pas_concerne(self):
         with portal.app.app_context():
@@ -161,9 +161,9 @@ class DroitsEtQuotaTest(BaseGroupes):
             db.execute("INSERT INTO local_users (username, password_hash, created_at) VALUES (?,?,?)",
                        (COMPTE, 'x', '2026-10-11'))
             db.commit()
-            dg.importer_groupes(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
+            dg.import_groups(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
             self._cote('ztest-labo', budget=1000)
-            self.assertIsNone(dg.appliquer_quota_groupes(COMPTE))
+            self.assertIsNone(dg.apply_group_quota(COMPTE))
 
 
 class RoutesTest(BaseGroupes):
@@ -196,7 +196,7 @@ class RoutesTest(BaseGroupes):
 
     def test_modifier_un_groupe_met_a_jour_ses_membres_de_l_annuaire(self):
         with portal.app.app_context():
-            dg.importer_groupes(COMPTE, {'sso': ['ztest-labo']})
+            dg.import_groups(COMPTE, {'sso': ['ztest-labo']})
         r = self._admin().post('/admin/groups/create',
                                data={'name': 'ZTEST-labo', 'max_budget': '7000', 'is_admin': '1'},
                                headers={'X-CSRFToken': 'tok'})
@@ -206,14 +206,14 @@ class RoutesTest(BaseGroupes):
                                          "WHERE username=?", (COMPTE,)).fetchone()
             self.assertEqual(rs['last_is_admin'], 1)
             self.assertEqual(rs['budget_auto'], 7000)
-            self.assertEqual(self._groupe('ztest-labo')['name'], 'ztest-labo',
+            self.assertEqual(self._group('ztest-labo')['name'], 'ztest-labo',
                              "edited in place, not duplicated under another case")
 
     def test_liste_porte_groupes_annuaire_sources_et_membres(self):
         with portal.app.app_context():
-            dg.importer_groupes(COMPTE, {'ldap': ['cn=ztest-famille,dc=x'], 'sso': ['ztest-famille']})
-            dg.importer_groupes(AUTRE, {'sso': ['ztest-famille']})
-        with mock.patch('admin_routes.etats_annuaire', return_value=None):
+            dg.import_groups(COMPTE, {'ldap': ['cn=ztest-famille,dc=x'], 'sso': ['ztest-famille']})
+            dg.import_groups(AUTRE, {'sso': ['ztest-famille']})
+        with mock.patch('admin_routes.directory_states_for', return_value=None):
             body = self._admin().get('/api/admin/users').get_json()
         users = {u['username']: u for u in body['users']}
         self.assertEqual(users[COMPTE]['directory_groups'], ['ztest-famille'])
@@ -228,30 +228,30 @@ class SynchronisationTest(BaseGroupes):
     def test_ajout_et_retrait_suivent_l_annuaire(self):
         with portal.app.app_context():
             db = portal.get_db()
-            dg.importer_groupes(AUTRE, {'ldap': ['cn=ztest-admins,dc=x']})
+            dg.import_groups(AUTRE, {'ldap': ['cn=ztest-admins,dc=x']})
             db.execute("UPDATE user_groups SET is_admin=1 WHERE name='ztest-admins'")
             db.commit()
-            dg.synchroniser_groupes_ldap({COMPTE: ['ztest-admins', 'ztest-labo']})
-            self.assertEqual({g['name'] for g in dg.groupes_de(COMPTE)}, {'ztest-admins', 'ztest-labo'})
+            dg.sync_ldap_groups({COMPTE: ['ztest-admins', 'ztest-labo']})
+            self.assertEqual({g['name'] for g in dg.groups_of(COMPTE)}, {'ztest-admins', 'ztest-labo'})
             self.assertEqual(db.execute("SELECT last_is_admin FROM user_sources WHERE username=?",
                                         (COMPTE,)).fetchone()[0], 1)
             # Removed from the admin group in the directory: demoted at once.
-            dg.synchroniser_groupes_ldap({COMPTE: ['ztest-labo']})
+            dg.sync_ldap_groups({COMPTE: ['ztest-labo']})
             self.assertEqual(db.execute("SELECT last_is_admin FROM user_sources WHERE username=?",
                                         (COMPTE,)).fetchone()[0], 0)
 
     def test_un_compte_absent_de_la_lecture_n_est_pas_touche(self):
         with portal.app.app_context():
-            dg.importer_groupes(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
-            dg.synchroniser_groupes_ldap({})
-            self.assertEqual([g['name'] for g in dg.groupes_de(COMPTE)], ['ztest-labo'])
+            dg.import_groups(COMPTE, {'ldap': ['cn=ztest-labo,dc=x']})
+            dg.sync_ldap_groups({})
+            self.assertEqual([g['name'] for g in dg.groups_of(COMPTE)], ['ztest-labo'])
 
 
 class ConnexionTest(BaseGroupes):
 
     def test_connexion_ldap_importe_les_groupes_et_le_droit_admin(self):
         with portal.app.app_context():
-            dg.importer_groupes(AUTRE, {'ldap': ['cn=ztest-labo,dc=x']})
+            dg.import_groups(AUTRE, {'ldap': ['cn=ztest-labo,dc=x']})
             db = portal.get_db()
             db.execute("UPDATE user_groups SET is_admin=1 WHERE name='ztest-labo'")
             db.commit()
@@ -267,7 +267,7 @@ class ConnexionTest(BaseGroupes):
         with anon.session_transaction() as s:
             self.assertTrue(s.get('is_admin'), "the group's admin right applies at login")
         with portal.app.app_context():
-            self.assertEqual([g['name'] for g in dg.groupes_de(COMPTE)], ['ztest-labo'])
+            self.assertEqual([g['name'] for g in dg.groups_of(COMPTE)], ['ztest-labo'])
 
 
 if __name__ == '__main__':

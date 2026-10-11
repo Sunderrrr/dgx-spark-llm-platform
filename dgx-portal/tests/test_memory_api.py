@@ -15,7 +15,7 @@ import app as portal
 import chat_routes as chat_routes
 # Memory left the monolith for memory_routes.py (28/08, 1st blueprint):
 # we target it in its own module.
-import memory_routes as memoire
+import memory_routes as memory
 from db import get_db
 
 
@@ -35,7 +35,7 @@ class MemoryApiBase(unittest.TestCase):
         with portal.app.test_request_context():
             db = portal.get_db()
             for u in (self.USER, self.OTHER):
-                memoire._mem_purge(u)
+                memory._mem_purge(u)
                 db.execute("DELETE FROM user_prefs WHERE username=?", (u,))
             db.commit()
 
@@ -61,19 +61,19 @@ class AuthGateTest(MemoryApiBase):
     """No memory route must answer without a session."""
 
     def test_toutes_les_routes_sont_protegees(self):
-        appels = [
+        calls = [
             ('get', '/api/memory', None),
             ('post', '/api/memory/enabled', {'enabled': True}),
             ('post', '/api/memory/facts', {'subject': 'x', 'fact': 'y'}),
             ('delete', '/api/memory/facts/1', None),
             ('post', '/api/memory/purge', None),
         ]
-        for methode, route, corps in appels:
+        for methode, route, body in calls:
             # A consistent CSRF token: we really test AUTHENTICATION, not CSRF.
             with self.client.session_transaction() as sess:
                 sess.clear()
                 sess['csrf'] = 'jeton-anonyme'
-            r = getattr(self.client, methode)(route, json=corps,
+            r = getattr(self.client, methode)(route, json=body,
                                               headers={'X-CSRFToken': 'jeton-anonyme'})
             self.assertIn(r.status_code, (302, 401, 403),
                           f"{methode.upper()} {route} -> {r.status_code}")
@@ -84,14 +84,14 @@ class CsrfTest(MemoryApiBase):
 
     def test_ecritures_sans_jeton_refusees(self):
         self._login(self.USER)
-        appels = [
+        calls = [
             ('post', '/api/memory/enabled', {'enabled': True}),
             ('post', '/api/memory/facts', {'subject': 'x', 'fact': 'y'}),
             ('delete', '/api/memory/facts/1', None),
             ('post', '/api/memory/purge', None),
         ]
-        for methode, route, corps in appels:
-            r = getattr(self.client, methode)(route, json=corps)
+        for methode, route, body in calls:
+            r = getattr(self.client, methode)(route, json=body)
             self.assertEqual(r.status_code, 400, f"{methode.upper()} {route}")
 
     def test_lecture_ne_demande_pas_de_jeton(self):
@@ -334,7 +334,7 @@ class ImportMarkdownTest(MemoryApiBase):
     def test_parseur_relations_structurées(self):
         # Pattern « **relation** object: fact » recognized; outside bold → generic relation.
         md = "## vLLM\n- **sert avec** DGX Spark : Tourne en 0.27.\n"
-        edges, aliases = memoire._md_parse(md)
+        edges, aliases = memory._md_parse(md)
         self.assertEqual(len(edges), 1)
         self.assertEqual(edges[0]['relation'], 'sert avec')
         self.assertEqual(edges[0]['object'], 'DGX Spark')
@@ -356,7 +356,7 @@ class ImportMarkdownTest(MemoryApiBase):
             "His lab uses a themed naming convention for hosts. "
             "He runs a DGX Spark (NVIDIA GB10, ARM64, 128GB).\n"
         )
-        edges, aliases = memoire._md_parse(md)
+        edges, aliases = memory._md_parse(md)
         # 4 sentences → 4 facts, spread under Work context / Recent months.
         self.assertEqual(len(edges), 4)
         by_subject = {}
@@ -395,17 +395,17 @@ class InjectionContexteTest(MemoryApiBase):
 
     def test_vide_si_desactive(self):
         with portal.app.test_request_context():
-            memoire._mem_set_enabled(self.USER, False)
-            self.assertEqual(memoire._mem_inject_context(self.USER), '')
+            memory._mem_set_enabled(self.USER, False)
+            self.assertEqual(memory._mem_inject_context(self.USER), '')
 
     def test_vide_si_aucun_fait(self):
         with portal.app.test_request_context():
-            self.assertEqual(memoire._mem_inject_context(self.USER), '')
+            self.assertEqual(memory._mem_inject_context(self.USER), '')
 
     def test_contient_les_faits_actifs(self):
         with portal.app.test_request_context():
-            memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
-            bloc = memoire._mem_inject_context(self.USER)
+            memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+            bloc = memory._mem_inject_context(self.USER)
         self.assertIn('### Mémoire', bloc)
         self.assertIn('vLLM — Tourne en 0.27.', bloc)
         # Framed as data (anti persistent-prompt-injection).
@@ -413,14 +413,14 @@ class InjectionContexteTest(MemoryApiBase):
 
     def test_exclut_les_faits_perimes(self):
         with portal.app.test_request_context():
-            memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Ancienne version.')
+            memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Ancienne version.')
             row = get_db().execute(
                 "SELECT e.id FROM memory_edges e WHERE e.username=?",
                 (self.USER,)).fetchone()
             get_db().execute("UPDATE memory_edges SET valid_until=? WHERE id=?",
                              ('2020-01-01T00:00:00', row['id']))
             get_db().commit()
-            self.assertEqual(memoire._mem_inject_context(self.USER), '')
+            self.assertEqual(memory._mem_inject_context(self.USER), '')
 
 
 class ExtractionPostTourTest(MemoryApiBase):
@@ -431,8 +431,8 @@ class ExtractionPostTourTest(MemoryApiBase):
         # what broke the first version (get_db raised « Working outside of
         # application context » there, swallowed by a bare except).
         with portal.app.app_context():
-            memoire._mem_set_enabled(self.USER, True)
-        extraits = [{'role': 'user', 'content': "Je préfère les réponses courtes."},
+            memory._mem_set_enabled(self.USER, True)
+        excerpts = [{'role': 'user', 'content': "Je préfère les réponses courtes."},
                     {'role': 'assistant', 'content': "Bien noté."}]
 
         class _Reponse:
@@ -445,16 +445,16 @@ class ExtractionPostTourTest(MemoryApiBase):
 
         with portal.app.app_context():
             with mock.patch('chat_routes.requests.post', return_value=_Reponse()):
-                chat_routes._mem_extraire_et_sauver(
-                    self.USER, 'm', 'k', extraits, portal.app)
-            faits = [e['fact'] for e in memoire._mem_graph(self.USER)['edges']]
+                chat_routes._mem_extract_and_save(
+                    self.USER, 'm', 'k', excerpts, portal.app)
+            faits = [e['fact'] for e in memory._mem_graph(self.USER)['edges']]
         self.assertTrue(any('courtes' in f for f in faits))
 
     def test_desactive_n_appelle_meme_pas_le_modele(self):
         with portal.app.app_context():
-            memoire._mem_set_enabled(self.USER, False)
+            memory._mem_set_enabled(self.USER, False)
             with mock.patch('chat_routes.requests.post') as faux_post:
-                chat_routes._mem_extraire_et_sauver(self.USER, 'm', 'k', [], portal.app)
+                chat_routes._mem_extract_and_save(self.USER, 'm', 'k', [], portal.app)
         faux_post.assert_not_called()
 
 
@@ -464,16 +464,16 @@ class EntreesHostilesTest(MemoryApiBase):
         super().setUp()
         self.csrf = self._enable(self.USER)
 
-    def _post(self, corps):
-        return self.client.post('/api/memory/facts', json=corps,
+    def _post(self, body):
+        return self.client.post('/api/memory/facts', json=body,
                                 headers={'X-CSRFToken': self.csrf})
 
     def test_champs_vides_refuses(self):
-        for corps in ({'subject': '', 'fact': 'x'},
+        for body in ({'subject': '', 'fact': 'x'},
                       {'subject': 'x', 'fact': ''},
                       {'subject': '   ', 'fact': '   '},
                       {}):
-            self.assertEqual(self._post(corps).status_code, 400, corps)
+            self.assertEqual(self._post(body).status_code, 400, body)
 
     def test_sujet_sans_aucun_caractere_utile(self):
         # « !!! » normalizes to an empty string: the node would be keyless.
@@ -483,8 +483,8 @@ class EntreesHostilesTest(MemoryApiBase):
         r = self._post({'subject': 'A' * 5000, 'fact': 'B' * 5000})
         self.assertEqual(r.status_code, 200)
         d = self.client.get('/api/memory').get_json()
-        self.assertLessEqual(len(d['edges'][0]['fact']), memoire.MEM_MAX_FACT_LEN)
-        self.assertLessEqual(len(d['nodes'][0]['name']), memoire.MEM_MAX_NAME_LEN)
+        self.assertLessEqual(len(d['edges'][0]['fact']), memory.MEM_MAX_FACT_LEN)
+        self.assertLessEqual(len(d['nodes'][0]['name']), memory.MEM_MAX_NAME_LEN)
 
     def test_injection_sql_traitee_comme_du_texte(self):
         charge = "'; DROP TABLE memory_edges; --"
@@ -522,7 +522,7 @@ class ParcoursTest(MemoryApiBase):
         super().setUp()
         self.ctx = portal.app.test_request_context()
         self.ctx.push()
-        memoire._mem_set_enabled(self.USER, True)
+        memory._mem_set_enabled(self.USER, True)
 
     def tearDown(self):
         self.ctx.pop()
@@ -530,37 +530,37 @@ class ParcoursTest(MemoryApiBase):
 
     def test_deux_sauts(self):
         # Portail —> vLLM —> CUDA: from Portail, 1 jump sees vLLM, 2 jumps CUDA.
-        memoire._mem_add_fact(self.USER, 'Portail', 'sert avec', 'Portail sert avec vLLM.', obj='vLLM')
-        memoire._mem_add_fact(self.USER, 'vLLM', 'repose sur', 'vLLM repose sur CUDA.', obj='CUDA')
-        un = {f['fact'] for f in memoire._mem_recall(self.USER, 'Portail', hops=1)}
-        deux = {f['fact'] for f in memoire._mem_recall(self.USER, 'Portail', hops=2)}
+        memory._mem_add_fact(self.USER, 'Portail', 'sert avec', 'Portail sert avec vLLM.', obj='vLLM')
+        memory._mem_add_fact(self.USER, 'vLLM', 'repose sur', 'vLLM repose sur CUDA.', obj='CUDA')
+        un = {f['fact'] for f in memory._mem_recall(self.USER, 'Portail', hops=1)}
+        deux = {f['fact'] for f in memory._mem_recall(self.USER, 'Portail', hops=2)}
         self.assertIn('Portail sert avec vLLM.', un)
         self.assertIn('vLLM repose sur CUDA.', deux)
         self.assertTrue(deux.issuperset(un))
 
     def test_composante_non_reliee_exclue(self):
-        memoire._mem_add_fact(self.USER, 'Portail', 'sert avec', 'Portail sert avec vLLM.', obj='vLLM')
-        memoire._mem_add_fact(self.USER, 'Cuisine', 'aime', 'Aime le curry.')
-        faits = {f['fact'] for f in memoire._mem_recall(self.USER, 'Portail', hops=2)}
+        memory._mem_add_fact(self.USER, 'Portail', 'sert avec', 'Portail sert avec vLLM.', obj='vLLM')
+        memory._mem_add_fact(self.USER, 'Cuisine', 'aime', 'Aime le curry.')
+        faits = {f['fact'] for f in memory._mem_recall(self.USER, 'Portail', hops=2)}
         self.assertNotIn('Aime le curry.', faits)
 
     def test_cycle_ne_boucle_pas(self):
         # A—B, B—C, C—A: the recursive CTE must stop (UNION deduplicates).
-        memoire._mem_add_fact(self.USER, 'A', 'lie', 'A vers B.', obj='B')
-        memoire._mem_add_fact(self.USER, 'B', 'lie', 'B vers C.', obj='C')
-        memoire._mem_add_fact(self.USER, 'C', 'lie', 'C vers A.', obj='A')
-        faits = memoire._mem_recall(self.USER, 'A', hops=2)
+        memory._mem_add_fact(self.USER, 'A', 'lie', 'A vers B.', obj='B')
+        memory._mem_add_fact(self.USER, 'B', 'lie', 'B vers C.', obj='C')
+        memory._mem_add_fact(self.USER, 'C', 'lie', 'C vers A.', obj='A')
+        faits = memory._mem_recall(self.USER, 'A', hops=2)
         self.assertEqual(len(faits), 3)
 
     def test_nombre_de_faits_borne(self):
         for i in range(40):
-            memoire._mem_add_fact(self.USER, 'Gros', f'note{i}', f'Fait {i}')
-        self.assertLessEqual(len(memoire._mem_recall(self.USER, 'Gros')), 25)
+            memory._mem_add_fact(self.USER, 'Gros', f'note{i}', f'Fait {i}')
+        self.assertLessEqual(len(memory._mem_recall(self.USER, 'Gros')), 25)
 
     def test_hops_hors_bornes_ramene_dans_la_plage(self):
-        memoire._mem_add_fact(self.USER, 'A', 'lie', 'A vers B.', obj='B')
+        memory._mem_add_fact(self.USER, 'A', 'lie', 'A vers B.', obj='B')
         for mauvais in (0, -5, 99, None):
-            self.assertTrue(memoire._mem_recall(self.USER, 'A', hops=mauvais))
+            self.assertTrue(memory._mem_recall(self.USER, 'A', hops=mauvais))
 
 
 class AliasTest(MemoryApiBase):
@@ -570,32 +570,32 @@ class AliasTest(MemoryApiBase):
         super().setUp()
         self.ctx = portal.app.test_request_context()
         self.ctx.push()
-        memoire._mem_set_enabled(self.USER, True)
+        memory._mem_set_enabled(self.USER, True)
 
     def tearDown(self):
         self.ctx.pop()
         super().tearDown()
 
     def test_alias_rattache_au_meme_noeud(self):
-        memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
-        noeud = memoire._mem_node(self.USER, 'vLLM', create=False)
+        memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+        noeud = memory._mem_node(self.USER, 'vLLM', create=False)
         db = portal.get_db()
         db.execute("INSERT INTO memory_aliases (node_id, username, alias_norm) VALUES (?,?,?)",
-                   (noeud['id'], self.USER, memoire._mem_norm("le serveur d'inférence")))
+                   (noeud['id'], self.USER, memory._mem_norm("le serveur d'inférence")))
         db.commit()
-        retrouve = memoire._mem_node(self.USER, "Le serveur d'inférence", create=False)
+        retrouve = memory._mem_node(self.USER, "Le serveur d'inférence", create=False)
         self.assertIsNotNone(retrouve)
         self.assertEqual(retrouve['id'], noeud['id'])
-        self.assertTrue(memoire._mem_recall(self.USER, "le serveur d'inférence"))
+        self.assertTrue(memory._mem_recall(self.USER, "le serveur d'inférence"))
 
     def test_alias_cloisonne_par_utilisateur(self):
-        memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
-        noeud = memoire._mem_node(self.USER, 'vLLM', create=False)
+        memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+        noeud = memory._mem_node(self.USER, 'vLLM', create=False)
         db = portal.get_db()
         db.execute("INSERT INTO memory_aliases (node_id, username, alias_norm) VALUES (?,?,?)",
-                   (noeud['id'], self.USER, memoire._mem_norm('le moteur')))
+                   (noeud['id'], self.USER, memory._mem_norm('le moteur')))
         db.commit()
-        self.assertIsNone(memoire._mem_node(self.OTHER, 'le moteur', create=False))
+        self.assertIsNone(memory._mem_node(self.OTHER, 'le moteur', create=False))
 
 
 class OutilsTest(MemoryApiBase):
@@ -611,7 +611,7 @@ class OutilsTest(MemoryApiBase):
         super().tearDown()
 
     def test_schemas_bien_formes(self):
-        for outil in memoire._mem_tools():
+        for outil in memory._mem_tools():
             self.assertEqual(outil['type'], 'function')
             fn = outil['function']
             self.assertTrue(fn['name'] and fn['description'])
@@ -620,30 +620,30 @@ class OutilsTest(MemoryApiBase):
                 self.assertIn(champ, fn['parameters']['properties'], fn['name'])
 
     def test_noms_uniques(self):
-        noms = [o['function']['name'] for o in memoire._mem_tools()]
-        self.assertEqual(len(noms), len(set(noms)))
+        names = [o['function']['name'] for o in memory._mem_tools()]
+        self.assertEqual(len(names), len(set(names)))
 
     def test_outil_inconnu_refuse(self):
-        memoire._mem_set_enabled(self.USER, True)
-        _, ok = memoire._exec_memory_tool('drop_everything', {}, self.USER)
+        memory._mem_set_enabled(self.USER, True)
+        _, ok = memory._exec_memory_tool('drop_everything', {}, self.USER)
         self.assertFalse(ok)
 
     def test_le_modele_ne_choisit_pas_pour_qui(self):
         # A « username » argument injected in the tool call must have no
         # effect: the target comes from the session.
-        memoire._mem_set_enabled(self.USER, True)
-        memoire._exec_memory_tool(
+        memory._mem_set_enabled(self.USER, True)
+        memory._exec_memory_tool(
             'save_memory',
             {'subject': 'vLLM', 'fact': 'Écrit par le modèle.', 'username': self.OTHER},
             self.USER)
-        self.assertEqual(len(memoire._mem_graph(self.USER)['edges']), 1)
-        self.assertEqual(memoire._mem_graph(self.OTHER)['edges'], [])
+        self.assertEqual(len(memory._mem_graph(self.USER)['edges']), 1)
+        self.assertEqual(memory._mem_graph(self.OTHER)['edges'], [])
 
     def test_rappel_sans_opt_in_ne_lit_rien(self):
-        memoire._mem_set_enabled(self.USER, True)
-        memoire._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
-        memoire._mem_set_enabled(self.USER, False)
-        msg, ok = memoire._exec_memory_tool('recall_memory', {'subject': 'vLLM'}, self.USER)
+        memory._mem_set_enabled(self.USER, True)
+        memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
+        memory._mem_set_enabled(self.USER, False)
+        msg, ok = memory._exec_memory_tool('recall_memory', {'subject': 'vLLM'}, self.USER)
         self.assertFalse(ok)
         self.assertNotIn('0.27', msg)
 

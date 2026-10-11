@@ -54,7 +54,7 @@ _EXTRACTION = {
 #
 # We filter by LINE and never by length: a short line can be code, and a
 # documentation page is full of them.
-LIGNES_DE_BANDEAU = (
+BANNER_LINES = (
     'continuer sans accepter', 'utilisons des cookies', 'accepter les cookies',
     'gérer mes choix', 'gerer mes choix', 'politique de confidentialité',
     'votre carte de paiement', 'votre abonnement', "n'a pas encore été validé",
@@ -62,15 +62,15 @@ LIGNES_DE_BANDEAU = (
     'enable javascript', 'activez javascript', 'required part of this site',
 )
 # Parasite prefixes stuck to useful headings: we remove the prefix, not the line.
-PREFIXES_PARASITES = ('Vidéo Nouvelle notification', 'Nouvelle notification')
-MIN_MOTS_UTILES = 60
+NOISE_PREFIXES = ('Vidéo Nouvelle notification', 'Nouvelle notification')
+MIN_USEFUL_WORDS = 60
 
-MAX_RESULTATS = 8
+MAX_RESULTS = 8
 MAX_PAGES = 4
 MAX_CARS_PAGE = 6000
 MAX_CARS_TOTAL = 20000
-TIMEOUT_RECHERCHE = 20
-TIMEOUT_LECTURE = 90
+SEARCH_TIMEOUT = 20
+READ_TIMEOUT = 90
 
 _token_cache = None
 _token_lock = threading.Lock()
@@ -89,7 +89,7 @@ def _token():
     return _token_cache
 
 
-def disponible():
+def available():
     """Do both services answer? Used to expose the tool only when it works."""
     try:
         r = requests.get(f"{CRAWL4AI_URL}/health", timeout=3)
@@ -100,7 +100,7 @@ def disponible():
         return False
 
 
-def url_publique(url):
+def public_url(url):
     """(ok, error) — does the URL really target a public address?
 
     The network already forbids the crawler from reaching the host, but
@@ -132,7 +132,7 @@ def url_publique(url):
     return True, None
 
 
-def cible_interne(url):
+def internal_target(url):
     """Does the URL target an internal address, with CERTAINTY?
 
     Used for the AFTER-read check, on the final URL rendered by the crawler
@@ -164,81 +164,81 @@ def cible_interne(url):
         return False
 
 
-def nettoyer(texte):
+def clean(text):
     """Removes banner lines and parasite prefixes. Returns the text."""
-    sorties = []
-    for ligne in (texte or '').split('\n'):
-        l = ligne.rstrip()
-        bas = l.lower()
-        if any(m in bas for m in LIGNES_DE_BANDEAU):
+    outputs = []
+    for line in (text or '').split('\n'):
+        l = line.rstrip()
+        low = l.lower()
+        if any(m in low for m in BANNER_LINES):
             continue
-        for prefixe in PREFIXES_PARASITES:
-            if l.lstrip('* ').startswith(prefixe):
-                l = l.lstrip('* ')[len(prefixe):].lstrip()
+        for prefix in NOISE_PREFIXES:
+            if l.lstrip('* ').startswith(prefix):
+                l = l.lstrip('* ')[len(prefix):].lstrip()
                 break
-        sorties.append(l)
+        outputs.append(l)
     # The multiple blanks left by removed lines add nothing.
-    propre, vide = [], False
-    for l in sorties:
+    clean_value, empty = [], False
+    for l in outputs:
         if l.strip():
-            propre.append(l); vide = False
-        elif not vide:
-            propre.append(''); vide = True
-    return '\n'.join(propre).strip()
+            clean_value.append(l); empty = False
+        elif not empty:
+            clean_value.append(''); empty = True
+    return '\n'.join(clean_value).strip()
 
 
-def _trop_pauvre(texte):
+def _too_poor(text):
     """Is the page empty of substance once cleaned? (None if fine.)"""
-    mots = sum(1 for m in (texte or '').split() if len(m) > 3)
-    if mots < MIN_MOTS_UTILES:
+    words = sum(1 for m in (text or '').split() if len(m) > 3)
+    if words < MIN_USEFUL_WORDS:
         return "Page sans contenu exploitable (chargée en JavaScript, ou accès refusé)."
     return None
 
 
-def rechercher(question, nombre=6, langue='fr'):
+def search(question, count_value=6, language='fr'):
     """Question → links. Returns (results, error)."""
     question = (question or '').strip()[:400]
     if not question:
         return [], "Question vide."
-    nombre = max(1, min(int(nombre or 6), MAX_RESULTATS))
+    count_value = max(1, min(int(count_value or 6), MAX_RESULTS))
     try:
-        r = requests.get(f"{SEARXNG_URL}/search", timeout=TIMEOUT_RECHERCHE,
-                         params={'q': question, 'format': 'json', 'language': langue,
+        r = requests.get(f"{SEARXNG_URL}/search", timeout=SEARCH_TIMEOUT,
+                         params={'q': question, 'format': 'json', 'language': language,
                                  'safesearch': 1})
         r.raise_for_status()
-        brut = r.json().get('results') or []
+        raw = r.json().get('results') or []
     except Exception as e:
         return [], f"Moteur de recherche injoignable ({type(e).__name__})."
-    out, vus = [], set()
-    for item in brut:
+    out, seen = [], set()
+    for item in raw:
         url = (item.get('url') or '').strip()
-        if not url or url in vus:
+        if not url or url in seen:
             continue
-        ok, _ = url_publique(url)
+        ok, _ = public_url(url)
         if not ok:
             continue
-        vus.add(url)
+        seen.add(url)
         out.append({'titre': (item.get('title') or '')[:200],
                     'url': url,
                     'extrait': (item.get('content') or '')[:400]})
-        if len(out) >= nombre:
+        if len(out) >= count_value:
             break
     return out, None
 
 
-def lire(urls, max_cars=MAX_CARS_PAGE):
+def read(urls, max_cars=MAX_CARS_PAGE):
     """URLs → markdown content. Returns (pages, error)."""
-    valides = []
+    valid_items = []
     for u in (urls or [])[:MAX_PAGES]:
-        ok, err = url_publique(u)
-        valides.append((u, ok, err))
-    a_lire = [u for u, ok, _ in valides if ok]
-    resultats = {}
-    if a_lire:
+        ok, err = public_url(u)
+        valid_items.append((u, ok, err))
+    to_read = [u for u, ok, _ in valid_items if ok]
+    results = {}
+    if to_read:
         try:
-            r = requests.post(f"{CRAWL4AI_URL}/crawl", timeout=TIMEOUT_LECTURE,
+            r = requests.post(f"{CRAWL4AI_URL}/crawl", timeout=READ_TIMEOUT,
                               headers={'Authorization': f'Bearer {_token()}'},
-                              json={'urls': a_lire,
+                              json={'urls': to_read,
                                     'crawler_config': {'type': 'CrawlerRunConfig',
                                                        'params': _EXTRACTION}})
             r.raise_for_status()
@@ -251,14 +251,14 @@ def lire(urls, max_cars=MAX_CARS_PAGE):
                 # The content of an internal service has no business in the
                 # model's context — we drop the whole page (the markdown
                 # is not even kept).
-                finale = item.get('redirected_url')
-                if isinstance(finale, str) and cible_interne(finale):
-                    resultats[item.get('url', '')] = {
+                final_text = item.get('redirected_url')
+                if isinstance(final_text, str) and internal_target(final_text):
+                    results[item.get('url', '')] = {
                         'ok': False,
                         'erreur': "Redirection vers une adresse interne, page refusée.",
                     }
                     continue
-                resultats[item.get('url', '')] = {
+                results[item.get('url', '')] = {
                     'ok': bool(item.get('success')),
                     'markdown': (md or '')[:max_cars],
                     'titre': ((item.get('metadata') or {}).get('title') or '')[:200],
@@ -266,25 +266,25 @@ def lire(urls, max_cars=MAX_CARS_PAGE):
         except Exception as e:
             return [], f"Lecteur de pages injoignable ({type(e).__name__})."
     pages, total = [], 0
-    for u, ok, err in valides:
+    for u, ok, err in valid_items:
         if not ok:
             pages.append({'url': u, 'erreur': err})
             continue
         # crawl4ai may normalize the URL (trailing slash): we fall back on it.
-        info = resultats.get(u) or next((v for k, v in resultats.items()
+        info = results.get(u) or next((v for k, v in results.items()
                                          if k.rstrip('/') == u.rstrip('/')), None)
         if not info or not info['ok']:
             # `results` may carry a reason (refusal after redirect): losing it
             # would display « Page illisible. » for a page that read fine.
             pages.append({'url': u, 'erreur': (info or {}).get('erreur') or "Page illisible."})
             continue
-        propre = nettoyer(info['markdown'])
-        souci = _trop_pauvre(propre)
-        if souci:
-            pages.append({'url': u, 'titre': info['titre'], 'erreur': souci})
+        clean_value = clean(info['markdown'])
+        issue = _too_poor(clean_value)
+        if issue:
+            pages.append({'url': u, 'titre': info['titre'], 'erreur': issue})
             continue
-        reste = max(0, MAX_CARS_TOTAL - total)
-        texte = propre[:reste]
-        total += len(texte)
-        pages.append({'url': u, 'titre': info['titre'], 'contenu': texte})
+        remaining = max(0, MAX_CARS_TOTAL - total)
+        text = clean_value[:remaining]
+        total += len(text)
+        pages.append({'url': u, 'titre': info['titre'], 'contenu': text})
     return pages, None

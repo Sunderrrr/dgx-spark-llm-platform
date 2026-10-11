@@ -38,13 +38,13 @@ from webauthn.helpers.structs import (
 )
 
 from auth import (_apply_session, _login_fail, _login_locked, _login_reset,
-                   est_bloque, login_required)
+                   is_blocked, login_required)
 from config import WEBAUTHN_ORIGIN, WEBAUTHN_REQUIRE_UV, WEBAUTHN_RP_ID, WEBAUTHN_RP_NAME
 from db import get_db, log_audit
 # `passkey_possible` is gone (orphan, audit 2026-10-07): the callers read
 # `gestion["passkey"]` directly.
-from local_users import (GESTION_LDAP, GESTION_PORTAIL, GESTION_SSO, _local_user_auth,
-                          gestion_mot_de_passe)
+from local_users import (MANAGED_LDAP, MANAGED_PORTAL, MANAGED_SSO, _local_user_auth,
+                          password_management)
 
 bp = Blueprint("webauthn", __name__)
 
@@ -137,7 +137,7 @@ def _pending_clear(nonce) -> None:
     db.commit()
 
 
-def _verify_password(username: str, password: str, gestion: str) -> bool:
+def _verify_password(username: str, password: str, management: str) -> bool:
     # `gestion` is PROVIDED by the caller: `_verify_password_locked` already
     # computed it (two SELECTs) for its own SSO test, and recomputing it here
     # doubled those reads at every sensitive re-verification.
@@ -157,10 +157,10 @@ def _verify_password(username: str, password: str, gestion: str) -> bool:
     consults the directory, an `annuaire` account no longer consults the
     local one, and `inconnu` (nothing is authoritative) keeps `login()`'s order.
     """
-    if gestion == GESTION_PORTAIL:
+    if management == MANAGED_PORTAL:
         return _local_user_auth(username, password)[0]
     from auth import ldap_authenticate
-    if gestion == GESTION_LDAP:
+    if management == MANAGED_LDAP:
         return ldap_authenticate(username, password)[0]
     if _local_user_auth(username, password)[0]:
         return True
@@ -189,14 +189,14 @@ def _verify_password_locked(username: str, password: str):
     # `user:<nom>` — the counter being shared with /login, they ended up
     # locking themselves out of the login page, for an action impossible
     # from the start.
-    gestion = gestion_mot_de_passe(username)['gestion']
-    if gestion == GESTION_SSO:
+    management = password_management(username)['gestion']
+    if management == MANAGED_SSO:
         return False, ({"error": "Compte SSO : aucun mot de passe n'est géré par le "
                                  "portail, la vérification est impossible."}, 400)
     wait = _login_locked(ukey)
     if wait:
         return False, ({"error": f"Trop de tentatives. Réessaie dans {wait // 60 + 1} min."}, 429)
-    if _verify_password(username, password, gestion):
+    if _verify_password(username, password, management):
         _login_reset(ukey)
         return True, None
     _login_fail(ukey)
@@ -339,7 +339,7 @@ def finish_login(nonce: str, credential):
     # second step: the passkey proves identity, it is not an authorization.
     # The app.py check happened before the challenge, this one closes the
     # window between the two.
-    if est_bloque(username):
+    if is_blocked(username):
         _pending_clear(nonce)
         log_audit(username, 'login.refuse', 'compte bloqué pendant le défi passkey')
         return {"error": "Accès révoqué pour ce compte."}, 403
@@ -358,15 +358,15 @@ def finish_login(nonce: str, credential):
 def api_security():
     username = session["username"]
     creds = _stored_credentials(username)
-    gestion = gestion_mot_de_passe(username)
+    management = password_management(username)
     return jsonify({
         "enabled": _webauthn_enabled(username),
         # The UI must be able to SAY where the password comes from, and thus
         # whether a change form (or adding a passkey) makes sense here.
         # A single read of the source (two SELECTs) for both fields:
         # `passkey_possible` merely re-reads `gestion_mot_de_passe`.
-        "password_managed_by": gestion["gestion"],
-        "passkey_possible": gestion["passkey"],
+        "password_managed_by": management["gestion"],
+        "passkey_possible": management["passkey"],
         "credentials": [{
             "id": c["id"],
             "credential_id": c["credential_id"],
@@ -395,13 +395,13 @@ def security_register_begin():
     # only displayed by the UI (`passkey_possible`), is finally enforced by
     # the server — an SSO account receives 400 « Compte SSO ».
     data = request.get_json(silent=True) or {}
-    motdepasse = data.get("password") or ""
-    if not motdepasse:
+    password_value = data.get("password") or ""
+    if not password_value:
         # Missing field = incomplete request, not a wrong password: answering
         # 401 here would consume a try of the lock shared with /login for a
         # request that attempted nothing.
         return jsonify({"error": "Mot de passe requis pour ajouter une clé."}), 400
-    ok, err = _verify_password_locked(session["username"], motdepasse)
+    ok, err = _verify_password_locked(session["username"], password_value)
     if not ok:
         return jsonify(err[0]), err[1]
     return jsonify(start_registration(session["username"]))

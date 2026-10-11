@@ -24,8 +24,8 @@ from ldap3 import ALL, SIMPLE, Connection, Server
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 
-from parametres import ldap_config, parametre
-from proprietaire import est_proprietaire
+from instance_config import ldap_config, setting
+from owner import is_owner
 from db import get_db, log_audit
 from local_users import _local_user_is_admin
 
@@ -76,7 +76,7 @@ def _session_expired():
 # the bearer kept their access, admin included. These functions are called
 # at every kept request.
 
-def est_bloque(username):
+def is_blocked(username):
     """Account refused at login, whatever its source."""
     if not username:
         return False
@@ -84,7 +84,7 @@ def est_bloque(username):
         "SELECT 1 FROM blocked_users WHERE username=?", (username,)).fetchone() is not None
 
 
-def etat_compte(username):
+def account_state(username):
     """(valid, is_admin, reason) re-read from database, never the one frozen at login.
 
     `is_admin` is **None** when the portal has no authoritative source on
@@ -98,7 +98,7 @@ def etat_compte(username):
     to a third party testing credentials.
     """
     db = get_db()
-    if est_bloque(username):
+    if is_blocked(username):
         return False, False, 'bloque'
     row = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
     if row is not None:
@@ -118,14 +118,14 @@ def etat_compte(username):
     # The instance's OWNER is always an admin, whatever the directory says
     # today: an SSO owner dropped from its IdP group must not lose the
     # platform it owns (proprietaire.py).
-    if est_proprietaire(username):
+    if is_owner(username):
         return True, True, None
     src = db.execute(
         "SELECT last_is_admin FROM user_sources WHERE username=?", (username,)).fetchone()
     return True, (bool(src['last_is_admin']) if src is not None else None), None
 
 
-def _revalide_session():
+def _revalidate_session():
     """Discards the session if the account is no longer valid, else refreshes the role.
 
     Returns True if the session holds. A role change is rewritten in the
@@ -134,11 +134,11 @@ def _revalide_session():
     username = session.get('username')
     if not username:
         return True
-    valide, is_admin, raison = etat_compte(username)
-    if not valide:
+    valid, is_admin, reason = account_state(username)
+    if not valid:
         # One audit line per invalidated session: session.clear() replaces the
         # cookie, so the next requests have no name anymore.
-        log_audit(username, 'session.invalidee', f'compte {raison} — session fermée')
+        log_audit(username, 'session.invalidee', f'compte {reason} — session fermée')
         session.clear()
         return False
     if is_admin is not None and bool(session.get('is_admin')) != is_admin:
@@ -148,7 +148,7 @@ def _revalide_session():
     return True
 
 
-def bloquer_compte(username, raison, par):
+def block_account(username, reason, by):
     """Refuses the account at login, cuts its sessions AND its API keys.
 
     The portal's only mechanism that works for an LDAP/SSO account: it has
@@ -167,33 +167,33 @@ def bloquer_compte(username, raison, par):
         "INSERT INTO blocked_users (username, reason, blocked_by, blocked_at) VALUES (?,?,?,?) "
         "ON CONFLICT(username) DO UPDATE SET reason=excluded.reason, "
         "blocked_by=excluded.blocked_by, blocked_at=excluded.blocked_at",
-        (username, (raison or None), (par or '?'), datetime.now().isoformat()))
+        (username, (reason or None), (by or '?'), datetime.now().isoformat()))
     db.commit()
-    revoquees = _revoke_user_sessions(username)
-    from user_lifecycle import revoquer_cles_compte        # late import: cycle auth <-> user_lifecycle
-    cles_ok, cles_ko, cles_total = revoquer_cles_compte(username, par, 'blocage du compte')
-    log_audit(par, 'user.block',
-              f'{username}' + (f' — motif : {raison}' if raison else '')
-              + f' — {revoquees} session(s) révoquée(s), '
-              + f'{cles_ok}/{cles_total} clé(s) API révoquée(s)'
-              + (f', {cles_ko} ÉCHEC(S) À RÉVOQUER' if cles_ko else ''))
-    return {'sessions': revoquees, 'keys_revoked': cles_ok,
-            'keys_failed': cles_ko, 'keys': cles_total}
+    revoked = _revoke_user_sessions(username)
+    from user_lifecycle import revoke_account_keys        # late import: cycle auth <-> user_lifecycle
+    keys_ok, keys_failed, keys_total = revoke_account_keys(username, by, 'blocage du compte')
+    log_audit(by, 'user.block',
+              f'{username}' + (f' — motif : {reason}' if reason else '')
+              + f' — {revoked} session(s) révoquée(s), '
+              + f'{keys_ok}/{keys_total} clé(s) API révoquée(s)'
+              + (f', {keys_failed} ÉCHEC(S) À RÉVOQUER' if keys_failed else ''))
+    return {'sessions': revoked, 'keys_revoked': keys_ok,
+            'keys_failed': keys_failed, 'keys': keys_total}
 
 
-def debloque_compte(username, par):
+def unblock_account(username, by):
     db = get_db()
     n = db.execute("DELETE FROM blocked_users WHERE username=?", (username,)).rowcount
     db.commit()
     if n:
-        log_audit(par, 'user.unblock', username)
+        log_audit(by, 'user.unblock', username)
     return n
 
 
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if _session_expired() or not _revalide_session():
+        if _session_expired() or not _revalidate_session():
             session.clear()
         if 'username' not in session:
             if _is_api_request():
@@ -209,7 +209,7 @@ def login_required(f):
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if _session_expired() or not _revalide_session():
+        if _session_expired() or not _revalidate_session():
             session.clear()
         if 'username' not in session:
             if _is_api_request():
@@ -291,9 +291,9 @@ def is_admin_username(username):
     if _local_user_admin(username):
         return True
     try:
-        if est_bloque(username):
+        if is_blocked(username):
             return False
-        if est_proprietaire(username):
+        if is_owner(username):
             return True
         row = get_db().execute(
             "SELECT last_is_admin FROM user_sources WHERE username=?", (username,)).fetchone()
@@ -317,7 +317,7 @@ def _local_user_admin(username):
     same predicate as the login one, so the two paths cannot diverge anymore.
     """
     try:
-        if est_bloque(username):
+        if is_blocked(username):
             return False
         row = get_db().execute(
             "SELECT * FROM local_users WHERE username=? AND enabled=1", (username,)).fetchone()
@@ -325,9 +325,9 @@ def _local_user_admin(username):
             return False
         if row['is_admin']:
             return True
-        groupe = get_db().execute(
+        group = get_db().execute(
             "SELECT is_admin FROM user_groups WHERE name=?", (row['group_name'],)).fetchone()
-        return bool(groupe and groupe['is_admin'])
+        return bool(group and group['is_admin'])
     except Exception:
         return False
 
@@ -339,25 +339,25 @@ def _is_admin_group(dn):
     Avoids the false positive of a plain substring test (the group « admins »
     would match cn=admins_readonly, cn=notadmins, etc.).
     """
-    groupe = (parametre('oidc_admin_group') or '').strip().lower()
-    if not groupe:
+    group = (setting('oidc_admin_group') or '').strip().lower()
+    if not group:
         return False
     for part in dn.split(','):
         attr, _, val = part.strip().partition('=')
-        if attr.strip().lower() == 'cn' and val.strip().lower() == groupe:
+        if attr.strip().lower() == 'cn' and val.strip().lower() == group:
             return True
     return False
 
-def ldap_authenticate(username, password, avec_groupes=False):
+def ldap_authenticate(username, password, with_groups=False):
     """Return (ok, is_admin, display_name) — plus the account's memberOf DNs
     as a 4th value with `avec_groupes` (directory groups import)."""
-    def _rendu(ok, is_admin, nom, groupes=()):
-        return (ok, is_admin, nom, list(groupes)) if avec_groupes else (ok, is_admin, nom)
+    def _result(ok, is_admin, name, groups=()):
+        return (ok, is_admin, name, list(groups)) if with_groups else (ok, is_admin, name)
     # Strict rejection: an empty password triggers an LDAP "unauthenticated bind"
     # that succeeds on some directories → authentication bypass.
     # An identifier outside the allowed charset is refused before any LDAP access.
     if not password or not USERNAME_RE.match(username):
-        return _rendu(False, False, username)
+        return _result(False, False, username)
     try:
         c = ldap_config()    # read live from Admin → Config
         server = Server(c['uri'], get_info=ALL)
@@ -372,7 +372,7 @@ def ldap_authenticate(username, password, avec_groupes=False):
         )
         if not conn.entries:
             conn.unbind()
-            return _rendu(False, False, username)
+            return _result(False, False, username)
         entry = conn.entries[0]
         # displayName (e.g. « Alice Dupont ») when present; else cn, else the
         # identifier. Authentik stores displayName base64 for accents, ldap3
@@ -386,9 +386,9 @@ def ldap_authenticate(username, password, avec_groupes=False):
         groups = [str(g) for g in entry.memberOf] if hasattr(entry, 'memberOf') else []
         is_admin = any(_is_admin_group(g) for g in groups)
         conn.unbind()
-        return _rendu(True, is_admin, fullname, groups)
+        return _result(True, is_admin, fullname, groups)
     except Exception:
-        return _rendu(False, False, username)
+        return _result(False, False, username)
 
 def ldap_lookup_email(username):
     """User's email via the LDAP service account (to notify them)."""
@@ -408,7 +408,7 @@ def ldap_lookup_email(username):
     except Exception:
         return None
 
-def ldap_resolve_sso_identity(sub=None, email=None, avec_groupes=False):
+def ldap_resolve_sso_identity(sub=None, email=None, with_groups=False):
     """Resolves the canonical *username* (cn) for an SSO login, from the
     authoritative LDAP directory — never from user-editable OIDC claims.
 
@@ -427,11 +427,11 @@ def ldap_resolve_sso_identity(sub=None, email=None, avec_groupes=False):
     login (fail closed) rather than trusting the token's own username. With
     `avec_groupes`, the account's memberOf DNs come as a 4th value.
     """
-    def _rendu(nom, is_admin, plein, groupes=()):
-        return (nom, is_admin, plein, list(groupes)) if avec_groupes else (nom, is_admin, plein)
+    def _result(name, is_admin, full, groups=()):
+        return (name, is_admin, full, list(groups)) if with_groups else (name, is_admin, full)
     c = ldap_config()        # read live from Admin → Config
     if not (c['bind_dn'] and c['bind_pw']):
-        return _rendu(None, False, None)
+        return _result(None, False, None)
     try:
         conn = Connection(Server(c['uri'], get_info=ALL), user=c['bind_dn'],
                           password=c['bind_pw'], authentication=SIMPLE, auto_bind=True)
@@ -452,19 +452,19 @@ def ldap_resolve_sso_identity(sub=None, email=None, avec_groupes=False):
                 entry = conn.entries[0]
         if entry is None:
             conn.unbind()
-            return _rendu(None, False, None)
+            return _result(None, False, None)
         username = str(entry.cn) if hasattr(entry, 'cn') and entry.cn else None
         if not username or not USERNAME_RE.match(username):
             conn.unbind()
-            return _rendu(None, False, None)
+            return _result(None, False, None)
         fullname = (str(entry.displayName) if hasattr(entry, 'displayName') and getattr(entry, 'displayName')
                     else username)
         groups = [str(g) for g in entry.memberOf] if hasattr(entry, 'memberOf') else []
         is_admin = any(_is_admin_group(g) for g in groups)
         conn.unbind()
-        return _rendu(username, is_admin, fullname, groups)
+        return _result(username, is_admin, fullname, groups)
     except Exception:
-        return _rendu(None, False, None)
+        return _result(None, False, None)
 
 
 # ── Anti-brute-force (persisted in database) ──
@@ -596,7 +596,7 @@ def _apply_session(username, fullname, is_admin, via_sso=False):
     session['sid'] = sid
 
 
-def completer_origine_session():
+def complete_session_origin():
     """Fills in the IP and user-agent of the CURRENT session when missing.
 
     Sessions opened before these columns were added (2026-09-13) have

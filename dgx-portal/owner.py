@@ -26,22 +26,22 @@ from werkzeug.security import generate_password_hash
 
 from db import DB_PATH, get_db, get_setting, set_setting
 
-CLE_PROPRIETAIRE = 'owner_username'
-CLE_JETON = 'setup_token'
-FICHIER_JETON = os.path.join(os.path.dirname(DB_PATH), 'setup-token')
+OWNER_KEY = 'owner_username'
+TOKEN_KEY = 'setup_token'
+TOKEN_FILE = os.path.join(os.path.dirname(DB_PATH), 'setup-token')
 
 
-def proprietaire():
-    return get_setting(CLE_PROPRIETAIRE, '') or ''
+def owner():
+    return get_setting(OWNER_KEY, '') or ''
 
 
-def est_proprietaire(username):
-    p = proprietaire()
+def is_owner(username):
+    p = owner()
     return bool(p and username and p == username)
 
 
-def setup_requis():
-    if proprietaire():
+def setup_required():
+    if owner():
         return False
     db = get_db()
     admin_local = db.execute(
@@ -49,36 +49,36 @@ def setup_requis():
         "WHERE u.enabled = 1 AND (u.is_admin = 1 OR g.is_admin = 1) LIMIT 1").fetchone()
     if admin_local:
         return False
-    admin_annuaire = db.execute(
+    directory_admin = db.execute(
         "SELECT 1 FROM user_sources WHERE last_is_admin = 1 LIMIT 1").fetchone()
-    return admin_annuaire is None
+    return directory_admin is None
 
 
-def jeton_setup():
+def setup_token():
     """The setup token, created on first need (shared by every worker: the first
     insert wins); None when setup is not required."""
-    if not setup_requis():
+    if not setup_required():
         return None
     db = get_db()
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-               (CLE_JETON, secrets.token_urlsafe(24)))
+               (TOKEN_KEY, secrets.token_urlsafe(24)))
     db.commit()
-    jeton = get_setting(CLE_JETON, '')
+    token = get_setting(TOKEN_KEY, '')
     try:
-        with open(FICHIER_JETON, 'w') as f:
-            f.write(jeton + '\n')
-        os.chmod(FICHIER_JETON, 0o600)
+        with open(TOKEN_FILE, 'w') as f:
+            f.write(token + '\n')
+        os.chmod(TOKEN_FILE, 0o600)
     except OSError:
         pass                     # the log line remains
-    return jeton
+    return token
 
 
-def jeton_valide(propose):
-    jeton = get_setting(CLE_JETON, '')
-    return bool(jeton and propose and hmac.compare_digest(jeton, propose.strip()))
+def setup_token_valid(proposed):
+    token = get_setting(TOKEN_KEY, '')
+    return bool(token and proposed and hmac.compare_digest(token, proposed.strip()))
 
 
-def creer_proprietaire(username, fullname, password):
+def create_owner(username, fullname, password):
     """Creates the owner (local admin) and closes setup. The caller validated
     the token, the identifier and the password policy."""
     db = get_db()
@@ -90,10 +90,10 @@ def creer_proprietaire(username, fullname, password):
             "INSERT INTO local_users (username, password_hash, fullname, is_admin, group_name, "
             "max_budget, enabled, created_at) VALUES (?,?,?,1,NULL,NULL,1,?)",
             (username, generate_password_hash(password), fullname, datetime.now().isoformat()))
-    db.execute("DELETE FROM settings WHERE key=?", (CLE_JETON,))
+    db.execute("DELETE FROM settings WHERE key=?", (TOKEN_KEY,))
     db.commit()
-    set_setting(CLE_PROPRIETAIRE, username)
+    set_setting(OWNER_KEY, username)
     try:
-        os.remove(FICHIER_JETON)
+        os.remove(TOKEN_FILE)
     except OSError:
         pass

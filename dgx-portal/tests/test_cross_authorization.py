@@ -89,9 +89,9 @@ class AutorisationCroiseeTest(unittest.TestCase):
                     ip="127.0.0.1", user_agent="test"),
             }
             self.ids = {}
-            for table, valeurs in jeux.items():
+            for table, values in jeux.items():
                 cols = [r[1] for r in db.execute(f"PRAGMA table_info({table})")]
-                gardees = {k: v for k, v in valeurs.items() if k in cols}
+                gardees = {k: v for k, v in values.items() if k in cols}
                 db.execute(
                     f"INSERT INTO {table} ({', '.join(gardees)}) "
                     f"VALUES ({', '.join('?' for _ in gardees)})",
@@ -141,25 +141,25 @@ class AutorisationCroiseeTest(unittest.TestCase):
             s["csrf"] = self.CSRF
         return c
 
-    def _valeur(self, table, colonne, cle, valeur_cle):
+    def _valeur(self, table, column, key, valeur_cle):
         """Re-reads a database value to prove it did not move."""
         with portal.app.app_context():
             db = portal.get_db()
-            ligne = db.execute(
-                f"SELECT {colonne} AS v FROM {table} WHERE {cle}=?", (valeur_cle,)).fetchone()
-            return ligne["v"] if ligne else None
+            line = db.execute(
+                f"SELECT {column} AS v FROM {table} WHERE {key}=?", (valeur_cle,)).fetchone()
+            return line["v"] if line else None
 
-    def _existe(self, table, cle, valeur_cle):
+    def _existe(self, table, key, valeur_cle):
         with portal.app.app_context():
             return portal.get_db().execute(
-                f"SELECT 1 FROM {table} WHERE {cle}=?", (valeur_cle,)).fetchone() is not None
+                f"SELECT 1 FROM {table} WHERE {key}=?", (valeur_cle,)).fetchone() is not None
 
-    def _refuse(self, reponse, route):
+    def _refuse(self, response, route):
         """The route must not announce a success."""
         self.assertNotIn(
-            reponse.status_code, (200, 201, 202, 204),
-            f"{route} a répondu {reponse.status_code} à un compte qui n'est pas "
-            f"le propriétaire : {reponse.get_data(as_text=True)[:200]}")
+            response.status_code, (200, 201, 202, 204),
+            f"{route} a répondu {response.status_code} à un compte qui n'est pas "
+            f"le propriétaire : {response.get_data(as_text=True)[:200]}")
 
     # ── Conversations ────────────────────────────────────────────────────
 
@@ -284,15 +284,15 @@ class AutorisationCroiseeTest(unittest.TestCase):
             self.assertNotIn(self.MARQUEUR, r.get_data(as_text=True), route)
 
     def test_b_n_annule_pas_les_jobs_de_a(self):
-        appels = [
+        calls = [
             ("/api/image/cancel/" + self.IMG_A, "image_jobs", "prompt_id", self.IMG_A),
             ("/api/music/cancel/" + self.MUS_A, "music_jobs", "job_id", self.MUS_A),
             ("/api/video/cancel/" + self.VID_A, "video_jobs", "prompt_id", self.VID_A),
         ]
-        for route, table, cle, valeur in appels:
+        for route, table, key, value in calls:
             r = self.client_b.post(route, headers={"X-CSRFToken": self.CSRF})
             self._refuse(r, f"POST {route}")
-            self.assertEqual(self._valeur(table, "status", cle, valeur), "running",
+            self.assertEqual(self._valeur(table, "status", key, value), "running",
                              f"{route} a modifié le job de A")
 
     def test_b_ne_lit_pas_les_statuts_de_a(self):

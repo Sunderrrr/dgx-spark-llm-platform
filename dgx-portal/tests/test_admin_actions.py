@@ -34,9 +34,9 @@ from werkzeug.security import generate_password_hash
 import admin_routes
 import app as portal
 try:                                     # discovery runs tests/ as top level
-    from reglages_test import reglages
+    from settings_helper import live_settings
 except ImportError:                      # single module: tests.test_x
-    from tests.reglages_test import reglages
+    from tests.settings_helper import live_settings
 import litellm_client
 import local_users
 import sidecars
@@ -54,8 +54,8 @@ class BaseAdmin(unittest.TestCase):
     def setUp(self):
         portal.app.config['TESTING'] = True
         self._clean()
-        for nom, adm in ((ADMIN1, 1), (ADMIN2, 1), (SIMPLE, 0)):
-            self._mkuser(nom, adm)
+        for name, adm in ((ADMIN1, 1), (ADMIN2, 1), (SIMPLE, 0)):
+            self._mkuser(name, adm)
 
     def tearDown(self):
         self._clean()
@@ -120,21 +120,21 @@ class ContratJsonTest(BaseAdmin):
              patch.object(admin_routes, 'notify_infra_alert_email'):
             r = self._post(c, '/admin/model/stop')
         self.assertEqual(r.status_code, 503)
-        corps = r.get_json()
-        self.assertFalse(corps['ok'])
-        self.assertIn('injoignable', corps['error'])
+        body = r.get_json()
+        self.assertFalse(body['ok'])
+        self.assertIn('injoignable', body['error'])
 
     def test_arret_incertain_est_signale_comme_doute(self):
         """The runner did not answer: we do not claim the stop failed."""
         c = self._client(ADMIN1)
-        motif = "Le runner n'a pas répondu dans le délai imparti (45 s) : l'arrêt est peut-être en cours."
-        with patch.object(admin_routes, 'runner_stop', return_value=(False, motif, True)):
+        reason = "Le runner n'a pas répondu dans le délai imparti (45 s) : l'arrêt est peut-être en cours."
+        with patch.object(admin_routes, 'runner_stop', return_value=(False, reason, True)):
             r = self._post(c, '/admin/model/stop')
         self.assertEqual(r.status_code, 202)
-        corps = r.get_json()
-        self.assertFalse(corps['ok'])
-        self.assertTrue(corps['incertain'])
-        self.assertIn('peut-être en cours', corps['error'])
+        body = r.get_json()
+        self.assertFalse(body['ok'])
+        self.assertTrue(body['incertain'])
+        self.assertIn('peut-être en cours', body['error'])
 
     def test_lancement_refuse_alerte_l_infra(self):
         c = self._client(ADMIN1)
@@ -181,11 +181,11 @@ class ContratJsonTest(BaseAdmin):
                        (time.time(),))
             db.commit()
         with patch.object(admin_routes, 'runner_launch', return_value=(True, '', False)), \
-             patch.object(admin_routes, 'add_announcement') as annonce:
+             patch.object(admin_routes, 'add_announcement') as announcement:
             r = self._post(c, '/admin/model/launch', {'model_name': 'ztest-modele'})
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()['ok'])
-        annonce.assert_not_called()
+        announcement.assert_not_called()
 
     def test_arret_sidecar_rapporte_le_motif_du_runner(self):
         """« Échec du démarrage ocr. » did not say WHY: unreachable runner,
@@ -218,13 +218,13 @@ class ContratJsonTest(BaseAdmin):
     def test_maintenance_auditee_et_avertissement_surface(self):
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'notify_maintenance_email', return_value=False), \
-             reglages(smtp_host='smtp.example', smtp_user='u', smtp_pass='p',
+             live_settings(smtp_host='smtp.example', smtp_user='u', smtp_pass='p',
                       admin_email='a@example'):
             r = self._post(c, '/admin/maintenance/toggle')
         self.assertEqual(r.status_code, 200)
-        corps = r.get_json()
-        self.assertTrue(corps['ok'])
-        self.assertIn('warning', corps)
+        body = r.get_json()
+        self.assertTrue(body['ok'])
+        self.assertIn('warning', body)
         # We restore the original state: maintenance is global.
         self._post(c, '/admin/maintenance/toggle')
         self.assertTrue(self._audit('maintenance'))
@@ -322,12 +322,12 @@ class QuotasTest(BaseAdmin):
                           return_value={'max_budget': 250000000}), \
              patch.object(admin_routes, 'litellm_update_user_budget', return_value=False):
             with portal.app.app_context():
-                ramenes = admin_routes.revert_expired_grants()
-        self.assertEqual(ramenes, 0)
+                brought_back = admin_routes.revert_expired_grants()
+        self.assertEqual(brought_back, 0)
         with portal.app.app_context():
-            reste = portal.get_db().execute(
+            remaining = portal.get_db().execute(
                 "SELECT COUNT(*) AS n FROM budget_grants WHERE username=?", (SIMPLE,)).fetchone()['n']
-        self.assertEqual(reste, 1, "la ligne portait l'échéance : la supprimer rendait "
+        self.assertEqual(remaining, 1, "la ligne portait l'échéance : la supprimer rendait "
                                    "la hausse permanente")
         self.assertTrue(self._audit('budget.grant_revert_echec'))
 
@@ -448,19 +448,19 @@ class CycleDeVieModeleTest(BaseAdmin):
         self.assertEqual(r.status_code, 503)
         mail.assert_not_called()
         with portal.app.app_context():
-            statut = portal.get_db().execute(
+            status_value = portal.get_db().execute(
                 "SELECT status FROM model_requests WHERE id=?", (rid,)).fetchone()['status']
             portal.get_db().execute("DELETE FROM model_requests WHERE id=?", (rid,))
             portal.get_db().execute("DELETE FROM model_configs WHERE hf_model_id='org/nouveau'")
             portal.get_db().commit()
-        self.assertEqual(statut, 'pending', "la demande ne doit pas être marquée traitée")
+        self.assertEqual(status_value, 'pending', "la demande ne doit pas être marquée traitée")
 
     def test_restauration_litellm_apres_echec_de_creation(self):
         """`_litellm_upsert` deletes the entry before recreating it: if the
         creation fails, a model that was answering must be put back in place."""
-        entree = {'model_name': 'ztest-modele', 'litellm_params': {'model': 'openai/ztest-modele'},
+        entry = {'model_name': 'ztest-modele', 'litellm_params': {'model': 'openai/ztest-modele'},
                   'model_info': {'id': 'abc', 'db_model': True, 'max_input_tokens': 4096}}
-        appels = []
+        calls = []
 
         class Reponse:
             def __init__(self, code):
@@ -468,19 +468,19 @@ class CycleDeVieModeleTest(BaseAdmin):
                 self.ok = code < 300
 
         def faux_post(url, **kwargs):
-            appels.append(url)
+            calls.append(url)
             if url.endswith('/model/delete'):
                 return Reponse(200)
-            if len([u for u in appels if u.endswith('/model/new')]) == 1:
+            if len([u for u in calls if u.endswith('/model/new')]) == 1:
                 return Reponse(500)                  # the creation fails
             return Reponse(200)                      # the restoration succeeds
 
         with patch.object(litellm_client, 'LITELLM_KEY', 'clef'), \
-             patch.object(litellm_client, '_litellm_model_entry', return_value=('abc', entree)), \
+             patch.object(litellm_client, '_litellm_model_entry', return_value=('abc', entry)), \
              patch.object(litellm_client.requests, 'post', side_effect=faux_post):
             ok = litellm_client._litellm_upsert('ztest-modele', 'ztest-modele', 4096, 1024)
         self.assertFalse(ok)
-        self.assertEqual(len([u for u in appels if u.endswith('/model/new')]), 2,
+        self.assertEqual(len([u for u in calls if u.endswith('/model/new')]), 2,
                          "l'entrée précédente n'a pas été restaurée")
 
 
@@ -492,8 +492,8 @@ class EtatPlateformeTest(BaseAdmin):
         r = c.get('/admin/platform')
         self.assertEqual(r.status_code, 200)
         d = r.get_json()
-        for cle in ('disk', 'backup', 'monitor', 'model', 'portal', 'maintenance', 'checked_at'):
-            self.assertIn(cle, d)
+        for key in ('disk', 'backup', 'monitor', 'model', 'portal', 'maintenance', 'checked_at'):
+            self.assertIn(key, d)
         self.assertIsInstance(d['disk']['free_gb'], float)
         # The mounted paths do not exist in the test container: the state must
         # say « non lisible », never pretend all is well.
@@ -514,8 +514,8 @@ class EtatPlateformeTest(BaseAdmin):
             vivantes = db.execute("SELECT COUNT(*) FROM user_sessions WHERE revoked=0 "
                                   "AND expires_at > ?", (now,)).fetchone()[0]
         try:
-            with patch.object(admin_routes, 'etats_annuaire',
-                              side_effect=lambda noms: {n: 'absent' for n in noms}):
+            with patch.object(admin_routes, 'directory_states_for',
+                              side_effect=lambda names: {n: 'absent' for n in names}):
                 d = c.get('/admin/platform').get_json()
         finally:
             with portal.app.app_context():
@@ -527,7 +527,7 @@ class EtatPlateformeTest(BaseAdmin):
         self.assertEqual(d['memory']['low_gib'], 8)
         self.assertTrue(d['directory']['readable'])
         self.assertEqual(d['directory']['actif'], 0)
-        with patch.object(admin_routes, 'etats_annuaire', return_value=None):
+        with patch.object(admin_routes, 'directory_states_for', return_value=None):
             self.assertFalse(c.get('/admin/platform').get_json()['directory']['readable'])
 
     def test_etat_plateforme_refuse_un_non_admin(self):

@@ -23,49 +23,49 @@ from flask import Blueprint, jsonify
 
 from auth import login_required
 
-FENETRE = 10_000
-_bp = Blueprint("latence", __name__)
-_verrou = threading.Lock()
-_echantillons = []          # (timestamp, seconds, route)
-_debut = time.time()
+WINDOW = 10_000
+_bp = Blueprint("latency", __name__)
+_lock = threading.Lock()
+_samples = []          # (timestamp, seconds, route)
+_start = time.time()
 
 
-def enregistrer(route, duree_s):
-    with _verrou:
-        _echantillons.append((time.time(), duree_s, route))
-        if len(_echantillons) > FENETRE:
-            del _echantillons[:len(_echantillons) - FENETRE]
+def record(route, duration_s):
+    with _lock:
+        _samples.append((time.time(), duration_s, route))
+        if len(_samples) > WINDOW:
+            del _samples[:len(_samples) - WINDOW]
 
 
-def latence_resume(fenetre_s=None):
+def latency_summary(window_s=None):
     """Percentiles over the window (or the last `fenetre_s` seconds)."""
     now = time.time()
-    with _verrou:
-        pris = [e for e in _echantillons if fenetre_s is None or now - e[0] <= fenetre_s]
-    if not pris:
+    with _lock:
+        taken = [e for e in _samples if window_s is None or now - e[0] <= window_s]
+    if not taken:
         return {'n': 0, 'p50_ms': None, 'p95_ms': None, 'max_ms': None,
                 'plus_lent': None, 'fenetre_min': 0}
-    tri = sorted(e[1] for e in pris)
+    sort_key = sorted(e[1] for e in taken)
     def _p(q):
-        return round(tri[min(len(tri) - 1, int(len(tri) * q))] * 1000)
+        return round(sort_key[min(len(sort_key) - 1, int(len(sort_key) * q))] * 1000)
     # The slowest ROUTE in the window is what an operator wants to read: a
     # number without a name sends them looking, a name sends them fixing.
-    lents = {}
-    for _, d, r in pris:
-        lents[r] = max(lents.get(r, 0), d)
+    slow = {}
+    for _, d, r in taken:
+        slow[r] = max(slow.get(r, 0), d)
     return {
-        'n': len(pris),
+        'n': len(taken),
         'p50_ms': _p(0.50),
         'p95_ms': _p(0.95),
-        'max_ms': round(tri[-1] * 1000),
-        'plus_lent': max(lents.items(), key=lambda kv: kv[1])[0] if lents else None,
-        'fenetre_min': round((now - pris[0][0]) / 60),
+        'max_ms': round(sort_key[-1] * 1000),
+        'plus_lent': max(slow.items(), key=lambda kv: kv[1])[0] if slow else None,
+        'fenetre_min': round((now - taken[0][0]) / 60),
     }
 
 
 @_bp.route("/api/latence")
 @login_required
-def api_latence():
+def api_latency():
     # Login required: the response times are the platform's own telemetry, not
     # a public health check. Cheap anyway — one sort of a bounded list.
-    return jsonify(latence_resume())
+    return jsonify(latency_summary())

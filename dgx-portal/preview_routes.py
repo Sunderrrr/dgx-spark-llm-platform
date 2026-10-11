@@ -72,7 +72,7 @@ def playground_preview_create():
 # graft onto it a way to REPORT its errors back to the playground, which can
 # then display them and propose a fix. The script is inserted first to catch
 # also what breaks at load time.
-_PREVIEW_RAPPORT = """<script>
+_PREVIEW_REPORT = """<script>
 (function(){
   var envoye = 0;
   // Le bac à sable lui-même provoque des erreurs qui ne disent RIEN sur la page :
@@ -95,13 +95,13 @@ _PREVIEW_RAPPORT = """<script>
 </script>"""
 
 
-def _preview_avec_rapport(html):
+def _preview_with_report(html):
     """Inserts the error spy as early as possible in the document."""
-    for balise in ('<head>', '<HEAD>', '<html>', '<HTML>'):
-        i = html.find(balise)
+    for tag in ('<head>', '<HEAD>', '<html>', '<HTML>'):
+        i = html.find(tag)
         if i >= 0:
-            return html[:i + len(balise)] + _PREVIEW_RAPPORT + html[i + len(balise):]
-    return _PREVIEW_RAPPORT + html
+            return html[:i + len(tag)] + _PREVIEW_REPORT + html[i + len(tag):]
+    return _PREVIEW_REPORT + html
 
 
 @bp.route('/playground/preview/<pid>')
@@ -113,7 +113,7 @@ def playground_preview_show(pid):
     # Per-account isolation: another user's preview is not readable.
     if not row:
         abort(404)
-    resp = Response(_preview_avec_rapport(row['html']), mimetype='text/html')
+    resp = Response(_preview_with_report(row['html']), mimetype='text/html')
     # `sandbox` in the header → opaque origin, even outside an iframe. The other
     # directives are deliberately absent: the page must be able to run.
     # `default-src 'none'` is the missing piece: without it a generated page

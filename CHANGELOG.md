@@ -275,7 +275,7 @@ one generation frame per image, like the Image page.
   detection: past participles (« généré », « créée ») matched nothing, and
   « 4 images » is not « une image » (a numeral is not an article) — the tool was
   never armed. Both forms accepted. The tool also gained `nombre` (1–4) and
-  `sortie_largeur`/`sortie_hauteur`: the Image page has always upscaled to
+  `output_width`/`output_height`: the Image page has always upscaled to
   **3840 px** (the 4K), the tool clamped at 1536 and generated ONE image.
   Measured after: « Voici tes 4 images Halloween en 4K ! » with 4 images shown.
 - **ComfyUI was unreachable from the portal.** The engine deliberately listens
@@ -639,7 +639,7 @@ roots and re-verified on the whole playground.
   synchronous hooks remain the ones LiteLLM calls (`log_pre_api_call` at
   `litellm_logging.py:1446`, `log_success_event` at `:3144`, and
   `async_log_pre_api_call` still has **zero** call site), a real request opens
-  then closes its `en_vol` row in `runtime/inflight.db`, its SpendLogs row lands
+  then closes its `inflight` row in `runtime/inflight.db`, its SpendLogs row lands
   (152 273 → 152 274 rows, schema only gained columns), and the whole chain
   answers through the UI (5 tokens, TTFT 1.57 s). The compose comment now makes
   that callback check part of the update procedure: a silently unwired callback

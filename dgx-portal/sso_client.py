@@ -12,14 +12,14 @@ import time
 
 import requests
 
-from parametres import oidc_config
+from instance_config import oidc_config
 
 _UA = 'Mozilla/5.0 (DGX portal)'
-_NOM = 'oidc'
+_NAME = 'oidc'
 _RETRY_S = 60            # metadata unreachable: retry at most once a minute
 
-_verrou = threading.Lock()
-_etat = {'oauth': None, 'cle': None, 'metadata_ok': False, 'essai': 0.0}
+_lock = threading.Lock()
+_state = {'oauth': None, 'key': None, 'metadata_ok': False, 'attempt': 0.0}
 
 
 def _metadata(url):
@@ -37,21 +37,21 @@ def sso_client(app):
     c = oidc_config()
     if not c['enabled']:
         return None
-    cle = (c['metadata_url'], c['client_id'], c['client_secret'])
-    with _verrou:
-        recharger = (cle != _etat['cle']
-                     or (not _etat['metadata_ok'] and time.time() - _etat['essai'] > _RETRY_S))
-        if recharger:
+    key = (c['metadata_url'], c['client_id'], c['client_secret'])
+    with _lock:
+        reload = (key != _state['key']
+                     or (not _state['metadata_ok'] and time.time() - _state['attempt'] > _RETRY_S))
+        if reload:
             from authlib.integrations.flask_client import OAuth
-            if _etat['oauth'] is None:
-                _etat['oauth'] = OAuth(app)
-            oauth = _etat['oauth']
+            if _state['oauth'] is None:
+                _state['oauth'] = OAuth(app)
+            oauth = _state['oauth']
             md = _metadata(c['metadata_url'])
             if not md:
                 app.logger.warning("SSO: OIDC metadata unreachable (%s)", c['metadata_url'])
-            oauth._clients.pop(_NOM, None)          # authlib caches the built client
+            oauth._clients.pop(_NAME, None)          # authlib caches the built client
             oauth.register(
-                name=_NOM,
+                name=_NAME,
                 client_id=c['client_id'],
                 client_secret=c['client_secret'],
                 server_metadata_url=(c['metadata_url'] if not md else None),
@@ -59,5 +59,5 @@ def sso_client(app):
                 user_agent=_UA,
                 **md,
             )
-            _etat.update(cle=cle, metadata_ok=bool(md), essai=time.time())
-        return _etat['oauth'].create_client(_NOM)
+            _state.update(key=key, metadata_ok=bool(md), attempt=time.time())
+        return _state['oauth'].create_client(_NAME)

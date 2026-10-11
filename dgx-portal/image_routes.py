@@ -18,7 +18,7 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 from auth import login_required
 from db import DB_PATH, add_notification, get_db
 from config import IMAGE_URL
-from sidecars import mention_memoire_partagee, image_ready
+from sidecars import shared_memory_note, image_ready
 
 _log = logging.getLogger('app')
 from guards import media_block_json, media_job_done, media_job_slot
@@ -92,11 +92,11 @@ def _image_worker(prompt_id, username, prompt_text, count, fmt='png',
             pass
     cancelled = _image_cancelled(prompt_id, username)
     status = 'cancelled' if cancelled else ('done' if done else 'error')
-    dur = int((datetime.now() - started).total_seconds() * 1000) if done else None
+    hard = int((datetime.now() - started).total_seconds() * 1000) if done else None
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
         c.execute("UPDATE image_jobs SET status=?, duration_ms=?, done_count=? WHERE prompt_id=? AND username=?",
-                  (status, dur, done, prompt_id, username))
+                  (status, hard, done, prompt_id, username))
         c.commit(); c.close()
     except Exception:
         pass
@@ -109,14 +109,14 @@ def _image_worker(prompt_id, username, prompt_text, count, fmt='png',
 @bp.route('/api/image/generate', methods=['POST'])
 @login_required
 def api_image_generate():
-    refus = media_block_json()
-    if refus:
-        return refus
+    refusal = media_block_json()
+    if refusal:
+        return refusal
     prompt_text = request.form.get('prompt', '').strip()
     if not prompt_text:
         return jsonify({'error': "Un prompt texte est requis."}), 400
     if not image_ready():
-        return jsonify({'error': "Aucun modèle image configuré." + mention_memoire_partagee()}), 503
+        return jsonify({'error': "Aucun modèle image configuré." + shared_memory_note()}), 503
     # Batch size: 1–4 variations per prompt (generated sequentially).
     try:
         count = int(request.form.get('count', 1))

@@ -193,7 +193,7 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
   forwardAuth). It reads the live route table, not the source, so a route
   registered any other way is still caught.
 - **A session is re-checked against the account on every guarded request**
-  (`auth.etat_compte`, 2026-09-13). The signed cookie only ever carried a name
+  (`auth.account_state`, 2026-09-13). The signed cookie only ever carried a name
   and a role copied at sign-in, so before this, deleting, disabling, blocking or
   demoting an account had **no effect until the cookie expired** (12 h): a
   departed user kept portal access, and a demoted admin kept admin rights. A
@@ -253,7 +253,7 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
   decompress into tens of gigabytes — on a shared unified-memory pool that takes
   down the whole box, not just the sidecar.
 - Web search resolves every URL and checks it is public **before** the crawler
-  sees it (`websearch.url_publique`). The network cannot do this on its own: a
+  sees it (`websearch.public_url`). The network cannot do this on its own: a
   hostile page can redirect anywhere.
 - The playground's HTML preview renders model-generated markup in an iframe
   `sandbox`ed **without** `allow-same-origin` (`playground/page.tsx`), so the
@@ -503,7 +503,7 @@ was already solid — global CSRF with `hmac.compare_digest`, scrypt with a
 dummy-hash timing equalizer, revocable session ids, parameterized SQL
 everywhere, no Jinja, argv-only subprocess behind per-engine allowlists, and
 per-account SQL scoping on every id-bearing route (locked in by
-`tests/test_autorisation_croisee.py`).
+`tests/test_cross_authorization.py`).
 
 **Closed the same day (v0.2.0):**
 

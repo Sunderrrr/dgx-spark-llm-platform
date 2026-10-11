@@ -37,11 +37,11 @@ class ThreadsArrierePlanGelTest(unittest.TestCase):
     def test_effectif_des_threads_de_longue_vie_gel(self):
         sites, sans_couture = [], []
         for f in sorted(RACINE.glob('*.py')):
-            texte = f.read_text()
-            for n, ligne in enumerate(texte.splitlines(), 1):
-                if 'threading.Thread(' in ligne and 'name=' in ligne:
+            text = f.read_text()
+            for n, line in enumerate(text.splitlines(), 1):
+                if 'threading.Thread(' in line and 'name=' in line:
                     sites.append(f"{f.name}:{n}")
-                    if 'DGX_NO_REAPER' not in texte:
+                    if 'DGX_NO_REAPER' not in text:
                         sans_couture.append(f"{f.name}:{n}")
         self.assertLessEqual(
             len(sites), self.MAX_THREADS_NOMMES,
@@ -61,10 +61,10 @@ class MocksGlobauxRequestsGelTest(unittest.TestCase):
     MAX_SITES = 48            # effectif gelé au 2026-10-03 (mesuré)
 
     def test_effectif_des_mocks_globaux_gel(self):
-        motif = re.compile(r"patch\.object\(\s*\w+(\.\w+)*\.requests\s*,")
+        reason = re.compile(r"patch\.object\(\s*\w+(\.\w+)*\.requests\s*,")
         total = 0
         for f in sorted((RACINE / 'tests').glob('*.py')):
-            total += len(motif.findall(f.read_text()))
+            total += len(reason.findall(f.read_text()))
         self.assertLessEqual(
             total, self.MAX_SITES,
             f"Nouveaux mocks globaux sur `requests` ({total} > {self.MAX_SITES}) : "

@@ -84,9 +84,9 @@ class RedirectTest(unittest.TestCase):
 
     def test_refuse_une_redirection(self):
         client = mcp_client.MCPClient('https://exemple.com/mcp')
-        reponse = mock.Mock(status_code=307, is_redirect=True, headers={})
+        response = mock.Mock(status_code=307, is_redirect=True, headers={})
         sess = mock.Mock()
-        sess.post.return_value = reponse
+        sess.post.return_value = response
         with _fake_dns('93.184.216.34'), mock.patch.object(mcp_client.requests, 'Session',
                                                            return_value=sess):
             with self.assertRaises(mcp_client.MCPError):
@@ -94,11 +94,11 @@ class RedirectTest(unittest.TestCase):
 
     def test_ne_suit_jamais_les_redirections(self):
         client = mcp_client.MCPClient('https://exemple.com/mcp')
-        reponse = mock.Mock(status_code=200, is_redirect=False,
+        response = mock.Mock(status_code=200, is_redirect=False,
                             headers={'Content-Type': 'application/json'})
-        reponse.json.return_value = {'result': {'tools': []}}
+        response.json.return_value = {'result': {'tools': []}}
         sess = mock.Mock()
-        sess.post.return_value = reponse
+        sess.post.return_value = response
         with _fake_dns('93.184.216.34'), mock.patch.object(
                 mcp_client.requests, 'Session', return_value=sess):
             client.list_tools()
@@ -121,11 +121,11 @@ class NegativeCacheTest(unittest.TestCase):
         mcp_client._tools_cache.clear()
 
     def test_l_echec_est_mis_en_cache(self):
-        appels = []
+        calls = []
 
         class ClientCasse:
             def __init__(self, *a, **kw):
-                appels.append(1)
+                calls.append(1)
 
             def initialize(self):
                 raise mcp_client.MCPError("injoignable")
@@ -136,7 +136,7 @@ class NegativeCacheTest(unittest.TestCase):
         with mock.patch.object(mcp_client, 'MCPClient', ClientCasse):
             self.assertEqual(mcp_client.list_tools_cached(42, 'https://x.test/', None), [])
             self.assertEqual(mcp_client.list_tools_cached(42, 'https://x.test/', None), [])
-        self.assertEqual(len(appels), 1, "le second appel aurait dû être servi par le cache")
+        self.assertEqual(len(calls), 1, "le second appel aurait dû être servi par le cache")
 
     def test_invalidation_reessaie(self):
         class ClientCasse:

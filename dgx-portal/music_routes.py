@@ -17,7 +17,7 @@ from flask import Blueprint, abort, jsonify, request, send_file, session
 from auth import login_required
 from config import MUSIC_URL
 from db import DB_PATH, add_notification, get_db
-from sidecars import mention_memoire_partagee, music_ready
+from sidecars import shared_memory_note, music_ready
 from guards import media_block_json, media_job_done, media_job_slot
 
 bp = Blueprint('music', __name__)
@@ -83,11 +83,11 @@ def _music_worker(job_id, username, prompt, lyrics, duration, count):
             pass
     cancelled = _music_cancelled(job_id, username)
     status = 'cancelled' if cancelled else ('done' if done else 'error')
-    dur = int((datetime.now() - started).total_seconds() * 1000) if done else None
+    hard = int((datetime.now() - started).total_seconds() * 1000) if done else None
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
         c.execute("UPDATE music_jobs SET status=?, duration_ms=?, done_count=? WHERE job_id=? AND username=?",
-                  (status, dur, done, job_id, username))
+                  (status, hard, done, job_id, username))
         c.commit(); c.close()
     except Exception:
         pass
@@ -100,14 +100,14 @@ def _music_worker(job_id, username, prompt, lyrics, duration, count):
 @bp.route('/api/music/generate', methods=['POST'])
 @login_required
 def api_music_generate():
-    refus = media_block_json()
-    if refus:
-        return refus
+    refusal = media_block_json()
+    if refusal:
+        return refusal
     prompt = request.form.get('prompt', '').strip()
     if not prompt:
         return jsonify({'error': "Une description musicale est requise."}), 400
     if not music_ready():
-        return jsonify({'error': "Aucun modèle musique configuré." + mention_memoire_partagee()}), 503
+        return jsonify({'error': "Aucun modèle musique configuré." + shared_memory_note()}), 503
     lyrics = request.form.get('lyrics', '')[:10000]
     try:
         duration = int(float(request.form.get('duration', 60)))
@@ -133,9 +133,9 @@ def api_music_generate():
     # thread that blocks up to 1800 s against the shared GPU sidecar.
     if not media_job_slot(username):
         return jsonify({'error': "Trop de générations en cours. Attends la fin des précédentes."}), 429
-    def _run(u=username, jid=job_id, pr=prompt, ly=lyrics, dur=duration, c=count):
+    def _run(u=username, jid=job_id, pr=prompt, ly=lyrics, hard=duration, c=count):
         try:
-            _music_worker(jid, u, pr, ly, dur, c)
+            _music_worker(jid, u, pr, ly, hard, c)
         finally:
             media_job_done(u)
     threading.Thread(target=_run, daemon=True).start()

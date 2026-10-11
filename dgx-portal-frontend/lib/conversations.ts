@@ -26,20 +26,26 @@ type ApiConversation = {
   messages_omis?: boolean;
 };
 
+export type ApiConversations = { conversations: ApiConversation[] };
+
+/** The API's list as Conversations (also used by server pages). */
+export function conversationsFromApi(data: ApiConversations): Conversation[] {
+  return data.conversations.map((c) => ({
+    // The identifier comes from the server (`client_id`) and is NOT a number:
+    // converting it gave NaN, hence an unrelated fabricated timestamp — and
+    // every deletion targeted a nonexistent identifier, with no visible error.
+    id: c.id,
+    title: c.title,
+    ts: Date.parse(c.ts) || Date.now(),
+    model: c.model,
+    messages: c.messages,
+    messagesOmis: c.messages_omis === true,
+  }));
+}
+
 export async function fetchConversations(): Promise<Conversation[]> {
   try {
-    const data = await getJSON<{ conversations: ApiConversation[] }>("/api/conversations");
-    return data.conversations.map((c) => ({
-      // The identifier comes from the server (`client_id`) and is NOT a number:
-      // converting it gave NaN, hence an unrelated fabricated timestamp — and
-      // every deletion targeted a nonexistent identifier, with no visible error.
-      id: c.id,
-      title: c.title,
-      ts: Date.parse(c.ts) || Date.now(),
-      model: c.model,
-      messages: c.messages,
-      messagesOmis: c.messages_omis === true,
-    }));
+    return conversationsFromApi(await getJSON<ApiConversations>("/api/conversations"));
   } catch {
     return [];
   }

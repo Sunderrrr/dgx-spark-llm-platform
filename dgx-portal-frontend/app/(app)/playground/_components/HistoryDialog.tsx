@@ -10,7 +10,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
+import { ClientTimestamp } from "@/lib/client-timestamp";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import {
   CheckIcon,
@@ -120,7 +120,7 @@ export function HistoryDialog({
                           <VStack gap={0}>
                             <Text maxLines={1}>{conv.title || t("Conversation")}</Text>
                             <Text type="supporting" color="secondary">
-                              <Timestamp value={conv.ts} format="date_time" />
+                              <ClientTimestamp value={conv.ts} format="date_time" />
                             </Text>
                           </VStack>
                         </ClickableCard>

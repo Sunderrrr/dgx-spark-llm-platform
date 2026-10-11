@@ -71,16 +71,12 @@ ERREURS_REACT = re.compile(
 # corrige pas le code applicatif. Ce défaut est donc signalé à chaque run (⚠)
 # sans faire rougir la validation — mais UNIQUEMENT pour l'erreur exacte
 # mesurée et sur la page mesurée : toute autre erreur React reste un échec.
-# Défaut n°1 : erreur d'hydratation React #418 sur /playground (« text content
-# does not match »), mesurée dans TOUTES les configurations testées (fr/en,
-# localStorage pré-réglé ou non) : c'est un défaut du rendu serveur/client de
-# la page, pas un artefact du banc de test.
-DEFAUTS_CONNUS = [
-    ("^/playground$", re.compile(r"Minified React error #418"),
-     "erreur d'hydratation React #418 (« text content does not match ») — "
-     "défaut signalé à l'opérateur, non corrigé (le parcours ne modifie pas "
-     "le code applicatif)"),
-]
+# (Vide.) Le #418 de /playground, longtemps rapporté ici, est CORRIGÉ depuis
+# le 2026-10-11 : le thème « auto » de border-beam se résolvait pendant le
+# rendu (sombre côté serveur, clair dans le navigateur). Toute erreur
+# d'hydratation fait désormais échouer le balayage — elle jetait le HTML
+# serveur et rechargeait les données de la page.
+DEFAUTS_CONNUS: list = []
 
 
 def motif_libelle(fr: str, en: str) -> "re.Pattern":

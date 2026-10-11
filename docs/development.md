@@ -151,6 +151,29 @@ Shell traps that cost real time:
   would make people click again, thus killing a model still loading. The contract
   holds for user routes too. `log_audit` must not be silent: a write failure goes
   to the error output.
+- **Pages are server-rendered with their data.** Each `app/(app)/**/page.tsx`
+  is a server component: it reads Flask as the visitor (`lib/server-api.ts`
+  `pageSeed`, cookie and client IP forwarded, 1.5 s budget) and hands a `Seed`
+  to the client component next to it (`XxxPage.tsx`), which shows it at once
+  and skips its own mount fetch (`lib/seed.ts` `useSeed` — a seed replayed by
+  the router cache is shown, then refreshed). The root layout does the same for
+  identity, branding, palette and language. Rules learned the hard way:
+  - a value exported from a `"use client"` module is only a *reference* on the
+    server — calling a function or reading a constant from one breaks the page
+    (500). Shared helpers live in neutral modules (`lib/branding-shape.ts`,
+    `lib/theme-cookie.ts`, `ranking/defaults.ts`);
+  - the first client render must equal the server's, or React throws #418,
+    discards the server HTML and refetches everything. Never read
+    `localStorage`, `window`, `matchMedia` or the clock during render: apply
+    stored values in a `useLayoutEffect`, use `useResolvedMode`
+    (`lib/use-system-dark.ts`) for light/dark, `ClientTimestamp` instead of
+    Astryx's `Timestamp` (it formats with the runtime's locale);
+  - large lists are not seeded whole: the HTML would carry them twice (the
+    playground seeds conversation titles only);
+  - to read an unminified hydration error, run `next dev` on the host against
+    the portal's compose address (`BACKEND_URL=http://<dgx-portal IP>:5000`)
+    and listen to `pageerror` — `next dev` rewrites `AGENTS.md`, restore it.
+  `j11_balayage_pages` fails on any hydration error.
 - **Chat SSE errors are structured notices** (`dgx_notice` ids, FR msgids in
   `lib/notices.ts`, EN in `lib/i18n.tsx`): the server writes no sentence.
 - **Conventions for commits and pull requests** are in

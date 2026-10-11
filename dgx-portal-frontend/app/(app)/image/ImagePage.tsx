@@ -1,0 +1,554 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useSeed, type Seed } from "@/lib/seed";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Text } from "@astryxdesign/core/Text";
+import { Card } from "@astryxdesign/core/Card";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { Button } from "@astryxdesign/core/Button";
+import { AspectRatio } from "@astryxdesign/core/AspectRatio";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Grid } from "@astryxdesign/core/Grid";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Item } from "@astryxdesign/core/Item";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { Icon } from "@astryxdesign/core/Icon";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
+import { useToast } from "@astryxdesign/core/Toast";
+import { PhotoIcon, MoonIcon, ArrowDownTrayIcon, ArrowPathIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { useCsrf } from "@/lib/useCsrf";
+import { authFetch, postFormData } from "@/lib/api";
+import { useT, useLocale } from "@/lib/i18n";
+import { useDictation } from "@/lib/useDictation";
+import { DictateButton } from "../_components/DictateButton";
+import { ModelRequestButton } from "../_components/ModelRequestButton";
+import { GenerationPlaceholder } from "../_components/GenerationPlaceholder";
+
+type JobStatus = "idle" | "pending" | "running" | "done" | "error" | "cancelled";
+type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string; count?: number; done_count?: number; format?: string };
+type RunningModel = { name: string; kind: string; exposed: boolean };
+
+const BATCH_CHOICES = [1, 2, 3, 4];
+
+// Output formats offered at generation time. The sidecar encodes (PNG/JPEG/WebP),
+// the portal stores/serves the matching extension. jpeg -> .jpg on output.
+const FORMATS = [
+  { value: "png", label: "PNG" },
+  { value: "jpeg", label: "JPEG" },
+  { value: "webp", label: "WebP" },
+] as const;
+type ImageFormat = (typeof FORMATS)[number]["value"];
+
+const FORMAT_EXT: Record<ImageFormat, string> = { png: "png", jpeg: "jpg", webp: "webp" };
+
+// Offered resolutions. The model generates at its native size (multiple of 8,
+// capped at 1536), then the sidecar upscales in Lanczos to the output size.
+// width/height = native generation; out* = final size (0 = no upscale).
+const SIZES = [
+  { value: "square", label: "1024×1024", width: 1024, height: 1024, outWidth: 0, outHeight: 0 },
+  { value: "landscape", label: "1920×1080", width: 1536, height: 864, outWidth: 1920, outHeight: 1080 },
+  { value: "portrait", label: "1080×1920", width: 864, height: 1536, outWidth: 1080, outHeight: 1920 },
+  { value: "uhd", label: "3840×2160", width: 1536, height: 864, outWidth: 3840, outHeight: 2160 },
+] as const;
+type ImageSize = (typeof SIZES)[number]["value"];
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "En file d'attente…",
+  running: "Génération en cours…",
+  done: "Image prête.",
+  error: "Échec de la génération.",
+  cancelled: "Génération annulée.",
+};
+const STATUS_SHORT: Record<string, string> = {
+  pending: "En attente",
+  running: "En cours",
+  done: "Terminé",
+  error: "Erreur",
+  cancelled: "Annulé",
+};
+
+export type ImageSeed = { history: HistoryItem[]; running: { running_models: RunningModel[] } };
+
+export default function ImagePage({ seed }: { seed?: Seed<{ [K in keyof ImageSeed]: ImageSeed[K] | null }> | null }) {
+  const { data: initial, fresh } = useSeed<ImageSeed>(seed);
+  const t = useT();
+  const numLocale = useLocale();
+  const csrf = useCsrf();
+  const showToast = useToast();
+  const [prompt, setPrompt] = useState("");
+  const [status, setStatus] = useState<JobStatus>("idle");
+  const [promptId, setPromptId] = useState<string | null>(null);
+  const [batch, setBatch] = useState(1);          // count chosen for the next generation
+  const [format, setFormat] = useState<ImageFormat>("png");  // output format for the next generation
+  const [size, setSize] = useState<ImageSize>("square");      // output resolution for the next generation
+  const [jobCount, setJobCount] = useState(1);    // count of the currently-viewed job
+  const [doneCount, setDoneCount] = useState(0);  // images produced so far for it
+  // Gallery: fullscreen viewer + thumbnails deleted one by one.
+  const [viewer, setViewer] = useState<{ promptId: string; idx: number } | null>(null);
+  const [deletedImgs, setDeletedImgs] = useState<Set<string>>(new Set());
+  const [history, setHistory] = useState<HistoryItem[]>(initial.history ?? []);
+  const [available, setAvailable] = useState<boolean | null>(
+    initial.running ? initial.running.running_models.some((m) => m.kind === "image") : null,
+  );
+  const [cancelling, setCancelling] = useState(false);
+  const dictation = useDictation({ value: prompt, onChange: setPrompt, csrf });
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  function loadHistory() {
+    fetch("/api/image/history", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setHistory)
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    if (!fresh.history) loadHistory();
+    return stopPolling;
+  }, [fresh.history]);
+
+  useEffect(() => {
+    if (fresh.running) return;
+    fetch("/api/running-models", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setAvailable(!!d?.running_models?.some((m: RunningModel) => m.kind === "image")))
+      .catch(() => setAvailable(null));
+  }, [fresh.running]);
+
+  // A generation can start from the form (current state) or from a « Réessayer »
+  // on a failed history item (prompt/batch provided explicitly — setState being
+  // asynchronous, we pass the value to the request rather than re-read the state).
+  async function generate(opts?: { prompt?: string; batch?: number; format?: ImageFormat; size?: ImageSize }) {
+    const p = (opts?.prompt ?? prompt).trim();
+    const b = Math.max(1, opts?.batch ?? batch);
+    const f = opts?.format ?? format;
+    const sz = SIZES.find((s) => s.value === (opts?.size ?? size)) ?? SIZES[0];
+    if (!p) return;
+    if (opts?.prompt !== undefined) setPrompt(opts.prompt);
+    if (opts?.batch !== undefined) setBatch(b);
+    if (opts?.format !== undefined) setFormat(f);
+    if (opts?.size !== undefined) setSize(sz.value);
+    // A PREVIOUS interval must die here: otherwise it becomes orphaned and,
+    // when its job finishes, it is the NEW one it kills — the old one would
+    // keep polling status and history indefinitely, even after
+    // leaving the page.
+    stopPolling();
+    setStatus("pending");
+    setPromptId(null);
+    setJobCount(b);
+    setDoneCount(0);
+    try {
+      const res = await postFormData<{ prompt_id?: string; count?: number; error?: string }>(
+        "/api/image/generate",
+        csrf,
+        {
+          prompt: p, count: String(b), format: f,
+          width: String(sz.width), height: String(sz.height),
+          out_width: String(sz.outWidth), out_height: String(sz.outHeight),
+        },
+      );
+      if (!res.prompt_id) {
+        showToast({ body: res.error ? t(res.error) : t("Échec de la génération."), type: "error" });
+        setStatus("error");
+        return;
+      }
+      setPromptId(res.prompt_id);
+      setJobCount(res.count ?? b);
+      loadHistory();
+      pollRef.current = setInterval(async () => {
+        const r = await fetch(`/api/image/status/${res.prompt_id}`, { credentials: "include" });
+        // Without this test, an expired session (401) or an HTML page made
+        // `r.json()` throw in an interval callback: silent rejection, and the
+        // status stayed stuck on « en cours ».
+        if (!r.ok) return;
+        const st = await r.json();
+        if (typeof st.count === "number") setJobCount(st.count);
+        if (typeof st.done_count === "number") setDoneCount(st.done_count);
+        if (st.status === "done" || st.status === "error") {
+          stopPolling();
+          setStatus(st.status);
+          loadHistory();
+          if (st.status === "error") showToast({ body: t("La génération a échoué."), type: "error" });
+        } else {
+          setStatus(st.status);
+        }
+      }, 3000);
+    } catch {
+      setStatus("error");
+      showToast({ body: t("Service de génération injoignable."), type: "error" });
+    }
+  }
+
+  // Same-origin file → a plain anchor with `download` forces a real save
+  // (Content-Disposition-free) instead of the browser opening it inline.
+  function downloadImage(idx: number) {
+    if (!promptId) return;
+    const a = document.createElement("a");
+    a.href = `/image/file/${promptId}/${idx}`;
+    a.download = `image-${promptId}-${idx + 1}.${FORMAT_EXT[format]}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function viewHistoryItem(item: HistoryItem) {
+    stopPolling();
+    setPromptId(item.prompt_id);
+    setStatus(item.status as JobStatus);
+    setJobCount(item.count ?? 1);
+    setDoneCount(item.done_count ?? (item.status === "done" ? (item.count ?? 1) : 0));
+    // The download must carry the right extension for this job.
+    if (item.format === "png" || item.format === "jpeg" || item.format === "webp") {
+      setFormat(item.format);
+    }
+  }
+
+  // Relaunches a failed generation with the same prompt, image count and format.
+  function retryItem(item: HistoryItem) {
+    const f: ImageFormat = item.format === "jpeg" || item.format === "webp" ? item.format : "png";
+    generate({ prompt: item.prompt, batch: item.count ?? 1, format: f });
+  }
+
+  // Stops the generation in progress (cooperative: the rest of the batch is interrupted).
+  async function cancel() {
+    if (!promptId) return;
+    setCancelling(true);
+    try {
+      // `fetch` only rejects on network error: without reading `res.ok`, a 404
+      // (unknown job) or a 500 displayed « Génération annulée. » while the
+      // generation kept consuming the GPU.
+      const r = await authFetch(`/api/image/cancel/${promptId}`, {
+        method: "POST",
+        headers: { "X-CSRFToken": csrf },
+      });
+      if (!r.ok) {
+        showToast({ body: t("Impossible d'annuler."), type: "error" });
+        return;
+      }
+      setStatus("cancelled");
+      stopPolling();
+      loadHistory();
+      showToast({ body: t("Génération annulée."), type: "info" });
+    } catch {
+      showToast({ body: t("Impossible d'annuler."), type: "error" });
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  // Gallery: opens the viewer, removes an image from disk and from the display.
+  function viewImage(id: string, idx: number) { setViewer({ promptId: id, idx }); }
+  async function deleteImage(id: string, idx: number) {
+    // The thumbnail is only removed AFTER server confirmation: it used to
+    // reappear on reload while the user believed it destroyed
+    // (404 on a job that is not theirs, 500 on a failed `os.remove`
+    // on the Flask side).
+    try {
+      const r = await authFetch(`/api/image/delete/${id}/${idx}`, {
+        method: "POST",
+        headers: { "X-CSRFToken": csrf },
+      });
+      if (!r.ok) {
+        showToast({ body: t("Suppression impossible."), type: "error" });
+        return;
+      }
+    } catch {
+      showToast({ body: t("Suppression impossible."), type: "error" });
+      return;
+    }
+    setDeletedImgs((prev) => new Set(prev).add(`${id}:${idx}`));
+    setViewer(null);
+    showToast({ body: t("Image supprimée."), type: "info" });
+  }
+
+  const isBusy = status === "pending" || status === "running";
+
+  return (
+    <Layout
+      height="fill"
+      content={
+        <LayoutContent padding={6} isScrollable>
+          {/* Loading: skeletons (available starts at null) to avoid the
+              form flashing before the EmptyState. */}
+          {available === null ? (
+            <VStack hAlign="center" width="100%">
+              <VStack gap={5} maxWidth={720} width="100%">
+                <VStack gap={2}>
+                  <Skeleton height={28} width={260} />
+                  <Skeleton height={14} width={340} />
+                </VStack>
+                <Card>
+                  <VStack gap={4}>
+                    <Skeleton height={16} width={160} />
+                    <Skeleton height={120} radius={2} />
+                  </VStack>
+                </Card>
+              </VStack>
+            </VStack>
+          ) : available === false && history.length === 0 ? (
+            <EmptyState
+              icon={<Icon icon={MoonIcon} size="lg" />}
+              title={t("Aucun modèle image n'est disponible")}
+              description={t("Demande à un admin d'ajouter un modèle image pour utiliser cette page.")}
+              actions={<ModelRequestButton category="image" showText={false} />}
+            />
+          ) : (
+            <VStack hAlign="center" width="100%">
+              <VStack gap={5} maxWidth={720} width="100%">
+                <VStack gap={1}>
+                  <Heading level={1}>{t("Génération d'image")}</Heading>
+                  <Text type="supporting" color="secondary">
+                    {t("Une description → une image générée localement sur le GPU.")}
+                  </Text>
+                </VStack>
+
+                {available === false ? (
+                  <Card>
+                    <VStack gap={4}>
+                      <HStack gap={3} vAlign="center">
+                        <Icon icon={MoonIcon} size="md" color="secondary" />
+                        <VStack gap={0}>
+                          <Text weight="semibold">{t("Aucun modèle image chargé")}</Text>
+                          <Text type="supporting" color="secondary">
+                            {t("La génération est indisponible pour l'instant, mais tu peux revoir tes images précédentes ci-dessous.")}
+                          </Text>
+                        </VStack>
+                      </HStack>
+                      <ModelRequestButton category="image" />
+                    </VStack>
+                  </Card>
+                ) : (
+                  <Card>
+                    <VStack gap={4}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <Text type="supporting" color="secondary">{t("Décris l'image")}</Text>
+                        <DictateButton dictation={dictation} isDisabled={isBusy} />
+                      </HStack>
+                      <TextArea
+                        label={t("Décris l'image")}
+                        isLabelHidden
+                        value={prompt}
+                        onChange={setPrompt}
+                        placeholder={t("Ex : un renard roux dans la neige, style photo réaliste, lumière douce.")}
+                        maxLength={10000}
+                        isDisabled={isBusy}
+                        isRequired
+                      />
+                      <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
+                        <Text type="supporting" color="secondary">{t("Nombre d'images")}</Text>
+                        <SegmentedControl
+                          label={t("Nombre d'images")}
+                          value={String(batch)}
+                          onChange={(v) => setBatch(Number(v) || 1)}
+                        >
+                          {BATCH_CHOICES.map((n) => (
+                            <SegmentedControlItem key={n} value={String(n)} label={String(n)} isDisabled={isBusy} />
+                          ))}
+                        </SegmentedControl>
+                      </HStack>
+                      <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
+                        <Text type="supporting" color="secondary">{t("Résolution")}</Text>
+                        <SegmentedControl
+                          label={t("Résolution")}
+                          value={size}
+                          onChange={(v) => setSize(v as ImageSize)}
+                        >
+                          {SIZES.map((s) => (
+                            <SegmentedControlItem key={s.value} value={s.value} label={s.label} isDisabled={isBusy} />
+                          ))}
+                        </SegmentedControl>
+                      </HStack>
+                      <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
+                        <Text type="supporting" color="secondary">{t("Format")}</Text>
+                        <SegmentedControl
+                          label={t("Format")}
+                          value={format}
+                          onChange={(v) => setFormat(v as ImageFormat)}
+                        >
+                          {FORMATS.map((f) => (
+                            <SegmentedControlItem key={f.value} value={f.value} label={f.label} isDisabled={isBusy} />
+                          ))}
+                        </SegmentedControl>
+                      </HStack>
+                      <Button
+                        label={batch > 1 ? t("Générer {n} images").replace("{n}", String(batch)) : t("Générer")}
+                        variant="primary"
+                        onClick={() => generate()}
+                        isDisabled={!prompt.trim() || isBusy}
+                        isLoading={isBusy}
+                      />
+                    </VStack>
+                  </Card>
+                )}
+
+                {status !== "idle" && (
+                  <Card>
+                    <VStack gap={4}>
+                      <HStack hAlign="between" vAlign="center" gap={2}>
+                        <StatusDot
+                          variant={status === "done" ? "success" : status === "error" ? "error" : status === "cancelled" ? "neutral" : "accent"}
+                          label={
+                            isBusy && jobCount > 1
+                              ? t("En cours")
+                              : t(STATUS_LABEL[status] ?? status)
+                          }
+                        />
+                        {isBusy && (
+                          <Button
+                            label={t("Arrêter")}
+                            variant="secondary"
+                            size="sm"
+                            icon={<Icon icon={StopIcon} size="sm" />}
+                            onClick={cancel}
+                            isDisabled={cancelling}
+                            isLoading={cancelling}
+                          />
+                        )}
+                      </HStack>
+                      {isBusy && jobCount > 1 && (
+                        <ProgressBar
+                          label={t("Progression de la génération")}
+                          value={doneCount}
+                          max={jobCount}
+                          variant="accent"
+                          hasValueLabel
+                          formatValueLabel={(v, m) => `${v}/${m}`}
+                        />
+                      )}
+                      {promptId && (jobCount > 1 || isBusy) ? (
+                        <Grid columns={{ minWidth: 220, max: 2 }} gap={3}>
+                          {Array.from({ length: jobCount }).map((_, idx) => (
+                            <VStack key={idx} gap={2}>
+                              <AspectRatio ratio={1} fit="contain">
+                                {idx < doneCount && !deletedImgs.has(`${promptId}:${idx}`) ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={`/image/file/${promptId}/${idx}`} alt={`${prompt} (${idx + 1})`} onClick={() => viewImage(String(promptId), idx)} style={{ cursor: "pointer" }} />
+                                ) : (
+                                  <GenerationPlaceholder media="image" />
+                                )}
+                              </AspectRatio>
+                              {idx < doneCount && !deletedImgs.has(`${promptId}:${idx}`) && (
+                                <HStack hAlign="between" vAlign="center" gap={1}>
+                                  <Button
+                                    label={t("Télécharger")}
+                                    variant="secondary"
+                                    size="sm"
+                                    icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                                    onClick={() => downloadImage(idx)}
+                                  />
+                                  <Button
+                                    label={t("Voir")}
+                                    variant="ghost"
+                                    size="sm"
+                                    icon={<Icon icon={PhotoIcon} size="sm" />}
+                                    onClick={() => viewImage(String(promptId), idx)}
+                                  />
+                                </HStack>
+                              )}
+                            </VStack>
+                          ))}
+                        </Grid>
+                      ) : status === "done" && promptId ? (
+                        <VStack gap={2}>
+                          <AspectRatio ratio={1} fit="contain">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/image/file/${promptId}/0`} alt={prompt} onClick={() => viewImage(String(promptId), 0)} style={{ cursor: "pointer" }} />
+                          </AspectRatio>
+                          <Button
+                            label={t("Télécharger")}
+                            variant="secondary"
+                            size="sm"
+                            icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                            onClick={() => downloadImage(0)}
+                          />
+                        </VStack>
+                      ) : (
+                        <AspectRatio ratio={1} fit="contain">
+                          <GenerationPlaceholder media="image" />
+                        </AspectRatio>
+                      )}
+                      {status === "error" && (
+                        <Button
+                          label={t("Réessayer")}
+                          variant="secondary"
+                          icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                          onClick={() => generate()}
+                        />
+                      )}
+                    </VStack>
+                  </Card>
+                )}
+
+                {history.length > 0 && (
+                  <VStack gap={2}>
+                    <Text type="supporting" color="secondary">
+                      {t("Historique")} ({history.length})
+                    </Text>
+                    <VStack gap={0}>
+                      {history.map((h) => (
+                        <Item
+                          key={h.prompt_id}
+                          label={h.prompt}
+                          labelLines={1}
+                          description={
+                            new Date(h.created_at).toLocaleString(numLocale) +
+                            ((h.count ?? 1) > 1 ? ` · ${h.count} ${t("images")}` : "")
+                          }
+                          startContent={<PhotoIcon width={20} height={20} />}
+                          endContent={
+                            <HStack gap={2} vAlign="center">
+                              <StatusDot
+                                variant={h.status === "done" ? "success" : h.status === "error" ? "error" : h.status === "cancelled" ? "neutral" : "accent"}
+                                label={t(STATUS_SHORT[h.status] ?? h.status)}
+                              />
+                              {h.status === "error" && (
+                                <Button
+                                  label={t("Réessayer")}
+                                  variant="ghost"
+                                  size="sm"
+                                  isIconOnly
+                                  icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                                  onClick={() => retryItem(h)}
+                                />
+                              )}
+                            </HStack>
+                          }
+                          onClick={() => viewHistoryItem(h)}
+                          isSelected={h.prompt_id === promptId}
+                        />
+                      ))}
+                    </VStack>
+                  </VStack>
+                )}
+              </VStack>
+            </VStack>
+          )}
+          {viewer && (
+            <Dialog isOpen onOpenChange={(o) => { if (!o) setViewer(null); }} variant="fullscreen">
+              <DialogHeader title={t("Aperçu")} hasDivider onOpenChange={(o) => { if (!o) setViewer(null); }} />
+              <VStack gap={3} padding={4} hAlign="center" vAlign="center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/image/file/${viewer.promptId}/${viewer.idx}`} alt={t("Image agrandie")} style={{ maxWidth: "90%", maxHeight: "70vh", objectFit: "contain", borderRadius: "12px" }} />
+                <HStack gap={2}>
+                  <Button label={t("Télécharger")} variant="secondary" icon={<Icon icon={ArrowDownTrayIcon} size="sm" />} onClick={() => downloadImage(viewer.idx)} />
+                  <Button label={t("Supprimer cette image")} variant="secondary" icon={<Icon icon={TrashIcon} size="sm" />} onClick={() => deleteImage(viewer.promptId, viewer.idx)} />
+                </HStack>
+              </VStack>
+            </Dialog>
+          )}
+        </LayoutContent>
+      }
+    />
+  );
+}

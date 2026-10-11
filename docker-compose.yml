@@ -310,6 +310,10 @@ services:
     build: ./dgx-portal-frontend
     container_name: dgx-portal-frontend
     restart: unless-stopped
+    environment:
+      # Server rendering formats hours on THIS clock (the playground greeting):
+      # the operator's time zone, not the container's UTC.
+      TZ: ${TZ_DISPLAY:-Europe/Paris}
     security_opt:
       - no-new-privileges:true
     cap_drop:

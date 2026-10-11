@@ -14,7 +14,7 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Icon } from "@astryxdesign/core/Icon";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
+import { ClientTimestamp } from "@/lib/client-timestamp";
 import { Banner } from "@astryxdesign/core/Banner";
 import { KeyIcon } from "@heroicons/react/24/outline";
 import { useT, useLocale } from "@/lib/i18n";
@@ -95,7 +95,7 @@ export function UserDetailDialog({
                       </HStack>
                       {detail.last_seen ? (
                         <Text type="supporting" color="secondary">
-                          {t("Dernière activité")} : <Timestamp value={detail.last_seen} format="date_time" />
+                          {t("Dernière activité")} : <ClientTimestamp value={detail.last_seen} format="date_time" />
                         </Text>
                       ) : null}
                     </VStack>
@@ -107,7 +107,7 @@ export function UserDetailDialog({
                       <Badge label={t("Bloqué")} variant="error" />
                       {detail.blocked.reason ? <Text type="supporting" color="secondary">{detail.blocked.reason}</Text> : null}
                       {detail.blocked.by ? <Text type="supporting" color="secondary">{t("par")} {detail.blocked.by}</Text> : null}
-                      {detail.blocked.at ? <Timestamp value={detail.blocked.at} format="date_time" /> : null}
+                      {detail.blocked.at ? <ClientTimestamp value={detail.blocked.at} format="date_time" /> : null}
                     </HStack>
                   ) : null}
 
@@ -157,7 +157,7 @@ export function UserDetailDialog({
                             key={`${k.alias ?? ""}-${i}`}
                             startContent={<Icon icon={KeyIcon} size="sm" color="secondary" />}
                             label={k.alias || t("Sans nom")}
-                            description={k.created_at ? <Timestamp value={k.created_at} format="date_time" /> : undefined}
+                            description={k.created_at ? <ClientTimestamp value={k.created_at} format="date_time" /> : undefined}
                             endContent={
                               <Text type="supporting" color="secondary" hasTabularNumbers>
                                 {`${Math.round(k.spend ?? 0).toLocaleString(numLocale)} ${t(Math.round(k.spend ?? 0) > 1 ? "tokens" : "token")}`}
@@ -213,7 +213,7 @@ export function UserDetailDialog({
                                 {a.detail ? <Text type="supporting" color="secondary">{a.detail}</Text> : null}
                                 <HStack gap={1} vAlign="center">
                                   {a.by ? <Text type="supporting" color="secondary">{a.by}</Text> : null}
-                                  {a.at ? <Timestamp value={a.at} format="date_time" /> : null}
+                                  {a.at ? <ClientTimestamp value={a.at} format="date_time" /> : null}
                                 </HStack>
                               </VStack>
                             }

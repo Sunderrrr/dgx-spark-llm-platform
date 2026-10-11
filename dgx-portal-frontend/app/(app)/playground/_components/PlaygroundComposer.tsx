@@ -36,6 +36,7 @@ import {
   BoltIcon,
 } from "@heroicons/react/24/outline";
 import { BorderBeam } from "border-beam";
+import { useResolvedMode } from "@/lib/use-system-dark";
 import { VoiceBeam } from "voice-glow";
 import { useT } from "@/lib/i18n";
 import type { Attachment } from "@/lib/types";
@@ -139,6 +140,9 @@ export function PlaygroundComposer({
   hasMessages,
 }: PlaygroundComposerProps) {
   const t = useT();
+  // « system » resolved here, hydration-safe: border-beam resolves « auto » during
+  // render, dark on the server and light in the browser (React #418).
+  const modeResolu = useResolvedMode(mode);
   return (
     <VStack gap={2} padding={4}>
       {/* Édition en place : la conversation reste affichée, on signale que le
@@ -253,13 +257,13 @@ export function PlaygroundComposer({
           des deux enveloppes, lui, est réglé dans globals.css (`overflow: clip`
           élargi de 8 px) : c'est lui, et non le `clip-path` des calques, qui
           contient les lumières. */}
-      <BorderBeam active={streaming} theme={mode === "system" ? "auto" : mode}
+      <BorderBeam active={streaming} theme={modeResolu}
                   borderRadius={rayonComposeur}
                   className="composeur-cadre">
       <VoiceBeam stream={dictation.stream}
                  active={dictation.isRecording || dictation.isTranscribing}
                  processing={dictation.isTranscribing}
-                 theme={mode === "system" ? "auto" : mode}
+                 theme={modeResolu}
                  borderRadius={rayonComposeur}
                  className="composeur-halo">
       <ChatComposer

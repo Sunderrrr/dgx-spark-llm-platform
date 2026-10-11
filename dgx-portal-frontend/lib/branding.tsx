@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 // The deployment's own identity: name in the sidebar, and the logo.
 //
@@ -9,14 +9,9 @@ import { useEffect, useState } from "react";
 // cached ten seconds server-side: one fetch per session, kept in module state
 // so every shell re-render reads the same answer instead of asking again.
 
-export type Branding = {
-  /** Instance name shown top left. « DGX » is only the default. */
-  name: string;
-  /** URL of the uploaded logo, or null for the built-in favicon. */
-  logo: string | null;
-};
+import { BRANDING_DEFAUT as DEFAUT, brandingFromConfig, type Branding } from "./branding-shape";
 
-const DEFAUT: Branding = { name: "DGX", logo: null };
+export type { Branding };
 
 let cache: Branding | null = null;
 const enAttente: ((b: Branding) => void)[] = [];
@@ -28,7 +23,7 @@ function charger() {
   fetch("/api/config")
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
-      cache = { name: d?.branding?.name || DEFAUT.name, logo: d?.branding?.logo || null };
+      cache = brandingFromConfig(d);
     })
     .catch(() => {
       cache = DEFAUT;
@@ -42,12 +37,21 @@ function charger() {
 /** The deployment identity, with the default until the config answers.
  *  Re-renders once the answer lands, so the sidebar never sticks to a wrong
  *  name after the fetch. */
+// Read by the root layout on the server, so the first paint already carries
+// the instance's name and logo (no « DGX » flashing before the real name).
+const BrandingContext = createContext<Branding | null>(null);
+
+export function BrandingProvider({ initial, children }: { initial: Branding | null; children: ReactNode }) {
+  return <BrandingContext.Provider value={initial}>{children}</BrandingContext.Provider>;
+}
+
 export function useBranding(): Branding {
-  const [etat, setEtat] = useState<Branding>(cache ?? DEFAUT);
+  const seeded = useContext(BrandingContext);
+  const [etat, setEtat] = useState<Branding>(seeded ?? cache ?? DEFAUT);
   useEffect(() => {
-    if (cache) return;
+    if (seeded || cache) return;
     enAttente.push(setEtat);
     charger();
-  }, []);
+  }, [seeded]);
   return etat;
 }

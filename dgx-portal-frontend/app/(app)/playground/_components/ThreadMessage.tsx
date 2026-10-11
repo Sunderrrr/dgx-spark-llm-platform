@@ -13,7 +13,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
 import { AspectRatio } from "@astryxdesign/core/AspectRatio";
 import { Banner } from "@astryxdesign/core/Banner";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
+import { ClientTimestamp } from "@/lib/client-timestamp";
 import { Thumbnail } from "@astryxdesign/core/Thumbnail";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
@@ -237,7 +237,7 @@ export function ThreadMessage({
                       metadata={
                         !isThinking && m.ts ? (
                           <ChatMessageMetadata
-                            timestamp={<Timestamp value={m.ts} format="time" />}
+                            timestamp={<ClientTimestamp value={m.ts} format="time" />}
                             status={m.isError ? "error" : undefined}
                             footer={
                               m.role === "assistant" && (m.tokens || m.tokensPerSec || canRegenerateThis || (streamingThis && liveStats)) ? (

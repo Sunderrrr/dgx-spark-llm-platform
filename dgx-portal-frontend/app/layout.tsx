@@ -8,9 +8,15 @@ import "@astryxdesign/theme-neutral/theme.css";
 // `prefers-reduced-motion` rule, which stops them.
 import "blobatar/motion.css";
 import "./globals.css";
-import { ThemeProvider } from "./theme-provider";
-import { WhoamiProvider } from "@/lib/whoami";
+import { cookies } from "next/headers";
+import { ThemeProvider, type Mode } from "./theme-provider";
+import { MODE_COOKIE } from "@/lib/theme-cookie";
+import { WhoamiProvider, type Whoami } from "@/lib/whoami";
 import { CsrfProvider } from "@/lib/csrf";
+import { BrandingProvider } from "@/lib/branding";
+import { brandingFromConfig } from "@/lib/branding-shape";
+import { serverRead } from "@/lib/server-api";
+import type { ThemeId } from "@/lib/themes";
 
 export const metadata: Metadata = {
   title: "DGX",
@@ -24,17 +30,39 @@ export const metadata: Metadata = {
 // must render per-request instead.
 export const dynamic = "force-dynamic";
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Identity and instance branding, read on the server in parallel: the shell
+  // is sent with the right name, avatar, admin entries, palette and language,
+  // instead of defaults the client corrected one round-trip later. The CSRF
+  // token is NOT read here: /api/csrf may create it, and a session cookie set
+  // on this server-side request would never reach the browser.
+  const [whoRead, configRead, jar] = await Promise.all([
+    serverRead<Whoami>("/api/whoami"),
+    serverRead<{ branding?: { name?: string; logo?: string | null } }>("/api/config"),
+    cookies(),
+  ]);
+  // undefined = the read failed: the provider then fetches it in the browser.
+  const who =
+    whoRead.status === "ok" ? whoRead.data : whoRead.status === "unauthenticated" ? null : undefined;
+  const lang = who?.lang === "en" ? "en" : "fr";
+  const cookieMode = jar.get(MODE_COOKIE)?.value;
+  const mode: Mode = cookieMode === "light" || cookieMode === "dark" ? cookieMode : "system";
   return (
-    <html lang="fr" suppressHydrationWarning>
+    <html lang={lang} suppressHydrationWarning>
       <body>
-        <WhoamiProvider>
+        <WhoamiProvider initial={who}>
           <CsrfProvider>
-            <ThemeProvider>{children}</ThemeProvider>
+            <BrandingProvider initial={configRead.status === "ok" ? brandingFromConfig(configRead.data) : null}>
+              <ThemeProvider
+                initial={{ mode, themeId: (who?.theme_id || "neutral") as ThemeId, lang }}
+              >
+                {children}
+              </ThemeProvider>
+            </BrandingProvider>
           </CsrfProvider>
         </WhoamiProvider>
       </body>

@@ -11,7 +11,7 @@ import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Icon } from "@astryxdesign/core/Icon";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
+import { ClientTimestamp } from "@/lib/client-timestamp";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { ComputerDesktopIcon } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
@@ -118,7 +118,7 @@ export function SessionsList({
                         ·
                       </Text>
                     ) : null}
-                    <Timestamp value={s.created_at} format="date_time" />
+                    <ClientTimestamp value={s.created_at} format="date_time" />
                   </HStack>
                 ) : null}
                 {s.expires_at ? (
@@ -126,7 +126,7 @@ export function SessionsList({
                     <Text type="supporting" color="secondary">
                       · {t("Expire")}
                     </Text>
-                    <Timestamp value={s.expires_at} format="date_time" />
+                    <ClientTimestamp value={s.expires_at} format="date_time" />
                   </HStack>
                 ) : null}
               </HStack>

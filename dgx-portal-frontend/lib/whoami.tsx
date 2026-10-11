@@ -36,10 +36,21 @@ const WhoamiContext = createContext<{
   setWho: Dispatch<SetStateAction<Whoami | null>>;
 } | null>(null);
 
-export function WhoamiProvider({ children }: { children: React.ReactNode }) {
-  const [who, setWho] = useState<Whoami | null>(null);
+export function WhoamiProvider({
+  children,
+  initial,
+}: {
+  children: React.ReactNode;
+  /** Read by the root layout on the server: the identity, null for a visitor
+   *  without a session, undefined when that read failed (fetch it here). */
+  initial?: Whoami | null;
+}) {
+  const [who, setWho] = useState<Whoami | null>(initial ?? null);
 
   useEffect(() => {
+    // The server already answered: the shell rendered with the right name,
+    // avatar and admin entries, nothing to ask again.
+    if (initial !== undefined) return;
     // Deliberately NOT getJSON/authFetch: /api/whoami is identity, not a page's
     // data. The login page (no session) must not bounce to /login on a 401;
     // the authenticated pages already redirect when their own data fetches 401.
@@ -47,7 +58,7 @@ export function WhoamiProvider({ children }: { children: React.ReactNode }) {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setWho(d as Whoami | null))
       .catch(() => {});
-  }, []);
+  }, [initial]);
 
   return <WhoamiContext.Provider value={{ who, setWho }}>{children}</WhoamiContext.Provider>;
 }

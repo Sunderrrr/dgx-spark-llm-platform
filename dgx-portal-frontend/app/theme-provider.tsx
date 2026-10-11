@@ -6,11 +6,12 @@ import { Theme } from "@astryxdesign/core/theme";
 import { LinkProvider } from "@astryxdesign/core/Link";
 import { InternationalizationProvider } from "@astryxdesign/core";
 import { themeById, type ThemeId } from "@/lib/themes";
+import { MODE_COOKIE } from "@/lib/theme-cookie";
 import { I18nProvider, type Lang } from "@/lib/i18n";
 import { useWhoami } from "@/lib/whoami";
 import astryxFr from "@/lib/astryx-fr.json";
 
-type Mode = "light" | "dark" | "system";
+export type Mode = "light" | "dark" | "system";
 
 // Astryx renders a native <a> by default: every click in the sidebar would
 // therefore reload the whole app instead of navigating client-side.
@@ -47,14 +48,24 @@ function readLocal<T extends string>(key: string, fallback: T): T {
   return (window.localStorage.getItem(key) as T | null) || fallback;
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
+export type ThemeInitial = { mode: Mode; themeId: ThemeId; lang: Lang };
+
+export function ThemeProvider({
+  children,
+  initial,
+}: {
+  children: React.ReactNode;
+  /** From the server (the account preferences + the mode cookie): the first
+   *  paint is in the right palette and language instead of the defaults. */
+  initial?: ThemeInitial;
+}) {
   // The initial state must be IDENTICAL to the server render: reading
   // localStorage in the initializer would make the first client render
   // diverge from the SSR HTML (React hydration error #418, text silently
   // replaced). So we apply the local preferences just after mount.
-  const [mode, setModeState] = useState<Mode>("system");
-  const [themeId, setThemeIdState] = useState<ThemeId>("neutral");
-  const [lang, setLangState] = useState<Lang>("fr");
+  const [mode, setModeState] = useState<Mode>(initial?.mode ?? "system");
+  const [themeId, setThemeIdState] = useState<ThemeId>(initial?.themeId ?? "neutral");
+  const [lang, setLangState] = useState<Lang>(initial?.lang ?? "fr");
 
   // /api/whoami is fetched once up the tree (WhoamiProvider); we only reconcile
   // theme/lang from it, and only on change. This is the account preference that
@@ -68,7 +79,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     // reading localStorage in the initializer would make the SSR render
     // diverge, cf. comment above). So we disable the rule on these three lines.
     /* eslint-disable react-hooks/set-state-in-effect */
-    setModeState(readLocal<Mode>("dgx_theme_mode", "system"));
+    const localMode = readLocal<Mode>("dgx_theme_mode", "system");
+    setModeState(localMode);
+    // Accounts that chose a mode before the cookie existed: mirror it once, so
+    // the server renders their next page in it.
+    document.cookie = `${MODE_COOKIE}=${localMode}; path=/; max-age=31536000; samesite=lax; secure`;
     setThemeIdState(readLocal<ThemeId>("dgx_theme_id", "neutral"));
     setLangState(readLocal<Lang>("dgx_lang", "fr"));
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -95,6 +110,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   function setMode(m: Mode) {
     setModeState(m);
     window.localStorage.setItem("dgx_theme_mode", m);
+    // Also a cookie: the server renders the next page in this mode directly.
+    document.cookie = `${MODE_COOKIE}=${m}; path=/; max-age=31536000; samesite=lax; secure`;
   }
 
   function setThemeId(t: ThemeId) {

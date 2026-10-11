@@ -1,0 +1,16 @@
+[Unit]
+Description=Start the full validation when the admin panel asks for it
+
+# The portal writes runtime/validation/demande.txt (mounted in the container
+# as /run/dgx/validation) and never executes anything on the host.
+# Watch THAT FILE only: watching the whole directory (as before 2026-10-11)
+# also fired on every manual ./scripts/validate.sh, which creates its log
+# directory there — two validations then ran side by side, doubling the
+# memory pressure next to the served model.
+[Path]
+PathChanged=/root/ai-platform/runtime/validation/demande.txt
+MakeDirectory=yes
+DirectoryMode=0777
+
+[Install]
+WantedBy=multi-user.target

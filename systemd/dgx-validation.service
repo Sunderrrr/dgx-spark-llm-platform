@@ -1,0 +1,10 @@
+[Unit]
+Description=Full DGX validation (requested from the admin panel)
+After=network-online.target docker.service
+
+# The probed origins (DGX_WEB, DGX_API, DGX_SSO_DOMAIN) come from .env through
+# scripts/config.sh — nothing site-specific in this unit.
+[Service]
+Type=oneshot
+WorkingDirectory=/root/ai-platform
+ExecStart=/bin/bash -c "/root/ai-platform/scripts/validate.sh 2>&1 | tee /root/ai-platform/runtime/validation/courante.log"

@@ -1,5 +1,5 @@
 [Unit]
-Description=DGX health monitor — alerte email quand les services cœur sont down
+Description=DGX health monitor — e-mail alert when a core service is down
 After=network.target docker.service
 Requires=docker.service
 

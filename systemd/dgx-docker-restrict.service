@@ -39,6 +39,20 @@ del() { P=$1; shift; \
 del 3000 192.0.2.7 172.19.0.0/16 127.0.0.1; \
 del 8080 100.64.0.0/16 100.64.45.103 127.0.0.1; \
 del 8090 100.64.45.103 172.19.0.0/16 127.0.0.1'
+# IPv6 mirror (audit 2026-10-06, M4): docker-proxy also publishes these ports
+# on [::], and that traffic never meets the IPv4 chain above. The VPN and LAN
+# sources are IPv4-only, so over IPv6 only loopback keeps the agent port.
+# It used to sit AFTER [Install] on the host, where systemd ignores it
+# (« Unknown key name 'ExecStartPost' in section 'Install' »): the rules only
+# existed because they had been added by hand, and a reboot dropped them.
+ExecStartPost=/bin/sh -c '\
+for P in 3000 8080 8090; do \
+  ip6tables -C DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || ip6tables -A DOCKER-USER -p tcp --dport $P -j DROP; \
+done; \
+ip6tables -C DOCKER-USER -p tcp --dport 8090 -s ::1/128 -j ACCEPT 2>/dev/null || ip6tables -I DOCKER-USER -p tcp --dport 8090 -s ::1/128 -j ACCEPT'
+ExecStopPost=/bin/sh -c '\
+for P in 3000 8080 8090; do ip6tables -D DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || true; done; \
+ip6tables -D DOCKER-USER -p tcp --dport 8090 -s ::1/128 -j ACCEPT 2>/dev/null || true'
 
 [Install]
 WantedBy=multi-user.target

@@ -67,7 +67,7 @@ else
   # path already exists" (seen on a bench run over a copied repo, 2026-10-02):
   # say what to do instead. A directory that IS a clone is reused as before.
   if [ -e "$DEFAULT_DIR" ] && [ ! -d "$DEFAULT_DIR/.git" ]; then
-    die "$DEFAULT_DIR existe sans être un clone git — déplace-le ou vide-le, puis relance."
+    die "$DEFAULT_DIR exists but is not a git clone — move or empty it, then re-run."
   fi
   [ -d "$DEFAULT_DIR/.git" ] || git clone "$REPO_URL" "$DEFAULT_DIR"
   REPO_DIR="$DEFAULT_DIR"
@@ -98,9 +98,9 @@ if command -v setfacl >/dev/null 2>&1; then
   setfacl -m u:"$RUNNER_USER":--x /root
   setfacl -m u:"$RUNNER_USER":--x "$REPO_DIR" 2>/dev/null || true
 else
-  echo "!! setfacl absent : si $REPO_DIR est sous /root, vllm-runner ne pourra pas"
-  echo "   lire runner.py (le service bouclera). Installe 'acl', ou déplace le"
-  echo "   dépôt hors de /root et adapte les unités."
+  echo "!! setfacl missing: if $REPO_DIR is under /root, vllm-runner cannot read"
+  echo "   runner.py (the service will crash-loop). Install 'acl', or move the"
+  echo "   repository out of /root and adapt the units."
 fi
 
 # ── 7. systemd units (paths patched to the real repo dir) ───────────────────
@@ -111,10 +111,18 @@ log "Installing systemd units"
 for unit in vllm-runner.service vllm-restrict.service dgx-docker-restrict.service \
              dgx-web-restrict.service dgx-ocr-restrict.service hawser-restrict.service \
              dgx-traefik-boot.service dgx-monitor.service dgx-monitor.timer \
-             dgx-backup.service dgx-backup.timer comfyui.service comfyui-relay.service; do
+             dgx-backup.service dgx-backup.timer dgx-logs.service dgx-logs.timer \
+             dgx-validation.service dgx-validation.path \
+             comfyui.service comfyui-relay.service; do
   [ -f "systemd/$unit" ] || continue
   sed "s#/root/ai-platform#${REPO_DIR}#g" "systemd/$unit" > "/etc/systemd/system/$unit"
 done
+# earlyoom drop-in (GB10 unified memory: the kernel OOM killer cannot see GPU
+# memory, earlyoom acts on MemAvailable first). Only when earlyoom is there.
+if systemctl cat earlyoom.service >/dev/null 2>&1; then
+  install -d /etc/systemd/system/earlyoom.service.d
+  install -m 0644 systemd/earlyoom.service.d-dgx.conf /etc/systemd/system/earlyoom.service.d/dgx.conf
+fi
 
 # ── 7b. Root-owned wrappers called by the runner via scoped sudo ────────────
 # Without them, the admin can launch a model but NO media sidecar at all:
@@ -139,7 +147,7 @@ done
 # An invalid rule breaks sudo for EVERYONE, repair included: validate it before
 # continuing, if the tool is there.
 if command -v visudo >/dev/null 2>&1; then
-  visudo -c >/dev/null || die "une règle sudoers est invalide — voir /etc/sudoers.d/"
+  visudo -c >/dev/null || die "a sudoers rule is invalid — see /etc/sudoers.d/"
 fi
 
 # ── 7d. needrestart: do not restart vllm-runner at every update ─────────────
@@ -164,8 +172,10 @@ systemctl enable --now vllm-runner.service 2>/dev/null || true
 # (without them, web_net regains access to the host).
 systemctl enable --now dgx-web-restrict.service dgx-ocr-restrict.service 2>/dev/null || true
 systemctl enable hawser-restrict.service 2>/dev/null || true
-# Monitoring and backup: the responsible parties are TIMERS, not the services.
-systemctl enable --now dgx-monitor.timer dgx-backup.timer 2>/dev/null || true
+# Monitoring, backup and log shipping: the responsible parties are TIMERS.
+systemctl enable --now dgx-monitor.timer dgx-backup.timer dgx-logs.timer 2>/dev/null || true
+# The admin panel's « run the validation » button (request file → path unit).
+systemctl enable --now dgx-validation.path 2>/dev/null || true
 # Traefik boot guard: enabled for the next boot, not started now (no point
 # restarting an already healthy Traefik at install time).
 systemctl enable dgx-traefik-boot.service 2>/dev/null || true
@@ -177,15 +187,16 @@ cat <<EOF
 
 $(log "Bootstrap complete")
 Next steps:
-  1. Edit  $REPO_DIR/.env  and fill the remaining secrets:
-       LDAP_BIND_PW, OIDC_CLIENT_ID/SECRET, AUTHENTIK_LITELLM_*,
-       SMTP_*, ADMIN_EMAIL, DISCORD_WEBHOOK_URL
+  1. Edit  $REPO_DIR/.env : set DGX_WEB and DGX_API (docker compose refuses
+     to start without them) and the secrets: LDAP_BIND_DN/PW, ADMIN_EMAIL,
+     DISCORD_WEBHOOK_URL. LDAP, SSO and SMTP are then set from the portal,
+     Admin → Config (no redeploy needed).
   2. Start the stack:      cd $REPO_DIR && docker compose up -d
   3. Open the portal on :5000  →  Admin  →  launch a model from the catalog.
 
 Firewall note: the portal's 5000 (published to container 3000) is open to
 Traefik only, and LiteLLM publishes NO port at all — the API is reachable
-solely through https://api.example.org, which keeps the maintenance
+solely through the public API domain (DGX_API), which keeps the maintenance
 forwardAuth in the path. Adjust systemd/dgx-docker-restrict.service for
 your network.
 EOF

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run dgx-logs daily at 03:30
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

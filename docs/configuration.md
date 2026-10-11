@@ -41,7 +41,7 @@ it belongs to Postgres and LiteLLM.
 | `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.example.org/v1`) |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Authentik `dgx-spark` OIDC app |
 | `OIDC_METADATA_URL` / `OIDC_REDIRECT_URI` / `OIDC_LOGOUT_URL` | OIDC endpoints |
-| `OIDC_ADMIN_GROUP` | Group granting the admin role (set it to yours) |
+| `OIDC_ADMIN_GROUP` | Group granting the admin role, matched in the SSO `groups` claim and as LDAP `memberOf` `cn=<group>`; read at login (set it to yours) |
 | `SESSION_COOKIE_SECURE` | `1` behind an HTTPS proxy (Traefik), `0` for plain-HTTP LAN |
 | `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Default per-account budget (default 200 M tokens / week) |
 | `DISCORD_WEBHOOK_URL`, `SMTP_*`, `ADMIN_EMAIL` | Request notifications |

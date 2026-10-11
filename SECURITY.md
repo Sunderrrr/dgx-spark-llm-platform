@@ -524,6 +524,11 @@ per-account SQL scoping on every id-bearing route (locked in by
 - The directory is now a DEMOTION CEILING for the admin role — an LDAP/SSO
   demotion takes effect immediately instead of surviving up to 12 h in an open
   session. It can take rights away, never grant them.
+  *Withdrawn on 2026-10-11:* the per-request LDAP lookup cost a 3.6–5 s bind
+  per account, per worker, per minute and stalled the first page load for up
+  to 10 s. The role now comes from the last login only (SSO token group or
+  directory entry); a directory demotion lands at the next login, and blocking
+  the account in the portal cuts its sessions and API keys immediately.
 - `_client_ip` takes the last `X-Forwarded-For` element (ours), not the
   client-controlled first one.
 - The HTML preview sends `default-src 'none'` (a generated page could make the

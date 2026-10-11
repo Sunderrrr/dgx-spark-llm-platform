@@ -139,12 +139,12 @@ def _security_headers(resp):
 # see auth.py. The two hooks below lost their decorator there, which would have
 # required the `app` object — so we register them here, explicitly.
 from auth import (  # noqa: E402
-    LOGIN_LOCK, LOGIN_MAX_FAILS, LOGIN_WINDOW, USERNAME_RE, _admin_username_cache,
+    LOGIN_LOCK, LOGIN_MAX_FAILS, LOGIN_WINDOW, USERNAME_RE,
     _apply_session, _client_ip, _csrf_protect, _ensure_csrf,
     _inject_csrf, _is_admin_group, _login_fail, _login_locked,
     _login_reset, _revoke_current_session, _revoke_user_sessions,
     est_bloque, is_admin_username,
-    ldap_authenticate, ldap_lookup_admin, ldap_lookup_email,
+    ldap_authenticate, ldap_lookup_email,
     ldap_resolve_sso_identity,
 )
 app.before_request(_csrf_protect)

@@ -52,7 +52,9 @@ done < <(git diff --cached -U0 --diff-filter=AM 2>/dev/null | grep -E '^\+[^+]')
 # 4. The LIVE values of .env must never be staged: a credential does not look
 #    like a pattern, it looks like a word. Nothing is echoed, only the key name.
 if [ -f .env ]; then
-  staged=$(git diff --cached 2>/dev/null)
+  # ADDED lines only: removing a site value from a tracked file (e.g. making
+  # .env.example generic) must not be refused as if it leaked it.
+  staged=$(git diff --cached -U0 2>/dev/null | grep -E '^\+[^+]')
   while IFS='=' read -r cle val; do
     [ -z "$cle" ] && continue
     case "$cle" in \#*) continue ;; esac

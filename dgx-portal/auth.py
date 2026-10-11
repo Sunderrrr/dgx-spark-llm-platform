@@ -25,7 +25,7 @@ from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 
 from config import (LDAP_BASE, LDAP_BIND_DN, LDAP_BIND_PW,
-                    LDAP_LOGIN_ATTR, LDAP_URI, LDAP_USERS_DN)
+                    LDAP_LOGIN_ATTR, LDAP_URI, LDAP_USERS_DN, OIDC_ADMIN_GROUP)
 from db import get_db, log_audit
 from local_users import _local_user_is_admin
 
@@ -106,25 +106,18 @@ def etat_compte(username):
         if not row['enabled']:
             return False, False, 'desactive'
         return True, _local_user_is_admin(row), None
-    # LDAP/SSO account: no local row, and we cannot query the directory at
-    # every request (one LDAP bind per call). The role is thus read on the last
-    # recorded login; if there is none, we have no opinion.
+    # LDAP/SSO account: no local row. The role is the one recorded at the last
+    # login (SSO: the admin group of the token / directory entry); if there is
+    # none, we have no opinion.
+    # Never the directory here: every request goes through this function. A
+    # live LDAP re-check (2026-10-06) cost one bind of 3.6 to 5 s per account
+    # per worker per minute and left the first home page half-empty for 5 to
+    # 10 s (measured 2026-10-11). A directory-side demotion therefore lands at
+    # the next login (SESSION_MAX_AGE at most); to cut an admin at once, block
+    # the account in the portal — that closes its sessions and keys.
     src = db.execute(
         "SELECT last_is_admin FROM user_sources WHERE username=?", (username,)).fetchone()
-    snapshot = bool(src['last_is_admin']) if src is not None else None
-    # The snapshot is written at LOGIN: a directory-side demotion (removal from
-    # cn=dgx_admins) left the session fully admin for up to SESSION_MAX_AGE
-    # (12 h) — incident response silently failed (audit 2026-10-06, M3). The
-    # live directory, through its 60 s cache, is now a DEMOTION CEILING: it can
-    # take the right away immediately, never grant one the snapshot does not
-    # have (a directory outage must not invent an admin).
-    # The ceiling only makes sense when a directory EXISTS to contradict the
-    # snapshot: without one (tests, local-only installs) the live lookup would
-    # answer False for everyone and silently demote every SSO admin.
-    annuaire = bool(LDAP_BIND_DN and LDAP_BIND_PW)
-    if snapshot is None:
-        return True, None, None
-    return True, (snapshot and is_admin_username(username)) if annuaire else snapshot, None
+    return True, (bool(src['last_is_admin']) if src is not None else None), None
 
 
 def _revalide_session():
@@ -171,9 +164,6 @@ def bloquer_compte(username, raison, par):
         "blocked_by=excluded.blocked_by, blocked_at=excluded.blocked_at",
         (username, (raison or None), (par or '?'), datetime.now().isoformat()))
     db.commit()
-    # The admin role is cached 60 s for /internal/authcheck: without a purge, a
-    # blocked admin's key would still cross maintenance for a minute.
-    _admin_username_cache.pop(username, None)
     revoquees = _revoke_user_sessions(username)
     from user_lifecycle import revoquer_cles_compte        # late import: cycle auth <-> user_lifecycle
     cles_ok, cles_ko, cles_total = revoquer_cles_compte(username, par, 'blocage du compte')
@@ -190,9 +180,6 @@ def debloque_compte(username, par):
     db = get_db()
     n = db.execute("DELETE FROM blocked_users WHERE username=?", (username,)).rowcount
     db.commit()
-    # Same reason as in bloquer_compte: the cached role must not delay the
-    # return to normal by a minute.
-    _admin_username_cache.pop(username, None)
     if n:
         log_audit(par, 'user.unblock', username)
     return n
@@ -285,22 +272,27 @@ def _inject_csrf():
 
 # ── Admin status ──
 
-_admin_username_cache = {}
-
 def is_admin_username(username):
-    """Admin status of an account, without an active session (used by
-    /internal/authcheck, called by Traefik for EVERY external API request
-    in maintenance mode — hence the cache, to avoid hitting LDAP each
-    time).
+    """Admin status of an account without an active session (used by
+    /internal/authcheck, called by Traefik for EVERY external API request in
+    maintenance mode).
+
+    Database only, never the directory: a managed local account answers from
+    local_users, an LDAP/SSO account from the role recorded at its last login
+    (user_sources.last_is_admin) — the same source as the web session, so a key
+    and a session of one account can no longer disagree. A blocked account is
+    never admin.
     """
-    now = time.time()
-    cached = _admin_username_cache.get(username)
-    if cached and now - cached[0] < 60:
-        return cached[1]
-    is_admin = (ldap_lookup_admin(username)
-                or _local_user_admin(username))
-    _admin_username_cache[username] = (now, is_admin)
-    return is_admin
+    if _local_user_admin(username):
+        return True
+    try:
+        if est_bloque(username):
+            return False
+        row = get_db().execute(
+            "SELECT last_is_admin FROM user_sources WHERE username=?", (username,)).fetchone()
+        return bool(row and row['last_is_admin'])
+    except Exception:
+        return False
 
 
 def _local_user_admin(username):
@@ -335,13 +327,16 @@ def _local_user_admin(username):
 # ── LDAP ──
 
 def _is_admin_group(dn):
-    """True if one of the DN's RDN components is exactly cn=dgx_admins.
-    Avoids the false positive of a plain `'dgx_admins' in dn` (which would match
-    cn=dgx_admins_readonly, cn=notdgx_admins, etc.).
+    """True if one of the DN's RDN components is exactly cn=<OIDC_ADMIN_GROUP>.
+    Avoids the false positive of a plain substring test (the group « admins »
+    would match cn=admins_readonly, cn=notadmins, etc.).
     """
+    groupe = (OIDC_ADMIN_GROUP or '').strip().lower()
+    if not groupe:
+        return False
     for part in dn.split(','):
         attr, _, val = part.strip().partition('=')
-        if attr.strip().lower() == 'cn' and val.strip().lower() == 'dgx_admins':
+        if attr.strip().lower() == 'cn' and val.strip().lower() == groupe:
             return True
     return False
 
@@ -382,28 +377,6 @@ def ldap_authenticate(username, password):
         return True, is_admin, fullname
     except Exception:
         return False, False, username
-
-def ldap_lookup_admin(username):
-    """Determines is_admin via an LDAP lookup by uid (service account).
-    Used for SSO when the OIDC 'groups' claim is absent.
-    """
-    if not (LDAP_BIND_DN and LDAP_BIND_PW) or not USERNAME_RE.match(username or ''):
-        return False
-    try:
-        server = Server(LDAP_URI, get_info=ALL)
-        conn = Connection(server, user=LDAP_BIND_DN, password=LDAP_BIND_PW,
-                          authentication=SIMPLE, auto_bind=True)
-        conn.search(search_base=f"{LDAP_USERS_DN},{LDAP_BASE}",
-                    search_filter=f"({LDAP_LOGIN_ATTR}={escape_filter_chars(username)})",
-                    attributes=['memberOf'])
-        is_admin = False
-        if conn.entries and hasattr(conn.entries[0], 'memberOf'):
-            groups = [str(g) for g in conn.entries[0].memberOf]
-            is_admin = any(_is_admin_group(g) for g in groups)
-        conn.unbind()
-        return is_admin
-    except Exception:
-        return False
 
 def ldap_lookup_email(username):
     """User's email via the LDAP service account (to notify them)."""

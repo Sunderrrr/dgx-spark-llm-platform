@@ -71,11 +71,10 @@ ERREURS_REACT = re.compile(
 # corrige pas le code applicatif. Ce défaut est donc signalé à chaque run (⚠)
 # sans faire rougir la validation — mais UNIQUEMENT pour l'erreur exacte
 # mesurée et sur la page mesurée : toute autre erreur React reste un échec.
-# (Vide.) Le #418 de /playground, longtemps rapporté ici, est CORRIGÉ depuis
-# le 2026-10-11 : le thème « auto » de border-beam se résolvait pendant le
-# rendu (sombre côté serveur, clair dans le navigateur). Toute erreur
-# d'hydratation fait désormais échouer le balayage — elle jetait le HTML
-# serveur et rechargeait les données de la page.
+# (Empty.) The /playground #418, long reported here, is FIXED since
+# 2026-10-11: border-beam resolved its « auto » theme during render (dark on
+# the server, light in the browser). Any hydration error now fails the sweep —
+# it threw the server HTML away and reloaded the page's data.
 DEFAUTS_CONNUS: list = []
 
 

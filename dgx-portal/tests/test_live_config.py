@@ -70,6 +70,14 @@ class LiveConfigTest(unittest.TestCase):
                     parametres.definir('ldap_uri', '')
                     self.assertEqual(parametres.importer_env_une_fois(), [])
                     self.assertEqual(parametres.ldap_config()['uri'], '')
+                # A key that joined the panel AFTER the first import still gets
+                # its one import (an instance marked with the old plain flag).
+                portal.set_setting('cfg_env_importe', '1')
+                with patch.dict(os.environ, {'DISCORD_CLIENT_ID': '42', 'LDAP_URI': 'ldap://again'}):
+                    self.assertEqual(parametres.importer_env_une_fois(), ['discord_client_id'])
+                    self.assertEqual(parametres.discord_config()['client_id'], '42')
+                    self.assertEqual(parametres.importer_env_une_fois(), [])
+                parametres.definir('discord_client_id', parametres.EFFACER)
             finally:
                 if marque:
                     portal.set_setting('cfg_env_importe', marque)
@@ -117,3 +125,28 @@ class LiveConfigTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DiscordConfigTest(unittest.TestCase):
+    """Discord is set from Admin → Config too, read live."""
+
+    def tearDown(self):
+        with portal.app.app_context():
+            for k in ('discord_webhook_url', 'discord_client_id', 'discord_client_secret'):
+                parametres.definir(k, parametres.EFFACER)
+
+    def test_liaison_active_avec_id_et_secret(self):
+        with portal.app.app_context():
+            self.assertFalse(parametres.discord_config()['link_enabled'])
+            parametres.definir('discord_client_id', '123')
+            parametres.definir('discord_client_secret', 's')
+            self.assertTrue(parametres.discord_config()['link_enabled'])
+
+    def test_le_webhook_vient_de_l_admin(self):
+        # notify.notify_discord reads discord_config()['webhook'] (its sending
+        # is covered by test_hf_search.NotifyDiscordTest).
+        with portal.app.app_context():
+            parametres.definir('discord_webhook_url', 'https://discord.invalid/hook')
+            self.assertEqual(parametres.discord_config()['webhook'], 'https://discord.invalid/hook')
+            etat = {e['nom']: e for e in parametres.etat_config()}
+            self.assertEqual(etat['discord_webhook_url']['valeur'], '', "a webhook is a secret")

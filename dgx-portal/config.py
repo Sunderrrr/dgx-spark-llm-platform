@@ -32,16 +32,10 @@ MUSIC_URL     = os.environ.get('MUSIC_URL', 'http://music:8008')
 # Image sidecar: was declared in the monolith's image section, although it is
 # a service URL like the others — and sidecars.py needs it.
 IMAGE_URL = os.environ.get('IMAGE_URL', 'http://image:8007')
-DISCORD_WH    = os.environ.get('DISCORD_WEBHOOK_URL', '')
 # Discord DM notifications: a bot DMs each user who linked their account (OAuth2
 # "identify") whenever an announcement fires (model change, site announcement,
 # maintenance, new model). The bot token sends DMs; the client id/secret drive
 # the account-linking OAuth flow. All optional — absent → the feature is off.
-DISCORD_BOT_TOKEN     = os.environ.get('DISCORD_BOT_TOKEN', '')
-DISCORD_CLIENT_ID     = os.environ.get('DISCORD_CLIENT_ID', '')
-DISCORD_CLIENT_SECRET = os.environ.get('DISCORD_CLIENT_SECRET', '')
-DISCORD_REDIRECT_URI  = os.environ.get('DISCORD_REDIRECT_URI', '')
-DISCORD_LINK_ENABLED  = bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET)
 DISCORD_API           = 'https://discord.com/api/v10'
 # Anti-spam window for « launch a media category » requests (seconds).
 MEDIA_REQUEST_COOLDOWN_S = int(os.environ.get('MEDIA_REQUEST_COOLDOWN_S', '1800'))

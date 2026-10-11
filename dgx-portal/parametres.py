@@ -5,7 +5,7 @@ l'interface web […] je n'aime pas avoir trop de choses dans le .env »
 (operator, 2026-10-11). `.env` keeps what the stack needs to START (its two
 public origins and the generated infrastructure secrets); everything an
 operator tunes — LDAP, SSO, SMTP, the alert recipient, the security contact —
-lives in the portal database and is edited from Admin → Config:
+— and Discord — lives in the portal database and is edited from Admin → Config:
 
   1. the `settings` table, written from Admin;
   2. the code default (a fresh install: nothing configured, local accounts only).
@@ -42,6 +42,11 @@ CONFIGURABLE = [
     ('smtp_pass',       'SMTP — mot de passe', True, 'SMTP_PASSWORD', ''),
     ('smtp_from',       'SMTP — adresse expéditrice', False, 'SMTP_FROM', ''),
     ('admin_email',     'SMTP — destinataire des alertes', False, 'ADMIN_EMAIL', ''),
+    ('discord_webhook_url', 'Discord — webhook des alertes admin', True, 'DISCORD_WEBHOOK_URL', ''),
+    ('discord_bot_token', 'Discord — jeton du bot (messages privés)', True, 'DISCORD_BOT_TOKEN', ''),
+    ('discord_client_id', 'Discord — client ID (liaison des comptes)', False, 'DISCORD_CLIENT_ID', ''),
+    ('discord_client_secret', 'Discord — client secret', True, 'DISCORD_CLIENT_SECRET', ''),
+    ('discord_redirect_uri', 'Discord — URI de retour', False, 'DISCORD_REDIRECT_URI', ''),
     ('security_contact', 'Sécurité — contact (security.txt)', False, 'DGX_SECURITY_CONTACT', ''),
 ]
 _PAR_NOM = {c[0]: c for c in CONFIGURABLE}
@@ -63,20 +68,30 @@ def parametre(nom, defaut=None):
 
 
 def importer_env_une_fois():
-    """Copies the legacy `.env` values into the database, ONCE per instance.
+    """Copies the legacy `.env` values into the database, ONCE per key.
 
-    Only empty settings are filled, then a marker is set: from then on an
-    operator who clears a field in Admin means it, a value left in `.env` does
-    not come back at the next restart. Returns the keys imported."""
-    if get_setting('cfg_env_importe', ''):
-        return []
+    Only empty settings are filled, and every key considered is remembered
+    (`cfg_env_importe`, a comma list): an operator who clears a field in Admin
+    means it, a value left in `.env` does not come back at the next restart —
+    while a key added to the panel later (Discord, 2026-10-11) still gets its
+    one import. Returns the keys imported."""
+    marque = get_setting('cfg_env_importe', '') or ''
+    if marque == '1':
+        # The first version kept a plain flag, set before Discord joined the
+        # panel: every non-Discord key had been considered.
+        traitees = {c[0] for c in CONFIGURABLE if not c[0].startswith('discord_')}
+    else:
+        traitees = {k for k in marque.split(',') if k}
     importes = []
     for nom, _libelle, _secret, env, _defaut in CONFIGURABLE:
+        if nom in traitees:
+            continue
         v = (os.environ.get(env) or '').strip()
         if v and not read_setting('cfg_' + nom, ''):
             set_setting('cfg_' + nom, v)
             importes.append(nom)
-    set_setting('cfg_env_importe', '1')
+        traitees.add(nom)
+    set_setting('cfg_env_importe', ','.join(sorted(traitees)))
     return importes
 
 
@@ -108,6 +123,18 @@ def smtp_config():
          'password': parametre('smtp_pass'), 'from': parametre('smtp_from'),
          'admin_email': parametre('admin_email')}
     c['configured'] = bool(c['host'] and c['user'] and c['password'])
+    return c
+
+
+def discord_config():
+    """Discord: the admin-alert webhook, the bot that DMs announcements, and the
+    OAuth2 app that links accounts. Each part is off while its fields are empty."""
+    c = {'webhook': parametre('discord_webhook_url'),
+         'bot_token': parametre('discord_bot_token'),
+         'client_id': parametre('discord_client_id'),
+         'client_secret': parametre('discord_client_secret'),
+         'redirect_uri': parametre('discord_redirect_uri')}
+    c['link_enabled'] = bool(c['client_id'] and c['client_secret'])
     return c
 
 

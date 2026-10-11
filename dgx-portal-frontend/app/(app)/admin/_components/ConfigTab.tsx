@@ -39,6 +39,7 @@ const CATEGORIES: Categorie[] = [
   { titre: "LDAP", mots: ["ldap_"] },
   { titre: "SSO / Authentification", mots: ["oidc_"] },
   { titre: "SMTP / Courriel", mots: ["smtp_", "admin_email"] },
+  { titre: "Discord", mots: ["discord_"] },
 ];
 
 function categorieDe(nom: string): Categorie {

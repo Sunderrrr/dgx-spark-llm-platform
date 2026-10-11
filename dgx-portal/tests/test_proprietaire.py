@@ -168,3 +168,45 @@ class ProtectionTest(BaseSetup):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ProprietaireAnnuaireTest(BaseSetup):
+    """The owner can be a directory (SSO/LDAP) account: no local row."""
+
+    SSO = 'ztest-owner-sso'
+
+    def setUp(self):
+        super().setUp()
+        with portal.app.app_context():
+            db = portal.get_db()
+            db.execute("INSERT OR REPLACE INTO user_sources (username, sources, fullname, "
+                       "last_source, last_seen, last_is_admin) VALUES (?,?,?,?,?,0)",
+                       (self.SSO, 'sso', self.SSO, 'sso', '2026-10-11'))
+            db.execute("INSERT INTO local_users (username, password_hash, is_admin, enabled, "
+                       "created_at) VALUES (?, 'x', 1, 1, ?)", (AUTRE_ADMIN, time.time()))
+            db.commit()
+            portal.set_setting(proprietaire.CLE_PROPRIETAIRE, self.SSO)
+
+        def _menage():
+            with portal.app.app_context():
+                db = portal.get_db()
+                db.execute("DELETE FROM user_sources WHERE username=?", (self.SSO,))
+                db.commit()
+        self.addCleanup(_menage)
+
+    def test_toujours_admin_meme_retire_du_groupe(self):
+        import auth
+        with portal.app.app_context():
+            self.assertEqual(auth.etat_compte(self.SSO), (True, True, None))
+            self.assertTrue(auth.is_admin_username(self.SSO))
+
+    def test_les_autres_admins_ne_peuvent_ni_purger_ni_couper_ni_plafonner(self):
+        c = portal.app.test_client()
+        with c.session_transaction() as s:
+            s.update(csrf='tok', username=AUTRE_ADMIN, is_admin=True, auth_at=int(time.time()))
+        for url, data in ((f'/admin/users/{self.SSO}/purge', {'confirm': 'DELETE'}),
+                          (f'/admin/users/{self.SSO}/revoke-sessions', {}),
+                          (f'/admin/users/{self.SSO}/budget/set', {'budget': '10'}),
+                          (f'/admin/users/{self.SSO}/block', {'reason': 'x'})):
+            r = c.post(url, data=data, headers={'X-CSRFToken': 'tok'})
+            self.assertEqual(r.status_code, 403, url)

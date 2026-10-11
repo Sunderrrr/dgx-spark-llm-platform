@@ -353,19 +353,19 @@ class NotifyDiscordTest(unittest.TestCase):
     """`notify_discord` returned nothing, so `discord_sent` lied."""
 
     def test_renvoie_faux_sans_webhook(self):
-        with patch.object(notify, 'DISCORD_WH', ''):
+        with patch.object(notify, 'discord_config', return_value={'webhook': ''}):
             self.assertFalse(notify.notify_discord('m', 'u', 'U', 'r'))
 
     def test_renvoie_vrai_quand_le_webhook_repond(self):
-        with patch.object(notify, 'DISCORD_WH', 'https://discord.invalid/hook'), \
+        with patch.object(notify, 'discord_config', return_value={'webhook': 'https://discord.invalid/hook'}), \
              patch.object(notify.requests, 'post', return_value=_reponse({}, status=204)):
             self.assertTrue(notify.notify_discord('m', 'u', 'U', 'r'))
 
     def test_renvoie_faux_quand_le_webhook_echoue(self):
-        with patch.object(notify, 'DISCORD_WH', 'https://discord.invalid/hook'), \
+        with patch.object(notify, 'discord_config', return_value={'webhook': 'https://discord.invalid/hook'}), \
              patch.object(notify.requests, 'post', return_value=_reponse({}, status=500)):
             self.assertFalse(notify.notify_discord('m', 'u', 'U', 'r'))
-        with patch.object(notify, 'DISCORD_WH', 'https://discord.invalid/hook'), \
+        with patch.object(notify, 'discord_config', return_value={'webhook': 'https://discord.invalid/hook'}), \
              patch.object(notify.requests, 'post',
                           side_effect=requests.ConnectionError('boom')):
             self.assertFalse(notify.notify_discord('m', 'u', 'U', 'r'))

@@ -895,6 +895,8 @@ def api_admin_users():
         # historical local row remains; without a local row, the directory is
         # the only possible authority.
         managed_by = 'repertoire' if (mu is None or last_source in ('sso', 'ldap')) else 'local'
+        if name == proprio:
+            effective_admin = True       # the owner is always an admin (auth.etat_compte)
         out.append({
             'username': name,
             'fullname': fullname,
@@ -1109,6 +1111,9 @@ def admin_users_update(uid):
 def admin_revoke_sessions(username):
     """Revokes at will all active sessions of an account (even a
     stolen cookie becomes unusable immediately)."""
+    refus = _proprietaire_protege(username)
+    if refus:
+        return refus
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
     n = _revoke_user_sessions(username)
@@ -1273,6 +1278,9 @@ def admin_user_purge(username):
     access: BLOCKING remains the offboarding lever, since a directory
     account can log back in and would then find an empty account.
     """
+    refus = _proprietaire_protege(username)
+    if refus:
+        return refus
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
     if username == session.get('username'):
@@ -1860,6 +1868,9 @@ def set_user_budget(username):
     « je mets 0 pour lever la limite » cuts access. Blocking has the same
     effect, reversible and with a recorded reason.
     """
+    refus = _proprietaire_protege(username)
+    if refus:
+        return refus
     db = get_db()
     raw = request.form.get('budget', '').strip()
     try:

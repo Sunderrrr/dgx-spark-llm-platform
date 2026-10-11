@@ -21,9 +21,8 @@ from flask import (Blueprint, flash, jsonify, redirect, request, session,
                    url_for)
 
 from auth import login_required
-from config import (DISCORD_API, DISCORD_BOT_TOKEN, DISCORD_CLIENT_ID,
-                    DISCORD_CLIENT_SECRET, DISCORD_LINK_ENABLED,
-                    DISCORD_REDIRECT_URI)
+from config import DISCORD_API
+from parametres import discord_config
 from db import get_db
 
 bp = Blueprint('discord', __name__)
@@ -34,14 +33,15 @@ bp = Blueprint('discord', __name__)
 @bp.route('/discord/link')
 @login_required
 def discord_link():
-    if not DISCORD_LINK_ENABLED:
+    dc = discord_config()           # Admin → Config, read live
+    if not dc['link_enabled']:
         flash("La liaison Discord n'est pas configurée.", "danger")
         return redirect('/?discord=unavailable')
     state = secrets.token_urlsafe(24)
     session['discord_oauth_state'] = state
-    redirect_uri = DISCORD_REDIRECT_URI or url_for('discord.discord_callback', _external=True)
+    redirect_uri = dc['redirect_uri'] or url_for('discord.discord_callback', _external=True)
     params = urlencode({
-        'client_id': DISCORD_CLIENT_ID,
+        'client_id': dc['client_id'],
         'redirect_uri': redirect_uri,
         'response_type': 'code',
         'scope': 'identify',
@@ -54,7 +54,8 @@ def discord_link():
 @bp.route('/discord/callback')
 @login_required
 def discord_callback():
-    if not DISCORD_LINK_ENABLED:
+    dc = discord_config()
+    if not dc['link_enabled']:
         return redirect('/?discord=unavailable')
     state = request.args.get('state')
     if not state or state != session.pop('discord_oauth_state', None):
@@ -64,11 +65,11 @@ def discord_callback():
     if not code:
         flash("Discord : autorisation refusée.", "warning")
         return redirect('/?discord=error')
-    redirect_uri = DISCORD_REDIRECT_URI or url_for('discord.discord_callback', _external=True)
+    redirect_uri = dc['redirect_uri'] or url_for('discord.discord_callback', _external=True)
     try:
         tok = requests.post(f"{DISCORD_API}/oauth2/token",
-                            data={'client_id': DISCORD_CLIENT_ID,
-                                  'client_secret': DISCORD_CLIENT_SECRET,
+                            data={'client_id': dc['client_id'],
+                                  'client_secret': dc['client_secret'],
                                   'grant_type': 'authorization_code',
                                   'code': code,
                                   'redirect_uri': redirect_uri},
@@ -127,8 +128,8 @@ def api_discord_status():
     except Exception:
         pass
     return jsonify({
-        'linkable': DISCORD_LINK_ENABLED,
-        'dm_enabled': bool(DISCORD_BOT_TOKEN),
+        'linkable': discord_config()['link_enabled'],
+        'dm_enabled': bool(discord_config()['bot_token']),
         'linked': name is not None,
         'discord_name': name or '',
     })

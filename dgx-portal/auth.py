@@ -25,6 +25,7 @@ from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 
 from parametres import ldap_config, parametre
+from proprietaire import est_proprietaire
 from db import get_db, log_audit
 from local_users import _local_user_is_admin
 
@@ -114,6 +115,11 @@ def etat_compte(username):
     # 10 s (measured 2026-10-11). A directory-side demotion therefore lands at
     # the next login (SESSION_MAX_AGE at most); to cut an admin at once, block
     # the account in the portal — that closes its sessions and keys.
+    # The instance's OWNER is always an admin, whatever the directory says
+    # today: an SSO owner dropped from its IdP group must not lose the
+    # platform it owns (proprietaire.py).
+    if est_proprietaire(username):
+        return True, True, None
     src = db.execute(
         "SELECT last_is_admin FROM user_sources WHERE username=?", (username,)).fetchone()
     return True, (bool(src['last_is_admin']) if src is not None else None), None
@@ -287,6 +293,8 @@ def is_admin_username(username):
     try:
         if est_bloque(username):
             return False
+        if est_proprietaire(username):
+            return True
         row = get_db().execute(
             "SELECT last_is_admin FROM user_sources WHERE username=?", (username,)).fetchone()
         return bool(row and row['last_is_admin'])

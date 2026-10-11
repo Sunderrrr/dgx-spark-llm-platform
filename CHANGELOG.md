@@ -86,6 +86,13 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Added
 
+- Discord (admin-alert webhook, announcement bot, account linking) is set from
+  Admin → Config too; the `.env` import now remembers each key it considered,
+  so keys added to the panel later still get their one import. The owner can
+  be a directory (SSO/LDAP) account: it stays an admin whatever its directory
+  groups say, and the other admins cannot purge it, revoke its sessions or
+  change its budget.
+
 - **Owner account on first start.** A fresh instance has no account: the login
   page creates the owner, a local admin the other admins cannot delete, demote,
   disable or block. It requires the setup token printed in the portal's log

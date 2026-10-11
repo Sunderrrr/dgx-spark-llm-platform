@@ -18,8 +18,8 @@ from email.mime.text import MIMEText
 import requests
 
 from db import platform_name
-from config import ADMIN_URL, DISCORD_WH
-from parametres import parametre, smtp_config
+from config import ADMIN_URL
+from parametres import discord_config, parametre, smtp_config
 
 # Application name shown by the mail client (gmail shows « DGX platform »).
 # The sending address stays the authenticated SMTP account (SMTP_USER / SMTP_FROM).
@@ -151,7 +151,8 @@ def notify_discord(model_id, username, fullname, reason):
     « not warned » even when the message had gone out. The three failure
     cases (webhook not configured, network, error response) are False.
     """
-    if not DISCORD_WH:
+    webhook = discord_config()['webhook']
+    if not webhook:
         return False
     payload = {"embeds": [{
         "title": "🤖 Nouvelle demande de modèle — DGX Spark",
@@ -165,13 +166,14 @@ def notify_discord(model_id, username, fullname, reason):
         "timestamp": datetime.utcnow().isoformat()
     }]}
     try:
-        return requests.post(DISCORD_WH, json=payload, timeout=5).ok
+        return requests.post(webhook, json=payload, timeout=5).ok
     except Exception:
         return False
 
 
 def notify_budget_discord(username, fullname, key_alias, current_budget, reason):
-    if not DISCORD_WH:
+    webhook = discord_config()['webhook']
+    if not webhook:
         return
     payload = {"embeds": [{
         "title": "🔋 Demande de tokens supplémentaires — DGX Spark",
@@ -186,7 +188,7 @@ def notify_budget_discord(username, fullname, key_alias, current_budget, reason)
         "timestamp": datetime.utcnow().isoformat()
     }]}
     try:
-        requests.post(DISCORD_WH, json=payload, timeout=5)
+        requests.post(webhook, json=payload, timeout=5)
     except Exception:
         pass
 

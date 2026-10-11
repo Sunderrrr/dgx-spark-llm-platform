@@ -172,7 +172,6 @@ services:
       # eth0 with a 172.19.x source, which the firewall allows. Measured:
       # 4.01 s → 0.00 s. The subnet is pinned below so the IP stays stable.
       VLLM_API_URL: http://172.19.0.1:8000/v1
-      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
       MEDIA_REQUEST_COOLDOWN_S: ${MEDIA_REQUEST_COOLDOWN_S:-1800}
       # NO KEY_MAX_BUDGET/KEY_BUDGET_DURATION here: this block long carried
       # « 0.002 » / « 1d » (a nearly exhausted test account), which overwrote
@@ -202,7 +201,7 @@ services:
       # LiteLLM database for consumption stats (ranking + hourly graph)
       LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres/litellm
       TZ_DISPLAY: Europe/Paris
-      # ── LDAP, SSO, SMTP: NOT configured here ──
+      # ── LDAP, SSO, SMTP, Discord: NOT configured here ──
       # They are set in Admin → Config (portal database). A fresh install
       # leaves all of this empty and creates its owner account from the web.
       # These lines only carry an OLDER deployment's .env values into the
@@ -227,6 +226,11 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-}
       # App served over HTTPS behind Traefik → Secure session cookie
       SESSION_COOKIE_SECURE: "1"
     volumes:

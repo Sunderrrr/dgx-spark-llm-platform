@@ -6,7 +6,7 @@ persisted settings.
 
 The bot sends a private message to each user who linked their account
 (OAuth2 "identify") when an announcement goes out. Entirely optional: without
-DISCORD_BOT_TOKEN, everything is inert.
+a bot token (Admin → Config → Discord), everything is inert.
 """
 import sqlite3
 import threading
@@ -14,7 +14,8 @@ import time
 
 import requests
 
-from config import DISCORD_API, DISCORD_BOT_TOKEN
+from config import DISCORD_API
+from parametres import discord_config
 # DB_PATH in addition to get_db: the broadcast runs in a THREAD, which has no
 # Flask context and therefore opens its own connection (same reason as the
 # image/video jobs — see the get_db docstring).
@@ -25,12 +26,12 @@ from db import DB_PATH, get_setting, platform_name
 # guild with the bot and the user's DMs open, so per-user failures are expected
 # and swallowed (best-effort).
 def _discord_bot_headers():
-    return {"Authorization": f"Bot {DISCORD_BOT_TOKEN}", "Content-Type": "application/json"}
+    return {"Authorization": f"Bot {discord_config()['bot_token']}", "Content-Type": "application/json"}
 
 def _discord_send_dm(discord_id, content):
     """Open (or reuse) a DM channel with the user and post one message. Handles a
     single 429 retry. Returns True on success."""
-    if not DISCORD_BOT_TOKEN:
+    if not discord_config()['bot_token']:
         return False
     try:
         ch = requests.post(f"{DISCORD_API}/users/@me/channels",
@@ -58,7 +59,7 @@ def _discord_send_dm(discord_id, content):
 def discord_broadcast(content):
     """DM every linked user, in a background thread so the caller (a launch or an
     announcement) isn't blocked. Throttled to stay under Discord's rate limits."""
-    if not DISCORD_BOT_TOKEN or not content:
+    if not discord_config()['bot_token'] or not content:
         return
     if get_setting('discord_dm', '1') != '1':   # admin kill-switch
         return

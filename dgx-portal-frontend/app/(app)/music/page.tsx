@@ -88,7 +88,7 @@ export default function MusicPage() {
   useEffect(() => { loadHistory(); return stopPolling; }, []);
 
   useEffect(() => {
-    fetch("/api/home", { credentials: "include" })
+    fetch("/api/running-models", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setAvailable(!!d?.running_models?.some((m: RunningModel) => m.kind === "music")))
       .catch(() => setAvailable(null));

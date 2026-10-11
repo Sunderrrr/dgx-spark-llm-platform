@@ -18,6 +18,12 @@ const nextConfig: NextConfig = {
     root: path.join(__dirname),
   },
   experimental: {
+    // Every page is dynamic (per-request CSP nonce), so by default each click
+    // re-fetched the page's RSC payload from the server, even for a page left
+    // a second ago. The payload is only the client component's shell — the
+    // data is fetched by the page itself — so reusing it for 30 s is safe and
+    // makes going back and forth between pages instant.
+    staleTimes: { dynamic: 30 },
     // The proxy.ts middleware (routes ALL non-GET/HEAD to Flask) silently
     // truncates request bodies beyond 10 MB by default — it broke the image
     // uploads of /api/video/generate and /api/ocr/extract (advertised

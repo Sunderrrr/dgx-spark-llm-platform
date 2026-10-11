@@ -767,7 +767,9 @@ def _budget_remaining(username, default_budget, duration):
     return used, remaining
 
 
-def _index_data():
+def _running_and_metrics():
+    """What runs right now (chat model + on-demand sidecars) and the sidecar
+    metrics, shared by /api/home and the lighter /api/running-models."""
     # The sidecar probes are INDEPENDENT HTTP calls, ~250 ms each when their
     # cache is cold. Done one after another they made /api/home cost 3.19 s
     # (measured 2026-10-07: 12 requests.get = 3.10 s of the 3.19 s) — the home
@@ -816,6 +818,11 @@ def _index_data():
         _vlabel = 'Qwen3-TTS' if get_voice_engine() == 'qwen3-tts' else 'Chatterbox'
         running.append({'name': f'{_vlabel} ({voice_model})', 'kind': 'voice', 'exposed': False})
         metrics['voice'] = _resultats['m_voice']
+    return running, metrics
+
+
+def _index_data():
+    running, metrics = _running_and_metrics()
     db = get_db()
     my_requests = db.execute(
         "SELECT * FROM model_requests WHERE username=? ORDER BY created_at DESC LIMIT 5",
@@ -1114,6 +1121,17 @@ def api_home():
     data = _index_data()
     data['my_requests'] = [dict(r) for r in data['my_requests']]
     return jsonify(data)
+
+
+@app.route('/api/running-models')
+@login_required
+def api_running_models():
+    """Only « what runs right now ». The media pages (image, video, voice,
+    music, OCR) read nothing else, yet fetched the whole /api/home on every
+    visit: spend aggregates, LiteLLM budget lookup, runner metrics — up to
+    700 ms measured on 2026-10-11 against ~5 ms for this list."""
+    running, _ = _running_and_metrics()
+    return jsonify({'running_models': running})
 
 
 @app.route('/api/modelhealth')

@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import threading
 import time
 
 import requests
@@ -198,25 +199,50 @@ def _cache_video_local(prompt_id, st):
 
 # Availability probe, brought over from app.py on 28/08: it sat in « Helpers »
 # although it queries ComfyUI and nothing else.
-_comfyui_up_cache = {'t': 0.0, 'v': False}
+_comfyui_up_cache = {'t': 0.0, 'v': False, 'refreshing': False}
+_comfyui_up_lock = threading.Lock()
+
+
+def _probe_comfyui():
+    try:
+        # 0.3 s, not 3: a ComfyUI that is up but busy — or a relay answering
+        # while the engine behind it does not — used to make the whole home
+        # page wait 3 s (measured 2026-10-07). Availability matters little
+        # enough to accept a false negative; the tool retries at the next call.
+        return requests.get(f"{COMFYUI_URL}/system_stats", timeout=0.3).ok
+    except Exception:
+        return False
+
+
+def _refresh_comfyui():
+    try:
+        _comfyui_up_cache.update(t=time.time(), v=_probe_comfyui())
+    finally:
+        _comfyui_up_cache['refreshing'] = False
+
 
 def comfyui_is_up():
     """ComfyUI (MiniMax-H3, video generation) serves a single fixed workflow and
     has no /v1/models — we just probe its availability.
+
+    Stale-while-revalidate: once a first answer exists, an expired cache returns
+    it at once and refreshes in the background. With video off, the probe is a
+    full 0.3 s timeout, and every page asking « which services run? » paid it
+    every 5 s per gunicorn worker (measured 2026-10-11: 300 ms of a cold
+    /api/home). Only the first call of a worker waits.
     """
     now = time.time()
     if now - _comfyui_up_cache['t'] < 5:
         return _comfyui_up_cache['v']
-    v = False
-    try:
-        # 0.8 s, not 3: this probe runs on EVERY home load (the dashboard polls
-        # every 5 s), and a ComfyUI that is up but busy — or a relay answering
-        # while the engine behind it does not — used to make the whole page wait
-        # 3 s (measured 2026-10-07: this single probe was 3.0 s of the 3.2 s
-        # home load). Availability matters little enough to accept a false
-        # negative; the tool retries at the next call.
-        v = requests.get(f"{COMFYUI_URL}/system_stats", timeout=0.3).ok
-    except Exception:
-        pass
+    if _comfyui_up_cache['t']:
+        with _comfyui_up_lock:
+            lancer = not _comfyui_up_cache['refreshing']
+            _comfyui_up_cache['refreshing'] = True
+        if lancer:
+            # Short-lived (one probe): unnamed, unlike the long-lived threads
+            # test_garde_regressions counts.
+            threading.Thread(target=_refresh_comfyui, daemon=True).start()
+        return _comfyui_up_cache['v']
+    v = _probe_comfyui()
     _comfyui_up_cache.update(t=now, v=v)
     return v

@@ -86,7 +86,7 @@ export default function VideoPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/home", { credentials: "include" })
+    fetch("/api/running-models", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         // We keep the name ACTUALLY served, for the title: it was hardcoded

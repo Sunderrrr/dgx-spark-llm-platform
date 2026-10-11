@@ -122,8 +122,13 @@ export default function SearchPage() {
   // every character. Before this fix, only an explicit click on "Search"
   // triggered a new search: typing text had no visible effect, giving the
   // impression of frozen/wrong results.
+  // The page's first search has nothing to debounce: waiting 400 ms there
+  // only delayed every arrival on the page (measured 2026-10-11).
+  const premiereRecherche = useRef(true);
   useEffect(() => {
-    const id = setTimeout(() => runSearch(query, task, gb10Only, 0), 400);
+    const delai = premiereRecherche.current ? 0 : 400;
+    premiereRecherche.current = false;
+    const id = setTimeout(() => runSearch(query, task, gb10Only, 0), delai);
     return () => clearTimeout(id);
   }, [query, task, gb10Only, runSearch]);
 

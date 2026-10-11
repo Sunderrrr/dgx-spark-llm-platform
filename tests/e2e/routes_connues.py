@@ -88,6 +88,7 @@ ROUTES = {
     'api_keys': ('parcours', 'j10_cles_api (liste des clés)'),
     'api_model_request': ('exclu', 'bouton « Demander un modèle » (média) : envoie un email réel + anti-spam 30 min — non déclenché pour ne pas polluer la file admin'),
     'api_modelhealth': ('parcours', 'j11_balayage_pages (accueil)'),
+    'api_running_models': ('parcours', 'j11_balayage_pages (pages image, vidéo, voix, musique, OCR)'),
     'api_notifications': ('parcours', 'j11_balayage_pages (coquille)'),
     'api_notifications_seen': ('exclu', 'marquage des notifications comme vues : écriture de préférence'),
     'api_onboarding_done': ('exclu', 'onboarding déjà soldé pour le compte de démo'),

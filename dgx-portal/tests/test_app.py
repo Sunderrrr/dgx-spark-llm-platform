@@ -2319,3 +2319,65 @@ class SupportFinDeTourTest(unittest.TestCase):
         chat._fin_support("demo", self.HIST, ["réponse à moitié écri"], "fake", "sk-x",
                           False, False, portal.app)
         self.assertIsNone(self._fil(), "une réponse coupée ne doit pas devenir le fil")
+
+
+class RunningModelsLegerTest(unittest.TestCase):
+    """The media pages only need « what runs »: /api/running-models answers
+    that without the spend aggregates and the LiteLLM lookup of /api/home."""
+
+    def test_liste_seule_sans_les_agregats_de_l_accueil(self):
+        import unittest.mock as mock
+        with mock.patch.object(portal, "get_running_models", return_value=["chat-m"]), \
+                mock.patch.object(portal, "comfyui_is_up", return_value=True), \
+                mock.patch.object(portal, "get_ocr_model", return_value=None), \
+                mock.patch.object(portal, "get_voice_model", return_value=None), \
+                mock.patch.object(portal, "image_ready", return_value=False), \
+                mock.patch.object(portal, "music_ready", return_value=False), \
+                mock.patch.object(portal, "_litellm_user_info") as litellm, \
+                mock.patch.object(portal, "_tokens_by_model") as agregat:
+            c = portal.app.test_client()
+            self.assertEqual(c.get("/api/running-models").status_code, 401)
+            with c.session_transaction() as s:
+                s["username"] = "demo"
+                s["auth_at"] = int(time.time())
+            r = c.get("/api/running-models")
+        self.assertEqual(r.status_code, 200)
+        kinds = {m["kind"]: m["name"] for m in r.get_json()["running_models"]}
+        self.assertEqual(kinds, {"chat": "chat-m", "video": "MiniMax-H3"})
+        litellm.assert_not_called()
+        agregat.assert_not_called()
+
+
+class SondeComfyuiTest(unittest.TestCase):
+    """With video off the probe is a full timeout: only a worker's FIRST call
+    may wait on it, later ones get the last answer and refresh behind."""
+
+    def setUp(self):
+        import comfyui_client
+        self.cc = comfyui_client
+        self.addCleanup(self.cc._comfyui_up_cache.update, t=0.0, v=False, refreshing=False)
+
+    def test_premier_appel_attend_les_suivants_non(self):
+        import threading
+        import unittest.mock as mock
+        self.cc._comfyui_up_cache.update(t=0.0, v=False, refreshing=False)
+        with mock.patch.object(self.cc, "_probe_comfyui", return_value=True) as sonde:
+            self.assertTrue(self.cc.comfyui_is_up())
+            self.assertEqual(sonde.call_count, 1)
+        # Expired: the stale value comes back at once, the refresh runs behind.
+        self.cc._comfyui_up_cache['t'] = time.time() - 60
+        fini = threading.Event()
+        def lente():
+            fini.wait(5)
+            return False
+        with mock.patch.object(self.cc, "_probe_comfyui", side_effect=lente):
+            t0 = time.perf_counter()
+            self.assertTrue(self.cc.comfyui_is_up())
+            self.assertTrue(self.cc.comfyui_is_up())   # one refresh at a time
+            self.assertLess(time.perf_counter() - t0, 0.5)
+            fini.set()
+            for _ in range(100):
+                if not self.cc._comfyui_up_cache['refreshing']:
+                    break
+                time.sleep(0.02)
+        self.assertFalse(self.cc._comfyui_up_cache['v'])

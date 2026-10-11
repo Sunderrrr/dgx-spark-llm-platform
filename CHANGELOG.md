@@ -45,6 +45,7 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Fixed
 
+- Page changes are 3-5x faster (≈400-750 ms → 110-290 ms until the page's data is in): the group-wide `loading.tsx` (the home skeleton, shown on every page and costing React's 300 ms fallback throttle) is gone, visited pages are reused for 30 s (`staleTimes`), media pages read the new light `/api/running-models` instead of `/api/home`, the home page no longer fetches `/api/home` twice, the ComfyUI probe refreshes in the background, and the model search no longer debounces its first query.
 - Opening the portal while logged out no longer shows the empty home page for a second: the frontend proxy redirects to `/login` server-side (no session cookie, or `/api/session` answers 401).
 - CI: the secret scan no longer rejects `.env.example` as a forbidden file, and `run-tests.sh` works in a clone without `.env` (placeholder `DGX_WEB`/`DGX_API` for the image build only).
 - The API URL shown to users read `…/v1/v1` (compose appended `/v1` to a value

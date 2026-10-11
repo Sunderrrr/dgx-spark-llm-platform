@@ -227,7 +227,7 @@ export default function OcrPage() {
   useEffect(loadHistory, []);
 
   useEffect(() => {
-    fetch("/api/home", { credentials: "include" })
+    fetch("/api/running-models", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         const ocr = d?.running_models?.find((m: RunningModel) => m.kind === "ocr");

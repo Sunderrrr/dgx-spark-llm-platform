@@ -323,10 +323,11 @@ export default function HomePage() {
   // caches its metrics for ~4 s, so polling faster would refresh nothing
   // more and only multiply the requests. The SpendLogs aggregate behind it
   // goes through the startTime index (~0.15 ms), it absorbs this pace.
-  // load() handles the initial fetch (immediate tick) AND the pace, and skips
-  // the round-trip when the tab is hidden — no double request on mount.
+  // The initial fetch is the combined one above (conversations + home): calling
+  // load() here too sent /api/home TWICE on every arrival (measured
+  // 2026-10-11). This effect only keeps the pace, and skips the round-trip
+  // when the tab is hidden.
   useEffect(() => {
-    load();
     const id = setInterval(load, 5000);
     document.addEventListener("visibilitychange", load);
     return () => {

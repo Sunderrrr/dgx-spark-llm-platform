@@ -362,8 +362,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         />
       )}
       {/* The overlays always mounted (onboarding, settings, palette,
-          notifications) come BEFORE {children}. Measured reason: the page suspends
-          on server rendering (`loading.tsx`), so everything after it in this layout
+          notifications) come BEFORE {children}. Measured reason: when the page
+          suspended on server rendering (the group-wide `loading.tsx`, removed
+          on 2026-10-11 — it cost every navigation React's 300 ms fallback
+          throttle; the order stays right either way), everything after it
           is sent in the stream BEFORE it and ends up inserted before it in the DOM,
           where React expects the JSX order (the onboarding-tour text came out at
           byte 34 116 and the page's at 67 239). Here, both orders coincide.

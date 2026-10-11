@@ -172,7 +172,7 @@ export default function VoicePage() {
   useEffect(loadHistory, []);
 
   useEffect(() => {
-    fetch("/api/home", { credentials: "include" })
+    fetch("/api/running-models", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setAvailable(!!d?.running_models?.some((m: RunningModel) => m.kind === "voice")))
       .catch(() => setAvailable(null));

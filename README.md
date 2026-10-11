@@ -7,10 +7,10 @@
 
 A self-hosted LLM platform running on a single **NVIDIA DGX Spark** (GB10 Grace
 Blackwell, 128 GB unified memory, aarch64): one GPU box, many users, production.
-It turns the machine into a small multi-user AI service — an OpenAI-compatible
-API with per-user keys and budgets, a self-service web portal whose UI is
-**French-first** (English available per account), and a Support assistant that
-can act on your behalf.
+It turns the machine into a small AI service for several users. The API speaks
+the OpenAI protocol and carries keys and budgets for each account. The web
+portal is self-service; its UI is **French-first** (English available per
+account). A Support assistant can act on your behalf.
 
 ![the platform's portal — home dashboard](assets/dashboard.png)
 
@@ -36,8 +36,8 @@ can act on your behalf.
 - **Find or request a model** — live Hugging Face search with GB10-tested badges,
   admin-launched catalog, and a form to ask for a model or more tokens.
 - **Accounts and quotas** — sign in with SSO, LDAP or a local account (optional
-  passkey 2FA); per-account token budgets, groups, blocking, and self-service
-  session and password management.
+  passkey 2FA); per-account token budgets, groups, blocking, and the session and
+  password settings you manage yourself.
 - **See what is happening** — a home dashboard with the running backends, live
   server state (throughput, sessions, TTFT) and your own token usage, plus a
   spend leaderboard.
@@ -49,14 +49,14 @@ The UI is a **Next.js shell** (`dgx-portal-frontend`, port 5000) talking to a
 network. The portal owns authentication (LDAP/OIDC, sessions, per-request account
 checks) and business logic; it issues per-user keys and budgets to **LiteLLM**,
 the OpenAI-compatible gateway that serves the public API
-(`https://api.example.org/v1`) through Cloudflare and Traefik — LiteLLM
-publishes no host port at all — and keeps keys and spend logs in **PostgreSQL**.
+(`https://api.example.org/v1`) through Cloudflare and Traefik. LiteLLM publishes
+no host port at all. It keeps keys and spend logs in **PostgreSQL**.
 On the GPU, a systemd daemon (`vllm-runner`) starts and stops **one chat model**
 at a time (vLLM, llama.cpp, ds4 or exllamav3) and auto-resumes it after a crash
 or reboot. OCR, video, image, music, voice and dictation run in **on-demand
 sidecars**, each on its own network: one 128 GB GPU cannot hold the chat model
 and several media models at once, so they start at first use and leave memory
-when idle. Full diagram, components and module map: [docs/architecture.md](docs/architecture.md).
+when idle. Full diagram and component map: [docs/architecture.md](docs/architecture.md).
 
 ## How to deploy it
 
@@ -95,7 +95,7 @@ go to **Admin**, and launch a model from the catalog. The detailed guide
 ```
 
 One command, four groups: code gates (724 backend tests, frontend, types, lint,
-i18n, secret scan), the **running** service, 14 user journeys (login/SSO, chat,
+i18n, secret scan), the **running** service, the user journeys (login/SSO, chat,
 reasoning, image, web search, skills, conversations, export, admin, API keys,
 page sweep, page actions, security) with route coverage of 158 routes, and
 health. Safe to run at any moment (no destructive action), time-bounded, 7–8

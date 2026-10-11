@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Card } from "@astryxdesign/core/Card";
@@ -66,11 +66,22 @@ function Tile({ icon, value, label, locale }: { icon: typeof UsersIcon; value: n
   );
 }
 
-export function UsersSection({ csrf }: { csrf: string }) {
+export function UsersSection({
+  csrf,
+  initial,
+  initialFresh = false,
+}: {
+  csrf: string;
+  /** Read by the server (users page): shown at once. Absent (admin tab): fetched. */
+  initial?: UsersData | null;
+  /** True when `initial` was read for THIS visit — the mount fetch is then
+   *  skipped. False for a router-cache replay: shown, then refreshed. */
+  initialFresh?: boolean;
+}) {
   const t = useT();
   const showToast = useToast();
   const numLocale = useLocale();
-  const [data, setData] = useState<UsersData | null>(null);
+  const [data, setData] = useState<UsersData | null>(initial ?? null);
 
   // Toolbar state: free-text search + auth-source filter.
   const [query, setQuery] = useState("");
@@ -118,7 +129,14 @@ export function UsersSection({ csrf }: { csrf: string }) {
   const refresh = useCallback(() => {
     getJSON<UsersData>("/api/admin/users").then(setData).catch(() => {});
   }, []);
-  useEffect(refresh, [refresh]);
+  const dejaCharge = useRef(!!initial && initialFresh);
+  useEffect(() => {
+    if (dejaCharge.current) {
+      dejaCharge.current = false;
+      return;
+    }
+    refresh();
+  }, [refresh]);
 
   // Returns false on failure, otherwise {ok:true, warning?}. `warning`
   // (LiteLLM quota not applied…) accompanies a SUCCESS: it is displayed

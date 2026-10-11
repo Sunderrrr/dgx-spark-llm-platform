@@ -10,7 +10,12 @@
 import { useState } from "react";
 
 /** Per key: the endpoint's answer, or null when the server could not read it. */
-export type Seed<T> = { id: string; data: T };
+export type Seed<T> = {
+  id: string;
+  data: T;
+  /** A read answered 403: the account may not see this page. */
+  forbidden?: boolean;
+};
 
 const claimed = new Set<string>();
 

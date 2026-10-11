@@ -27,6 +27,7 @@ const FORWARDED = ["cookie", "cf-connecting-ip", "x-forwarded-for", "user-agent"
 export type ServerRead<T> =
   | { status: "ok"; data: T }
   | { status: "unauthenticated" }
+  | { status: "forbidden" }
   | { status: "failed" };
 
 /** GET a Flask JSON endpoint as the visitor. Never throws. */
@@ -45,6 +46,9 @@ export async function serverRead<T>(path: string): Promise<ServerRead<T>> {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (r.status === 401) return { status: "unauthenticated" };
+    // Logged in, not allowed (an admin page opened by a regular account): the
+    // page renders its « reserved » state directly.
+    if (r.status === 403) return { status: "forbidden" };
     if (!r.ok) return { status: "failed" };
     return { status: "ok", data: (await r.json()) as T };
   } catch {
@@ -54,7 +58,8 @@ export async function serverRead<T>(path: string): Promise<ServerRead<T>> {
 
 /** Several reads for one page, in parallel, as one Seed: each key holds its
  *  endpoint's answer, or null when that read failed (the client page then
- *  fetches that key itself). A 401 on any of them sends to /login. */
+ *  fetches that key itself). A 401 on any of them sends to /login; a 403 sets
+ *  `forbidden`. */
 export async function pageSeed<T extends Record<string, unknown>>(
   paths: { [K in keyof T]: string },
 ): Promise<Seed<{ [K in keyof T]: T[K] | null }>> {
@@ -66,5 +71,6 @@ export async function pageSeed<T extends Record<string, unknown>>(
     const r = reads[i];
     data[k] = r.status === "ok" ? (r.data as T[typeof k]) : null;
   });
-  return { id: crypto.randomUUID(), data };
+  const forbidden = reads.some((r) => r.status === "forbidden");
+  return { id: crypto.randomUUID(), data, ...(forbidden ? { forbidden } : {}) };
 }

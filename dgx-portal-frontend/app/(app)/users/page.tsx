@@ -1,71 +1,9 @@
-"use client";
+import { pageSeed } from "@/lib/server-api";
+import UsersPage, { type UsersSeed } from "./UsersPage";
 
-import { useEffect, useState } from "react";
-import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
-import { Center } from "@astryxdesign/core/Center";
-import { VStack } from "@astryxdesign/core/Stack";
-import { Heading } from "@astryxdesign/core/Heading";
-import { Text } from "@astryxdesign/core/Text";
-import { Button } from "@astryxdesign/core/Button";
-import { Icon } from "@astryxdesign/core/Icon";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
-import { getJSON, ForbiddenError } from "@/lib/api";
-import { useCsrf } from "@/lib/useCsrf";
-import { useT } from "@/lib/i18n";
-import { UsersSection } from "../admin/_components/UsersSection";
-
-export default function UsersPage() {
-  const t = useT();
-  const csrf = useCsrf();
-  // Admin-only, exactly like /admin. The nav shows the tab only to admins,
-  // but we also check here (direct URL access): the /api/admin/users API
-  // returns 403 → we show the "access denied" state rather than an empty
-  // page.
-  const [status, setStatus] = useState<"loading" | "ok" | "forbidden">("loading");
-
-  useEffect(() => {
-    getJSON("/api/admin/users")
-      .then(() => setStatus("ok"))
-      .catch((e) => setStatus(e instanceof ForbiddenError ? "forbidden" : "ok"));
-  }, []);
-
-  if (status === "forbidden") {
-    return (
-      <Layout
-        height="fill"
-        content={
-          <LayoutContent padding={6} isScrollable>
-            <Center axis="both" height="100%">
-              <EmptyState
-                icon={<Icon icon={ShieldExclamationIcon} size="lg" color="secondary" />}
-                title={t("Accès réservé aux administrateurs")}
-                description={t("Ton compte n'a pas les droits nécessaires pour voir cette page.")}
-                actions={<Button label={t("Retour à l'accueil")} variant="primary" href="/" />}
-              />
-            </Center>
-          </LayoutContent>
-        }
-      />
-    );
-  }
-
-  return (
-    <Layout
-      height="fill"
-      content={
-        <LayoutContent padding={6} isScrollable>
-          <VStack gap={6}>
-            <VStack gap={1}>
-              <Heading level={1}>{t("Utilisateurs")}</Heading>
-              <Text type="supporting" color="secondary">
-                {t("Crée et gère les comptes locaux, les groupes, les quotas et les droits.")}
-              </Text>
-            </VStack>
-            {status === "ok" && <UsersSection csrf={csrf} />}
-          </VStack>
-        </LayoutContent>
-      }
-    />
-  );
+// Server-rendered with the account list — or straight in its « reserved to
+// administrators » state for anyone else (403): see lib/server-api.ts.
+export default async function Page() {
+  const seed = await pageSeed<UsersSeed>({ users: "/api/admin/users" });
+  return <UsersPage seed={seed} />;
 }

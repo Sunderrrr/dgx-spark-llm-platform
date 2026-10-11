@@ -58,7 +58,9 @@ Four groups, each with its own verdict:
 
 Guarantees: safe to run **at any moment**, even while someone uses the platform
 (no destructive action, no restart, no `--force-recreate`; journeys use only the
-demo account and clean up after themselves); every check is time-bounded; a
+demo account and clean up after themselves — on exit, failure included, the
+run revokes the demo-account sessions it opened, `tests/e2e/fermer_sessions.py`);
+every check is time-bounded; a
 failure speaks (« ✗ <check> » + the tail of the log + the full log path);
 readable by a human AND by a git hook / CI (no TTY required, `NO_COLOR`
 respected); non-zero exit if ANYTHING fails.

@@ -233,6 +233,14 @@ if [ ! -x "$PYTHON_E2E" ]; then
   exit 2
 fi
 
+# The journeys sign the demo account in ~15 times and (but for j01) never out:
+# every run left ~15 live sessions for 12 h. Close the ones THIS run opened, on
+# any exit — failure and interruption included.
+close_journey_sessions() {
+  (cd tests/e2e && "$PYTHON_E2E" fermer_sessions.py "$START") || true
+}
+if group_wanted 3; then trap close_journey_sessions EXIT; fi
+
 # ════════════════════════════════════════════════════════════════════════════
 # GROUP 1 — Code gates
 # ════════════════════════════════════════════════════════════════════════════

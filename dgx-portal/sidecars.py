@@ -47,8 +47,10 @@ _STOP_TIMEOUT_PATTERN = (
     "peut-être toujours en cours. Vérifie l'état du modèle avant de réessayer.")
 
 # Launchable voice variants. Must stay aligned with runner.py's
-# allowlists (_VOICE_REPO_IDS / _VOICE_QWEN_IDS), which revalidate on their side.
+# allowlists (_VOICE_REPO_IDS / _VOICE_QWEN_IDS / _VOICE_KYUTAI_IDS), which
+# revalidate on their side.
 VOICE_REPO_IDS = (
+    'kyutai/tts-1.6b-en_fr',
     'Qwen3-TTS-12Hz-1.7B-Base', 'Qwen3-TTS-12Hz-0.6B-Base',
     'chatterbox-multilingual', 'chatterbox-turbo', 'chatterbox',
 )

@@ -142,5 +142,6 @@ i18n dictionary, `proxy.ts` the per-request nonce CSP and method-based routing, 
 > The `/usr/local/sbin/*-recreate.sh` wrappers and `/etc/sudoers.d/vllmrunner-*`
 > live on the host (root-owned). Their tracked sources are `ocr/ocr-recreate.sh`,
 > `voice/voice-recreate.sh`, `asr/asr-recreate.sh`, `voice-qwen/voice-qwen-recreate.sh`,
+> `voice-kyutai/voice-kyutai-recreate.sh`,
 > `systemd/image-recreate.sh` and `systemd/ocr-restrict.sh`; install with e.g.
 > `install -o root -g root -m 0755 ocr/ocr-recreate.sh /usr/local/sbin/`.

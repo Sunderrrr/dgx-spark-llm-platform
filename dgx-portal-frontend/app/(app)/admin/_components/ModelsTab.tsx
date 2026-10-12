@@ -380,6 +380,7 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                   value={newVoice.repo_id}
                   onChange={(v) => setNewVoice((s) => ({ ...s, repo_id: v ?? "Qwen3-TTS-12Hz-1.7B-Base" }))}
                   options={[
+                    { value: "kyutai/tts-1.6b-en_fr", label: t("Kyutai TTS 1.6B (FR/EN, mode vocal)") },
                     { value: "Qwen3-TTS-12Hz-1.7B-Base", label: t("Qwen3-TTS 1.7B (10 langues)") },
                     { value: "Qwen3-TTS-12Hz-0.6B-Base", label: t("Qwen3-TTS 0.6B (10 langues)") },
                     { value: "chatterbox-multilingual", label: "Chatterbox Multilingual (0.5B)" },

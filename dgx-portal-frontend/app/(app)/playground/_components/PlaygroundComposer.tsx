@@ -34,6 +34,7 @@ import {
   KeyIcon,
   BookmarkIcon,
   BoltIcon,
+  SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
 import { BorderBeam } from "border-beam";
 import { useResolvedMode } from "@/lib/use-system-dark";
@@ -65,6 +66,8 @@ export type PlaygroundComposerProps = {
   discardQueued: (idx: number) => void;
   mode: "light" | "dark" | "system";
   dictation: Dictation;
+  /** Opens the hands-free voice mode. */
+  openVoice: () => void;
   composerRadius: number | undefined;
   placeholderText: string;
   attachments: Attachment[];
@@ -114,6 +117,7 @@ export function PlaygroundComposer({
   discardQueued,
   mode,
   dictation,
+  openVoice,
   composerRadius,
   placeholderText,
   attachments,
@@ -367,7 +371,18 @@ export function PlaygroundComposer({
               onClick={() => send(input)}
             />
           ) : (
-            <DictateButton dictation={dictation} isDisabled={false} size="md" />
+            <HStack gap={1} vAlign="center">
+              <DictateButton dictation={dictation} isDisabled={false} size="md" />
+              {/* Hands-free conversation: you talk, it answers aloud. */}
+              <Button
+                label={t("Mode vocal")}
+                variant="secondary"
+                isIconOnly
+                size="md"
+                icon={<Icon icon={SpeakerWaveIcon} size="sm" />}
+                onClick={openVoice}
+              />
+            </HStack>
           )
         }
       />

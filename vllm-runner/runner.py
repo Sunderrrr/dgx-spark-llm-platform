@@ -1177,6 +1177,9 @@ _VOICE_REPO_IDS = {"chatterbox", "chatterbox-turbo", "chatterbox-multilingual"}
 # port: a single voice backend at a time, the GB10's unified memory already being
 # shared with chat, OCR and video. Closed allowlist here too.
 _VOICE_QWEN_IDS = {"Qwen3-TTS-12Hz-1.7B-Base", "Qwen3-TTS-12Hz-0.6B-Base"}
+# Third engine (Kyutai TTS, CC-BY 4.0): the streaming voice of the playground's
+# voice mode. Same container, port and closed-allowlist rule.
+_VOICE_KYUTAI_IDS = {"kyutai/tts-1.6b-en_fr"}
 
 
 @app.route("/voice/status")
@@ -1206,7 +1209,7 @@ def voice_stop():
 
 @app.route("/voice/launch", methods=["POST"])
 def voice_launch():
-    """Recreate the voice container with one of the three Chatterbox variants.
+    """Recreate the voice container with a Chatterbox, Qwen3-TTS or Kyutai model.
     repo_id comes from a closed allowlist (no free argv like for OCR/vLLM): no
     command construction to validate here, just membership in _VOICE_REPO_IDS."""
     data = request.get_json(silent=True) or {}
@@ -1215,6 +1218,8 @@ def voice_launch():
         script = "/usr/local/sbin/voice-recreate.sh"
     elif repo_id in _VOICE_QWEN_IDS:
         script = "/usr/local/sbin/voice-qwen-recreate.sh"
+    elif repo_id in _VOICE_KYUTAI_IDS:
+        script = "/usr/local/sbin/voice-kyutai-recreate.sh"
     else:
         return jsonify({"ok": False, "detail": "invalid repo_id"}), 400
     ok, out = _sudo(script, repo_id, timeout=120)

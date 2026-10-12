@@ -23,6 +23,7 @@ vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker stop voice
 vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker inspect voice
 vllmrunner ALL=(root) NOPASSWD: /usr/local/sbin/voice-recreate.sh *
 vllmrunner ALL=(root) NOPASSWD: /usr/local/sbin/voice-qwen-recreate.sh *
+vllmrunner ALL=(root) NOPASSWD: /usr/local/sbin/voice-kyutai-recreate.sh *
 vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker start asr
 vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker stop asr
 vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker inspect asr

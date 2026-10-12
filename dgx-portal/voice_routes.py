@@ -120,6 +120,12 @@ def voice_clone(reference_bytes, reference_mime, text, language='en', ref_text='
     /upload_reference), which could otherwise make a user clone
     the voice left by another under a guessed/common filename.
     """
+    if get_voice_engine() == 'kyutai':
+        # The voice-mode engine reads with preset voices: it has no cloning
+        # endpoint, and posting a sample to Chatterbox's would just 404.
+        return None, ("Le moteur vocal chargé est Kyutai TTS (mode vocal du playground) : "
+                      "il ne clone pas de voix. Un admin peut relancer Chatterbox ou "
+                      "Qwen3-TTS depuis Admin → Modèles.")
     if get_voice_engine() == 'qwen3-tts':
         try:
             r = requests.post(

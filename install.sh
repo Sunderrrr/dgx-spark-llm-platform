@@ -130,6 +130,7 @@ fi
 # authorizing them. A missing wrapper shows up as « command not allowed » on the
 # first click on « lancer », not at install time.
 for s in ocr/ocr-recreate.sh voice/voice-recreate.sh voice-qwen/voice-qwen-recreate.sh \
+         voice-kyutai/voice-kyutai-recreate.sh \
          asr/asr-recreate.sh music/music-recreate.sh systemd/image-recreate.sh \
          systemd/ocr-restrict.sh; do
   if [ -f "$s" ]; then

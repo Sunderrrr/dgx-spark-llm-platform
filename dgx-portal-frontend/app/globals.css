@@ -359,3 +359,105 @@ dialog::backdrop {
 }
 .file-card-add { color: var(--color-text-green); }
 .file-card-del { color: var(--color-text-red); }
+
+/* Playground — voice mode (VoiceMode). A calm room over the playground area
+   (the app sidebar stays visible): always dark
+   (`color-scheme: dark` flips every Astryx light-dark() token inside), the
+   transcript in one reading column, the answer set large in a serif and
+   turning from dim to full as it is said, and a warm halo rising from the
+   bottom edge that breathes with whoever is speaking (`--voice-level`, 0..1,
+   written by the animation loop). Tokens only. */
+.playground-root { position: relative; }
+.voice-mode {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  color-scheme: dark;
+  background: var(--color-background-body);
+  color: var(--color-text-primary);
+  overflow: hidden;
+}
+.voice-glow {
+  --voice-level: 0;
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 55vh;
+  pointer-events: none;
+  background:
+    radial-gradient(70% 55% at 0% 100%, color-mix(in srgb, var(--color-text-orange) 40%, transparent), transparent 70%),
+    radial-gradient(70% 55% at 100% 100%, color-mix(in srgb, var(--color-text-orange) 40%, transparent), transparent 70%),
+    radial-gradient(90% 45% at 50% 115%, color-mix(in srgb, var(--color-text-orange) 55%, transparent), transparent 75%);
+  opacity: calc(0.25 + var(--voice-level) * 0.75);
+  transform-origin: 50% 100%;
+  transform: scaleY(calc(0.85 + var(--voice-level) * 0.35));
+  transition: opacity 120ms linear, transform 120ms linear;
+  animation: voice-breathe 6s ease-in-out infinite;
+}
+@keyframes voice-breathe {
+  0%, 100% { filter: saturate(0.9) brightness(0.9); }
+  50% { filter: saturate(1.1) brightness(1.1); }
+}
+.voice-top {
+  position: relative;
+  padding: var(--spacing-4) var(--spacing-6) 0;
+  min-height: var(--spacing-12);
+}
+.voice-thread {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
+  max-width: 46rem;
+  margin-inline: auto;
+  padding: var(--spacing-6) var(--spacing-4);
+}
+.voice-mode .voice-user {
+  max-width: 80%;
+  padding: var(--spacing-3) var(--spacing-4);
+  border-radius: var(--radius-container);
+  background: var(--color-background-gray);
+  font-size: var(--font-size-lg);
+  white-space: pre-wrap;
+}
+.voice-user > * { font-size: inherit; white-space: pre-wrap; }
+.voice-user-live > * { color: var(--color-text-secondary); font-style: italic; }
+.voice-answer {
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-size: var(--font-size-3xl);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  text-wrap: pretty;
+  color: var(--color-text-primary);
+}
+.voice-answer .voice-said,
+.voice-answer .voice-unsaid { font: inherit; line-height: inherit; }
+.voice-answer .voice-said { color: var(--color-text-primary); }
+.voice-answer .voice-unsaid {
+  color: color-mix(in srgb, var(--color-text-primary) 42%, transparent);
+  transition: color 160ms linear;
+}
+.voice-notice { color: var(--color-text-secondary); }
+.voice-bar {
+  position: relative;
+  width: 100%;
+  max-width: 46rem;
+  margin-inline: auto;
+  padding: var(--spacing-3) var(--spacing-4) var(--spacing-6);
+}
+.voice-status { text-align: center; color: var(--color-text-secondary); min-height: 1.4em; }
+.voice-model { color: var(--color-text-secondary); }
+.voice-mode .voice-mic {
+  width: calc(var(--spacing-8) * 2);
+  height: calc(var(--spacing-8) * 2);
+  border-radius: var(--radius-full);
+}
+.voice-mode .voice-mic-hot {
+  box-shadow: 0 0 0 var(--spacing-1) color-mix(in srgb, var(--color-text-orange) 60%, transparent);
+}
+@media (max-width: 600px) {
+  .voice-answer { font-size: var(--font-size-2xl); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-glow { animation: none; transition: none; transform: none; }
+}

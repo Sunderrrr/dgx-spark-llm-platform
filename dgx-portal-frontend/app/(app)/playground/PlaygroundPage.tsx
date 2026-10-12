@@ -76,6 +76,7 @@ import { PlaygroundComposer } from "./_components/PlaygroundComposer";
 import { ContextDialog } from "./_components/ContextDialog";
 import { DocumentPanel, type DocumentPanelProps } from "./_components/DocumentPanel";
 import { FilesDialog } from "./_components/FilesDialog";
+import { VoiceMode } from "./_components/VoiceMode";
 import { diffLines, hunks } from "@/lib/diff";
 import { HistoryDialog } from "./_components/HistoryDialog";
 import { SettingsOverlay } from "./_components/SettingsOverlay";
@@ -289,6 +290,11 @@ const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you 
 // reached. This instruction goes out on EVERY turn, not only when a
 // file already exists, and goes LAST so as not to dilute ASK_INSTRUCTION
 // (whose effectiveness depends on its position at the top, see measurement below).
+// Voice mode: the answer is READ ALOUD sentence by sentence (VoiceMode).
+// Written-chat habits sound absurd spoken — a bullet list, a code block, a
+// URL spelled out — and a long answer keeps the user waiting to talk.
+const VOICE_INSTRUCTION = `This conversation is SPOKEN: the user talks to you through a microphone and your answer is read aloud by a voice. Answer like a person in a conversation: short (one to four sentences unless the user asks for more), natural spoken language, in the user's language. Never use markdown, lists, headings, tables, emoji or code blocks, and never read out a URL or a file. If the user asks for code or a file, say in one sentence what it would do and offer to write it in the written chat.`;
+
 const COMPLETENESS_INSTRUCTION = `Never abridge a file you were asked to produce. Never write that a file is "too long to show here", never say you are giving a "shortened", "simplified" or "essential" version, and never replace any part of a file with an ellipsis, a placeholder, or a comment such as "rest of the code unchanged". There is no display limit: write the file in full, from its first line to its last. If you run out of room before the end, stop mid-file rather than closing it early — you will be asked to continue, and you will resume at the exact character where you stopped. A truncated file presented as complete is the worst possible answer.`;
 
 // Input placeholder: we rotate a few texts (including the « / » trick
@@ -504,6 +510,7 @@ export default function PlaygroundPage({
   const [settingsPos, setSettingsPos] = useState<{ top: number; right: number; maxH: number; width: number } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   // Engine occupancy sent while the answer has not started (dgx_queue).
   const [queueInfo, setQueueInfo] = useState<{ busy: number; total: number } | null>(null);
   // The panel's version picker and « Changements » view, tied to the artifact
@@ -1364,7 +1371,7 @@ export default function PlaygroundPage({
     };
   }, []);
 
-  async function runStream(nextMessages: ChatMsg[], override?: { reasoning?: boolean }) {
+  async function runStream(nextMessages: ChatMsg[], override?: { reasoning?: boolean; voice?: boolean }) {
     if (!model) {
       setMessages([...nextMessages, { role: "assistant", content: t("Aucun modèle actif.") }]);
       return;
@@ -1454,7 +1461,9 @@ export default function PlaygroundPage({
         // On a RESUME turn, neither questions nor edit protocol: the model
         // had precisely answered with a truncated ```edit block instead of finishing
         // the file, leaving the user with nothing.
-        system: (resuming
+        system: (override?.voice
+          ? [settings.system.trim(), VOICE_INSTRUCTION]
+          : resuming
           ? [settings.system.trim(), RESUME_INSTRUCTION]
           : [
               settings.system.trim(),
@@ -1517,7 +1526,8 @@ export default function PlaygroundPage({
             updateLast();
           }
         },
-        [...filesUntil(nextMessages, nextMessages.length - 1, t)].map(([name, f]) => ({ name, content: f.content })),
+        // A spoken turn edits no file: no files, no edit tools.
+        override?.voice ? [] : [...filesUntil(nextMessages, nextMessages.length - 1, t)].map(([name, f]) => ({ name, content: f.content })),
         skillForTurn ?? undefined,
       );
     } catch (e) {
@@ -1669,6 +1679,16 @@ export default function PlaygroundPage({
     // now, with no manual validation. Explicit base (finalMessages):
     // messagesRef is not yet resynchronized in this same tick.
     if (queuedRef.current.length) dispatchQueued(finalMessages);
+  }
+
+  // A turn spoken in the voice mode: an ordinary message of this
+  // conversation, answered without thinking (it would keep the user waiting
+  // in silence) and with the spoken-answer instruction.
+  function sendVoice(text: string) {
+    if (streaming || !text.trim()) return;
+    const nextMessages: ChatMsg[] = [...messages, { role: "user", content: text.trim(), ts: Date.now() }];
+    setMessages(nextMessages);
+    void runStream(nextMessages, { reasoning: false, voice: true });
   }
 
   function send(value: string) {
@@ -2212,6 +2232,7 @@ export default function PlaygroundPage({
       discardQueued={discardQueued}
       mode={mode}
       dictation={dictation}
+      openVoice={() => setVoiceOpen(true)}
       composerRadius={composerRadius}
       placeholderText={placeholderText}
       attachments={attachments}
@@ -2304,6 +2325,9 @@ export default function PlaygroundPage({
     <Layout
       height="fill"
       padding={6}
+      // The voice mode covers THIS area, not the window: the app's sidebar
+      // stays reachable (2026-10-13).
+      className="playground-root"
       header={
         <LayoutHeader hasDivider>
           <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
@@ -2449,6 +2473,17 @@ export default function PlaygroundPage({
               context={modelLimits[model]}
               systemProvenance={systemProvenance}
               setSystemProvenance={setSystemProvenance}
+            />
+          )}
+          {voiceOpen && (
+            <VoiceMode
+              messages={messages}
+              streaming={streaming}
+              model={model}
+              csrf={csrf}
+              onSend={sendVoice}
+              onInterrupt={stop}
+              onClose={() => setVoiceOpen(false)}
             />
           )}
           <FilesDialog

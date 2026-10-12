@@ -334,6 +334,7 @@ from ocr_routes import bp as ocr_bp  # noqa: E402  (get_ocr_model already import
 # Boundary redrawn on 28/08: this banner covered voice + dictation + bootstrapping.
 # Voice goes to voice_routes.py, dictation to asr_routes.py,
 # bootstrapping stays below.
+from voice_chat_routes import bp as voice_chat_bp  # noqa: E402
 from voice_routes import (  # noqa: E402
     bp as voice_bp, get_voice_engine, get_voice_languages,
 )
@@ -1630,6 +1631,7 @@ app.register_blueprint(image_bp)
 app.register_blueprint(music_bp)
 app.register_blueprint(ocr_bp)
 app.register_blueprint(voice_bp)
+app.register_blueprint(voice_chat_bp)
 app.register_blueprint(asr_bp)
 app.register_blueprint(webauthn_bp)
 

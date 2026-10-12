@@ -530,6 +530,28 @@ class PlatformStateTest(BaseAdmin):
         with patch.object(admin_routes, 'directory_states_for', return_value=None):
             self.assertFalse(c.get('/admin/platform').get_json()['directory']['readable'])
 
+    def test_deleted_local_account_is_not_asked_to_the_directory(self):
+        """A local account whose row was deleted (sources « local ») is not in
+        LDAP by nature: it was counted « absent de l'annuaire » (2026-10-13)."""
+        import admin_routes
+        c = self._client(ADMIN1)
+        with portal.app.app_context():
+            db = portal.get_db()
+            for name, src in (('ztest-ex-local', 'local'), ('ztest-ex-ldap', 'ldap,local')):
+                db.execute("INSERT OR REPLACE INTO user_sources (username, sources) VALUES (?,?)", (name, src))
+            db.commit()
+        asked = []
+        try:
+            with patch.object(admin_routes, 'directory_states_for',
+                              side_effect=lambda names: asked.extend(names) or {n: 'absent' for n in names}):
+                c.get('/admin/platform').get_json()
+        finally:
+            with portal.app.app_context():
+                portal.get_db().execute("DELETE FROM user_sources WHERE username LIKE 'ztest-ex-%'")
+                portal.get_db().commit()
+        self.assertNotIn('ztest-ex-local', asked)
+        self.assertIn('ztest-ex-ldap', asked)
+
     def test_platform_state_refuses_non_admin(self):
         c = self._client(SIMPLE, is_admin=False)
         # 302 to /login for a browser request, 403 for an API call: in both

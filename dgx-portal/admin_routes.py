@@ -329,9 +329,13 @@ def _directory_state():
     """The directory accounts by state (directory.py snapshot): one disabled
     or gone there still holds API keys here until someone looks."""
     db = get_db()
+    # Only accounts that CAME from the directory: a deleted local account
+    # (sources « local », no row left) is not in LDAP by nature, and was
+    # counted « absent de l'annuaire » (zoleroy, 2026-10-13).
     names = [r['username'] for r in db.execute(
         "SELECT s.username FROM user_sources s LEFT JOIN local_users l "
-        "ON l.username = s.username WHERE l.username IS NULL").fetchall()]
+        "ON l.username = s.username WHERE l.username IS NULL "
+        "AND (s.sources LIKE '%ldap%' OR s.sources LIKE '%sso%')").fetchall()]
     states = directory_states_for(names)
     if states is None:
         return {'readable': False}

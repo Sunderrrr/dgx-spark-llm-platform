@@ -93,8 +93,8 @@ class GenerationTest(unittest.TestCase):
                 while True:
                     try:
                         chunk = next(gen)
-                    except StopIteration as arret:
-                        result = arret.value
+                    except StopIteration as stop:
+                        result = stop.value
                         break
                     heartbeats.append(chunk)
         self.assertIn('/image/file/', result)
@@ -114,8 +114,8 @@ class GenerationTest(unittest.TestCase):
         gen = image_tools._exec_image_tool({'prompt': '  '}, 'zz-test-img', step_log)
         try:
             next(gen)
-        except StopIteration as arret:
-            result = arret.value
+        except StopIteration as stop:
+            result = stop.value
         self.assertIn('impossible', result)
         self.assertEqual(step_log, [])
 

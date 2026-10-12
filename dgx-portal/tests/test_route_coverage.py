@@ -38,10 +38,10 @@ class SessionTest(unittest.TestCase):
                       headers={'X-CSRFToken': self.CSRF})
 
 
-class CompetencesTest(SessionTest):
+class SkillsCrudTest(SessionTest):
     """CRUD of `/skills` — no mention in tests/ before this file."""
 
-    def _cree(self, c, name='ztest-competence'):
+    def _create(self, c, name='ztest-competence'):
         return self._post(c, '/skills', action='create', name=name,
                           description='pour les tests', instructions='fais ceci')
 
@@ -75,7 +75,7 @@ class CompetencesTest(SessionTest):
 
     def test_full_cycle_create_read_delete(self):
         c = self._client('alice')
-        r = self._cree(c)
+        r = self._create(c)
         self.assertTrue(r.get_json().get('ok'), r.get_json())
         self.assertEqual(self._names('alice'), ['ztest-competence'])
         # The account sees it (/api/settings payload: skill_count + limits).
@@ -98,8 +98,8 @@ class CompetencesTest(SessionTest):
 
     def test_same_name_in_same_account_refused(self):
         c = self._client('alice')
-        self._cree(c)
-        r = self._cree(c)                      # same name, same account
+        self._create(c)
+        r = self._create(c)                      # same name, same account
         self.assertFalse(r.get_json().get('ok'))
         self.assertIn('déjà', r.get_json().get('error', ''))
 
@@ -107,7 +107,7 @@ class CompetencesTest(SessionTest):
         """Another account neither sees nor deletes my skill (the DELETE
         carries `WHERE username=?` — this line locks it in)."""
         c_alice = self._client('alice')
-        self._cree(c_alice)
+        self._create(c_alice)
         ident = self._ident('alice')
         c_bob = self._client('bob')
         self._post(c_bob, '/skills', action='delete', id=str(ident))

@@ -109,8 +109,8 @@ class GenerationTest(unittest.TestCase):
                 while True:
                     try:
                         heartbeats.append(next(gen))
-                    except StopIteration as arret:
-                        result = arret.value
+                    except StopIteration as stop:
+                        result = stop.value
                         break
         return result, heartbeats
 

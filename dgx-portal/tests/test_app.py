@@ -28,7 +28,7 @@ import chat_routes as chat
 import support as assistance
 # These symbols left the monolith for websearch_tools.py (28/08): we
 # target their own module rather than make app.py a facade.
-import websearch_tools as outils_web
+import websearch_tools as web_tools
 
 import admin_routes
 
@@ -552,25 +552,25 @@ class ToolsContextTest(unittest.TestCase):
     def test_big_message_is_shortened(self):
         msgs = [{'role': 'user', 'content': 'x' * 65_000},
                 {'role': 'user', 'content': 'et maintenant ?'}]
-        out = outils_web._tools_context(msgs)
-        self.assertTrue(all(len(m['content']) <= outils_web.TOOLS_MSG_MAX + 8 for m in out))
+        out = web_tools._tools_context(msgs)
+        self.assertTrue(all(len(m['content']) <= web_tools.TOOLS_MSG_MAX + 8 for m in out))
 
     def test_total_stays_bounded(self):
         msgs = [{'role': 'user', 'content': 'y' * 20_000} for _ in range(20)]
-        out = outils_web._tools_context(msgs)
+        out = web_tools._tools_context(msgs)
         self.assertLessEqual(sum(len(m['content']) for m in out),
-                             outils_web.TOOLS_TOTAL_MAX + outils_web.TOOLS_MSG_MAX)
+                             web_tools.TOOLS_TOTAL_MAX + web_tools.TOOLS_MSG_MAX)
 
     def test_last_message_always_there(self):
         msgs = [{'role': 'user', 'content': 'z' * 30_000} for _ in range(10)]
         msgs.append({'role': 'user', 'content': 'CE QUE JE DEMANDE'})
-        out = outils_web._tools_context(msgs)
+        out = web_tools._tools_context(msgs)
         self.assertIn('CE QUE JE DEMANDE', out[-1]['content'])
 
     def test_system_kept_first(self):
         msgs = [{'role': 'system', 'content': 'consignes'},
                 {'role': 'user', 'content': 'bonjour'}]
-        out = outils_web._tools_context(msgs)
+        out = web_tools._tools_context(msgs)
         self.assertEqual(out[0]['role'], 'system')
         self.assertIn('consignes', out[0]['content'])
 
@@ -578,14 +578,14 @@ class ToolsContextTest(unittest.TestCase):
         # The request is often at the top, the last instruction at the tail: it is
         # the belly of the file that teaches nothing.
         msgs = [{'role': 'user', 'content': 'DEBUT' + 'm' * 60_000 + 'FIN'}]
-        out = outils_web._tools_context(msgs)
+        out = web_tools._tools_context(msgs)
         self.assertIn('DEBUT', out[-1]['content'])
         self.assertIn('FIN', out[-1]['content'])
 
     def test_short_conversation_passes_unchanged(self):
         msgs = [{'role': 'user', 'content': 'salut'},
                 {'role': 'assistant', 'content': 'bonjour'}]
-        self.assertEqual([m['content'] for m in outils_web._tools_context(msgs)],
+        self.assertEqual([m['content'] for m in web_tools._tools_context(msgs)],
                          ['salut', 'bonjour'])
 
 
@@ -611,7 +611,7 @@ class PertinenceRechercheTest(unittest.TestCase):
                   "const source = ctx.createBufferSource();",
                   "quelles sont les dernières nouvelles ?",
                   "quel est le prix du bitcoin ?"):
-            self.assertFalse(outils_web._search_relevant(self._u(t)), t)
+            self.assertFalse(web_tools._search_relevant(self._u(t)), t)
 
     def test_explicit_directives(self):
         for t in ("cherche sur internet les règles du blackjack",
@@ -624,7 +624,7 @@ class PertinenceRechercheTest(unittest.TestCase):
                   # « en ligne » is no longer a target: it describes a state more
                   # often than it names the web (« site en ligne »).
                   "renseigne-toi sur internet là-dessus"):
-            self.assertTrue(outils_web._search_relevant(self._u(t)), t)
+            self.assertTrue(web_tools._search_relevant(self._u(t)), t)
 
     def test_putting_online_does_not_trigger(self):
         # 2026-09: « en ligne » describes a state; « je cherche à mettre mon
@@ -632,15 +632,15 @@ class PertinenceRechercheTest(unittest.TestCase):
         for t in ("je cherche à mettre mon site en ligne",
                   "regarde pourquoi mon serveur n'est plus en ligne",
                   "fais-moi un jeu d'échecs en ligne"):
-            self.assertFalse(outils_web._search_relevant(self._u(t)), t)
+            self.assertFalse(web_tools._search_relevant(self._u(t)), t)
 
     def test_directive_works_even_with_pasted_file(self):
         h = [{'role': 'user', 'content': "```html\n" + ("x" * 5000)
               + "\n```\n\ncherche sur internet la doc de cette balise"}]
-        self.assertTrue(outils_web._search_relevant(h))
+        self.assertTrue(web_tools._search_relevant(h))
 
     def test_empty_conversation(self):
-        self.assertFalse(outils_web._search_relevant([]))
+        self.assertFalse(web_tools._search_relevant([]))
 
 
 class StaleVersionsTest(unittest.TestCase):
@@ -712,19 +712,19 @@ class FindingsTest(unittest.TestCase):
     """
 
     def test_nothing_found_nothing_added(self):
-        self.assertEqual(outils_web._findings_text([]), '')
+        self.assertEqual(web_tools._findings_text([]), '')
 
     def test_content_included_and_framed_as_external(self):
-        t = outils_web._findings_text([('recherche_web', '{"resultats": [{"url": "https://x.fr"}]}')])
+        t = web_tools._findings_text([('recherche_web', '{"resultats": [{"url": "https://x.fr"}]}')])
         self.assertIn('https://x.fr', t)
         self.assertIn('externes', t)
 
     def test_text_stays_bounded(self):
-        t = outils_web._findings_text([('lire_pages', 'x' * 200_000)])
+        t = web_tools._findings_text([('lire_pages', 'x' * 200_000)])
         self.assertLessEqual(len(t), 40_000)
 
     def test_several_calls_all_included(self):
-        t = outils_web._findings_text([('recherche_web', 'AAA'), ('lire_pages', 'BBB')])
+        t = web_tools._findings_text([('recherche_web', 'AAA'), ('lire_pages', 'BBB')])
         self.assertIn('AAA', t)
         self.assertIn('BBB', t)
 
@@ -2300,7 +2300,7 @@ class SupportInjectionGuardTest(unittest.TestCase):
         self.assertEqual(n_pending, 0)
 
 
-class SupportFinDeTourTest(unittest.TestCase):
+class SupportEndOfTurnTest(unittest.TestCase):
     """End of Support round: the thread is kept, a CUT answer is not.
 
     The thread serves to resume the conversation after a page reload:

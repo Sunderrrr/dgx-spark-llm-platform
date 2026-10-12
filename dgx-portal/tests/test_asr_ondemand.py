@@ -66,7 +66,7 @@ class _Base(unittest.TestCase):
         # gunicorn workers in production), so a temp dir isolates them without
         # mocking the mechanism under test.
         self._state = tempfile.mkdtemp(prefix='asr-ondemand-')
-        self._ancien_dir = os.environ.get('ASR_ONDEMAND_DIR')
+        self._old_dir = os.environ.get('ASR_ONDEMAND_DIR')
         os.environ['ASR_ONDEMAND_DIR'] = self._state
         sidecars._asr_watcher_started = False   # the real thread never runs in tests
         sidecars._asr_autostart_t = 0.0     # …nor does the start throttle carry over
@@ -83,10 +83,10 @@ class _Base(unittest.TestCase):
                 "DELETE FROM login_attempts WHERE key LIKE 'rl-asr|%'")
             portal.get_db().commit()
         self._clear_cache()
-        if self._ancien_dir is None:
+        if self._old_dir is None:
             os.environ.pop('ASR_ONDEMAND_DIR', None)
         else:
-            os.environ['ASR_ONDEMAND_DIR'] = self._ancien_dir
+            os.environ['ASR_ONDEMAND_DIR'] = self._old_dir
         shutil.rmtree(self._state, ignore_errors=True)
 
     def _clear_cache(self):

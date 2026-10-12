@@ -27,9 +27,9 @@ class BaseSetup(unittest.TestCase):
             db = portal.get_db()
             self._admins = [r[0] for r in db.execute(
                 "SELECT id FROM local_users WHERE enabled=1").fetchall()]
-            self._annuaire = [r[0] for r in db.execute(
+            self._directory = [r[0] for r in db.execute(
                 "SELECT username FROM user_sources WHERE last_is_admin=1").fetchall()]
-            self._groupes = [r[0] for r in db.execute(
+            self._groups = [r[0] for r in db.execute(
                 "SELECT name FROM user_groups WHERE is_admin=1").fetchall()]
             db.execute("UPDATE local_users SET enabled=0")
             db.execute("UPDATE user_sources SET last_is_admin=0 WHERE last_is_admin=1")
@@ -52,9 +52,9 @@ class BaseSetup(unittest.TestCase):
                        (owner.OWNER_KEY, owner.TOKEN_KEY))
             for i in self._admins:
                 db.execute("UPDATE local_users SET enabled=1 WHERE id=?", (i,))
-            for u in self._annuaire:
+            for u in self._directory:
                 db.execute("UPDATE user_sources SET last_is_admin=1 WHERE username=?", (u,))
-            for g in self._groupes:
+            for g in self._groups:
                 db.execute("UPDATE user_groups SET is_admin=1 WHERE name=?", (g,))
             db.commit()
 

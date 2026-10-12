@@ -123,8 +123,8 @@ class ExecutionTest(unittest.TestCase):
                 while True:
                     try:
                         heartbeats.append(next(gen))
-                    except StopIteration as arret:
-                        result = arret.value
+                    except StopIteration as stop:
+                        result = stop.value
                         break
         return result, heartbeats
 
@@ -172,8 +172,8 @@ class ExecutionTest(unittest.TestCase):
                     {}, 'zz-test-doc', step_log, [self.PIECE])
                 try:
                     next(gen)
-                except StopIteration as arret:
-                    result = arret.value
+                except StopIteration as stop:
+                    result = stop.value
         self.assertIn('indisponible', result)
         self.assertIn('mémoire insuffisante', result)
         self.assertEqual(step_log[-1]['error'], "mémoire insuffisante")

@@ -329,12 +329,12 @@ class _FakeDb:
 
     def __init__(self, row=None):
         self.row = row
-        self.ecritures = []
+        self.spellings = []
 
     def execute(self, sql, params=()):
         if sql.strip().upper().startswith('SELECT'):
             return _FakeCursor2(self.row)
-        self.ecritures.append(params)
+        self.spellings.append(params)
         self.row = {'base': params[1], 'last_value': params[2]}
         return _FakeCursor2(None)
 
@@ -380,17 +380,17 @@ class GeneratedTokensTotalTest(unittest.TestCase):
         """At rest the probe runs at 1 s: not one SQLite write per second."""
         db = _FakeDb()
         self._total(db, 100)
-        self.assertEqual(len(db.ecritures), 1)
+        self.assertEqual(len(db.spellings), 1)
         self._total(db, 100)
         self._total(db, 100)
-        self.assertEqual(len(db.ecritures), 1)
+        self.assertEqual(len(db.spellings), 1)
 
     def test_without_model_or_value_nothing_tried(self):
         db = _FakeDb()
         with mock.patch.object(stats, 'get_db', return_value=db):
             self.assertIsNone(stats.accumulate_generated_tokens('', 100))
             self.assertIsNone(stats.accumulate_generated_tokens('modele', None))
-        self.assertEqual(db.ecritures, [])
+        self.assertEqual(db.spellings, [])
 
 
 _BUSY_SLOTS = [
@@ -493,11 +493,11 @@ class InflightStatsTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.mkdtemp()
         self.path = os.path.join(self.folder, 'inflight.db')
-        self._avant = stats._INFLIGHT_DB
+        self._before = stats._INFLIGHT_DB
         stats._INFLIGHT_DB = self.path
 
     def tearDown(self):
-        stats._INFLIGHT_DB = self._avant
+        stats._INFLIGHT_DB = self._before
         shutil.rmtree(self.folder, ignore_errors=True)
 
     def _write(self, lines):

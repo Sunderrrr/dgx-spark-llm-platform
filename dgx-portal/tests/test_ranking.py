@@ -24,13 +24,13 @@ class _FakeCursor:
     """Answers each query what the test prepared for it."""
 
     def __init__(self, current_value, previous):
-        self._courant = current_value
+        self._current = current_value
         self._precedent = previous
         self._rows = []
 
     def execute(self, sql, params=None):
         if 'GROUP BY b, api_key' in sql:
-            self._rows = self._courant
+            self._rows = self._current
         elif 'AND "startTime" <' in sql:
             self._rows = self._precedent
         else:

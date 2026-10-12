@@ -25,7 +25,7 @@ from flask import session
 import app as portal
 import chat_routes as chat
 import conversation_routes as conv_routes
-import websearch_tools as outils_web
+import websearch_tools as web_tools
 
 
 def _delta(text):
@@ -52,15 +52,15 @@ class _FakeUpstream:
     trap, not a test convenience.
     """
 
-    def __init__(self, lines=None, status_value=200, corps_json=None, blocking=None):
+    def __init__(self, lines=None, status_value=200, json_body=None, blocking=None):
         self.status_value = status_value
         self.lines = list(lines or [])
         self.closed = False
-        self.corps_json = corps_json or {}
+        self.json_body = json_body or {}
         # Event released by close(): proves that a leaving client does close the
         # upstream connection (and thus frees the engine slot).
         self.blocking = blocking
-        self.debloque = threading.Event()
+        self.released = threading.Event()
 
     @property
     def ok(self):
@@ -71,11 +71,11 @@ class _FakeUpstream:
         return self.status_value
 
     def json(self):
-        return self.corps_json
+        return self.json_body
 
     def close(self):
         self.closed = True
-        self.debloque.set()
+        self.released.set()
 
     def __enter__(self):
         return self
@@ -88,7 +88,7 @@ class _FakeUpstream:
         for line in self.lines:
             yield line
         if self.blocking is not None:
-            self.debloque.wait(timeout=5)
+            self.released.wait(timeout=5)
             for line in self.blocking:
                 yield line
 
@@ -640,7 +640,7 @@ class MetricsAndAbortTest(_BasePlayground):
                 next(it)                      # ": ouverture"
                 next(it)                      # first relayed delta
                 it.close()                    # the client leaves
-                upstream.debloque.set()          # the fake upstream hands back
+                upstream.released.set()          # the fake upstream hands back
                 for _ in range(50):
                     if upstream.closed:
                         break
@@ -742,19 +742,19 @@ class ToolsPhaseTest(_BasePlayground):
                             'read': 1, 'urls': [], 'failures': []})
             return 'content'
 
-        with patch.object(outils_web, '_exec_web_tool', side_effect=_slow_tool), \
-             patch.object(outils_web, 'TOOL_HEARTBEAT_S', 0.1):
-            frames = list(outils_web._exec_web_tool_with_heartbeats('lire_pages', {}, []))
+        with patch.object(web_tools, '_exec_web_tool', side_effect=_slow_tool), \
+             patch.object(web_tools, 'TOOL_HEARTBEAT_S', 0.1):
+            frames = list(web_tools._exec_web_tool_with_heartbeats('lire_pages', {}, []))
         heartbeats = [t for t in frames if t == ': battement\n\n']
         self.assertGreaterEqual(len(heartbeats), 2,
                                 f'battements insuffisants : {frames}')
 
     def test_raising_tool_is_reported(self):
-        with patch.object(outils_web, '_exec_web_tool',
+        with patch.object(web_tools, '_exec_web_tool',
                           side_effect=RuntimeError('crawl4ai mort')), \
-             patch.object(outils_web, 'TOOL_HEARTBEAT_S', 0.05):
+             patch.object(web_tools, 'TOOL_HEARTBEAT_S', 0.05):
             with self.assertRaises(RuntimeError):
-                list(outils_web._exec_web_tool_with_heartbeats('lire_pages', {}, []))
+                list(web_tools._exec_web_tool_with_heartbeats('lire_pages', {}, []))
 
     def test_tools_prompt_bounded(self):
         """`OUTILS_TOTAL_MAX` only bounds the STARTING conversation: each round
@@ -766,9 +766,9 @@ class ToolsPhaseTest(_BasePlayground):
             short_text.append({'role': 'tool', 'tool_call_id': str(i),
                           'name': 'lire_pages', 'content': 'y' * 20000})
         size_before = sum(len(m['content']) for m in short_text)
-        outils_web._bound_tools_prompt(short_text)
+        web_tools._bound_tools_prompt(short_text)
         size_after = sum(len(m['content']) for m in short_text)
-        self.assertLessEqual(size_after, outils_web.TOOLS_PROMPT_MAX)
+        self.assertLessEqual(size_after, web_tools.TOOLS_PROMPT_MAX)
         self.assertLess(size_after, size_before)
         # No orphan `tool` message: a call without an answer breaks the template.
         called_ids = {tc['id'] for m in short_text if m.get('tool_calls')
@@ -804,12 +804,12 @@ class ToolsPhaseTest(_BasePlayground):
         def _post(url, headers=None, json=None, stream=False, timeout=None):
             calls['n'] += 1
             if calls['n'] == 1:            # decision: the model asks for a tool
-                return _FakeUpstream([], corps_json={'choices': [{'message': {
+                return _FakeUpstream([], json_body={'choices': [{'message': {
                     'tool_calls': [{'id': '1', 'function': {
                         'name': 'lire_pages', 'arguments': '{"urls":["https://x"]}'}}]}}]})
             return upstream
 
-        with patch.object(outils_web, '_exec_web_tool', side_effect=_explodes):
+        with patch.object(web_tools, '_exec_web_tool', side_effect=_explodes):
             body = self._flux(self._body(), post=_post, web=True)
         self.assertIn('panne', body)
 

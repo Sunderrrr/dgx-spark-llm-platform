@@ -18,12 +18,12 @@ class _Conn:
 
     def __init__(self, entrees):
         self._entrees = entrees
-        self.filtres = []
+        self.filters = []
         conn = self
 
         class _Std:
             def paged_search(self, base, filter_, attributes=None, paged_size=None, generator=True):
-                conn.filtres.append(filter_)
+                conn.filters.append(filter_)
                 for e in conn._entrees:
                     yield {'type': 'searchResEntry', 'attributes': e}
 
@@ -70,7 +70,7 @@ class ReadDirectoryTest(unittest.TestCase):
             read_result = directory.read_directory()
         self.assertEqual(read_result['states'], {'alice': 'active', 'bob': 'disabled'})
         self.assertEqual(read_result['groups'], {'alice': [], 'bob': []})
-        self.assertEqual(conn.filtres, ['(cn=*)'])
+        self.assertEqual(conn.filters, ['(cn=*)'])
 
     def test_directory_unreachable(self):
         with mock.patch.object(directory, 'ldap_config', return_value=CONFIG), \

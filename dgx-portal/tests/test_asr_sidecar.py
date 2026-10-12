@@ -3,7 +3,7 @@
 
 THIS is where the whole dictation-recovery story lives (2026-10-03): the
 sidecar loads its weights at startup AND retries on demand
-(`_charger_si_besoin`) — before, a single CUDA failure left `_pipe` at None
+(`_load_if_needed`) — before, a single CUDA failure left `_pipe` at None
 forever and « relance la dictée » was impossible by construction.
 
 The file lives OUTSIDE the portal image: run-tests.sh mounts it read-only
@@ -66,7 +66,7 @@ def _charge_module(pipeline):
 
 
 class ChargementRetentableTest(unittest.TestCase):
-    """The `_charger_si_besoin` policy of the dictation sidecar."""
+    """The `_load_if_needed` policy of the dictation sidecar."""
 
     def _module(self, pipeline):
         mod = _charge_module(pipeline)
@@ -85,10 +85,10 @@ class ChargementRetentableTest(unittest.TestCase):
                 raise RuntimeError('CUDA error: out of memory')
             return 'PIPELINE-OK'
         mod = self._module(pipeline)
-        self.assertFalse(mod._charger_si_besoin())          # 1er essai : échec
+        self.assertFalse(mod._load_if_needed())          # 1er essai : échec
         self.assertIn('out of memory', mod._load_error)
         mod._RETRY_S = 0.0                                  # fenêtre écoulée
-        self.assertTrue(mod._charger_si_besoin())           # 2e essai : succès
+        self.assertTrue(mod._load_if_needed())           # 2e essai : succès
         self.assertEqual(len(calls), 2)
         self.assertIsNone(mod._load_error)                  # l'erreur s'efface
 
@@ -100,9 +100,9 @@ class ChargementRetentableTest(unittest.TestCase):
             calls.append(1)
             raise RuntimeError('CUDA error: out of memory')
         mod = self._module(pipeline)
-        self.assertFalse(mod._charger_si_besoin())
+        self.assertFalse(mod._load_if_needed())
         for _ in range(5):                                  # dans la fenêtre
-            self.assertFalse(mod._charger_si_besoin())
+            self.assertFalse(mod._load_if_needed())
         self.assertEqual(len(calls), 1)                    # une seule tentative
 
     def test_single_flight_deux_appelants_une_tentative(self):
@@ -118,7 +118,7 @@ class ChargementRetentableTest(unittest.TestCase):
         mod._RETRY_S = 0.0
         results = []
         def call():
-            results.append(mod._charger_si_besoin())
+            results.append(mod._load_if_needed())
         fils = [threading.Thread(target=call) for _ in range(4)]
         for f in fils:
             f.start()
@@ -134,8 +134,8 @@ class ChargementRetentableTest(unittest.TestCase):
             return 'PIPELINE-OK'
         mod = self._module(pipeline)
         mod._RETRY_S = 0.0
-        self.assertTrue(mod._charger_si_besoin())
-        self.assertTrue(mod._charger_si_besoin())
+        self.assertTrue(mod._load_if_needed())
+        self.assertTrue(mod._load_if_needed())
         self.assertEqual(len(calls), 1)
 
 

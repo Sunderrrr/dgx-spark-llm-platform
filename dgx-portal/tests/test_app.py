@@ -807,8 +807,8 @@ class GardeDesRoutesTest(unittest.TestCase):
     def test_le_marqueur_est_bien_pose(self):
         """Without a marker, the main test would pass while seeing nothing."""
         gardees = [r.endpoint for r in portal.app.url_map.iter_rules()
-                   if getattr(portal.app.view_functions.get(r.endpoint), '_garde', None)]
-        self.assertGreater(len(gardees), 90, "le marqueur _garde a disparu des décorateurs")
+                   if getattr(portal.app.view_functions.get(r.endpoint), '_guard', None)]
+        self.assertGreater(len(gardees), 90, "le marqueur _guard a disparu des décorateurs")
 
 
 class NomsResolublesTest(unittest.TestCase):

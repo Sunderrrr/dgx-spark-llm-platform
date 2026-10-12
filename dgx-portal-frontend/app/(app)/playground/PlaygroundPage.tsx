@@ -258,7 +258,10 @@ const NAME_INSTRUCTION = `Name every file you output: put its path in backticks 
 // errors, a spot fix left a half-right file, and
 // a mis-copied anchor did not apply at all. We ask for the file
 // ENTIRE — it is longer to generate, but what comes out is usable as is.
-const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you already produced, output that file COMPLETE, from its first line to its last, under the exact same name. Never output a partial file, an excerpt, a diff, or a "rest unchanged" placeholder.`;
+// Only for when no file tools are offered: the server arms str_replace on an
+// edit request, and this instruction then made the model skip them and
+// reprint the whole file (2026-10-12) — hence the explicit precedence.
+const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you already produced: if file-editing tools (str_replace, view_file) are available, use them and do not print the file again. Otherwise, output that file COMPLETE, from its first line to its last, under the exact same name — never a partial file, an excerpt, a diff, or a "rest unchanged" placeholder.`;
 
 // The model GIVES UP on its own on a large file: measured in prod on 22/08,
 // it stopped at 14 187 tokens out of 131 072 available, with

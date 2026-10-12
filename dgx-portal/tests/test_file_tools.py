@@ -176,6 +176,8 @@ class ToolsPhaseLoopTest(unittest.TestCase):
                 'm', [{'role': 'user', 'content': 'change the greeting'}], 'sk', [], [],
                 web_ok=False, files=files, changes=changes))
         self.assertEqual(len(sent), 3)
+        # First round forces a tool call (« auto » let the model reprint the file).
+        self.assertEqual([j['tool_choice'] for j in sent], ['required', 'auto', 'auto'])
         # The second request carries the error of the first edit (the list
         # is shared across rounds: the FIRST tool message is that error).
         tool_msgs = [m for m in sent[1]['messages'] if m.get('role') == 'tool']

@@ -194,7 +194,7 @@ def _exec_document_tool(args, username, step_log, attachments):
     while thread.is_alive() and time.monotonic() - start < _DOC_TIMEOUT_S:
         thread.join(_POLL_INTERVAL_S)
         if thread.is_alive() and time.monotonic() >= next_heartbeat:
-            yield ": battement\n\n"
+            yield ": heartbeat\n\n"
             next_heartbeat = time.monotonic() + _HEARTBEAT_EVERY_S
     if thread.is_alive():
         step_log.append({'step': 'ocr_done', 'tool': 'unlimited-ocr',

@@ -745,9 +745,9 @@ class ToolsPhaseTest(_BasePlayground):
         with patch.object(web_tools, '_exec_web_tool', side_effect=_slow_tool), \
              patch.object(web_tools, 'TOOL_HEARTBEAT_S', 0.1):
             frames = list(web_tools._exec_web_tool_with_heartbeats('lire_pages', {}, []))
-        heartbeats = [t for t in frames if t == ': battement\n\n']
+        heartbeats = [t for t in frames if t == ': heartbeat\n\n']
         self.assertGreaterEqual(len(heartbeats), 2,
-                                f'battements insuffisants : {frames}')
+                                f'not enough heartbeats: {frames}')
 
     def test_raising_tool_is_reported(self):
         with patch.object(web_tools, '_exec_web_tool',

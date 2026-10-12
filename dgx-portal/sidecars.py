@@ -89,7 +89,7 @@ def wait_media_job(table, prompt_id, username, timeout_s):
     """Polls a media job row until it is done, yielding SSE heartbeats.
 
     The image and video tools each carried this loop VERBATIM (18 identical
-    lines, audit 2026-10-07): same sqlite3 poll, same `: battement` heartbeat,
+    lines, audit 2026-10-07): same sqlite3 poll, same `: heartbeat` comment,
     same `media_job_done` release. One generator now — a heartbeat cadence or
     a timeout change lands once.
 
@@ -115,7 +115,7 @@ def wait_media_job(table, prompt_id, username, timeout_s):
         if row and row.get('status') not in ('running', 'pending'):
             return row
         if time.monotonic() >= next_item:
-            yield ": battement\n\n"
+            yield ": heartbeat\n\n"
             next_item = time.monotonic() + 15
     return None
 

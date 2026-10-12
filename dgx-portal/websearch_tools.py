@@ -270,8 +270,8 @@ def _exec_web_tool_with_heartbeats(name, args, step_log):
     """GENERATOR: runs a web tool while beating time during the wait.
 
     Yields (generator return value) the text meant for the model, exactly
-    like `_exec_web_tool`. In between it emits `": battement"` every
-    BATTEMENT_OUTIL_S seconds: without it a slow page read produces no byte
+    like `_exec_web_tool`. In between it emits `": heartbeat"` every
+    TOOL_HEARTBEAT_S seconds: without it a slow page read produces no byte
     during its whole run and the frontend proxy gives up (60 s idle), while
     the work itself does succeed.
     """
@@ -292,10 +292,36 @@ def _exec_web_tool_with_heartbeats(name, args, step_log):
     while thread.is_alive():
         thread.join(TOOL_HEARTBEAT_S)
         if thread.is_alive():
-            yield ": battement\n\n"
+            yield ": heartbeat\n\n"
     if 'e' in box:
         raise box['e']
     return box.get('r', '')
+
+
+def _post_with_heartbeats(*args, **kwargs):
+    """GENERATOR: `requests.post` in a thread, beating time while it waits.
+
+    A tool decision can queue behind another session's long prefill (121 s
+    measured on an edit round): without a byte meanwhile the frontend proxy
+    cuts the stream at 60 s. Returns the response; re-raises its exception.
+    """
+    box = {}
+
+    def _run():
+        try:
+            box['r'] = requests.post(*args, **kwargs)
+        except Exception as e:                      # noqa: BLE001 — re-raised below
+            box['e'] = e
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    while thread.is_alive():
+        thread.join(TOOL_HEARTBEAT_S)
+        if thread.is_alive():
+            yield ": heartbeat\n\n"
+    if 'e' in box:
+        raise box['e']
+    return box['r']
 
 
 def _findings_text(findings):
@@ -361,20 +387,28 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
         else:
             short_text.insert(0, {'role': 'system', 'content': note})
     _end = time.monotonic() + (FILE_TOOLS_MAX_DELAY if edit_ok else TOOLS_MAX_DELAY)
-    for _ in range(FILE_TOOL_ROUNDS if edit_ok else MAX_TOOL_ROUNDS):
+    for _round in range(FILE_TOOL_ROUNDS if edit_ok else MAX_TOOL_ROUNDS):
         if time.monotonic() > _end:
             step_log.append({'step': 'timeout', 'tool': 'search',
                             'error': "Recherche interrompue : trop longue."})
             yield "data: " + json.dumps({'dgx_web': step_log[-1]}) + "\n\n"
             return
         try:
-            r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
+            r = yield from _post_with_heartbeats(f"{LITELLM_URL}/v1/chat/completions",
                               headers={'Authorization': f'Bearer {user_key}'},
                               json={'model': model, 'messages': short_text, 'tools': _tools,
-                                    'tool_choice': 'auto', 'temperature': 0.2,
+                                    # An edit request FORCES a tool call on the first
+                                    # round: left to « auto », the model answered in
+                                    # text and the final turn reprinted the whole
+                                    # file (2026-10-12, « npm à la place de traefik »).
+                                    # At worst it calls view_file — harmless.
+                                    'tool_choice': 'required' if edit_ok and _round == 0 else 'auto',
+                                    'temperature': 0.2,
                                     'max_tokens': 8192 if edit_ok else 1024,
                                     'chat_template_kwargs': {'enable_thinking': False}},
-                              timeout=120)
+                              # An edit round can wait behind another session's long prefill
+                              # (measured: 101 s queued + 20 s of tool call = 121 s).
+                              timeout=240 if edit_ok else 120)
         except Exception as e:                      # noqa: BLE001
             # Transport failure (LiteLLM unreachable, timeout): we SAY it. Total
             # silence was the worst case — the user had asked for a search and got a

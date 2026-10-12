@@ -116,9 +116,12 @@ def files_note(files):
     listing = ", ".join(f"{name} ({content.count(chr(10)) + 1} lines)"
                         for name, content in files.items())
     return ("Files of this conversation (current versions): " + listing + ". "
-            "To change one, call str_replace (exact, unique old_str) — call "
-            "view_file first if you need the current text. Do not rewrite a "
-            "whole file for a localized change.")
+            "The user is asking for a change: APPLY it now with the file tools — "
+            "str_replace (exact, unique old_str) for each modification, view_file "
+            "first if you need the current text, create_file only for a NEW file. "
+            "This overrides any instruction to output a file complete: never "
+            "rewrite a whole file for a localized change. When every change is "
+            "applied, answer with a short summary.")
 
 
 def _resolve(files, path):

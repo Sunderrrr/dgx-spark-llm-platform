@@ -197,6 +197,8 @@ export function webStepLabel(
       return { finished: false,
         text: `${tool} · ` + t("lecture du document")
           + (e.question ? ` « ${e.question} »` : "") };
+    case "history":
+      return { finished: true, text: t("recherche dans tes conversations : {q}").replace("{q}", e.question ?? "") };
     case "skill":
       return { finished: true, text: e.error
         ? t("compétence introuvable : {s}").replace("{s}", e.question ?? "")

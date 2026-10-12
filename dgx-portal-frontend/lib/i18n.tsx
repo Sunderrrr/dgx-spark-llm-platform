@@ -1889,6 +1889,23 @@ const EN: Record<string, string> = {
   "Écrite ici": "Written here",
   "Importée (.zip)": "Imported (.zip)",
   "Dépôt Git": "Git repository",
+  // ── Memory settings (Claude-style) ──
+  "Le réglage n'a pas été enregistré.": "The setting was not saved.",
+  "Rechercher et consulter les conversations": "Search and reference chats",
+  "Autoriser l'assistant à rechercher des détails pertinents dans tes conversations précédentes.": "Allow the assistant to search for relevant details in your past conversations.",
+  "Générer la mémoire à partir des conversations": "Generate memory from chat history",
+  "Autoriser l'assistant à retenir des informations durables tirées de tes conversations, pour les réutiliser plus tard.": "Allow the assistant to remember lasting information from your conversations, to reuse it later.",
+  "Inclure les sujets sensibles dans la mémoire": "Include sensitive topics in memory",
+  "Autoriser l'assistant à enregistrer des détails sur des sujets sensibles, comme la santé ou les croyances religieuses.": "Allow the assistant to store details about sensitive topics, such as health or religious beliefs.",
+  "Importer la mémoire depuis d'autres fournisseurs d'IA": "Import memory from other AI providers",
+  "Récupère le contexte qu'un autre assistant (ChatGPT, Claude, Gemini…) a retenu sur toi : tu lui envoies une invite, tu colles sa réponse ici.": "Bring over the context another assistant (ChatGPT, Claude, Gemini…) has kept about you: send it a prompt, paste its answer here.",
+  "Démarrer l'importation": "Start import",
+  "Importer la mémoire d'un autre assistant": "Import memory from another assistant",
+  "1. Copie cette invite dans ton autre assistant": "1. Copy this prompt into your other assistant",
+  "2. Colle sa réponse ici": "2. Paste its answer here",
+  "Réponse de l'autre assistant": "The other assistant's answer",
+  "Les informations sont fusionnées avec ta mémoire actuelle ; les doublons sont ignorés.": "The information is merged with your current memory; duplicates are skipped.",
+  "recherche dans tes conversations : {q}": "searching your conversations: {q}",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

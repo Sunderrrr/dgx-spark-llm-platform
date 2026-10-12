@@ -63,6 +63,7 @@ from image_tools import _image_requested, image_available
 from video_tools import _video_requested, video_available
 import file_tools
 import skills_store
+import conversation_search
 from document_tools import _document_requested, document_available
 
 _log = logging.getLogger('app')
@@ -446,6 +447,10 @@ def support_chat():
                         label = f"MCP · {route['server_name']} · {route['tool_name']}"
                         target = None
                         exec_fn = lambda: _exec_mcp_tool(route['server_id'], route['tool_name'], a, username)
+                    elif route and route['kind'] == 'chats':
+                        label = "Historique · " + str(a.get('query') or fname)
+                        target = None
+                        exec_fn = lambda fn_=fname, a_=a: conversation_search.execute(fn_, a_, username)
                     elif route and route['kind'] == 'skill':
                         skill_name = (a.get('name') or '').strip()
                         skill_path = a.get('path') if fname == 'read_skill_file' else None
@@ -1001,6 +1006,9 @@ def _mem_extract_and_save(username, model, user_key, excerpts, _app):
         with _app.app_context():
             if not memory._mem_enabled(username):
                 return
+            # « Include sensitive topics » off: the extraction is told to skip
+            # them (and the filter below drops what slips through anyway).
+            sensitive_ok = memory._mem_settings(username)['sensitive']
             convo = []
             total = 0
             for m in excerpts:
@@ -1024,7 +1032,8 @@ def _mem_extract_and_save(username, model, user_key, excerpts, _app):
             if index:
                 convo.append("Relations déjà mémorisées (réutilise la même relation "
                              "pour mettre à jour) :\n" + index)
-        msgs = [{'role': 'system', 'content': _MEM_EXTRACT_SYSTEM},
+        msgs = [{'role': 'system', 'content': _MEM_EXTRACT_SYSTEM
+                 + ("" if sensitive_ok else "\n" + memory.SENSITIVE_RULE)},
                 {'role': 'user', 'content': "\n".join(convo)}]
         r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
                           headers={'Authorization': f'Bearer {user_key}'},
@@ -1047,6 +1056,8 @@ def _mem_extract_and_save(username, model, user_key, excerpts, _app):
                     continue
                 parts = [p.strip() for p in line.split('|')]
                 if len(parts) < 3 or not parts[0] or not parts[2]:
+                    continue
+                if not sensitive_ok and memory.looks_sensitive(line):
                     continue
                 msg, ok = memory._exec_memory_tool('save_memory', {
                     'subject': parts[0][:memory.MEM_MAX_NAME_LEN],
@@ -1239,6 +1250,10 @@ def playground_chat():
     _last_user = next((h['content'] for h in reversed(history) if h['role'] == 'user'), '')
     _skill_ok = bool(_skill_rows) and (bool(_invoked) or bool(
         skills_store.matching_skills(_skill_rows, _last_user)))
+    # « Search and reference past conversations » (Memory settings): armed
+    # when the request points to an earlier exchange.
+    _chats_ok = (conversation_search.refers_to_past(history)
+                 and conversation_search.search_enabled(session['username']))
 
     # The output cap ADDS to the prompt in the context window: beyond it,
     # vLLM refuses the request (400 ContextWindowExceededError) instead of answering.
@@ -1304,9 +1319,9 @@ def playground_chat():
         # after the search (just before the final POST), so a request that spent
         # 40 s searching and reading announced « TTFT 1,2 s ».
         _t0 = time.monotonic()
-        if _web_ok or _img_ok or _vid_ok or _doc_ok or _edit_ok or _skill_ok:
+        if _web_ok or _img_ok or _vid_ok or _doc_ok or _edit_ok or _skill_ok or _chats_ok:
             yield ": recherche\n\n"
-            _step_log, _findings, _changes, _skills_loaded = [], [], {}, []
+            _step_log, _findings, _changes, _skills_loaded, _history = [], [], {}, [], []
             for _step in _tools_phase(model, msgs, user_key, _step_log,
                                         _findings, web_ok=_web_ok,
                                         img_ok=_img_ok, username=_who,
@@ -1315,7 +1330,9 @@ def playground_chat():
                                         files=_files if _edit_ok else None,
                                         changes=_changes,
                                         skill_rows=_skill_rows if _skill_ok else None,
-                                        skills_loaded=_skills_loaded):
+                                        skills_loaded=_skills_loaded,
+                                        chat_search=_chats_ok,
+                                        history_notes=_history):
                 yield _step
             # Every edited file goes back ONCE, in its final state: the
             # browser records it as the file's new version and shows the diff.
@@ -1327,7 +1344,10 @@ def playground_chat():
             # Re-injection AS TEXT, into the last user message.
             _txt = (_findings_text(_findings) + file_tools.edits_note(_files, _changes)
                     + (("\n\n---\n[Skill content loaded for this request — follow it:]\n\n"
-                        + "\n\n".join(_skills_loaded))[:60000] if _skills_loaded else ''))
+                        + "\n\n".join(_skills_loaded))[:60000] if _skills_loaded else '')
+                    + (("\n\n---\n[From the user's past conversations — use it as context, "
+                        "cite the conversation title when you rely on it:]\n\n"
+                        + "\n\n".join(_history))[:30000] if _history else ''))
             if _txt:
                 for _k in range(len(msgs) - 1, -1, -1):
                     if msgs[_k].get('role') == 'user':

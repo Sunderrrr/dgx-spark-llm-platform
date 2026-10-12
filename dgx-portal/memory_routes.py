@@ -83,6 +83,52 @@ def _mem_enabled(username):
     return bool(row['memory_enabled'])
 
 
+def _mem_settings(username):
+    """The memory settings beyond the main switch (Claude's « search and
+    reference chats » and « include sensitive topics »), ON by default."""
+    row = get_db().execute("SELECT memory_search_chats, memory_sensitive FROM user_prefs "
+                           "WHERE username=?", (username,)).fetchone()
+    if row is None:
+        return {'search_chats': True, 'sensitive': True}
+    return {'search_chats': row['memory_search_chats'] is None or bool(row['memory_search_chats']),
+            'sensitive': row['memory_sensitive'] is None or bool(row['memory_sensitive'])}
+
+
+def _mem_set_setting(username, column, on):
+    assert column in ('memory_search_chats', 'memory_sensitive')
+    db = get_db()
+    db.execute(f"INSERT INTO user_prefs (username, {column}) VALUES (?,?) "
+               f"ON CONFLICT(username) DO UPDATE SET {column}=excluded.{column}",
+               (username, 1 if on else 0))
+    db.commit()
+
+
+# What « no sensitive topics » excludes, said to the extraction and to the
+# model's own memory tool.
+SENSITIVE_RULE = (
+    "Never store sensitive personal information: health (physical or mental), "
+    "religious or philosophical beliefs, political opinions, sexual life or "
+    "orientation, ethnic origin, trade-union membership, criminal record, "
+    "precise finances. Skip such facts entirely.")
+
+
+# Safety net behind SENSITIVE_RULE: a fact naming one of these is dropped
+# when sensitive topics are off, whatever the model wrote.
+_SENSITIVE = re.compile(
+    r"\b(?:sant[ée]|maladi|diagnosti|m[ée]dica|traitement|th[ée]rap|d[ée]pressi|anxi[ée]t|handica|"
+    r"enceinte|grossesse|religi|croyan|chr[ée]tien|catholi|musulman|islam|juif|juda[iï]|bouddhi|ath[ée]e|"
+    r"politi|vote |votera|parti |syndica|orientation sexuelle|homosexu|gay|lesbienne|bisexu|transgenre|"
+    r"ethni|origine raciale|casier judiciaire|condamn|salaire|dette|cr[ée]dit immobilier|"
+    r"health|illness|disease|diagnos|medica|therap|depress|anxiety|disabilit|pregnan|"
+    r"religio|belief|christian|catholic|muslim|jewish|buddhis|atheis|politic|trade union|"
+    r"sexual orientation|homosexual|lesbian|bisexual|transgender|ethnic|criminal record|convict|"
+    r"salary|debt|mortgage|vot(?:e|es|ed|ing) for)", re.I)
+
+
+def looks_sensitive(text):
+    return bool(_SENSITIVE.search(str(text or '')))
+
+
 # Bounds of the memory injection into the chat: a personal graph rarely
 # exceeds a few dozen facts, but the guard prevents a massive import from
 # inflating the prompt (and thus the billing) without limit.
@@ -356,6 +402,10 @@ def _exec_memory_tool(name, args, username):
     if not _mem_enabled(username):
         return "La mémoire est désactivée pour ce compte (réglage sur la page Mémoire).", False
     if name == 'save_memory':
+        if (not _mem_settings(username)['sensitive']
+                and looks_sensitive(f"{args.get('subject')} {args.get('fact')} {args.get('object') or ''}")):
+            return ("Not saved: the user keeps sensitive topics out of memory "
+                    "(Memory settings)."), False
         return _mem_add_fact(username,
                              args.get('subject'), args.get('relation') or 'à propos de',
                              args.get('fact'), obj=args.get('object'),
@@ -383,7 +433,21 @@ def api_memory():
     """
     username = session['username']
     g_ = _mem_graph(username, include_expired=request.args.get('expired') == '1')
-    return jsonify({'enabled': _mem_enabled(username), 'max_facts': MEM_MAX_FACTS, **g_})
+    return jsonify({'enabled': _mem_enabled(username), 'max_facts': MEM_MAX_FACTS,
+                    **_mem_settings(username), **g_})
+
+
+@bp.route('/api/memory/settings', methods=['POST'])
+@login_required
+def api_memory_settings():
+    """The two secondary memory switches. Turning one off erases nothing."""
+    data = request.get_json(silent=True) or {}
+    username = session['username']
+    if 'search_chats' in data:
+        _mem_set_setting(username, 'memory_search_chats', bool(data['search_chats']))
+    if 'sensitive' in data:
+        _mem_set_setting(username, 'memory_sensitive', bool(data['sensitive']))
+    return jsonify({'ok': True, **_mem_settings(username)})
 
 
 @bp.route('/api/memory/enabled', methods=['POST'])

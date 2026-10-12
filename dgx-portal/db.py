@@ -543,6 +543,14 @@ def init_db():
         db.execute("ALTER TABLE user_prefs ADD COLUMN websearch_enabled INTEGER NOT NULL DEFAULT 1")
     if 'onboarded' not in pref_cols:
         db.execute("ALTER TABLE user_prefs ADD COLUMN onboarded INTEGER NOT NULL DEFAULT 0")
+    # Memory settings (2026-10-12, as in Claude): searching past conversations
+    # and keeping sensitive topics are both ON by default, like generation.
+    for col in ('memory_search_chats', 'memory_sensitive'):
+        if col not in pref_cols:
+            try:
+                db.execute(f"ALTER TABLE user_prefs ADD COLUMN {col} INTEGER NOT NULL DEFAULT 1")
+            except sqlite3.OperationalError:
+                pass    # another gunicorn worker added it first
     mcp_cols = {r[1] for r in db.execute("PRAGMA table_info(mcp_servers)")}
     for col, ddl in (('description', "TEXT DEFAULT ''"),
                      ('allowed_tools', "TEXT DEFAULT ''"),

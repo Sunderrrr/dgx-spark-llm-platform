@@ -140,6 +140,7 @@ ROUTES = {
     'memory.api_memory': ('journey', 'j12_page_actions (read)'),
     'memory.api_memory_add': ('excluded', 'adding a memory fact: writes account data'),
     'memory.api_memory_enabled': ('journey', 'j12_page_actions (write + revert)'),
+    'memory.api_memory_settings': ('excluded', 'memory preference writes — covered by test_memory_settings.SettingsTest'),
     'memory.api_memory_export': ('excluded', 'memory export: a heavy read, nothing to validate'),
     'memory.api_memory_export_md': ('excluded', 'memory export: a heavy read, nothing to validate'),
     'memory.api_memory_forget': ('excluded', 'forgetting a fact: destroys data'),

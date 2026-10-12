@@ -174,7 +174,7 @@ export async function fetchPlaygroundData(): Promise<PlaygroundData> {
  * backend announces it on the fly. `etape` is optional: the portail sends an
  * empty frame when a tool refused before doing anything. */
 export type WebStep = {
-  step?: "search" | "search_done" | "reading" | "reading_done" | "file_view" | "file_edit" | "skill"
+  step?: "search" | "search_done" | "reading" | "reading_done" | "file_view" | "file_edit" | "skill" | "history"
     | "generation" | "generation_done" | "generation_video"
     | "generation_video_done" | "ocr" | "ocr_done" | "unknown";
   tool: string;

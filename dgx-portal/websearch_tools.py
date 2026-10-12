@@ -21,6 +21,7 @@ import websearch
 import document_tools
 import file_tools
 import skills_store
+import conversation_search
 import image_tools
 import video_tools
 from db import get_db
@@ -316,7 +317,8 @@ def _findings_text(findings):
 def _tools_phase(model, msgs, user_key, step_log, findings,
                   web_ok=True, img_ok=False, username='',
                   video_ok=False, doc_ok=False, attachments=(),
-                  files=None, changes=None, skill_rows=None, skills_loaded=None):
+                  files=None, changes=None, skill_rows=None, skills_loaded=None,
+                  chat_search=False, history_notes=None):
     """Lets the model search, read or generate before answering. Modifies `msgs`
     in place.
 
@@ -345,7 +347,8 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
                (video_tools._video_tools() if video_ok else []) +
                (document_tools._document_tools() if doc_ok else []) +
                (file_tools._file_tools() if edit_ok else []) +
-               skills_store.skill_tools(skill_rows or []))
+               skills_store.skill_tools(skill_rows or []) +
+               (conversation_search.tools() if chat_search else []))
     if not _tools:
         return
     if edit_ok:
@@ -411,6 +414,18 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
                 args = json.loads(fn.get('arguments') or '{}')
             except Exception:
                 args = {}
+            if chat_search and fn.get('name') in ('search_conversations', 'recent_conversations'):
+                # The user's own history: kept for the final answer, framed as data.
+                result, _ok = conversation_search.execute(fn.get('name'), args, username)
+                if history_notes is not None:
+                    history_notes.append(result)
+                yield "data: " + json.dumps({'dgx_web': {
+                    'step': 'history', 'tool': 'history',
+                    'question': str(args.get('query') or '')[:120]}}) + "\n\n"
+                short_text.append({'role': 'tool', 'tool_call_id': call.get('id', ''),
+                                   'name': fn.get('name', ''), 'content': result})
+                _bound_tools_prompt(short_text)
+                continue
             if skill_rows and fn.get('name') in ('use_skill', 'read_skill_file'):
                 # The skill's instructions/files go to the FINAL answer too
                 # (skills_loaded): the tool exchange itself is dropped there.

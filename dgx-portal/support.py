@@ -17,6 +17,7 @@ import secrets
 import time
 from datetime import datetime
 
+import conversation_search
 import skills_store
 from db import get_db, platform_name
 from litellm_client import (_litellm_user_info, create_litellm_key,
@@ -599,6 +600,10 @@ def _user_extra_tools(username):
                 'kind': 'mcp', 'server_id': row['id'], 'server_name': row['name'],
                 'tool_name': t.get('name', ''),
             }
+    if conversation_search.search_enabled(username):
+        for t in conversation_search.tools():
+            tools.append(t)
+            routing[t['function']['name']] = {'kind': 'chats'}
     skill_rows = skills_store.enabled_skills(db, username)
     for t in skills_store.skill_tools(skill_rows):
         tools.append(t)

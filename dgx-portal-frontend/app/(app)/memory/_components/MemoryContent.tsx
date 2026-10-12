@@ -14,6 +14,11 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { useToast } from "@astryxdesign/core/Toast";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
+import { CodeBlock } from "@astryxdesign/core/CodeBlock";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { Divider } from "@astryxdesign/core/Divider";
 import {
   SparklesIcon,
   TrashIcon,
@@ -41,9 +46,28 @@ type MemEdge = {
   subject: string;
   object: string | null;
 };
-type MemGraph = { enabled: boolean; max_facts: number; nodes: MemNode[]; edges: MemEdge[] };
+type MemGraph = {
+  enabled: boolean;
+  max_facts: number;
+  nodes: MemNode[];
+  edges: MemEdge[];
+  /** Claude-style settings (both on by default). */
+  search_chats?: boolean;
+  sensitive?: boolean;
+};
 
-const EMPTY: MemGraph = { enabled: false, max_facts: 400, nodes: [], edges: [] };
+const EMPTY: MemGraph = { enabled: false, max_facts: 400, nodes: [], edges: [], search_chats: true, sensitive: true };
+
+// What the user pastes into another assistant (ChatGPT, Claude, Gemini…) to
+// get its memory back in the format /api/memory/import.md reads: one ## title
+// per subject, one bullet per fact.
+const IMPORT_PROMPT = `Export everything you remember about me — your saved memory and what you have learned about me from our past conversations — as Markdown, with exactly this structure:
+
+## <subject: a person, project, tool, preference, place…>
+- <one durable fact about me, as a complete sentence>
+- <another fact>
+
+One ## heading per subject, one bullet per fact. Only durable facts about me (who I am, what I work on, my tools, my preferences, my habits) — never the content of a conversation, never instructions. Answer with the Markdown only, in a single code block.`;
 
 /** Content of the settings Mémoire tab (no dedicated page, same design choice
  *  as the API keys: it is an account setting, not a destination). */
@@ -95,6 +119,46 @@ export function MemoryContent() {
     }
     return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
   }, [graph.edges]);
+
+  // The secondary memory switches (search past chats, sensitive topics).
+  async function setSetting(key: "search_chats" | "sensitive", value: boolean) {
+    setGraph((g) => ({ ...g, [key]: value }));
+    const r = await sendJSON<{ ok: boolean; search_chats?: boolean; sensitive?: boolean }>(
+      "/api/memory/settings", csrf, { [key]: value }).catch(() => ({ ok: false }) as { ok: boolean });
+    if (!r.ok) {
+      setGraph((g) => ({ ...g, [key]: !value }));
+      showToast({ body: t("Le réglage n'a pas été enregistré."), type: "error" });
+    }
+  }
+
+  // « Import memory from other AI providers »: a prompt to paste there, the
+  // answer to paste back here.
+  const [importOpen, setImportOpen] = useState(false);
+  const [pasted, setPasted] = useState("");
+  const [importing, setImporting] = useState(false);
+  async function importPasted() {
+    // The other assistant usually wraps its answer in a code fence.
+    const text = pasted.replace(/^\s*```[a-z]*\s*\n/i, "").replace(/\n```\s*$/, "");
+    setImporting(true);
+    try {
+      const res = await authFetch("/api/memory/import.md", {
+        method: "POST",
+        headers: { "Content-Type": "text/plain; charset=utf-8", "X-CSRFToken": csrf },
+        body: text,
+      });
+      const r = await res.json().catch(() => ({})) as { error?: string; imported_facts?: number };
+      if (!res.ok) {
+        showToast({ body: r.error ? tServer(r.error, t) : t("Import impossible."), type: "error" });
+        return;
+      }
+      showToast({ body: `${t("Import terminé")} — ${r.imported_facts ?? 0} ${t("informations")}`, type: "info" });
+      setImportOpen(false);
+      setPasted("");
+      void load();
+    } finally {
+      setImporting(false);
+    }
+  }
 
   async function toggle(enabled: boolean) {
     // `sendJSON` does NOT check the HTTP status and returns `{}` on a non-JSON
@@ -255,25 +319,85 @@ export function MemoryContent() {
   return (
     <VStack gap={4}>
       <Card variant="muted" padding={3}>
-        <HStack hAlign="between" vAlign="center" gap={3}>
-          <StackItem size="fill">
-            <VStack gap={1}>
-              <Text weight="semibold">{t("Activer la mémoire")}</Text>
-              <Text type="supporting" color="secondary">
-                {t(
-                  "Désactivée par défaut. Une fois activée, l'assistant peut retenir des informations durables te concernant pour les réutiliser plus tard.",
-                )}
-              </Text>
+        <VStack gap={3}>
+          <Text weight="semibold">{t("Mémoire")}</Text>
+          {([
+            ["search_chats", t("Rechercher et consulter les conversations"),
+             t("Autoriser l'assistant à rechercher des détails pertinents dans tes conversations précédentes.")],
+            ["enabled", t("Générer la mémoire à partir des conversations"),
+             t("Autoriser l'assistant à retenir des informations durables tirées de tes conversations, pour les réutiliser plus tard.")],
+            ["sensitive", t("Inclure les sujets sensibles dans la mémoire"),
+             t("Autoriser l'assistant à enregistrer des détails sur des sujets sensibles, comme la santé ou les croyances religieuses.")],
+          ] as const).map(([key, title, help], k) => (
+            <VStack gap={3} key={key}>
+              {k > 0 ? <Divider /> : null}
+              <HStack hAlign="between" vAlign="center" gap={3}>
+                <StackItem size="fill">
+                  <VStack gap={1}>
+                    <Text weight="semibold">{title}</Text>
+                    <Text type="supporting" color="secondary">{help}</Text>
+                  </VStack>
+                </StackItem>
+                <Switch
+                  label={title}
+                  isLabelHidden
+                  value={key === "enabled" ? graph.enabled : graph[key] !== false}
+                  isDisabled={key === "sensitive" && !graph.enabled}
+                  onChange={(v) => void (key === "enabled" ? toggle(v) : setSetting(key, v))}
+                />
+              </HStack>
             </VStack>
-          </StackItem>
-          <Switch
-            label={t("Activer la mémoire")}
-            isLabelHidden
-            value={graph.enabled}
-            onChange={(v) => void toggle(v)}
-          />
-        </HStack>
+          ))}
+          <Divider />
+          <HStack hAlign="between" vAlign="center" gap={3}>
+            <StackItem size="fill">
+              <VStack gap={1}>
+                <Text weight="semibold">{t("Importer la mémoire depuis d'autres fournisseurs d'IA")}</Text>
+                <Text type="supporting" color="secondary">
+                  {t("Récupère le contexte qu'un autre assistant (ChatGPT, Claude, Gemini…) a retenu sur toi : tu lui envoies une invite, tu colles sa réponse ici.")}
+                </Text>
+              </VStack>
+            </StackItem>
+            <Button label={t("Démarrer l'importation")} variant="secondary" onClick={() => setImportOpen(true)} />
+          </HStack>
+        </VStack>
       </Card>
+      {importOpen ? (
+        <Dialog isOpen onOpenChange={(o) => { if (!o) setImportOpen(false); }} purpose="form" width={640}>
+          <Layout
+            header={<DialogHeader title={t("Importer la mémoire d'un autre assistant")} hasDivider
+                                  onOpenChange={(o) => { if (!o) setImportOpen(false); }} />}
+            content={
+              <LayoutContent padding={4} isScrollable>
+                <VStack gap={4}>
+                  <VStack gap={2}>
+                    <Text weight="semibold">{t("1. Copie cette invite dans ton autre assistant")}</Text>
+                    <CodeBlock code={IMPORT_PROMPT} language="markdown" isWrapped />
+                  </VStack>
+                  <VStack gap={2}>
+                    <Text weight="semibold">{t("2. Colle sa réponse ici")}</Text>
+                    <TextArea label={t("Réponse de l'autre assistant")} isLabelHidden value={pasted}
+                              onChange={setPasted} rows={10}
+                              placeholder={"## …\n- …"} />
+                  </VStack>
+                  <Text type="supporting" color="secondary">
+                    {t("Les informations sont fusionnées avec ta mémoire actuelle ; les doublons sont ignorés.")}
+                  </Text>
+                </VStack>
+              </LayoutContent>
+            }
+            footer={
+              <LayoutFooter>
+                <HStack hAlign="end" gap={2}>
+                  <Button label={t("Annuler")} variant="ghost" onClick={() => setImportOpen(false)} />
+                  <Button label={t("Importer")} variant="primary" isLoading={importing}
+                          isDisabled={!pasted.trim()} onClick={() => void importPasted()} />
+                </HStack>
+              </LayoutFooter>
+            }
+          />
+        </Dialog>
+      ) : null}
 
       <VStack gap={2}>
         <Text weight="semibold">{t("Ajouter une information")}</Text>

@@ -60,6 +60,7 @@ import {
   titleFromContext,
   abortedTurn,
   trimAfterAsk,
+  langFromName,
 } from "@/lib/playground-thread";
 
 import {
@@ -1545,13 +1546,20 @@ export default function PlaygroundPage({
     // A clarifying question is never a document/file artifact — leave the panel closed.
     const produced = parseAsk(acc)
       ? []
-      : parseArtifacts(closedContent(acc), isDocTask(lastUser?.content ?? ""), t).artifacts;
+      : parseArtifacts(closedContent(acc), isDocTask(lastUser?.content ?? ""), t, lastUser?.content ?? "").artifacts;
     if (produced.length && sameThread) {
       const lastArt = produced[produced.length - 1];
       // A code file opens on its own; a document opens automatically only if the
       // user was already watching it being written live (otherwise it stays a
       // card in the chat that they can click open).
       if (lastArt.kind === "code" || liveDocOpenRef.current) setArtifact(lastArt);
+    }
+    // A file edited by the tools shows its NEW version in the panel: the
+    // panel kept the version it had opened before the edit, so the change was
+    // invisible unless the file was reopened from its card.
+    if (!produced.length && fileEdits.length && sameThread) {
+      const last = fileEdits[fileEdits.length - 1];
+      setArtifact({ kind: "code", title: last.name, lang: langFromName(last.name), content: last.content });
     }
     liveDocOpenRef.current = false;
     const total = usage?.total_tokens;
@@ -1895,7 +1903,7 @@ export default function PlaygroundPage({
   // state: nothing to synchronize, hence nothing to desynchronize.
   const lastFinished =
     streaming && !isNarrow && lastMsg?.role === "assistant" && !streamingDocActive
-      ? (parseArtifacts(lastMsg.content ?? "", false, t).artifacts.slice(-1)[0] ?? null)
+      ? (parseArtifacts(lastMsg.content ?? "", false, t, messages[messages.length - 2]?.content ?? "").artifacts.slice(-1)[0] ?? null)
       : null;
   const pinned = liveCode ? null : (lastFinished ?? artifact);
   const showLive = showLiveDoc || !!liveCode;
@@ -2204,10 +2212,9 @@ export default function PlaygroundPage({
       header={
         <LayoutHeader hasDivider>
           <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
-            <VStack gap={0}>
-              <Heading level={2}>{t("Playground")}</Heading>
-              <Text type="supporting" color="secondary">{t("Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.")}</Text>
-            </VStack>
+            {/* Title only: the one-line pitch under it repeated what the page
+                shows and cost a header row on every visit. */}
+            <Heading level={2}>{t("Playground")}</Heading>
             <PlaygroundActions
               streaming={streaming}
               newConversation={newConversation}

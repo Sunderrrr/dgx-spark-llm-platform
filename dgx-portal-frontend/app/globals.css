@@ -257,6 +257,25 @@ dialog::backdrop {
   max-width: 65%;
 }
 
+/* An answer takes the whole reading column: sized to its content, a short
+   paragraph above a code block left the block at ~80 % of the column. */
+.answer-bubble {
+  align-self: stretch;
+}
+
+/* Stats of older answers (tokens · tok/s · TTFT): shown on hover or focus. */
+.msg-stats-quiet {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.astryx-chat-message:hover .msg-stats-quiet,
+.msg-stats-quiet:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .msg-stats-quiet { opacity: 1; }
+}
+
 /* The reasoning bubble wraps the TEXT OF THE THOUGHT, and only that. Folded,
    the reasoning is just a line on the page background (like « › Thought for
    7.04 seconds » in LM Studio): unfolding is what makes the bubble appear. */

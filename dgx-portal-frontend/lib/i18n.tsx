@@ -155,6 +155,10 @@ const EN: Record<string, string> = {
   "Résumé de la conversation": "Conversation summary",
   "Impossible de générer le résumé.": "Unable to generate the summary.",
   "Contexte": "Context",
+  "Exporter en Markdown": "Export as Markdown",
+  "Copier le lien de partage": "Copy share link",
+  "Plus d'actions": "More actions",
+  "A réfléchi {n} s": "Thought for {n} s",
   "System prompt": "System prompt",
   "Ce que le modèle voit pour ce tour": "What the model sees for this turn",
   "Aucun system prompt.": "No system prompt.",
@@ -673,8 +677,6 @@ const EN: Record<string, string> = {
   "Demande de tokens envoyée !": "Token request sent!",
 
   // — Playground —
-  "Discute en direct avec un modèle actif — réglages avancés, fichiers joints, réponses en streaming, sur ton budget de compte.":
-    "Chat live with an active model — advanced settings, attachments, streaming replies, on your account budget.",
   // Markdown export of a conversation (convAsMarkdown receives t as a parameter);
   // « Assistant : » is spelled the same in both languages, the key stays visible
   // for the translator.
@@ -1162,8 +1164,6 @@ const EN: Record<string, string> = {
   "Elle n'est pas chargée : le Support démarre toujours à zéro.": "It is not loaded: Support always starts from scratch.",
   "Réflexion": "Thinking",
   "Réflexion en cours…": "Thinking…",
-  "pensé {n} s": "thought for {n} s",
-  "depuis {n} s": "for {n} s",
   "Réflexion du modèle (plus lente, plus coûteuse)": "Model thinking (slower, costlier)",
   "Auto (selon la demande)": "Auto (based on the request)",
   "Toujours": "Always",

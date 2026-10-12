@@ -74,16 +74,15 @@ export function ReasoningBlock({
           {streaming ? (
             <StatusDot variant="accent" isPulsing label={t("Réflexion en cours…")} />
           ) : null}
+          {/* One phrase, not two labels side by side (« Réflexion  pensé 14 s »
+              read as a stutter). */}
           <Text type="supporting" color="secondary">
-            {streaming ? t("Réflexion en cours…") : t("Réflexion")}
+            {streaming
+              ? t("Réflexion en cours…") + (seconds ? ` ${seconds} s` : "")
+              : seconds
+                ? t("A réfléchi {n} s").replace("{n}", String(seconds))
+                : t("Réflexion")}
           </Text>
-          {seconds ? (
-            <Text type="supporting" color="secondary" className="reasoning-duration">
-              {streaming
-                ? t("depuis {n} s").replace("{n}", String(seconds))
-                : t("pensé {n} s").replace("{n}", String(seconds))}
-            </Text>
-          ) : null}
         </HStack>
       }
     >

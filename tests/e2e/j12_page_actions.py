@@ -139,7 +139,11 @@ def main() -> int:
         target = not bool(before)
         # The label is not a clickable <label>: the switch itself (role="switch")
         # toggles the preference.
-        switch = page.get_by_role("switch").first
+        # Three switches since 2026-10-12 (search chats / generate memory /
+        # sensitive topics): « enabled » is the one named after generation.
+        switch = page.get_by_role("switch", name=c.either_label(
+            "Générer la mémoire à partir des conversations",
+            "Generate memory from chat history")).first
         try:
             switch.wait_for(state="visible", timeout=15000)
             switch.click()

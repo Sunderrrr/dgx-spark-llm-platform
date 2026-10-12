@@ -33,7 +33,10 @@ def main() -> int:
         # ── 2. « Export » produces a download ───────────────────────────────
         try:
             with page.expect_download(timeout=30000) as info:
-                c.button(page, "Exporter", "Export").first.click()
+                # Export lives in the header's « ⋯ » menu since 2026-10-12.
+                c.button(page, "Plus d'actions", "More actions").first.click()
+                page.get_by_role("menuitem", name=c.either_label(
+                    "Exporter en Markdown", "Export as Markdown")).first.click()
             download = info.value
         except Exception:
             p.fail("export download",

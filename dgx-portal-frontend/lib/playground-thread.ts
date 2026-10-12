@@ -13,7 +13,12 @@ import {
   parseEdits,
   rejoin,
   incompleteResponse,
+  FILE_EXT,
+  BARE_FILES,
+  askedFileNames,
 } from "@/lib/playground-parsers";
+
+export { FILE_EXT, BARE_FILES, askedFileNames };
 
 // Something the assistant produced worth showing in the side panel (canvas/
 // artifact style) and copying in one click: a code "file" or a long "document"
@@ -333,14 +338,6 @@ export function slugify(s: string): string {
     .slice(0, 60);
   return base || "document";
 }
-// Extensions recognized as FILES. Deliberately a closed list: without
-// it, « ansible.builtin.reboot » or « os_family['debian'] » would pass for
-// file names and produce absurd titles.
-export const FILE_EXT = new RegExp(
-  "\\.(ya?ml|json|jsonc|toml|ini|cfg|conf|env|py|js|mjs|cjs|ts|tsx|jsx|sh|bash|zsh|" +
-  "go|rs|rb|php|java|kt|c|h|cpp|sql|html|css|scss|md|txt|log|xml|service|tf|gradle)$",
-  "i");
-export const BARE_FILES = /^(Dockerfile|Makefile|Vagrantfile|Jenkinsfile|Procfile)$/i;
 
 /** File name announced right BEFORE a code block.
  *
@@ -372,8 +369,13 @@ export function titleFromContext(before: string): string {
 }
 
 /** `t` is passed as a parameter (module function): the fallback title of
- *  unnamed artifacts follows the displayed language, including on download. */
-export function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => string): { prose: string; artifacts: Artifact[] } {
+ *  unnamed artifacts follows the displayed language, including on download.
+ *  `request` is the user message this answer replies to: a block the model left
+ *  unnamed takes the file name the request asked for when the language matches
+ *  — « écris hello.py » answered by a bare 3-line ```python block stayed a
+ *  snippet in the thread, so the next « ajoute l'heure » had no file to edit
+ *  (2026-10-12). */
+export function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => string, request = ""): { prose: string; artifacts: Artifact[] } {
   const text = content.trim();
   // A message containing a real code block is a FILE, never a
   // document: taking it for a document returned the whole message — question
@@ -389,6 +391,7 @@ export function parseArtifacts(content: string, allowDoc: boolean, t: (s: string
   let lastIndex = 0;
   let m: RegExpExecArray | null;
   let n = 0;
+  const asked = askedFileNames(request);
   while ((m = fence.exec(content)) !== null) {
     const body = m[2].replace(/\n$/, "");
     const info = m[1].trim();
@@ -404,6 +407,11 @@ export function parseArtifacts(content: string, allowDoc: boolean, t: (s: string
     if (named) title = named[1];
     // The name announced in the prose just above beats a number.
     if (!title) title = titleFromContext(content.slice(0, m.index));
+    if (!title && asked.length) {
+      const ext = LANG_INFO[(lang || "").toLowerCase()]?.ext;
+      const k = asked.findIndex((name) => !!ext && name.toLowerCase().endsWith("." + ext));
+      if (k >= 0) title = asked.splice(k, 1)[0];
+    }
     // A block WHOSE FILE NAME IS ANNOUNCED is a file, even a short one: otherwise
     // an Ansible role came out with two files as cards and the third — shorter —
     // left in the chat, for the same thing. A short anonymous snippet
@@ -533,7 +541,7 @@ export function messageFragments(messages: ChatMsg[], index: number, t: (s: stri
   if (!m || m.role !== "assistant") return [];
   const before = filesUntil(messages, index - 1, t);
   const names: string[] = [];
-  for (const a of parseArtifacts(closedContent(m.content), false, t).artifacts) {
+  for (const a of parseArtifacts(closedContent(m.content), false, t, messages[index - 1]?.content ?? "").artifacts) {
     if (a.kind !== "code") continue;
     if (isFragment(before.get(a.title), a.content)) { names.push(a.title); continue; }
     if (!GENERIC_TITLE.test(a.title)) continue;
@@ -625,7 +633,7 @@ export function filesUntil(
     // every render, so the duplicate cost quadratic per token received, and
     // `messageMerge`/`applyEdits` also call it twice per message.
     const fences = m.content.match(/```/g);
-    const arts = parseArtifacts(closedContent(m.content), false, t).artifacts;
+    const arts = parseArtifacts(closedContent(m.content), false, t, messages[i - 1]?.content ?? "").artifacts;
     const lastArtifact = arts[arts.length - 1];
     // The file this message leaves unfinished, if any: odd fence count
     // (unclosed block) and last code-type artifact.

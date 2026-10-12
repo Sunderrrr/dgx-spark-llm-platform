@@ -413,8 +413,10 @@ export function PlaygroundComposer({
           already filters by `accept`, and the account budget is shown on the
           home page. `hAlign` follows, otherwise the first child's disappearance
           would bring the buttons back to the left. */}
-      <HStack hAlign={isNarrow ? "end" : "between"} gap={2}>
-        {!isNarrow && (
+      {/* Once the conversation has started the hint is known: it stays on the
+          empty screen only, and the row then keeps its tools on the right. */}
+      <HStack hAlign={isNarrow || hasMessages ? "end" : "between"} gap={2}>
+        {!isNarrow && !hasMessages && (
           <Text type="supporting" color="secondary">{t("Fichiers texte uniquement. Les tokens comptent sur ton budget.")}</Text>
         )}
         <HStack gap={2}>
@@ -433,11 +435,12 @@ export function PlaygroundComposer({
             onClick={() => setSkillCreatorOpen(true)}
           />
           {hasMessages && (
+            // Ring + words: alone, an empty ring read as a loading spinner
+            // that never finished.
             <Button
-              label={t("Fenêtre de contexte")}
+              label={`${t("Contexte")} ${Math.round(Math.min(1, used / (max || 1)) * 100)} %`}
               variant="ghost"
               size="sm"
-              isIconOnly
               icon={<ContextRing used={used} max={max} />}
               onClick={() => setCtxOpen(true)}
             />

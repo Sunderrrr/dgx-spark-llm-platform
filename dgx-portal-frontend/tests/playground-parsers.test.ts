@@ -15,6 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  askedFileNames,
   MAX_ASK_QUESTIONS,
   MAX_ASK_OPTIONS,
   RE_QUESTIONS_BODY,
@@ -336,4 +337,16 @@ test("parseEdits: a ```edit block yields its edits (legacy conversations)", () =
   );
   assert.deepEqual(r, [{ file: "a.py", find: "x", replace: "y" }]);
   assert.deepEqual(parseEdits("pas d'edit ici"), []);
+});
+
+// ── File names asked for in the request (2026-10-12) ────────────────────────
+// « Écris un script Python hello.py » answered by a bare 3-line ```python block:
+// the block stayed a snippet, and the follow-up edit had no file to work on.
+test("askedFileNames picks the file names a request spells out", () => {
+  assert.deepEqual(askedFileNames("Écris un script Python hello.py qui affiche Bonjour."), ["hello.py"]);
+  assert.deepEqual(askedFileNames("fais un `docker-compose.yml` et un Dockerfile stp"),
+                   ["docker-compose.yml", "Dockerfile"]);
+  assert.deepEqual(askedFileNames("modifie roles/web/tasks/main.yml."), ["roles/web/tasks/main.yml"]);
+  assert.deepEqual(askedFileNames("utilise ansible.builtin.reboot et os.path"), []);
+  assert.deepEqual(askedFileNames(""), []);
 });

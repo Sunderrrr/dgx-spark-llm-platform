@@ -537,3 +537,21 @@ export function openCodeFence(content: string): { lang: string; body: string; st
   return { lang: first || "text", body: rest.slice(nl + 1), start };
 }
 
+// Extensions recognized as FILES. Deliberately a closed list: without
+// it, « ansible.builtin.reboot » or « os_family['debian'] » would pass for
+// file names and produce absurd titles.
+export const FILE_EXT = new RegExp(
+  "\\.(ya?ml|json|jsonc|toml|ini|cfg|conf|env|py|js|mjs|cjs|ts|tsx|jsx|sh|bash|zsh|" +
+  "go|rs|rb|php|java|kt|c|h|cpp|sql|html|css|scss|md|txt|log|xml|service|tf|gradle)$",
+  "i");
+export const BARE_FILES = /^(Dockerfile|Makefile|Vagrantfile|Jenkinsfile|Procfile)$/i;
+
+/** File names the user's request spells out (« un script hello.py »). */
+export function askedFileNames(request: string): string[] {
+  const names: string[] = [];
+  for (const m of (request || "").matchAll(/(?:^|[\s(`"'«])([\w.-]+(?:\/[\w.-]+)*)(?=[\s:,;)`"'».!?]|$)/g)) {
+    const c = m[1].replace(/^[.\/]+/, "").replace(/\.$/, "");
+    if ((FILE_EXT.test(c) || BARE_FILES.test(c)) && !names.includes(c)) names.push(c);
+  }
+  return names;
+}

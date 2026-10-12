@@ -138,7 +138,8 @@ export function ThreadMessage({
                         // Never-closed fence: we close it, otherwise the
                         // cut file stays as raw code in the middle of the bubble.
                         streamingThis ? shownContent : closedContent(shownContent),
-                        !streamingThis && isDocTask(messages[i - 1]?.content ?? ""), t)
+                        !streamingThis && isDocTask(messages[i - 1]?.content ?? ""), t,
+                        messages[i - 1]?.content ?? "")
                     : null;
                   // Resume message: it only carries the end of the file.
                   const continuation = m.role === "assistant" && !streamingThis
@@ -228,7 +229,7 @@ export function ThreadMessage({
                   <ChatMessage key={i} sender={m.role}>
                     <ChatMessageBubble
                       variant={m.role === "user" ? "filled" : "ghost"}
-                      className={m.role === "user" ? "question-bubble" : undefined}
+                      className={m.role === "user" ? "question-bubble" : "answer-bubble"}
                       /* The model name above the content, like LM Studio
                          (« google/gemma-4-e4b » under the question): it says WHO
                          is speaking, and it marks the start of the answer. */
@@ -244,7 +245,11 @@ export function ThreadMessage({
                             status={m.isError ? "error" : undefined}
                             footer={
                               m.role === "assistant" && (m.tokens || m.tokensPerSec || canRegenerateThis || (streamingThis && liveStats)) ? (
-                                <HStack gap={1} vAlign="center">
+                                // Older answers keep their stats on hover only: a
+                                // « tokens · tok/s · TTFT » line under EVERY answer
+                                // was the noisiest thing in the thread.
+                                <HStack gap={1} vAlign="center"
+                                  className={i === messages.length - 1 ? undefined : "msg-stats-quiet"}>
                                   <Text type="supporting" color="secondary">
                                     {streamingThis && liveStats
                                       ? // During the stream: counted on the SSE deltas, hence « ~ ».

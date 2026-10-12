@@ -56,7 +56,7 @@ from support import (GUARDED_TOOLS, TOOLS_REFUSED_IF_EXTERNAL, SUPPORT_SYSTEM, s
                      _sse_tool_event, _support_context, _support_tool_target,
                      _support_tools, _user_extra_tools, pending_action,
                      close_action, create_pending_action)
-from vllm_health import ctx_split, effective_ctx, get_running_models
+from vllm_health import ctx_split, effective_ctx, get_running_models, slots_busy
 from websearch_tools import (_tools_phase, _search_relevant,
                              _findings_text, websearch_active)
 from image_tools import _image_requested, image_available
@@ -65,6 +65,9 @@ import file_tools
 import skills_store
 import conversation_search
 from document_tools import _document_requested, document_available
+
+# Reasoning effort sent when the user leaves « Par défaut » (see playground_chat).
+DEFAULT_REASONING_EFFORT = 'medium'
 
 _log = logging.getLogger('app')
 
@@ -1167,7 +1170,15 @@ def playground_chat():
     # never offered it (Par défaut / Basse / Moyenne / Maximale).
     valid_effort = str(data.get('reasoning_effort') or '').strip().lower()
     if valid_effort not in ('low', 'medium', 'xhigh'):
+        # « Par défaut » = medium, not the template's own default: Qwen3.8's is
+        # xhigh, and it thought 784 s before writing a docker compose
+        # (2026-10-12). « Maximale » stays one click away; a template that
+        # refuses `medium` gets the same single retry without effort.
+        # Only when the model THINKS: without thinking the effort means
+        # nothing, and a template that refuses it would cost a retry.
         valid_effort = None
+    if valid_effort is None and not data.get('reasoning_effort') and reasoning is True:
+        valid_effort = DEFAULT_REASONING_EFFORT
 
     # The playground consumes the user's BUDGET → we use THEIR key
     # (shared by the account). LiteLLM thus applies the quota (429 if exceeded).
@@ -1319,6 +1330,28 @@ def playground_chat():
         # after the search (just before the final POST), so a request that spent
         # 40 s searching and reading announced « TTFT 1,2 s ».
         _t0 = time.monotonic()
+        # « Le modèle est partagé »: probed OFF the request path (the engine's
+        # control plane can freeze for seconds during another session's
+        # prefill), re-probed while no token has come, sent as `dgx_queue`.
+        _slots = {'at': 0.0, 'value': None, 'sent': None}
+
+        def _probe_slots():
+            _slots['value'] = slots_busy()
+
+        def _queue_event():
+            """The `dgx_queue` event to send now, if the occupancy changed."""
+            if time.monotonic() - _slots['at'] >= 10:
+                _slots['at'] = time.monotonic()
+                threading.Thread(target=_probe_slots, daemon=True).start()
+            v = _slots['value']
+            if v is None or v == _slots['sent']:
+                return None
+            _slots['sent'] = v
+            return "data: " + json.dumps({'dgx_queue': {'busy': v[0], 'total': v[1]}}) + "\n\n"
+
+        _q = _queue_event()
+        if _q:          # a probe fast enough to answer already
+            yield _q
         _edit_summary = []   # set by an edit phase that already wrote the answer
         if _web_ok or _img_ok or _vid_ok or _doc_ok or _edit_ok or _skill_ok or _chats_ok:
             yield ": recherche\n\n"
@@ -1450,6 +1483,9 @@ def playground_chat():
                     line = _file.get(timeout=5)
                 except queue.Empty:
                     yield ": attente\n\n"          # SSE comment: ignored by the parser
+                    _q = None if _ttft_seen else _queue_event()
+                    if _q:
+                        yield _q
                     continue
                 if line is None:
                     break

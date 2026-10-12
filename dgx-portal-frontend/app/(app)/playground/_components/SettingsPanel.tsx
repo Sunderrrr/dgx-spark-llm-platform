@@ -156,14 +156,16 @@ export function SettingsPanel({
         {/* Thinking depth (reasoning_effort, sent through the chat
             template). Each model validates its own values — the current
             Qwen3.8 accepts xhigh (its default), medium and low; if the
-            template rejects it, the backend retries without. '' = send
-            nothing. */}
+            template rejects it, the backend retries without. '' = « Par
+            défaut », which the backend turns into medium for a thinking
+            turn: the template's own default (xhigh) thought for 13 min
+            before a docker compose. */}
         <SegmentedControl
           label={t("Effort de raisonnement")}
           value={settings.reasoningEffort || "default"}
           onChange={(v) => onChange({ ...settings, reasoningEffort: v === "default" ? "" : String(v) })}
         >
-          <SegmentedControlItem value="default" label={t("Par défaut")} />
+          <SegmentedControlItem value="default" label={t("Par défaut (moyenne)")} />
           <SegmentedControlItem value="low" label={t("Basse")} />
           <SegmentedControlItem value="medium" label={t("Moyenne")} />
           <SegmentedControlItem value="xhigh" label={t("Maximale")} />

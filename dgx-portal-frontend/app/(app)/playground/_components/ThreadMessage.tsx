@@ -53,9 +53,11 @@ import {
   type Artifact,
   filesUntil,
   langFromName,
+  type FileVersion,
 } from "@/lib/playground-thread";
 import { AskQuestion } from "./AskQuestion";
 import { FileEdits } from "./FileEdits";
+import { FileCard } from "./FileCard";
 
 /** File being written live, as shown in the side panel (null = none). */
 export type LiveCode = { lang: string; body: string; start: number };
@@ -73,6 +75,12 @@ export type ThreadMessageProps = {
   resume: number;
   model: string;
   renamedTitle: (a: Artifact) => string;
+  /** Every version of every file (fileVersions): the « v2 » of the cards. */
+  versions: Map<string, FileVersion[]>;
+  /** Why the first token is late (the model is shared), if known. */
+  waitLabel?: string;
+  /** Stops a long reasoning and answers without thinking. */
+  onAnswerNow: () => void;
   onAnswer: (text: string) => void;
   onRequestFullFile: (name: string) => void;
   onRedoFile: (name: string) => void;
@@ -97,6 +105,9 @@ export function ThreadMessage({
   resume,
   model,
   renamedTitle,
+  versions,
+  waitLabel,
+  onAnswerNow,
   onAnswer,
   onRequestFullFile,
   onRedoFile,
@@ -133,13 +144,17 @@ export function ThreadMessage({
                   // comes out neither as a card nor in the chat prose.
                   const shownContent =
                     streamingThis && isLast && liveCode ? m.content.slice(0, liveCode.start) : m.content;
+                  let knownFiles: ReturnType<typeof filesUntil> | undefined;
                   const arts = m.role === "assistant" && !ask
                     ? parseArtifacts(
                         // Never-closed fence: we close it, otherwise the
                         // cut file stays as raw code in the middle of the bubble.
                         streamingThis ? shownContent : closedContent(shownContent),
                         !streamingThis && isDocTask(messages[i - 1]?.content ?? ""), t,
-                        messages[i - 1]?.content ?? "")
+                        messages[i - 1]?.content ?? "",
+                        // Lazy: the thread re-renders per token, and only a
+                        // block named by the prose needs the earlier files.
+                        (name) => (knownFiles ??= filesUntil(messages, i - 1, t)).get(name)?.content)
                     : null;
                   // Resume message: it only carries the end of the file.
                   const continuation = m.role === "assistant" && !streamingThis
@@ -213,6 +228,19 @@ export function ThreadMessage({
                       : containsEdit && !streamingThis
                         ? (proseOutsideEdit || t("Modification proposée."))
                         : streamingBody;
+                  // The files of THIS message at their place in the text (the
+                  // other cards — edits, resumes — stay after it).
+                  const inPlace = !ask && !isContinuation && arts && arts.artifacts.length && !containsEdit
+                    ? arts.segments
+                        // A half-written questionnaire stays hidden while streaming.
+                        .map((seg) => ("text" in seg
+                          ? { text: (streamingThis ? seg.text.split("```ask")[0] : seg.text).trim() }
+                          : seg))
+                        .filter((seg) => !("text" in seg) || seg.text)
+                    : null;
+                  // « v2 »: how many versions of the file exist up to this message.
+                  const versionAt = (name: string) =>
+                    versions.get(name)?.filter((v) => v.index <= i).length || undefined;
                   // Block present but nothing applied and nothing reported: the parser
                   // could not read it at all. Must be said, otherwise the answer looks empty.
                   const unreadableEdit =
@@ -369,7 +397,7 @@ export function ThreadMessage({
                         </VStack>
                       )}
                       {isThinking && webSteps.length === 0 ? (
-                        <ThinkingIndicator fixedLabel={prevAttachments ? t("Lecture du fichier…") : undefined} />
+                        <ThinkingIndicator fixedLabel={prevAttachments ? t("Lecture du fichier…") : waitLabel} />
                       ) : streamingDoc ? (
                         <ClickableCard
                           label={t("Ouvrir le document en cours de rédaction")}
@@ -401,16 +429,38 @@ export function ThreadMessage({
                         </VStack>
                       ) : (
                         <VStack gap={2}>
-                          <ReasoningBlock reasoning={m.reasoning || ""} ms={m.reasoningMs} streaming={streamingThis && !bodyText.trim()} />
+                          <ReasoningBlock reasoning={m.reasoning || ""} ms={m.reasoningMs} streaming={streamingThis && !bodyText.trim()}
+                            onAnswerNow={streamingThis && !bodyText.trim() && m.reasoning ? onAnswerNow : undefined} />
                           {/* The short fade of the answer's FIRST word, when
                               there was reasoning: it is the exact moment the
                               reasoning block folds — the reasoning → writing
                               boundary, visible at last. */}
-                          <Markdown
-                            className={m.reasoning && bodyText.trim() ? "typing-appear" : undefined}
-                            isStreaming={streamingThis}>
-                            {bodyText || " "}
-                          </Markdown>
+                          {inPlace ? (
+                            // Each file card where its block was: « Fichiers »
+                            // followed by its cards, not by nothing.
+                            inPlace.map((seg, k) =>
+                              "file" in seg ? (
+                                <FileCard
+                                  key={k}
+                                  artifact={arts!.artifacts[seg.file]}
+                                  title={renamedTitle(arts!.artifacts[seg.file])}
+                                  version={versionAt(arts!.artifacts[seg.file].title)}
+                                  onOpen={() => onOpenArtifact(arts!.artifacts[seg.file])}
+                                />
+                              ) : (
+                                <Markdown key={k}
+                                  className={k === 0 && m.reasoning ? "typing-appear" : undefined}
+                                  isStreaming={streamingThis && k === inPlace.length - 1}>
+                                  {seg.text}
+                                </Markdown>
+                              ))
+                          ) : (
+                            <Markdown
+                              className={m.reasoning && bodyText.trim() ? "typing-appear" : undefined}
+                              isStreaming={streamingThis}>
+                              {bodyText || " "}
+                            </Markdown>
+                          )}
                           {/* An edit whose anchor does not exist in the file is
                               NOT applied. We say so, rather than letting the
                               user believe the fix is done. */}
@@ -494,25 +544,19 @@ export function ThreadMessage({
                               edits={m.fileEdits}
                               before={(name) => filesUntil(messages, i - 1, t).get(name)?.content}
                               lang={(name) => filesUntil(messages, i, t).get(name)?.lang ?? langFromName(name)}
+                              title={(name) => renamedTitle({ kind: "code", title: name, lang: "", content: "" })}
+                              version={versionAt}
                               onOpen={onOpenArtifact}
                             />
                           ) : null}
-                          {items.map((a, ai) => (
-                            <ClickableCard
+                          {(inPlace ? items.slice(arts!.artifacts.length) : items).map((a, ai) => (
+                            <FileCard
                               key={ai}
-                              label={a.kind === "code" ? `${t("Ouvrir le fichier")} ${renamedTitle(a)}` : t("Ouvrir le document")}
-                              variant="muted"
-                              onClick={() => onOpenArtifact(a)}>
-                              <HStack gap={2} vAlign="center">
-                                <Icon icon={DocumentTextIcon} size="sm" color="secondary" />
-                                <VStack gap={0}>
-                                  <Text weight="semibold">{renamedTitle(a)}</Text>
-                                  <Text type="supporting" color="secondary">
-                                    {a.kind === "code" ? a.lang : t("Ouvrir et copier dans le volet")}
-                                  </Text>
-                                </VStack>
-                              </HStack>
-                            </ClickableCard>
+                              artifact={a}
+                              title={renamedTitle(a)}
+                              version={versionAt(a.title)}
+                              onOpen={() => onOpenArtifact(a)}
+                            />
                           ))}
                         </VStack>
                       )}

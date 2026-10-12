@@ -555,3 +555,26 @@ export function askedFileNames(request: string): string[] {
   }
   return names;
 }
+
+/** Is a block that prose names after a file only an EXCERPT of that file?
+ *
+ * « Remplace dans garage.toml : » + two lines: the name says WHERE the lines
+ * go, not that they are the whole file. Taken for a file, the excerpt left the
+ * explanation (« Remplace dans garage.toml : » followed by nothing) and became
+ * the latest garage.toml — the next edit worked on two lines (2026-10-12).
+ *
+ * Only a file that ALREADY exists can have an excerpt (`existing` = its
+ * length): « mets ceci dans docker-compose.yml : » before any compose is the
+ * whole file. `lead` is the prose just before the block. */
+export function isExcerptOf(title: string, body: string, lead: string, existing = 0): boolean {
+  if (existing <= 0 || body.split("\n").length > 15) return false;
+  if (body.length * 3 < existing) return true;
+  const name = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // The name right after a « where » preposition, possibly behind « le
+  // fichier » / « the file » and backticks.
+  const where = new RegExp(
+    "(?:^|[\\s(])(?:dans|à|au|sous|in|into|under)\\s+(?:(?:le|la|ton|ta|votre|the|your)\\s+)?"
+      + "(?:fichier\\s+|file\\s+)?[`*\"']*" + name + "[`*\"']*",
+    "i");
+  return where.test(lead.slice(-200));
+}

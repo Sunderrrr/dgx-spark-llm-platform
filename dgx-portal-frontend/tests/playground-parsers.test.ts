@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 
 import {
   askedFileNames,
+  isExcerptOf,
   MAX_ASK_QUESTIONS,
   MAX_ASK_OPTIONS,
   RE_QUESTIONS_BODY,
@@ -349,4 +350,23 @@ test("askedFileNames picks the file names a request spells out", () => {
   assert.deepEqual(askedFileNames("modifie roles/web/tasks/main.yml."), ["roles/web/tasks/main.yml"]);
   assert.deepEqual(askedFileNames("utilise ansible.builtin.reboot et os.path"), []);
   assert.deepEqual(askedFileNames(""), []);
+});
+
+test("isExcerptOf: a short block that prose places INTO an existing file is an excerpt", () => {
+  const toml = "metadata_dir = \"/var/lib/garage/meta\"\n".repeat(30);
+  const snippet = 'rpc_secret = "<hex>"\nadmin_token = "<hex>"';
+  // « Remplace dans garage.toml : » after the full garage.toml (2026-10-12).
+  assert.equal(isExcerptOf("garage.toml", snippet, "Remplace dans garage.toml :\n", toml.length), true);
+  assert.equal(isExcerptOf("nginx.conf", "a\nb\nc", "Add this to the `nginx.conf` file:\n", 9), false,
+    "« to » is not a where-preposition: « save this to x » announces a whole file");
+  assert.equal(isExcerptOf("nginx.conf", "a\nb\nc", "Add this into your nginx.conf:\n", 9), true);
+  // Much shorter than the known file, whatever the prose says.
+  assert.equal(isExcerptOf("app.py", "x = 1", "Voici app.py :\n", 3000), true);
+});
+
+test("isExcerptOf: without an existing file, a named block is the whole file", () => {
+  assert.equal(isExcerptOf("docker-compose.yml", "services:\n  a: {}", "Mets ceci dans docker-compose.yml :\n", 0), false);
+  // A long block is a version, not an excerpt.
+  const long = Array.from({ length: 20 }, (_, k) => `line ${k}`).join("\n");
+  assert.equal(isExcerptOf("a.txt", long, "dans a.txt :\n", 10_000), false);
 });

@@ -100,7 +100,8 @@ class _BasePlayground(unittest.TestCase):
 
     def _standard(self, stack, post=None, running=('fake-model',),
                   keys=({'key': 'sk-user-123'},), limits=None, entry=None,
-                  web=False, image=False, video=False, doc=False, memory_off=True):
+                  web=False, image=False, video=False, doc=False, memory_off=True,
+                  slots=None):
         stack.enter_context(patch.object(chat, 'maintenance_block_sse', return_value=None))
         stack.enter_context(patch.object(chat, '_chat_rate_limited', return_value=None))
         stack.enter_context(patch.object(chat, 'get_running_models', return_value=list(running)))
@@ -114,6 +115,9 @@ class _BasePlayground(unittest.TestCase):
         stack.enter_context(patch.object(chat, '_video_requested', return_value=video))
         stack.enter_context(patch.object(chat, 'document_available', return_value=doc))
         stack.enter_context(patch.object(chat, '_document_requested', return_value=doc))
+        # The engine occupancy probe runs in a thread: never a real network
+        # call from the suite (see QueueWaitTest for the event itself).
+        stack.enter_context(patch.object(chat, 'slots_busy', return_value=slots))
         if memory_off:
             stack.enter_context(patch.object(chat.memory, '_mem_enabled', return_value=False))
         if limits is not None:
@@ -451,6 +455,24 @@ class SettingsTest(_BasePlayground):
                    post=self._single_upstream(_FakeUpstream([_end()]), seen))
         self.assertEqual(seen[0]['json']['chat_template_kwargs'],
                          {'enable_thinking': True, 'reasoning_effort': 'medium'})
+
+    def test_default_effort_is_medium_when_thinking(self):
+        """« Par défaut » left the template's own xhigh: 784 s of thinking
+        before a docker compose (2026-10-12)."""
+        seen = []
+        self._flux(self._body(reasoning=True),
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen))
+        self.assertEqual(seen[0]['json']['chat_template_kwargs'],
+                         {'enable_thinking': True, 'reasoning_effort': 'medium'})
+        # Explicit « Maximale » still wins; no thinking, no effort.
+        seen = []
+        self._flux(self._body(reasoning=True, reasoning_effort='xhigh'),
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen))
+        self.assertEqual(seen[0]['json']['chat_template_kwargs']['reasoning_effort'], 'xhigh')
+        seen = []
+        self._flux(self._body(reasoning=False),
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen))
+        self.assertEqual(seen[0]['json']['chat_template_kwargs'], {'enable_thinking': False})
 
     def test_unknown_effort_not_sent(self):
         seen = []
@@ -1220,3 +1242,27 @@ class AutoReasoningTest(_BasePlayground):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class QueueWaitTest(_BasePlayground):
+    """A shared model announces itself while the first token is late."""
+
+    def test_busy_engine_is_reported_before_the_first_token(self):
+        # The upstream stays silent longer than the relay's heartbeat period
+        # (5 s), then answers: the occupancy goes out in between, once.
+        class _Slow(_FakeUpstream):
+            def iter_lines(self, decode_unicode=False):
+                time.sleep(6)
+                yield from super().iter_lines(decode_unicode)
+        up = _Slow([_delta('Bonjour'), _end()])
+        body = self._flux(self._body(), post=self._single_upstream(up), slots=(3, 3))
+        events = [json.loads(l[6:]) for l in body.split('\n') if l.startswith('data: {')]
+        queued = [e['dgx_queue'] for e in events if 'dgx_queue' in e]
+        self.assertEqual(queued, [{'busy': 3, 'total': 3}])
+        first_text = next(k for k, e in enumerate(events) if e.get('choices'))
+        self.assertLess(next(k for k, e in enumerate(events) if 'dgx_queue' in e), first_text)
+
+    def test_no_slots_endpoint_says_nothing(self):
+        up = _FakeUpstream([_delta('Bonjour'), _end()])
+        body = self._flux(self._body(), post=self._single_upstream(up), slots=None)
+        self.assertNotIn('dgx_queue', body)

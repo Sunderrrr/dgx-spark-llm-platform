@@ -21,6 +21,7 @@ type ApiConversation = {
     isError?: boolean;
     truncated?: boolean;
     images?: string[];
+    fileEdits?: { name: string; content: string }[];
   }[];
   /** True when the server set the messages aside (list budget). */
   omitted_messages?: boolean;

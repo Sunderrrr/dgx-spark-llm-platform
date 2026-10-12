@@ -34,6 +34,10 @@ import { useT } from "@/lib/i18n";
 import { copyText } from "@/lib/clipboard";
 import { downloadText } from "@/lib/export";
 import type { Artifact } from "@/lib/playground-thread";
+import type { DiffLine } from "@/lib/diff";
+import { TabList, Tab } from "@astryxdesign/core/TabList";
+import { Selector } from "@astryxdesign/core/Selector";
+import { DiffView } from "./FileEdits";
 
 /** Everything both panel layouts need (plain data + stable handlers). */
 export type DocumentPanelProps = {
@@ -68,6 +72,18 @@ export type DocumentPanelProps = {
   artifactResize: ResizableRegion;
   setFull: (v: boolean) => void;
   closePanel: () => void;
+  /** One tab per conversation file (empty: no tab strip). */
+  fileTabs: { name: string; label: string }[];
+  activeFile: string | null;
+  onSelectFile: (name: string) => void;
+  /** Versions of the shown file: picker when there are several. */
+  versionCount: number;
+  versionIdx: number;
+  onSelectVersion: (idx: number) => void;
+  /** « Changements »: the diff against the previous version. */
+  showChanges: boolean;
+  setShowChanges: (v: boolean) => void;
+  changeLines: (DiffLine | null)[] | null;
 };
 
 /** Side panel: pinned beside the chat on wide screens. */
@@ -102,6 +118,15 @@ export function DocumentPanel({
   onClose,
   artifactResize,
   setFull,
+  fileTabs,
+  activeFile,
+  onSelectFile,
+  versionCount,
+  versionIdx,
+  onSelectVersion,
+  showChanges,
+  setShowChanges,
+  changeLines,
 }: DocumentPanelProps) {
   const t = useT();
   const showToast = useToast();
@@ -176,6 +201,40 @@ export function DocumentPanel({
                     )
                   }
                 />
+                {/* Every file of the conversation one click away: going back
+                    up the thread to find garage.toml's card was the only way. */}
+                {fileTabs.length > 1 && activeFile && (
+                  <TabList value={activeFile} onChange={onSelectFile} size="sm" hasDivider>
+                    {fileTabs.map((f) => <Tab key={f.name} value={f.name} label={f.label} />)}
+                  </TabList>
+                )}
+                {versionCount > 1 && versionIdx >= 0 && (
+                  <HStack padding={3} gap={2} vAlign="center">
+                    <Selector
+                      label={t("Version")}
+                      isLabelHidden
+                      size="sm"
+                      value={String(versionIdx)}
+                      onChange={(v) => onSelectVersion(Number(v))}
+                      options={Array.from({ length: versionCount }, (_, k) => ({
+                        value: String(k),
+                        label: k === versionCount - 1
+                          ? t("v{n} (dernière)").replace("{n}", String(k + 1))
+                          : `v${k + 1}`,
+                      }))}
+                    />
+                    {versionIdx > 0 && (
+                      <SegmentedControl
+                        label={t("Affichage de la version")}
+                        value={showChanges ? "changes" : "content"}
+                        onChange={(v) => setShowChanges(v === "changes")}
+                        size="sm">
+                        <SegmentedControlItem value="content" label={t("Contenu")} />
+                        <SegmentedControlItem value="changes" label={t("Changements")} />
+                      </SegmentedControl>
+                    )}
+                  </HStack>
+                )}
                 {panelIsHtml && (
                   <HStack padding={3}>
                     <SegmentedControl
@@ -247,7 +306,9 @@ export function DocumentPanel({
                       back its role as the ONLY scroll container, for code and
                       documents alike (measured: body 792/792 against inner code
                       5 716/720). */}
-                  {panelIsCode
+                  {changeLines
+                    ? <DiffView lines={changeLines} />
+                    : panelIsCode
                     ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped container="section" style={{ flexShrink: 0 }} />
                     : <Markdown isStreaming={showLive}>{panelContent || " "}</Markdown>}
                 </VStack>

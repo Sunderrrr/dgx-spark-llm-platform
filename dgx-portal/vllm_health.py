@@ -125,6 +125,21 @@ def _slots_activity():
         'prompt_processed': processed,
     }
 
+def slots_busy(timeout=2):
+    """(busy, total) of the engine's sessions right now, or None.
+
+    For the playground's « the model is shared » line while a request waits
+    for its first token. None when the engine has no /slots (vLLM) or does
+    not answer in time — the UI then says nothing rather than « free »."""
+    try:
+        slots = requests.get(_SLOTS_URL, timeout=timeout).json()
+    except Exception:
+        return None
+    if not isinstance(slots, list) or not slots:
+        return None
+    return sum(1 for s in slots if s.get('is_processing')), len(slots)
+
+
 def vllm_health():
     """Health of the active model (throughput tok/s, in-flight/queued requests, average TTFT).
     Cached ~4 s → a single /metrics scrape even with multiple polls.

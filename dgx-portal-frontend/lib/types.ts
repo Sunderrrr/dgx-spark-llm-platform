@@ -51,6 +51,10 @@ export type Conversation = {
     // without them, a truncated answer looked complete again (see persist()).
     isError?: boolean;
     truncated?: boolean;
+    images?: string[];
+    /** The files the edit tools changed in that turn: dropping them on
+     *  reload put the conversation back on the OLD versions. */
+    fileEdits?: EditedFile[];
   }[];
   // BOUNDED history list: beyond a byte budget, the server only
   // carries the metadata and marks the conversation. It reloads

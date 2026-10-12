@@ -26,19 +26,27 @@ import { Text } from "@astryxdesign/core/Text";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Button } from "@astryxdesign/core/Button";
 import { SafeMarkdown as Markdown } from "@/lib/markdown";
 import { useT } from "@/lib/i18n";
+
+/** « Répondre maintenant » shows after this long a reasoning: a short one
+ *  ends before anyone would reach for it. */
+const ANSWER_NOW_AFTER_S = 20;
 
 export function ReasoningBlock({
   reasoning,
   ms,
   streaming,
+  onAnswerNow,
 }: {
   reasoning: string;
   /** Thinking duration in ms (first reasoning chunk → first content chunk). */
   ms?: number;
   /** The thinking phase is running: no answer text yet. */
   streaming?: boolean;
+  /** Stops the reasoning and answers without it (playground only). */
+  onAnswerNow?: () => void;
 }) {
   const t = useT();
   // Controlled so the fold follows the phase change (thinking → writing),
@@ -65,7 +73,7 @@ export function ReasoningBlock({
   if (!reasoning) return null;
   const duration = streaming ? elapsed : (ms ?? 0);
   const seconds = duration >= 1000 ? Math.round(duration / 1000) : null;
-  return (
+  const block = (
     <Collapsible
       isOpen={open}
       onOpenChange={setOpen}
@@ -93,5 +101,14 @@ export function ReasoningBlock({
         </VStack>
       </VStack>
     </Collapsible>
+  );
+  if (!(streaming && onAnswerNow && (seconds ?? 0) >= ANSWER_NOW_AFTER_S)) return block;
+  return (
+    <VStack gap={2}>
+      {block}
+      <HStack>
+        <Button label={t("Répondre maintenant")} variant="secondary" size="sm" onClick={onAnswerNow} />
+      </HStack>
+    </VStack>
   );
 }

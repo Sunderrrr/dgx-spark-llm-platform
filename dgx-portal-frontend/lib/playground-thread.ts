@@ -16,6 +16,7 @@ import {
   FILE_EXT,
   BARE_FILES,
   askedFileNames,
+  isExcerptOf,
 } from "@/lib/playground-parsers";
 
 export { FILE_EXT, BARE_FILES, askedFileNames };
@@ -375,7 +376,31 @@ export function titleFromContext(before: string): string {
  *  — « écris hello.py » answered by a bare 3-line ```python block stayed a
  *  snippet in the thread, so the next « ajoute l'heure » had no file to edit
  *  (2026-10-12). */
-export function parseArtifacts(content: string, allowDoc: boolean, t: (s: string) => string, request = ""): { prose: string; artifacts: Artifact[] } {
+/** `text` without a last line that only names `title` (see parseArtifacts). */
+function withoutCaption(text: string, title: string): string {
+  const lines = text.trimEnd().split("\n");
+  const last = (lines[lines.length - 1] ?? "")
+    .replace(/^[#>\s*_-]+|[\s*_:]+$/g, "")
+    .replace(/^(?:fichier|file)\s*:?\s*/i, "")
+    .replace(/^`|`$/g, "")
+    .trim();
+  return last && last === title ? lines.slice(0, -1).join("\n") : text;
+}
+
+/** A finished message laid out: prose pieces with each file card at the
+ *  place its block had in the text — piled at the end, the cards were far
+ *  from the sentence announcing them (« Fichiers : » followed by nothing). */
+export type Segment = { text: string } | { file: number };
+
+export function parseArtifacts(
+  content: string,
+  allowDoc: boolean,
+  t: (s: string) => string,
+  request = "",
+  // The conversation's current version of a file, before this message: a
+  // short block that prose names after an EXISTING file is an excerpt.
+  known: (name: string) => string | undefined = () => undefined,
+): { prose: string; artifacts: Artifact[]; segments: Segment[] } {
   const text = content.trim();
   // A message containing a real code block is a FILE, never a
   // document: taking it for a document returned the whole message — question
@@ -383,8 +408,9 @@ export function parseArtifacts(content: string, allowDoc: boolean, t: (s: string
   // PREVIOUS message, hence behavior that changed after an F5.
   const hasCode = /```[^\n`]*\n[\s\S]{120,}?```/.test(text) || /<!DOCTYPE html|<html[\s>]/i.test(text);
   if (allowDoc && !hasCode && text.length >= DOC_MIN_CHARS) {
-    return { prose: "", artifacts: [{ kind: "doc", title: docTitleFromContent(text), content: text }] };
+    return { prose: "", artifacts: [{ kind: "doc", title: docTitleFromContent(text), content: text }], segments: [{ file: 0 }] };
   }
+  const segments: Segment[] = [];
   const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
   const artifacts: Artifact[] = [];
   let prose = "";
@@ -406,7 +432,17 @@ export function parseArtifacts(content: string, allowDoc: boolean, t: (s: string
     const named = info.match(/(?:title|file|filename)=(\S+)/i);
     if (named) title = named[1];
     // The name announced in the prose just above beats a number.
-    if (!title) title = titleFromContext(content.slice(0, m.index));
+    let fromProse = false;
+    if (!title) {
+      title = titleFromContext(content.slice(0, m.index));
+      fromProse = !!title;
+    }
+    // « Remplace dans garage.toml : » + two lines: an excerpt of an existing
+    // file stays in the text, it is not the file's new version.
+    if (fromProse) {
+      const earlier = [...artifacts].reverse().find((a) => a.title === title)?.content ?? known(title);
+      if (isExcerptOf(title, body, content.slice(lastIndex, m.index), earlier?.length ?? 0)) continue;
+    }
     if (!title && asked.length) {
       const ext = LANG_INFO[(lang || "").toLowerCase()]?.ext;
       const k = asked.findIndex((name) => !!ext && name.toLowerCase().endsWith("." + ext));
@@ -437,9 +473,13 @@ export function parseArtifacts(content: string, allowDoc: boolean, t: (s: string
     }
     artifacts.push({ kind: "code", title, lang: lang || "text", content: body });
     prose += content.slice(lastIndex, m.index);
+    // The card shows the name: a caption line that only repeats it
+    // (« `docker-compose.yml` », « **garage.toml :** ») would say it twice.
+    segments.push({ text: withoutCaption(content.slice(lastIndex, m.index), title) }, { file: artifacts.length - 1 });
     lastIndex = fence.lastIndex;
   }
   prose += content.slice(lastIndex);
+  segments.push({ text: content.slice(lastIndex) });
 
   // Safety net: an HTML document written WITHOUT a code block. The model often
   // forgets the closing for a large file — then no file came out
@@ -457,10 +497,11 @@ export function parseArtifacts(content: string, allowDoc: boolean, t: (s: string
         lang: "html",
         content: html[0],
       });
-      return { prose: (before + content.slice((html.index ?? 0) + html[0].length)).trim(), artifacts };
+      const after = content.slice((html.index ?? 0) + html[0].length);
+      return { prose: (before + after).trim(), artifacts, segments: [{ text: before }, { file: 0 }, { text: after }] };
     }
   }
-  return { prose: prose.trim(), artifacts };
+  return { prose: prose.trim(), artifacts, segments };
 }
 
 // Extension and content type per language. Without an extension, the browser adds
@@ -592,12 +633,16 @@ export function filesUntil(
   messages: ChatMsg[],
   index: number,
   t: (s: string) => string,
+  // Called with the state reached after each message (fileVersions).
+  observe?: (index: number, files: Map<string, { content: string; lang: string }>) => void,
 ): Map<string, { content: string; lang: string }> {
   const files = new Map<string, { content: string; lang: string }>();
   // The file left in the lurch by the previous message: a resume completes it
   // instead of opening a second file with half of the content.
   let unfinished: string | null = null;
-  for (let i = 0; i <= index && i < messages.length; i++) {
+  let i = 0;
+  for (; i <= index && i < messages.length; i++) {
+    if (i > 0) observe?.(i - 1, files);
     const m = messages[i];
     if (m.role !== "assistant") continue;
     // A resume only glues onto a file REALLY left open.
@@ -633,7 +678,8 @@ export function filesUntil(
     // every render, so the duplicate cost quadratic per token received, and
     // `messageMerge`/`applyEdits` also call it twice per message.
     const fences = m.content.match(/```/g);
-    const arts = parseArtifacts(closedContent(m.content), false, t, messages[i - 1]?.content ?? "").artifacts;
+    const arts = parseArtifacts(closedContent(m.content), false, t, messages[i - 1]?.content ?? "",
+      (name) => files.get(name)?.content).artifacts;
     const lastArtifact = arts[arts.length - 1];
     // The file this message leaves unfinished, if any: odd fence count
     // (unclosed block) and last code-type artifact.
@@ -675,7 +721,26 @@ export function filesUntil(
       files.set(f.name, { content: f.content, lang: files.get(f.name)?.lang ?? langFromName(f.name) });
     }
   }
+  if (i > 0) observe?.(i - 1, files);
   return files;
+}
+
+/** One version of a conversation file: the message that produced it. */
+export type FileVersion = { index: number; content: string; lang: string };
+
+/** Every version of every file of the conversation, oldest first, in ONE walk
+ *  of the thread (v1, v2… on the cards, the panel's version picker). */
+export function fileVersions(messages: ChatMsg[], t: (s: string) => string): Map<string, FileVersion[]> {
+  const out = new Map<string, FileVersion[]>();
+  filesUntil(messages, messages.length - 1, t, (index, files) => {
+    for (const [name, f] of files) {
+      const list = out.get(name) ?? [];
+      if (list[list.length - 1]?.content === f.content) continue;
+      list.push({ index, content: f.content, lang: f.lang });
+      out.set(name, list);
+    }
+  });
+  return out;
 }
 
 /** The file a resume message just completed.

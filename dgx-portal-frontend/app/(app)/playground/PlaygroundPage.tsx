@@ -52,6 +52,7 @@ import {
   isResume,
   fileLeftOpen,
   filesUntil,
+  fileVersions,
   isDocTask,
   mimeForLanguage,
   downloadName,
@@ -74,6 +75,8 @@ import { PlaygroundActions } from "./_components/PlaygroundActions";
 import { PlaygroundComposer } from "./_components/PlaygroundComposer";
 import { ContextDialog } from "./_components/ContextDialog";
 import { DocumentPanel, type DocumentPanelProps } from "./_components/DocumentPanel";
+import { FilesDialog } from "./_components/FilesDialog";
+import { diffLines, hunks } from "@/lib/diff";
 import { HistoryDialog } from "./_components/HistoryDialog";
 import { SettingsOverlay } from "./_components/SettingsOverlay";
 import { SnippetsDialog } from "./_components/SnippetsDialog";
@@ -213,6 +216,20 @@ function recentImages<M extends { images?: string[] }>(msgs: M[], max: number, b
     out[i] = { ...out[i], images: guard.length ? guard : undefined };
   }
   return out;
+}
+
+/** A saved message back in the thread. Everything the server keeps comes
+ *  back: only `role`/`content`/`hidden` used to, so a reopened conversation
+ *  lost its EDITED files (the next edit worked on the old version), and a
+ *  cut answer looked finished again. */
+function fromSaved(m: Conversation["messages"][number]): ChatMsg {
+  return {
+    role: m.role, content: m.content, hidden: m.hidden,
+    ...(m.isError ? { isError: true } : {}),
+    ...(m.truncated ? { truncated: true } : {}),
+    ...(m.images?.length ? { images: m.images } : {}),
+    ...(m.fileEdits?.length ? { fileEdits: m.fileEdits } : {}),
+  };
 }
 
 /** Title and summary only read the text: no need to ship megabytes of images through them. */
@@ -486,6 +503,13 @@ export default function PlaygroundPage({
   // it never touches the flow, so the page does not move a pixel.
   const [settingsPos, setSettingsPos] = useState<{ top: number; right: number; maxH: number; width: number } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
+  // Engine occupancy sent while the answer has not started (dgx_queue).
+  const [queueInfo, setQueueInfo] = useState<{ busy: number; total: number } | null>(null);
+  // The panel's version picker and « Changements » view, tied to the artifact
+  // they were chosen on (see `pinnedVersions`).
+  const [panelChoice, setPanelChoice] = useState<{ of: Artifact | null; idx: number; changes: boolean }>(
+    { of: null, idx: 0, changes: false });
   // Closing the settings panel: outside click or Escape. NO focus move
   // on open — the Popover component's focus trap used to
   // scroll the page (sr-only close button revealed under the panel),
@@ -711,6 +735,9 @@ export default function PlaygroundPage({
   const openLiveDoc = () => { setLiveDocOpen(true); liveDocOpenRef.current = true; };
 
   const abortRef = useRef<AbortController | null>(null);
+  // « Répondre maintenant »: the stop of a long reasoning, then the same turn
+  // again WITHOUT thinking (set by answerNow, consumed at the end of runStream).
+  const answerNowRef = useRef(false);
 
   // Dictation: same hook as the Voice and Video pages.
   const dictation = useDictation({ value: input, onChange: setInput, csrf });
@@ -789,7 +816,7 @@ export default function PlaygroundPage({
     if (modelName && runningModels.includes(modelName)) setModel(modelName);
     const conv = convId ? conversations.find((c) => c.id === convId) : undefined;
     if (conv) {
-      setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })));
+      setMessages(conv.messages.map(fromSaved));
       setCurrentId(conv.id);
       setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, title: conv.title, currentId: conv.id } : t)));
       if (conv.model && runningModels.includes(conv.model)) setModel(conv.model);
@@ -963,7 +990,7 @@ export default function PlaygroundPage({
   function applyConversation(conv: Conversation) {
     // Same: opening a conversation does not modify it, so it must not
     // move it up nor rewrite the one we leave.
-    setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })));
+    setMessages(conv.messages.map(fromSaved));
     setCurrentId(conv.id);
     setEditingIdx(null);
     // The active tab carries this conversation (title in the tab bar).
@@ -1337,13 +1364,14 @@ export default function PlaygroundPage({
     };
   }, []);
 
-  async function runStream(nextMessages: ChatMsg[]) {
+  async function runStream(nextMessages: ChatMsg[], override?: { reasoning?: boolean }) {
     if (!model) {
       setMessages([...nextMessages, { role: "assistant", content: t("Aucun modèle actif.") }]);
       return;
     }
     setStreaming(true);
     setWebSteps([]);
+    setQueueInfo(null);
     // New send: the reader wants to see the answer arrive, we rearm the tracking.
     scrollToBottom();   // on re-suit le bas quand on envoie
     // « quand un texte est lancé je veux garder la barre latérale, là il la fait
@@ -1412,6 +1440,7 @@ export default function PlaygroundPage({
       const modelCeiling = modelLimits[model];
       const askSettings = {
         ...settings,
+        ...override,
         // The output ceiling cannot exceed the loaded model's window.
         // The backend already lowers it to what remains; here we avoid sending a
         // value that makes sense for no current model.
@@ -1451,6 +1480,7 @@ export default function PlaygroundPage({
             acc += (acc ? "\n\n" : "") + noticeText(delta.notice, t);
             updateLast();
           }
+          if (delta.queue) setQueueInfo(delta.queue);
           if (delta.fileEdit) {
             const { name, content } = delta.fileEdit;
             const k = fileEdits.findIndex((f) => f.name === name);
@@ -1546,7 +1576,8 @@ export default function PlaygroundPage({
     // A clarifying question is never a document/file artifact — leave the panel closed.
     const produced = parseAsk(acc)
       ? []
-      : parseArtifacts(closedContent(acc), isDocTask(lastUser?.content ?? ""), t, lastUser?.content ?? "").artifacts;
+      : parseArtifacts(closedContent(acc), isDocTask(lastUser?.content ?? ""), t, lastUser?.content ?? "",
+          (name) => filesUntil(nextMessages, nextMessages.length - 1, t).get(name)?.content).artifacts;
     if (produced.length && sameThread) {
       const lastArt = produced[produced.length - 1];
       // A code file opens on its own; a document opens automatically only if the
@@ -1580,8 +1611,14 @@ export default function PlaygroundPage({
     // (Auto-title on close only — we analyze the full conversation
     // for a reliable history title; see closeTab.)
     setStreaming(false);
+    setQueueInfo(null);
     setLiveStats(null);
     abortRef.current = null;
+    if (answerNowRef.current) {
+      answerNowRef.current = false;
+      void runStream(nextMessages, { reasoning: false });
+      return;
+    }
     // The model dropped mid-file: we chain on our own. Seen in
     // production — a large HTML file stopped mid-expression without
     // anything indicating it, and everything had to be asked again. The token
@@ -1816,6 +1853,15 @@ export default function PlaygroundPage({
     abortRef.current?.abort();
   }
 
+  // A reasoning that drags on (784 s for a compose, 2026-10-12): stop it and
+  // answer the same question straight away, without thinking. The partial
+  // reasoning is dropped — the template cannot resume a cut thought.
+  function answerNow() {
+    if (!streaming || answerNowRef.current) return;
+    answerNowRef.current = true;
+    abortRef.current?.abort();
+  }
+
   function regenerate() {
     if (streaming || !messages.length) return;
     const last = messages[messages.length - 1];
@@ -1897,6 +1943,24 @@ export default function PlaygroundPage({
   const liveCodeTitle = liveCode
     ? titleFromContext((lastMsg?.content ?? "").slice(0, liveCode.start)) || `${liveCode.lang}`
     : "";
+  // Every version of every file (cards « v2 », the panel's tabs and version
+  // picker). Keyed on the message COUNT while streaming: the answer being
+  // written is left out, so the thread is not re-walked for every token.
+  const settledKey = streaming ? messages.length : messages;
+  const versions = useMemo(
+    () => fileVersions(streaming ? messages.slice(0, -1) : messages, t),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settledKey, t],
+  );
+  // « Silent » waits read as a hang (TTFT 36-50 s behind other sessions):
+  // when the model is shared, the indicator says so. One session busy is
+  // usually our own request — nothing to explain then.
+  const waitLabel = queueInfo && queueInfo.busy >= 2
+    ? (queueInfo.busy >= queueInfo.total
+        ? t("Toutes les sessions du modèle sont occupées ({busy}/{total}) : ta demande attend une place…")
+        : t("Le modèle répond aussi à d'autres conversations ({busy}/{total} sessions) : la réponse peut tarder…"))
+        .replace("{busy}", String(queueInfo.busy)).replace("{total}", String(queueInfo.total))
+    : undefined;
   const showLiveDoc = liveDocOpen && streamingDocActive;
   // Between two files (previous block closed, next not started), the panel
   // keeps the last finished file instead of emptying. Derived from content, no
@@ -1916,11 +1980,26 @@ export default function PlaygroundPage({
       ? docTitleFromContent(liveContent)
       : (pinned ? renamedTitle(pinned) : "Document");
   const canRenamePanel = !!pinned && !liveCode && !showLiveDoc;
+  // Versions of the pinned file (the panel's picker). The choice is stored
+  // WITH the artifact it was made on: opening another file falls back to the
+  // version that file's card showed, with nothing to reset.
+  const pinnedVersions = pinned?.kind === "code" && !showLive ? versions.get(pinned.title) : undefined;
+  const pinnedMatch = pinnedVersions ? pinnedVersions.findIndex((v) => v.content === pinned!.content) : -1;
+  const chosen = panelChoice.of === pinned && pinnedVersions ? panelChoice : null;
+  const versionIdx = chosen ? Math.min(chosen.idx, pinnedVersions!.length - 1) : pinnedMatch;
+  const shownVersion = versionIdx >= 0 ? pinnedVersions?.[versionIdx] : undefined;
+  const showChanges = !!chosen?.changes && versionIdx > 0;
+  const changeLines = useMemo(
+    () => (showChanges && pinnedVersions
+      ? hunks(diffLines(pinnedVersions[versionIdx - 1].content, pinnedVersions[versionIdx].content))
+      : null),
+    [showChanges, pinnedVersions, versionIdx],
+  );
   const panelContent = liveCode
     ? liveCode.body
     : showLiveDoc
       ? liveContent
-      : (pinned?.content ?? "");
+      : (shownVersion?.content ?? pinned?.content ?? "");
   const panelSubtitle = liveCode
     ? t("Écriture en cours…")
     : showLiveDoc
@@ -2203,6 +2282,22 @@ export default function PlaygroundPage({
     artifactResize,
     setFull,
     closePanel,
+    // One tab per file of the conversation, once there are several.
+    fileTabs: !showLive && pinned?.kind === "code" && versions.size > 1
+      ? [...versions.keys()].map((name) => ({ name, label: renamedTitle({ kind: "code", title: name, lang: "", content: "" }) }))
+      : [],
+    activeFile: pinned?.kind === "code" ? pinned.title : null,
+    onSelectFile: (name: string) => {
+      const list = versions.get(name);
+      const last = list?.[list.length - 1];
+      if (last) setArtifact({ kind: "code", title: name, lang: last.lang, content: last.content });
+    },
+    versionCount: pinnedVersions?.length ?? 0,
+    versionIdx,
+    onSelectVersion: (idx: number) => setPanelChoice({ of: pinned, idx, changes: chosen?.changes ?? false }),
+    showChanges,
+    setShowChanges: (v: boolean) => setPanelChoice({ of: pinned, idx: Math.max(versionIdx, 0), changes: v }),
+    changeLines,
   };
 
   return (
@@ -2230,6 +2325,8 @@ export default function PlaygroundPage({
               genTitle={genTitle}
               genSummary={genSummary}
               setCtxOpen={setCtxOpen}
+              fileCount={versions.size}
+              setFilesOpen={setFilesOpen}
             />
           </HStack>
         </LayoutHeader>
@@ -2310,6 +2407,9 @@ export default function PlaygroundPage({
                     resume={resume}
                     model={model}
                     renamedTitle={renamedTitle}
+                    versions={versions}
+                    waitLabel={waitLabel}
+                    onAnswerNow={answerNow}
                     onAnswer={answer}
                     onRequestFullFile={requestFullFile}
                     onRedoFile={redoFile}
@@ -2351,6 +2451,14 @@ export default function PlaygroundPage({
               setSystemProvenance={setSystemProvenance}
             />
           )}
+          <FilesDialog
+            isOpen={filesOpen}
+            onClose={() => setFilesOpen(false)}
+            versions={versions}
+            title={(name) => renamedTitle({ kind: "code", title: name, lang: "", content: "" })}
+            archiveName={convTitleFallback(messages, t("Conversation"))}
+            onOpen={(a) => { setArtifact(a); setRenamingArtifact(false); }}
+          />
           <HistoryDialog
             historyOpen={historyOpen}
             setHistoryOpen={setHistoryOpen}

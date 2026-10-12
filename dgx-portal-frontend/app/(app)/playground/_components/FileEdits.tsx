@@ -1,28 +1,31 @@
 "use client";
 
-// Files the server's edit tools changed during a turn, as Claude shows them:
-// one row per file with +added / −removed, expandable to a red/green diff,
-// and a way to open the new version in the panel.
+// Files the server's edit tools changed during a turn: one file card per
+// file (« Modifié +5 −2 »), the red/green diff on demand, and the new version
+// one click away. It was a small grey tool line (« edit hello.py +5 -2 »),
+// easy to miss under the answer (2026-10-12).
 
 import { useMemo } from "react";
-import { ChatToolCalls } from "@astryxdesign/core/Chat";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { Button } from "@astryxdesign/core/Button";
 import { useT } from "@/lib/i18n";
 import { diffLines, diffStats, hunks, type DiffLine } from "@/lib/diff";
 import type { EditedFile } from "@/lib/types";
 import type { Artifact } from "@/lib/playground-thread";
+import { FileCard } from "./FileCard";
 
 type Props = {
   edits: EditedFile[];
   /** Content of each file BEFORE this turn ("" for a created file). */
   before: (name: string) => string | undefined;
   lang: (name: string) => string;
+  /** Displayed name and version number of a file, as on the other cards. */
+  title: (name: string) => string;
+  version: (name: string) => number | undefined;
   onOpen: (a: Artifact) => void;
 };
 
-function DiffView({ lines }: { lines: (DiffLine | null)[] }) {
+export function DiffView({ lines }: { lines: (DiffLine | null)[] }) {
   const t = useT();
   return (
     <VStack gap={0} isScrollable className="file-diff">
@@ -46,8 +49,7 @@ function DiffView({ lines }: { lines: (DiffLine | null)[] }) {
   );
 }
 
-export function FileEdits({ edits, before, lang, onOpen }: Props) {
-  const t = useT();
+export function FileEdits({ edits, before, lang, title, version, onOpen }: Props) {
   const rows = useMemo(
     () =>
       edits.map((f) => {
@@ -66,28 +68,21 @@ export function FileEdits({ edits, before, lang, onOpen }: Props) {
     [edits],
   );
   return (
-    <ChatToolCalls
-      defaultIsExpanded={rows.length === 1}
-      calls={rows.map(({ f, created, lines, stats }) => ({
-        name: created ? t("création") : t("modification"),
-        target: f.name,
-        status: "complete" as const,
-        additions: stats.added,
-        deletions: stats.removed,
-        resultDetail: (
-          <VStack gap={2}>
-            <DiffView lines={created ? lines.slice(0, 400) : hunks(lines)} />
-            <HStack gap={2}>
-              <Button
-                label={t("Ouvrir le fichier")}
-                size="sm"
-                variant="secondary"
-                onClick={() => onOpen({ kind: "code", title: f.name, lang: lang(f.name), content: f.content })}
-              />
-            </HStack>
-          </VStack>
-        ),
-      }))}
-    />
+    <VStack gap={2}>
+      {rows.map(({ f, created, lines, stats }) => {
+        const artifact: Artifact = { kind: "code", title: f.name, lang: lang(f.name), content: f.content };
+        return (
+          <FileCard
+            key={f.name}
+            artifact={artifact}
+            title={title(f.name)}
+            version={version(f.name)}
+            change={{ created, added: stats.added, removed: stats.removed,
+              lines: created ? lines.slice(0, 400) : hunks(lines) }}
+            onOpen={() => onOpen(artifact)}
+          />
+        );
+      })}
+    </VStack>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
-// The playground header actions: new conversation, history and settings in
-// sight; export, share, auto-title, summary and context in the « ⋯ » menu.
+// The playground header actions: new conversation, files, history and
+// settings in sight; export, share, auto-title, summary and context in the « ⋯ » menu.
 
 import { HStack } from "@astryxdesign/core/Stack";
 import { Button } from "@astryxdesign/core/Button";
@@ -14,6 +14,7 @@ import {
   Cog6ToothIcon,
   DocumentMagnifyingGlassIcon,
   DocumentTextIcon,
+  FolderIcon,
   LinkIcon,
   PlusIcon,
   SparklesIcon,
@@ -37,6 +38,9 @@ export type PlaygroundActionsProps = {
   genTitle: () => void;
   genSummary: () => void;
   setCtxOpen: (v: boolean) => void;
+  /** Files of the conversation: « Fichiers (N) » appears once there is one. */
+  fileCount: number;
+  setFilesOpen: (v: boolean) => void;
 };
 
 export function PlaygroundActions({
@@ -54,6 +58,8 @@ export function PlaygroundActions({
   genTitle,
   genSummary,
   setCtxOpen,
+  fileCount,
+  setFilesOpen,
 }: PlaygroundActionsProps) {
   const t = useT();
   // Three actions stay in sight (new, history, settings); the occasional ones
@@ -104,6 +110,15 @@ export function PlaygroundActions({
         isDisabled={streaming}
         onClick={newConversation}
       />
+      {fileCount > 0 && (
+        <Button
+          label={`${t("Fichiers")} (${fileCount})`}
+          variant="secondary"
+          size="sm"
+          icon={<Icon icon={FolderIcon} size="sm" />}
+          onClick={() => setFilesOpen(true)}
+        />
+      )}
       <Button
         label={t("Historique")}
         variant="secondary"

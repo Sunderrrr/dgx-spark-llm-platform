@@ -339,3 +339,23 @@ dialog::backdrop {
 .file-diff-no { min-width: 3.5ch; text-align: end; user-select: none; }
 .file-diff-sign { user-select: none; }
 .file-diff-gap { padding-inline: var(--spacing-2); }
+
+/* Playground — file card (FileCard): the first lines under the name, cut by
+   a fade rather than mid-character, on the muted strip that separates them
+   from the header. Tokens only. */
+.file-card-preview {
+  border-top: 1px solid var(--color-border);
+  background: var(--color-background-muted);
+  border-end-start-radius: inherit;
+  border-end-end-radius: inherit;
+}
+.file-card-code {
+  display: block;
+  padding: var(--spacing-2) var(--spacing-3);
+  white-space: pre;
+  overflow: hidden;
+  font-family: var(--font-family-code);
+  mask-image: linear-gradient(to bottom, black 55%, transparent);
+}
+.file-card-add { color: var(--color-text-green); }
+.file-card-del { color: var(--color-text-red); }

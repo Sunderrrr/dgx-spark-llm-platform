@@ -70,7 +70,11 @@ export function convAsJson(conv: ExportConversation): string {
 
 /** Client-side download of some text as a file. */
 export function downloadText(filename: string, content: string, mime: string) {
-  const blob = new Blob([content], { type: mime });
+  downloadBlob(filename, new Blob([content], { type: mime }));
+}
+
+/** Client-side download of bytes (the playground's .zip of all files). */
+export function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

@@ -206,6 +206,8 @@ export type StreamDelta = {
   notice?: { id: string; reset?: string; status?: number };
   /** A file the platform edited (playground edit tools): its new version. */
   fileEdit?: { name: string; content: string; created?: boolean };
+  /** Engine occupancy while waiting for the first token (llama.cpp /slots). */
+  queue?: { busy: number; total: number };
 };
 
 export type ToolCallEvent = {
@@ -238,6 +240,7 @@ type SSEPayload = {
   dgx_confirm?: SupportConfirmRequest;
   tool_call?: ToolCallEvent;
   dgx_file?: { name: string; content: string; created?: boolean };
+  dgx_queue?: { busy: number; total: number };
 };
 
 /** Reads an SSE stream (packets `data: {...}\n\n`) and invokes onEvent per received packet. */
@@ -316,6 +319,7 @@ export async function streamChat(
     if (json.dgx_web) onDelta({ webStep: json.dgx_web });
     if (json.dgx_notice) onDelta({ notice: json.dgx_notice });
     if (json.dgx_file) onDelta({ fileEdit: json.dgx_file });
+    if (json.dgx_queue) onDelta({ queue: json.dgx_queue });
     const delta = json.choices?.[0]?.delta;
     if (delta?.reasoning_content) onDelta({ reasoningChunk: delta.reasoning_content });
     if (delta?.content) onDelta({ contentChunk: delta.content });

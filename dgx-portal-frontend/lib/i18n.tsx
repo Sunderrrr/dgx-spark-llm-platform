@@ -1846,6 +1846,18 @@ const EN: Record<string, string> = {
     "SMTP not configured (set it in Admin → Config, or SMTP_HOST / SMTP_USER / SMTP_PASSWORD / ADMIN_EMAIL).",
   "Catégorie inconnue.": "Unknown category.",
   "Champs manquants.": "Missing fields.",
+  // ── Playground: targeted file edits (server edit tools) ──
+  "lecture de {f}": "reading {f}",
+  "modification de {f}": "editing {f}",
+  "modification de {f} non appliquée : {e}": "edit of {f} not applied: {e}",
+  "texte introuvable": "text not found",
+  "texte présent plusieurs fois": "text found several times",
+  "fichier inconnu": "unknown file",
+  "arguments invalides": "invalid arguments",
+  "fichier trop volumineux": "file too large",
+  "Aucune différence.": "No difference.",
+  "création": "create",
+  "modification": "edit",
 };
 
 const I18nContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({

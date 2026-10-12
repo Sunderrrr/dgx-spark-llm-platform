@@ -174,7 +174,7 @@ export async function fetchPlaygroundData(): Promise<PlaygroundData> {
  * backend announces it on the fly. `etape` is optional: the portail sends an
  * empty frame when a tool refused before doing anything. */
 export type WebStep = {
-  step?: "search" | "search_done" | "reading" | "reading_done"
+  step?: "search" | "search_done" | "reading" | "reading_done" | "file_view" | "file_edit"
     | "generation" | "generation_done" | "generation_video"
     | "generation_video_done" | "ocr" | "ocr_done" | "unknown";
   tool: string;
@@ -204,6 +204,8 @@ export type StreamDelta = {
   /** STRUCTURED system notice (quota exceeded, model error…): translated at
      render time into the UI language — the server never sends a sentence. */
   notice?: { id: string; reset?: string; status?: number };
+  /** A file the platform edited (playground edit tools): its new version. */
+  fileEdit?: { name: string; content: string; created?: boolean };
 };
 
 export type ToolCallEvent = {
@@ -235,6 +237,7 @@ type SSEPayload = {
   dgx_notice?: { id: string; reset?: string; status?: number };
   dgx_confirm?: SupportConfirmRequest;
   tool_call?: ToolCallEvent;
+  dgx_file?: { name: string; content: string; created?: boolean };
 };
 
 /** Reads an SSE stream (packets `data: {...}\n\n`) and invokes onEvent per received packet. */
@@ -278,6 +281,7 @@ export async function streamChat(
   settings: Settings,
   signal: AbortSignal,
   onDelta: (delta: StreamDelta) => void,
+  files?: { name: string; content: string }[],
 ): Promise<void> {
   const res = await authFetch("/playground/chat", {
     method: "POST",
@@ -293,6 +297,9 @@ export async function streamChat(
       // '' (template default) goes out as undefined: the backend only passes
       // reasoning_effort to the model when it is set.
       reasoning_effort: settings.reasoningEffort || undefined,
+      // The conversation's current files: the server's edit tools work on
+      // them (targeted str_replace edits instead of full rewrites).
+      files: files?.length ? files : undefined,
     }),
     signal,
   });
@@ -304,6 +311,7 @@ export async function streamChat(
     // Web search: separate event, never mixed into the response text.
     if (json.dgx_web) onDelta({ webStep: json.dgx_web });
     if (json.dgx_notice) onDelta({ notice: json.dgx_notice });
+    if (json.dgx_file) onDelta({ fileEdit: json.dgx_file });
     const delta = json.choices?.[0]?.delta;
     if (delta?.reasoning_content) onDelta({ reasoningChunk: delta.reasoning_content });
     if (delta?.content) onDelta({ contentChunk: delta.content });

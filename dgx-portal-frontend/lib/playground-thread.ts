@@ -143,6 +143,15 @@ export function brokenScript(content: string): boolean {
  * answering. Without this feed, the wait is totally silent and nobody knows
  * what is going on — this was the first usage feedback we got on it.
  */
+/** Error codes of the server's edit tools → French msgids. */
+const FILE_EDIT_ERRORS: Record<string, string> = {
+  "text not found": "texte introuvable",
+  "ambiguous text": "texte présent plusieurs fois",
+  "unknown file": "fichier inconnu",
+  "invalid arguments": "arguments invalides",
+  "file too large": "fichier trop volumineux",
+};
+
 export function webStepLabel(
   e: WebStep,
   t: (s: string) => string,
@@ -188,6 +197,15 @@ export function webStepLabel(
       return { finished: false,
         text: `${tool} · ` + t("lecture du document")
           + (e.question ? ` « ${e.question} »` : "") };
+    case "file_view":
+      return { finished: true, text: t("lecture de {f}").replace("{f}", e.question ?? "") };
+    case "file_edit":
+      // The error is a stable code from the server (file_tools.py): the
+      // model reads the detail and usually retries on its next round.
+      return { finished: true, text: e.error
+        ? t("modification de {f} non appliquée : {e}").replace("{f}", e.question ?? "")
+            .replace("{e}", t(FILE_EDIT_ERRORS[e.error] ?? e.error))
+        : t("modification de {f}").replace("{f}", e.question ?? "") };
     case "ocr_done":
       return { finished: true, text: `${tool} · ` + (e.error
         ? t("lecture impossible : {e}").replace("{e}", e.error)
@@ -544,6 +562,18 @@ export function messageFragments(messages: ChatMsg[], index: number, t: (s: stri
  * synchronize, hence nothing that can go out of sync — reloading the
  * conversation rebuilds exactly the same state.
  */
+const EXT_LANG: Record<string, string> = {
+  py: "python", js: "javascript", ts: "typescript", tsx: "tsx", jsx: "jsx", html: "html",
+  css: "css", json: "json", md: "markdown", sh: "bash", yml: "yaml", yaml: "yaml",
+  go: "go", rs: "rust", java: "java", c: "c", cpp: "cpp", rb: "ruby", php: "php", sql: "sql",
+};
+
+/** The language of a file from its extension (for a file created by a tool). */
+export function langFromName(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return EXT_LANG[ext] ?? "text";
+}
+
 export function filesUntil(
   messages: ChatMsg[],
   index: number,
@@ -624,6 +654,11 @@ export function filesUntil(
       const target = files.get(key)!;
       if (!target.content.includes(e.find)) continue;   // anchor not found: we invent nothing
       files.set(key, { ...target, content: target.content.replace(e.find, e.replace) });
+    }
+    // Versions written by the server's edit tools: authoritative, they are
+    // what the model's edits actually produced.
+    for (const f of m.fileEdits ?? []) {
+      files.set(f.name, { content: f.content, lang: files.get(f.name)?.lang ?? langFromName(f.name) });
     }
   }
   return files;

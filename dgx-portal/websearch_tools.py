@@ -19,6 +19,7 @@ import requests
 
 import websearch
 import document_tools
+import file_tools
 import image_tools
 import video_tools
 from db import get_db
@@ -33,6 +34,10 @@ LITELLM_URL = os.environ.get('LITELLM_URL', 'http://litellm:4000')
 # Splitting this way avoids reassembling fragmented tool calls from
 # deltas, and the visible answer always arrives token by token.
 MAX_TOOL_ROUNDS = 3
+# File edits: view → replace → maybe a corrected replace, per file.
+FILE_TOOL_ROUNDS = 10
+FILE_TOOLS_MAX_DELAY = 300
+FILE_TOOL_RESULT_MAX = 40_000
 # Time cap of the tool phase. Legitimate or not, a search must never
 # monopolize the wait: past this, we answer with what was found.
 # A single page read can take a minute and a half.
@@ -309,7 +314,8 @@ def _findings_text(findings):
 
 def _tools_phase(model, msgs, user_key, step_log, findings,
                   web_ok=True, img_ok=False, username='',
-                  video_ok=False, doc_ok=False, attachments=()):
+                  video_ok=False, doc_ok=False, attachments=(),
+                  files=None, changes=None):
     """Lets the model search, read or generate before answering. Modifies `msgs`
     in place.
 
@@ -329,14 +335,22 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
     produces no text meant for reading.
     """
     short_text = _tools_context(msgs)
+    # `files` arms the file tools (file_tools.py): edits loop view → replace
+    # → (error) → replace, so they get more rounds, a longer budget and room
+    # for a replacement text.
+    edit_ok = bool(files)
     _tools = ((_web_tools() if web_ok else []) +
                (image_tools._image_tools() if img_ok else []) +
                (video_tools._video_tools() if video_ok else []) +
-               (document_tools._document_tools() if doc_ok else []))
+               (document_tools._document_tools() if doc_ok else []) +
+               (file_tools._file_tools() if edit_ok else []))
     if not _tools:
         return
-    _end = time.monotonic() + TOOLS_MAX_DELAY
-    for _ in range(MAX_TOOL_ROUNDS):
+    if edit_ok:
+        short_text.insert(1 if short_text and short_text[0].get('role') == 'system' else 0,
+                          {'role': 'system', 'content': file_tools.files_note(files)})
+    _end = time.monotonic() + (FILE_TOOLS_MAX_DELAY if edit_ok else TOOLS_MAX_DELAY)
+    for _ in range(FILE_TOOL_ROUNDS if edit_ok else MAX_TOOL_ROUNDS):
         if time.monotonic() > _end:
             step_log.append({'step': 'timeout', 'tool': 'search',
                             'error': "Recherche interrompue : trop longue."})
@@ -347,7 +361,7 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
                               headers={'Authorization': f'Bearer {user_key}'},
                               json={'model': model, 'messages': short_text, 'tools': _tools,
                                     'tool_choice': 'auto', 'temperature': 0.2,
-                                    'max_tokens': 1024,
+                                    'max_tokens': 8192 if edit_ok else 1024,
                                     'chat_template_kwargs': {'enable_thinking': False}},
                               timeout=120)
         except Exception as e:                      # noqa: BLE001
@@ -395,6 +409,20 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
                 args = json.loads(fn.get('arguments') or '{}')
             except Exception:
                 args = {}
+            if edit_ok and fn.get('name') in file_tools.FILE_TOOL_NAMES:
+                # Local and instant: no heartbeat, and the result is NOT a
+                # finding — it must never be reinjected as « web results ».
+                step = file_tools.announce(fn.get('name'), args)
+                result, error = file_tools.exec_file_tool(fn.get('name'), args, files,
+                                                          changes if changes is not None else {})
+                if error:
+                    step['error'] = error
+                yield "data: " + json.dumps({'dgx_web': step}) + "\n\n"
+                short_text.append({'role': 'tool', 'tool_call_id': call.get('id', ''),
+                                   'name': fn.get('name', ''),
+                                   'content': result[:FILE_TOOL_RESULT_MAX]})
+                _bound_tools_prompt(short_text)
+                continue
             # A search, a read or a generation takes several seconds.
             # We tell the client WHAT WE ARE DOING before doing it: without
             # that the wait is silent and nobody knows what is happening. It

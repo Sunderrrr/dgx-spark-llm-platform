@@ -20,7 +20,13 @@ export type ChatMsg = {
   /** Response cut short by the token ceiling: we flag it and offer
    *  to resume where the model stopped. */
   truncated?: boolean;
+  /** Files the platform edited during this turn (str_replace / create_file
+   *  tools): their NEW version. The text only summarizes the change. */
+  fileEdits?: EditedFile[];
 };
+
+/** A file version produced by the playground's edit tools. */
+export type EditedFile = { name: string; content: string };
 
 export type Attachment = {
   name: string;

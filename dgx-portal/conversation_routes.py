@@ -16,6 +16,7 @@ from datetime import datetime
 
 from flask import Blueprint, Response, abort, jsonify, request, session
 
+import file_tools
 from auth import login_required
 from config import AVATAR_IDS, LANGS, THEME_IDS
 from db import get_db, platform_name
@@ -67,6 +68,15 @@ def _messages_json(row):
     except Exception:
         return None
     return messages if isinstance(messages, list) else None
+
+
+def _file_edits(m):
+    """The `fileEdits` of an assistant message, bounded like the files the
+    playground sends (file_tools.parse_files)."""
+    if m.get('role') != 'assistant':
+        return []
+    return [{'name': n, 'content': c}
+            for n, c in file_tools.parse_files(m.get('fileEdits')).items()]
 
 
 @bp.route('/api/conversations')
@@ -151,6 +161,10 @@ def conversations_route():
                      # could no longer be diagnosed after the fact.
                      **({'isError': True} if m.get('isError') else {}),
                      **({'truncated': True} if m.get('truncated') else {}),
+                     # Files the platform edited during this turn (file_tools):
+                     # their new version lives HERE, not in the text, which
+                     # only summarizes the change.
+                     **({'fileEdits': edits} if (edits := _file_edits(m)) else {}),
                      # Attached images: without them, a reloaded conversation
                      # lost what the model had seen. Counted in
                      # CONV_MAX_CHARS like the rest: a too heavy conversation

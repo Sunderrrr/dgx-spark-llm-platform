@@ -61,6 +61,7 @@ from websearch_tools import (_tools_phase, _search_relevant,
                              _findings_text, websearch_active)
 from image_tools import _image_requested, image_available
 from video_tools import _video_requested, video_available
+import file_tools
 from document_tools import _document_requested, document_available
 
 _log = logging.getLogger('app')
@@ -1215,6 +1216,11 @@ def playground_chat():
     _doc_service = document_available()
     _doc_ok = (_doc_requested and _doc_service
                and maintenance_block_sse() is None)
+    # File editing (file_tools.py): the browser sends the conversation's
+    # current files; the edit tools are only armed when the user asks for a
+    # change — a « merci » must not pay an extra model round.
+    _files = file_tools.parse_files(data.get('files'))
+    _edit_ok = bool(_files) and file_tools.edit_requested(history)
 
     # The output cap ADDS to the prompt in the context window: beyond it,
     # vLLM refuses the request (400 ContextWindowExceededError) instead of answering.
@@ -1280,17 +1286,26 @@ def playground_chat():
         # after the search (just before the final POST), so a request that spent
         # 40 s searching and reading announced « TTFT 1,2 s ».
         _t0 = time.monotonic()
-        if _web_ok or _img_ok or _vid_ok or _doc_ok:
+        if _web_ok or _img_ok or _vid_ok or _doc_ok or _edit_ok:
             yield ": recherche\n\n"
-            _step_log, _findings = [], []
+            _step_log, _findings, _changes = [], [], {}
             for _step in _tools_phase(model, msgs, user_key, _step_log,
                                         _findings, web_ok=_web_ok,
                                         img_ok=_img_ok, username=_who,
                                         video_ok=_vid_ok, doc_ok=_doc_ok,
-                                        attachments=attachments):
+                                        attachments=attachments,
+                                        files=_files if _edit_ok else None,
+                                        changes=_changes):
                 yield _step
+            # Every edited file goes back ONCE, in its final state: the
+            # browser records it as the file's new version and shows the diff.
+            for _path, _before in _changes.items():
+                if _files.get(_path) != _before:
+                    yield "data: " + json.dumps({'dgx_file': {
+                        'name': _path, 'content': _files[_path],
+                        'created': _before is None}}) + "\n\n"
             # Re-injection AS TEXT, into the last user message.
-            _txt = _findings_text(_findings)
+            _txt = _findings_text(_findings) + file_tools.edits_note(_files, _changes)
             if _txt:
                 for _k in range(len(msgs) - 1, -1, -1):
                     if msgs[_k].get('role') == 'user':

@@ -26,7 +26,7 @@ import { useIsNarrow } from "@/lib/useIsNarrow";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { useThemeMode } from "../../theme-provider";
 
-import type { Attachment, ChatMsg, Conversation, PlaygroundData, Settings } from "@/lib/types";
+import type { Attachment, ChatMsg, Conversation, EditedFile, PlaygroundData, Settings } from "@/lib/types";
 import { type WebStep, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
 // System notices (dgx_notice) are shared with the Support assistant,
 // which also runs on the user's key: see lib/notices.ts.
@@ -1352,10 +1352,13 @@ export default function PlaygroundPage({
     let thoughtEnd: number | null = null;     // 1er fragment de réponse
     let usage: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number } | undefined;
 
+    // Files the server's edit tools changed during this turn (one entry per
+    // file, last version wins).
+    const fileEdits: EditedFile[] = [];
     const updateLast = () => {
       setMessages((prev) => {
         const copy = [...prev];
-        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: reason, ts: copy[copy.length - 1]?.ts , reasoningMs: reasoningStart ? Math.round((thoughtEnd ?? performance.now()) - reasoningStart) : undefined };
+        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: reason, ts: copy[copy.length - 1]?.ts , reasoningMs: reasoningStart ? Math.round((thoughtEnd ?? performance.now()) - reasoningStart) : undefined, fileEdits: fileEdits.length ? [...fileEdits] : undefined };
         return copy;
       });
     };
@@ -1419,6 +1422,13 @@ export default function PlaygroundPage({
             acc += (acc ? "\n\n" : "") + noticeText(delta.notice, t);
             updateLast();
           }
+          if (delta.fileEdit) {
+            const { name, content } = delta.fileEdit;
+            const k = fileEdits.findIndex((f) => f.name === name);
+            if (k >= 0) fileEdits[k] = { name, content };
+            else fileEdits.push({ name, content });
+            updateLast();
+          }
           if (delta.webStep) {
             const e = delta.webStep;
             // A "finished" step replaces its announcement, it is not added.
@@ -1448,6 +1458,7 @@ export default function PlaygroundPage({
             updateLast();
           }
         },
+        [...filesUntil(nextMessages, nextMessages.length - 1, t)].map(([name, f]) => ({ name, content: f.content })),
       );
     } catch (e) {
       if ((e as Error)?.name === "AbortError") {
@@ -1487,6 +1498,7 @@ export default function PlaygroundPage({
         ttft: tf ? Number(((tf - t0) / 1000).toFixed(2)) : undefined,
         ts: startTs,
         isError,
+        fileEdits: fileEdits.length ? fileEdits : undefined,
       });
     }
     // Did the THREAD change during the generation? Loading another conversation

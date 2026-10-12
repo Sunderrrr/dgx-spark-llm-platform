@@ -51,8 +51,11 @@ import {
   parseArtifacts,
   brokenScript,
   type Artifact,
+  filesUntil,
+  langFromName,
 } from "@/lib/playground-thread";
 import { AskQuestion } from "./AskQuestion";
+import { FileEdits } from "./FileEdits";
 
 /** File being written live, as shown in the side panel (null = none). */
 export type LiveCode = { lang: string; body: string; start: number };
@@ -481,6 +484,14 @@ export function ThreadMessage({
                               }
                             />
                           )}
+                          {m.role === "assistant" && m.fileEdits?.length ? (
+                            <FileEdits
+                              edits={m.fileEdits}
+                              before={(name) => filesUntil(messages, i - 1, t).get(name)?.content}
+                              lang={(name) => filesUntil(messages, i, t).get(name)?.lang ?? langFromName(name)}
+                              onOpen={onOpenArtifact}
+                            />
+                          ) : null}
                           {items.map((a, ai) => (
                             <ClickableCard
                               key={ai}

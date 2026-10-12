@@ -304,3 +304,19 @@ dialog::backdrop {
     animation: none;
   }
 }
+
+/* Playground — diff of a file edited by the server's edit tools (FileEdits).
+   CodeBlock only colors TEXT tokens; a diff reads by its line BACKGROUNDS
+   (red removed, green added), which no Astryx component exposes. Tokens only. */
+.file-diff {
+  max-height: 50vh;
+  font-family: var(--font-family-code);
+  border-radius: var(--radius-md);
+  background: var(--color-background-muted, transparent);
+}
+.file-diff-line { padding-inline: var(--spacing-2); white-space: pre; }
+.file-diff-add { background: var(--color-success-muted); }
+.file-diff-del { background: var(--color-error-muted); }
+.file-diff-no { min-width: 3.5ch; text-align: end; user-select: none; }
+.file-diff-sign { user-select: none; }
+.file-diff-gap { padding-inline: var(--spacing-2); }

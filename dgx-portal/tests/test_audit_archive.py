@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 
-class ArchivageAuditTest(unittest.TestCase):
+class AuditArchiveTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -31,7 +31,7 @@ class ArchivageAuditTest(unittest.TestCase):
         finally:
             c.close()
 
-    def test_les_lignes_evacuees_sont_archivees_pas_perdues(self):
+    def test_evicted_rows_archived_not_lost(self):
         import db
         with patch('db.DB_PATH', self.db_path):
             for i in range(5010):
@@ -43,7 +43,7 @@ class ArchivageAuditTest(unittest.TestCase):
             "SELECT COUNT(*) FROM (SELECT id FROM audit_log "
             "UNION SELECT id FROM audit_log_archive)"), 5010)
 
-    def test_l_archive_conserve_le_detail_des_vieilles_lignes(self):
+    def test_archive_keeps_old_rows_detail(self):
         import db
         with patch('db.DB_PATH', self.db_path):
             for i in range(5003):
@@ -55,7 +55,7 @@ class ArchivageAuditTest(unittest.TestCase):
             c.close()
         self.assertEqual([l[0] for l in lines], ['ligne 0', 'ligne 1', 'ligne 2'])
 
-    def test_une_ecriture_legere_ne_declenche_rien_d_autre(self):
+    def test_light_write_triggers_nothing_else(self):
         import db
         with patch('db.DB_PATH', self.db_path):
             db.log_audit('demo', 'test.action', 'une seule ligne')

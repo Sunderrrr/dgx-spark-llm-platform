@@ -554,8 +554,8 @@ def _apply_session(username, fullname, is_admin, via_sso=False):
     # `session.clear()` erases it, and regenerating it here (what the code did
     # until 2026-09-14) changed the token BEHIND the browser's back: the page
     # kept sending the old one, and every kept POST answered 400 « CSRF token
-    # manquant ou invalide ». Reported symptom: « je me déconnecte après un
-    # login SSO et j'obtiens Bad Request ». A full reload (what `/login` does
+    # missing or invalid ». Reported symptom: « I log out after an SSO
+    # login and get Bad Request ». A full reload (what `/login` does
     # after a local login) masked the problem; the SSO, whose return does not
     # always go through a fresh document, exposed it.
     #

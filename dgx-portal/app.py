@@ -1520,8 +1520,8 @@ def api_search():
         # the technical detail stays attached for whoever must diagnose.
         return jsonify({'ok': False, 'results': [], 'code': 'hf_unavailable',
                         'error': f"Hugging Face n'a pas répondu ({e}). Réessaie dans un instant."}), 503
-    # GB10 filter + no result: the user's next question is « est-ce que ça
-    # existe ailleurs ? ». We answer it (True/False/None = unknown, and then the
+    # GB10 filter + no result: the user's next question is « does it
+    # exist elsewhere? ». We answer it (True/False/None = unknown, and then the
     # UI says nothing).
     outside_gb10 = None
     if gb10 and query and not results:
@@ -1647,8 +1647,8 @@ with app.app_context():
     if _token:
         # stderr: the log shows it (`docker logs dgx-portal 2>&1 | grep setup`),
         # and nothing that parses the portal's stdout sees it.
-        print("[setup] Aucun administrateur : ouvre le portail pour créer le compte "
-              f"propriétaire. Jeton de configuration : {_token}", file=sys.stderr, flush=True)
+        print("[setup] No administrator: open the portal to create the owner "
+              f"account. Setup token: {_token}", file=sys.stderr, flush=True)
     # The avatar set went from generic shapes ("avatar-01"…) to AI
     # logos: we clear preferences pointing to a vanished id,
     # otherwise the <img> would hit a 404 for those accounts.

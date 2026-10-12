@@ -17,7 +17,7 @@ import app as portal
 import instance_config
 import sso_client
 
-CLES = ('ldap_uri', 'ldap_base', 'smtp_host', 'smtp_user', 'smtp_pass', 'oidc_metadata_url',
+KEYS = ('ldap_uri', 'ldap_base', 'smtp_host', 'smtp_user', 'smtp_pass', 'oidc_metadata_url',
         'oidc_client_id', 'oidc_client_secret', 'oidc_admin_group', 'ldap_bind_pw')
 
 METADATA = {
@@ -40,10 +40,10 @@ class LiveConfigTest(unittest.TestCase):
 
     def _purge(self):
         with portal.app.app_context():
-            for k in CLES:
+            for k in KEYS:
                 instance_config.set_value(k, instance_config.CLEAR)
 
-    def test_env_n_est_plus_lu(self):
+    def test_env_no_longer_read(self):
         with patch.dict(os.environ, {'LDAP_URI': 'ldap://from-env:389'}), \
              portal.app.app_context():
             self.assertEqual(instance_config.ldap_config()['uri'], '')
@@ -51,7 +51,7 @@ class LiveConfigTest(unittest.TestCase):
         with portal.app.app_context():
             self.assertEqual(instance_config.ldap_config()['uri'], 'ldap://from-admin:389')
 
-    def test_import_unique_depuis_un_ancien_env(self):
+    def test_single_import_from_legacy_env(self):
         env = {'LDAP_URI': 'ldap://legacy:389', 'LDAP_BIND_PW': 'pw', 'LDAP_BASE': 'dc=legacy'}
         self._set(ldap_base='dc=already-set')
         with portal.app.app_context():
@@ -87,7 +87,7 @@ class LiveConfigTest(unittest.TestCase):
         with portal.app.app_context():
             self.assertEqual(instance_config.oidc_config()['admin_group'], 'admins')
 
-    def test_un_secret_s_ecrit_mais_ne_se_relit_pas(self):
+    def test_secret_writable_not_readable(self):
         self._set(smtp_pass='secret')
         with portal.app.app_context():
             state = {e['name']: e for e in instance_config.config_state()}
@@ -136,14 +136,14 @@ class DiscordConfigTest(unittest.TestCase):
             for k in ('discord_webhook_url', 'discord_client_id', 'discord_client_secret'):
                 instance_config.set_value(k, instance_config.CLEAR)
 
-    def test_liaison_active_avec_id_et_secret(self):
+    def test_linking_active_with_id_and_secret(self):
         with portal.app.app_context():
             self.assertFalse(instance_config.discord_config()['link_enabled'])
             instance_config.set_value('discord_client_id', '123')
             instance_config.set_value('discord_client_secret', 's')
             self.assertTrue(instance_config.discord_config()['link_enabled'])
 
-    def test_le_webhook_vient_de_l_admin(self):
+    def test_webhook_comes_from_admin(self):
         # notify.notify_discord reads discord_config()['webhook'] (its sending
         # is covered by test_hf_search.NotifyDiscordTest).
         with portal.app.app_context():
@@ -187,17 +187,17 @@ class ConfigTestRouteTest(unittest.TestCase):
     def _test(self, part):
         return self.c.post(f'/admin/config/test/{part}', headers={'X-CSRFToken': 'tok'})
 
-    def test_sections_non_configurees_le_disent(self):
-        for part, mot in (('ldap', 'URI'), ('sso', 'URL'), ('smtp', 'requis'),
+    def test_unconfigured_sections_say_so(self):
+        for part, word in (('ldap', 'URI'), ('sso', 'URL'), ('smtp', 'requis'),
                             ('discord', 'webhook')):
             r = self._test(part)
             self.assertEqual(r.status_code, 200, part)
             body = r.get_json()
             self.assertFalse(body['ok'], part)
-            self.assertIn(mot, body['message'], part)
+            self.assertIn(word, body['message'], part)
         self.assertEqual(self._test('autre').status_code, 404)
 
-    def test_sso_lit_les_metadonnees(self):
+    def test_sso_reads_metadata(self):
         import sso_client
         with portal.app.app_context():
             instance_config.set_value('oidc_metadata_url', 'https://idp.example/.well-known/openid-configuration')
@@ -206,14 +206,14 @@ class ConfigTestRouteTest(unittest.TestCase):
             body = self._test('sso').get_json()
         self.assertIn('https://idp.example', body['message'])
 
-    def test_discord_publie_sur_le_webhook(self):
+    def test_discord_posts_to_webhook(self):
         import admin_routes
         with portal.app.app_context():
             instance_config.set_value('discord_webhook_url', 'https://discord.invalid/hook')
         with patch.object(admin_routes, 'notify_discord_test', return_value=True):
             self.assertTrue(self._test('discord').get_json()['ok'])
 
-    def test_les_valeurs_par_defaut_et_les_suggestions(self):
+    def test_defaults_and_suggestions(self):
         body = self.c.get('/admin/config').get_json()
         lines = {l['name']: l for l in body['config']}
         self.assertEqual(lines['ldap_login_attr']['default'], 'cn')

@@ -44,7 +44,7 @@ import sidecars
 ADMIN1 = 'ztest-adm1'
 ADMIN2 = 'ztest-adm2'
 SIMPLE = 'ztest-simple'
-ANNUAIRE = 'ztest-annuaire'      # admin WITHOUT local row (LDAP/SSO case)
+DIRECTORY_USER = 'ztest-annuaire'      # admin WITHOUT local row (LDAP/SSO case)
 MDP = 'MotDePasse123'
 
 
@@ -110,10 +110,10 @@ class BaseAdmin(unittest.TestCase):
                 "SELECT * FROM audit_log WHERE action=? ORDER BY id DESC", (action,)).fetchall()
 
 
-class ContratJsonTest(BaseAdmin):
+class JsonContractTest(BaseAdmin):
     """A refusal must be reported as a refusal, never as a success."""
 
-    def test_arret_refuse_est_rapporte_comme_un_echec(self):
+    def test_refused_stop_is_reported_as_a_failure(self):
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'runner_stop',
                           return_value=(False, 'runner injoignable (ConnectionError)', False)), \
@@ -124,7 +124,7 @@ class ContratJsonTest(BaseAdmin):
         self.assertFalse(body['ok'])
         self.assertIn('injoignable', body['error'])
 
-    def test_arret_incertain_est_signale_comme_doute(self):
+    def test_uncertain_stop_is_reported_as_doubt(self):
         """The runner did not answer: we do not claim the stop failed."""
         c = self._client(ADMIN1)
         reason = "Le runner n'a pas répondu dans le délai imparti (45 s) : l'arrêt est peut-être en cours."
@@ -136,7 +136,7 @@ class ContratJsonTest(BaseAdmin):
         self.assertTrue(body['uncertain'])
         self.assertIn('peut-être en cours', body['error'])
 
-    def test_lancement_refuse_alerte_l_infra(self):
+    def test_refused_launch_alerts_infra(self):
         c = self._client(ADMIN1)
         with portal.app.app_context():
             db = portal.get_db()
@@ -146,13 +146,13 @@ class ContratJsonTest(BaseAdmin):
             db.commit()
         with patch.object(admin_routes, 'runner_launch',
                           return_value=(False, 'flag not allowed: --x', False)), \
-             patch.object(admin_routes, 'notify_infra_alert_email') as alerte:
+             patch.object(admin_routes, 'notify_infra_alert_email') as alert:
             r = self._post(c, '/admin/model/launch', {'model_name': 'ztest-modele'})
         self.assertEqual(r.status_code, 503)
         self.assertFalse(r.get_json()['ok'])
-        alerte.assert_called_once()
+        alert.assert_called_once()
 
-    def test_lancement_incertain_n_alerte_pas(self):
+    def test_uncertain_launch_does_not_alert(self):
         """A DOUBT must not trigger an alert: it would invite clicking again,
         thus killing a model being loaded."""
         c = self._client(ADMIN1)
@@ -164,13 +164,13 @@ class ContratJsonTest(BaseAdmin):
             db.commit()
         with patch.object(admin_routes, 'runner_launch',
                           return_value=(False, 'délai dépassé (150 s)', True)), \
-             patch.object(admin_routes, 'notify_infra_alert_email') as alerte:
+             patch.object(admin_routes, 'notify_infra_alert_email') as alert:
             r = self._post(c, '/admin/model/launch', {'model_name': 'ztest-modele'})
         self.assertEqual(r.status_code, 202)
         self.assertTrue(r.get_json()['uncertain'])
-        alerte.assert_not_called()
+        alert.assert_not_called()
 
-    def test_lancement_reussi_n_annonce_pas_le_modele_au_spawn(self):
+    def test_successful_launch_does_not_announce_model_at_spawn(self):
         """Accepting is not serving: the announcement goes out when the model
         answers, i.e. from _suivre_lancement, not from the route."""
         c = self._client(ADMIN1)
@@ -187,10 +187,10 @@ class ContratJsonTest(BaseAdmin):
         self.assertTrue(r.get_json()['ok'])
         announcement.assert_not_called()
 
-    def test_arret_sidecar_rapporte_le_motif_du_runner(self):
+    def test_sidecar_stop_reports_runner_reason(self):
         """« Échec du démarrage ocr. » did not say WHY: unreachable runner,
         missing container and transient error were identical."""
-        class Reponse:
+        class FakeResponse:
             ok = False
             status_code = 500
             text = ''
@@ -200,22 +200,22 @@ class ContratJsonTest(BaseAdmin):
                 return {'detail': 'conteneur absent (docker start refusé)'}
 
         c = self._client(ADMIN1)
-        with patch.object(sidecars.requests, 'post', return_value=Reponse()):
+        with patch.object(sidecars.requests, 'post', return_value=FakeResponse()):
             r = self._post(c, '/admin/ocr/stop')
         self.assertEqual(r.status_code, 503)
         self.assertIn('conteneur absent', r.get_json()['error'])
 
-    def test_parametres_globaux_sont_audites(self):
+    def test_global_settings_are_audited(self):
         c = self._client(ADMIN1)
         r = self._post(c, '/admin/settings',
                        {'default_key_budget': '150000000', 'default_key_duration': '7d'})
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()['ok'])
         self.assertTrue(self._audit('settings.budget'),
-                        "le plafond global s'applique à tout compte sans override : "
-                        "il doit laisser une trace")
+                        "the global cap applies to every account without an override: "
+                        "it must leave a trace")
 
-    def test_maintenance_auditee_et_avertissement_surface(self):
+    def test_maintenance_audited_and_warning_surfaced(self):
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'notify_maintenance_email', return_value=False), \
              live_settings(smtp_host='smtp.example', smtp_user='u', smtp_pass='p',
@@ -230,10 +230,10 @@ class ContratJsonTest(BaseAdmin):
         self.assertTrue(self._audit('maintenance'))
 
 
-class GardeDernierAdminTest(BaseAdmin):
+class LastAdminGuardTest(BaseAdmin):
     """The portal must not be left without a local administrator."""
 
-    def test_auto_retrogradation_refusee(self):
+    def test_self_demotion_refused(self):
         c = self._client(ADMIN1)
         r = self._post(c, f'/admin/users/update/{self._uid(ADMIN1)}', {'is_admin': '0'})
         self.assertEqual(r.status_code, 409)
@@ -241,30 +241,30 @@ class GardeDernierAdminTest(BaseAdmin):
         with portal.app.app_context():
             still = portal.get_db().execute(
                 "SELECT is_admin FROM local_users WHERE username=?", (ADMIN1,)).fetchone()
-        self.assertEqual(still['is_admin'], 1, "l'admin s'est rétrogradé lui-même")
+        self.assertEqual(still['is_admin'], 1, "the admin demoted themselves")
 
-    def test_auto_desactivation_refusee(self):
+    def test_self_disable_refused(self):
         c = self._client(ADMIN1)
         r = self._post(c, f'/admin/users/update/{self._uid(ADMIN1)}', {'enabled': '0'})
         self.assertEqual(r.status_code, 409)
 
-    def test_dernier_admin_local_protege(self):
+    def test_last_local_admin_protected(self):
         """Seen by a DIRECTORY admin (no local row), disabling the last local
         admin would leave the portal without local administration."""
-        c = self._client(ANNUAIRE)
+        c = self._client(DIRECTORY_USER)
         r = self._post(c, f'/admin/users/update/{self._uid(ADMIN2)}', {'enabled': '0'})
         self.assertEqual(r.status_code, 200)          # ADMIN1 reste admin local
         r = self._post(c, f'/admin/users/update/{self._uid(ADMIN1)}', {'enabled': '0'})
         self.assertEqual(r.status_code, 409)
         self.assertIn('dernier administrateur local', r.get_json()['error'])
 
-    def test_compte_simple_retrogradable_sans_garde(self):
+    def test_plain_account_demotable_without_guard(self):
         """The guard must not get in the way of the normal case."""
         c = self._client(ADMIN1)
         r = self._post(c, f'/admin/users/update/{self._uid(SIMPLE)}', {'enabled': '0'})
         self.assertEqual(r.status_code, 200)
 
-    def test_groupe_admin_a_deux_membres_ne_peut_pas_disparaitre(self):
+    def test_admin_group_with_two_members_cannot_vanish(self):
         """The case `_dernier_admin_local` cannot see: each of the two members
         sees the other as admin, while removing both leaves
         none."""
@@ -276,7 +276,7 @@ class GardeDernierAdminTest(BaseAdmin):
             db.execute("UPDATE local_users SET is_admin=0, group_name='ztest-groupe' "
                        "WHERE username IN (?,?)", (ADMIN1, ADMIN2))
             db.commit()
-        c = self._client(ANNUAIRE)
+        c = self._client(DIRECTORY_USER)
         r = self._post(c, '/admin/groups/delete/ztest-groupe')
         self.assertEqual(r.status_code, 409)
         self.assertIn('administrateur local', r.get_json()['error'])
@@ -285,7 +285,7 @@ class GardeDernierAdminTest(BaseAdmin):
                 "SELECT COUNT(*) AS n FROM user_groups WHERE name='ztest-groupe'").fetchone()['n']
         self.assertEqual(encore, 1)
 
-    def test_retirer_le_droit_admin_du_groupe_est_garde(self):
+    def test_removing_group_admin_right_is_guarded(self):
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT INTO user_groups (name, max_budget, is_admin, created_at) "
@@ -293,7 +293,7 @@ class GardeDernierAdminTest(BaseAdmin):
             db.execute("UPDATE local_users SET is_admin=0, group_name='ztest-groupe' "
                        "WHERE username IN (?,?)", (ADMIN1, ADMIN2))
             db.commit()
-        c = self._client(ANNUAIRE)
+        c = self._client(DIRECTORY_USER)
         r = self._post(c, '/admin/groups/create',
                        {'name': 'ztest-groupe', 'is_admin': '0'})
         self.assertEqual(r.status_code, 409)
@@ -310,7 +310,7 @@ class QuotasTest(BaseAdmin):
         self.assertEqual(r.status_code, 400)
         self.assertIn('blocage', r.get_json()['error'])
 
-    def test_subvention_conservee_si_le_retour_echoue(self):
+    def test_grant_kept_if_rollback_fails(self):
         with portal.app.app_context():
             db = portal.get_db()
             db.execute(
@@ -327,11 +327,11 @@ class QuotasTest(BaseAdmin):
         with portal.app.app_context():
             remaining = portal.get_db().execute(
                 "SELECT COUNT(*) AS n FROM budget_grants WHERE username=?", (SIMPLE,)).fetchone()['n']
-        self.assertEqual(remaining, 1, "la ligne portait l'échéance : la supprimer rendait "
-                                   "la hausse permanente")
+        self.assertEqual(remaining, 1, "the row carried the expiry: deleting it made "
+                                   "the raise permanent")
         self.assertTrue(self._audit('budget.grant_revert_echec'))
 
-    def test_resynchronisation_transmet_la_duree(self):
+    def test_resync_sends_duration(self):
         with portal.app.app_context():
             row = portal.get_db().execute(
                 "SELECT * FROM local_users WHERE username=?", (SIMPLE,)).fetchone()
@@ -340,13 +340,13 @@ class QuotasTest(BaseAdmin):
             with portal.app.app_context():
                 local_users._sync_local_user_budget(SIMPLE, row)
         self.assertTrue(maj.call_args.kwargs.get('budget_duration'),
-                        "un update sans durée laisse un compte sans fenêtre de remise à zéro")
+                        "an update without a duration leaves an account without a reset window")
 
 
-class CycleDeVieModeleTest(BaseAdmin):
+class ModelLifecycleTest(BaseAdmin):
     """Removing a model must not destroy the means to relaunch it."""
 
-    def _modele(self, name='ztest-modele'):
+    def _model(self, name='ztest-modele'):
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT INTO model_configs (name, hf_model_id, vllm_args, engine, added_at) "
@@ -355,48 +355,48 @@ class CycleDeVieModeleTest(BaseAdmin):
             db.commit()
             return db.execute("SELECT id FROM model_configs WHERE name=?", (name,)).fetchone()['id']
 
-    def test_suppression_modele_servi_refusee(self):
+    def test_deleting_served_model_refused(self):
         """Its weights are read by the engine: we ask to stop it first, and
         nothing is touched — neither the catalog, nor the files."""
-        mid = self._modele()
+        mid = self._model()
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'get_running_models', return_value=['ztest-modele']), \
-             patch.object(admin_routes, 'runner_delete_files') as effacer:
+             patch.object(admin_routes, 'runner_delete_files') as erase:
             r = self._post(c, f'/admin/model/delete/{mid}', {'confirm': '1'})
         self.assertEqual(r.status_code, 409)
-        effacer.assert_not_called()
+        erase.assert_not_called()
         with portal.app.app_context():
             self.assertIsNotNone(portal.get_db().execute(
                 "SELECT 1 FROM model_configs WHERE id=?", (mid,)).fetchone())
 
-    def test_suppression_efface_les_fichiers(self):
-        mid = self._modele('ztest-modele3')
+    def test_deletion_erases_files(self):
+        mid = self._model('ztest-modele3')
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'get_running_models', return_value=[]), \
              patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
              patch.object(admin_routes, 'runner_delete_files',
-                          return_value=(True, 3 * 2**30, '')) as effacer:
+                          return_value=(True, 3 * 2**30, '')) as erase:
             r = self._post(c, f'/admin/model/delete/{mid}')
         self.assertEqual(r.status_code, 200)
-        effacer.assert_called_once_with('org/modele')
+        erase.assert_called_once_with('org/modele')
         self.assertIn('3.0 Gio', r.get_json()['message'])
         self.assertNotIn('warning', r.get_json())
 
-    def test_fichiers_partages_conserves(self):
+    def test_shared_files_kept(self):
         """Another entry points to the same weights: we do not erase them."""
-        mid = self._modele('ztest-modele4')
-        self._modele('ztest-modele5')
+        mid = self._model('ztest-modele4')
+        self._model('ztest-modele5')
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'get_running_models', return_value=[]), \
              patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
-             patch.object(admin_routes, 'runner_delete_files') as effacer:
+             patch.object(admin_routes, 'runner_delete_files') as erase:
             r = self._post(c, f'/admin/model/delete/{mid}')
         self.assertEqual(r.status_code, 200)
-        effacer.assert_not_called()
+        erase.assert_not_called()
         self.assertIn('ztest-modele5', r.get_json()['warning'])
 
-    def test_echec_d_effacement_signale(self):
-        mid = self._modele('ztest-modele6')
+    def test_erase_failure_reported(self):
+        mid = self._model('ztest-modele6')
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'get_running_models', return_value=[]), \
              patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
@@ -406,8 +406,8 @@ class CycleDeVieModeleTest(BaseAdmin):
         self.assertEqual(r.status_code, 200)
         self.assertIn('runner injoignable', r.get_json()['warning'])
 
-    def test_suppression_signale_l_echec_de_deregistration(self):
-        mid = self._modele('ztest-modele2')
+    def test_deletion_reports_deregistration_failure(self):
+        mid = self._model('ztest-modele2')
         c = self._client(ADMIN1)
         with patch.object(admin_routes, 'get_running_models', return_value=[]), \
              patch.object(admin_routes, '_unregister_litellm_model', return_value=False), \
@@ -416,7 +416,7 @@ class CycleDeVieModeleTest(BaseAdmin):
         self.assertEqual(r.status_code, 200)
         self.assertIn('warning', r.get_json())
 
-    def test_relance_voix_soumise_a_la_garde_memoire(self):
+    def test_voice_relaunch_subject_to_memory_guard(self):
         """The only one of the four media relaunches without it: an OOM there
         kills the served chat model (the biggest RSS on unified memory)."""
         with portal.app.app_context():
@@ -431,7 +431,7 @@ class CycleDeVieModeleTest(BaseAdmin):
         self.assertEqual(r.status_code, 507)
         lance.assert_not_called()
 
-    def test_demande_non_validee_si_le_routage_echoue(self):
+    def test_request_not_approved_if_routing_fails(self):
         """The requester received « ton modèle est disponible » before even
         knowing whether the LiteLLM registration succeeded."""
         with portal.app.app_context():
@@ -453,41 +453,41 @@ class CycleDeVieModeleTest(BaseAdmin):
             portal.get_db().execute("DELETE FROM model_requests WHERE id=?", (rid,))
             portal.get_db().execute("DELETE FROM model_configs WHERE hf_model_id='org/nouveau'")
             portal.get_db().commit()
-        self.assertEqual(status_value, 'pending', "la demande ne doit pas être marquée traitée")
+        self.assertEqual(status_value, 'pending', "the request must not be marked processed")
 
-    def test_restauration_litellm_apres_echec_de_creation(self):
+    def test_litellm_restored_after_creation_failure(self):
         """`_litellm_upsert` deletes the entry before recreating it: if the
         creation fails, a model that was answering must be put back in place."""
         entry = {'model_name': 'ztest-modele', 'litellm_params': {'model': 'openai/ztest-modele'},
                   'model_info': {'id': 'abc', 'db_model': True, 'max_input_tokens': 4096}}
         calls = []
 
-        class Reponse:
+        class FakeResponse:
             def __init__(self, code):
                 self.status_code = code
                 self.ok = code < 300
 
-        def faux_post(url, **kwargs):
+        def fake_post(url, **kwargs):
             calls.append(url)
             if url.endswith('/model/delete'):
-                return Reponse(200)
+                return FakeResponse(200)
             if len([u for u in calls if u.endswith('/model/new')]) == 1:
-                return Reponse(500)                  # the creation fails
-            return Reponse(200)                      # the restoration succeeds
+                return FakeResponse(500)                  # the creation fails
+            return FakeResponse(200)                      # the restoration succeeds
 
         with patch.object(litellm_client, 'LITELLM_KEY', 'clef'), \
              patch.object(litellm_client, '_litellm_model_entry', return_value=('abc', entry)), \
-             patch.object(litellm_client.requests, 'post', side_effect=faux_post):
+             patch.object(litellm_client.requests, 'post', side_effect=fake_post):
             ok = litellm_client._litellm_upsert('ztest-modele', 'ztest-modele', 4096, 1024)
         self.assertFalse(ok)
         self.assertEqual(len([u for u in calls if u.endswith('/model/new')]), 2,
                          "l'entrée précédente n'a pas été restaurée")
 
 
-class EtatPlateformeTest(BaseAdmin):
+class PlatformStateTest(BaseAdmin):
     """The diagnosis must no longer require a shell on the host."""
 
-    def test_etat_plateforme_expose_les_cles_attendues(self):
+    def test_platform_state_exposes_expected_keys(self):
         c = self._client(ADMIN1)
         r = c.get('/admin/platform')
         self.assertEqual(r.status_code, 200)
@@ -500,18 +500,18 @@ class EtatPlateformeTest(BaseAdmin):
         self.assertFalse(d['backup']['readable'])
         self.assertFalse(d['monitor']['readable'])
 
-    def test_memoire_annuaire_et_sessions_vivantes(self):
+    def test_memory_directory_and_live_sessions(self):
         import admin_routes
         c = self._client(ADMIN1)
         with portal.app.app_context():
             db = portal.get_db()
             now = time.time()
-            for sid, revoquee in (('ztest-sess-vive', 0), ('ztest-sess-revoquee', 1)):
+            for sid, revoked in (('ztest-sess-vive', 0), ('ztest-sess-revoquee', 1)):
                 db.execute("INSERT OR REPLACE INTO user_sessions (sid, username, auth_at, expires_at, "
                            "revoked, created_at) VALUES (?,?,?,?,?,?)",
-                           (sid, ADMIN1, now, now + 3600, revoquee, now))
+                           (sid, ADMIN1, now, now + 3600, revoked, now))
             db.commit()
-            vivantes = db.execute("SELECT COUNT(*) FROM user_sessions WHERE revoked=0 "
+            live = db.execute("SELECT COUNT(*) FROM user_sessions WHERE revoked=0 "
                                   "AND expires_at > ?", (now,)).fetchone()[0]
         try:
             with patch.object(admin_routes, 'directory_states_for',
@@ -522,7 +522,7 @@ class EtatPlateformeTest(BaseAdmin):
                 portal.get_db().execute("DELETE FROM user_sessions WHERE sid LIKE 'ztest-sess-%'")
                 portal.get_db().commit()
         # Revoked sessions are not « active » (« 247 » for 229 real ones).
-        self.assertEqual(d['portal']['active_sessions'], vivantes)
+        self.assertEqual(d['portal']['active_sessions'], live)
         self.assertGreaterEqual(d['portal']['connected_users'], 1)
         self.assertEqual(d['memory']['low_gib'], 8)
         self.assertTrue(d['directory']['readable'])
@@ -530,13 +530,13 @@ class EtatPlateformeTest(BaseAdmin):
         with patch.object(admin_routes, 'directory_states_for', return_value=None):
             self.assertFalse(c.get('/admin/platform').get_json()['directory']['readable'])
 
-    def test_etat_plateforme_refuse_un_non_admin(self):
+    def test_platform_state_refuses_non_admin(self):
         c = self._client(SIMPLE, is_admin=False)
         # 302 to /login for a browser request, 403 for an API call: in both
         # cases the platform state is not served.
         self.assertIn(c.get('/admin/platform').status_code, (302, 403))
 
-    def test_contrat_json_sur_une_route_convertie(self):
+    def test_json_contract_on_converted_route(self):
         """No admin action answers by redirect anymore."""
         c = self._client(ADMIN1)
         # We target `sidecars._sidecar_action`: it is the one _sidecar_stop_json

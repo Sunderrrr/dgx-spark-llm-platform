@@ -25,9 +25,9 @@ import types
 import unittest
 
 
-def _stub(name, **attributs):
+def _stub(name, **attributes):
     m = types.ModuleType(name)
-    for k, v in attributs.items():
+    for k, v in attributes.items():
         setattr(m, k, v)
     sys.modules[name] = m
     return m
@@ -37,12 +37,12 @@ class _FastAPIStub:
     def __init__(self, *a, **k):
         pass
 
-    def _deco(self, *a, **k):
+    def _decorator(self, *a, **k):
         def wrap(f):
             return f
         return wrap
 
-    on_event = post = get = _deco
+    on_event = post = get = _decorator
 
 
 def _charge_module(pipeline):
@@ -65,7 +65,7 @@ def _charge_module(pipeline):
     return importlib.import_module('tests.asr_sidecar')
 
 
-class ChargementRetentableTest(unittest.TestCase):
+class RetryableLoadTest(unittest.TestCase):
     """The `_load_if_needed` policy of the dictation sidecar."""
 
     def _module(self, pipeline):
@@ -75,7 +75,7 @@ class ChargementRetentableTest(unittest.TestCase):
         mod._last_attempt = 0.0
         return mod
 
-    def test_un_echec_de_chargement_n_est_pas_definitif(self):
+    def test_load_failure_is_not_final(self):
         """The 2026-10-03 defect: a single CUDA OOM and the dictation dead
         forever. Here the next attempt (window elapsed) RESUMES."""
         calls = []
@@ -92,7 +92,7 @@ class ChargementRetentableTest(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIsNone(mod._load_error)                  # l'erreur s'efface
 
-    def test_le_throttle_borne_les_tentatives(self):
+    def test_throttle_bounds_attempts(self):
         """The dictaphone polls every second: without a throttle, each
         poll would retry a failing CUDA allocation."""
         calls = []
@@ -101,17 +101,17 @@ class ChargementRetentableTest(unittest.TestCase):
             raise RuntimeError('CUDA error: out of memory')
         mod = self._module(pipeline)
         self.assertFalse(mod._load_if_needed())
-        for _ in range(5):                                  # dans la fenêtre
+        for _ in range(5):                                  # within the window
             self.assertFalse(mod._load_if_needed())
         self.assertEqual(len(calls), 1)                    # une seule tentative
 
-    def test_single_flight_deux_appelants_une_tentative(self):
+    def test_single_flight_two_callers_one_attempt(self):
         """Two concurrent polls (the dictaphone + the probe) make ONE
         load attempt, not two on the same GPU."""
         calls = []
-        verrou_appels = threading.Lock()
+        calls_lock = threading.Lock()
         def pipeline(*a, **k):
-            with verrou_appels:
+            with calls_lock:
                 calls.append(1)
             return 'PIPELINE-OK'
         mod = self._module(pipeline)
@@ -119,15 +119,15 @@ class ChargementRetentableTest(unittest.TestCase):
         results = []
         def call():
             results.append(mod._load_if_needed())
-        fils = [threading.Thread(target=call) for _ in range(4)]
-        for f in fils:
+        threads = [threading.Thread(target=call) for _ in range(4)]
+        for f in threads:
             f.start()
-        for f in fils:
+        for f in threads:
             f.join()
         self.assertEqual(len(calls), 1)                    # single-flight
         self.assertTrue(all(results))                     # tous voient « chargé »
 
-    def test_charge_plus_aucune_tentative(self):
+    def test_loaded_no_more_attempts(self):
         calls = []
         def pipeline(*a, **k):
             calls.append(1)

@@ -15,14 +15,14 @@ from db import DB_PATH
 import video_tools
 
 
-class DeclenchementTest(unittest.TestCase):
+class TriggerTest(unittest.TestCase):
     """The video tool only arms on an explicit request from the user."""
 
-    def _demandee(self, text):
+    def _requested(self, text):
         return video_tools._video_requested(
             [{'role': 'user', 'content': text}])
 
-    def test_directives_explicites(self):
+    def test_explicit_directives_(self):
         for text in (
             "génère une vidéo d'un chat qui marche sur la lune",
             "genere une video de paysage",                  # without accent
@@ -34,9 +34,9 @@ class DeclenchementTest(unittest.TestCase):
             "generate a video of a cat astronaut",
             "create a short movie about deep sea diving",
         ):
-            self.assertTrue(self._demandee(text), text)
+            self.assertTrue(self._requested(text), text)
 
-    def test_faux_positifs_jamais(self):
+    def test_never_false_positives(self):
         for text in (
             # A MENTIONED video is not a REQUESTED video.
             "regarde la vidéo que j'ai envoyée",
@@ -49,20 +49,20 @@ class DeclenchementTest(unittest.TestCase):
             "découpe un film plastique de protection",
             "le clip du presse-papiers ne marche plus",
         ):
-            self.assertFalse(self._demandee(text), text)
+            self.assertFalse(self._requested(text), text)
 
-    def test_le_code_colle_ne_declenche_rien(self):
+    def test_pasted_code_triggers_nothing(self):
         # Same trap as for search and images: pasted code that TALKS about
         # videos must not count as a directive (see _texte_de_la_demande).
-        colle = ("```js\n// générer une vidéo de secours\n"
+        pasted = ("```js\n// générer une vidéo de secours\n"
                  "const v = makeVideo();\n```\nexplique ce code")
-        self.assertFalse(self._demandee(colle))
+        self.assertFalse(self._requested(pasted))
 
 
-class DisponibiliteTest(unittest.TestCase):
+class AvailabilityTest(unittest.TestCase):
     """Declared while the service is READY OR STARTABLE — never below."""
 
-    def test_pret_ou_demarrable(self):
+    def test_ready_or_startable(self):
         with mock.patch.object(video_tools, 'comfyui_is_up', return_value=True), \
              mock.patch.object(video_tools, 'sidecar_startable', return_value=False):
             self.assertTrue(video_tools.video_available())
@@ -70,7 +70,7 @@ class DisponibiliteTest(unittest.TestCase):
              mock.patch.object(video_tools, 'sidecar_startable', return_value=True):
             self.assertTrue(video_tools.video_available())
 
-    def test_absent_et_indemarrable(self):
+    def test_absent_and_not_startable(self):
         with mock.patch.object(video_tools, 'comfyui_is_up', return_value=False), \
              mock.patch.object(video_tools, 'sidecar_startable', return_value=False):
             self.assertFalse(video_tools.video_available())
@@ -83,7 +83,7 @@ class GenerationTest(unittest.TestCase):
         import app as portal
         portal.app.config['TESTING'] = True
 
-    def _statut_fini(self, prompt_id):
+    def _finished_status(self, prompt_id):
         return {'status': 'done', 'video_path': f'{prompt_id}.mp4',
                 'video_subfolder': '', 'video_type': 'output'}
 
@@ -105,23 +105,23 @@ class GenerationTest(unittest.TestCase):
             import app as portal
             with portal.app.test_request_context():
                 gen = video_tools._exec_video_tool(args, 'zz-test-vid', step_log)
-                result, battements = None, []
+                result, heartbeats = None, []
                 while True:
                     try:
-                        battements.append(next(gen))
+                        heartbeats.append(next(gen))
                     except StopIteration as arret:
                         result = arret.value
                         break
-        return result, battements
+        return result, heartbeats
 
-    def test_generation_reussie(self):
+    def test_generation_succeeds(self):
         step_log = []
-        result, battements = self._launch(
+        result, heartbeats = self._launch(
             {'prompt': 'a cat walking on the moon', 'duration': 5}, step_log,
             comfyui_generate=mock.Mock(return_value='pid-test-1'),
-            comfyui_status=self._statut_fini)
+            comfyui_status=self._finished_status)
         self.assertIn('/video/file/pid-test-1', result)
-        self.assertTrue(all(b.startswith(': ') for b in battements), battements)
+        self.assertTrue(all(b.startswith(': ') for b in heartbeats), heartbeats)
         self.assertEqual(step_log[-1]['step'], 'generation_video_done')
         self.assertEqual(step_log[-1]['videos'], ['/video/file/pid-test-1'])
         self.assertIsNone(step_log[-1]['error'])
@@ -135,15 +135,15 @@ class GenerationTest(unittest.TestCase):
         self.assertEqual(line[1], 5)
         self.assertIsNotNone(line[2])
 
-    def test_description_vide_refuse(self):
+    def test_empty_description_refused(self):
         step_log = []
         result, _ = self._launch({'prompt': '  '}, step_log,
                                    comfyui_generate=mock.Mock(),
-                                   comfyui_status=self._statut_fini)
+                                   comfyui_status=self._finished_status)
         self.assertIn('impossible', result)
         self.assertEqual(step_log, [])
 
-    def test_service_indisponible_dit_le_motif(self):
+    def test_unavailable_service_gives_reason(self):
         # The memory guard (or a failed start) says WHY: a bare « indisponible »
         # would leave the user clicking in the dark.
         step_log = []
@@ -152,22 +152,22 @@ class GenerationTest(unittest.TestCase):
             sidecar_autostart=mock.Mock(
                 return_value=(False, "mémoire insuffisante")),
             comfyui_generate=mock.Mock(),
-            comfyui_status=self._statut_fini)
+            comfyui_status=self._finished_status)
         self.assertIn('indisponible', result)
         self.assertIn('mémoire insuffisante', result)
         self.assertEqual(step_log[-1]['error'], "mémoire insuffisante")
 
-    def test_soumission_refusee(self):
+    def test_submission_refused(self):
         step_log = []
         result, _ = self._launch(
             {'prompt': 'une vague'}, step_log,
             comfyui_generate=mock.Mock(return_value=None),
-            comfyui_status=self._statut_fini)
+            comfyui_status=self._finished_status)
         self.assertIn('a échoué', result)
         self.assertEqual(step_log[-1]['error'],
                          "ComfyUI inaccessible ou requête refusée.")
 
-    def test_toujours_en_cours_est_dit_sans_adresse(self):
+    def test_still_running_said_without_address(self):
         # A generation longer than the tool's window is NOT a failure: we say
         # it keeps running (and never hand a link that would 404).
         step_log = []
@@ -182,15 +182,15 @@ class GenerationTest(unittest.TestCase):
         self.assertEqual(step_log[-1]['error'], "Génération toujours en cours.")
 
 
-class PhaseOutilsTest(unittest.TestCase):
+class ToolsPhaseTest(unittest.TestCase):
     """The tool phase arms generer_video and reinjects the address to the model."""
 
-    def test_phase_avec_video(self):
+    def test_phase_with_video(self):
         import websearch_tools
 
         calls = {'tour': 0}
 
-        def faux_litellm(url, **kw):
+        def fake_litellm(url, **kw):
             calls['tour'] += 1
             r = mock.Mock()
             r.ok = True
@@ -205,7 +205,7 @@ class PhaseOutilsTest(unittest.TestCase):
             return r
 
         step_log, findings = [], []
-        with mock.patch('requests.post', side_effect=faux_litellm), \
+        with mock.patch('requests.post', side_effect=fake_litellm), \
              mock.patch.object(video_tools, 'comfyui_is_up', return_value=True), \
              mock.patch.object(video_tools, 'comfyui_generate',
                                return_value='pid-phase'), \
@@ -218,11 +218,11 @@ class PhaseOutilsTest(unittest.TestCase):
             import app as portal
             with portal.app.test_request_context():
                 msgs = [{'role': 'user', 'content': 'génère une vidéo de chat'}]
-                etapes = list(websearch_tools._tools_phase(
+                steps = list(websearch_tools._tools_phase(
                     'modele-test', msgs, 'cle', step_log, findings,
                     web_ok=False, video_ok=True, username='zz-test-vid'))
-        annonces = [e for e in etapes if '"generation_video"' in e]
-        self.assertTrue(annonces, etapes)
+        announcements = [e for e in steps if '"generation_video"' in e]
+        self.assertTrue(announcements, steps)
         self.assertTrue(any('/video/file/' in content for _n, content in findings),
                         findings)
         self.assertEqual(step_log[-1]['tool'], 'comfyui')

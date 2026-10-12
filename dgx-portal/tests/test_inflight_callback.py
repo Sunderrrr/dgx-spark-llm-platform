@@ -23,9 +23,9 @@ from unittest import mock
 import litellm_inflight
 
 
-def _charge(chemin_db):
+def _charge(db_path):
     """Reloads the module with a throwaway tracking file."""
-    os.environ['DGX_INFLIGHT_DB'] = chemin_db
+    os.environ['DGX_INFLIGHT_DB'] = db_path
     importlib.reload(litellm_inflight)
     return litellm_inflight
 
@@ -37,34 +37,34 @@ def _kwargs(key='c1', alias='alice-1783330573', user_id='alice', model_name='aut
                                             'user_api_key_user_id': user_id}}}
 
 
-class ActiviteEnVolTest(unittest.TestCase):
+class InflightActivityTest(unittest.TestCase):
 
     def setUp(self):
         self.folder = tempfile.mkdtemp()
         self.path = os.path.join(self.folder, 'inflight.db')
         self.mod = _charge(self.path)
 
-    def _lignes(self):
+    def _rows(self):
         conn = sqlite3.connect(self.path)
         try:
             return conn.execute('SELECT request_key, alias, user_id, model FROM inflight').fetchall()
         finally:
             conn.close()
 
-    def test_une_requete_ouverte_puis_fermee(self):
+    def test_request_opened_then_closed(self):
         self.assertEqual(self.mod._record(_kwargs()), 1)
-        self.assertEqual(self._lignes(), [('c1', 'alice-1783330573', 'alice', 'auto-model')])
+        self.assertEqual(self._rows(), [('c1', 'alice-1783330573', 'alice', 'auto-model')])
         self.assertEqual(self.mod._remove(_kwargs()), 1)
-        self.assertEqual(self._lignes(), [])
+        self.assertEqual(self._rows(), [])
 
-    def test_deux_requetes_concurrentes_sont_independantes(self):
+    def test_two_concurrent_requests_independent(self):
         """4 sessions on this engine: removing one must not touch the other."""
         self.mod._record(_kwargs('c1', 'alice-1', 'alice'))
         self.mod._record(_kwargs('c2', 'bob-1', 'bob'))
         self.mod._remove(_kwargs('c1', 'alice-1', 'alice'))
-        self.assertEqual([l[0] for l in self._lignes()], ['c2'])
+        self.assertEqual([l[0] for l in self._rows()], ['c2'])
 
-    def test_une_ligne_perimee_est_balayee(self):
+    def test_stale_row_swept(self):
         """A client killed mid-flight triggers neither success nor failure."""
         self.mod._record(_kwargs('vieux'))
         conn = sqlite3.connect(self.path)
@@ -72,13 +72,13 @@ class ActiviteEnVolTest(unittest.TestCase):
         conn.commit()
         conn.close()
         self.mod._record(_kwargs('recent'))
-        self.assertEqual([l[0] for l in self._lignes()], ['recent'])
+        self.assertEqual([l[0] for l in self._rows()], ['recent'])
 
-    def test_sans_identifiant_aucune_ecriture(self):
+    def test_no_identifier_no_write(self):
         self.assertEqual(self.mod._record({'litellm_params': {}}), 0)
         self.assertEqual(self.mod._remove({'litellm_params': {}}), 0)
 
-    def test_une_base_illisible_ne_fait_pas_echouer_la_requete(self):
+    def test_unreadable_db_does_not_fail_request(self):
         """First rule: activity tracking is never fatal."""
         with mock.patch.object(self.mod, '_open', side_effect=RuntimeError('disque plein')):
             with self.assertRaises(RuntimeError):
@@ -90,15 +90,15 @@ class ActiviteEnVolTest(unittest.TestCase):
             asyncio.run(hooks.async_log_success_event(_kwargs(), None, None, None))
             asyncio.run(hooks.async_log_failure_event(_kwargs(), None, None, None))
 
-    def test_les_hooks_ecrivent_et_retirent(self):
+    def test_hooks_write_and_remove(self):
         import asyncio
         hooks = self.mod.InflightActivity()
         asyncio.run(hooks.async_log_pre_api_call('auto-model', [], _kwargs()))
-        self.assertEqual(len(self._lignes()), 1)
+        self.assertEqual(len(self._rows()), 1)
         asyncio.run(hooks.async_log_success_event(_kwargs(), None, None, None))
-        self.assertEqual(self._lignes(), [])
+        self.assertEqual(self._rows(), [])
 
-    def test_les_hooks_SYNCHRONES_ecrivent_et_retirent(self):
+    def test_SYNC_hooks_write_and_remove(self):
         """These are the ones this LiteLLM version really calls.
 
         Regression of 2026-09-14: the class only implemented the async
@@ -111,19 +111,19 @@ class ActiviteEnVolTest(unittest.TestCase):
         """
         hooks = self.mod.InflightActivity()
         hooks.log_pre_api_call(model='auto-model', messages=[], kwargs=_kwargs())
-        self.assertEqual(len(self._lignes()), 1)
+        self.assertEqual(len(self._rows()), 1)
 
         # The failure removes too: a refused request must not leave a name
         # displayed as « en cours » until expiry.
         hooks.log_failure_event(kwargs=_kwargs())
-        self.assertEqual(self._lignes(), [])
+        self.assertEqual(self._rows(), [])
 
         hooks.log_pre_api_call(model='auto-model', messages=[], kwargs=_kwargs())
         hooks.log_success_event(kwargs=_kwargs(), response_obj=None,
                                 start_time=None, end_time=None)
-        self.assertEqual(self._lignes(), [])
+        self.assertEqual(self._rows(), [])
 
-    def test_les_hooks_synchrones_ne_sont_pas_fatals(self):
+    def test_sync_hooks_not_fatal(self):
         """Same guarantee as for the async one: never a raised exception."""
         hooks = self.mod.InflightActivity()
         with mock.patch.object(self.mod, '_open', side_effect=RuntimeError('disque plein')):

@@ -70,7 +70,7 @@ class _Base(unittest.TestCase):
         os.environ['ASR_ONDEMAND_DIR'] = self._state
         sidecars._asr_watcher_started = False   # the real thread never runs in tests
         sidecars._asr_autostart_t = 0.0     # …nor does the start throttle carry over
-        self._vider_cache()
+        self._clear_cache()
         with self._db():
             portal.get_db().execute(
                 "DELETE FROM login_attempts WHERE key LIKE 'rl-asr|%'")
@@ -82,14 +82,14 @@ class _Base(unittest.TestCase):
             portal.get_db().execute(
                 "DELETE FROM login_attempts WHERE key LIKE 'rl-asr|%'")
             portal.get_db().commit()
-        self._vider_cache()
+        self._clear_cache()
         if self._ancien_dir is None:
             os.environ.pop('ASR_ONDEMAND_DIR', None)
         else:
             os.environ['ASR_ONDEMAND_DIR'] = self._ancien_dir
         shutil.rmtree(self._state, ignore_errors=True)
 
-    def _vider_cache(self):
+    def _clear_cache(self):
         # Defence for the OTHER modules' tests (e.g. test_playground_chat's
         # /api/transcribe/available): a cached « running » left behind here
         # would change what they observe. Nothing real is ever probed here.
@@ -109,67 +109,67 @@ class _Base(unittest.TestCase):
             s["csrf"] = self.CSRF
         return c
 
-    def _transcrit(self):
+    def _transcribe(self):
         return self._client().post(
             '/api/transcribe',
             data={'audio': (io.BytesIO(b'RIFFxxxxWAVE'), 'rec.wav')},
             headers={'X-CSRFToken': self.CSRF},
             content_type='multipart/form-data')
 
-    def _recule_activite(self, seconds):
+    def _age_activity(self, seconds):
         """Backdate the idle clock (as if no transcription had happened since)."""
         p = os.path.join(self._state, 'activity')
         old = time.time() - seconds
         os.utime(p, (old, old))
 
 
-class DemarrageTest(_Base):
+class StartupTest(_Base):
     """Auto-start on the transcription path — and its two refusals."""
 
-    def test_sidecar_arrete_demarre_une_fois_sans_transcrire(self):
+    def test_stopped_sidecar_starts_once_without_transcribing(self):
         """(1) Stopped + enough memory: ONE auto-start, a retry-later payload the
         1 s polling tolerates, and no transcription attempted (nothing could
         answer it: whisper is not loaded yet)."""
         with patch.object(sidecars, '_mem_available_gb', return_value=12.0), \
              patch.object(asr_routes, 'asr_is_up', return_value=False), \
              patch.object(asr_routes, '_sidecar_proc_status', return_value='stopped'), \
-             patch.object(sidecars, '_sidecar_action', return_value=(True, '')) as demarre, \
-             patch.object(asr_routes, 'asr_start_watcher') as veilleur, \
+             patch.object(sidecars, '_sidecar_action', return_value=(True, '')) as started, \
+             patch.object(asr_routes, 'asr_start_watcher') as watcher, \
              patch.object(asr_routes, 'requests', _ReqMock()) as call:
-            r = self._transcrit()
+            r = self._transcribe()
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         body = r.get_json()
         # The shape useDictation silently tolerates: a 2xx (no error shown) and
         # `text` a STRING (any other type is treated as a failed round).
         self.assertEqual(body['text'], '')
         self.assertTrue(body['starting'])
-        demarre.assert_called_once_with('asr', 'start')
+        started.assert_called_once_with('asr', 'start')
         call.assert_not_called()          # NO transcription attempted
-        veilleur.assert_called_once()      # the idle reaper is armed
+        watcher.assert_called_once()      # the idle reaper is armed
 
-    def test_memoire_basse_ne_demarre_pas_et_le_dit(self):
+    def test_low_memory_does_not_start_and_says_so(self):
         """(2) Stopped + low memory: NO start (the model needs the memory) and an
         honest error naming the reason and the remedy."""
         with patch.object(sidecars, '_mem_available_gb', return_value=3.2), \
              patch.object(asr_routes, 'asr_is_up', return_value=False), \
              patch.object(asr_routes, '_sidecar_proc_status', return_value='stopped'), \
              patch.object(asr_routes, 'asr_start_watcher'), \
-             patch.object(sidecars, '_sidecar_action') as demarre, \
+             patch.object(sidecars, '_sidecar_action') as started, \
              patch.object(asr_routes, 'requests', _ReqMock()) as call:
-            r = self._transcrit()
+            r = self._transcribe()
         self.assertEqual(r.status_code, 503, r.get_data(as_text=True))
         err = r.get_json()['error'].lower()
         self.assertIn('mémoire', err)
         self.assertIn('chat', err)          # who needs that memory is said
-        demarre.assert_not_called()
+        started.assert_not_called()
         call.assert_not_called()
 
-    def test_sidecar_pret_transcrit_et_ravitaille_le_minuteur(self):
+    def test_ready_sidecar_transcribes_and_refreshes_timer(self):
         """(3) Ready: the transcription goes through, no start is attempted, and
         the idle clock is refreshed (a running dictation must never age into an
         automatic stop)."""
         sidecars.asr_note_activity()
-        self._recule_activite(sidecars._ASR_IDLE_S + 60)
+        self._age_activity(sidecars._ASR_IDLE_S + 60)
 
         class _R:
             ok = True
@@ -180,17 +180,17 @@ class DemarrageTest(_Base):
 
         with patch.object(asr_routes, 'asr_is_up', return_value=True), \
              patch.object(asr_routes, 'asr_start_watcher'), \
-             patch.object(sidecars, '_sidecar_action') as demarre, \
+             patch.object(sidecars, '_sidecar_action') as started, \
              patch.object(asr_routes, 'requests', _ReqMock(Mock(return_value=_R()))) as call:
-            r = self._transcrit()
+            r = self._transcribe()
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()['text'], 'bonjour le monde')
         call.assert_called_once()
-        demarre.assert_not_called()
+        started.assert_not_called()
         self.assertLess(sidecars.asr_idle_s(), 5)    # clock refreshed
         self.assertEqual(sidecars.asr_calls_in_flight(), 0)  # marker cleaned up
 
-    def test_chargement_echoue_dit_pourquoi(self):
+    def test_failed_load_says_why(self):
         """A container running with no model loaded and a PUBLISHED cause is an
         honest error, not an endless silent « démarrage » (cf. asr_load_error) —
         while memory is STILL tight, so a retry would only fail again."""
@@ -200,15 +200,15 @@ class DemarrageTest(_Base):
                           return_value='CUDA error: out of memory'), \
              patch.object(asr_routes, 'asr_memory_ok', return_value=(False, 'memoire basse')), \
              patch.object(asr_routes, 'asr_start_watcher'), \
-             patch.object(sidecars, '_sidecar_action') as demarre, \
+             patch.object(sidecars, '_sidecar_action') as started, \
              patch.object(asr_routes, 'requests', _ReqMock()) as call:
-            r = self._transcrit()
+            r = self._transcribe()
         self.assertEqual(r.status_code, 503)
         self.assertIn('CUDA error', r.get_json()['error'])
-        demarre.assert_not_called()
+        started.assert_not_called()
         call.assert_not_called()
 
-    def test_memorie_reliberee_reessaie_le_chargement(self):
+    def test_freed_memory_retries_load(self):
         """2026-10-03: the message said « libère de la mémoire, puis relance la
         dictée » — and that was impossible by construction (the sidecar loaded
         its weights ONCE at startup and never again). When the published failure
@@ -226,46 +226,46 @@ class DemarrageTest(_Base):
              patch.object(asr_routes, 'asr_memory_ok', return_value=(True, '')), \
              patch.object(asr_routes, 'asr_note_activity'), \
              patch.object(asr_routes, 'asr_start_watcher'), \
-             patch.object(sidecars, '_sidecar_action') as demarre, \
+             patch.object(sidecars, '_sidecar_action') as started, \
              patch.object(asr_routes, 'requests', _ReqMock(Mock(return_value=_R()))) as call:
-            r = self._transcrit()
+            r = self._transcribe()
         self.assertEqual(r.status_code, 200)
-        call.post.assert_called_once()          # la requete PART vers le sidecar
-        demarre.assert_not_called()              # pas de redemarrage de conteneur
+        call.post.assert_called_once()          # the request GOES to the sidecar
+        started.assert_not_called()              # pas de redemarrage de conteneur
 
-    def test_le_demarrage_n_est_pas_repete_a_chaque_poll(self):
+    def test_start_not_repeated_on_every_poll(self):
         """The client polls every second: a successful auto-start must not fire
         one `docker start` (and one audit line) per poll while the model loads.
         A FAILED start, on the other hand, is retried — the throttle only
         follows a success."""
-        commun = (patch.object(sidecars, '_mem_available_gb', return_value=12.0),
+        common = (patch.object(sidecars, '_mem_available_gb', return_value=12.0),
                   patch.object(asr_routes, 'asr_is_up', return_value=False),
                   patch.object(asr_routes, '_sidecar_proc_status', return_value='stopped'),
                   patch.object(asr_routes, 'asr_start_watcher'),
                   patch.object(asr_routes, 'requests', _ReqMock()))
-        for p in commun:
+        for p in common:
             p.start()
         try:
             with patch.object(sidecars, '_sidecar_action',
-                              return_value=(True, '')) as demarre:
-                self._transcrit()
-                self._transcrit()          # the next poll, 1 s later
-            self.assertEqual(demarre.call_count, 1)
+                              return_value=(True, '')) as started:
+                self._transcribe()
+                self._transcribe()          # the next poll, 1 s later
+            self.assertEqual(started.call_count, 1)
             # Window over (simulated), and a FAILED start never arms the
             # throttle: every poll retries until the service comes up.
             sidecars._asr_autostart_t = 0.0
             with patch.object(sidecars, '_sidecar_action',
-                              return_value=(False, ' (runner injoignable)')) as echec:
-                r1 = self._transcrit()
-                r2 = self._transcrit()
-            self.assertEqual(echec.call_count, 2)
+                              return_value=(False, ' (runner injoignable)')) as failure:
+                r1 = self._transcribe()
+                r2 = self._transcribe()
+            self.assertEqual(failure.call_count, 2)
             self.assertEqual(r1.status_code, 503)
             self.assertEqual(r2.status_code, 503)
         finally:
-            for p in commun:
+            for p in common:
                 p.stop()
 
-    def test_le_garde_memoire_exige_un_vrai_plancher(self):
+    def test_memory_guard_requires_real_floor(self):
         """The ~8 GiB threshold is the guard between « start » and « OOM the chat
         model ». Unreadable memory → we do NOT start."""
         with patch.object(sidecars, '_mem_available_gb', return_value=7.9):
@@ -277,7 +277,7 @@ class DemarrageTest(_Base):
         with patch.object(sidecars, '_mem_available_gb', return_value=None):
             self.assertFalse(sidecars.asr_memory_ok()[0])
 
-    def test_le_bouton_dictee_rest_disponible_conteneur_arrete(self):
+    def test_dictation_button_available_with_stopped_container(self):
         """The auto-start must be REACHABLE: useDictation renders no dictation
         button at all when `available` is false. A stopped-but-present container
         is therefore « available »; an unreachable runner is not."""
@@ -291,15 +291,15 @@ class DemarrageTest(_Base):
         self.assertFalse(r.get_json()['available'])
 
 
-class VeilleurTest(_Base):
+class WatcherTest(_Base):
     """The idle reaper: stops after the window, never mid-call, idempotent."""
 
-    def test_le_veilleur_arrete_apres_la_fenetre_d_inactivite(self):
+    def test_watcher_stops_after_idle_window(self):
         sidecars.asr_note_activity()
         with patch.object(sidecars, '_sidecar_action') as action:
             self.assertFalse(sidecars._asr_watcher_pass())
         action.assert_not_called()                     # window not reached
-        self._recule_activite(sidecars._ASR_IDLE_S + 60)
+        self._age_activity(sidecars._ASR_IDLE_S + 60)
         with patch.object(sidecars, '_sidecar_proc_status', return_value='running'), \
              patch.object(sidecars, '_sidecar_action', return_value=(True, '')) as action:
             self.assertTrue(sidecars._asr_watcher_pass())
@@ -309,11 +309,11 @@ class VeilleurTest(_Base):
             self.assertFalse(sidecars._asr_watcher_pass())
         self.assertEqual(action.call_count, 1)
 
-    def test_le_veilleur_ne_touche_jamais_a_un_appel_en_cours(self):
+    def test_watcher_never_touches_call_in_flight(self):
         """(4) Never stop while a transcription runs — the in-flight marker says
         so, and the clock restarts from the END of the call."""
         sidecars.asr_note_activity()
-        self._recule_activite(sidecars._ASR_IDLE_S + 60)
+        self._age_activity(sidecars._ASR_IDLE_S + 60)
         with sidecars.asr_call_in_flight():
             self.assertFalse(sidecars.asr_stop_allowed())
             with patch.object(sidecars, '_sidecar_proc_status', return_value='running'), \
@@ -322,31 +322,31 @@ class VeilleurTest(_Base):
             action.assert_not_called()
         self.assertFalse(sidecars.asr_stop_allowed())  # fresh: the call just ended
 
-    def test_un_demarrage_manuel_epingle_le_conteneur(self):
+    def test_manual_start_pins_container(self):
         """An admin start suppresses the reaper for a while (asr_epingler, 1 h);
         a manual stop clears the pin."""
         sidecars.asr_pin()
-        self._recule_activite(sidecars._ASR_IDLE_S + 60)
+        self._age_activity(sidecars._ASR_IDLE_S + 60)
         self.assertFalse(sidecars.asr_stop_allowed())
         sidecars.asr_unpin()
         self.assertTrue(sidecars.asr_stop_allowed())
         # An EXPIRED pin protects nothing (the window is a delay, not a lock).
         # asr_epingler resets the idle clock too, hence the new backdating.
         sidecars.asr_pin(duration_s=-1)
-        self._recule_activite(sidecars._ASR_IDLE_S + 60)
+        self._age_activity(sidecars._ASR_IDLE_S + 60)
         self.assertTrue(sidecars.asr_stop_allowed())
 
-    def test_le_veilleur_ne_parle_pas_a_docker_si_deja_arrete(self):
+    def test_watcher_skips_docker_if_already_stopped(self):
         """`docker stop` on a stopped container is a no-op, so we simply do not
         call it — and we do not audit a stop that did not happen."""
         sidecars.asr_note_activity()
-        self._recule_activite(sidecars._ASR_IDLE_S + 60)
+        self._age_activity(sidecars._ASR_IDLE_S + 60)
         with patch.object(sidecars, '_sidecar_proc_status', return_value='stopped'), \
              patch.object(sidecars, '_sidecar_action') as action:
             self.assertFalse(sidecars._asr_watcher_pass())
         action.assert_not_called()
 
-    def test_le_veilleur_est_lance_une_seule_fois(self):
+    def test_watcher_started_once(self):
         """Lazy and single: started at the first dictation, never twice in the
         same process (each gunicorn worker gets its own, everything else being
         idempotent)."""

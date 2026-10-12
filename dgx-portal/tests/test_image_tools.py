@@ -13,14 +13,14 @@ from db import DB_PATH
 import image_tools
 
 
-class DeclenchementTest(unittest.TestCase):
+class TriggerTest(unittest.TestCase):
     """The image tool only arms on an explicit request from the user."""
 
-    def _demandee(self, text):
+    def _requested(self, text):
         return image_tools._image_requested(
             [{'role': 'user', 'content': text}])
 
-    def test_directives_explicites(self):
+    def test_explicit_directives_(self):
         for text in (
             "génère une image d'un chat astronaute",
             "genere une image de chat",            # without accent
@@ -36,9 +36,9 @@ class DeclenchementTest(unittest.TestCase):
             "create a logo for my bakery",
             "draw me a dragon",
         ):
-            self.assertTrue(self._demandee(text), text)
+            self.assertTrue(self._requested(text), text)
 
-    def test_faux_positifs_jamais(self):
+    def test_never_false_positives(self):
         for text in (
             # A MENTIONED image is not a REQUESTED image.
             "décris cette image",
@@ -53,14 +53,14 @@ class DeclenchementTest(unittest.TestCase):
             "créer une image disque de secours",
             "il faut une image système de récupération",
         ):
-            self.assertFalse(self._demandee(text), text)
+            self.assertFalse(self._requested(text), text)
 
-    def test_le_code_colle_ne_declenche_rien(self):
+    def test_pasted_code_triggers_nothing(self):
         # Same trap as for search: pasted code that TALKS about images must not
         # count as a directive (see _texte_de_la_demande).
-        colle = ("```python\n# générer une image de secours\n"
+        pasted = ("```python\n# générer une image de secours\n"
                  "def snapshot(): ...\n```\nexplique ce code")
-        self.assertFalse(self._demandee(colle))
+        self.assertFalse(self._requested(pasted))
 
 
 class GenerationTest(unittest.TestCase):
@@ -70,35 +70,35 @@ class GenerationTest(unittest.TestCase):
         import app as portal
         portal.app.config['TESTING'] = True
 
-    def _faux_sidecar(self):
-        def faux_post(url, **kw):
+    def _fake_sidecar(self):
+        def fake_post(url, **kw):
             r = mock.Mock()
             r.ok = True
             r.headers = {'Content-Type': 'image/png'}
             r.content = b'\x89PNG pretendu'
             return r
-        return faux_post
+        return fake_post
 
-    def test_generation_reussie(self):
+    def test_generation_succeeds(self):
         step_log = []
         with mock.patch('image_routes.requests.post',
-                        side_effect=self._faux_sidecar()), \
+                        side_effect=self._fake_sidecar()), \
              mock.patch.object(image_tools, '_POLL_INTERVAL_S', 0.05):
             import app as portal
             with portal.app.test_request_context():
                 gen = image_tools._exec_image_tool(
                     {'prompt': 'a cat astronaut, cinematic lighting'},
                     'zz-test-img', step_log)
-                battements, result = [], None
+                heartbeats, result = [], None
                 while True:
                     try:
                         chunk = next(gen)
                     except StopIteration as arret:
                         result = arret.value
                         break
-                    battements.append(chunk)
+                    heartbeats.append(chunk)
         self.assertIn('/image/file/', result)
-        self.assertTrue(all(b.startswith(': ') for b in battements), battements)
+        self.assertTrue(all(b.startswith(': ') for b in heartbeats), heartbeats)
         self.assertEqual(step_log[-1]['step'], 'generation_done')
         self.assertEqual(len(step_log[-1]['images']), 1)
         self.assertTrue(step_log[-1]['images'][0].startswith('/image/file/'))
@@ -109,7 +109,7 @@ class GenerationTest(unittest.TestCase):
         c.close()
         self.assertEqual(line, ('done', 1))
 
-    def test_prompt_vide_refuse(self):
+    def test_empty_prompt_refused(self):
         step_log = []
         gen = image_tools._exec_image_tool({'prompt': '  '}, 'zz-test-img', step_log)
         try:
@@ -120,15 +120,15 @@ class GenerationTest(unittest.TestCase):
         self.assertEqual(step_log, [])
 
 
-class PhaseOutilsTest(unittest.TestCase):
+class ToolsPhaseTest(unittest.TestCase):
     """The tool phase arms generer_image and reinjects the addresses to the model."""
 
-    def test_phase_avec_image(self):
+    def test_phase_with_image(self):
         import websearch_tools
 
         calls = {'tour': 0}
 
-        def faux_litellm(url, **kw):
+        def fake_litellm(url, **kw):
             calls['tour'] += 1
             r = mock.Mock()
             r.ok = True
@@ -145,34 +145,34 @@ class PhaseOutilsTest(unittest.TestCase):
         # websearch_tools and image_routes share the SAME `requests` module:
         # a single patch, routed on the URL — two patches would overwrite each
         # other (observed: the LiteLLM call fell on the fake sidecar).
-        def faux_post(url, **kw):
+        def fake_post(url, **kw):
             if '/v1/chat/completions' in url:
-                return faux_litellm(url, **kw)
-            return self._faux_sidecar()(url, **kw)
+                return fake_litellm(url, **kw)
+            return self._fake_sidecar()(url, **kw)
 
         step_log, findings = [], []
-        with mock.patch('requests.post', side_effect=faux_post), \
+        with mock.patch('requests.post', side_effect=fake_post), \
              mock.patch.object(image_tools, '_POLL_INTERVAL_S', 0.05):
             import app as portal
             with portal.app.test_request_context():
                 msgs = [{'role': 'user', 'content': 'génère une image de chat'}]
-                etapes = list(websearch_tools._tools_phase(
+                steps = list(websearch_tools._tools_phase(
                     'modele-test', msgs, 'cle', step_log, findings,
                     web_ok=False, img_ok=True, username='zz-test-img'))
-        annonces = [e for e in etapes if '"generation"' in e]
-        self.assertTrue(annonces, etapes)
+        announcements = [e for e in steps if '"generation"' in e]
+        self.assertTrue(announcements, steps)
         self.assertTrue(any('/image/file/' in content for _n, content in findings),
                         findings)
         self.assertEqual(step_log[-1]['tool'], 'diffusers')
 
-    def _faux_sidecar(self):
-        def faux_post(url, **kw):
+    def _fake_sidecar(self):
+        def fake_post(url, **kw):
             r = mock.Mock()
             r.ok = True
             r.headers = {'Content-Type': 'image/png'}
             r.content = b'\x89PNG pretendu'
             return r
-        return faux_post
+        return fake_post
 
 
 if __name__ == '__main__':

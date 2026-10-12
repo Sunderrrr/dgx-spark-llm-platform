@@ -23,14 +23,14 @@ class NotifyGuardsTest(unittest.TestCase):
     """Without SMTP config (test image), the sends are safe no-ops."""
 
     # The SMTP settings and the alert recipient live in Admin → Config.
-    SANS_SMTP = dict(smtp_host='', smtp_user='', smtp_pass='', admin_email='')
+    NO_SMTP = dict(smtp_host='', smtp_user='', smtp_pass='', admin_email='')
 
-    def test_maintenance_email_noop_sans_config(self):
-        with live_settings(**self.SANS_SMTP), portal.app.app_context():
+    def test_maintenance_email_noop_without_config(self):
+        with live_settings(**self.NO_SMTP), portal.app.app_context():
             self.assertIs(notify_maintenance_email(True, "demo", "Demo"), False)
 
-    def test_media_request_email_noop_sans_config(self):
-        with live_settings(**self.SANS_SMTP), portal.app.app_context():
+    def test_media_request_email_noop_without_config(self):
+        with live_settings(**self.NO_SMTP), portal.app.app_context():
             self.assertIs(notify_media_request_email("image", "demo", "Demo"), False)
 
 
@@ -65,7 +65,7 @@ class MediaRequestRouteTest(unittest.TestCase):
             s["auth_at"] = int(time.time())
         return c
 
-    def test_requiert_session(self):
+    def test_requires_session(self):
         # Session with valid CSRF but NO username => login_required rejects.
         # (With no session at all, the CSRF guard would answer 400 before login_required.)
         c = portal.app.test_client()
@@ -76,14 +76,14 @@ class MediaRequestRouteTest(unittest.TestCase):
         self.assertEqual(r.status_code, 401)
         self.assertEqual(self.calls, [])
 
-    def test_categorie_inconnue_refusee(self):
+    def test_unknown_category_refused(self):
         c = self._client("demo")
         r = c.post("/api/model/request", json={"category": "doodle"},
                    headers={"X-CSRFToken": "tok"})
         self.assertEqual(r.status_code, 400)
         self.assertEqual(self.calls, [])
 
-    def test_demande_envoyee_si_aucun_modele(self):
+    def test_request_sent_if_no_model(self):
         c = self._client("demo")
         r = c.post("/api/model/request", json={"category": "video"},
                    headers={"X-CSRFToken": "tok"})
@@ -92,7 +92,7 @@ class MediaRequestRouteTest(unittest.TestCase):
         # The test session carries no fullname -> empty string.
         self.assertEqual(self.calls, [("video", "demo", "")])
 
-    def test_refuse_si_modele_deja_charge(self):
+    def test_refused_if_model_already_loaded(self):
         portal._media_category_running = lambda cat: cat == "image"
         c = self._client("demo")
         r = c.post("/api/model/request", json={"category": "image"},
@@ -114,7 +114,7 @@ class MediaRequestRouteTest(unittest.TestCase):
         self.assertEqual(r2.status_code, 429)
         self.assertEqual(len(self.calls), 1)
 
-    def test_cooldown_par_categorie_independant(self):
+    def test_cooldown_independent_per_category(self):
         # A « video » request does not block an « ocr » request from the same user.
         c = self._client("demo")
         self.assertEqual(c.post("/api/model/request", json={"category": "video"},
@@ -152,7 +152,7 @@ class AdminEmailRouteTest(unittest.TestCase):
             s["is_admin"] = True
         return c
 
-    def test_config_renvoie_statut_sans_mot_de_passe(self):
+    def test_config_returns_status_without_password(self):
         self._smtp("")
         r = self._admin().get("/admin/email/config")
         self.assertEqual(r.status_code, 200)
@@ -161,7 +161,7 @@ class AdminEmailRouteTest(unittest.TestCase):
         self.assertNotIn("SMTP_PASS", body)
         self.assertNotIn("SMTP_USER", body)
 
-    def test_config_non_admin_interdit(self):
+    def test_config_forbidden_for_non_admin(self):
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["csrf"] = "tok"; s["username"] = "demo"
@@ -175,7 +175,7 @@ class AdminEmailRouteTest(unittest.TestCase):
         self.assertEqual(r.status_code, 400)
         self.assertFalse(r.get_json()["ok"])
 
-    def test_email_test_configuré_appelle_send(self):
+    def test_configured_email_test_calls_send(self):
         self._smtp("x", admin_email="admin@example.com")
         self.ar.send_test_email = lambda: True
         r = self._admin().post("/admin/email/test", headers={"X-CSRFToken": "tok"})

@@ -799,7 +799,10 @@ def init_db():
     mc_cols = {r[1] for r in db.execute("PRAGMA table_info(model_counters)")}
     for old, new in (('dernier', 'last_value'), ('maj', 'updated_at')):
         if old in mc_cols and new not in mc_cols:
-            db.execute(f"ALTER TABLE model_counters RENAME COLUMN {old} TO {new}")
+            try:
+                db.execute(f"ALTER TABLE model_counters RENAME COLUMN {old} TO {new}")
+            except sqlite3.OperationalError:
+                pass    # another gunicorn worker renamed it first (they boot together)
     for old, new in (('cfg_env_importe', 'cfg_env_imported'),
                      ('chars_par_token', 'chars_per_token'),
                      ('model_servi', 'served_model')):

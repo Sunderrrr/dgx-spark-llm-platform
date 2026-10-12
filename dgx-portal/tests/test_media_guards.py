@@ -68,7 +68,7 @@ class _BaseMedia(unittest.TestCase):
 class MaintenanceTest(_BaseMedia):
     """In maintenance, an ordinary account is refused BEFORE everything else."""
 
-    def test_les_quatre_routes_media_refusees_en_maintenance(self):
+    def test_four_media_routes_refused_in_maintenance(self):
         self._maintenance(True)
         c = self._client("demo")
         for url in ROUTES:
@@ -77,7 +77,7 @@ class MaintenanceTest(_BaseMedia):
                 self.assertEqual(r.status_code, 503, url)
                 self.assertIn("maintenance", r.get_json()['error'].lower())
 
-    def test_un_admin_passe_pendant_la_maintenance(self):
+    def test_admin_passes_during_maintenance(self):
         """Maintenance must not lock the administrator out: they are the only one
         able to deactivate it from the UI."""
         self._maintenance(True)
@@ -93,7 +93,7 @@ class MaintenanceTest(_BaseMedia):
 class DebitTest(_BaseMedia):
     """The media rate cap is per account, and it is reachable."""
 
-    def test_le_plafond_media_finit_par_refuser(self):
+    def test_media_cap_eventually_refuses(self):
         # The bucket is shared with the chat cap (same window, same table): we
         # thus send requests WITHOUT prompt, rejected with 400 by the input
         # validation — they still consume the quota, without ever touching
@@ -104,7 +104,7 @@ class DebitTest(_BaseMedia):
         self.assertNotIn(429, codes[:20], codes)   # the first 20 cross the guard
         self.assertEqual(codes[20], 429, codes)    # the 21st is refused
 
-    def test_le_plafond_est_par_compte(self):
+    def test_cap_is_per_account(self):
         """An account must not be able to exhaust another's quota."""
         c1 = self._client("demo")
         for _ in range(21):
@@ -113,7 +113,7 @@ class DebitTest(_BaseMedia):
         r = self._post(c2, '/api/image/generate')
         self.assertEqual(r.status_code, 400, r.get_data(as_text=True))
 
-    def test_la_maintenance_est_evaluee_avant_le_debit(self):
+    def test_maintenance_checked_before_rate(self):
         """The order is a decision: in maintenance AND at the cap, the answer is
         the maintenance refusal (503), not the rate refusal (429)."""
         c = self._client("demo")
@@ -124,7 +124,7 @@ class DebitTest(_BaseMedia):
         self.assertEqual(r.status_code, 503, r.get_data(as_text=True))
 
 
-class DicteeTest(_BaseMedia):
+class DictationTest(_BaseMedia):
     """Dictation has its OWN budget, set on its real pace (~1 req/s).
 
     Before 2026-09-22 it shared `rl-media` (20/min): a user speaking 20 s
@@ -136,19 +136,19 @@ class DicteeTest(_BaseMedia):
 
     def setUp(self):
         super().setUp()
-        self._vider('rl-asr')
+        self._reset('rl-asr')
 
     def tearDown(self):
-        self._vider('rl-asr')
+        self._reset('rl-asr')
         super().tearDown()
 
-    def _vider(self, bucket):
+    def _reset(self, bucket):
         with self._db():
             db = portal.get_db()
             db.execute("DELETE FROM login_attempts WHERE key LIKE ?", (f"{bucket}|%",))
             db.commit()
 
-    def test_une_longue_dictee_ne_declenche_pas_de_429(self):
+    def test_long_dictation_triggers_no_429(self):
         """61 transcriptions = 60 s of speech + the final pass: the media cap
         (20/min) refused the 21st, this one must accept them all."""
         c = self._client("demo")
@@ -158,7 +158,7 @@ class DicteeTest(_BaseMedia):
         # guard was indeed crossed: this is what we want to prove.
         self.assertTrue(all(code == 400 for code in codes), codes)
 
-    def test_le_plafond_de_dictee_finit_par_refuser(self):
+    def test_dictation_cap_eventually_refuses(self):
         from guards import ASR_RATE_MAX
         c = self._client("demo")
         codes = [self._post(c, '/api/transcribe').status_code
@@ -168,7 +168,7 @@ class DicteeTest(_BaseMedia):
         self.assertIn("Trop de requêtes",
                       self._post(c, '/api/transcribe').get_json()['error'])
 
-    def test_la_dictee_ne_consomme_pas_le_quota_media(self):
+    def test_dictation_does_not_use_media_quota(self):
         """The two budgets are separate: dictating must not prevent generating an
         image (and vice versa)."""
         c = self._client("demo")
@@ -178,7 +178,7 @@ class DicteeTest(_BaseMedia):
         # input (400), never in 429.
         self.assertEqual(self._post(c, '/api/image/generate').status_code, 400)
 
-    def test_le_429_de_dictee_ne_declenche_pas_de_demarrage_automatique(self):
+    def test_dictation_429_triggers_no_autostart(self):
         """Guard order is a decision: the rate refusal comes BEFORE the on-demand
         start of the sidecar. Dictation polls every second — once its budget is
         spent, the polls must not make the portal start a GPU service, nor touch
@@ -190,14 +190,14 @@ class DicteeTest(_BaseMedia):
             self._post(c, '/api/transcribe')
         # Patched at the docker seam (sidecars._sidecar_action, the only path to
         # `docker start`): nothing may reach it past the guard.
-        with patch.object(sidecars, '_sidecar_action') as demarre:
+        with patch.object(sidecars, '_sidecar_action') as started:
             r = c.post('/api/transcribe',
                        data={'audio': (io.BytesIO(b'RIFFxxxxWAVE'), 'rec.wav')},
                        headers={'X-CSRFToken': self.CSRF},
                        content_type='multipart/form-data')
         self.assertEqual(r.status_code, 429)
         self.assertIn("Trop de requêtes", r.get_json()['error'])
-        demarre.assert_not_called()
+        started.assert_not_called()
 
 
 if __name__ == '__main__':

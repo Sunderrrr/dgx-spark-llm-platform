@@ -1693,9 +1693,9 @@ def admin_validate():
                     # the portal's memory.
                     if len(_validator['output']) > 400:
                         del _validator['output'][:len(_validator['output']) - 400]
-                # `tail -F` NEVER exits — without this the run stays « en cours »
+                # `tail -F` NEVER exits — without this the run stays « running »
                 # forever and the panel refuses the next one (measured 2026-10-10,
-                # « une vérification est déjà en cours » alors que rien ne tournait).
+                # « a check is already running » while nothing was running).
                 # Stop when the verdict lands, or after a hard time bound.
                 # scripts/validate.sh prints « OVERALL VERDICT »; the former
                 # French pipeline printed « VERDICT GLOBAL » (older logs).

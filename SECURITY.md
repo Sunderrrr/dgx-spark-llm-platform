@@ -187,7 +187,7 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
   lockout key, so the counter cannot be poisoned with arbitrary values.
 - Per-request nonce CSP on `script-src` (`dgx-portal-frontend/proxy.ts`), plus
   `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy`.
-- **A test enforces the invariant**: `GardeDesRoutesTest` walks Flask's URL map
+- **A test enforces the invariant**: `RouteGuardTest` walks Flask's URL map
   and fails if any route lacks a `login_required` / `admin_required` guard,
   except an explicitly documented public list (login flow, CSRF token,
   forwardAuth). It reads the live route table, not the source, so a route

@@ -38,16 +38,16 @@ class MemoryTestBase(unittest.TestCase):
         db.commit()
 
 
-class NormalisationTest(MemoryTestBase):
+class NormalizationTest(MemoryTestBase):
     """Spelling variants of one subject must converge on ONE node."""
 
-    def test_casse_accents_et_ponctuation_convergent(self):
+    def test_case_accents_and_punctuation_converge(self):
         self.assertEqual(memory._mem_norm('vLLM'), memory._mem_norm('VLLM'))
         self.assertEqual(memory._mem_norm(' vllm '), memory._mem_norm('vLLM'))
         self.assertEqual(memory._mem_norm('Modèle'), memory._mem_norm('modele'))
         self.assertEqual(memory._mem_norm('DGX-Spark'), memory._mem_norm('dgx spark'))
 
-    def test_un_seul_noeud_pour_plusieurs_ecritures(self):
+    def test_single_node_for_several_spellings(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'utilise', 'Sert les modèles de chat.')
         memory._mem_add_fact(self.USER, 'vllm', 'version', 'Tourne en 0.27.')
         memory._mem_add_fact(self.USER, ' VLLM ', 'port', 'Écoute sur 8001.')
@@ -55,23 +55,23 @@ class NormalisationTest(MemoryTestBase):
         self.assertEqual(len(nodes), 1, nodes)
         self.assertEqual(len(memory._mem_graph(self.USER)['edges']), 3)
 
-    def test_ecritures_non_latines_memorisables(self):
+    def test_non_latin_scripts_storable(self):
         # [a-z0-9] alone made any Japanese/Russian/Greek subject impossible to
         # store: its normalized form was empty, thus rejected.
-        for sujet in ('日本語', 'Привет', 'Ελληνικά', '中文'):
-            self.assertTrue(memory._mem_norm(sujet), sujet)
-            _, ok = memory._mem_add_fact(self.USER, sujet, 'note', f'Fait sur {sujet}')
-            self.assertTrue(ok, sujet)
+        for subject_ in ('日本語', 'Привет', 'Ελληνικά', '中文'):
+            self.assertTrue(memory._mem_norm(subject_), subject_)
+            _, ok = memory._mem_add_fact(self.USER, subject_, 'note', f'Fait sur {subject_}')
+            self.assertTrue(ok, subject_)
         self.assertEqual(len(memory._mem_graph(self.USER)['nodes']), 4)
 
-    def test_le_depliage_des_accents_ne_touche_que_le_latin(self):
+    def test_accent_folding_only_touches_latin(self):
         # In latin, « è » and « e » must converge. In Japanese NO: NFKD
         # decomposes « が » into « か » + dakuten, and dropping the latter
         # would confuse two different words.
         self.assertEqual(memory._mem_norm('Modèle'), memory._mem_norm('modele'))
         self.assertNotEqual(memory._mem_norm('が'), memory._mem_norm('か'))
 
-    def test_sujet_vide_refuse(self):
+    def test_empty_subject_refused(self):
         _, ok = memory._mem_add_fact(self.USER, '   ', 'utilise', 'peu importe')
         self.assertFalse(ok)
         _, ok = memory._mem_add_fact(self.USER, 'vLLM', 'utilise', '')
@@ -82,7 +82,7 @@ class OptInTest(MemoryTestBase):
     """Memory is enabled by default (2026-09); only an explicit switch-off
     prevents writing."""
 
-    def test_outil_refuse_si_desactivee(self):
+    def test_tool_refused_if_disabled(self):
         memory._mem_set_enabled(self.USER, False)
         msg, ok = memory._exec_memory_tool(
             'save_memory', {'subject': 'vLLM', 'fact': 'x'}, self.USER)
@@ -90,14 +90,14 @@ class OptInTest(MemoryTestBase):
         self.assertIn('désactivée', msg)
         self.assertEqual(memory._mem_graph(self.USER)['edges'], [])
 
-    def test_activee_par_defaut_sans_preferences(self):
+    def test_enabled_by_default_without_prefs(self):
         # An account with no preference row has memory ON — the default
         # applies; only an explicit deactivation wins.
         portal.get_db().execute("DELETE FROM user_prefs WHERE username=?", ('memtest-neuf',))
         portal.get_db().commit()
         self.assertTrue(memory._mem_enabled('memtest-neuf'))
 
-    def test_desactiver_n_efface_pas(self):
+    def test_disabling_does_not_erase(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'utilise', 'Sert les modèles.')
         memory._mem_set_enabled(self.USER, False)
         self.assertEqual(len(memory._mem_graph(self.USER)['edges']), 1)
@@ -106,19 +106,19 @@ class OptInTest(MemoryTestBase):
 class IsolationTest(MemoryTestBase):
     """One user's memory must never reach another."""
 
-    def test_rappel_cloisonne(self):
+    def test_recall_isolated(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'utilise', "Secret de A.")
         memory._mem_add_fact(self.OTHER, 'vLLM', 'utilise', "Secret de B.")
-        faits_a = [f['fact'] for f in memory._mem_recall(self.USER, 'vLLM')]
-        faits_b = [f['fact'] for f in memory._mem_recall(self.OTHER, 'vLLM')]
-        self.assertEqual(faits_a, ["Secret de A."])
-        self.assertEqual(faits_b, ["Secret de B."])
+        facts_a = [f['fact'] for f in memory._mem_recall(self.USER, 'vLLM')]
+        facts_b = [f['fact'] for f in memory._mem_recall(self.OTHER, 'vLLM')]
+        self.assertEqual(facts_a, ["Secret de A."])
+        self.assertEqual(facts_b, ["Secret de B."])
 
-    def test_graphe_cloisonne(self):
+    def test_graph_isolated(self):
         memory._mem_add_fact(self.USER, 'Python', 'utilise', "A code en Python.")
         self.assertEqual(memory._mem_graph(self.OTHER)['edges'], [])
 
-    def test_suppression_cloisonnee(self):
+    def test_deletion_isolated(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'utilise', "Fait de A.")
         edge_id = memory._mem_graph(self.USER)['edges'][0]['id']
         # B must not be able to delete a fact of A with its identifier.
@@ -126,33 +126,33 @@ class IsolationTest(MemoryTestBase):
         self.assertEqual(len(memory._mem_graph(self.USER)['edges']), 1)
 
 
-class PeremptionTest(MemoryTestBase):
+class StalenessTest(MemoryTestBase):
     """Updated information replaces the old one instead of adding to it."""
 
-    def test_meme_relation_remplace(self):
+    def test_same_relation_replaces(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.25.")
         memory._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.27.")
-        faits = [f['fact'] for f in memory._mem_recall(self.USER, 'vLLM')]
-        self.assertEqual(faits, ["Tourne en 0.27."])
+        facts = [f['fact'] for f in memory._mem_recall(self.USER, 'vLLM')]
+        self.assertEqual(facts, ["Tourne en 0.27."])
 
-    def test_relations_differentes_coexistent(self):
+    def test_different_relations_coexist(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.27.")
         memory._mem_add_fact(self.USER, 'vLLM', 'port', "Écoute sur 8001.")
         self.assertEqual(len(memory._mem_recall(self.USER, 'vLLM')), 2)
 
-    def test_le_fait_perime_reste_consultable(self):
+    def test_stale_fact_stays_viewable(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.25.")
         memory._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.27.")
-        avec = memory._mem_graph(self.USER, include_expired=True)['edges']
-        self.assertEqual(len(avec), 2)
+        with_ = memory._mem_graph(self.USER, include_expired=True)['edges']
+        self.assertEqual(len(with_), 2)
         self.assertEqual(len(memory._mem_graph(self.USER)['edges']), 1)
 
 
-class MiseAJourTest(MemoryTestBase):
+class UpdateTest(MemoryTestBase):
     """Information that evolves must be correctable, without two distinct
     pieces of information erasing each other."""
 
-    def test_deux_infos_sur_un_meme_sujet_coexistent(self):
+    def test_two_facts_on_same_subject_coexist(self):
         # Regression: the two manual adds share the generic relation. Treating
         # them as two versions of one fact erased the first one SILENTLY — we
         # lost information the user had entered.
@@ -160,42 +160,42 @@ class MiseAJourTest(MemoryTestBase):
                              'Sert les modèles de chat.', source='user')
         memory._mem_add_fact(self.USER, 'vLLM', memory.MEM_GENERIC_RELATION,
                              'Écoute sur le port 8001.', source='user')
-        faits = sorted(e['fact'] for e in memory._mem_graph(self.USER)['edges'])
-        self.assertEqual(faits, ['Sert les modèles de chat.', 'Écoute sur le port 8001.'])
+        facts = sorted(e['fact'] for e in memory._mem_graph(self.USER)['edges'])
+        self.assertEqual(facts, ['Sert les modèles de chat.', 'Écoute sur le port 8001.'])
 
-    def test_relation_explicite_remplace_toujours(self):
+    def test_explicit_relation_always_replaces(self):
         # Conversely, an explicit relation IS the update key.
         memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.25.')
         memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
         self.assertEqual([e['fact'] for e in memory._mem_graph(self.USER)['edges']],
                          ['Tourne en 0.27.'])
 
-    def test_modification_sur_place(self):
+    def test_in_place_edit(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.25.')
         edge = memory._mem_graph(self.USER)['edges'][0]
         msg, ok = memory._mem_update_fact(self.USER, edge['id'], fact='Tourne en 0.27.')
         self.assertTrue(ok, msg)
-        apres = memory._mem_graph(self.USER)['edges']
-        self.assertEqual(len(apres), 1)
-        self.assertEqual(apres[0]['fact'], 'Tourne en 0.27.')
+        after = memory._mem_graph(self.USER)['edges']
+        self.assertEqual(len(after), 1)
+        self.assertEqual(after[0]['fact'], 'Tourne en 0.27.')
         # Same identifier: it is a correction, not a deletion + an addition.
-        self.assertEqual(apres[0]['id'], edge['id'])
+        self.assertEqual(after[0]['id'], edge['id'])
 
-    def test_modification_texte_vide_refusee(self):
+    def test_empty_text_edit_refused(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
         edge_id = memory._mem_graph(self.USER)['edges'][0]['id']
         _, ok = memory._mem_update_fact(self.USER, edge_id, fact='   ')
         self.assertFalse(ok)
         self.assertEqual(len(memory._mem_graph(self.USER)['edges']), 1)
 
-    def test_modification_cloisonnee(self):
+    def test_edit_isolated(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Fait de A.')
         edge_id = memory._mem_graph(self.USER)['edges'][0]['id']
         _, ok = memory._mem_update_fact(self.OTHER, edge_id, fact='Détourné par B.')
         self.assertFalse(ok)
         self.assertEqual(memory._mem_graph(self.USER)['edges'][0]['fact'], 'Fait de A.')
 
-    def test_modification_d_un_fait_perime_refusee(self):
+    def test_stale_fact_edit_refused(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.25.')
         old = memory._mem_graph(self.USER, include_expired=True)['edges'][0]['id']
         memory._mem_add_fact(self.USER, 'vLLM', 'version', 'Tourne en 0.27.')
@@ -203,29 +203,29 @@ class MiseAJourTest(MemoryTestBase):
         self.assertFalse(ok)
 
 
-class RappelTest(MemoryTestBase):
+class RecallTest(MemoryTestBase):
     """Recall returns the subject's neighbourhood, not the whole memory."""
 
-    def test_sujet_inconnu_ne_rend_rien(self):
+    def test_unknown_subject_returns_nothing(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'utilise', "Sert les modèles.")
         self.assertEqual(memory._mem_recall(self.USER, 'Kubernetes'), [])
 
-    def test_alias_par_l_objet_relie(self):
+    def test_alias_via_linked_object(self):
         # A fact linking two subjects must be found from either one.
         memory._mem_add_fact(self.USER, 'Portail', 'sert avec', "Portail sert ses modèles avec vLLM.",
                              obj='vLLM')
-        depuis_portail = [f['fact'] for f in memory._mem_recall(self.USER, 'Portail')]
-        depuis_vllm = [f['fact'] for f in memory._mem_recall(self.USER, 'vLLM')]
-        self.assertEqual(depuis_portail, depuis_vllm)
-        self.assertEqual(len(depuis_vllm), 1)
+        from_portal = [f['fact'] for f in memory._mem_recall(self.USER, 'Portail')]
+        from_vllm = [f['fact'] for f in memory._mem_recall(self.USER, 'vLLM')]
+        self.assertEqual(from_portal, from_vllm)
+        self.assertEqual(len(from_vllm), 1)
 
-    def test_sujet_isole_ne_ramene_pas_le_reste(self):
+    def test_isolated_subject_brings_nothing_else(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.27.")
         memory._mem_add_fact(self.USER, 'Cuisine', 'aime', "Aime le curry.")
-        faits = [f['fact'] for f in memory._mem_recall(self.USER, 'vLLM')]
-        self.assertEqual(faits, ["Tourne en 0.27."])
+        facts = [f['fact'] for f in memory._mem_recall(self.USER, 'vLLM')]
+        self.assertEqual(facts, ["Tourne en 0.27."])
 
-    def test_outil_de_rappel_cadre_les_faits_comme_des_donnees(self):
+    def test_recall_tool_frames_facts_as_data(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.27.")
         msg, ok = memory._exec_memory_tool('recall_memory', {'subject': 'vLLM'}, self.USER)
         self.assertTrue(ok)
@@ -235,9 +235,9 @@ class RappelTest(MemoryTestBase):
         self.assertIn('Tourne en 0.27.', msg)
 
 
-class PlafondEtPurgeTest(MemoryTestBase):
-    def test_plafond_de_faits(self):
-        limite = memory.MEM_MAX_FACTS
+class CapAndPurgeTest(MemoryTestBase):
+    def test_facts_cap(self):
+        limit = memory.MEM_MAX_FACTS
         memory.MEM_MAX_FACTS = 3
         try:
             for i in range(3):
@@ -247,9 +247,9 @@ class PlafondEtPurgeTest(MemoryTestBase):
             self.assertFalse(ok)
             self.assertIn('pleine', msg)
         finally:
-            memory.MEM_MAX_FACTS = limite
+            memory.MEM_MAX_FACTS = limit
 
-    def test_purge_efface_tout(self):
+    def test_purge_erases_all(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.27.")
         memory._mem_add_fact(self.USER, 'Python', 'utilise', "Code en Python.")
         self.assertEqual(memory._mem_purge(self.USER), 2)
@@ -257,7 +257,7 @@ class PlafondEtPurgeTest(MemoryTestBase):
         self.assertEqual(g['edges'], [])
         self.assertEqual(g['nodes'], [])
 
-    def test_oubli_nettoie_le_noeud_orphelin(self):
+    def test_forget_cleans_orphan_node(self):
         memory._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.27.")
         edge_id = memory._mem_graph(self.USER)['edges'][0]['id']
         self.assertTrue(memory._mem_forget(self.USER, edge_id))

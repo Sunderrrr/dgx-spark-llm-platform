@@ -11,10 +11,10 @@ import unittest
 from reasoning import reasonably_complex
 
 
-class RaisonnementAutoTest(unittest.TestCase):
+class AutoReasoningTest(unittest.TestCase):
 
-    def test_les_demandes_qui_le_meritent(self):
-        pour_oui = [
+    def test_requests_that_deserve_it(self):
+        for_yes = [
             "Pourquoi le service redémarre-t-il tout seul ?",
             "Explique-moi la différence entre ces deux architectures.",
             "Voici mon code : ```python\ndef f():\n    return 1\n``` que corriger ?",
@@ -27,11 +27,11 @@ class RaisonnementAutoTest(unittest.TestCase):
             "Analyse cette requête SQL et optimise-la.",
             "Peux-tu expliquer ce chiffrement ?" ,
         ]
-        for text in pour_oui:
+        for text in for_yes:
             self.assertTrue(reasonably_complex(text), f"aurait dû réfléchir : {text!r}")
 
-    def test_le_quotidien_ne_declenche_pas(self):
-        pour_non = [
+    def test_everyday_does_not_trigger(self):
+        for_no = [
             "",
             "   ",
             "Salut",
@@ -43,14 +43,14 @@ class RaisonnementAutoTest(unittest.TestCase):
             "Traduis : The cat sleeps.",
             "Écris une phrase sur la pluie.",
         ]
-        for text in pour_non:
+        for text in for_no:
             self.assertFalse(reasonably_complex(text), f"n'aurait pas dû réfléchir : {text!r}")
 
-    def test_un_message_long_ou_multi_questions_declenche(self):
+    def test_long_or_multi_question_message_triggers(self):
         self.assertTrue(reasonably_complex("Raconte-moi " + "l'histoire de la machine. " * 30))
         self.assertTrue(reasonably_complex("C'est où ? Et depuis quand ?"))
 
-    def test_le_texte_des_pieces_jointes_est_ignore(self):
+    def test_attachment_text_ignored(self):
         """What counts is the REQUEST — not the attached file."""
         self.assertTrue(reasonably_complex("Analyse ce fichier"))
         self.assertFalse(reasonably_complex("Voilà le fichier demandé."))

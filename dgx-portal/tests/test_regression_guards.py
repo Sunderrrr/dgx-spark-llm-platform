@@ -22,7 +22,7 @@ import unittest
 RACINE = pathlib.Path(__file__).resolve().parent.parent
 
 
-class ThreadsArrierePlanGelTest(unittest.TestCase):
+class BackgroundThreadsFreezeTest(unittest.TestCase):
     """No new long-lived thread without the test seam.
 
     Measured distinction (2026-10-03): 13 `threading.Thread(` live in the
@@ -32,45 +32,45 @@ class ThreadsArrierePlanGelTest(unittest.TestCase):
     one import to the next and talk to the network on their own.
     """
 
-    MAX_THREADS_NOMMES = 3   # reaper budget + veilleur ASR + suivi-lancement
+    MAX_NAMED_THREADS = 3   # reaper budget + veilleur ASR + suivi-lancement
 
-    def test_effectif_des_threads_de_longue_vie_gel(self):
-        sites, sans_couture = [], []
+    def test_long_lived_threads_count_frozen(self):
+        sites, seamless = [], []
         for f in sorted(RACINE.glob('*.py')):
             text = f.read_text()
             for n, line in enumerate(text.splitlines(), 1):
                 if 'threading.Thread(' in line and 'name=' in line:
                     sites.append(f"{f.name}:{n}")
                     if 'DGX_NO_REAPER' not in text:
-                        sans_couture.append(f"{f.name}:{n}")
+                        seamless.append(f"{f.name}:{n}")
         self.assertLessEqual(
-            len(sites), self.MAX_THREADS_NOMMES,
+            len(sites), self.MAX_NAMED_THREADS,
             "Nouveau thread de longue vie détecté : " + ", ".join(sites) +
-            " — il doit être derrière `DGX_NO_REAPER=1` (comme les 3 "
-            "existants : reaper budget, veilleur ASR, suivi-lancement), sans "
-            "quoi il réouvre la classe de flake du 2026-10-02.")
+            " — it must be behind `DGX_NO_REAPER=1` (like the 3 "
+            "existing ones: budget reaper, ASR watcher, launch follow-up), "
+            "otherwise it reopens the 2026-10-02 flake class.")
         self.assertEqual(
-            sans_couture, [],
-            "Thread de longue vie dans un fichier SANS couture DGX_NO_REAPER : "
-            + ", ".join(sans_couture))
+            seamless, [],
+            "Long-lived thread in a file WITHOUT the DGX_NO_REAPER seam: "
+            + ", ".join(seamless))
 
 
-class MocksGlobauxRequestsGelTest(unittest.TestCase):
+class GlobalRequestsMocksFreezeTest(unittest.TestCase):
     """No new global mock on the shared `requests` package."""
 
-    MAX_SITES = 48            # effectif gelé au 2026-10-03 (mesuré)
+    MAX_SITES = 48            # count frozen on 2026-10-03 (measured)
 
-    def test_effectif_des_mocks_globaux_gel(self):
+    def test_global_mocks_count_frozen(self):
         pattern = re.compile(r"patch\.object\(\s*\w+(\.\w+)*\.requests\s*,")
         total = 0
         for f in sorted((RACINE / 'tests').glob('*.py')):
             total += len(pattern.findall(f.read_text()))
         self.assertLessEqual(
             total, self.MAX_SITES,
-            f"Nouveaux mocks globaux sur `requests` ({total} > {self.MAX_SITES}) : "
-            "ils patchent le package partagé par tout le processus. Préférer un "
-            "namespace scopé (`_ReqMock` dans test_asr_ondemand.py) ; voir le "
-            "flake du 2026-10-02.")
+            f"New global mocks on `requests` ({total} > {self.MAX_SITES}): "
+            "they patch the package shared by the whole process. Prefer a "
+            "scoped namespace (`_ReqMock` in test_asr_ondemand.py); see the "
+            "2026-10-02 flake.")
 
 
 if __name__ == '__main__':

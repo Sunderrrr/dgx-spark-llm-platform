@@ -14,7 +14,7 @@ from db import DB_PATH, DB_RESET_MARKER, _detect_reset_database
 import app as portal   # noqa: F401  (triggers init_db: full schema)
 
 
-class DetecteurTest(unittest.TestCase):
+class DetectorTest(unittest.TestCase):
     def setUp(self):
         if os.path.exists(DB_RESET_MARKER):
             os.remove(DB_RESET_MARKER)
@@ -29,33 +29,33 @@ class DetecteurTest(unittest.TestCase):
         if os.path.exists(DB_RESET_MARKER):
             os.remove(DB_RESET_MARKER)
 
-    def _peuple(self):
+    def _populate(self):
         self.db.execute(
             "INSERT INTO conversations (username, client_id, title, model, messages, updated_at) "
             "VALUES ('zz-det', 'c1', 't', 'm', '[]', '2026-09-07T00:00:00')")
 
-    def test_base_vierge_sans_marqueur_n_alerte_pas(self):
-        with mock.patch('notify.notify_infra_alert_email') as alerte:
+    def test_blank_db_without_marker_does_not_alert(self):
+        with mock.patch('notify.notify_infra_alert_email') as alert:
             _detect_reset_database(self.db)
-        alerte.assert_not_called()
+        alert.assert_not_called()
         self.assertFalse(os.path.exists(DB_RESET_MARKER))
 
-    def test_base_peuplee_cree_le_marqueur(self):
-        self._peuple()
+    def test_populated_db_creates_marker(self):
+        self._populate()
         _detect_reset_database(self.db)
         self.assertTrue(os.path.exists(DB_RESET_MARKER))
 
-    def test_marqueur_present_et_base_vide_alerte(self):
-        self._peuple()
+    def test_marker_present_and_empty_db_alerts(self):
+        self._populate()
         _detect_reset_database(self.db)          # creates the marker
         self.db.execute("DELETE FROM conversations")
-        with mock.patch('notify.notify_infra_alert_email') as alerte:
+        with mock.patch('notify.notify_infra_alert_email') as alert:
             _detect_reset_database(self.db)
-        alerte.assert_called_once()
-        sujet = alerte.call_args[0][0]
-        self.assertIn('reset', sujet.lower())
+        alert.assert_called_once()
+        subject_ = alert.call_args[0][0]
+        self.assertIn('reset', subject_.lower())
 
-    def test_rien_apres_lecture_impossible(self):
+    def test_nothing_after_unreadable_db(self):
         # The detector must NEVER fail init_db: on a really closed connection it
         # swallows the error (no exception propagated).
         self.db.close()

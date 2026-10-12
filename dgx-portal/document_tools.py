@@ -157,7 +157,7 @@ def _exec_document_tool(args, username, step_log, attachments):
     GENERATOR: yields SSE heartbeats while the OCR sidecar works; the extracted
     text is the return value, retrieved by `yield from` in _phase_outils.
     """
-    import ocr_routes   # import tardif : image_tools fait de même sur image_routes
+    import ocr_routes   # late import: image_tools does the same with image_routes
 
     target, name = _attachment(attachments, args.get('fichier'))
     if target is None:

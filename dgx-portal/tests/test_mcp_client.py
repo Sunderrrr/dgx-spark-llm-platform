@@ -22,22 +22,22 @@ def _fake_dns(ip):
 
 
 class ValidateUrlTest(unittest.TestCase):
-    def test_rejette_le_http_en_clair(self):
+    def test_rejects_plain_http(self):
         ok, err = mcp_client.validate_mcp_url('http://exemple.com/mcp')
         self.assertFalse(ok)
         self.assertIn('https', err)
 
-    def test_rejette_les_schemas_exotiques(self):
+    def test_rejects_exotic_schemes(self):
         for url in ('file:///etc/passwd', 'gopher://x/', 'ftp://x/'):
             self.assertFalse(mcp_client.validate_mcp_url(url)[0], url)
 
-    def test_rejette_les_noms_de_services_internes(self):
+    def test_rejects_internal_service_names(self):
         for host in ('litellm', 'postgres', 'vllm-runner', 'dgx-portal',
                      'host.docker.internal', 'localhost'):
             ok, _ = mcp_client.validate_mcp_url(f'https://{host}/mcp')
             self.assertFalse(ok, host)
 
-    def test_rejette_les_ip_privees_et_speciales(self):
+    def test_rejects_private_and_special_ips(self):
         # A public name resolving to an internal address must be refused: this is
         # the real attack case, not just a hardcoded IP.
         for ip in ('127.0.0.1', '10.0.0.5', '192.168.1.10', '172.16.0.9',
@@ -48,12 +48,12 @@ class ValidateUrlTest(unittest.TestCase):
                 ok, _ = mcp_client.validate_mcp_url('https://innocent.example/mcp')
             self.assertFalse(ok, ip)
 
-    def test_accepte_une_adresse_publique(self):
+    def test_accepts_public_address(self):
         with _fake_dns('93.184.216.34'):
             ok, err = mcp_client.validate_mcp_url('https://exemple.com/mcp')
         self.assertTrue(ok, err)
 
-    def test_hote_introuvable(self):
+    def test_unknown_host(self):
         with mock.patch.object(socket, 'getaddrinfo', side_effect=socket.gaierror):
             ok, _ = mcp_client.validate_mcp_url('https://nexiste-pas.example/mcp')
         self.assertFalse(ok)
@@ -61,15 +61,15 @@ class ValidateUrlTest(unittest.TestCase):
 
 class BlockedIpTest(unittest.TestCase):
     def test_classification(self):
-        bloques = ['127.0.0.1', '::1', '10.0.0.1', '172.20.0.3', '192.168.0.1',
+        blocked = ['127.0.0.1', '::1', '10.0.0.1', '172.20.0.3', '192.168.0.1',
                    '169.254.1.1', 'fc00::1', '224.0.0.1', '100.127.255.254']
-        permis = ['8.8.8.8', '93.184.216.34', '2606:4700:4700::1111']
-        for ip in bloques:
+        allowed = ['8.8.8.8', '93.184.216.34', '2606:4700:4700::1111']
+        for ip in blocked:
             self.assertTrue(mcp_client._is_blocked_ip(ip), ip)
-        for ip in permis:
+        for ip in allowed:
             self.assertFalse(mcp_client._is_blocked_ip(ip), ip)
 
-    def test_ip_illisible_est_bloquee(self):
+    def test_unreadable_ip_blocked(self):
         # In case of doubt we refuse, rather than let through.
         self.assertTrue(mcp_client._is_blocked_ip('pas-une-ip'))
 
@@ -82,7 +82,7 @@ class RedirectTest(unittest.TestCase):
     """A redirect is refused: `requests` would follow it without revalidating
     the destination, which would completely cancel the filter above."""
 
-    def test_refuse_une_redirection(self):
+    def test_refuses_redirect(self):
         client = mcp_client.MCPClient('https://exemple.com/mcp')
         response = mock.Mock(status_code=307, is_redirect=True, headers={})
         sess = mock.Mock()
@@ -92,7 +92,7 @@ class RedirectTest(unittest.TestCase):
             with self.assertRaises(mcp_client.MCPError):
                 client.list_tools()
 
-    def test_ne_suit_jamais_les_redirections(self):
+    def test_never_follows_redirects(self):
         client = mcp_client.MCPClient('https://exemple.com/mcp')
         response = mock.Mock(status_code=200, is_redirect=False,
                             headers={'Content-Type': 'application/json'})
@@ -120,10 +120,10 @@ class NegativeCacheTest(unittest.TestCase):
     def tearDown(self):
         mcp_client._tools_cache.clear()
 
-    def test_l_echec_est_mis_en_cache(self):
+    def test_failure_is_cached(self):
         calls = []
 
-        class ClientCasse:
+        class BrokenClient:
             def __init__(self, *a, **kw):
                 calls.append(1)
 
@@ -133,20 +133,20 @@ class NegativeCacheTest(unittest.TestCase):
             def list_tools(self):
                 return []
 
-        with mock.patch.object(mcp_client, 'MCPClient', ClientCasse):
+        with mock.patch.object(mcp_client, 'MCPClient', BrokenClient):
             self.assertEqual(mcp_client.list_tools_cached(42, 'https://x.test/', None), [])
             self.assertEqual(mcp_client.list_tools_cached(42, 'https://x.test/', None), [])
-        self.assertEqual(len(calls), 1, "le second appel aurait dû être servi par le cache")
+        self.assertEqual(len(calls), 1, "the second call should have been served by the cache")
 
-    def test_invalidation_reessaie(self):
-        class ClientCasse:
+    def test_invalidation_retries(self):
+        class BrokenClient:
             def initialize(self):
                 raise mcp_client.MCPError("injoignable")
 
             def list_tools(self):
                 return []
 
-        with mock.patch.object(mcp_client, 'MCPClient', lambda *a, **kw: ClientCasse()):
+        with mock.patch.object(mcp_client, 'MCPClient', lambda *a, **kw: BrokenClient()):
             mcp_client.list_tools_cached(7, 'https://x.test/', None)
         self.assertIn(7, mcp_client._tools_cache)
         mcp_client.invalidate_tools(7)
@@ -157,13 +157,13 @@ class ResolvePinTest(unittest.TestCase):
     """The DNS resolution is done ONCE and the returned IP is the one pinned
     for the connection — this is what closes DNS-rebinding (TOCTOU)."""
 
-    def test_renvoie_l_ip_publique_validee(self):
+    def test_returns_validated_public_ip(self):
         with _fake_dns('93.184.216.34'):
             ok, err, ip = mcp_client.resolve_validated_mcp_ip('https://exemple.com/mcp')
         self.assertTrue(ok, err)
         self.assertEqual(ip, '93.184.216.34')
 
-    def test_refuse_ip_privee_sans_renvoyer_d_ip(self):
+    def test_refuses_private_ip_without_returning_ip(self):
         for ip_interne in ('127.0.0.1', '10.0.0.5', '169.254.169.254', '100.64.0.1'):
             with _fake_dns(ip_interne):
                 ok, _, ip = mcp_client.resolve_validated_mcp_ip('https://innocent.example/mcp')
@@ -175,19 +175,19 @@ class PinnedAdapterTest(unittest.TestCase):
     """The adapter connects to the validated IP but keeps the hostname for the
     SNI and the certificate validation (the cert stays checked)."""
 
-    def test_epingle_l_ip_et_conserve_le_hostname(self):
+    def test_pins_ip_and_keeps_hostname(self):
         adapter = mcp_client._PinnedIPHTTPSAdapter('93.184.216.34')
         prepared = mcp_client.requests.Request('POST', 'https://exemple.com:8443/mcp').prepare()
         capture = {}
 
-        def faux_send(self_adapter, request, **kw):
+        def fake_send(self_adapter, request, **kw):
             capture['url'] = request.url
             capture['host'] = request.headers.get('Host')
             capture['sni'] = adapter.poolmanager.connection_pool_kw.get('server_hostname')
             capture['assert'] = adapter.poolmanager.connection_pool_kw.get('assert_hostname')
             return mock.Mock(status_code=200)
 
-        with mock.patch.object(mcp_client.requests.adapters.HTTPAdapter, 'send', faux_send):
+        with mock.patch.object(mcp_client.requests.adapters.HTTPAdapter, 'send', fake_send):
             adapter.send(prepared)
         self.assertIn('93.184.216.34', capture['url'])
         self.assertNotIn('exemple.com', capture['url'])          # no more DNS re-resolution

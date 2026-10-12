@@ -45,11 +45,11 @@ def _response(payload, status=200, headers=None):
     return r
 
 
-MODELE = {'id': 'org/modele', 'modelId': 'org/modele', 'downloads': 10,
+MODEL = {'id': 'org/modele', 'modelId': 'org/modele', 'downloads': 10,
           'tags': ['text-generation', 'gb10', 'gguf'], 'gated': False}
 
 
-class CompteDeTest(unittest.TestCase):
+class TestAccount(unittest.TestCase):
     """Creates the local account used by the tests.
 
     Necessary and not decorative: the account state is RE-READ at every
@@ -59,30 +59,30 @@ class CompteDeTest(unittest.TestCase):
     instead of what they target.
     """
 
-    NOM = 'ztest-hf'
+    NAME = 'ztest-hf'
 
     def _mkuser(self):
         with portal.app.app_context():
             db = portal.get_db()
-            db.execute("DELETE FROM local_users WHERE username=?", (self.NOM,))
+            db.execute("DELETE FROM local_users WHERE username=?", (self.NAME,))
             db.execute(
                 "INSERT INTO local_users (username, password_hash, fullname, is_admin, "
                 "group_name, max_budget, enabled, created_at) VALUES (?,?,?,0,NULL,NULL,1,?)",
-                (self.NOM, generate_password_hash('MotDePasse123'), 'Chercheur de test', 0))
+                (self.NAME, generate_password_hash('MotDePasse123'), 'Chercheur de test', 0))
             db.commit()
 
     def _rmuser(self):
         with portal.app.app_context():
             db = portal.get_db()
-            db.execute("DELETE FROM user_sessions WHERE username=?", (self.NOM,))
-            db.execute("DELETE FROM local_users WHERE username=?", (self.NOM,))
+            db.execute("DELETE FROM user_sessions WHERE username=?", (self.NAME,))
+            db.execute("DELETE FROM local_users WHERE username=?", (self.NAME,))
             db.commit()
 
     def _client(self):
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s['csrf'] = 'tok'
-            s['username'] = self.NOM
+            s['username'] = self.NAME
             s['fullname'] = 'Chercheur de test'
             s['is_admin'] = False
             # `auth_at` is MANDATORY: without it `_session_expired` treats the
@@ -93,13 +93,13 @@ class CompteDeTest(unittest.TestCase):
 
 
 class RechercheHfTest(unittest.TestCase):
-    def test_une_panne_reseau_leve_au_lieu_de_renvoyer_vide(self):
+    def test_network_outage_raises_instead_of_empty(self):
         with patch.object(vllm_health.requests, 'get',
                           side_effect=requests.ConnectionError('boom')):
             with self.assertRaises(HfUnavailable):
                 search_hf_models('qwen')
 
-    def test_un_statut_http_en_erreur_leve(self):
+    def test_http_error_status_raises(self):
         for code in (401, 429, 500, 503):
             with self.subTest(code=code):
                 with patch.object(vllm_health.requests, 'get',
@@ -107,16 +107,16 @@ class RechercheHfTest(unittest.TestCase):
                     with self.assertRaises(HfUnavailable):
                         search_hf_models('qwen')
 
-    def test_une_reponse_illisible_leve(self):
+    def test_unreadable_response_raises(self):
         r = _response(None)
         r.json.side_effect = ValueError('pas du JSON')
         with patch.object(vllm_health.requests, 'get', return_value=r):
             with self.assertRaises(HfUnavailable):
                 search_hf_models('qwen')
 
-    def test_un_succes_annote_le_moteur_et_demande_les_champs_pleins(self):
+    def test_success_annotates_engine_and_requests_full_fields(self):
         with patch.object(vllm_health.requests, 'get',
-                          return_value=_response([dict(MODELE)])) as get:
+                          return_value=_response([dict(MODEL)])) as get:
             out = search_hf_models('qwen', 'text-generation', gb10_only=True, skip=24)
         self.assertEqual(len(out), 1)
         # GGUF → llama.cpp: this is the badge telling the user which engine
@@ -132,9 +132,9 @@ class RechercheHfTest(unittest.TestCase):
         # response, measured) and nothing reads it: it must not come out of here.
         self.assertNotIn('siblings', out[0])
 
-    def test_le_filtre_gb10_est_transmis_et_jamais_impose(self):
+    def test_gb10_filter_passed_never_imposed(self):
         with patch.object(vllm_health.requests, 'get',
-                          return_value=_response([dict(MODELE)])) as get:
+                          return_value=_response([dict(MODEL)])) as get:
             search_hf_models('qwen', None, gb10_only=True)
             self.assertEqual(get.call_args.kwargs['params']['filter'], [vllm_health.GB10_TAG])
             # Without asking for it, NO filter: this is the 2026-09-14 fix.
@@ -146,31 +146,31 @@ class RechercheHfTest(unittest.TestCase):
             self.assertEqual(sorted(get.call_args.kwargs['params']['filter']),
                              sorted(['text-generation', vllm_health.GB10_TAG]))
 
-    def test_la_recherche_par_defaut_couvre_tout_hugging_face(self):
+    def test_default_search_covers_all_hugging_face(self):
         """The reported case: « ornith-1.5 » (4 repos, including the GGUFs) is
         tagged neither `gb10` nor only `text-generation`. The two automatic
         filters made it unfindable, and nothing said so."""
         with patch.object(vllm_health.requests, 'get',
-                          return_value=_response([dict(MODELE)])) as get:
+                          return_value=_response([dict(MODEL)])) as get:
             search_hf_models('ornith-1.5')
         params = get.call_args.kwargs['params']
         self.assertEqual(params['search'], 'ornith-1.5')
         self.assertNotIn('filter', params)
         self.assertEqual(params['sort'], 'downloads')
 
-    def test_has_more_vient_de_l_en_tete_link_de_hf(self):
+    def test_has_more_comes_from_hf_link_header(self):
         """A full page does not PROVE there are others: `Link` says so."""
         lien = {'Link': '<https://huggingface.co/api/models?search=q&skip=48>; rel="next"'}
         with patch.object(vllm_health.requests, 'get',
-                          return_value=_response([dict(MODELE)], headers=lien)):
+                          return_value=_response([dict(MODEL)], headers=lien)):
             _, more = vllm_health.search_hf_models_page('q')
         self.assertTrue(more)
         with patch.object(vllm_health.requests, 'get',
-                          return_value=_response([dict(MODELE)])):
+                          return_value=_response([dict(MODEL)])):
             _, more = vllm_health.search_hf_models_page('q')
         self.assertFalse(more)
 
-    def test_le_jeton_hf_part_en_entete_et_ne_sort_jamais(self):
+    def test_hf_token_sent_as_header_never_leaked(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, 'hf_token')
             with patch.dict(os.environ, {'HF_TOKEN': ''}), \
@@ -178,7 +178,7 @@ class RechercheHfTest(unittest.TestCase):
                 # No file: anonymous search, no authorization header.
                 self.assertFalse(vllm_health.hf_token_present())
                 with patch.object(vllm_health.requests, 'get',
-                                  return_value=_response([dict(MODELE)])) as get:
+                                  return_value=_response([dict(MODEL)])) as get:
                     search_hf_models('qwen')
                 self.assertEqual(get.call_args.kwargs['headers'], {})
                 # Token present: it goes in a header, and only its PRESENCE is said.
@@ -186,12 +186,12 @@ class RechercheHfTest(unittest.TestCase):
                     f.write('hf_jeton_de_test\n')
                 self.assertTrue(vllm_health.hf_token_present())
                 with patch.object(vllm_health.requests, 'get',
-                                  return_value=_response([dict(MODELE)])) as get:
+                                  return_value=_response([dict(MODEL)])) as get:
                     search_hf_models('qwen')
                 self.assertEqual(get.call_args.kwargs['headers'],
                                  {'Authorization': 'Bearer hf_jeton_de_test'})
 
-    def test_un_jeton_refuse_se_distingue_d_une_panne(self):
+    def test_refused_token_differs_from_outage(self):
         """401 with a token = « remplace-le », not « HF est en panne »."""
         r = _response({'error': 'invalid token'}, status=401)
         with patch.object(vllm_health, '_hf_token', return_value='hf_stale'), \
@@ -205,8 +205,8 @@ class RechercheHfTest(unittest.TestCase):
                 search_hf_models('qwen')
         self.assertIn('401', str(ctx.exception))
 
-    def test_hors_gb10_repond_vrai_faux_ou_doute(self):
-        with patch.object(vllm_health.requests, 'get', return_value=_response([dict(MODELE)])):
+    def test_outside_gb10_answers_true_false_or_unknown(self):
+        with patch.object(vllm_health.requests, 'get', return_value=_response([dict(MODEL)])):
             self.assertTrue(hf_model_outside_gb10('qwen'))
         with patch.object(vllm_health.requests, 'get', return_value=_response([])):
             self.assertFalse(hf_model_outside_gb10('qwen'))
@@ -218,7 +218,7 @@ class RechercheHfTest(unittest.TestCase):
         self.assertIsNone(hf_model_outside_gb10(''))
 
 
-class ApiSearchTest(CompteDeTest):
+class ApiSearchTest(TestAccount):
     def setUp(self):
         portal.app.config['TESTING'] = True
         self._mkuser()
@@ -227,7 +227,7 @@ class ApiSearchTest(CompteDeTest):
     def tearDown(self):
         self._rmuser()
 
-    def test_panne_de_hf_repond_503_et_non_zero_resultat(self):
+    def test_hf_outage_answers_503_not_zero_results(self):
         with patch.object(vllm_health.requests, 'get',
                           side_effect=requests.ConnectionError('boom')):
             r = self.c.get('/api/search?q=qwen')
@@ -239,15 +239,15 @@ class ApiSearchTest(CompteDeTest):
         # `code`: without it, an English-speaking reader reads only a French sentence.
         self.assertEqual(body['code'], 'hf_unavailable')
 
-    def test_tache_inconnue_refusee_en_400_et_non_en_panne(self):
+    def test_unknown_task_refused_400_not_outage(self):
         with patch.object(vllm_health.requests, 'get') as get:
             r = self.c.get('/api/search?q=qwen&task=pas-une-tache')
         self.assertEqual(r.status_code, 400)
         self.assertFalse(r.get_json()['ok'])
         get.assert_not_called()
 
-    def test_recherche_normale_dit_ok_et_renvoie_les_resultats(self):
-        with patch.object(vllm_health.requests, 'get', return_value=_response([dict(MODELE)])):
+    def test_normal_search_ok_with_results(self):
+        with patch.object(vllm_health.requests, 'get', return_value=_response([dict(MODEL)])):
             r = self.c.get('/api/search?q=qwen')
         self.assertEqual(r.status_code, 200)
         body = r.get_json()
@@ -259,44 +259,44 @@ class ApiSearchTest(CompteDeTest):
         self.assertIn('hf_token', body)
         self.assertIsInstance(body['hf_token'], bool)
 
-    def test_la_recherche_sans_filtre_est_le_defaut_de_la_route(self):
+    def test_unfiltered_search_is_route_default(self):
         with patch.object(vllm_health.requests, 'get',
-                          return_value=_response([dict(MODELE)])) as get:
+                          return_value=_response([dict(MODEL)])) as get:
             self.c.get('/api/search?q=ornith-1.5')
         self.assertNotIn('filter', get.call_args.kwargs['params'])
         # `all=1` (the old parameter that disabled the filter) is still accepted:
         # it must not reintroduce a filter either.
         with patch.object(vllm_health.requests, 'get',
-                          return_value=_response([dict(MODELE)])) as get:
+                          return_value=_response([dict(MODEL)])) as get:
             self.c.get('/api/search?q=ornith-1.5&all=1')
         self.assertNotIn('filter', get.call_args.kwargs['params'])
         # And an EMPTY search explores the catalogue (the most downloaded)
         # instead of returning nothing.
         with patch.object(vllm_health.requests, 'get',
-                          return_value=_response([dict(MODELE)])) as get:
+                          return_value=_response([dict(MODEL)])) as get:
             body = self.c.get('/api/search').get_json()
         self.assertEqual(get.call_count, 1)
         self.assertEqual(len(body['results']), 1)
 
-    def test_filtre_gb10_vide_signale_que_ca_existe_ailleurs(self):
+    def test_empty_gb10_filter_says_it_exists_elsewhere(self):
         # 1st call (gb10-filtered, ASKED for): nothing. 2nd call (no filter): a model.
         with patch.object(vllm_health.requests, 'get',
-                          side_effect=[_response([]), _response([dict(MODELE)])]):
+                          side_effect=[_response([]), _response([dict(MODEL)])]):
             r = self.c.get('/api/search?q=ornith&gb10=1')
         body = r.get_json()
         self.assertTrue(body['ok'])
         self.assertEqual(body['results'], [])
         self.assertTrue(body['outside_gb10'])
 
-    def test_pas_de_second_appel_quand_le_filtre_trouve_quelque_chose(self):
+    def test_no_second_call_when_filter_finds_something(self):
         with patch.object(vllm_health.requests, 'get',
-                          return_value=_response([dict(MODELE)])) as get:
+                          return_value=_response([dict(MODEL)])) as get:
             r = self.c.get('/api/search?q=qwen&gb10=1')
         self.assertEqual(get.call_count, 1)
         self.assertIsNone(r.get_json()['outside_gb10'])
 
 
-class DemandeDeModeleTest(CompteDeTest):
+class ModelRequestTest(TestAccount):
     """POST /request: the page must no longer announce a send that did not happen."""
 
     def setUp(self):
@@ -312,18 +312,18 @@ class DemandeDeModeleTest(CompteDeTest):
     def _purge(self):
         with portal.app.app_context():
             db = portal.get_db()
-            db.execute("DELETE FROM model_requests WHERE username=?", (self.NOM,))
+            db.execute("DELETE FROM model_requests WHERE username=?", (self.NAME,))
             db.commit()
 
     def _post(self, **form):
         return self.c.post('/request', data=form, headers={'X-CSRFToken': 'tok'})
 
-    def test_identifiant_vide_refuse(self):
+    def test_empty_identifier_refused(self):
         r = self._post(model_id='   ')
         self.assertEqual(r.status_code, 400)
         self.assertEqual(r.get_json()['code'], 'identifier_required')
 
-    def test_demande_enregistree_puis_duplicat_refuse(self):
+    def test_request_recorded_then_duplicate_refused(self):
         with patch.object(portal, 'notify_email', return_value=True), \
              patch.object(portal, 'notify_discord', return_value=True):
             r1 = self._post(model_id='org/ztest-modele', reason='parce que')
@@ -338,7 +338,7 @@ class DemandeDeModeleTest(CompteDeTest):
         self.assertFalse(r2.get_json()['ok'])
         self.assertEqual(r2.get_json()['code'], 'already_pending')
 
-    def test_aucun_canal_de_notification_avertit_sans_echouer(self):
+    def test_no_notification_channel_warns_without_failing(self):
         with patch.object(portal, 'notify_email', return_value=False), \
              patch.object(portal, 'notify_discord', return_value=False):
             r = self._post(model_id='org/ztest-modele-2')
@@ -352,16 +352,16 @@ class DemandeDeModeleTest(CompteDeTest):
 class NotifyDiscordTest(unittest.TestCase):
     """`notify_discord` returned nothing, so `discord_sent` lied."""
 
-    def test_renvoie_faux_sans_webhook(self):
+    def test_returns_false_without_webhook(self):
         with patch.object(notify, 'discord_config', return_value={'webhook': ''}):
             self.assertFalse(notify.notify_discord('m', 'u', 'U', 'r'))
 
-    def test_renvoie_vrai_quand_le_webhook_repond(self):
+    def test_returns_true_when_webhook_answers(self):
         with patch.object(notify, 'discord_config', return_value={'webhook': 'https://discord.invalid/hook'}), \
              patch.object(notify.requests, 'post', return_value=_response({}, status=204)):
             self.assertTrue(notify.notify_discord('m', 'u', 'U', 'r'))
 
-    def test_renvoie_faux_quand_le_webhook_echoue(self):
+    def test_returns_false_when_webhook_fails(self):
         with patch.object(notify, 'discord_config', return_value={'webhook': 'https://discord.invalid/hook'}), \
              patch.object(notify.requests, 'post', return_value=_response({}, status=500)):
             self.assertFalse(notify.notify_discord('m', 'u', 'U', 'r'))

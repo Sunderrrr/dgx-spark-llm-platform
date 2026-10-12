@@ -1128,9 +1128,9 @@ def playground_chat():
     max_tokens  = _num(data.get('max_tokens'), 1, 131072, 4096, int)
     top_p       = _num(data.get('top_p'), 0.0, 1.0, 1.0, float)
     # Thinking mode: `reasoning` = 'auto' (DEFAULT) | true | false. Auto
-    # decides from the ASKED question (raisonnement.py) — thinking costs
-    # tokens and latency: « active le en fonction de ce que les user
-    # demandent, pas tout le temps » (2026-10-03). An explicit true/false
+    # decides from the ASKED question (reasoning.py) — thinking costs
+    # tokens and latency: « turn it on depending on what users ask,
+    # not all the time » (2026-10-03). An explicit true/false
     # (the button) always wins; a bare boolean stays explicit for older
     # clients. Thinking ON also SHOWS the reasoning block.
     raw = data.get('reasoning', 'auto')
@@ -1173,8 +1173,8 @@ def playground_chat():
                                  _playground_input_limit(model)
                                  or _playground_model_limits().get(model))
     # Memory (opt-in, per user): what the assistant already knows about the
-    # person is injected into the SYSTEM, otherwise the model answers « je ne
-    # connais rien de vous » while the graph exists. Bounded (see
+    # person is injected into the SYSTEM, otherwise the model answers « I know
+    # nothing about you » while the graph exists. Bounded (see
     # _mem_inject_context) and framed as data.
     _mem_on = memory._mem_enabled(session['username'])
     if _mem_on:
@@ -1339,8 +1339,8 @@ def playground_chat():
                         # accepts xhigh/medium/low). We retry once WITHOUT effort
                         # rather than killing the turn on a 500 Jinja.
                         r.close()
-                        _log.info("playground %s : reasoning_effort=%s refuse par le "
-                                  "modele — retente sans", _who, valid_effort)
+                        _log.info("playground %s: reasoning_effort=%s refused by the "
+                                  "model — retrying without", _who, valid_effort)
                         r = _open({'enable_thinking': reasoning})
                     with r:
                         if not r.ok:

@@ -351,8 +351,8 @@ def _vllm_health_uncached():
         # what allows saying « 2 sessions have been working for 12 min » when no
         # identity is logged yet.
         # vLLM publishes no /slots: the counters say HOW MANY sessions work and
-        # how many the engine accepts — « je ne vois pas le nombre de session
-        # dispo » was this hole. Fewer details than llama.cpp (no age, no
+        # how many the engine accepts — « I can't see the number of available
+        # sessions » was this hole. Fewer details than llama.cpp (no age, no
         # ingestion), but the number the reader wants is there.
         'slots': _slots_activity() or (
             {'busy': running_now, 'total': max_seqs, 'oldest_s': None,

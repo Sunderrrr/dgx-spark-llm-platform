@@ -224,8 +224,8 @@ def _send_password_notification(username, by_admin=None):
         if not recipient:
             # Local account with no equivalent in the directory: no known
             # address, and we do not invent one.
-            print(f'[user_lifecycle] pas d’adresse connue pour {username}, '
-                  'notification non envoyée')
+            print(f'[user_lifecycle] no known address for {username}, '
+                  'notification not sent')
             return False
         author = ('Un administrateur a réinitialisé' if by_admin
                   else 'Ton mot de passe a été changé')

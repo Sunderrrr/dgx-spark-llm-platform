@@ -16,7 +16,7 @@ import time
 import unittest
 
 import app as portal
-import admin_routes  # noqa: F401  (monte les routes admin sur l'app)
+import admin_routes  # noqa: F401  (mounts the admin routes on the app)
 import settings_routes  # noqa: F401
 import preview_routes  # noqa: F401
 
@@ -45,24 +45,24 @@ class CompetencesTest(SessionTest):
         return self._post(c, '/skills', action='create', name=name,
                           description='pour les tests', instructions='fais ceci')
 
-    def _noms(self, username):
+    def _names(self, username):
         from db import get_db
         with portal.app.app_context():
             return [r['name'] for r in get_db().execute(
                 "SELECT name FROM skills WHERE username=? ORDER BY id", (username,))]
 
-    def _cherche(self, noeud, key):
+    def _find(self, node, key):
         """Finds a key wherever it is nested in the payload."""
-        if isinstance(noeud, dict):
-            if key in noeud:
-                return noeud[key]
-            for v in noeud.values():
-                r = self._cherche(v, key)
+        if isinstance(node, dict):
+            if key in node:
+                return node[key]
+            for v in node.values():
+                r = self._find(v, key)
                 if r is not None:
                     return r
-        elif isinstance(noeud, list):
-            for v in noeud:
-                r = self._cherche(v, key)
+        elif isinstance(node, list):
+            for v in node:
+                r = self._find(v, key)
                 if r is not None:
                     return r
         return None
@@ -73,37 +73,37 @@ class CompetencesTest(SessionTest):
             return get_db().execute(
                 "SELECT id FROM skills WHERE username=?", (username,)).fetchone()['id']
 
-    def test_cycle_complet_creation_lecture_suppression(self):
+    def test_full_cycle_create_read_delete(self):
         c = self._client('alice')
         r = self._cree(c)
         self.assertTrue(r.get_json().get('ok'), r.get_json())
-        self.assertEqual(self._noms('alice'), ['ztest-competence'])
+        self.assertEqual(self._names('alice'), ['ztest-competence'])
         # The account sees it (/api/settings payload: skill_count + limits).
         params = c.get('/api/settings').get_json()
-        self.assertEqual(self._cherche(params, 'skill_count'), 1)
+        self.assertEqual(self._find(params, 'skill_count'), 1)
         ident = self._ident('alice')
         r = self._post(c, '/skills', action='update', id=str(ident), name='renomme',
                        description='x', instructions='y')
         self.assertIn(r.status_code, (200, 204))
-        self.assertEqual(self._noms('alice'), ['renomme'])   # la preuve est en base
+        self.assertEqual(self._names('alice'), ['renomme'])   # the proof is in the database
         r = self._post(c, '/skills', action='delete', id=str(ident))
         self.assertIn(r.status_code, (200, 204))
-        self.assertEqual(self._noms('alice'), [])
+        self.assertEqual(self._names('alice'), [])
 
-    def test_creation_incomplete_est_refusee(self):
+    def test_incomplete_creation_refused(self):
         c = self._client('alice')
         r = self._post(c, '/skills', action='create', name='sans-rien')
         self.assertFalse(r.get_json().get('ok'))
         self.assertIn('requis', r.get_json().get('error', ''))
 
-    def test_homonyme_dans_le_meme_compte_est_refuse(self):
+    def test_same_name_in_same_account_refused(self):
         c = self._client('alice')
         self._cree(c)
-        r = self._cree(c)                      # même nom, même compte
+        r = self._cree(c)                      # same name, same account
         self.assertFalse(r.get_json().get('ok'))
         self.assertIn('déjà', r.get_json().get('error', ''))
 
-    def test_isolation_par_compte(self):
+    def test_per_account_isolation(self):
         """Another account neither sees nor deletes my skill (the DELETE
         carries `WHERE username=?` — this line locks it in)."""
         c_alice = self._client('alice')
@@ -111,16 +111,16 @@ class CompetencesTest(SessionTest):
         ident = self._ident('alice')
         c_bob = self._client('bob')
         self._post(c_bob, '/skills', action='delete', id=str(ident))
-        self.assertEqual(self._noms('alice'), ['ztest-competence'])
-        self.assertEqual(self._noms('bob'), [])
+        self.assertEqual(self._names('alice'), ['ztest-competence'])
+        self.assertEqual(self._names('bob'), [])
 
 
-class ApercuSandboxeTest(SessionTest):
+class SandboxedPreviewTest(SessionTest):
     """`/playground/preview`: HTML supplied by the MODEL, served to the
     user — the platform's XSS surface. The sandbox is the only rampart:
     these assertions lock it in."""
 
-    def test_apercu_est_servi_en_bac_a_sable(self):
+    def test_preview_served_sandboxed(self):
         c = self._client()
         r = c.post('/playground/preview',
                    json={'html': '<h1>ok</h1><script>alert(1)</script>'},
@@ -135,7 +135,7 @@ class ApercuSandboxeTest(SessionTest):
         self.assertEqual(page.headers.get('X-Content-Type-Options'), 'nosniff')
         self.assertIn('<script>alert(1)</script>', page.get_data(as_text=True))
 
-    def test_apercu_inconnu_dit_404(self):
+    def test_unknown_preview_404(self):
         c = self._client()
         self.assertEqual(c.get('/playground/preview/introuvable').status_code, 404)
 
@@ -157,12 +157,12 @@ class AuthcheckMaintenanceTest(SessionTest):
         with portal.app.app_context():
             set_setting('maintenance_mode', '0')
 
-    def test_hors_maintenance_tout_passe_sans_verification(self):
+    def test_outside_maintenance_all_passes_unchecked(self):
         r = portal.app.test_client().get('/internal/authcheck')
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_data(), b'')                # aucun coût ajouté
 
-    def test_en_maintenance_un_appelant_sans_cle_est_refuse(self):
+    def test_in_maintenance_keyless_caller_refused(self):
         from db import set_setting
         with portal.app.app_context():
             set_setting('maintenance_mode', '1')
@@ -170,7 +170,7 @@ class AuthcheckMaintenanceTest(SessionTest):
         self.assertEqual(r.status_code, 503)
         self.assertEqual(r.get_json()['error']['type'], 'maintenance_mode')
 
-    def test_en_maintenance_le_bearer_admin_passe(self):
+    def test_in_maintenance_admin_bearer_passes(self):
         from db import get_db, set_setting
         ctx = portal.app.app_context()
         ctx.push()
@@ -193,38 +193,38 @@ class AuthcheckMaintenanceTest(SessionTest):
             ctx.pop()
 
 
-class SchemaTableauDeBordTest(SessionTest):
+class DashboardSchemaTest(SessionTest):
     """The JSON schema of `/api/modelhealth` and `/api/home`: the dashboard
     reads these keys directly — their disappearance would only raise a
     blank screen, silently. The engine is stubbed: we test THE SCHEMA."""
 
-    CLES_SANTE = ('running', 'tps', 'tps_avg', 'tps_prefill', 'ttft',
+    HEALTH_KEYS = ('running', 'tps', 'tps_avg', 'tps_prefill', 'ttft',
                   'sessions', 'metrics')
 
-    def test_modelhealth_porte_les_cles_du_tableau_de_bord(self):
+    def test_modelhealth_carries_dashboard_keys(self):
         from unittest import mock
-        sante = {k: 1.0 for k in self.CLES_SANTE}
-        sante.update({'running': True, 'metrics': False})
-        with mock.patch('app.vllm_health', return_value=sante):
+        health = {k: 1.0 for k in self.HEALTH_KEYS}
+        health.update({'running': True, 'metrics': False})
+        with mock.patch('app.vllm_health', return_value=health):
             r = self._client().get('/api/modelhealth')
         self.assertEqual(r.status_code, 200)
         body = r.get_json()
-        for k in self.CLES_SANTE:
+        for k in self.HEALTH_KEYS:
             self.assertIn(k, body, f"clé disparue du tableau de bord : {k}")
 
-    def test_home_repond_un_json_exploitable(self):
+    def test_home_answers_usable_json(self):
         r = self._client().get('/api/home')
         self.assertEqual(r.status_code, 200)
         self.assertIsInstance(r.get_json(), dict)
 
 
-class MentionMemoirePartageeTest(unittest.TestCase):
+class SharedMemoryNoteTest(unittest.TestCase):
     """Product point 2, option (a): the media service errors carry the
     really free memory. Measured 2026-10-03: MiMo holds ~100 of the
     121.6 GiB — « le service est arrêté » alone made one believe a click
     was enough, while a STARTED sidecar can still be short on memory."""
 
-    def test_la_mention_porte_la_memoire_libre(self):
+    def test_note_carries_free_memory(self):
         from unittest import mock
         from sidecars import shared_memory_note
         with mock.patch('sidecars._mem_available_gb', return_value=9.7):
@@ -232,13 +232,13 @@ class MentionMemoirePartageeTest(unittest.TestCase):
         self.assertIn('9.7 Go libres', m)
         self.assertIn('Admin', m)
 
-    def test_sans_mesure_il_n_y_a_pas_de_faux_chiffre(self):
+    def test_without_measure_no_fake_number(self):
         from unittest import mock
         from sidecars import shared_memory_note
         with mock.patch('sidecars._mem_available_gb', return_value=None):
             self.assertEqual(shared_memory_note(), "")
 
-    def test_les_erreurs_media_la_portent(self):
+    def test_media_errors_carry_it(self):
         from unittest import mock
         with mock.patch('sidecars._mem_available_gb', return_value=8.0):
             with mock.patch('video_routes.comfyui_generate', return_value=None):

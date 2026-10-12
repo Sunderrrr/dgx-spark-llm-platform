@@ -44,7 +44,7 @@ def _usage(n=42, entry=17):
                                              'prompt_tokens': entry}})).encode()
 
 
-class _FauxAmont:
+class _FakeUpstream:
     """Fake upstream SSE response.
 
     `iter_lines` yields BYTES: the portal decodes them itself
@@ -52,14 +52,14 @@ class _FauxAmont:
     trap, not a test convenience.
     """
 
-    def __init__(self, lines=None, status_value=200, corps_json=None, bloquant=None):
+    def __init__(self, lines=None, status_value=200, corps_json=None, blocking=None):
         self.status_value = status_value
         self.lines = list(lines or [])
         self.closed = False
         self.corps_json = corps_json or {}
         # Event released by close(): proves that a leaving client does close the
         # upstream connection (and thus frees the engine slot).
-        self.bloquant = bloquant
+        self.blocking = blocking
         self.debloque = threading.Event()
 
     @property
@@ -87,9 +87,9 @@ class _FauxAmont:
     def iter_lines(self, decode_unicode=False):
         for line in self.lines:
             yield line
-        if self.bloquant is not None:
+        if self.blocking is not None:
             self.debloque.wait(timeout=5)
-            for line in self.bloquant:
+            for line in self.blocking:
                 yield line
 
 
@@ -99,8 +99,8 @@ class _BasePlayground(unittest.TestCase):
     CSRF = 'test-csrf'
 
     def _standard(self, stack, post=None, running=('fake-model',),
-                  keys=({'key': 'sk-user-123'},), limites=None, entry=None,
-                  web=False, image=False, video=False, doc=False, memoire_off=True):
+                  keys=({'key': 'sk-user-123'},), limits=None, entry=None,
+                  web=False, image=False, video=False, doc=False, memory_off=True):
         stack.enter_context(patch.object(chat, 'maintenance_block_sse', return_value=None))
         stack.enter_context(patch.object(chat, '_chat_rate_limited', return_value=None))
         stack.enter_context(patch.object(chat, 'get_running_models', return_value=list(running)))
@@ -114,11 +114,11 @@ class _BasePlayground(unittest.TestCase):
         stack.enter_context(patch.object(chat, '_video_requested', return_value=video))
         stack.enter_context(patch.object(chat, 'document_available', return_value=doc))
         stack.enter_context(patch.object(chat, '_document_requested', return_value=doc))
-        if memoire_off:
+        if memory_off:
             stack.enter_context(patch.object(chat.memory, '_mem_enabled', return_value=False))
-        if limites is not None:
+        if limits is not None:
             stack.enter_context(patch.object(chat, '_playground_model_limits',
-                                             return_value=limites))
+                                             return_value=limits))
         if entry is not None:
             stack.enter_context(patch.object(chat, '_playground_input_limit',
                                              return_value=entry))
@@ -149,7 +149,7 @@ class _BasePlayground(unittest.TestCase):
             s['csrf'] = self.CSRF
         return c
 
-    def _amont_unique(self, amont, seen=None, error_text=None):
+    def _single_upstream(self, upstream, seen=None, error_text=None):
         """A fake `requests.post` recording the sent body."""
         def _post(url, headers=None, json=None, stream=False, timeout=None):
             if seen is not None:
@@ -157,7 +157,7 @@ class _BasePlayground(unittest.TestCase):
                             'timeout': timeout})
             if error_text is not None:
                 raise error_text
-            return amont
+            return upstream
         return _post
 
     def _body(self, msgs=None, **extra):
@@ -172,79 +172,79 @@ class _BasePlayground(unittest.TestCase):
 class FluxSSETest(_BasePlayground):
     """What the client receives, in order, and what it never receives."""
 
-    def test_ouverture_avant_tout_travail(self):
+    def test_opening_before_any_work(self):
         """In WSGI the headers only leave at the first yield: without this
         comment, the frontend proxy cuts with a 503 before the generation
         starts."""
-        amont = _FauxAmont([_delta('Bonjour'), _end()])
-        body = self._flux(self._body(), post=self._amont_unique(amont))
+        upstream = _FakeUpstream([_delta('Bonjour'), _end()])
+        body = self._flux(self._body(), post=self._single_upstream(upstream))
         self.assertTrue(body.startswith(': ouverture'), body[:60])
 
-    def test_texte_relaye_et_usage_transmis(self):
-        amont = _FauxAmont([_delta('Bon'), _delta('jour'), _usage(42), _end(),
+    def test_text_relayed_and_usage_sent(self):
+        upstream = _FakeUpstream([_delta('Bon'), _delta('jour'), _usage(42), _end(),
                             b'data: [DONE]'])
-        body = self._flux(self._body(), post=self._amont_unique(amont))
+        body = self._flux(self._body(), post=self._single_upstream(upstream))
         self.assertIn('Bon', body)
         self.assertIn('jour', body)
         self.assertIn('"completion_tokens": 42', body)
         self.assertIn('[DONE]', body)
 
-    def test_le_prompt_part_avec_le_system_et_les_reglages(self):
+    def test_prompt_sent_with_system_and_settings(self):
         seen = []
-        amont = _FauxAmont([_end()])
+        upstream = _FakeUpstream([_end()])
         self._flux(self._body(system='Tu es bref.', temperature=0.25,
                                max_tokens=777, top_p=0.3),
-                   post=self._amont_unique(amont, seen))
-        envoye = seen[0]['json']
-        self.assertEqual(envoye['model'], 'fake-model')
-        self.assertEqual(envoye['temperature'], 0.25)
-        self.assertEqual(envoye['max_tokens'], 777)
-        self.assertEqual(envoye['top_p'], 0.3)
-        self.assertEqual(envoye['messages'][0]['role'], 'system')
+                   post=self._single_upstream(upstream, seen))
+        sent = seen[0]['json']
+        self.assertEqual(sent['model'], 'fake-model')
+        self.assertEqual(sent['temperature'], 0.25)
+        self.assertEqual(sent['max_tokens'], 777)
+        self.assertEqual(sent['top_p'], 0.3)
+        self.assertEqual(sent['messages'][0]['role'], 'system')
         # The system carries the persona THEN the current date/time (the model
         # has no clock) — the persona is the prefix, the clock cannot be cut.
-        self.assertTrue(envoye['messages'][0]['content'].startswith('Tu es bref.'))
-        self.assertIn('Nous sommes le', envoye['messages'][0]['content'])
-        self.assertEqual(envoye['messages'][1]['content'], 'Salut')
-        self.assertTrue(envoye['stream'])
-        self.assertEqual(envoye['stream_options'], {'include_usage': True})
+        self.assertTrue(sent['messages'][0]['content'].startswith('Tu es bref.'))
+        self.assertIn('Nous sommes le', sent['messages'][0]['content'])
+        self.assertEqual(sent['messages'][1]['content'], 'Salut')
+        self.assertTrue(sent['stream'])
+        self.assertEqual(sent['stream_options'], {'include_usage': True})
 
-    def test_la_cle_de_l_utilisateur_est_utilisee(self):
+    def test_user_key_is_used(self):
         """The playground spends the BUDGET: never the master key."""
         seen = []
-        amont = _FauxAmont([_end()])
-        self._flux(self._body(), post=self._amont_unique(amont, seen))
+        upstream = _FakeUpstream([_end()])
+        self._flux(self._body(), post=self._single_upstream(upstream, seen))
         self.assertEqual(seen[0]['headers']['Authorization'], 'Bearer sk-user-123')
 
-    def test_fin_sans_finish_reason_dit_length_et_termine(self):
+    def test_end_without_finish_reason_says_length_and_ends(self):
         """Upstream stream closed mid-word: the portal fabricates a
         `finish_reason: length` — and must ALSO send `[DONE]`. Without the
         sentinel, every OpenAI-compatible client waits forever."""
-        amont = _FauxAmont([_delta('Réponse cou')])          # ni finish, ni DONE
-        body = self._flux(self._body(), post=self._amont_unique(amont))
+        upstream = _FakeUpstream([_delta('Réponse cou')])          # ni finish, ni DONE
+        body = self._flux(self._body(), post=self._single_upstream(upstream))
         self.assertIn('"finish_reason": "length"', body)
         self.assertIn('data: [DONE]', body)
 
-    def test_quota_depasse_notice_structuree(self):
-        amont = _FauxAmont([], status_value=429)
-        body = self._flux(self._body(), post=self._amont_unique(amont))
+    def test_quota_exceeded_structured_notice(self):
+        upstream = _FakeUpstream([], status_value=429)
+        body = self._flux(self._body(), post=self._single_upstream(upstream))
         self.assertIn('dgx_notice', body)
         self.assertIn('quota_exceeded', body)
 
-    def test_erreur_modele_notice_structuree(self):
-        amont = _FauxAmont([], status_value=500)
-        body = self._flux(self._body(), post=self._amont_unique(amont))
+    def test_model_error_structured_notice(self):
+        upstream = _FakeUpstream([], status_value=500)
+        body = self._flux(self._body(), post=self._single_upstream(upstream))
         self.assertIn('model_replied_error', body)
         self.assertIn('500', body)
 
-    def test_demande_d_image_service_arrete_notice(self):
+    def test_image_request_service_stopped_notice(self):
         """EXPLICIT image request with the sidecar off: the model would answer
         « je ne peux pas générer d'images » — false, it is the service that
         is missing. The structured notice says so (seen on 2026-10-02 with
         MiMo, which denies the capability instead of returning the error)."""
         with ExitStack() as stack:
-            self._standard(stack, post=self._amont_unique(
-                _FauxAmont([_delta("Je ne peux pas générer d'images."), _end()])))
+            self._standard(stack, post=self._single_upstream(
+                _FakeUpstream([_delta("Je ne peux pas générer d'images."), _end()])))
             # `_standard` ties `_image_demandee` and `image_disponible` to the same
             # flag: we separate them to get only the request.
             stack.enter_context(patch.object(chat, '_image_requested', return_value=True))
@@ -259,7 +259,7 @@ class FluxSSETest(_BasePlayground):
         self.assertIn('dgx_notice', body)
         self.assertIn('image_service_off', body)
 
-    def test_demande_d_image_service_pret_sans_notice(self):
+    def test_image_request_service_ready_no_notice(self):
         """Same request, service ready: the tool arms, no notice goes out — the
         notice must never announce a switched-off service that is not."""
         def _phase(*a, **k):
@@ -267,8 +267,8 @@ class FluxSSETest(_BasePlayground):
             yield                       # empty generator
 
         with ExitStack() as stack:
-            self._standard(stack, post=self._amont_unique(
-                _FauxAmont([_delta('Voilà.'), _end()])), image=True)
+            self._standard(stack, post=self._single_upstream(
+                _FakeUpstream([_delta('Voilà.'), _end()])), image=True)
             stack.enter_context(patch.object(chat, '_tools_phase', side_effect=_phase))
             with portal.app.test_request_context(
                     '/playground/chat', method='POST',
@@ -279,13 +279,13 @@ class FluxSSETest(_BasePlayground):
                 body = chat.playground_chat().get_data(as_text=True)
         self.assertNotIn('image_service_off', body)
 
-    def test_demande_de_video_service_arrete_notice(self):
+    def test_video_request_service_stopped_notice(self):
         """EXPLICIT video request with ComfyUI off and not even startable: same
         trap as the image one — the model would answer « je ne peux pas générer
         de vidéos » while the platform can, it is the service that is missing."""
         with ExitStack() as stack:
-            self._standard(stack, post=self._amont_unique(
-                _FauxAmont([_delta("Je ne peux pas générer de vidéo."), _end()])))
+            self._standard(stack, post=self._single_upstream(
+                _FakeUpstream([_delta("Je ne peux pas générer de vidéo."), _end()])))
             stack.enter_context(patch.object(chat, '_video_requested', return_value=True))
             stack.enter_context(patch.object(chat, 'video_available', return_value=False))
             with portal.app.test_request_context(
@@ -302,12 +302,12 @@ class FluxSSETest(_BasePlayground):
         # a click look like the fix.
         self.assertIn('free_gib', body)
 
-    def test_demande_de_document_service_arrete_notice(self):
+    def test_document_request_service_stopped_notice(self):
         """EXPLICIT read request with the OCR sidecar off: the model would
         answer « je ne sais pas lire ce document » — false, the platform can."""
         with ExitStack() as stack:
-            self._standard(stack, post=self._amont_unique(
-                _FauxAmont([_delta("Je ne peux pas lire ce document."), _end()])))
+            self._standard(stack, post=self._single_upstream(
+                _FakeUpstream([_delta("Je ne peux pas lire ce document."), _end()])))
             stack.enter_context(patch.object(chat, '_document_requested', return_value=True))
             stack.enter_context(patch.object(chat, 'document_available', return_value=False))
             with portal.app.test_request_context(
@@ -320,57 +320,57 @@ class FluxSSETest(_BasePlayground):
         self.assertIn('dgx_notice', body)
         self.assertIn('document_service_off', body)
 
-    def test_aucune_notice_sans_demande_explicite(self):
+    def test_no_notice_without_explicit_request(self):
         """A service off that nobody asked for says nothing: the notice is tied
         to the REQUEST, never to the service state alone."""
-        body = self._flux(self._body(), post=self._amont_unique(
-            _FauxAmont([_delta('Voilà.'), _end()])))
+        body = self._flux(self._body(), post=self._single_upstream(
+            _FakeUpstream([_delta('Voilà.'), _end()])))
         self.assertNotIn('service_off', body)
 
-    def test_timeout_de_lecture_est_une_erreur_de_transport(self):
+    def test_read_timeout_is_transport_error(self):
         """LiteLLM unreachable is NOT a model error: the answer must say so, not
         announce a code 0. The notice is STRUCTURED (`model_unreachable`): the
         frontend writes the sentence, the server sends no text."""
         import requests as _rq
         body = self._flux(self._body(),
-                           post=self._amont_unique(None, error_text=_rq.exceptions.ConnectTimeout()))
+                           post=self._single_upstream(None, error_text=_rq.exceptions.ConnectTimeout()))
         self.assertIn('dgx_notice', body)
         self.assertIn('model_unreachable', body)
         self.assertNotIn('erreur (0)', body)
         # The READ timeout (anti-stuck slot) is "no answer in time", which is
         # another id of the same contract — never a model error either.
         body = self._flux(self._body(),
-                           post=self._amont_unique(None, error_text=_rq.exceptions.ReadTimeout()))
+                           post=self._single_upstream(None, error_text=_rq.exceptions.ReadTimeout()))
         self.assertIn('model_timeout', body)
         self.assertNotIn('erreur (0)', body)
 
 
 # ── 2. Settings: bounding and reasoning ────────────────────────────────────
 
-class ReglagesTest(_BasePlayground):
+class SettingsTest(_BasePlayground):
 
-    def test_temperature_max_tokens_top_p_bornees(self):
+    def test_temperature_max_tokens_top_p_bounded(self):
         seen = []
         self._flux(self._body(temperature=99, max_tokens=10 ** 9, top_p=5),
-                   post=self._amont_unique(_FauxAmont([_end()]), seen))
-        envoye = seen[0]['json']
-        self.assertEqual(envoye['temperature'], 2.0)
-        self.assertEqual(envoye['max_tokens'], 131072)
-        self.assertEqual(envoye['top_p'], 1.0)
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen))
+        sent = seen[0]['json']
+        self.assertEqual(sent['temperature'], 2.0)
+        self.assertEqual(sent['max_tokens'], 131072)
+        self.assertEqual(sent['top_p'], 1.0)
 
-    def test_valeurs_non_numeriques_retombent_sur_le_defaut(self):
+    def test_non_numeric_values_fall_back_to_default(self):
         seen = []
         self._flux(self._body(temperature='chaud', max_tokens=None, top_p='x'),
-                   post=self._amont_unique(_FauxAmont([_end()]), seen))
-        envoye = seen[0]['json']
-        self.assertEqual(envoye['temperature'], 0.7)
-        self.assertEqual(envoye['max_tokens'], 4096)
-        self.assertEqual(envoye['top_p'], 1.0)
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen))
+        sent = seen[0]['json']
+        self.assertEqual(sent['temperature'], 0.7)
+        self.assertEqual(sent['max_tokens'], 4096)
+        self.assertEqual(sent['top_p'], 1.0)
 
-    def test_system_tronque_a_16000(self):
+    def test_system_truncated_at_16000(self):
         seen = []
         self._flux(self._body(system='x' * 20000),
-                   post=self._amont_unique(_FauxAmont([_end()]), seen))
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen))
         # Truncated at 16 000 chars (a skill's whole instructions fit), then the
         # date/time line is APPENDED: a long
         # persona must never be what cuts the clock.
@@ -378,39 +378,39 @@ class ReglagesTest(_BasePlayground):
         self.assertTrue(content.startswith('x' * 16000))
         self.assertIn('Nous sommes le', content[16000:])
 
-    def test_le_system_porte_la_date_et_l_heure_courantes(self):
+    def test_system_carries_current_date_and_time(self):
         """The model has NO clock (MiMo, measured 2026-10-02: « je n'ai pas
         accès à la date en temps réel »): the system prompt carries the current
         date and time, refreshed at EVERY request so a conversation spanning
         midnight stays right."""
         seen = []
-        self._flux(self._body(), post=self._amont_unique(_FauxAmont([_end()]), seen))
+        self._flux(self._body(), post=self._single_upstream(_FakeUpstream([_end()]), seen))
         content = seen[0]['json']['messages'][0]['content']
         self.assertIn('Nous sommes le', content)
         # weekday + day + month + year + "à HH:MM (timezone)"
         self.assertRegex(content,
                          r'Nous sommes le \S+ \d{1,2} \S+ \d{4} à \d{2}:\d{2} \(.+\)\.')
 
-    def test_max_tokens_rabaisse_a_la_fenetre_restante(self):
+    def test_max_tokens_lowered_to_remaining_window(self):
         """The output cap ADDS UP to the prompt: beyond, the engine refuses the
         request instead of answering shorter."""
         seen = []
-        gros = 'a' * 30000          # ~10 000 tokens at 3 characters/token
-        self._flux(self._body([{'role': 'user', 'content': gros}], max_tokens=131072),
-                   post=self._amont_unique(_FauxAmont([_end()]), seen),
-                   limites={'fake-model': 20000})
+        big = 'a' * 30000          # ~10 000 tokens at 3 characters/token
+        self._flux(self._body([{'role': 'user', 'content': big}], max_tokens=131072),
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen),
+                   limits={'fake-model': 20000})
         self.assertLess(seen[0]['json']['max_tokens'], 131072)
         self.assertGreaterEqual(seen[0]['json']['max_tokens'], 256)
 
-    def test_max_tokens_jamais_sous_le_plancher(self):
+    def test_max_tokens_never_below_floor(self):
         seen = []
         self._flux(self._body([{'role': 'user', 'content': 'a' * 90000}],
                                max_tokens=131072),
-                   post=self._amont_unique(_FauxAmont([_end()]), seen),
-                   limites={'fake-model': 20000})
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen),
+                   limits={'fake-model': 20000})
         self.assertEqual(seen[0]['json']['max_tokens'], 256)
 
-    def test_history_bornee_sur_l_entree_reelle_pas_sur_la_fenetre(self):
+    def test_history_bounded_on_real_input_not_window(self):
         """`effective_ctx` (262 144 measured) describes the WINDOW; the input
         limit is lower (196 608 advertised by ctx_split). Bounding on the
         window let prompts go out that the engine refused with 400."""
@@ -418,14 +418,14 @@ class ReglagesTest(_BasePlayground):
         msgs = [{'role': 'user', 'content': 'vieux ' + 'a' * 20000},
                 {'role': 'assistant', 'content': 'b' * 20000},
                 {'role': 'user', 'content': 'récent'}]
-        self._flux(self._body(msgs), post=self._amont_unique(_FauxAmont([_end()]), seen),
+        self._flux(self._body(msgs), post=self._single_upstream(_FakeUpstream([_end()]), seen),
                    entry=14000)          # budget = (14000-8192)x3 = 17 424 car.
-        envoyes = seen[0]['json']['messages']
+        sent_items = seen[0]['json']['messages']
         # The last exchange is ALWAYS kept; the older one is dropped whole.
-        self.assertEqual(envoyes[-1]['content'], 'récent')
-        self.assertNotIn('vieux ', ' '.join(m['content'] for m in envoyes))
+        self.assertEqual(sent_items[-1]['content'], 'récent')
+        self.assertNotIn('vieux ', ' '.join(m['content'] for m in sent_items))
 
-    def test_input_limit_utilise_ctx_split(self):
+    def test_input_limit_uses_ctx_split(self):
         """The input limit comes from `ctx_split` (the same source as LiteLLM)."""
         with self._db():
             db = portal.get_db()
@@ -445,30 +445,30 @@ class ReglagesTest(_BasePlayground):
                                            '--n-predict 65536', 'llamacpp'), 262144)
             self.assertIsNone(chat._playground_input_limit('inconnu-du-catalogue'))
 
-    def test_reasoning_active_le_template(self):
+    def test_reasoning_enables_template(self):
         seen = []
         self._flux(self._body(reasoning=True, reasoning_effort='medium'),
-                   post=self._amont_unique(_FauxAmont([_end()]), seen))
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen))
         self.assertEqual(seen[0]['json']['chat_template_kwargs'],
                          {'enable_thinking': True, 'reasoning_effort': 'medium'})
 
-    def test_effort_inconnu_n_est_pas_transmis(self):
+    def test_unknown_effort_not_sent(self):
         seen = []
         self._flux(self._body(reasoning=False, reasoning_effort='turbo'),
-                   post=self._amont_unique(_FauxAmont([_end()]), seen))
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen))
         self.assertEqual(seen[0]['json']['chat_template_kwargs'], {'enable_thinking': False})
 
-    def test_effort_high_n_est_plus_transmis(self):
+    def test_high_effort_no_longer_sent(self):
         """The served model REFUSES 'high' (measured 500 Jinja): accepting
         it could only produce a lost round-trip, paid twice in
         preloading."""
         seen = []
         self._flux(self._body(reasoning=True, reasoning_effort='high'),
-                   post=self._amont_unique(_FauxAmont([_end()]), seen))
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen))
         self.assertEqual(seen[0]['json']['chat_template_kwargs'], {'enable_thinking': True})
-        self.assertEqual(len(seen), 1, "un second appel ne doit pas être tenté")
+        self.assertEqual(len(seen), 1, "a second call must not be attempted")
 
-    def test_effort_refuse_par_le_modele_est_retente_sans(self):
+    def test_effort_refused_by_model_retried_without(self):
         """A 500 on the effort value is a template refusal, not an outage: we
         retry once WITHOUT effort rather than kill the round."""
         seen = []
@@ -478,8 +478,8 @@ class ReglagesTest(_BasePlayground):
             calls['n'] += 1
             seen.append(json)
             if calls['n'] == 1:
-                return _FauxAmont([], status_value=500)
-            return _FauxAmont([_delta('Bonjour'), _end()])
+                return _FakeUpstream([], status_value=500)
+            return _FakeUpstream([_delta('Bonjour'), _end()])
 
         body = self._flux(self._body(reasoning=True, reasoning_effort='medium'),
                            post=_post)
@@ -491,35 +491,35 @@ class ReglagesTest(_BasePlayground):
 
 # ── 3. Input guards ───────────────────────────────────────────────────────
 
-class GardesTest(_BasePlayground):
+class GuardsTest(_BasePlayground):
 
-    def test_message_vide(self):
+    def test_empty_message(self):
         body = self._flux({'messages': []})
         self.assertIn('empty_message', body)
 
-    def test_roles_inconnus_ignores(self):
+    def test_unknown_roles_ignored(self):
         body = self._flux({'messages': [{'role': 'tool', 'content': 'x'}]})
         self.assertIn('empty_message', body)
 
-    def test_aucun_modele(self):
+    def test_no_model(self):
         body = self._flux(self._body(), running=())
         self.assertIn('no_model_running', body)
 
-    def test_modele_inconnu_retombe_sur_le_modele_servi(self):
+    def test_unknown_model_falls_back_to_served(self):
         seen = []
         self._flux(self._body(model='modele-inexistant'),
-                   post=self._amont_unique(_FauxAmont([_end()]), seen))
+                   post=self._single_upstream(_FakeUpstream([_end()]), seen))
         self.assertEqual(seen[0]['json']['model'], 'fake-model')
 
-    def test_sans_cle_api_notice_et_aucun_appel(self):
+    def test_no_api_key_notice_and_no_call(self):
         body = self._flux(self._body(), keys=(),
-                           post=self._amont_unique(None,
+                           post=self._single_upstream(None,
                                                    error_text=AssertionError('appel interdit')))
         self.assertIn('no_api_key', body)
 
-    def test_quota_connu_avant_l_appel(self):
+    def test_quota_known_before_call(self):
         with ExitStack() as stack:
-            self._standard(stack, post=self._amont_unique(
+            self._standard(stack, post=self._single_upstream(
                 None, error_text=AssertionError('appel interdit')))
             stack.enter_context(patch.object(chat, 'quota_exceeded_reset', return_value=86400))
             with portal.app.test_request_context('/playground/chat', method='POST',
@@ -529,7 +529,7 @@ class GardesTest(_BasePlayground):
                 body = chat.playground_chat().get_data(as_text=True)
         self.assertIn('quota_exceeded', body)
 
-    def test_maintenance_bloque_le_playground(self):
+    def test_maintenance_blocks_playground(self):
         from flask import Response
         with ExitStack() as stack:
             self._standard(stack)
@@ -544,7 +544,7 @@ class GardesTest(_BasePlayground):
                 body = chat.playground_chat().get_data(as_text=True)
         self.assertIn('Maintenance', body)
 
-    def test_trop_de_messages_d_affilee(self):
+    def test_too_many_messages_in_a_row(self):
         with ExitStack() as stack:
             self._standard(stack)
             stack.enter_context(patch.object(chat, '_chat_rate_limited', return_value=7))
@@ -556,7 +556,7 @@ class GardesTest(_BasePlayground):
         self.assertIn('chat_rate_limited', body)
         self.assertIn('"wait": 7', body)
 
-    def test_rate_limit_notice_structuree_sans_phrase(self):
+    def test_rate_limit_structured_notice_without_sentence(self):
         """The rate-limit refusal is a STRUCTURED notice, exactly
         `{"dgx_notice": {"id": "chat_rate_limited", "wait": N}}`: the server
         sends the id and the wait, the frontend writes the sentence. No raw
@@ -569,24 +569,24 @@ class GardesTest(_BasePlayground):
                 session['username'] = 'demo'
                 session['auth_at'] = int(time.time())
                 body = chat.playground_chat().get_data(as_text=True)
-        trames = [l for l in body.splitlines() if l.startswith('data: ')]
-        payloads = [json.loads(l[6:]) for l in trames if l != 'data: [DONE]']
+        frames = [l for l in body.splitlines() if l.startswith('data: ')]
+        payloads = [json.loads(l[6:]) for l in frames if l != 'data: [DONE]']
         self.assertEqual(payloads,
                          [{'dgx_notice': {'id': 'chat_rate_limited', 'wait': 12}}])
-        self.assertEqual(trames[-1], 'data: [DONE]')
+        self.assertEqual(frames[-1], 'data: [DONE]')
         for phrase in ('Trop de', 'réessaie', 'messages', 'choices'):
             self.assertNotIn(phrase, body)
 
-    def test_csrf_manquant_refuse_400(self):
+    def test_missing_csrf_refused_400(self):
         r = self._client().post('/playground/chat', json=self._body())
         self.assertEqual(r.status_code, 400)
 
-    def test_anonyme_refuse_401(self):
+    def test_anonymous_refused_401(self):
         r = portal.app.test_client().post('/playground/chat', json=self._body(),
                                           headers={'X-CSRFToken': 'x'})
         self.assertIn(r.status_code, (400, 401))
 
-    def test_json_illisible_ne_casse_pas(self):
+    def test_unreadable_json_does_not_break(self):
         r = self._client().post('/playground/chat', data='pas du json',
                                 headers={'X-CSRFToken': self.CSRF,
                                          'Content-Type': 'application/json'})
@@ -596,13 +596,13 @@ class GardesTest(_BasePlayground):
 
 # ── 4. Client abandonment and metrics ──────────────────────────────────────
 
-class MetriquesEtAbandonTest(_BasePlayground):
+class MetricsAndAbortTest(_BasePlayground):
 
-    def test_ttft_inclut_la_phase_outils(self):
+    def test_ttft_includes_tools_phase(self):
         """The published TTFT must be the delay ACTUALLY endured: it started after
         the search, so a request spending 40 s searching announced
         « TTFT 1,2 s »."""
-        mesures = []
+        measures = []
 
         def _phase(*a, **k):
             time.sleep(0.35)
@@ -610,27 +610,27 @@ class MetriquesEtAbandonTest(_BasePlayground):
             yield                       # empty generator
 
         with ExitStack() as stack:
-            self._standard(stack, post=self._amont_unique(
-                _FauxAmont([_delta('Bonjour'), _end()])), web=True)
+            self._standard(stack, post=self._single_upstream(
+                _FakeUpstream([_delta('Bonjour'), _end()])), web=True)
             stack.enter_context(patch.object(chat, '_tools_phase', side_effect=_phase))
             stack.enter_context(patch.object(chat, 'record_ttft',
-                                             side_effect=lambda ms: mesures.append(ms)))
+                                             side_effect=lambda ms: measures.append(ms)))
             with portal.app.test_request_context('/playground/chat', method='POST',
                                                  json=self._body()):
                 session['username'] = 'demo'
                 session['auth_at'] = int(time.time())
                 chat.playground_chat().get_data(as_text=True)
-        self.assertTrue(mesures, 'aucun TTFT enregistré')
-        self.assertGreaterEqual(mesures[0], 300,
-                                f'TTFT {mesures[0]:.0f} ms : la phase outils est exclue')
+        self.assertTrue(measures, 'aucun TTFT enregistré')
+        self.assertGreaterEqual(measures[0], 300,
+                                f'TTFT {measures[0]:.0f} ms: the tools phase is excluded')
 
-    def test_client_qui_part_ferme_l_amont(self):
+    def test_leaving_client_closes_upstream(self):
         """Tab closed / Stop: the read thread must leave its `with`, thus closing
         the upstream connection and freeing the engine slot."""
-        amont = _FauxAmont([_delta('Bon'), _delta('jour')],
-                           bloquant=[_delta('jamais'), _end()])
+        upstream = _FakeUpstream([_delta('Bon'), _delta('jour')],
+                           blocking=[_delta('jamais'), _end()])
         with ExitStack() as stack:
-            self._standard(stack, post=self._amont_unique(amont))
+            self._standard(stack, post=self._single_upstream(upstream))
             with portal.app.test_request_context('/playground/chat', method='POST',
                                                  json=self._body()):
                 session['username'] = 'demo'
@@ -640,22 +640,22 @@ class MetriquesEtAbandonTest(_BasePlayground):
                 next(it)                      # ": ouverture"
                 next(it)                      # first relayed delta
                 it.close()                    # the client leaves
-                amont.debloque.set()          # the fake upstream hands back
+                upstream.debloque.set()          # the fake upstream hands back
                 for _ in range(50):
-                    if amont.closed:
+                    if upstream.closed:
                         break
                     time.sleep(0.05)
-        self.assertTrue(amont.closed, "la connexion amont n'a pas été fermée")
+        self.assertTrue(upstream.closed, "the upstream connection was not closed")
 
-    def test_le_slot_en_vol_est_libere(self):
+    def test_inflight_slot_released(self):
         """`inflight_requests` must keep no row after an abandonment."""
-        amont = _FauxAmont([_delta('a')])
+        upstream = _FakeUpstream([_delta('a')])
         with self._db():
             db = portal.get_db()
             db.execute("DELETE FROM inflight_requests WHERE username='demo'")
             db.commit()
         with ExitStack() as stack:
-            self._standard(stack, post=self._amont_unique(amont))
+            self._standard(stack, post=self._single_upstream(upstream))
             with portal.app.test_request_context('/playground/chat', method='POST',
                                                  json=self._body()):
                 session['username'] = 'demo'
@@ -676,32 +676,32 @@ IMG = 'data:image/jpeg;base64,' + 'A' * 64
 class ImagesTest(_BasePlayground):
     """Attached images: sent as `image_url` parts to the ONLY models that see."""
 
-    def _envoye(self, msgs, voit=True):
+    def _sent(self, msgs, sees=True):
         seen = []
         with patch.object(chat, '_playground_model_vision',
-                          return_value={'fake-model': voit}):
-            self._flux(self._body(msgs), post=self._amont_unique(_FauxAmont([_end()]), seen))
+                          return_value={'fake-model': sees}):
+            self._flux(self._body(msgs), post=self._single_upstream(_FakeUpstream([_end()]), seen))
         return seen[0]['json']['messages']
 
-    def test_image_envoyee_en_partie_image_url(self):
-        m = self._envoye([{'role': 'user', 'content': 'Que vois-tu ?', 'images': [IMG]}])
+    def test_image_sent_as_image_url_part(self):
+        m = self._sent([{'role': 'user', 'content': 'Que vois-tu ?', 'images': [IMG]}])
         self.assertEqual(m[-1]['content'], [
             {'type': 'image_url', 'image_url': {'url': IMG}},
             {'type': 'text', 'text': 'Que vois-tu ?'}])
 
-    def test_modele_sans_vision_recoit_du_texte_seul(self):
-        m = self._envoye([{'role': 'user', 'content': 'Que vois-tu ?', 'images': [IMG]}], voit=False)
+    def test_model_without_vision_gets_text_only(self):
+        m = self._sent([{'role': 'user', 'content': 'Que vois-tu ?', 'images': [IMG]}], sees=False)
         self.assertEqual(m[-1]['content'], 'Que vois-tu ?')
 
-    def test_une_adresse_n_est_jamais_relayee(self):
+    def test_address_never_relayed(self):
         """An http URL would make the engine fetch the image (SSRF)."""
-        m = self._envoye([{'role': 'user', 'content': 'x',
+        m = self._sent([{'role': 'user', 'content': 'x',
                            'images': ['http://169.254.169.254/latest', 'data:text/html;base64,AAAA']}])
         self.assertEqual(m[-1]['content'], 'x')
 
-    def test_seules_les_images_recentes_partent(self):
+    def test_only_recent_images_sent(self):
         msgs = [{'role': 'user', 'content': f'q{i}', 'images': [IMG] * 4} for i in range(3)]
-        m = self._envoye(msgs)
+        m = self._sent(msgs)
         # The system message (persona + current date) never carries an image:
         # the budget being tested is the conversation's.
         m = [x for x in m if x['role'] != 'system']
@@ -709,7 +709,7 @@ class ImagesTest(_BasePlayground):
               if isinstance(x['content'], list) else 0 for x in m]
         self.assertEqual(nb, [0, 4, 4])
 
-    def test_vision_lue_dans_les_arguments(self):
+    def test_vision_read_from_arguments(self):
         self.assertTrue(chat._model_sees('--ctx-size 8 --mmproj m.gguf', 'llamacpp'))
         self.assertFalse(chat._model_sees('--ctx-size 8', 'llamacpp'))
         self.assertTrue(chat._model_sees('--max-seq-len 8 --vision true', 'exllamav3'))
@@ -717,7 +717,7 @@ class ImagesTest(_BasePlayground):
         self.assertFalse(chat._model_sees('--max-model-len 8', 'vllm'))
         self.assertTrue(chat._model_sees('--limit-mm-per-prompt {"image":2}', 'vllm'))
 
-    def test_images_conservees_a_la_sauvegarde(self):
+    def test_images_kept_on_save(self):
         c = self._client()
         msgs = [{'role': 'user', 'content': 'a', 'images': [IMG, 'http://x/y.png']},
                 {'role': 'assistant', 'content': 'b', 'images': [IMG]}]
@@ -730,33 +730,33 @@ class ImagesTest(_BasePlayground):
         self.assertNotIn('images', g[1])
 
 
-class PhaseOutilsTest(_BasePlayground):
+class ToolsPhaseTest(_BasePlayground):
 
-    def test_battement_pendant_un_outil_long(self):
+    def test_heartbeat_during_long_tool(self):
         """`lire_pages` can block 90 s without yielding; the frontend proxy cuts
         at 60 s WITHOUT A BYTE. The result was thus lost and the user saw
         « Erreur réseau » while the read succeeded."""
-        def _outil_lent(name, args, step_log):
+        def _slow_tool(name, args, step_log):
             time.sleep(0.4)
             step_log.append({'step': 'reading_done', 'tool': 'crawl4ai',
                             'read': 1, 'urls': [], 'failures': []})
             return 'content'
 
-        with patch.object(outils_web, '_exec_web_tool', side_effect=_outil_lent), \
+        with patch.object(outils_web, '_exec_web_tool', side_effect=_slow_tool), \
              patch.object(outils_web, 'TOOL_HEARTBEAT_S', 0.1):
-            trames = list(outils_web._exec_web_tool_with_heartbeats('lire_pages', {}, []))
-        battements = [t for t in trames if t == ': battement\n\n']
-        self.assertGreaterEqual(len(battements), 2,
-                                f'battements insuffisants : {trames}')
+            frames = list(outils_web._exec_web_tool_with_heartbeats('lire_pages', {}, []))
+        heartbeats = [t for t in frames if t == ': battement\n\n']
+        self.assertGreaterEqual(len(heartbeats), 2,
+                                f'battements insuffisants : {frames}')
 
-    def test_outil_qui_leve_est_rapporte(self):
+    def test_raising_tool_is_reported(self):
         with patch.object(outils_web, '_exec_web_tool',
                           side_effect=RuntimeError('crawl4ai mort')), \
              patch.object(outils_web, 'TOOL_HEARTBEAT_S', 0.05):
             with self.assertRaises(RuntimeError):
                 list(outils_web._exec_web_tool_with_heartbeats('lire_pages', {}, []))
 
-    def test_le_prompt_d_outils_est_borne(self):
+    def test_tools_prompt_bounded(self):
         """`OUTILS_TOTAL_MAX` only bounds the STARTING conversation: each round
         then stacked up to 4 results of 20 000 characters, reposted in full
         on the next round (~88 000 characters at the 2nd round)."""
@@ -765,60 +765,60 @@ class PhaseOutilsTest(_BasePlayground):
             short_text.append({'role': 'assistant', 'content': '', 'tool_calls': [{'id': str(i)}]})
             short_text.append({'role': 'tool', 'tool_call_id': str(i),
                           'name': 'lire_pages', 'content': 'y' * 20000})
-        taille_avant = sum(len(m['content']) for m in short_text)
+        size_before = sum(len(m['content']) for m in short_text)
         outils_web._bound_tools_prompt(short_text)
-        taille_apres = sum(len(m['content']) for m in short_text)
-        self.assertLessEqual(taille_apres, outils_web.TOOLS_PROMPT_MAX)
-        self.assertLess(taille_apres, taille_avant)
+        size_after = sum(len(m['content']) for m in short_text)
+        self.assertLessEqual(size_after, outils_web.TOOLS_PROMPT_MAX)
+        self.assertLess(size_after, size_before)
         # No orphan `tool` message: a call without an answer breaks the template.
-        ids_appeles = {tc['id'] for m in short_text if m.get('tool_calls')
+        called_ids = {tc['id'] for m in short_text if m.get('tool_calls')
                        for tc in m['tool_calls']}
-        ids_repondus = {m.get('tool_call_id') for m in short_text if m.get('role') == 'tool'}
-        self.assertEqual(ids_repondus - ids_appeles, set())
+        answered_ids = {m.get('tool_call_id') for m in short_text if m.get('role') == 'tool'}
+        self.assertEqual(answered_ids - called_ids, set())
 
-    def test_decision_d_outil_injoignable_est_dite(self):
+    def test_unreachable_tool_decision_is_reported(self):
         """A transport failure of the tool phase was SWALLOWED: the user had
         asked for a search and received a normal-looking answer, without a
         word."""
         import requests as _rq
-        amont = _FauxAmont([_delta('Bonjour'), _end()])
+        upstream = _FakeUpstream([_delta('Bonjour'), _end()])
         calls = {'n': 0}
 
         def _post(url, headers=None, json=None, stream=False, timeout=None):
             calls['n'] += 1
             if calls['n'] == 1:            # the tool DECISION call
                 raise _rq.exceptions.ConnectionError('litellm injoignable')
-            return amont
+            return upstream
 
         body = self._flux(self._body(), post=_post, web=True)
         self.assertIn('dgx_web', body)
         self.assertIn('injoignable', body)
 
-    def test_outil_en_panne_est_dit_au_client(self):
-        def _explose(*a, **k):
+    def test_broken_tool_reported_to_client(self):
+        def _explodes(*a, **k):
             raise RuntimeError('crawl4ai mort')
 
-        amont = _FauxAmont([_delta('Bonjour'), _end()])
+        upstream = _FakeUpstream([_delta('Bonjour'), _end()])
         calls = {'n': 0}
 
         def _post(url, headers=None, json=None, stream=False, timeout=None):
             calls['n'] += 1
             if calls['n'] == 1:            # decision: the model asks for a tool
-                return _FauxAmont([], corps_json={'choices': [{'message': {
+                return _FakeUpstream([], corps_json={'choices': [{'message': {
                     'tool_calls': [{'id': '1', 'function': {
                         'name': 'lire_pages', 'arguments': '{"urls":["https://x"]}'}}]}}]})
-            return amont
+            return upstream
 
-        with patch.object(outils_web, '_exec_web_tool', side_effect=_explose):
+        with patch.object(outils_web, '_exec_web_tool', side_effect=_explodes):
             body = self._flux(self._body(), post=_post, web=True)
         self.assertIn('panne', body)
 
-    def test_phase_outils_absente_sans_recherche(self):
-        amont = _FauxAmont([_delta('Bonjour'), _end()])
-        body = self._flux(self._body(), post=self._amont_unique(amont), web=False)
+    def test_no_tools_phase_without_search(self):
+        upstream = _FakeUpstream([_delta('Bonjour'), _end()])
+        body = self._flux(self._body(), post=self._single_upstream(upstream), web=False)
         self.assertNotIn('dgx_web', body)
 
-    def test_pieces_jointes_atteignent_l_outil_document(self):
+    def test_attachments_reach_document_tool(self):
         """The attachments are collected BEFORE the vision bounding: a model
         without a projector gets no image, but `lire_document` must still read
         what the user joined — that is exactly the model that needs the OCR."""
@@ -830,8 +830,8 @@ class PhaseOutilsTest(_BasePlayground):
             yield                       # empty generator
 
         with ExitStack() as stack:
-            self._standard(stack, post=self._amont_unique(
-                _FauxAmont([_delta('Voilà.'), _end()])), doc=True)
+            self._standard(stack, post=self._single_upstream(
+                _FakeUpstream([_delta('Voilà.'), _end()])), doc=True)
             stack.enter_context(patch.object(chat, '_tools_phase', side_effect=_phase))
             stack.enter_context(patch.object(chat, '_playground_model_vision',
                                              return_value={'fake-model': False}))
@@ -848,9 +848,9 @@ class PhaseOutilsTest(_BasePlayground):
 
 # ── 6. Playground data ────────────────────────────────────────────────────
 
-class DonneesPlaygroundTest(_BasePlayground):
+class PlaygroundDataTest(_BasePlayground):
 
-    def test_data_expose_modeles_limites_et_cle(self):
+    def test_data_exposes_models_limits_and_key(self):
         with patch.object(chat, 'get_running_models', return_value=['fake-model']), \
              patch.object(chat, 'get_user_keys', return_value=[{'key': 'sk-1'}]), \
              patch.object(chat, '_playground_model_limits',
@@ -862,13 +862,13 @@ class DonneesPlaygroundTest(_BasePlayground):
         self.assertEqual(body['model_limits'], {'fake-model': 262144})
         self.assertTrue(body['has_key'])
 
-    def test_data_sans_cle(self):
+    def test_data_without_key(self):
         with patch.object(chat, 'get_running_models', return_value=[]), \
              patch.object(chat, 'get_user_keys', return_value=[]):
             r = self._client().get('/api/playground/data')
         self.assertFalse(r.get_json()['has_key'])
 
-    def test_data_exige_une_session(self):
+    def test_data_requires_session(self):
         self.assertEqual(portal.app.test_client().get('/api/playground/data').status_code, 401)
 
 
@@ -891,7 +891,7 @@ class ConversationsTest(_BasePlayground):
                             'model': 'fake-model', 'messages': json.dumps(messages)},
                       headers={'X-CSRFToken': self.CSRF} if csrf else {})
 
-    def test_aller_retour_et_drapeaux_conserves(self):
+    def test_roundtrip_and_flags_kept(self):
         self._record('c1', [
             {'role': 'user', 'content': 'Question'},
             {'role': 'assistant', 'content': 'Réponse coupée', 'truncated': True},
@@ -905,7 +905,7 @@ class ConversationsTest(_BasePlayground):
         self.assertTrue(msgs[1]['truncated'])
         self.assertTrue(msgs[2]['hidden'])
 
-    def test_id_manquant_refuse(self):
+    def test_missing_id_refused(self):
         c = self._client()
         r = c.post('/conversations', data={'action': 'save', 'messages': '[]'},
                    headers={'X-CSRFToken': self.CSRF})
@@ -923,37 +923,37 @@ class ConversationsTest(_BasePlayground):
         self.assertEqual(len(msgs), 60)
         self.assertEqual(msgs[-1]['content'], 'm79')
 
-    def test_rognage_du_total_conserve_le_dernier(self):
-        gros = 'a' * 400000
-        self._record('c3', [{'role': 'assistant', 'content': gros},
-                                {'role': 'assistant', 'content': gros},
-                                {'role': 'user', 'content': gros},
+    def test_total_trim_keeps_last(self):
+        big = 'a' * 400000
+        self._record('c3', [{'role': 'assistant', 'content': big},
+                                {'role': 'assistant', 'content': big},
+                                {'role': 'user', 'content': big},
                                 {'role': 'assistant', 'content': 'last_value'}])
         msgs = self._client().get('/api/conversations').get_json()['conversations'][0]['messages']
         self.assertLessEqual(len(json.dumps(msgs)), conv_routes.CONV_MAX_CHARS)
         self.assertEqual(msgs[-1]['content'], 'last_value')
 
-    def test_liste_bornee_et_conversation_a_la_demande(self):
+    def test_bounded_list_and_conversation_on_demand(self):
         """30 full conversations make ~60 Mo of JSON loaded at every playground
         opening: past the budget, the list carries `messages_omis` and the
         conversation is requested one by one."""
-        gros = 'a' * 400000
+        big = 'a' * 400000
         for i in range(6):
-            self._record(f'g{i}', [{'role': 'user', 'content': gros + str(i)}])
+            self._record(f'g{i}', [{'role': 'user', 'content': big + str(i)}])
         with patch.object(conv_routes, 'LIST_MAX_BYTES', 1_000_000):
             convs = self._client().get('/api/conversations').get_json()['conversations']
-        omis = [c for c in convs if c.get('omitted_messages')]
-        complets = [c for c in convs if not c.get('omitted_messages')]
-        self.assertTrue(omis, 'aucune conversation omise : la borne ne joue pas')
-        self.assertTrue(complets)
+        omitted = [c for c in convs if c.get('omitted_messages')]
+        complete = [c for c in convs if not c.get('omitted_messages')]
+        self.assertTrue(omitted, 'no conversation omitted: the bound does not apply')
+        self.assertTrue(complete)
         # The first one is ALWAYS whole: we do not open on an empty thread.
         self.assertFalse(convs[0].get('omitted_messages'))
-        target = omis[0]
+        target = omitted[0]
         r = self._client().get(f"/api/conversations/{target['id']}")
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()['conversation']['messages'])
 
-    def test_conversation_d_un_autre_compte_invisible(self):
+    def test_other_account_conversation_invisible(self):
         self._record('prive', [{'role': 'user', 'content': 'secret'}])
         r = self._client('zz-autre').get('/api/conversations/prive')
         self.assertEqual(r.status_code, 404)
@@ -967,7 +967,7 @@ class ConversationsTest(_BasePlayground):
                headers={'X-CSRFToken': self.CSRF})
         self.assertEqual(c.get('/api/conversations').get_json()['conversations'], [])
 
-    def test_purge_au_dela_de_30(self):
+    def test_purge_beyond_30(self):
         for i in range(31):
             self._record(f'p{i}', [{'role': 'user', 'content': f'{i}'}], title=f'T{i}')
         with self._db():
@@ -975,11 +975,11 @@ class ConversationsTest(_BasePlayground):
                 "SELECT COUNT(*) c FROM conversations WHERE username='demo'").fetchone()['c']
         self.assertEqual(n, conv_routes.CONVERSATIONS_MAX)
 
-    def test_csrf_exige(self):
+    def test_csrf_required(self):
         r = self._client().post('/conversations', data={'action': 'delete', 'id': 'x'})
         self.assertEqual(r.status_code, 400)
 
-    def test_partage_ne_montre_pas_les_messages_caches(self):
+    def test_share_hides_hidden_messages(self):
         with self._db():
             db = portal.get_db()
             db.execute("DELETE FROM conversation_shares")
@@ -993,11 +993,11 @@ class ConversationsTest(_BasePlayground):
         share = c.post('/conversations/share', json={'client_id': 'c5'},
                          headers={'X-CSRFToken': self.CSRF}).get_json()
         self.assertTrue(share['ok'])
-        vue = c.get(f"/c/{share['token']}").get_data(as_text=True)
-        self.assertIn('Visible', vue)
-        self.assertNotIn('PROMPT INTERNE DE REPRISE', vue)
+        view = c.get(f"/c/{share['token']}").get_data(as_text=True)
+        self.assertIn('Visible', view)
+        self.assertNotIn('PROMPT INTERNE DE REPRISE', view)
 
-    def test_jeton_de_partage_inconnu_404(self):
+    def test_unknown_share_token_404(self):
         self.assertEqual(self._client().get('/c/inconnu').status_code, 404)
 
 
@@ -1005,66 +1005,66 @@ class ConversationsTest(_BasePlayground):
 
 class FeedbackTest(_BasePlayground):
 
-    def _lignes(self):
+    def _rows(self):
         with self._db():
             return portal.get_db().execute(
                 "SELECT COUNT(*) c FROM support_feedback "
                 "WHERE username='demo'").fetchone()['c']
 
-    def _dernier_vote(self):
+    def _last_vote(self):
         with self._db():
             return portal.get_db().execute(
                 "SELECT vote, comment FROM support_feedback WHERE username='demo' "
                 "ORDER BY id DESC LIMIT 1").fetchone()
 
-    def test_corps_vide_n_enregistre_rien(self):
+    def test_empty_body_records_nothing(self):
         """`int(vote or 0) > 0` made an EMPTY body a negative opinion: the route
         invented « pas utile » out of an absence."""
         c = self._client()
-        before = self._lignes()
+        before = self._rows()
         r = c.post('/support/feedback', json={}, headers={'X-CSRFToken': self.CSRF})
         self.assertEqual(r.status_code, 400)
-        self.assertEqual(self._lignes(), before)
+        self.assertEqual(self._rows(), before)
 
     def test_vote_zero_refuse(self):
         r = self._client().post('/support/feedback', json={'vote': 0},
                                 headers={'X-CSRFToken': self.CSRF})
         self.assertEqual(r.status_code, 400)
 
-    def test_vote_positif_enregistre(self):
+    def test_positive_vote_recorded(self):
         r = self._client().post('/support/feedback',
                                 json={'vote': 1, 'comment': 'clair'},
                                 headers={'X-CSRFToken': self.CSRF})
         self.assertEqual(r.status_code, 200)
-        row = self._dernier_vote()
+        row = self._last_vote()
         self.assertEqual(row['vote'], 1)
         self.assertEqual(row['comment'], 'clair')
 
-    def test_vote_negatif_enregistre(self):
+    def test_negative_vote_recorded(self):
         r = self._client().post('/support/feedback', json={'vote': -1},
                                 headers={'X-CSRFToken': self.CSRF})
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(self._dernier_vote()['vote'], -1)
+        self.assertEqual(self._last_vote()['vote'], -1)
 
 
 # ── 9. Dictation: the sidecar's code is no longer overwritten ───────────────
 
-class DicteeTest(_BasePlayground):
+class DictationTest(_BasePlayground):
 
-    def _envoie(self, content=b'RIFFxxxxWAVE', name='rec.wav'):
+    def _send(self, content=b'RIFFxxxxWAVE', name='rec.wav'):
         c = self._client()
         return c.post('/api/transcribe',
                       data={'audio': (__import__('io').BytesIO(content), name)},
                       headers={'X-CSRFToken': self.CSRF},
                       content_type='multipart/form-data')
 
-    def test_aucun_fichier(self):
+    def test_no_file(self):
         r = self._client().post('/api/transcribe', data={},
                                 headers={'X-CSRFToken': self.CSRF},
                                 content_type='multipart/form-data')
         self.assertEqual(r.status_code, 400)
 
-    def test_transcription_nominale(self):
+    def test_nominal_transcription(self):
         class _R:
             ok = True
             status_code = 200
@@ -1074,11 +1074,11 @@ class DicteeTest(_BasePlayground):
         with patch.object(chat.requests, 'post', return_value=_R()):
             import asr_routes
             with patch.object(asr_routes.requests, 'post', return_value=_R()):
-                r = self._envoie()
+                r = self._send()
         self.assertIn(r.status_code, (200,))
         self.assertEqual(r.get_json()['text'], 'bonjour le monde')
 
-    def test_erreur_d_entree_du_sidecar_reste_400(self):
+    def test_sidecar_input_error_stays_400(self):
         """A recording too short is an INPUT ERROR: presenting it as an upstream failure made it
         look like a service failure."""
         class _R:
@@ -1089,11 +1089,11 @@ class DicteeTest(_BasePlayground):
                 return {'detail': 'Enregistrement trop court.'}
         import asr_routes
         with patch.object(asr_routes.requests, 'post', return_value=_R()):
-            r = self._envoie()
+            r = self._send()
         self.assertEqual(r.status_code, 400)
         self.assertIn('trop court', r.get_json()['error'])
 
-    def test_modele_non_charge_reste_503(self):
+    def test_model_not_loaded_stays_503(self):
         class _R:
             ok = False
             status_code = 503
@@ -1102,32 +1102,32 @@ class DicteeTest(_BasePlayground):
                 return {'detail': 'Modèle non chargé.'}
         import asr_routes
         with patch.object(asr_routes.requests, 'post', return_value=_R()):
-            r = self._envoie()
+            r = self._send()
         self.assertEqual(r.status_code, 503)
 
-    def test_panne_du_sidecar_503(self):
+    def test_sidecar_outage_503(self):
         import requests as _rq
         import asr_routes
         with patch.object(asr_routes.requests, 'post',
                           side_effect=_rq.exceptions.ConnectionError()):
-            r = self._envoie()
+            r = self._send()
         self.assertEqual(r.status_code, 503)
 
-    def test_timeout_repondu_en_503(self):
+    def test_timeout_answered_503(self):
         import requests as _rq
         import asr_routes
         with patch.object(asr_routes.requests, 'post',
                           side_effect=_rq.exceptions.Timeout()):
-            r = self._envoie()
+            r = self._send()
         self.assertEqual(r.status_code, 503)
 
-    def test_disponibilite(self):
+    def test_availability(self):
         import asr_routes
         with patch.object(asr_routes, 'asr_is_up', return_value=False):
             self.assertFalse(self._client().get('/api/transcribe/available')
                              .get_json()['available'])
 
-    def test_chargement_echoue_se_distingue_d_un_demarrage(self):
+    def test_failed_load_differs_from_starting(self):
         """A dictation container running with no model loaded, and publishing WHY,
         is not « en cours de démarrage »: the admin displayed « Démarrage… »
         indefinitely (reported on 2026-10-01). With no published cause,
@@ -1145,18 +1145,18 @@ class DicteeTest(_BasePlayground):
             self.assertEqual(sidecars._sidecar_status('asr'), 'starting')
 
 
-class JaugeDebitCableeTest(_BasePlayground):
+class RateGaugeWiredTest(_BasePlayground):
     """The relay → live gauge wiring (scan C, 2026-10-03). Without this
     assertion, if the relay stopped calling _inflight_tokens /
     _ratio_dernier / _prefill_dernier, the « 0 tok/s » would come back
     SILENTLY: the stats.* tests only see the functions, not the caller."""
 
-    def test_le_relais_alimente_compteur_ratio_et_prefill(self):
-        amont = _FauxAmont([_delta('Bonjour '), _delta('le monde'),
+    def test_relay_feeds_counter_ratio_and_prefill(self):
+        upstream = _FakeUpstream([_delta('Bonjour '), _delta('le monde'),
                             _usage(n=12, entry=340), _end(), b'data: [DONE]'])
         tokens, ratio, prefill = [], [], []
         with ExitStack() as stack:
-            self._standard(stack, post=self._amont_unique(amont))
+            self._standard(stack, post=self._single_upstream(upstream))
             stack.enter_context(patch.object(
                 chat, '_inflight_tokens', side_effect=lambda *a: tokens.append(a)))
             stack.enter_context(patch.object(
@@ -1170,10 +1170,10 @@ class JaugeDebitCableeTest(_BasePlayground):
                 chat.playground_chat().get_data(as_text=True)
         # 1. the live counter is fed, growing characters, with the decode
         #    start (the rate denominator)
-        self.assertTrue(tokens, "le relay n'alimente plus la jauge — « 0 tok/s » silencieux")
+        self.assertTrue(tokens, "the relay no longer feeds the gauge — silent « 0 tok/s »")
         seen = [a[1] for a in tokens]
         self.assertEqual(seen, sorted(seen))
-        self.assertTrue(any(a[2] for a in tokens), "le début de décodage n'est pas transmis")
+        self.assertTrue(any(a[2] for a in tokens), "the decode start is not passed on")
         # 2. the calibration receives the EXACT usage count (16 chars emitted, 12 tokens)
         self.assertEqual(ratio, [(16, 12)])
         # 3. the prefill receives prompt_tokens (340) and a measured TTFT
@@ -1182,7 +1182,7 @@ class JaugeDebitCableeTest(_BasePlayground):
         self.assertGreater(prefill[0][1], 0)
 
 
-class RaisonnementAutoTest(_BasePlayground):
+class AutoReasoningTest(_BasePlayground):
     """The thinking follows the REQUEST, not a fixed switch (2026-10-03 :
     « active le en fonction de ce que les user demandent, pas tout le
     temps »). The default is `auto`; an explicit entry (true/false) always
@@ -1191,26 +1191,26 @@ class RaisonnementAutoTest(_BasePlayground):
 
     def _ctk(self, body):
         seen = []
-        amont = _FauxAmont([_delta('ok'), _usage(3), _end(), b'data: [DONE]'])
-        self._flux(body, post=self._amont_unique(amont, seen=seen))
+        upstream = _FakeUpstream([_delta('ok'), _usage(3), _end(), b'data: [DONE]'])
+        self._flux(body, post=self._single_upstream(upstream, seen=seen))
         return seen[0]['json'].get('chat_template_kwargs') or {}
 
-    def test_auto_declenche_pour_une_demande_qui_le_merite(self):
+    def test_auto_triggers_for_deserving_request(self):
         ctk = self._ctk(self._body(
             [{'role': 'user', 'content': 'Pourquoi ce service redémarre-t-il tout seul ?'}],
             reasoning='auto'))
         self.assertTrue(ctk.get('enable_thinking'))
 
-    def test_auto_se_tait_pour_le_quotidien(self):
+    def test_auto_quiet_for_everyday(self):
         ctk = self._ctk(self._body([{'role': 'user', 'content': 'Salut !'}], reasoning='auto'))
         self.assertFalse(ctk.get('enable_thinking'))
 
-    def test_le_defaut_est_auto(self):
+    def test_default_is_auto(self):
         ctk = self._ctk(self._body(
             [{'role': 'user', 'content': 'Compare les deux architectures.'}]))
         self.assertTrue(ctk.get('enable_thinking'))
 
-    def test_la_saisie_explicite_gagne_toujours(self):
+    def test_explicit_choice_always_wins(self):
         ctk = self._ctk(self._body(
             [{'role': 'user', 'content': 'Compare les deux architectures.'}], reasoning=False))
         self.assertFalse(ctk.get('enable_thinking'))

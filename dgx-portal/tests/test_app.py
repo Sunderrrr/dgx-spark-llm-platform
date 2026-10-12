@@ -40,15 +40,15 @@ class SafeNextTest(unittest.TestCase):
         with portal.app.test_request_context():
             return portal._safe_next(target)
 
-    def test_accepte_un_chemin_local(self):
+    def test_accepts_local_path(self):
         self.assertEqual(self._resolve('/keys'), '/keys')
 
-    def test_bloque_les_redirections_externes(self):
+    def test_blocks_external_redirects(self):
         for target in ('https://evil.com', '//evil.com', 'http://evil.com',
                       '/\\evil.com', '/\tevil', '/\nevil'):
             self.assertEqual(self._resolve(target), '/', target)
 
-    def test_cible_vide(self):
+    def test_empty_target(self):
         self.assertEqual(self._resolve(''), '/')
         self.assertEqual(self._resolve(None), '/')
 
@@ -68,7 +68,7 @@ class LoginLockoutTest(unittest.TestCase):
         portal.get_db().commit()
         self.ctx.pop()
 
-    def test_verrouille_apres_le_seuil(self):
+    def test_locks_after_threshold(self):
         key = 'ip-test|bob'
         for _ in range(portal.LOGIN_MAX_FAILS - 1):
             portal._login_fail(key)
@@ -76,20 +76,20 @@ class LoginLockoutTest(unittest.TestCase):
         portal._login_fail(key)
         self.assertGreater(portal._login_locked(key), 0)
 
-    def test_persiste_en_base(self):
+    def test_persisted_in_db(self):
         portal._login_fail('ip-test|bob')
         row = portal.get_db().execute(
             "SELECT fails FROM login_attempts WHERE key='ip-test|bob'").fetchone()
         self.assertEqual(row['fails'], 1)
 
-    def test_reset_efface_le_compteur(self):
+    def test_reset_clears_counter(self):
         key = 'ip-test|bob'
         for _ in range(portal.LOGIN_MAX_FAILS):
             portal._login_fail(key)
         portal._login_reset(key)
         self.assertEqual(portal._login_locked(key), 0)
 
-    def test_fenetre_glissante(self):
+    def test_sliding_window(self):
         key = 'ip-test|bob'
         portal._login_fail(key)
         # Backdates the first attempt beyond the window: the counter must
@@ -103,7 +103,7 @@ class LoginLockoutTest(unittest.TestCase):
         self.assertEqual(row['fails'], 1)
 
 
-class LoginLockoutParUserTest(unittest.TestCase):
+class LoginLockoutPerUserTest(unittest.TestCase):
     """The lockout threshold must also accumulate per username, not only per
     IP: a botnet changing IP at each try must not bypass the protection
     (each single IP stays under the threshold, the account itself locks)."""
@@ -127,7 +127,7 @@ class LoginLockoutParUserTest(unittest.TestCase):
                                 headers={'X-CSRFToken': 'test-csrf',
                                          'Cf-Connecting-Ip': ip})
 
-    def test_identifiant_invalide_n_ecrit_rien_et_ne_verrouille_pas(self):
+    def test_invalid_username_writes_nothing_and_does_not_lock(self):
         """An out-of-format identifier is refused BEFORE any database write.
 
         `username` comes from an unauthenticated form and keys
@@ -140,9 +140,9 @@ class LoginLockoutParUserTest(unittest.TestCase):
         with portal.app.test_request_context():
             row = portal.get_db().execute(
                 "SELECT 1 FROM login_attempts WHERE key LIKE 'user:x%'").fetchone()
-            self.assertIsNone(row, "rien ne doit être écrit pour un identifiant refusé")
+            self.assertIsNone(row, "nothing must be written for a refused username")
 
-    def test_botnet_ip_rotatives_verrouille_le_user(self):
+    def test_botnet_rotating_ips_locks_user(self):
         # Username matching the format accepted everywhere (USERNAME_RE):
         # we exercise the per-account counter, not the input filter.
         u = 'bob.cible'
@@ -181,7 +181,7 @@ class SessionRegistryTest(unittest.TestCase):
         portal.get_db().commit()
         self.ctx.pop()
 
-    def test_apply_session_cree_le_registre(self):
+    def test_apply_session_creates_registry(self):
         portal._apply_session('bob', 'Bob', False)
         self.assertIn('sid', portal.session)
         row = portal.get_db().execute(
@@ -190,16 +190,16 @@ class SessionRegistryTest(unittest.TestCase):
         self.assertEqual(row['username'], 'bob')
         self.assertEqual(row['revoked'], 0)
 
-    def test_session_valide_pas_expire(self):
+    def test_valid_session_not_expired(self):
         portal._apply_session('bob', 'Bob', False)
         self.assertFalse(portal._session_expired())
 
-    def test_session_revoquee_expire(self):
+    def test_revoked_session_expired(self):
         portal._apply_session('bob', 'Bob', False)
         portal._revoke_user_sessions('bob')
         self.assertTrue(portal._session_expired())
 
-    def test_session_sans_sid_nest_pas_expire(self):
+    def test_session_without_sid_not_expired(self):
         # Session without sid (later than the registry? no: earlier, or a
         # test one): we keep expiry by age, no forced revocation — this is
         # what avoids logging everyone out at migration time.
@@ -218,15 +218,15 @@ class CsrfTest(unittest.TestCase):
         portal.app.config['TESTING'] = True
         self.client = portal.app.test_client()
 
-    def test_post_sans_jeton_refuse(self):
+    def test_post_without_token_refused(self):
         self.assertEqual(self.client.post('/login', data={'username': 'x'}).status_code, 400)
 
-    def test_post_avec_mauvais_jeton_refuse(self):
+    def test_post_with_wrong_token_refused(self):
         r = self.client.post('/login', data={'username': 'x'},
                              headers={'X-CSRFToken': 'faux'})
         self.assertEqual(r.status_code, 400)
 
-    def test_get_ne_demande_pas_de_jeton(self):
+    def test_get_needs_no_token(self):
         self.assertNotEqual(self.client.get('/api/config').status_code, 400)
 
 
@@ -242,7 +242,7 @@ class AuthGateTest(unittest.TestCase):
             r = self.client.get(route)
             self.assertIn(r.status_code, (302, 401, 403), f"{route} -> {r.status_code}")
 
-    def test_api_session_dit_si_le_navigateur_est_connecte(self):
+    def test_api_session_says_if_browser_logged_in(self):
         # The Next.js proxy redirects to /login on a 401 and ONLY on a 401
         # (lib/session-gate.ts): a 302 here would serve the empty page again.
         self.assertEqual(self.client.get('/api/session').status_code, 401)
@@ -261,45 +261,45 @@ class AuthGateTest(unittest.TestCase):
 class McpToolNameTest(unittest.TestCase):
     """A hostile MCP server must not be able to mask a built-in tool."""
 
-    def test_prefixe_toujours_present(self):
+    def test_prefix_always_present(self):
         self.assertTrue(assistance._mcp_tool_name(3, 'search').startswith('mcp_3_'))
 
-    def test_pas_de_collision_avec_les_outils_integres(self):
-        integres = {'create_api_key', 'revoke_api_key', 'request_budget',
+    def test_no_collision_with_builtin_tools(self):
+        builtin = {'create_api_key', 'revoke_api_key', 'request_budget',
                     'request_model', 'launch_model', 'stop_model', 'use_skill'}
-        for name in list(integres) + ['../create_api_key', 'create api key']:
-            self.assertNotIn(assistance._mcp_tool_name(1, name), integres)
+        for name in list(builtin) + ['../create_api_key', 'create api key']:
+            self.assertNotIn(assistance._mcp_tool_name(1, name), builtin)
 
-    def test_caracteres_dangereux_neutralises(self):
-        genere = assistance._mcp_tool_name(1, 'a b/c\\d"e')
-        self.assertTrue(all(c.isalnum() or c in '_-' for c in genere), genere)
+    def test_dangerous_characters_neutralized(self):
+        generated = assistance._mcp_tool_name(1, 'a b/c\\d"e')
+        self.assertTrue(all(c.isalnum() or c in '_-' for c in generated), generated)
 
 
 class CleanReplyTest(unittest.TestCase):
-    def test_retire_le_bloc_de_raisonnement(self):
+    def test_removes_reasoning_block(self):
         self.assertEqual(assistance._clean_reply('<think>bla</think>Bonjour'), 'Bonjour')
 
-    def test_garde_ce_qui_suit_le_marqueur_final(self):
+    def test_keeps_what_follows_final_marker(self):
         self.assertEqual(assistance._clean_reply('cheminement...\n### Réponse\nVoilà'), 'Voilà')
 
-    def test_texte_simple_inchange(self):
+    def test_plain_text_unchanged(self):
         self.assertEqual(assistance._clean_reply('Bonjour'), 'Bonjour')
 
 
 class SseFramingTest(unittest.TestCase):
     """The frontend only reads `data:` lines; the framing must stay exact."""
 
-    def test_trame_texte(self):
-        trame = chat._sse_text('salut')
-        self.assertTrue(trame.startswith('data: '))
-        self.assertTrue(trame.endswith('\n\n'))
-        self.assertIn('salut', trame)
+    def test_text_frame(self):
+        frame = chat._sse_text('salut')
+        self.assertTrue(frame.startswith('data: '))
+        self.assertTrue(frame.endswith('\n\n'))
+        self.assertIn('salut', frame)
 
-    def test_echappe_les_sauts_de_ligne(self):
+    def test_escapes_newlines(self):
         # A raw \n would cut the SSE frame in two and break the stream.
         self.assertNotIn('\n', chat._sse_text('a\nb')[:-2])
 
-    def test_done_optionnel(self):
+    def test_done_optional(self):
         self.assertIn('[DONE]', ''.join(chat._sse_chunks('x', done=True)))
         self.assertNotIn('[DONE]', ''.join(chat._sse_chunks('x', done=False)))
         # Structured notices share the switch: a mid-stream notice carries
@@ -309,7 +309,7 @@ class SseFramingTest(unittest.TestCase):
 
 
 class AvatarTest(unittest.TestCase):
-    def test_liste_blanche_stricte(self):
+    def test_strict_allowlist(self):
         # The id lands in an <img> src: no free input.
         self.assertIn('claude', portal.AVATAR_IDS)
         self.assertNotIn('../../etc/passwd', portal.AVATAR_IDS)
@@ -324,21 +324,21 @@ class SessionLifetimeTest(unittest.TestCase):
     """A session must not be eternal: the signed cookie carries `is_admin`,
     a cookie theft otherwise gave permanent access."""
 
-    def test_session_fraiche_valide(self):
+    def test_fresh_session_valid(self):
         with portal.app.test_request_context():
             from flask import session
             session['username'] = 'bob'
             session['auth_at'] = time.time()
             self.assertFalse(portal._session_expired())
 
-    def test_session_perimee(self):
+    def test_stale_session(self):
         with portal.app.test_request_context():
             from flask import session
             session['username'] = 'bob'
             session['auth_at'] = time.time() - portal.SESSION_MAX_AGE - 1
             self.assertTrue(portal._session_expired())
 
-    def test_session_sans_horodatage_est_perimee(self):
+    def test_session_without_timestamp_is_stale(self):
         # Sessions issued before auth_at was added: we prefer forcing a
         # re-login rather than treat them as eternal.
         with portal.app.test_request_context():
@@ -346,7 +346,7 @@ class SessionLifetimeTest(unittest.TestCase):
             session['username'] = 'bob'
             self.assertTrue(portal._session_expired())
 
-    def test_anonyme_non_concerne(self):
+    def test_anonymous_not_affected(self):
         with portal.app.test_request_context():
             self.assertFalse(portal._session_expired())
 
@@ -356,11 +356,11 @@ class GuardedToolsTest(unittest.TestCase):
     model's context: irreversible actions must be out of reach of a prompt
     injection."""
 
-    def test_les_actions_destructives_sont_gardees(self):
+    def test_destructive_actions_are_guarded(self):
         for name in ('revoke_api_key', 'launch_model', 'stop_model'):
             self.assertIn(name, assistance.GUARDED_TOOLS)
 
-    def test_les_actions_inoffensives_ne_le_sont_pas(self):
+    def test_harmless_actions_are_not(self):
         for name in ('request_budget', 'request_model', 'list_models'):
             self.assertNotIn(name, assistance.GUARDED_TOOLS)
 
@@ -370,11 +370,11 @@ class OidcUsernameTest(unittest.TestCase):
     and that value becomes the ownership key of all data: it must pass the
     same filter as the LDAP path."""
 
-    def test_accepte_un_identifiant_normal(self):
+    def test_accepts_normal_username(self):
         for name in ('alice', 'jean.dupont', 'a-b_c', 'x' * 64):
             self.assertTrue(portal.USERNAME_RE.match(name), name)
 
-    def test_rejette_les_identifiants_forges(self):
+    def test_rejects_forged_usernames(self):
         for name in ('', 'a' * 65, '../admin', 'bob@evil.com', 'bob bob',
                     'bob\nadmin', "bob'--", 'bob/../root'):
             self.assertIsNone(portal.USERNAME_RE.match(name), name)
@@ -387,32 +387,32 @@ class CsrfLazyTest(unittest.TestCase):
     different token, the last Set-Cookie overwrote the other, and the POST
     /login left with an orphan token → 400, displayed « Identifiants incorrects »."""
 
-    def test_une_requete_anonyme_ne_cree_pas_de_session(self):
+    def test_anonymous_request_creates_no_session(self):
         client = portal.app.test_client()
         response = client.get('/api/whoami')
         self.assertEqual(response.status_code, 401)
         self.assertNotIn('Set-Cookie', response.headers)
 
-    def test_api_csrf_cree_le_jeton_et_le_rend(self):
+    def test_api_csrf_creates_and_returns_token(self):
         client = portal.app.test_client()
         response = client.get('/api/csrf')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()['token'])
         self.assertIn('Set-Cookie', response.headers)
 
-    def test_le_jeton_est_stable_entre_deux_appels(self):
+    def test_token_stable_between_calls(self):
         client = portal.app.test_client()
         first = client.get('/api/csrf').get_json()['token']
         # An interleaved request must not rotate the token.
         client.get('/api/whoami')
         self.assertEqual(client.get('/api/csrf').get_json()['token'], first)
 
-    def test_post_sans_session_refuse(self):
+    def test_post_without_session_refused(self):
         client = portal.app.test_client()
         self.assertEqual(client.post('/logout', data={'csrf_token': 'inventé'}).status_code, 400)
 
 
-class CsrfApresConnexionTest(unittest.TestCase):
+class CsrfAfterLoginTest(unittest.TestCase):
     """Regression of 2026-09-14: opening a session REPLACED the CSRF token.
 
     The browser keeps the one it memorized at page load; from then on every
@@ -424,7 +424,7 @@ class CsrfApresConnexionTest(unittest.TestCase):
     session fixation.
     """
 
-    def test_le_jeton_du_client_survit_a_l_ouverture_de_session(self):
+    def test_client_token_survives_login(self):
         from flask import session as session_flask
 
         with portal.app.test_request_context('/'):
@@ -432,7 +432,7 @@ class CsrfApresConnexionTest(unittest.TestCase):
             auth._apply_session('demo', 'demo', False, via_sso=True)
             self.assertEqual(session_flask['csrf'], 'jeton-que-le-navigateur-connait')
 
-    def test_un_jeton_est_cree_quand_il_en_manque(self):
+    def test_token_created_when_missing(self):
         from flask import session as session_flask
 
         with portal.app.test_request_context('/'):
@@ -440,7 +440,7 @@ class CsrfApresConnexionTest(unittest.TestCase):
             auth._apply_session('demo', 'demo', False)
             self.assertTrue(session_flask.get('csrf'))
 
-    def test_la_deconnexion_accepte_le_jeton_du_client(self):
+    def test_logout_accepts_client_token(self):
         """The full path of the symptom: SSO session, client token, POST."""
         client = portal.app.test_client()
         with client.session_transaction() as s:
@@ -453,7 +453,7 @@ class CsrfApresConnexionTest(unittest.TestCase):
         response = client.post('/logout', data={'csrf_token': 'jeton-du-client'})
         self.assertEqual(response.status_code, 302)
 
-    def test_la_deconnexion_refuse_toujours_un_jeton_invente(self):
+    def test_logout_always_refuses_invented_token(self):
         """The fix must not turn the guard into a sieve."""
         client = portal.app.test_client()
         with client.session_transaction() as s:
@@ -475,28 +475,28 @@ class ClientIpTest(unittest.TestCase):
                                              environ_base={'REMOTE_ADDR': '172.19.0.5'}):
             return portal._client_ip()
 
-    def test_prefere_cf_connecting_ip(self):
+    def test_prefers_cf_connecting_ip(self):
         self.assertEqual(self._ip({'Cf-Connecting-Ip': '203.0.113.10',
                                    'X-Forwarded-For': '10.0.0.1, 172.19.0.5'}),
                          '203.0.113.10')
 
-    def test_retombe_sur_le_dernier_x_forwarded_for(self):
+    def test_falls_back_to_last_x_forwarded_for(self):
         # The LAST element is the one OUR trusted hop appended; the first is
         # client-controlled and let a caller rotate a fake prefix to get a fresh
         # lockout key on every attempt (audit 2026-10-06, L2).
         self.assertEqual(self._ip({'X-Forwarded-For': '203.0.113.10, 172.19.0.5'}),
                          '172.19.0.5')
 
-    def test_retombe_sur_remote_addr(self):
+    def test_falls_back_to_remote_addr(self):
         self.assertEqual(self._ip({}), '172.19.0.5')
 
-    def test_deux_visiteurs_ne_partagent_pas_le_meme_verrou(self):
+    def test_two_visitors_do_not_share_a_lock(self):
         a = self._ip({'Cf-Connecting-Ip': '203.0.113.10'})
         b = self._ip({'Cf-Connecting-Ip': '203.0.113.20'})
         self.assertNotEqual(a, b)
 
 
-class HistoriqueModeleTest(unittest.TestCase):
+class ModelHistoryTest(unittest.TestCase):
     """What the playground sends back to the model must NEVER be amputated.
 
     The original bug: each message was truncated to 8 000 characters, so
@@ -504,20 +504,20 @@ class HistoriqueModeleTest(unittest.TestCase):
     claimed to have interrupted itself — true from its point of view.
     """
 
-    def _msgs(self, *tailles):
+    def _msgs(self, *sizes):
         return [{'role': 'user' if i % 2 == 0 else 'assistant', 'content': 'x' * n}
-                for i, n in enumerate(tailles)]
+                for i, n in enumerate(sizes)]
 
-    def test_un_gros_message_n_est_pas_tronque(self):
+    def test_big_message_not_truncated(self):
         h = self._msgs(50, 57_000)
         out = chat._history_for_model(h, '', 262144)
         self.assertEqual(len(out[-1]['content']), 57_000)
 
-    def test_sans_contexte_connu_on_ne_touche_a_rien(self):
+    def test_unknown_context_touches_nothing(self):
         h = self._msgs(10, 900_000)
         self.assertEqual(chat._history_for_model(h, '', None), h)
 
-    def test_le_debordement_retire_les_plus_anciens(self):
+    def test_overflow_drops_oldest(self):
         # budget = (32768 - 8192) * 3 = 73 728 characters
         h = self._msgs(40_000, 40_000, 40_000, 500)
         out = chat._history_for_model(h, '', 32768)
@@ -526,20 +526,20 @@ class HistoriqueModeleTest(unittest.TestCase):
         self.assertEqual(out[-1]['content'], h[-1]['content'])
         self.assertEqual(len(out[-2]['content']), 40_000)
 
-    def test_jamais_moins_de_deux_messages(self):
+    def test_never_fewer_than_two_messages(self):
         h = self._msgs(500_000, 500_000)
         out = chat._history_for_model(h, '', 32768)
         self.assertEqual(len(out), 2)
         self.assertEqual(len(out[0]['content']), 500_000)
 
-    def test_le_systeme_compte_dans_le_budget(self):
+    def test_system_counts_in_budget(self):
         h = self._msgs(30_000, 30_000, 30_000, 100)
-        sans = chat._history_for_model(list(h), '', 32768)
-        avec = chat._history_for_model(list(h), 'y' * 20_000, 32768)
-        self.assertLessEqual(len(avec), len(sans))
+        without = chat._history_for_model(list(h), '', 32768)
+        with_ = chat._history_for_model(list(h), 'y' * 20_000, 32768)
+        self.assertLessEqual(len(with_), len(without))
 
 
-class ContexteOutilsTest(unittest.TestCase):
+class ToolsContextTest(unittest.TestCase):
     """The tool phase re-reads a SHORT version of the conversation.
 
     Passing it the whole history added a full preload before the answer:
@@ -549,32 +549,32 @@ class ContexteOutilsTest(unittest.TestCase):
     file.
     """
 
-    def test_un_gros_message_est_raccourci(self):
+    def test_big_message_is_shortened(self):
         msgs = [{'role': 'user', 'content': 'x' * 65_000},
                 {'role': 'user', 'content': 'et maintenant ?'}]
         out = outils_web._tools_context(msgs)
         self.assertTrue(all(len(m['content']) <= outils_web.TOOLS_MSG_MAX + 8 for m in out))
 
-    def test_le_total_reste_borne(self):
+    def test_total_stays_bounded(self):
         msgs = [{'role': 'user', 'content': 'y' * 20_000} for _ in range(20)]
         out = outils_web._tools_context(msgs)
         self.assertLessEqual(sum(len(m['content']) for m in out),
                              outils_web.TOOLS_TOTAL_MAX + outils_web.TOOLS_MSG_MAX)
 
-    def test_le_dernier_message_est_toujours_la(self):
+    def test_last_message_always_there(self):
         msgs = [{'role': 'user', 'content': 'z' * 30_000} for _ in range(10)]
         msgs.append({'role': 'user', 'content': 'CE QUE JE DEMANDE'})
         out = outils_web._tools_context(msgs)
         self.assertIn('CE QUE JE DEMANDE', out[-1]['content'])
 
-    def test_le_systeme_est_conserve_en_tete(self):
+    def test_system_kept_first(self):
         msgs = [{'role': 'system', 'content': 'consignes'},
                 {'role': 'user', 'content': 'bonjour'}]
         out = outils_web._tools_context(msgs)
         self.assertEqual(out[0]['role'], 'system')
         self.assertIn('consignes', out[0]['content'])
 
-    def test_debut_et_fin_conserves_dans_un_message_coupe(self):
+    def test_start_and_end_kept_in_cut_message(self):
         # The request is often at the top, the last instruction at the tail: it is
         # the belly of the file that teaches nothing.
         msgs = [{'role': 'user', 'content': 'DEBUT' + 'm' * 60_000 + 'FIN'}]
@@ -582,7 +582,7 @@ class ContexteOutilsTest(unittest.TestCase):
         self.assertIn('DEBUT', out[-1]['content'])
         self.assertIn('FIN', out[-1]['content'])
 
-    def test_conversation_courte_passe_telle_quelle(self):
+    def test_short_conversation_passes_unchanged(self):
         msgs = [{'role': 'user', 'content': 'salut'},
                 {'role': 'assistant', 'content': 'bonjour'}]
         self.assertEqual([m['content'] for m in outils_web._tools_context(msgs)],
@@ -601,7 +601,7 @@ class PertinenceRechercheTest(unittest.TestCase):
     def _u(self, t):
         return [{'role': 'user', 'content': t}]
 
-    def test_les_faux_declencheurs_historiques(self):
+    def test_historical_false_triggers(self):
         for t in ("j'aurais besoin que tu regardes dans ce fichier, "
                   "c'est un jeu d'échecs en ligne, sauf que j'ai un problème",
                   "fais-moi un jeu d'échecs en ligne",
@@ -613,7 +613,7 @@ class PertinenceRechercheTest(unittest.TestCase):
                   "quel est le prix du bitcoin ?"):
             self.assertFalse(outils_web._search_relevant(self._u(t)), t)
 
-    def test_les_directives_explicites(self):
+    def test_explicit_directives(self):
         for t in ("cherche sur internet les règles du blackjack",
                   "cherche sur le web la doc de cette API",
                   "va voir sur internet ce que ça donne",
@@ -626,7 +626,7 @@ class PertinenceRechercheTest(unittest.TestCase):
                   "renseigne-toi sur internet là-dessus"):
             self.assertTrue(outils_web._search_relevant(self._u(t)), t)
 
-    def test_mettre_en_ligne_ne_declenche_pas(self):
+    def test_putting_online_does_not_trigger(self):
         # 2026-09: « en ligne » describes a state; « je cherche à mettre mon
         # site en ligne » opened a web search — that is over.
         for t in ("je cherche à mettre mon site en ligne",
@@ -634,16 +634,16 @@ class PertinenceRechercheTest(unittest.TestCase):
                   "fais-moi un jeu d'échecs en ligne"):
             self.assertFalse(outils_web._search_relevant(self._u(t)), t)
 
-    def test_la_directive_marche_meme_avec_un_fichier_colle(self):
+    def test_directive_works_even_with_pasted_file(self):
         h = [{'role': 'user', 'content': "```html\n" + ("x" * 5000)
               + "\n```\n\ncherche sur internet la doc de cette balise"}]
         self.assertTrue(outils_web._search_relevant(h))
 
-    def test_conversation_vide(self):
+    def test_empty_conversation(self):
         self.assertFalse(outils_web._search_relevant([]))
 
 
-class VersionsPerimeesTest(unittest.TestCase):
+class StaleVersionsTest(unittest.TestCase):
     """Only the last version of each file goes back to the model.
 
     Measured on real conversations: 42 332 of the 72 182 characters of a
@@ -653,57 +653,57 @@ class VersionsPerimeesTest(unittest.TestCase):
     def _msg(self, role, content):
         return {'role': role, 'content': content}
 
-    def _fichier(self, name, marker, n=3000):
+    def _file(self, name, marker, n=3000):
         return f"Voici `{name}` :\n\n```html\n<!-- {marker} -->\n" + ("x" * n) + "\n```"
 
-    def test_seule_la_derniere_version_survit(self):
+    def test_only_last_version_survives(self):
         h = [self._msg('user', 'fais un jeu'),
-             self._msg('assistant', self._fichier('index.html', 'V1')),
+             self._msg('assistant', self._file('index.html', 'V1')),
              self._msg('user', 'corrige'),
-             self._msg('assistant', self._fichier('index.html', 'V2'))]
+             self._msg('assistant', self._file('index.html', 'V2'))]
         out = chat._without_stale_versions(h)
         self.assertNotIn('V1', out[1]['content'])
         self.assertIn('version précédente', out[1]['content'])
         self.assertIn('V2', out[3]['content'])
 
-    def test_deux_fichiers_distincts_gardent_chacun_leur_version(self):
-        h = [self._msg('assistant', self._fichier('index.html', 'HTML1')),
-             self._msg('assistant', self._fichier('style.css', 'CSS1'))]
+    def test_two_distinct_files_keep_their_version(self):
+        h = [self._msg('assistant', self._file('index.html', 'HTML1')),
+             self._msg('assistant', self._file('style.css', 'CSS1'))]
         out = chat._without_stale_versions(h)
         self.assertIn('HTML1', out[0]['content'])
         self.assertIn('CSS1', out[1]['content'])
 
-    def test_le_code_colle_par_l_utilisateur_n_est_jamais_touche(self):
-        colle = "```html\n<!-- COLLE -->\n" + ("y" * 3000) + "\n```"
-        h = [self._msg('user', colle),
-             self._msg('assistant', self._fichier('index.html', 'V1'))]
+    def test_user_pasted_code_never_touched(self):
+        pasted = "```html\n<!-- COLLE -->\n" + ("y" * 3000) + "\n```"
+        h = [self._msg('user', pasted),
+             self._msg('assistant', self._file('index.html', 'V1'))]
         out = chat._without_stale_versions(h)
         self.assertIn('COLLE', out[0]['content'])
 
-    def test_un_court_extrait_ne_perime_rien(self):
-        h = [self._msg('assistant', self._fichier('index.html', 'V1')),
+    def test_short_excerpt_stales_nothing(self):
+        h = [self._msg('assistant', self._file('index.html', 'V1')),
              self._msg('assistant', "Regarde :\n\n```js\nconst a = 1;\n```")]
         out = chat._without_stale_versions(h)
         self.assertIn('V1', out[0]['content'])
 
-    def test_la_prose_autour_du_bloc_est_conservee(self):
-        h = [self._msg('assistant', self._fichier('index.html', 'V1') + "\n\nJ'ai ajouté le son."),
-             self._msg('assistant', self._fichier('index.html', 'V2'))]
+    def test_prose_around_block_kept(self):
+        h = [self._msg('assistant', self._file('index.html', 'V1') + "\n\nJ'ai ajouté le son."),
+             self._msg('assistant', self._file('index.html', 'V2'))]
         out = chat._without_stale_versions(h)
         self.assertIn("J'ai ajouté le son.", out[0]['content'])
 
-    def test_le_gain_est_reel(self):
-        h = [self._msg('assistant', self._fichier('index.html', f'V{i}', 20000)) for i in range(4)]
+    def test_gain_is_real(self):
+        h = [self._msg('assistant', self._file('index.html', f'V{i}', 20000)) for i in range(4)]
         before = sum(len(m['content']) for m in h)
-        apres = sum(len(m['content']) for m in chat._without_stale_versions(h))
-        self.assertLess(apres, before * 0.4)
+        after = sum(len(m['content']) for m in chat._without_stale_versions(h))
+        self.assertLess(after, before * 0.4)
 
-    def test_conversation_sans_code_inchangee(self):
+    def test_conversation_without_code_unchanged(self):
         h = [self._msg('user', 'bonjour'), self._msg('assistant', 'salut')]
         self.assertEqual(chat._without_stale_versions(h), h)
 
 
-class TrouvaillesTest(unittest.TestCase):
+class FindingsTest(unittest.TestCase):
     """What the search brings back is reinjected as TEXT, never as a `tool` role.
 
     Sending `tool_calls` and `tool`-role messages without declaring the
@@ -711,25 +711,25 @@ class TrouvaillesTest(unittest.TestCase):
     produced, no content received, « The model returned no response ».
     """
 
-    def test_rien_trouve_rien_ajoute(self):
+    def test_nothing_found_nothing_added(self):
         self.assertEqual(outils_web._findings_text([]), '')
 
-    def test_le_contenu_est_repris_et_cadre_comme_externe(self):
+    def test_content_included_and_framed_as_external(self):
         t = outils_web._findings_text([('recherche_web', '{"resultats": [{"url": "https://x.fr"}]}')])
         self.assertIn('https://x.fr', t)
         self.assertIn('externes', t)
 
-    def test_le_texte_reste_borne(self):
+    def test_text_stays_bounded(self):
         t = outils_web._findings_text([('lire_pages', 'x' * 200_000)])
         self.assertLessEqual(len(t), 40_000)
 
-    def test_plusieurs_appels_sont_tous_repris(self):
+    def test_several_calls_all_included(self):
         t = outils_web._findings_text([('recherche_web', 'AAA'), ('lire_pages', 'BBB')])
         self.assertIn('AAA', t)
         self.assertIn('BBB', t)
 
 
-class GardeDesRoutesTest(unittest.TestCase):
+class RouteGuardTest(unittest.TestCase):
     """Every portal route is authenticated, except an explicit list.
 
     Recounted on 2026-09-13 on the live `url_map`: 153 routes, 11 without
@@ -750,7 +750,7 @@ class GardeDesRoutesTest(unittest.TestCase):
 
     # Each entry is public FOR A REASON. We add none without
     # savoir dire laquelle.
-    PUBLIQUES = {
+    PUBLIC_ROUTES = {
         'api_config':         "ne renvoie que {oidc_enabled}, lu avant connexion",
         # The deployment's logo, shown on the LOGIN page — there is no session
         # yet. It is branding (like the favicon), not user data: the route
@@ -785,33 +785,33 @@ class GardeDesRoutesTest(unittest.TestCase):
                                     "partagée (jeton opaque) : contenu échappé",
     }
 
-    def test_aucune_route_sans_garde_hors_liste(self):
-        sans_garde = set()
-        for regle in portal.app.url_map.iter_rules():
-            vue = portal.app.view_functions.get(regle.endpoint)
-            if vue is None or getattr(vue, '_guard', None):
+    def test_no_unguarded_route_outside_list(self):
+        unguarded = set()
+        for rule in portal.app.url_map.iter_rules():
+            view = portal.app.view_functions.get(rule.endpoint)
+            if view is None or getattr(view, '_guard', None):
                 continue
-            sans_garde.add(regle.endpoint)
-        nouvelles = sans_garde - set(self.PUBLIQUES)
-        self.assertEqual(nouvelles, set(),
-                         "route(s) sans login_required/admin_required : "
-                         f"{sorted(nouvelles)} — publier une route est un choix, "
-                         "pas un défaut : documente-la dans PUBLIQUES ou ajoute une garde.")
+            unguarded.add(rule.endpoint)
+        new_ones = unguarded - set(self.PUBLIC_ROUTES)
+        self.assertEqual(new_ones, set(),
+                         "route(s) without login_required/admin_required: "
+                         f"{sorted(new_ones)} — publishing a route is a choice, "
+                         "not a default: document it in PUBLIC_ROUTES or add a guard.")
 
-    def test_la_liste_des_publiques_ne_pourrit_pas(self):
+    def test_public_list_does_not_rot(self):
         """An entry matching no route anymore must disappear."""
         known_set = {r.endpoint for r in portal.app.url_map.iter_rules()}
-        self.assertEqual(set(self.PUBLIQUES) - known_set, set(),
-                         "entrée(s) obsolète(s) dans PUBLIQUES")
+        self.assertEqual(set(self.PUBLIC_ROUTES) - known_set, set(),
+                         "stale entry(ies) in PUBLIC_ROUTES")
 
-    def test_le_marqueur_est_bien_pose(self):
+    def test_marker_is_set(self):
         """Without a marker, the main test would pass while seeing nothing."""
-        gardees = [r.endpoint for r in portal.app.url_map.iter_rules()
+        guarded = [r.endpoint for r in portal.app.url_map.iter_rules()
                    if getattr(portal.app.view_functions.get(r.endpoint), '_guard', None)]
-        self.assertGreater(len(gardees), 90, "le marqueur _guard a disparu des décorateurs")
+        self.assertGreater(len(guarded), 90, "the _guard marker disappeared from the decorators")
 
 
-class NomsResolublesTest(unittest.TestCase):
+class ResolvableNamesTest(unittest.TestCase):
     """No portal module loads a name defined nowhere.
 
     Python resolves globals AT CALL time. A name gone to another module
@@ -831,10 +831,10 @@ class NomsResolublesTest(unittest.TestCase):
         'image_routes', 'music_routes', 'voice_routes', 'asr_routes', 'ocr_routes',
     ]
 
-    def _noms_non_resolus(self, path):
-        arbre = ast.parse(io.open(path, encoding='utf-8').read())
+    def _unresolved_names(self, path):
+        tree = ast.parse(io.open(path, encoding='utf-8').read())
         known = set(dir(builtins)) | {'__file__', '__name__', '__doc__'}
-        for n in ast.walk(arbre):
+        for n in ast.walk(tree):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 known.add(n.name)
             elif isinstance(n, (ast.Import, ast.ImportFrom)):
@@ -848,11 +848,11 @@ class NomsResolublesTest(unittest.TestCase):
                 known.add(n.name)
             elif isinstance(n, ast.Global):
                 known.update(n.names)
-        return sorted({n.id for n in ast.walk(arbre)
+        return sorted({n.id for n in ast.walk(tree)
                        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
                        and n.id not in known})
 
-    def test_chaque_module_resout_tous_ses_noms(self):
+    def test_each_module_resolves_all_names(self):
         racine = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         for name in self.MODULES:
             path = os.path.join(racine, f'{name}.py')
@@ -860,10 +860,10 @@ class NomsResolublesTest(unittest.TestCase):
                 continue
             with self.subTest(module=name):
                 self.assertEqual(
-                    self._noms_non_resolus(path), [],
-                    f"{name}.py charge un nom défini nulle part — il lèvera un "
-                    "NameError à l'appel. Réimporte-le depuis le module qui le "
-                    "définit désormais.")
+                    self._unresolved_names(path), [],
+                    f"{name}.py loads a name defined nowhere — it will raise a "
+                    "NameError when called. Re-import it from the module that "
+                    "defines it now.")
 
 
 class HealthRouteTest(unittest.TestCase):
@@ -872,18 +872,18 @@ class HealthRouteTest(unittest.TestCase):
     def setUp(self):
         portal.app.config["TESTING"] = True
 
-    def test_healthz_publique_renvoie_ok(self):
+    def test_public_healthz_returns_ok(self):
         c = portal.app.test_client()
         r = c.get("/healthz")
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()["ok"])
 
-    def test_api_health_requiert_session(self):
+    def test_api_health_requires_session(self):
         c = portal.app.test_client()
         r = c.get("/api/health")
         self.assertEqual(r.status_code, 401)
 
-    def test_api_health_rend_l_etat_des_services(self):
+    def test_api_health_returns_service_state(self):
         import unittest.mock as mock
         with mock.patch.object(portal, "_service_reachable", return_value=False), \
                 mock.patch.object(portal, "get_running_models", return_value=[]), \
@@ -903,25 +903,25 @@ class HealthRouteTest(unittest.TestCase):
             self.assertFalse(body["services"]["runner"]["reachable"])
             self.assertFalse(body["ok"])
 
-    def test_litellm_joignable_meme_quand_health_exige_une_cle(self):
+    def test_litellm_reachable_even_when_health_needs_key(self):
         """LiteLLM >= 1.102 answers 401 on `/health` (key required): the portal
         must not conclude the proxy is down. Regression of 2026-09-24 — the
         upgrade 1.92 → 1.102.1 made « LiteLLM injoignable » display on the
         dashboard while the proxy served requests."""
         import unittest.mock as mock
 
-        class Reponse:
+        class FakeResponse:
             def __init__(self, code):
                 self.status_code = code
 
-        def faux_get(url, timeout=None):
+        def fake_get(url, timeout=None):
             if url.endswith("/health"):          # 1.102: authenticated
-                return Reponse(401)
+                return FakeResponse(401)
             if url.endswith("/health/liveliness"):  # public, the real probe
-                return Reponse(200)
-            return Reponse(200)                   # runner /status, etc.
+                return FakeResponse(200)
+            return FakeResponse(200)                   # runner /status, etc.
 
-        with mock.patch.object(portal.requests, "get", side_effect=faux_get), \
+        with mock.patch.object(portal.requests, "get", side_effect=fake_get), \
                 mock.patch.object(portal, "get_running_models", return_value=["m"]), \
                 mock.patch.object(portal, "comfyui_is_up", return_value=False), \
                 mock.patch.object(portal, "get_ocr_model", return_value=None), \
@@ -949,11 +949,11 @@ class PendingCountRouteTest(unittest.TestCase):
                 db.execute(f"DELETE FROM {t}")
             db.commit()
 
-    def test_requiert_session(self):
+    def test_requires_session(self):
         c = portal.app.test_client()
         self.assertEqual(c.get("/api/pending-count").status_code, 401)
 
-    def test_compte_les_demandes_en_attente(self):
+    def test_counts_pending_requests(self):
         with portal.app.app_context():
             db = portal.get_db()
             db.execute(
@@ -981,7 +981,7 @@ class PendingCountRouteTest(unittest.TestCase):
                          {'model': 1, 'budget': 1})
 
 
-class AnnonceModeleSupprimeTest(unittest.TestCase):
+class DeletedModelAnnouncementTest(unittest.TestCase):
     """The announcement feed is a « what's new », not a journal: removing a
     model from the catalog must remove the announcement that presented it."""
 
@@ -999,7 +999,7 @@ class AnnonceModeleSupprimeTest(unittest.TestCase):
             self.mid = portal.get_db().execute(
                 "SELECT id FROM model_configs WHERE name='ztest-modele'").fetchone()['id']
 
-    def test_suppression_retire_aussi_l_annonce(self):
+    def test_deletion_also_removes_announcement(self):
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["username"] = "boss"
@@ -1017,12 +1017,12 @@ class AnnonceModeleSupprimeTest(unittest.TestCase):
         self.assertTrue(r.get_json()['ok'])
         with portal.app.app_context():
             db = portal.get_db()
-            annonces = db.execute("SELECT COUNT(*) FROM announcements "
+            announcements = db.execute("SELECT COUNT(*) FROM announcements "
                                   "WHERE kind='model_add' AND a='ztest-modele'").fetchone()[0]
             configs = db.execute("SELECT COUNT(*) FROM model_configs WHERE id=?",
                                  (self.mid,)).fetchone()[0]
             trace = db.execute("SELECT action FROM audit_log ORDER BY id DESC").fetchone()[0]
-        self.assertEqual(annonces, 0)
+        self.assertEqual(announcements, 0)
         self.assertEqual(configs, 0)
         self.assertEqual(trace, 'model.delete')
 
@@ -1050,7 +1050,7 @@ class BudgetGrantsTest(unittest.TestCase):
             s["is_admin"] = admin
             s["csrf"] = "test-csrf"
 
-    def test_approve_temporaire_creer_subvention(self):
+    def test_temporary_approve_creates_grant(self):
         """Approve with duration: boosted cap + budget_grants row."""
         with patch.object(admin_routes, '_litellm_user_info', return_value={'max_budget': 200000000}), \
              patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
@@ -1068,7 +1068,7 @@ class BudgetGrantsTest(unittest.TestCase):
             self.assertEqual(g['base_budget'], 200000000)  # back to the base…
             self.assertEqual(g['current_budget'], 250000000)
 
-    def test_expiration_revient_a_la_base(self):
+    def test_expiry_returns_to_base(self):
         """At expiry: the account is brought back to the base cap."""
         with portal.app.app_context():
             db = portal.get_db()
@@ -1086,7 +1086,7 @@ class BudgetGrantsTest(unittest.TestCase):
         with portal.app.app_context():
             self.assertIsNone(portal.get_db().execute("SELECT * FROM budget_grants").fetchone())
 
-    def test_expiration_necrase_pas_une_decision_admin(self):
+    def test_expiry_does_not_override_admin_decision(self):
         """If the admin redefined the cap meanwhile, we do not overwrite."""
         with portal.app.app_context():
             db = portal.get_db()
@@ -1101,7 +1101,7 @@ class BudgetGrantsTest(unittest.TestCase):
         self.assertEqual(brought_back, 0)
         up.assert_not_called()                             # the admin decision is authoritative
 
-    def test_redefinir_le_plafond_a_la_baisse(self):
+    def test_lowering_the_cap(self):
         """/budget/set sets an EXACT amount: 200M → 50M, and purges the boosts."""
         with portal.app.app_context():
             db = portal.get_db()
@@ -1120,7 +1120,7 @@ class BudgetGrantsTest(unittest.TestCase):
         with portal.app.app_context():
             self.assertIsNone(portal.get_db().execute("SELECT * FROM budget_grants").fetchone())
 
-    def test_redefinir_refuse_les_montants_irrealistes(self):
+    def test_set_refuses_unrealistic_amounts(self):
         with patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
             c = portal.app.test_client()
             self._login(c)
@@ -1141,7 +1141,7 @@ class BudgetPeriodTest(unittest.TestCase):
         self.assertEqual(portal._budget_period_days('3 mois'), 30)
         self.assertEqual(portal._budget_period_days('xyz'), 1)
 
-    def test_budget_remaining_utilise_les_tokens_reels(self):
+    def test_budget_remaining_uses_real_tokens(self):
         import unittest.mock as mock
         with mock.patch.object(portal, "_real_tokens_by_user", return_value={'budget-test': 1200}):
             used, remaining = portal._budget_remaining('budget-test', 10000, '7d')
@@ -1159,7 +1159,7 @@ class PromMetricsTest(unittest.TestCase):
     """/metrics (Prometheus): text for a LAN scrape — and REFUSED as soon as
     the request arrives via the Cloudflare edge (the frontend rewrite exposed it)."""
 
-    def test_metriques_publiques_sur_le_lan(self):
+    def test_metrics_public_on_lan(self):
         c = portal.app.test_client()
         r = c.get("/metrics")
         self.assertEqual(r.status_code, 200)
@@ -1202,16 +1202,16 @@ class MediaCancelTest(unittest.TestCase):
     def _headers(self):
         return {"X-CSRFToken": self.CSRF}
 
-    def test_post_sans_jeton_refuse(self):
+    def test_post_without_token_refused(self):
         # before_request checks the CSRF first thing (defence in depth).
         c = portal.app.test_client(); self._login(c)
         self.assertEqual(c.post("/api/image/cancel/p1").status_code, 400)
 
-    def test_img_cancel_inconnu_404(self):
+    def test_img_cancel_unknown_404(self):
         c = portal.app.test_client(); self._login(c)
         self.assertEqual(c.post("/api/image/cancel/inconnu", headers=self._headers()).status_code, 404)
 
-    def test_img_cancel_noop_si_deja_fini(self):
+    def test_img_cancel_noop_if_done(self):
         with portal.app.app_context():
             portal.get_db().execute(
                 "INSERT INTO image_jobs (username,prompt_id,prompt,status,count,done_count,created_at) "
@@ -1222,7 +1222,7 @@ class MediaCancelTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()["ok"])
 
-    def test_img_cancel_annule_un_job_en_cours(self):
+    def test_img_cancel_cancels_running_job(self):
         with portal.app.app_context():
             portal.get_db().execute(
                 "INSERT INTO image_jobs (username,prompt_id,prompt,status,count,done_count,created_at) "
@@ -1235,7 +1235,7 @@ class MediaCancelTest(unittest.TestCase):
                 "SELECT status FROM image_jobs WHERE prompt_id='p2'").fetchone()["status"]
         self.assertEqual(st, "cancelled")
 
-    def test_music_cancel_annule(self):
+    def test_music_cancel_cancels(self):
         with portal.app.app_context():
             portal.get_db().execute(
                 "INSERT INTO music_jobs (username,job_id,prompt,status,count,done_count,created_at,duration_ms) "
@@ -1248,7 +1248,7 @@ class MediaCancelTest(unittest.TestCase):
                 "SELECT status FROM music_jobs WHERE job_id='m1'").fetchone()["status"]
         self.assertEqual(st, "cancelled")
 
-    def test_video_cancel_annule(self):
+    def test_video_cancel_cancels(self):
         with portal.app.app_context():
             portal.get_db().execute(
                 "INSERT INTO video_jobs (username,prompt_id,prompt,status,created_at,req_duration_s) "
@@ -1278,14 +1278,14 @@ class ShareConversationTest(unittest.TestCase):
             s["auth_at"] = int(time.time())
             s["csrf"] = self.CSRF
 
-    def test_post_sans_jeton_refuse(self):
+    def test_post_without_token_refused(self):
         # No session → before_request answers 400 (missing token) before any
         # other consideration: we never create an anonymous share.
         self.assertEqual(
             portal.app.test_client().post("/conversations/share", data={"client_id": "x"}).status_code,
             400)
 
-    def test_partage_puis_vue_lecture_seule(self):
+    def test_share_then_read_only_view(self):
         with portal.app.app_context():
             portal.get_db().execute(
                 "INSERT INTO conversations (username,client_id,title,model,messages,updated_at) "
@@ -1304,7 +1304,7 @@ class ShareConversationTest(unittest.TestCase):
         self.assertEqual(view.status_code, 200)
         self.assertIn("Bonjour", view.get_data(as_text=True))
 
-    def test_partage_accepte_le_json(self):
+    def test_share_accepts_json(self):
         """The playground sends JSON (sendJSON), not form: accepted."""
         with portal.app.app_context():
             portal.get_db().execute(
@@ -1321,7 +1321,7 @@ class ShareConversationTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()["ok"])
 
-    def test_vue_anonyme_renvoie_vers_login(self):
+    def test_anonymous_view_redirects_to_login(self):
         """Anonymous + valid token → login redirect, NEVER the conversation."""
         with portal.app.app_context():
             portal.get_db().execute(
@@ -1340,7 +1340,7 @@ class ShareConversationTest(unittest.TestCase):
         self.assertIn(view.status_code, (301, 302))
         self.assertIn("/login", view.headers.get("Location", ""))
 
-    def test_vue_inconnue_404(self):
+    def test_unknown_view_404(self):
         # Logged in + unknown token → 404. (Anonymous, a login redirect
         # comes first: we do not even reveal the link exists.)
         c = portal.app.test_client()
@@ -1359,11 +1359,11 @@ class AuditLogTest(unittest.TestCase):
             portal.get_db().execute("DELETE FROM audit_log")
             portal.get_db().commit()
 
-    def test_audit_sans_session_est_refuse(self):
+    def test_audit_without_session_refused(self):
         c = portal.app.test_client()
         self.assertIn(c.get("/admin/audit").status_code, (302, 401, 403))
 
-    def test_log_puis_liste(self):
+    def test_log_then_list(self):
         from db import log_audit
         log_audit("ops", "model.launch", "lancement de test")
         c = portal.app.test_client()
@@ -1393,7 +1393,7 @@ class NotificationsTest(unittest.TestCase):
             s["csrf"] = "test-csrf"
         return c
 
-    def test_liste_et_compteur(self):
+    def test_list_and_counter(self):
         from db import add_notification
         add_notification("alice", "image", "Génération image terminée (2/2).")
         add_notification("alice", "request", "Budget accordé : +100 tokens.")
@@ -1403,7 +1403,7 @@ class NotificationsTest(unittest.TestCase):
         self.assertEqual(len(data["items"]), 2)
         self.assertTrue(all(not i["seen"] for i in data["items"]))
 
-    def test_marquage_lu(self):
+    def test_mark_read(self):
         from db import add_notification
         add_notification("alice", "image", "Génération image terminée (1/1).")
         c = self._login()
@@ -1412,13 +1412,13 @@ class NotificationsTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(c.get("/api/notifications").get_json()["unread"], 0)
 
-    def test_sans_session_est_refuse(self):
+    def test_without_session_refused(self):
         c = portal.app.test_client()
         self.assertIn(c.get("/api/notifications").status_code, (302, 401, 403))
         # POST without CSRF → 400 (before_request CSRF before login_required).
         self.assertEqual(c.post("/api/notifications/seen").status_code, 400)
 
-    def test_docs_requiert_login(self):
+    def test_docs_require_login(self):
         c = portal.app.test_client()
         self.assertIn(c.get("/docs").status_code, (302, 401, 403))
         c2 = self._login()
@@ -1434,17 +1434,17 @@ class PlaygroundTitleSummarizeTest(unittest.TestCase):
         rules = {str(r) for r in portal.app.url_map.iter_rules()}
         return rules
 
-    def test_routes_enregistrees(self):
+    def test_routes_registered(self):
         self.assertIn('/api/playground/title', self._paths())
         self.assertIn('/api/playground/summarize', self._paths())
 
-    def test_post_sans_csrf_refuse(self):
+    def test_post_without_csrf_refused(self):
         c = portal.app.test_client()
         # before_request CSRF runs before login_required → 400 on POST.
         self.assertEqual(c.post('/api/playground/title').status_code, 400)
         self.assertEqual(c.post('/api/playground/summarize').status_code, 400)
 
-    def test_sans_session_refuse(self):
+    def test_no_session_refused(self):
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["csrf"] = "test-csrf"
@@ -1463,7 +1463,7 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
             s["auth_at"] = int(time.time())
             s["csrf"] = self.CSRF
 
-    def test_titre_genere(self):
+    def test_title_generated(self):
         import unittest.mock as mock
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "_non_stream", return_value=("Titre court", None)):
@@ -1474,7 +1474,7 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             self.assertEqual(r.get_json()["title"], "Titre court")
 
-    def test_titre_sans_modele_409(self):
+    def test_title_without_model_409(self):
         import unittest.mock as mock
         with mock.patch.object(chat, "get_running_models", return_value=[]):
             c = portal.app.test_client()
@@ -1483,7 +1483,7 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
                        json={"messages": [{"role": "user", "content": "Bonjour"}]})
             self.assertEqual(r.status_code, 409)
 
-    def test_titre_vide_retourne_vide(self):
+    def test_empty_title_returns_empty(self):
         import unittest.mock as mock
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "_non_stream", return_value=("", None)):
@@ -1494,7 +1494,7 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             self.assertEqual(r.get_json()["title"], "")
 
-    def test_summary_genere(self):
+    def test_summary_generated(self):
         import unittest.mock as mock
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "_non_stream", return_value=("Résumé du contexte", None)):
@@ -1505,7 +1505,7 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             self.assertEqual(r.get_json()["summary"], "Résumé du contexte")
 
-    def test_maintenance_arrete_le_titre_et_le_resume(self):
+    def test_maintenance_stops_title_and_summary(self):
         """In maintenance, these two routes must refuse BEFORE calling the model.
 
         They called LiteLLM with no guard at all: the chat answered the
@@ -1532,7 +1532,7 @@ class PlaygroundTitleSummarizeMockTest(unittest.TestCase):
             with portal.app.app_context():
                 set_setting('maintenance_mode', '0')
 
-    def test_plafond_de_debit_s_applique_au_titre(self):
+    def test_rate_cap_applies_to_title(self):
         """Without a cap, a client-side loop held the gunicorn threads.
 
         The cap is PROPER to the route (`rl-titre`), not shared with the
@@ -1586,7 +1586,7 @@ class SupportBillingTest(unittest.TestCase):
             s["csrf"] = self.CSRF
         return c
 
-    def test_support_utilise_la_cle_de_l_utilisateur(self):
+    def test_support_uses_user_key(self):
         import unittest.mock as mock
         seen = []
 
@@ -1606,7 +1606,7 @@ class SupportBillingTest(unittest.TestCase):
         self.assertTrue(seen, "aucun appel au modèle n'a été fait")
         self.assertEqual(seen[0].get("Authorization"), "Bearer sk-user-123")
 
-    def test_support_sans_cle_notifie_et_n_appelle_pas_le_modele(self):
+    def test_support_without_key_notifies_and_skips_model(self):
         import unittest.mock as mock
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[]), \
@@ -1617,7 +1617,7 @@ class SupportBillingTest(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             self.assertIn("no_api_key", r.get_data(as_text=True))
 
-    def test_support_quota_depasse_notifie(self):
+    def test_support_quota_exceeded_notifies(self):
         import unittest.mock as mock
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \
              mock.patch.object(chat, "get_user_keys", return_value=[{"key": "sk-user-123"}]), \
@@ -1632,7 +1632,7 @@ class SupportBillingTest(unittest.TestCase):
             self.assertIn("3600", body)
 
 
-class SupportNoticesStructureesTest(unittest.TestCase):
+class SupportStructuredNoticesTest(unittest.TestCase):
     """The Support chat SSE ERROR texts are STRUCTURED notices (`dgx_notice`):
     the server sends an id (+ `wait`/`status` arguments), the frontend writes
     the sentence. The ids are a CONTRACT with `texteNotice` (an unknown id
@@ -1661,11 +1661,11 @@ class SupportNoticesStructureesTest(unittest.TestCase):
             yield from self.frames
 
     @staticmethod
-    def _frame_texte(t):
+    def _text_frame(t):
         return "data: " + json.dumps({"choices": [{"delta": {"content": t}}]})
 
     @staticmethod
-    def _frame_outil(name, args, call_id="call_1"):
+    def _tool_frame(name, args, call_id="call_1"):
         delta = {"tool_calls": [{"index": 0, "id": call_id,
                                  "function": {"name": name,
                                               "arguments": json.dumps(args)}}]}
@@ -1707,38 +1707,38 @@ class SupportNoticesStructureesTest(unittest.TestCase):
                                     json={"messages": msgs})
             return r.status_code, r.get_data(as_text=True)
 
-    def test_message_vide_notice(self):
+    def test_empty_message_notice(self):
         code, body = self._flux(messages=())
         self.assertEqual(code, 400)
         self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "empty_message"}}])
 
-    def test_plafond_attente_notice(self):
+    def test_wait_cap_notice(self):
         code, body = self._flux(wait=7)
         self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "chat_rate_limited", "wait": 7}}])
         self.assertNotIn("Trop de", body)
 
-    def test_aucun_modele_notice(self):
+    def test_no_model_notice(self):
         code, body = self._flux(running=())
         self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "no_model_running"}}])
 
-    def test_amont_injoignable_notice(self):
+    def test_upstream_unreachable_notice(self):
         import requests as _rq
         code, body = self._flux(post=_rq.exceptions.ConnectionError("coupé"))
         self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "model_unreachable"}}])
         self.assertIn("data: [DONE]", body)
 
-    def test_amont_en_erreur_notice_statut(self):
+    def test_upstream_error_notice_status(self):
         code, body = self._flux(
             post=lambda *a, **k: self._Flux([], ok=False, status_code=500))
         self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "model_replied_error",
                                              "status": 500}}])
 
-    def test_reponse_vide_notice(self):
+    def test_empty_reply_notice(self):
         code, body = self._flux(post=lambda *a, **k: self._Flux(["data: [DONE]"]))
         self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "empty_reply"}}])
@@ -1750,38 +1750,38 @@ class SupportNoticesStructureesTest(unittest.TestCase):
         self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "model_timeout"}}])
 
-    def _boucle_d_outils(self, final):
+    def _tool_loop(self, final):
         """4 tool rounds, then the forced final turn served by `final`."""
         calls = {"n": 0}
-        outil = self._Flux([self._frame_outil("request_budget", {"alias": "a"}),
+        tool = self._Flux([self._tool_frame("request_budget", {"alias": "a"}),
                             "data: [DONE]"])
 
         def _post(*a, **k):
             calls["n"] += 1
-            return outil if calls["n"] <= 4 else final
+            return tool if calls["n"] <= 4 else final
         return self._flux(post=_post)
 
     @staticmethod
-    def _frame_raisonnement(t):
+    def _reasoning_frame(t):
         """A thinking frame, as LiteLLM produces it (`reasoning_content`)."""
         return "data: " + json.dumps({"choices": [{"delta": {"reasoning_content": t}}]})
 
-    def test_le_raisonnement_est_relaie(self):
+    def test_reasoning_is_relayed(self):
         """The model THINKS (adaptive, like the playground): what it produces is
         generated, so billed — and it was dropped by this relay. It must reach
         the client in `reasoning_content`, the same contract the playground
         uses, so the same block can render it."""
         # ASCII only: `json.dumps` escapes accents (je p\u00e8se…), and this
         # test is about the FRAME SHAPE, not about the encoding.
-        frames = [self._frame_raisonnement("je pese les options"),
-                  self._frame_texte("la reponse"),
+        frames = [self._reasoning_frame("je pese les options"),
+                  self._text_frame("la reponse"),
                   "data: [DONE]"]
         code, body = self._flux(post=lambda *a, **k: self._Flux(frames))
         self.assertEqual(code, 200)
         self.assertIn('"reasoning_content": "je pese les options"', body)
         self.assertIn('"content": "la reponse"', body)
 
-    def test_la_balise_de_pensee_dans_le_contenu_reste_masquee(self):
+    def test_think_tag_in_content_stays_hidden(self):
         """A think tag COUPLED INTO the content is a parasite, not a structured
         reasoning: it stays hidden while the answer streams."""
         def _c(t):
@@ -1794,13 +1794,13 @@ class SupportNoticesStructureesTest(unittest.TestCase):
         self.assertNotIn("mon raisonnement interne", body)
         self.assertIn("la reponse finale", body)
 
-    def test_modele_occupe_apres_boucle_d_outils(self):
-        code, body = self._boucle_d_outils(self._Flux([], ok=False, status_code=503))
+    def test_model_busy_after_tool_loop(self):
+        code, body = self._tool_loop(self._Flux([], ok=False, status_code=503))
         self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "model_busy"}}])
 
-    def test_reformulation_apres_boucle_d_outils(self):
-        code, body = self._boucle_d_outils(self._Flux(["data: [DONE]"]))
+    def test_rephrase_after_tool_loop(self):
+        code, body = self._tool_loop(self._Flux(["data: [DONE]"]))
         self.assertEqual(self._notices(body),
                          [{"dgx_notice": {"id": "reformulate"}}])
 
@@ -1815,7 +1815,7 @@ class SupportServicesTest(unittest.TestCase):
     launching a model, and admin-only.
     """
 
-    def test_le_service_est_dans_le_contexte(self):
+    def test_service_in_context(self):
         """The context lists every service, so « ça ne marche pas » is answered
         from the actual state."""
         # The snapshot is cached 15 s (probing the services is not free): a
@@ -1831,13 +1831,13 @@ class SupportServicesTest(unittest.TestCase):
         self.assertIn("- asr : running", ctx)
         self.assertIn("Services de la plateforme", ctx)
 
-    def test_loutil_n_est_propose_qu_aux_admins(self):
-        noms_admin = {t["function"]["name"] for t in assistance._support_tools(True)}
+    def test_tool_offered_only_to_admins(self):
+        admin_names = {t["function"]["name"] for t in assistance._support_tools(True)}
         names = {t["function"]["name"] for t in assistance._support_tools(False)}
-        self.assertIn("manage_service", noms_admin)
+        self.assertIn("manage_service", admin_names)
         self.assertNotIn("manage_service", names)
 
-    def test_loutil_est_garde_pour_la_confirmation(self):
+    def test_tool_guarded_for_confirmation(self):
         """manage_service is guarded: the model only SUBMITS it."""
         self.assertIn("manage_service", assistance.GUARDED_TOOLS)
         self.assertIn("manage_service", assistance.TOOLS_REFUSED_IF_EXTERNAL)
@@ -1847,12 +1847,12 @@ class SupportServicesTest(unittest.TestCase):
             return assistance._exec_support_tool(
                 "manage_service", args, "demo", "Demo", is_admin)
 
-    def test_execution_reservee_aux_admins(self):
+    def test_execution_admin_only(self):
         res, ok = self._exec({"service": "ocr", "action": "start"}, False)
         self.assertFalse(ok)
         self.assertIn("administrateurs", res)
 
-    def test_demarrage_renvoie_le_nouvel_etat(self):
+    def test_start_returns_new_state(self):
         with patch.object(assistance, "_sidecar_action", return_value=(True, "")) as act, \
              patch.object(assistance, "_sidecar_status", return_value="starting"), \
              patch.object(assistance, "_mem_guard", return_value=None):
@@ -1861,7 +1861,7 @@ class SupportServicesTest(unittest.TestCase):
         self.assertIn("ocr : starting", res)
         act.assert_called_once_with("ocr", "start")
 
-    def test_relancaison_arrete_puis_redemarre(self):
+    def test_restart_stops_then_starts(self):
         with patch.object(assistance, "_sidecar_action", return_value=(True, "")) as act, \
              patch.object(assistance, "_sidecar_status", return_value="running"), \
              patch.object(assistance, "_mem_guard", return_value=None):
@@ -1870,7 +1870,7 @@ class SupportServicesTest(unittest.TestCase):
         self.assertEqual([c.args for c in act.call_args_list],
                          [("asr", "stop"), ("asr", "start")])
 
-    def test_la_garde_memoire_bloque_le_demarrage(self):
+    def test_memory_guard_blocks_start(self):
         """On unified memory a sidecar that overflows takes the chat model with
         it: the guard refuses BEFORE the start."""
         with patch.object(assistance, "_mem_guard", return_value="Mémoire insuffisante"), \
@@ -1880,7 +1880,7 @@ class SupportServicesTest(unittest.TestCase):
         self.assertIn("Mémoire insuffisante", res)
         act.assert_not_called()
 
-    def test_les_logs_se_lisent_a_la_demande(self):
+    def test_logs_read_on_demand(self):
         """`read_logs` pulls the tail of a service — the logs are NOT in the
         prompt (« pas que dans le system prompt »)."""
         with patch.object(assistance, "get_db"), \
@@ -1892,22 +1892,22 @@ class SupportServicesTest(unittest.TestCase):
         self.assertIn("erreur: poids introuvable", res)
         read.assert_called_once_with("asr", 50)
 
-    def test_les_logs_de_litellm_se_lisent_sans_le_runner(self):
+    def test_litellm_logs_read_without_runner(self):
         """The proxy writes to the SHARED volume: its logs are read from the
         file, no runner involved (a runner restart would kill the model)."""
         with patch.object(assistance, "get_db"), \
-             patch("sidecars.open", create=True) as ouvrir:
-            ouvrir.side_effect = FileNotFoundError
+             patch("sidecars.open", create=True) as open_:
+            open_.side_effect = FileNotFoundError
             res, ok = assistance._exec_support_tool(
                 "read_logs", {"service": "litellm"}, "demo", "Demo", True)
-        self.assertTrue(ok)          # absent = « aucun log disponible », pas une erreur
+        self.assertTrue(ok)          # missing = « no log available », not an error
         self.assertIn("litellm", res)
         self.assertIn("read_logs", {t["function"]["name"] for t in assistance._support_tools(True)})
         self.assertIn("litellm", [t["function"]["parameters"]["properties"]["service"]["enum"]
                                   for t in assistance._support_tools(True)
                                   if t["function"]["name"] == "read_logs"][0])
 
-    def test_les_logs_sont_admin_seulement(self):
+    def test_logs_admin_only(self):
         with patch.object(assistance, "get_db"):
             res, ok = assistance._exec_support_tool(
                 "read_logs", {"service": "model"}, "demo", "Demo", False)
@@ -1918,7 +1918,7 @@ class SupportServicesTest(unittest.TestCase):
         self.assertNotIn("read_logs", {t["function"]["name"]
                                        for t in assistance._support_tools(False)})
 
-    def test_les_logs_ne_sont_plus_injectes_dans_le_contexte(self):
+    def test_logs_no_longer_injected_in_context(self):
         """The context only points at the tool: a turn must not carry a blind
         log tail it did not ask for."""
         assistance._services_cache['at'] = 0.0
@@ -1933,7 +1933,7 @@ class SupportServicesTest(unittest.TestCase):
         self.assertNotIn("LIGNE_DE_LOG_QUI_NE_DOIT_PAS_APPARAITRE", ctx)
         self.assertIn("read_logs", ctx)
 
-    def test_service_ou_action_inconnue(self):
+    def test_unknown_service_or_action(self):
         res, ok = self._exec({"service": "imprimerie", "action": "start"}, True)
         self.assertFalse(ok)
         self.assertIn("imprimerie", res)
@@ -1969,14 +1969,14 @@ class SupportSensibleActionsTest(unittest.TestCase):
             yield from self.frames
 
     @staticmethod
-    def _frame_outil(name, args, call_id="call_1"):
+    def _tool_frame(name, args, call_id="call_1"):
         delta = {"tool_calls": [{"index": 0, "id": call_id,
                                  "function": {"name": name,
                                               "arguments": json.dumps(args)}}]}
         return "data: " + json.dumps({"choices": [{"delta": delta}]})
 
     @staticmethod
-    def _frame_texte(text):
+    def _text_frame(text):
         return "data: " + json.dumps({"choices": [{"delta": {"content": text}}]})
 
     def _client(self, username="demo"):
@@ -1987,7 +1987,7 @@ class SupportSensibleActionsTest(unittest.TestCase):
             s["csrf"] = self.CSRF
         return c
 
-    def _nettoyer(self):
+    def _clean(self):
         with portal.app.app_context():
             db = portal.get_db()
             for t in ("pending_actions", "support_feedback", "support_thread",
@@ -1996,20 +1996,20 @@ class SupportSensibleActionsTest(unittest.TestCase):
             db.commit()
 
     def setUp(self):
-        self._nettoyer()
+        self._clean()
 
     tearDown = setUp
 
-    def _creer_demande(self, username="demo", tool="revoke_api_key",
+    def _create_request(self, username="demo", tool="revoke_api_key",
                        args=None, label="Révocation de clé", target="test"):
         with portal.app.app_context():
             return assistance.create_pending_action(username, tool, args or {"alias": "test"},
                                                       label, target)
 
-    def test_action_sensible_non_executee_sans_confirmation(self):
+    def test_sensitive_action_not_run_without_confirmation(self):
         import unittest.mock as mock
-        frames = [[self._frame_outil("revoke_api_key", {"alias": "test"}), "data: [DONE]"],
-                  [self._frame_texte("Je peux révoquer cette clé — confirme ci-dessous."),
+        frames = [[self._tool_frame("revoke_api_key", {"alias": "test"}), "data: [DONE]"],
+                  [self._text_frame("Je peux révoquer cette clé — confirme ci-dessous."),
                    "data: [DONE]"]]
         calls = {"n": 0}
 
@@ -2046,9 +2046,9 @@ class SupportSensibleActionsTest(unittest.TestCase):
         self.assertEqual(row["target"], "test")
         self.assertIn("test", row["args"])
 
-    def test_confirmation_execute_une_seule_fois(self):
+    def test_confirmation_runs_once(self):
         import unittest.mock as mock
-        tok = self._creer_demande()
+        tok = self._create_request()
         c = self._client()
         with mock.patch.object(chat, "_exec_support_tool",
                                return_value=("Clé « test » révoquée.", True)) as exec_tool:
@@ -2061,9 +2061,9 @@ class SupportSensibleActionsTest(unittest.TestCase):
             self.assertEqual(r2.status_code, 404)
             self.assertEqual(exec_tool.call_count, 1)
 
-    def test_annulation_n_execute_rien(self):
+    def test_cancel_runs_nothing(self):
         import unittest.mock as mock
-        tok = self._creer_demande()
+        tok = self._create_request()
         c = self._client()
         with mock.patch.object(chat, "_exec_support_tool") as exec_tool:
             r = c.post("/support/confirm", headers={"X-CSRFToken": self.CSRF},
@@ -2076,26 +2076,26 @@ class SupportSensibleActionsTest(unittest.TestCase):
                                          (tok,)).fetchone()["status"]
         self.assertEqual(st, "cancelled")
 
-    def test_jeton_d_un_autre_compte_refuse(self):
-        tok = self._creer_demande(username="bob")
+    def test_other_account_token_refused(self):
+        tok = self._create_request(username="bob")
         with patch.object(chat, "_exec_support_tool", return_value=("jamais", False)) as exec_tool:
             r = self._client("demo").post("/support/confirm",
                                           headers={"X-CSRFToken": self.CSRF}, json={"token": tok})
             self.assertEqual(r.status_code, 404)
             exec_tool.assert_not_called()
 
-    def test_jeton_inconnu_refuse(self):
+    def test_unknown_token_refused(self):
         r = self._client().post("/support/confirm", headers={"X-CSRFToken": self.CSRF},
                                 json={"token": "n-importe-quoi"})
         self.assertEqual(r.status_code, 404)
         r2 = self._client().post("/support/confirm", headers={"X-CSRFToken": self.CSRF}, json={})
         self.assertEqual(r2.status_code, 400)
 
-    def test_une_action_non_sensible_n_est_pas_retardee(self):
+    def test_non_sensitive_action_not_delayed(self):
         """create_api_key runs directly: no button for the non-destructive."""
         import unittest.mock as mock
-        frames = [[self._frame_outil("create_api_key", {"alias": "ma-cle"}), "data: [DONE]"],
-                  [self._frame_texte("C'est fait."), "data: [DONE]"]]
+        frames = [[self._tool_frame("create_api_key", {"alias": "ma-cle"}), "data: [DONE]"],
+                  [self._text_frame("C'est fait."), "data: [DONE]"]]
         calls = {"n": 0}
 
         def _post(url, headers=None, json=None, timeout=None, stream=False):
@@ -2116,7 +2116,7 @@ class SupportSensibleActionsTest(unittest.TestCase):
             self.assertNotIn("dgx_confirm", r.get_data(as_text=True))
         self.assertEqual(exec_tool.call_count, 1)
 
-    def test_contexte_contient_les_actions_recentes(self):
+    def test_context_contains_recent_actions(self):
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT INTO audit_log (username, action, detail, created_at) "
@@ -2127,7 +2127,7 @@ class SupportSensibleActionsTest(unittest.TestCase):
         self.assertIn("laguna (OOM)", ctx)
         self.assertIn("Ses dernières actions", ctx)
 
-    def test_feedback_enregistre(self):
+    def test_feedback_recorded(self):
         c = self._client()
         r = c.post("/support/feedback", headers={"X-CSRFToken": self.CSRF},
                    json={"vote": -1, "comment": "réponse à côté", "question": "ma clé ?",
@@ -2141,7 +2141,7 @@ class SupportSensibleActionsTest(unittest.TestCase):
         self.assertEqual(row["comment"], "réponse à côté")
         self.assertEqual(row["question"], "ma clé ?")
 
-    def test_fil_support_conserve_et_efface(self):
+    def test_support_thread_kept_and_cleared(self):
         c = self._client()
         self.assertEqual(c.get("/api/support/thread").get_json()["messages"], [])
         with portal.app.app_context():
@@ -2178,21 +2178,21 @@ class SupportInjectionGuardTest(unittest.TestCase):
             yield from self.frames
 
     @staticmethod
-    def _outil(name, args, call_id="call_1"):
+    def _tool(name, args, call_id="call_1"):
         delta = {"tool_calls": [{"index": 0, "id": call_id,
                                  "function": {"name": name, "arguments": json.dumps(args)}}]}
         return "data: " + json.dumps({"choices": [{"delta": delta}]})
 
     @staticmethod
-    def _texte(t):
+    def _text(t):
         return "data: " + json.dumps({"choices": [{"delta": {"content": t}}]})
 
-    def test_action_sensible_refusee_apres_contenu_externe(self):
+    def test_sensitive_action_refused_after_external_content(self):
         import unittest.mock as mock
         frames = [
-            [self._outil("mcp_server_tool", {}), "data: [DONE]"],       # external read
-            [self._outil("revoke_api_key", {"alias": "prod"}, "call_2"), "data: [DONE]"],
-            [self._texte("Je ne peux pas faire ça dans ce tour."), "data: [DONE]"],
+            [self._tool("mcp_server_tool", {}), "data: [DONE]"],       # external read
+            [self._tool("revoke_api_key", {"alias": "prod"}, "call_2"), "data: [DONE]"],
+            [self._text("Je ne peux pas faire ça dans ce tour."), "data: [DONE]"],
         ]
         n = {"i": 0}
 
@@ -2231,7 +2231,7 @@ class SupportInjectionGuardTest(unittest.TestCase):
                 "SELECT COUNT(*) c FROM pending_actions WHERE username='demo'").fetchone()["c"]
         self.assertEqual(n_pending, 0)
 
-    def test_creation_de_cle_refusee_apres_contenu_externe(self):
+    def test_key_creation_refused_after_external_content(self):
         """`create_api_key` is not destructive, but it DELIVERS a secret.
 
         It thus runs directly in the normal case (product choice, see
@@ -2242,9 +2242,9 @@ class SupportInjectionGuardTest(unittest.TestCase):
         """
         import unittest.mock as mock
         frames = [
-            [self._outil("mcp_server_tool", {}), "data: [DONE]"],        # external read
-            [self._outil("create_api_key", {"alias": "ma-cle"}, "call_2"), "data: [DONE]"],
-            [self._texte("Je ne crée pas de clé dans ce tour."), "data: [DONE]"],
+            [self._tool("mcp_server_tool", {}), "data: [DONE]"],        # external read
+            [self._tool("create_api_key", {"alias": "ma-cle"}, "call_2"), "data: [DONE]"],
+            [self._text("Je ne crée pas de clé dans ce tour."), "data: [DONE]"],
         ]
         n = {"i": 0}
 
@@ -2278,11 +2278,11 @@ class SupportInjectionGuardTest(unittest.TestCase):
         self.assertIn("Action bloqu", body)
         with portal.app.app_context():
             db = portal.get_db()
-            n_cles = db.execute(
+            n_keys = db.execute(
                 "SELECT COUNT(*) c FROM api_keys WHERE username='demo'").fetchone()["c"]
             n_pending = db.execute(
                 "SELECT COUNT(*) c FROM pending_actions WHERE username='demo'").fetchone()["c"]
-        self.assertEqual(n_cles, 0, "aucune clé ne doit avoir été créée")
+        self.assertEqual(n_keys, 0, "aucune clé ne doit avoir été créée")
         self.assertEqual(n_pending, 0)
 
 
@@ -2294,15 +2294,15 @@ class SupportFinDeTourTest(unittest.TestCase):
     sentence at every visit, and the memory extraction false facts.
     """
 
-    def _nettoyer(self):
+    def _clean(self):
         with portal.app.app_context():
             db = portal.get_db()
             for t in ("support_thread", "audit_log"):
                 db.execute(f"DELETE FROM {t}")
             db.commit()
 
-    setUp = _nettoyer
-    tearDown = _nettoyer
+    setUp = _clean
+    tearDown = _clean
 
     HIST = [{"role": "user", "content": "question"}, {"role": "assistant", "content": "réponse"}]
 
@@ -2312,23 +2312,23 @@ class SupportFinDeTourTest(unittest.TestCase):
                 "SELECT messages FROM support_thread WHERE username='demo'").fetchone()
         return json.loads(row["messages"]) if row else None
 
-    def test_reponse_complete_sauve_le_fil(self):
+    def test_complete_reply_saves_thread(self):
         chat._finish_support_body("demo", self.HIST, "réponse finale", "fake", "sk-x",
                                 False, portal.app)
         thread = self._thread()
         self.assertEqual([m["content"] for m in thread], ["question", "réponse", "réponse finale"])
 
-    def test_reponse_interrompue_ne_sauve_rien(self):
+    def test_interrupted_reply_saves_nothing(self):
         chat._finish_support("demo", self.HIST, ["réponse à moitié écri"], "fake", "sk-x",
                           False, False, portal.app)
-        self.assertIsNone(self._thread(), "une réponse coupée ne doit pas devenir le fil")
+        self.assertIsNone(self._thread(), "a cut reply must not become the thread")
 
 
 class RunningModelsLegerTest(unittest.TestCase):
     """The media pages only need « what runs »: /api/running-models answers
     that without the spend aggregates and the LiteLLM lookup of /api/home."""
 
-    def test_liste_seule_sans_les_agregats_de_l_accueil(self):
+    def test_list_only_without_home_aggregates(self):
         import unittest.mock as mock
         with mock.patch.object(portal, "get_running_models", return_value=["chat-m"]), \
                 mock.patch.object(portal, "comfyui_is_up", return_value=True), \
@@ -2337,7 +2337,7 @@ class RunningModelsLegerTest(unittest.TestCase):
                 mock.patch.object(portal, "image_ready", return_value=False), \
                 mock.patch.object(portal, "music_ready", return_value=False), \
                 mock.patch.object(portal, "_litellm_user_info") as litellm, \
-                mock.patch.object(portal, "_tokens_by_model") as agregat:
+                mock.patch.object(portal, "_tokens_by_model") as aggregate:
             c = portal.app.test_client()
             self.assertEqual(c.get("/api/running-models").status_code, 401)
             with c.session_transaction() as s:
@@ -2348,10 +2348,10 @@ class RunningModelsLegerTest(unittest.TestCase):
         kinds = {m["kind"]: m["name"] for m in r.get_json()["running_models"]}
         self.assertEqual(kinds, {"chat": "chat-m", "video": "MiniMax-H3"})
         litellm.assert_not_called()
-        agregat.assert_not_called()
+        aggregate.assert_not_called()
 
 
-class SondeComfyuiTest(unittest.TestCase):
+class ComfyuiProbeTest(unittest.TestCase):
     """With video off the probe is a full timeout: only a worker's FIRST call
     may wait on it, later ones get the last answer and refresh behind."""
 
@@ -2360,20 +2360,20 @@ class SondeComfyuiTest(unittest.TestCase):
         self.cc = comfyui_client
         self.addCleanup(self.cc._comfyui_up_cache.update, t=0.0, v=False, refreshing=False)
 
-    def test_premier_appel_attend_les_suivants_non(self):
+    def test_first_call_waits_later_ones_do_not(self):
         import threading
         import unittest.mock as mock
         self.cc._comfyui_up_cache.update(t=0.0, v=False, refreshing=False)
-        with mock.patch.object(self.cc, "_probe_comfyui", return_value=True) as sonde:
+        with mock.patch.object(self.cc, "_probe_comfyui", return_value=True) as probe:
             self.assertTrue(self.cc.comfyui_is_up())
-            self.assertEqual(sonde.call_count, 1)
+            self.assertEqual(probe.call_count, 1)
         # Expired: the stale value comes back at once, the refresh runs behind.
         self.cc._comfyui_up_cache['t'] = time.time() - 60
         finished = threading.Event()
-        def lente():
+        def slow():
             finished.wait(5)
             return False
-        with mock.patch.object(self.cc, "_probe_comfyui", side_effect=lente):
+        with mock.patch.object(self.cc, "_probe_comfyui", side_effect=slow):
             t0 = time.perf_counter()
             self.assertTrue(self.cc.comfyui_is_up())
             self.assertTrue(self.cc.comfyui_is_up())   # one refresh at a time

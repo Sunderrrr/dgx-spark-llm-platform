@@ -27,7 +27,7 @@ import { useStickToBottom } from "@/lib/useStickToBottom";
 import { useThemeMode } from "../../theme-provider";
 
 import type { Attachment, ChatMsg, Conversation, EditedFile, PlaygroundData, Settings } from "@/lib/types";
-import { type WebStep, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
+import { type WebStep, fetchPlaygroundData, getJSON, sendJSON, streamChat } from "@/lib/api";
 // System notices (dgx_notice) are shared with the Support assistant,
 // which also runs on the user's key: see lib/notices.ts.
 import { noticeText } from "@/lib/notices";
@@ -1101,6 +1101,23 @@ export default function PlaygroundPage({
   const [skillCreatorOpen, setSkillCreatorOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const customSkills = skills.filter((s) => !s.builtin);
+  // The account's skill packages (SKILL.md), offered in the same « / » menu.
+  const [pkgSkills, setPkgSkills] = useState<Skill[]>([]);
+  // The package skill attached to the next message (sent as `skill`).
+  const [invokedSkill, setInvokedSkill] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getJSON<{ skills: { id: number; name: string; description: string; enabled: boolean }[] }>("/api/skills")
+      .then((r) => {
+        if (cancelled) return;
+        setPkgSkills(r.skills.filter((s) => s.enabled).map((s) => ({
+          id: `pkg:${s.id}`, name: s.name, alias: s.name, description: s.description,
+          prompt: "", pkg: true,
+        })));
+      })
+      .catch(() => { /* no skill packages: the menu keeps the presets */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // Opens the creator (edit if an existing skill is provided) and
   // closes the « / » menu so as not to stack modal + menu.
@@ -1133,6 +1150,11 @@ export default function PlaygroundPage({
   // and, if it has one, apply its system prompt to the model (flagging
   // that the provenance becomes « compétence »).
   function selectSkill(s: Skill) {
+    if (s.pkg) {
+      setInvokedSkill(s.alias);
+      setInput("");
+      return;
+    }
     setInput(t(s.prompt));
     const sp = s.systemPrompt;
     if (sp) {
@@ -1355,6 +1377,9 @@ export default function PlaygroundPage({
     // Files the server's edit tools changed during this turn (one entry per
     // file, last version wins).
     const fileEdits: EditedFile[] = [];
+    // A skill package attached from the « / » menu applies to THIS turn only.
+    const skillForTurn = invokedSkill;
+    setInvokedSkill(null);
     const updateLast = () => {
       setMessages((prev) => {
         const copy = [...prev];
@@ -1459,6 +1484,7 @@ export default function PlaygroundPage({
           }
         },
         [...filesUntil(nextMessages, nextMessages.length - 1, t)].map(([name, f]) => ({ name, content: f.content })),
+        skillForTurn ?? undefined,
       );
     } catch (e) {
       if ((e as Error)?.name === "AbortError") {
@@ -1996,8 +2022,11 @@ export default function PlaygroundPage({
     [skills, slashQuery],
   );
   const customHits = useMemo(
-    () => (slashQuery !== null ? skills.filter((s) => !s.builtin && skillMatches(s, slashQuery)) : []),
-    [skills, slashQuery],
+    () => (slashQuery !== null
+      ? [...skills.filter((s) => !s.builtin && skillMatches(s, slashQuery)),
+         ...pkgSkills.filter((s) => skillMatches(s, slashQuery))]
+      : []),
+    [skills, pkgSkills, slashQuery],
   );
   // Row 0 = « créer » card, rows 1..n = skills (base then created).
   const skillHits = useMemo(() => [...baseHits, ...customHits], [baseHits, customHits]);
@@ -2105,6 +2134,8 @@ export default function PlaygroundPage({
       setModel={setModel}
       runningModels={runningModels}
       slashQuery={slashQuery}
+      invokedSkill={invokedSkill}
+      setInvokedSkill={setInvokedSkill}
       baseHits={baseHits}
       customHits={customHits}
       effectiveSel={effectiveSel}

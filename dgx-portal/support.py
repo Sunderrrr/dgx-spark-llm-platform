@@ -17,6 +17,7 @@ import secrets
 import time
 from datetime import datetime
 
+import skills_store
 from db import get_db, platform_name
 from litellm_client import (_litellm_user_info, create_litellm_key,
                             get_user_keys, revoke_litellm_key)
@@ -598,17 +599,10 @@ def _user_extra_tools(username):
                 'kind': 'mcp', 'server_id': row['id'], 'server_name': row['name'],
                 'tool_name': t.get('name', ''),
             }
-    skill_rows = list(db.execute("SELECT name, description FROM skills WHERE username=?", (username,)))
-    if skill_rows:
-        tools.append({"type": "function", "function": {
-            "name": "use_skill",
-            "description": "Charge les instructions détaillées d'une compétence (skill) définie "
-                           "par l'utilisateur pour t'aider sur sa tâche.",
-            "parameters": {"type": "object", "properties": {
-                "name": {"type": "string", "enum": [r['name'] for r in skill_rows],
-                          "description": "Nom exact de la compétence à charger."}},
-                "required": ["name"]}}})
-        routing['use_skill'] = {'kind': 'skill'}
+    skill_rows = skills_store.enabled_skills(db, username)
+    for t in skills_store.skill_tools(skill_rows):
+        tools.append(t)
+        routing[t['function']['name']] = {'kind': 'skill'}
     return tools, routing
 
 
@@ -632,14 +626,12 @@ def _exec_mcp_tool(server_id, tool_name, args, username):
         return f"Erreur MCP ({type(e).__name__}).", False
 
 
-def _exec_skill(name, username):
+def _exec_skill(name, username, path=None):
+    """use_skill, or read_skill_file when `path` is given (skills_store.py)."""
     db = get_db()
-    row = db.execute("SELECT instructions FROM skills WHERE username=? AND name=?",
-                      (username, name)).fetchone()
-    if not row:
-        return f"Compétence « {name} » introuvable.", False
-    return row['instructions'], True
-
+    if path is not None:
+        return skills_store.exec_read_skill_file(db, username, name, path)
+    return skills_store.exec_use_skill(db, username, name)
 
 
 def _sse_tool_event(tc_id, name, target, status, duration_ms=None, error=None):

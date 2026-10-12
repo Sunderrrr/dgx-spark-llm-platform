@@ -174,7 +174,7 @@ export async function fetchPlaygroundData(): Promise<PlaygroundData> {
  * backend announces it on the fly. `etape` is optional: the portail sends an
  * empty frame when a tool refused before doing anything. */
 export type WebStep = {
-  step?: "search" | "search_done" | "reading" | "reading_done" | "file_view" | "file_edit"
+  step?: "search" | "search_done" | "reading" | "reading_done" | "file_view" | "file_edit" | "skill"
     | "generation" | "generation_done" | "generation_video"
     | "generation_video_done" | "ocr" | "ocr_done" | "unknown";
   tool: string;
@@ -282,6 +282,7 @@ export async function streamChat(
   signal: AbortSignal,
   onDelta: (delta: StreamDelta) => void,
   files?: { name: string; content: string }[],
+  skill?: string,
 ): Promise<void> {
   const res = await authFetch("/playground/chat", {
     method: "POST",
@@ -300,6 +301,9 @@ export async function streamChat(
       // The conversation's current files: the server's edit tools work on
       // them (targeted str_replace edits instead of full rewrites).
       files: files?.length ? files : undefined,
+      // A skill package invoked from the « / » menu (its SKILL.md joins the
+      // system prompt of this request).
+      skill: skill || undefined,
     }),
     signal,
   });

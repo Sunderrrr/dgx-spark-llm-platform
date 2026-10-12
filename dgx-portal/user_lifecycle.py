@@ -59,6 +59,7 @@ PURGED_TABLES = (
     'pending_actions',
     'pending_webauthn',
     'previews',
+    'skill_files',
     'skills',
     'support_feedback',
     'support_thread',

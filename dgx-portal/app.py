@@ -272,6 +272,7 @@ from discord_routes import bp as discord_bp  # noqa: E402
 # ── User settings ────────────────────────────────────────────────────────────
 # Blueprint: see settings_routes.py (28/08).
 from settings_routes import bp as settings_bp  # noqa: E402
+from skills_routes import bp as skills_bp  # noqa: E402
 
 # ── Playground conversation history ──────────────────────────────────────────
 # Blueprint: see conversation_routes.py (28/08).
@@ -1462,6 +1463,7 @@ def api_keys():
 
 
 app.register_blueprint(settings_bp)
+app.register_blueprint(skills_bp)
 
 app.register_blueprint(conversations_bp)
 # ── Rate limit for chat endpoints ───────────────────────────────────────────

@@ -51,8 +51,8 @@ def api_settings():
         "(auth_header IS NOT NULL) AS has_auth, created_at "
         "FROM mcp_servers WHERE username=? ORDER BY created_at DESC", (username,))]
     skills = [dict(r) for r in db.execute(
-        "SELECT id, name, description, instructions, created_at FROM skills WHERE username=? "
-        "ORDER BY created_at DESC", (username,))]
+        "SELECT id, name, description, instructions, created_at, source, version, enabled "
+        "FROM skills WHERE username=? ORDER BY created_at DESC", (username,))]
     pref = db.execute("SELECT avatar_id, theme_id, lang FROM user_prefs WHERE username=?",
                        (username,)).fetchone()
     acct = _litellm_user_info(username)
@@ -319,7 +319,10 @@ def skills_route():
         return jsonify({'ok': True})
     elif action == 'delete':
         skill_id = request.form.get('id', '')
-        db.execute("DELETE FROM skills WHERE id=? AND username=?", (skill_id, username))
+        cur = db.execute("DELETE FROM skills WHERE id=? AND username=?", (skill_id, username))
+        if cur.rowcount:
+            db.execute("DELETE FROM skill_files WHERE skill_id=? AND username=?",
+                       (skill_id, username))
         db.commit()
     return ('', 204)
 

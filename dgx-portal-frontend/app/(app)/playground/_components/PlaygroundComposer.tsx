@@ -77,6 +77,9 @@ export type PlaygroundComposerProps = {
   setModel: Dispatch<SetStateAction<string>>;
   runningModels: string[];
   slashQuery: string | null;
+  /** Skill package attached to the next message (« / » menu). */
+  invokedSkill: string | null;
+  setInvokedSkill: (v: string | null) => void;
   baseHits: Skill[];
   customHits: Skill[];
   effectiveSel: number;
@@ -123,6 +126,8 @@ export function PlaygroundComposer({
   setModel,
   runningModels,
   slashQuery,
+  invokedSkill,
+  setInvokedSkill,
   baseHits,
   customHits,
   effectiveSel,
@@ -162,6 +167,16 @@ export function PlaygroundComposer({
           }
         />
       )}
+      {/* The skill package the next message will use, removable. */}
+      {invokedSkill ? (
+        <Banner
+          status="info"
+          title={t("Compétence « {name} » jointe au prochain message").replace("{name}", invokedSkill)}
+          endContent={
+            <Button label={t("Retirer")} variant="ghost" size="sm" onClick={() => setInvokedSkill(null)} />
+          }
+        />
+      ) : null}
       {/* Without an API key the playground cannot send anything: it runs on the
           user's key. We say so BEFORE the first question, with the button that
           leads straight to the right place — rather than letting an error

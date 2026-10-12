@@ -812,6 +812,24 @@ def init_db():
     for old, new in (('sujet', 'subject'), ('personne', 'person'),
                      ('outil', 'tool'), ('préférence', 'preference')):
         db.execute("UPDATE memory_nodes SET kind=? WHERE kind=?", (new, old))
+    # Skills as Claude Code defines them (2026-10-12, skills_store.py): a
+    # SKILL.md plus its files, imported from a .zip or a Git repository that
+    # is remembered for re-synchronization.
+    sk_cols = {r[1] for r in db.execute("PRAGMA table_info(skills)")}
+    for col, ddl in (('source', "TEXT NOT NULL DEFAULT 'manual'"), ('source_url', 'TEXT'),
+                     ('source_ref', 'TEXT'), ('source_path', 'TEXT'), ('version', 'TEXT'),
+                     ('synced_at', 'TEXT'), ('enabled', 'INTEGER NOT NULL DEFAULT 1')):
+        if col not in sk_cols:
+            try:
+                db.execute(f"ALTER TABLE skills ADD COLUMN {col} {ddl}")
+            except sqlite3.OperationalError:
+                pass    # another gunicorn worker added it first
+    db.execute('''CREATE TABLE IF NOT EXISTS skill_files (
+        skill_id INTEGER NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+        username TEXT NOT NULL,
+        path     TEXT NOT NULL,
+        content  TEXT NOT NULL,
+        PRIMARY KEY (skill_id, path))''')
     grp_cols = {r[1] for r in db.execute("PRAGMA table_info(user_groups)")}
     if 'sources' not in grp_cols:
         db.execute("ALTER TABLE user_groups ADD COLUMN sources TEXT NOT NULL DEFAULT 'local'")

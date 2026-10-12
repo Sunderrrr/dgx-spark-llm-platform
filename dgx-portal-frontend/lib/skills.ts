@@ -16,6 +16,10 @@ export type Skill = {
   /** System prompt applied on selection (behaviour of the model). */
   systemPrompt?: string;
   builtin?: boolean;
+  /** A skill PACKAGE of the account (SKILL.md + files, Settings → Skills):
+   *  selecting it attaches the skill to the next message instead of
+   *  filling the input. Not stored in the browser. */
+  pkg?: boolean;
 };
 
 export const SKILLS_KEY = "dgx.skills";

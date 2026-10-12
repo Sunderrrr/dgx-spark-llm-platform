@@ -62,6 +62,7 @@ from websearch_tools import (_tools_phase, _search_relevant,
 from image_tools import _image_requested, image_available
 from video_tools import _video_requested, video_available
 import file_tools
+import skills_store
 from document_tools import _document_requested, document_available
 
 _log = logging.getLogger('app')
@@ -447,9 +448,10 @@ def support_chat():
                         exec_fn = lambda: _exec_mcp_tool(route['server_id'], route['tool_name'], a, username)
                     elif route and route['kind'] == 'skill':
                         skill_name = (a.get('name') or '').strip()
-                        label = f"Compétence · {skill_name}"
+                        skill_path = a.get('path') if fname == 'read_skill_file' else None
+                        label = f"Compétence · {skill_name}" + (f" · {skill_path}" if skill_path else "")
                         target = None
-                        exec_fn = lambda sn=skill_name: _exec_skill(sn, username)
+                        exec_fn = lambda sn=skill_name, sp=skill_path: _exec_skill(sn, username, sp)
                     else:
                         label = TOOL_LABELS.get(fname, fname)
                         target = _support_tool_target(fname, a)
@@ -1221,6 +1223,22 @@ def playground_chat():
     # change — a « merci » must not pay an extra model round.
     _files = file_tools.parse_files(data.get('files'))
     _edit_ok = bool(_files) and file_tools.edit_requested(history)
+    # Skills (skills_store.py). Invoked explicitly (« /name » in the
+    # composer → `skill`): its instructions join the system prompt of THIS
+    # request. Otherwise the skill tools are armed only when a skill's
+    # description matches the request — the model then decides to load it.
+    _skill_rows = skills_store.enabled_skills(get_db(), session['username'])
+    _invoked = str(data.get('skill') or '').strip()[:64]
+    if _invoked:
+        _text, _ok = skills_store.exec_use_skill(get_db(), session['username'], _invoked)
+        if _ok:
+            # `msgs` always opens with the system message (it carries the clock).
+            msgs[0] = {**msgs[0], 'content': msgs[0]['content'] + "\n\n"
+                       "The user invoked the following skill for this request: follow its "
+                       "instructions.\n\n" + _text}
+    _last_user = next((h['content'] for h in reversed(history) if h['role'] == 'user'), '')
+    _skill_ok = bool(_skill_rows) and (bool(_invoked) or bool(
+        skills_store.matching_skills(_skill_rows, _last_user)))
 
     # The output cap ADDS to the prompt in the context window: beyond it,
     # vLLM refuses the request (400 ContextWindowExceededError) instead of answering.
@@ -1286,16 +1304,18 @@ def playground_chat():
         # after the search (just before the final POST), so a request that spent
         # 40 s searching and reading announced « TTFT 1,2 s ».
         _t0 = time.monotonic()
-        if _web_ok or _img_ok or _vid_ok or _doc_ok or _edit_ok:
+        if _web_ok or _img_ok or _vid_ok or _doc_ok or _edit_ok or _skill_ok:
             yield ": recherche\n\n"
-            _step_log, _findings, _changes = [], [], {}
+            _step_log, _findings, _changes, _skills_loaded = [], [], {}, []
             for _step in _tools_phase(model, msgs, user_key, _step_log,
                                         _findings, web_ok=_web_ok,
                                         img_ok=_img_ok, username=_who,
                                         video_ok=_vid_ok, doc_ok=_doc_ok,
                                         attachments=attachments,
                                         files=_files if _edit_ok else None,
-                                        changes=_changes):
+                                        changes=_changes,
+                                        skill_rows=_skill_rows if _skill_ok else None,
+                                        skills_loaded=_skills_loaded):
                 yield _step
             # Every edited file goes back ONCE, in its final state: the
             # browser records it as the file's new version and shows the diff.
@@ -1305,7 +1325,9 @@ def playground_chat():
                         'name': _path, 'content': _files[_path],
                         'created': _before is None}}) + "\n\n"
             # Re-injection AS TEXT, into the last user message.
-            _txt = _findings_text(_findings) + file_tools.edits_note(_files, _changes)
+            _txt = (_findings_text(_findings) + file_tools.edits_note(_files, _changes)
+                    + (("\n\n---\n[Skill content loaded for this request — follow it:]\n\n"
+                        + "\n\n".join(_skills_loaded))[:60000] if _skills_loaded else ''))
             if _txt:
                 for _k in range(len(msgs) - 1, -1, -1):
                     if msgs[_k].get('role') == 'user':

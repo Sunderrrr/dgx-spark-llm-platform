@@ -52,7 +52,7 @@ function SkillRow({
           </HStack>
         </ClickableCard>
       </StackItem>
-      {!skill.builtin ? (
+      {!skill.builtin && !skill.pkg ? (
         <HStack gap={1} vAlign="center">
           <Button
             label={t("Modifier")}

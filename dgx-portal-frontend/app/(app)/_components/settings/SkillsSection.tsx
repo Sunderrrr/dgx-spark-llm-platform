@@ -7,23 +7,15 @@
 import type { Dispatch, SetStateAction } from "react";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { Button } from "@astryxdesign/core/Button";
-import { Icon } from "@astryxdesign/core/Icon";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Card } from "@astryxdesign/core/Card";
 import { Grid } from "@astryxdesign/core/Grid";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { TextArea } from "@astryxdesign/core/TextArea";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import {
-  PlusIcon,
-  SparklesIcon,
-  PencilSquareIcon,
-  TrashIcon,
-} from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import type { Skill as SkillPlayground } from "@/lib/skills";
 import type { SettingsData, SkillForm } from "./types";
+import { SkillPackages } from "./SkillPackages";
 
 export type SkillsSectionProps = {
   active: boolean;
@@ -78,71 +70,21 @@ export function SkillsSection({
                       ))}
                     </VStack>
                   </VStack>
-                  <Text weight="semibold">{t("Compétences de l'assistant")}</Text>
-                  <HStack hAlign="between" vAlign="center" gap={3}>
-                    <Text type="supporting" color="secondary">
-                      {t("Des instructions réutilisables que tu écris toi-même ; l'assistant les charge quand elles sont utiles à ta demande.")}
-                    </Text>
-                    <Button
-                      label={t("Nouvelle compétence")}
-                      variant="primary"
-                      size="sm"
-                      icon={<Icon icon={PlusIcon} size="sm" />}
-                      onClick={() => {
-                        setEditingSkillId(null);
-                        setSkillForm({ name: "", description: "", instructions: "" });
-                        setIsAddingSkill(true);
-                      }}
-                    />
-                  </HStack>
-                  {data && data.skills.length === 0 ? (
-                    <EmptyState
-                      icon={<Icon icon={SparklesIcon} size="lg" />}
-                      title={t("Aucune compétence pour l'instant.")}
-                      description={t("Crée une compétence pour guider l'assistant sur une tâche récurrente.")}
-                    />
-                  ) : (
-                    <VStack gap={3}>
-                      {data?.skills.map((s) => (
-                        <Card key={s.id}>
-                          <HStack hAlign="between" vAlign="start" gap={3}>
-                            <VStack gap={0}>
-                              <Text weight="semibold">{s.name}</Text>
-                              <Text type="supporting" color="secondary">
-                                {s.description}
-                              </Text>
-                            </VStack>
-                            <HStack gap={1}>
-                              <Button
-                                label={t("Modifier")}
-                                variant="ghost"
-                                size="sm"
-                                isIconOnly
-                                icon={<Icon icon={PencilSquareIcon} size="sm" />}
-                                onClick={() => {
-                                  setEditingSkillId(s.id);
-                                  setSkillForm({
-                                    name: s.name,
-                                    description: s.description,
-                                    instructions: s.instructions || "",
-                                  });
-                                  setIsAddingSkill(true);
-                                }}
-                              />
-                              <Button
-                                label={t("Supprimer")}
-                                variant="ghost"
-                                size="sm"
-                                isIconOnly
-                                icon={<Icon icon={TrashIcon} size="sm" />}
-                                onClick={() => deleteSkill(s.id, s.name)}
-                              />
-                            </HStack>
-                          </HStack>
-                        </Card>
-                      ))}
-                    </VStack>
-                  )}
+                  <Text weight="semibold">{t("Mes compétences")}</Text>
+                  <SkillPackages
+                    refreshKey={data}
+                    onCreate={() => {
+                      setEditingSkillId(null);
+                      setSkillForm({ name: "", description: "", instructions: "" });
+                      setIsAddingSkill(true);
+                    }}
+                    onEdit={(s) => {
+                      setEditingSkillId(s.id);
+                      setSkillForm({ name: s.name, description: s.description, instructions: s.instructions || "" });
+                      setIsAddingSkill(true);
+                    }}
+                    onDelete={deleteSkill}
+                  />
                 </VStack>
               )}
 

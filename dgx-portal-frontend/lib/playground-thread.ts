@@ -197,6 +197,10 @@ export function webStepLabel(
       return { finished: false,
         text: `${tool} · ` + t("lecture du document")
           + (e.question ? ` « ${e.question} »` : "") };
+    case "skill":
+      return { finished: true, text: e.error
+        ? t("compétence introuvable : {s}").replace("{s}", e.question ?? "")
+        : t("compétence chargée : {s}").replace("{s}", e.question ?? "") };
     case "file_view":
       return { finished: true, text: t("lecture de {f}").replace("{f}", e.question ?? "") };
     case "file_edit":

@@ -1996,9 +1996,19 @@ class SupportSensibleActionsTest(unittest.TestCase):
             db.commit()
 
     def setUp(self):
+        self._wait_finish_threads()
         self._clean()
 
     tearDown = setUp
+
+    @staticmethod
+    def _wait_finish_threads():
+        """A turn saves its thread from a daemon thread started AFTER the
+        response: left running, it writes into the NEXT test's database."""
+        import threading
+        for t in threading.enumerate():
+            if getattr(t, '_target', None) is chat._finish_support_body:
+                t.join(timeout=5)
 
     def _create_request(self, username="demo", tool="revoke_api_key",
                        args=None, label="Révocation de clé", target="test"):
@@ -2014,11 +2024,15 @@ class SupportSensibleActionsTest(unittest.TestCase):
         calls = {"n": 0}
 
         def _post(url, headers=None, json=None, timeout=None, stream=False):
+            if not stream:
+                # A background call (memory extraction of an EARLIER test's
+                # thread) lands here too: it must not consume a chat frame.
+                raise RuntimeError("non-streaming call outside this test")
             i = min(calls["n"], len(frames) - 1)
             calls["n"] += 1
             return self._Flux(frames[i])
 
-        # `_fin_support` is neutralized: it is a thread started after the
+        # `_finish_support` is neutralized: it is a thread started after the
         # response (saved thread + memory extraction) that calls requests.post
         # once the round is over and would steal a simulated frame from the next test.
         with mock.patch.object(chat, "get_running_models", return_value=["fake-model"]), \

@@ -425,7 +425,7 @@ def _follow_launch(model_name, window_s=None):
                         set_setting('served_model', json.dumps(
                             {'name': model_name, 'since': int(time.time())}))
                     except Exception:                        # noqa: BLE001
-                        _log.warning("suivi de lancement : annonce impossible", exc_info=True)
+                        _log.warning("launch follow-up: announcement impossible", exc_info=True)
                 return
             if name == model_name and status_value == 'error':
                 break
@@ -441,7 +441,7 @@ def _follow_launch(model_name, window_s=None):
                     f"n'est pas en service après {int(window)} s. La plateforme n'a "
                     f"probablement AUCUN modèle servi — vérifie les logs du runner.")
             except Exception:                                # noqa: BLE001
-                _log.warning("suivi de lancement : alerte impossible", exc_info=True)
+                _log.warning("launch follow-up: alert impossible", exc_info=True)
 
     # Same test seam as the two other background threads (budget reaper, ASR
     # reaper): DGX_NO_REAPER=1 keeps the suite free of threads that call the
@@ -943,7 +943,7 @@ def _asr_watcher_loop():
         try:
             _asr_watcher_pass()
         except Exception:                                # noqa: BLE001
-            _log.warning("veilleur ASR : passage en erreur", exc_info=True)
+            _log.warning("ASR watcher: pass failed", exc_info=True)
 
 def _asr_watcher_pass():
     """One reaper pass: stop `asr` if the dictation has been idle long enough.
@@ -1075,9 +1075,9 @@ def sidecar_logs(kind, n=120):
         if r.ok:
             lines = _drop_log_noise(r.json().get('logs', []))
             return [l[:400] for l in lines[-n:]]
-        _log.warning("sidecar_logs(%s) : le runner a repondu %s", kind, r.status_code)
+        _log.warning("sidecar_logs(%s): the runner answered %s", kind, r.status_code)
     except Exception as e:                                   # noqa: BLE001
-        _log.warning("sidecar_logs(%s) : %s", kind, type(e).__name__)
+        _log.warning("sidecar_logs(%s): %s", kind, type(e).__name__)
     return []
 
 
@@ -1100,11 +1100,11 @@ def runner_logs(n=150):
                          params={'n': _RUNNER_LOGS_BUFFER}, timeout=5)
         if r.ok:
             return _drop_log_noise(r.json().get('logs', []))[-n:]
-        _log.warning("runner_logs : le runner a repondu %s", r.status_code)
+        _log.warning("runner_logs: the runner answered %s", r.status_code)
     except Exception as e:                                   # noqa: BLE001
         # Without this trace, a failure here is indistinguishable from a stopped
         # model: this is exactly what masked the problem above.
-        _log.warning("runner_logs : %s", type(e).__name__)
+        _log.warning("runner_logs: %s", type(e).__name__)
     return []
 
 _runner_metrics_cache = {'t': 0.0, 'v': None}

@@ -1639,7 +1639,7 @@ with app.app_context():
     from instance_config import import_env_once
     _imported = import_env_once()
     if _imported:
-        print(f"[config] importé depuis .env (une seule fois) : {', '.join(_imported)}",
+        print(f"[config] imported from .env (once): {', '.join(_imported)}",
               file=sys.stderr, flush=True)
     # A fresh instance: nobody administers it yet. The setup token goes to the
     # log (and data/setup-token); the login page asks for it with the owner.

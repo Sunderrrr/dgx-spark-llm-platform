@@ -538,7 +538,7 @@ def _finish_support(username, history, response, model, user_key, mem_on, finish
         # Interrupted response (closed tab, Stop button, model error): we
         # keep the previous turn rather than freezing a reply cut mid-word,
         # and draw no durable fact from it for memory.
-        _log.info("support %s : reponse interrompue, fil et memoire non mis a jour", username)
+        _log.info("support %s: reply interrupted, thread and memory not updated", username)
         return
     # The body is separated from the thread launch: tests can call it
     # directly, without racing a daemon thread.
@@ -571,12 +571,12 @@ def _finish_support_body(username, history, text, model, user_key, mem_on, app,
                 (username, json.dumps(thread[-40:], ensure_ascii=False), time.time()))
             db.commit()
     except Exception as e:
-        _log.warning("support %s : fil non sauvegarde (%s)", username, e)
+        _log.warning("support %s: thread not saved (%s)", username, e)
     if mem_on:
         try:
             _mem_extract_and_save(username, model, user_key, excerpts, app)
         except Exception as e:
-            _log.warning("support %s : extraction memoire echouee (%s)", username, e)
+            _log.warning("support %s: memory extraction failed (%s)", username, e)
 
 
 @bp.route('/support/confirm', methods=['POST'])
@@ -1030,7 +1030,7 @@ def _mem_extract_and_save(username, model, user_key, excerpts, _app):
                                 'chat_template_kwargs': {'enable_thinking': False}},
                           timeout=(10, 60))
         if not r.ok:
-            _log.warning("memoire extraction %s : modele %s a repondu %s",
+            _log.warning("memory extraction %s: model %s answered %s",
                          username, model, r.status_code)
             return
         text = ((r.json().get('choices') or [{}])[0].get('message') or {}).get('content') or ''
@@ -1054,9 +1054,9 @@ def _mem_extract_and_save(username, model, user_key, excerpts, _app):
                 if ok:
                     kept += 1
             if kept:
-                _log.info("memoire extraction %s : %d fait(s) retenu(s)", username, kept)
+                _log.info("memory extraction %s: %d fact(s) kept", username, kept)
     except Exception as exc:                             # noqa: BLE001
-        _log.warning("memoire extraction %s : echec (%s: %s)",
+        _log.warning("memory extraction %s: failed (%s: %s)",
                      username, type(exc).__name__, exc)
 
 
@@ -1476,8 +1476,8 @@ def playground_chat():
                 # exception, the client receives a reply that looks complete
                 # while it is cut mid-word. We say so explicitly, otherwise
                 # nothing signals it and the truncated reply passes for finished.
-                _log.warning("playground %s : flux amont ferme sans finish_reason "
-                                   "apres %s octets — reponse coupee", _who, _bytes)
+                _log.warning("playground %s: upstream stream closed without finish_reason "
+                                   "after %s bytes — reply cut", _who, _bytes)
                 yield ("data: " + json.dumps({'choices': [{'delta': {},
                        'finish_reason': 'length'}]}) + "\n\n")
                 # `[DONE]` was MISSING here, while the three other end paths
@@ -1493,15 +1493,15 @@ def playground_chat():
                 # content, the user then sees an EMPTY bubble with no explanation.
                 # The TabbyAPI patch covers the declared-tools case; this log
                 # measures the residual path before trying to fix it.
-                _log.warning("playground %s : finish_reason=tool_calls SPONTANE "
-                             "(aucun outil demande), %s tokens de contenu%s",
+                _log.warning("playground %s: SPONTANEOUS finish_reason=tool_calls "
+                             "(no tool requested), %s content tokens%s",
                              _who, _out or 0,
-                             " — bulle VIDE cote utilisateur" if not _out else "")
+                             " — EMPTY bubble on the user side" if not _out else "")
             elif _finish != 'stop':
-                _log.warning("playground %s : finish_reason=%s, %s tokens produits",
+                _log.warning("playground %s: finish_reason=%s, %s tokens produced",
                                    _who, _finish, _out)
             elif _out and _out > 4000:
-                _log.warning("playground %s : fin normale (stop) apres %s tokens", _who, _out)
+                _log.warning("playground %s: normal end (stop) after %s tokens", _who, _out)
             if _mem_on and _finish == 'stop':
                 # Memory write: AFTER the reply (the client is served), in a
                 # throwaway thread — the extractor logs its failures and
@@ -1522,11 +1522,11 @@ def playground_chat():
             # The browser closed the connection mid-way (network cut, closed
             # tab). This is NOT an Exception: without this case, the most
             # frequent cut left no trace on the server side.
-            _log.warning("playground %s : generateur ferme apres %s octets / %s tokens "
-                               "(client parti en cours de flux)", _who, _bytes, _out)
+            _log.warning("playground %s: generator closed after %s bytes / %s tokens "
+                               "(client left mid-stream)", _who, _bytes, _out)
             raise
         except Exception as _e:
-            _log.warning("playground %s : flux interrompu (%s)", _who, type(_e).__name__)
+            _log.warning("playground %s: stream interrupted (%s)", _who, type(_e).__name__)
             # A transport failure on the LiteLLM POST (`requests` exceptions)
             # is NOT a model error: it goes out as a STRUCTURED notice that the
             # frontend translates. A read timeout (anti-stuck slot, see
@@ -1576,7 +1576,7 @@ def _non_stream(messages, model, max_tokens, temperature=0.2):
         # in the logs: it ended up in the HTTP response, hence in the
         # UI. The user, for their part, only needs to know that it did not
         # answer — the actionable cause is none of their business.
-        _log.warning("titre/résumé : appel LiteLLM échoué : %r", exc)
+        _log.warning("title/summary: LiteLLM call failed: %r", exc)
         return None, "Le modèle n'a pas répondu."
 
 

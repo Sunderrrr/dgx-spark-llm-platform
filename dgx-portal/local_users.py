@@ -85,7 +85,7 @@ def _sync_local_user_budget(username, row):
         _ensure_litellm_user(username, eff, duration)
         return bool(litellm_update_user_budget(username, eff, budget_duration=duration))
     except Exception as exc:                                     # noqa: BLE001
-        print(f'[local_users] quota NON appliqué pour {username} : {exc}')
+        print(f'[local_users] quota NOT applied for {username}: {exc}')
         return False
 
 

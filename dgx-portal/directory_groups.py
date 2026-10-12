@@ -123,7 +123,7 @@ def apply_group_quota(username):
         db.commit()
         return target
     except Exception as exc:                                     # noqa: BLE001
-        print(f'[directory_groups] quota de groupe non appliqué pour {username} : {exc}')
+        print(f'[directory_groups] group quota not applied for {username}: {exc}')
         return None
 
 

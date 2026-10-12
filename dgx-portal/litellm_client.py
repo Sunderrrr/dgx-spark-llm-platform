@@ -81,7 +81,7 @@ def _key_infos(keys):
     by_hash = {hashlib.sha256(c.encode()).hexdigest(): c for c in keys}
     conn = _spend_conn()
     if not conn:
-        _log.warning("infos cles : base LiteLLM injoignable, budgets affiches a 0")
+        _log.warning("key infos: LiteLLM database unreachable, budgets shown as 0")
         return {}
     try:
         cur = conn.cursor()
@@ -99,7 +99,7 @@ def _key_infos(keys):
                                               else (str(last_active) if last_active else None))}
                 for t, sp, mb, br, last_active in cur.fetchall() if t in by_hash}
     except Exception as e:                                   # noqa: BLE001
-        _log.warning("infos cles : lecture LiteLLM impossible (%s)", type(e).__name__)
+        _log.warning("key infos: LiteLLM read impossible (%s)", type(e).__name__)
         return {}
     finally:
         conn.close()
@@ -339,9 +339,9 @@ def _litellm_upsert(public_name, upstream, max_input, max_output):
         # restaurer.
         if existing and entry_before:
             restored = _restore_model(entry_before)
-            _log.warning("LiteLLM : création de « %s » refusée (HTTP %s) — entrée "
-                         "précédente %s", public_name, r.status_code,
-                         "restaurée" if restored else "PERDUE")
+            _log.warning("LiteLLM: creation of « %s » refused (HTTP %s) — previous "
+                         "entry %s", public_name, r.status_code,
+                         "restored" if restored else "LOST")
         return False
     except Exception:
         return False

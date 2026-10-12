@@ -129,7 +129,7 @@ def _refresh(app):
                 from directory_groups import sync_ldap_groups
                 sync_ldap_groups(read_result['groups'])
     except Exception as exc:                                     # noqa: BLE001
-        print(f'[directory] synchronisation des groupes impossible : {exc}')
+        print(f'[directory] group sync impossible: {exc}')
     finally:
         _state['running'] = False
 

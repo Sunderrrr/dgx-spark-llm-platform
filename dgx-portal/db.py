@@ -59,7 +59,7 @@ def log_audit(username, action, detail):
         c.commit()
         c.close()
     except Exception as exc:                                     # noqa: BLE001
-        print(f"[audit] écriture impossible ({action}) : {exc}", file=sys.stderr)
+        print(f"[audit] write impossible ({action}): {exc}", file=sys.stderr)
 
 
 def add_notification(username, kind, title, max_per_user=50):
@@ -893,21 +893,21 @@ def _detect_reset_database(db):
         )
         marker_present = os.path.exists(DB_RESET_MARKER)
         if empty and marker_present:
-            detail = ("portal.db est vide alors que le marqueur "
-                      f"{DB_RESET_MARKER} atteste d'une base déjà peuplée — "
-                      "réinitialisation suspectée (volume mal monté, db effacée).")
-            print('[db] CRITIQUE : ' + detail)
+            detail = ("portal.db is empty while the marker "
+                      f"{DB_RESET_MARKER} proves an already populated database — "
+                      "reset suspected (volume mis-mounted, db erased).")
+            print('[db] CRITICAL: ' + detail)
             try:
                 # Late import: notify depends on config, not on db — but do not weigh
                 # down the core import for a rare alert path.
                 from notify import notify_infra_alert_email
                 notify_infra_alert_email("Portal database appears to have been reset", detail)
             except Exception as exc:
-                print(f'[db] email anti-reset impossible : {exc}')
+                print(f'[db] anti-reset email impossible: {exc}')
             return
         if not empty and not marker_present:
             with open(DB_RESET_MARKER, 'w') as fh:
                 fh.write(datetime.now().isoformat() + '\n')
     except Exception as exc:
         # NEVER fail the startup on the detector itself.
-        print(f'[db] détecteur anti-reset inopéré : {exc}')
+        print(f'[db] anti-reset detector did not run: {exc}')

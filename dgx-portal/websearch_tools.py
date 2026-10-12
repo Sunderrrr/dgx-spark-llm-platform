@@ -354,13 +354,13 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
             # Transport failure (LiteLLM unreachable, timeout): we SAY it. Total
             # silence was the worst case — the user had asked for a search and got a
             # normal-looking answer.
-            _log.warning("outils %s : appel de decision injoignable (%s)", username, e)
+            _log.warning("tools %s: decision call unreachable (%s)", username, e)
             yield "data: " + json.dumps({'dgx_web': {
                 'step': 'search_done', 'tool': 'litellm', 'count': 0,
                 'error': "assistant injoignable"}}) + "\n\n"
             return
         if not r.ok:
-            _log.warning("outils %s : decision d'outil refusee (HTTP %s)",
+            _log.warning("tools %s: tool decision refused (HTTP %s)",
                          username, r.status_code)
             yield "data: " + json.dumps({'dgx_web': {
                 'step': 'search_done', 'tool': 'litellm', 'count': 0,
@@ -369,7 +369,7 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
         try:
             choice = (r.json().get('choices') or [{}])[0]
         except Exception:                           # noqa: BLE001
-            _log.warning("outils %s : reponse de decision illisible", username)
+            _log.warning("tools %s: unreadable decision answer", username)
             yield "data: " + json.dumps({'dgx_web': {
                 'step': 'search_done', 'tool': 'litellm', 'count': 0,
                 'error': "réponse illisible"}}) + "\n\n"
@@ -430,7 +430,7 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
                     result = yield from _exec_web_tool_with_heartbeats(
                         fn.get('name', ''), args, step_log)
                 except Exception as e:              # noqa: BLE001
-                    _log.warning("outils %s : %s a leve (%s)", username,
+                    _log.warning("tools %s: %s raised (%s)", username,
                                  fn.get('name', ''), e)
                     step_log.append({'step': 'search_done', 'tool': 'search',
                                     'count': 0, 'error': "outil en panne"})

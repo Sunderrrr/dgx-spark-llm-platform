@@ -227,7 +227,7 @@ def api_image_delete(prompt_id, idx):
                 # `str(exc)` of an `os.remove` carries the ABSOLUTE path of the volume
                 # (internal tree) and leaked into the HTTP response. The log
                 # keeps the detail, the user gets one sentence.
-                _log.warning("suppression image %s/%s échouée : %r", safe, idx, exc)
+                _log.warning("image deletion %s/%s failed: %r", safe, idx, exc)
                 return jsonify({'error': "Suppression impossible."}), 500
             return jsonify({'ok': True})
     return jsonify({'ok': True})

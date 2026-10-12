@@ -24,6 +24,8 @@ and shows a diff; the final answer only summarizes the change.
 import difflib
 import re
 
+from request_turns import request_texts
+
 # Bounds: the browser sends the conversation's files with every request
 # that may edit them — they must not turn into an unbounded upload.
 MAX_FILES = 40
@@ -68,26 +70,11 @@ def parse_files(raw):
     return files
 
 
-# A clarifying questionnaire of the model (```ask block or {"questions": [...]}).
-_ASKED = re.compile(r'```ask\b|"questions"\s*:\s*\[')
-
-
 def edit_requested(history):
-    """Does the last user message ask to change something?
-
-    When the model answered the request with clarifying questions, the last
-    user message is only the ANSWERS (« npm », « oui ») — the change itself is
-    in the user message before the questionnaire, so that one counts too."""
-    turns = [m for m in history if m.get('role') in ('user', 'assistant')]
-    asks = lambda m: bool(_EDIT_REQUEST.search(str(m.get('content', ''))[:4000]))
-    if not turns or turns[-1].get('role') != 'user':
-        return False
-    if asks(turns[-1]):
-        return True
-    return (len(turns) >= 3
-            and turns[-2].get('role') == 'assistant'
-            and bool(_ASKED.search(str(turns[-2].get('content', ''))))
-            and turns[-3].get('role') == 'user' and asks(turns[-3]))
+    """Does the current request ask to change something? It may sit before a
+    clarifying questionnaire, the last message being only the answers
+    (request_turns)."""
+    return any(_EDIT_REQUEST.search(text[:4000]) for text in request_texts(history))
 
 
 def _file_tools():

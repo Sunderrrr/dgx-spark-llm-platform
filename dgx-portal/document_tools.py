@@ -32,6 +32,7 @@ import re
 import threading
 import time
 
+from request_turns import request_texts
 from sidecars import get_ocr_model, sidecar_startable, sidecar_autostart
 
 # Wait between two polls of the extraction thread. The OCR call is a single
@@ -83,12 +84,15 @@ _NOT_A_DOCUMENT = re.compile(
 def _document_requested(history):
     """Does the user EXPLICITLY ask for a document to be read?"""
     from websearch_tools import _request_text   # import tardif : cycle sinon
-    last = next((m for m in reversed(history) if m.get('role') == 'user'), None)
-    text = _request_text(str((last or {}).get('content', '')))
-    # Every matched occurrence is checked: « lis la page web » falls to the
-    # guard, « lis la facture jointe » passes.
-    return any(not _NOT_A_DOCUMENT.search(text[m.start():m.end() + 40])
-               for m in _DOCUMENT_REQUEST.finditer(text))
+    # The request may sit before a clarifying questionnaire (request_turns).
+    for raw in request_texts(history):
+        text = _request_text(raw)
+        # Every matched occurrence is checked: « lis la page web » falls to the
+        # guard, « lis la facture jointe » passes.
+        if any(not _NOT_A_DOCUMENT.search(text[m.start():m.end() + 40])
+               for m in _DOCUMENT_REQUEST.finditer(text)):
+            return True
+    return False
 
 
 def document_available():

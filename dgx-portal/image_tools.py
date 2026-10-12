@@ -24,6 +24,7 @@ import threading
 import time
 from datetime import datetime
 
+from request_turns import request_texts
 from db import get_db
 from sidecars import wait_media_job
 from guards import media_job_done, media_job_slot
@@ -48,9 +49,11 @@ _HEARTBEAT_EVERY_S = 15
 _IMAGE_REQUEST = re.compile(
     r"\b(?:genere|génère|generer|générer|généré|générée|générés|générées|"
     r"cree|crée|creer|créer|créé|créée|créés|créées|veux|voudrais|"
-    r"aimerais|fais|faites|generate|create|make|design)\b"
+    # « fait » (sic) is how « fais-moi » is very often typed (2026-10-13).
+    r"aimerais|fais|fait|faire|faites|refais|refait|generate|create|make|design)\b"
     r"[^.!?\n]{0,40}?"
-    r"\b(?:une?|des|an?|\d+)\s+(?:image|dessin|illustration|logo|ic[ôo]ne|avatar|picture|drawing|icon)s?\b"
+    r"\b(?:une?|des|an?|\d+)\s+(?:image|dessin|illustration|logo|ic[ôo]ne|avatar|visuel|affiche|"
+    r"flyer|poster|picture|drawing|icon)s?\b"
     r"|\bdessine\b[^.!?\n]{0,40}"
     r"|\bdraw\b[^.!?\n]{0,40}",
     re.I)
@@ -65,12 +68,15 @@ _NOT_AN_IMAGE = re.compile(r"\b(?:docker|conteneur|container|oci|disque|disk|iso
 def _image_requested(history):
     """Does the user EXPLICITLY ask for an image to be generated?"""
     from websearch_tools import _request_text   # import tardif : cycle sinon
-    last = next((m for m in reversed(history) if m.get('role') == 'user'), None)
-    text = _request_text(str((last or {}).get('content', '')))
-    # Every matched occurrence is checked: « crée une image docker » falls to the
-    # guard, « crée une image de chat » passes.
-    return any(not _NOT_AN_IMAGE.search(text[m.start():m.end() + 40])
-               for m in _IMAGE_REQUEST.finditer(text))
+    # The request may sit before a clarifying questionnaire (request_turns).
+    for raw in request_texts(history):
+        text = _request_text(raw)
+        # Every matched occurrence is checked: « crée une image docker » falls to the
+        # guard, « crée une image de chat » passes.
+        if any(not _NOT_AN_IMAGE.search(text[m.start():m.end() + 40])
+               for m in _IMAGE_REQUEST.finditer(text)):
+            return True
+    return False
 
 
 def image_available():

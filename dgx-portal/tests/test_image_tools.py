@@ -20,6 +20,19 @@ class TriggerTest(unittest.TestCase):
         return image_tools._image_requested(
             [{'role': 'user', 'content': text}])
 
+    def test_answers_to_clarifying_questions_keep_the_request(self):
+        # « fais-moi une image pour halloween » → questions → answers alone:
+        # the tool was not armed and the model wrote its calls as text
+        # (2026-10-13).
+        q = '```ask\n{"questions": [{"question": "Style ?", "options": ["nuit"]}]}\n```'
+        hist = [{'role': 'user', 'content': "hello fait moi une image pour halloween, j'en veux 3 en portrait"},
+                {'role': 'assistant', 'content': q},
+                {'role': 'user', 'content': "Style ?\n→ nuit"}]
+        self.assertTrue(image_tools._image_requested(hist))
+        # Without the questionnaire, answers alone arm nothing.
+        hist[1] = {'role': 'assistant', 'content': "Voilà !"}
+        self.assertFalse(image_tools._image_requested(hist))
+
     def test_explicit_directives_(self):
         for text in (
             "génère une image d'un chat astronaute",
@@ -35,6 +48,9 @@ class TriggerTest(unittest.TestCase):
             "generate an image of a cat",
             "create a logo for my bakery",
             "draw me a dragon",
+            "hello fait moi une image pour halloween",   # « fait » (sic)
+            "tu peux me faire 3 visuels pour la soirée",
+            "fais-moi une affiche pour la fête",
         ):
             self.assertTrue(self._requested(text), text)
 

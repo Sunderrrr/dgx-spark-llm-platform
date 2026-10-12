@@ -31,6 +31,7 @@ import threading
 import time
 from datetime import datetime
 
+from request_turns import request_texts
 from comfyui_client import comfyui_generate, comfyui_is_up, comfyui_status
 from db import get_db
 from sidecars import wait_media_job
@@ -78,12 +79,15 @@ _NOT_A_VIDEO = re.compile(
 def _video_requested(history):
     """Does the user EXPLICITLY ask for a video to be generated?"""
     from websearch_tools import _request_text   # import tardif : cycle sinon
-    last = next((m for m in reversed(history) if m.get('role') == 'user'), None)
-    text = _request_text(str((last or {}).get('content', '')))
-    # Every matched occurrence is checked: « crée une animation CSS » falls to
-    # the guard, « crée une animation de chat » passes.
-    return any(not _NOT_A_VIDEO.search(text[m.start():m.end() + 40])
-               for m in _VIDEO_REQUEST.finditer(text))
+    # The request may sit before a clarifying questionnaire (request_turns).
+    for raw in request_texts(history):
+        text = _request_text(raw)
+        # Every matched occurrence is checked: « crée une animation CSS » falls to
+        # the guard, « crée une animation de chat » passes.
+        if any(not _NOT_A_VIDEO.search(text[m.start():m.end() + 40])
+               for m in _VIDEO_REQUEST.finditer(text)):
+            return True
+    return False
 
 
 def video_available():

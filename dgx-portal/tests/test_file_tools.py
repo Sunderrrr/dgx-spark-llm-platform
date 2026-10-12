@@ -122,7 +122,10 @@ class BoundsAndTriggerTest(unittest.TestCase):
     def test_edit_request_detection(self):
         ask = lambda t: file_tools.edit_requested([{'role': 'user', 'content': t}])
         for t in ("Change la couleur du titre", "corrige le bug ligne 3",
-                  "rajoute un bouton", "please fix the loop", "rename the function"):
+                  "rajoute un bouton", "please fix the loop", "rename the function",
+                  # Follow-up corrections without an edit verb (seen in production).
+                  "en faite pas traefik mais nginx proxy manager", "plutôt en Python",
+                  "actually use port 8080 instead"):
             self.assertTrue(ask(t), t)
         for t in ("merci !", "explique-moi ce code", "what does it do?"):
             self.assertFalse(ask(t), t)
@@ -183,6 +186,27 @@ class ToolsPhaseLoopTest(unittest.TestCase):
         self.assertEqual(names, ['view_file', 'str_replace', 'create_file'])
         self.assertTrue(any('file_edit' in s for s in steps))
         self.assertIn("Files of this conversation", json.dumps(sent[0]['messages']))
+
+
+    def test_a_single_system_message_stays_first(self):
+        """Qwen's template raises « System message must be at the beginning »
+        (HTTP 500) on a second system message: the file list joins the first."""
+        sent = []
+
+        def _post(url, headers=None, json=None, timeout=None):
+            sent.append(json)
+            return _Resp({'content': 'nothing to do'})
+
+        msgs = [{'role': 'system', 'content': 'You are helpful.'},
+                {'role': 'user', 'content': 'add a network'}]
+        with patch.object(websearch_tools, 'requests', _scoped_requests(_post)):
+            list(websearch_tools._tools_phase('m', msgs, 'sk', [], [], web_ok=False,
+                                              files={'greet.py': SRC}, changes={}))
+        roles = [m['role'] for m in sent[0]['messages']]
+        self.assertEqual(roles.count('system'), 1)
+        self.assertEqual(roles[0], 'system')
+        self.assertIn('You are helpful.', sent[0]['messages'][0]['content'])
+        self.assertIn('Files of this conversation', sent[0]['messages'][0]['content'])
 
 
 class PlaygroundWiringTest(unittest.TestCase):

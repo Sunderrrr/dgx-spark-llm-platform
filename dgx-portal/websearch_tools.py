@@ -60,7 +60,7 @@ TOOLS_LAST = 6        # number of messages re-read
 # even more — a preload of several tens of seconds, without a single byte
 # sent to the client meanwhile. We bound per result AND in total.
 TOOLS_RESULT_PROMPT = 6000   # per tool result (the digest is enough to decide)
-TOOLS_PROMPT_MAX = 40000       # in total in `court`
+TOOLS_PROMPT_MAX = 40000       # in total in `short_text`
 # A search tool is SYNCHRONOUS and can block for a very long time:
 # `lire_pages` waits `websearch.TIMEOUT_LECTURE` per page (90 s), while the
 # frontend proxy cuts after 60 s WITHOUT A SINGLE BYTE (IDLE_TIMEOUT_MS). The
@@ -352,8 +352,14 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
     if not _tools:
         return
     if edit_ok:
-        short_text.insert(1 if short_text and short_text[0].get('role') == 'system' else 0,
-                          {'role': 'system', 'content': file_tools.files_note(files)})
+        # Merged into THE system message: chat templates (Qwen among them)
+        # refuse a system message anywhere but first — a second one made the
+        # whole edit phase fail with HTTP 500 and the model rewrote the file.
+        note = file_tools.files_note(files)
+        if short_text and short_text[0].get('role') == 'system':
+            short_text[0] = {**short_text[0], 'content': short_text[0]['content'] + "\n\n" + note}
+        else:
+            short_text.insert(0, {'role': 'system', 'content': note})
     _end = time.monotonic() + (FILE_TOOLS_MAX_DELAY if edit_ok else TOOLS_MAX_DELAY)
     for _ in range(FILE_TOOL_ROUNDS if edit_ok else MAX_TOOL_ROUNDS):
         if time.monotonic() > _end:

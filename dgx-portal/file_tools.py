@@ -37,7 +37,12 @@ FILE_TOOL_NAMES = ('view_file', 'str_replace', 'create_file')
 _EDIT_REQUEST = re.compile(
     r"\b(?:modifi|chang|corrig|r[ée]par|ajout|rajout|remplac|supprim|enl[eè]v|retir|"
     r"renomm|d[ée]plac|mets?\b|passe\b|am[ée]lior|optimis|refactor|r[ée][ée]cri|adapt|"
-    r"fix|edit|updat|add|remov|delet|renam|replac|improv|rewrit|tweak|mov)",
+    r"fix|edit|updat|add|remov|delet|renam|replac|improv|rewrit|tweak|mov)"
+    # Follow-up corrections carry no verb: « en fait pas traefik mais nginx
+    # proxy manager », « plutôt en Python », « actually use port 8080 ».
+    r"|\b(?:en fai(?:t|te)|plut[oô]t|au lieu|[àa] la place|pas \S+(?: \S+){0,3} mais|"
+    r"int[ée]gr|inclu|utilis|bascul|transform|convert|"
+    r"actually|instead|rather|switch|use\b|make it|turn it)",
     re.I)
 
 

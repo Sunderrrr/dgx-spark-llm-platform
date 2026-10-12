@@ -35,7 +35,7 @@ import {
   convAsJson, convAsMarkdown, convTitleFallback, downloadText, type ExportConversation,
 } from "@/lib/export";
 // Pure model-output parsers, extracted for unit tests (tests/playground-parsers.test.ts).
-import { parseAsk, closedContent, openCodeFence } from "@/lib/playground-parsers";
+import { parseAsk, closedContent, openCodeFence, splitInlineThink } from "@/lib/playground-parsers";
 // Thread/artifact helpers shared with the extracted child components
 // (message bubbles, document panel): moved out verbatim, behaviour unchanged.
 import {
@@ -293,7 +293,15 @@ const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you 
 // Voice mode: the answer is READ ALOUD sentence by sentence (VoiceMode).
 // Written-chat habits sound absurd spoken — a bullet list, a code block, a
 // URL spelled out — and a long answer keeps the user waiting to talk.
-const VOICE_INSTRUCTION = `This conversation is SPOKEN: the user talks to you through a microphone and your answer is read aloud by a voice. Answer like a person in a conversation: short (one to four sentences unless the user asks for more), natural spoken language, in the user's language. Never use markdown, lists, headings, tables, emoji or code blocks, and never read out a URL or a file. If the user asks for code or a file, say in one sentence what it would do and offer to write it in the written chat.`;
+// Framed as a text-to-speech constraint, NOT as « this conversation is
+// spoken »: told that it is in a spoken conversation, qwen38-27b treats
+// backchannels (« Mm-hmm », « Ouais, j'aime bien ») as needing no reply and
+// ends its turn at once — <|im_end|> at 97 % (measured 2026-10-13).
+const VOICE_INSTRUCTION = `Your reply will be read by a text-to-speech engine: write it as short plain sentences (one to four unless the user asks for more), conversational, in the user's language, without markdown, lists, headings, tables, emoji, code blocks or URLs. If the user asks for code or a file, say in one sentence what it would do and offer to write it in the written chat.`;
+// Added to the last user message of a RETRY only (an empty spoken turn): in
+// the message itself it got an answer 8 times out of 8 where the system
+// instruction alone still left 5 out of 8 empty.
+const VOICE_NUDGE = "\n\n[Reply to this message out loud: at least one short sentence.]";
 
 const COMPLETENESS_INSTRUCTION = `Never abridge a file you were asked to produce. Never write that a file is "too long to show here", never say you are giving a "shortened", "simplified" or "essential" version, and never replace any part of a file with an ellipsis, a placeholder, or a comment such as "rest of the code unchanged". There is no display limit: write the file in full, from its first line to its last. If you run out of room before the end, stop mid-file rather than closing it early — you will be asked to continue, and you will resume at the exact character where you stopped. A truncated file presented as complete is the worst possible answer.`;
 
@@ -1371,7 +1379,7 @@ export default function PlaygroundPage({
     };
   }, []);
 
-  async function runStream(nextMessages: ChatMsg[], override?: { reasoning?: boolean; voice?: boolean }) {
+  async function runStream(nextMessages: ChatMsg[], override?: { reasoning?: boolean; voice?: boolean; retried?: boolean }) {
     if (!model) {
       setMessages([...nextMessages, { role: "assistant", content: t("Aucun modèle actif.") }]);
       return;
@@ -1409,6 +1417,12 @@ export default function PlaygroundPage({
     let tf: number | null = null;
     let acc = "";
     let reason = "";
+    // The content as the model streamed it: a thought it WROTE into it
+    // (« <think>… ») is moved to the reasoning block (splitInlineThink).
+    let rawContent = "";
+    let inlineThought = "";
+    let beforeContent: string | null = null;   // notices received before the content
+    const allReasoning = () => [reason, inlineThought].filter(Boolean).join("\n\n");
     let reasoningStart: number | null = null;   // 1er fragment de pensée
     let thoughtEnd: number | null = null;     // 1er fragment de réponse
     let usage: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number } | undefined;
@@ -1422,7 +1436,7 @@ export default function PlaygroundPage({
     const updateLast = () => {
       setMessages((prev) => {
         const copy = [...prev];
-        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: reason, ts: copy[copy.length - 1]?.ts , reasoningMs: reasoningStart ? Math.round((thoughtEnd ?? performance.now()) - reasoningStart) : undefined, fileEdits: fileEdits.length ? [...fileEdits] : undefined };
+        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: allReasoning(), ts: copy[copy.length - 1]?.ts , reasoningMs: reasoningStart ? Math.round((thoughtEnd ?? performance.now()) - reasoningStart) : undefined, fileEdits: fileEdits.length ? [...fileEdits] : undefined };
         return copy;
       });
     };
@@ -1477,7 +1491,11 @@ export default function PlaygroundPage({
       await streamChat(
         csrf,
         model,
-        recentImages(nextMessages, MAX_IMAGES_PER_REQUEST).map((m) => ({ role: m.role, content: m.content, images: m.images })),
+        recentImages(nextMessages, MAX_IMAGES_PER_REQUEST).map((m, k, all) => ({
+          role: m.role,
+          content: override?.retried && k === all.length - 1 && m.role === "user" ? m.content + VOICE_NUDGE : m.content,
+          images: m.images,
+        })),
         askSettings,
         controller.signal,
         (delta) => {
@@ -1522,7 +1540,11 @@ export default function PlaygroundPage({
             if (thoughtEnd === null) thoughtEnd = performance.now();
             if (liveStartRef.current === null) liveStartRef.current = tf;
             liveCharsRef.current += delta.contentChunk.length;
-            acc += delta.contentChunk;
+            if (beforeContent === null) beforeContent = acc;
+            rawContent += delta.contentChunk;
+            const split = splitInlineThink(rawContent);
+            inlineThought = split.thought;
+            acc = beforeContent + split.answer;
             updateLast();
           }
         },
@@ -1538,7 +1560,7 @@ export default function PlaygroundPage({
         if (!acc) acc = t("Erreur réseau.");
       }
     }
-    if (!isError && !wasAborted && !acc && !reason) {
+    if (!isError && !wasAborted && !acc && !allReasoning()) {
       isError = true;
       acc = t("Le modèle n'a renvoyé aucune réponse.");
     }
@@ -1561,7 +1583,7 @@ export default function PlaygroundPage({
         role: "assistant",
         content: trimAfterAsk(acc),
         truncated: truncated,
-        reasoning: reason,
+        reasoning: allReasoning(),
         reasoningMs: reasoningStart ? Math.round((thoughtEnd ?? te) - reasoningStart) : undefined,
         tokens,
         tokensPerSec: tokens && gen > 0 ? Number((tokens / gen).toFixed(1)) : undefined,
@@ -1627,6 +1649,13 @@ export default function PlaygroundPage({
     if (answerNowRef.current) {
       answerNowRef.current = false;
       void runStream(nextMessages, { reasoning: false });
+      return;
+    }
+    // A spoken turn that came back EMPTY is asked once more on its own: in a
+    // conversation, « Le modèle n'a renvoyé aucune réponse » read aloud is a
+    // dead end (seen on qwen38-27b, 2026-10-13).
+    if (override?.voice && !override.retried && isError && !wasAborted && !rawContent.trim() && !reason) {
+      void runStream(nextMessages, { ...override, retried: true });
       return;
     }
     // The model dropped mid-file: we chain on our own. Seen in

@@ -142,8 +142,16 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
     }
     if (tr.index === null) return;
     const m = messages[tr.index];
-    if (!m || m.role !== "assistant") return;
+    // An error is shown, never read; an empty spoken turn is asked again by
+    // the page, and its new answer replaces this one from the start.
+    if (!m || m.role !== "assistant" || m.isError) return;
     const text = speakable(m.content);
+    if (text.length < tr.cut) {
+      tr.cut = 0;
+      tr.queue = [];
+      playerRef.current?.reset();
+      setSaid(0);
+    }
     const final = !streaming || tr.index !== messages.length - 1;
     const { sentences, end } = nextSentences(text, tr.cut, final);
     tr.cut = end;

@@ -797,6 +797,21 @@ def _weight(m):
     return len(m.get('content') or '') + IMAGE_WEIGHT_CHARS * len(m.get('images') or ())
 
 
+_INLINE_THINK = re.compile(r'^\s*<think>.*?(?:</think>\s*|$)', re.S | re.I)
+
+
+def _without_inline_think(text):
+    """An assistant turn without the thought the model wrote INTO it.
+
+    qwen38-27b opens `<think>` in the content now and then even with thinking
+    off; an unclosed one sent back in the history made the next turn come
+    back empty (2 tokens, 2026-10-13). Nothing left → a neutral « … »: an
+    empty assistant turn confuses some chat templates."""
+    if not isinstance(text, str) or not text.lstrip()[:7].lower() == '<think>':
+        return text
+    return _INLINE_THINK.sub('', text, count=1).strip() or '…'
+
+
 def _msgs_api(msgs):
     """The messages in API format: images as `image_url` parts.
 
@@ -808,6 +823,8 @@ def _msgs_api(msgs):
     for m in msgs:
         imgs = m.get('images')
         base = {k: v for k, v in m.items() if k != 'images'}
+        if base.get('role') == 'assistant':
+            base['content'] = _without_inline_think(base.get('content'))
         if imgs:
             parts = [{'type': 'image_url', 'image_url': {'url': u}} for u in imgs]
             if base.get('content'):

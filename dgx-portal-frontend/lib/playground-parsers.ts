@@ -578,3 +578,22 @@ export function isExcerptOf(title: string, body: string, lead: string, existing 
     "i");
   return where.test(lead.slice(-200));
 }
+
+/** A reasoning the model WROTE INTO its answer (« <think>…</think> »).
+ *
+ * With thinking off, qwen38-27b still opens a `<think>` block in the content
+ * now and then (2026-10-13, voice mode): it was shown — and read aloud — as
+ * the answer, and an unclosed one sent back in the history made the next turn
+ * come back empty. The thought goes to the reasoning block; `answer` is what
+ * follows `</think>` (nothing yet while the block is open). */
+export function splitInlineThink(raw: string): { thought: string; answer: string } {
+  const head = raw.trimStart();
+  if (!/^<think>/i.test(head)) {
+    // A stream may cut the tag itself: « <thi » is not an answer yet.
+    return /^<t(?:h(?:i(?:n(?:k)?)?)?)?$/i.test(head) ? { thought: "", answer: "" } : { thought: "", answer: raw };
+  }
+  const body = head.slice("<think>".length);
+  const close = body.search(/<\/think>/i);
+  if (close < 0) return { thought: body.trim(), answer: "" };
+  return { thought: body.slice(0, close).trim(), answer: body.slice(close + "</think>".length).replace(/^\s+/, "") };
+}

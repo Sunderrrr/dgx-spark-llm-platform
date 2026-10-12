@@ -8,6 +8,7 @@
  *  the answers that slip (and for the turns written before voice mode). */
 export function speakable(md: string): string {
   return md
+    .replace(/^\s*<think>[\s\S]*?(?:<\/think>|$)/i, " ") // a thought written into the answer
     .replace(/```[\s\S]*?(?:```|$)/g, " ")          // code blocks: never read
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")            // images
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")          // links → their text
@@ -65,5 +66,16 @@ export function isPhantomTranscript(text: string): boolean {
     // « Thank you. » / « You » alone: what Whisper hears in a breath or the
     // room's noise (sent as a turn on 2026-10-13, mid French conversation).
     || /^(?:thank you|thanks|you|bye)[\s.!…]*$/.test(t)
-    || /^[\s.,!?…-]*$/.test(t);
+    || /^[\s.,!?…-]*$/.test(t)
+    || looping(t);
+}
+
+/** Whisper's other invention on a long stretch of noise or echo: one phrase
+ *  repeated over and over (« Thank you. Thank you. … » ×100, « Bye-bye. »
+ *  ×90 — 2026-10-13). A person does not say the same words ten times. */
+function looping(t: string): boolean {
+  const words = t.split(/[^\p{L}\p{N}']+/u).filter(Boolean);
+  if (words.length < 8) return false;
+  if (new Set(words).size / words.length < 0.3) return true;
+  return /(.{3,40}?)(?:[\s.,!?…]+\1){3,}/.test(t);
 }

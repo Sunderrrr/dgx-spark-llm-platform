@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import {
   askedFileNames,
   isExcerptOf,
+  splitInlineThink,
   MAX_ASK_QUESTIONS,
   MAX_ASK_OPTIONS,
   RE_QUESTIONS_BODY,
@@ -369,4 +370,13 @@ test("isExcerptOf: without an existing file, a named block is the whole file", (
   // A long block is a version, not an excerpt.
   const long = Array.from({ length: 20 }, (_, k) => `line ${k}`).join("\n");
   assert.equal(isExcerptOf("a.txt", long, "dans a.txt :\n", 10_000), false);
+});
+
+test("splitInlineThink: a thought written into the answer goes to the reasoning", () => {
+  assert.deepEqual(splitInlineThink("Bonjour !"), { thought: "", answer: "Bonjour !" });
+  assert.deepEqual(splitInlineThink("<thi"), { thought: "", answer: "" });
+  assert.deepEqual(splitInlineThink("<think>\nThe user is playful"), { thought: "The user is playful", answer: "" });
+  assert.deepEqual(splitInlineThink("<think>\nShort.\n</think>\n\nHa, non !"), { thought: "Short.", answer: "Ha, non !" });
+  // A « <think> » further in the text is the answer's own words.
+  assert.equal(splitInlineThink("Le tag <think> sert à…").answer, "Le tag <think> sert à…");
 });

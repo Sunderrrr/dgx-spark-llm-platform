@@ -1266,3 +1266,17 @@ class QueueWaitTest(_BasePlayground):
         up = _FakeUpstream([_delta('Bonjour'), _end()])
         body = self._flux(self._body(), post=self._single_upstream(up), slots=None)
         self.assertNotIn('dgx_queue', body)
+
+
+class InlineThinkHistoryTest(unittest.TestCase):
+    """A thought written into an earlier answer never goes back to the model."""
+
+    def test_unclosed_and_closed_think_blocks_are_dropped(self):
+        out = chat._msgs_api([
+            {'role': 'user', 'content': 'Abois'},
+            {'role': 'assistant', 'content': '<think>\nThe user is playful'},
+            {'role': 'assistant', 'content': '<think>\nshort\n</think>\n\nHa, non !'},
+            {'role': 'assistant', 'content': 'Le tag <think> reste là.'},
+        ])
+        self.assertEqual([m['content'] for m in out],
+                         ['Abois', '…', 'Ha, non !', 'Le tag <think> reste là.'])

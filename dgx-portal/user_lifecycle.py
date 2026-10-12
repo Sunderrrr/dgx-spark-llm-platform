@@ -237,7 +237,7 @@ def _send_password_notification(username, by_admin=None):
             "immédiatement : toutes les autres sessions du compte ont été fermées, mais "
             "l'accès à l'API doit être vérifié."))
     except Exception as exc:                                     # noqa: BLE001
-        print(f'[user_lifecycle] notification de mot de passe non envoyée : {exc}')
+        print(f'[user_lifecycle] password notification not sent: {exc}')
         return False
 
 

@@ -198,7 +198,7 @@ class SchemaTableauDeBordTest(SessionTest):
     reads these keys directly — their disappearance would only raise a
     blank screen, silently. The engine is stubbed: we test THE SCHEMA."""
 
-    CLES_SANTE = ('running', 'tps', 'tps_moyen', 'tps_prefill', 'ttft',
+    CLES_SANTE = ('running', 'tps', 'tps_avg', 'tps_prefill', 'ttft',
                   'sessions', 'metrics')
 
     def test_modelhealth_porte_les_cles_du_tableau_de_bord(self):

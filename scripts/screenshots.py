@@ -59,9 +59,9 @@ PW_FILE = os.environ.get("SHOTS_PW_FILE", "/root/shots/demo-credentials")
 try:
     PW = open(PW_FILE).read().strip()
 except FileNotFoundError:
-    sys.exit(f"mot de passe du compte de démonstration introuvable : {PW_FILE}\n"
-             f"  → crée le compte avec scripts/create-demo-account.py puis écris le mot\n"
-             f"    de passe dans ce fichier (chmod 600), ou renseigne SHOTS_PW_FILE.")
+    sys.exit(f"demo account password not found: {PW_FILE}\n"
+             f"  → create the account with scripts/create-demo-account.py then write the\n"
+             f"    password in that file (chmod 600), or set SHOTS_PW_FILE.")
 OUT = os.environ.get("SHOTS_OUT", "/root/shots/out")
 W, H, DPR = 1600, 1000, 2
 
@@ -92,7 +92,7 @@ SCROLL = {"admin": 340}
 # No published screenshot may contain an email address, an API key, a private
 # IP or another account's name: this net blurs the offending text before the
 # shot, and the final PNG is re-checked by OCR.
-SENSIBLE = (r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}"
+SENSITIVE = (r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}"
             r"|sk-[A-Za-z0-9_\-]{6,}"
             r"|\b(?:10|172\.(?:1[6-9]|2[0-9]|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b")
 
@@ -103,7 +103,7 @@ SENSIBLE = (r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}"
 # published capture as long as no media model is loaded; `screenshots.py ocr`
 # forces the shot when one of them is running.
 MEDIA = {"ocr", "voice", "video", "image", "music"}
-SKIP_REFRESH = MEDIA          # une page média ne se capture qu'avec son backend
+SKIP_REFRESH = MEDIA          # a media page is only captured with its backend
 
 # Internal pages: never published (they list accounts, see .gitignore), so
 # checked for shape but not for confidentiality.
@@ -134,7 +134,7 @@ def log(msg):
     print(f"  {msg}", flush=True)
 
 
-def media_prets(page):
+def media_ready(page):
     """Media backends actually loaded, seen by the portal itself.
 
     `/api/health` is the right source: the sidecars are on-demand, so their
@@ -157,7 +157,7 @@ def login(page):
     page.locator('input[type="password"]').first.fill(PW)
     page.get_by_role("button", name=re.compile("Sign in|Se connecter", re.I)).first.click()
     page.wait_for_url(re.compile(rf"{re.escape(BASE)}/(?!login)"), timeout=30000)
-    log(f"connecté en tant que {USER}")
+    log(f"logged in as {USER}")
 
 
 def prep(page):
@@ -166,7 +166,7 @@ def prep(page):
     token = page.evaluate("fetch('/api/csrf').then(r => r.json()).then(d => d.token)")
     have = page.evaluate("fetch('/api/keys').then(r => r.json()).then(d => (d.user_keys || []).length)")
     if have:
-        log(f"clé API : {have} déjà présente(s)")
+        log(f"API key: {have} already present")
     else:
         st = page.evaluate("""async ([tok]) => {
             const f = new URLSearchParams({action: 'create', key_name: 'captures', csrf_token: tok});
@@ -174,7 +174,7 @@ def prep(page):
                 headers: {'X-CSRFToken': tok, 'Content-Type': 'application/x-www-form-urlencoded'}});
             return res.status;
         }""", [token])
-        log(f"clé API créée (HTTP {st})")
+        log(f"API key created (HTTP {st})")
     # Deterministic rather than idempotent: we purge then rewrite the five
     # facts. A plain "add only if missing" let the graph drift — the model
     # extracts its own memories from the capture conversations, and the account
@@ -191,7 +191,7 @@ def prep(page):
                 headers: {'X-CSRFToken': tok, 'Content-Type': 'application/json'},
                 body: JSON.stringify({subject: subj, relation: rel, fact: fact})});
         }""", [token, subj, rel, fact])
-    log(f"mémoire purgée puis réécrite : {len(MEM_FACTS)} faits")
+    log(f"memory purged then rewritten: {len(MEM_FACTS)} facts")
     return token
 
 
@@ -235,7 +235,7 @@ def ask(page, prompt, wait_ms=120000):
                 break
         else:
             stable, previous = 0, txt
-    log(f"réponse obtenue ({len(previous)} caractères à l'écran)")
+    log(f"answer received ({len(previous)} characters on screen)")
 
 
 def main():
@@ -258,18 +258,18 @@ def main():
         login(page)
         token = prep(page)
         if "--media" in sys.argv:
-            prets = media_prets(page)
-            if prets:
-                log(f"backends média chargés : {', '.join(prets)}")
-                only = sorted(set(only) | set(prets))
+            ready = media_ready(page)
+            if ready:
+                log(f"media backends loaded: {', '.join(ready)}")
+                only = sorted(set(only) | set(ready))
             else:
-                log("aucun backend média n'est chargé — rien à capturer. Démarre-en un "
-                    "depuis Admin (ou attends qu'un utilisateur s'en serve), puis relance")
-                log("  les cinq pages resteront sur leur capture publiée.")
+                log("no media backend is loaded — nothing to capture. Start one "
+                    "from Admin (or wait for a user to use one), then run again")
+                log("  the five pages keep their published capture.")
                 pages = []
         for name, route in pages:
             if name in SKIP_REFRESH and not only:
-                log(f"{name} : ignorée (aucun modèle média chargé — capture publiée conservée)")
+                log(f"{name}: skipped (no media model loaded — published capture kept)")
                 continue
             if name in PROMPTS:
                 reset_history(page, token, name)
@@ -294,7 +294,7 @@ def main():
                     }
                 }
                 return n;
-            }""", SENSIBLE)
+            }""", SENSITIVE)
             page.screenshot(path=f"{OUT}/{name}.png")
             text = page.locator("body").inner_text()
             # /admin and /users require an administrator account: without
@@ -302,18 +302,18 @@ def main():
             # screenshot of the feature. We delete the file and report it.
             if name in ADMIN_ONLY and re.search(r"Administrators only|does not have the rights", text):
                 os.remove(f"{OUT}/{name}.png")
-                log(f"REFUSÉ : {name} demande un compte admin — capture supprimée "
-                    f"(accorder is_admin temporairement, cf. docstring)")
+                log(f"REFUSED: {name} needs an admin account — capture deleted "
+                    f"(grant is_admin temporarily, see the docstring)")
                 continue
             open(f"{OUT}/{name}.txt", "w").write(text)
             report[name] = {"route": route, "chars": len(text), "redacted": blurred}
-            log(f"capture {name:<10} {route:<12} {len(text):5} caractères"
-                + (f", {blurred} masqué(s)" if blurred else ""))
+            log(f"capture {name:<10} {route:<12} {len(text):5} characters"
+                + (f", {blurred} redacted" if blurred else ""))
         browser.close()
     if errors:
-        log(f"erreurs JS : {sorted(set(errors))[:2]}")
+        log(f"JS errors: {sorted(set(errors))[:2]}")
     json.dump(report, open(f"{OUT}/report.json", "w"), indent=1, ensure_ascii=False)
-    log("terminé — enchaîner avec --verify puis --install")
+    log("done — follow with --verify then --install")
 
 
 def _ocr(path):
@@ -323,8 +323,8 @@ def _ocr(path):
     import subprocess
     import tempfile
     if not shutil.which("tesseract"):
-        sys.exit("tesseract est requis par --verify (lecture du texte des PNG) : "
-                 "l'installer ou vérifier les captures à l'œil.")
+        sys.exit("tesseract is required by --verify (reads the PNG text): "
+                 "install it or check the captures by eye.")
     with tempfile.TemporaryDirectory() as d:
         subprocess.run(["tesseract", path, f"{d}/t", "-l", "eng", "--psm", "6"],
                        capture_output=True)
@@ -336,20 +336,20 @@ def _forbidden_re():
     address, key `sk-…`, access-refusal text), plus the proper names listed in
     the file pointed at by SHOTS_FORBIDDEN_FILE (one pattern per line, `#` for
     comments). Missing variable or unreadable file → structural ones only."""
-    motif = (r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|sk-[A-Za-z0-9_\-]{6,}"
+    pattern = (r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|sk-[A-Za-z0-9_\-]{6,}"
              r"|Administrators only|does not have the rights|Traceback")
-    chemin = os.environ.get("SHOTS_FORBIDDEN_FILE")
-    noms = []
-    if chemin:
+    path_ = os.environ.get("SHOTS_FORBIDDEN_FILE")
+    names = []
+    if path_:
         try:
-            with open(chemin, encoding="utf-8") as f:
-                noms = [l.strip() for l in f
+            with open(path_, encoding="utf-8") as f:
+                names = [l.strip() for l in f
                         if l.strip() and not l.strip().startswith("#")]
         except OSError:
-            noms = []
-    if noms:
-        motif += r"|\b(" + "|".join(re.escape(n) for n in noms) + r")\b"
-    return re.compile(motif, re.I)
+            names = []
+    if names:
+        pattern += r"|\b(" + "|".join(re.escape(n) for n in names) + r")\b"
+    return re.compile(pattern, re.I)
 
 
 def verify(folder="assets"):
@@ -371,19 +371,19 @@ def verify(folder="assets"):
     # is off still shows its title (« OCR »), so an EMPTY capture would pass them
     # all while announcing « Ask an admin to start… ». That is precisely the
     # screenshot not to publish, we refuse it by name.
-    vide = re.compile(r"Ask an admin to (?:add|start|launch) an? \w+ model"
+    empty = re.compile(r"Ask an admin to (?:add|start|launch) an? \w+ model"
                       r"|Demande à un admin (?:d'ajouter|de démarrer)", re.I)
     # Media pages whose published capture only showed the empty state: removed
     # from the repo (README → Screenshots). Missing = normal, not a failure; as
     # soon as a new capture exists, it goes through the same checks as the
     # others, empty-state guard included.
-    retirees = {"voice", "music"}
+    removed = {"voice", "music"}
     ko = 0
     for name, marks in expected.items():
         path = f"{folder}/{name}.png"
         if not os.path.exists(path):
-            if name in retirees:
-                print(f"  {name:<10} · retirée (capture d'état vide) — non publiée")
+            if name in removed:
+                print(f"  {name:<10} · removed (empty-state capture) — not published")
             else:
                 print(f"  {name:<10} ABSENT")
                 ko += 1
@@ -395,48 +395,48 @@ def verify(folder="assets"):
         txt = _ocr(path)
         problems = []
         if im.size != (W * DPR, H * DPR):
-            problems.append(f"taille {im.size}")
+            problems.append(f"size {im.size}")
         if lum >= 90:
-            problems.append(f"thème clair (luminosité {lum:.0f})")
+            problems.append(f"light theme (luminosity {lum:.0f})")
         if len(set(px)) < 20:
-            problems.append("image quasi vide")
+            problems.append("image almost empty")
         if name not in INTERNAL and forbidden.search(txt):
-            problems.append("donnée personnelle : " + forbidden.search(txt).group(0)[:38])
+            problems.append("personal data: " + forbidden.search(txt).group(0)[:38])
         if name in INTERNAL and forbidden.search(txt):
-            print(f"  {name:<10} · interne, hors dépôt — contient "
-                  f"« {forbidden.search(txt).group(0)[:24]} » (normal, non publiée)")
+            print(f"  {name:<10} · internal, outside the repo — contains "
+                  f"« {forbidden.search(txt).group(0)[:24]} » (normal, not published)")
         for m in marks:
             if not re.search(m, txt, re.I):
-                problems.append(f"contenu attendu absent ({m})")
-        if name in MEDIA and vide.search(txt):
-            problems.append("page média SANS backend chargé (état vide) : "
-                            "démarre le sidecar puis refais la capture")
+                problems.append(f"expected content missing ({m})")
+        if name in MEDIA and empty.search(txt):
+            problems.append("media page WITHOUT a loaded backend (empty state): "
+                            "start the sidecar then capture again")
         if problems:
             ko += 1
             print(f"  {name:<10} ✗ " + " ; ".join(problems))
         else:
-            print(f"  {name:<10} ✓ {im.size[0]}x{im.size[1]}, sombre ({lum:.0f}), "
-                  f"contenu et confidentialité OK")
+            print(f"  {name:<10} ✓ {im.size[0]}x{im.size[1]}, dark ({lum:.0f}), "
+                  f"content and privacy OK")
     return ko
 
 
 if "--verify" in sys.argv:
     i = sys.argv.index("--verify")
     nb = verify(sys.argv[i + 1] if len(sys.argv) > i + 1 else "assets")
-    print(f"  {nb} capture(s) en échec" if nb else "  toutes les captures sont conformes")
+    print(f"  {nb} capture(s) failed" if nb else "  every capture is compliant")
     sys.exit(1 if nb else 0)
 if "--install" in sys.argv:
     import shutil
-    noms = [a for a in sys.argv[1:] if not a.startswith("-")]
+    names = [a for a in sys.argv[1:] if not a.startswith("-")]
     for name, _ in PAGES:
         # Never overwrite a published screenshot with a shot we did not intend:
         # media pages are only installed if named.
-        if name in SKIP_REFRESH and name not in noms and "--media" not in sys.argv:
-            print(f"  conservé : assets/{name}.png (page média, non recapturée)")
+        if name in SKIP_REFRESH and name not in names and "--media" not in sys.argv:
+            print(f"  kept: assets/{name}.png (media page, not recaptured)")
             continue
         src = f"{OUT}/{name}.png"
         if os.path.exists(src):
             shutil.copy(src, f"assets/{name}.png")
-            print(f"  installé : assets/{name}.png")
+            print(f"  installed: assets/{name}.png")
 else:
     main()

@@ -17,10 +17,10 @@ export const MAX_ASK_OPTIONS = 8;
  *  in the panel, and the user had nothing to click. We therefore accept
  *  ```json or a language-less fence, but ONLY if the body starts with
  *  {"questions": [ — a real JSON file has no reason to start that way. */
-export const RE_CORPS_QUESTIONS = /^\s*\{\s*"questions"\s*:\s*\[/;
-export function estBlocQuestions(lang: string, corps: string): boolean {
+export const RE_QUESTIONS_BODY = /^\s*\{\s*"questions"\s*:\s*\[/;
+export function isQuestionsBlock(lang: string, body: string): boolean {
   const l = lang.toLowerCase();
-  return l === "ask" || ((l === "json" || l === "") && RE_CORPS_QUESTIONS.test(corps));
+  return l === "ask" || ((l === "json" || l === "") && RE_QUESTIONS_BODY.test(body));
 }
 
 // One clarifying question + its proposed answers.
@@ -51,20 +51,20 @@ export function parseEdits(content: string): FileEdit[] {
     } catch {
       // Three defects seen in the wild, in order of frequency: raw line
       // breaks inside a string, junk after the end, unclosed object.
-      const repare = escapeRawControlChars(body);
+      const repaired = escapeRawControlChars(body);
       try {
-        obj = JSON.parse(repare);
+        obj = JSON.parse(repaired);
       } catch {
         try {
-          obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
+          obj = JSON.parse(firstJsonValue(repaired) ?? balanceJson(repaired));
         } catch {
           // mismatched closers (« } » instead of « ] »)
-          obj = JSON.parse(reparerFermetures(repare));
+          obj = JSON.parse(repairClosings(repaired));
         }
       }
     }
-    const brut: unknown[] = Array.isArray(obj.edits) ? obj.edits : (obj.find ? [obj] : []);
-    return brut
+    const raw: unknown[] = Array.isArray(obj.edits) ? obj.edits : (obj.find ? [obj] : []);
+    return raw
       .map((e) => {
         const ee = e as { file?: unknown; find?: unknown; replace?: unknown };
         return {
@@ -88,8 +88,8 @@ export function parseEdits(content: string): FileEdit[] {
  *  Rule: a closer that does not match the top first closes what is
  *  actually open; a closer without an opener is ignored; what
  *  is still open at the end is closed. */
-export function reparerFermetures(src: string): string {
-  const pile: string[] = [];
+export function repairClosings(src: string): string {
+  const stack: string[] = [];
   let out = "";
   let inString = false;
   let escaped = false;
@@ -102,18 +102,18 @@ export function reparerFermetures(src: string): string {
       continue;
     }
     if (ch === '"') { inString = true; out += ch; continue; }
-    if (ch === "{" || ch === "[") { pile.push(ch === "{" ? "}" : "]"); out += ch; continue; }
+    if (ch === "{" || ch === "[") { stack.push(ch === "{" ? "}" : "]"); out += ch; continue; }
     if (ch === "}" || ch === "]") {
-      if (!pile.includes(ch)) continue;                    // orphan closer
-      while (pile.length && pile[pile.length - 1] !== ch) out += pile.pop();
-      out += pile.pop();
+      if (!stack.includes(ch)) continue;                    // orphan closer
+      while (stack.length && stack[stack.length - 1] !== ch) out += stack.pop();
+      out += stack.pop();
       continue;
     }
     out += ch;
   }
   if (inString) out += '"';
   // Dangling comma before a closer (« "b",] »): invalid in JSON.
-  return (out + pile.reverse().join("")).replace(/,\s*([}\]])/g, "$1");
+  return (out + stack.reverse().join("")).replace(/,\s*([}\]])/g, "$1");
 }
 
 // Closes a JSON truncated at the end of a string. A model this size
@@ -149,7 +149,7 @@ export function balanceJson(src: string): string {
  * block to salvage what was written; it is always better than nothing, and the
  * « Réponse coupée » banner says it is not finished.
  */
-export function contenuCloture(content: string): string {
+export function closedContent(content: string): string {
   const fences = content.match(/```/g);
   return fences && fences.length % 2 === 1 ? content + "\n```" : content;
 }
@@ -163,16 +163,16 @@ export function contenuCloture(content: string): string {
  *    yielded the concluding sentence, and the file stayed truncated);
  *  - there is no fence at all: the whole message is content.
  */
-export function corpsDeSuite(content: string): string {
-  const ferme = content.match(/```[^\n`]*\n([\s\S]*?)```/);
-  if (ferme) return ferme[1].replace(/\n$/, "");
-  const premier = content.indexOf("```");
-  if (premier < 0) return content;
+export function continuationBody(content: string): string {
+  const closed = content.match(/```[^\n`]*\n([\s\S]*?)```/);
+  if (closed) return closed[1].replace(/\n$/, "");
+  const first = content.indexOf("```");
+  if (first < 0) return content;
   // An OPENING fence is followed by an info-string then a line break, and
   // sits at the top of the message; otherwise it is a closing fence.
-  const ouvrante = /^\s*```[^\n`]*\n/.test(content);
-  if (ouvrante) return openCodeFence(content)?.body ?? content;
-  return content.slice(0, premier).replace(/\n$/, "");
+  const opening = /^\s*```[^\n`]*\n/.test(content);
+  if (opening) return openCodeFence(content)?.body ?? content;
+  return content.slice(0, first).replace(/\n$/, "");
 }
 
 /** Glues a continuation onto an unfinished file, absorbing what it repeats.
@@ -185,47 +185,47 @@ export function corpsDeSuite(content: string): string {
  * splice there. The search is bounded to the tail of the file: even when
  * fooled, it can never amputate the beginning.
  */
-const RECOL_QUEUE = 6000;      // portion of the file end where we search
-const RECOL_TETE  = 6000;      // portion of the resume start where we search
-const RECOL_MIN_LIGNES = 3;    // below that, it is noise (« } », empty lines)
-const RECOL_MIN_CARS = 60;
-const RECOL_MAX_SUPPRIME = 2000;   // beyond that, we prefer duplicating to losing
+const REJOIN_TAIL = 6000;      // portion of the file end where we search
+const REJOIN_HEAD  = 6000;      // portion of the resume start where we search
+const REJOIN_MIN_LINES = 3;    // below that, it is noise (« } », empty lines)
+const REJOIN_MIN_CHARS = 60;
+const REJOIN_MAX_REMOVED = 2000;   // beyond that, we prefer duplicating to losing
 
-export function decoupeLignes(texte: string, depart: number) {
-  const lignes: { texte: string; pos: number }[] = [];
-  let pos = depart;
-  for (const l of texte.split("\n")) {
-    lignes.push({ texte: l.trimEnd(), pos });
+export function splitLines(text: string, startPos: number) {
+  const lines: { text: string; pos: number }[] = [];
+  let pos = startPos;
+  for (const l of text.split("\n")) {
+    lines.push({ text: l.trimEnd(), pos });
     pos += l.length + 1;
   }
-  return lignes;
+  return lines;
 }
 
-export function recoller(base: string, suite: string): string {
+export function rejoin(base: string, continuation: string): string {
   // A continuation that REALLY rewrites the whole document is a replacement, not an
   // addition. We require it to go all the way and to pull its weight: without
   // these two conditions, a three-line resume starting with « <html> »
   // wiped out a file of several thousand lines.
-  if (/^\s*(<!DOCTYPE|<html[\s>])/i.test(suite) && /<!DOCTYPE|<html[\s>]/i.test(base)
-      && /<\/html\s*>/i.test(suite) && suite.length >= base.length * 0.5) {
-    return suite;
+  if (/^\s*(<!DOCTYPE|<html[\s>])/i.test(continuation) && /<!DOCTYPE|<html[\s>]/i.test(base)
+      && /<\/html\s*>/i.test(continuation) && continuation.length >= base.length * 0.5) {
+    return continuation;
   }
-  const queue = base.slice(-RECOL_QUEUE);
-  const lb = decoupeLignes(queue, base.length - queue.length);
-  const ls = decoupeLignes(suite.slice(0, RECOL_TETE), 0);
-  let meilleur: { base: number; suite: number; cars: number } | null = null;
+  const queue = base.slice(-REJOIN_TAIL);
+  const lb = splitLines(queue, base.length - queue.length);
+  const ls = splitLines(continuation.slice(0, REJOIN_HEAD), 0);
+  let best: { base: number; continuation: number; charCount: number } | null = null;
   for (let i = 0; i < lb.length; i++) {
     for (let j = 0; j < ls.length; j++) {
-      let k = 0, cars = 0, utiles = 0;
-      while (i + k < lb.length && j + k < ls.length && lb[i + k].texte === ls[j + k].texte) {
-        const t = lb[i + k].texte.trim();
-        cars += t.length;
-        if (t.length >= 10) utiles++;      // « } » or an empty line proves nothing
+      let k = 0, charCount = 0, useful = 0;
+      while (i + k < lb.length && j + k < ls.length && lb[i + k].text === ls[j + k].text) {
+        const t = lb[i + k].text.trim();
+        charCount += t.length;
+        if (t.length >= 10) useful++;      // « } » or an empty line proves nothing
         k++;
       }
-      if (k >= RECOL_MIN_LIGNES && utiles >= 1 && cars >= RECOL_MIN_CARS
-          && (!meilleur || cars > meilleur.cars)) {
-        meilleur = { base: lb[i].pos, suite: ls[j].pos, cars };
+      if (k >= REJOIN_MIN_LINES && useful >= 1 && charCount >= REJOIN_MIN_CHARS
+          && (!best || charCount > best.charCount)) {
+        best = { base: lb[i].pos, continuation: ls[j].pos, charCount };
       }
     }
   }
@@ -234,10 +234,10 @@ export function recoller(base: string, suite: string): string {
   // beyond that, a chance match would destroy good code. When in
   // doubt we glue end to end: a bit of duplication is visible and fixable,
   // vanished code is not.
-  if (meilleur && base.length - meilleur.base <= RECOL_MAX_SUPPRIME) {
-    return base.slice(0, meilleur.base) + suite.slice(meilleur.suite);
+  if (best && base.length - best.base <= REJOIN_MAX_REMOVED) {
+    return base.slice(0, best.base) + continuation.slice(best.continuation);
   }
-  return raboutLigne(base, suite);
+  return joinLine(base, continuation);
 }
 
 /** Splices a continuation that REPEATS the end of the cut line.
@@ -248,14 +248,14 @@ export function recoller(base: string, suite: string): string {
  * launch. Line splicing sees nothing (fewer than 3 common lines).
  * We look for the longest start of the continuation that already ends the cut
  * line; at least 3 characters, so as not to trim a legitimate character by chance. */
-function raboutLigne(base: string, suite: string): string {
-  const fin = base.slice(base.lastIndexOf("\n") + 1);
-  if (!fin.trim()) return base + suite;
-  const tete = suite.split("\n", 1)[0];
-  for (let k = Math.min(fin.length, tete.length); k >= 3; k--) {
-    if (fin.endsWith(tete.slice(0, k))) return base + suite.slice(k);
+function joinLine(base: string, continuation: string): string {
+  const end = base.slice(base.lastIndexOf("\n") + 1);
+  if (!end.trim()) return base + continuation;
+  const head = continuation.split("\n", 1)[0];
+  for (let k = Math.min(end.length, head.length); k >= 3; k--) {
+    if (end.endsWith(head.slice(0, k))) return base + continuation.slice(k);
   }
-  return base + suite;
+  return base + continuation;
 }
 
 /** Escapes control characters left RAW in a JSON string.
@@ -294,12 +294,12 @@ export function escapeRawControlChars(src: string): string {
  * it is followed by junk. So we cut as soon as the depth returns to zero.
  */
 export function firstJsonValue(src: string): string | null {
-  const debut = src.search(/[{[]/);
-  if (debut < 0) return null;
+  const start = src.search(/[{[]/);
+  if (start < 0) return null;
   let depth = 0;
   let inString = false;
   let escaped = false;
-  for (let i = debut; i < src.length; i++) {
+  for (let i = start; i < src.length; i++) {
     const ch = src[i];
     if (inString) {
       if (escaped) escaped = false;
@@ -311,7 +311,7 @@ export function firstJsonValue(src: string): string | null {
     else if (ch === "{" || ch === "[") depth++;
     else if (ch === "}" || ch === "]") {
       depth--;
-      if (depth === 0) return src.slice(debut, i + 1);
+      if (depth === 0) return src.slice(start, i + 1);
     }
   }
   return null;   // never closed → it is truncation, balanceJson handles it
@@ -330,11 +330,11 @@ export function firstJsonValue(src: string): string | null {
 /** Position right after the object opened at `debut`, or null if it never
  *  closes (truncation). Strings are read: a brace inside a text does not
  *  close the object by accident. */
-function finObjet(src: string, debut: number): number | null {
+function objectEnd(src: string, start: number): number | null {
   let depth = 0;
   let inString = false;
   let escaped = false;
-  for (let i = debut; i < src.length; i++) {
+  for (let i = start; i < src.length; i++) {
     const ch = src[i];
     if (inString) {
       if (escaped) escaped = false;
@@ -358,15 +358,15 @@ function finObjet(src: string, debut: number): number | null {
  * well-formed block: this is what survives a model that scatters its output
  * and recovers. An object can hide another one (`{"questions": [{…}]`): we
  * rescan right after the opening brace. */
-function candidatsQuestions(src: string): { texte: string; debut: number; fin: number }[] {
-  const out: { texte: string; debut: number; fin: number }[] = [];
+function questionCandidates(src: string): { text: string; start: number; end: number }[] {
+  const out: { text: string; start: number; end: number }[] = [];
   const rx = /\{\s*"(?:question|questions)"\s*:/gi;
   let m: RegExpExecArray | null;
   while ((m = rx.exec(src))) {
-    const debut = m.index;
-    const fin = finObjet(src, debut);
-    out.push({ texte: src.slice(debut, fin ?? src.length), debut, fin: fin ?? src.length });
-    rx.lastIndex = debut + 1;
+    const start = m.index;
+    const end = objectEnd(src, start);
+    out.push({ text: src.slice(start, end ?? src.length), start, end: end ?? src.length });
+    rx.lastIndex = start + 1;
   }
   return out;
 }
@@ -377,29 +377,29 @@ function candidatsQuestions(src: string): { texte: string; debut: number; fin: n
  * string, junk after the object, object never closed. What remains
  * unrecoverable yields ZERO questions — other candidates will carry the
  * others. */
-function questionsDe(corps: string): AskQ[] {
+function questionsOf(body: string): AskQ[] {
   let obj: unknown;
   try {
-    obj = JSON.parse(corps);
+    obj = JSON.parse(body);
   } catch {
-    const repare = escapeRawControlChars(corps);
+    const repaired = escapeRawControlChars(body);
     try {
-      obj = JSON.parse(repare);
+      obj = JSON.parse(repaired);
     } catch {
       try {
-        obj = JSON.parse(firstJsonValue(repare) ?? balanceJson(repare));
+        obj = JSON.parse(firstJsonValue(repaired) ?? balanceJson(repaired));
       } catch {
         try {
-          obj = JSON.parse(reparerFermetures(repare));
+          obj = JSON.parse(repairClosings(repaired));
         } catch {
           return [];
         }
       }
     }
   }
-  const brut = obj as { question?: unknown; questions?: unknown } | null;
-  const liste: unknown[] = Array.isArray(brut?.questions) ? brut.questions : brut?.question ? [brut] : [];
-  return liste
+  const raw = obj as { question?: unknown; questions?: unknown } | null;
+  const list: unknown[] = Array.isArray(raw?.questions) ? raw.questions : raw?.question ? [raw] : [];
+  return list
     .map((q) => {
       const qq = q as { question?: unknown; options?: unknown };
       const question = typeof qq.question === "string" ? qq.question.trim() : "";
@@ -414,12 +414,12 @@ function questionsDe(corps: string): AskQ[] {
 /** Bounds [debut, fin) of the code blocks that are real FILES: a file must
  *  not be eaten because it contains question objects (a FAQ in JSON, a
  *  quiz…). The criterion is EXACTLY the one of the file rendering
- *  (`estBlocQuestions`): a block that can carry a questionnaire does not
+ *  (`isQuestionsBlock`): a block that can carry a questionnaire does not
  *  protect its contents, all the others do. */
-function bornesFichiers(content: string): Array<[number, number]> {
+function fileBounds(content: string): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   for (const m of content.matchAll(/```([\w+-]*)[ \t]*\n([\s\S]*?)(?:```|$)/g)) {
-    if (estBlocQuestions(m[1] || "", m[2])) continue;
+    if (isQuestionsBlock(m[1] || "", m[2])) continue;
     // A block WITHOUT a language and NEVER closed is not a file: it is the
     // orphan marker of a failed block (« {"questions": []}``` » measured on
     // 2026-10-05) — protecting it would have hidden every question after it.
@@ -437,10 +437,10 @@ function bornesFichiers(content: string): Array<[number, number]> {
  * automatic resume relaunched the model (« reprends au caractère suivant »),
  * which REWROTE its questionnaire: the two attempts tangled and the
  * questions came out as raw text (measured on 2026-10-05). */
-export function contientQuestions(content: string): boolean {
-  const fichiers = bornesFichiers(content);
-  return candidatsQuestions(content).some(
-    (c) => !fichiers.some(([d, f]) => c.debut >= d && c.fin <= f),
+export function containsQuestions(content: string): boolean {
+  const files = fileBounds(content);
+  return questionCandidates(content).some(
+    (c) => !files.some(([d, f]) => c.start >= d && c.end <= f),
   );
 }
 
@@ -449,10 +449,10 @@ export function contientQuestions(content: string): boolean {
  * A questionnaire is not a file: never « resume » it. An HTML file that
  * does end with `</html>` is not unfinished either (the model merely
  * forgot to close its block). */
-export function reponseIncomplete(content: string): boolean {
-  if (contientQuestions(content)) return false;
-  const ouvert = openCodeFence(content);
-  if (ouvert) return !/<\/html\s*>\s*$/i.test(ouvert.body.trimEnd());
+export function incompleteResponse(content: string): boolean {
+  if (containsQuestions(content)) return false;
+  const open = openCodeFence(content);
+  if (open) return !/<\/html\s*>\s*$/i.test(open.body.trimEnd());
   if (/<!DOCTYPE html|<html[\s>]/i.test(content) && !/<\/html\s*>/i.test(content)) return true;
   return false;
 }
@@ -464,22 +464,23 @@ export function reponseIncomplete(content: string): boolean {
  * 2026-10-05 — the question objects SET IN THE TEXT after a failed block. A
  * forgotten closing fence is not a showstopper either. */
 export function parseAsk(content: string): AskBlock | null {
-  const fichiers = bornesFichiers(content);
+  const files = fileBounds(content);
   const questions: AskQ[] = [];
-  const vus = new Set<string>();
-  let premier = content.length;   // début du premier fragment de question
+  const seen = new Set<string>();
+  let first = content.length;   // début du premier fragment de question
 
-  const ramasse = (corps: string, offset: number) => {
-    for (const c of candidatsQuestions(corps)) {
-      const debut = offset + c.debut;
-      const fin = offset + c.fin;
-      if (fichiers.some(([d, f]) => debut >= d && fin <= f)) continue;   // c'est un fichier
-      premier = Math.min(premier, debut);
-      for (const q of questionsDe(c.texte)) {
+  const collected = (body: string, offset: number) => {
+    for (const c of questionCandidates(body)) {
+      const start = offset + c.start;
+      const end = offset + c.end;
+      if (files.some(([d, f]) => start >= d && end <= f)) continue;   // it is a
+                                                                      // file
+      first = Math.min(first, start);
+      for (const q of questionsOf(c.text)) {
         // Deduplication key, never displayed: deliberately locale-free.
-        const cle = q.question.toLowerCase();
-        if (vus.has(cle) || questions.length >= MAX_ASK_QUESTIONS) continue;
-        vus.add(cle);
+        const key = q.question.toLowerCase();
+        if (seen.has(key) || questions.length >= MAX_ASK_QUESTIONS) continue;
+        seen.add(key);
         questions.push(q);
       }
     }
@@ -487,30 +488,30 @@ export function parseAsk(content: string): AskBlock | null {
 
   // 1) The blocks we ASK it to write (we keep their place for the prose).
   for (const m of content.matchAll(/```ask[ \t]*\n([\s\S]*?)(?:```|$)/gi)) {
-    premier = Math.min(premier, m.index ?? 0);
-    ramasse(m[1], (m.index ?? 0) + m[0].length - m[1].length);
+    first = Math.min(first, m.index ?? 0);
+    collected(m[1], (m.index ?? 0) + m[0].length - m[1].length);
   }
   for (const m of content.matchAll(/```(?:json)?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/g)) {
-    premier = Math.min(premier, m.index ?? 0);
-    ramasse(m[1], (m.index ?? 0) + m[0].length - m[1].length);
+    first = Math.min(first, m.index ?? 0);
+    collected(m[1], (m.index ?? 0) + m[0].length - m[1].length);
   }
   // Degenerate form measured on MiMo on 2026-10-02: « ask » in inline code (or
   // bare) followed by the JSON WITHOUT a closing fence. The `{"questions": [
   // guard avoids swallowing a real file along the way.
   for (const m of content.matchAll(/(?:^|\n)[ \t]*`?ask`?[ \t]*\n(\s*\{\s*"questions"\s*:\s*\[[\s\S]*?)(?:```|$)/gi)) {
-    premier = Math.min(premier, m.index ?? 0);
-    ramasse(m[1], (m.index ?? 0) + m[0].length - m[1].length);
+    first = Math.min(first, m.index ?? 0);
+    collected(m[1], (m.index ?? 0) + m[0].length - m[1].length);
   }
   // 2) And above all: the question objects SET IN THE TEXT, wherever they
   //    are — this is what remains when the opening block failed.
-  ramasse(content, 0);
+  collected(content, 0);
 
   if (!questions.length) return null;
   // The questionnaire prose = what PRECEDES the first question fragment. The
   // instruction allows only ONE intro sentence before the block; we cut the
   // JSON debris there (bracket/brace followed by a quote, « ``` » marker): a
   // model in difficulty mixes its intro with its questions.
-  let prose = content.slice(0, premier);
+  let prose = content.slice(0, first);
   const debris = prose.search(/(?:[[{]\s*"|```)/);
   if (debris >= 0) prose = prose.slice(0, debris);
   return { questions, prose: prose.trim() };
@@ -532,7 +533,7 @@ export function openCodeFence(content: string): { lang: string; body: string; st
   if (nl < 0) return null;                               // the info-string is not finished
   const info = rest.slice(0, nl).trim();
   const first = info.split(/\s+/)[0] || "";
-  if (estBlocQuestions(first, rest.slice(nl + 1))) return null;   // handled by parseAsk
+  if (isQuestionsBlock(first, rest.slice(nl + 1))) return null;   // handled by parseAsk
   return { lang: first || "text", body: rest.slice(nl + 1), start };
 }
 

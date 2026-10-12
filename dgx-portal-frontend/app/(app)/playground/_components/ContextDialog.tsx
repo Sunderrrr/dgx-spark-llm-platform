@@ -68,8 +68,9 @@ export function ContextDialog({
                 </HStack>
                 <ProgressBar label={t("Utilisation du contexte")} isLabelHidden value={used} max={max} variant={ctxLevel} />
               </VStack>
-              {/* Entrée / sortie : le contexte n'est pas un bloc opaque — on sépare
-                  ce qui le remplit (prompt) de ce qui est produit (réponse). */}
+              {/* Input / output: the context is not an opaque block — what
+                  fills it (prompt) is shown apart from what is produced
+                  (answer). */}
               <VStack gap={1}>
                 <Text type="label">{t("Entrée / sortie")}</Text>
                 <HStack gap={2} vAlign="center">

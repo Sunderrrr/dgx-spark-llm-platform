@@ -23,7 +23,7 @@ if [ ! -s searxng/settings.yml ]; then
   sed "s|secret_key: \"changeme\"|secret_key: \"$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')\"|" \
     searxng/settings.yml.example > searxng/settings.yml
   chmod 600 searxng/settings.yml
-  echo "✓ searxng/settings.yml généré (format JSON activé, secret aléatoire, 0600)"
+  echo "✓ searxng/settings.yml generated (JSON format enabled, random secret, 0600)"
 fi
 
 # crawl4ai service token: it refuses to listen beyond loopback without a
@@ -33,12 +33,12 @@ fi
 mkdir -p secrets && chmod 700 secrets
 if [ ! -s secrets/crawl4ai_token ]; then
   python3 -c "import secrets;print(secrets.token_urlsafe(32))" > secrets/crawl4ai_token
-  echo "✓ secrets/crawl4ai_token généré (0644, lisible par le conteneur)"
+  echo "✓ secrets/crawl4ai_token generated (0644, readable by the container)"
 fi
 chmod 644 secrets/crawl4ai_token
 
 if [ -f .env ]; then
-  echo ".env existe déjà. Supprime-le si tu veux le regénérer."
+  echo ".env already exists. Delete it if you want to regenerate it."
   exit 0
 fi
 
@@ -62,7 +62,7 @@ sed -i "s|SEARXNG_SECRET=changeme|SEARXNG_SECRET=${SEARXNG_SECRET}|" .env
 
 chmod 600 .env
 
-echo "✓ .env généré (secrets internes aléatoires, permissions 600)"
+echo "✓ .env generated (random internal secrets, permissions 600)"
 echo ""
 echo "  LITELLM_MASTER_KEY written to .env (needed for the LiteLLM dashboard —"
 echo "  read it with: grep LITELLM_MASTER_KEY .env). Not printed here to keep it"

@@ -15,8 +15,8 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { useToast } from "@astryxdesign/core/Toast";
 import { CheckIcon, UsersIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
-import { postFormVerifie } from "@/lib/api";
-import { useT, useLocale, tServeur } from "@/lib/i18n";
+import { postFormChecked } from "@/lib/api";
+import { useT, useLocale, tServer } from "@/lib/i18n";
 import { fmtCompact, type AdminTabProps, type SpendRow } from "./adminTypes";
 
 export function UsersTab({ data, act, actionDisabled }: AdminTabProps) {
@@ -145,12 +145,12 @@ function BudgetSetForm({ rows, actionDisabled }: { rows: SpendRow[]; actionDisab
                 // absurd cap (0, negative, > 1e12 — the hole of a 6.7e12
                 // typed amount). With `postForm` alone, this refusal displayed
                 // « Budget redéfini. ».
-                const res = await postFormVerifie(
+                const res = await postFormChecked(
                   `/admin/users/${encodeURIComponent(user.trim())}/budget/set`,
                   csrf, { budget: budget.trim() },
                 );
                 if (!res.ok) {
-                  showToast({ body: res.error ? tServeur(res.error, t) : t("L'action a échoué."), type: "error" });
+                  showToast({ body: res.error ? tServer(res.error, t) : t("L'action a échoué."), type: "error" });
                   return;
                 }
                 showToast({ body: t("Budget redéfini.") });

@@ -187,10 +187,10 @@ def _parse_budget(raw):
 #   4. else → we do NOT know, and we say so.
 # The absence of a recorded source is not proof of absence: this is already
 # the rule of `auth.etat_compte`, and the opposite had logged everyone out.
-MANAGED_PORTAL = 'portail'
-MANAGED_LDAP = 'annuaire-ldap'
-MANAGED_SSO = 'fournisseur-sso'
-MANAGED_UNKNOWN = 'inconnu'
+MANAGED_PORTAL = 'portal'
+MANAGED_LDAP = 'ldap-directory'
+MANAGED_SSO = 'sso-provider'
+MANAGED_UNKNOWN = 'unknown'
 
 
 def password_management(username):
@@ -215,7 +215,7 @@ def password_management(username):
         management = MANAGED_SSO
     else:
         management = MANAGED_UNKNOWN
-    return {'gestion': management, 'sources': sources, 'local': local,
+    return {'management': management, 'sources': sources, 'local': local,
             'passkey': management in (MANAGED_PORTAL, MANAGED_LDAP)}
 
 

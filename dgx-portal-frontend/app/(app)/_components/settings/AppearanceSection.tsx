@@ -105,8 +105,8 @@ export function AppearanceSection({
                     </Text>
                     <Grid columns={2} gap={3}>
                       {([
-                        { id: "fr", label: t("Français"), drapeau: "🇫🇷" },
-                        { id: "en", label: t("Anglais"), drapeau: "🇬🇧" },
+                        { id: "fr", label: t("Français"), flag: "🇫🇷" },
+                        { id: "en", label: t("Anglais"), flag: "🇬🇧" },
                       ] as const).map((l) => (
                         <SelectableCard
                           key={l.id}
@@ -115,7 +115,7 @@ export function AppearanceSection({
                           onChange={() => selectLang(l.id)}
                           padding={3}>
                           <HStack gap={2} vAlign="center">
-                            <Text>{l.drapeau}</Text>
+                            <Text>{l.flag}</Text>
                             <Text weight="semibold">{l.label}</Text>
                           </HStack>
                         </SelectableCard>

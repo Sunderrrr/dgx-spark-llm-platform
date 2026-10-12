@@ -26,7 +26,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { MarkdownSur as Markdown } from "@/lib/markdown";
+import { SafeMarkdown as Markdown } from "@/lib/markdown";
 import { useT } from "@/lib/i18n";
 
 export function ReasoningBlock({
@@ -54,42 +54,42 @@ export function ReasoningBlock({
   // the first answer word arrives. Until then the counter keeps moving — and
   // its STOP is exactly the thinking → writing boundary. The start time is
   // taken in the effect, never during render (`Date.now()` is impure there).
-  const debut = useRef<number>(0);
-  const [ecoule, setEcoule] = useState(0);
+  const start = useRef<number>(0);
+  const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     if (!streaming) return;
-    debut.current = Date.now();
-    const id = setInterval(() => setEcoule(Date.now() - debut.current), 500);
+    start.current = Date.now();
+    const id = setInterval(() => setElapsed(Date.now() - start.current), 500);
     return () => clearInterval(id);
   }, [streaming]);
   if (!reasoning) return null;
-  const duree = streaming ? ecoule : (ms ?? 0);
-  const secondes = duree >= 1000 ? Math.round(duree / 1000) : null;
+  const duration = streaming ? elapsed : (ms ?? 0);
+  const seconds = duration >= 1000 ? Math.round(duration / 1000) : null;
   return (
     <Collapsible
       isOpen={open}
       onOpenChange={setOpen}
       trigger={
-        <HStack gap={2} vAlign="center" className="raison-entete">
+        <HStack gap={2} vAlign="center" className="reasoning-header">
           {streaming ? (
             <StatusDot variant="accent" isPulsing label={t("Réflexion en cours…")} />
           ) : null}
           <Text type="supporting" color="secondary">
             {streaming ? t("Réflexion en cours…") : t("Réflexion")}
           </Text>
-          {secondes ? (
-            <Text type="supporting" color="secondary" className="raison-duree">
+          {seconds ? (
+            <Text type="supporting" color="secondary" className="reasoning-duration">
               {streaming
-                ? t("depuis {n} s").replace("{n}", String(secondes))
-                : t("pensé {n} s").replace("{n}", String(secondes))}
+                ? t("depuis {n} s").replace("{n}", String(seconds))
+                : t("pensé {n} s").replace("{n}", String(seconds))}
             </Text>
           ) : null}
         </HStack>
       }
     >
-      {/* La bulle : elle entoure la PENSÉE, jamais l'en-tête. */}
-      <VStack className="raison-panneau">
-        <VStack className="raison-corps">
+      {/* The bubble wraps the THOUGHT, never the header. */}
+      <VStack className="reasoning-panel">
+        <VStack className="reasoning-body">
           <Markdown isStreaming={streaming}>{reasoning}</Markdown>
         </VStack>
       </VStack>

@@ -48,7 +48,7 @@ _load_error: str | None = None
 # A load failure at STARTUP is not final: measured 2026-10-03, one CUDA OOM
 # (unified memory is shared with the chat model) left `_pipe` None FOREVER —
 # /api/transcribe answered 503 without ever retrying, so the portal's honest
-# « libère de la mémoire, puis relance la dictée » could not work by
+# « free some memory, then restart the dictation » could not work by
 # construction. The load is now retried on demand (single-flight, throttled).
 _load_lock = threading.Lock()
 _last_attempt: float = 0.0
@@ -60,7 +60,7 @@ _RETRY_S = 10.0
 _gpu_sem = asyncio.Semaphore(2)
 
 
-def _charger() -> None:
+def _load_model() -> None:
     """Load the weights (startup, and retried on demand below)."""
     global _pipe, _load_error, _last_attempt
     _last_attempt = time.monotonic()
@@ -87,7 +87,7 @@ def _charger() -> None:
         log.exception("Model failed to load")
 
 
-def _charger_si_besoin() -> bool:
+def _load_if_needed() -> bool:
     """True when the model is loaded; retries a FAILED load on demand.
 
     Single-flight (a second caller waits for the attempt to finish) and
@@ -102,13 +102,13 @@ def _charger_si_besoin() -> bool:
             return True
         if time.monotonic() - _last_attempt < _RETRY_S:
             return False
-        _charger()
+        _load_model()
         return _pipe is not None
 
 
 @app.on_event("startup")
 def _load() -> None:
-    _charger()
+    _load_model()
 
 
 @app.get("/api/model-info")
@@ -132,7 +132,7 @@ async def transcribe(
     # run_in_threadpool: the load holds its lock ~15 s and would otherwise
     # freeze the WHOLE sidecar event loop, /api/model-info included (the
     # portal's probes then time out during a perfectly healthy load).
-    if not await run_in_threadpool(_charger_si_besoin):
+    if not await run_in_threadpool(_load_if_needed):
         raise HTTPException(status_code=503,
                             detail=_load_error or "Modèle non chargé.")
 

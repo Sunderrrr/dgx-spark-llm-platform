@@ -1,5 +1,5 @@
 [Unit]
-Description=Empeche le conteneur OCR d'ouvrir une connexion vers le portail
+Description=Prevents the OCR container from opening a connection to the portal
 # The OCR container is the ONLY one running with --trust-remote-code: a
 # malicious HF repo (chosen by an admin from the catalog) executes arbitrary
 # code in it. Yet dgx-portal is multi-homed on ocr_net and holds

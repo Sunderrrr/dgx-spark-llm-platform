@@ -13,7 +13,7 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Code } from "@astryxdesign/core/Code";
 import { KeyIcon } from "@heroicons/react/24/outline";
-import { useT, tServeur } from "@/lib/i18n";
+import { useT, tServer } from "@/lib/i18n";
 
 export function OwnerSetup({ csrf }: { csrf: string }) {
   const t = useT();
@@ -41,7 +41,7 @@ export function OwnerSetup({ csrf }: { csrf: string }) {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) {
-        setError(d?.error ? tServeur(d.error, t) : t("Création impossible."));
+        setError(d?.error ? tServer(d.error, t) : t("Création impossible."));
         return;
       }
       // Logged in as the owner: the rest is configured from Admin → Config.

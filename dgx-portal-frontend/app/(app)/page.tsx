@@ -6,14 +6,14 @@ import HomePage, { type HomeSeed } from "./HomePage";
 // resume: see lib/server-api.ts.
 export default async function Page() {
   const [seed, convs] = await Promise.all([
-    pageSeed<Omit<HomeSeed, "recent">>({ home: "/api/home", latence: "/api/latence" }),
+    pageSeed<Omit<HomeSeed, "recent">>({ home: "/api/home", latency: "/api/latence" }),
     serverRead<ApiConversations>("/api/conversations"),
   ]);
   // Only the three cards' metadata: the full list can weigh megabytes and
   // would be written into the page for nothing.
   const recent =
     convs.status === "ok"
-      ? conversationsFromApi(convs.data).slice(0, 3).map((c) => ({ ...c, messages: [], messagesOmis: true }))
+      ? conversationsFromApi(convs.data).slice(0, 3).map((c) => ({ ...c, messages: [], omittedMessages: true }))
       : null;
   return <HomePage seed={{ id: seed.id, data: { ...seed.data, recent } }} />;
 }

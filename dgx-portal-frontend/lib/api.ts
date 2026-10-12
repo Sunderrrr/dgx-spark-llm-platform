@@ -40,12 +40,12 @@ export async function getJSON<T>(url: string): Promise<T> {
     // The server says WHY (Hugging Face unreachable, unknown task…).
     // Throwing this message away forced the UI to display « Échec du chargement »,
     // which teaches nothing and makes an upstream outage look like a portal bug.
-    const corps = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
-    const err = new Error(corps?.error || `Échec du chargement (${url}).`) as Error & { code?: string };
+    const body = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
+    const err = new Error(body?.error || `Échec du chargement (${url}).`) as Error & { code?: string };
     // `code` travels with the error: it is what lets a screen translate
     // a refusal or a stable upstream outage (the portal answers in French, cf.
     // CLAUDE.md § i18n) instead of displaying a French sentence in English mode.
-    if (corps?.code) err.code = corps.code;
+    if (body?.code) err.code = body.code;
     throw err;
   }
   return res.json();
@@ -81,7 +81,7 @@ export async function sendJSON<T = { ok: boolean; error?: string }>(
  * Three production bugs came from it (conversation history truncated at
  * 413, « Clé créée ! » on a failed creation, avatar refused), so the
  * `Response` is now RETURNED. For an action whose result matters,
- * read the status or go through `postFormVerifie`; if you do not need to
+ * read the status or go through `postFormChecked`; if you do not need to
  * know, the user does not either — but then do not display « it's done ».
  */
 export async function postForm(url: string, csrf: string, data: Record<string, string>): Promise<Response> {
@@ -100,17 +100,17 @@ export async function postForm(url: string, csrf: string, data: Record<string, s
  * a success by default. The `code` of a stable refusal is surfaced as-is,
  * so that the UI can translate it (cf. CLAUDE.md § i18n).
  */
-export async function postFormVerifie(
+export async function postFormChecked(
   url: string,
   csrf: string,
   data: Record<string, string>,
 ): Promise<{ ok: boolean; error?: string; code?: string }> {
   try {
     const res = await postForm(url, csrf, data);
-    const corps = (await res.json().catch(() => null)) as
+    const body = (await res.json().catch(() => null)) as
       { ok?: boolean; error?: string; code?: string } | null;
-    if (!res.ok) return { ok: false, error: corps?.error, code: corps?.code };
-    if (corps && corps.ok === false) return { ok: false, error: corps.error, code: corps.code };
+    if (!res.ok) return { ok: false, error: body?.error, code: body?.code };
+    if (body && body.ok === false) return { ok: false, error: body.error, code: body.code };
     return { ok: true };
   } catch {
     return { ok: false, error: "Le serveur n'a pas répondu — réessaie." };
@@ -173,24 +173,24 @@ export async function fetchPlaygroundData(): Promise<PlaygroundData> {
 /** A web search, image/video generation or document reading step, as the
  * backend announces it on the fly. `etape` is optional: the portail sends an
  * empty frame when a tool refused before doing anything. */
-export type EtapeWeb = {
-  etape?: "recherche" | "recherche_finie" | "lecture" | "lecture_finie"
-    | "generation" | "generation_finie" | "generation_video"
-    | "generation_video_finie" | "ocr" | "ocr_finie" | "inconnue";
-  outil: string;
+export type WebStep = {
+  step?: "search" | "search_done" | "reading" | "reading_done"
+    | "generation" | "generation_done" | "generation_video"
+    | "generation_video_done" | "ocr" | "ocr_done" | "unknown";
+  tool: string;
   question?: string;
   urls?: string[];
-  nombre?: number;
-  lues?: number;
-  erreur?: string | null;
-  sources?: { titre: string; url: string }[];
-  echecs?: { url: string; raison: string }[];
+  count?: number;
+  read?: number;
+  error?: string | null;
+  sources?: { title: string; url: string }[];
+  failures?: { url: string; reason: string }[];
   /** Addresses of the produced images (successful generation). */
   images?: string[];
   /** Address of the produced video (successful generation). */
   videos?: string[];
   /** Characters of text extracted from the document (OCR). */
-  caracteres?: number;
+  chars?: number;
 };
 
 export type StreamDelta = {
@@ -200,7 +200,7 @@ export type StreamDelta = {
   /** The model was cut short by the token ceiling (finish_reason="length"). */
   truncated?: boolean;
   /** Web search step: what the model is currently searching or reading. */
-  webStep?: EtapeWeb;
+  webStep?: WebStep;
   /** STRUCTURED system notice (quota exceeded, model error…): translated at
      render time into the UI language — the server never sends a sentence. */
   notice?: { id: string; reset?: string; status?: number };
@@ -231,7 +231,7 @@ export type SupportConfirmRequest = {
 type SSEPayload = {
   usage?: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number };
   choices?: { delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }[];
-  dgx_web?: EtapeWeb;
+  dgx_web?: WebStep;
   dgx_notice?: { id: string; reset?: string; status?: number };
   dgx_confirm?: SupportConfirmRequest;
   tool_call?: ToolCallEvent;
@@ -363,8 +363,8 @@ export async function streamSupportChat(
   await readSSE(res, (json) => {
     // The model's thought (`reasoning_content`, renamed by LiteLLM): same
     // contract as the playground, hence the same reasoning block on screen.
-    const raison = json.choices?.[0]?.delta?.reasoning_content;
-    if (raison) onReasoning?.(raison);
+    const reason = json.choices?.[0]?.delta?.reasoning_content;
+    if (reason) onReasoning?.(reason);
     const content = json.choices?.[0]?.delta?.content;
     if (content) onChunk(content);
     if (json.tool_call) onToolCall?.(json.tool_call);

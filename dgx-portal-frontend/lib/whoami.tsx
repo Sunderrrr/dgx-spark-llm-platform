@@ -19,8 +19,8 @@ export type Whoami = {
   // Local-password account (false = LDAP/SSO: the password is managed in
   // the directory, not in the portal).
   local_account: boolean;
-  /** Who holds the password: 'portail' | 'annuaire-ldap' |
-   *  'fournisseur-sso' | 'inconnu'. More precise than `local_account`,
+  /** Who holds the password: 'portail' | 'ldap-directory' |
+   *  'sso-provider' | 'inconnu'. More precise than `local_account`,
    *  because the sources are CUMULATIVE: a local account that also logged
    *  in via SSO does have a password here. */
   password_managed_by?: string;

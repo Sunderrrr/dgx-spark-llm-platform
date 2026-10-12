@@ -50,32 +50,32 @@ changelog_notes() {
     ' "$CHANGELOG" | sed -e '/./,$!d' -e ':a' -e '/^\n*$/{$d;N;ba' -e '}'
 }
 
-[ $# -ge 1 ] || die "usage : scripts/release.sh --check [ref] | --notes <ref> | <version>"
+[ $# -ge 1 ] || die "usage: scripts/release.sh --check [ref] | --notes <ref> | <version>"
 
 case "$1" in
   --check)
     ref="${2:-}"
     pkg=$(pkg_version)
     new=$(changelog_version)
-    [ -n "$new" ] || die "$CHANGELOG n'a aucune section « ## [x.y.z] »"
+    [ -n "$new" ] || die "$CHANGELOG has no « ## [x.y.z] » section"
     echo "  package.json : $pkg"
-    echo "  CHANGELOG    : $new (entrée la plus récente)"
-    [ "$pkg" = "$new" ] || die "désaccord : le paquet annonce $pkg, le CHANGELOG $new.
-  → écrire la section « ## [$pkg] » dans $CHANGELOG (les notes d'abord), ou
-    mettre à jour $PKG si la version n'a pas encore été publiée."
+    echo "  CHANGELOG    : $new (most recent entry)"
+    [ "$pkg" = "$new" ] || die "mismatch: the package says $pkg, the CHANGELOG $new.
+  → write the « ## [$pkg] » section in $CHANGELOG (notes first), or
+    update $PKG if the version has not been published yet."
     if [ -n "$ref" ]; then
         tag=$(printf '%s' "$ref" | sed 's/^v//')
-        echo "  référence    : $ref"
-        [ "$tag" = "$pkg" ] || die "le tag $ref ne correspond pas à la version $pkg du paquet"
+        echo "  reference    : $ref"
+        [ "$tag" = "$pkg" ] || die "tag $ref does not match the package version $pkg"
     fi
-    echo "✓ version cohérente ($pkg)"
+    echo "✓ consistent version ($pkg)"
     ;;
 
   --notes)
-    [ $# -eq 2 ] || die "usage : scripts/release.sh --notes <ref>"
+    [ $# -eq 2 ] || die "usage: scripts/release.sh --notes <ref>"
     v=$(printf '%s' "$2" | sed 's/^v//')
     notes=$(changelog_notes "$v")
-    [ -n "$notes" ] || die "aucune section « ## [$v] » dans $CHANGELOG"
+    [ -n "$notes" ] || die "no « ## [$v] » section in $CHANGELOG"
     printf '%s\n' "$notes"
     printf '\n---\n\nReconstructed from [`%s`](%s/blob/master/%s).\n' "$CHANGELOG" "$REPO" "$CHANGELOG"
     ;;
@@ -83,21 +83,21 @@ case "$1" in
   *)
     v=$(printf '%s' "$1" | sed 's/^v//')
     printf '%s' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
-        || die "version attendue au format X.Y.Z (reçu : $1)"
+        || die "expected a version as X.Y.Z (got: $1)"
 
     # The tree must be clean: a tag set on a mix of uncommitted changes
     # describes nothing reproducible.
     [ -z "$(git status --porcelain)" ] \
-        || die "arbre de travail non propre — commiter ou remiser avant de publier :
+        || die "working tree not clean — commit or stash before publishing:
 $(git status --short)"
     current=$(pkg_version)
-    [ "$v" != "$current" ] || die "$v est déjà la version du paquet"
+    [ "$v" != "$current" ] || die "$v is already the package version"
     git rev-parse -q --verify "refs/tags/v$v" >/dev/null \
-        && die "le tag v$v existe déjà"
+        && die "tag v$v already exists"
 
     notes=$(changelog_notes "$v")
-    [ -n "$notes" ] || die "aucune section « ## [$v] » dans $CHANGELOG.
-  → écrire les notes de version d'abord (elles composent le corps de la release)."
+    [ -n "$notes" ] || die "no « ## [$v] » section in $CHANGELOG.
+  → write the release notes first (they make up the release body)."
 
     echo "→ $current → $v"
     python3 - "$PKG" "$LOCK" "$v" <<'PY'
@@ -112,19 +112,19 @@ for path, version in ((sys.argv[1], sys.argv[3]), (sys.argv[2], sys.argv[3])):
     open(path, "w", encoding="utf-8").write(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 PY
-    echo "  $PKG et $LOCK alignés sur $v"
+    echo "  $PKG and $LOCK set to $v"
 
     git add "$PKG" "$LOCK" "$CHANGELOG"
-    git commit -q -m "chore(version): publie la version $v"
+    git commit -q -m "chore(version): release $v"
     # ANNOTATED tag: it carries the notes, so `git show v$v` is enough to know
     # what was shipped, even without access to the GitHub UI.
     printf '%s\n' "$notes" | git tag -a "v$v" -F -
-    echo "  commit et tag v$v créés"
+    echo "  commit and tag v$v created"
 
     branch=$(git rev-parse --abbrev-ref HEAD)
-    echo "→ push de $branch puis du tag (le garde-fou pré-push s'exécute ici)"
+    echo "→ pushing $branch then the tag (the pre-push gate runs here)"
     git push origin "$branch"
     git push origin "v$v"
-    echo "✓ v$v publiée. La release GitHub est créée par .github/workflows/release.yml"
+    echo "✓ v$v published. The GitHub release is created by .github/workflows/release.yml"
     ;;
 esac

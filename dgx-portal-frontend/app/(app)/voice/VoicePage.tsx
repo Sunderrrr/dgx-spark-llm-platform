@@ -30,7 +30,7 @@ import {
 import { Selector } from "@astryxdesign/core/Selector";
 import { useCsrf } from "@/lib/useCsrf";
 import { postFormData } from "@/lib/api";
-import { copierTexte } from "@/lib/copier";
+import { copyText } from "@/lib/clipboard";
 import { useT, useLang, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
@@ -78,7 +78,7 @@ export type VoiceSeed = {
 
 /** The language to preselect: the current one if the model knows it, else the
  *  UI language, else auto-detection, else English. */
-function langueInitiale(info: VoiceInfo, cur: string, uiLang: string): string {
+function initialLang(info: VoiceInfo, cur: string, uiLang: string): string {
   return info.languages?.[cur] ? cur : info.languages?.[uiLang] ? uiLang : info.languages?.auto ? "auto" : "en";
 }
 
@@ -100,14 +100,14 @@ export default function VoicePage({ seed }: { seed?: Seed<{ [K in keyof VoiceSee
   );
   const [languages, setLanguages] = useState<Record<string, string>>(initial.info?.languages ?? {});
   const [language, setLanguage] = useState<string>(
-    initial.info ? langueInitiale(initial.info, uiLang, uiLang) : uiLang,
+    initial.info ? initialLang(initial.info, uiLang, uiLang) : uiLang,
   );
   const [supportsRefText, setSupportsRefText] = useState(!!initial.info?.supports_ref_text);
   const [refText, setRefText] = useState("");
   const [engine, setEngine] = useState<string>(initial.info?.engine ?? "");
   // The server already read /api/voice/info for this language: the first run of
   // the effect below may skip it; a later language change refetches.
-  const infoServie = useRef(fresh.info ? uiLang : null);
+  const servedInfo = useRef(fresh.info ? uiLang : null);
   const dictation = useDictation({ value: text, onChange: setText, csrf });
   const [isRecording, setIsRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -185,10 +185,10 @@ export default function VoicePage({ seed }: { seed?: Seed<{ [K in keyof VoiceSee
       .catch(() => {});
   }
 
-  function copyText(s: string) {
+  function copyWithToast(s: string) {
     // Outside a secure context (LAN over HTTP) `navigator.clipboard` is absent:
     // the `?.` then swallowed the copy without the slightest message.
-    void copierTexte(s, () =>
+    void copyText(s, () =>
       showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }));
   }
 
@@ -208,8 +208,8 @@ export default function VoicePage({ seed }: { seed?: Seed<{ [K in keyof VoiceSee
   // only, multilingual = 23): we start from the UI language if the model
   // knows it, otherwise English.
   useEffect(() => {
-    if (infoServie.current === uiLang) {
-      infoServie.current = null;
+    if (servedInfo.current === uiLang) {
+      servedInfo.current = null;
       return;
     }
     fetch("/api/voice/info", { credentials: "include" })
@@ -219,7 +219,7 @@ export default function VoicePage({ seed }: { seed?: Seed<{ [K in keyof VoiceSee
         setEngine(d.engine || "");
         setLanguages(d.languages || {});
         setSupportsRefText(!!d.supports_ref_text);
-        setLanguage((cur) => langueInitiale(d, cur, uiLang));
+        setLanguage((cur) => initialLang(d, cur, uiLang));
       })
       .catch(() => {});
   }, [uiLang]);
@@ -515,7 +515,7 @@ export default function VoicePage({ seed }: { seed?: Seed<{ [K in keyof VoiceSee
                             size="sm"
                             isIconOnly
                             icon={<Icon icon={ClipboardIcon} size="sm" />}
-                            onClick={(e) => { e.stopPropagation(); copyText(h.text); }}
+                            onClick={(e) => { e.stopPropagation(); copyWithToast(h.text); }}
                           />
                         }
                       />

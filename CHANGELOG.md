@@ -442,7 +442,7 @@ for its own key before coming alive.
 
 ### Changed
 
-- **`scripts/mcp-essentiels.sh`** is now the single source of truth for the
+- **`scripts/mcp-essentials.sh`** is now the single source of truth for the
   pack (enabled-while-keyless / waiting-for-a-key families), and the
   per-account cap stays at 10 servers.
 
@@ -458,7 +458,7 @@ documentation: two essential MCP servers, registered per account.
   actually lacks: **context7** (current library/framework docs — so « how do I
   integrate X » is answered from documentation, not training data) and
   **deepwiki** (Q&A over GitHub repositories). Public endpoints, no key,
-  validated with the platform's own SSRF check. `scripts/mcp-essentiels.sh`
+  validated with the platform's own SSRF check. `scripts/mcp-essentials.sh`
   registers them for any account, so a rebuilt database or a new user does not
   quietly lose them. Verified live: the assistant calls them, and the
   third-party-output guardrail still applies to what they return.

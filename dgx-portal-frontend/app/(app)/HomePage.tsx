@@ -62,7 +62,7 @@ type ModelHealth = {
   // zero that would suggest a counter reset.
   tokens_generated?: number | null;
   tokens_generated_total?: number | null;
-  tps_moyen?: number | null;
+  tps_avg?: number | null;
   tokens_prompt?: number | null;
   tps_prefill?: number | null;
   // In-flight activity seen by the ENGINE (llama.cpp /slots). Absent for vLLM,
@@ -70,9 +70,9 @@ type ModelHealth = {
   slots?: {
     busy: number;
     total: number;
-    plus_ancien_s: number | null;
-    prompt_ingere: number;
-    prompt_traite: number;
+    oldest_s: number | null;
+    prompt_total: number;
+    prompt_processed: number;
   } | null;
 } | null;
 
@@ -109,16 +109,16 @@ function fmtCtx(n: number | null): string {
 // answers « qui utilise le modèle en temps réel »: a name without an age does
 // not say it (« live » lights up for everyone as soon as the engine works),
 // whereas « il y a 4 s » versus « il y a 41 min » reads at a glance.
-function ageDepuis(secondes: number | null | undefined, t: (s: string) => string): string {
-  if (secondes == null) return t("activité inconnue");
-  if (secondes < 5) return t("à l'instant");
-  if (secondes < 60) return t("il y a {n} s").replace("{n}", String(Math.round(secondes)));
-  if (secondes < 3600) return t("il y a {n} min").replace("{n}", String(Math.round(secondes / 60)));
-  return t("il y a {n} h").replace("{n}", String(Math.round(secondes / 3600)));
+function ageSince(seconds: number | null | undefined, t: (s: string) => string): string {
+  if (seconds == null) return t("activité inconnue");
+  if (seconds < 5) return t("à l'instant");
+  if (seconds < 60) return t("il y a {n} s").replace("{n}", String(Math.round(seconds)));
+  if (seconds < 3600) return t("il y a {n} min").replace("{n}", String(Math.round(seconds / 60)));
+  return t("il y a {n} h").replace("{n}", String(Math.round(seconds / 3600)));
 }
 
 // ms → readable duration: "850 ms", "4.2 s", "3 min 12 s".
-function fmtDur(ms: number): string {
+function fmtDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)} ms`;
   const s = ms / 1000;
   if (s < 60) return `${s.toFixed(1)} s`;
@@ -140,18 +140,18 @@ function sidecarLines(
   if (kind === "ocr") {
     if (sm.chars_per_s != null) lines.push([t("Débit"), `≈ ${num(sm.chars_per_s)} c/s`]);
     if (sm.chars_avg != null) lines.push([t("Caractères/doc"), num(sm.chars_avg)]);
-    if (sm.avg_ms != null) lines.push([t("Extraction moy."), fmtDur(sm.avg_ms)]);
+    if (sm.avg_ms != null) lines.push([t("Extraction moy."), fmtDuration(sm.avg_ms)]);
   } else if (kind === "voice") {
     if (sm.rtf != null) lines.push([t("Facteur temps réel"), `×${sm.rtf}`]);
     if (sm.chars_per_s != null) lines.push([t("Vitesse de synthèse"), `≈ ${num(sm.chars_per_s)} c/s`]);
-    if (sm.avg_ms != null) lines.push([t("Génération moy."), fmtDur(sm.avg_ms)]);
+    if (sm.avg_ms != null) lines.push([t("Génération moy."), fmtDuration(sm.avg_ms)]);
   } else {
     if (sm.success_rate != null) lines.push([t("Taux de réussite"), `${sm.success_rate} %`]);
     if (sm.video_secs_today != null) lines.push([t("Vidéo générée auj."), `${num(sm.video_secs_today)} s`]);
     if (sm.gen_per_vsec != null) lines.push([t("Calcul / s de vidéo"), `${sm.gen_per_vsec}×`]);
-    if (sm.avg_ms != null) lines.push([t("Génération moy."), fmtDur(sm.avg_ms)]);
+    if (sm.avg_ms != null) lines.push([t("Génération moy."), fmtDuration(sm.avg_ms)]);
   }
-  if (sm.last_ms != null) lines.push([t("Dernière"), fmtDur(sm.last_ms)]);
+  if (sm.last_ms != null) lines.push([t("Dernière"), fmtDuration(sm.last_ms)]);
   return lines;
 }
 
@@ -188,9 +188,9 @@ type HomeData = {
   sysmetrics: SysMetrics;
   sidecar_metrics: Partial<Record<"ocr" | "video" | "voice", SidecarMetric>>;
   modelhealth: ModelHealth;
-  // `en_vol` comes from the LiteLLM callback: it is the only OBSERVED
+  // `inflight` comes from the LiteLLM callback: it is the only OBSERVED
   // attribution during a request (the others rest on an inference from the engine).
-  active_users: { username: string; requests: number; tokens: number; live?: boolean; derniere_s?: number | null; en_vol?: boolean; depuis_s?: number | null }[] | null;
+  active_users: { username: string; requests: number; tokens: number; live?: boolean; last_s?: number | null; inflight?: boolean; since_s?: number | null }[] | null;
   usage: { has_data: boolean; total: number; active_keys: number; points: { hour: number; tokens: number }[] } | null;
   usage_by_model: { model: string; tokens: number }[];
   my_requests: ModelRequest[];
@@ -221,9 +221,9 @@ const buildRequestColumns = (t: (s: string) => string): TableColumn<ModelRequest
   { key: "created_at", header: t("Date"), renderCell: (row) => row.created_at.slice(0, 16).replace("T", " ") },
 ];
 
-type Latence = { p50_ms: number | null; p95_ms: number | null; n: number };
+type Latency = { p50_ms: number | null; p95_ms: number | null; n: number };
 
-export type HomeSeed = { home: HomeData; latence: Latence; recent: Conversation[] };
+export type HomeSeed = { home: HomeData; latency: Latency; recent: Conversation[] };
 
 export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]: HomeSeed[K] | null }> | null }) {
   const { data: initial, fresh } = useSeed<HomeSeed>(seed);
@@ -242,33 +242,33 @@ export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]
   const [loadError, setLoadError] = useState(false);
   // How fast the API answers, measured on the server over its rolling window:
   // the number that says a regression has crept in BEFORE anyone complains.
-  const [latence, setLatence] = useState<Latence | null>(initial.latence ?? null);
+  const [latency, setLatency] = useState<Latency | null>(initial.latency ?? null);
   const [recentConvs, setRecentConvs] = useState<Conversation[]>(initial.recent ?? []);
   const { who } = useWhoami();
 
   // Resume a conversation: the most recent ones, to open the playground on
   // them. Loaded once on mount (light round-trip, no csrf).
   useEffect(() => {
-    let vivant = true;
-    const lire = () =>
+    let alive = true;
+    const readValue = () =>
       fetch("/api/latence")
         .then((r) => (r.ok ? r.json() : null))
-        .then((d) => { if (vivant && d) setLatence(d); })
+        .then((d) => { if (alive && d) setLatency(d); })
         .catch(() => {});
-    if (!fresh.latence) lire();
-    const id = setInterval(lire, 30000);
-    return () => { vivant = false; clearInterval(id); };
-  }, [fresh.latence]);
+    if (!fresh.latency) readValue();
+    const id = setInterval(readValue, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, [fresh.latency]);
   // The three first loads used to land one by one and the page FILLED IN waves.
   // They are launched together and only publish their state once the main data
   // is there: one complete render, not three partial ones.
   useEffect(() => {
     // Rendered by the server for this very visit: nothing to load again.
     if (fresh.home && fresh.recent) return;
-    let annule = false;
+    let cancelled = false;
     Promise.allSettled([fetchConversations(), getJSON<HomeData>("/api/home")])
       .then(([convs, home]) => {
-        if (annule) return;
+        if (cancelled) return;
         if (convs.status === "fulfilled") setRecentConvs(convs.value);
         if (home.status === "fulfilled") {
           setData(home.value);
@@ -277,7 +277,7 @@ export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]
           setLoadError(true);
         }
       });
-    return () => { annule = true; };
+    return () => { cancelled = true; };
   }, [fresh.home, fresh.recent]);
 
   // Loads the dashboard. We only report the error if there is still nothing
@@ -422,12 +422,12 @@ export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]
                 </Grid>
                 {/* Measured speed, kept honest: no number means « not enough
                     samples », never a zero that reads as instant. */}
-                {latence && latence.p50_ms != null ? (
+                {latency && latency.p50_ms != null ? (
                   <Text type="supporting" color="secondary">
                     {t("Réponse API : médiane {a} ms · p95 {b} ms sur {n} appels")
-                      .replace("{a}", String(latence.p50_ms))
-                      .replace("{b}", String(latence.p95_ms ?? "—"))
-                      .replace("{n}", String(latence.n))}
+                      .replace("{a}", String(latency.p50_ms))
+                      .replace("{b}", String(latency.p95_ms ?? "—"))
+                      .replace("{n}", String(latency.n))}
                   </Text>
                 ) : null}
               </VStack>
@@ -522,9 +522,9 @@ export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]
                               The average since startup gives the missing reference,
                               and it is exact (ratio of two engine counters, not a
                               portal sampling). */}
-                          {data.modelhealth.tps_moyen != null && (
+                          {data.modelhealth.tps_avg != null && (
                             <Text type="supporting" color="secondary" hasTabularNumbers>
-                              {t("moyenne {n} tok/s").replace("{n}", String(data.modelhealth.tps_moyen))}
+                              {t("moyenne {n} tok/s").replace("{n}", String(data.modelhealth.tps_avg))}
                             </Text>
                           )}
                         </VStack>
@@ -606,8 +606,8 @@ export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]
                           {data.modelhealth && (
                             <Text type="supporting" color="secondary" hasTabularNumbers>
                               {t("débit global {n} tok/s").replace("{n}", String(data.modelhealth.tps ?? "—"))}
-                              {data.modelhealth.tps_moyen != null
-                                ? " · " + t("moyenne {n} tok/s").replace("{n}", String(data.modelhealth.tps_moyen))
+                              {data.modelhealth.tps_avg != null
+                                ? " · " + t("moyenne {n} tok/s").replace("{n}", String(data.modelhealth.tps_avg))
                                 : ""}
                             </Text>
                           )}
@@ -626,13 +626,13 @@ export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]
                           <Text type="supporting" color="secondary" hasTabularNumbers>
                             {t("{n} session(s) en cours sur le moteur").replace("{n}", String(slots.busy))}
                             {slots.total ? ` / ${slots.total}` : ""}
-                            {slots.plus_ancien_s != null
-                              ? " · " + t("la plus ancienne depuis {d}").replace("{d}", ageDepuis(slots.plus_ancien_s, t))
+                            {slots.oldest_s != null
+                              ? " · " + t("la plus ancienne depuis {d}").replace("{d}", ageSince(slots.oldest_s, t))
                               : ""}
-                            {slots.prompt_ingere > slots.prompt_traite
+                            {slots.prompt_total > slots.prompt_processed
                               ? " · " + t("ingestion du prompt {a} / {b} tokens")
-                                  .replace("{a}", slots.prompt_traite.toLocaleString(numLocale))
-                                  .replace("{b}", slots.prompt_ingere.toLocaleString(numLocale))
+                                  .replace("{a}", slots.prompt_processed.toLocaleString(numLocale))
+                                  .replace("{b}", slots.prompt_total.toLocaleString(numLocale))
                               : ""}
                           </Text>
                         )}
@@ -657,12 +657,12 @@ export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]
                                   u.username,
                                   // OBSERVED attribution by LiteLLM (request in
                                   // flight) rather than inferred: we display its duration.
-                                  u.en_vol
-                                    ? t("en cours depuis {d}").replace("{d}", ageDepuis(u.depuis_s ?? 0, t))
-                                    : ageDepuis(u.derniere_s, t),
+                                  u.inflight
+                                    ? t("en cours depuis {d}").replace("{d}", ageSince(u.since_s ?? 0, t))
+                                    : ageSince(u.last_s, t),
                                   u.live ? t("en direct") : null,
-                                  u.en_vol ? null : `${u.requests} ${t("req")}`,
-                                  u.en_vol ? null : `${Math.round(u.tokens).toLocaleString(numLocale)} ${t("tok")}`,
+                                  u.inflight ? null : `${u.requests} ${t("req")}`,
+                                  u.inflight ? null : `${Math.round(u.tokens).toLocaleString(numLocale)} ${t("tok")}`,
                                 ].filter(Boolean).join(" · ")}
                               />
                             ))}
@@ -771,12 +771,12 @@ export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]
                             // The server's verdict is READ: `postForm` returns neither
                             // status nor body, so a refusal (request already
                             // pending, 409) showed up here as a successful send.
-                            const raison = t("Demande depuis la page d'accueil (quota bientôt épuisé)");
+                            const reason = t("Demande depuis la page d'accueil (quota bientôt épuisé)");
                             try {
                               const res = await authFetch("/keys", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
-                                body: new URLSearchParams({ action: "request_budget", reason: raison }).toString(),
+                                body: new URLSearchParams({ action: "request_budget", reason: reason }).toString(),
                               });
                               const r = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; code?: string };
                               if (!res.ok || r.ok === false) {

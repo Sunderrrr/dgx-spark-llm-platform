@@ -21,18 +21,18 @@ export function CsrfProvider({ children }: { children: ReactNode }) {
     // invalide », with nothing indicating where the problem came from. A second
     // attempt costs ~400 ms and covers the real case: the request goes out while
     // the session is still being set up (SSO return, expiry then re-login).
-    const charger = async () => {
-      for (let essai = 0; essai < 2; essai += 1) {
+    const load = async () => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
           const t = await fetchCsrfToken();
           if (alive) setCsrf(t);
           return;
         } catch {
-          if (essai === 0) await new Promise((r) => setTimeout(r, 400));
+          if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
         }
       }
     };
-    void charger();
+    void load();
     return () => {
       alive = false;
     };

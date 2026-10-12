@@ -10,7 +10,7 @@
 # Deliberately in systemd and not in /opt/traefik: the Traefik config files
 # (docker-compose.yml, dynamic/routes.yml) are rewritten by the
 # traefik-manager-agent and would be overwritten. This boot guard survives it.
-Description=Redémarre Traefik une fois au boot, quand le DNS est prêt (corrige la course plugins/ACME)
+Description=Restarts Traefik once at boot, when DNS is ready (fixes the plugins/ACME race)
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service

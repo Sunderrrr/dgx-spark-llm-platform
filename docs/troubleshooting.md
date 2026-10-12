@@ -16,10 +16,10 @@ measurement history, the operating guide kept on the machine
 ## GB10 unified memory
 
 - **Unified memory is shared.** GPU allocations count against the same pool as
-  system RAM. "128 GB" is the vendor figure; the kernel reports **121.6 GiB**
+  system RAM. "128 GB" is the vendor figure. The kernel reports **121.6 GiB**
   (130.6 GB) usable, and that is the number `free` prints — the measurements in
   these docs quote it ("99 GB out of 121"), so a headroom calculation must not
-  mix the two. Only **one chat model** runs at a time; OCR, video (ComfyUI), ASR,
+  mix the two. Only **one chat model** runs at a time. OCR, video (ComfyUI), ASR,
   voice, image and music are separate **on-demand** sidecars (started at first
   use, absent from memory when idle — hence not probed by the monitor). If a
   launch OOMs, **stop a sidecar from Admin** — don't shrink the chat model's
@@ -38,7 +38,7 @@ measurement history, the operating guide kept on the machine
   reboot** (2026-09-07). On unified memory there is no partition: free the model
   first, or throttle to `-j6`.
 - **Any heavy build is memory-capped while the model is loaded** — the frontend
-  image's `next build` is capped via `ARG NODE_HEAP_MB` (default 2560); a cap
+  image's `next build` is capped via `ARG NODE_HEAP_MB` (default 2560). A cap
   turns an unbounded risk into a bounded build failure. Raise it with
   `--build-arg NODE_HEAP_MB=…`.
 - **Configs near the edge.** earlyoom sends SIGTERM under 3 % available
@@ -53,11 +53,11 @@ cgroup: a model holding 26 GB of GPU memory showed only 2.3 GB of `anon` in the
 runner's cgroup (measured). Consequences, all observed on 2026-10-01:
 
 - a `MemoryMax` on `vllm-runner` would be **illusory** — don't add one thinking it
-  protects the box;
+  protects the box.
 - when GPU memory runs out, the kernel OOM killer cannot see the culprit and kills
   everything else instead — **443 processes** in one boot, `anon-rss: 0` each, while
   the kernel's Mem-Info showed ~119 GB held outside every category (0.77 GB free).
-  The NVIDIA driver then fails (`NV_ERR_NO_MEMORY`), the box freezes, then reboots;
+  The NVIDIA driver then fails (`NV_ERR_NO_MEMORY`), the box freezes, then reboots.
 - the only reliable signal is **`MemAvailable`**, which GPU memory does lower.
 
 **The crash loop and how it was broken.** Trigger: the runner auto-resumed a
@@ -65,24 +65,24 @@ llama.cpp config sized for a cache split across 8 slots (`--ctx-size 2097152
 --parallel 8` without `--kv-unified`, ~2M tokens of KV) — 110 GB, global OOM. It
 then LOOPED, across reboots, because:
 
-1. the resume-failure counter lived in RAM and reset on every service restart;
-2. `OOMPolicy=stop` restarted the whole runner on every OOM — so the cap was never hit;
+1. the resume-failure counter lived in RAM and reset on every service restart.
+2. `OOMPolicy=stop` restarted the whole runner on every OOM — so the cap was never hit.
 3. the startup resume relaunched immediately, on top of GPU memory the driver had not
-   yet returned (it frees it with a delay), and `RestartSec=5` left it no time;
+   yet returned (it frees it with a delay), and `RestartSec=5` left it no time.
 4. the counter reset as soon as the model answered HTTP 200 — it answered, then died a
    minute later. "Answers" is not "stable".
 
 Fixes in `runner.py` and the units (do not undo):
 
 - **persisted** failure counter (`resume_failures` next to `last_model.json`), reset
-  only after `STABLE_SECONDS` (600 s) of uninterrupted running;
+  only after `STABLE_SECONDS` (600 s) of uninterrupted running.
 - **memory floor** before ANY launch (`MIN_FREE_TO_LAUNCH_GIB`, 30): wait for the
   previous model's memory, then refuse if still short — a refusal counts as a failure,
-  which is what ends a loop instead of feeding it;
+  which is what ends a loop instead of feeding it.
 - **runtime guard**: the runner kills its OWN llama-server under `CRITICAL_FREE_GIB`
-  (2), before the kernel's blind OOM;
-- all resumes go through the watchdog (the separate startup resume would race it);
-- unit: `RestartSec=30`, `OOMPolicy=continue`;
+  (2), before the kernel's blind OOM.
+- all resumes go through the watchdog (the separate startup resume would race it).
+- unit: `RestartSec=30`, `OOMPolicy=continue`.
 - **earlyoom** as the global net (`systemd/earlyoom.service.d-dgx.conf`), for model
   launchers OUTSIDE the runner too — an agent harness spawned its own 115 GB
   `llama-server` that day. Two non-obvious settings: `-s 100,100` (by default earlyoom
@@ -93,7 +93,7 @@ Fixes in `runner.py` and the units (do not undo):
 
 The rest of the memory is consumed elsewhere (containers ~2.9 GiB including
 `qbittorrent-nox` 1.7, an idle whisper `asr` holding **2.1 GiB of GPU** for
-nothing — `restart=unless-stopped`, so it never frees itself —, the web UI
+nothing (`restart=unless-stopped`, so it never frees itself), the web UI
 ~1 GiB, the GNOME desktop). Act there before touching the context.
 
 ## Docker networking
@@ -103,8 +103,8 @@ nothing — `restart=unless-stopped`, so it never frees itself —, the web UI
   container's default route — and that depends on the *order of attached
   networks*. Attaching one more network has silently flipped it twice
   (`asr_net`, then `web_net`): outbound packets then left as `172.22.x` /
-  `172.25.x`, and `vllm-restrict.service` — which only allows `172.19.0.0/16`
-  towards the runner and vLLM — dropped them. Symptom: the portal reaches
+  `172.25.x`, and `vllm-restrict.service` (which only allows `172.19.0.0/16`
+  towards the runner and vLLM) dropped them. Symptom: the portal reaches
   nothing, no model is available, and **nothing is logged**. `dgx-portal` now
   pins `host.docker.internal:172.19.0.1`, the address the firewall already
   hardcodes. Compose's `priority:` on networks did *not* fix this when tried.
@@ -219,8 +219,8 @@ v0.5.0, with 7.6 GiB more headroom. Client contract unchanged (196608/65536),
 verified by a real generation through LiteLLM.
 
 **Method lesson: measure the right number.** v0.5.0 was not "more greedy" with KV
-cache — same GGUF, same f16 cache — it placed its memory elsewhere, in a place
-the kernel can claim. A low `MemAvailable` WITH a high RSS says this; the same
+cache (same GGUF, same f16 cache): it placed its memory elsewhere, in a place
+the kernel can claim. A low `MemAvailable` WITH a high RSS says this. The same
 low `MemAvailable` with a tiny RSS would say the opposite. The GPU memory reported
 by `nvidia-smi` is not enough to judge: you need the process's RSS and swap.
 

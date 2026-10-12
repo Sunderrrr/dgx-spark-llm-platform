@@ -302,9 +302,9 @@ def runner_status():
     return {'status': 'unreachable', 'model': None, 'pid': None}
 
 def runner_launch(hf_model_id, model_name, vllm_args='', engine='vllm'):
-    """Launches a model. Returns (ok, motif, incertain).
+    """Launches a model. Returns (ok, reason, uncertain).
 
-    `incertain` distinguishes a REFUSAL (the runner answered no: nothing
+    `uncertain` distinguishes a REFUSAL (the runner answered no: nothing
     starts, `motif` carries its exact reason) from a TIMEOUT (no answer in
     the allotted time, while the loading may well be under way).
     The caller must NOT alert the infra on a doubt: a fake « launch
@@ -415,15 +415,15 @@ def _follow_launch(model_name, window_s=None):
                 with ctx.app_context():
                     try:
                         announcement(model_name)
-                        audit('systeme', 'model.servi',
+                        audit('system', 'model.served',
                               f"{model_name} chargé et en service")
                         # The runner exposes no time of entry into service: we thus
                         # record WHAT THE PORTAL OBSERVED (the model answers at
                         # that instant). Read by the « état de la plateforme »
                         # banner; absent if the model was already serving before
                         # this version, and the UI then shows « — ».
-                        set_setting('model_servi', json.dumps(
-                            {'nom': model_name, 'depuis': int(time.time())}))
+                        set_setting('served_model', json.dumps(
+                            {'name': model_name, 'since': int(time.time())}))
                     except Exception:                        # noqa: BLE001
                         _log.warning("suivi de lancement : annonce impossible", exc_info=True)
                 return
@@ -431,7 +431,7 @@ def _follow_launch(model_name, window_s=None):
                 break
         with ctx.app_context():
             try:
-                audit('systeme', 'model.echec_apres_lancement',
+                audit('system', 'model.failed_after_launch',
                       f"{model_name} accepté par le runner mais jamais en service "
                       f"dans les {int(window)} s")
                 from notify import notify_infra_alert_email
@@ -453,7 +453,7 @@ def _follow_launch(model_name, window_s=None):
     threading.Thread(target=_loop, name='suivi-lancement', daemon=True).start()
 
 def runner_stop():
-    """Stops the served model. Returns (ok, motif, incertain).
+    """Stops the served model. Returns (ok, reason, uncertain).
 
     Timeout raised to 45 s: /stop SIGTERMs the process, waits up to 30 s,
     then SIGKILL (5 s) and erases last_model.json. At 5 s, a perfectly
@@ -754,14 +754,14 @@ def _asr_state_dir():
     d = os.environ.get('ASR_ONDEMAND_DIR', '/tmp/dgx-asr-ondemand')
     try:
         os.makedirs(d, mode=0o700, exist_ok=True)
-        os.makedirs(os.path.join(d, 'en_vol'), mode=0o700, exist_ok=True)
+        os.makedirs(os.path.join(d, 'inflight'), mode=0o700, exist_ok=True)
     except OSError:
         pass
     return d
 
 def asr_note_activity():
     """Reset the idle clock — shared by all workers through the file's mtime."""
-    p = os.path.join(_asr_state_dir(), 'activite')
+    p = os.path.join(_asr_state_dir(), 'activity')
     try:
         with open(p, 'a'):
             pass
@@ -772,7 +772,7 @@ def asr_note_activity():
 def asr_idle_s():
     """Seconds since the last dictation call, None if none was ever recorded."""
     try:
-        return time.time() - os.path.getmtime(os.path.join(_asr_state_dir(), 'activite'))
+        return time.time() - os.path.getmtime(os.path.join(_asr_state_dir(), 'activity'))
     except OSError:
         return None
 
@@ -788,7 +788,7 @@ def asr_call_in_flight():
     """
     marker = None
     try:
-        fd, marker = tempfile.mkstemp(dir=os.path.join(_asr_state_dir(), 'en_vol'))
+        fd, marker = tempfile.mkstemp(dir=os.path.join(_asr_state_dir(), 'inflight'))
         os.close(fd)
     except OSError:
         marker = None
@@ -804,7 +804,7 @@ def asr_call_in_flight():
 
 def asr_calls_in_flight():
     """Number of transcription calls in flight right now (stale markers dropped)."""
-    d = os.path.join(_asr_state_dir(), 'en_vol')
+    d = os.path.join(_asr_state_dir(), 'inflight')
     n = 0
     try:
         for name in os.listdir(d):
@@ -832,7 +832,7 @@ def asr_pin(duration_s=None):
     extra idle window before the next automatic stop).
     """
     try:
-        with open(os.path.join(_asr_state_dir(), 'epingle'), 'w') as f:
+        with open(os.path.join(_asr_state_dir(), 'pinned'), 'w') as f:
             f.write(str(time.time() + (duration_s or _ASR_PIN_S)))
     except OSError:
         pass
@@ -840,13 +840,13 @@ def asr_pin(duration_s=None):
 
 def asr_unpin():
     try:
-        os.remove(os.path.join(_asr_state_dir(), 'epingle'))
+        os.remove(os.path.join(_asr_state_dir(), 'pinned'))
     except OSError:
         pass
 
 def _asr_pinned():
     try:
-        with open(os.path.join(_asr_state_dir(), 'epingle')) as f:
+        with open(os.path.join(_asr_state_dir(), 'pinned')) as f:
             until = float(f.read().strip())
     except (OSError, ValueError):
         return False
@@ -960,13 +960,13 @@ def _asr_watcher_pass():
     # Single actor among the workers: a lock FILE, atomic everywhere. The
     # others skip this pass — their own comes 30 s later and finds the clock
     # reset. An abandoned lock (killed pass) expires after _ASR_VERROU_MAX_S.
-    verrou = os.path.join(_asr_state_dir(), 'verrou-arret')
+    lock_ = os.path.join(_asr_state_dir(), 'stop-lock')
     try:
-        os.close(os.open(verrou, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        os.close(os.open(lock_, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
     except FileExistsError:
         try:
-            if time.time() - os.path.getmtime(verrou) > _ASR_LOCK_MAX_S:
-                os.remove(verrou)
+            if time.time() - os.path.getmtime(lock_) > _ASR_LOCK_MAX_S:
+                os.remove(lock_)
         except OSError:
             pass
         return False
@@ -986,7 +986,7 @@ def _asr_watcher_pass():
         return bool(ok)
     finally:
         try:
-            os.remove(verrou)
+            os.remove(lock_)
         except OSError:
             pass
 

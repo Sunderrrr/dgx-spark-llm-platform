@@ -84,12 +84,12 @@ class TestResidus(unittest.TestCase):
     def test_le_bucket_inconnu_est_traite_comme_un_residu(self):
         # « inconnu » = key absent from the three token tables, thus deleted by
         # hand: it is no more a person than a test name.
-        d = _classement(current_value=[(1, 'alice', 10, 1), (1, 'inconnu', 500, 0)])
-        inconnu = [r for r in d['rows'] if r['username'] == 'inconnu'][0]
+        d = _classement(current_value=[(1, 'alice', 10, 1), (1, 'unknown', 500, 0)])
+        inconnu = [r for r in d['rows'] if r['username'] == 'unknown'][0]
         self.assertTrue(inconnu['is_unattributed'])
         self.assertIsNone(inconnu['rank'])
         # ...and it goes to the bottom of the table, not among people.
-        self.assertEqual(d['rows'][-1]['username'], 'inconnu')
+        self.assertEqual(d['rows'][-1]['username'], 'unknown')
 
     def test_un_residu_ne_compte_pas_comme_compte_actif_mais_reste_dans_le_total(self):
         d = _classement(current_value=[(1, 'alice', 900, 100), (1, 'zz-pwtest', 50, 0)])
@@ -99,7 +99,7 @@ class TestResidus(unittest.TestCase):
     def test_un_residu_n_affiche_pas_de_delta(self):
         # Measurement before the fix: +290 919 % on the `inconnu` bucket. A
         # leftover has no history, hence no evolution.
-        d = _classement(current_value=[(1, 'inconnu', 500, 0)], previous=[('inconnu', 0.17, 0)])
+        d = _classement(current_value=[(1, 'unknown', 500, 0)], previous=[('unknown', 0.17, 0)])
         self.assertIsNone(d['rows'][0]['delta'])
 
     def test_base_des_comptes_illisible_on_ne_reclasse_personne(self):

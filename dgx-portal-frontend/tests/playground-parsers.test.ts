@@ -17,21 +17,21 @@ import assert from "node:assert/strict";
 import {
   MAX_ASK_QUESTIONS,
   MAX_ASK_OPTIONS,
-  RE_CORPS_QUESTIONS,
-  estBlocQuestions,
+  RE_QUESTIONS_BODY,
+  isQuestionsBlock,
   parseAsk,
   parseEdits,
   escapeRawControlChars,
   firstJsonValue,
   balanceJson,
-  reparerFermetures,
-  contenuCloture,
-  corpsDeSuite,
-  recoller,
-  decoupeLignes,
+  repairClosings,
+  closedContent,
+  continuationBody,
+  rejoin,
+  splitLines,
   openCodeFence,
-  contientQuestions,
-  reponseIncomplete,
+  containsQuestions,
+  incompleteResponse,
 } from "../lib/playground-parsers.ts";
 
 /* ── parseAsk ─────────────────────────────────────────────────────────────── */
@@ -179,41 +179,41 @@ test("reponseIncomplete: un questionnaire n'est JAMAIS un fichier à reprendre (
   // block: it relaunched the model, which REWROTE its questionnaire — the
   // two attempts tangled and the questions came out as raw text. This is
   // the cause of « les questions ne marchent plus ».
-  const casse = '{"questions": []}```\nBien sûr ! quelques ["Firewall", "SSH"] {"question": "Q1", "options": ["A", "B"]}';
-  assert.equal(contientQuestions(casse), true);
-  assert.equal(reponseIncomplete(casse), false, "un questionnaire ne doit PAS déclencher de reprise");
+  const broken = '{"questions": []}```\nBien sûr ! quelques ["Firewall", "SSH"] {"question": "Q1", "options": ["A", "B"]}';
+  assert.equal(containsQuestions(broken), true);
+  assert.equal(incompleteResponse(broken), false, "un questionnaire ne doit PAS déclencher de reprise");
   // A clean ask block does not count either.
-  assert.equal(reponseIncomplete('```ask\n{"questions": [{"question": "Q1", "options": ["A"]}]'), false);
+  assert.equal(incompleteResponse('```ask\n{"questions": [{"question": "Q1", "options": ["A"]}]'), false);
 });
 
 test("reponseIncomplete: un vrai fichier tronqué reste repris", () => {
-  assert.equal(reponseIncomplete("```python\ndef carre(n):\n    return n *"), true);
-  assert.equal(reponseIncomplete("```html\n<!DOCTYPE html><html><body>ok"), true);
+  assert.equal(incompleteResponse("```python\ndef carre(n):\n    return n *"), true);
+  assert.equal(incompleteResponse("```html\n<!DOCTYPE html><html><body>ok"), true);
   // …and a finished HTML file, even without a closing block fence, is not.
-  assert.equal(reponseIncomplete("```html\n<!DOCTYPE html><html><body>ok</body></html>"), false);
-  assert.equal(contientQuestions("```python\nq = {\"question\": \"x\", \"options\": [\"a\"]}\n```"), false);
+  assert.equal(incompleteResponse("```html\n<!DOCTYPE html><html><body>ok</body></html>"), false);
+  assert.equal(containsQuestions("```python\nq = {\"question\": \"x\", \"options\": [\"a\"]}\n```"), false);
 });
 
 /* ── estBlocQuestions / RE_CORPS_QUESTIONS ────────────────────────────────── */
 
 test("estBlocQuestions: ask label accepts any body", () => {
-  assert.equal(estBlocQuestions("ask", '{"questions": ['), true);
-  assert.equal(estBlocQuestions("ASK", "n'importe quoi"), true);
+  assert.equal(isQuestionsBlock("ask", '{"questions": ['), true);
+  assert.equal(isQuestionsBlock("ASK", "n'importe quoi"), true);
 });
 
 test("estBlocQuestions: json and empty label only behind the {\"questions\": [ guard", () => {
-  assert.equal(estBlocQuestions("json", '{"questions": ['), true);
-  assert.equal(estBlocQuestions("", '  { "questions" : [\n…'), true);
-  assert.equal(estBlocQuestions("json", '{"autre": 1}'), false);
-  assert.equal(estBlocQuestions("", "du texte"), false);
+  assert.equal(isQuestionsBlock("json", '{"questions": ['), true);
+  assert.equal(isQuestionsBlock("", '  { "questions" : [\n…'), true);
+  assert.equal(isQuestionsBlock("json", '{"autre": 1}'), false);
+  assert.equal(isQuestionsBlock("", "du texte"), false);
   // the guard is about the BODY: another language is never a questionnaire
-  assert.equal(estBlocQuestions("python", '{"questions": ['), false);
+  assert.equal(isQuestionsBlock("python", '{"questions": ['), false);
 });
 
 test("RE_CORPS_QUESTIONS: the guard matches the measured shape only", () => {
-  assert.equal(RE_CORPS_QUESTIONS.test('{"questions": ['), true);
-  assert.equal(RE_CORPS_QUESTIONS.test('\n  {\n  "questions" : [ '), true);
-  assert.equal(RE_CORPS_QUESTIONS.test('{"question": "x"}'), false);
+  assert.equal(RE_QUESTIONS_BODY.test('{"questions": ['), true);
+  assert.equal(RE_QUESTIONS_BODY.test('\n  {\n  "questions" : [ '), true);
+  assert.equal(RE_QUESTIONS_BODY.test('{"question": "x"}'), false);
 });
 
 /* ── recoller / corpsDeSuite — the three resume shapes + HTML rewrite ─────── */
@@ -226,61 +226,61 @@ const L = [
 ];
 
 test("corpsDeSuite: reopened fence → the block body", () => {
-  const suite = "```html\n<!DOCTYPE html>\n<html><body>x</body></html>\n";
-  assert.equal(corpsDeSuite(suite), "<!DOCTYPE html>\n<html><body>x</body></html>\n");
+  const continuation = "```html\n<!DOCTYPE html>\n<html><body>x</body></html>\n";
+  assert.equal(continuationBody(continuation), "<!DOCTYPE html>\n<html><body>x</body></html>\n");
 });
 
 test("corpsDeSuite: raw continuation that CLOSES the block → what precedes the closer", () => {
-  const suite = "fin du code\nencore une ligne\n```";
-  assert.equal(corpsDeSuite(suite), "fin du code\nencore une ligne");
+  const continuation = "fin du code\nencore une ligne\n```";
+  assert.equal(continuationBody(continuation), "fin du code\nencore une ligne");
 });
 
 test("corpsDeSuite: no fence at all → the whole message", () => {
-  const suite = "voici la suite brute du fichier";
-  assert.equal(corpsDeSuite(suite), suite);
+  const continuation = "voici la suite brute du fichier";
+  assert.equal(continuationBody(continuation), continuation);
 });
 
 test("recoller: the model re-emits the cut block → spliced once, no duplication", () => {
   const base = L.join("\n");                       // cut after « delta »
-  const suite = L.slice(1).join("\n") + "\nfunction epsilon() { return 5; }";
-  const r = recoller(base, suite);
-  assert.equal(r, L[0] + "\n" + suite);
+  const continuation = L.slice(1).join("\n") + "\nfunction epsilon() { return 5; }";
+  const r = rejoin(base, continuation);
+  assert.equal(r, L[0] + "\n" + continuation);
   for (const l of L) assert.equal(r.split(l).length - 1, 1, `duplicated: ${l}`);
 });
 
 test("recoller: cut mid-line + resume at the word (« p_del » / « del = … »)", () => {
   const base = "import argparse\np_del";
-  const suite = "del = sub.add_parser('run')\nargs = p.parse_args()";
-  assert.equal(recoller(base, suite), "import argparse\np_del = sub.add_parser('run')\nargs = p.parse_args()");
+  const continuation = "del = sub.add_parser('run')\nargs = p.parse_args()";
+  assert.equal(rejoin(base, continuation), "import argparse\np_del = sub.add_parser('run')\nargs = p.parse_args()");
 });
 
 test("recoller: HTML full rewrite (≥ 50 % of base) REPLACES the file", () => {
   const base = "<html>\n" + "<!-- corps -->\n".repeat(12) + "</html>";
-  const suite = "<!DOCTYPE html>\n<html><body>\n"
+  const continuation = "<!DOCTYPE html>\n<html><body>\n"
     + "<p>ligne de contenu</p>\n".repeat(5)
     + "</body></html>";
-  assert.ok(suite.length >= base.length * 0.5, "test premise: suite carries its weight");
-  assert.equal(recoller(base, suite), suite);
+  assert.ok(continuation.length >= base.length * 0.5, "test premise: suite carries its weight");
+  assert.equal(rejoin(base, continuation), continuation);
 });
 
 test("recoller: a small HTML-looking resume does NOT wipe the file", () => {
   const base = "<html>\n" + "<!-- corps -->\n".repeat(120) + "</html>";
-  const suite = "<html>\n<p>trois lignes</p>\n</html>";
-  assert.ok(suite.length < base.length * 0.5, "test premise: suite is small");
-  const r = recoller(base, suite);
-  assert.notEqual(r, suite);
+  const continuation = "<html>\n<p>trois lignes</p>\n</html>";
+  assert.ok(continuation.length < base.length * 0.5, "test premise: suite is small");
+  const r = rejoin(base, continuation);
+  assert.notEqual(r, continuation);
   assert.ok(r.includes("<!-- corps -->"), "the original body must survive");
 });
 
 /* ── contenuCloture ───────────────────────────────────────────────────────── */
 
 test("contenuCloture: odd fence count gets closed, even stays untouched", () => {
-  const ouvert = "texte\n```js\nconst a = 1;";
-  assert.equal(contenuCloture(ouvert), ouvert + "\n```");
-  const ferme = "```js\nconst a = 1;\n```";
-  assert.equal(contenuCloture(ferme), ferme);
-  const sansFence = "aucune fence ici";
-  assert.equal(contenuCloture(sansFence), sansFence);
+  const open = "texte\n```js\nconst a = 1;";
+  assert.equal(closedContent(open), open + "\n```");
+  const closed = "```js\nconst a = 1;\n```";
+  assert.equal(closedContent(closed), closed);
+  const withoutFence = "aucune fence ici";
+  assert.equal(closedContent(withoutFence), withoutFence);
 });
 
 /* ── firstJsonValue / balanceJson / reparerFermetures ─────────────────────── */
@@ -293,15 +293,15 @@ test("firstJsonValue: cuts at the end of the first complete value (orphan quote 
 
 test("balanceJson: closes what the model left open", () => {
   assert.equal(balanceJson('{"a": "b'), '{"a": "b"}');
-  const repare = balanceJson('{"questions": [{"question": "Q1 ?", "options": ["A", "B"');
-  assert.deepEqual(JSON.parse(repare), {
+  const repaired = balanceJson('{"questions": [{"question": "Q1 ?", "options": ["A", "B"');
+  assert.deepEqual(JSON.parse(repaired), {
     questions: [{ question: "Q1 ?", options: ["A", "B"] }],
   });
 });
 
 test("reparerFermetures: mismatched closer (« [\"a\", \"b\"} ») is repaired (MiMo 2026-10-01)", () => {
-  const repare = reparerFermetures('{"questions": [{"question": "Q1", "options": ["a", "b"}]}]}');
-  assert.deepEqual(JSON.parse(repare), {
+  const repaired = repairClosings('{"questions": [{"question": "Q1", "options": ["a", "b"}]}]}');
+  assert.deepEqual(JSON.parse(repaired), {
     questions: [{ question: "Q1", options: ["a", "b"] }],
   });
 });
@@ -321,10 +321,10 @@ test("openCodeFence: only the never-closed, non-questions block is live", () => 
 });
 
 test("decoupeLignes: positions match the source offsets", () => {
-  const lignes = decoupeLignes("ab\ncd", 10);
-  assert.deepEqual(lignes, [
-    { texte: "ab", pos: 10 },
-    { texte: "cd", pos: 13 },
+  const lines = splitLines("ab\ncd", 10);
+  assert.deepEqual(lines, [
+    { text: "ab", pos: 10 },
+    { text: "cd", pos: 13 },
   ]);
 });
 

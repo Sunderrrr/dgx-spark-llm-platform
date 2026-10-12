@@ -287,7 +287,7 @@ class CompteursCumulesTest(unittest.TestCase):
         portal's probe frequency, unlike the instantaneous throughput.
         """
         s = _sante('llamacpp', _METRICS_LLAMA_COMPLET)
-        self.assertEqual(s['tps_moyen'], 13.3)
+        self.assertEqual(s['tps_avg'], 13.3)
 
     def test_pas_de_moyenne_sur_un_compteur_qui_vient_de_repartir(self):
         """Fresh counter: the average would cover barely a few minutes.
@@ -299,14 +299,14 @@ class CompteursCumulesTest(unittest.TestCase):
         neuf = ("llamacpp:tokens_predicted_total 47\n"
                 "llamacpp:tokens_predicted_seconds_total 192.443\n"
                 "llamacpp:requests_processing 1\n")
-        self.assertIsNone(_sante('llamacpp', neuf)['tps_moyen'])
+        self.assertIsNone(_sante('llamacpp', neuf)['tps_avg'])
         au_dessus = neuf.replace('192.443', '310.0')
-        self.assertEqual(_sante('llamacpp', au_dessus)['tps_moyen'], 0.2)
+        self.assertEqual(_sante('llamacpp', au_dessus)['tps_avg'], 0.2)
 
     def test_vllm_na_pas_de_moyenne_a_inventer(self):
         """vLLM publishes no generation seconds: None, not a fake figure."""
         s = _sante('vllm', _metrics_vllm())
-        self.assertIsNone(s['tps_moyen'])
+        self.assertIsNone(s['tps_avg'])
         self.assertEqual(s['tokens_generated'], 1000)
 
     def test_un_echec_du_cumul_ne_casse_pas_la_sante(self):
@@ -335,7 +335,7 @@ class _FausseDb:
         if sql.strip().upper().startswith('SELECT'):
             return _FauxCurseur(self.row)
         self.ecritures.append(params)
-        self.row = {'base': params[1], 'dernier': params[2]}
+        self.row = {'base': params[1], 'last_value': params[2]}
         return _FauxCurseur(None)
 
     def commit(self):
@@ -439,17 +439,17 @@ class SlotsActifsTest(unittest.TestCase):
     def test_l_ingestion_du_prompt_est_sommee(self):
         """« where is the prompt »: 23 000 of the 27 000 ingested tokens."""
         a = self._activite(_SLOTS_OCCUPES)
-        self.assertEqual(a['prompt_ingere'], 27000)
-        self.assertEqual(a['prompt_traite'], 23000)
+        self.assertEqual(a['prompt_total'], 27000)
+        self.assertEqual(a['prompt_processed'], 23000)
 
     def test_l_age_est_suivi_par_identifiant_de_tache(self):
         """llama.cpp gives a task id, not a start time."""
         self._activite(_SLOTS_OCCUPES)
-        self.assertIsNotNone(self._activite(_SLOTS_OCCUPES)['plus_ancien_s'])
+        self.assertIsNotNone(self._activite(_SLOTS_OCCUPES)['oldest_s'])
         # Task seen 10 minutes ago: it is the age that must come out.
         vllm_health._slots_tasks[279] = time.time() - 600
         a = self._activite(_SLOTS_OCCUPES)
-        self.assertTrue(598 < a['plus_ancien_s'] < 604, a['plus_ancien_s'])
+        self.assertTrue(598 < a['oldest_s'] < 604, a['oldest_s'])
 
     def test_une_tache_terminee_sort_du_suivi(self):
         """Otherwise the task table would grow forever."""
@@ -502,10 +502,10 @@ class EnVolStatsTest(unittest.TestCase):
 
     def _ecrit(self, lines):
         conn = sqlite3.connect(self.path)
-        conn.execute('CREATE TABLE IF NOT EXISTS en_vol (cle TEXT PRIMARY KEY, alias TEXT, '
-                     'user_id TEXT, modele TEXT, debut REAL NOT NULL)')
+        conn.execute('CREATE TABLE IF NOT EXISTS inflight (request_key TEXT PRIMARY KEY, alias TEXT, '
+                     'user_id TEXT, model TEXT, started_at REAL NOT NULL)')
         for key, alias, user_id, age in lines:
-            conn.execute('INSERT INTO en_vol VALUES (?,?,?,?,?)',
+            conn.execute('INSERT INTO inflight VALUES (?,?,?,?,?)',
                          (key, alias, user_id, 'm', time.time() - age))
         conn.commit()
         conn.close()

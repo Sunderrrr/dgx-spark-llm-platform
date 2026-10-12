@@ -99,12 +99,12 @@ def account_state(username):
     """
     db = get_db()
     if is_blocked(username):
-        return False, False, 'bloque'
+        return False, False, 'blocked'
     row = db.execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
     if row is not None:
         # Local account: the portal is the sole master of the role and the state.
         if not row['enabled']:
-            return False, False, 'desactive'
+            return False, False, 'disabled'
         return True, _local_user_is_admin(row), None
     # LDAP/SSO account: no local row. The role is the one recorded at the last
     # login (SSO: the admin group of the token / directory entry); if there is
@@ -203,7 +203,7 @@ def login_required(f):
     # Marker read at runtime by the route guard test: @wraps erases every trace
     # of the decorator, so without it one would have to parse the source —
     # fragile, and blind to a route registered other than as a literal.
-    decorated._garde = 'login'
+    decorated._guard = 'login'
     return decorated
 
 def admin_required(f):
@@ -221,7 +221,7 @@ def admin_required(f):
             flash("Accès réservé aux administrateurs.", "danger")
             return redirect(url_for('index'))
         return f(*args, **kwargs)
-    decorated._garde = 'admin'          # cf. login_required
+    decorated._guard = 'admin'          # cf. login_required
     return decorated
 
 

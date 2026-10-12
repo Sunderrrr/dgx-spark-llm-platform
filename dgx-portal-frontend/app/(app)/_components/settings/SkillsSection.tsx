@@ -35,7 +35,7 @@ export type SkillsSectionProps = {
   setEditingSkillId: (v: number | null) => void;
   skillForm: SkillForm;
   setSkillForm: Dispatch<SetStateAction<SkillForm>>;
-  deleteSkill: (id: number, nom: string) => void;
+  deleteSkill: (id: number, name: string) => void;
 };
 
 export function SkillsSection({

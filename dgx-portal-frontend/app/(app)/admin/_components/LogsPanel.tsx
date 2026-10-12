@@ -25,7 +25,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import { useStickToBottom } from "@/lib/useStickToBottom";
-import { copierTexte } from "@/lib/copier";
+import { copyText } from "@/lib/clipboard";
 
 export type LogKind = "llm" | "ocr" | "voice" | "asr" | "image" | "music" | "video";
 
@@ -80,7 +80,7 @@ export function LogsPanel({ model, logKind, onLogKindChange, logs, sidecarLogs }
 
   function copyLogs() {
     if (!logText) return;
-    void copierTexte(logText, () =>
+    void copyText(logText, () =>
       showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))
       .then((ok) => {
         if (ok) showToast({ body: t("Copié."), type: "info" });

@@ -49,7 +49,7 @@ def main() -> int:
         c.send_message(page, QUESTION)
 
         # ── 3. The reasoning block appears (header) ─────────────────────────
-        header = page.locator(".raison-entete")
+        header = page.locator(".reasoning-header")
         found = False
         deadline = time.time() + 240
         while time.time() < deadline:
@@ -60,7 +60,7 @@ def main() -> int:
         if not found:
             p.fail("reasoning block visible",
                    "the « Reasoning » header above the answer (reasoning forced to « Always »)",
-                   f"no .raison-entete within 240 s — thread: "
+                   f"no .reasoning-header within 240 s — thread: "
                    f"{page.locator('body').inner_text()[-300:]!r}")
         p.ok("reasoning block appeared", "« Reasoning » header present")
 
@@ -70,7 +70,7 @@ def main() -> int:
 
         # The block collapses by itself once the answer is written: if it is
         # not open, a click on the header must expand the thought.
-        thought_panel = page.locator(".raison-panneau")
+        thought_panel = page.locator(".reasoning-panel")
         if not (thought_panel.count() and thought_panel.first.is_visible()):
             header.first.scroll_into_view_if_needed()
             header.first.click()
@@ -78,7 +78,7 @@ def main() -> int:
         if not (thought_panel.count() and thought_panel.first.is_visible()):
             p.fail("reasoning block expanded",
                    "the thought bubble visible after clicking the header",
-                   "the .raison-panneau panel does not appear")
+                   "the .reasoning-panel panel does not appear")
         thought = thought_panel.first.inner_text().strip()
         if len(thought) < 20:
             p.fail("reasoning text", "at least 20 characters of thought",

@@ -71,11 +71,11 @@ def import_env_once():
     """Copies the legacy `.env` values into the database, ONCE per key.
 
     Only empty settings are filled, and every key considered is remembered
-    (`cfg_env_importe`, a comma list): an operator who clears a field in Admin
+    (`cfg_env_imported`, a comma list): an operator who clears a field in Admin
     means it, a value left in `.env` does not come back at the next restart —
     while a key added to the panel later (Discord, 2026-10-11) still gets its
     one import. Returns the keys imported."""
-    brand = get_setting('cfg_env_importe', '') or ''
+    brand = get_setting('cfg_env_imported', '') or ''
     if brand == '1':
         # The first version kept a plain flag, set before Discord joined the
         # panel: every non-Discord key had been considered.
@@ -91,7 +91,7 @@ def import_env_once():
             set_setting('cfg_' + name, v)
             imported.append(name)
         considered.add(name)
-    set_setting('cfg_env_importe', ','.join(sorted(considered)))
+    set_setting('cfg_env_imported', ','.join(sorted(considered)))
     return imported
 
 
@@ -161,15 +161,15 @@ def config_state():
     for name, label, secret, _env, _default in CONFIGURABLE:
         v = setting(name)
         out.append({
-            'nom': name,
-            'libelle': label,
+            'name': name,
+            'label': label,
             'secret': secret,
-            'valeur': '' if secret else v,
+            'value': '' if secret else v,
             'configure': bool(v),
             # where the value comes from — the operator's first question
             # when a setting « does not take ».
             'source': 'interface' if read_setting('cfg_' + name, '') else 'défaut',
             # The code default, shown as the field's placeholder (never a secret).
-            'defaut': '' if secret else _default,
+            'default': '' if secret else _default,
         })
     return out

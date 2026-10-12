@@ -274,9 +274,9 @@ def _model_state():
     uptime = None
     if status_value == 'running':
         try:
-            observe = json.loads(get_setting('model_servi', '') or '{}')
-            if observe.get('nom') == name and observe.get('depuis'):
-                uptime = max(0, int(time.time() - float(observe['depuis'])))
+            observe = json.loads(get_setting('served_model', '') or '{}')
+            if observe.get('name') == name and observe.get('since'):
+                uptime = max(0, int(time.time() - float(observe['since'])))
         except Exception:                                        # noqa: BLE001
             uptime = None
     return {'name': name, 'status': status_value, 'uptime_s': uptime}
@@ -335,7 +335,7 @@ def _directory_state():
     states = directory_states_for(names)
     if states is None:
         return {'readable': False}
-    account = {'actif': 0, 'desactive': 0, 'absent': 0}
+    account = {'active': 0, 'disabled': 0, 'absent': 0}
     for e in states.values():
         account[e] = account.get(e, 0) + 1
     return {'readable': True, **account}
@@ -371,7 +371,7 @@ def launch_model():
     cfg  = db.execute("SELECT * FROM model_configs WHERE name=?", (name,)).fetchone()
     if not cfg:
         return jsonify({'ok': False, 'error': "Modèle introuvable."}), 404
-    ok, reason, incertain = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
+    ok, reason, uncertain = runner_launch(cfg['hf_model_id'], cfg['name'], cfg['vllm_args'] or '',
                                          cfg['engine'] or 'vllm')
     if ok:
         # The « model X replaces model Y » announcement no longer goes out
@@ -382,11 +382,11 @@ def launch_model():
     else:
         log_audit(session.get('username'), 'model.launch_échec',
                   f"lancement de {name} : {reason}"
-                  + (" (délai dépassé, issue inconnue)" if incertain else " (refusé)"))
+                  + (" (délai dépassé, issue inconnue)" if uncertain else " (refusé)"))
         # No infra alert on a DOUBT: the launch may still be in progress.
         # A false "launch failure" trains the administrator to ignore
         # alerts — and invites a relaunch, which kills a model being loaded.
-        if not incertain:
+        if not uncertain:
             notify_infra_alert_email(
                 "Chat model launch failed", f"{name}: {reason or 'launch refused'}")
     # JSON response, not a redirect: `act()` on the frontend side reads {ok, error}
@@ -397,7 +397,7 @@ def launch_model():
     if ok:
         return _json_ok(f"Lancement de {name} accepté — chargement en cours.")
     return _json_error(reason or "Lancement refusé par le runner.",
-                        202 if incertain else 503, incertain=incertain)
+                        202 if uncertain else 503, uncertain=uncertain)
 
 @bp.route('/api/announcements')
 @login_required
@@ -474,7 +474,7 @@ def admin_announce():
 @bp.route('/admin/model/stop', methods=['POST'])
 @admin_required
 def stop_model():
-    ok, reason, incertain = runner_stop()
+    ok, reason, uncertain = runner_stop()
     log_audit(session.get('username'), 'model.stop',
               "arrêt du modèle de chat" if ok else f"échec de l'arrêt : {reason}")
     if ok:
@@ -482,8 +482,8 @@ def stop_model():
     # `incertain` = the runner did not answer within the delay, the stop may
     # still be in progress. We say so as-is rather than claiming a failure:
     # an operator who believes it failed clicks again.
-    return _json_error(reason or "Échec de l'arrêt du modèle.", 202 if incertain else 503,
-                        incertain=incertain)
+    return _json_error(reason or "Échec de l'arrêt du modèle.", 202 if uncertain else 503,
+                        uncertain=uncertain)
 
 @bp.route('/admin/ocr/start', methods=['POST'])
 @admin_required
@@ -895,7 +895,7 @@ def api_admin_users():
             srcs |= {s for s in (recorded[name]['sources'] or '').split(',') if s}
         # Used the platform but no source observed → external (LDAP/SSO).
         if not srcs and name in spend:
-            srcs.add('externe')
+            srcs.add('external')
         local_row = managed.get(name)
         fullname = (local_row['fullname'] if local_row else None) or (recorded[name]['fullname'] if name in recorded else None)
         sp = spend.get(name)
@@ -917,7 +917,7 @@ def api_admin_users():
         else:
             # External account: the directory is the only source of rights.
             effective_admin = bool(last_is_admin) if last_is_admin is not None else None
-            role_source = last_source if last_source in ('sso', 'ldap') else 'externe'
+            role_source = last_source if last_source in ('sso', 'ldap') else 'external'
         # Management origin for the "Géré" column: an account that has logged in
         # via the directory (SSO/LDAP) is effectively managed by Authentik, even
         # if a historical local_users row still exists (edit actions remain
@@ -1280,7 +1280,7 @@ def admin_users_delete(uid):
                                  "administrateur avant de supprimer celui-ci."}), 400
     data_counts = count_data(username)
     if (_body().get('confirm') or '').strip().upper() != 'DELETE':
-        return jsonify({'ok': False, 'needs_confirm': True, 'donnees': data_counts,
+        return jsonify({'ok': False, 'needs_confirm': True, 'data': data_counts,
                         'error': "Confirmation requise : cette suppression emporte "
                                  "les accès ET les données du compte."}), 409
     # The local row first: it carries the access, and everything after it
@@ -1327,7 +1327,7 @@ def admin_user_purge(username):
                                  "qui retire aussi l'accès."}), 400
     if (_body().get('confirm') or '').strip().upper() != 'DELETE':
         return jsonify({'ok': False, 'needs_confirm': True,
-                        'donnees': count_data(username),
+                        'data': count_data(username),
                         'error': "Confirmation requise : cette opération efface "
                                  "définitivement les données du compte."}), 409
     report = deprovision_account(username, session.get('username'),
@@ -1354,7 +1354,7 @@ def admin_user_block(username):
     if username == session.get('username'):
         return jsonify({'ok': False, 'error': "Tu ne peux pas bloquer ton propre compte."}), 400
     if is_blocked(username):
-        return jsonify({'ok': True, 'revoked_sessions': 0, 'deja_bloque': True})
+        return jsonify({'ok': True, 'revoked_sessions': 0, 'already_blocked': True})
     row = get_db().execute("SELECT * FROM local_users WHERE username=?", (username,)).fetchone()
     if row is not None and _local_user_is_admin(row) and _last_local_admin(username):
         return jsonify({'ok': False,
@@ -1382,7 +1382,7 @@ def admin_user_unblock(username):
     if not USERNAME_RE.match(username):
         return jsonify({'ok': False, 'error': "Nom d'utilisateur invalide."}), 400
     n = unblock_account(username, session.get('username'))
-    return jsonify({'ok': True, 'debloque': bool(n)})
+    return jsonify({'ok': True, 'unblocked': bool(n)})
 
 
 @bp.route('/admin/users/<username>/detail')
@@ -1480,7 +1480,7 @@ def admin_user_detail(username):
             "ORDER BY created_at DESC LIMIT 10", (username,)).fetchall()],
         'directory_status': ((directory_states_for([username]) or {}).get(username)
                              if local_row is None else None),
-        'donnees': data_counts,
+        'data': data_counts,
     })
 
 @bp.route('/admin/groups/create', methods=['POST'])
@@ -1562,7 +1562,7 @@ def admin_groups_delete(name):
     log_audit(session.get('username'), 'group.delete',
               f"suppression du groupe {name} — {len(members)} membre(s) rebasculé(s) "
               f"sur le défaut" + (f", QUOTA NON APPLIQUÉ pour {', '.join(failures)}" if failures else ""))
-    return jsonify({'ok': True, 'membres': len(members), 'echecs_quota': failures})
+    return jsonify({'ok': True, 'members': len(members), 'quota_failures': failures})
 
 @bp.route('/admin/maintenance/toggle', methods=['POST'])
 @admin_required
@@ -1648,7 +1648,7 @@ def internal_authcheck():
                               "temporairement indisponible, réessaie plus tard.",
                               'type': 'maintenance_mode'}}), 503
 
-@bp.route('/admin/valider', methods=['POST'])
+@bp.route('/admin/validate', methods=['POST'])
 @admin_required
 def admin_validate():
     """Runs the full validation pipeline on demand, from the admin.
@@ -1717,18 +1717,18 @@ def admin_validate():
     return jsonify({'ok': True})
 
 
-@bp.route('/admin/valider/etat')
+@bp.route('/admin/validate/state')
 @admin_required
 def admin_validate_state():
     """Progress + the output tail + the verdict, polled by the panel."""
     with _validator['v']:
         return jsonify({
             'ok': True,
-            'en_cours': _validator['running'],
-            'duree_s': round(time.time() - _validator['start']) if _validator['start'] else 0,
+            'running': _validator['running'],
+            'duration_s': round(time.time() - _validator['start']) if _validator['start'] else 0,
             'code': _validator['code'],
-            'sortie': _validator['output'][-120:],
-            'reussi': _validator['code'] == 0 if _validator['code'] is not None else None,
+            'output': _validator['output'][-120:],
+            'passed': _validator['code'] == 0 if _validator['code'] is not None else None,
         })
 
 
@@ -1751,7 +1751,7 @@ def admin_config():
     from instance_config import CONFIGURABLE, set_value, config_state
     if request.method == 'GET':
         return jsonify({'ok': True, 'config': config_state(),
-                        'champs': [{'nom': n, 'libelle': l, 'secret': s}
+                        'fields': [{'name': n, 'label': l, 'secret': s}
                                    for n, l, s, _e, _d in CONFIGURABLE],
                         # What to declare at the providers: the URIs this
                         # instance answers on (used when the field is empty).
@@ -1772,7 +1772,7 @@ def admin_config():
     return jsonify({'ok': True, 'modifies': modifies})
 
 
-def _tester_ldap():
+def _test_ldap():
     from ldap3 import NONE, SIMPLE, Connection, Server
     from instance_config import ldap_config
     c = ldap_config()
@@ -1803,7 +1803,7 @@ def _tester_ldap():
     return True, f"Connexion réussie : {n} compte(s) trouvé(s)."
 
 
-def _tester_sso():
+def _test_sso():
     from instance_config import oidc_config
     from sso_client import _metadata
     c = oidc_config()
@@ -1819,7 +1819,7 @@ def _tester_sso():
     return True, f"Fournisseur joignable : {md['issuer']}."
 
 
-def _tester_smtp():
+def _test_smtp():
     c = smtp_config()
     if not c['configured']:
         return False, "Hôte, utilisateur et mot de passe SMTP sont requis."
@@ -1830,7 +1830,7 @@ def _tester_smtp():
     return False, "L'envoi a échoué : vérifie l'hôte, le port et les identifiants."
 
 
-def _tester_discord():
+def _test_discord():
     from instance_config import discord_config
     d = discord_config()
     if not d['webhook']:
@@ -1840,8 +1840,8 @@ def _tester_discord():
     return False, "Le webhook a refusé le message : vérifie son URL."
 
 
-_TESTS = {'ldap': _tester_ldap, 'sso': _tester_sso, 'smtp': _tester_smtp,
-          'discord': _tester_discord}
+_TESTS = {'ldap': _test_ldap, 'sso': _test_sso, 'smtp': _test_smtp,
+          'discord': _test_discord}
 
 
 @bp.route('/admin/config/test/<part>', methods=['POST'])
@@ -2293,7 +2293,7 @@ def admin_support_feedback():
         "FROM support_feedback ORDER BY id DESC LIMIT 50").fetchall()
     return jsonify({
         'total': total_count['c'] or 0,
-        'positifs': total_count['p'] or 0,
+        'positive': total_count['p'] or 0,
         'par_utilisateur': [dict(r) for r in by_user],
-        'recents': [dict(r) for r in recent],
+        'recent': [dict(r) for r in recent],
     })

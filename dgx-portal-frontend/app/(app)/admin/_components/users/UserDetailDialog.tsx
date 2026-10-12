@@ -190,11 +190,11 @@ export function UserDetailDialog({
                       {([
                         ["image", "Images"], ["music", "Musique"], ["video", "Vidéo"],
                         ["voice", "Voix"], ["ocr", "OCR"],
-                      ] as const).map(([k, libelle]) => {
+                      ] as const).map(([k, label]) => {
                         const m = detail.media![k];
                         return m.count > 0 ? (
                           <HStack key={k} hAlign="between">
-                            <Text type="supporting" color="secondary">{t(libelle)}</Text>
+                            <Text type="supporting" color="secondary">{t(label)}</Text>
                             <HStack gap={2} vAlign="center">
                               <Text hasTabularNumbers>{m.count.toLocaleString(numLocale)}</Text>
                               {m.last ? <ClientTimestamp value={m.last} format="auto" /> : null}

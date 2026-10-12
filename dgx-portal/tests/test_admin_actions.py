@@ -133,7 +133,7 @@ class ContratJsonTest(BaseAdmin):
         self.assertEqual(r.status_code, 202)
         body = r.get_json()
         self.assertFalse(body['ok'])
-        self.assertTrue(body['incertain'])
+        self.assertTrue(body['uncertain'])
         self.assertIn('peut-être en cours', body['error'])
 
     def test_lancement_refuse_alerte_l_infra(self):
@@ -167,7 +167,7 @@ class ContratJsonTest(BaseAdmin):
              patch.object(admin_routes, 'notify_infra_alert_email') as alerte:
             r = self._post(c, '/admin/model/launch', {'model_name': 'ztest-modele'})
         self.assertEqual(r.status_code, 202)
-        self.assertTrue(r.get_json()['incertain'])
+        self.assertTrue(r.get_json()['uncertain'])
         alerte.assert_not_called()
 
     def test_lancement_reussi_n_annonce_pas_le_modele_au_spawn(self):
@@ -526,7 +526,7 @@ class EtatPlateformeTest(BaseAdmin):
         self.assertGreaterEqual(d['portal']['connected_users'], 1)
         self.assertEqual(d['memory']['low_gib'], 8)
         self.assertTrue(d['directory']['readable'])
-        self.assertEqual(d['directory']['actif'], 0)
+        self.assertEqual(d['directory']['active'], 0)
         with patch.object(admin_routes, 'directory_states_for', return_value=None):
             self.assertFalse(c.get('/admin/platform').get_json()['directory']['readable'])
 

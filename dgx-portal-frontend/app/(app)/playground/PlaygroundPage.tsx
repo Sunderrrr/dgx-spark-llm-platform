@@ -17,7 +17,7 @@ import {
 import {
   SparklesIcon,
 } from "@heroicons/react/24/outline";
-import { useT, tServeur } from "@/lib/i18n";
+import { useT, tServer } from "@/lib/i18n";
 import { useWhoami } from "@/lib/whoami";
 import { useCsrf } from "@/lib/useCsrf";
 import { useSettingsDialog } from "@/lib/settings-dialog";
@@ -27,15 +27,15 @@ import { useStickToBottom } from "@/lib/useStickToBottom";
 import { useThemeMode } from "../../theme-provider";
 
 import type { Attachment, ChatMsg, Conversation, PlaygroundData, Settings } from "@/lib/types";
-import { type EtapeWeb, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
+import { type WebStep, fetchPlaygroundData, sendJSON, streamChat } from "@/lib/api";
 // System notices (dgx_notice) are shared with the Support assistant,
 // which also runs on the user's key: see lib/notices.ts.
-import { texteNotice } from "@/lib/notices";
+import { noticeText } from "@/lib/notices";
 import {
   convAsJson, convAsMarkdown, convTitleFallback, downloadText, type ExportConversation,
 } from "@/lib/export";
 // Pure model-output parsers, extracted for unit tests (tests/playground-parsers.test.ts).
-import { parseAsk, contenuCloture, openCodeFence } from "@/lib/playground-parsers";
+import { parseAsk, closedContent, openCodeFence } from "@/lib/playground-parsers";
 // Thread/artifact helpers shared with the extracted child components
 // (message bubbles, document panel): moved out verbatim, behaviour unchanged.
 import {
@@ -43,22 +43,22 @@ import {
   type QueuedMsg,
   type Snippet,
   type Tab,
-  MAX_REPRISES_AUTO,
-  PROMPT_INTEGRAL,
-  PROMPT_REPRISE_COMPLET,
-  REPRISE_INSTRUCTION,
+  MAX_AUTO_RESUMES,
+  FULL_PROMPT,
+  FULL_RESUME_PROMPT,
+  RESUME_INSTRUCTION,
   abandonDeclare,
   docTitleFromContent,
-  estReprise,
-  fichierLaisseOuvert,
-  fichiersJusqua,
+  isResume,
+  fileLeftOpen,
+  filesUntil,
   isDocTask,
-  mimePourLangage,
-  nomTelechargeable,
+  mimeForLanguage,
+  downloadName,
   parseArtifacts,
   slugify,
   titleFromContext,
-  tourAvorte,
+  abortedTurn,
   trimAfterAsk,
 } from "@/lib/playground-thread";
 
@@ -116,26 +116,26 @@ const ATTACH_EXTENSIONS = ATTACH_ACCEPT.split(",").map((e) => e.trim().toLowerCa
  *  Downscaled in the browser before sending — a phone photo (4 000 px,
  *  5 Mo) would otherwise cost thousands of preload tokens and exceed
  *  the conversation save limit. 1 568 px is enough to read text
- *  or a screenshot. See `preparerImage`: an already reasonable image
+ *  or a screenshot. See `prepareImage`: an already reasonable image
  *  goes as is, without going through a canvas. */
 const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp,.gif";
 const IMAGE_EXTENSIONS = IMAGE_ACCEPT.split(",");
-const IMAGE_COTE_MAX = 1568;
+const IMAGE_SIDE_MAX = 1568;
 const IMAGE_SOURCE_MAX_BYTES = 25 * 1024 * 1024;
-const IMAGES_PAR_MESSAGE = 4;
+const IMAGES_PER_MESSAGE = 4;
 /** Images replayed to the model per request: the most recent ones (same bound as the server). */
-const IMAGES_MAX_REQUETE = 8;
+const MAX_IMAGES_PER_REQUEST = 8;
 /** Image budget of a SAVED conversation (characters): the server bounds
  *  the conversation to 2 M and the form field to 4 Mo. Beyond that, the
  *  oldest images are no longer kept (the text, however, is). */
-const IMAGES_BUDGET_SAUVEGARDE = 1_500_000;
+const IMAGES_SAVE_BUDGET = 1_500_000;
 /** Estimated weight of an image in the context window, in characters (~1 500 tokens). */
-const IMAGE_POIDS_CHARS = 1500 * 4;
+const IMAGE_WEIGHT_CHARS = 1500 * 4;
 
 /** Size beyond which an image is downscaled (the server rejects > ~2,2 Mo). */
-const IMAGE_ORIGINALE_MAX_BYTES = 2 * 1024 * 1024;
+const ORIGINAL_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 
-function lireDataUrl(file: Blob): Promise<string> {
+function readDataUrl(file: Blob): Promise<string> {
   return new Promise((ok, ko) => {
     const r = new FileReader();
     r.onload = () => ok(String(r.result));
@@ -148,7 +148,7 @@ function lireDataUrl(file: Blob): Promise<string> {
  *  Measured on 2026-10-01: on some browsers (canvas anti-tracking
  *  protections), reading back yields an EMPTY canvas — the image went out
  *  all black, and the model confidently described an invented scene. */
-function canevasFiable(): boolean {
+function reliableCanvas(): boolean {
   try {
     const c = document.createElement("canvas");
     c.width = c.height = 4;
@@ -168,22 +168,22 @@ function canevasFiable(): boolean {
  *  damage). Only a large image is downscaled to IMAGE_COTE_MAX in JPEG, and
  *  only if the canvas is reliable; otherwise we refuse rather than send
  *  a black image. */
-async function preparerImage(file: File): Promise<string> {
+async function prepareImage(file: File): Promise<string> {
   const bmp = await createImageBitmap(file);
   const { width, height } = bmp;
   const typeOk = /^image\/(png|jpeg|webp|gif)$/.test(file.type);
-  if (typeOk && file.size <= IMAGE_ORIGINALE_MAX_BYTES && Math.max(width, height) <= IMAGE_COTE_MAX * 2) {
+  if (typeOk && file.size <= ORIGINAL_IMAGE_MAX_BYTES && Math.max(width, height) <= IMAGE_SIDE_MAX * 2) {
     bmp.close();
-    return lireDataUrl(file);
+    return readDataUrl(file);
   }
-  if (!canevasFiable()) {
+  if (!reliableCanvas()) {
     bmp.close();
     throw new Error("canevas");
   }
-  const echelle = Math.min(1, IMAGE_COTE_MAX / Math.max(width, height));
+  const scale = Math.min(1, IMAGE_SIDE_MAX / Math.max(width, height));
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(width * echelle));
-  canvas.height = Math.max(1, Math.round(height * echelle));
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas");
   ctx.fillStyle = "white";
@@ -195,38 +195,38 @@ async function preparerImage(file: File): Promise<string> {
 
 /** Keeps images only on the most recent messages, within `max`
  *  images or `budget` characters. Text is never touched. */
-function imagesRecentes<M extends { images?: string[] }>(msgs: M[], max: number, budget = Infinity): M[] {
-  let reste = max;
-  let poids = 0;
+function recentImages<M extends { images?: string[] }>(msgs: M[], max: number, budget = Infinity): M[] {
+  let remaining = max;
+  let weight = 0;
   const out = [...msgs];
   for (let i = out.length - 1; i >= 0; i--) {
     const imgs = out[i].images;
     if (!imgs?.length) continue;
-    const garde: string[] = [];
-    for (let k = imgs.length - 1; k >= 0 && reste > 0; k--) {
-      if (poids + imgs[k].length > budget) { reste = 0; break; }
-      garde.unshift(imgs[k]);
-      poids += imgs[k].length;
-      reste--;
+    const guard: string[] = [];
+    for (let k = imgs.length - 1; k >= 0 && remaining > 0; k--) {
+      if (weight + imgs[k].length > budget) { remaining = 0; break; }
+      guard.unshift(imgs[k]);
+      weight += imgs[k].length;
+      remaining--;
     }
-    out[i] = { ...out[i], images: garde.length ? garde : undefined };
+    out[i] = { ...out[i], images: guard.length ? guard : undefined };
   }
   return out;
 }
 
 /** Title and summary only read the text: no need to ship megabytes of images through them. */
-function sansImages(msgs: ChatMsg[]) {
+function withoutImages(msgs: ChatMsg[]) {
   return msgs.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden }));
 }
 
 /** Messages as they are saved (flags + images within the budget). */
-function pourSauvegarde(msgs: ChatMsg[]) {
-  return imagesRecentes(
+function forSave(msgs: ChatMsg[]) {
+  return recentImages(
     msgs.map((m) => ({
       role: m.role, content: m.content, hidden: m.hidden,
       truncated: m.truncated, isError: m.isError, images: m.images,
     })),
-    Infinity, IMAGES_BUDGET_SAUVEGARDE);
+    Infinity, IMAGES_SAVE_BUDGET);
 }
 
 
@@ -268,7 +268,7 @@ const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you 
 // reached. This instruction goes out on EVERY turn, not only when a
 // file already exists, and goes LAST so as not to dilute ASK_INSTRUCTION
 // (whose effectiveness depends on its position at the top, see measurement below).
-const INTEGRALITE_INSTRUCTION = `Never abridge a file you were asked to produce. Never write that a file is "too long to show here", never say you are giving a "shortened", "simplified" or "essential" version, and never replace any part of a file with an ellipsis, a placeholder, or a comment such as "rest of the code unchanged". There is no display limit: write the file in full, from its first line to its last. If you run out of room before the end, stop mid-file rather than closing it early — you will be asked to continue, and you will resume at the exact character where you stopped. A truncated file presented as complete is the worst possible answer.`;
+const COMPLETENESS_INSTRUCTION = `Never abridge a file you were asked to produce. Never write that a file is "too long to show here", never say you are giving a "shortened", "simplified" or "essential" version, and never replace any part of a file with an ellipsis, a placeholder, or a comment such as "rest of the code unchanged". There is no display limit: write the file in full, from its first line to its last. If you run out of room before the end, stop mid-file rather than closing it early — you will be asked to continue, and you will resume at the exact character where you stopped. A truncated file presented as complete is the worst possible answer.`;
 
 // Input placeholder: we rotate a few texts (including the « / » trick
 // to call a skill). Each entry is an i18n key (FR-as-msgid).
@@ -300,7 +300,7 @@ function savePinnedIds(ids: string[]) {
 }
 
 // Math/LaTeX: rendering now lives in `lib/maths.tsx`, called by
-// `MarkdownSur` (see `lib/markdown.tsx`). It could not stay here: an
+// `SafeMarkdown` (see `lib/markdown.tsx`). It could not stay here: an
 // `inlinePlugins` applies PER text node, and the parser splits text at
 // every backslash — so the formula was never recognized. Protecting
 // LaTeX now happens BEFORE the parser.
@@ -334,7 +334,7 @@ function newTabId() {
 // Renaming generated files (artifacts). Key = `convId::kind::titre`
 // (file names are made unique by the model) and persisted in
 // localStorage to survive a reload; `convId` prevents the same name
-// (`fichier-1.yml`) in two conversations from renaming each other.
+// (`file-1.yml`) in two conversations from renaming each other.
 const ARTIFACT_RENAME_KEY = "dgx.artifact.renames";
 function loadArtifactRenames(): Record<string, string> {
   try {
@@ -364,45 +364,45 @@ function artifactRenameKey(convId: string | null, a: Artifact): string {
 // needs no migration and restores without a single loading frame.
 const SETTINGS_KEY = "dgx.playground.settings";
 type Provenance = "persona" | "skill" | "manual";
-type ReglagesStockes = { settings: Settings; provenance: Provenance };
-function chargerReglages(): ReglagesStockes {
-  const base: ReglagesStockes = { settings: DEFAULT_SETTINGS, provenance: "manual" };
+type StoredSettings = { settings: Settings; provenance: Provenance };
+function loadSettings(): StoredSettings {
+  const base: StoredSettings = { settings: DEFAULT_SETTINGS, provenance: "manual" };
   try {
-    const brut = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null") as
+    const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null") as
       (Partial<Settings> & { provenance?: unknown }) | null;
-    if (!brut || typeof brut !== "object") return base;
+    if (!raw || typeof raw !== "object") return base;
     // Field by field over the defaults: a value stored by an OLDER version (or
     // hand-edited) must not break the panel — unknown or wrong-typed, it is
     // ignored and the default stands.
     return {
       settings: {
         ...DEFAULT_SETTINGS,
-        system: typeof brut.system === "string" ? brut.system : DEFAULT_SETTINGS.system,
-        temperature: typeof brut.temperature === "number" ? brut.temperature : DEFAULT_SETTINGS.temperature,
-        maxTokens: typeof brut.maxTokens === "number" ? brut.maxTokens : DEFAULT_SETTINGS.maxTokens,
-        topP: typeof brut.topP === "number" ? brut.topP : DEFAULT_SETTINGS.topP,
+        system: typeof raw.system === "string" ? raw.system : DEFAULT_SETTINGS.system,
+        temperature: typeof raw.temperature === "number" ? raw.temperature : DEFAULT_SETTINGS.temperature,
+        maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : DEFAULT_SETTINGS.maxTokens,
+        topP: typeof raw.topP === "number" ? raw.topP : DEFAULT_SETTINGS.topP,
         reasoning:
-          brut.reasoning === true || brut.reasoning === false || brut.reasoning === "auto"
-            ? brut.reasoning
+          raw.reasoning === true || raw.reasoning === false || raw.reasoning === "auto"
+            ? raw.reasoning
             : DEFAULT_SETTINGS.reasoning,
         reasoningEffort:
-          typeof brut.reasoningEffort === "string" ? brut.reasoningEffort : DEFAULT_SETTINGS.reasoningEffort,
+          typeof raw.reasoningEffort === "string" ? raw.reasoningEffort : DEFAULT_SETTINGS.reasoningEffort,
       },
-      provenance: brut.provenance === "persona" ? "persona" : "manual",
+      provenance: raw.provenance === "persona" ? "persona" : "manual",
     };
   } catch {
-    return base; // stockage illisible : on repart des réglages par défaut
+    return base; // unreadable storage: back to the default settings
   }
 }
-function enregistrerReglages(settings: Settings, provenance: Provenance) {
+function saveSettings(settings: Settings, provenance: Provenance) {
   try {
     // The system prompt a SKILL injects belongs to that skill, not to the
     // user's own defaults: selecting a skill must not become the persona of
     // every conversation to come. We keep the stored one instead.
-    const ancien = chargerReglages();
+    const legacy = loadSettings();
     const persona =
       provenance === "skill"
-        ? { system: ancien.settings.system, provenance: ancien.provenance }
+        ? { system: legacy.settings.system, provenance: legacy.provenance }
         : { system: settings.system, provenance };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, ...persona }));
   } catch {
@@ -414,26 +414,26 @@ function enregistrerReglages(settings: Settings, provenance: Provenance) {
 
 // Playground settings panel: target width, and safety margin to the
 // window edge (= --spacing-2). See toggleSettings for the clamping.
-const LARGEUR_PANNEAU_REGLAGES = 480;
-const MARGE_PANNEAU_REGLAGES = 8;
+const SETTINGS_PANEL_WIDTH = 480;
+const SETTINGS_PANEL_MARGIN = 8;
 
 export type PlaygroundSeed = { data: PlaygroundData; conversations: Conversation[] };
 
-const pasDAbonnement = () => () => {};
+const noSubscription = () => () => {};
 
 /** « Bonsoir » from 18h to 5h, on THIS runtime's clock. */
-export function estLeSoir(): boolean {
+export function isEvening(): boolean {
   const h = new Date().getHours();
   return h >= 18 || h < 5;
 }
 
 export default function PlaygroundPage({
   seed,
-  soirServeur,
+  serverEvening,
 }: {
   seed?: Seed<{ [K in keyof PlaygroundSeed]: PlaygroundSeed[K] | null }> | null;
   /** The server's greeting choice, so hydration renders the same text. */
-  soirServeur?: boolean;
+  serverEvening?: boolean;
 }) {
   const { data: initial, fresh } = useSeed<PlaygroundSeed>(seed);
   const t = useT();
@@ -447,7 +447,7 @@ export default function PlaygroundPage({
   const [modelLimits, setModelLimits] = useState<Record<string, number>>(initial.data?.model_limits ?? {});
   const [modelVision, setModelVision] = useState<Record<string, boolean>>(initial.data?.model_vision ?? {});
   // Image opened large from a bubble (null = closed).
-  const [imageVue, setImageVue] = useState<{ srcs: string[]; index: number } | null>(null);
+  const [viewedImage, setViewedImage] = useState<{ srcs: string[]; index: number } | null>(null);
   // null = not known yet. We only show the warning once the answer is received,
   // so as not to flash a warning on load.
   const [hasKey, setHasKey] = useState<boolean | null>(initial.data ? initial.data.has_key : null);
@@ -458,7 +458,7 @@ export default function PlaygroundPage({
   // conversation stays displayed; on resend, we rebranch from that index.
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  // Playground settings, restored from the browser (see `chargerReglages`):
+  // Playground settings, restored from the browser (see `loadSettings`):
   // « je dois le sélectionner à chaque fois » — nothing was kept, so every
   // reload threw the panel back to the defaults. Both states read the SAME
   // stored object (parsed once), and every change writes it back.
@@ -472,15 +472,15 @@ export default function PlaygroundPage({
   const [systemProvenance, setSystemProvenance] = useState<Provenance>("manual");
   // The restored settings, for the first tab's snapshot (its init effect runs
   // in the same commit, before the restored state re-renders).
-  const reglagesRestaures = useRef<ReglagesStockes | null>(null);
+  const restoredSettings = useRef<StoredSettings | null>(null);
   useEffect(() => {
-    enregistrerReglages(settings, systemProvenance);
+    saveSettings(settings, systemProvenance);
   }, [settings, systemProvenance]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // Position of the settings panel: captured on the button click (button rect →
   // bottom-left corner of the panel under the gear). FIXED overlay:
   // it never touches the flow, so the page does not move a pixel.
-  const [settingsPos, setSettingsPos] = useState<{ top: number; right: number; maxH: number; largeur: number } | null>(null);
+  const [settingsPos, setSettingsPos] = useState<{ top: number; right: number; maxH: number; width: number } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   // Closing the settings panel: outside click or Escape. NO focus move
   // on open — the Popover component's focus trap used to
@@ -496,13 +496,13 @@ export default function PlaygroundPage({
       // the width to the window, then the right offset so the left
       // edge stays visible. Beyond ~1024 px the gear is far enough right:
       // both bounds are inactive and the panel keeps its nominal size.
-      const largeur = Math.min(LARGEUR_PANNEAU_REGLAGES, window.innerWidth - 2 * MARGE_PANNEAU_REGLAGES);
+      const width = Math.min(SETTINGS_PANEL_WIDTH, window.innerWidth - 2 * SETTINGS_PANEL_MARGIN);
       setSettingsPos({
         top: r.bottom + 8,
-        right: Math.max(MARGE_PANNEAU_REGLAGES,
-          Math.min(window.innerWidth - r.right, window.innerWidth - largeur - MARGE_PANNEAU_REGLAGES)),
+        right: Math.max(SETTINGS_PANEL_MARGIN,
+          Math.min(window.innerWidth - r.right, window.innerWidth - width - SETTINGS_PANEL_MARGIN)),
         maxH: window.innerHeight - r.bottom - 48,
-        largeur,
+        width,
       });
     }
     setIsSettingsOpen((v) => !v);
@@ -510,10 +510,10 @@ export default function PlaygroundPage({
   useEffect(() => {
     if (!isSettingsOpen) return;
     const onDown = (e: PointerEvent) => {
-      const cible = e.target as HTMLElement | null;
+      const target = e.target as HTMLElement | null;
       // Clicking the gear itself goes through the button's toggle: do not
       // close here, otherwise pointerdown closes then click reopens (net zero).
-      if (cible?.closest(".playground-settings-panel")) return;
+      if (target?.closest(".playground-settings-panel")) return;
       setIsSettingsOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -548,7 +548,7 @@ export default function PlaygroundPage({
     setActiveTabId(id);
     setTabs([{
       id, title: "", currentId: null, model,
-      settings: reglagesRestaures.current?.settings ?? settings,
+      settings: restoredSettings.current?.settings ?? settings,
       attachments: [], messages: [],
     }]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -562,8 +562,8 @@ export default function PlaygroundPage({
   // written part is kept, as with Stop) to move to this message right away.
   // Chained resumes without intervention: beyond that, we hand back rather
   // than let a looping model consume the account's budget.
-  const reprisesRef = useRef(0);
-  const [reprise, setReprise] = useState(0);
+  const resumesRef = useRef(0);
+  const [resume, setResume] = useState(0);
   const [queued, setQueued] = useState<QueuedMsg[]>([]);
   const queuedRef = useRef<QueuedMsg[]>([]);
   // runStream closes the conversation from its own closure: to start again from
@@ -583,13 +583,13 @@ export default function PlaygroundPage({
   // and the admin logs) attaches by REF: it lands when the element appears,
   // and re-arms on the real distance to the bottom (48 px), not on a scroll
   // delta.
-  const dernier = messages[messages.length - 1];
-  const fluxDep = `${dernier?.content?.length ?? 0}:${dernier?.reasoning?.length ?? 0}`;
+  const last = messages[messages.length - 1];
+  const streamDep = `${last?.content?.length ?? 0}:${last?.reasoning?.length ?? 0}`;
   const {
-    setRef: suitLeBasSetRef,
-    showButton: montrerDescendre,
-    scrollToBottom: descendreToutEnBas,
-  } = useStickToBottom(fluxDep, streaming);
+    setRef: followBottomSetRef,
+    showButton: showScrollDown,
+    scrollToBottom: scrollToBottom,
+  } = useStickToBottom(streamDep, streaming);
   // The scroll container is the ROOT of ChatLayout, and it alone.
   // Root cause of « la scrollbar ne marche pas » (2026-10-04): we passed
   // `scrollRef` to ChatLayout with a ref NEVER attached to an element —
@@ -597,7 +597,7 @@ export default function PlaygroundPage({
   // and renders its root as `overflow: visible`: NO scroll container existed
   // in the chat column, neither the wheel nor the bar did anything (measured:
   // `scrollHeight` 1278 for `clientHeight` 817 and `scrollTop` always 0).
-  // Here `suitLeBasSetRef` IS the root's callback ref: it attaches when the
+  // Here `followBottomSetRef` IS the root's callback ref: it attaches when the
   // conversation appears (ChatLayout does not exist on the empty page), and
   // it serves the bottom-following as well as the « Descendre » button.
 
@@ -649,9 +649,9 @@ export default function PlaygroundPage({
   // Web-search steps of the IN-PROGRESS generation. Without this display,
   // the wait is silent: several tens of seconds during which the
   // model searches and reads, with nothing indicating it.
-  const [etapesWeb, setEtapesWeb] = useState<EtapeWeb[]>([]);
+  const [webSteps, setWebSteps] = useState<WebStep[]>([]);
   // First runtime error reported by the preview (empty = the page runs).
-  const [erreurApercu, setErreurApercu] = useState("");
+  const [previewError, setPreviewError] = useState("");
   const [currentId, setCurrentId] = useState<string | null>(null);
   // Mirror of `currentId`: the end of a stream runs in its own closure and
   // must know whether the user is STILL looking at the same conversation (see
@@ -661,7 +661,7 @@ export default function PlaygroundPage({
   // The server sends the list's METADATA only (titles for the sidebar, at
   // once); the full list — up to 8 MB — still comes from the effect below.
   const [conversations, setConversations] = useState<Conversation[]>(initial.conversations ?? []);
-  const [listeChargee, setListeChargee] = useState(false);
+  const [listLoaded, setListLoaded] = useState(false);
   const [ctxUsed, setCtxUsed] = useState(0);
   // Input/output split of the LAST generation (exact measurement reported
   // by LiteLLM via `usage`): prompt_tokens = what fills the window,
@@ -692,12 +692,12 @@ export default function PlaygroundPage({
   const [previewUrl, setPreviewUrl] = useState("");
   // Full screen for the panel: essential to watch a generated HTML page,
   // unreadable in a 400 px column.
-  const [plein, setPlein] = useState(false);
+  const [full, setFull] = useState(false);
   const liveDocOpenRef = useRef(false);
   /** Panel close: leaving full screen returns to the side panel, we only
    *  close the file if we were not in it. */
-  const fermerPanneau = () => {
-    if (plein) { setPlein(false); return; }
+  const closePanel = () => {
+    if (full) { setFull(false); return; }
     setArtifact(null);
     setLiveDocOpen(false);
     // A closed panel stays closed: an in-progress draft must not reopen it
@@ -722,7 +722,7 @@ export default function PlaygroundPage({
   // the composer. We read the token rather than hardcoding « 28 » here: it is the
   // same source of truth as the card (`--radius-chat`, `:root` in
   // astryx.css), so a theme that changes radii follows.
-  const [rayonComposeur, setRayonComposeur] = useState<number | undefined>(undefined);
+  const [composerRadius, setComposerRadius] = useState<number | undefined>(undefined);
   useEffect(() => {
     const px = parseFloat(getComputedStyle(document.documentElement)
       .getPropertyValue("--radius-chat"));
@@ -733,24 +733,24 @@ export default function PlaygroundPage({
     // loops. (The directive must IMMEDIATELY precede the code: placed before the
     // comments, it only disabled the first comment line.)
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (Number.isFinite(px) && px > 0) setRayonComposeur(px);
+    if (Number.isFinite(px) && px > 0) setComposerRadius(px);
   }, []);
 
   useEffect(() => {
     // A WAITING guard, not a dead button: the effect replays as soon as the token
     // arrives (`csrf` dependency), so nothing to report to the user.
     if (!csrf) return;
-    let annule = false;
+    let cancelled = false;
     (async () => {
       await migrateLegacyConversations(csrf);
       const convs = await fetchConversations();
-      if (!annule) {
+      if (!cancelled) {
         setConversations(convs);
-        setListeChargee(true);
+        setListLoaded(true);
       }
     })();
     return () => {
-      annule = true;
+      cancelled = true;
     };
   }, [csrf]);
 
@@ -780,7 +780,7 @@ export default function PlaygroundPage({
     const modelName = params.get("model");
     if (!convId && !modelName) return;
     if (runningModels.length === 0) return; // waiting for the models
-    if (convId && !listeChargee) return; // waiting for the full conversations
+    if (convId && !listLoaded) return; // waiting for the full conversations
     initFromUrlRef.current = true;
     if (modelName && runningModels.includes(modelName)) setModel(modelName);
     const conv = convId ? conversations.find((c) => c.id === convId) : undefined;
@@ -793,7 +793,7 @@ export default function PlaygroundPage({
       setConvTokens(0);
       setIoTokens(null);
     }
-  }, [conversations, runningModels, listeChargee]);
+  }, [conversations, runningModels, listLoaded]);
   /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   // persist()/runStream() only ever run from event handlers (send/regenerate/edit),
@@ -816,7 +816,7 @@ export default function PlaygroundPage({
       // without them, an answer cut mid-file passed for COMPLETE
       // after a reload — no more banner, no more « Continuer » button,
       // while the file remained unfinished on screen.
-      messages: pourSauvegarde(msgs),
+      messages: forSave(msgs),
     };
     // Optimistic on the UI side, then server save in the background: the
     // list must not wait for the network round-trip to update.
@@ -920,9 +920,9 @@ export default function PlaygroundPage({
       closeArtifact();
       setActiveTabId(fallback.id);
     } else {
-      const nid = newTabId();
-      setTabs([{ id: nid, title: "", currentId: null, model, settings, attachments: [], messages: [] }]);
-      setActiveTabId(nid);
+      const nest = newTabId();
+      setTabs([{ id: nest, title: "", currentId: null, model, settings, attachments: [], messages: [] }]);
+      setActiveTabId(nest);
       setMessages([]);
       setCurrentId(null);
       setAttachments([]);
@@ -937,26 +937,26 @@ export default function PlaygroundPage({
 
   function selectConversation(conv: Conversation) {
     // The history list is BOUNDED: beyond a byte budget, the
-    // server only carried the metadata (`messages_omis`). We fetch
+    // server only carried the metadata (`omitted_messages`). We fetch
     // the content when we really open it — without this detour, the
     // conversation would open on an empty thread, which is worse than the latency
     // we save.
-    if (conv.messagesOmis) {
+    if (conv.omittedMessages) {
       void fetchConversation(conv.id).then((complete) => {
         if (complete) {
           setConversations((prev) => prev.map((c) => (c.id === complete.id ? complete : c)));
-          appliquerConversation(complete);
+          applyConversation(complete);
         } else {
           showToast({ body: t("Cette conversation n'a pas pu être chargée."), type: "error" });
         }
       });
       return;
     }
-    appliquerConversation(conv);
+    applyConversation(conv);
   }
 
   /** Applies a conversation to the displayed thread (open from the history). */
-  function appliquerConversation(conv: Conversation) {
+  function applyConversation(conv: Conversation) {
     // Same: opening a conversation does not modify it, so it must not
     // move it up nor rewrite the one we leave.
     setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden })));
@@ -1020,7 +1020,7 @@ export default function PlaygroundPage({
     if (busyTitle || !messages.length || !currentId) return;
     setBusyTitle(true);
     try {
-      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model, messages: sansImages(messages) });
+      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model, messages: withoutImages(messages) });
       const title = res?.title;
       const conv = conversations.find((c) => c.id === currentId);
       if (title && conv) {
@@ -1039,9 +1039,9 @@ export default function PlaygroundPage({
     setSummary(t("Génération en cours…"));
     setSummaryOpen(true);
     try {
-      const res = await sendJSON<{ summary?: string; error?: string }>("/api/playground/summarize", csrf, { model, messages: sansImages(messages) });
+      const res = await sendJSON<{ summary?: string; error?: string }>("/api/playground/summarize", csrf, { model, messages: withoutImages(messages) });
       if (res.summary) setSummary(res.summary);
-      else setSummary(res.error ? tServeur(res.error, t) : t("Impossible de générer le résumé."));
+      else setSummary(res.error ? tServer(res.error, t) : t("Impossible de générer le résumé."));
     } catch {
       setSummary(t("Impossible de générer le résumé."));
     }
@@ -1056,7 +1056,7 @@ export default function PlaygroundPage({
     }
     const titleModel = modelForTitle || model;
     try {
-      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model: titleModel, messages: sansImages(msgs) });
+      const res = await sendJSON<{ title?: string; error?: string }>("/api/playground/title", csrf, { model: titleModel, messages: withoutImages(msgs) });
       const title = res?.title;
       if (!title) return;
       setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title } : c)));
@@ -1065,7 +1065,7 @@ export default function PlaygroundPage({
         id: convId, title,
          
         ts: Date.now(), model: titleModel,
-        messages: pourSauvegarde(msgs),
+        messages: forSave(msgs),
       };
       void persistConversation(csrf, item);
     } catch {
@@ -1155,8 +1155,8 @@ export default function PlaygroundPage({
   // before the first paint, so nothing flashes back from the defaults.
   /* eslint-disable react-hooks/set-state-in-effect -- one-shot sync from localStorage */
   useLayoutEffect(() => {
-    const r = chargerReglages();
-    reglagesRestaures.current = r;
+    const r = loadSettings();
+    restoredSettings.current = r;
     setSettings(r.settings);
     setSystemProvenance(r.provenance);
     setPinnedIds(loadPinnedIds());
@@ -1199,7 +1199,7 @@ export default function PlaygroundPage({
     try {
       const res = await sendJSON<{ ok: boolean; token: string; error?: string }>("/conversations/share", csrf, { client_id: id });
       if (!res?.ok || !res.token) {
-        showToast({ body: t("Partage impossible :") + " " + tServeur(res?.error || "erreur", t), type: "error" });
+        showToast({ body: t("Partage impossible :") + " " + tServer(res?.error || "erreur", t), type: "error" });
         return;
       }
       const url = `${window.location.origin}/c/${res.token}`;
@@ -1250,7 +1250,7 @@ export default function PlaygroundPage({
           showToast({ body: t("« {name} » : ce modèle ne lit pas les images.").replace("{name}", file.name), type: "error" });
           continue;
         }
-        if (nbImages >= IMAGES_PAR_MESSAGE) {
+        if (nbImages >= IMAGES_PER_MESSAGE) {
           showToast({ body: t("4 images au plus par message."), type: "error" });
           continue;
         }
@@ -1259,7 +1259,7 @@ export default function PlaygroundPage({
           continue;
         }
         nbImages++;
-        preparerImage(file)
+        prepareImage(file)
           .then((url) => setAttachments((prev) => [...prev, { name: file.name, content: "", image: url }]))
           .catch((e: unknown) => showToast({
             body: (e instanceof Error && e.message === "canevas"
@@ -1295,19 +1295,19 @@ export default function PlaygroundPage({
   const handleFilesRef = useRef<(f: FileList | null) => void>(() => {});
   useEffect(() => { handleFilesRef.current = handleFiles; });
   useEffect(() => {
-    function surDepot(e: DragEvent) {
+    function onDropFiles(e: DragEvent) {
       if (!e.dataTransfer?.files?.length) return;
       e.preventDefault();
       handleFilesRef.current(e.dataTransfer.files);
     }
-    function surSurvol(e: DragEvent) {
+    function onHover(e: DragEvent) {
       if (e.dataTransfer?.types?.includes("Files")) e.preventDefault();
     }
-    window.addEventListener("dragover", surSurvol);
-    window.addEventListener("drop", surDepot);
+    window.addEventListener("dragover", onHover);
+    window.addEventListener("drop", onDropFiles);
     return () => {
-      window.removeEventListener("dragover", surSurvol);
-      window.removeEventListener("drop", surDepot);
+      window.removeEventListener("dragover", onHover);
+      window.removeEventListener("drop", onDropFiles);
     };
   }, []);
 
@@ -1317,9 +1317,9 @@ export default function PlaygroundPage({
       return;
     }
     setStreaming(true);
-    setEtapesWeb([]);
+    setWebSteps([]);
     // New send: the reader wants to see the answer arrive, we rearm the tracking.
-    descendreToutEnBas();   // on re-suit le bas quand on envoie
+    scrollToBottom();   // on re-suit le bas quand on envoie
     // « quand un texte est lancé je veux garder la barre latérale, là il la fait
     // disparaitre »: a DOCUMENT draft shows up in the panel from the very first
     // word, the way writing a code file already does — before, `liveDocOpen`
@@ -1329,10 +1329,10 @@ export default function PlaygroundPage({
     // and nothing reopens it, the « Ouvrir le document en cours de rédaction »
     // card sets it back to true. On phones there is no panel: the text then
     // scrolls in the chat.
-    const redactionDoc =
+    const docWriting =
       isDocTask(nextMessages[nextMessages.length - 1]?.content ?? "") && !isNarrow;
-    setLiveDocOpen(redactionDoc);
-    liveDocOpenRef.current = redactionDoc;
+    setLiveDocOpen(docWriting);
+    liveDocOpenRef.current = docWriting;
     const controller = new AbortController();
     abortRef.current = controller;
      
@@ -1348,20 +1348,20 @@ export default function PlaygroundPage({
     let tf: number | null = null;
     let acc = "";
     let reason = "";
-    let raisonDebut: number | null = null;   // 1er fragment de pensée
-    let finPensee: number | null = null;     // 1er fragment de réponse
+    let reasoningStart: number | null = null;   // 1er fragment de pensée
+    let thoughtEnd: number | null = null;     // 1er fragment de réponse
     let usage: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number } | undefined;
 
     const updateLast = () => {
       setMessages((prev) => {
         const copy = [...prev];
-        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: reason, ts: copy[copy.length - 1]?.ts , reasoningMs: raisonDebut ? Math.round((finPensee ?? performance.now()) - raisonDebut) : undefined };
+        copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: reason, ts: copy[copy.length - 1]?.ts , reasoningMs: reasoningStart ? Math.round((thoughtEnd ?? performance.now()) - reasoningStart) : undefined };
         return copy;
       });
     };
 
     let isError = false;
-    let tronque = false;
+    let truncated = false;
     let wasAborted = false;
     try {
       // We remove the "asking questions" capability ONLY on the turn that
@@ -1373,17 +1373,17 @@ export default function PlaygroundPage({
       // that it "charged ahead" while it was still asking questions at the start of
       // the conversation (measured: 16 vague requests out of 18 lead to a
       // question, and 0 out of 9 precise requests).
-      const dernier = nextMessages[nextMessages.length - 1];
+      const last = nextMessages[nextMessages.length - 1];
     // Is this turn a resume (« Continuer » button or automatic resume)?
-    const enReprise = estReprise(dernier);
-      const alreadyAsked = !!dernier?.hidden;
-      const plafondModele = modelLimits[model];
+    const resuming = isResume(last);
+      const alreadyAsked = !!last?.hidden;
+      const modelCeiling = modelLimits[model];
       const askSettings = {
         ...settings,
         // The output ceiling cannot exceed the loaded model's window.
         // The backend already lowers it to what remains; here we avoid sending a
         // value that makes sense for no current model.
-        maxTokens: plafondModele ? Math.min(settings.maxTokens, plafondModele) : settings.maxTokens,
+        maxTokens: modelCeiling ? Math.min(settings.maxTokens, modelCeiling) : settings.maxTokens,
         // Order and VOLUME matter: measured on 12 vague requests, the model
         // asks a question 11 times out of 12 with the questions instruction alone,
         // 7 times out of 12 when adding naming and editing, and 3 times out of 12 if
@@ -1393,30 +1393,30 @@ export default function PlaygroundPage({
         // On a RESUME turn, neither questions nor edit protocol: the model
         // had precisely answered with a truncated ```edit block instead of finishing
         // the file, leaving the user with nothing.
-        system: (enReprise
-          ? [settings.system.trim(), REPRISE_INSTRUCTION]
+        system: (resuming
+          ? [settings.system.trim(), RESUME_INSTRUCTION]
           : [
               settings.system.trim(),
               alreadyAsked ? "" : ASK_INSTRUCTION,
               NAME_INSTRUCTION,
-              fichiersJusqua(nextMessages, nextMessages.length - 1, t).size ? REWRITE_INSTRUCTION : "",
-              INTEGRALITE_INSTRUCTION,
+              filesUntil(nextMessages, nextMessages.length - 1, t).size ? REWRITE_INSTRUCTION : "",
+              COMPLETENESS_INSTRUCTION,
             ]
         ).filter(Boolean).join("\n\n"),
       };
       await streamChat(
         csrf,
         model,
-        imagesRecentes(nextMessages, IMAGES_MAX_REQUETE).map((m) => ({ role: m.role, content: m.content, images: m.images })),
+        recentImages(nextMessages, MAX_IMAGES_PER_REQUEST).map((m) => ({ role: m.role, content: m.content, images: m.images })),
         askSettings,
         controller.signal,
         (delta) => {
           if (delta.usage) usage = delta.usage;
-          if (delta.truncated) tronque = true;
+          if (delta.truncated) truncated = true;
           if (delta.notice) {
             // System notice (quota exceeded…): translated HERE according to the
             // interface language, not server-side.
-            acc += (acc ? "\n\n" : "") + texteNotice(delta.notice, t);
+            acc += (acc ? "\n\n" : "") + noticeText(delta.notice, t);
             updateLast();
           }
           if (delta.webStep) {
@@ -1426,14 +1426,14 @@ export default function PlaygroundPage({
             // before doing anything: no step, therefore nothing to replace —
             // without this guard `etape.endsWith` threw and the answer was
             // lost as a network error.
-            setEtapesWeb((prec) => {
-              const base = (e.etape ?? "").endsWith("_finie") ? prec.slice(0, -1) : prec;
+            setWebSteps((previousSteps) => {
+              const base = (e.step ?? "").endsWith("_done") ? previousSteps.slice(0, -1) : previousSteps;
               return [...base, e].slice(-6);
             });
           }
           if (delta.reasoningChunk) {
             if (tf === null) tf = performance.now();
-            if (raisonDebut === null) raisonDebut = performance.now();
+            if (reasoningStart === null) reasoningStart = performance.now();
             if (liveStartRef.current === null) liveStartRef.current = tf;
             liveCharsRef.current += delta.reasoningChunk.length;
             reason += delta.reasoningChunk;
@@ -1441,7 +1441,7 @@ export default function PlaygroundPage({
           }
           if (delta.contentChunk) {
             if (tf === null) tf = performance.now();
-            if (finPensee === null) finPensee = performance.now();
+            if (thoughtEnd === null) thoughtEnd = performance.now();
             if (liveStartRef.current === null) liveStartRef.current = tf;
             liveCharsRef.current += delta.contentChunk.length;
             acc += delta.contentChunk;
@@ -1479,9 +1479,9 @@ export default function PlaygroundPage({
       finalMessages.push({
         role: "assistant",
         content: trimAfterAsk(acc),
-        truncated: tronque,
+        truncated: truncated,
         reasoning: reason,
-        reasoningMs: raisonDebut ? Math.round((finPensee ?? te) - raisonDebut) : undefined,
+        reasoningMs: reasoningStart ? Math.round((thoughtEnd ?? te) - reasoningStart) : undefined,
         tokens,
         tokensPerSec: tokens && gen > 0 ? Number((tokens / gen).toFixed(1)) : undefined,
         ttft: tf ? Number(((tf - t0) / 1000).toFixed(2)) : undefined,
@@ -1496,16 +1496,16 @@ export default function PlaygroundPage({
     // conversation, the partial answer added on top, and the active tab
     // kept the other one's title. We always save the answer in the right
     // place (no loss), we only repaint the screen if we are still there.
-    const memeFil = currentIdRef.current === currentId;
-    if (memeFil) setMessages(finalMessages);
+    const sameThread = currentIdRef.current === currentId;
+    if (sameThread) setMessages(finalMessages);
     // If the assistant wrote a file, or wrote a document in reply to a document
     // task, surface the last one in the side panel automatically.
     const lastUser = [...nextMessages].reverse().find((mm) => mm.role === "user");
     // A clarifying question is never a document/file artifact — leave the panel closed.
     const produced = parseAsk(acc)
       ? []
-      : parseArtifacts(contenuCloture(acc), isDocTask(lastUser?.content ?? ""), t).artifacts;
-    if (produced.length && memeFil) {
+      : parseArtifacts(closedContent(acc), isDocTask(lastUser?.content ?? ""), t).artifacts;
+    if (produced.length && sameThread) {
       const lastArt = produced[produced.length - 1];
       // A code file opens on its own; a document opens automatically only if the
       // user was already watching it being written live (otherwise it stays a
@@ -1514,15 +1514,15 @@ export default function PlaygroundPage({
     }
     liveDocOpenRef.current = false;
     const total = usage?.total_tokens;
-    if (total && memeFil) {
+    if (total && sameThread) {
       setCtxUsed(total);
       setConvTokens((p) => p + total);
     }
-    if (memeFil && (typeof usage?.prompt_tokens === "number" || typeof usage?.completion_tokens === "number")) {
+    if (sameThread && (typeof usage?.prompt_tokens === "number" || typeof usage?.completion_tokens === "number")) {
       setIoTokens({ prompt: usage?.prompt_tokens ?? 0, completion: usage?.completion_tokens ?? 0 });
     }
     const savedId = persist(finalMessages, currentId, model);
-    if (memeFil) {
+    if (sameThread) {
       setCurrentId(savedId ?? null);
       // The active tab immediately carries this conversation (even before
       // the auto-title answers), so that closing/switching stays consistent.
@@ -1544,32 +1544,32 @@ export default function PlaygroundPage({
     // button) forbids the resume.
     // Aborted turn (announcement without the follow-up): we REDO the turn instead of
     // resuming it — there is nothing to extend, the answer never started.
-    if (!wasAborted && tourAvorte(finalMessages[finalMessages.length - 1])) {
-      if (reprisesRef.current < MAX_REPRISES_AUTO) {
-        reprisesRef.current += 1;
-        setReprise(reprisesRef.current);
+    if (!wasAborted && abortedTurn(finalMessages[finalMessages.length - 1])) {
+      if (resumesRef.current < MAX_AUTO_RESUMES) {
+        resumesRef.current += 1;
+        setResume(resumesRef.current);
         void runStream(nextMessages);
         return;
       }
     }
-    // `messageIncomplet` below already evaluates `fichierLaisseOuvert`: we keep
+    // `incompleteMessage` below already evaluates `fileLeftOpen`: we keep
     // its result instead of recomputing it two lines below (each call
     // re-reads the whole message, resumes included).
-    const dernierIdx = finalMessages.length - 1;
-    const laisseOuvert = !wasAborted
-      && fichierLaisseOuvert(finalMessages, dernierIdx, t);
+    const lastIdx = finalMessages.length - 1;
+    const leftOpen = !wasAborted
+      && fileLeftOpen(finalMessages, lastIdx, t);
     if (!wasAborted
-        && (laisseOuvert || abandonDeclare(finalMessages[dernierIdx]?.content ?? ""))) {
-      if (reprisesRef.current < MAX_REPRISES_AUTO) {
-        reprisesRef.current += 1;
-        setReprise(reprisesRef.current);
+        && (leftOpen || abandonDeclare(finalMessages[lastIdx]?.content ?? ""))) {
+      if (resumesRef.current < MAX_AUTO_RESUMES) {
+        resumesRef.current += 1;
+        setResume(resumesRef.current);
         // File left OPEN: we extend it to the next character. File
         // CLOSED but abbreviated by the model's own admission: extending it would
         // produce content after the last line of an already closed file — what is
         // needed is a full rewrite request.
-        const suite = laisseOuvert ? PROMPT_REPRISE_COMPLET : PROMPT_INTEGRAL;
+        const continuation = leftOpen ? FULL_RESUME_PROMPT : FULL_PROMPT;
         void runStream([...finalMessages, {
-          role: "user", content: suite,
+          role: "user", content: continuation,
            
           ts: Date.now(), hidden: true,
         }]);
@@ -1577,8 +1577,8 @@ export default function PlaygroundPage({
       }
       // Too many resumes in a row: the banner and the button take over.
     }
-    reprisesRef.current = 0;
-    setReprise(0);
+    resumesRef.current = 0;
+    setResume(0);
     // Messages were queued during this generation: they go out
     // now, with no manual validation. Explicit base (finalMessages):
     // messagesRef is not yet resynchronized in this same tick.
@@ -1598,7 +1598,7 @@ export default function PlaygroundPage({
     // transcribed so far, and no still-in-flight pass will rewrite the
     // field once it's been cleared.
     dictation.cancel();
-    const fichiers = attachments.filter((f) => !f.image);
+    const files = attachments.filter((f) => !f.image);
     let images: string[] | undefined = attachments.flatMap((f) => (f.image ? [f.image] : []));
     // The model may have changed since the attachment: we do not send images
     // it would not read (the server would drop them anyway).
@@ -1607,14 +1607,14 @@ export default function PlaygroundPage({
       images = [];
     }
     if (!images.length) images = undefined;
-    if (!text && !fichiers.length && !images) return;
+    if (!text && !files.length && !images) return;
     let full = text;
-    if (fichiers.length) {
+    if (files.length) {
       full =
         (text ? text + "\n\n" : "") +
-        fichiers.map((f) => "```" + f.name + "\n" + f.content + "\n```").join("\n\n");
+        files.map((f) => "```" + f.name + "\n" + f.content + "\n```").join("\n\n");
     }
-    const attachmentCount = fichiers.length || undefined;
+    const attachmentCount = files.length || undefined;
     // Mid-generation, the message goes to the queue (validated by the
     // « Envoyer » button of its bubble) instead of being silently lost.
     if (streaming) {
@@ -1694,12 +1694,12 @@ export default function PlaygroundPage({
   }
 
   /** Asks again for the WHOLE file when the model only returned a snippet. */
-  function demanderFichierComplet(nom: string) {
+  function requestFullFile(name: string) {
     if (streaming) return;
     const nextMessages: ChatMsg[] = [
       ...messages,
       { role: "user",
-        content: `Renvoie le fichier ${nom} EN ENTIER, du début à la fin, `
+        content: `Renvoie le fichier ${name} EN ENTIER, du début à la fin, `
           + "avec la correction intégrée. Un seul bloc de code, aucun extrait, "
           + "aucune ligne omise, pas de « ... » ni de commentaire du type "
           + "« reste inchangé ».",
@@ -1711,12 +1711,12 @@ export default function PlaygroundPage({
   }
 
   /** Resumes an answer cut by the token ceiling, without redoing it. */
-  function continuer() {
+  function continueTurn() {
     if (streaming || !messages.length) return;
     const nextMessages: ChatMsg[] = [
       ...messages,
       { role: "user",
-        content: PROMPT_REPRISE_COMPLET,
+        content: FULL_RESUME_PROMPT,
          
         ts: Date.now(), hidden: true },
     ];
@@ -1729,12 +1729,12 @@ export default function PlaygroundPage({
    * Definitely NOT a resume: the cut is not at the end, it is in the middle
    * (a never-closed block). Adding text after it would change nothing.
    */
-  function refaireFichier(nom: string) {
+  function redoFile(name: string) {
     if (streaming || !messages.length) return;
     const nextMessages: ChatMsg[] = [
       ...messages,
       { role: "user",
-        content: `Le fichier \`${nom}\` ne fonctionne pas : son JavaScript ne compile pas `
+        content: `Le fichier \`${name}\` ne fonctionne pas : son JavaScript ne compile pas `
           + "(« Unexpected end of input » — un bloc n'est jamais refermé), donc la page reste "
           + "vide. Renvoie le fichier COMPLET et corrigé, en entier, du début à la fin, "
           + "sous le même nom. Vérifie que chaque accolade et chaque parenthèse est refermée.",
@@ -1746,12 +1746,12 @@ export default function PlaygroundPage({
   }
 
   /** The preview raised an error: we ask again for the fixed file, in full. */
-  function corrigerErreur(nom: string, message: string) {
+  function fixError(name: string, message: string) {
     if (streaming || !messages.length) return;
     const nextMessages: ChatMsg[] = [
       ...messages,
       { role: "user",
-        content: `Le fichier \`${nom}\` s'ouvre mais ne fonctionne pas. Le navigateur `
+        content: `Le fichier \`${name}\` s'ouvre mais ne fonctionne pas. Le navigateur `
           + `signale : « ${message} ». Corrige la cause exacte de cette erreur `
           + "(vérifie notamment que les fonctions appelées existent bien dans la version "
           + "de bibliothèque que tu utilises) et renvoie le fichier COMPLET corrigé, "
@@ -1793,15 +1793,15 @@ export default function PlaygroundPage({
   // breakdown below redid the same sum a third time.
   let contentChars = input.length;
   for (const m of messages) contentChars += m.content.length;
-  for (const a of attachments) contentChars += a.image ? IMAGE_POIDS_CHARS : a.content.length;
-  for (const m of messages) contentChars += (m.images?.length ?? 0) * IMAGE_POIDS_CHARS;
-  const estTokens = Math.round((settings.system.length + contentChars) / 4);
+  for (const a of attachments) contentChars += a.image ? IMAGE_WEIGHT_CHARS : a.content.length;
+  for (const m of messages) contentChars += (m.images?.length ?? 0) * IMAGE_WEIGHT_CHARS;
+  const isTokens = Math.round((settings.system.length + contentChars) / 4);
   // Input / output: the window fills with INPUT tokens (prompt: system
   // + history + message + files) and OUTPUT tokens (the generated
   // answer). Exact measurement of the last generation (LiteLLM usage) when it
   // exists; otherwise a chars/4 estimate of the current input.
-  const used = Math.max(ctxUsed, estTokens);
-  const inTokens = ioTokens?.prompt ?? estTokens;
+  const used = Math.max(ctxUsed, isTokens);
+  const inTokens = ioTokens?.prompt ?? isTokens;
   const outTokens = ioTokens?.completion ?? 0;
   // Content breakdown for « Fenêtre de contexte »: system prompt vs
   // messages/files (same chars/4 estimate). The backend does not provide the
@@ -1852,59 +1852,59 @@ export default function PlaygroundPage({
   // Between two files (previous block closed, next not started), the panel
   // keeps the last finished file instead of emptying. Derived from content, no
   // state: nothing to synchronize, hence nothing to desynchronize.
-  const dernierFini =
+  const lastFinished =
     streaming && !isNarrow && lastMsg?.role === "assistant" && !streamingDocActive
       ? (parseArtifacts(lastMsg.content ?? "", false, t).artifacts.slice(-1)[0] ?? null)
       : null;
-  const epingle = liveCode ? null : (dernierFini ?? artifact);
+  const pinned = liveCode ? null : (lastFinished ?? artifact);
   const showLive = showLiveDoc || !!liveCode;
   // Unified panel values: file being written, last finished file, live document,
   // else the pinned artifact.
-  const panelIsCode = !!liveCode || epingle?.kind === "code";
+  const panelIsCode = !!liveCode || pinned?.kind === "code";
   const panelTitle = liveCode
     ? liveCodeTitle
     : showLiveDoc
       ? docTitleFromContent(liveContent)
-      : (epingle ? renamedTitle(epingle) : "Document");
-  const canRenamePanel = !!epingle && !liveCode && !showLiveDoc;
+      : (pinned ? renamedTitle(pinned) : "Document");
+  const canRenamePanel = !!pinned && !liveCode && !showLiveDoc;
   const panelContent = liveCode
     ? liveCode.body
     : showLiveDoc
       ? liveContent
-      : (epingle?.content ?? "");
+      : (pinned?.content ?? "");
   const panelSubtitle = liveCode
     ? t("Écriture en cours…")
     : showLiveDoc
       ? t("Rédaction en cours…")
-      : (panelIsCode && epingle?.kind === "code" ? epingle.lang : "");
-  const panelLang = liveCode ? liveCode.lang : (epingle?.kind === "code" ? epingle.lang : "text");
+      : (panelIsCode && pinned?.kind === "code" ? pinned.lang : "");
+  const panelLang = liveCode ? liveCode.lang : (pinned?.kind === "code" ? pinned.lang : "text");
   // A finished HTML page can be WATCHED, not only read as code. We do not
   // offer it while it is being written: a half-written render flickers.
-  const panelEstHtml = !liveCode && panelIsCode && /^html?$/i.test(panelLang);
+  const panelIsHtml = !liveCode && panelIsCode && /^html?$/i.test(panelLang);
   const panelDownloadName = panelIsCode
-    ? nomTelechargeable(panelTitle, panelLang)
+    ? downloadName(panelTitle, panelLang)
     : `${slugify(panelTitle)}.md`;
-  const panelDownloadMime = panelIsCode ? mimePourLangage(panelLang) : "text/markdown";
+  const panelDownloadMime = panelIsCode ? mimeForLanguage(panelLang) : "text/markdown";
   // Publishes the page to preview as soon as its content changes. External write
   // (network) followed by a state update AFTER the await: no cascading
   // render. Nothing is published while no preview is being watched.
   useEffect(() => {
-    let annule = false;
-    if (!panelEstHtml || !htmlPreview || !panelContent) {
+    let cancelled = false;
+    if (!panelIsHtml || !htmlPreview || !panelContent) {
       // Deferred reset: updating state in the BODY of the effect
       // would trigger a cascading render.
-      void Promise.resolve().then(() => { if (!annule) setPreviewUrl(""); });
-      return () => { annule = true; };
+      void Promise.resolve().then(() => { if (!cancelled) setPreviewUrl(""); });
+      return () => { cancelled = true; };
     }
     void sendJSON<{ ok: boolean; id?: string }>("/playground/preview", csrf, { html: panelContent })
       .then((r) => {
-        if (annule || !r.ok || !r.id) return;
-        setErreurApercu("");            // new page: we start from a clean state
+        if (cancelled || !r.ok || !r.id) return;
+        setPreviewError("");            // new page: we start from a clean state
         setPreviewUrl(`/playground/preview/${r.id}`);
       })
       .catch(() => {});
-    return () => { annule = true; };
-  }, [panelEstHtml, htmlPreview, panelContent, csrf]);
+    return () => { cancelled = true; };
+  }, [panelIsHtml, htmlPreview, panelContent, csrf]);
 
   // The preview reports its runtime errors. A page can be perfectly
   // well-formed and do nothing — wrong library version, non-existent
@@ -1917,23 +1917,23 @@ export default function PlaygroundPage({
   // message — displayed in a Banner, then sent back to the model via « Corriger ».
   // A WeakSet covers BOTH preview iframes (they are not necessarily
   // mounted exclusively depending on the layout) and retains nothing.
-  const apercuWindows = useRef(new WeakSet<Window>());
-  const refApercu = useCallback((el: HTMLIFrameElement | null) => {
+  const windowsPreview = useRef(new WeakSet<Window>());
+  const previewRef = useCallback((el: HTMLIFrameElement | null) => {
     const w = el?.contentWindow;
-    if (w) apercuWindows.current.add(w);
+    if (w) windowsPreview.current.add(w);
   }, []);
 
   useEffect(() => {
-    function surMessage(e: MessageEvent) {
-      if (!e.source || !apercuWindows.current.has(e.source as Window)) return;
+    function onMessageEvent(e: MessageEvent) {
+      if (!e.source || !windowsPreview.current.has(e.source as Window)) return;
       const d = e.data as { dgxPreviewError?: unknown } | null;
       const msg = d && typeof d.dgxPreviewError === "string" ? d.dgxPreviewError : null;
       if (!msg) return;
       // Content produced by the generated page: never interpreted, only displayed.
-      setErreurApercu((prec) => prec || msg.slice(0, 300));
+      setPreviewError((previousSteps) => previousSteps || msg.slice(0, 300));
     }
-    window.addEventListener("message", surMessage);
-    return () => window.removeEventListener("message", surMessage);
+    window.addEventListener("message", onMessageEvent);
+    return () => window.removeEventListener("message", onMessageEvent);
   }, []);
   // Auto-follow the document while it streams into the panel; show a "jump to
   // bottom" button when the reader scrolls up and leaves the live tail.
@@ -1947,8 +1947,8 @@ export default function PlaygroundPage({
   // Hydration-safe: the server's choice is used while hydrating, then the
   // visitor's own clock (another time zone than the server's must not be a
   // hydration mismatch).
-  const soir = useSyncExternalStore(pasDAbonnement, estLeSoir, () => soirServeur ?? estLeSoir());
-  const greeting = soir ? t("Bonsoir, comment allez-vous ?") : t("Bonjour, comment allez-vous ?");
+  const evening = useSyncExternalStore(noSubscription, isEvening, () => serverEvening ?? isEvening());
+  const greeting = evening ? t("Bonsoir, comment allez-vous ?") : t("Bonjour, comment allez-vous ?");
   // First message: we center the composer with the greeting above.
   const isFirstEmpty = messages.length === 0 && !isSettingsOpen && !streaming;
 
@@ -2081,7 +2081,7 @@ export default function PlaygroundPage({
       discardQueued={discardQueued}
       mode={mode}
       dictation={dictation}
-      rayonComposeur={rayonComposeur}
+      composerRadius={composerRadius}
       placeholderText={placeholderText}
       attachments={attachments}
       setAttachments={setAttachments}
@@ -2099,8 +2099,8 @@ export default function PlaygroundPage({
       selectSkill={selectSkill}
       openSkillCreator={openSkillCreator}
       deleteCustomSkill={deleteCustomSkill}
-      imageVue={imageVue}
-      setImageVue={setImageVue}
+      viewedImage={viewedImage}
+      setViewedImage={setViewedImage}
       isNarrow={isNarrow}
       setSnippetsOpen={setSnippetsOpen}
       setSkillCreatorOpen={setSkillCreatorOpen}
@@ -2119,7 +2119,7 @@ export default function PlaygroundPage({
     panelSubtitle,
     panelContent,
     panelLang,
-    panelEstHtml,
+    panelIsHtml,
     panelDownloadName,
     panelDownloadMime,
     showLive,
@@ -2128,15 +2128,15 @@ export default function PlaygroundPage({
     renameArtifactValue,
     setRenamingArtifact,
     setRenameArtifactValue,
-    epingle,
+    pinned,
     commitArtifactRename,
     htmlPreview,
     setHtmlPreview,
     previewUrl,
-    erreurApercu,
+    previewError,
     streaming,
-    corrigerErreur,
-    refApercu,
+    fixError,
+    previewRef,
     panelScrollRef,
     onPanelScroll,
     showPanelJump,
@@ -2147,8 +2147,8 @@ export default function PlaygroundPage({
       liveDocOpenRef.current = false;
     },
     artifactResize,
-    setPlein,
-    fermerPanneau,
+    setFull,
+    closePanel,
   };
 
   return (
@@ -2224,14 +2224,14 @@ export default function PlaygroundPage({
           <ChatLayout
             density="spacious"
             composer={composerNode}
-            ref={suitLeBasSetRef}
+            ref={followBottomSetRef}
             scrollButton={
-              montrerDescendre ? (
+              showScrollDown ? (
                 <Button
                   label={t("Descendre")}
                   variant="secondary"
                   size="sm"
-                  onClick={descendreToutEnBas}
+                  onClick={scrollToBottom}
                 />
               ) : null
             }>
@@ -2251,19 +2251,19 @@ export default function PlaygroundPage({
                     streaming={streaming}
                     liveCode={liveCode}
                     isNarrow={isNarrow}
-                    etapesWeb={etapesWeb}
+                    webSteps={webSteps}
                     editingIdx={editingIdx}
                     liveStats={liveStats}
-                    reprise={reprise}
+                    resume={resume}
                     model={model}
                     renamedTitle={renamedTitle}
                     onAnswer={answer}
-                    onDemanderFichierComplet={demanderFichierComplet}
-                    onRefaireFichier={refaireFichier}
-                    onContinuer={continuer}
+                    onRequestFullFile={requestFullFile}
+                    onRedoFile={redoFile}
+                    onContinue={continueTurn}
                     onRegenerate={regenerate}
                     onEditMessage={editMessage}
-                    onOpenImage={setImageVue}
+                    onOpenImage={setViewedImage}
                     onOpenArtifact={(a) => {
                       setArtifact(a);
                       setRenamingArtifact(false);
@@ -2276,24 +2276,24 @@ export default function PlaygroundPage({
           )}
           </VStack>
           </StackItem>
-          {(artifact || showLive || dernierFini) && !isNarrow && (
+          {(artifact || showLive || lastFinished) && !isNarrow && (
             <DocumentPanel {...panelProps} />
           )}
-          {/* Historique : UNE ligne par conversation, corbeille au bout. Cliquer la
-              ligne ouvre la conversation (et referme le panneau) ; cliquer la
-              corbeille supprime SANS refermer, pour pouvoir faire le ménage
-              d'affilée. La corbeille est un bouton FRÈRE de la ligne, pas un
-              bouton imbriqué : aucun risque qu'un clic déclenche les deux. */}
-          {/* Réglages du playground : overlay FIXE ancré sous la roue crantée.
-              Pas de focus trap, pas d'élément caché à révéler : ouvrir ne
-              déclenche AUCUN défilement — le chat reste exactement où il est. */}
+          {/* History: ONE row per conversation, trash can at the end. Clicking
+              the row opens the conversation (and closes the panel); clicking
+              the trash can deletes WITHOUT closing, so several can be cleaned
+              up in a row. The trash can is a SIBLING button of the row, not a
+              nested one: no risk of a click triggering both. */}
+          {/* Playground settings: a FIXED overlay anchored under the gear. No
+              focus trap, no hidden element to reveal: opening triggers NO
+              scrolling — the chat stays exactly where it is. */}
           {isSettingsOpen && settingsPos && (
             <SettingsOverlay
               settingsPos={settingsPos}
               setIsSettingsOpen={setIsSettingsOpen}
               settings={settings}
               setSettings={setSettings}
-              contexte={modelLimits[model]}
+              context={modelLimits[model]}
               systemProvenance={systemProvenance}
               setSystemProvenance={setSystemProvenance}
             />
@@ -2357,7 +2357,7 @@ export default function PlaygroundPage({
             systemPrompt={settings.system}
             attachments={attachments}
           />
-          {(artifact || showLive) && (isNarrow || plein) && (
+          {(artifact || showLive) && (isNarrow || full) && (
             <DocumentPanelFullscreen {...panelProps} />
           )}
           </HStack>

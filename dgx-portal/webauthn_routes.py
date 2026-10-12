@@ -189,7 +189,7 @@ def _verify_password_locked(username: str, password: str):
     # `user:<nom>` — the counter being shared with /login, they ended up
     # locking themselves out of the login page, for an action impossible
     # from the start.
-    management = password_management(username)['gestion']
+    management = password_management(username)['management']
     if management == MANAGED_SSO:
         return False, ({"error": "Compte SSO : aucun mot de passe n'est géré par le "
                                  "portail, la vérification est impossible."}, 400)
@@ -365,7 +365,7 @@ def api_security():
         # whether a change form (or adding a passkey) makes sense here.
         # A single read of the source (two SELECTs) for both fields:
         # `passkey_possible` merely re-reads `gestion_mot_de_passe`.
-        "password_managed_by": management["gestion"],
+        "password_managed_by": management["management"],
         "passkey_possible": management["passkey"],
         "credentials": [{
             "id": c["id"],

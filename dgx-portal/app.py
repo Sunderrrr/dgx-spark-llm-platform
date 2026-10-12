@@ -444,7 +444,7 @@ def api_setup():
     data = request.get_json(silent=True) or request.form
     if not setup_token_valid(str(data.get('token', ''))):
         _login_fail(key)
-        return jsonify({'ok': False, 'code': 'jeton_invalide',
+        return jsonify({'ok': False, 'code': 'invalid_token',
                         'error': "Jeton de configuration invalide."}), 403
     username = str(data.get('username', '')).strip().lower()
     password = str(data.get('password', ''))
@@ -1157,7 +1157,7 @@ def api_whoami():
                      # `password_managed_by` says the same thing more precisely
                      # (an account can be local AND have logged in via SSO).
                      'local_account': management['local'],
-                     'password_managed_by': management['gestion'],
+                     'password_managed_by': management['management'],
                      'auth_sources': management['sources'],
                      'passkey_possible': management['passkey'],
                      'maintenance_mode': maintenance_active()})
@@ -1372,7 +1372,7 @@ def keys():
             (session['username'], alias, k)
         ).fetchone()
         if duplicate:
-            return jsonify({'ok': False, 'code': 'alias_deja_utilise',
+            return jsonify({'ok': False, 'code': 'alias_in_use',
                             'error': "Tu as déjà une clé nommée ainsi."}), 409
         # LiteLLM first: if we only renamed on our side, its console would keep
         # showing the old name, and the admin could no longer tell who owns a
@@ -1400,7 +1400,7 @@ def keys():
         if existing:
             # `code`: stable and frequent refusal, which the UI translates
             # (see CLAUDE.md § i18n) instead of displaying the French sentence.
-            return jsonify({'ok': False, 'code': 'deja_en_attente',
+            return jsonify({'ok': False, 'code': 'already_pending',
                             'error': "Tu as déjà une demande en attente."}), 409
         db.execute(
             "INSERT INTO budget_requests (username, fullname, key_alias, current_budget, reason, status, created_at) "
@@ -1518,7 +1518,7 @@ def api_search():
         # `code` in addition to `error`: the portal is FR-first, but the UI can
         # translate that case (English only makes sense if it is complete), and
         # the technical detail stays attached for whoever must diagnose.
-        return jsonify({'ok': False, 'results': [], 'code': 'hf_indisponible',
+        return jsonify({'ok': False, 'results': [], 'code': 'hf_unavailable',
                         'error': f"Hugging Face n'a pas répondu ({e}). Réessaie dans un instant."}), 503
     # GB10 filter + no result: the user's next question is « est-ce que ça
     # existe ailleurs ? ». We answer it (True/False/None = unknown, and then the
@@ -1528,7 +1528,7 @@ def api_search():
         outside_gb10 = hf_model_outside_gb10(query, task)
     return jsonify({'ok': True, 'results': results, 'query': query, 'task': task,
                     'gb10_only': gb10, 'skip': skip, 'page_size': _SEARCH_PAGE_SIZE,
-                    'has_more': has_more, 'hors_gb10': outside_gb10,
+                    'has_more': has_more, 'outside_gb10': outside_gb10,
                     # Presence of the token, NEVER its value: it tells the UI
                     # whether gated repositories can appear.
                     'hf_token': hf_token_present()})
@@ -1588,7 +1588,7 @@ def request_model():
     model_id = (raw_id.strip() if isinstance(raw_id, str) else '')[:200]
     reason   = (raw_reason.strip() if isinstance(raw_reason, str) else '')[:500]
     if not model_id:
-        return jsonify({'ok': False, 'code': 'identifiant_requis',
+        return jsonify({'ok': False, 'code': 'identifier_required',
                         'error': "L'identifiant du modèle est requis."}), 400
     db = get_db()
     existing = db.execute(
@@ -1598,7 +1598,7 @@ def request_model():
     if existing:
         # Before: flash() + 204. The flash is rendered by no template, so the
         # page announced « Demande envoyée ! » while no row existed.
-        return jsonify({'ok': False, 'code': 'deja_en_attente',
+        return jsonify({'ok': False, 'code': 'already_pending',
                         'error': f"Tu as déjà une demande en attente pour « {model_id} »."}), 409
     db.execute(
         "INSERT INTO model_requests (username, fullname, model_id, reason, status, created_at) "

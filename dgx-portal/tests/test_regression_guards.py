@@ -61,10 +61,10 @@ class MocksGlobauxRequestsGelTest(unittest.TestCase):
     MAX_SITES = 48            # effectif gelé au 2026-10-03 (mesuré)
 
     def test_effectif_des_mocks_globaux_gel(self):
-        reason = re.compile(r"patch\.object\(\s*\w+(\.\w+)*\.requests\s*,")
+        pattern = re.compile(r"patch\.object\(\s*\w+(\.\w+)*\.requests\s*,")
         total = 0
         for f in sorted((RACINE / 'tests').glob('*.py')):
-            total += len(reason.findall(f.read_text()))
+            total += len(pattern.findall(f.read_text()))
         self.assertLessEqual(
             total, self.MAX_SITES,
             f"Nouveaux mocks globaux sur `requests` ({total} > {self.MAX_SITES}) : "

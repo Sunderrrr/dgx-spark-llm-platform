@@ -50,7 +50,7 @@ export type Conversation = {
   // carries the metadata and marks the conversation. It reloads
   // item by item on opening (`fetchConversation`) — without this flag, a
   // heavy conversation would open on an empty thread.
-  messagesOmis?: boolean;
+  omittedMessages?: boolean;
 };
 
 export type PlaygroundData = {

@@ -88,10 +88,10 @@ sessions, revokes every API key on LiteLLM, deletes the LiteLLM user envelope
 name inherits the previous one's spend) and purges the personal data: memory,
 conversations, share links, preferences, passkeys, media jobs. It requires an
 explicit `confirm=DELETE`, refuses self-deletion and refuses to remove the last
-local administrator. If LiteLLM is unreachable the deletion still goes through —
-better an account gone from the portal than a stuck one — but the response **and**
-the audit trail name the keys that could not be revoked. `audit_log` is kept on
-purpose: it is the record of admin actions and outlives the account.
+local administrator. If LiteLLM is unreachable the deletion still goes through
+(better an account gone from the portal than a stuck one), but the response
+**and** the audit trail name the keys that could not be revoked. `audit_log` is
+kept on purpose: it is the record of admin actions and outlives the account.
 
 The two gestures are not interchangeable, and the interface says so: **deleting** a
 local account removes its access *and* erases its data, while **purging** an

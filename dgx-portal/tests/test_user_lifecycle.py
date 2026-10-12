@@ -231,7 +231,7 @@ class BlocageTest(BaseComptes):
 
     def test_auto_blocage_refuse(self):
         admin = self._client(ADMIN, is_admin=True)
-        r = self._post(admin, f'/admin/users/{ADMIN}/block', json={'reason': 'erreur'})
+        r = self._post(admin, f'/admin/users/{ADMIN}/block', json={'reason': 'error'})
         self.assertEqual(r.status_code, 400)
 
     def test_dernier_admin_local_protege(self):
@@ -250,7 +250,7 @@ class SuppressionTest(BaseComptes):
             db.execute("INSERT INTO api_keys (username, key_alias, key_value, created_at) "
                        "VALUES (?,?,?,?)", (username, 'test', 'sk-test-123', '2026-09-13'))
             db.execute("INSERT INTO memory_nodes (username, name, name_norm, kind, created_at) "
-                       "VALUES (?,?,?,?,?)", (username, 'vLLM', 'vllm', 'sujet', '2026-09-13'))
+                       "VALUES (?,?,?,?,?)", (username, 'vLLM', 'vllm', 'subject', '2026-09-13'))
             db.execute("INSERT INTO memory_edges (username, src_id, relation, fact, created_at) "
                        "VALUES (?,?,?,?,?)", (username, 1, 'concerne', 'un fait', '2026-09-13'))
             db.execute("INSERT INTO conversations (username, client_id, title, model, messages, "
@@ -270,7 +270,7 @@ class SuppressionTest(BaseComptes):
         self.assertEqual(r.status_code, 409)
         self.assertTrue(r.get_json()['needs_confirm'])
         # The summary is provided so the UI can say what will be lost.
-        self.assertIn('conversations', r.get_json()['donnees'])
+        self.assertIn('conversations', r.get_json()['data'])
         self.assertIsNotNone(self._uid(CIBLE))
 
     def test_auto_suppression_refusee(self):
@@ -346,7 +346,7 @@ class PurgeCompteAnnuaireTest(BaseComptes):
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT INTO memory_nodes (username, name, name_norm, kind, created_at) "
-                       "VALUES (?,?,?,?,?)", (username, 'sujet', 'sujet', 'sujet', '2026-09-13'))
+                       "VALUES (?,?,?,?,?)", (username, 'subject', 'subject', 'subject', '2026-09-13'))
             db.execute("INSERT INTO conversations (username, client_id, title, model, messages, "
                        "updated_at) VALUES (?,?,?,?,?,?)",
                        (username, 'c1', 't', 'm', '[]', '2026-09-13'))
@@ -432,12 +432,12 @@ class DetailTest(BaseComptes):
         admin = self._client(ADMIN, is_admin=True)
         with mock.patch.object(admin_routes, '_account_activity', return_value=serie) as act, \
              mock.patch.object(admin_routes, 'directory_states_for',
-                               return_value={ANNUAIRE: 'desactive'}):
+                               return_value={ANNUAIRE: 'disabled'}):
             body = admin.get(f'/admin/users/{ANNUAIRE}/detail').get_json()
             local = admin.get(f'/admin/users/{CIBLE}/detail').get_json()
         act.assert_any_call(ANNUAIRE)
         self.assertEqual(body['activity']['active_days'], 1)
-        self.assertEqual(body['directory_status'], 'desactive')
+        self.assertEqual(body['directory_status'], 'disabled')
         self.assertEqual(set(body['media']), {'image', 'music', 'video', 'voice', 'ocr'})
         self.assertEqual(body['media']['image']['count'], 0)
         self.assertEqual(body['model_requests'], [])
@@ -453,12 +453,12 @@ class DetailTest(BaseComptes):
             db.commit()
         admin = self._client(ADMIN, is_admin=True)
         with mock.patch.object(admin_routes, 'directory_states_for',
-                               side_effect=lambda names: {n: 'actif' for n in names}) as states:
+                               side_effect=lambda names: {n: 'active' for n in names}) as states:
             users = {u['username']: u for u in admin.get('/api/admin/users').get_json()['users']}
         demandes = set(states.call_args[0][0])
         self.assertIn(ANNUAIRE, demandes)
         self.assertNotIn(CIBLE, demandes, "a local account is not looked up")
-        self.assertEqual(users[ANNUAIRE]['directory_status'], 'actif')
+        self.assertEqual(users[ANNUAIRE]['directory_status'], 'active')
         self.assertIsNone(users[CIBLE]['directory_status'])
 
     def test_liste_des_comptes_expose_etat_de_blocage(self):
@@ -709,7 +709,7 @@ class QuotaTest(BaseComptes):
         with patch('admin_routes._sync_local_user_budget', side_effect=faux_sync):
             r = self._post(admin, '/admin/groups/delete/ztest-groupe')
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.get_json()['membres'], 1)
+        self.assertEqual(r.get_json()['members'], 1)
         # Without this propagation, the member kept the old envelope: a ghost
         # quota, more generous than the default.
         self.assertEqual(seen, [CIBLE])

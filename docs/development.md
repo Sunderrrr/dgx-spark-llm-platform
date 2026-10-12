@@ -24,7 +24,7 @@ visible in what you write:
 6. **Document** — update the docs the change touches **only if it helps a future
    reader**. Don't document for its own sake.
 7. **Verify & push** — run the pre-push gate (tests + secret scan). Green → push.
-   Red → stop and report; never push around a red gate.
+   Red → stop and report. Never push around a red gate.
 
 The loop is a default, not a ritual: a one-line fix doesn't need a formal options
 table. Scale the ceremony to the risk.
@@ -33,7 +33,7 @@ table. Scale the ceremony to the risk.
 
 **`./scripts/validate.sh` runs after EVERY modification**, before anything is
 called done. It is the whole thing: code gates (the full backend suite, frontend,
-types, lint, i18n, secret scan), the running service, 14 user journeys
+types, lint, i18n, secret scan), the running service, 14 journeys
 (login/SSO, chat, reasoning, image, web search, skills, conversations, export,
 admin, API keys, page sweep, page actions, security, route coverage of 158
 routes), and health.
@@ -57,23 +57,22 @@ Four groups, each with its own verdict:
 4. **Health & resources** — memory, served model, disk, backup.
 
 Guarantees: safe to run **at any moment**, even while someone uses the platform
-(no destructive action, no restart, no `--force-recreate`; journeys use only the
-demo account and clean up after themselves — on exit, failure included, the
-run revokes the demo-account sessions it opened, `tests/e2e/close_sessions.py`);
-every check is time-bounded; a
-failure speaks (« ✗ <check> » + the tail of the log + the full log path);
-readable by a human AND by a git hook / CI (no TTY required, `NO_COLOR`
-respected); non-zero exit if ANYTHING fails.
+(no destructive action, no restart, no `--force-recreate`). The journeys use only
+the demo account and clean up after themselves: on exit, failure included, the
+run revokes the demo-account sessions it opened (`tests/e2e/close_sessions.py`).
+Every check is time-bounded. A failure speaks (« ✗ <check> » + the tail of the
+log + the full log path), readable by a human AND by a git hook / CI (no TTY
+required, `NO_COLOR` respected). Non-zero exit if ANYTHING fails.
 
 The served model is protected and failures are not counted twice:
 
 - memory-heavy journeys (web search starts a browser, the image tool loads a
   model) are **not run** when `MemAvailable` is under
   `VALIDATE_HEAVY_MEM_MIN_GIB` (default 8): on unified memory, earlyoom would
-  pick the model server — a validation run once killed it that way;
-- a journey that needs the model first waits (up to `VALIDATE_MODEL_WAIT_S`,
-  default 420 s) for it to be `running`, instead of failing in cascade;
-- when the model goes down during a journey, the run says so, with the
+  pick the model server — a validation run once killed it that way.
+- a check that needs the model first waits (up to `VALIDATE_MODEL_WAIT_S`,
+  default 420 s) for it to be `running`, instead of failing in cascade.
+- when the model goes down while the suite runs, the run says so, with the
   matching earlyoom lines.
 
 ```bash
@@ -83,8 +82,9 @@ VALIDATE_VERBOSE=1 ./scripts/validate.sh    # show the checks' output
 ```
 
 Full logs stay in `runtime/validation/<timestamp>/`. The probed origins come
-from `.env` (`DGX_WEB`, `DGX_API` — see `.env.example`; `DGX_SSO_DOMAIN` optionally pins the SSO redirect's host); the
-script refuses to run on the example values.
+from `.env` (`DGX_WEB`, `DGX_API` — see `.env.example`). `DGX_SSO_DOMAIN`
+optionally pins the SSO redirect's host. The script refuses to run on the
+example values.
 
 ## Tests and the pre-push gate
 
@@ -125,12 +125,12 @@ Shell traps that cost real time:
   come out as a free list. Copy the frontend constants into the test's `system`,
   otherwise you fix what is not broken.
 - Long-lived threads (budget reaper, ASR reaper, `suivi-lancement`) must stay
-  behind the `DGX_NO_REAPER` seam — the suite sets it; a test must not depend
+  behind the `DGX_NO_REAPER` seam — the suite sets it. A test must not depend
   on nobody else in the process making an HTTP call.
 
 ## Code conventions
 
-- **i18n contract**: UI strings are **French-as-msgid**; English lives in
+- **i18n contract**: UI strings are **French-as-msgid**. English lives in
   `lib/i18n.tsx`. A missing EN key silently falls back to French. When you add a
   `t("…")` string, add its EN translation in the same commit. Don't add a
   duplicate key (TS error). Formatting follows the language, not just the text
@@ -145,7 +145,7 @@ Shell traps that cost real time:
 - **The admin action contract**: every admin action answers JSON with an honest
   status — `{"ok": true}` (200) or `{"ok": false, "error": "phrase en français"}`
   with **400** (refusal), **404**, **409** (`needs_confirm`, or the "last admin"
-  guard), **503** (upstream unreachable — never 502/504, Cloudflare replaces
+  guard), **503** (upstream unreachable: never 502/504, Cloudflare replaces
   those bodies), **507** (memory), **403**. A `warning` accompanies a partial
   success, never instead of an error. **Doubt is not a failure**: a runner
   timeout gives **202** + `incertain: true` and **no infra alert** — alerting
@@ -183,7 +183,7 @@ Shell traps that cost real time:
 
 ## Screenshots
 
-| Playground — streaming chat, dictation and web search | Support — the budget- and status-aware assistant |
+| Playground — streaming chat with dictation and web search | Support — the budget- and status-aware assistant |
 |---|---|
 | ![Playground](../assets/playground.png) | ![Support](../assets/support.png) |
 
@@ -267,15 +267,15 @@ Shell traps that cost real time:
 ## Versioning
 
 Versions are the **tags of this repository**, and [`CHANGELOG.md`](../CHANGELOG.md) is
-the human-readable half of the same promise; both follow
+the human-readable half of the same promise. Both follow
 [Semantic Versioning](https://semver.org/). CI (`./scripts/release.sh --check`, job
 `version`) compares the changelog with
 [`dgx-portal-frontend/package.json`](../dgx-portal-frontend/package.json), so a tag
 that does not match its entry cannot be published.
 
 While the major version is `0`, the **minor** carries breaking changes: anything
-that forces an operator to act — a service or volume in `docker-compose.yml`, a key
-in `.env`, an HTTP contract, the model/sidecar catalog format — bumps minor
+that forces an operator to act (a service or volume in `docker-compose.yml`, a
+key in `.env`, an HTTP contract, the model/sidecar catalog format) bumps minor
 (`0.1.0` → `0.2.0`); everything else bumps patch. The major stays `0` while the
 deployment contract is still moving.
 

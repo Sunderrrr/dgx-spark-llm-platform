@@ -105,7 +105,7 @@ class ExecutionTest(unittest.TestCase):
 
     PIECE = 'data:image/png;base64,' + 'aGVsbG8='   # « hello »
 
-    def _launch(self, args, journal, attachments, response):
+    def _launch(self, args, step_log, attachments, response):
         """Runs the tool generator to its end and returns its text."""
         with ExitStack() as stack:
             stack.enter_context(mock.patch(
@@ -118,7 +118,7 @@ class ExecutionTest(unittest.TestCase):
             import app as portal
             with portal.app.test_request_context():
                 gen = document_tools._exec_document_tool(
-                    args, 'zz-test-doc', journal, attachments)
+                    args, 'zz-test-doc', step_log, attachments)
                 result, battements = None, []
                 while True:
                     try:
@@ -129,39 +129,39 @@ class ExecutionTest(unittest.TestCase):
         return result, battements
 
     def test_extraction_reussie(self):
-        journal = []
+        step_log = []
         result, battements = self._launch(
-            {'fichier': 'facture.png'}, journal, [self.PIECE],
+            {'fichier': 'facture.png'}, step_log, [self.PIECE],
             _FauxOcr("Facture n° 42 — total 130 €"))
         self.assertIn("Facture n° 42", result)
-        self.assertEqual(journal[-1]['etape'], 'ocr_finie')
-        self.assertEqual(journal[-1]['question'], 'facture.png')
-        self.assertEqual(journal[-1]['erreur'], None)
-        self.assertGreater(journal[-1]['caracteres'], 0)
+        self.assertEqual(step_log[-1]['step'], 'ocr_done')
+        self.assertEqual(step_log[-1]['question'], 'facture.png')
+        self.assertEqual(step_log[-1]['error'], None)
+        self.assertGreater(step_log[-1]['chars'], 0)
 
     def test_la_plus_recente_est_lue_sans_nom(self):
-        journal = []
+        step_log = []
         result, _ = self._launch(
-            {}, journal, [self.PIECE, self.PIECE], _FauxOcr("la plus récente"))
+            {}, step_log, [self.PIECE, self.PIECE], _FauxOcr("la plus récente"))
         self.assertIn("la plus récente", result)
 
     def test_aucune_piece_jointe_dit_le_faire(self):
-        journal = []
-        result, _ = self._launch({}, journal, [], _FauxOcr("inutile"))
+        step_log = []
+        result, _ = self._launch({}, step_log, [], _FauxOcr("inutile"))
         self.assertIn('Aucune image jointe', result)
-        self.assertEqual(journal, [])
+        self.assertEqual(step_log, [])
 
     def test_extraction_vide_dit_le_motif(self):
-        journal = []
-        result, _ = self._launch({}, journal, [self.PIECE], _FauxOcr(""))
+        step_log = []
+        result, _ = self._launch({}, step_log, [self.PIECE], _FauxOcr(""))
         self.assertIn('Aucun texte n\'a pu être extrait', result)
-        self.assertEqual(journal[-1]['caracteres'], 0)
-        self.assertIsNotNone(journal[-1]['erreur'])
+        self.assertEqual(step_log[-1]['chars'], 0)
+        self.assertIsNotNone(step_log[-1]['error'])
 
     def test_service_indisponible_dit_le_motif(self):
         # The memory guard (or a failed start) says WHY: a bare « indisponible »
         # would leave the user clicking in the dark.
-        journal = []
+        step_log = []
         with ExitStack() as stack:
             stack.enter_context(mock.patch.object(
                 document_tools, 'sidecar_autostart',
@@ -169,14 +169,14 @@ class ExecutionTest(unittest.TestCase):
             import app as portal
             with portal.app.test_request_context():
                 gen = document_tools._exec_document_tool(
-                    {}, 'zz-test-doc', journal, [self.PIECE])
+                    {}, 'zz-test-doc', step_log, [self.PIECE])
                 try:
                     next(gen)
                 except StopIteration as arret:
                     result = arret.value
         self.assertIn('indisponible', result)
         self.assertIn('mémoire insuffisante', result)
-        self.assertEqual(journal[-1]['erreur'], "mémoire insuffisante")
+        self.assertEqual(step_log[-1]['error'], "mémoire insuffisante")
 
 
 class PhaseOutilsTest(unittest.TestCase):
@@ -201,7 +201,7 @@ class PhaseOutilsTest(unittest.TestCase):
                     'content': 'Voici le texte.', 'tool_calls': []}}]}
             return r
 
-        journal, findings = [], []
+        step_log, findings = [], []
         # websearch_tools and ocr_routes share the SAME `requests` module: a
         # single patch, routed on the URL — two patches would overwrite each
         # other (the same trap as in test_image_tools).
@@ -220,14 +220,14 @@ class PhaseOutilsTest(unittest.TestCase):
             with portal.app.test_request_context():
                 msgs = [{'role': 'user', 'content': 'lis ce document'}]
                 etapes = list(websearch_tools._tools_phase(
-                    'modele-test', msgs, 'cle', journal, findings,
+                    'modele-test', msgs, 'cle', step_log, findings,
                     web_ok=False, doc_ok=True, username='zz-test-doc',
                     attachments=[ExecutionTest.PIECE]))
         annonces = [e for e in etapes if '"ocr"' in e]
         self.assertTrue(annonces, etapes)
         self.assertTrue(any('Total : 130 €' in content for _n, content in findings),
                         findings)
-        self.assertEqual(journal[-1]['outil'], 'unlimited-ocr')
+        self.assertEqual(step_log[-1]['tool'], 'unlimited-ocr')
 
 
 if __name__ == '__main__':

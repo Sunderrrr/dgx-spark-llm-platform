@@ -71,7 +71,7 @@ def api_transcribe():
                     # Honest refusal and NO start: on unified memory a sidecar
                     # that loads with no headroom takes the served chat model
                     # down with it (the OOM killer cannot even see GPU memory).
-                    return jsonify({'error': mem_reason, 'demarrage': False}), 503
+                    return jsonify({'error': mem_reason, 'starting': False}), 503
                 # Idempotent by construction: `docker start` on a running
                 # container is a no-op, and a successful start throttles the
                 # next attempts (sidecars.asr_demarrage_auto) — the 1 s polling
@@ -103,7 +103,7 @@ def api_transcribe():
             # rides along an empty text, and the next poll (1 s later) simply
             # finds the sidecar one second closer to ready.
             if not retry:
-                return jsonify({'text': '', 'demarrage': True}), 200
+                return jsonify({'text': '', 'starting': True}), 200
         # Runner unreachable / no container state: attempt the call anyway —
         # the sidecar may still be up. Error contract below: INPUT ERRORS (4xx)
         # pass through unchanged, the sidecar's own 503 passes through, and

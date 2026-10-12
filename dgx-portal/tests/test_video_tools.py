@@ -87,7 +87,7 @@ class GenerationTest(unittest.TestCase):
         return {'status': 'done', 'video_path': f'{prompt_id}.mp4',
                 'video_subfolder': '', 'video_type': 'output'}
 
-    def _launch(self, args, journal, **patches):
+    def _launch(self, args, step_log, **patches):
         """Runs the tool generator to its end and returns its text.
 
         `_cache_video_local` lives in video_routes (the job persistence calls
@@ -104,7 +104,7 @@ class GenerationTest(unittest.TestCase):
                 stack.enter_context(mock.patch(target, value))
             import app as portal
             with portal.app.test_request_context():
-                gen = video_tools._exec_video_tool(args, 'zz-test-vid', journal)
+                gen = video_tools._exec_video_tool(args, 'zz-test-vid', step_log)
                 result, battements = None, []
                 while True:
                     try:
@@ -115,16 +115,16 @@ class GenerationTest(unittest.TestCase):
         return result, battements
 
     def test_generation_reussie(self):
-        journal = []
+        step_log = []
         result, battements = self._launch(
-            {'prompt': 'a cat walking on the moon', 'duree': 5}, journal,
+            {'prompt': 'a cat walking on the moon', 'duration': 5}, step_log,
             comfyui_generate=mock.Mock(return_value='pid-test-1'),
             comfyui_status=self._statut_fini)
         self.assertIn('/video/file/pid-test-1', result)
         self.assertTrue(all(b.startswith(': ') for b in battements), battements)
-        self.assertEqual(journal[-1]['etape'], 'generation_video_finie')
-        self.assertEqual(journal[-1]['videos'], ['/video/file/pid-test-1'])
-        self.assertIsNone(journal[-1]['erreur'])
+        self.assertEqual(step_log[-1]['step'], 'generation_video_done')
+        self.assertEqual(step_log[-1]['videos'], ['/video/file/pid-test-1'])
+        self.assertIsNone(step_log[-1]['error'])
         # The job is properly closed on the database side: no ghost « running »,
         # and the generation duration was written by the worker.
         c = sqlite3.connect(DB_PATH)
@@ -136,50 +136,50 @@ class GenerationTest(unittest.TestCase):
         self.assertIsNotNone(line[2])
 
     def test_description_vide_refuse(self):
-        journal = []
-        result, _ = self._launch({'prompt': '  '}, journal,
+        step_log = []
+        result, _ = self._launch({'prompt': '  '}, step_log,
                                    comfyui_generate=mock.Mock(),
                                    comfyui_status=self._statut_fini)
         self.assertIn('impossible', result)
-        self.assertEqual(journal, [])
+        self.assertEqual(step_log, [])
 
     def test_service_indisponible_dit_le_motif(self):
         # The memory guard (or a failed start) says WHY: a bare « indisponible »
         # would leave the user clicking in the dark.
-        journal = []
+        step_log = []
         result, _ = self._launch(
-            {'prompt': 'une vague'}, journal,
+            {'prompt': 'une vague'}, step_log,
             sidecar_autostart=mock.Mock(
                 return_value=(False, "mémoire insuffisante")),
             comfyui_generate=mock.Mock(),
             comfyui_status=self._statut_fini)
         self.assertIn('indisponible', result)
         self.assertIn('mémoire insuffisante', result)
-        self.assertEqual(journal[-1]['erreur'], "mémoire insuffisante")
+        self.assertEqual(step_log[-1]['error'], "mémoire insuffisante")
 
     def test_soumission_refusee(self):
-        journal = []
+        step_log = []
         result, _ = self._launch(
-            {'prompt': 'une vague'}, journal,
+            {'prompt': 'une vague'}, step_log,
             comfyui_generate=mock.Mock(return_value=None),
             comfyui_status=self._statut_fini)
         self.assertIn('a échoué', result)
-        self.assertEqual(journal[-1]['erreur'],
+        self.assertEqual(step_log[-1]['error'],
                          "ComfyUI inaccessible ou requête refusée.")
 
     def test_toujours_en_cours_est_dit_sans_adresse(self):
         # A generation longer than the tool's window is NOT a failure: we say
         # it keeps running (and never hand a link that would 404).
-        journal = []
+        step_log = []
         result, _ = self._launch(
-            {'prompt': 'une vague'}, journal,
+            {'prompt': 'une vague'}, step_log,
             comfyui_generate=mock.Mock(return_value='pid-lent'),
             comfyui_status=mock.Mock(return_value={'status': 'running'}),
             _video_worker=mock.Mock(),
             _VIDEO_TIMEOUT_S=0.2)
         self.assertIn('en cours de génération', result)
         self.assertNotIn('/video/file/', result)
-        self.assertEqual(journal[-1]['erreur'], "Génération toujours en cours.")
+        self.assertEqual(step_log[-1]['error'], "Génération toujours en cours.")
 
 
 class PhaseOutilsTest(unittest.TestCase):
@@ -197,14 +197,14 @@ class PhaseOutilsTest(unittest.TestCase):
             if calls['tour'] == 1:
                 r.json = lambda: {'choices': [{'message': {
                     'content': '', 'tool_calls': [{'id': 'appel1', 'function': {
-                        'name': 'generer_video',
+                        'name': 'generate_video',
                         'arguments': '{"prompt": "a cat on the moon"}'}}]}}]}
             else:
                 r.json = lambda: {'choices': [{'message': {
                     'content': 'Voici votre vidéo.', 'tool_calls': []}}]}
             return r
 
-        journal, findings = [], []
+        step_log, findings = [], []
         with mock.patch('requests.post', side_effect=faux_litellm), \
              mock.patch.object(video_tools, 'comfyui_is_up', return_value=True), \
              mock.patch.object(video_tools, 'comfyui_generate',
@@ -219,13 +219,13 @@ class PhaseOutilsTest(unittest.TestCase):
             with portal.app.test_request_context():
                 msgs = [{'role': 'user', 'content': 'génère une vidéo de chat'}]
                 etapes = list(websearch_tools._tools_phase(
-                    'modele-test', msgs, 'cle', journal, findings,
+                    'modele-test', msgs, 'cle', step_log, findings,
                     web_ok=False, video_ok=True, username='zz-test-vid'))
         annonces = [e for e in etapes if '"generation_video"' in e]
         self.assertTrue(annonces, etapes)
         self.assertTrue(any('/video/file/' in content for _n, content in findings),
                         findings)
-        self.assertEqual(journal[-1]['outil'], 'comfyui')
+        self.assertEqual(step_log[-1]['tool'], 'comfyui')
 
 
 if __name__ == '__main__':

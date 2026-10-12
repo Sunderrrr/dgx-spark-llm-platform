@@ -66,15 +66,15 @@ class LireAnnuaireTest(unittest.TestCase):
         conn = _Conn([{'cn': ['Alice'], 'ak-active': ['TRUE']},
                       {'cn': ['bob'], 'ak-active': ['FALSE']}])
         with mock.patch.object(directory, 'ldap_config', return_value=CONFIG), \
-             mock.patch.object(directory, '_connexion', return_value=conn):
+             mock.patch.object(directory, '_connection', return_value=conn):
             read_result = directory.read_directory()
-        self.assertEqual(read_result['states'], {'alice': 'actif', 'bob': 'desactive'})
+        self.assertEqual(read_result['states'], {'alice': 'active', 'bob': 'disabled'})
         self.assertEqual(read_result['groups'], {'alice': [], 'bob': []})
         self.assertEqual(conn.filtres, ['(cn=*)'])
 
     def test_annuaire_injoignable(self):
         with mock.patch.object(directory, 'ldap_config', return_value=CONFIG), \
-             mock.patch.object(directory, '_connexion', side_effect=OSError('down')):
+             mock.patch.object(directory, '_connection', side_effect=OSError('down')):
             self.assertIsNone(directory.read_directory())
 
     def test_annuaire_non_configure(self):
@@ -89,11 +89,11 @@ class EtatsAnnuaireTest(unittest.TestCase):
         self.addCleanup(directory._state.update, t=0.0, states=None, running=False)
 
     def test_present_desactive_et_absent_depuis_le_cliche(self):
-        directory._state.update(t=time.time(), states={'alice': 'actif', 'bob': 'desactive'},
+        directory._state.update(t=time.time(), states={'alice': 'active', 'bob': 'disabled'},
                                running=False)
         with mock.patch.object(directory, 'read_directory') as read:
             states = directory.directory_states_for(['Alice', 'bob', 'carol'])
-        self.assertEqual(states, {'Alice': 'actif', 'bob': 'desactive', 'carol': 'absent'})
+        self.assertEqual(states, {'Alice': 'active', 'bob': 'disabled', 'carol': 'absent'})
         read.assert_not_called()
 
     def test_sans_cliche_rien_n_est_devine_et_la_lecture_part_en_fond(self):
@@ -101,7 +101,7 @@ class EtatsAnnuaireTest(unittest.TestCase):
 
         def lente():
             finished.wait(5)
-            return {'states': {'alice': 'actif'}, 'groups': {}}
+            return {'states': {'alice': 'active'}, 'groups': {}}
         with mock.patch.object(directory, 'read_directory', side_effect=lente):
             t0 = time.perf_counter()
             self.assertIsNone(directory.directory_states_for(['alice']))
@@ -111,17 +111,17 @@ class EtatsAnnuaireTest(unittest.TestCase):
                 if not directory._state['running']:
                     break
                 time.sleep(0.02)
-        self.assertEqual(directory.directory_states_for(['alice']), {'alice': 'actif'})
+        self.assertEqual(directory.directory_states_for(['alice']), {'alice': 'active'})
 
     def test_une_panne_garde_le_cliche_precedent(self):
-        directory._state.update(t=0.0, states={'alice': 'actif'}, running=False)
+        directory._state.update(t=0.0, states={'alice': 'active'}, running=False)
         with mock.patch.object(directory, 'read_directory', return_value=None):
             directory.directory_states_for(['alice'])
             for _ in range(100):
                 if not directory._state['running']:
                     break
                 time.sleep(0.02)
-        self.assertEqual(directory.directory_states_for(['alice']), {'alice': 'actif'},
+        self.assertEqual(directory.directory_states_for(['alice']), {'alice': 'active'},
                          "an outage does not make everyone absent")
 
 

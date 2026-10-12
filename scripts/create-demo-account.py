@@ -31,7 +31,7 @@ from local_users import _sync_local_user_budget           # noqa: E402
 USER = os.environ.get('DEMO_USER', 'demo')
 
 if 'DEMO_PW' not in os.environ or len(os.environ['DEMO_PW']) < 12:
-    sys.exit("DEMO_PW manquant (12 caractères minimum) — voir la docstring.")
+    sys.exit("DEMO_PW missing (12 characters minimum) — see the docstring.")
 
 with portal.app.app_context():
     db = portal.get_db()
@@ -50,4 +50,4 @@ with portal.app.app_context():
     db.commit()
     _sync_local_user_budget(USER, db.execute("SELECT * FROM local_users WHERE username=?",
                                              (USER,)).fetchone())
-    print(f"  compte {USER} prêt (lang=en, thème neutre, mémoire activée, non admin)")
+    print(f"  account {USER} ready (lang=en, neutral theme, memory enabled, not admin)")

@@ -98,9 +98,9 @@ export default function VideoPage({ seed }: { seed?: Seed<{ [K in keyof VideoSee
         // We keep the name ACTUALLY served, for the title: it was hardcoded
         // (« MiniMax H3 »), so true as long as the ComfyUI workflow does not
         // change — and false the day it changes, with nothing flagging it.
-        const modele = d?.running_models?.find((m: RunningModel) => m.kind === "video");
-        setAvailable(!!modele);
-        setVideoName(modele?.name ?? null);
+        const model = d?.running_models?.find((m: RunningModel) => m.kind === "video");
+        setAvailable(!!model);
+        setVideoName(model?.name ?? null);
       })
       .catch(() => setAvailable(null));
   }, [fresh.running]);

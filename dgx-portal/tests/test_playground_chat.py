@@ -300,7 +300,7 @@ class FluxSSETest(_BasePlayground):
         # The free memory goes with it: under a ~100 GB chat model the sidecar
         # often simply cannot start, and « the service is stopped » alone makes
         # a click look like the fix.
-        self.assertIn('libre_gib', body)
+        self.assertIn('free_gib', body)
 
     def test_demande_de_document_service_arrete_notice(self):
         """EXPLICIT read request with the OCR sidecar off: the model would
@@ -736,11 +736,11 @@ class PhaseOutilsTest(_BasePlayground):
         """`lire_pages` can block 90 s without yielding; the frontend proxy cuts
         at 60 s WITHOUT A BYTE. The result was thus lost and the user saw
         « Erreur réseau » while the read succeeded."""
-        def _outil_lent(name, args, journal):
+        def _outil_lent(name, args, step_log):
             time.sleep(0.4)
-            journal.append({'etape': 'lecture_finie', 'outil': 'crawl4ai',
-                            'lues': 1, 'urls': [], 'echecs': []})
-            return 'contenu'
+            step_log.append({'step': 'reading_done', 'tool': 'crawl4ai',
+                            'read': 1, 'urls': [], 'failures': []})
+            return 'content'
 
         with patch.object(outils_web, '_exec_web_tool', side_effect=_outil_lent), \
              patch.object(outils_web, 'TOOL_HEARTBEAT_S', 0.1):
@@ -928,10 +928,10 @@ class ConversationsTest(_BasePlayground):
         self._record('c3', [{'role': 'assistant', 'content': gros},
                                 {'role': 'assistant', 'content': gros},
                                 {'role': 'user', 'content': gros},
-                                {'role': 'assistant', 'content': 'dernier'}])
+                                {'role': 'assistant', 'content': 'last_value'}])
         msgs = self._client().get('/api/conversations').get_json()['conversations'][0]['messages']
         self.assertLessEqual(len(json.dumps(msgs)), conv_routes.CONV_MAX_CHARS)
-        self.assertEqual(msgs[-1]['content'], 'dernier')
+        self.assertEqual(msgs[-1]['content'], 'last_value')
 
     def test_liste_bornee_et_conversation_a_la_demande(self):
         """30 full conversations make ~60 Mo of JSON loaded at every playground
@@ -942,12 +942,12 @@ class ConversationsTest(_BasePlayground):
             self._record(f'g{i}', [{'role': 'user', 'content': gros + str(i)}])
         with patch.object(conv_routes, 'LIST_MAX_BYTES', 1_000_000):
             convs = self._client().get('/api/conversations').get_json()['conversations']
-        omis = [c for c in convs if c.get('messages_omis')]
-        complets = [c for c in convs if not c.get('messages_omis')]
+        omis = [c for c in convs if c.get('omitted_messages')]
+        complets = [c for c in convs if not c.get('omitted_messages')]
         self.assertTrue(omis, 'aucune conversation omise : la borne ne joue pas')
         self.assertTrue(complets)
         # The first one is ALWAYS whole: we do not open on an empty thread.
-        self.assertFalse(convs[0].get('messages_omis'))
+        self.assertFalse(convs[0].get('omitted_messages'))
         target = omis[0]
         r = self._client().get(f"/api/conversations/{target['id']}")
         self.assertEqual(r.status_code, 200)

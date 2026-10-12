@@ -80,7 +80,7 @@ def image_available():
 
 def _image_tools():
     return [{'type': 'function', 'function': {
-        'name': 'generer_image',
+        'name': 'generate_image',
         'description': (
             "Génère une image à partir d'une description. Réécris la demande en "
             "prompt visuel détaillé (sujet, style, lumière, cadrage) — idéalement "
@@ -91,17 +91,17 @@ def _image_tools():
                        'description': "Description visuelle détaillée de l'image à produire."},
             'format': {'type': 'string', 'enum': ['png', 'jpeg', 'webp'],
                        'description': "Format du fichier (défaut png)."},
-            'largeur': {'type': 'integer',
+            'width': {'type': 'integer',
                         'description': "Largeur en pixels (256–1536, défaut 1024)."},
-            'hauteur': {'type': 'integer',
+            'height': {'type': 'integer',
                         'description': "Hauteur en pixels (256–1536, défaut 1024)."},
-            'nombre': {'type': 'integer',
+            'count': {'type': 'integer',
                        'description': "Nombre d'images à produire (1-4, défaut 1)."},
-            'sortie_largeur': {'type': 'integer',
+            'output_width': {'type': 'integer',
                                'description': "Largeur FINALE après agrandissement "
                                               "(jusqu'à 3840 — la 4K — défaut : la taille "
                                               "de génération)."},
-            'sortie_hauteur': {'type': 'integer',
+            'output_height': {'type': 'integer',
                                'description': "Hauteur FINALE après agrandissement "
                                               "(jusqu'à 3840)."},
         }, 'required': ['prompt']}}}]
@@ -114,14 +114,14 @@ def _announce_image(args):
     # Image page does this, a single grey square while four are cooking read as
     # « nothing is happening ».
     try:
-        count_value = max(1, min(4, int(args.get('nombre') or 1)))
+        count_value = max(1, min(4, int(args.get('count') or 1)))
     except (TypeError, ValueError):
         count_value = 1
-    return {'etape': 'generation', 'outil': 'diffusers', 'nombre': count_value,
+    return {'step': 'generation', 'tool': 'diffusers', 'count': count_value,
             'question': str(args.get('prompt', ''))[:200]}
 
 
-def _exec_image_tool(args, username, journal):
+def _exec_image_tool(args, username, step_log):
     """Generate the image and return the text to hand back to the model.
 
     GENERATOR: yields SSE heartbeats while waiting; the final text is the
@@ -146,7 +146,7 @@ def _exec_image_tool(args, username, journal):
             v = default
         return max(256, min(1536, v))
 
-    width, height = _dim('largeur', 1024), _dim('hauteur', 1024)
+    width, height = _dim('width', 1024), _dim('height', 1024)
 
     def _output_dim(key):
         try:
@@ -157,9 +157,9 @@ def _exec_image_tool(args, username, journal):
 
     # 4K is done by UPSCALING, like on the image page: the generation stays
     # within 256–1536 and it is the output that goes up to 3840.
-    output_width, output_height = _output_dim('sortie_largeur'), _output_dim('sortie_hauteur')
+    output_width, output_height = _output_dim('output_width'), _output_dim('output_height')
     try:
-        count_value = int(args.get('nombre') or 1)
+        count_value = int(args.get('count') or 1)
     except (TypeError, ValueError):
         count_value = 1
     count_value = max(1, min(4, count_value))
@@ -195,10 +195,10 @@ def _exec_image_tool(args, username, journal):
 
     urls = ([f"/image/file/{prompt_id}/{i}" for i in range(fact)]
             if status_value == 'done' else [])
-    journal.append({'etape': 'generation_finie', 'outil': 'diffusers',
+    step_log.append({'step': 'generation_done', 'tool': 'diffusers',
                     'question': prompt[:200], 'prompt_id': prompt_id,
                     'images': urls,
-                    'erreur': None if urls else "La génération a échoué."})
+                    'error': None if urls else "La génération a échoué."})
     if not urls:
         return ("La génération d'image a échoué (sidecar indisponible ou "
                 "surchargé). Dis-le tel quel à l'utilisateur.")

@@ -120,7 +120,7 @@ def _document_tools():
 
 def _announce_document(args):
     """What we are about to read, told to the client before doing it."""
-    return {'etape': 'ocr', 'outil': 'unlimited-ocr',
+    return {'step': 'ocr', 'tool': 'unlimited-ocr',
             'question': str(args.get('fichier', ''))[:200]}
 
 
@@ -151,7 +151,7 @@ def _decode_data_url(url):
     return mime, base64.b64decode(b64)
 
 
-def _exec_document_tool(args, username, journal, attachments):
+def _exec_document_tool(args, username, step_log, attachments):
     """Extract the text of the attachment and return it to the model.
 
     GENERATOR: yields SSE heartbeats while the OCR sidecar works; the extracted
@@ -167,8 +167,8 @@ def _exec_document_tool(args, username, journal, attachments):
     # guard — a refusal is said plainly, the user is not left guessing why.
     ok, reason = sidecar_autostart('ocr', lambda: get_ocr_model() is not None)
     if not ok:
-        journal.append({'etape': 'ocr_finie', 'outil': 'unlimited-ocr',
-                        'question': name, 'caracteres': 0, 'erreur': reason})
+        step_log.append({'step': 'ocr_done', 'tool': 'unlimited-ocr',
+                        'question': name, 'chars': 0, 'error': reason})
         return (f"Le service de lecture est indisponible : {reason}. "
                 "Dis-le tel quel à l'utilisateur.")
     mime, size_bytes = _decode_data_url(target)
@@ -183,7 +183,7 @@ def _exec_document_tool(args, username, journal, attachments):
             for _ in ocr_routes.ocr_extract_stream(
                     size_bytes, mime, _INSTRUCTION, vu.append):
                 pass
-            box['texte'] = vu[0] if vu else ''
+            box['text'] = vu[0] if vu else ''
         except Exception as e:                     # noqa: BLE001
             box['e'] = e
 
@@ -197,21 +197,21 @@ def _exec_document_tool(args, username, journal, attachments):
             yield ": battement\n\n"
             next_heartbeat = time.monotonic() + _HEARTBEAT_EVERY_S
     if thread.is_alive():
-        journal.append({'etape': 'ocr_finie', 'outil': 'unlimited-ocr',
-                        'question': name, 'caracteres': 0,
-                        'erreur': "Lecture interrompue : trop longue."})
+        step_log.append({'step': 'ocr_done', 'tool': 'unlimited-ocr',
+                        'question': name, 'chars': 0,
+                        'error': "Lecture interrompue : trop longue."})
         return ("La lecture du document a pris trop de temps et a été "
                 "interrompue. Dis-le tel quel à l'utilisateur.")
 
-    text = str(box.get('texte') or '').strip()
+    text = str(box.get('text') or '').strip()
     if not text:
         reason = (str(box['e'])[:120] if 'e' in box
                  else "service en difficulté ou image illisible")
-        journal.append({'etape': 'ocr_finie', 'outil': 'unlimited-ocr',
-                        'question': name, 'caracteres': 0, 'erreur': reason})
+        step_log.append({'step': 'ocr_done', 'tool': 'unlimited-ocr',
+                        'question': name, 'chars': 0, 'error': reason})
         return ("Aucun texte n'a pu être extrait de ce document (" + reason +
                 "). Dis-le tel quel à l'utilisateur.")
-    journal.append({'etape': 'ocr_finie', 'outil': 'unlimited-ocr',
-                    'question': name, 'caracteres': len(text), 'erreur': None})
+    step_log.append({'step': 'ocr_done', 'tool': 'unlimited-ocr',
+                    'question': name, 'chars': len(text), 'error': None})
     return ("Texte extrait du document par OCR (brut, dactylographié ou "
             "manuscrit — cite-le, ne le réécris pas) :\n\n" + text[:_TEXT_MAX])

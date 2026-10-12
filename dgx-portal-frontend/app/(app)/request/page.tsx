@@ -16,7 +16,7 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { sendJSON } from "@/lib/api";
-import { useT, tServeur } from "@/lib/i18n";
+import { useT, tServer } from "@/lib/i18n";
 
 function RequestForm() {
   const t = useT();
@@ -39,14 +39,14 @@ function RequestForm() {
         // Server refusal (request already pending, empty identifier…). We
         // STAY on the page: sending back home would look like a saved
         // request — it is exactly what the old silent 204 did.
-        showToast({ body: messageRefus(r), type: "error" });
+        showToast({ body: refusalMessage(r), type: "error" });
         return;
       }
       // The success message is built here (not taken from the server) to stay
       // translatable; the warning, for its part, comes from the server: it
       // describes a failure only it knows about.
       showToast({ body: t("Demande envoyée !"), type: "info" });
-      if (r.warning) showToast({ body: tServeur(r.warning, t), type: "error" });
+      if (r.warning) showToast({ body: tServer(r.warning, t), type: "error" });
       router.push("/");
     } catch {
       showToast({ body: t("Erreur lors de l'envoi de la demande."), type: "error" });
@@ -57,14 +57,14 @@ function RequestForm() {
 
   /** Stable refusals carry a `code`: we translate it. The server text
    * (French) is only a fallback for cases not handled client-side. */
-  function messageRefus(r: { error?: string; code?: string }): string {
+  function refusalMessage(r: { error?: string; code?: string }): string {
     switch (r.code) {
-      case "deja_en_attente":
+      case "already_pending":
         return t("Tu as déjà une demande en attente pour ce modèle.");
-      case "identifiant_requis":
+      case "identifier_required":
         return t("L'identifiant du modèle est requis.");
       default:
-        return r.error ? tServeur(r.error, t) : t("Erreur lors de l'envoi de la demande.");
+        return r.error ? tServer(r.error, t) : t("Erreur lors de l'envoi de la demande.");
     }
   }
 

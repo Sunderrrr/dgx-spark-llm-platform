@@ -86,12 +86,12 @@ for range in "${ranges[@]}"; do
   # publishes nothing new and must not block the push that removes it.
   if [ -f .env ]; then
     haystack=$(git diff -U0 "$range" 2>/dev/null | grep -E '^\+[^+]'; git log --format=%B "$range" 2>/dev/null)
-    while IFS='=' read -r cle val; do
-      [ -z "$cle" ] && continue
-      case "$cle" in \#*|'') continue ;; esac
+    while IFS='=' read -r key val; do
+      [ -z "$key" ] && continue
+      case "$key" in \#*|'') continue ;; esac
       [ "${#val}" -lt 8 ] && continue
       if printf '%s' "$haystack" | grep -qF -- "$val"; then
-        fail "A value from .env ($cle) is in the push."; secret_hit=1
+        fail "A value from .env ($key) is in the push."; secret_hit=1
       fi
     done < .env
   fi
@@ -130,11 +130,11 @@ fi
 # French and the English-speaking user reads French. A local check that takes a
 # second beats discovering it in production; it also runs in CI, but better to
 # catch it before the push.
-info "Contrôle de couverture i18n (scripts/check-i18n.py)…"
+info "i18n coverage check (scripts/check-i18n.py)…"
 if python3 scripts/check-i18n.py; then
-  ok "i18n couvert"
+  ok "i18n covered"
 else
-  fail "Traductions manquantes ou locale figée — push annulé."
+  fail "Missing translations or hardcoded locale — push aborted."
   exit 1
 fi
 
@@ -144,11 +144,11 @@ fi
 # bubble, which no backend test can see. `node --test` runs the TS tests
 # natively (Node >= 23) with zero dependencies.
 info "Running frontend unit tests (dgx-portal-frontend: npm test)…"
-sortie=$(cd dgx-portal-frontend && npm test 2>&1); statut=$?
-if [ "$statut" -eq 0 ]; then
+output=$(cd dgx-portal-frontend && npm test 2>&1); status=$?
+if [ "$status" -eq 0 ]; then
   ok "Frontend tests passed"
 else
-  printf '%s\n' "$sortie" | tail -25
+  printf '%s\n' "$output" | tail -25
   fail "Frontend tests FAILED — push aborted."
   exit 1
 fi

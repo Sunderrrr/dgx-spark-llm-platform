@@ -1651,7 +1651,6 @@ const EN: Record<string, string> = {
   "Jamais utilisée": "Never used",
   "Nouveau nom pour la clé « {alias} » :": "New name for key “{alias}”:",
   "Clé renommée.": "Key renamed.",
-  "alias_deja_utilise": "You already have a key with that name.",
 
   // ── Budget: the period, not the day ──
   "Consommé sur la période": "Used this period",
@@ -1884,34 +1883,34 @@ export function useT() {
  * same trick as the quota notice (lib/notices.ts). Exact keys win first;
  * anything unmatched is displayed as-is (a missing translation must never
  * mangle a message). */
-type ModeleServeur = { re: RegExp; msgid: string };
-let modelesServeur: ModeleServeur[] | null = null;
+type ServerModel = { re: RegExp; msgid: string };
+let serverModels: ServerModel[] | null = null;
 
-function tableModelesServeur(): ModeleServeur[] {
-  if (!modelesServeur) {
+function serverModelsTable(): ServerModel[] {
+  if (!serverModels) {
     // Longest templates first: a short one must not swallow a longer sibling.
-    modelesServeur = Object.keys(EN)
+    serverModels = Object.keys(EN)
       .filter((k) => /\{[^}]+\}/.test(k))
       .sort((a, b) => b.length - a.length)
       .map((msgid) => {
-        const motif = msgid
+        const pattern = msgid
           .split(/(\{[^}]+\})/)
           .filter(Boolean)
           .map((m) => (/^\{[^}]+\}$/.test(m) ? "([\\s\\S]*?)" : m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
           .join("");
-        return { re: new RegExp(`^${motif}$`), msgid };
+        return { re: new RegExp(`^${pattern}$`), msgid };
       });
   }
-  return modelesServeur;
+  return serverModels;
 }
 
 /** Translates a SERVER-PROVIDED sentence at display time (cf. block comment).
- *  `t` is passed as a parameter (module function): like `texteNotice`, a hook
+ *  `t` is passed as a parameter (module function): like `noticeText`, a hook
  *  can only be called from a component. */
-export function tServeur(message: string, t: (fr: string) => string): string {
+export function tServer(message: string, t: (fr: string) => string): string {
   const direct = t(message);
   if (direct !== message) return direct;          // exact key, done
-  for (const { re, msgid } of tableModelesServeur()) {
+  for (const { re, msgid } of serverModelsTable()) {
     const m = message.match(re);
     if (!m) continue;
     let i = 0;

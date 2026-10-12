@@ -373,7 +373,7 @@ def support_chat():
     # An INTERRUPTED response (closed tab, « Arrêter », model error) must
     # neither be kept as a discussion thread nor serve as material for
     # memory extraction: we only memorize what ran to completion.
-    _state = {'fini': False}
+    _state = {'finished': False}
 
     def _gen_inner():
         # SSE comment emitted BEFORE any work: it forces the response
@@ -426,7 +426,7 @@ def support_chat():
                     if not streamed_any:
                         yield _sse_notice('empty_reply', done=False)
                     else:
-                        _state['fini'] = True     # complete reply (see _fin_support)
+                        _state['finished'] = True     # complete reply (see _fin_support)
                     yield "data: [DONE]\n\n"
                     return
                 # The model calls tools → we run them server-side then loop again.
@@ -499,7 +499,7 @@ def support_chat():
                 yield _sse_notice('reformulate', done=False)
             else:
                 _response.append(content)
-                _state['fini'] = True             # complete reply (see _fin_support)
+                _state['finished'] = True             # complete reply (see _fin_support)
             yield "data: [DONE]\n\n"
         except Exception:
             yield _sse_notice('model_timeout', done=False)
@@ -514,7 +514,7 @@ def support_chat():
             _duration = (round(((_thought_end[0] or time.monotonic()) - _reasoning_start[0]) * 1000)
                       if _reasoning_start[0] is not None else None)
             _finish_support(username, history, _response, model, user_key, _mem_on,
-                         _state['fini'], current_app._get_current_object(),
+                         _state['finished'], current_app._get_current_object(),
                          reason="".join(_reason), reasoning_ms=_duration)
 
     return Response(stream_with_context(gen()), mimetype='text/event-stream',
@@ -1262,7 +1262,7 @@ def playground_chat():
         if _img_requested and not _img_service:
             yield ("data: " + json.dumps(
                 {'dgx_notice': {'id': 'image_service_off',
-                                   'libre_gib': _available_memory_gib()}}) + "\n\n")
+                                   'free_gib': _available_memory_gib()}}) + "\n\n")
         # Same notice for the video and document tools: same trap, the model
         # would answer « je ne peux pas générer de vidéo » / « je ne sais pas
         # lire ce document » while the platform can — it is the service that is
@@ -1270,11 +1270,11 @@ def playground_chat():
         if _vid_requested and not _vid_service:
             yield ("data: " + json.dumps(
                 {'dgx_notice': {'id': 'video_service_off',
-                                   'libre_gib': _available_memory_gib()}}) + "\n\n")
+                                   'free_gib': _available_memory_gib()}}) + "\n\n")
         if _doc_requested and not _doc_service:
             yield ("data: " + json.dumps(
                 {'dgx_notice': {'id': 'document_service_off',
-                                   'libre_gib': _available_memory_gib()}}) + "\n\n")
+                                   'free_gib': _available_memory_gib()}}) + "\n\n")
         # The TTFT stopwatch starts HERE, before the tool phase: it is the delay
         # actually suffered by the person who asked the question. It was taken
         # after the search (just before the final POST), so a request that spent
@@ -1282,8 +1282,8 @@ def playground_chat():
         _t0 = time.monotonic()
         if _web_ok or _img_ok or _vid_ok or _doc_ok:
             yield ": recherche\n\n"
-            _journal, _findings = [], []
-            for _step in _tools_phase(model, msgs, user_key, _journal,
+            _step_log, _findings = [], []
+            for _step in _tools_phase(model, msgs, user_key, _step_log,
                                         _findings, web_ok=_web_ok,
                                         img_ok=_img_ok, username=_who,
                                         video_ok=_vid_ok, doc_ok=_doc_ok,
@@ -1344,7 +1344,7 @@ def playground_chat():
                         r = _open({'enable_thinking': reasoning})
                     with r:
                         if not r.ok:
-                            _upstream['statut'] = r.status_code
+                            _upstream['status'] = r.status_code
                             return
                         for _l in r.iter_lines():
                             # The client is gone: we exit the `with`, which closes the
@@ -1368,10 +1368,10 @@ def playground_chat():
                         pass
 
             _thread = threading.Thread(target=_reader, daemon=True)
-            _ttft_vu = False
+            _ttft_seen = False
             _ttft_s = None     # measured TTFT (prefill rate below)
             _chars_seen = 0     # live gauge: chars seen (tokens = chars/ratio)
-            _maj_direct = 0.0  # gauge written at most once per second
+            _direct_update = 0.0  # gauge written at most once per second
             _first_tok_wall = None  # first-token wall time (decode-rate denominator)
             _response = []      # full model text, for memory extraction
             _thread.start()
@@ -1400,21 +1400,21 @@ def playground_chat():
                                    .get('delta') or {})
                             _dc = len(_dl.get('content') or '') + len(_dl.get('reasoning_content') or '')
                             if _dc:
-                                if not _ttft_vu:
+                                if not _ttft_seen:
                                     _ttft_s = time.monotonic() - _t0
                                     _first_tok_wall = time.time()
                                     record_ttft(_ttft_s * 1000)
-                                    _ttft_vu = True
+                                    _ttft_seen = True
                                 # Live decode gauge (2026-10-02): TabbyAPI
                                 # publishes no /metrics and its stream carries no
                                 # token counter — the dashboard showed « 0 tok/s »
                                 # while the model was generating. ~ chars/4 is the
-                                # tokens = chars / ratio_chars_par_token(), the
+                                # tokens = chars / ratio_chars_per_token(), the
                                 # ratio calibrated on the exact `usage` of each
                                 # finished request (see stats.py). 1 write/second.
                                 _chars_seen += _dc
-                                if time.monotonic() - _maj_direct >= 1.0:
-                                    _maj_direct = time.monotonic()
+                                if time.monotonic() - _direct_update >= 1.0:
+                                    _direct_update = time.monotonic()
                                     _inflight_tokens(_rid, _chars_seen, _first_tok_wall)
                         except Exception:
                             pass
@@ -1456,11 +1456,11 @@ def playground_chat():
                             pass
                     _bytes += len(txt)
                     yield txt + "\n\n"
-            if _upstream.get('statut'):
+            if _upstream.get('status'):
                 # Status picked up in the thread: the generator no longer sees the
                 # HTTP response itself, only what the thread reports back to it.
                 # STRUCTURED notices: the frontend translates (FR/EN) at render.
-                if _upstream['statut'] == 429:
+                if _upstream['status'] == 429:
                     _reset = ''
                     try:
                         _reset = (_litellm_user_info(_who).get('budget_reset_at') or '')[:16].replace('T', ' ')
@@ -1468,7 +1468,7 @@ def playground_chat():
                         pass
                     yield _sse_notice('quota_exceeded', reset=_reset)
                 else:
-                    yield _sse_notice('model_replied_error', status=_upstream['statut'])
+                    yield _sse_notice('model_replied_error', status=_upstream['status'])
                 return
             if _finish is None:
                 # The upstream stream closed WITHOUT announcing an end. For

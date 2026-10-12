@@ -73,11 +73,11 @@ const METRICS = [
 const MEDALS: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 
 /** Percentage in the displayed language: « 30,89 % » in French, « 30.89% » in English. */
-function pct(v: number, numLocale: string, decimales = 2) {
+function pct(v: number, numLocale: string, decimals = 2) {
   return (v / 100).toLocaleString(numLocale, {
     style: "percent",
-    minimumFractionDigits: decimales,
-    maximumFractionDigits: decimales,
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
   });
 }
 
@@ -85,7 +85,7 @@ function pct(v: number, numLocale: string, decimales = 2) {
  * of the period (24 h, 7 j, 30 j or 12 months). Under 5 points we display
  * nothing rather than a curve: « depuis le debut » has only 3, and three
  * points say no more than the total. */
-function Tendance({ points, myself }: { points: number[]; myself: boolean }) {
+function Trend({ points, myself }: { points: number[]; myself: boolean }) {
   const t = useT();
   if (points.length < 5) {
     return <Text type="supporting" color="secondary">—</Text>;
@@ -135,23 +135,23 @@ export default function RankingPage({ seed }: { seed?: Seed<{ ranking: RankingDa
     failed: false,
   });
   // The default view came with the page: its first run skips the fetch.
-  const vueServie = useRef(fresh.ranking);
+  const servedView = useRef(fresh.ranking);
 
   useEffect(() => {
     // An outage must be distinguishable from an absence of consumption: without
     // this state, an API error displayed « aucune consommation sur cette periode »
-    // and led to the conclusion that nobody had used anything. The `vivant`
+    // and led to the conclusion that nobody had used anything. The `alive`
     // flag discards the answer of a period already left — on a fast round-trip
     // between two periods, the slowest overwrote the most recent.
-    if (vueServie.current) {
-      vueServie.current = false;
+    if (servedView.current) {
+      servedView.current = false;
       return;
     }
-    let vivant = true;
+    let alive = true;
     getJSON<RankingData>(`/api/ranking?period=${period}&metric=${metric}`)
-      .then((d) => { if (vivant) setState({ data: d, failed: false }); })
-      .catch(() => { if (vivant) setState({ data: null, failed: true }); });
-    return () => { vivant = false; };
+      .then((d) => { if (alive) setState({ data: d, failed: false }); })
+      .catch(() => { if (alive) setState({ data: null, failed: true }); });
+    return () => { alive = false; };
   }, [period, metric]);
 
   const { data, failed } = state;
@@ -185,7 +185,7 @@ export default function RankingPage({ seed }: { seed?: Seed<{ ranking: RankingDa
             <UserAvatar avatarId={r.avatar_id} username={r.username} size="sm" />
           )}
           <Text weight={r.is_me ? "bold" : undefined} color={r.is_unattributed ? "secondary" : undefined}>
-            {r.username === "inconnu" ? t("Clés non attribuées") : r.username}
+            {r.username === "unknown" ? t("Clés non attribuées") : r.username}
           </Text>
           {r.is_me && <Badge label={t("toi")} variant="neutral" />}
         </HStack>
@@ -226,7 +226,7 @@ export default function RankingPage({ seed }: { seed?: Seed<{ ranking: RankingDa
       key: "trend",
       header: t("Tendance"),
       width: pixel(112),
-      renderCell: (r) => <Tendance points={r.trend} myself={r.is_me} />,
+      renderCell: (r) => <Trend points={r.trend} myself={r.is_me} />,
     },
     {
       key: "delta",

@@ -436,7 +436,7 @@ _LOG_MAX_BYTES = 20 * 1024 * 1024
 _LOG_KEEP = 12
 
 
-class _Journal:
+class _RunLog:
     """Size-capped startup file, silent on failure.
 
     A class rather than a bare file handle: it must remember the bytes already
@@ -445,53 +445,53 @@ class _Journal:
     loop reading the engine's output.
     """
 
-    def __init__(self, chemin):
-        self.chemin = chemin
-        self._f = open(chemin, "w", encoding="utf-8", errors="replace")
-        self._ecrits = 0
-        self._ouvert = True
+    def __init__(self, path_):
+        self.path_ = path_
+        self._f = open(path_, "w", encoding="utf-8", errors="replace")
+        self._written = 0
+        self._opened = True
 
-    def ecrire(self, ligne):
-        if not self._ouvert:
+    def write(self, line_no):
+        if not self._opened:
             return
         try:
-            self._f.write(ligne + "\n")
-            self._ecrits += len(ligne) + 1
-            if self._ecrits > _LOG_MAX_BYTES:
-                self._f.write(f"[runner] journal tronqué à {_LOG_MAX_BYTES // 1024 ** 2} Mo\n")
-                self._fermer()
+            self._f.write(line_no + "\n")
+            self._written += len(line_no) + 1
+            if self._written > _LOG_MAX_BYTES:
+                self._f.write(f"[runner] log truncated at {_LOG_MAX_BYTES // 1024 ** 2} MB\n")
+                self._close()
         except Exception:
-            self._fermer()
+            self._close()
 
-    def _fermer(self):
-        self._ouvert = False
+    def _close(self):
+        self._opened = False
         try:
             self._f.close()
         except Exception:
             pass
 
 
-def _elague_journaux():
+def _prune_logs():
     """Keep only the latest startups (the disk is shared with the weights)."""
     try:
-        fichiers = [os.path.join(LOG_DIR, f) for f in os.listdir(LOG_DIR)
+        files = [os.path.join(LOG_DIR, f) for f in os.listdir(LOG_DIR)
                     if f.endswith(".log")]
-        fichiers.sort(key=lambda p: os.stat(p).st_mtime, reverse=True)
-        for vieux in fichiers[_LOG_KEEP:]:
-            os.remove(vieux)
+        files.sort(key=lambda p: os.stat(p).st_mtime, reverse=True)
+        for old in files[_LOG_KEEP:]:
+            os.remove(old)
     except Exception:
         pass
 
 
-def _ouvre_journal(name, engine):
+def _open_run_log(name, engine):
     """Open the journal for THIS startup, or None if that is not possible."""
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
-        propre = re.sub(r"[^A-Za-z0-9._-]", "_", name or "modele")[:60] or "modele"
-        chemin = os.path.join(LOG_DIR, f"{time.strftime('%Y%m%d-%H%M%S')}-{engine}-{propre}.log")
-        journal = _Journal(chemin)
-        _elague_journaux()
-        return journal
+        clean_value = re.sub(r"[^A-Za-z0-9._-]", "_", name or "modele")[:60] or "modele"
+        path_ = os.path.join(LOG_DIR, f"{time.strftime('%Y%m%d-%H%M%S')}-{engine}-{clean_value}.log")
+        run_log = _RunLog(path_)
+        _prune_logs()
+        return run_log
     except Exception:
         return None
 
@@ -609,9 +609,9 @@ def _launch_memory_ok(context):
     _wait_mem_release()
     free = _mem_available_gib()
     if free is not None and free < MIN_FREE_TO_LAUNCH_GIB:
-        _append(f"[runner] {context} REFUSE : {free:.1f} GiB disponibles seulement "
-                f"(plancher {MIN_FREE_TO_LAUNCH_GIB:.0f}). La memoire d'un modele "
-                f"precedent n'a pas ete rendue — lancer maintenant ferait planter la machine.")
+        _append(f"[runner] {context} REFUSED: only {free:.1f} GiB available "
+                f"(floor {MIN_FREE_TO_LAUNCH_GIB:.0f}). A previous model's memory "
+                f"has not been released — launching now would crash the machine.")
         return False
     return True
 
@@ -623,8 +623,8 @@ def _memory_guard(proc):
     while proc is _proc and proc.poll() is None:
         free = _mem_available_gib()
         if free is not None and free < CRITICAL_FREE_GIB:
-            _append(f"[runner] MEMOIRE CRITIQUE : {free:.1f} GiB disponibles — arret "
-                    f"force du modele pour eviter un OOM global de la machine.")
+            _append(f"[runner] CRITICAL MEMORY: {free:.1f} GiB available — force-stopping "
+                    f"the model to avoid a machine-wide OOM.")
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except Exception:
@@ -636,14 +636,14 @@ def _memory_guard(proc):
         time.sleep(0.5)
 
 
-def _reader(proc, journal=None):
+def _reader(proc, run_log=None):
     global _status, _proc, _model, _auto_retries, _running_since
     try:
         for raw in proc.stdout:
             line = raw.rstrip()
             _append(line)
-            if journal is not None:
-                journal.ecrire(line)
+            if run_log is not None:
+                run_log.write(line)
             # vLLM is ready when it prints "Application startup complete"
             # (only touch the global status if this process is still the active one —
             # otherwise an old reader thread, still draining a process killed by
@@ -654,8 +654,8 @@ def _reader(proc, journal=None):
                 _auto_retries = 0  # this launch worked, restart with a fresh retry budget
     except Exception as e:
         _append(f"[runner] read interrupted: {e}")
-        if journal is not None:
-            journal.ecrire(f"[runner] read interrupted: {e}")
+        if run_log is not None:
+            run_log.write(f"[runner] read interrupted: {e}")
     proc.wait()
     with _lock:
         if proc is _proc and _status != "stopped":
@@ -933,9 +933,9 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     # On-disk journal of the startup: the ONLY place where the root cause of a
     # failure will survive, since this clear() wipes the memory buffer at every
     # attempt (including at every auto-resume).
-    journal = _ouvre_journal(name, engine)
-    if journal is not None:
-        journal.ecrire(f"[runner] {time.strftime('%Y-%m-%dT%H:%M:%S')} démarrage "
+    run_log = _open_run_log(name, engine)
+    if run_log is not None:
+        run_log.write(f"[runner] {time.strftime('%Y-%m-%dT%H:%M:%S')} start "
                        f"{engine} — {name} ({hf_id})")
 
     # The previous model was just killed: wait for the driver to release the
@@ -947,12 +947,12 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
     # was stopped): rebuilding it here after the kill was exactly the flaw fixed
     # on 2026-10-02.
     _append(f"[runner] ({engine}) $ {' '.join(cmd)}")
-    if journal is not None:
-        journal.ecrire(f"$ {' '.join(cmd)}")
+    if run_log is not None:
+        run_log.write(f"$ {' '.join(cmd)}")
     if model_env:
         _append(f"[runner] model-specific env: {model_env}")
-        if journal is not None:
-            journal.ecrire(f"[runner] model-specific env: {model_env}")
+        if run_log is not None:
+            run_log.write(f"[runner] model-specific env: {model_env}")
 
     # Explicit minimal env rather than **os.environ — avoids leaking the full
     # root environment (assorted secrets) into /logs and /stream.
@@ -997,7 +997,7 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
         start_new_session=True,   # new process group → killpg works
         cwd=TABBY_DIR if engine == "exllamav3" else None,
     )
-    threading.Thread(target=_reader, args=(_proc, journal), daemon=True).start()
+    threading.Thread(target=_reader, args=(_proc, run_log), daemon=True).start()
     threading.Thread(target=_health_watch, args=(_proc,), daemon=True).start()
     threading.Thread(target=_memory_guard, args=(_proc,), daemon=True).start()
     # Always persist the state (manual, boot resume, watchdog) so last_model.json
@@ -1078,29 +1078,29 @@ def delete_model_files():
     elif _HF_ID_RE.fullmatch(hf_id):
         kind, ident = "hf", hf_id
     else:
-        return jsonify({"error": "hf_model_id invalide (local:<dossier> ou org/nom)"}), 400
+        return jsonify({"error": "invalid hf_model_id (local:<folder> or org/name)"}), 400
     if ".." in ident:
-        return jsonify({"error": "hf_model_id invalide (.. refusé)"}), 400
+        return jsonify({"error": "invalid hf_model_id (.. refused)"}), 400
     with _lock:
         try:
             with open(STATE_FILE) as f:
-                en_cours = (json.load(f) or {}).get("hf_model_id")
+                running = (json.load(f) or {}).get("hf_model_id")
         except (OSError, ValueError):
-            en_cours = None
-        if en_cours == hf_id:
-            return jsonify({"error": "modèle servi (ou en attente de reprise) : "
-                                     "arrête-le avant d'effacer ses fichiers"}), 409
+            running = None
+        if running == hf_id:
+            return jsonify({"error": "model being served (or waiting to resume): "
+                                     "stop it before deleting its files"}), 409
         ok, out = _sudo("/usr/local/sbin/model-files-rm.sh", kind, ident, timeout=600)
     if not ok:
         absent = "absent" in out
-        _append(f"[runner] Effacement des fichiers de {hf_id} : {'absents' if absent else 'ÉCHEC'} ({out[-200:]})")
-        return jsonify({"error": out[-300:] or "échec", "absent": absent}), 404 if absent else 500
+        _append(f"[runner] Deleting the files of {hf_id}: {'absent' if absent else 'FAILED'} ({out[-200:]})")
+        return jsonify({"error": out[-300:] or "failed", "absent": absent}), 404 if absent else 500
     try:
-        octets = int(out.strip().splitlines()[-1])
+        size_bytes = int(out.strip().splitlines()[-1])
     except (ValueError, IndexError):
-        octets = 0
-    _append(f"[runner] Fichiers de {hf_id} effacés ({octets / 2**30:.1f} Gio libérés).")
-    return jsonify({"status": "deleted", "bytes": octets})
+        size_bytes = 0
+    _append(f"[runner] Files of {hf_id} deleted ({size_bytes / 2**30:.1f} GiB freed).")
+    return jsonify({"status": "deleted", "bytes": size_bytes})
 
 
 # ── OCR (docker container) / Video (ComfyUI systemd service) ────────────────
@@ -1489,7 +1489,7 @@ def _watchdog():
     the persisted state. Capped at MAX_AUTO_RETRIES consecutive attempts so it
     doesn't loop forever on a broken config."""
     global _auto_retries
-    desactive_annonce = False
+    disable_announcement = False
     while True:
         time.sleep(10)
         # A model that holds STABLE_SECONDS without interruption resets the
@@ -1499,7 +1499,7 @@ def _watchdog():
                 and _read_resume_fails()):
             _write_resume_fails(0)
             _auto_retries = 0
-            desactive_annonce = False
+            disable_announcement = False
             _append("[runner] model stable — auto-resume failure counter reset")
         last = _load_last_launch()
         if not last:
@@ -1511,10 +1511,10 @@ def _watchdog():
             continue
         fails = _read_resume_fails()
         if fails >= MAX_AUTO_RETRIES:
-            if not desactive_annonce:
-                _append(f"[runner] auto-resume DESACTIVE apres {fails} echecs consecutifs "
-                        f"— relancer manuellement depuis l'Admin.")
-                desactive_annonce = True
+            if not disable_announcement:
+                _append(f"[runner] auto-resume DISABLED after {fails} consecutive failures "
+                        f"— relaunch manually from Admin.")
+                disable_announcement = True
             continue
         eng = last.get("engine", "vllm")
         ok, extra_tokens = _validate_vllm_args(last.get("vllm_args", ""), eng,

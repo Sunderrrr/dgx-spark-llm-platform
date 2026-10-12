@@ -11,11 +11,11 @@
 import { useSyncExternalStore, type ComponentProps } from "react";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 
-const pasDAbonnement = () => () => {};
+const noSubscription = () => () => {};
 
 /** False during the server render and hydration, true afterwards. */
 export function useHydrated(): boolean {
-  return useSyncExternalStore(pasDAbonnement, () => true, () => false);
+  return useSyncExternalStore(noSubscription, () => true, () => false);
 }
 
 export function ClientTimestamp(props: ComponentProps<typeof Timestamp>) {

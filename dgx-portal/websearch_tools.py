@@ -162,7 +162,7 @@ def _web_tools():
                             "présent dans la conversation : la réponse est dans ce code, relis-le."),
             'parameters': {'type': 'object', 'properties': {
                 'question': {'type': 'string', 'description': "Ce qu'il faut chercher."},
-                'nombre': {'type': 'integer',
+                'count': {'type': 'integer',
                            'description': "Nombre de résultats souhaités (1 à 8, défaut 6)."},
             }, 'required': ['question']}}},
         {'type': 'function', 'function': {
@@ -181,27 +181,27 @@ def _web_tools():
 def _announce(name, args):
     """What we are about to do, told to the client before doing it."""
     if name == 'recherche_web':
-        return {'etape': 'recherche', 'outil': 'searxng',
+        return {'step': 'search', 'tool': 'searxng',
                 'question': str(args.get('question', ''))[:200]}
     if name == 'lire_pages':
         urls = [str(u) for u in (args.get('urls') or [])][:websearch.MAX_PAGES]
-        return {'etape': 'lecture', 'outil': 'crawl4ai', 'urls': urls}
-    return {'etape': 'inconnue', 'outil': name}
+        return {'step': 'reading', 'tool': 'crawl4ai', 'urls': urls}
+    return {'step': 'unknown', 'tool': name}
 
 
-def _exec_web_tool(name, args, journal):
+def _exec_web_tool(name, args, step_log):
     """Executes a tool and returns the text to hand back to the model."""
     if name == 'recherche_web':
         question = str(args.get('question', ''))[:400]
-        res, err = websearch.search(question, args.get('nombre', 6))
-        journal.append({'etape': 'recherche_finie', 'outil': 'searxng',
-                        'question': question, 'nombre': len(res), 'erreur': err,
-                        'sources': [{'titre': r['titre'], 'url': r['url']} for r in res[:8]]})
+        res, err = websearch.search(question, args.get('count', 6))
+        step_log.append({'step': 'search_done', 'tool': 'searxng',
+                        'question': question, 'count': len(res), 'error': err,
+                        'sources': [{'title': r['title'], 'url': r['url']} for r in res[:8]]})
         if err:
             return f"La recherche a échoué : {err}"
         if not res:
             return "Aucun résultat."
-        return json.dumps({'resultats': res}, ensure_ascii=False)
+        return json.dumps({'results': res}, ensure_ascii=False)
     if name == 'lire_pages':
         urls = [str(u) for u in (args.get('urls') or [])][:websearch.MAX_PAGES]
         # The instruction « n'utilise que les adresses des résultats » lived in the
@@ -213,7 +213,7 @@ def _exec_web_tool(name, args, journal):
         # address and have the crawler fetch), and it closes arbitrary URL opening
         # at the same time. The refusal is EXPLICIT so the model falls back on the
         # extracts instead of retrying.
-        known_set = {s['url'] for entry in journal if entry.get('etape') == 'recherche_finie'
+        known_set = {s['url'] for entry in step_log if entry.get('step') == 'search_done'
                    for s in (entry.get('sources') or [])}
         refused = [u for u in urls if u not in known_set]
         urls = [u for u in urls if u in known_set]
@@ -222,16 +222,16 @@ def _exec_web_tool(name, args, journal):
                     "conversation : je ne peux ouvrir que les résultats affichés. "
                     "Refusées : " + ", ".join(refused[:4]))
         pages, err = websearch.read(urls)
-        journal.append({'etape': 'lecture_finie', 'outil': 'crawl4ai', 'urls': urls,
-                        'lues': sum(1 for p in pages if p.get('contenu')), 'erreur': err,
-                        'refusees': refused,
-                        'echecs': [{'url': p['url'], 'raison': p['erreur']}
-                                   for p in pages if p.get('erreur')]})
+        step_log.append({'step': 'reading_done', 'tool': 'crawl4ai', 'urls': urls,
+                        'read': sum(1 for p in pages if p.get('content')), 'error': err,
+                        'refused': refused,
+                        'failures': [{'url': p['url'], 'reason': p['error']}
+                                   for p in pages if p.get('error')]})
         if err:
             return f"La lecture a échoué : {err}"
-        suite = (" (adresses refusées, hors résultats de recherche : "
+        continuation = (" (adresses refusées, hors résultats de recherche : "
                  + ", ".join(refused[:4]) + ")") if refused else ""
-        return json.dumps({'pages': pages}, ensure_ascii=False) + suite
+        return json.dumps({'pages': pages}, ensure_ascii=False) + continuation
     return "Outil inconnu."
 
 
@@ -259,7 +259,7 @@ def _bound_tools_prompt(short_text):
         del short_text[idx:end]
 
 
-def _exec_web_tool_with_heartbeats(name, args, journal):
+def _exec_web_tool_with_heartbeats(name, args, step_log):
     """GENERATOR: runs a web tool while beating time during the wait.
 
     Yields (generator return value) the text meant for the model, exactly
@@ -272,7 +272,7 @@ def _exec_web_tool_with_heartbeats(name, args, journal):
 
     def _run():
         try:
-            box['r'] = _exec_web_tool(name, args, journal)
+            box['r'] = _exec_web_tool(name, args, step_log)
         except Exception as e:                      # noqa: BLE001
             # An exception here is a REAL failure (crawl4ai unreachable, unreadable
             # response): we surface it to the caller, who tells the client and the
@@ -307,7 +307,7 @@ def _findings_text(findings):
     return ''.join(chunks)[:40000]
 
 
-def _tools_phase(model, msgs, user_key, journal, findings,
+def _tools_phase(model, msgs, user_key, step_log, findings,
                   web_ok=True, img_ok=False, username='',
                   video_ok=False, doc_ok=False, attachments=()):
     """Lets the model search, read or generate before answering. Modifies `msgs`
@@ -338,9 +338,9 @@ def _tools_phase(model, msgs, user_key, journal, findings,
     _end = time.monotonic() + TOOLS_MAX_DELAY
     for _ in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > _end:
-            journal.append({'etape': 'delai', 'outil': 'recherche',
-                            'erreur': "Recherche interrompue : trop longue."})
-            yield "data: " + json.dumps({'dgx_web': journal[-1]}) + "\n\n"
+            step_log.append({'step': 'timeout', 'tool': 'search',
+                            'error': "Recherche interrompue : trop longue."})
+            yield "data: " + json.dumps({'dgx_web': step_log[-1]}) + "\n\n"
             return
         try:
             r = requests.post(f"{LITELLM_URL}/v1/chat/completions",
@@ -356,23 +356,23 @@ def _tools_phase(model, msgs, user_key, journal, findings,
             # normal-looking answer.
             _log.warning("outils %s : appel de decision injoignable (%s)", username, e)
             yield "data: " + json.dumps({'dgx_web': {
-                'etape': 'recherche_finie', 'outil': 'litellm', 'nombre': 0,
-                'erreur': "assistant injoignable"}}) + "\n\n"
+                'step': 'search_done', 'tool': 'litellm', 'count': 0,
+                'error': "assistant injoignable"}}) + "\n\n"
             return
         if not r.ok:
             _log.warning("outils %s : decision d'outil refusee (HTTP %s)",
                          username, r.status_code)
             yield "data: " + json.dumps({'dgx_web': {
-                'etape': 'recherche_finie', 'outil': 'litellm', 'nombre': 0,
-                'erreur': f"assistant en erreur ({r.status_code})"}}) + "\n\n"
+                'step': 'search_done', 'tool': 'litellm', 'count': 0,
+                'error': f"assistant en erreur ({r.status_code})"}}) + "\n\n"
             return
         try:
             choice = (r.json().get('choices') or [{}])[0]
         except Exception:                           # noqa: BLE001
             _log.warning("outils %s : reponse de decision illisible", username)
             yield "data: " + json.dumps({'dgx_web': {
-                'etape': 'recherche_finie', 'outil': 'litellm', 'nombre': 0,
-                'erreur': "réponse illisible"}}) + "\n\n"
+                'step': 'search_done', 'tool': 'litellm', 'count': 0,
+                'error': "réponse illisible"}}) + "\n\n"
             return
         message = choice.get('message') or {}
         calls = message.get('tool_calls') or []
@@ -400,27 +400,27 @@ def _tools_phase(model, msgs, user_key, journal, findings,
             # that the wait is silent and nobody knows what is happening. It
             # also keeps the stream open, otherwise the proxy cuts before the
             # first token.
-            if fn.get('name') == 'generer_image':
+            if fn.get('name') == 'generate_image':
                 yield "data: " + json.dumps({'dgx_web': image_tools._announce_image(args)}) + "\n\n"
                 # GENERATOR: SSE heartbeats during the generation, final text
                 # as return value.
-                result = yield from image_tools._exec_image_tool(args, username, journal)
+                result = yield from image_tools._exec_image_tool(args, username, step_log)
                 # A generation consumes almost all of the phase budget: we
                 # extend it, otherwise the final model round would be refused
                 # by the deadline right after a perfectly successful image.
                 _end = max(_end, time.monotonic() + TOOLS_MAX_DELAY)
-            elif fn.get('name') == 'generer_video':
+            elif fn.get('name') == 'generate_video':
                 yield "data: " + json.dumps({'dgx_web': video_tools._announce_video(args)}) + "\n\n"
                 # GENERATOR: same contract as the image tool — the phase
                 # budget is extended, a video takes MINUTES.
-                result = yield from video_tools._exec_video_tool(args, username, journal)
+                result = yield from video_tools._exec_video_tool(args, username, step_log)
                 _end = max(_end, time.monotonic() + TOOLS_MAX_DELAY)
             elif fn.get('name') == 'lire_document':
                 yield "data: " + json.dumps({'dgx_web': document_tools._announce_document(args)}) + "\n\n"
                 # GENERATOR: heartbeats while the OCR sidecar extracts the
                 # text of the attachment, text as return value.
                 result = yield from document_tools._exec_document_tool(
-                    args, username, journal, attachments)
+                    args, username, step_log, attachments)
                 _end = max(_end, time.monotonic() + TOOLS_MAX_DELAY)
             else:
                 yield "data: " + json.dumps({'dgx_web': _announce(fn.get('name', ''), args)}) + "\n\n"
@@ -428,16 +428,16 @@ def _tools_phase(model, msgs, user_key, journal, findings,
                 # take 90 s), final text as return value.
                 try:
                     result = yield from _exec_web_tool_with_heartbeats(
-                        fn.get('name', ''), args, journal)
+                        fn.get('name', ''), args, step_log)
                 except Exception as e:              # noqa: BLE001
                     _log.warning("outils %s : %s a leve (%s)", username,
                                  fn.get('name', ''), e)
-                    journal.append({'etape': 'recherche_finie', 'outil': 'recherche',
-                                    'nombre': 0, 'erreur': "outil en panne"})
-                    yield "data: " + json.dumps({'dgx_web': journal[-1]}) + "\n\n"
+                    step_log.append({'step': 'search_done', 'tool': 'search',
+                                    'count': 0, 'error': "outil en panne"})
+                    yield "data: " + json.dumps({'dgx_web': step_log[-1]}) + "\n\n"
                     result = ("La recherche a échoué (outil en panne). Dis-le "
                                 "tel quel à l'utilisateur.")
-            yield "data: " + json.dumps({'dgx_web': journal[-1] if journal else {}}) + "\n\n"
+            yield "data: " + json.dumps({'dgx_web': step_log[-1] if step_log else {}}) + "\n\n"
 
             short_text.append({'role': 'tool', 'tool_call_id': call.get('id', ''),
                           'name': fn.get('name', ''),

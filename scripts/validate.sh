@@ -41,7 +41,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # The outside world (paths, domains, bucket) comes from .env — see
 # scripts/config.sh: nothing hard-coded here.
-DGX_VERIFIER_DOMAINES=1 . "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+DGX_CHECK_DOMAINS=1 . "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
 set -u
 cd "$(dirname "$0")/.."

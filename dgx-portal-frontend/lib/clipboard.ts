@@ -8,13 +8,13 @@
  * message. It was particularly costly in the Clés API tab, whose whole
  * point is to copy a configuration snippet.
  *
- * We fall back to `execCommand`, then SAY SO if it fails again (`onEchec`):
+ * We fall back to `execCommand`, then SAY SO if it fails again (`onFailure`):
  * a silent failure is the only unacceptable outcome here.
  */
-export async function copierTexte(texte: string, onEchec?: () => void): Promise<boolean> {
+export async function copyText(text: string, onFailure?: () => void): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(texte);
+      await navigator.clipboard.writeText(text);
       return true;
     }
   } catch {
@@ -22,7 +22,7 @@ export async function copierTexte(texte: string, onEchec?: () => void): Promise<
   }
   try {
     const ta = document.createElement("textarea");
-    ta.value = texte;
+    ta.value = text;
     ta.setAttribute("readonly", "");
     ta.style.position = "fixed";
     ta.style.opacity = "0";
@@ -34,6 +34,6 @@ export async function copierTexte(texte: string, onEchec?: () => void): Promise<
   } catch {
     /* we say so below */
   }
-  onEchec?.();
+  onFailure?.();
   return false;
 }

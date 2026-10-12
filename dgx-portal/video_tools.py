@@ -98,7 +98,7 @@ def video_available():
 
 def _video_tools():
     return [{'type': 'function', 'function': {
-        'name': 'generer_video',
+        'name': 'generate_video',
         'description': (
             "Génère une courte vidéo à partir d'une description. Réécris la "
             "demande en description de SCÈNE détaillée (sujet, mouvement, "
@@ -107,7 +107,7 @@ def _video_tools():
         'parameters': {'type': 'object', 'properties': {
             'prompt': {'type': 'string',
                        'description': "Description détaillée de la scène à filmer."},
-            'duree': {'type': 'integer',
+            'duration': {'type': 'integer',
                       'description': "Durée en secondes (2 à 15, défaut 5)."},
         }, 'required': ['prompt']}}}]
 
@@ -115,7 +115,7 @@ def _video_tools():
 
 def _announce_video(args):
     """What we are about to generate, told to the client before doing it."""
-    return {'etape': 'generation_video', 'outil': 'comfyui',
+    return {'step': 'generation_video', 'tool': 'comfyui',
             'question': str(args.get('prompt', ''))[:200]}
 
 
@@ -146,7 +146,7 @@ def _video_worker(prompt_id, username, created_at):
         media_job_done(username)
 
 
-def _exec_video_tool(args, username, journal):
+def _exec_video_tool(args, username, step_log):
     """Generate the video and return the text to hand back to the model.
 
     GENERATOR: yields SSE heartbeats while waiting; the final text is the
@@ -160,7 +160,7 @@ def _exec_video_tool(args, username, journal):
     if not prompt:
         return "Aucune description fournie : impossible de générer une vidéo."
     try:
-        duration = float(args.get('duree') or 5)
+        duration = float(args.get('duration') or 5)
     except (TypeError, ValueError):
         duration = 5
     duration = max(2, min(15, duration))       # bounds of the H3 workflow
@@ -169,8 +169,8 @@ def _exec_video_tool(args, username, journal):
     # a refusal is said plainly, the user is not left guessing why nothing runs.
     ok, reason = sidecar_autostart('video', comfyui_is_up)
     if not ok:
-        journal.append({'etape': 'generation_video_finie', 'outil': 'comfyui',
-                        'question': prompt[:200], 'videos': [], 'erreur': reason})
+        step_log.append({'step': 'generation_video_done', 'tool': 'comfyui',
+                        'question': prompt[:200], 'videos': [], 'error': reason})
         return (f"Le service vidéo est indisponible : {reason}. "
                 "Dis-le tel quel à l'utilisateur.")
     if not media_job_slot(username):
@@ -180,9 +180,9 @@ def _exec_video_tool(args, username, journal):
     prompt_id = comfyui_generate(None, prompt, duration)
     if not prompt_id:
         media_job_done(username)
-        journal.append({'etape': 'generation_video_finie', 'outil': 'comfyui',
+        step_log.append({'step': 'generation_video_done', 'tool': 'comfyui',
                         'question': prompt[:200], 'videos': [],
-                        'erreur': "ComfyUI inaccessible ou requête refusée."})
+                        'error': "ComfyUI inaccessible ou requête refusée."})
         return ("La génération vidéo a échoué (sidecar indisponible ou surchargé). "
                 "Dis-le tel quel à l'utilisateur.")
     created_at = datetime.now().isoformat()
@@ -209,15 +209,15 @@ def _exec_video_tool(args, username, journal):
         # land in the Video page history. We say so instead of inventing an
         # error the user would retry — a second generation would cost as much
         # as the first one.
-        journal.append({'etape': 'generation_video_finie', 'outil': 'comfyui',
+        step_log.append({'step': 'generation_video_done', 'tool': 'comfyui',
                         'question': prompt[:200], 'videos': [],
-                        'erreur': "Génération toujours en cours."})
+                        'error': "Génération toujours en cours."})
         return ("La vidéo est encore en cours de génération (elle apparaîtra dans "
                 "l'historique de la page Vidéo). Ne donne PAS d'adresse pour "
                 "l'instant ; dis simplement que la génération continue.")
-    journal.append({'etape': 'generation_video_finie', 'outil': 'comfyui',
+    step_log.append({'step': 'generation_video_done', 'tool': 'comfyui',
                     'question': prompt[:200], 'videos': urls,
-                    'erreur': None if urls else "La génération a échoué."})
+                    'error': None if urls else "La génération a échoué."})
     if not urls:
         return ("La génération vidéo a échoué (sidecar indisponible ou surchargé). "
                 "Dis-le tel quel à l'utilisateur.")

@@ -30,7 +30,7 @@ esac
 
 MODEL_DIR="/root/models/$SLUG"
 if [ ! -f "$MODEL_DIR/model_index.json" ]; then
-  echo "modèle absent sur l'hôte : $MODEL_DIR (télécharge-le d'abord)" >&2
+  echo "model missing on the host: $MODEL_DIR (download it first)" >&2
   exit 3
 fi
 

@@ -9,6 +9,6 @@ export type TabId = (typeof TABS)[number];
 export const DEFAULT_TAB: TabId = "overview";
 
 /** The tab a `?tab=` value designates (the default for anything unknown). */
-export function tabDepuis(raw: string | null | undefined): TabId {
+export function tabFrom(raw: string | null | undefined): TabId {
   return raw && (TABS as readonly string[]).includes(raw) ? (raw as TabId) : DEFAULT_TAB;
 }

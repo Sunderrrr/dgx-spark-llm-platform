@@ -535,23 +535,23 @@ function ArgsEditForm({ cfg, isDisabled, onSubmit }: {
 
 /** What each engine expects, shown in the « add a model » dialog: the kind of
  *  identifier and an example of arguments (the runner allow-lists them). */
-const MOTEURS: Record<string, { label: string; id: string; idExemple: string; args: string }> = {
+const ENGINES: Record<string, { label: string; id: string; exampleId: string; args: string }> = {
   vllm: {
     label: "vLLM (safetensors)",
     id: "Dépôt Hugging Face (organisation/modèle).",
-    idExemple: "Qwen/Qwen3-8B",
+    exampleId: "Qwen/Qwen3-8B",
     args: "--max-model-len 32768 --gpu-memory-utilization 0.85",
   },
   llamacpp: {
     label: "llama.cpp (GGUF)",
     id: "Dépôt Hugging Face, ou local:<dossier> pour un GGUF déjà téléchargé.",
-    idExemple: "local:qwen38-27b-gguf",
+    exampleId: "local:qwen38-27b-gguf",
     args: "--ctx-size 262144 --parallel 4 --n-gpu-layers 999 --flash-attn on",
   },
   ds4: {
     label: "ds4 (GGUF NVFP4)",
     id: "Dépôt Hugging Face, ou local:<dossier> pour un GGUF déjà téléchargé.",
-    idExemple: "local:deepseek-v4-flash",
+    exampleId: "local:deepseek-v4-flash",
     args: "--ctx-size 131072",
   },
 };
@@ -564,10 +564,10 @@ function AddModelDialog({ isDisabled, onSubmit }: {
   onSubmit: (params: Record<string, string>) => Promise<ActResult>;
 }) {
   const t = useT();
-  const vide = { name: "", hf_model_id: "", engine: "vllm", vllm_args: "" };
+  const empty = { name: "", hf_model_id: "", engine: "vllm", vllm_args: "" };
   const [isOpen, setIsOpen] = useState(false);
-  const [m, setM] = useState(vide);
-  const moteur = MOTEURS[m.engine] ?? MOTEURS.vllm;
+  const [m, setM] = useState(empty);
+  const engine = ENGINES[m.engine] ?? ENGINES.vllm;
   return (
     <>
       <Button
@@ -576,7 +576,7 @@ function AddModelDialog({ isDisabled, onSubmit }: {
         size="sm"
         icon={<Icon icon={PlusIcon} size="sm" />}
         isDisabled={isDisabled}
-        onClick={() => { setM(vide); setIsOpen(true); }}
+        onClick={() => { setM(empty); setIsOpen(true); }}
       />
       <Dialog isOpen={isOpen} onOpenChange={setIsOpen} purpose="form">
         <DialogHeader title={t("Ajouter un modèle")} subtitle={t("Le modèle rejoint le catalogue ; il se lance ensuite depuis sa carte.")} />
@@ -585,7 +585,7 @@ function AddModelDialog({ isDisabled, onSubmit }: {
             label={t("Moteur")}
             value={m.engine}
             onChange={(v) => setM((s) => ({ ...s, engine: v ?? "vllm" }))}
-            options={Object.entries(MOTEURS).map(([value, e]) => ({ value, label: e.label }))}
+            options={Object.entries(ENGINES).map(([value, e]) => ({ value, label: e.label }))}
           />
           <TextInput
             label={t("Nom")}
@@ -597,10 +597,10 @@ function AddModelDialog({ isDisabled, onSubmit }: {
           />
           <TextInput
             label={t("Identifiant du modèle")}
-            description={t(moteur.id)}
+            description={t(engine.id)}
             value={m.hf_model_id}
             onChange={(v) => setM((s) => ({ ...s, hf_model_id: v }))}
-            placeholder={t("ex. {v}").replace("{v}", moteur.idExemple)}
+            placeholder={t("ex. {v}").replace("{v}", engine.exampleId)}
             size="sm"
           />
           <TextInput
@@ -608,7 +608,7 @@ function AddModelDialog({ isDisabled, onSubmit }: {
             description={t("Le runner les vérifie au lancement : une option non autorisée y est refusée.")}
             value={m.vllm_args}
             onChange={(v) => setM((s) => ({ ...s, vllm_args: v }))}
-            placeholder={t("ex. {v}").replace("{v}", moteur.args)}
+            placeholder={t("ex. {v}").replace("{v}", engine.args)}
             size="sm"
           />
           <HStack gap={2} hAlign="end">

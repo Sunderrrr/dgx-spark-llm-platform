@@ -23,8 +23,8 @@ export function ThreadTabs({ tabs, activeTabId, streaming, switchTab, closeTab, 
   const t = useT();
   return (
     <>
-          {/* Onglets : plusieurs conversations ouvertes. Basculement désactivé
-              pendant un flux (l'état live est celui de la génération en cours). */}
+          {/* Tabs: several open conversations. Switching is disabled during a
+              stream (the live state is the ongoing generation's). */}
           {tabs.length > 0 && (
             <VStack gap={1} padding={2}>
               <HStack gap={2} vAlign="center" wrap="wrap">

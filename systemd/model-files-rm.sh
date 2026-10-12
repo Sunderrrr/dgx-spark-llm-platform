@@ -26,31 +26,31 @@ fi
 KIND="$1"
 ID="$2"
 case "$ID" in
-  *..*) echo "id invalide : $ID" >&2; exit 2 ;;
+  *..*) echo "invalid id: $ID" >&2; exit 2 ;;
 esac
 
 TARGETS=()
 case "$KIND" in
   local)
     if ! [[ "$ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$ ]]; then
-      echo "id invalide : $ID" >&2; exit 2
+      echo "invalid id: $ID" >&2; exit 2
     fi
     case "$ID" in
-      templates|esrgan|flux2-klein-4b) echo "dossier protégé : $ID" >&2; exit 4 ;;
+      templates|esrgan|flux2-klein-4b) echo "protected folder: $ID" >&2; exit 4 ;;
     esac
     T="/root/models/$ID"
     if [ -L "$T" ] || [ ! -d "$T" ]; then
-      echo "absent : $T" >&2; exit 3
+      echo "absent: $T" >&2; exit 3
     fi
     TARGETS+=("$T")
     ;;
   hf)
     if ! [[ "$ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,60}/[A-Za-z0-9][A-Za-z0-9._-]{0,80}$ ]]; then
-      echo "id invalide : $ID" >&2; exit 2
+      echo "invalid id: $ID" >&2; exit 2
     fi
     case "$ID" in
       openai/whisper-*|ResembleAI/*|Qwen/Qwen3-TTS-*|black-forest-labs/*)
-        echo "dépôt protégé (autre service) : $ID" >&2; exit 4 ;;
+        echo "protected repo (another service): $ID" >&2; exit 4 ;;
     esac
     D="models--${ID/\//--}"
     for H in /root/.cache/huggingface/hub /var/lib/vllm-runner/.cache/huggingface/hub; do
@@ -59,13 +59,13 @@ case "$KIND" in
       fi
     done
     if [ ${#TARGETS[@]} -eq 0 ]; then
-      echo "absent du cache HF : $ID" >&2; exit 3
+      echo "absent from the HF cache: $ID" >&2; exit 3
     fi
     ;;
   *)
-    echo "type invalide : $KIND" >&2; exit 2 ;;
+    echo "invalid type: $KIND" >&2; exit 2 ;;
 esac
 
-OCTETS=$(du -sb -- "${TARGETS[@]}" | awk '{s += $1} END {print s + 0}')
+SIZE_BYTES=$(du -sb -- "${TARGETS[@]}" | awk '{s += $1} END {print s + 0}')
 rm -rf --one-file-system -- "${TARGETS[@]}"
-echo "$OCTETS"
+echo "$SIZE_BYTES"

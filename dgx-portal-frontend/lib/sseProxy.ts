@@ -69,21 +69,21 @@ export async function proxySSE(request: Request, path: string): Promise<Response
   // BEFORE any check — any anonymous caller could therefore make the proxy
   // work for 20 MB. The session check also keeps the portal from receiving
   // the body (a 401 redirect is what `authFetch` expects).
-  const annonce = Number(request.headers.get("content-length") || 0);
-  if (Number.isFinite(annonce) && annonce > MAX_BODY_BYTES) {
+  const announcement = Number(request.headers.get("content-length") || 0);
+  if (Number.isFinite(announcement) && announcement > MAX_BODY_BYTES) {
     return new Response(sseErrorFrame("Requête trop volumineuse (20 Mo maximum)."), {
       status: 413,
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
     });
   }
-  const verif = await fetch(`${BACKEND_URL}/api/whoami`, {
+  const check = await fetch(`${BACKEND_URL}/api/whoami`, {
     headers: { Cookie: request.headers.get("cookie") || "" },
     signal: AbortSignal.timeout(WHOAMI_TIMEOUT_MS),
   }).catch(() => null);
   // 401/403 ONLY: any other code (maintenance 503, 500…) must continue
   // to the backend, which will answer what it must answer. This guard does not
   // replace authorization — it avoids useless work.
-  if (verif && (verif.status === 401 || verif.status === 403)) {
+  if (check && (check.status === 401 || check.status === 403)) {
     return new Response(sseErrorFrame("Session expirée — reconnecte-toi."), {
       status: 401,
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },

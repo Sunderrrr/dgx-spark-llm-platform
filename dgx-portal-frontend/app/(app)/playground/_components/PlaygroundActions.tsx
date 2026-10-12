@@ -93,8 +93,8 @@ export function PlaygroundActions({
                 isDisabled={!currentId}
                 onClick={() => currentId && shareConversation(currentId)}
               />
-              {/* Réglages : panneau ancré SOUS la roue crantée, en overlay
-                  fixe — la page ne bouge pas (voir toggleSettings). */}
+              {/* Settings: a panel anchored UNDER the gear, as a fixed overlay
+                  — the page does not move (see toggleSettings). */}
               <Button
                 label={t("Réglages")}
                 variant="secondary"

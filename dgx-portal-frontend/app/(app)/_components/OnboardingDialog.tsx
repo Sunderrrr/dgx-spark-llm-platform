@@ -19,39 +19,39 @@ import { useSettingsDialog } from "@/lib/settings-dialog";
 
 /** One step of the onboarding. `action` is optional: it takes the
  *  user where they can do what was just explained. */
-type Etape = {
+type Step = {
   icon: typeof KeyIcon;
-  titre: string;
-  corps: string;
+  title: string;
+  body: string;
   action?: { label: string; kind: "keys" | "playground" | "request" };
 };
 
-const ETAPES: Etape[] = [
+const STEPS: Step[] = [
   {
     icon: KeyIcon,
-    titre: "1. Crée ta clé API",
-    corps:
+    title: "1. Crée ta clé API",
+    body:
       "Tout passe par elle : le Playground comme tes outils externes. Elle porte ton budget en tokens, elle est personnelle, et tu peux en créer plusieurs (une par machine, par exemple) pour en révoquer une sans casser les autres.",
     action: { label: "Ouvrir mes clés API", kind: "keys" },
   },
   {
     icon: ChatBubbleLeftRightIcon,
-    titre: "2. Discute dans le Playground",
-    corps:
+    title: "2. Discute dans le Playground",
+    body:
       "Le moyen le plus direct d'utiliser un modèle : rien à installer. Tu peux joindre des fichiers texte, suivre le débit en tokens/seconde, et le modèle te posera des questions s'il a besoin de précisions. Les fichiers qu'il écrit s'ouvrent dans un volet à côté.",
     action: { label: "Aller au Playground", kind: "playground" },
   },
   {
     icon: CommandLineIcon,
-    titre: "3. Branche tes propres outils",
-    corps:
+    title: "3. Branche tes propres outils",
+    body:
       "L'API est compatible OpenAI et Anthropic. Dans Réglages → Clés API, choisis ton outil (Claude Code, OpenCode, Cursor, Aider, cURL…) : la configuration est générée avec ta clé, prête à copier. Vise le modèle « auto-model » et tu n'auras rien à changer quand l'admin changera de modèle.",
     action: { label: "Voir les intégrations", kind: "keys" },
   },
   {
     icon: SparklesIcon,
-    titre: "4. Besoin d'autre chose ?",
-    corps:
+    title: "4. Besoin d'autre chose ?",
+    body:
       "Image, voix, musique, OCR et vidéo ont chacun leur page. Si le modèle qu'il te faut n'est pas là, demande-le : un administrateur reçoit la demande et peut l'ajouter. Et le Support répond à tes questions sur la plateforme.",
     action: { label: "Demander un modèle", kind: "request" },
   },
@@ -60,19 +60,19 @@ const ETAPES: Etape[] = [
 export function OnboardingDialog({
   isOpen,
   onClose,
-  prenom,
+  firstName,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  prenom?: string;
+  firstName?: string;
 }) {
   const t = useT();
   const { open: openSettings } = useSettingsDialog();
   const [i, setI] = useState(0);
-  const etape = ETAPES[i];
-  const dernier = i === ETAPES.length - 1;
+  const step = STEPS[i];
+  const last = i === STEPS.length - 1;
 
-  function agir(kind: NonNullable<Etape["action"]>["kind"]) {
+  function act(kind: NonNullable<Step["action"]>["kind"]) {
     onClose();
     if (kind === "keys") openSettings("keys");
     else window.location.href = kind === "playground" ? "/playground" : "/request";
@@ -81,7 +81,7 @@ export function OnboardingDialog({
   return (
     <Dialog isOpen={isOpen} onOpenChange={(o) => { if (!o) onClose(); }} width={620}>
       <DialogHeader
-        title={prenom ? `${t("Bienvenue")}, ${prenom}` : t("Bienvenue")}
+        title={firstName ? `${t("Bienvenue")}, ${firstName}` : t("Bienvenue")}
         subtitle={t("Trois minutes pour savoir quoi faire de cette plateforme.")}
         hasDivider
         onOpenChange={(o) => { if (!o) onClose(); }}
@@ -92,27 +92,27 @@ export function OnboardingDialog({
             label={t("Progression")}
             isLabelHidden
             value={i + 1}
-            max={ETAPES.length}
+            max={STEPS.length}
           />
           <Text type="supporting" color="secondary">
-            {t("Étape")} {i + 1} / {ETAPES.length}
+            {t("Étape")} {i + 1} / {STEPS.length}
           </Text>
         </VStack>
 
         <Card variant="muted" padding={4}>
           <VStack gap={3}>
             <HStack gap={2} vAlign="center">
-              <Icon icon={etape.icon} size="md" color="accent" />
-              <Text type="large" weight="semibold">{t(etape.titre)}</Text>
+              <Icon icon={step.icon} size="md" color="accent" />
+              <Text type="large" weight="semibold">{t(step.title)}</Text>
             </HStack>
-            <Text color="secondary">{t(etape.corps)}</Text>
-            {etape.action && (
+            <Text color="secondary">{t(step.body)}</Text>
+            {step.action && (
               <HStack>
                 <Button
-                  label={t(etape.action.label)}
+                  label={t(step.action.label)}
                   variant="secondary"
                   size="sm"
-                  onClick={() => agir(etape.action!.kind)}
+                  onClick={() => act(step.action!.kind)}
                 />
               </HStack>
             )}
@@ -126,10 +126,10 @@ export function OnboardingDialog({
               <Button label={t("Précédent")} variant="secondary" size="sm" onClick={() => setI(i - 1)} />
             )}
             <Button
-              label={dernier ? t("C'est parti") : t("Suivant")}
+              label={last ? t("C'est parti") : t("Suivant")}
               variant="primary"
               size="sm"
-              onClick={() => (dernier ? onClose() : setI(i + 1))}
+              onClick={() => (last ? onClose() : setI(i + 1))}
             />
           </HStack>
         </HStack>

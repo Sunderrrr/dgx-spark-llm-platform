@@ -104,7 +104,7 @@ def _tokens_by_model(since_utc=None):
             params.append(since_utc)
         q += ' GROUP BY model ORDER BY 2 DESC'
         cur.execute(q, params)
-        result = [{'model': model or 'inconnu', 'tokens': int(toks or 0)}
+        result = [{'model': model or 'unknown', 'tokens': int(toks or 0)}
                     for model, toks in cur.fetchall()]
         _TOKENS_BY_MODEL_CACHE[key] = (time.time(), result)
         return result
@@ -137,7 +137,7 @@ def _inflight_tokens(rid, chars, since=None):
     """Live progress of an in-flight request (decode gauge).
 
     `chars` is what the relay SAW; the stored `tokens` is an estimate,
-    `chars / ratio_chars_par_token()` — the ratio is calibrated on the EXACT
+    `chars / ratio_chars_per_token()` — the ratio is calibrated on the EXACT
     count at request end (see `enregistrer_ratio`), so the gauge tracks the
     real rate instead of a guessed 4 chars/token (measured 2026-10-02: 3.44
     chars/token on MiMo, i.e. chars/4 read 86 % of the truth).
@@ -173,8 +173,8 @@ def record_ratio(chars, tokens):
             r = float(chars) / float(tokens)
             if 0.5 <= r <= 10:
                 from db import get_setting, set_setting
-                old = get_setting('chars_par_token')
-                set_setting('chars_par_token',
+                old = get_setting('chars_per_token')
+                set_setting('chars_per_token',
                             round(r if not old else 0.7 * float(old) + 0.3 * r, 3))
     except Exception:                                        # noqa: BLE001
         pass
@@ -184,7 +184,7 @@ def ratio_chars_per_token():
     """Calibrated chars/token for the live estimate (4.0 until calibrated)."""
     try:
         from db import get_setting
-        v = get_setting('chars_par_token')
+        v = get_setting('chars_per_token')
         r = float(v) if v else 0.0
         return r if 0.5 <= r <= 10 else 4.0
     except Exception:                                        # noqa: BLE001
@@ -210,7 +210,7 @@ def live_decode_rate():
     TabbyAPI publishes no /metrics and its stream carries NO token counter
     (usage arrives once, at the very end — verified on a real stream): the only
     live source is what the portal's relay sees. Each in-flight request reports
-    its progress (tokens ESTIMATED as chars / ratio_chars_par_token(), the ratio
+    its progress (tokens ESTIMATED as chars / ratio_chars_per_token(), the ratio
     calibrated on the exact `usage` of every finished request) and this sums
     `tokens / decode time` over the ongoing requests — the DECODE time, first
     token onwards, not the request's age: queue and prefill would dilute the
@@ -304,25 +304,25 @@ def accumulate_generated_tokens(model_name, value):
     value = int(value)
     try:
         db = get_db()
-        row = db.execute("SELECT base, dernier FROM model_counters WHERE model=?",
+        row = db.execute("SELECT base, last_value FROM model_counters WHERE model=?",
                          (model_name,)).fetchone()
         if row is None:
             base = 0
-        elif value >= row['dernier']:
+        elif value >= row['last_value']:
             base = row['base']                      # counter still running
         else:
-            base = row['base'] + row['dernier']     # reset: we archive the previous one
+            base = row['base'] + row['last_value']     # reset: we archive the previous one
         # We only write when something changes: at rest (frozen counter), the
         # 1 s probe must not produce one SQLite write per second.
         # `base != row['base']` was a third, never decisive term: if the first
         # two are false, then `valeur == row['dernier']`, so the « counter still
         # running » branch was taken and `base` already equals
         # `row['base']`.
-        if row is None or value != row['dernier']:
+        if row is None or value != row['last_value']:
             db.execute(
-                "INSERT INTO model_counters (model, base, dernier, maj) VALUES (?,?,?,?) "
+                "INSERT INTO model_counters (model, base, last_value, updated_at) VALUES (?,?,?,?) "
                 "ON CONFLICT(model) DO UPDATE SET base=excluded.base, "
-                "dernier=excluded.dernier, maj=excluded.maj",
+                "last_value=excluded.last_value, updated_at=excluded.updated_at",
                 (model_name, base, value, time.time()))
             db.commit()
         return base + value
@@ -391,7 +391,7 @@ def _inflight():
         conn = sqlite3.connect('file:%s?mode=ro' % _INFLIGHT_DB, uri=True, timeout=2)
         now_ts = time.time()
         out = {}
-        for alias, user_id, start in conn.execute('SELECT alias, user_id, debut FROM en_vol'):
+        for alias, user_id, start in conn.execute('SELECT alias, user_id, started_at FROM inflight'):
             # user_id is the account for keys created by the portal, but a key
             # created elsewhere can carry anything: we validate, as for
             # the alias.
@@ -494,9 +494,9 @@ def _active_users(window_s=1800):
                 if not u and alias:
                     u = _account_from_alias(alias)
                 if not u:
-                    u = f"cle {str(api_key)[:8]}…"
+                    u = f"key {str(api_key)[:8]}…"
                 a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
-                                       'live': False, 'derniere_s': None})
+                                       'live': False, 'last_s': None})
                 a['requests'] += int(cnt or 0)
                 a['tokens'] += int(toks or 0)
                 # Age of the last activity. This is THE figure answering the
@@ -511,9 +511,9 @@ def _active_users(window_s=1800):
                         age = (now_ts - last).total_seconds()
                     except TypeError:
                         age = None
-                    if age is not None and (a['derniere_s'] is None or age < a['derniere_s']):
-                        a['derniere_s'] = max(0.0, age)
-                if busy > 0 and a['derniere_s'] is not None and a['derniere_s'] < 15:
+                    if age is not None and (a['last_s'] is None or age < a['last_s']):
+                        a['last_s'] = max(0.0, age)
+                if busy > 0 and a['last_s'] is not None and a['last_s'] < 15:
                     # The engine is processing something AND this user just
                     # emitted: it is them (or one of them). The in-flight
                     # registry only sees the portal, so without this an API client
@@ -532,10 +532,10 @@ def _active_users(window_s=1800):
     # Merge live in-flight in-app requests (real time).
     for u, n in inflight.items():
         a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
-                               'live': False, 'derniere_s': None})
+                               'live': False, 'last_s': None})
         a['live'] = True
         # In-flight request: this is the present instant, by definition.
-        a['derniere_s'] = 0.0
+        a['last_s'] = 0.0
         if a['requests'] == 0:
             a['requests'] = n
     # IN-FLIGHT requests, as LiteLLM noted them at their start. This is the
@@ -546,16 +546,16 @@ def _active_users(window_s=1800):
     # a one-second round-trip.
     for u, age in _inflight().items():
         a = agg.setdefault(u, {'username': u, 'requests': 0, 'tokens': 0,
-                               'live': False, 'derniere_s': None})
+                               'live': False, 'last_s': None})
         a['live'] = True
-        a['en_vol'] = True
-        a['depuis_s'] = age
-        a['derniere_s'] = 0.0
+        a['inflight'] = True
+        a['since_s'] = age
+        a['last_s'] = 0.0
     # Fields always present: the UI must not distinguish three dict shapes
     # depending on the source that created the entry.
     for a in agg.values():
-        a.setdefault('en_vol', False)
-        a.setdefault('depuis_s', None)
+        a.setdefault('inflight', False)
+        a.setdefault('since_s', None)
     return sorted(agg.values(), key=lambda x: (x['live'], x['requests']), reverse=True)
 
 def _account_activity(username, days=182):
@@ -777,7 +777,7 @@ def ranking_full(period='day', me=None, metric='total'):
         for b, api_key, prompt, comp in cur.fetchall():
             if api_key in _NON_USER_KEYS:
                 continue
-            u = umap.get(api_key, 'inconnu')
+            u = umap.get(api_key, 'unknown')
             p, c = prompt or 0, comp or 0
             a = agg.setdefault(u, {'tokens': 0, 'prompt': 0, 'completion': 0, 'spark': {}})
             a['tokens'] += p + c; a['prompt'] += p; a['completion'] += c
@@ -801,7 +801,7 @@ def ranking_full(period='day', me=None, metric='total'):
             for api_key, p, c in cur.fetchall():
                 if api_key in _NON_USER_KEYS:
                     continue
-                u = umap.get(api_key, 'inconnu')
+                u = umap.get(api_key, 'unknown')
                 prev[u] = prev.get(u, 0) + _metric_value(p, c, metric)
         # The metric is computed ONCE per account: it serves the sort, the
         # total, the share and the delta.
@@ -810,7 +810,7 @@ def ranking_full(period='day', me=None, metric='total'):
 
         def is_residue(u):
             """Row that is nobody's account — see `_comptes_connus`."""
-            return u == 'inconnu' or (known is not None and u not in known)
+            return u == 'unknown' or (known is not None and u not in known)
 
         def line(u, a, rank):
             pv = prev.get(u, 0)
@@ -1022,11 +1022,11 @@ def flow_from_spendlogs(window_s=60):
                     (datetime.utcnow() - timedelta(seconds=window_s),))
         recent = int(cur.fetchone()[0] or 0)
         return {
-            'requetes': int(requests_list or 0),
-            'generes': generated,
+            'requests': int(requests_list or 0),
+            'generated': generated,
             'entree': entry,
-            'secondes_generation': seconds,
-            'tps_moyen': round(generated / seconds, 1) if seconds >= 300 else None,
+            'generation_seconds': seconds,
+            'tps_avg': round(generated / seconds, 1) if seconds >= 300 else None,
             'debit': round(recent / window_s, 1),
         }
     except Exception:                                        # noqa: BLE001

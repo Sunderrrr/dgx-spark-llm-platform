@@ -11,7 +11,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { ClipboardDocumentIcon } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
-import { copierTexte } from "@/lib/copier";
+import { copyText } from "@/lib/clipboard";
 
 export type SummaryDialogProps = {
   summaryOpen: boolean;
@@ -37,7 +37,7 @@ export function SummaryDialog({ summaryOpen, setSummaryOpen, summary }: SummaryD
                   variant="secondary"
                   size="sm"
                   icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                  onClick={() => void copierTexte(summary, () =>
+                  onClick={() => void copyText(summary, () =>
                     showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))}
                 />
               </HStack>

@@ -16,7 +16,7 @@ export type LocalUser = {
   enabled: number;
   is_admin: number | null;
   effective_admin: boolean | null;
-  role_source: "local" | "sso" | "ldap" | "externe" | null;
+  role_source: "local" | "sso" | "ldap" | "external" | null;
   last_source: string | null;
   effective_budget: number | null;
   unlimited: boolean;
@@ -39,12 +39,12 @@ export type LocalUser = {
   owner?: boolean;
 };
 
-export type DirectoryStatus = "actif" | "desactive" | "absent";
+export type DirectoryStatus = "active" | "disabled" | "absent";
 
 /** How a directory state is shown (badge label + variant). */
 export const DIRECTORY_STATUS_META: Record<DirectoryStatus, { label: string; variant: "success" | "error" | "warning" }> = {
-  actif: { label: "Actif", variant: "success" },
-  desactive: { label: "Désactivé dans l'annuaire", variant: "error" },
+  active: { label: "Actif", variant: "success" },
+  disabled: { label: "Désactivé dans l'annuaire", variant: "error" },
   absent: { label: "Absent de l'annuaire", variant: "warning" },
 };
 export type Group = {
@@ -67,12 +67,12 @@ export type UsersData = {
 
 /** « / semaine » for 7d, « / jour » for 1d, « / 30 jours » for 30d… — a msgid
  *  and its value, the caller translates. */
-export function periodeQuota(duree: string | undefined): { msgid: string; n?: number } {
-  const m = /^(\d+)\s*d$/.exec((duree ?? "7d").trim());
-  const jours = m ? Number(m[1]) : NaN;
-  if (jours === 1) return { msgid: "/ jour" };
-  if (jours === 7) return { msgid: "/ semaine" };
-  if (Number.isFinite(jours)) return { msgid: "/ {n} jours", n: jours };
+export function quotaPeriod(duration: string | undefined): { msgid: string; n?: number } {
+  const m = /^(\d+)\s*d$/.exec((duration ?? "7d").trim());
+  const days = m ? Number(m[1]) : NaN;
+  if (days === 1) return { msgid: "/ jour" };
+  if (days === 7) return { msgid: "/ semaine" };
+  if (Number.isFinite(days)) return { msgid: "/ {n} jours", n: days };
   return { msgid: "/ période" };
 }
 
@@ -112,7 +112,7 @@ export const SOURCE_META: Record<string, { label: string; variant: "green" | "or
   local: { label: "Local", variant: "green" },
   ldap: { label: "LDAP", variant: "blue" },
   sso: { label: "SSO", variant: "purple" },
-  externe: { label: "Externe", variant: "neutral" },
+  external: { label: "Externe", variant: "neutral" },
 };
 
 export const BOOL_OPTS = (t: (s: string) => string) => [

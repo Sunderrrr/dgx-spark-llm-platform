@@ -37,17 +37,17 @@ export function SettingsPanel({
    *  the prompt within it: offering more than the context makes no sense,
    *  and the backend would lower it anyway. The slider therefore follows
    *  the current model. */
-  contexte,
+  context,
   provenance = "manual",
   onProvenance,
 }: {
   settings: Settings;
   onChange: (next: Settings) => void;
-  contexte?: number;
+  context?: number;
   provenance?: "persona" | "skill" | "manual";
   onProvenance?: (p: "persona" | "skill" | "manual") => void;
 }) {
-  const plafond = contexte && contexte > 0 ? contexte : 131072;
+  const ceiling = context && context > 0 ? context : 131072;
   const t = useT();
 
   const personaActive = PERSONAS.find((p) => p.prompt === settings.system);
@@ -117,9 +117,9 @@ export function SettingsPanel({
           <Slider
             label={t("Max tokens")}
             min={64}
-            max={plafond}
+            max={ceiling}
             step={256}
-            value={Math.min(settings.maxTokens, plafond)}
+            value={Math.min(settings.maxTokens, ceiling)}
             onChange={(value: number | [number, number]) =>
               onChange({ ...settings, maxTokens: value as number })
             }

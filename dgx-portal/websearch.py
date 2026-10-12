@@ -67,8 +67,8 @@ MIN_USEFUL_WORDS = 60
 
 MAX_RESULTS = 8
 MAX_PAGES = 4
-MAX_CARS_PAGE = 6000
-MAX_CARS_TOTAL = 20000
+MAX_CHARS_PAGE = 6000
+MAX_CHARS_TOTAL = 20000
 SEARCH_TIMEOUT = 20
 READ_TIMEOUT = 90
 
@@ -218,15 +218,15 @@ def search(question, count_value=6, language='fr'):
         if not ok:
             continue
         seen.add(url)
-        out.append({'titre': (item.get('title') or '')[:200],
+        out.append({'title': (item.get('title') or '')[:200],
                     'url': url,
-                    'extrait': (item.get('content') or '')[:400]})
+                    'excerpt': (item.get('content') or '')[:400]})
         if len(out) >= count_value:
             break
     return out, None
 
 
-def read(urls, max_cars=MAX_CARS_PAGE):
+def read(urls, max_chars=MAX_CHARS_PAGE):
     """URLs → markdown content. Returns (pages, error)."""
     valid_items = []
     for u in (urls or [])[:MAX_PAGES]:
@@ -255,20 +255,20 @@ def read(urls, max_cars=MAX_CARS_PAGE):
                 if isinstance(final_text, str) and internal_target(final_text):
                     results[item.get('url', '')] = {
                         'ok': False,
-                        'erreur': "Redirection vers une adresse interne, page refusée.",
+                        'error': "Redirection vers une adresse interne, page refusée.",
                     }
                     continue
                 results[item.get('url', '')] = {
                     'ok': bool(item.get('success')),
-                    'markdown': (md or '')[:max_cars],
-                    'titre': ((item.get('metadata') or {}).get('title') or '')[:200],
+                    'markdown': (md or '')[:max_chars],
+                    'title': ((item.get('metadata') or {}).get('title') or '')[:200],
                 }
         except Exception as e:
             return [], f"Lecteur de pages injoignable ({type(e).__name__})."
     pages, total = [], 0
     for u, ok, err in valid_items:
         if not ok:
-            pages.append({'url': u, 'erreur': err})
+            pages.append({'url': u, 'error': err})
             continue
         # crawl4ai may normalize the URL (trailing slash): we fall back on it.
         info = results.get(u) or next((v for k, v in results.items()
@@ -276,15 +276,15 @@ def read(urls, max_cars=MAX_CARS_PAGE):
         if not info or not info['ok']:
             # `results` may carry a reason (refusal after redirect): losing it
             # would display « Page illisible. » for a page that read fine.
-            pages.append({'url': u, 'erreur': (info or {}).get('erreur') or "Page illisible."})
+            pages.append({'url': u, 'error': (info or {}).get('error') or "Page illisible."})
             continue
         clean_value = clean(info['markdown'])
         issue = _too_poor(clean_value)
         if issue:
-            pages.append({'url': u, 'titre': info['titre'], 'erreur': issue})
+            pages.append({'url': u, 'title': info['title'], 'error': issue})
             continue
-        remaining = max(0, MAX_CARS_TOTAL - total)
+        remaining = max(0, MAX_CHARS_TOTAL - total)
         text = clean_value[:remaining]
         total += len(text)
-        pages.append({'url': u, 'titre': info['titre'], 'contenu': text})
+        pages.append({'url': u, 'title': info['title'], 'content': text})
     return pages, None

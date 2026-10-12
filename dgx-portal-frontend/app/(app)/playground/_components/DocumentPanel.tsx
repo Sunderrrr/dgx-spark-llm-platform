@@ -29,9 +29,9 @@ import {
   ArrowsPointingOutIcon,
 } from "@heroicons/react/24/outline";
 // Wrapper that closes over the dependency's URL filter (see lib/markdown.tsx).
-import { MarkdownSur as Markdown } from "@/lib/markdown";
+import { SafeMarkdown as Markdown } from "@/lib/markdown";
 import { useT } from "@/lib/i18n";
-import { copierTexte } from "@/lib/copier";
+import { copyText } from "@/lib/clipboard";
 import { downloadText } from "@/lib/export";
 import type { Artifact } from "@/lib/playground-thread";
 
@@ -42,7 +42,7 @@ export type DocumentPanelProps = {
   panelSubtitle: string;
   panelContent: string;
   panelLang: string;
-  panelEstHtml: boolean;
+  panelIsHtml: boolean;
   panelDownloadName: string;
   panelDownloadMime: string;
   showLive: boolean;
@@ -51,23 +51,23 @@ export type DocumentPanelProps = {
   renameArtifactValue: string;
   setRenamingArtifact: (v: boolean) => void;
   setRenameArtifactValue: (v: string) => void;
-  epingle: Artifact | null;
+  pinned: Artifact | null;
   commitArtifactRename: (a: Artifact, title: string) => void;
   htmlPreview: boolean;
   setHtmlPreview: (v: boolean) => void;
   previewUrl: string;
-  erreurApercu: string;
+  previewError: string;
   streaming: boolean;
-  corrigerErreur: (nom: string, message: string) => void;
-  refApercu: (el: HTMLIFrameElement | null) => void;
+  fixError: (name: string, message: string) => void;
+  previewRef: (el: HTMLIFrameElement | null) => void;
   panelScrollRef: (node: HTMLElement | null) => void;
   onPanelScroll: () => void;
   showPanelJump: boolean;
   panelJumpDown: () => void;
   onClose: () => void;
   artifactResize: ResizableRegion;
-  setPlein: (v: boolean) => void;
-  fermerPanneau: () => void;
+  setFull: (v: boolean) => void;
+  closePanel: () => void;
 };
 
 /** Side panel: pinned beside the chat on wide screens. */
@@ -77,7 +77,7 @@ export function DocumentPanel({
   panelSubtitle,
   panelContent,
   panelLang,
-  panelEstHtml,
+  panelIsHtml,
   panelDownloadName,
   panelDownloadMime,
   showLive,
@@ -86,22 +86,22 @@ export function DocumentPanel({
   renameArtifactValue,
   setRenamingArtifact,
   setRenameArtifactValue,
-  epingle,
+  pinned,
   commitArtifactRename,
   htmlPreview,
   setHtmlPreview,
   previewUrl,
-  erreurApercu,
+  previewError,
   streaming,
-  corrigerErreur,
-  refApercu,
+  fixError,
+  previewRef,
   panelScrollRef,
   onPanelScroll,
   showPanelJump,
   panelJumpDown,
   onClose,
   artifactResize,
-  setPlein,
+  setFull,
 }: DocumentPanelProps) {
   const t = useT();
   const showToast = useToast();
@@ -128,7 +128,7 @@ export function DocumentPanel({
                         label={t("Nouveau nom du fichier")}
                         value={renameArtifactValue}
                         onChange={setRenameArtifactValue}
-                        onEnter={() => epingle && commitArtifactRename(epingle, renameArtifactValue)}
+                        onEnter={() => pinned && commitArtifactRename(pinned, renameArtifactValue)}
                         isLabelHidden
                         size="sm"
                       />
@@ -147,7 +147,7 @@ export function DocumentPanel({
                       <>
                         <Button label={t("Valider")} variant="ghost" size="sm" isIconOnly
                           icon={<Icon icon={CheckIcon} size="sm" />}
-                          onClick={() => epingle && commitArtifactRename(epingle, renameArtifactValue)} />
+                          onClick={() => pinned && commitArtifactRename(pinned, renameArtifactValue)} />
                         <Button label={t("Annuler")} variant="ghost" size="sm" isIconOnly
                           icon={<Icon icon={XMarkIcon} size="sm" />}
                           onClick={() => setRenamingArtifact(false)} />
@@ -161,13 +161,13 @@ export function DocumentPanel({
                         )}
                         <Button label={t("Plein écran")} variant="ghost" size="sm" isIconOnly
                           icon={<Icon icon={ArrowsPointingOutIcon} size="sm" />}
-                          onClick={() => setPlein(true)} />
+                          onClick={() => setFull(true)} />
                         <Button label={t("Télécharger")} variant="ghost" size="sm" isIconOnly
                           icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
                           onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
                         <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
                           icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                          onClick={() => void copierTexte(panelContent, () =>
+                          onClick={() => void copyText(panelContent, () =>
                             showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))} />
                         <Button label={t("Fermer")} variant="ghost" size="sm" isIconOnly
                           icon={<Icon icon={XMarkIcon} size="sm" />}
@@ -176,7 +176,7 @@ export function DocumentPanel({
                     )
                   }
                 />
-                {panelEstHtml && (
+                {panelIsHtml && (
                   <HStack padding={3}>
                     <SegmentedControl
                       label={t("Affichage")}
@@ -188,7 +188,7 @@ export function DocumentPanel({
                     </SegmentedControl>
                   </HStack>
                 )}
-                {panelEstHtml && htmlPreview && erreurApercu ? (
+                {panelIsHtml && htmlPreview && previewError ? (
                   /* The page opens but raises an error: it is well-formed and
                      yet unusable. Without this banner, the user sees an
                      empty or frozen preview with no idea why. */
@@ -196,20 +196,20 @@ export function DocumentPanel({
                     <Banner
                       status="warning"
                       title={t("La page ne s'exécute pas")}
-                      description={erreurApercu}
+                      description={previewError}
                       endContent={
                         <Button
                           label={t("Corriger")}
                           variant="primary"
                           size="sm"
                           isDisabled={streaming}
-                          onClick={() => corrigerErreur(panelTitle, erreurApercu)}
+                          onClick={() => fixError(panelTitle, previewError)}
                         />
                       }
                     />
                   </HStack>
                 ) : null}
-                {panelEstHtml && htmlPreview ? (
+                {panelIsHtml && htmlPreview ? (
                   /* Model-generated page, in an ISOLATED iframe.
                      `allow-scripts` WITHOUT `allow-same-origin`: the page can
                      run — otherwise buttons and interactions are dead, which
@@ -221,7 +221,7 @@ export function DocumentPanel({
                      `allow-scripts`, it cancels the sandbox and a generated HTML
                      would become code executed in our own origin. */
                   <iframe
-                    ref={refApercu}
+                    ref={previewRef}
                     title={panelTitle}
                     src={previewUrl}
                     sandbox="allow-scripts allow-forms allow-popups"
@@ -235,18 +235,17 @@ export function DocumentPanel({
                   />
                 ) : (
                 <VStack ref={panelScrollRef} onScroll={onPanelScroll} padding={4} isScrollable style={{ flex: 1, minHeight: 0 }}>
-                  {/* Valeurs unifiées : pendant le flux il n'y a pas encore
-                      d'artefact épinglé, mais bien un fichier à afficher. */}
-                  {/* `flexShrink: 0` : SANS ça le CodeBlock rétrécit à la
-                      hauteur du corps (ses deux étages sont des items flex en
-                      `flex: 0 1 auto`, `min-height` résolu à 0 puisque leur
-                      `overflow` n'est pas `visible`) et son PROPRE conteneur
-                      interne devient le seul à défiler — le corps, lui, ne
-                      déborde jamais : le suivi automatique et le bouton
-                      « Descendre », branchés sur le corps, ne servaient à
-                      rien. Empêcher le rétrécissement rend au corps sa place
-                      d'UNIQUE conteneur de défilement, pour le code comme pour
-                      les documents (mesuré : corps 792/792 contre code interne
+                  {/* Unified values: while streaming there is no pinned
+                      artifact yet, but there is a file to show. */}
+                  {/* `flexShrink: 0`: WITHOUT it the CodeBlock shrinks to the
+                      body's height (its two levels are flex items with `flex: 0
+                      1 auto`, `min-height` resolved to 0 since their `overflow`
+                      is not `visible`) and its OWN inner container becomes the
+                      only one that scrolls — the body never overflows: the
+                      auto-follow and the « Descendre » button, wired to the
+                      body, were useless. Preventing the shrink gives the body
+                      back its role as the ONLY scroll container, for code and
+                      documents alike (measured: body 792/792 against inner code
                       5 716/720). */}
                   {panelIsCode
                     ? <CodeBlock title={panelTitle} language={panelLang} code={panelContent} width="100%" isWrapped container="section" style={{ flexShrink: 0 }} />

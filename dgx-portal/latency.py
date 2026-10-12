@@ -44,7 +44,7 @@ def latency_summary(window_s=None):
         taken = [e for e in _samples if window_s is None or now - e[0] <= window_s]
     if not taken:
         return {'n': 0, 'p50_ms': None, 'p95_ms': None, 'max_ms': None,
-                'plus_lent': None, 'fenetre_min': 0}
+                'slowest': None, 'window_min': 0}
     sort_key = sorted(e[1] for e in taken)
     def _p(q):
         return round(sort_key[min(len(sort_key) - 1, int(len(sort_key) * q))] * 1000)
@@ -58,12 +58,12 @@ def latency_summary(window_s=None):
         'p50_ms': _p(0.50),
         'p95_ms': _p(0.95),
         'max_ms': round(sort_key[-1] * 1000),
-        'plus_lent': max(slow.items(), key=lambda kv: kv[1])[0] if slow else None,
-        'fenetre_min': round((now - taken[0][0]) / 60),
+        'slowest': max(slow.items(), key=lambda kv: kv[1])[0] if slow else None,
+        'window_min': round((now - taken[0][0]) / 60),
     }
 
 
-@_bp.route("/api/latence")
+@_bp.route("/api/latency")
 @login_required
 def api_latency():
     # Login required: the response times are the platform's own telemetry, not

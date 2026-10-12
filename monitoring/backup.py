@@ -35,7 +35,7 @@ PORTAL_VOLUME = "/var/lib/docker/volumes/ai-platform_portal_data/_data"
 # Path UNUSABLE by the unit: the volume belongs to uid 10001 in 0700 and
 # dgx-backup runs without CAP_DAC_OVERRIDE, so a read there returns EACCES
 # (which `os.path.isdir` turned into False, hence a purge announcing « 0
-# orphelin » while doing nothing). We go through the container, which mounts it
+# orphans » while doing nothing). We go through the container, which mounts it
 # here:
 PORTAL_DATA_IN_CONTAINER = "/app/data"
 PORTAL_CONTAINER = "dgx-portal"
@@ -114,38 +114,38 @@ def _retain(dest_dir, keep):
 # media volume (uid 10001, 0700). See _purge_orphans.
 _PURGE_CODE = r'''
 import json, os, sys, time
-charge = json.load(sys.stdin)
-racine, grace, dry = charge["racine"], charge["grace"], charge["dry"]
+payload = json.load(sys.stdin)
+root_dir, grace_days, dry_run = payload["root"], payload["grace"], payload["dry"]
 total = 0
-for dossier, refs in charge["refs"].items():
+for folder, refs in payload["refs"].items():
     refs = set(refs)
-    d = os.path.join(racine, dossier)
+    d = os.path.join(root_dir, folder)
     if not os.path.isdir(d):
-        print(f"  {dossier} : répertoire absent")
+        print(f"  {folder}: missing directory")
         continue
     for f in sorted(os.listdir(d)):
         # `video_files` names its files `<prompt_id>.mp4`, WITHOUT suffix: the
         # prefix comparison before `_` (meant for `<prompt_id>_<index>.png`)
         # is not enough if an id contains an underscore. We test BOTH forms —
-        # a false « orphelin » would delete a still-referenced file.
-        pref = os.path.splitext(f.split("_")[0])[0]
-        complet = os.path.splitext(f)[0]
-        chemin = os.path.join(d, f)
-        if pref in refs or complet in refs or not os.path.isfile(chemin):
+        # a false « orphan » would delete a still-referenced file.
+        prefix = os.path.splitext(f.split("_")[0])[0]
+        full = os.path.splitext(f)[0]
+        path = os.path.join(d, f)
+        if prefix in refs or full in refs or not os.path.isfile(path):
             continue
-        age_j = (time.time() - os.path.getmtime(chemin)) / 86400
-        if age_j < grace:
+        age_days = (time.time() - os.path.getmtime(path)) / 86400
+        if age_days < grace_days:
             continue
         total += 1
-        if dry:
-            print(f"  orphelin (serait supprimé) : {dossier}/{f} ({age_j:.0f} j)")
+        if dry_run:
+            print(f"  orphan (would be deleted): {folder}/{f} ({age_days:.0f} d)")
             continue
         try:
-            os.remove(chemin)
-            print(f"  orphelin supprimé : {dossier}/{f} ({age_j:.0f} j)")
+            os.remove(path)
+            print(f"  orphan deleted: {folder}/{f} ({age_days:.0f} d)")
         except OSError as exc:
-            print(f"  échec suppression {dossier}/{f} : {exc}")
-print(f"purge orphelins : {total} fichier(s) {'(dry-run)' if dry else 'supprimé(s)'}")
+            print(f"  failed to delete {folder}/{f}: {exc}")
+print(f"orphan purge: {total} file(s) {'(dry-run)' if dry_run else 'deleted'}")
 '''
 
 
@@ -155,13 +155,13 @@ def _purge_orphans(dest_dir, dry_run=False):
     The reference is the DUMP that was just written, not the live database: if
     portal.db were reset (the failure this purge must above all not make worse),
     the live database would reference NOTHING anymore and every media file would
-    be « orphelin ». The dump, on the other hand, keeps the state of the last
+    be « orphan ». The dump, on the other hand, keeps the state of the last
     healthy instant.
 
     Deletion goes through `docker exec`: the dgx-backup unit runs with an
     empty CapabilityBoundingSet and ProtectSystem=strict, while the media volume
     belongs to uid 10001 in 0700. From the host, `os.path.isdir()` SWALLOWED the
-    EACCES and returned False — the purge therefore announced « 0 orphelin »
+    EACCES and returned False — the purge therefore announced « 0 orphans »
     every night, never deleting anything nor failing. The container, however, is
     at home there.
     """
@@ -169,25 +169,25 @@ def _purge_orphans(dest_dir, dry_run=False):
     import sqlite3
     dumps = glob.glob(os.path.join(dest_dir, "portal-*.db"))
     if not dumps:
-        print("purge orphelins : aucun dump, on s'abstient")
+        print("orphan purge: no dump, skipping")
         return
     latest = max(dumps, key=os.path.getmtime)
     conn = sqlite3.connect(f"file:{latest}?mode=ro", uri=True)
     refs = {}
-    for dossier, table, col in ORPHAN_DIRS:
-        refs[dossier] = [str(r[0]) for r in conn.execute(f"SELECT {col} FROM {table}")]
+    for folder, table, col in ORPHAN_DIRS:
+        refs[folder] = [str(r[0]) for r in conn.execute(f"SELECT {col} FROM {table}")]
     conn.close()
-    charge = json.dumps({"racine": PORTAL_DATA_IN_CONTAINER, "grace": ORPHAN_GRACE_DAYS,
+    payload = json.dumps({"root": PORTAL_DATA_IN_CONTAINER, "grace": ORPHAN_GRACE_DAYS,
                          "dry": dry_run, "refs": refs})
     r = subprocess.run(["docker", "exec", "-i", PORTAL_CONTAINER, "python3", "-c", _PURGE_CODE],
-                       input=charge.encode(), capture_output=True, timeout=300)
-    sortie = (r.stdout or b"").decode().rstrip()
-    if sortie:
-        print(sortie)
+                       input=payload.encode(), capture_output=True, timeout=300)
+    output = (r.stdout or b"").decode().rstrip()
+    if output:
+        print(output)
     if r.returncode != 0:
         # A failure must be VISIBLE: the previous silence cost months of
         # accumulated 10-to-100 MB videos.
-        print(f"purge orphelins : ÉCHEC ({r.returncode}) : "
+        print(f"orphan purge: FAILED ({r.returncode}): "
               f"{(r.stderr or b'').decode().strip()[:300]}")
 
 
@@ -197,9 +197,9 @@ def main():
     ap.add_argument("--keep", type=int, default=KEEP)
     ap.add_argument("--dir", default=DEST)
     ap.add_argument("--no-purge", action="store_true",
-                    help="ne pas purger les fichiers orphelins")
+                    help="do not purge orphan files")
     ap.add_argument("--purge-dry-run", action="store_true",
-                    help="liste les orphelins sans rien supprimer")
+                    help="list the orphans without deleting anything")
     args = ap.parse_args()
 
     os.makedirs(args.dir, exist_ok=True)
@@ -232,7 +232,7 @@ def main():
             _purge_orphans(args.dir, dry_run=args.purge_dry_run)
         except Exception as exc:
             # The purge is a bonus: never let it fail the backup.
-            print(f"purge orphelins impossible : {exc}", file=sys.stderr)
+            print(f"orphan purge impossible: {exc}", file=sys.stderr)
     if errors:
         for e in errors:
             print("ERROR:", e, file=sys.stderr)

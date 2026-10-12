@@ -39,7 +39,7 @@ import { UserAvatar } from "@/lib/user-avatar";
 import {
   DIRECTORY_STATUS_META,
   SOURCE_META,
-  periodeQuota,
+  quotaPeriod,
   type AdminUserDetail,
   type LocalUser,
   type UsersData,
@@ -101,7 +101,7 @@ export function UsersSection({
   const [pw, setPw] = useState("");
   const [nu, setNu] = useState({ username: "", password: "", fullname: "", group: "", max_budget: "", is_admin: "0" });
   const [ng, setNg] = useState({ name: "", max_budget: "", is_admin: "0" });
-  const [groupeEdite, setGroupeEdite] = useState(false);
+  const [editedGroup, setEditedGroup] = useState(false);
   // Blocking an account (reason requested, optional).
   const [blockUser, setBlockUser] = useState<LocalUser | null>(null);
   const [blockReason, setBlockReason] = useState("");
@@ -134,10 +134,10 @@ export function UsersSection({
   const refresh = useCallback(() => {
     getJSON<UsersData>("/api/admin/users").then(setData).catch(() => {});
   }, []);
-  const dejaCharge = useRef(!!initial && initialFresh);
+  const alreadyLoaded = useRef(!!initial && initialFresh);
   useEffect(() => {
-    if (dejaCharge.current) {
-      dejaCharge.current = false;
+    if (alreadyLoaded.current) {
+      alreadyLoaded.current = false;
       return;
     }
     refresh();
@@ -200,8 +200,8 @@ export function UsersSection({
   const users = useMemo(() => data?.users ?? [], [data]);
   const groups = data?.groups ?? [];
   // The quota period (« / semaine »): every cap on this page is per period.
-  const p = periodeQuota(data?.budget_duration);
-  const periode = t(p.msgid).replace("{n}", String(p.n ?? ""));
+  const p = quotaPeriod(data?.budget_duration);
+  const period = t(p.msgid).replace("{n}", String(p.n ?? ""));
 
   // Overview counters for the stat tiles.
   const stats = useMemo(() => {
@@ -222,7 +222,7 @@ export function UsersSection({
     const q = query.trim().toLowerCase();
     return users.filter((u) => {
       const matchesQ = !q || u.username.toLowerCase().includes(q) || !!u.fullname?.toLowerCase().includes(q);
-      const srcs = u.sources.length ? u.sources : ["externe"];
+      const srcs = u.sources.length ? u.sources : ["external"];
       const matchesSrc = sourceFilter === "all" || srcs.includes(sourceFilter);
       return matchesQ && matchesSrc;
     });
@@ -242,7 +242,7 @@ export function UsersSection({
     { label: t("Local"), value: "local" },
     { label: "LDAP", value: "ldap" },
     { label: "SSO", value: "sso" },
-    { label: t("Externe"), value: "externe" },
+    { label: t("Externe"), value: "external" },
   ];
 
   async function createUser() {
@@ -402,7 +402,7 @@ export function UsersSection({
       ) },
     { key: "sources", header: t("Source"), renderCell: (u) => (
         <HStack gap={1} wrap="wrap">
-          {(u.sources.length ? u.sources : ["externe"]).map((s) => {
+          {(u.sources.length ? u.sources : ["external"]).map((s) => {
             const m = SOURCE_META[s] ?? { label: s, variant: "neutral" as const };
             return <Badge key={s} label={t(m.label)} variant={m.variant} />;
           })}
@@ -413,10 +413,10 @@ export function UsersSection({
     { key: "group_name", header: t("Groupe"), renderCell: (u) => {
         // A local account has one portal group; an LDAP/SSO account the groups
         // its directory gives it (merged by name).
-        const noms = u.group_name ? [u.group_name] : (u.directory_groups ?? []);
-        return noms.length ? <Text maxLines={2}>{noms.join(", ")}</Text> : "—";
+        const names = u.group_name ? [u.group_name] : (u.directory_groups ?? []);
+        return names.length ? <Text maxLines={2}>{names.join(", ")}</Text> : "—";
       } },
-    { key: "effective_budget", header: `${t("Quota")} ${periode}`, renderCell: (u) =>
+    { key: "effective_budget", header: `${t("Quota")} ${period}`, renderCell: (u) =>
         u.unlimited ? <Text color="secondary">{t("Illimité")}</Text>
         : u.effective_budget != null ? <Text hasTabularNumbers>{fmtBudget(u.effective_budget)}</Text>
         : <Text color="secondary">—</Text> },
@@ -437,21 +437,21 @@ export function UsersSection({
           : null;
         // LDAP/SSO accounts: the state the DIRECTORY gives (active, disabled
         // there, or gone) — the portal owns no « enabled » flag for them.
-        const annuaire = !u.managed && u.directory_status ? DIRECTORY_STATUS_META[u.directory_status] : null;
-        if (!u.blocked && !lockedHint && !u.managed && !annuaire) return <Text color="secondary">—</Text>;
+        const directory = !u.managed && u.directory_status ? DIRECTORY_STATUS_META[u.directory_status] : null;
+        if (!u.blocked && !lockedHint && !u.managed && !directory) return <Text color="secondary">—</Text>;
         // A dot and a word, not a filled pill on every row: the normal state
         // stays quiet, only the abnormal ones draw the eye.
-        const etat: { label: string; variant: "success" | "error" | "warning" } | null =
+        const state: { label: string; variant: "success" | "error" | "warning" } | null =
           u.blocked ? { label: "Bloqué", variant: "error" }
           : u.managed ? (u.enabled ? { label: "Actif", variant: "success" } : { label: "Désactivé", variant: "error" })
-          : annuaire;
+          : directory;
         return (
           <VStack gap={0}>
-            {etat ? (
+            {state ? (
               <HStack gap={2} vAlign="center">
-                <StatusDot variant={etat.variant} label={t(etat.label)} />
-                <Text color={etat.variant === "success" ? "secondary" : undefined}
-                  weight={etat.variant === "success" ? undefined : "semibold"}>{t(etat.label)}</Text>
+                <StatusDot variant={state.variant} label={t(state.label)} />
+                <Text color={state.variant === "success" ? "secondary" : undefined}
+                  weight={state.variant === "success" ? undefined : "semibold"}>{t(state.label)}</Text>
               </HStack>
             ) : null}
             {u.blocked && u.block_reason ? (
@@ -511,7 +511,7 @@ export function UsersSection({
             icon={<Icon icon={PlusIcon} size="sm" />} onClick={() => {
               setFormWarning(null);
               setNg({ name: "", max_budget: "", is_admin: "0" });
-              setGroupeEdite(false);
+              setEditedGroup(false);
               setGroupDialog(true);
             }} />
           <Button label={t("Nouvel utilisateur")} variant="primary" size="sm"
@@ -584,7 +584,7 @@ export function UsersSection({
                         variant={SOURCE_META[src]?.variant ?? "neutral"} />
                     ))}
                     <Text type="supporting" color="secondary">
-                      {g.max_budget != null ? `${fmtBudget(g.max_budget)} ${periode}` : t("quota par défaut")}
+                      {g.max_budget != null ? `${fmtBudget(g.max_budget)} ${period}` : t("quota par défaut")}
                       {g.is_admin ? ` · ${t("admin")}` : ""}
                       {` · ${t("{n} membre(s)").replace("{n}", String(g.members ?? 0))}`}
                     </Text>
@@ -595,7 +595,7 @@ export function UsersSection({
                       onClick={() => {
                         setNg({ name: g.name, max_budget: g.max_budget != null ? String(g.max_budget) : "",
                                 is_admin: g.is_admin ? "1" : "0" });
-                        setGroupeEdite(true);
+                        setEditedGroup(true);
                         setGroupDialog(true);
                       }} />
                     <Button label={t("Supprimer")} variant="ghost" size="sm" isIconOnly
@@ -603,8 +603,8 @@ export function UsersSection({
                       onClick={() => {
                         // A group the directory brings comes back at its
                         // members' next login, without quota or right.
-                        const annuaire = (g.sources ?? []).some((x) => x === "ldap" || x === "sso");
-                        const msg = annuaire
+                        const directory = (g.sources ?? []).some((x) => x === "ldap" || x === "sso");
+                        const msg = directory
                           ? t("Supprimer ce groupe ? Il vient de l'annuaire : il reviendra à la prochaine connexion d'un membre, sans quota ni droit.")
                           : t("Supprimer ce groupe ?");
                         if (window.confirm(msg)) act(`/admin/groups/delete/${encodeURIComponent(g.name)}`, {});
@@ -640,7 +640,7 @@ export function UsersSection({
         ng={ng}
         setNg={setNg}
         createGroup={createGroup}
-        editing={groupeEdite}
+        editing={editedGroup}
       />
 
       <PasswordResetDialog

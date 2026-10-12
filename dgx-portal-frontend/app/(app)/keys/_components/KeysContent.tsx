@@ -23,7 +23,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { authFetch, getJSON } from "@/lib/api";
-import { copierTexte } from "@/lib/copier";
+import { copyText } from "@/lib/clipboard";
 import {
   INTEGRATION_TOOLS,
   buildSnippet,
@@ -31,7 +31,7 @@ import {
   type IntegrationTool,
   type ModelLimit,
 } from "@/lib/integrationSnippets";
-import { useT, useLocale, tServeur } from "@/lib/i18n";
+import { useT, useLocale, tServer } from "@/lib/i18n";
 
 type DiscordStatus = { linkable: boolean; dm_enabled: boolean; linked: boolean; discord_name: string };
 type ApiKey = {
@@ -70,13 +70,13 @@ export function KeysContent() {
   const [selectedModel, setSelectedModel] = useState("");
   const [tool, setTool] = useState<IntegrationTool>("opencode");
   const [discord, setDiscord] = useState<DiscordStatus | null>(null);
-  const [erreurChargement, setErreurChargement] = useState("");
-  const [enCours, setEnCours] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [running, setRunning] = useState(false);
 
   function refresh() {
     getJSON<KeysData>("/api/keys")
       .then((d) => {
-        setErreurChargement("");
+        setLoadError("");
         setData(d);
         if (!selectedKey && d.user_keys.length) setSelectedKey(d.user_keys[0].key);
         // Default: the virtual "auto-model" (follows the currently-running model).
@@ -84,7 +84,7 @@ export function KeysContent() {
       })
       // Before: no `catch`, so a failed request left the tab
       // almost empty (just the title) without the slightest explanation.
-      .catch((e: Error) => setErreurChargement(e.message));
+      .catch((e: Error) => setLoadError(e.message));
     getJSON<DiscordStatus>("/api/discord/status").then(setDiscord).catch(() => {});
   }
 
@@ -97,9 +97,9 @@ export function KeysContent() {
    * valid while the user believed it dead.
    */
   async function actionKeys(
-    corps: Record<string, string>,
-    succes: string,
-    apres?: (r: { key_alias?: string; key?: string }) => void,
+    body: Record<string, string>,
+    success: string,
+    after?: (r: { key_alias?: string; key?: string }) => void,
   ): Promise<boolean> {
     if (!csrf) {
       // Without a message, the button became a silent no-op when both
@@ -107,32 +107,32 @@ export function KeysContent() {
       showToast({ body: t("Session incomplète — recharge la page."), type: "error" });
       return false;
     }
-    setEnCours(true);
+    setRunning(true);
     try {
       const res = await authFetch("/keys", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
-        body: new URLSearchParams(corps).toString(),
+        body: new URLSearchParams(body).toString(),
       });
       const r = (await res.json().catch(() => ({}))) as {
         ok?: boolean; error?: string; code?: string; key_alias?: string; key?: string;
       };
       if (!res.ok || r.ok === false) {
-        // A stable refusal carries a `code` (e.g. `deja_en_attente`): the UI
+        // A stable refusal carries a `code` (e.g. `alias_in_use`): the UI
         // translates it, the server sentence is only a fallback.
-        const msg = r.code ? t(r.code) : r.error;
-        showToast({ body: msg ? tServeur(msg, t) : t("L'action a échoué."), type: "error" });
+        const msg = r.code === "alias_in_use" ? t("Tu as déjà une clé nommée ainsi.") : r.error;
+        showToast({ body: msg ? tServer(msg, t) : t("L'action a échoué."), type: "error" });
         return false;
       }
-      apres?.(r);
-      showToast({ body: succes, type: "info" });
+      after?.(r);
+      showToast({ body: success, type: "info" });
       refresh();
       return true;
     } catch {
       showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
       return false;
     } finally {
-      setEnCours(false);
+      setRunning(false);
     }
   }
 
@@ -162,7 +162,7 @@ export function KeysContent() {
    * « Afficher » button is for READING a key, not copying it.
    */
   function copyKey(key: string, alias: string) {
-    void copierTexte(key, () =>
+    void copyText(key, () =>
       showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }),
     ).then((ok) => {
       if (ok) {
@@ -177,13 +177,13 @@ export function KeysContent() {
   /** Renames a key: the alias is what makes it possible to find one's way with
    *  several of them (one per machine) — it had to be chosen once and for all. */
   async function renameKey(key: string, alias: string) {
-    const nouveau = window.prompt(
+    const current = window.prompt(
       t("Nouveau nom pour la clé « {alias} » :").replace("{alias}", alias), alias,
     );
-    if (nouveau === null) return;
-    const propre = nouveau.trim();
-    if (!propre || propre === alias) return;
-    await actionKeys({ action: "rename", key, key_name: propre }, t("Clé renommée."));
+    if (current === null) return;
+    const clean = current.trim();
+    if (!clean || clean === alias) return;
+    await actionKeys({ action: "rename", key, key_name: clean }, t("Clé renommée."));
   }
 
   async function requestBudget() {
@@ -317,11 +317,11 @@ export function KeysContent() {
 
   // Two versions of the same snippet: the displayed one (key hidden if not
   // revealed) and the copied one (always the real key).
-  const snippetAffiche =
+  const shownSnippet =
     data && selectedKey && selectedModel
       ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, revealKeyInSnippet)
       : "";
-  const snippetReel =
+  const actualSnippet =
     data && selectedKey && selectedModel
       ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, true)
       : "";
@@ -342,15 +342,15 @@ export function KeysContent() {
             placeholder={t("Nom (ex: mon-laptop)")}
             size="sm"
           />
-          <Button label={t("Nouvelle clé")} variant="primary" size="sm" icon={<Icon icon={PlusIcon} size="sm" />} onClick={createKey} isLoading={enCours} />
+          <Button label={t("Nouvelle clé")} variant="primary" size="sm" icon={<Icon icon={PlusIcon} size="sm" />} onClick={createKey} isLoading={running} />
         </HStack>
       </HStack>
 
-      {erreurChargement && (
+      {loadError && (
         <Card>
           <HStack hAlign="between" vAlign="center" gap={3}>
             <Text type="supporting" color="secondary">
-              {t("Impossible de charger tes clés :")} {erreurChargement}
+              {t("Impossible de charger tes clés :")} {loadError}
             </Text>
             <Button label={t("Réessayer")} variant="secondary" size="sm" onClick={refresh} />
           </HStack>
@@ -504,10 +504,10 @@ export function KeysContent() {
                 so we rewrite the clipboard right after with the revealed version. */}
             <CodeBlock
               isWrapped
-              code={snippetAffiche}
+              code={shownSnippet}
               onCopy={() => {
-                if (!snippetReel) return;
-                void copierTexte(snippetReel, () =>
+                if (!actualSnippet) return;
+                void copyText(actualSnippet, () =>
                   showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }));
               }}
               language={snippetLanguage(tool)}

@@ -80,7 +80,7 @@ class GenerationTest(unittest.TestCase):
         return faux_post
 
     def test_generation_reussie(self):
-        journal = []
+        step_log = []
         with mock.patch('image_routes.requests.post',
                         side_effect=self._faux_sidecar()), \
              mock.patch.object(image_tools, '_POLL_INTERVAL_S', 0.05):
@@ -88,7 +88,7 @@ class GenerationTest(unittest.TestCase):
             with portal.app.test_request_context():
                 gen = image_tools._exec_image_tool(
                     {'prompt': 'a cat astronaut, cinematic lighting'},
-                    'zz-test-img', journal)
+                    'zz-test-img', step_log)
                 battements, result = [], None
                 while True:
                     try:
@@ -99,25 +99,25 @@ class GenerationTest(unittest.TestCase):
                     battements.append(chunk)
         self.assertIn('/image/file/', result)
         self.assertTrue(all(b.startswith(': ') for b in battements), battements)
-        self.assertEqual(journal[-1]['etape'], 'generation_finie')
-        self.assertEqual(len(journal[-1]['images']), 1)
-        self.assertTrue(journal[-1]['images'][0].startswith('/image/file/'))
+        self.assertEqual(step_log[-1]['step'], 'generation_done')
+        self.assertEqual(len(step_log[-1]['images']), 1)
+        self.assertTrue(step_log[-1]['images'][0].startswith('/image/file/'))
         # The job is properly closed on the database side: no ghost « running ».
         c = sqlite3.connect(DB_PATH)
         line = c.execute("SELECT status, done_count FROM image_jobs WHERE prompt_id=?",
-                          (journal[-1]['prompt_id'],)).fetchone()
+                          (step_log[-1]['prompt_id'],)).fetchone()
         c.close()
         self.assertEqual(line, ('done', 1))
 
     def test_prompt_vide_refuse(self):
-        journal = []
-        gen = image_tools._exec_image_tool({'prompt': '  '}, 'zz-test-img', journal)
+        step_log = []
+        gen = image_tools._exec_image_tool({'prompt': '  '}, 'zz-test-img', step_log)
         try:
             next(gen)
         except StopIteration as arret:
             result = arret.value
         self.assertIn('impossible', result)
-        self.assertEqual(journal, [])
+        self.assertEqual(step_log, [])
 
 
 class PhaseOutilsTest(unittest.TestCase):
@@ -135,7 +135,7 @@ class PhaseOutilsTest(unittest.TestCase):
             if calls['tour'] == 1:
                 r.json = lambda: {'choices': [{'message': {
                     'content': '', 'tool_calls': [{'id': 'appel1', 'function': {
-                        'name': 'generer_image',
+                        'name': 'generate_image',
                         'arguments': '{"prompt": "a cat astronaut"}'}}]}}]}
             else:
                 r.json = lambda: {'choices': [{'message': {
@@ -150,20 +150,20 @@ class PhaseOutilsTest(unittest.TestCase):
                 return faux_litellm(url, **kw)
             return self._faux_sidecar()(url, **kw)
 
-        journal, findings = [], []
+        step_log, findings = [], []
         with mock.patch('requests.post', side_effect=faux_post), \
              mock.patch.object(image_tools, '_POLL_INTERVAL_S', 0.05):
             import app as portal
             with portal.app.test_request_context():
                 msgs = [{'role': 'user', 'content': 'génère une image de chat'}]
                 etapes = list(websearch_tools._tools_phase(
-                    'modele-test', msgs, 'cle', journal, findings,
+                    'modele-test', msgs, 'cle', step_log, findings,
                     web_ok=False, img_ok=True, username='zz-test-img'))
         annonces = [e for e in etapes if '"generation"' in e]
         self.assertTrue(annonces, etapes)
         self.assertTrue(any('/image/file/' in content for _n, content in findings),
                         findings)
-        self.assertEqual(journal[-1]['outil'], 'diffusers')
+        self.assertEqual(step_log[-1]['tool'], 'diffusers')
 
     def _faux_sidecar(self):
         def faux_post(url, **kw):

@@ -32,7 +32,7 @@ const MAX_WORD_MS = 15000;
 // answers do not animate the same way. The draw happens in the initializer —
 // the indicator only appears after sending, so never in the served HTML, and
 // there is no server render to diverge.
-const ETATS: OrbState[] = [
+const STATES: OrbState[] = [
   "working",
   "searching",
   "solving",
@@ -50,17 +50,17 @@ const ETATS: OrbState[] = [
  *  and down becomes tedious to read. The letters must be distinct elements
  *  to each carry their own delay — hence the `<span>`s, which stay inline
  *  (the word is not split for the screen). */
-function LibelleAnime({ texte }: { texte: string }) {
+function AnimatedLabel({ text }: { text: string }) {
   return (
     <Text type="supporting" color="secondary">
-      {Array.from(texte).map((caractere, i) => (
+      {Array.from(text).map((character, i) => (
         <span
-          key={`${i}-${caractere}`}
-          className="thinking-lettre"
+          key={`${i}-${character}`}
+          className="thinking-letter"
           // Negative delay: the wave is already spread out on first render.
           style={{ animationDelay: `-${((i % 12) * 0.11).toFixed(2)}s` }}
         >
-          {caractere === " " ? "\u00a0" : caractere}
+          {character === " " ? "\u00a0" : character}
         </span>
       ))}
     </Text>
@@ -71,7 +71,7 @@ export function ThinkingIndicator({ fixedLabel }: { fixedLabel?: string }) {
   const t = useT();
   const { mode } = useThemeMode();
   const [verb, setVerb] = useState(() => VERBS[Math.floor(Math.random() * VERBS.length)]);
-  const [etat] = useState(() => ETATS[Math.floor(Math.random() * ETATS.length)]);
+  const [state] = useState(() => STATES[Math.floor(Math.random() * STATES.length)]);
 
   useEffect(() => {
     if (fixedLabel) return;
@@ -104,12 +104,12 @@ export function ThinkingIndicator({ fixedLabel }: { fixedLabel?: string }) {
           Decorative: the meaning is carried by the role="status" above, we
           remove it from the accessibility tree so it is not announced twice. */}
       <ThinkingOrb
-        state={etat}
+        state={state}
         size={20}
         theme={mode === "system" ? "auto" : mode}
         aria-hidden
       />
-      <LibelleAnime texte={label} />
+      <AnimatedLabel text={label} />
     </HStack>
   );
 }

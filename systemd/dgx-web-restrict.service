@@ -1,5 +1,5 @@
 [Unit]
-Description=Empeche le reseau des sidecars de recherche web (SearXNG, crawl4ai) d'atteindre l'hote
+Description=Prevents the web-search sidecars' network (SearXNG, crawl4ai) from reaching the host
 # crawl4ai drives a browser visiting pages entirely controlled by third
 # parties: a hostile page can redirect it to an internal address (SSRF).
 # Its dedicated docker network already has no route to litellm/postgres, and

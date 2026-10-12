@@ -120,9 +120,9 @@ def _slots_activity():
     return {
         'busy': len(actives),
         'total': len(slots),
-        'plus_ancien_s': round(oldest) if oldest is not None else None,
-        'prompt_ingere': ingested,
-        'prompt_traite': processed,
+        'oldest_s': round(oldest) if oldest is not None else None,
+        'prompt_total': ingested,
+        'prompt_processed': processed,
     }
 
 def vllm_health():
@@ -187,7 +187,7 @@ def _health_without_metrics(model_name, engine):
             ctx_in, ctx_out = ctx_split(row['vllm_args'], engine)
     except Exception:
         pass
-    generated = flux.get('generes')
+    generated = flux.get('generated')
     cumulative = None
     try:
         if generated is not None:
@@ -209,10 +209,10 @@ def _health_without_metrics(model_name, engine):
         # of a request and read « 0 tok/s » while the model was generating.
         'tps': live_decode_rate(),
         'ttft': measured_ttft(),
-        'requests': flux.get('requetes'),
+        'requests': flux.get('requests'),
         'tokens_generated': None,
         'tokens_generated_total': cumulative,
-        'tps_moyen': flux.get('tps_moyen'),
+        'tps_avg': flux.get('tps_avg'),
         'tokens_prompt': flux.get('entree'),
         'tps_prefill': prefill_last(),
         'slots': _slots_activity(),
@@ -319,12 +319,12 @@ def _vllm_health_uncached():
         counters, cumulative = _llamacpp_counters(text, running[0], gen)
     else:
         entry_v = _prom_sum(text, 'vllm:prompt_tokens_total')
-        counters = {'generes': int(gen) if gen else 0, 'tps_moyen': None,
+        counters = {'generated': int(gen) if gen else 0, 'tps_avg': None,
                      'entree': int(entry_v) if entry_v is not None else None,
                      'tps_prefill': None}
         try:
             from stats import accumulate_generated_tokens
-            cumulative = accumulate_generated_tokens(running[0], counters['generes'])
+            cumulative = accumulate_generated_tokens(running[0], counters['generated'])
         except Exception:
             cumulative = None
     return {
@@ -342,9 +342,9 @@ def _vllm_health_uncached():
         'requests': (int(_prom_sum(text, M['requests']) or 0)
                      if M.get('requests') else None),
         # Cumulative counters since the engine STARTUP (see _compteurs_llamacpp).
-        'tokens_generated': counters['generes'],
+        'tokens_generated': counters['generated'],
         'tokens_generated_total': cumulative,
-        'tps_moyen': counters['tps_moyen'],
+        'tps_avg': counters['tps_avg'],
         'tokens_prompt': counters['entree'],
         'tps_prefill': counters['tps_prefill'],
         # In-flight activity, session by session (see _slots_activite): this is
@@ -355,8 +355,8 @@ def _vllm_health_uncached():
         # dispo » was this hole. Fewer details than llama.cpp (no age, no
         # ingestion), but the number the reader wants is there.
         'slots': _slots_activity() or (
-            {'busy': running_now, 'total': max_seqs, 'plus_ancien_s': None,
-             'prompt_ingere': 0, 'prompt_traite': 0}
+            {'busy': running_now, 'total': max_seqs, 'oldest_s': None,
+             'prompt_total': 0, 'prompt_processed': 0}
             if max_seqs else None),
     }
 
@@ -380,7 +380,7 @@ def _llamacpp_counters(text, model_name, generated):
       model re-reads huge contexts, so it spends most of its time in input;
       displaying « 0 » without saying so is exact but misleading.
     """
-    empties = {'generes': None, 'tps_moyen': None, 'entree': None, 'tps_prefill': None}
+    empties = {'generated': None, 'tps_avg': None, 'entree': None, 'tps_prefill': None}
     if not model_name:
         return empties, None
     try:
@@ -388,7 +388,7 @@ def _llamacpp_counters(text, model_name, generated):
         entry = _prom_sum(text, 'llamacpp:prompt_tokens_total')
         prefill = _prom_sum(text, 'llamacpp:prompt_tokens_seconds')
         counters = {
-            'generes': int(generated) if generated else 0,
+            'generated': int(generated) if generated else 0,
             # Threshold of 300 s of cumulative generation — a CHOICE, not a
             # measurement: over a few tens of seconds the average means nothing.
             # This is not theoretical: measured on 2026-09-14, the engine
@@ -397,7 +397,7 @@ def _llamacpp_counters(text, model_name, generated):
             # would be worse than nothing, so the UI hides the line until the
             # engine has generated five minutes since its reset. The cumulative
             # total, for its part, stays right in every case.
-            'tps_moyen': round(generated / seconds, 1) if seconds >= 300 else None,
+            'tps_avg': round(generated / seconds, 1) if seconds >= 300 else None,
             'entree': int(entry) if entry is not None else None,
             'tps_prefill': round(prefill, 1) if prefill else None,
         }
@@ -408,7 +408,7 @@ def _llamacpp_counters(text, model_name, generated):
     # return the current launch's counter, without cumulative.
     try:
         from stats import accumulate_generated_tokens
-        cumulative = accumulate_generated_tokens(model_name, counters['generes'])
+        cumulative = accumulate_generated_tokens(model_name, counters['generated'])
     except Exception:
         cumulative = None
     return counters, cumulative

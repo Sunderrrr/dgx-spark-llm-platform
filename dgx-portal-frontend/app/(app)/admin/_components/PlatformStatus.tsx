@@ -18,7 +18,7 @@ export type PlatformStatusData = {
   model: { name: string | null; status: string | null; uptime_s: number | null };
   portal: { db_mb: number | null; active_sessions: number | null; connected_users?: number | null; local_users: number | null; active_keys: number | null };
   memory?: { available_gib: number | null; low_gib: number };
-  directory?: { readable: boolean; actif?: number; desactive?: number; absent?: number };
+  directory?: { readable: boolean; active?: number; disabled?: number; absent?: number };
   maintenance: boolean;
   checked_at: number | null;
 };
@@ -133,11 +133,11 @@ export function PlatformStatus({ status }: { status: PlatformStatusData | null }
 
   // Directory: accounts disabled or gone there still hold their keys here.
   const directory = status?.directory ?? null;
-  const dirAlert = !!directory?.readable && ((directory.desactive ?? 0) + (directory.absent ?? 0)) > 0;
+  const dirAlert = !!directory?.readable && ((directory.disabled ?? 0) + (directory.absent ?? 0)) > 0;
   const dirParts: string[] = [];
   if (directory?.readable) {
-    dirParts.push(`${fmt(directory.actif ?? 0, 0)} ${t("actifs")}`);
-    if (directory.desactive) dirParts.push(`${fmt(directory.desactive, 0)} ${t("désactivés")}`);
+    dirParts.push(`${fmt(directory.active ?? 0, 0)} ${t("actifs")}`);
+    if (directory.disabled) dirParts.push(`${fmt(directory.disabled, 0)} ${t("désactivés")}`);
     if (directory.absent) dirParts.push(`${fmt(directory.absent, 0)} ${t("absents de l'annuaire")}`);
   }
 

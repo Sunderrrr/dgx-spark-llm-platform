@@ -67,17 +67,17 @@ PORTAL_DB = "/var/lib/docker/volumes/ai-platform_portal_data/_data/portal.db"
 # Kept for documentation: this is the REAL path of the database, but the unit
 # cannot open it (0700 uid 10001 volume, monitor without CAP_DAC_OVERRIDE).
 # Any read must go through COMPTEURS_CODE, below.
-DATA_DROP_RATIO = 0.4   # alerte sous 40 % du filigrane
-DATA_FLOOR = 20         # jamais d'alerte tant que le filigrane est < 20
+DATA_DROP_RATIO = 0.4   # alert below 40 % of the watermark
+DATA_FLOOR = 20         # never an alert while the watermark is < 20
 
 # The counters are read INSIDE the portal container, not on this path: since
 # the unit was hardened (empty CapabilityBoundingSet) the monitor no longer has
 # CAP_DAC_OVERRIDE, and the volume belongs to uid 10001 in 0700. The probe then
-# returned « db illisible » AND `up=True` — so no more alerts at all, which was
+# returned « db unreadable » AND `up=True` — so no more alerts at all, which was
 # precisely the failure it exists to catch (silent reset of 04/09/2026,
 # unnoticed for three days). The container, on the other hand, owns the
 # database.
-COMPTEURS_CODE = (
+COUNTERS_CODE = (
     "import sqlite3;c=sqlite3.connect('file:/app/data/portal.db?mode=ro',uri=True);"
     "print(c.execute('SELECT COUNT(*) FROM conversations').fetchone()[0],"
     "sum(c.execute('SELECT COUNT(*) FROM '+t).fetchone()[0]"
@@ -89,24 +89,24 @@ def _data_intact(watermark):
     """(up, detail, counters): conversations + media jobs vs watermark."""
     import subprocess
     try:
-        r = subprocess.run(["docker", "exec", "dgx-portal", "python3", "-c", COMPTEURS_CODE],
+        r = subprocess.run(["docker", "exec", "dgx-portal", "python3", "-c", COUNTERS_CODE],
                            capture_output=True, text=True, timeout=15)
         if r.returncode != 0:
             raise RuntimeError((r.stderr or "").strip()[:200] or f"docker exec rc={r.returncode}")
         conv, jobs = (int(x) for x in r.stdout.split())
     except Exception as exc:
         # Unreadable: it is the container probes' job to report it.
-        return True, f"db illisible ({exc})", {"conversations": None, "jobs": None}
+        return True, f"db unreadable ({exc})", {"conversations": None, "jobs": None}
     wm_conv = max(int(watermark.get("conversations") or 0), conv)
     wm_jobs = max(int(watermark.get("jobs") or 0), jobs)
-    pertes = []
+    losses = []
     if wm_conv >= DATA_FLOOR and conv < wm_conv * DATA_DROP_RATIO:
-        pertes.append(f"conversations {conv} << filigrane {wm_conv}")
+        losses.append(f"conversations {conv} << watermark {wm_conv}")
     if wm_jobs >= DATA_FLOOR and jobs < wm_jobs * DATA_DROP_RATIO:
-        pertes.append(f"jobs média {jobs} << filigrane {wm_jobs}")
-    detail = ("; ".join(pertes) if pertes
+        losses.append(f"media jobs {jobs} << watermark {wm_jobs}")
+    detail = ("; ".join(losses) if losses
               else f"conversations={conv}, jobs={jobs}")
-    return (not pertes), detail, {"conversations": conv, "jobs": jobs}
+    return (not losses), detail, {"conversations": conv, "jobs": jobs}
 
 
 def _backup_fresh():
@@ -122,13 +122,13 @@ def _backup_fresh():
     import time
     try:
         # The backups now go to the operator's S3 bucket; the script leaves a
-        # STATE FILE here (`etat.json`) — reading that is the honest check:
+        # STATE FILE here (`state.json`) — reading that is the honest check:
         # a local .db glob went blind the day the destination moved (2026-10-09).
-        etat = os.path.join(BACKUP_DIR, "etat.json")
-        if os.path.exists(etat):
-            with open(etat, encoding="utf-8") as f:
+        state = os.path.join(BACKUP_DIR, "state.json")
+        if os.path.exists(state):
+            with open(state, encoding="utf-8") as f:
                 info = json.load(f)
-            stamp = info.get("derniere", "")
+            stamp = info.get("last_backup", "")
             try:
                 ts = datetime.fromisoformat(stamp)
                 age = (datetime.now(ts.tzinfo) - ts).total_seconds() / 3600
@@ -136,9 +136,9 @@ def _backup_fresh():
                 age = None
             if age is not None and age <= BACKUP_MAX_AGE_H:
                 return True, f"last backup {age:.1f}h ago → {info.get('destination', '?')}", {
-                    "latest": info.get("fichier"), "age_hours": round(age, 1), "count": 1}
+                    "latest": info.get("file"), "age_hours": round(age, 1), "count": 1}
             return False, f"last backup {age:.1f}h old (> {BACKUP_MAX_AGE_H}h)", {
-                "latest": info.get("fichier"), "age_hours": round(age, 1) if age else None, "count": 1}
+                "latest": info.get("file"), "age_hours": round(age, 1) if age else None, "count": 1}
         files = glob.glob(os.path.join(BACKUP_DIR, "portal-*.db"))
     except Exception:
         files = []
@@ -206,8 +206,8 @@ def probe(watermark=None):
     state["backup"] = {"up": bu, "detail": bdetail, **binfo}
     # Data integrity: the watermark (stored in the state) feeds the massive
     # drop detection — same sticky mechanism as the services.
-    du, ddetail, compteurs = _data_intact(watermark or {})
-    state["donnees"] = {"up": du, "detail": ddetail, **compteurs}
+    du, ddetail, counters = _data_intact(watermark or {})
+    state["donnees"] = {"up": du, "detail": ddetail, **counters}
     return state
 
 
@@ -240,14 +240,14 @@ DGX · {APP_NAME} — automated monitoring message
 # CAP_DAC_OVERRIDE — see PORTAL_DB), so it reads it through the container like
 # the counters above, and keeps a root-only copy: the alert that matters most is
 # sent when the portal is DOWN, precisely when the container cannot answer.
-_SMTP_CLES = {"SMTP_HOST": "cfg_smtp_host", "SMTP_PORT": "cfg_smtp_port",
+_SMTP_KEYS = {"SMTP_HOST": "cfg_smtp_host", "SMTP_PORT": "cfg_smtp_port",
               "SMTP_USER": "cfg_smtp_user", "SMTP_PASSWORD": "cfg_smtp_pass",
               "SMTP_FROM": "cfg_smtp_from", "ADMIN_EMAIL": "cfg_admin_email"}
 SMTP_CACHE = "/var/lib/dgx-monitor/smtp.json"     # 0600, root
 SMTP_CODE = (
     "import json,sqlite3;c=sqlite3.connect('file:/app/data/portal.db?mode=ro',uri=True);"
     "print(json.dumps(dict(c.execute(\"SELECT key,value FROM settings WHERE key IN "
-    + "(" + ",".join("'%s'" % v for v in _SMTP_CLES.values()) + ")" + "\").fetchall())))"
+    + "(" + ",".join("'%s'" % v for v in _SMTP_KEYS.values()) + ")" + "\").fetchall())))"
 )
 
 
@@ -256,27 +256,27 @@ def _smtp_settings():
     else .env (an instance that has not started the version that moved them)."""
     import subprocess
     env = _load_env()
-    vals = {k: env.get(k, "") for k in _SMTP_CLES}
-    lus = None
+    vals = {k: env.get(k, "") for k in _SMTP_KEYS}
+    read_count = None
     try:
         r = subprocess.run(["docker", "exec", "dgx-portal", "python3", "-c", SMTP_CODE],
                            capture_output=True, text=True, timeout=15)
         if r.returncode == 0:
-            lus = json.loads(r.stdout)
+            read_count = json.loads(r.stdout)
             fd = os.open(SMTP_CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
-                json.dump(lus, f)
+                json.dump(read_count, f)
     except Exception as exc:  # noqa: BLE001
         print(f"portal settings unreadable ({exc})")
-    if lus is None:
+    if read_count is None:
         try:
             with open(SMTP_CACHE) as f:
-                lus = json.load(f)
+                read_count = json.load(f)
         except (OSError, ValueError):
-            lus = {}
-    for k, cle in _SMTP_CLES.items():
-        if lus.get(cle):
-            vals[k] = lus[cle]
+            read_count = {}
+    for k, key in _SMTP_KEYS.items():
+        if read_count.get(key):
+            vals[k] = read_count[key]
     return vals
 
 

@@ -7,12 +7,12 @@ FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e16
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Plafond de tas pour le build (défaut 2,5 Gio). Sur cette machine, le modèle
-# de chat servi occupe déjà ~105 Gio des 121 : un build non borné peut pousser
-# le noyau à échanger, et l'OOM-killer désigne alors le plus gros RSS — c'est-
-# à-dire le modèle en cours de service, ce qui est interdit. Une borne
-# transforme un risque non borné en échec de build borné. Relever la valeur
-# (docker build --build-arg NODE_HEAP_MB=4096) si le build manque de mémoire.
+# Heap ceiling for the build (default 2.5 GiB). On this machine the served chat
+# model already holds ~105 GiB of the 121: an unbounded build can push the
+# kernel into swapping, and the OOM killer then picks the biggest RSS — that is,
+# the model being served, which is forbidden. A bound turns an unbounded risk
+# into a bounded build failure. Raise the value (docker build --build-arg
+# NODE_HEAP_MB=4096) if the build runs out of memory.
 ARG NODE_HEAP_MB=2560
 ENV NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB}
 RUN npm run build
@@ -20,7 +20,7 @@ RUN npm run build
 FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-# Utilisateur non-root, même schéma que dgx-portal/Dockerfile.
+# Non-root user, same scheme as dgx-portal/Dockerfile.
 RUN groupadd -r frontend && useradd -r -u 10002 -g frontend frontend
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=frontend:frontend /app/.next/standalone ./

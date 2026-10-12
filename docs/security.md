@@ -7,12 +7,12 @@ third-party code) are in [`SECURITY.md`](../SECURITY.md).
 
 ## Posture
 
-The gateway refuses any call without a valid key and enforces budgets; vLLM and the
-runner are firewalled to localhost plus the docker bridge, and the runner
+The gateway refuses any call without a valid key and enforces budgets. vLLM and
+the runner are firewalled to localhost plus the docker bridge, and the runner
 allowlists every launch flag, requires a Bearer token and runs non-root. No
 `docker.sock` is mounted by any sidecar **in this stack** — they are driven through
 scoped `sudo` on root-owned wrapper scripts, each on its own docker network with no
-route to LiteLLM, Postgres or Traefik. Elevated host access does exist *around* the
+route to LiteLLM, Postgres or Traefik. Privileged host access does exist *around* the
 stack, and it is the operator's to review rather than something this repository
 grants: a third-party control-plane agent the runner is designed for (socket + a
 bearer token + an IP allowlist; currently stopped), and one third-party edge
@@ -23,10 +23,10 @@ hardened cookies, CSRF, a persisted brute-force lockout and a per-request nonce
 CSP, and a test fails the build if any route loses its authentication guard.
 
 In detail: [`SECURITY.md`](../SECURITY.md) §2 covers model launching (a strict
-allowlist, not a denylist), sidecar control, network isolation, session and
-request integrity, input validation, resource abuse, maintenance mode, container
-hardening, and why admin actions report what actually happened. Authentication
-itself is described in [authentication](authentication.md).
+allowlist, not a denylist), sidecar control, network isolation, the integrity of
+sessions and requests, input validation, resource abuse, maintenance mode,
+container hardening, and why admin actions report what actually happened.
+Authentication itself is described in [authentication](authentication.md).
 
 ## Exposing the API publicly
 

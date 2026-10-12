@@ -9,28 +9,28 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 // cached ten seconds server-side: one fetch per session, kept in module state
 // so every shell re-render reads the same answer instead of asking again.
 
-import { BRANDING_DEFAUT as DEFAUT, brandingFromConfig, type Branding } from "./branding-shape";
+import { DEFAULT_BRANDING as DEFAULT, brandingFromConfig, type Branding } from "./branding-shape";
 
 export type { Branding };
 
 let cache: Branding | null = null;
-const enAttente: ((b: Branding) => void)[] = [];
-let requeteEnCours = false;
+const pending: ((b: Branding) => void)[] = [];
+let requestInFlight = false;
 
-function charger() {
-  if (requeteEnCours) return;
-  requeteEnCours = true;
+function load() {
+  if (requestInFlight) return;
+  requestInFlight = true;
   fetch("/api/config")
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       cache = brandingFromConfig(d);
     })
     .catch(() => {
-      cache = DEFAUT;
+      cache = DEFAULT;
     })
     .finally(() => {
-      requeteEnCours = false;
-      for (const f of enAttente.splice(0)) f(cache as Branding);
+      requestInFlight = false;
+      for (const f of pending.splice(0)) f(cache as Branding);
     });
 }
 
@@ -47,11 +47,11 @@ export function BrandingProvider({ initial, children }: { initial: Branding | nu
 
 export function useBranding(): Branding {
   const seeded = useContext(BrandingContext);
-  const [etat, setEtat] = useState<Branding>(seeded ?? cache ?? DEFAUT);
+  const [state, setState] = useState<Branding>(seeded ?? cache ?? DEFAULT);
   useEffect(() => {
     if (seeded || cache) return;
-    enAttente.push(setEtat);
-    charger();
+    pending.push(setState);
+    load();
   }, [seeded]);
-  return etat;
+  return state;
 }

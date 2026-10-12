@@ -6,7 +6,7 @@ import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
-import { MarkdownSur as Markdown } from "@/lib/markdown";
+import { SafeMarkdown as Markdown } from "@/lib/markdown";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { Card } from "@astryxdesign/core/Card";
@@ -64,10 +64,10 @@ import { useStickToBottom } from "@/lib/useStickToBottom";
 import { convAsMarkdown, convTitleFallback, downloadText } from "@/lib/export";
 import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
-import { useT, tServeur } from "@/lib/i18n";
+import { useT, tServer } from "@/lib/i18n";
 import { useBranding } from "@/lib/branding";
-import { copierTexte } from "@/lib/copier";
-import { texteNotice } from "@/lib/notices";
+import { copyText } from "@/lib/clipboard";
+import { noticeText } from "@/lib/notices";
 import type { DgxNotice } from "@/lib/notices";
 
 type ChatMsg = {
@@ -132,13 +132,13 @@ const SUGGESTIONS = [
 // actually observes (model stopped, no API key) and come BEFORE the
 // generic cards — no point offering « Modèles disponibles » to someone
 // whose model is down, or « Erreur 401 » to someone who has no key yet.
-const SUGGESTION_MODELE_ARRETE = {
+const MODEL_STOPPED_SUGGESTION = {
   heading: "Pourquoi le modèle est-il arrêté ?",
   body: "Diagnostique l'arrêt et propose de le relancer",
   prompt: "Pourquoi le modèle est-il arrêté ? Peux-tu le relancer ?",
   icon: ServerStackIcon,
 };
-const SUGGESTION_CLE_API = {
+const API_KEY_SUGGESTION = {
   heading: "Comment créer ma clé API ?",
   body: "L'assistant te la crée et t'explique comment l'utiliser",
   prompt: "Comment créer ma clé API ? Peux-tu le faire pour moi ?",
@@ -156,36 +156,36 @@ const MAX_ATTACHMENT_BYTES = 96 * 1024;
 const WELCOME_MESSAGE_FR =
   "Bonjour 👋 Je suis **{name}**, l'assistant de la plateforme. Je peux te dépanner (clé, quota, modèle, intégration OpenCode/Hermes…) mais aussi **agir pour toi** : créer une clé, demander du budget, demander un modèle. Dis-moi ce qu'il te faut.";
 
-type ThreadReponse = { messages?: { role: string; content: string }[] };
+type ThreadResponse = { messages?: { role: string; content: string }[] };
 
 /** The previous turn's thread, as messages (empty when there is none). */
-function threadDepuis(d: ThreadReponse): ChatMsg[] {
+function threadFrom(d: ThreadResponse): ChatMsg[] {
   return (d.messages ?? [])
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => {
-      const brut = m as { model?: string; reasoning?: string; reasoningMs?: number };
+      const raw = m as { model?: string; reasoning?: string; reasoningMs?: number };
       return {
         role: m.role as ChatMsg["role"],
         content: m.content,
-        model: brut.model,
+        model: raw.model,
         // The thinking is kept too: the diagnosis stays readable,
         // instead of vanishing with the page.
-        reasoning: brut.reasoning,
-        reasoningMs: brut.reasoningMs,
+        reasoning: raw.reasoning,
+        reasoningMs: raw.reasoningMs,
       };
     });
 }
 
 export type SupportSeed = {
   data: { running_models: string[] };
-  thread: ThreadReponse;
+  thread: ThreadResponse;
   keys: { user_keys?: unknown[] };
 };
 
 export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof SupportSeed]: SupportSeed[K] | null }> | null }) {
   const { data: initial, fresh } = useSeed<SupportSeed>(seed);
   const t = useT();
-  const marque = useBranding();
+  const brand = useBranding();
   const csrf = useCsrf();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -211,13 +211,13 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
   // This page has no toast system: a failure that has no place in the
   // thread (missing CSRF token, copy impossible) is displayed here. Without
   // this, these buttons were SILENT no-ops.
-  const [erreurUi, setErreurUi] = useState<string | null>(null);
+  const [uiError, setUiError] = useState<string | null>(null);
   // « je veux arriver sur support et que la conv soit clear »: we ALWAYS land
   // at zero, systematically. The previous turn's thread stays available on
   // the side (« Reprendre ») — losing a conversation because the page was
   // reloaded would be another flaw — but it never imposes itself.
-  const [threadPrecedent, setThreadPrecedent] = useState<ChatMsg[] | null>(() => {
-    const t0 = initial.thread ? threadDepuis(initial.thread) : [];
+  const [previousThread, setPreviousThread] = useState<ChatMsg[] | null>(() => {
+    const t0 = initial.thread ? threadFrom(initial.thread) : [];
     return t0.length ? t0 : null;
   });
 
@@ -227,19 +227,19 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
   // message has been sent, rather than storing it: it thus stays always
   // up to date if the language changes before the first send, without ever
   // overwriting an ongoing conversation.
-  const displayMessages = messages.length ? messages : [{ role: "assistant" as const, content: t(WELCOME_MESSAGE_FR).replace("{name}", marque.name) }];
+  const displayMessages = messages.length ? messages : [{ role: "assistant" as const, content: t(WELCOME_MESSAGE_FR).replace("{name}", brand.name) }];
 
   // Follow the bottom while an answer streams, stop as soon as the reader
   // scrolls up, and offer a « Descendre » button — the very same mechanism as
   // the playground. The default ChatLayout button says « Scroll to bottom »
   // (untranslated), which was the one visible on every reload.
-  const dernier = messages[messages.length - 1];
-  const fluxDep = `${dernier?.content?.length ?? 0}:${dernier?.reasoning?.length ?? 0}`;
+  const last = messages[messages.length - 1];
+  const streamDep = `${last?.content?.length ?? 0}:${last?.reasoning?.length ?? 0}`;
   const {
-    setRef: suitLeBasSetRef,
-    showButton: montrerDescendre,
-    scrollToBottom: descendreToutEnBas,
-  } = useStickToBottom(fluxDep, isSending);
+    setRef: followBottomSetRef,
+    showButton: showScrollDown,
+    scrollToBottom: scrollToBottom,
+  } = useStickToBottom(streamDep, isSending);
 
   useEffect(() => {
     if (!fresh.data) {
@@ -250,10 +250,10 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
     // The previous thread is fetched but NOT applied: the page always starts
     // clear. It waits behind a « Reprendre » button for whoever wants it.
     if (!fresh.thread) {
-      getJSON<ThreadReponse>("/api/support/thread")
+      getJSON<ThreadResponse>("/api/support/thread")
         .then((d) => {
-          const restored = threadDepuis(d);
-          if (restored.length && !messages.length) setThreadPrecedent(restored);
+          const restored = threadFrom(d);
+          if (restored.length && !messages.length) setPreviousThread(restored);
         })
         .catch(() => {});
     }
@@ -264,13 +264,13 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
         .catch(() => {});
     }
     // Mount effect, ONCE: the thread is restored (and scrolled to its end) at
-    // load, never again. `descendreToutEnBas` is deliberately not a dependency.
+    // load, never again. `scrollToBottom` is deliberately not a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function runStream(nextMessages: ChatMsg[]) {
     if (!csrf) {
-      setErreurUi(t("Session incomplète — recharge la page."));
+      setUiError(t("Session incomplète — recharge la page."));
       return;
     }
     // eslint-disable-next-line react-hooks/purity -- runStream only runs from event handlers
@@ -288,9 +288,9 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
     // The model's thinking, like the playground: accumulated apart (it never
     // goes into the answer), with its real duration (first reasoning chunk →
     // first content chunk).
-    let raison = "";
-    let raisonDebut: number | null = null;
-    let finPensee: number | null = null;
+    let reason = "";
+    let reasoningStart: number | null = null;
+    let thoughtEnd: number | null = null;
     const toolCalls: ChatToolCallItem[] = [];
     const updateLast = (patch: Partial<ChatMsg> & { content: string }) => {
       setMessages((prev) => {
@@ -312,7 +312,7 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
     // an empty answer, without knowing what to fix.
     let notice = "";
     const onNotice = (n: DgxNotice) => {
-      notice = texteNotice(n, t);
+      notice = noticeText(n, t);
       updateLast({ content: notice, isError: true });
     };
     const onToolCall = (event: ToolCallEvent) => {
@@ -347,7 +347,7 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
         nextMessages,
         controller.signal,
         (chunk) => {
-          if (finPensee === null) finPensee = performance.now();
+          if (thoughtEnd === null) thoughtEnd = performance.now();
           acc += chunk;
           updateLast({ content: acc });
         },
@@ -355,18 +355,18 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
         onNotice,
         onConfirm,
         (chunk) => {
-          if (raisonDebut === null) raisonDebut = performance.now();
-          raison += chunk;
-          updateLast({ content: acc, reasoning: raison });
+          if (reasoningStart === null) reasoningStart = performance.now();
+          reason += chunk;
+          updateLast({ content: acc, reasoning: reason });
         },
       );
       // The thinking duration is only known here, at the end of the stream.
-      if (raison) {
+      if (reason) {
         updateLast({
           content: acc,
-          reasoning: raison,
+          reasoning: reason,
           // eslint-disable-next-line react-hooks/purity -- send() only runs from event handlers
-          reasoningMs: raisonDebut ? Math.round((finPensee ?? performance.now()) - raisonDebut) : undefined,
+          reasoningMs: reasoningStart ? Math.round((thoughtEnd ?? performance.now()) - reasoningStart) : undefined,
         });
       }
       if (!acc && !notice) updateLast({ content: t("Pas de réponse."), isError: true });
@@ -393,13 +393,13 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
   /** The whole thread as .md — what a person reporting a problem keeps: the
    *  questions, the answers, and the thinking that led to them. */
   function exportThread() {
-    const titre = convTitleFallback(messages, t("Conversation"));
-    const slug = titre.toLowerCase().replace(/[^\\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "support";
+    const title = convTitleFallback(messages, t("Conversation"));
+    const slug = title.toLowerCase().replace(/[^\\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "support";
     downloadText(
       `${slug}.md`,
       convAsMarkdown(
         {
-          title: titre,
+          title: title,
           model: runningModel ?? "",
           messages: messages.map((m) => ({
             role: m.role,
@@ -422,9 +422,9 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
     // The server sentence (French) is translated at display time; the model's
     // own prose (`message` of a tool result) has no key and falls back to itself.
     const message = result.message
-      ? tServeur(result.message, t)
+      ? tServer(result.message, t)
       : result.error
-        ? tServeur(result.error, t)
+        ? tServer(result.error, t)
         : t("Erreur réseau — réessaie.");
     // eslint-disable-next-line react-hooks/purity -- handleConfirm only runs from event handlers
     const now = Date.now();
@@ -455,9 +455,9 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
     }
   }
 
-  async function nouvelleConversation() {
+  async function newConversation() {
     if (!csrf) {
-      setErreurUi(t("Session incomplète — recharge la page."));
+      setUiError(t("Session incomplète — recharge la page."));
       return;
     }
     // A stream in progress would write into the thread right after the reset: we cut it.
@@ -481,7 +481,7 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
 
   async function sendFeedback(i: number, vote: 1 | -1, comment?: string) {
     if (!csrf) {
-      setErreurUi(t("Session incomplète — recharge la page."));
+      setUiError(t("Session incomplète — recharge la page."));
       return;
     }
     const msg = messages[i];
@@ -510,16 +510,16 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
     for (const file of Array.from(files)) {
       const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
       if (!ATTACH_EXTENSIONS.includes(ext)) {
-        setErreurUi(t("« {name} » : seuls les fichiers texte sont acceptés.").replace("{name}", file.name));
+        setUiError(t("« {name} » : seuls les fichiers texte sont acceptés.").replace("{name}", file.name));
         continue;
       }
       if (file.size > MAX_ATTACHMENT_BYTES) {
-        setErreurUi(t("« {name} » dépasse 96 Ko — trop gros pour le contexte.").replace("{name}", file.name));
+        setUiError(t("« {name} » dépasse 96 Ko — trop gros pour le contexte.").replace("{name}", file.name));
         continue;
       }
       const reader = new FileReader();
       reader.onload = () => setAttachments((prev) => [...prev, { name: file.name, content: String(reader.result) }]);
-      reader.onerror = () => setErreurUi(t("« {name} » n'a pas pu être lu.").replace("{name}", file.name));
+      reader.onerror = () => setUiError(t("« {name} » n'a pas pu être lu.").replace("{name}", file.name));
       reader.readAsText(file);
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -533,13 +533,13 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
     dictation.cancel();
     // Attached files travel INSIDE the question, as named code blocks: the
     // model reads them exactly as the playground sends them.
-    const joints = attachments
+    const attached = attachments
       .map((f) => "```" + f.name + "\n" + f.content + "\n```")
       .join("\n\n");
-    const contenu = joints ? trimmed + "\n\n" + joints : trimmed;
+    const content = attached ? trimmed + "\n\n" + attached : trimmed;
     setAttachments([]);
     // eslint-disable-next-line react-hooks/purity -- send only runs from event handlers
-    const nextMessages: ChatMsg[] = [...displayMessages, { role: "user", content: contenu, ts: Date.now() }];
+    const nextMessages: ChatMsg[] = [...displayMessages, { role: "user", content: content, ts: Date.now() }];
     setInput("");
     void runStream(nextMessages);
   }
@@ -553,8 +553,8 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
 
   // Welcome cards: the suggestions tied to the observed state first.
   const suggestions = [
-    ...(!runningModel ? [SUGGESTION_MODELE_ARRETE] : []),
-    ...(!hasApiKey ? [SUGGESTION_CLE_API] : []),
+    ...(!runningModel ? [MODEL_STOPPED_SUGGESTION] : []),
+    ...(!hasApiKey ? [API_KEY_SUGGESTION] : []),
     ...SUGGESTIONS,
   ];
 
@@ -586,7 +586,7 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
                   variant="ghost"
                   size="sm"
                   icon={<Icon icon={PlusIcon} size="sm" />}
-                  onClick={() => void nouvelleConversation()}
+                  onClick={() => void newConversation()}
                 />
               )}
               <StatusDot variant={runningModel ? "success" : "error"} label={runningModel || t("aucun modèle actif")} />
@@ -607,28 +607,28 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
           <VStack height="100%">
           <ChatLayout
             density="spacious"
-            ref={suitLeBasSetRef}
+            ref={followBottomSetRef}
             scrollButton={
-              montrerDescendre ? (
+              showScrollDown ? (
                 <Button
                   label={t("Descendre")}
                   variant="secondary"
                   size="sm"
-                  onClick={descendreToutEnBas}
+                  onClick={scrollToBottom}
                 />
               ) : null
             }
             composer={
               <VStack gap={2} padding={4}>
-                {messages.length === 0 && threadPrecedent && (
+                {messages.length === 0 && previousThread && (
                   <ClickableCard
                     label={t("Reprendre la conversation précédente")}
                     variant="muted"
                     onClick={() => {
-                      setMessages(threadPrecedent);
-                      setThreadPrecedent(null);
+                      setMessages(previousThread);
+                      setPreviousThread(null);
                       // Open at the last word once the thread is on screen.
-                      setTimeout(() => descendreToutEnBas(), 60);
+                      setTimeout(() => scrollToBottom(), 60);
                     }}>
                     <HStack gap={2} vAlign="center">
                       <Icon icon={ArrowUturnLeftIcon} size="sm" color="secondary" />
@@ -658,8 +658,8 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
                     ))}
                   </Grid>
                 )}
-                {erreurUi ? (
-                  <Banner status="error" title={erreurUi} isDismissable onDismiss={() => setErreurUi(null)} />
+                {uiError ? (
+                  <Banner status="error" title={uiError} isDismissable onDismiss={() => setUiError(null)} />
                 ) : null}
                 <ChatComposer
                   value={input}
@@ -762,7 +762,7 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
                 <ChatMessage key={i} sender={m.role}>
                   <ChatMessageBubble
                     variant={m.role === "user" ? "filled" : "ghost"}
-                    className={m.role === "user" ? "bulle-question" : undefined}
+                    className={m.role === "user" ? "question-bubble" : undefined}
                     /* Same registers as the playground: the question in its
                        bubble, the answer as plain text, and WHO is answering
                        named above (the model, as in the reference shots). */
@@ -786,8 +786,8 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
                                     size="sm"
                                     isIconOnly
                                     icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                    onClick={() => void copierTexte(m.content, () =>
-                                      setErreurUi(t("Copie impossible depuis ce navigateur.")))}
+                                    onClick={() => void copyText(m.content, () =>
+                                      setUiError(t("Copie impossible depuis ce navigateur.")))}
                                   />
                                 )}
                                 {canRegenerateThis && (
@@ -821,7 +821,7 @@ export default function SupportPage({ seed }: { seed?: Seed<{ [K in keyof Suppor
                         {m.toolCalls?.length ? <ChatToolCalls calls={m.toolCalls} /> : null}
                         {m.content && (
                           <Markdown
-                            className={m.reasoning && m.content.trim() ? "apparition-ecriture" : undefined}
+                            className={m.reasoning && m.content.trim() ? "typing-appear" : undefined}
                             isStreaming={isStreamingThis}>
                             {m.content}
                           </Markdown>

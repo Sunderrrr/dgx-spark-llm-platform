@@ -1,5 +1,5 @@
 import type { Conversation } from "./types";
-import { authFetch, getJSON, postFormVerifie } from "./api";
+import { authFetch, getJSON, postFormChecked } from "./api";
 
 // The history now lives server-side (`conversations` table): it follows
 // the user from one machine or browser to another. localStorage now
@@ -23,7 +23,7 @@ type ApiConversation = {
     images?: string[];
   }[];
   /** True when the server set the messages aside (list budget). */
-  messages_omis?: boolean;
+  omitted_messages?: boolean;
 };
 
 export type ApiConversations = { conversations: ApiConversation[] };
@@ -39,7 +39,7 @@ export function conversationsFromApi(data: ApiConversations): Conversation[] {
     ts: Date.parse(c.ts) || Date.now(),
     model: c.model,
     messages: c.messages,
-    messagesOmis: c.messages_omis === true,
+    omittedMessages: c.omitted_messages === true,
   }));
 }
 
@@ -55,7 +55,7 @@ export async function fetchConversations(): Promise<Conversation[]> {
  *
  * `GET /api/conversations` bounds what it carries (30 full conversations
  * were ~60 MB, loaded at every playground opening): beyond that, it only
- * returns the metadata with `messages_omis`. This is the path that returns
+ * returns the metadata with `omitted_messages`. This is the path that returns
  * the content when the conversation is actually opened.
  */
 export async function fetchConversation(id: string): Promise<Conversation | null> {
@@ -100,8 +100,8 @@ export async function persistConversation(csrf: string, conv: Conversation): Pro
       }).toString(),
     });
     if (!res.ok) return false;
-    const corps = (await res.json().catch(() => ({ ok: true }))) as { ok?: boolean };
-    return corps?.ok !== false;
+    const body = (await res.json().catch(() => ({ ok: true }))) as { ok?: boolean };
+    return body?.ok !== false;
   } catch {
     return false;
   }
@@ -114,7 +114,7 @@ export async function persistConversation(csrf: string, conv: Conversation): Pro
  * without a word of explanation. A deletion that did not happen must
  * be told. */
 export async function removeConversation(csrf: string, id: string): Promise<boolean> {
-  const res = await postFormVerifie("/conversations", csrf, { action: "delete", id: String(id) });
+  const res = await postFormChecked("/conversations", csrf, { action: "delete", id: String(id) });
   return res.ok;
 }
 

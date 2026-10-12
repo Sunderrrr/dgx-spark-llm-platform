@@ -27,7 +27,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useCsrf } from "@/lib/useCsrf";
 import { authFetch, getJSON, sendJSON } from "@/lib/api";
-import { useT, tServeur } from "@/lib/i18n";
+import { useT, tServer } from "@/lib/i18n";
 
 type MemNode = { id: number; name: string; kind: string; created_at: string };
 type MemEdge = {
@@ -109,7 +109,7 @@ export function MemoryContent() {
       return;
     }
     if (!r?.ok) {
-      showToast({ body: r?.error ? tServeur(r.error, t) : t("L'action a échoué."), type: "error" });
+      showToast({ body: r?.error ? tServer(r.error, t) : t("L'action a échoué."), type: "error" });
       return;
     }
     setGraph((g) => ({ ...g, enabled: !!r.enabled }));
@@ -125,7 +125,7 @@ export function MemoryContent() {
     if (!subject.trim() || !fact.trim()) return;
     const r = await sendJSON<{ ok: boolean; error?: string }>("/api/memory/facts", csrf, { subject, fact });
     if (!r.ok) {
-      showToast({ body: r.error ? tServeur(r.error, t) : t("Ajout impossible."), type: "error" });
+      showToast({ body: r.error ? tServer(r.error, t) : t("Ajout impossible."), type: "error" });
       return;
     }
     setSubject("");
@@ -134,12 +134,12 @@ export function MemoryContent() {
   }
 
   async function saveEdit(id: number) {
-    const texte = editText.trim();
-    if (!texte) return;
+    const text = editText.trim();
+    if (!text) return;
     const r = await sendJSON<{ ok: boolean; error?: string }>(
-      `/api/memory/facts/${id}`, csrf, { fact: texte }, "PATCH");
+      `/api/memory/facts/${id}`, csrf, { fact: text }, "PATCH");
     if (!r.ok) {
-      showToast({ body: r.error ? tServeur(r.error, t) : t("Modification impossible."), type: "error" });
+      showToast({ body: r.error ? tServer(r.error, t) : t("Modification impossible."), type: "error" });
       return;
     }
     setEditingId(null);
@@ -151,7 +151,7 @@ export function MemoryContent() {
       const r = await sendJSON<{ ok?: boolean; error?: string }>(
         `/api/memory/facts/${id}`, csrf, undefined, "DELETE");
       if (!r?.ok) {
-        showToast({ body: r?.error ? tServeur(r.error, t) : t("Suppression impossible."), type: "error" });
+        showToast({ body: r?.error ? tServer(r.error, t) : t("Suppression impossible."), type: "error" });
         return;
       }
     } catch {
@@ -171,7 +171,7 @@ export function MemoryContent() {
     }
     // Without this test, an outage displayed « Mémoire effacée — undefined informations ».
     if (!r?.ok) {
-      showToast({ body: r?.error ? tServeur(r.error, t) : t("L'action a échoué."), type: "error" });
+      showToast({ body: r?.error ? tServer(r.error, t) : t("L'action a échoué."), type: "error" });
       return;
     }
     showToast({ body: `${t("Mémoire effacée")} — ${r.deleted} ${t("informations")}`, type: "info" });
@@ -220,7 +220,7 @@ export function MemoryContent() {
         const r = await sendJSON<{ ok: boolean; error?: string; imported_facts?: number }>(
           "/api/memory/import", csrf, doc);
         if (!r.ok) {
-          showToast({ body: r.error ? tServeur(r.error, t) : t("Import impossible."), type: "error" });
+          showToast({ body: r.error ? tServer(r.error, t) : t("Import impossible."), type: "error" });
           return;
         }
         showToast({
@@ -237,7 +237,7 @@ export function MemoryContent() {
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
-          showToast({ body: err.error ? tServeur(err.error, t) : t("Import impossible."), type: "error" });
+          showToast({ body: err.error ? tServer(err.error, t) : t("Import impossible."), type: "error" });
           return;
         }
         const r = await res.json() as { imported_facts?: number };

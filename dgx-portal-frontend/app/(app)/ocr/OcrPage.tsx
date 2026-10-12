@@ -5,7 +5,7 @@ import { useSeed, type Seed } from "@/lib/seed";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
-import { MarkdownSur as Markdown } from "@/lib/markdown";
+import { SafeMarkdown as Markdown } from "@/lib/markdown";
 import { Text } from "@astryxdesign/core/Text";
 import { Card } from "@astryxdesign/core/Card";
 import { FileInput } from "@astryxdesign/core/FileInput";
@@ -31,7 +31,7 @@ import {
 import { useCsrf } from "@/lib/useCsrf";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { streamOcr } from "@/lib/api";
-import { copierTexte } from "@/lib/copier";
+import { copyText } from "@/lib/clipboard";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
 import { useT, useLocale } from "@/lib/i18n";
 
@@ -252,11 +252,11 @@ export default function OcrPage({ seed }: { seed?: Seed<{ [K in keyof OcrSeed]: 
   // therefore got a size error that was not SSE, and the OCR showed an EMPTY
   // result with no message — the user concluded their image contained no
   // text. We refuse here, and say so.
-  const TAILLE_MAX_OCTETS = 15 * 1024 * 1024;
+  const MAX_SIZE_BYTES = 15 * 1024 * 1024;
 
   async function extract() {
     if (!image || !csrf) return;
-    if (image.size > TAILLE_MAX_OCTETS) {
+    if (image.size > MAX_SIZE_BYTES) {
       showToast({
         body: t("Image trop lourde : 15 Mo maximum."),
         type: "error",
@@ -285,7 +285,7 @@ export default function OcrPage({ seed }: { seed?: Seed<{ [K in keyof OcrSeed]: 
     // `navigator.clipboard` is ABSENT outside a secure context (LAN over HTTP,
     // cf. lib/copier.ts): the previous non-optional call threw a synchronous
     // TypeError in the click handler — the button looked inert, with no message.
-    void copierTexte(markdown || text, () =>
+    void copyText(markdown || text, () =>
       showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }));
   }
 

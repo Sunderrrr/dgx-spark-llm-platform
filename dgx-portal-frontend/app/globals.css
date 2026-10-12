@@ -7,8 +7,8 @@ body {
   margin: 0;
 }
 
-/* Scrollbar discrète, cohérente avec le thème clair/sombre (pas de composant
-   Astryx pour ça — le scrollbar natif n'est pas un élément de design system). */
+/* Discreet scrollbar, consistent with the light/dark theme (no Astryx component
+   for it — the native scrollbar is not a design-system element). */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border-emphasized) transparent;
@@ -31,11 +31,10 @@ body {
   background-clip: padding-box;
 }
 
-/* Arrière-plan flouté derrière les dialogues (Réglages). Astryx rend un
-   <dialog> natif : ::backdrop est donc la bonne cible, et c'est du CSS simple
-   plutôt qu'un composant (aucun composant du design system n'expose ce
-   réglage). Respecte prefers-reduced-transparency pour les utilisateurs qui
-   désactivent les effets translucides. */
+/* Blurred backdrop behind dialogs (Settings). Astryx renders a native <dialog>:
+   ::backdrop is the right target, and plain CSS beats a component here (no
+   design-system component exposes this setting). Honors prefers-reduced-
+   transparency for users who turn translucency effects off. */
 dialog::backdrop {
   backdrop-filter: blur(6px);
   background: rgb(0 0 0 / 0.35);
@@ -47,11 +46,11 @@ dialog::backdrop {
   }
 }
 
-/* Libellé de ThinkingIndicator : la MÊME vague que la grille de l'avatar
-   généré, lettre par lettre — c'est ce qui fait que le texte accompagne
-   l'orbe au lieu de rester figé à côté. Opacité seule, sans translation : des
-   lettres qui montent et descendent rendent le mot pénible à lire. */
-@keyframes thinking-lettre {
+/* ThinkingIndicator's label: the SAME wave as the generated avatar's grid,
+   letter by letter — it is what makes the text go along with the orb instead of
+   sitting frozen beside it. Opacity only, no translation: letters moving up and
+   down make the word tiring to read. */
+@keyframes thinking-letter {
   0%,
   100% {
     opacity: 0.45;
@@ -60,21 +59,21 @@ dialog::backdrop {
     opacity: 1;
   }
 }
-.thinking-lettre {
+.thinking-letter {
   display: inline-block;
-  animation: thinking-lettre 1.8s ease-in-out infinite;
+  animation: thinking-letter 1.8s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .thinking-lettre {
+  .thinking-letter {
     animation: none;
     opacity: 1;
   }
 }
 
-/* Placeholder de génération (image ou vidéo) : occupe la place exacte du
-   média à venir pendant le rendu. Même raison que ci-dessus pour le CSS brut.
-   Porté par _components/GenerationPlaceholder — pages Image et Vidéo, et
-   pendant qu'un outil du playground génère. */
+/* Generation placeholder (image or video): holds the exact place of the coming
+   media during rendering. Same reason as above for raw CSS. Used by
+   _components/GenerationPlaceholder — Image and Video pages, and while a
+   playground tool generates. */
 @keyframes video-generating-sweep {
   0% {
     background-position: 200% 0;
@@ -96,24 +95,23 @@ dialog::backdrop {
   animation: video-generating-sweep 2.2s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  /* Le balayage devient une simple respiration : plus de mouvement latéral. */
+  /* The sweep becomes a simple breathing: no more sideways motion. */
   .video-generating {
     background-image: none;
     animation: none;
   }
 }
 
-/* Forme d'onde affichée pendant la génération vocale. Hauteur figée sur celle
-   du <audio controls> qui la remplace, pour que la carte ne change pas de
-   taille au moment du résultat. Même raison que plus haut pour le CSS brut. */
+/* Waveform shown during voice generation. Height pinned to the <audio controls>
+   that replaces it, so the card does not change size when the result lands.
+   Same reason as above for raw CSS. */
 .voice-wave {
   height: 54px;
   width: 100%;
 }
-/* scaleY et non height : une animation de hauteur relayoute à chaque frame,
-   une transformation reste sur le compositeur.
-   L'amplitude vient de --amp, propre à chaque barre : sans ça toutes les
-   barres montent à la même hauteur et l'onde fait « peigne ». */
+/* scaleY, not height: animating height relayouts every frame, a transform stays
+   on the compositor. The amplitude comes from --amp, per bar: without it every
+   bar rises to the same height and the wave looks like a « comb ». */
 @keyframes voice-wave-bar {
   0%,
   100% {
@@ -133,31 +131,31 @@ dialog::backdrop {
   opacity: 0.45;
   transform: scaleY(0.16);
   transform-origin: center;
-  /* Durée ET délai propres à chaque barre (cf. WAVE_BARS côté page) : des
-     durées différentes font dériver les barres en continu, donc le motif ne
-     se répète jamais. Le délai négatif les fait démarrer déjà en mouvement. */
+  /* Per-bar duration AND delay (see WAVE_BARS in the page): different durations
+     make the bars drift continuously, so the pattern never repeats. The
+     negative delay starts them already moving. */
   animation: voice-wave-bar var(--dur, 1.5s) ease-in-out infinite;
   animation-delay: var(--delay, 0s);
 }
 @media (prefers-reduced-motion: reduce) {
-  /* Barres figées à mi-hauteur : la carte garde sa forme et son sens
-     (« audio en préparation ») sans aucun mouvement. */
+  /* Bars frozen at half height: the card keeps its shape and its meaning («
+     audio being prepared ») without any motion. */
   .voice-wave-bar {
     animation: none;
     transform: scaleY(0.5);
   }
 }
 
-/* Playground — le dock du chat (compositeur + file d'attente) est rendu par
-   Astryx en position:sticky AVEC UN FOND TRANSPARENT : le texte défilait donc
-   visiblement derrière, y compris dans la bande de 44 px au-dessus du
-   compositeur. On le rend opaque, et on pose au-dessus un fondu pour que le
-   texte s'efface progressivement au lieu d'être tranché net.
+/* Playground — the chat dock (composer + queue) is rendered by Astryx as
+   position:sticky WITH A TRANSPARENT BACKGROUND: the text visibly scrolled
+   behind it, including in the 44 px band above the composer. We make it opaque,
+   and lay a fade above it so the text fades out progressively instead of being
+   cut sharply.
 
-   Cible : le dock est le seul enfant direct du scroller qui contienne le
-   compositeur (`:has`), ce qui évite de dépendre des classes StyleX générées.
-   CSS brut pour la même raison que les blocs ci-dessus : pas de compilateur
-   StyleX côté app, et aucun composant du design system n'expose ce réglage. */
+   Target: the dock is the only direct child of the scroller that contains the
+   composer (`:has`), which avoids depending on generated StyleX classes. Raw
+   CSS for the same reason as the blocks above: no StyleX compiler in the app,
+   and no design-system component exposes this setting. */
 .astryx-chat-layout > div:has(.astryx-chat-composer) {
   background: var(--color-background-surface);
 }
@@ -168,76 +166,75 @@ dialog::backdrop {
   bottom: 100%;
   height: var(--spacing-10, 40px);
   background: linear-gradient(to bottom, transparent, var(--color-background-surface));
-  /* Purement décoratif : ne doit pas intercepter les clics sur les messages. */
+  /* Purely decorative: must not intercept clicks on the messages. */
   pointer-events: none;
 }
 
-/* Playground — intégration du halo de voix et du faisceau de bordure, tous deux
-   accrochés à la carte du composeur. Deux réglages, tous deux MESURÉS, que les
-   librairies ne peuvent pas deviner :
+/* Playground — integration of the voice halo and the border beam, both attached
+   to the composer card. Two settings, both MEASURED, that the libraries cannot
+   guess:
 
-   1. ELLES LISENT LE RAYON SUR LEUR PREMIER ENFANT, et retombent sur 16 px s'il
-      n'en a pas. La racine du composeur Astryx est transparente et carrée
-      (`border-radius: 0`) : la lumière et le faisceau se dessinaient donc avec
-      des coins de 16 px au milieu d'une carte qui en fait 28. On recopie sur
-      cette racine le rayon de la carte — invisible, puisqu'elle n'a ni fond ni
-      bordure — pour que la détection soit exacte. La variable privée d'Astryx
-      vient en premier (c'est CELLE de la carte) ; `--radius-chat` et la valeur
-      de repli de la librairie suivent si elle disparaît.
+   1. THEY READ THE RADIUS ON THEIR FIRST CHILD, and fall back to 16 px if it
+   has none. The Astryx composer root is transparent and square (`border-radius:
+   0`): the light and the beam were drawn with 16 px corners in the middle of a
+   card of 28. We copy the card's radius onto that root — invisible, since it
+   has neither background nor border — so the detection is exact. Astryx's
+   private variable comes first (it is the CARD's); `--radius-chat` and the
+   library's fallback follow if it disappears.
 
-      Ce filet ne suffit PAS au faisceau : son premier enfant est sa PROPRE
-      balise `<style>` (0 px), il retombait donc toujours sur 16 px — mesuré le
-      2026-10-01, coins visiblement plus carrés que la carte. Son rayon (et
-      celui du halo) est donc passé en prop depuis la page (cf.
-      `rayonComposeur`) ; la règle reste pour le premier rendu, avant l'effet. */
+   This net is NOT enough for the beam: its first child is its OWN `<style>` tag
+   (0 px), so it always fell back to 16 px — measured on 2026-10-01, corners
+   visibly squarer than the card. Its radius (and the halo's) is therefore
+   passed as a prop from the page (see `composerRadius`); the rule stays for the
+   first render, before the effect. */
 .astryx-chat-composer {
   border-radius: var(--_chat-composer-radius, var(--radius-chat, 1rem));
 }
 
-/* 2. LES DEUX ENVELOPPES ROGNENT AU BORD DE LA CARTE, ET RÉÉMETTENT SON OMBRE.
+/* 2. BOTH WRAPPERS CLIP AT THE CARD'S EDGE, AND RE-EMIT ITS SHADOW.
 
-      Les deux librairies bornent leur lumière par `overflow: hidden` sur leur
-      racine. Une version précédente de cette feuille l'avait levé (`overflow:
-      visible`), au motif que chaque calque porte DÉJÀ son `clip-path: inset(0
-      round …)` et que le rognage faisait disparaître l'ombre de la carte (blanc
-      pur sous le composeur, mesuré). Le raisonnement était faux, et sa
-      vérification trop fine pour le montrer :
+   Both libraries bound their light with `overflow: hidden` on their root. A
+   previous version of this sheet lifted it (`overflow: visible`), on the
+   grounds that each layer ALREADY carries its `clip-path: inset(0 round …)` and
+   that the clipping made the card's shadow disappear (pure white under the
+   composer, measured). The reasoning was wrong, and its check too narrow to
+   show it:
 
-      - un `clip-path` NE RETIENT PAS le flou de son propre élément. Micro-test
-        du 2026-10-01 : une boîte de 100x40 avec `inset(0 round 20px)` et
-        `blur(12px)` peint 17 px EN DEHORS de son clip. Seul l'`overflow` de
-        l'ANCÊTRE rogne un flou.
-      - libérées, les lumières repeignent donc hors de la carte, et la mesure le
-        voit : en dictée, 1 131 pixels dans les encoches carrées des coins et
-        jusqu'à 14 px au-delà du cadre. C'est ce que voyait l'utilisateur : « ça
-        dépasse du cadre et ça a des bords carrés » alors que la carte, elle,
-        arrondit à 28 px.
-      - la mesure d'alors (253,8 contre 254,0 dans les coins) comparait deux
-        valeurs déjà quasi blanches : elle ne pouvait pas voir le débordement.
+   - a `clip-path` does NOT contain its own element's blur. Micro-test of
+   2026-10-01: a 100x40 box with `inset(0 round 20px)` and `blur(12px)` paints
+   17 px OUTSIDE its clip. Only an ANCESTOR's `overflow` clips a blur.
 
-      Le rognage doit tomber SUR le bord : élargi de 8 px (`overflow-clip-margin`),
-      il laissait encore 1 016 px de lumière dans ces encoches — soit à peu près
-      autant qu'avant. On rogne donc au bord, avec le rayon de la carte, ce qui
-      rend aux deux animations exactement sa silhouette.
+   - once released, the lights paint outside the card, and the measurement sees
+   it: while dictating, 1 131 pixels in the square notches of the corners and up
+   to 14 px beyond the frame. That is what the user saw: « it sticks out of the
+   frame and has square edges » while the card itself rounds at 28 px.
 
-      Contrepartie : l'ombre de la carte tombe dans l'enveloppe et disparaît
-      (mesuré : blanc pur, 255, sous le composeur). Or c'est elle qui détache du
-      fond la carte blanche sur une page blanche. Elle est donc réémise par
-      l'enveloppe ELLE-MÊME — un élément n'est jamais rogné par son propre
-      `overflow` — depuis le token d'élévation : l'ombre de la carte vient d'une
-      classe StyleX d'Astryx injectée à l'exécution, donc d'aucune feuille qu'on
-      puisse recopier, et un token suit le thème (sombre compris, via
-      `light-dark`). Une seule enveloppe la porte : les deux sont imbriquées.
+   - the measurement of the time (253.8 against 254.0 in the corners) compared
+   two values already almost white: it could not see the overflow.
 
-      L'attribut de la librairie est dans le sélecteur à dessein : sa propre
-      règle `[data-voice-beam="…"] { overflow: hidden }` a la MÊME spécificité
-      qu'une classe, et sa feuille est injectée à l'exécution, donc APRÈS
-      globals.css — elle gagnait. Avec deux sélecteurs, la nôtre passe. */
+   The clipping must fall ON the edge: widened by 8 px (`overflow-clip-margin`),
+   it still left 1 016 px of light in those notches — about as much as before.
+   So we clip at the edge, with the card's radius, which gives both animations
+   exactly its silhouette.
+
+   Trade-off: the card's shadow falls inside the wrapper and disappears
+   (measured: pure white, 255, under the composer). Yet it is what detaches the
+   white card from a white page. It is therefore re-emitted by the wrapper
+   ITSELF — an element is never clipped by its own `overflow` — from the
+   elevation token: the card's shadow comes from an Astryx StyleX class injected
+   at runtime, hence from no sheet we could copy, and a token follows the theme
+   (dark included, via `light-dark`). Only one wrapper carries it: the two are
+   nested.
+
+   The library's attribute is in the selector on purpose: its own rule `[data-
+   voice-beam="…"] { overflow: hidden }` has the SAME specificity as a class,
+   and its sheet is injected at runtime, hence AFTER globals.css — it won. With
+   two selectors, ours wins. */
 [data-beam].composeur-cadre,
 [data-voice-beam].composeur-halo {
   overflow: hidden;
   overflow: clip;
-  /* Le rayon du rognage : même token que la carte (cf. règle 1). */
+  /* The clipping radius: same token as the card (see rule 1). */
   border-radius: var(--_chat-composer-radius, var(--radius-chat, 1rem));
 }
 
@@ -245,60 +242,56 @@ dialog::backdrop {
   box-shadow: var(--shadow-low);
 }
 
-/* ── Chat façon LM Studio (2026-10-04) ──────────────────────────────────
-   Trois registres visuels, dans l'ordre du flux : la QUESTION de l'utilisateur
-   dans une bulle, la RÉFLEXION dans une bulle dépliable, la RÉPONSE en texte
-   nu sur le fond de page. Le passage réflexion → écriture se lit d'un coup
-   d'œil : la ligne de réflexion porte un point qui pulse et un chrono pendant
-   la pensée, puis se replie sur sa durée (« pensé N s ») au moment où le texte
-   de la réponse commence — ce texte apparaît alors en fondu court.
-   Valeurs : uniquement des tokens (règle Astryx du frontend). */
+/* ── LM Studio-style chat (2026-10-04) ── Three visual registers, in stream
+   order: the user's QUESTION in a bubble, the REASONING in a foldable bubble,
+   the ANSWER as bare text on the page background. The reasoning → writing
+   transition reads at a glance: the reasoning line carries a pulsing dot and a
+   timer while thinking, then folds onto its duration (« pensé N s ») the moment
+   the answer's text starts — that text then appears with a short fade. Values:
+   tokens only (the frontend's Astryx rule). */
 
-/* La question de l'utilisateur : une bulle, jamais plus large que ~2/3 de la
-   colonne (mesuré sur LM Studio), pour que la réponse garde la largeur de
-   lecture. Le pourcentage est une proportion, pas un gabarit : c'est la
-   colonne qui fixe l'échelle. */
-.bulle-question {
+/* The user's question: a bubble, never wider than ~2/3 of the column (measured
+   on LM Studio), so the answer keeps the reading width. The percentage is a
+   proportion, not a size: the column sets the scale. */
+.question-bubble {
   max-width: 65%;
 }
 
-/* La bulle de réflexion : elle entoure le TEXTE DE LA PENSÉE, et lui seul.
-   Repliée, la réflexion n'est qu'une ligne posée sur le fond de page (comme
-   « › Thought for 7.04 seconds » chez LM Studio) : c'est le dépliage qui fait
-   apparaître la bulle. */
-.raison-panneau {
+/* The reasoning bubble wraps the TEXT OF THE THOUGHT, and only that. Folded,
+   the reasoning is just a line on the page background (like « › Thought for
+   7.04 seconds » in LM Studio): unfolding is what makes the bubble appear. */
+.reasoning-panel {
   background: var(--color-background-muted);
   border: 1px solid var(--color-border-emphasized);
   border-radius: var(--radius-container);
   padding: var(--spacing-3) var(--spacing-4);
   color: var(--color-text-secondary);
 }
-.raison-panneau p,
-.raison-panneau li {
+.reasoning-panel p,
+.reasoning-panel li {
   color: var(--color-text-secondary);
 }
 
-/* L'en-tête : une ligne NUE sur le fond de page (le chevron Astryx est déjà
-   dans le flux), rien qui ressemble à une boîte. */
-.raison-entete {
+/* The header: a BARE line on the page background (the Astryx chevron is already
+   in the flow), nothing that looks like a box. */
+.reasoning-header {
   padding: var(--spacing-1) 0;
 }
 
-.raison-corps {
+.reasoning-body {
   padding: 0;
 }
-.raison-duree {
+.reasoning-duration {
   font-variant-numeric: tabular-nums;
 }
 
-/* Le premier mot de la réponse : un fondu COURT, une seule fois, pile au
-   moment où la réflexion se replie. La classe est ajoutée quand le texte
-   arrive (et seulement s'il y a eu une réflexion) : l'animation ne se rejoue
-   pas à chaque rendu du flux. */
-.apparition-ecriture {
-  animation: apparition-ecriture 420ms ease-out;
+/* The answer's first word: a SHORT fade, once, right when the reasoning folds.
+   The class is added when the text arrives (and only if there was reasoning):
+   the animation does not replay on every render of the stream. */
+.typing-appear {
+  animation: typing-appear 420ms ease-out;
 }
-@keyframes apparition-ecriture {
+@keyframes typing-appear {
   from {
     opacity: 0;
   }
@@ -307,7 +300,7 @@ dialog::backdrop {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .apparition-ecriture {
+  .typing-appear {
     animation: none;
   }
 }

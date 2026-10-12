@@ -1,5 +1,5 @@
 [Unit]
-Description=ComfyUI — moteur de génération vidéo MiniMax H3 (backend interne, non exposé)
+Description=ComfyUI — MiniMax H3 video generation engine (internal backend, not exposed)
 After=network.target
 
 [Service]

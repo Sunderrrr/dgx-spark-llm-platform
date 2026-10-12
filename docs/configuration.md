@@ -1,8 +1,8 @@
 # Configuration
 
 `.env` only starts the stack: its two public origins and the generated
-infrastructure secrets. Everything an operator tunes — LDAP, SSO, SMTP, the alert
-recipient, the security contact — is set from the web interface, **Admin →
+infrastructure secrets. Everything an operator tunes (LDAP, SSO, SMTP, the alert
+recipient, the security contact) is set from the web interface, **Admin →
 Config**, and stored in the portal database. For the install itself, see
 [deployment](deployment.md).
 
@@ -101,10 +101,10 @@ current value, « Effacer » removes it.
 | LDAP | URI, base DN, accounts RDN, login attribute, **service account DN and password** (used to look users and groups up) |
 | SSO | metadata URL, client ID and secret, admin group (matched in the token's `groups` claim and in LDAP `memberOf`), redirect and post-logout URIs |
 | SMTP / e-mail | host, port, user, password, sender address, **alert recipient** (requests, maintenance, infrastructure alerts — the host monitor uses it too) |
-| Discord | admin-alert webhook, bot token (announcement DMs), OAuth2 client ID/secret and redirect URI (account linking) — each part is off while empty |
+| Discord | admin-alert webhook, bot token (announcement DMs), a client ID/secret and redirect URI for the OAuth2 account linking — each part is off while empty |
 | Other | security contact (`/.well-known/security.txt`) |
 
-The portal sends e-mail with STARTTLS on submission; without SMTP settings every
+The portal sends e-mail with STARTTLS on submission. Without SMTP settings every
 notification is a no-op. The « Open the Admin dashboard » button of the e-mails
 points at `DGX_WEB/admin`.
 
@@ -132,16 +132,16 @@ restart). `docker-compose.yml` deliberately overrides both for a **fresh install
 (`0.002` / `1d`, i.e. a nearly exhausted test account) so a new box cannot be
 drained by accident before someone sets the real policy. Admins are uncapped. Over
 budget, LiteLLM answers **HTTP 429** and the playground turns it into a
-`quota_exceeded` notice; the portal shows a banner once an account passes 85%.
+`quota_exceeded` notice. The portal shows a banner once an account passes 85%.
 Approving a token request grants a preset or custom amount as a time-limited boost
 that stacks and reverts to the exact base cap at expiry.
 
 Enforcement details not to get wrong: the blocking envelope is the LiteLLM *user*
 object (`max_budget` + `budget_duration`), so a quota write **always sends the
-duration** — an omitted duration turns the cap into a lifelong one; `max_budget: 0`
+duration** — an omitted duration turns the cap into a lifelong one. `max_budget: 0`
 really caps at zero (it does not lift the limit), so the budget route refuses 0 or
-negative and points to account blocking; grant amounts above 1e12 tokens are
-refused (a typo'd approval once set 6.7e12 = de-facto unlimited); accounts created
+negative and points to account blocking. Grant amounts above 1e12 tokens are
+refused (a typo'd approval once set 6.7e12 = de-facto unlimited). Accounts created
 before the budget feature had no envelope at all and are repaired on read.
 
 ## The Admin configuration tab

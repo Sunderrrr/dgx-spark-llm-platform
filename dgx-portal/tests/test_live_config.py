@@ -55,8 +55,8 @@ class LiveConfigTest(unittest.TestCase):
         env = {'LDAP_URI': 'ldap://legacy:389', 'LDAP_BIND_PW': 'pw', 'LDAP_BASE': 'dc=legacy'}
         self._set(ldap_base='dc=already-set')
         with portal.app.app_context():
-            brand = portal.get_setting('cfg_env_importe', '')
-            portal.get_db().execute("DELETE FROM settings WHERE key='cfg_env_importe'")
+            brand = portal.get_setting('cfg_env_imported', '')
+            portal.get_db().execute("DELETE FROM settings WHERE key='cfg_env_imported'")
             portal.get_db().commit()
             try:
                 with patch.dict(os.environ, env):
@@ -73,7 +73,7 @@ class LiveConfigTest(unittest.TestCase):
                     self.assertEqual(instance_config.ldap_config()['uri'], '')
                 # A key that joined the panel AFTER the first import still gets
                 # its one import (an instance marked with the old plain flag).
-                portal.set_setting('cfg_env_importe', '1')
+                portal.set_setting('cfg_env_imported', '1')
                 with patch.dict(os.environ, {'DISCORD_CLIENT_ID': '42', 'LDAP_URI': 'ldap://again'}):
                     self.assertEqual(instance_config.import_env_once(), ['discord_client_id'])
                     self.assertEqual(instance_config.discord_config()['client_id'], '42')
@@ -81,7 +81,7 @@ class LiveConfigTest(unittest.TestCase):
                 instance_config.set_value('discord_client_id', instance_config.CLEAR)
             finally:
                 if brand:
-                    portal.set_setting('cfg_env_importe', brand)
+                    portal.set_setting('cfg_env_imported', brand)
 
     def test_code_default_when_nothing_set(self):
         with portal.app.app_context():
@@ -90,9 +90,9 @@ class LiveConfigTest(unittest.TestCase):
     def test_un_secret_s_ecrit_mais_ne_se_relit_pas(self):
         self._set(smtp_pass='secret')
         with portal.app.app_context():
-            state = {e['nom']: e for e in instance_config.config_state()}
+            state = {e['name']: e for e in instance_config.config_state()}
             self.assertTrue(state['smtp_pass']['configure'])
-            self.assertEqual(state['smtp_pass']['valeur'], '', 'a secret never goes to the browser')
+            self.assertEqual(state['smtp_pass']['value'], '', 'a secret never goes to the browser')
             # An empty secret field means « unchanged » (the browser never has
             # the value to send back); only EFFACER clears it.
             instance_config.set_value('smtp_pass', '')
@@ -149,8 +149,8 @@ class DiscordConfigTest(unittest.TestCase):
         with portal.app.app_context():
             instance_config.set_value('discord_webhook_url', 'https://discord.invalid/hook')
             self.assertEqual(instance_config.discord_config()['webhook'], 'https://discord.invalid/hook')
-            state = {e['nom']: e for e in instance_config.config_state()}
-            self.assertEqual(state['discord_webhook_url']['valeur'], '', "a webhook is a secret")
+            state = {e['name']: e for e in instance_config.config_state()}
+            self.assertEqual(state['discord_webhook_url']['value'], '', "a webhook is a secret")
 
 
 class ConfigTestRouteTest(unittest.TestCase):
@@ -215,7 +215,7 @@ class ConfigTestRouteTest(unittest.TestCase):
 
     def test_les_valeurs_par_defaut_et_les_suggestions(self):
         body = self.c.get('/admin/config').get_json()
-        lines = {l['nom']: l for l in body['config']}
-        self.assertEqual(lines['ldap_login_attr']['defaut'], 'cn')
-        self.assertEqual(lines['smtp_pass']['defaut'], '')
+        lines = {l['name']: l for l in body['config']}
+        self.assertEqual(lines['ldap_login_attr']['default'], 'cn')
+        self.assertEqual(lines['smtp_pass']['default'], '')
         self.assertTrue(body['suggestions']['oidc_redirect_uri'].endswith('/api/oauth2-redirect'))

@@ -29,27 +29,27 @@ import {
   DocumentTextIcon,
 } from "@heroicons/react/24/outline";
 // Wrapper that closes over the dependency's URL filter (see lib/markdown.tsx).
-import { MarkdownSur as Markdown } from "@/lib/markdown";
+import { SafeMarkdown as Markdown } from "@/lib/markdown";
 import { useT } from "@/lib/i18n";
-import { copierTexte } from "@/lib/copier";
+import { copyText } from "@/lib/clipboard";
 import { ReasoningBlock } from "../../_components/ReasoningBlock";
 import { ThinkingIndicator } from "../../_components/ThinkingIndicator";
 import { GenerationPlaceholder } from "../../_components/GenerationPlaceholder";
 import type { ChatMsg } from "@/lib/types";
-import type { EtapeWeb } from "@/lib/api";
-import { parseAsk, contenuCloture } from "@/lib/playground-parsers";
+import type { WebStep } from "@/lib/api";
+import { parseAsk, closedContent } from "@/lib/playground-parsers";
 import {
-  MAX_REPRISES_AUTO,
-  appliquerEdits,
+  MAX_AUTO_RESUMES,
+  applyEdits,
   docTitleFromContent,
-  estReprise,
+  isResume,
   isDocTask,
-  fragmentsDuMessage,
-  fusionDuMessage,
-  libelleEtapeWeb,
-  messageIncomplet,
+  messageFragments,
+  messageMerge,
+  webStepLabel,
+  incompleteMessage,
   parseArtifacts,
-  scriptCasse,
+  brokenScript,
   type Artifact,
 } from "@/lib/playground-thread";
 import { AskQuestion } from "./AskQuestion";
@@ -64,16 +64,16 @@ export type ThreadMessageProps = {
   streaming: boolean;
   liveCode: LiveCode | null;
   isNarrow: boolean;
-  etapesWeb: EtapeWeb[];
+  webSteps: WebStep[];
   editingIdx: number | null;
   liveStats: { tokens: number; tps: number } | null;
-  reprise: number;
+  resume: number;
   model: string;
   renamedTitle: (a: Artifact) => string;
   onAnswer: (text: string) => void;
-  onDemanderFichierComplet: (nom: string) => void;
-  onRefaireFichier: (nom: string) => void;
-  onContinuer: () => void;
+  onRequestFullFile: (name: string) => void;
+  onRedoFile: (name: string) => void;
+  onContinue: () => void;
   onRegenerate: () => void;
   onEditMessage: (i: number) => void;
   onOpenImage: (v: { srcs: string[]; index: number }) => void;
@@ -88,16 +88,16 @@ export function ThreadMessage({
   streaming,
   liveCode,
   isNarrow,
-  etapesWeb,
+  webSteps,
   editingIdx,
   liveStats,
-  reprise,
+  resume,
   model,
   renamedTitle,
   onAnswer,
-  onDemanderFichierComplet,
-  onRefaireFichier,
-  onContinuer,
+  onRequestFullFile,
+  onRedoFile,
+  onContinue,
   onRegenerate,
   onEditMessage,
   onOpenImage,
@@ -128,46 +128,46 @@ export function ThreadMessage({
                   // The file being written goes into the panel: we
                   // remove it once and for all from the analyzed content, so it
                   // comes out neither as a card nor in the chat prose.
-                  const contenuAffiche =
+                  const shownContent =
                     streamingThis && isLast && liveCode ? m.content.slice(0, liveCode.start) : m.content;
                   const arts = m.role === "assistant" && !ask
                     ? parseArtifacts(
                         // Never-closed fence: we close it, otherwise the
                         // cut file stays as raw code in the middle of the bubble.
-                        streamingThis ? contenuAffiche : contenuCloture(contenuAffiche),
+                        streamingThis ? shownContent : closedContent(shownContent),
                         !streamingThis && isDocTask(messages[i - 1]?.content ?? ""), t)
                     : null;
                   // Resume message: it only carries the end of the file.
-                  const suite = m.role === "assistant" && !streamingThis
-                    ? fusionDuMessage(messages, i, t)
+                  const continuation = m.role === "assistant" && !streamingThis
+                    ? messageMerge(messages, i, t)
                     : [];
                   // A message may contain only EDITS: the file
                   // to show is then the result, not what the message contains.
-                  const modifs = m.role === "assistant" && !streamingThis
-                    ? appliquerEdits(messages, i, t)
-                    : { fichiers: [], echecs: [] };
+                  const changes = m.role === "assistant" && !streamingThis
+                    ? applyEdits(messages, i, t)
+                    : { files: [], failures: [] };
                   // The model returned « la partie corrigée » instead of the file.
                   const fragments = m.role === "assistant" && !streamingThis
-                    ? fragmentsDuMessage(messages, i, t)
+                    ? messageFragments(messages, i, t)
                     : [];
                   // The stream broke AFTER delivering text: this is not a
                   // heuristic, it is an observed error. Without this flag, the
                   // answer stopped mid-word with nothing to explain it.
-                  const coupeReseau = !!m.isError && m.role === "assistant"
+                  const networkCut = !!m.isError && m.role === "assistant"
                     && m.content.length > 200 && !streamingThis;
                   // A RESUME message only shows the rebuilt file. If
                   // there was nothing to complete, it shows no file: its
                   // content is the continuation of a text, not a deliverable. Without this test,
                   // the « fichier-2.txt » card (half a script) came back into the thread.
-                  const estSuite = m.role === "assistant" && !streamingThis
-                    && estReprise(messages[i - 1]);
-                  const items = estSuite
-                    ? [...suite, ...modifs.fichiers]
-                    : [...(arts?.artifacts ?? []), ...modifs.fichiers];
+                  const isContinuation = m.role === "assistant" && !streamingThis
+                    && isResume(messages[i - 1]);
+                  const items = isContinuation
+                    ? [...continuation, ...changes.files]
+                    : [...(arts?.artifacts ?? []), ...changes.files];
                   // A file ending with </html> but whose script does not compile
                   // is unusable: nothing reported it, the page stayed blank.
-                  const fichierCasse = !streamingThis
-                    ? items.find((a) => a.kind === "code" && scriptCasse(a.content))
+                  const brokenFile = !streamingThis
+                    ? items.find((a) => a.kind === "code" && brokenScript(a.content))
                     : undefined;
                   // When the model puts everything in the artifact and writes nothing
                   // outside, still show a short line in the chat (not an empty bubble).
@@ -184,7 +184,7 @@ export function ThreadMessage({
                       ? m.content.split("```ask")[0]
                       : streamingThis && m.content.includes("```edit")
                         ? m.content.split("```edit")[0]
-                        : contenuAffiche;
+                        : shownContent;
                   // With a question card, show only the model's short intro
                   // sentence (its first line) — never the questions/options text,
                   // which live in the interactive card.
@@ -194,10 +194,10 @@ export function ThreadMessage({
                   // The ```edit block is ALWAYS removed from the chat, even when it
                   // could not be applied: it is protocol, not an answer. In
                   // case of failure, the banner below explains it.
-                  const contientEdit = m.content.includes("```edit");
+                  const containsEdit = m.content.includes("```edit");
                   // A resume has no prose to show: all its content is
                   // the end of the file, already glued into the card.
-                  const proseHorsEdit = estSuite && suite.length
+                  const proseOutsideEdit = isContinuation && continuation.length
                     ? ""
                     : (arts?.prose ?? m.content)
                         .replace(/```edit[\s\S]*?(?:```|$)/g, "")
@@ -205,14 +205,14 @@ export function ThreadMessage({
                   const bodyText = ask
                     ? askIntro
                     : items.length
-                      ? (proseHorsEdit || emptyMsg)
-                      : contientEdit && !streamingThis
-                        ? (proseHorsEdit || t("Modification proposée."))
+                      ? (proseOutsideEdit || emptyMsg)
+                      : containsEdit && !streamingThis
+                        ? (proseOutsideEdit || t("Modification proposée."))
                         : streamingBody;
                   // Block present but nothing applied and nothing reported: the parser
                   // could not read it at all. Must be said, otherwise the answer looks empty.
-                  const editIllisible =
-                    contientEdit && !streamingThis && !modifs.fichiers.length && !modifs.echecs.length;
+                  const unreadableEdit =
+                    containsEdit && !streamingThis && !changes.files.length && !changes.failures.length;
                   // A document being streamed shows only a live-updating card in
                   // the chat (its raw text streams into the side panel instead).
                   // On a narrow screen there is no panel: the card would hide
@@ -225,7 +225,7 @@ export function ThreadMessage({
                   <ChatMessage key={i} sender={m.role}>
                     <ChatMessageBubble
                       variant={m.role === "user" ? "filled" : "ghost"}
-                      className={m.role === "user" ? "bulle-question" : undefined}
+                      className={m.role === "user" ? "question-bubble" : undefined}
                       /* The model name above the content, like LM Studio
                          (« google/gemma-4-e4b » under the question): it says WHO
                          is speaking, and it marks the start of the answer. */
@@ -247,8 +247,8 @@ export function ThreadMessage({
                                       ? // During the stream: counted on the SSE deltas, hence « ~ ».
                                         // An automatic resume is announced: otherwise the answer
                                         // seems to come out of nowhere.
-                                        (reprise
-                                          ? `${t("Reprise automatique")} ${reprise}/${MAX_REPRISES_AUTO} · `
+                                        (resume
+                                          ? `${t("Reprise automatique")} ${resume}/${MAX_AUTO_RESUMES} · `
                                           : "") + `~${liveStats.tokens} tokens · ${liveStats.tps} tok/s`
                                       : [
                                           m.tokens ? `${m.tokens} tokens` : null,
@@ -264,7 +264,7 @@ export function ThreadMessage({
                                     size="sm"
                                     isIconOnly
                                     icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                    onClick={() => void copierTexte(m.content, () =>
+                                    onClick={() => void copyText(m.content, () =>
                                       showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))}
                                   />
                                   {canRegenerateThis && (
@@ -297,7 +297,7 @@ export function ThreadMessage({
                                     size="sm"
                                     isIconOnly
                                     icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                                    onClick={() => void copierTexte(m.content, () =>
+                                    onClick={() => void copyText(m.content, () =>
                                       showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))}
                                   />
                                 </HStack>
@@ -319,33 +319,33 @@ export function ThreadMessage({
                           ))}
                         </HStack>
                       ) : null}
-                      {/* Outils en cours : on dit ce qui est cherché, lu ou
-                          généré, au fil de l'eau. Sans ça l'attente est muette
-                          pendant des dizaines de secondes. */}
-                      {streamingThis && etapesWeb.length > 0 && (
+                      {/* Tools at work: we say what is being searched, read or
+                          generated, as it happens. Without it the wait is
+                          silent for tens of seconds. */}
+                      {streamingThis && webSteps.length > 0 && (
                         <VStack gap={1} padding={2}>
-                          {etapesWeb.map((e, k) => {
-                            const l = libelleEtapeWeb(e, t);
-                            const media = e.etape === "generation" ? "image"
-                              : e.etape === "generation_video" ? "video" : null;
+                          {webSteps.map((e, k) => {
+                            const l = webStepLabel(e, t);
+                            const media = e.step === "generation" ? "image"
+                              : e.step === "generation_video" ? "video" : null;
                             return (
                               <VStack key={`web-${k}`} gap={2}>
                                 <HStack gap={2} vAlign="center">
-                                  <StatusDot variant={l.fini ? "success" : "accent"}
-                                    isPulsing={!l.fini} label={l.texte} />
-                                  <Text type="supporting" color="secondary">{l.texte}</Text>
+                                  <StatusDot variant={l.finished ? "success" : "accent"}
+                                    isPulsing={!l.finished} label={l.text} />
+                                  <Text type="supporting" color="secondary">{l.text}</Text>
                                 </HStack>
-                                {/* Génération en cours : le MÊME pavé que la page
-                                    Image (carré, photo) ou Vidéo (16/9, pellicule),
-                                    pas un spinner — c'est lui qui occupera la place
-                                    du résultat. UN PAVÉ PAR IMAGE annoncée (le champ
-                                    `nombre` de l'étape) : quatre carrés gris pendant
-                                    quatre images en cuisson, c'est ce que la page
-                                    Image montre, et un seul carré se lisait comme
-                                    « rien ne se passe ». */}
-                                {!l.fini && media && (
+                                {/* Generation in progress: the SAME tile as the
+                                    Image page (square, photo) or Video page
+                                    (16/9, film), not a spinner — it is what
+                                    will take the result's place. ONE TILE PER
+                                    announced IMAGE (the step's `count` field):
+                                    four grey squares while four images bake is
+                                    what the Image page shows, and a single
+                                    square read as « nothing is happening ». */}
+                                {!l.finished && media && (
                                   <HStack gap={2} wrap="wrap">
-                                    {Array.from({ length: Math.max(1, Math.min(4, Number((e as { nombre?: number }).nombre) || 1)) })
+                                    {Array.from({ length: Math.max(1, Math.min(4, Number((e as { count?: number }).count) || 1)) })
                                       .map((_, p) => (
                                         <VStack key={`gen-${p}`} maxWidth={200} width="100%">
                                           <AspectRatio ratio={media === "image" ? 1 : 16 / 9} fit="contain">
@@ -360,7 +360,7 @@ export function ThreadMessage({
                           })}
                         </VStack>
                       )}
-                      {isThinking && etapesWeb.length === 0 ? (
+                      {isThinking && webSteps.length === 0 ? (
                         <ThinkingIndicator fixedLabel={prevAttachments ? t("Lecture du fichier…") : undefined} />
                       ) : streamingDoc ? (
                         <ClickableCard
@@ -394,18 +394,18 @@ export function ThreadMessage({
                       ) : (
                         <VStack gap={2}>
                           <ReasoningBlock reasoning={m.reasoning || ""} ms={m.reasoningMs} streaming={streamingThis && !bodyText.trim()} />
-                          {/* Le fondu court du PREMIER mot de la réponse, quand
-                              il y a eu une réflexion : c'est le moment exact où
-                              le bloc de réflexion se replie — la frontière
-                              réflexion → écriture, enfin visible. */}
+                          {/* The short fade of the answer's FIRST word, when
+                              there was reasoning: it is the exact moment the
+                              reasoning block folds — the reasoning → writing
+                              boundary, visible at last. */}
                           <Markdown
-                            className={m.reasoning && bodyText.trim() ? "apparition-ecriture" : undefined}
+                            className={m.reasoning && bodyText.trim() ? "typing-appear" : undefined}
                             isStreaming={streamingThis}>
                             {bodyText || " "}
                           </Markdown>
-                          {/* Une modification dont l'ancre n'existe pas dans le
-                              fichier ne s'applique PAS. On le dit, plutôt que de
-                              laisser croire que la correction est faite. */}
+                          {/* An edit whose anchor does not exist in the file is
+                              NOT applied. We say so, rather than letting the
+                              user believe the fix is done. */}
                           {fragments.length > 0 && (
                             <Banner
                               status="warning"
@@ -420,24 +420,24 @@ export function ThreadMessage({
                                     variant="primary"
                                     size="sm"
                                     isDisabled={streaming}
-                                    onClick={() => onDemanderFichierComplet(fragments[0])}
+                                    onClick={() => onRequestFullFile(fragments[0])}
                                   />
                                 ) : undefined
                               }
                             />
                           )}
-                          {(modifs.echecs.length > 0 || editIllisible) && (
+                          {(changes.failures.length > 0 || unreadableEdit) && (
                             <Banner
                               status="warning"
                               title={t("Modification non appliquée")}
                               description={
-                                editIllisible
+                                unreadableEdit
                                   ? t("La modification proposée n'a pas pu être lue. Redemande la correction, ou demande le fichier complet.")
                                   : t("Le texte à remplacer n'a pas été retrouvé dans le fichier. Demande la correction en précisant l'endroit, ou demande le fichier complet.")
                               }
                             />
                           )}
-                          {fichierCasse && (
+                          {brokenFile && (
                             <Banner
                               status="warning"
                               title={t("Fichier inutilisable")}
@@ -449,22 +449,22 @@ export function ThreadMessage({
                                     variant="primary"
                                     size="sm"
                                     isDisabled={streaming}
-                                    onClick={() => onRefaireFichier(fichierCasse.title)}
+                                    onClick={() => onRedoFile(brokenFile.title)}
                                   />
                                 ) : undefined
                               }
                             />
                           )}
-                          {/* Coupé par le plafond de tokens : sans ce message, la
-                              réponse s'arrête en plein mot et rien ne l'explique. */}
-                          {(m.truncated || coupeReseau || (!streamingThis && messageIncomplet(messages, i, t))) && !streamingThis && (
+                          {/* Cut by the token ceiling: without this message the
+                              answer stops mid-word and nothing explains it. */}
+                          {(m.truncated || networkCut || (!streamingThis && incompleteMessage(messages, i, t))) && !streamingThis && (
                             <Banner
                               status="warning"
                               title={t("Réponse coupée")}
                               description={
                                 m.truncated
                                   ? t("Le plafond de tokens a été atteint. Reprends la suite, ou augmente « Max tokens » dans les réglages.")
-                                  : coupeReseau
+                                  : networkCut
                                   ? t("La connexion s'est interrompue pendant la génération. Reprends la suite — ce qui est déjà écrit est conservé.")
                                   : t("Le fichier s'arrête avant sa fin et les reprises automatiques n'ont pas suffi. Relance la suite, ou demande-lui de l'écrire en plusieurs fichiers.")
                               }
@@ -475,7 +475,7 @@ export function ThreadMessage({
                                     variant="primary"
                                     size="sm"
                                     isDisabled={streaming}
-                                    onClick={onContinuer}
+                                    onClick={onContinue}
                                   />
                                 ) : undefined
                               }

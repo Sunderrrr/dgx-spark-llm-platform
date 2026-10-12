@@ -22,9 +22,9 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 // Wrapper that closes over the dependency's URL filter (see lib/markdown.tsx).
-import { MarkdownSur as Markdown } from "@/lib/markdown";
+import { SafeMarkdown as Markdown } from "@/lib/markdown";
 import { useT } from "@/lib/i18n";
-import { copierTexte } from "@/lib/copier";
+import { copyText } from "@/lib/clipboard";
 import { downloadText } from "@/lib/export";
 import type { DocumentPanelProps } from "./DocumentPanel";
 
@@ -34,7 +34,7 @@ export function DocumentPanelFullscreen({
   panelSubtitle,
   panelContent,
   panelLang,
-  panelEstHtml,
+  panelIsHtml,
   panelDownloadName,
   panelDownloadMime,
   showLive,
@@ -43,36 +43,36 @@ export function DocumentPanelFullscreen({
   renameArtifactValue,
   setRenamingArtifact,
   setRenameArtifactValue,
-  epingle,
+  pinned,
   commitArtifactRename,
   htmlPreview,
   setHtmlPreview,
   previewUrl,
-  refApercu,
+  previewRef,
   panelScrollRef,
   onPanelScroll,
   showPanelJump,
   panelJumpDown,
-  fermerPanneau,
+  closePanel,
 }: DocumentPanelProps) {
   const t = useT();
   const showToast = useToast();
   return (
-            <Dialog isOpen onOpenChange={(o) => { if (!o) fermerPanneau(); }} variant="fullscreen">
+            <Dialog isOpen onOpenChange={(o) => { if (!o) closePanel(); }} variant="fullscreen">
               <Layout
                 header={
                   <DialogHeader
                     title={panelTitle}
                     subtitle={panelSubtitle || undefined}
                     hasDivider
-                    onOpenChange={(o) => { if (!o) fermerPanneau(); }}
+                    onOpenChange={(o) => { if (!o) closePanel(); }}
                     endContent={
                       <HStack gap={1} vAlign="center">
                         {renamingArtifact && canRenamePanel ? (
                           <>
                             <Button label={t("Valider")} variant="ghost" size="sm" isIconOnly
                               icon={<Icon icon={CheckIcon} size="sm" />}
-                              onClick={() => epingle && commitArtifactRename(epingle, renameArtifactValue)} />
+                              onClick={() => pinned && commitArtifactRename(pinned, renameArtifactValue)} />
                             <Button label={t("Annuler")} variant="ghost" size="sm" isIconOnly
                               icon={<Icon icon={XMarkIcon} size="sm" />}
                               onClick={() => setRenamingArtifact(false)} />
@@ -89,7 +89,7 @@ export function DocumentPanelFullscreen({
                               onClick={() => downloadText(panelDownloadName, panelContent, panelDownloadMime)} />
                             <Button label={t("Copier")} variant="ghost" size="sm" isIconOnly
                               icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-                              onClick={() => void copierTexte(panelContent, () =>
+                              onClick={() => void copyText(panelContent, () =>
                             showToast({ body: t("Copie impossible depuis ce navigateur."), type: "error" }))} />
                           </>
                         )}
@@ -101,11 +101,11 @@ export function DocumentPanelFullscreen({
                           label={t("Nouveau nom du fichier")}
                           value={renameArtifactValue}
                           onChange={setRenameArtifactValue}
-                          onEnter={() => epingle && commitArtifactRename(epingle, renameArtifactValue)}
+                          onEnter={() => pinned && commitArtifactRename(pinned, renameArtifactValue)}
                           isLabelHidden
                           size="sm"
                         />
-                      ) : panelEstHtml ? (
+                      ) : panelIsHtml ? (
                         <SegmentedControl
                           label={t("Affichage")}
                           value={htmlPreview ? "apercu" : "code"}
@@ -119,11 +119,11 @@ export function DocumentPanelFullscreen({
                   />
                 }
                 content={
-                  panelEstHtml && htmlPreview ? (
+                  panelIsHtml && htmlPreview ? (
                     /* Same isolated preview as in the panel: full screen is meant
                        precisely to WATCH the page, not re-read its code. */
                     <iframe
-                      ref={refApercu}
+                      ref={previewRef}
                       title={panelTitle}
                       src={previewUrl}
                       sandbox="allow-scripts allow-forms allow-popups"

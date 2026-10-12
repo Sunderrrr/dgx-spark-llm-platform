@@ -69,7 +69,7 @@ export default function SearchPage() {
   // did not exist. The server now tells the two apart (503 + code hf_indisponible vs empty 200).
   const [error, setError] = useState<string | null>(null);
   // The GB10 filter yields nothing, but HF knows some outside it: we say so.
-  const [horsGb10, setHorsGb10] = useState<boolean | null>(null);
+  const [outsideGb10, setOutsideGb10] = useState<boolean | null>(null);
   // Is an HF token configured server-side? Its value never leaves the
   // server: the UI only knows « there is one / there is none ».
   const [hfToken, setHfToken] = useState<boolean | null>(null);
@@ -83,37 +83,37 @@ export default function SearchPage() {
   const seq = useRef(0);
 
   const runSearch = useCallback(async (q: string, tk: string, gb10: boolean, skip = 0) => {
-    const mien = ++seq.current;
+    const mine = ++seq.current;
     const setBusy = skip > 0 ? setIsLoadingMore : setIsLoading;
     setBusy(true);
     try {
       const params = new URLSearchParams({ q, task: tk, gb10: gb10 ? "1" : "", skip: String(skip) });
       const data = await getJSON<{
         results: HfModel[]; page_size: number; has_more?: boolean;
-        hors_gb10?: boolean | null; hf_token?: boolean;
+        outside_gb10?: boolean | null; hf_token?: boolean;
       }>(`/api/search?${params}`);
-      if (mien !== seq.current) return; // stale answer: we drop it
+      if (mine !== seq.current) return; // stale answer: we drop it
       setResults((prev) => (skip > 0 ? [...(prev ?? []), ...data.results] : data.results));
       setHasMore(Boolean(data.has_more));
-      setHorsGb10(data.hors_gb10 ?? null);
+      setOutsideGb10(data.outside_gb10 ?? null);
       setHfToken(typeof data.hf_token === "boolean" ? data.hf_token : null);
       setError(null);
     } catch (e) {
-      if (mien !== seq.current) return;
+      if (mine !== seq.current) return;
       // We say what happened, and keep what was displayed: emptying the
       // grid would look like a search with no result.
       // A known code (Hugging Face outage) has its translated sentence: otherwise
       // an English reader only sees the French server message. The technical
       // detail (exception name) stays in the portal logs.
       const err = e as Error & { code?: string };
-      if (err.code === "hf_indisponible") {
+      if (err.code === "hf_unavailable") {
         setError(t("Hugging Face ne répond pas. Réessaie dans un instant."));
       } else {
         setError(e instanceof Error && e.message ? e.message : t("Recherche impossible."));
       }
-      setHorsGb10(null);
+      setOutsideGb10(null);
     } finally {
-      if (mien === seq.current) setBusy(false);
+      if (mine === seq.current) setBusy(false);
     }
   }, [t]);
 
@@ -124,11 +124,11 @@ export default function SearchPage() {
   // impression of frozen/wrong results.
   // The page's first search has nothing to debounce: waiting 400 ms there
   // only delayed every arrival on the page (measured 2026-10-11).
-  const premiereRecherche = useRef(true);
+  const firstSearch = useRef(true);
   useEffect(() => {
-    const delai = premiereRecherche.current ? 0 : 400;
-    premiereRecherche.current = false;
-    const id = setTimeout(() => runSearch(query, task, gb10Only, 0), delai);
+    const delay = firstSearch.current ? 0 : 400;
+    firstSearch.current = false;
+    const id = setTimeout(() => runSearch(query, task, gb10Only, 0), delay);
     return () => clearTimeout(id);
   }, [query, task, gb10Only, runSearch]);
 
@@ -220,9 +220,9 @@ export default function SearchPage() {
                   // description), so « orith1.5 » does not find
                   // « Ornith-1.5 ». Say it, and give the link that lets one
                   // check for themselves rather than conclude to an outage.
-                  horsGb10 === true
+                  outsideGb10 === true
                     ? t("Aucun modèle GB10 ne correspond, mais il y en a sur tout Hugging Face : décoche le filtre ci-dessus.")
-                    : horsGb10 === false
+                    : outsideGb10 === false
                       ? t("Hugging Face ne connaît aucun modèle pour cette recherche.")
                       : query
                         ? t("La recherche porte sur le nom du dépôt, pas sur sa description : vérifie l'orthographe.")

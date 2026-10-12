@@ -19,7 +19,7 @@ export type Skill = {
 };
 
 export const SKILLS_KEY = "dgx.skills";
-export const SKILLS_KEY_ANCIEN = "dgx.skills";
+export const SKILLS_KEY_LEGACY = "dgx.skills";
 
 export const BASE_SKILLS: Skill[] = [
   {
@@ -289,7 +289,7 @@ Format de sortie
 
 export function loadCustomSkills(): Skill[] {
   try {
-    const raw = JSON.parse(localStorage.getItem(SKILLS_KEY) ?? localStorage.getItem(SKILLS_KEY_ANCIEN) ?? "[]") as Skill[];
+    const raw = JSON.parse(localStorage.getItem(SKILLS_KEY) ?? localStorage.getItem(SKILLS_KEY_LEGACY) ?? "[]") as Skill[];
     return Array.isArray(raw) ? raw.filter((s) => s && s.id && s.name) : [];
   } catch {
     return [];

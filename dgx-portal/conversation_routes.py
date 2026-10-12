@@ -90,7 +90,7 @@ def api_conversations():
             size_bytes += len(r['messages'])
         else:
             item['messages'] = []
-            item['messages_omis'] = True
+            item['omitted_messages'] = True
         out.append(item)
     return jsonify({'conversations': out})
 

@@ -1,7 +1,7 @@
 # Deployment
 
 How to put the platform on a box and how to ship a change to it. For what the
-pieces are, see [architecture](architecture.md); for the keys you fill in,
+pieces are, see [architecture](architecture.md). For the keys you fill in,
 [configuration](configuration.md).
 
 ## Prerequisites
@@ -35,12 +35,12 @@ docker compose up -d       # frontend + backend + gateway + database
 Then open the portal (`http://<host>:5000`, or your HTTPS domain behind Traefik),
 go to **Admin**, and launch a model from the catalog.
 
-`install.sh` (via `setup.sh`) generates the random secrets; the rest of `.env` is
+`install.sh` (via `setup.sh`) generates the random secrets. The rest of `.env` is
 filled in by hand — see [configuration](configuration.md). The install scripts are
 **tested, not just syntax-checked** (2026-10-02): `setup.sh` runs for real in a
 throwaway copy (fresh / idempotent rerun / artifact repair) and `install.sh` runs
 end to end in a throwaway Ubuntu container (real apt + get.docker.com + visudo,
-stubbed `systemctl`/`vllm`); the recreate scripts are A/B'd old-vs-new with
+stubbed `systemctl`/`vllm`). The recreate scripts are A/B'd old-vs-new with
 logging stubs for `docker`/`iptables` — commands and generated files must match.
 
 ## Shipping a change to a running box

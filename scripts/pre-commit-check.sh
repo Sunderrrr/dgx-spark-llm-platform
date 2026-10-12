@@ -14,7 +14,7 @@ FORBIDDEN_FILE_RE='(^|/)(\.env(\..*)?|DEBUG_USERS\.txt|.*\.pem|.*\.key|.*\.p12|i
 FORBIDDEN_FILE_ALLOW='(^|/)\.env\.example$'
 
 hit=0
-dire() { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; }
+say() { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; }
 
 # 1. The message about to be committed (the exact hole of 2026-10-06).
 # The commit-msg path arrives as \$1; git also keeps the message under
@@ -25,7 +25,7 @@ if [ -n "${1:-}" ] && [ -f "${1:-}" ]; then msg=$(cat "$1"); fi
 if [ -z "$msg" ] && [ -f .git/MERGE_MSG ]; then msg=$(cat .git/MERGE_MSG); fi
 if [ -n "$msg" ]; then
   if printf '%s' "$msg" | grep -qE "$SECRET_VALUE_RE" && ! printf '%s' "$msg" | grep -qEi "$PLACEHOLDER_RE"; then
-    dire "Ce message de commit contient ce qui ressemble à un secret."
+    say "This commit message contains what looks like a secret."
     hit=1
   fi
 fi
@@ -35,7 +35,7 @@ while IFS= read -r f; do
   [ -z "$f" ] && continue
   printf '%s' "$f" | grep -qE "$FORBIDDEN_FILE_ALLOW" && continue
   if printf '%s' "$f" | grep -qE "$FORBIDDEN_FILE_RE"; then
-    dire "Fichier interdit dans le commit : $f"; hit=1
+    say "Forbidden file in the commit: $f"; hit=1
   fi
 done < <(git diff --cached --name-only --diff-filter=AM 2>/dev/null)
 
@@ -44,7 +44,7 @@ while IFS= read -r line; do
   content=${line#+}
   printf '%s' "$content" | grep -qEi "$PLACEHOLDER_RE" && continue
   if printf '%s' "$content" | grep -qE "$SECRET_VALUE_RE"; then
-    dire "Valeur qui ressemble à un secret dans une ligne ajoutée : $(printf '%.60s' "$content")"
+    say "Secret-looking value in an added line: $(printf '%.60s' "$content")"
     hit=1
   fi
 done < <(git diff --cached -U0 --diff-filter=AM 2>/dev/null | grep -E '^\+[^+]')
@@ -55,19 +55,19 @@ if [ -f .env ]; then
   # ADDED lines only: removing a site value from a tracked file (e.g. making
   # .env.example generic) must not be refused as if it leaked it.
   staged=$(git diff --cached -U0 2>/dev/null | grep -E '^\+[^+]')
-  while IFS='=' read -r cle val; do
-    [ -z "$cle" ] && continue
-    case "$cle" in \#*) continue ;; esac
+  while IFS='=' read -r key val; do
+    [ -z "$key" ] && continue
+    case "$key" in \#*) continue ;; esac
     [ "${#val}" -lt 8 ] && continue
     if printf '%s' "$staged" | grep -qF -- "$val"; then
-      dire "Une valeur de .env ($cle) est dans le diff."
+      say "A value from .env ($key) is in the diff."
       hit=1
     fi
   done < .env
 fi
 
 if [ "$hit" -ne 0 ]; then
-  printf '\n\033[31mCommit refusé. Un secret ne va pas dans git : mets-le dans .env et recommence.\033[0m\n' >&2
+  printf '\n\033[31mCommit refused. A secret does not go in git: put it in .env and try again.\033[0m\n' >&2
   exit 1
 fi
 exit 0

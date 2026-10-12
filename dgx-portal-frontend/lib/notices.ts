@@ -15,31 +15,31 @@ export type DgxNotice = {
   /** Seconds to wait, sent with `chat_rate_limited`. */
   wait?: number;
   /** Free memory in GiB (MemAvailable), sent with the `*_service_off` notices. */
-  libre_gib?: number;
+  free_gib?: number;
 };
 
 /** The `*_service_off` notices all carry the free memory: under a ~100 GB chat
  * model the sidecar often simply cannot start, and « the service is stopped »
  * alone makes a click look like the fix. */
-function avecMemoire(
-  texte: string,
+function withMemory(
+  text: string,
   notice: DgxNotice,
   t: (fr: string) => string,
 ): string {
-  return notice.libre_gib != null
-    ? texte + " " + t("Mémoire disponible : {n} Gio.").replace("{n}", String(notice.libre_gib))
-    : texte;
+  return notice.free_gib != null
+    ? text + " " + t("Mémoire disponible : {n} Gio.").replace("{n}", String(notice.free_gib))
+    : text;
 }
 
-export function texteNotice(
+export function noticeText(
   notice: DgxNotice,
   t: (fr: string) => string,
 ): string {
   switch (notice.id) {
     case "quota_exceeded": {
-      let texte = t("Quota dépassé : tu as épuisé ton budget de tokens pour la période en cours.");
-      if (notice.reset) texte += " " + t("Nouveau quota le {date} (UTC).").replace("{date}", notice.reset);
-      return texte + " " + t("Tu peux demander plus à l'admin (accueil → « Demander plus de budget »).");
+      let text = t("Quota dépassé : tu as épuisé ton budget de tokens pour la période en cours.");
+      if (notice.reset) text += " " + t("Nouveau quota le {date} (UTC).").replace("{date}", notice.reset);
+      return text + " " + t("Tu peux demander plus à l'admin (accueil → « Demander plus de budget »).");
     }
     case "no_api_key":
       return t("Crée d'abord une clé API (page Mes clés API) : cet assistant consomme le budget de ton compte.");
@@ -69,11 +69,11 @@ export function texteNotice(
     case "image_service_off":
       // Free memory: under a ~100 GB model the sidecar often simply cannot
       // start — saying only "the service is stopped" makes a click look enough.
-      return avecMemoire(t("La génération d'image est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans image."), notice, t);
+      return withMemory(t("La génération d'image est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans image."), notice, t);
     case "video_service_off":
-      return avecMemoire(t("La génération vidéo est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans vidéo."), notice, t);
+      return withMemory(t("La génération vidéo est indisponible pour l'instant : le service est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans vidéo."), notice, t);
     case "document_service_off":
-      return avecMemoire(t("La lecture de document est indisponible pour l'instant : le service OCR est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans le document."), notice, t);
+      return withMemory(t("La lecture de document est indisponible pour l'instant : le service OCR est arrêté. Un admin peut le démarrer depuis l'espace Admin ; le modèle répondra sans le document."), notice, t);
     default:
       return notice.id;
   }

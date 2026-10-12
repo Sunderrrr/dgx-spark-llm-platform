@@ -139,7 +139,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$etat" != 0 ]; then
-            echo "::warning title=Dépendances Python::pip-audit signale un avis (advisory, non bloquant) — détails dans le résumé de ce run."
+            echo "::warning title=Python dependencies::pip-audit reports an advisory (non-blocking) — details in this run's summary."
           fi
           exit 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
@@ -158,6 +158,6 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$etat" != 0 ]; then
-            echo "::warning title=Dépendances npm::npm audit signale un avis (advisory, non bloquant) — détails dans le résumé de ce run."
+            echo "::warning title=npm dependencies::npm audit reports an advisory (non-blocking) — details in this run's summary."
           fi
           exit 0

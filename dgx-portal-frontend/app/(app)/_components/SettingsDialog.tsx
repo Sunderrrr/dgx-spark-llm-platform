@@ -96,7 +96,7 @@ export function SettingsDialog({
   const { mode, setMode, themeId, setThemeId } = useThemeMode();
   const { lang, setLang } = useLang();
   const t = useT();
-  const marque = useBranding();
+  const brand = useBranding();
   const isNarrow = useIsNarrow();
   const [section, setSection] = useState<Section>("account");
   // When opening with a requested section (e.g. "keys" from the home page),
@@ -152,13 +152,13 @@ export function SettingsDialog({
    * stayed displayed as applied until reload, and a failed deletion
    * announced itself as successful.
    */
-  async function envoyerForm(url: string, corps: Record<string, string>): Promise<boolean> {
+  async function sendForm(url: string, body: Record<string, string>): Promise<boolean> {
     if (!csrf) return false;
     try {
       const res = await authFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": csrf },
-        body: new URLSearchParams(corps).toString(),
+        body: new URLSearchParams(body).toString(),
       });
       if (res.ok) return true;
       const r = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
@@ -177,10 +177,10 @@ export function SettingsDialog({
     if (!csrf) return;
     // Before: silent `return`. The « Enregistrer le serveur » button thus did
     // NOTHING while the name or URL was missing, without saying which.
-    const manquants = [!mcpForm.name.trim() && t("le nom"), !mcpForm.url.trim() && t("l'URL")]
+    const missing = [!mcpForm.name.trim() && t("le nom"), !mcpForm.url.trim() && t("l'URL")]
       .filter(Boolean) as string[];
-    if (manquants.length) {
-      showToast({ body: `${t("Champs requis manquants :")} ${manquants.join(", ")}.`, type: "error" });
+    if (missing.length) {
+      showToast({ body: `${t("Champs requis manquants :")} ${missing.join(", ")}.`, type: "error" });
       return;
     }
     setIsSaving(true);
@@ -214,7 +214,7 @@ export function SettingsDialog({
       // non-JSON body (413 from the form ceiling, HTML error page, gunicorn 500)
       // rejected the promise. The `finally` gave the button back and the user
       // saw STRICTLY NOTHING, while nothing had been saved.
-      // The pattern is the one of `envoyerForm`, just above.
+      // The pattern is the one of `sendForm`, just above.
       showToast({ body: t("Le serveur n'a pas répondu — réessaie."), type: "error" });
     } finally {
       setIsSaving(false);
@@ -222,24 +222,24 @@ export function SettingsDialog({
   }
 
   async function toggleMcp(id: number, enabled: boolean) {
-    const basculer = (v: boolean) =>
+    const toggle = (v: boolean) =>
       setData((prev) =>
         prev
           ? { ...prev, mcp_servers: prev.mcp_servers.map((s) => (s.id === id ? { ...s, enabled: v ? 1 : 0 } : s)) }
           : prev,
       );
-    basculer(enabled);                    // immediate application, without waiting for the network
-    if (!(await envoyerForm("/mcp", { action: "toggle", id: String(id), enabled: enabled ? "1" : "0" }))) {
+    toggle(enabled);                    // immediate application, without waiting for the network
+    if (!(await sendForm("/mcp", { action: "toggle", id: String(id), enabled: enabled ? "1" : "0" }))) {
       // The result was ignored: a refusal left the toggle flipped, so the
       // screen asserted a state the server had not saved.
-      basculer(!enabled);
+      toggle(!enabled);
     }
   }
 
-  async function deleteMcp(id: number, nom: string) {
+  async function deleteMcp(id: number, name: string) {
     // Permanent deletion (URL + secret) in one click: we confirm.
-    if (!window.confirm(t("Supprimer le serveur MCP « {nom} » ? Son secret sera perdu.").replace("{nom}", nom))) return;
-    if (await envoyerForm("/mcp", { action: "delete", id: String(id) })) {
+    if (!window.confirm(t("Supprimer le serveur MCP « {nom} » ? Son secret sera perdu.").replace("{nom}", name))) return;
+    if (await sendForm("/mcp", { action: "delete", id: String(id) })) {
       showToast({ body: t("Serveur MCP supprimé."), type: "info" });
     }
     refresh();
@@ -247,13 +247,13 @@ export function SettingsDialog({
 
   async function saveSkill() {
     if (!csrf) return;
-    const manquants = [
+    const missing = [
       !skillForm.name.trim() && t("le nom"),
       !skillForm.description.trim() && t("la description"),
       !skillForm.instructions.trim() && t("les instructions"),
     ].filter(Boolean) as string[];
-    if (manquants.length) {
-      showToast({ body: `${t("Champs requis manquants :")} ${manquants.join(", ")}.`, type: "error" });
+    if (missing.length) {
+      showToast({ body: `${t("Champs requis manquants :")} ${missing.join(", ")}.`, type: "error" });
       return;
     }
     setIsSaving(true);
@@ -284,38 +284,38 @@ export function SettingsDialog({
     }
   }
 
-  async function deleteSkill(id: number, nom: string) {
-    if (!window.confirm(t("Supprimer la compétence « {nom} » ?").replace("{nom}", nom))) return;
-    if (await envoyerForm("/skills", { action: "delete", id: String(id) })) {
+  async function deleteSkill(id: number, name: string) {
+    if (!window.confirm(t("Supprimer la compétence « {nom} » ?").replace("{nom}", name))) return;
+    if (await sendForm("/skills", { action: "delete", id: String(id) })) {
       showToast({ body: t("Compétence supprimée."), type: "info" });
     }
     refresh();
   }
 
   async function selectTheme(id: ThemeId) {
-    const precedent = themeId;
+    const previous = themeId;
     setThemeId(id);            // applied immediately, without waiting for the network
     // …but if the server refuses, we REVERT to the previous theme: keeping an
     // unsaved choice would make it look like it holds, until reload.
-    if (!(await envoyerForm("/settings/appearance", { theme_id: id }))) setThemeId(precedent);
+    if (!(await sendForm("/settings/appearance", { theme_id: id }))) setThemeId(previous);
   }
 
   async function selectLang(l: Lang) {
-    const precedent = lang;
+    const previous = lang;
     setLang(l);
-    if (!(await envoyerForm("/settings/appearance", { lang: l }))) setLang(precedent);
+    if (!(await sendForm("/settings/appearance", { lang: l }))) setLang(previous);
   }
 
   async function selectAvatar(avatarId: string) {
-    const precedent = data?.avatar_id ?? null;
+    const previous = data?.avatar_id ?? null;
     // `""` (« generated » choice) normalizes to `null`: it is how the rest of the
     // application represents « no logo chosen », and thus the generated avatar.
-    const normalise = avatarId || null;
-    setData((prev) => (prev ? { ...prev, avatar_id: normalise } : prev));
-    if (await envoyerForm("/settings/avatar", { avatar_id: avatarId })) {
-      onAvatarChange?.(normalise);
+    const normalized = avatarId || null;
+    setData((prev) => (prev ? { ...prev, avatar_id: normalized } : prev));
+    if (await sendForm("/settings/avatar", { avatar_id: avatarId })) {
+      onAvatarChange?.(normalized);
     } else {
-      setData((prev) => (prev ? { ...prev, avatar_id: precedent } : prev));
+      setData((prev) => (prev ? { ...prev, avatar_id: previous } : prev));
     }
   }
 
@@ -356,7 +356,7 @@ export function SettingsDialog({
             <VStack height="100%" hAlign="stretch">
               <HStack padding={4} gap={2} vAlign="center">
                 <Icon icon={SparklesIcon} size="sm" color="accent" />
-                <Text weight="bold">{marque.name}</Text>
+                <Text weight="bold">{brand.name}</Text>
               </HStack>
               <VStack gap={4} paddingInline={2} height="100%">
                 {SECTIONS.map((grp) => (

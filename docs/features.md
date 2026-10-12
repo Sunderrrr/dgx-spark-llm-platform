@@ -1,7 +1,7 @@
 # Portal features
 
-What each page does. The map below links to the detail sections in this file;
-account and login behaviour lives in [authentication](authentication.md).
+What each page does. The map below links to the detail sections in this file.
+Account and login behaviour lives in [authentication](authentication.md).
 
 | Feature | Where | In one line |
 |---|---|---|
@@ -9,7 +9,7 @@ account and login behaviour lives in [authentication](authentication.md).
 | [Account security](authentication.md) | Settings ▸ Security | passkeys, active sessions (IP, device), change your own password |
 | [Playground](#playground) | `/playground` | streaming chat with the active model, attachments, dictation, web search |
 | [Memory](#memory) | Settings ▸ Memory | knowledge graph of what the assistant knows about you — on by default, opt out any time |
-| [Media pages](#media-pages) | `/ocr` `/video` `/image` `/music` `/voice` | OCR, video, image, music and voice cloning |
+| [Media pages](#media-pages) | `/ocr` `/video` `/image` `/music` `/voice` | OCR, video, image, music, voice cloning |
 | [Support](#support-assistant) | `/support` | an assistant that can act on your account |
 | [Find a model](#find-a-model) | `/search` | live Hugging Face search, GB10-tested first |
 | [Request a model](#request-a-model) | `/request` | ask an admin for a model or more tokens |
@@ -19,8 +19,8 @@ account and login behaviour lives in [authentication](authentication.md).
 | [Users](#users) | `/users` | accounts, groups, quotas, auth sources, blocking, detail view |
 
 The UI is available in **French and English**, switchable per account from
-Settings → Appearance (French by default; the published screenshots are captured
-in English, one of the reasons the screenshot script exists).
+Settings → Appearance (French by default). The published screenshots are captured
+in English, one of the reasons the screenshot script exists.
 
 ### API keys
 
@@ -31,7 +31,7 @@ the sidebar gear or the home page's "My API keys" button — there is no standal
 
 ### Playground
 
-In-browser streaming chat with the active model; no client setup. Three visual
+In-browser streaming chat with the active model. No client setup. Three visual
 registers, LM Studio style, told apart at a glance: the **question** in a bubble
 (capped at 65 % of the column), the **reasoning** as a bare collapsible line
 (chevron, « Réflexion · pensé N s ») that only grows a bubble around the thought
@@ -51,11 +51,11 @@ public Claude skills. Eight ship built-in: `summarize`, `explain`, `code`,
 
 - `/anti-ia` — spot and fix the tells of AI-generated French writing (25
   patterns in 5 groups, from *Wikipedia: Signs of AI writing* adapted to
-  French; the operator's own SKILL.md), including the part that matters as
-  much as removing the tics: **adding a voice**;
-- `/email` — a professional email: sharp subject, useful body, right tone;
-- `/webdesign` — a complete, accessible, responsive page in one HTML file;
-- `/slides` — a deck where every slide asserts something;
+  French, in the operator's own SKILL.md), including the part that matters as
+  much as removing the tics: **adding a voice**.
+- `/email` — a professional email: sharp subject, useful body, right tone.
+- `/webdesign` — a complete, accessible, responsive page in one HTML file.
+- `/slides` — a deck where every slide asserts something.
 - `/meeting` — raw notes into decisions, open points and an action table.
 
 All of them are listed in **Settings → Skills** (the defaults included, with
@@ -110,10 +110,10 @@ same tool mechanism as web search.
 
 The thinking mode is **adaptive**: by default (`Auto`) the platform decides per
 request — a « why does this service restart… », a code analysis or a
-step-by-step question triggers a reasoning pass; « hi », « thanks » or a short
+step-by-step question triggers a reasoning pass. « hi », « thanks » or a short
 rewrite does not. Thinking costs tokens and latency, so it is never always-on.
 The three states (`Auto` / `Toujours` / `Jamais`) live in the playground's
-generation panel; an explicit choice always wins over `Auto`, and the panel
+generation panel. An explicit choice always wins over `Auto`, and the panel
 **keeps what you choose** — settings restore on load and are saved on every
 change, per browser like the pinned conversations (the system prompt a skill
 injects is not remembered as your persona). When the model
@@ -154,7 +154,7 @@ graph, admins included.
 - **Music** — text-to-music, same shape as the image page.
 - **Voice** — record a sample straight from your microphone (1 min max, with
   playback before you commit) or upload one, give it any text, and get that text
-  read back in that voice — zero-shot, a few seconds per generation. The page
+  read back in that voice (zero-shot, a few seconds per generation). The page
   adapts to whichever engine is loaded. Browser recordings are converted to 24 kHz
   mono WAV client-side because `MediaRecorder` only emits WebM/Opus, which neither
   engine accepts.
@@ -167,7 +167,7 @@ instead of letting you submit into a dead end.
 An AI assistant that sees your keys (masked), budget, the model catalog and server
 status, and can **act for you**: create a key, revoke one, request budget, request
 a model (admins also get launch/stop). Actions are always scoped server-side to the
-logged-in user; impactful ones require in-chat confirmation. `scripts/mcp-essentiels.sh` registers a per-account pack of thirteen — **four
+logged-in user; impactful ones require in-chat confirmation. `scripts/mcp-essentials.sh` registers a per-account pack of thirteen — **four
 that work straight away**, and **nine that wait for their own key**:
 
 | | |
@@ -180,18 +180,18 @@ that work straight away**, and **nine that wait for their own key**:
 
 Those nine are registered **disabled on purpose** (« juste ne les active pas
 tant que les user n'ont pas set les api key »): they answer 401 until the
-account's own token is pasted in Settings → MCP — and **writing the key is what
-switches the server on**, automatically. Each one's description says which
+account's own token is pasted in Settings → MCP — and pasting that key
+**switches the server on**, automatically. Each one's description says which
 token format it expects (`Bearer ghp_…`, `xoxb-…`, `sk_…`…). The per-account
 cap stays at 10 servers.
 
 **Gmail** has no public remote MCP endpoint (checked 2026-10-05: no such host,
-and the aggregators — Zapier, Composio — redirect to their own authentication):
+and the aggregators Zapier and Composio redirect to their own authentication):
 it needs either a local server (refused by the SSRF guard, by design) or a
 per-user aggregator URL, registered by hand with its key.
 
-Two MCP servers were worth the first step —
-(The two above are the ones registered enabled:)
+Two MCP servers were worth the first step (the two above are the ones
+registered enabled):
 
 - **context7** (`mcp.context7.com`) — *current* library and framework docs:
   APIs, versions, recent changes. For « how do I integrate X » questions the
@@ -216,8 +216,8 @@ stops it until the quota resets.
 It reads exactly like the playground: the **question** in its bubble, the
 **answer** as plain text with the model that wrote it named above it (kept in
 the thread, so a reloaded conversation still attributes each answer correctly),
-and — when the question
-is complex enough to trigger a reasoning pass — the **thinking** in the same
+and, when the question
+is complex enough to trigger a reasoning pass, the **thinking** in the same
 collapsible block (open while it runs, folded on the first answer word with its
 measured duration). The reasoning is relayed as it streams (`reasoning_content`),
 so what the assistant weighed before answering is visible instead of being
@@ -233,8 +233,8 @@ diagnosis instead of only its conclusion.
 
 Its context stays **light on purpose**: the services' logs are never dumped
 into the prompt. When a service misbehaves the assistant **pulls the tail of its
-logs on demand** (`read_logs`, admin-only, read-only) — model runner, ocr,
-video, voice, asr, image or music — and answers from the exact cause written
+logs on demand** (`read_logs`, admin-only, read-only) for model runner, ocr,
+video, voice, asr, image or music, and answers from the exact cause written
 there. Reading once, precisely, beats carrying a blind snapshot on every turn.
 
 It also **sees every service's real state** (ocr, video, voice, asr, image,
@@ -245,7 +245,7 @@ carries the service's new state, so « relancé, il démarre » is a fact, not a
 hope; the unified-memory guard runs before any start, since a sidecar that
 overflows takes the chat model down with it.
 
-Sensitive actions — revoking a key, launching or stopping the model on the GPU —
+Sensitive actions (revoking a key, launching or stopping the model on the GPU)
 are **never executed on the model's word**: it files a request, the chat shows a
 **Confirmer / Annuler** button, and only your click runs it (single-use token,
 expires after 10 minutes, bound to your account). Every visit starts on a
@@ -265,7 +265,7 @@ way to "browse the catalogue".
 **No filter is applied unless you ask for one.** Both filters used to be on by
 default and quietly hid models that exist: a task filter (`text-generation`) and
 the `gb10` tag, which only a handful of models carry. A model tagged solely
-`image-text-to-text` — `ornith-ai/Ornith-1.5-9B`, reported in real use — was
+`image-text-to-text` (`ornith-ai/Ornith-1.5-9B`, reported in real use) was
 therefore unfindable, and the page looked broken. The GB10 tag is now an opt-in
 switch, and a `GB10` badge marks the models that carry it. Pagination uses Hugging
 Face's own `Link: rel="next"` header, so "Load more" only appears when there
@@ -298,12 +298,13 @@ request is refused with a message that says so — the form used to announce
 ### Home
 
 Every backend the API can serve, each card labelled with what it does and the chat
-card advertising the `auto-model` tip; a **Server status** panel with live CPU/RAM/GPU
-and the active model's health (throughput, sessions, TTFT, requests served — `—` on
-llama.cpp, which keeps no request counter — plus in/out context); a **Media
-services** block that only appears while an OCR, video or voice sidecar is running;
-and your own hourly token usage over the last 24 h. A backend that is not running
-is labelled "Available from the app, not exposed via the API."
+card advertising the `auto-model` tip. A **Server status** panel with live
+CPU/RAM/GPU and the active model's health (throughput, sessions, TTFT, requests
+served (the value is `—` on llama.cpp, which keeps no request counter), plus
+in/out context). A **Media services** block that only appears while an OCR, video
+or voice sidecar is running. The page also shows your own hourly token usage over
+the last 24 h. A backend that is not running is labelled "Available from the app,
+not exposed via the API."
 
 The **live throughput** is what the engine produces RIGHT NOW: engine counters
 for llama.cpp/vLLM, and for TabbyAPI (no `/metrics`) the rate of the ongoing
@@ -343,8 +344,8 @@ rejected or a model that failed to register is an error message with a matching
 HTTP status, never a green toast; a launch whose runner did not answer in time is
 reported as *uncertain* ("check the state before relaunching") rather than as a
 failure, because retrying would kill a model that is still loading. Destructive
-actions — stopping the served model, launching another one, deleting a catalog
-entry, toggling maintenance — ask for confirmation first, and the buttons are
+actions (stopping the served model, launching another one, deleting a catalog
+entry, toggling maintenance) ask for confirmation first, and the buttons are
 locked while a request is in flight so a double-click cannot fire twice.
 
 ### Users
@@ -352,16 +353,16 @@ locked while a request is in flight so a double-click cannot fire twice.
 A dedicated page to manage accounts: create users with a hashed password, assign
 them to **groups** carrying a default quota and admin right, override a per-user
 quota, enable/disable, toggle admin, or reset a password. It lists every known
-account with a badge for each authentication source — **Local**, **LDAP**, **SSO**
-or **External** — recorded per login and cumulative, plus the current state:
+account with a badge for each authentication source (**Local**, **LDAP**, **SSO**
+or **External**), recorded per login and cumulative, plus the current state:
 blocked, or locked out after too many failures.
 
 Each account opens a **detail view** (`GET /admin/users/<username>/detail`):
 effective role and budget, the LiteLLM spend, the API keys (alias, creation date,
 spend — never the key itself), how many memories and conversations it holds, its
 active sessions with IP and user-agent, and the admin actions it performed. From
-there an admin can **block/unblock** an account, delete it, or — for an account
-that only exists in the directory — **purge its data**. Deleting and purging both
+there an admin can **block/unblock** an account, delete it, or **purge its data**
+for an account that only exists in the directory. Deleting and purging both
 ask for the word `DELETE` to be typed after showing what will be lost.
 
 The two are not interchangeable, and the interface says so: **deleting** a local

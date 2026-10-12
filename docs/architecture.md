@@ -60,8 +60,8 @@ flowchart LR
 
 The UI used to be server-rendered Jinja templates served directly by Flask on
 `:5000`. It's now a separate Next.js/Astryx frontend that owns `:5000` and
-talks to Flask over the internal docker network for everything — auth, data,
-and even the streaming chat endpoints (proxied through dedicated Next.js
+talks to Flask over the internal docker network for everything — auth, data
+and the streaming chat endpoints (proxied through dedicated Next.js
 Route Handlers so token-by-token streaming isn't buffered). Flask itself no
 longer has a published port.
 

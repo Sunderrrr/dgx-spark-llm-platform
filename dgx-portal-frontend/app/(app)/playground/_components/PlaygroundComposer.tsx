@@ -65,7 +65,7 @@ export type PlaygroundComposerProps = {
   discardQueued: (idx: number) => void;
   mode: "light" | "dark" | "system";
   dictation: Dictation;
-  rayonComposeur: number | undefined;
+  composerRadius: number | undefined;
   placeholderText: string;
   attachments: Attachment[];
   setAttachments: Dispatch<SetStateAction<Attachment[]>>;
@@ -83,8 +83,8 @@ export type PlaygroundComposerProps = {
   selectSkill: (s: Skill) => void;
   openSkillCreator: (skill?: Skill) => void;
   deleteCustomSkill: (id: string) => void;
-  imageVue: { srcs: string[]; index: number } | null;
-  setImageVue: Dispatch<SetStateAction<{ srcs: string[]; index: number } | null>>;
+  viewedImage: { srcs: string[]; index: number } | null;
+  setViewedImage: Dispatch<SetStateAction<{ srcs: string[]; index: number } | null>>;
   isNarrow: boolean;
   setSnippetsOpen: Dispatch<SetStateAction<boolean>>;
   setSkillCreatorOpen: Dispatch<SetStateAction<boolean>>;
@@ -111,7 +111,7 @@ export function PlaygroundComposer({
   discardQueued,
   mode,
   dictation,
-  rayonComposeur,
+  composerRadius,
   placeholderText,
   attachments,
   setAttachments,
@@ -129,8 +129,8 @@ export function PlaygroundComposer({
   selectSkill,
   openSkillCreator,
   deleteCustomSkill,
-  imageVue,
-  setImageVue,
+  viewedImage,
+  setViewedImage,
   isNarrow,
   setSnippetsOpen,
   setSkillCreatorOpen,
@@ -142,11 +142,11 @@ export function PlaygroundComposer({
   const t = useT();
   // « system » resolved here, hydration-safe: border-beam resolves « auto » during
   // render, dark on the server and light in the browser (React #418).
-  const modeResolu = useResolvedMode(mode);
+  const resolvedMode = useResolvedMode(mode);
   return (
     <VStack gap={2} padding={4}>
-      {/* Édition en place : la conversation reste affichée, on signale que le
-          prochain envoi rebranchera depuis le message édité, avec annulation. */}
+      {/* In-place editing: the conversation stays on screen, and we say that
+          the next send will branch from the edited message, with a cancel. */}
       {editingIdx !== null && (
         <Banner
           status="info"
@@ -162,10 +162,10 @@ export function PlaygroundComposer({
           }
         />
       )}
-      {/* Sans clé API, le playground ne peut rien envoyer : il tourne sur
-          la clé de l'utilisateur. On le dit AVANT la première question,
-          avec le bouton qui mène pile au bon endroit — plutôt que de
-          laisser découvrir le problème par un message d'erreur. */}
+      {/* Without an API key the playground cannot send anything: it runs on the
+          user's key. We say so BEFORE the first question, with the button that
+          leads straight to the right place — rather than letting an error
+          message reveal the problem. */}
       {hasKey === false && (
         <Banner
           status="warning"
@@ -184,10 +184,10 @@ export function PlaygroundComposer({
           }
         />
       )}
-      {/* File d'attente, juste au-dessus du compositeur : les messages
-          tapés pendant une génération attendent ici et partent seuls dès
-          qu'elle se termine. Les actions ne servent qu'à ne pas attendre
-          (Envoyer), reprendre le texte (Modifier) ou annuler (croix). */}
+      {/* Queue, right above the composer: messages typed during a generation
+          wait here and leave on their own as soon as it ends. The actions only
+          exist to skip the wait (Send), take the text back (Edit) or cancel
+          (cross). */}
       {queued.length > 0 && (
         <Card
           variant="muted"
@@ -238,33 +238,31 @@ export function PlaygroundComposer({
           </VStack>
         </Card>
       )}
-      {/* Deux effets, deux signaux, UN SEUL hôte : la carte du composeur.
-          Le faisceau tourne pendant que le modèle travaille, le halo monte avec
-          la voix pendant la dictée — au repos, le composeur reste sobre, c'est
-          ce qui en fait des signaux et pas des ornements.
+      {/* Two effects, two signals, ONE host: the composer card. The beam spins
+          while the model works, the halo rises with the voice during dictation
+          — at rest the composer stays plain, which is what makes them signals
+          and not ornaments.
 
-          Les deux enveloppent la carte, et non le champ de saisie : c'est le
-          « chat input » de la librairie (sa lumière naît du bord bas de son
-          hôte) et le seul élément qui ait une surface et un rayon. Le champ,
-          lui, est un ruban transparent de 30 px sans rayon : la lumière y
-          flottait au-dessus du texte, avec les coins de 16 px du repli de la
-          librairie dans une carte qui en fait 28.
+          Both wrap the card, not the text field: it is the library's « chat
+          input » (its light grows from the bottom edge of its host) and the
+          only element with a surface and a radius. The field is a transparent
+          30 px ribbon without a radius: the light floated above the text, with
+          the library's 16 px fallback corners inside a card of 28.
 
-          `borderRadius` est fourni à la main (cf. `rayonComposeur`) : la
-          détection automatique des deux librairies lit leur PREMIER ENFANT, et
-          celui de `border-beam` est sa propre balise `<style>` — 0 px, donc le
-          repli de 16 px, coins visiblement plus carrés que la carte. Le rognage
-          des deux enveloppes, lui, est réglé dans globals.css (`overflow: clip`
-          élargi de 8 px) : c'est lui, et non le `clip-path` des calques, qui
-          contient les lumières. */}
-      <BorderBeam active={streaming} theme={modeResolu}
-                  borderRadius={rayonComposeur}
+          `borderRadius` is passed by hand (see `composerRadius`): both
+          libraries detect it on their FIRST CHILD, and border-beam's is its own
+          `<style>` tag — 0 px, hence the 16 px fallback, corners visibly
+          squarer than the card. The clipping of both wrappers is set in
+          globals.css (`overflow: clip`): that, not the layers' `clip-path`,
+          contains the lights. */}
+      <BorderBeam active={streaming} theme={resolvedMode}
+                  borderRadius={composerRadius}
                   className="composeur-cadre">
       <VoiceBeam stream={dictation.stream}
                  active={dictation.isRecording || dictation.isTranscribing}
                  processing={dictation.isTranscribing}
-                 theme={modeResolu}
-                 borderRadius={rayonComposeur}
+                 theme={resolvedMode}
+                 borderRadius={composerRadius}
                  className="composeur-halo">
       <ChatComposer
         value={input}
@@ -360,8 +358,8 @@ export function PlaygroundComposer({
       />
       </VoiceBeam>
       </BorderBeam>
-      {/* Menu des compétences : affiché dès qu'on tape « / » (pour en
-          sélectionner une) juste sous le champ. */}
+      {/* Skills menu: shown as soon as « / » is typed (to pick one), right
+          under the field. */}
       {slashQuery !== null && (
         <SkillsMenu
           baseSkills={baseHits}
@@ -374,13 +372,13 @@ export function PlaygroundComposer({
           onDelete={deleteCustomSkill}
         />
       )}
-      {imageVue && (
+      {viewedImage && (
         <Lightbox
           isOpen
-          onOpenChange={(o) => { if (!o) setImageVue(null); }}
-          media={imageVue.srcs.map((src, k) => ({ src, alt: t("Image jointe {n}").replace("{n}", String(k + 1)) }))}
-          index={imageVue.index}
-          onIndexChange={(index) => setImageVue((v) => (v ? { ...v, index } : v))}
+          onOpenChange={(o) => { if (!o) setViewedImage(null); }}
+          media={viewedImage.srcs.map((src, k) => ({ src, alt: t("Image jointe {n}").replace("{n}", String(k + 1)) }))}
+          index={viewedImage.index}
+          onIndexChange={(index) => setViewedImage((v) => (v ? { ...v, index } : v))}
           hasZoom
         />
       )}
@@ -392,15 +390,14 @@ export function PlaygroundComposer({
         style={{ display: "none" }}
         onChange={(e) => handleFiles(e.target.files)}
       />
-      {/* L'indice de bas de composeur est réservé aux écrans LARGES. Mesuré au
-          gabarit 390 px : les boutons en occupent 236 des 326 px, il ne reste
-          que ~82 px au texte, qui s'y étale sur 5 lignes — la rangée monte à
-          100 px de haut, plus que la carte de saisie elle-même (94 px). Sur
-          bureau le même texte tient sur une ligne (338 px, rangée de 28 px).
-          Rien n'est perdu sur téléphone : le sélecteur de fichiers filtre déjà
-          par `accept`, et le budget du compte est affiché sur l'accueil.
-          `hAlign` suit, sinon la disparition du premier enfant ramènerait les
-          boutons à gauche. */}
+      {/* The composer's bottom hint is for WIDE screens only. Measured at 390
+          px: the buttons take 236 of the 326 px, leaving ~82 px for the text,
+          which spreads over 5 lines — the row grows to 100 px, taller than the
+          input card itself (94 px). On desktop the same text fits on one line
+          (338 px, 28 px row). Nothing is lost on a phone: the file picker
+          already filters by `accept`, and the account budget is shown on the
+          home page. `hAlign` follows, otherwise the first child's disappearance
+          would bring the buttons back to the left. */}
       <HStack hAlign={isNarrow ? "end" : "between"} gap={2}>
         {!isNarrow && (
           <Text type="supporting" color="secondary">{t("Fichiers texte uniquement. Les tokens comptent sur ton budget.")}</Text>

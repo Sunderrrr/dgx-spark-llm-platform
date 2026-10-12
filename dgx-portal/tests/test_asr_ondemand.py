@@ -118,7 +118,7 @@ class _Base(unittest.TestCase):
 
     def _recule_activite(self, seconds):
         """Backdate the idle clock (as if no transcription had happened since)."""
-        p = os.path.join(self._state, 'activite')
+        p = os.path.join(self._state, 'activity')
         old = time.time() - seconds
         os.utime(p, (old, old))
 
@@ -142,7 +142,7 @@ class DemarrageTest(_Base):
         # The shape useDictation silently tolerates: a 2xx (no error shown) and
         # `text` a STRING (any other type is treated as a failed round).
         self.assertEqual(body['text'], '')
-        self.assertTrue(body['demarrage'])
+        self.assertTrue(body['starting'])
         demarre.assert_called_once_with('asr', 'start')
         call.assert_not_called()          # NO transcription attempted
         veilleur.assert_called_once()      # the idle reaper is armed

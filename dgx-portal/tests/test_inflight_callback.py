@@ -47,7 +47,7 @@ class ActiviteEnVolTest(unittest.TestCase):
     def _lignes(self):
         conn = sqlite3.connect(self.path)
         try:
-            return conn.execute('SELECT cle, alias, user_id, modele FROM en_vol').fetchall()
+            return conn.execute('SELECT request_key, alias, user_id, model FROM inflight').fetchall()
         finally:
             conn.close()
 
@@ -68,7 +68,7 @@ class ActiviteEnVolTest(unittest.TestCase):
         """A client killed mid-flight triggers neither success nor failure."""
         self.mod._record(_kwargs('vieux'))
         conn = sqlite3.connect(self.path)
-        conn.execute('UPDATE en_vol SET debut=?', (time.time() - 99999,))
+        conn.execute('UPDATE inflight SET started_at=?', (time.time() - 99999,))
         conn.commit()
         conn.close()
         self.mod._record(_kwargs('recent'))

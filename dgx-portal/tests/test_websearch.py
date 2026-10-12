@@ -171,7 +171,7 @@ class LectureTest(unittest.TestCase):
             pages, _ = websearch.read(['http://169.254.169.254/latest/meta-data/',
                                        'https://exemple.fr/ok'])
         self.assertEqual(calls, [['https://exemple.fr/ok']])
-        self.assertTrue(any(p.get('erreur') for p in pages))
+        self.assertTrue(any(p.get('error') for p in pages))
 
     def test_contenu_borne_par_page_et_au_total(self):
         gros = 'x' * 100_000
@@ -187,9 +187,9 @@ class LectureTest(unittest.TestCase):
             pages, _ = websearch.read([f'https://exemple.fr/{i}' for i in range(10)])
         self.assertLessEqual(len(pages), websearch.MAX_PAGES)
         for p in pages:
-            self.assertLessEqual(len(p.get('contenu', '')), websearch.MAX_CARS_PAGE)
-        total = sum(len(p.get('contenu', '')) for p in pages)
-        self.assertLessEqual(total, websearch.MAX_CARS_TOTAL)
+            self.assertLessEqual(len(p.get('content', '')), websearch.MAX_CHARS_PAGE)
+        total = sum(len(p.get('content', '')) for p in pages)
+        self.assertLessEqual(total, websearch.MAX_CHARS_TOTAL)
 
     def test_crawler_injoignable_ne_leve_pas(self):
         with mock.patch('websearch.requests.post', side_effect=OSError('boum')), \
@@ -236,25 +236,25 @@ class NettoyageTest(unittest.TestCase):
 
     def test_page_reduite_a_rien_est_signalee(self):
         p = _lire_avec("Continuer sans accepter\nutilisons des cookies\naccepter les cookies")
-        self.assertIn('erreur', p)
+        self.assertIn('error', p)
 
     def test_page_javascript_vide_signalee(self):
         p = _lire_avec("A required part of this site couldn't load.")
-        self.assertIn('erreur', p)
+        self.assertIn('error', p)
 
     def test_article_normal_conserve(self):
         article = ("Le président a annoncé mardi une nouvelle livraison de matériel "
                    "destinée à renforcer la défense antiaérienne du pays.\n") * 12
         p = _lire_avec(article)
-        self.assertNotIn('erreur', p)
-        self.assertGreater(len(p['contenu']), 200)
+        self.assertNotIn('error', p)
+        self.assertGreater(len(p['content']), 200)
 
     def test_documentation_technique_conservee(self):
         doc = ("asyncio.TaskGroup regroupe plusieurs tâches concurrentes et attend "
                "leur achèvement collectif de manière structurée.\n") * 12
         p = _lire_avec(doc)
-        self.assertNotIn('erreur', p)
-        self.assertIn('TaskGroup', p['contenu'])
+        self.assertNotIn('error', p)
+        self.assertIn('TaskGroup', p['content'])
 
 
 class ReglagesExtractionTest(unittest.TestCase):
@@ -312,30 +312,30 @@ class RedirectionInterneTest(unittest.TestCase):
                              'redirected_url': 'http://127.0.0.1:8001/status',
                              'markdown': {'raw_markdown': 'contenu interne ' * 30},
                              'metadata': {'title': 't'}}])
-        self.assertNotIn('contenu', page)
-        self.assertIn('interne', page.get('erreur', ''))
+        self.assertNotIn('content', page)
+        self.assertIn('interne', page.get('error', ''))
 
     def test_redirection_vers_un_service_du_reseau_docker_refusee(self):
         page = self._pages([{'url': 'https://exemple.fr/a', 'success': True,
                              'redirected_url': 'http://litellm:4001/health',
                              'markdown': {'raw_markdown': 'contenu interne ' * 30},
                              'metadata': {'title': 't'}}])
-        self.assertNotIn('contenu', page)
-        self.assertIn('interne', page.get('erreur', ''))
+        self.assertNotIn('content', page)
+        self.assertIn('interne', page.get('error', ''))
 
     def test_redirection_publique_conservee(self):
         page = self._pages([{'url': 'https://exemple.fr/a', 'success': True,
                              'redirected_url': 'https://exemple.fr/a/',
                              'markdown': {'raw_markdown': 'article normal ' * 30},
                              'metadata': {'title': 't'}}])
-        self.assertIn('contenu', page)
+        self.assertIn('content', page)
 
     def test_absence_de_redirected_url_change_rien(self):
         """Previous behaviour: a crawler that says nothing is not suspicious."""
         page = self._pages([{'url': 'https://exemple.fr/a', 'success': True,
                              'markdown': {'raw_markdown': 'article normal ' * 30},
                              'metadata': {'title': 't'}}])
-        self.assertIn('contenu', page)
+        self.assertIn('content', page)
 
     def test_ignorance_ne_vaut_pas_refus(self):
         """Name that does not resolve on our side: we do NOT discard the page."""
@@ -349,4 +349,4 @@ class RedirectionInterneTest(unittest.TestCase):
                              'redirected_url': 'https://autre-nom-zz.test/a',
                              'markdown': {'raw_markdown': 'article normal ' * 30},
                              'metadata': {'title': 't'}}])
-        self.assertIn('contenu', page)
+        self.assertIn('content', page)

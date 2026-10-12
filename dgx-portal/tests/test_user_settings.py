@@ -184,7 +184,7 @@ class ClesApiTest(_BaseReglages):
         self.assertEqual(r.status_code, 409)
         body = r.get_json()
         self.assertFalse(body["ok"])
-        self.assertEqual(body["code"], "deja_en_attente",
+        self.assertEqual(body["code"], "already_pending",
                          "un refus stable doit porter un code traduisible")
 
     def test_demande_de_budget_inseree(self):
@@ -437,7 +437,7 @@ class RenommageCleTest(_BaseReglages):
             r = self._post(c, "/keys", {"action": "rename", "key": "sk-b",
                                         "key_name": "portable"})
         self.assertEqual(r.status_code, 409)
-        self.assertEqual(r.get_json()["code"], "alias_deja_utilise")
+        self.assertEqual(r.get_json()["code"], "alias_in_use")
         faux.assert_not_called()
 
     def test_nom_vide_refuse(self):
@@ -471,7 +471,7 @@ class SourceMotDePasseTest(_BaseReglages):
         self._insere_local("zz-gestion-local")
         with self._db():
             info = portal.password_management("zz-gestion-local")
-        self.assertEqual(info["gestion"], "portail")
+        self.assertEqual(info["management"], "portal")
         self.assertTrue(info["passkey"])
         self._nettoie("zz-gestion-local")
 
@@ -479,7 +479,7 @@ class SourceMotDePasseTest(_BaseReglages):
         self._insere_source("zz-gestion-ldap", "ldap")
         with self._db():
             info = portal.password_management("zz-gestion-ldap")
-        self.assertEqual(info["gestion"], "annuaire-ldap")
+        self.assertEqual(info["management"], "ldap-directory")
         self.assertTrue(info["passkey"], "la 2FA reste possible pour un compte LDAP")
         self._nettoie("zz-gestion-ldap")
 
@@ -487,7 +487,7 @@ class SourceMotDePasseTest(_BaseReglages):
         self._insere_source("zz-gestion-sso", "sso")
         with self._db():
             info = portal.password_management("zz-gestion-sso")
-        self.assertEqual(info["gestion"], "fournisseur-sso")
+        self.assertEqual(info["management"], "sso-provider")
         self.assertFalse(info["passkey"],
                          "un compte SSO n'a pas de mot de passe vérifiable ici")
         self._nettoie("zz-gestion-sso")
@@ -497,7 +497,7 @@ class SourceMotDePasseTest(_BaseReglages):
         self._nettoie("zz-gestion-inconnu")
         with self._db():
             info = portal.password_management("zz-gestion-inconnu")
-        self.assertEqual(info["gestion"], "inconnu")
+        self.assertEqual(info["management"], "unknown")
         self.assertFalse(info["local"])
 
     def test_local_et_sso_le_local_fait_autorite(self):
@@ -506,7 +506,7 @@ class SourceMotDePasseTest(_BaseReglages):
         self._insere_source("zz-gestion-mixte", "local,sso")
         with self._db():
             info = portal.password_management("zz-gestion-mixte")
-        self.assertEqual(info["gestion"], "portail")
+        self.assertEqual(info["management"], "portal")
         self._nettoie("zz-gestion-mixte")
 
 
@@ -538,14 +538,14 @@ class SecuriteCompteTest(_BaseReglages):
         r = c.get("/api/security")
         self.assertEqual(r.status_code, 200)
         body = r.get_json()
-        self.assertEqual(body["password_managed_by"], "portail")
+        self.assertEqual(body["password_managed_by"], "portal")
         self.assertTrue(body["passkey_possible"])
 
     def test_whoami_porte_la_source(self):
         self._insere_local("zz-sec-who")
         c = self._client("zz-sec-who")
         body = c.get("/api/whoami").get_json()
-        self.assertEqual(body["password_managed_by"], "portail")
+        self.assertEqual(body["password_managed_by"], "portal")
         self.assertTrue(body["local_account"])
         self._nettoie("zz-sec-who")
 

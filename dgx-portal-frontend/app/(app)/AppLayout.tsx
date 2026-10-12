@@ -58,7 +58,7 @@ import { SettingsDialogContext, type SettingsSection } from "@/lib/settings-dial
    the old black logo stayed displayed — a failed entry can stick the same way
    (seen once; 10 out of 10 attempts correct afterwards). The tab favicon,
    for its part, keeps being served from the root. */
-import logoDefaut from "@/app/favicon.ico";
+import defaultLogo from "@/app/favicon.ico";
 import { useBranding } from "@/lib/branding";
 
 type NotificationItem = {
@@ -96,9 +96,9 @@ const NOTIF_KIND_LABEL: Record<string, string> = {
   music: "Musique",
 };
 
-type NotifsReponse = { items: NotificationItem[]; unread: number };
+type NotificationsResponse = { items: NotificationItem[]; unread: number };
 
-export type ShellSeed = { pending: { model: number; budget: number }; notifs: NotifsReponse };
+export type ShellSeed = { pending: { model: number; budget: number }; notifs: NotificationsResponse };
 
 export default function AppLayout({
   children,
@@ -121,7 +121,7 @@ export default function AppLayout({
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined);
   const t = useT();
-  const marque = useBranding();
+  const brand = useBranding();
   const router = useRouter();
   // Command palette (Ctrl/Cmd+K): navigation and quick actions.
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -151,9 +151,9 @@ export default function AppLayout({
   // it has not changed since — seen after an SSO login. One extra request on the
   // way out beats an impossible logout.
   async function logout() {
-    let jeton = csrf;
+    let token = csrf;
     try {
-      jeton = await refreshCsrf();
+      token = await refreshCsrf();
     } catch {
       // Flaky network: we post the known token rather than blocking the user.
     }
@@ -163,7 +163,7 @@ export default function AppLayout({
     const field = document.createElement("input");
     field.type = "hidden";
     field.name = "csrf_token";
-    field.value = jeton;
+    field.value = token;
     form.appendChild(field);
     document.body.appendChild(form);
     form.submit();
@@ -277,7 +277,7 @@ export default function AppLayout({
           resizable={{ defaultWidth: 260, minWidth: 220, maxWidth: 360 }}
           header={
             <SideNavHeading
-              heading={marque.name}
+              heading={brand.name}
               /* The tab logo (favicon served from the root) also at the
                  top left, right before the instance name. empty alt: the info is
                  already carried by the text of the heading that follows. */
@@ -285,7 +285,7 @@ export default function AppLayout({
                 // Static 26 KB favicon: next/image brings nothing here.
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={marque.logo ?? logoDefaut.src}
+                  src={brand.logo ?? defaultLogo.src}
                   alt=""
                   style={{ width: "var(--spacing-5)", height: "var(--spacing-5)" }}
                 />
@@ -392,7 +392,7 @@ export default function AppLayout({
           its position in the DOM changes nothing about its stacking. */}
       <OnboardingDialog
         isOpen={showOnboarding}
-        prenom={who?.fullname?.split(" ")[0]}
+        firstName={who?.fullname?.split(" ")[0]}
         onClose={() => {
           setShowOnboarding(false);
           void fetch("/api/onboarding/done", {

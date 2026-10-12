@@ -114,7 +114,7 @@ def _load_pipeline():
 threading.Thread(target=_load_pipeline, daemon=True).start()
 
 
-def _premiere_image(out):
+def _first_image(out):
     """Grab the first image, whatever the pipeline returns.
 
     Classic text-to-image pipelines return `.images` (list of PIL.Image). The
@@ -127,9 +127,9 @@ def _premiere_image(out):
         return images[0]
     video = getattr(out, "video", None)
     if video:
-        premiere = video[0]
+        first = video[0]
         # Frame sequence, or single frame already unwrapped.
-        return premiere[0] if isinstance(premiere, (list, tuple)) else premiere
+        return first[0] if isinstance(first, (list, tuple)) else first
     if isinstance(out, (list, tuple)) and out:
         return out[0]
     raise RuntimeError("le pipeline n'a renvoye ni .images ni .video")
@@ -206,7 +206,7 @@ def generate(prompt: str = Form(...),
                 # `prompt_embeds` ». Observed on 24/08 on FLUX.2 Klein 4B.
                 out = _pipe(prompt=prompt, num_inference_steps=steps,
                             guidance_scale=float(guidance), width=width, height=height)
-            image = _premiere_image(out)
+            image = _first_image(out)
         if out_width and out_height:
             image = _upscale(image, out_width, out_height)
         # JPEG cannot encode an alpha channel: we flatten to RGB first.

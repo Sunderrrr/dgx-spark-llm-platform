@@ -86,9 +86,9 @@ def _load() -> None:
         _languages = {_ISO[n.lower()]: n for n in names if n.lower() in _ISO}
         skipped = [n for n in names if n.lower() not in _ISO]
         if skipped:
-            log.warning("Langues sans code ISO connu, ignorées : %s", skipped)
+            log.warning("Languages without a known ISO code, skipped: %s", skipped)
         log.info("Loaded. %d languages: %s", len(_languages), ", ".join(sorted(_languages)))
-    except Exception as exc:  # pragma: no cover - dépend du runtime CUDA
+    except Exception as exc:  # pragma: no cover - depends on the CUDA runtime
         _load_error = str(exc)
         log.exception("Model failed to load")
 
@@ -125,7 +125,7 @@ def _hard_split(part: str) -> list[str]:
     while len(part) > _CHUNK_HARD_MAX:
         cut = part.rfind(" ", 0, _CHUNK_HARD_MAX)
         if cut <= 0:
-            cut = _CHUNK_HARD_MAX  # mot unique démesuré : on coupe net
+            cut = _CHUNK_HARD_MAX  # a single oversized word: hard cut
         out.append(part[:cut].strip())
         part = part[cut:].strip()
     if part:
@@ -134,17 +134,17 @@ def _hard_split(part: str) -> list[str]:
 
 
 def _chunk_text(text: str) -> list[str]:
-    pieces, cur = [], ""
+    chunks, cur = [], ""
     for part in (p.strip() for p in _SENTENCE_SPLIT.split(text) if p and p.strip()):
         for sub in _hard_split(part):
             if cur and len(cur) + 1 + len(sub) > _CHUNK_TARGET:
-                pieces.append(cur)
+                chunks.append(cur)
                 cur = sub
             else:
                 cur = f"{cur} {sub}".strip()
     if cur:
-        pieces.append(cur)
-    return pieces or [text]
+        chunks.append(cur)
+    return chunks or [text]
 
 
 def _join(wavs: list, sr: int):

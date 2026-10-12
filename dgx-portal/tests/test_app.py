@@ -789,7 +789,7 @@ class GardeDesRoutesTest(unittest.TestCase):
         sans_garde = set()
         for regle in portal.app.url_map.iter_rules():
             vue = portal.app.view_functions.get(regle.endpoint)
-            if vue is None or getattr(vue, '_garde', None):
+            if vue is None or getattr(vue, '_guard', None):
                 continue
             sans_garde.add(regle.endpoint)
         nouvelles = sans_garde - set(self.PUBLIQUES)
@@ -2190,7 +2190,7 @@ class SupportInjectionGuardTest(unittest.TestCase):
     def test_action_sensible_refusee_apres_contenu_externe(self):
         import unittest.mock as mock
         frames = [
-            [self._outil("mcp_serveur_outil", {}), "data: [DONE]"],       # external read
+            [self._outil("mcp_server_tool", {}), "data: [DONE]"],       # external read
             [self._outil("revoke_api_key", {"alias": "prod"}, "call_2"), "data: [DONE]"],
             [self._texte("Je ne peux pas faire ça dans ce tour."), "data: [DONE]"],
         ]
@@ -2201,8 +2201,8 @@ class SupportInjectionGuardTest(unittest.TestCase):
             n["i"] += 1
             return self._Flux(frames[i])
 
-        routing = {"mcp_serveur_outil": {"kind": "mcp", "server_id": 1,
-                                         "server_name": "srv", "tool_name": "outil"}}
+        routing = {"mcp_server_tool": {"kind": "mcp", "server_id": 1,
+                                         "server_name": "srv", "tool_name": "tool"}}
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["username"] = "demo"
@@ -2242,7 +2242,7 @@ class SupportInjectionGuardTest(unittest.TestCase):
         """
         import unittest.mock as mock
         frames = [
-            [self._outil("mcp_serveur_outil", {}), "data: [DONE]"],        # external read
+            [self._outil("mcp_server_tool", {}), "data: [DONE]"],        # external read
             [self._outil("create_api_key", {"alias": "ma-cle"}, "call_2"), "data: [DONE]"],
             [self._texte("Je ne crée pas de clé dans ce tour."), "data: [DONE]"],
         ]
@@ -2253,8 +2253,8 @@ class SupportInjectionGuardTest(unittest.TestCase):
             n["i"] += 1
             return self._Flux(frames[i])
 
-        routing = {"mcp_serveur_outil": {"kind": "mcp", "server_id": 1,
-                                         "server_name": "srv", "tool_name": "outil"}}
+        routing = {"mcp_server_tool": {"kind": "mcp", "server_id": 1,
+                                         "server_name": "srv", "tool_name": "tool"}}
         c = portal.app.test_client()
         with c.session_transaction() as s:
             s["username"] = "demo"

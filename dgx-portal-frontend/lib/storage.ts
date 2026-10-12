@@ -6,17 +6,17 @@
 // to the old one, so an existing session keeps working while everyone
 // migrates. Drop the fallback once the fleet has moved (the old keys are
 // rewritten to the new name on first read).
-export type CleAncienne = { nouveau: string; ancien: string };
+export type LegacyKey = { current: string; legacy: string };
 
-export function lireAvecRepli(cle: CleAncienne): string | null {
+export function readWithFallback(key: LegacyKey): string | null {
   try {
-    const neuf = localStorage.getItem(cle.nouveau);
-    if (neuf !== null) return neuf;
-    const vieux = localStorage.getItem(cle.ancien);
-    if (vieux !== null) {
+    const fresh = localStorage.getItem(key.current);
+    if (fresh !== null) return fresh;
+    const old = localStorage.getItem(key.legacy);
+    if (old !== null) {
       // rewrite forward, so the fallback is a one-time cost
-      localStorage.setItem(cle.nouveau, vieux);
-      return vieux;
+      localStorage.setItem(key.current, old);
+      return old;
     }
   } catch {
     /* storage unavailable */
@@ -24,9 +24,9 @@ export function lireAvecRepli(cle: CleAncienne): string | null {
   return null;
 }
 
-export function ecrireAvecRepli(cle: CleAncienne, valeur: string): void {
+export function writeWithFallback(key: LegacyKey, value: string): void {
   try {
-    localStorage.setItem(cle.nouveau, valeur);
+    localStorage.setItem(key.current, value);
   } catch {
     /* storage unavailable */
   }

@@ -31,10 +31,10 @@ import { useMemo } from "react";
 import { Markdown } from "@astryxdesign/core/Markdown";
 import { Link } from "@astryxdesign/core/Link";
 import type { ComponentProps, ReactNode } from "react";
-import { pluginMaths, protegerMaths, type Formule } from "./maths";
+import { mathPlugin, protectMath, type Formula } from "./maths";
 
 /** Schemes never legitimate in a model answer. */
-const SCHEMA_DANGEREUX = /^(?:javascript|data|vbscript|file):/i;
+const DANGEROUS_SCHEME = /^(?:javascript|data|vbscript|file):/i;
 
 /**
  * URL usable for a link, or `null` if the destination must stay as text.
@@ -43,14 +43,14 @@ const SCHEMA_DANGEREUX = /^(?:javascript|data|vbscript|file):/i;
  * they are what invisibly split a dangerous scheme and make it
  * acceptable to a `trim()`.
  */
-export function hrefSur(brut: string): string | null {
-  const url = String(brut ?? "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
-  if (!url || SCHEMA_DANGEREUX.test(url)) return null;
+export function safeHref(raw: string): string | null {
+  const url = String(raw ?? "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  if (!url || DANGEROUS_SCHEME.test(url)) return null;
   return url;
 }
 
-function LienSur({ href, children }: { href: string; children: ReactNode }) {
-  const url = hrefSur(href);
+function SafeLink({ href, children }: { href: string; children: ReactNode }) {
+  const url = safeHref(href);
   // Refused: the link text stays readable, but it is no longer clickable.
   if (!url) return <span>{children}</span>;
   return (
@@ -61,20 +61,20 @@ function LienSur({ href, children }: { href: string; children: ReactNode }) {
 }
 
 /** `<Markdown>` with the fixed URL filter and rendered math. */
-export function MarkdownSur({ children, inlinePlugins, ...props }: ComponentProps<typeof Markdown>) {
-  const { texte, formules } = useMemo(() => {
-    if (typeof children !== "string") return { texte: children, formules: [] as Formule[] };
-    return protegerMaths(children);
+export function SafeMarkdown({ children, inlinePlugins, ...props }: ComponentProps<typeof Markdown>) {
+  const { text, formulas } = useMemo(() => {
+    if (typeof children !== "string") return { text: children, formulas: [] as Formula[] };
+    return protectMath(children);
   }, [children]);
 
   const plugins = useMemo(
-    () => [...(formules.length ? [pluginMaths(formules)] : []), ...(inlinePlugins ?? [])],
-    [formules, inlinePlugins],
+    () => [...(formulas.length ? [mathPlugin(formulas)] : []), ...(inlinePlugins ?? [])],
+    [formulas, inlinePlugins],
   );
 
   return (
-    <Markdown {...props} inlinePlugins={plugins} components={{ ...props.components, link: LienSur }}>
-      {texte}
+    <Markdown {...props} inlinePlugins={plugins} components={{ ...props.components, link: SafeLink }}>
+      {text}
     </Markdown>
   );
 }

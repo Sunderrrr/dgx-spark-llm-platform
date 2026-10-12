@@ -35,7 +35,7 @@ export type McpSectionProps = {
   mcpForm: McpForm;
   setMcpForm: Dispatch<SetStateAction<McpForm>>;
   toggleMcp: (id: number, enabled: boolean) => void;
-  deleteMcp: (id: number, nom: string) => void;
+  deleteMcp: (id: number, name: string) => void;
 };
 
 export function McpSection({

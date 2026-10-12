@@ -24,7 +24,7 @@ import { useBranding } from "@/lib/branding";
 /** The logo is sent as the uploaded data URL: one row in `settings`, no
  *  filesystem to police, and the server bounds it (2 Mo) like every other
  *  upload on this portal. */
-const LOGO_MAX_OCTETS = 2 * 1024 * 1024;
+const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 
 export function BrandingConfig({ initialName }: { initialName?: string }) {
   const t = useT();
@@ -33,33 +33,33 @@ export function BrandingConfig({ initialName }: { initialName?: string }) {
   // The REAL current name (server-rendered branding), not « DGX »: the field
   // used to start on the default, so saving anything else on this card
   // silently renamed the instance back to « DGX ».
-  const marque = useBranding();
-  const [nom, setNom] = useState(initialName || marque.name);
+  const brand = useBranding();
+  const [name, setName] = useState(initialName || brand.name);
   const [logo, setLogo] = useState<string | null>(null);
-  const [apercu, setApercu] = useState<string | null>(null);
-  const [envoi, setEnvoi] = useState(false);
-  const champFichier = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const fileField = useRef<HTMLInputElement>(null);
 
-  function choisir(fichier?: File | null) {
-    if (!fichier) return;
-    if (fichier.size > LOGO_MAX_OCTETS) {
+  function choose(file?: File | null) {
+    if (!file) return;
+    if (file.size > LOGO_MAX_BYTES) {
       showToast({ body: t("Logo trop lourd (2 Mo maximum)."), type: "error" });
       return;
     }
-    const lecteur = new FileReader();
-    lecteur.onload = () => {
-      const url = String(lecteur.result || "");
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result || "");
       setLogo(url);
-      setApercu(url);
+      setPreview(url);
     };
-    lecteur.readAsDataURL(fichier);
+    reader.readAsDataURL(file);
   }
 
-  async function enregistrer() {
-    setEnvoi(true);
+  async function save() {
+    setSending(true);
     try {
       const rep = await postFormJSON("/admin/branding", csrf, {
-        platform_name: nom.trim(),
+        platform_name: name.trim(),
         platform_logo: logo || "",
       });
       if (rep?.ok) {
@@ -70,7 +70,7 @@ export function BrandingConfig({ initialName }: { initialName?: string }) {
     } catch {
       showToast({ body: t("Échec de l'enregistrement"), type: "error" });
     } finally {
-      setEnvoi(false);
+      setSending(false);
     }
   }
 
@@ -83,8 +83,8 @@ export function BrandingConfig({ initialName }: { initialName?: string }) {
         </Text>
         <TextInput
           label={t("Nom de l'instance")}
-          value={nom}
-          onChange={setNom}
+          value={name}
+          onChange={setName}
           placeholder={t("Ex : Acme AI")}
         />
         <HStack gap={3} vAlign="center" wrap="wrap">
@@ -92,27 +92,27 @@ export function BrandingConfig({ initialName }: { initialName?: string }) {
             label={t("Choisir un logo")}
             variant="secondary"
             icon={<Icon icon={PhotoIcon} size="sm" />}
-            onClick={() => champFichier.current?.click()}
+            onClick={() => fileField.current?.click()}
           />
-          {apercu ? (
+          {preview ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={apercu} alt="" style={{ height: "var(--spacing-6)", width: "auto" }} />
-              <Button label={t("Retirer le logo")} variant="ghost" size="sm" onClick={() => { setLogo("-"); setApercu(null); }} />
+              <img src={preview} alt="" style={{ height: "var(--spacing-6)", width: "auto" }} />
+              <Button label={t("Retirer le logo")} variant="ghost" size="sm" onClick={() => { setLogo("-"); setPreview(null); }} />
             </>
           ) : (
             <Text type="supporting" color="secondary">{t("Aucun logo : la favicon par défaut est utilisée.")}</Text>
           )}
           <input
-            ref={champFichier}
+            ref={fileField}
             type="file"
             accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
             style={{ display: "none" }}
-            onChange={(e) => choisir(e.target.files?.[0])}
+            onChange={(e) => choose(e.target.files?.[0])}
           />
         </HStack>
         <HStack>
-          <Button label={envoi ? t("Enregistrement…") : t("Enregistrer")} variant="primary" onClick={enregistrer} />
+          <Button label={sending ? t("Enregistrement…") : t("Enregistrer")} variant="primary" onClick={save} />
         </HStack>
       </VStack>
     </Card>

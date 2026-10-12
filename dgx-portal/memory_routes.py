@@ -133,7 +133,7 @@ def _mem_set_enabled(username, on):
     db.commit()
 
 
-def _mem_node(username, name, kind='sujet', create=True):
+def _mem_node(username, name, kind='subject', create=True):
     """Finds (or creates) the node of a subject. Also searches among aliases."""
     norm = _mem_norm(name)
     if not norm:
@@ -151,14 +151,14 @@ def _mem_node(username, name, kind='sujet', create=True):
     db.execute("INSERT INTO memory_nodes (username, name, name_norm, kind, created_at) "
                "VALUES (?,?,?,?,?)",
                (username, (name or '').strip()[:MEM_MAX_NAME_LEN], norm,
-                kind if kind in ('sujet', 'personne', 'outil', 'préférence') else 'sujet',
+                kind if kind in ('subject', 'person', 'tool', 'preference') else 'subject',
                 datetime.now().isoformat()))
     db.commit()
     return db.execute("SELECT * FROM memory_nodes WHERE username=? AND name_norm=?",
                       (username, norm)).fetchone()
 
 
-def _mem_add_fact(username, subject, relation, fact, obj=None, source='model', kind='sujet'):
+def _mem_add_fact(username, subject, relation, fact, obj=None, source='model', kind='subject'):
     """Writes a fact. Returns (message, ok) — the support tools convention.
 
     An identical fact (same subject, same relation, same object) REPLACES
@@ -174,7 +174,7 @@ def _mem_add_fact(username, subject, relation, fact, obj=None, source='model', k
     relation = relation.strip()[:80] if isinstance(relation, str) else ''
     fact = fact.strip()[:MEM_MAX_FACT_LEN] if isinstance(fact, str) else ''
     obj = obj.strip()[:MEM_MAX_NAME_LEN] if isinstance(obj, str) else None
-    kind = kind if isinstance(kind, str) else 'sujet'
+    kind = kind if isinstance(kind, str) else 'subject'
     if not subject or not fact:
         return "Sujet et fait sont obligatoires.", False
     db = get_db()
@@ -332,7 +332,7 @@ def _mem_tools():
                     "alors l'ancien au lieu de s'y ajouter.")},
                 "fact": {"type": "string", "description": "Le fait en une phrase, tel qu'il sera relu."},
                 "object": {"type": "string", "description": "Autre sujet relié, si le fait en relie deux. Optionnel."},
-                "kind": {"type": "string", "enum": ["sujet", "personne", "outil", "préférence"],
+                "kind": {"type": "string", "enum": ["subject", "person", "tool", "preference"],
                          "description": "Nature du sujet. Optionnel."}},
                 "required": ["subject", "fact"]}}},
         {"type": "function", "function": {
@@ -359,7 +359,7 @@ def _exec_memory_tool(name, args, username):
         return _mem_add_fact(username,
                              args.get('subject'), args.get('relation') or 'à propos de',
                              args.get('fact'), obj=args.get('object'),
-                             source='model', kind=args.get('kind') or 'sujet')
+                             source='model', kind=args.get('kind') or 'subject')
     if name == 'recall_memory':
         facts = _mem_recall(username, args.get('subject'))
         if not facts:
@@ -408,7 +408,7 @@ def api_memory_add():
     msg, ok = _mem_add_fact(session['username'],
                             data.get('subject'), (data.get('relation') or 'à propos de'),
                             data.get('fact'), obj=data.get('object'), source='user',
-                            kind=data.get('kind') or 'sujet')
+                            kind=data.get('kind') or 'subject')
     return (jsonify({'ok': True, 'message': msg}) if ok
             else (jsonify({'ok': False, 'error': msg}), 400))
 
@@ -582,8 +582,8 @@ def _validate_import_doc(doc):
             return "Un sujet est invalide (champ 'name' manquant).", None
         if len(n['name']) > MEM_MAX_NAME_LEN:
             return "Nom de sujet trop long.", None
-        if n.get('kind') not in ('sujet', 'personne', 'outil', 'préférence'):
-            n['kind'] = 'sujet'
+        if n.get('kind') not in ('subject', 'person', 'tool', 'preference'):
+            n['kind'] = 'subject'
         if n.get('aliases') is not None and not isinstance(n['aliases'], list):
             return "Les alias d'un sujet doivent être une liste.", None
     for e in edges:
@@ -650,7 +650,7 @@ def api_memory_import():
                                 e.get('relation') or MEM_GENERIC_RELATION, fact,
                                 obj=e.get('object'),
                                 source='user' if e.get('source') == 'user' else 'model',
-                                kind='sujet')
+                                kind='subject')
         if ok:
             imported_facts += 1
     db.commit()
@@ -818,7 +818,7 @@ def api_memory_import_md():
     # `_mem_add_fact` can oppose its MEM_MAX_FACTS cap. The JSON path already
     # had its bound, not this one.
     if len(edges) > MEM_MAX_FACTS:
-        return jsonify({'ok': False, 'code': 'trop_de_faits',
+        return jsonify({'ok': False, 'code': 'too_many_facts',
                         'error': f"Trop de faits dans ce fichier ({len(edges)} ; "
                                  f"{MEM_MAX_FACTS} au maximum)."}), 400
 
@@ -833,7 +833,7 @@ def api_memory_import_md():
         if _mem_fact_exists(username, subject, fact):
             continue
         msg, ok = _mem_add_fact(username, subject, e['relation'], fact,
-                                obj=e['object'], source='user', kind='sujet')
+                                obj=e['object'], source='user', kind='subject')
         if ok:
             imported_facts += 1
     # 2. Aliases (attached to the current subject, upsert by alias_norm).

@@ -21,32 +21,32 @@ import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { useCsrf } from "@/lib/useCsrf";
 import { useT } from "@/lib/i18n";
 
-type Etat = {
-  en_cours: boolean;
-  duree_s: number;
+type State = {
+  running: boolean;
+  duration_s: number;
   code: number | null;
-  sortie: string[];
-  reussi: boolean | null;
+  output: string[];
+  passed: boolean | null;
 };
 
 export function ValidationPanel({ actionDisabled }: { actionDisabled: boolean }) {
   const t = useT();
   const csrf = useCsrf();
-  const [etat, setEtat] = useState<Etat | null>(null);
+  const [state, setState] = useState<State | null>(null);
   // The journal only ever GROWS: a CodeBlock re-rendered from scratch every 2 s
   // reads as a flicker (« les logs apparaissent et disparaissent »). State, not
   // a ref — a ref is not reactive and React forbids reading one at render.
-  const [rendu, setRendu] = useState<string[]>([]);
-  const [erreur, setErreur] = useState<string | null>(null);
-  const minuterie = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [rendered, setRendered] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  async function lire() {
+  async function readValue() {
     try {
       const r = await fetch("/admin/valider/etat");
       if (r.ok) {
         const d = await r.json();
-        setEtat(d);
-        setRendu((avant) => (d.sortie && d.sortie.length > avant.length ? d.sortie : avant));
+        setState(d);
+        setRendered((before) => (d.output && d.output.length > before.length ? d.output : before));
       }
     } catch {
       /* the next poll will retry */
@@ -55,12 +55,12 @@ export function ValidationPanel({ actionDisabled }: { actionDisabled: boolean })
 
   useEffect(() => {
     return () => {
-      if (minuterie.current) clearInterval(minuterie.current);
+      if (timer.current) clearInterval(timer.current);
     };
   }, []);
 
-  async function lancer() {
-    setErreur(null);
+  async function launch() {
+    setError(null);
     const r = await fetch("/admin/valider", {
       method: "POST",
       headers: { "X-CSRFToken": csrf, "Content-Type": "application/x-www-form-urlencoded" },
@@ -68,17 +68,17 @@ export function ValidationPanel({ actionDisabled }: { actionDisabled: boolean })
     });
     const d = await r.json().catch(() => ({}));
     if (!d.ok) {
-      setErreur(d.error || t("Échec du lancement"));
+      setError(d.error || t("Échec du lancement"));
       return;
     }
-    if (minuterie.current) clearInterval(minuterie.current);
-    minuterie.current = setInterval(lire, 2000);
-    lire();
+    if (timer.current) clearInterval(timer.current);
+    timer.current = setInterval(readValue, 2000);
+    readValue();
   }
 
-  const encours = etat?.en_cours === true;
+  const inProgress = state?.running === true;
   const verdict =
-    etat?.reussi === true ? "success" : etat?.reussi === false ? "error" : "neutral";
+    state?.passed === true ? "success" : state?.passed === false ? "error" : "neutral";
 
   return (
     <Card>
@@ -91,31 +91,31 @@ export function ValidationPanel({ actionDisabled }: { actionDisabled: boolean })
             </Text>
           </VStack>
           <HStack gap={2} vAlign="center">
-            {etat && etat.reussi !== null ? (
+            {state && state.passed !== null ? (
               <Badge
-                label={etat.reussi ? t("Tout est vert") : t("Un contrôle échoue")}
+                label={state.passed ? t("Tout est vert") : t("Un contrôle échoue")}
                 variant={verdict as "success" | "error" | "neutral"}
               />
             ) : null}
-            {encours ? (
+            {inProgress ? (
               <Text type="supporting" color="secondary">
-                {t("En cours depuis {n} s").replace("{n}", String(etat?.duree_s ?? 0))}
+                {t("En cours depuis {n} s").replace("{n}", String(state?.duration_s ?? 0))}
               </Text>
             ) : null}
             <Button
-              label={encours ? t("En cours…") : t("Lancer la vérification")}
-              variant={encours ? "secondary" : "primary"}
-              icon={<Icon icon={encours ? ArrowPathIcon : PlayIcon} size="sm" />}
-              isDisabled={actionDisabled || encours}
-              onClick={lancer}
+              label={inProgress ? t("En cours…") : t("Lancer la vérification")}
+              variant={inProgress ? "secondary" : "primary"}
+              icon={<Icon icon={inProgress ? ArrowPathIcon : PlayIcon} size="sm" />}
+              isDisabled={actionDisabled || inProgress}
+              onClick={launch}
             />
           </HStack>
         </HStack>
-        {erreur ? <Text color="secondary">{erreur}</Text> : null}
+        {error ? <Text color="secondary">{error}</Text> : null}
         {/* The failing line is the product: a red dot tells you WHERE to look,
             the last lines tell you WHAT happened. */}
-        {rendu.length > 0 ? (
-          <CodeBlock code={rendu.join("\n")} maxHeight={280} />
+        {rendered.length > 0 ? (
+          <CodeBlock code={rendered.join("\n")} maxHeight={280} />
         ) : null}
       </VStack>
     </Card>

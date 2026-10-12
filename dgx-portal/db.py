@@ -308,7 +308,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS conversations (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             username   TEXT NOT NULL,
-            client_id  TEXT NOT NULL,       -- id généré côté client (idempotence)
+            client_id  TEXT NOT NULL,       -- id generated client-side (idempotence)
             title      TEXT NOT NULL,
             model      TEXT DEFAULT '',
             messages   TEXT NOT NULL,       -- JSON [{role, content}]
@@ -316,15 +316,15 @@ def init_db():
             UNIQUE(username, client_id)
         );
         CREATE TABLE IF NOT EXISTS login_attempts (
-            key          TEXT PRIMARY KEY,   -- "ip|user" ou "ip"
+            key          TEXT PRIMARY KEY,   -- "ip|user" or "ip"
             fails        INTEGER NOT NULL DEFAULT 0,
             first_at     REAL NOT NULL,
             locked_until REAL NOT NULL DEFAULT 0
         );
-        -- Registre serveur des sessions : le cookie signé ne porte qu'un
-        -- sid aléatoire ; la ligne en base permet de révoquer une session à
-        -- volonté (logout, compte verrouillé, révocation admin) et pas
-        -- seulement à l'expiration HTTP.
+        -- Server-side session registry: the signed cookie only carries a random
+        -- sid; the row in the database lets a session be revoked at will
+        -- (logout, locked account, admin revocation) and not only at HTTP
+        -- expiry.
         CREATE TABLE IF NOT EXISTS user_sessions (
             sid        TEXT PRIMARY KEY,
             username   TEXT NOT NULL,
@@ -332,16 +332,15 @@ def init_db():
             expires_at REAL NOT NULL,
             revoked    INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL,
-            -- IP et user-agent d'ouverture : sans eux, personne — ni
-            -- l'utilisateur ni l'admin — ne peut distinguer « ma session de ce
-            -- matin » d'un cookie volé, donc la liste des sessions n'aurait
-            -- aucune valeur de diagnostic.
+            -- IP and user-agent at opening: without them nobody — neither the
+            -- user nor the admin — can tell « my session from this morning »
+            -- from a stolen cookie, so the session list would be worthless for diagnosis.
             ip         TEXT,
             user_agent TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_user_sessions_username ON user_sessions(username);
-        -- WebAuthn (2FA par passkey) : clés enregistrées + flag d'activation +
-        -- challenges en attente (one-time, bornés dans le temps). Cf. webauthn_routes.py
+        -- WebAuthn (passkey 2FA): registered keys + activation flag + pending
+        -- challenges (one-time, time-bounded). See webauthn_routes.py
         CREATE TABLE IF NOT EXISTS user_security (
             username   TEXT PRIMARY KEY,
             enabled    INTEGER NOT NULL DEFAULT 0,
@@ -351,8 +350,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS webauthn_credentials (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             username      TEXT NOT NULL,
-            credential_id TEXT NOT NULL UNIQUE,  -- base64url (toujours normalisé)
-            public_key    BLOB NOT NULL,          -- clé publique brute (RAW)
+            credential_id TEXT NOT NULL UNIQUE,  -- base64url (always normalized)
+            public_key    BLOB NOT NULL,          -- raw public key (RAW)
             sign_count    INTEGER NOT NULL DEFAULT 0,
             transports    TEXT,                   -- JSON array
             label         TEXT NOT NULL DEFAULT '',
@@ -370,8 +369,8 @@ def init_db():
             created_at REAL NOT NULL,
             expires_at REAL NOT NULL
         );
-        -- Anti-spam : une seule demande « lancer une catégorie média » par
-        -- (utilisateur, catégorie) dans la fenêtre MEDIA_REQUEST_COOLDOWN_S.
+        -- Anti-spam: a single « launch a media category » request per (user,
+        -- category) within the MEDIA_REQUEST_COOLDOWN_S window.
         CREATE TABLE IF NOT EXISTS media_request_cooldown (
             username   TEXT NOT NULL,
             category   TEXT NOT NULL,
@@ -444,9 +443,9 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_model_req_status  ON model_requests(username, status);
         CREATE INDEX IF NOT EXISTS idx_budget_req_status ON budget_requests(username, status);
         CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(username, updated_at);
-        -- Journal d'audit des actions sensibles (launch/stop modèle, changements
-        -- admin, comptes). Lecture par ordre antéchronologique (id DESC), filtre
-        -- optionnel par utilisateur → index sur (username, id).
+        -- Audit log of sensitive actions (model launch/stop, admin changes,
+        -- accounts). Read newest first (id DESC), optional filter by user →
+        -- index on (username, id).
         CREATE TABLE IF NOT EXISTS audit_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
@@ -455,16 +454,15 @@ def init_db():
             created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(username, id);
-        -- Partage en lecture seule d'une conversation (lien public). On duplique
-        -- un instantané (title/model/messages) plutôt que de pointer vers la
-        -- conversation de l'utilisateur : le partage survit à la suppression de
-        -- l'original et ne dévoile rien d'autre que ce qui a été partagé.
+        -- Read-only sharing of a conversation (public link). We duplicate a
+        -- snapshot (title/model/messages) rather than pointing at the user's
+        -- conversation: the share survives deletion of the original and reveals
+        -- nothing beyond what was shared.
         CREATE TABLE IF NOT EXISTS conversation_shares (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             token TEXT NOT NULL UNIQUE,
-            -- Propriétaire du partage : sans lui, supprimer un compte laissait
-            -- derrière lui des liens publics vers le contenu de ses
-            -- conversations, sans aucun moyen de les retrouver.
+            -- Owner of the share: without it, deleting an account left behind
+            -- public links to the content of its conversations, with no way to find them.
             username TEXT,
             title TEXT NOT NULL,
             model TEXT NOT NULL,
@@ -472,8 +470,8 @@ def init_db():
             created_at TEXT NOT NULL,
             views INTEGER NOT NULL DEFAULT 0
         );
-        -- Notifications in-app (cloche, vu/non-vu) : fin de génération média,
-        -- demandes modèle/budget traitées. `seen` pilote le badge de la cloche.
+        -- In-app notifications (bell, seen/unseen): end of media generation,
+        -- processed model/budget requests. `seen` drives the bell's badge.
         CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
@@ -648,9 +646,9 @@ def init_db():
             enabled       INTEGER NOT NULL DEFAULT 1,
             created_at    TEXT NOT NULL
         );
-        -- Source(s) d'authentification observées par utilisateur (local/ldap/
-        -- sso), enregistrées à chaque login. Permet de savoir COMMENT chaque
-        -- compte se connecte, y compris les cumuls (ex. LDAP + SSO).
+        -- Authentication source(s) observed per user (local/ldap/sso), recorded
+        -- at each login. Tells HOW each account signs in, including
+        -- combinations (e.g. LDAP + SSO).
         CREATE TABLE IF NOT EXISTS user_sources (
             username   TEXT PRIMARY KEY,
             sources    TEXT NOT NULL DEFAULT '',
@@ -658,11 +656,11 @@ def init_db():
             last_source TEXT,
             last_seen  TEXT
         );
-        -- Comptes refusés à la connexion, QUELLE QUE SOIT leur source.
-        -- `local_users.enabled` ne couvre que les comptes locaux : un compte
-        -- LDAP ou SSO n'a aucune ligne ici, donc sans cette table un partant
-        -- dont le compte annuaire survit pouvait se reconnecter indéfiniment —
-        -- on ne pouvait que révoquer ses sessions, qu'il rouvrait aussitôt.
+        -- Accounts refused at login, WHATEVER their source.
+        -- `local_users.enabled` only covers local accounts: an LDAP or SSO
+        -- account has no row there, so without this table a leaver whose
+        -- directory account survived could sign in again indefinitely — all we
+        -- could do was revoke their sessions, which they reopened at once.
         CREATE TABLE IF NOT EXISTS blocked_users (
             username   TEXT PRIMARY KEY,
             reason     TEXT,
@@ -678,53 +676,53 @@ def init_db():
             tokens     INTEGER NOT NULL DEFAULT 0,
             decode_since REAL
         );
-        -- Compteurs du moteur conservés d'un lancement à l'autre : les métriques
-        -- de llama.cpp/vLLM repartent de zéro à chaque démarrage, donc « tokens
-        -- générés » retombait à 0 à chaque relance. `base` = total des lancements
-        -- terminés, `dernier` = dernière valeur vue du lancement en cours ; une
-        -- relance se reconnaît à un compteur qui REPART EN ARRIÈRE (il est
-        -- monotone, il ne peut pas baisser autrement). Cf. stats.cumuler_tokens_generes.
+        -- Engine counters kept from one launch to the next: llama.cpp/vLLM
+        -- metrics restart from zero at every start, so « tokens generated »
+        -- fell back to 0 at every relaunch. `base` = total of finished
+        -- launches, `last_value` = last value seen for the current launch; a
+        -- relaunch shows up as a counter that GOES BACKWARDS (it is monotonic,
+        -- it cannot drop otherwise). See stats.accumulate_generated_tokens.
         CREATE TABLE IF NOT EXISTS model_counters (
             model   TEXT PRIMARY KEY,
             base    INTEGER NOT NULL DEFAULT 0,
-            dernier INTEGER NOT NULL DEFAULT 0,
-            maj     REAL
+            last_value INTEGER NOT NULL DEFAULT 0,
+            updated_at REAL
         );
-        -- ── Mémoire : graphe de connaissances par utilisateur ────────────────
-        -- Un sujet dont le modèle a appris quelque chose (« vLLM », « DGX
-        -- Spark »). `name_norm` est la forme normalisée qui sert à retrouver le
-        -- nœud : sans elle, « vLLM » et « vllm » créeraient deux nœuds et le
-        -- graphe se remplirait de doublons — le principal risque de ce design.
+        -- ── Memory: per-user knowledge graph ── A subject the model learned
+        -- something about (« vLLM », « DGX Spark »). `name_norm` is the
+        -- normalized form used to find the node again: without it, « vLLM » and
+        -- « vllm » would create two nodes and the graph would fill with
+        -- duplicates — the main risk of this design.
         CREATE TABLE IF NOT EXISTS memory_nodes (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             username   TEXT NOT NULL,
-            name       TEXT NOT NULL,       -- libellé affiché, tel qu'écrit
-            name_norm  TEXT NOT NULL,       -- clé de rapprochement (voir _mem_norm)
-            kind       TEXT NOT NULL DEFAULT 'sujet',  -- sujet | personne | outil | préférence
+            name       TEXT NOT NULL,       -- displayed label, as written
+            name_norm  TEXT NOT NULL,       -- matching key (see _mem_norm)
+            kind       TEXT NOT NULL DEFAULT 'subject',  -- subject | person | tool | preference
             created_at TEXT NOT NULL,
             UNIQUE(username, name_norm)
         );
-        -- Autres façons de nommer un même nœud (« le serveur d'inférence » →
-        -- vLLM). Sans extension vectorielle en base, c'est notre seul moyen de
-        -- rapprocher des formulations différentes.
+        -- Other ways to name the same node (« the inference server » → vLLM).
+        -- Without a vector extension in the database, this is our only way to
+        -- match different phrasings.
         CREATE TABLE IF NOT EXISTS memory_aliases (
             node_id    INTEGER NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
             username   TEXT NOT NULL,
             alias_norm TEXT NOT NULL,
             PRIMARY KEY (username, alias_norm)
         );
-        -- Un fait, porté par une arête. `dst_id` est NULL pour un fait qui ne
-        -- relie pas deux sujets (« préfère les réponses courtes »).
-        -- `valid_until` non NULL = fait périmé : conservé pour l'historique mais
-        -- plus jamais injecté, ce qui évite d'accumuler des contradictions quand
-        -- une information est remplacée par une plus récente.
+        -- A fact, carried by an edge. `dst_id` is NULL for a fact that does not
+        -- link two subjects (« prefers short answers »). `valid_until` not NULL
+        -- = stale fact: kept for history but never injected again, which avoids
+        -- piling up contradictions when a piece of information is replaced by a
+        -- newer one.
         CREATE TABLE IF NOT EXISTS memory_edges (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             username    TEXT NOT NULL,
             src_id      INTEGER NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
             relation    TEXT NOT NULL,
             dst_id      INTEGER REFERENCES memory_nodes(id) ON DELETE CASCADE,
-            fact        TEXT NOT NULL,      -- le fait en clair, tel qu'injecté
+            fact        TEXT NOT NULL,      -- the fact in plain text, as injected
             source      TEXT NOT NULL DEFAULT 'model',  -- model | user
             confidence  REAL NOT NULL DEFAULT 1.0,
             created_at  TEXT NOT NULL,
@@ -733,12 +731,12 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_mem_edges_user ON memory_edges(username, src_id);
         CREATE INDEX IF NOT EXISTS idx_mem_nodes_user ON memory_nodes(username, name_norm);
 
-        -- Confirmation des actions sensibles du Support. Le modele ne decide
-        -- JAMAIS seul d'une revocation de cle ou d'un arret de modele : il depose
-        -- ici une demande, l'interface affiche un bouton, et l'action n'est
-        -- executee qu'au clic (voir chat_routes.support_confirm). Le jeton n'est
-        -- jamais transmis au modele — une injection indirecte ne peut donc pas le
-        -- rejouer — et il est a USAGE UNIQUE, borne dans le temps.
+        -- Confirmation of the Support's sensitive actions. The model NEVER
+        -- decides alone to revoke a key or stop a model: it drops a request
+        -- here, the interface shows a button, and the action only runs on click
+        -- (see chat_routes.support_confirm). The token is never passed to the
+        -- model — an indirect injection cannot replay it — and it is SINGLE
+        -- USE, time-bounded.
         CREATE TABLE IF NOT EXISTS pending_actions (
             token       TEXT PRIMARY KEY,
             username    TEXT NOT NULL,
@@ -751,13 +749,13 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_pending_user ON pending_actions(username, created_at);
 
-        -- Retour utilisateur sur une reponse du Support (pouce haut/bas +
-        -- commentaire libre). Sert a savoir QUELLES reponses echouent : sans
-        -- cela, on ne corrige le prompt qu'a l'intuition.
+        -- User feedback on a Support answer (thumb up/down + free comment).
+        -- Tells WHICH answers fail: without it, the prompt is only fixed on
+        -- intuition.
         CREATE TABLE IF NOT EXISTS support_feedback (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             username    TEXT NOT NULL,
-            vote        INTEGER NOT NULL,                 -- 1 = utile, -1 = pas utile
+            vote        INTEGER NOT NULL,                 -- 1 = useful, -1 = not useful
             comment     TEXT,
             question    TEXT,
             answer      TEXT,
@@ -766,11 +764,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_support_feedback_user ON support_feedback(username, id);
 
-        -- Fil de discussion du Support, conserve cote serveur pour qu'un
-        -- rechargement de page ne perde pas la conversation. Table DEDIEE : le
-        -- Support n'a rien a faire dans l'historique du playground (prompt
-        -- systeme, outils et intentions differents), donc surtout pas dans
-        -- `conversations`, que le playground liste et rejoue.
+        -- The Support's discussion thread, kept server-side so a page reload
+        -- does not lose the conversation. DEDICATED table: the Support has
+        -- nothing to do in the playground's history (different system prompt,
+        -- tools and intents), so certainly not in `conversations`, which the
+        -- playground lists and replays.
         CREATE TABLE IF NOT EXISTS support_thread (
             username    TEXT PRIMARY KEY,
             messages    TEXT NOT NULL,
@@ -795,6 +793,22 @@ def init_db():
         # The last cap a group quota wrote (directory_groups): tells « left its
         # quota group » (back to the default) from « never had one » (untouched).
         db.execute("ALTER TABLE user_sources ADD COLUMN budget_auto REAL")
+    # English schema and stored codes (2026-10-12): the code base moved to
+    # English, the values a database already holds follow. Each step is
+    # idempotent — a fresh database has nothing to rename.
+    mc_cols = {r[1] for r in db.execute("PRAGMA table_info(model_counters)")}
+    for old, new in (('dernier', 'last_value'), ('maj', 'updated_at')):
+        if old in mc_cols and new not in mc_cols:
+            db.execute(f"ALTER TABLE model_counters RENAME COLUMN {old} TO {new}")
+    for old, new in (('cfg_env_importe', 'cfg_env_imported'),
+                     ('chars_par_token', 'chars_per_token'),
+                     ('model_servi', 'served_model')):
+        # A marker lost here would re-import .env over the web settings.
+        db.execute("UPDATE OR IGNORE settings SET key=? WHERE key=?", (new, old))
+        db.execute("DELETE FROM settings WHERE key=?", (old,))
+    for old, new in (('sujet', 'subject'), ('personne', 'person'),
+                     ('outil', 'tool'), ('préférence', 'preference')):
+        db.execute("UPDATE memory_nodes SET kind=? WHERE kind=?", (new, old))
     grp_cols = {r[1] for r in db.execute("PRAGMA table_info(user_groups)")}
     if 'sources' not in grp_cols:
         db.execute("ALTER TABLE user_groups ADD COLUMN sources TEXT NOT NULL DEFAULT 'local'")

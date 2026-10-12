@@ -15,11 +15,11 @@ import type { Settings } from "@/lib/types";
 import { SettingsPanel } from "./SettingsPanel";
 
 export type SettingsOverlayProps = {
-  settingsPos: { top: number; right: number; maxH: number; largeur: number };
+  settingsPos: { top: number; right: number; maxH: number; width: number };
   setIsSettingsOpen: (v: boolean) => void;
   settings: Settings;
   setSettings: (s: Settings) => void;
-  contexte: number | undefined;
+  context: number | undefined;
   systemProvenance: "persona" | "skill" | "manual";
   setSystemProvenance: (p: "persona" | "skill" | "manual") => void;
 };
@@ -29,7 +29,7 @@ export function SettingsOverlay({
   setIsSettingsOpen,
   settings,
   setSettings,
-  contexte,
+  context,
   systemProvenance,
   setSystemProvenance,
 }: SettingsOverlayProps) {
@@ -38,7 +38,7 @@ export function SettingsOverlay({
             <HStack
               className="playground-settings-panel"
               style={{ position: "fixed", top: settingsPos.top, right: settingsPos.right,
-                       width: settingsPos.largeur, zIndex: 30 }}
+                       width: settingsPos.width, zIndex: 30 }}
             >
               <Card style={{ width: "100%" }}>
                 <VStack gap={2}>
@@ -59,7 +59,7 @@ export function SettingsOverlay({
                     <SettingsPanel
                       settings={settings}
                       onChange={setSettings}
-                      contexte={contexte}
+                      context={context}
                       provenance={systemProvenance}
                       onProvenance={setSystemProvenance}
                     />

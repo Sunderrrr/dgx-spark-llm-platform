@@ -154,7 +154,7 @@ def _account_limits(username, acct, servers, skills):
 # else. Skills only cost a SQLite read, wider cap.
 # Disabled servers cost the model NOTHING (their tools are never discovered):
 # the cap only bounds the registry. 16 leaves room for the account's own
-# additions on top of the pack (scripts/mcp-essentiels.sh).
+# additions on top of the pack (scripts/mcp-essentials.sh).
 MAX_MCP_SERVERS = 16
 MAX_SKILLS = 50
 
@@ -367,7 +367,7 @@ def api_account_sessions():
     management = password_management(username)
     return jsonify({'sessions': _my_sessions(username),
                     'local_account': management['local'],
-                    'password_managed_by': management['gestion'],
+                    'password_managed_by': management['management'],
                     'passkey_possible': management['passkey']})
 
 
@@ -500,7 +500,7 @@ def api_account_delete():
     body = request.get_json(silent=True) or request.form
     if (body.get('confirm') or '').strip().upper() != 'DELETE':
         return jsonify({'ok': False, 'needs_confirm': True,
-                        'donnees': count_data(username),
+                        'data': count_data(username),
                         'error': "Confirmation requise : cette suppression est définitive."}), 409
 
     db = get_db()
@@ -526,7 +526,7 @@ def api_account_delete():
     # itself. An account of unknown origin (`inconnu`) keeps the previous
     # behaviour: requiring a password nobody can verify would make leaving
     # impossible.
-    if management['gestion'] in (MANAGED_PORTAL, MANAGED_LDAP):
+    if management['management'] in (MANAGED_PORTAL, MANAGED_LDAP):
         password_value = body.get('password') or ''
         if not password_value:
             return jsonify({'ok': False,

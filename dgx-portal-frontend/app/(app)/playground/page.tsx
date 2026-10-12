@@ -15,7 +15,7 @@ export default async function Page() {
   // goes through the « messages omitted » path (fetched on demand).
   const conversations: PlaygroundSeed["conversations"] | null =
     convs.status === "ok"
-      ? conversationsFromApi(convs.data).map((c) => ({ ...c, messages: [], messagesOmis: true }))
+      ? conversationsFromApi(convs.data).map((c) => ({ ...c, messages: [], omittedMessages: true }))
       : null;
   // The greeting's « soir » decided here, on the server's clock (TZ_DISPLAY):
   // the client hydrates with it, then follows its own clock.
@@ -23,7 +23,7 @@ export default async function Page() {
   return (
     <PlaygroundPage
       seed={{ id: seed.id, data: { ...seed.data, conversations } }}
-      soirServeur={h >= 18 || h < 5}
+      serverEvening={h >= 18 || h < 5}
     />
   );
 }

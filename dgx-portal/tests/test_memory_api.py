@@ -512,7 +512,7 @@ class EntreesHostilesTest(MemoryApiBase):
 
     def test_kind_invalide_retombe_sur_le_defaut(self):
         self.assertEqual(self._post({'subject': 'X', 'fact': 'y', 'kind': 'n_importe_quoi'}).status_code, 200)
-        self.assertEqual(self.client.get('/api/memory').get_json()['nodes'][0]['kind'], 'sujet')
+        self.assertEqual(self.client.get('/api/memory').get_json()['nodes'][0]['kind'], 'subject')
 
 
 class ParcoursTest(MemoryApiBase):

@@ -9,9 +9,9 @@ export type Branding = {
   logo: string | null;
 };
 
-export const BRANDING_DEFAUT: Branding = { name: "DGX", logo: null };
+export const DEFAULT_BRANDING: Branding = { name: "DGX", logo: null };
 
 /** Shape /api/config's answer into a Branding. */
 export function brandingFromConfig(d: { branding?: { name?: string; logo?: string | null } } | null): Branding {
-  return { name: d?.branding?.name || BRANDING_DEFAUT.name, logo: d?.branding?.logo || null };
+  return { name: d?.branding?.name || DEFAULT_BRANDING.name, logo: d?.branding?.logo || null };
 }

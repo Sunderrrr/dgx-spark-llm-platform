@@ -48,7 +48,7 @@ the Python SDK, cURL and env vars — key and endpoint pre-filled, with
 Thinking is **off by default** for API clients and opt-in — pass
 `"chat_template_kwargs": {"enable_thinking": true}` (or a `reasoning_effort`) to
 ask for it. This default is registered at the LiteLLM model level (plus the
-`extra_body` twin for the Anthropic adapter); an explicit request always wins.
+`extra_body` twin for the Anthropic adapter). An explicit request always wins.
 Measured: without the default, the reasoning ate the whole output budget (41
 tokens against 3, content empty). See
 [features → model thinking](features.md#model-thinking-reasoning).
@@ -60,12 +60,12 @@ all checked against the real routes):
 
 - `/admin/settings`, `/api/memory/facts`, `/api/memory/enabled` are **POST-only**
   (405 is right for a GET).
-- `budget/set` takes `budget`; `music/generate` takes `prompt`; `model/request`
+- `budget/set` takes `budget`. `music/generate` takes `prompt`. `model/request`
   takes JSON with a **media** category (`image`/`music`/`video`/`ocr`/`voice`).
 - `account/delete` with a bad confirmation answers **409** « Confirmation
   requise » with the inventory of what would be lost.
 - Errors that must reach the user are never **502**: Cloudflare replaces the body
   of a 502 with its own error page (the same JSON as 503 passes through intact),
   so 502 is banned for user-facing answers.
-- A key is required for everything through the gateway; budgets are enforced by
+- A key is required for everything through the gateway. Budgets are enforced by
   LiteLLM (**429** `ExceededBudget` past the cap).

@@ -64,9 +64,9 @@ def _open():
         os.chmod(PATH, 0o600)
     except OSError:
         pass
-    conn.execute('CREATE TABLE IF NOT EXISTS en_vol ('
-                 'cle TEXT PRIMARY KEY, alias TEXT, user_id TEXT, '
-                 'modele TEXT, debut REAL NOT NULL)')
+    conn.execute('CREATE TABLE IF NOT EXISTS inflight ('
+                 'request_key TEXT PRIMARY KEY, alias TEXT, user_id TEXT, '
+                 'model TEXT, started_at REAL NOT NULL)')
     return conn
 
 
@@ -93,8 +93,8 @@ def _record(kwargs):
         return 0
     conn = _open()
     try:
-        conn.execute('DELETE FROM en_vol WHERE debut < ?', (time.time() - EXPIRY_S,))
-        conn.execute('INSERT OR REPLACE INTO en_vol (cle, alias, user_id, modele, debut) '
+        conn.execute('DELETE FROM inflight WHERE started_at < ?', (time.time() - EXPIRY_S,))
+        conn.execute('INSERT OR REPLACE INTO inflight (request_key, alias, user_id, model, started_at) '
                      'VALUES (?,?,?,?,?)', (key, alias, user_id, model_name, time.time()))
         conn.commit()
         return 1
@@ -109,7 +109,7 @@ def _remove(kwargs):
         return 0
     conn = _open()
     try:
-        cur = conn.execute('DELETE FROM en_vol WHERE cle = ?', (key,))
+        cur = conn.execute('DELETE FROM inflight WHERE request_key = ?', (key,))
         conn.commit()
         return cur.rowcount
     finally:

@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSeed, type Seed } from "@/lib/seed";
-import { tabDepuis, type TabId } from "./tabs";
+import { tabFrom, type TabId } from "./tabs";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { Center } from "@astryxdesign/core/Center";
 import { VStack } from "@astryxdesign/core/Stack";
@@ -29,7 +29,7 @@ import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 import { useToast } from "@astryxdesign/core/Toast";
 import { useCsrf } from "@/lib/useCsrf";
 import { authFetch, getJSON, ForbiddenError } from "@/lib/api";
-import { useT, tServeur } from "@/lib/i18n";
+import { useT, tServer } from "@/lib/i18n";
 import type { PlatformStatusData } from "./_components/PlatformStatus";
 import { OverviewTab } from "./_components/OverviewTab";
 import { ConfigTab } from "./_components/ConfigTab";
@@ -80,25 +80,25 @@ export default function AdminPage({
   // history spam).
   const [tab, setTab] = useState<TabId>(initialTab);
   const selectTab = useCallback((id: string) => {
-    const next = tabDepuis(id);
+    const next = tabFrom(id);
     setTab(next);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", next);
     window.history.replaceState(null, "", url.toString());
   }, []);
 
-  function refresh(amorce = false) {
+  function refresh(primer = false) {
     getJSON<AdminData>("/api/admin")
       .then((d) => {
         setData(d);
-        // `amorce`: only copy init_logs on the FIRST load. This refresh
+        // `primer`: only copy init_logs on the FIRST load. This refresh
         // runs every 8 s, and it overwrote on every pass the lines accumulated by
         // the SSE stream with a frozen snapshot — so in normal operation the panel
         // lost the whole live feed three times per stream lap, and if the snapshot
         // was empty (cf. runner_logs on the portal side) it was simply emptied.
         // The stream is the source of truth once open; init_logs only fills the
         // panel before its first line.
-        if (amorce) setLogs(d.init_logs);
+        if (primer) setLogs(d.init_logs);
       })
       .catch((e) => {
         if (e instanceof ForbiddenError) setForbidden(true);
@@ -118,9 +118,9 @@ export default function AdminPage({
 
   // Everything came with the page (or access is known forbidden): the 8 s
   // poll below takes over. Otherwise load now.
-  const toutServi = (fresh.admin && fresh.audit && fresh.platform) || !!seed?.forbidden;
+  const allServed = (fresh.admin && fresh.audit && fresh.platform) || !!seed?.forbidden;
   useEffect(() => {
-    if (!toutServi) refresh(true);
+    if (!allServed) refresh(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
   }, []);
   // Re-poll admin data every 8s; stops once access is known forbidden to
@@ -190,17 +190,17 @@ export default function AdminPage({
         // success. (authFetch does not throw on 403 — only 401 redirects.)
         showToast({ body: t("Accès refusé."), type: "error" });
       } else if (res.status >= 400 || !body || body.ok === false) {
-        const errMsg = body?.error ? tServeur(body.error, t) : t("Échec de l'action.");
+        const errMsg = body?.error ? tServer(body.error, t) : t("Échec de l'action.");
         showToast({ body: errMsg, type: "error" });
         result = { ok: false, error: errMsg, warning };
       } else {
         // The server often provides a useful sentence (« Lancement de X
         // accepté — chargement en cours. »): we display it preferentially
         // (translated at display time, cf. tServeur).
-        showToast({ body: body.message ? tServeur(body.message, t) : t("Action effectuée."), type: "info" });
+        showToast({ body: body.message ? tServer(body.message, t) : t("Action effectuée."), type: "info" });
         // PARTIAL success (files not deleted, LiteLLM not deregistered…): the
         // server writes it in `warning`, which was displayed nowhere.
-        if (warning) showToast({ body: tServeur(warning, t), type: "error" });
+        if (warning) showToast({ body: tServer(warning, t), type: "error" });
         result = { ok: true, warning };
       }
     } catch {

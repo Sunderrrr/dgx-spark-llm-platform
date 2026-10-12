@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # The ONE place the operational scripts read their world from.
 #
-# « rien ne doit être monolithique et tout doit être pensé pour fonctionner sur
-# l'infra d'une personne qui déploie le service, rien en dur, tout variabilisé,
-# qui se base sur le .env » (operator, 2026-10-09). Every path, domain and
+# « nothing must be monolithic and everything must be designed to work on the
+# infrastructure of whoever deploys the service, nothing hardcoded, everything
+# configurable, based on the .env » (operator, 2026-10-09). Every path, domain and
 # bucket used to be spelled out in each script — true on THIS box, false on the
 # next one. Now every script sources this file and the deployer edits `.env`,
 # never the scripts.
@@ -23,22 +23,22 @@
 #   DGX_RUNNER_URL  the model runner's control API (default: http://127.0.0.1:8001)
 
 # Where is this repository? Derive it from the script, don't guess.
-_RACINE=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+_REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 # The .env is the deployer's contract: it is git-ignored, it already carries
 # secrets, and every service already reads it. Read it the same way docker
 # compose does — KEY=VALUE, ignore comments and blanks — so a value set there
 # applies to the platform AND to its scripts.
-if [ -f "$_RACINE/.env" ]; then
-  while IFS='=' read -r cle val; do
-    case "$cle" in ''|\#*) continue ;; esac
-    case "$cle" in
-      DGX_*) export "$cle=${val:-}" ;;
+if [ -f "$_REPO_ROOT/.env" ]; then
+  while IFS='=' read -r key val; do
+    case "$key" in ''|\#*) continue ;; esac
+    case "$key" in
+      DGX_*) export "$key=${val:-}" ;;
     esac
-  done < "$_RACINE/.env"
+  done < "$_REPO_ROOT/.env"
 fi
 
-export DGX_ROOT="${DGX_ROOT:-$_RACINE}"
+export DGX_ROOT="${DGX_ROOT:-$_REPO_ROOT}"
 export DGX_WEB="${DGX_WEB:-https://example.org}"
 export DGX_API="${DGX_API:-https://api.example.org}"
 export DGX_S3_CFG="${DGX_S3_CFG:-$DGX_ROOT/secrets/s3-garage.cfg}"
@@ -53,7 +53,7 @@ export DGX_RUNNER_URL="${DGX_RUNNER_URL:-http://127.0.0.1:8001}"
 # generic default, say so LOUDLY instead of probing example.org and reporting
 # « the site is down » — which is a lie about the platform and a truth about
 # the configuration.
-_valide() {
+_check_domain() {
   case "$1" in
     *example.org|*example.com)
       printf '\033[31m✗ %s is still the default value (%s).\033[0m\n' "$2" "$1" >&2
@@ -64,7 +64,7 @@ _valide() {
 }
 # Only the scripts that PROBE a domain need one (smoke, validation). A backup
 # or a log shipment must run whatever the domain is called.
-if [ "${DGX_VERIFIER_DOMAINES:-}" = "1" ]; then
-  _valide "$DGX_WEB" DGX_WEB || exit 2
-  _valide "$DGX_API" DGX_API || exit 2
+if [ "${DGX_CHECK_DOMAINS:-}" = "1" ]; then
+  _check_domain "$DGX_WEB" DGX_WEB || exit 2
+  _check_domain "$DGX_API" DGX_API || exit 2
 fi

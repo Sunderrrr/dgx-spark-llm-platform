@@ -41,7 +41,7 @@ export function UsageSection({ limits, refresh }: UsageSectionProps) {
                   </HStack>
                   <VStack gap={4}>
                     {limits.map((l) => {
-                      const pourcent =
+                      const percent =
                         l.unlimited || !l.max || l.used === null
                           ? null
                           : Math.min(100, Math.round((l.used / l.max) * 100));
@@ -54,7 +54,7 @@ export function UsageSection({ limits, refresh }: UsageSectionProps) {
                             </Text>
                           </VStack>
                           <HStack gap={3} vAlign="center" width="50%">
-                            {pourcent === null ? (
+                            {percent === null ? (
                               <Badge
                                 label={l.unlimited ? t("Illimité") : `${fmt(l.max ?? 0, numLocale)} ${l.unit}`}
                                 variant={l.unlimited ? "warning" : "neutral"}
@@ -64,11 +64,11 @@ export function UsageSection({ limits, refresh }: UsageSectionProps) {
                                 <ProgressBar
                                   label={t(l.label)}
                                   isLabelHidden
-                                  value={pourcent}
-                                  variant={pourcent >= 90 ? "error" : pourcent >= 70 ? "warning" : "success"}
+                                  value={percent}
+                                  variant={percent >= 90 ? "error" : percent >= 70 ? "warning" : "success"}
                                 />
                                 <Text type="supporting" color="secondary" hasTabularNumbers>
-                                  {pourcent} {t("% utilisé")}
+                                  {percent} {t("% utilisé")}
                                 </Text>
                               </>
                             )}

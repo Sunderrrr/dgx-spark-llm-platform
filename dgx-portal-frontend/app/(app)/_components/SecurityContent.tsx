@@ -47,17 +47,17 @@ type SessionsState = {
  * of a local row — we read what the server answers, and when it does not
  * know, we say so instead of offering a form that will fail.
  */
-function motDePasseInfo(gestion: string | undefined) {
-  switch (gestion) {
-    case "portail":
+function passwordInfo(management: string | undefined) {
+  switch (management) {
+    case "portal":
       return { local: true, passkey: true, note: "" };
-    case "annuaire-ldap":
+    case "ldap-directory":
       return {
         local: false,
         passkey: true,
         note: "Compte LDAP : ton mot de passe est celui de l'annuaire. Le portail ne le stocke pas, il le vérifie auprès de l'annuaire — change-le depuis ton administrateur.",
       };
-    case "fournisseur-sso":
+    case "sso-provider":
       return {
         local: false,
         passkey: false,
@@ -126,7 +126,7 @@ export function SecurityContent() {
   }
 
   /** Creates the passkey — called once the password is provided. */
-  async function enregistrerCle() {
+  async function saveKey() {
     setBusy(true);
     try {
       const begin = await sendJSON<{
@@ -169,12 +169,12 @@ export function SecurityContent() {
     setBusy(true);
     try {
       if (pendingAction.kind === "register") {
-        // The key addition does not call the server here: `enregistrerCle` runs the
+        // The key addition does not call the server here: `saveKey` runs the
         // full WebAuthn flow (begin → createPasskey → finish) with this
         // password, handles its messages and reloads the state. The dialog closes
         // beforehand, whatever the result.
         setPendingAction(null);
-        await enregistrerCle();
+        await saveKey();
         return;
       }
       let res: { ok: boolean; error?: string };
@@ -285,13 +285,13 @@ export function SecurityContent() {
   // display the form: the old `?? true` assumed « local account » by default and
   // therefore showed a password changer to an SSO account — the server
   // refused it afterwards, but only after the fact.
-  const gestion = who?.password_managed_by ?? sess?.password_managed_by;
-  const info = motDePasseInfo(gestion);
+  const management = who?.password_managed_by ?? sess?.password_managed_by;
+  const info = passwordInfo(management);
   const passkeyPossible = who?.passkey_possible ?? sess?.passkey_possible ?? info.passkey;
   // Account deletion: two distinct gestures depending on who owns the account.
-  const [suppression, setSuppression] = useState(false);
-  const [confirmSuppression, setConfirmSuppression] = useState("");
-  const [mdpSuppression, setMdpSuppression] = useState("");
+  const [deletion, setDeletion] = useState(false);
+  const [confirmDeletion, setConfirmDeletion] = useState("");
+  const [deletionPassword, setDeletionPassword] = useState("");
   const [suppressionBusy, setSuppressionBusy] = useState(false);
   const [suppressionMsg, setSuppressionMsg] = useState<string | null>(null);
 
@@ -300,7 +300,7 @@ export function SecurityContent() {
    * The server runs `deprovisionner_compte` — the same path as a deletion
    * by an admin — then cuts the sessions: one therefore cannot stay
    * logged in afterwards. We say so, then head back to /login. */
-  async function supprimerCompte() {
+  async function deleteAccount() {
     if (!csrf || suppressionBusy) return;
     setSuppressionBusy(true);
     setSuppressionMsg(null);
@@ -308,8 +308,8 @@ export function SecurityContent() {
       const res = await sendJSON<{
         ok: boolean; deleted?: boolean; error?: string; warning?: string;
       }>("/api/account/delete", csrf, {
-        confirm: confirmSuppression.trim(),
-        password: mdpSuppression,
+        confirm: confirmDeletion.trim(),
+        password: deletionPassword,
       });
       if (!res.ok) {
         setSuppressionMsg(t(res.error || "La suppression a échoué."));
@@ -522,21 +522,21 @@ export function SecurityContent() {
             </Text>
           </VStack>
           {suppressionMsg ? <Banner status="info" title={suppressionMsg} /> : null}
-          {suppression ? (
+          {deletion ? (
             <VStack gap={3}>
               <TextInput
                 label={t("Tapez DELETE pour confirmer")}
-                value={confirmSuppression}
-                onChange={setConfirmSuppression}
+                value={confirmDeletion}
+                onChange={setConfirmDeletion}
               />
               {info.passkey && (
                 <TextInput
                   label={t("Ton mot de passe")}
                   type="password"
-                  value={mdpSuppression}
-                  onChange={setMdpSuppression}
+                  value={deletionPassword}
+                  onChange={setDeletionPassword}
                   onKeyDown={(e: React.KeyboardEvent) => {
-                    if (e.key === "Enter") supprimerCompte();
+                    if (e.key === "Enter") deleteAccount();
                   }}
                 />
               )}
@@ -546,18 +546,18 @@ export function SecurityContent() {
                   variant="primary"
                   size="sm"
                   isLoading={suppressionBusy}
-                  isDisabled={confirmSuppression.trim() !== "DELETE"
-                    || (info.passkey && !mdpSuppression)}
-                  onClick={supprimerCompte}
+                  isDisabled={confirmDeletion.trim() !== "DELETE"
+                    || (info.passkey && !deletionPassword)}
+                  onClick={deleteAccount}
                 />
                 <Button
                   label={t("Annuler")}
                   variant="secondary"
                   size="sm"
                   onClick={() => {
-                    setSuppression(false);
-                    setConfirmSuppression("");
-                    setMdpSuppression("");
+                    setDeletion(false);
+                    setConfirmDeletion("");
+                    setDeletionPassword("");
                   }}
                 />
               </HStack>
@@ -569,7 +569,7 @@ export function SecurityContent() {
                 variant="secondary"
                 size="sm"
                 icon={<Icon icon={TrashIcon} size="sm" />}
-                onClick={() => setSuppression(true)}
+                onClick={() => setDeletion(true)}
               />
             </HStack>
           )}

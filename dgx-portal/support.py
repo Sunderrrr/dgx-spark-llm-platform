@@ -399,14 +399,14 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
                              (mname,)).fetchone()
             if not cfg:
                 return f"Modèle « {mname} » introuvable dans le catalogue.", False
-            ok, launch_reason, incertain = runner_launch(cfg['hf_model_id'], cfg['name'],
+            ok, launch_reason, uncertain = runner_launch(cfg['hf_model_id'], cfg['name'],
                                                  cfg['vllm_args'] or '',
                                                  cfg['engine'] or 'vllm')
             # The announcement is no longer made here: _suivre_lancement emits it when
             # the model really SERVES (accepting is not serving).
             if ok:
                 return f"Lancement de « {mname} » demandé (démarrage en cours).", True
-            if incertain:
+            if uncertain:
                 return (f"Le runner n'a pas répondu dans le délai : le lancement de "
                         f"« {mname} » est peut-être en cours. Vérifie l'état avant de "
                         f"relancer."), False
@@ -415,10 +415,10 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
         if name == 'stop_model':
             if not is_admin:
                 return "Action réservée aux admins.", False
-            ok, launch_reason, incertain = runner_stop()
+            ok, launch_reason, uncertain = runner_stop()
             if ok:
                 return "Modèle arrêté.", True
-            if incertain:
+            if uncertain:
                 return "Le runner n'a pas répondu dans le délai : l'arrêt est peut-être en cours.", False
             return f"Échec de l'arrêt : {launch_reason}", False
 
@@ -443,7 +443,7 @@ SERVICE_LOG_KINDS = ('model', 'litellm') + SERVICE_KINDS
 # Snapshot of every service, cached: probing them costs an HTTP round trip
 # each (and up to a timeout when one is down), while a Support turn must not
 # spend its latency budget there. 15 s: fresh enough to judge a restart.
-_services_cache = {'at': 0.0, 'etat': {}}
+_services_cache = {'at': 0.0, 'state': {}}
 
 
 def services_state():
@@ -452,7 +452,7 @@ def services_state():
     before anyone opens a shell."""
     now = time.time()
     if now - _services_cache['at'] < 15:
-        return _services_cache['etat']
+        return _services_cache['state']
     state = {}
     for kind in SERVICE_KINDS:
         try:
@@ -460,7 +460,7 @@ def services_state():
         except Exception:
             state[kind] = 'unreachable'
     _services_cache['at'] = now
-    _services_cache['etat'] = state
+    _services_cache['state'] = state
     return state
 
 GUARDED_TOOLS = {'revoke_api_key', 'launch_model', 'stop_model', 'manage_service'}

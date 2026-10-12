@@ -25,22 +25,22 @@ import os
 import re
 import sys
 
-RACINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dgx-portal-frontend')
-I18N = os.path.join(RACINE, 'lib', 'i18n.tsx')
+ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dgx-portal-frontend')
+I18N = os.path.join(ROOT_DIR, 'lib', 'i18n.tsx')
 # Only file allowed to hardcode a locale: it is where the locale is defined.
-LOCALE_AUTORISEE = {os.path.join('lib', 'i18n.tsx')}
+ALLOWED_LOCALE = {os.path.join('lib', 'i18n.tsx')}
 IGNORES = ('node_modules', '.next', '.git')
 
 
-def _fichiers():
-    for base, dossiers, noms in os.walk(RACINE):
-        dossiers[:] = [d for d in dossiers if d not in IGNORES]
-        for n in noms:
+def _files():
+    for base, folders, names in os.walk(ROOT_DIR):
+        folders[:] = [d for d in folders if d not in IGNORES]
+        for n in names:
             if n.endswith(('.ts', '.tsx')):
                 yield os.path.join(base, n)
 
 
-def _cles_en():
+def _en_keys():
     """Keys declared in the `const EN: Record<string, string> = { … }` block.
 
     A key starts a line and is followed by « : ». A multi-line value therefore
@@ -48,72 +48,72 @@ def _cles_en():
     values as keys.
     """
     src = open(I18N, encoding='utf-8').read()
-    debut = src.index('const EN: Record<string, string> = {')
-    fin = src.index('\n};', debut)
-    bloc = src[debut:fin]
-    cles = set()
-    for motif in (r'^\s*"((?:[^"\\]|\\.)*)"\s*:', r"^\s*'((?:[^'\\]|\\.)*)'\s*:"):
-        cles.update(m.group(1) for m in re.finditer(motif, bloc, re.M))
-    return cles
+    start = src.index('const EN: Record<string, string> = {')
+    end = src.index('\n};', start)
+    block = src[start:end]
+    keys = set()
+    for pattern in (r'^\s*"((?:[^"\\]|\\.)*)"\s*:', r"^\s*'((?:[^'\\]|\\.)*)'\s*:"):
+        keys.update(m.group(1) for m in re.finditer(pattern, block, re.M))
+    return keys
 
 
-def _appels_t():
+def _calls_t():
     """(string, file:line) for each literal `t("…")` found."""
-    trouves = []
-    for chemin in _fichiers():
-        if os.path.abspath(chemin) == os.path.abspath(I18N):
+    found = []
+    for path_ in _files():
+        if os.path.abspath(path_) == os.path.abspath(I18N):
             continue
-        rel = os.path.relpath(chemin, RACINE)
-        txt = open(chemin, encoding='utf-8').read()
+        rel = os.path.relpath(path_, ROOT_DIR)
+        txt = open(path_, encoding='utf-8').read()
         # The hook can be renamed locally (`const tr = useT()`).
         alias = set(re.findall(r'const\s+(\w+)\s*=\s*useT\(\)', txt)) | {'t'}
         for a in alias:
-            motif = (rf'\b{re.escape(a)}\(\s*(?:"((?:[^"\\]|\\.)*)"'
+            pattern = (rf'\b{re.escape(a)}\(\s*(?:"((?:[^"\\]|\\.)*)"'
                      r"|'((?:[^'\\]|\\.)*)'|`([^`$]*)`)\s*[,)]")
-            for m in re.finditer(motif, txt):
-                cle = m.group(1) or m.group(2) or m.group(3)
-                if cle and cle.strip():
-                    ligne = txt[:m.start()].count('\n') + 1
-                    trouves.append((cle, f'{rel}:{ligne}'))
-    return trouves
+            for m in re.finditer(pattern, txt):
+                key = m.group(1) or m.group(2) or m.group(3)
+                if key and key.strip():
+                    line_no = txt[:m.start()].count('\n') + 1
+                    found.append((key, f'{rel}:{line_no}'))
+    return found
 
 
 def main():
-    cles = _cles_en()
-    appels = _appels_t()
-    utilisees = {c for c, _ in appels}
+    keys = _en_keys()
+    calls = _calls_t()
+    used = {c for c, _ in calls}
 
-    manquantes = [(c, ou) for c, ou in appels if c not in cles]
+    missing = [(c, where) for c, where in calls if c not in keys]
     locales = []
-    for chemin in _fichiers():
-        rel = os.path.relpath(chemin, RACINE)
-        if rel in LOCALE_AUTORISEE:
+    for path_ in _files():
+        rel = os.path.relpath(path_, ROOT_DIR)
+        if rel in ALLOWED_LOCALE:
             continue
-        for i, ligne in enumerate(open(chemin, encoding='utf-8'), 1):
-            for m in re.finditer(r'toLocale\w*\(\s*(?:\)|["\']([a-zA-Z-]+)["\'])', ligne):
-                locales.append((m.group(1) or '<navigateur>', f'{rel}:{i}'))
+        for i, line in enumerate(open(path_, encoding='utf-8'), 1):
+            for m in re.finditer(r'toLocale\w*\(\s*(?:\)|["\']([a-zA-Z-]+)["\'])', line):
+                locales.append((m.group(1) or '<browser>', f'{rel}:{i}'))
 
-    print(f'  {len(cles)} clés EN, {len(utilisees)} chaînes t() distinctes')
+    print(f'  {len(keys)} EN keys, {len(used)} distinct t() strings')
     ko = 0
-    if manquantes:
+    if missing:
         ko = 1
-        print(f'  ✗ {len(manquantes)} chaîne(s) sans traduction anglaise :')
-        for c, ou in manquantes:
-            print(f'      {c[:90]}\n        {ou}')
+        print(f'  ✗ {len(missing)} string(s) without an English translation:')
+        for c, where in missing:
+            print(f'      {c[:90]}\n        {where}')
     else:
-        print('  ✓ toutes les chaînes t() ont leur traduction anglaise')
+        print('  ✓ every t() string has its English translation')
     if locales:
         ko = 1
-        print(f'  ✗ {len(locales)} formatage(s) à locale figée (utiliser useLocale()) :')
-        for loc, ou in locales:
-            print(f'      {loc:<12} {ou}')
+        print(f'  ✗ {len(locales)} hardcoded-locale formatting(s) (use useLocale()):')
+        for loc, where in locales:
+            print(f'      {loc:<12} {where}')
     else:
-        print('  ✓ aucun formatage à locale figée')
+        print('  ✓ no hardcoded-locale formatting')
 
-    mortes = sorted(cles - utilisees)
-    if mortes:
-        print(f'  · {len(mortes)} clé(s) EN jamais vues dans un t() littéral — '
-              'indicatif seulement : un t(variable) est invisible ici.')
+    unused = sorted(keys - used)
+    if unused:
+        print(f'  · {len(unused)} EN key(s) never seen in a literal t() — '
+              'indicative only: a t(variable) is invisible here.')
     return ko
 
 

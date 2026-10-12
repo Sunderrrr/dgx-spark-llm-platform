@@ -22,8 +22,8 @@ Two constraints dictated the processing:
 The square is computed from the largest requested size, then reduced for each
 size: a single resampling per size, no cascading degradation.
 
-Usage :
-    scripts/generer-favicon.py [path-to-logo.png]
+Usage:
+    scripts/generate-favicon.py [path-to-logo.png]
 
 Without argument: ~/Images/dgx.png (the designer's file).
 """
@@ -35,50 +35,50 @@ from pathlib import Path
 
 from PIL import Image
 
-SOURCE_DEFAUT = Path.home() / "Images" / "dgx.png"
+DEFAULT_SOURCE = Path.home() / "Images" / "dgx.png"
 DESTINATION = Path(__file__).resolve().parent.parent / "dgx-portal-frontend" / "app" / "favicon.ico"
 
 # Sizes embedded in the ICO: tab (16/32), taskbar (48), and enough to stay
 # sharp on a dense screen (64/128, which the browser scales down).
-TAILLES = (16, 32, 48, 64, 128)
+SIZES = (16, 32, 48, 64, 128)
 
 # Below this alpha level, it is the halo and not the emblem.
-SEUIL_ALPHA = 8
+ALPHA_THRESHOLD = 8
 
 
-def embleme_carreen(chemin: Path) -> Image.Image:
+def squared_emblem(path_: Path) -> Image.Image:
     """Visible content of the logo, centered on a transparent square."""
-    logo = Image.open(chemin).convert("RGBA")
-    visible = logo.getchannel("A").point(lambda v: 255 if v > SEUIL_ALPHA else 0)
-    boite = visible.getbbox()
-    if boite is None:
-        raise SystemExit(f"{chemin} : image entièrement transparente, rien à générer.")
-    embleme = logo.crop(boite)
-    cote = max(embleme.size)
-    carre = Image.new("RGBA", (cote, cote), (0, 0, 0, 0))
-    carre.paste(embleme, ((cote - embleme.width) // 2, (cote - embleme.height) // 2), embleme)
-    return carre
+    logo = Image.open(path_).convert("RGBA")
+    visible = logo.getchannel("A").point(lambda v: 255 if v > ALPHA_THRESHOLD else 0)
+    bbox = visible.getbbox()
+    if bbox is None:
+        raise SystemExit(f"{path_}: fully transparent image, nothing to generate.")
+    emblem = logo.crop(bbox)
+    side = max(emblem.size)
+    square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    square.paste(emblem, ((side - emblem.width) // 2, (side - emblem.height) // 2), emblem)
+    return square
 
 
 def main() -> int:
-    source = Path(sys.argv[1]) if len(sys.argv) > 1 else SOURCE_DEFAUT
+    source = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCE
     if not source.is_file():
-        raise SystemExit(f"Logo introuvable : {source}")
+        raise SystemExit(f"Logo not found: {source}")
 
-    carre = embleme_carreen(source)
-    grand = carre.resize((max(TAILLES), max(TAILLES)), Image.LANCZOS)
-    grand.save(DESTINATION, format="ICO", sizes=[(t, t) for t in TAILLES])
+    square = squared_emblem(source)
+    big = square.resize((max(SIZES), max(SIZES)), Image.LANCZOS)
+    big.save(DESTINATION, format="ICO", sizes=[(t, t) for t in SIZES])
 
     print(f"  source      : {source} ({Image.open(source).size[0]}x{Image.open(source).size[1]})")
-    print(f"  emblème     : {carre.size[0]}x{carre.size[1]} → carré {max(TAILLES)}x{max(TAILLES)}")
-    print(f"  écrit       : {DESTINATION.name} ({DESTINATION.stat().st_size} octets)")
+    print(f"  emblem      : {square.size[0]}x{square.size[1]} → square {max(SIZES)}x{max(SIZES)}")
+    print(f"  written     : {DESTINATION.name} ({DESTINATION.stat().st_size} bytes)")
 
-    relu = Image.open(DESTINATION)
-    print(f"  tailles     : {sorted(relu.ico.sizes())}")
-    modes = {relu.ico.getimage(t).mode for t in relu.ico.sizes()}
-    print(f"  modes       : {sorted(modes)}  (RGBA exigé par Turbopack)")
+    reread = Image.open(DESTINATION)
+    print(f"  sizes       : {sorted(reread.ico.sizes())}")
+    modes = {reread.ico.getimage(t).mode for t in reread.ico.sizes()}
+    print(f"  modes       : {sorted(modes)}  (RGBA required by Turbopack)")
     if modes != {"RGBA"}:
-        raise SystemExit("Échec : toutes les tailles doivent être en RGBA.")
+        raise SystemExit("Failed: every size must be RGBA.")
     return 0
 
 

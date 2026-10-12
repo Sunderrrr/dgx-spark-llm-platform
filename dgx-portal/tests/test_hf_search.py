@@ -194,7 +194,7 @@ class RechercheHfTest(unittest.TestCase):
     def test_un_jeton_refuse_se_distingue_d_une_panne(self):
         """401 with a token = « remplace-le », not « HF est en panne »."""
         r = _response({'error': 'invalid token'}, status=401)
-        with patch.object(vllm_health, '_hf_token', return_value='hf_perime'), \
+        with patch.object(vllm_health, '_hf_token', return_value='hf_stale'), \
              patch.object(vllm_health.requests, 'get', return_value=r):
             with self.assertRaises(HfUnavailable) as ctx:
                 search_hf_models('qwen')
@@ -237,7 +237,7 @@ class ApiSearchTest(CompteDeTest):
         self.assertIn('Hugging Face', body['error'])
         self.assertEqual(body['results'], [])
         # `code`: without it, an English-speaking reader reads only a French sentence.
-        self.assertEqual(body['code'], 'hf_indisponible')
+        self.assertEqual(body['code'], 'hf_unavailable')
 
     def test_tache_inconnue_refusee_en_400_et_non_en_panne(self):
         with patch.object(vllm_health.requests, 'get') as get:
@@ -286,14 +286,14 @@ class ApiSearchTest(CompteDeTest):
         body = r.get_json()
         self.assertTrue(body['ok'])
         self.assertEqual(body['results'], [])
-        self.assertTrue(body['hors_gb10'])
+        self.assertTrue(body['outside_gb10'])
 
     def test_pas_de_second_appel_quand_le_filtre_trouve_quelque_chose(self):
         with patch.object(vllm_health.requests, 'get',
                           return_value=_response([dict(MODELE)])) as get:
             r = self.c.get('/api/search?q=qwen&gb10=1')
         self.assertEqual(get.call_count, 1)
-        self.assertIsNone(r.get_json()['hors_gb10'])
+        self.assertIsNone(r.get_json()['outside_gb10'])
 
 
 class DemandeDeModeleTest(CompteDeTest):
@@ -321,7 +321,7 @@ class DemandeDeModeleTest(CompteDeTest):
     def test_identifiant_vide_refuse(self):
         r = self._post(model_id='   ')
         self.assertEqual(r.status_code, 400)
-        self.assertEqual(r.get_json()['code'], 'identifiant_requis')
+        self.assertEqual(r.get_json()['code'], 'identifier_required')
 
     def test_demande_enregistree_puis_duplicat_refuse(self):
         with patch.object(portal, 'notify_email', return_value=True), \
@@ -336,7 +336,7 @@ class DemandeDeModeleTest(CompteDeTest):
         # Before: silent 204, so « Demande envoyée ! » even for this duplicate.
         self.assertEqual(r2.status_code, 409)
         self.assertFalse(r2.get_json()['ok'])
-        self.assertEqual(r2.get_json()['code'], 'deja_en_attente')
+        self.assertEqual(r2.get_json()['code'], 'already_pending')
 
     def test_aucun_canal_de_notification_avertit_sans_echouer(self):
         with patch.object(portal, 'notify_email', return_value=False), \

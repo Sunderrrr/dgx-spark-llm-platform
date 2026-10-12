@@ -13,7 +13,7 @@ import { Divider } from "@astryxdesign/core/Divider";
 import { ShieldCheckIcon, ArrowRightOnRectangleIcon, CpuChipIcon } from "@heroicons/react/24/outline";
 import { fetchCsrfToken } from "@/lib/api";
 import { getPasskeyAssertion } from "@/lib/webauthn";
-import { useT, tServeur } from "@/lib/i18n";
+import { useT, tServer } from "@/lib/i18n";
 import { useBranding } from "@/lib/branding";
 import { OwnerSetup } from "./OwnerSetup";
 
@@ -23,7 +23,7 @@ const BACKGROUNDS = ["/login-bg.jpg", "/login-bg-2.jpg", "/login-bg-3.jpg"];
 
 export default function LoginPage() {
   const t = useT();
-  const marque = useBranding();
+  const brand = useBranding();
   const [csrf, setCsrf] = useState("");
   const [oidcEnabled, setOidcEnabled] = useState(false);
   // A fresh instance: nobody administers it, the page creates the owner.
@@ -120,7 +120,7 @@ export default function LoginPage() {
         // Without this branch, the person read « identifiants incorrects » and
         // retried a password that was fine.
         const body = await res.json().catch(() => null);
-        setError(body?.error ? tServeur(body.error, t) : t("Accès révoqué pour ce compte. Contacte un administrateur."));
+        setError(body?.error ? tServer(body.error, t) : t("Accès révoqué pour ce compte. Contacte un administrateur."));
       } else {
         setError(t("Identifiants incorrects."));
       }
@@ -130,7 +130,7 @@ export default function LoginPage() {
         msg === "create-cancelled"
           ? t("Double authentification annulée.")
           : msg
-            ? tServeur(msg, t)
+            ? tServer(msg, t)
             : t("Erreur réseau — réessaie."),
       );
     } finally {
@@ -148,7 +148,7 @@ export default function LoginPage() {
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      setError(j?.error ? tServeur(j.error, t) : t("Vérification de la clé échouée."));
+      setError(j?.error ? tServer(j.error, t) : t("Vérification de la clé échouée."));
       return;
     }
     window.location.assign("/");
@@ -161,7 +161,7 @@ export default function LoginPage() {
           <VStack gap={1} hAlign="center">
             <Icon icon={CpuChipIcon} size="lg" color="accent" />
             <Text type="display-1" as="h1">
-              {marque.name}
+              {brand.name}
             </Text>
             <Text type="body" color="secondary" size="sm">{t("Plateforme IA privée · NVIDIA DGX Spark")}</Text>
           </VStack>
@@ -196,7 +196,7 @@ export default function LoginPage() {
             <>
               <Divider label={t("Ou")} />
               <Button
-                label={t("Se connecter avec le SSO {name}").replace("{name}", marque.name)}
+                label={t("Se connecter avec le SSO {name}").replace("{name}", brand.name)}
                 variant="secondary"
                 size="lg"
                 icon={<Icon icon={ShieldCheckIcon} size="sm" />}

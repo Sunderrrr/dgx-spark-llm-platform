@@ -199,13 +199,13 @@ def deprovision_account(username, by, purge=True, action='user.delete'):
     report['sessions'] = sessions
 
     report['litellm_user'] = bool(delete_litellm_user(username))
-    report['lignes_purgees'] = purge_data(username) if purge else 0
+    report['purged_rows'] = purge_data(username) if purge else 0
 
     detail = (f"{username} — {keys_ok}/{keys_total} clé(s) révoquée(s)"
               + (f", {keys_failed} ÉCHEC(S)" if keys_failed else '')
               + f", {sessions} session(s), enveloppe LiteLLM "
               + ('supprimée' if report['litellm_user'] else 'NON supprimée')
-              + (f", {report['lignes_purgees']} ligne(s) de données purgée(s)"
+              + (f", {report['purged_rows']} ligne(s) de données purgée(s)"
                  if purge else ', données CONSERVÉES'))
     log_audit(by, action, detail)
     return report

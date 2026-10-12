@@ -6,8 +6,8 @@
 # documentation instead of its training data — and a database that is rebuilt
 # (or a new account) should not quietly lose them.
 #
-#   scripts/mcp-essentiels.sh mdupont        # one account
-#   scripts/mcp-essentiels.sh mdupont demo   # several
+#   scripts/mcp-essentials.sh mdupont        # one account
+#   scripts/mcp-essentials.sh mdupont demo   # several
 #
 # Both servers are public MCP endpoints (Streamable HTTP, no key):
 #   · context7  — up-to-date library/framework docs (API, versions, changes)
@@ -22,7 +22,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-[ $# -ge 1 ] || { echo "usage : scripts/mcp-essentiels.sh <utilisateur>…"; exit 1; }
+[ $# -ge 1 ] || { echo "usage: scripts/mcp-essentials.sh <username>…"; exit 1; }
 
 args=""
 for u in "$@"; do args="$args '$u'"; done
@@ -36,16 +36,17 @@ import app as portal                      # noqa: E402
 from db import get_db                     # noqa: E402
 from mcp_client import validate_mcp_url   # noqa: E402
 
-# Two families:
-#  · SANS_CLE — public, no key: registered ENABLED, they work right away;
-#  · AVEC_CLE — the usual suspects (GitHub, Sentry, Slack…): registered DISABLED,
-#    waiting for the account's own key. Writing the key in Réglages → MCP
+# Two families (the descriptions are content shown in the UI and to the
+# model, hence French like the rest of the product's text):
+#  · KEYLESS — public, no key: registered ENABLED, they work right away;
+#  · WITH_KEY — the usual suspects (GitHub, Sentry, Slack…): registered DISABLED,
+#    waiting for the account's own key. Writing the key in Settings → MCP
 #    activates them (see settings_routes.py: `enabled=CASE WHEN ? THEN 1 …`).
 # Gmail has no public remote MCP endpoint (verified 2026-10-05: no such host,
 # and the aggregators like Zapier/Composio redirect to their own auth): it
 # needs either a local server (refused by the platform's SSRF guard, by
 # design) or a per-user aggregator URL, registered by hand with its key.
-SANS_CLE = [
+KEYLESS = [
     ('context7', 'https://mcp.context7.com/mcp',
      "Documentation A JOUR des bibliothèques et frameworks : API, versions, "
      "changements récents. À utiliser dès qu'une question porte sur une "
@@ -65,7 +66,7 @@ SANS_CLE = [
      "incidents connus, annonces. Sans clé."),
 ]
 
-AVEC_CLE = [
+WITH_KEY = [
     ('github', 'https://api.githubcopilot.com/mcp/',
      "Dépôts GitHub : issues, pull requests, code, actions, releases. "
      "Clé : un token personnel GitHub (PAT) — « Bearer ghp_… »."),
@@ -95,24 +96,24 @@ AVEC_CLE = [
      "demandes de modèle et de budget. Clé : « Bearer » + un token d'application."),
 ]
 
-ESSENTIELS = SANS_CLE + AVEC_CLE
+ESSENTIALS = KEYLESS + WITH_KEY
 
 with portal.app.app_context():
   for username in sys.argv[1:]:
     db = get_db()
-    for famille, actif in ((SANS_CLE, 1), (AVEC_CLE, 0)):
-        for nom, url, desc in famille:
+    for family, enabled in ((KEYLESS, 1), (WITH_KEY, 0)):
+        for name, url, desc in family:
             ok, detail = validate_mcp_url(url)
             if not ok:
-                print(f"✗ {nom} : URL refusée ({detail})")
+                print(f"✗ {name}: URL refused ({detail})")
                 continue
             db.execute(
                 "INSERT OR REPLACE INTO mcp_servers "
                 "(username, name, url, auth_header, description, allowed_tools, enabled, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                (username, nom, url, None, desc, '', actif,
+                (username, name, url, None, desc, '', enabled,
                  time.strftime('%Y-%m-%dT%H:%M:%S')))
-            etat = "actif" if actif else "en attente de sa clé"
-            print(f"✓ {username} · {nom} ({etat})")
+            state = "enabled" if enabled else "waiting for its key"
+            print(f"✓ {username} · {name} ({state})")
     db.commit()
 PYEOF

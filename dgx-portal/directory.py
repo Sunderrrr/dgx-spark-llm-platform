@@ -26,7 +26,7 @@ from ldap3.utils.conv import escape_filter_chars
 
 from instance_config import ldap_config
 
-ACTIVE, DISABLED, ABSENT = 'actif', 'desactive', 'absent'
+ACTIVE, DISABLED, ABSENT = 'active', 'disabled', 'absent'
 
 # A bind on Authentik's LDAP outpost alone costs ~3 s (measured 2026-10-11),
 # a search ~0.7 s: the directory is NEVER asked on a request's path. One search
@@ -36,7 +36,7 @@ _state = {'t': 0.0, 'states': None, 'running': False}
 _lock = threading.Lock()
 
 
-def _connexion(c):
+def _connection(c):
     if not (c['uri'] and c.get('bind_dn') and c.get('bind_pw')):
         return None
     # get_info=NONE: no schema download, so attributes a given directory does
@@ -81,7 +81,7 @@ def read_directory():
     be asked. Slow (seconds): background only."""
     c = ldap_config()
     try:
-        conn = _connexion(c)
+        conn = _connection(c)
     except Exception:
         return None
     if conn is None:

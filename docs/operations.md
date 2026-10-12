@@ -2,13 +2,13 @@
 
 Day-to-day runbook: launching and stopping the model, the sidecars, what the
 dashboard numbers mean, and the host services around the stack. Traps and
-symptoms are in [troubleshooting](troubleshooting.md); the deeper operating guide
+symptoms are in [troubleshooting](troubleshooting.md). The deeper operating guide
 kept on the machine ([`CLAUDE.md`](../CLAUDE.md)) carries the full measurement
 history.
 
 > **Golden rule: never stop or restart the served chat model without explicit
 > go-ahead.** A restart kills whatever is loading/serving with no warning.
-> Auto-resume on boot is fine (it *restores*); deliberately restarting a running
+> Auto-resume on boot is fine (it *restores*). Deliberately restarting a running
 > model is not. Restarting `vllm-runner` KILLS the served model too — the unit
 > has no `KillMode`, so the `llama-server` it spawned lives in the
 > `vllm-runner.service` cgroup (verified via `/proc/<pid>/cgroup`). Any change to
@@ -27,7 +27,7 @@ curl -H "Authorization: Bearer $RUNNER_TOKEN" -H "Content-Type: application/json
 ```
 
 `vllm_args` is validated against a strict allowlist — see [`SECURITY.md`](../SECURITY.md#21-model-launching--a-strict-allowlist-not-a-denylist).
-A flag absent from the allow-list is refused **before** the spawn;
+A flag absent from the allow-list is refused **before** the spawn.
 `--trust-remote-code` and overrides of critical flags are blocked for chat models
 (only OCR may pass trust-remote-code). The catalog carries the launch arguments
 (`model_configs.vllm_args`), so an Admin → Launch always sends the line that was
@@ -43,16 +43,16 @@ and **relaunches it** after a process crash, a service restart or a reboot. A ma
 The resume machinery is memory-aware on purpose (the 2026-10-01 crash loop — see
 [troubleshooting → memory safety](troubleshooting.md#memory-safety-why-the-box-froze-and-rebooted-on-2026-10-01)):
 a **persisted** failure counter (`resume_failures` next to `last_model.json`),
-reset only after 600 s of uninterrupted running; a **memory floor** before any
-launch (`MIN_FREE_TO_LAUNCH_GIB`, 30) that refuses to start when the previous
-model's memory has not been returned; a **runtime guard** that kills its own
-llama-server under `CRITICAL_FREE_GIB` (2) before the kernel's blind OOM; all
-resumes through the watchdog; unit `RestartSec=30`, `OOMPolicy=continue`.
+reset only after 600 s of uninterrupted running. A **memory floor** before any
+launch (`MIN_FREE_TO_LAUNCH_GIB`, 30) refuses to start when the previous
+model's memory has not been returned. A **runtime guard** kills its own
+llama-server under `CRITICAL_FREE_GIB` (2) before the kernel's blind OOM. All
+resumes go through the watchdog. The unit sets `RestartSec=30`, `OOMPolicy=continue`.
 
 ## Engines and model notes
 
 The runner serves one chat model at a time on one of the engines `vllm`,
-`llamacpp`, `ds4`, `exllamav3`. `local:<name>` resolves a local GGUF via `-m`; a
+`llamacpp`, `ds4`, `exllamav3`. `local:<name>` resolves a local GGUF via `-m`. A
 bare repo id uses `-hf` (which can pick the wrong shard).
 
 - **Engine versions are opt-in pseudo-flags**, never a default swap:
@@ -61,9 +61,9 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   (`_BIN_FLAGS` in [`runner.py`](../vllm-runner/runner.py), split per engine into
   `_LLAMA_BIN_FLAGS` / `_VLLM_BIN_FLAGS`, so a llama.cpp launch cannot be pointed
   at a vLLM binary). vLLM **0.28.0** (`/root/venvs/vllm-028`, torch 2.13 cu130,
-  sm_121 verified — adds BailingMoeV3) and llama.cpp **0.3.0-dev upstream**
-  (`/root/llama-cpp-upstream`, built for GB10 — adds `qwen4exp`) are available
-  this way; neither is the default.
+  sm_121 verified, adds BailingMoeV3) and llama.cpp **0.3.0-dev upstream**
+  (`/root/llama-cpp-upstream`, built for GB10, adds `qwen4exp`) are available
+  this way. Neither is the default.
 - **`llamacpp`** uses `LLAMA_BIN` (env), which comes from `.env` and not from the
   code default. It points at your llama-server build (the
   TurboQuant fork, `bailingmoe3` + `deepseek4`). Both builds are dynamic
@@ -72,8 +72,8 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   environment variable only at import. The TurboQuant binary is kept alongside as
   `llama-server.fork-turboquant` (restore it if Ling-3.0 comes back).
 - **Ling-3.0-flash (BailingMoeV3)**: custom arch, served via the TurboQuant
-  fork; GGUF tensors are `ssm_f`/`ssm_a` (AtomicChat quant), not the upstream
-  PR's `ssm_f_a`. Native 256k context; the GGUF under-declares `n_ctx_train`, so
+  fork. GGUF tensors are `ssm_f`/`ssm_a` (AtomicChat quant), not the upstream
+  PR's `ssm_f_a`. Native 256k context. The GGUF under-declares `n_ctx_train`, so
   pass `--rope-scaling none` (the rope-scaling warning is cosmetic).
 - **DeepSeek-V4-Flash-0731**: `deepseek4` arch (hybrid sliding-window + MLA), 1M
   native context, **thinking model** → pass
@@ -101,9 +101,9 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   `/root/llama-prism/…`, overridable via `LLAMA_BIN_PRISM`), via `--llama-prism`.
   Three pitfalls: that build is older and ignores `--kv-unified-per-slot` (use
   `--ctx-size 1048576 --parallel 4` without `--kv-unified` for 4 private 256k
-  slots); its projector is the same as the Qwen3.8-27B one; and the `--llama-prism`
+  slots). Its projector is the same as the Qwen3.8-27B one. The `--llama-prism`
   pseudo-flag only exists for the runner **after a restart** (`_BIN_FLAGS` is
-  built at import) — and that restart kills the served model.
+  built at import), and that restart kills the served model.
 - **K2-Horizon**: entry **removed from the catalog** and `Q8_0` weights (37.1 GiB)
   **deleted** on 2026-09-13. Serving it again requires re-downloading them, and
   the `k2_horizon` arch is in no llama.cpp build of this repository (fork only,
@@ -115,23 +115,23 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   (`benthecarman/MiMo-V2.6-Flash-RL-exl3`, 85.28 GiB). No aarch64 wheel:
   exllamav3 1.5.3 is COMPILED in `/root/venvs/exl3` (torch 2.13+cu130,
   `TORCH_CUDA_ARCH_LIST=12.1`), TabbyAPI in `/root/tabbyAPI`. Pitfalls: TabbyAPI
-  writes `logs/` in its own folder (must belong to `vllmrunner`); `/v1/models`
+  writes `logs/` in its own folder (must belong to `vllmrunner`). `/v1/models`
   lists FOLDER NAMES, so the runner republishes a folder of links
-  `~/exl3/model/<catalog name>` at every launch; the DFlash drafter returns 3–4
+  `~/exl3/model/<catalog name>` at every launch. The DFlash drafter returns 3–4
   tokens per SSE fragment (count fragments and you divide throughput by 3 —
-  measure on `usage.completion_tokens`); and two flags are pinned by the runner,
+  measure on `usage.completion_tokens`). Two flags are pinned by the runner,
   out of reach of `vllm_args`: `--disable-fetch-requests` (otherwise TabbyAPI
   fetches images by URL itself = SSRF) and `--allowed-origins
   https://no-browser.invalid` (auth disabled + CORS `*`). LOCAL PATCH to
   TabbyAPI (`vllm-runner/patches/tabbyapi-tool-calls-only-when-declared.patch`,
   to reapply after any `git pull` in `/root/tabbyAPI`): TabbyAPI parsed
   `<tool_call>` even with no declared tool. Limits: no `/metrics` (404), 6
-  sessions sharing `--cache-size 262144`, ~10 GB available once loaded; a single
-  session 17–40 tok/s depending on the DFlash acceptance rate (8 % → 17, 41 % →
-  40), 6 simultaneous ~5 tok/s each, ~28 total.
+  sessions sharing `--cache-size 262144`, ~10 GB available once loaded. A single
+  session runs 17–40 tok/s depending on the DFlash acceptance rate (8 % → 17,
+  41 % → 40). 6 simultaneous ~5 tok/s each, ~28 total.
 - **`auto-model` alias**: a virtual LiteLLM model (`AUTO_MODEL_NAME`, default
   `auto-model`) that always routes to the **currently-running** chat model.
-  Re-pointed on every successful launch (`_point_auto_model()`); the real model
+  Re-pointed on every successful launch (`_point_auto_model()`). The real model
   names stay registered and keep working in parallel. It follows only *launches*,
   not catalog adds. Persisted in the LiteLLM DB, so it survives restarts/reboots.
 
@@ -179,7 +179,7 @@ failing.
   modèle depuis Admin » for the same reason (MiMo holds ~100 of the 121.6 GiB,
   and even a STARTED sidecar may not find the memory to load).
 - Host wrappers (`/usr/local/sbin/*-recreate.sh`, `sudoers` fragments) are
-  root-owned on the host; their tracked sources live in the sidecar folders —
+  root-owned on the host. Their tracked sources live in the sidecar folders —
   see [architecture](architecture.md#frontend-dgx-portal-frontend).
 
 ## Web search (SearXNG + crawl4ai)
@@ -191,7 +191,7 @@ search — it only extracts URLs it is given). Rules that are not obvious:
 - The SearXNG `settings.yml` lives in `./searxng/` (git-ignored, holds a
   generated secret) and **must** keep `formats: [html, json]`: JSON is off by
   default.
-- crawl4ai refuses to listen beyond loopback without a credential; the token is
+- crawl4ai refuses to listen beyond loopback without a credential. The token is
   generated once into `./secrets/` and mounted at `/run/secrets/api_token`. The
   file must be world-readable (0644) — the container runs unprivileged and cannot
   read a 0600 root-owned mount.
@@ -206,16 +206,16 @@ search — it only extracts URLs it is given). Rules that are not obvious:
   `ignore_links` + `excluded_tags` cut 61–75 % of volume without losing substance.
   `PruningContentFilter` was tried and **rejected** — it strips code blocks.
   **Banners are cleaned line by line, pages are not discarded.**
-- The tool phase runs **inside** the SSE generator and emits progress events;
-  running it before the response starts left the client with no bytes for tens of
+- The tool phase runs **inside** the SSE generator and emits progress events.
+  Running it before the response starts left the client with no bytes for tens of
   seconds and the frontend proxy gave up.
 
 ## Maintenance mode
 
 An admin toggle that blocks non-admin API/portal traffic **without stopping any
 model**, enforced both in the portal and at the edge (Traefik forwardAuth on
-`/internal/authcheck/`). Every toggle notifies the alert recipient (Admin → Config); destructive actions
-ask for confirmation first.
+`/internal/authcheck/`). Every toggle notifies the alert recipient (Admin →
+Config). Destructive actions ask for confirmation first.
 
 ## Counters and the dashboard
 
@@ -223,7 +223,7 @@ What the home page and the admin panel actually show — the display conventions
 are contracts, not decoration:
 
 - **`/api/modelhealth`** exists for the **1 s** dashboard refresh (throughput +
-  TTFT); `/api/home` stays at 5 s (it aggregates spend and probes the sidecars).
+  TTFT). `/api/home` stays at 5 s (it aggregates spend and probes the sidecars).
   The `vllm_health()` cache is at 1 s.
 - **The llama.cpp throughput is read from `n_decode_total`, and from nothing
   else**: during a generation `predicted_tokens_seconds` is 0 and
@@ -259,7 +259,7 @@ are contracts, not decoration:
   relaunch** — `tokens_predicted_total` went from 158 864 to 47 with the same pid
   (7 h 56, `NRestarts=0`): a KV cache reset gives the same signature. For an
   accounting figure, the reference is LiteLLM (`SUM(completion_tokens)`).
-- **The admin panel « qui utilise le modèle » carries AGES, not just a flag.**
+- **The admin panel « qui utilise le modèle » carries AGES, far more than a flag.**
   `live` lights up for everyone as soon as the engine works (three accounts
   marked « en direct » with 11 h, 32 min and 4 min of gap, 2026-09-14), so the
   panel returns `derniere_s` (age of the last activity) and `live` requires
@@ -273,15 +273,15 @@ are contracts, not decoration:
   openings/closings in `./runtime/inflight.db`, mounted read-only on the portal
   side (`DGX_INFLIGHT_DB`). Rules not to "simplify": the **synchronous** hooks
   are the only ones this LiteLLM version calls (an async-only class gets total
-  silence — table created, table empty, no error); `docker compose up -d` does
-  not reload a modified mounted file (use `restart`); it is SQLite because the
-  proxy image has no PostgreSQL driver; a write error never surfaces (it goes to
-  the proxy's error output); the **oldest** request of an account gives the
-  displayed age; expired rows are swept after 2 h; a missing file falls back to
+  silence — table created, table empty, no error). `docker compose up -d` does
+  not reload a modified mounted file (use `restart`). It is SQLite because the
+  proxy image has no PostgreSQL driver. A write error never surfaces (it goes to
+  the proxy's error output). The **oldest** request of an account gives the
+  displayed age. Expired rows are swept after 2 h. A missing file falls back to
   the previous behaviour.
 - **`vllm_health()` exposes `slots`** (llama.cpp `/slots`): busy sessions, age of
   the oldest one, and ingestion progress — the only description available DURING
-  a request. `/slots` does not exist on vLLM (→ `None`, never 0); the age restarts
+  a request. `/slots` does not exist on vLLM (→ `None`, never 0). The age restarts
   from zero when the portal restarts.
 - **Engines without `/metrics` (TabbyAPI)** get their dashboard back from
   LiteLLM's SpendLogs, plus a live decode gauge: `chat_routes` counts the
@@ -312,14 +312,14 @@ Systemd timers + scripts (in [`monitoring/`](../monitoring/) and [`scripts/`](..
 root** on the host (access to the docker socket + the 600 `.env`).
 
 - **`dgx-monitor.timer`/`.service`** (every 5 min) → `monitoring/monitor.py`:
-  probes the always-up **core** (vllm-runner `:8001`, containers traefik /
-  litellm / litellm-postgres / dgx-portal / dgx-portal-frontend) and sends an
+  probes the always-up **core** (`vllm-runner` `:8001`, containers `traefik` /
+  `litellm` / `litellm-postgres` / `dgx-portal` / `dgx-portal-frontend`) and sends an
   alert email to the alert recipient (Admin → Config) when a service goes down,
   then a recovery email. The SMTP settings are read through the portal
   container and kept in a root-only copy (`/var/lib/dgx-monitor/smtp.json`), so
   the alert still goes out when the portal itself is down.
   **Data integrity**: a conversations/media-jobs watermark is stored in the sticky
-  state; a drop below 40 % of the watermark (database reset — happened on
+  state. A drop below 40 % of the watermark (database reset — happened on
   04/09/2026, stayed invisible for 3 days) triggers the same alert. **Sticky**
   state in `/var/lib/dgx-monitor/state.json` (1 alert per incident). The media
   sidecars are **on-demand**: not probed, to avoid false positives. The monitor
@@ -329,7 +329,7 @@ root** on the host (access to the docker socket + the 600 `.env`).
   consistent SQLite copy of the portal database, `pg_dump` of the LiteLLM
   database, `docker-compose.yml`, `.env` and `secrets/`, archived and uploaded
   to `DGX_S3_BUCKET`, then **listed back from the bucket** before the run counts
-  as a success; retention 7 archives. It writes `/var/backups/dgx/etat.json`,
+  as a success. Retention: 7 archives. It writes `/var/backups/dgx/etat.json`,
   which the monitor and the Admin card read. **The archive contains `.env` and
   the databases — the bucket must be private.** `monitoring/backup.py` (local
   dumps + purge of orphan media files) is kept as a manual tool, not scheduled.
@@ -341,9 +341,9 @@ root** on the host (access to the docker socket + the 600 `.env`).
 - **`dgx-validation.path`/`.service`** → `scripts/validate.sh`, started when the
   Admin's « run the validation » button writes `runtime/validation/demande.txt`.
 
-Health endpoints (portal side): `GET /healthz` — minimal **public** liveness
-`{ok, time}` (healthcheck / probe); `GET /api/health` — aggregated **connected**
-state (`runner`, `litellm`, `chat`, `video/ocr/voice/image/music` as
+Health endpoints (portal side): `GET /healthz` gives minimal **public** liveness
+`{ok, time}` (healthcheck / probe). `GET /api/health` gives aggregated
+**connected** state (`runner`, `litellm`, `chat`, `video/ocr/voice/image/music` as
 `ready`/`on_demand`).
 
 ## After a reboot

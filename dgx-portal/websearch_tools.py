@@ -38,6 +38,8 @@ LITELLM_URL = os.environ.get('LITELLM_URL', 'http://litellm:4000')
 MAX_TOOL_ROUNDS = 3
 # File edits: view → replace → maybe a corrected replace, per file.
 FILE_TOOL_ROUNDS = 10
+# The closing text of an edit phase used as the answer: a summary, not a file.
+EDIT_SUMMARY_MAX = 3000
 FILE_TOOLS_MAX_DELAY = 300
 FILE_TOOL_RESULT_MAX = 40_000
 # Time cap of the tool phase. Legitimate or not, a search must never
@@ -344,7 +346,7 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
                   web_ok=True, img_ok=False, username='',
                   video_ok=False, doc_ok=False, attachments=(),
                   files=None, changes=None, skill_rows=None, skills_loaded=None,
-                  chat_search=False, history_notes=None):
+                  chat_search=False, history_notes=None, edit_summary=None):
     """Lets the model search, read or generate before answering. Modifies `msgs`
     in place.
 
@@ -436,6 +438,15 @@ def _tools_phase(model, msgs, user_key, step_log, findings,
         message = choice.get('message') or {}
         calls = message.get('tool_calls') or []
         if not calls:
+            # After applied edits, this text IS the short summary the files
+            # note asked for: it becomes the answer (`edit_summary`), with no
+            # second generation — that one reprinted the whole file despite
+            # the edits note (2026-10-12, netbird compose).
+            text = (message.get('content') or '').strip()
+            if (edit_ok and edit_summary is not None and changes
+                    and any(files.get(p) != changes[p] for p in changes)
+                    and text and len(text) <= EDIT_SUMMARY_MAX and '```' not in text):
+                edit_summary.append(text)
             return                      # the model needs no tool: we answer
         # The tool exchange lives only in `court`: the FINAL request must contain
         # no protocol-format message. Sending `tool_calls` and `tool`-role messages

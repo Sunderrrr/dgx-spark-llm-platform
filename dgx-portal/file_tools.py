@@ -12,13 +12,16 @@ Claude's text editor tool:
     next round (more context, or `view_file` first);
   * `view_file` shows the CURRENT content with line numbers, so the model
     edits what is really there and not its memory of it;
-  * `create_file` writes a new file or replaces one wholesale.
+  * `create_file` writes a new file, or replaces one wholesale when most of
+    it changes — a rewrite that keeps most lines is refused (`_mostly_kept`):
+    on a 2 000-line HTML file it costs minutes of generation.
 
 The tools run on the server, on the files the browser sends with the
 request (the latest version of each file of the conversation). The changed
 files go back as `dgx_file` events: the browser records the new version
 and shows a diff; the final answer only summarizes the change.
 """
+import difflib
 import re
 
 # Bounds: the browser sends the conversation's files with every request
@@ -178,6 +181,11 @@ def exec_file_tool(name, args, files, changes):
         if len(content) > MAX_FILE_CHARS:
             return "Error: file too large.", "file too large"
         target = _resolve(files, path) or path
+        if target in files and _mostly_kept(files[target], content):
+            return (f"Error: {target} already exists and this rewrite keeps most "
+                    "of it unchanged. Use str_replace for each change instead "
+                    "(several calls in one round are fine). No change made.",
+                    "rewrite refused")
         changes.setdefault(target, files.get(target))
         files[target] = content
         return f"File {target} written ({content.count(chr(10)) + 1} lines).", None
@@ -242,6 +250,21 @@ def exec_file_tool(name, args, files, changes):
                 f"{_numbered(chr(10).join(lines[lo - 1:hi]), lo)}"), None
 
     return f"Error: unknown tool {name}.", "unknown tool"
+
+
+# A rewrite keeping at least this share of the old lines is a localized
+# change in disguise (2026-10-12: « en fait c'est avec traefik » rewrote the
+# whole compose through create_file).
+REWRITE_KEPT_MAX = 0.5
+
+
+def _mostly_kept(old, new):
+    old_lines = old.split("\n")
+    if len(old_lines) < 20:
+        return False       # small files: rewriting costs nothing
+    sm = difflib.SequenceMatcher(None, old_lines, new.split("\n"), autojunk=False)
+    kept = sum(b.size for b in sm.get_matching_blocks())
+    return kept / len(old_lines) >= REWRITE_KEPT_MAX
 
 
 def edits_note(files, changes):

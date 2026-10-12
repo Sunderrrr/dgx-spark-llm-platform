@@ -1319,6 +1319,7 @@ def playground_chat():
         # after the search (just before the final POST), so a request that spent
         # 40 s searching and reading announced « TTFT 1,2 s ».
         _t0 = time.monotonic()
+        _edit_summary = []   # set by an edit phase that already wrote the answer
         if _web_ok or _img_ok or _vid_ok or _doc_ok or _edit_ok or _skill_ok or _chats_ok:
             yield ": recherche\n\n"
             _step_log, _findings, _changes, _skills_loaded, _history = [], [], {}, [], []
@@ -1332,7 +1333,8 @@ def playground_chat():
                                         skill_rows=_skill_rows if _skill_ok else None,
                                         skills_loaded=_skills_loaded,
                                         chat_search=_chats_ok,
-                                        history_notes=_history):
+                                        history_notes=_history,
+                                        edit_summary=_edit_summary):
                 yield _step
             # Every edited file goes back ONCE, in its final state: the
             # browser records it as the file's new version and shows the diff.
@@ -1385,6 +1387,17 @@ def playground_chat():
                                                'stream_options': {'include_usage': True},
                                                'chat_template_kwargs': ctk},
                                          stream=True, timeout=(10, 300))
+                if _edit_summary:
+                    # The edit phase already wrote the answer: replayed as a
+                    # one-chunk stream, the rest of the pipeline is unchanged.
+                    # A second generation here reprinted the edited file.
+                    _file.put(('data: ' + json.dumps({'choices': [{'index': 0, 'delta': {
+                        'role': 'assistant', 'content': _edit_summary[0]}}]})).encode())
+                    _file.put(('data: ' + json.dumps({'choices': [{'index': 0, 'delta': {},
+                        'finish_reason': 'stop'}]})).encode())
+                    _file.put(b'data: [DONE]')
+                    _file.put(None)
+                    return
                 try:
                     _ctk = {'enable_thinking': reasoning}
                     if valid_effort:

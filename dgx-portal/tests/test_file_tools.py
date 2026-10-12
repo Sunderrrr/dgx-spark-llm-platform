@@ -153,6 +153,33 @@ class BoundsAndTriggerTest(unittest.TestCase):
                       file_tools.edits_note({'a': 'y'}, {'a': 'x'}))
 
 
+class RewriteGuardTest(unittest.TestCase):
+    """create_file on an existing file that mostly stays the same is refused:
+    on a big HTML file the rewrite costs minutes of generation."""
+
+    BIG = "\n".join(f"line {i}" for i in range(1, 41))
+
+    def test_rewrite_keeping_most_lines_is_refused(self):
+        files, changes = {'page.html': self.BIG}, {}
+        result, error = file_tools.exec_file_tool(
+            'create_file', {'path': 'page.html', 'content': self.BIG.replace('line 7', 'LINE 7')},
+            files, changes)
+        self.assertEqual(error, "rewrite refused")
+        self.assertIn("str_replace", result)
+        self.assertEqual(files['page.html'], self.BIG, "nothing written")
+        self.assertEqual(changes, {})
+
+    def test_real_rewrite_and_small_files_are_allowed(self):
+        files, changes = {'page.html': self.BIG, 'a.py': 'x = 1\n'}, {}
+        _, error = file_tools.exec_file_tool(
+            'create_file', {'path': 'page.html', 'content': "\n".join(f"other {i}" for i in range(40))},
+            files, changes)
+        self.assertIsNone(error)
+        _, error = file_tools.exec_file_tool(
+            'create_file', {'path': 'a.py', 'content': 'x = 2\n'}, files, changes)
+        self.assertIsNone(error)
+
+
 class _Resp:
     ok = True
     status_code = 200
@@ -187,11 +214,13 @@ class ToolsPhaseLoopTest(unittest.TestCase):
             sent.append(json)
             return _Resp(rounds[len(sent) - 1])
 
-        files, changes = {'greet.py': SRC}, {}
+        files, changes, summary = {'greet.py': SRC}, {}, []
         with patch.object(websearch_tools, 'requests', _scoped_requests(_post)):
             steps = list(websearch_tools._tools_phase(
                 'm', [{'role': 'user', 'content': 'change the greeting'}], 'sk', [], [],
-                web_ok=False, files=files, changes=changes))
+                web_ok=False, files=files, changes=changes, edit_summary=summary))
+        # The closing text after applied edits is the answer itself.
+        self.assertEqual(summary, ['done'])
         self.assertEqual(len(sent), 3)
         # First round forces a tool call (« auto » let the model reprint the file).
         self.assertEqual([j['tool_choice'] for j in sent], ['required', 'auto', 'auto'])
@@ -293,6 +322,44 @@ class PlaygroundWiringTest(unittest.TestCase):
         self.assertFalse(edits[0]['created'])
         last_user = [m for m in final['messages'] if m['role'] == 'user'][-1]
         self.assertIn("ALREADY applied your edits to: greet.py", last_user['content'])
+
+    def test_edit_summary_is_the_answer_without_a_second_generation(self):
+        """The second generation reprinted the whole edited file (netbird
+        compose, 2026-10-12): the edit phase's summary is streamed instead."""
+        def _phase(model, msgs, user_key, step_log, findings, **k):
+            k['files']['greet.py'] = SRC.replace('Hello', 'Hi')
+            k['changes']['greet.py'] = SRC
+            k['edit_summary'].append("Greeting changed to Hi.")
+            return
+            yield
+
+        def _post(*a, **k):
+            raise AssertionError("no final generation after an edit summary")
+
+        body = {'messages': [{'role': 'user', 'content': 'change the greeting'}],
+                'files': [{'name': 'greet.py', 'content': SRC}]}
+        with ExitStack() as stack:
+            for name, value in (('maintenance_block_sse', None), ('_chat_rate_limited', None),
+                                ('get_running_models', ['fake-model']),
+                                ('get_user_keys', [{'key': 'sk-user'}]),
+                                ('quota_exceeded_reset', None), ('_search_relevant', False),
+                                ('image_available', False), ('_image_requested', False),
+                                ('video_available', False), ('_video_requested', False),
+                                ('document_available', False), ('_document_requested', False)):
+                stack.enter_context(patch.object(chat, name, return_value=value))
+            stack.enter_context(patch.object(chat.memory, '_mem_enabled', return_value=False))
+            stack.enter_context(patch.object(chat, '_tools_phase', side_effect=_phase))
+            stack.enter_context(patch.object(chat, 'requests', _scoped_requests(_post)))
+            with portal.app.test_request_context('/playground/chat', method='POST', json=body):
+                session['username'] = 'demo'
+                session['auth_at'] = int(time.time())
+                out = chat.playground_chat().get_data(as_text=True)
+        events = [json.loads(l[5:]) for l in out.split('\n') if l.startswith('data: {')]
+        self.assertEqual(len([e for e in events if 'dgx_file' in e]), 1)
+        text = ''.join((c.get('delta') or {}).get('content') or ''
+                       for e in events for c in e.get('choices', []))
+        self.assertEqual(text, "Greeting changed to Hi.")
+        self.assertNotIn('AssertionError', out)
 
     def test_no_change_request_no_tools(self):
         seen = {}

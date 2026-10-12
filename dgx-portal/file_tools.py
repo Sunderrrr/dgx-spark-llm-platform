@@ -35,7 +35,7 @@ FILE_TOOL_NAMES = ('view_file', 'str_replace', 'create_file')
 # A request to CHANGE something. Only then do we pay the extra model round
 # of the tool phase; a « merci » in a conversation with files must not.
 _EDIT_REQUEST = re.compile(
-    r"\b(?:modifi|chang|corrig|r[ée]par|ajout|rajout|remplac|supprim|enl[eè]v|retir|"
+    r"\b(?:modif|chang|corrig|r[ée]par|ajout|rajout|remplac|supprim|enl[eè]v|retir|"
     r"renomm|d[ée]plac|mets?\b|passe\b|am[ée]lior|optimis|refactor|r[ée][ée]cri|adapt|"
     r"fix|edit|updat|add|remov|delet|renam|replac|improv|rewrit|tweak|mov)"
     # Follow-up corrections carry no verb: « en fait pas traefik mais nginx
@@ -65,12 +65,26 @@ def parse_files(raw):
     return files
 
 
+# A clarifying questionnaire of the model (```ask block or {"questions": [...]}).
+_ASKED = re.compile(r'```ask\b|"questions"\s*:\s*\[')
+
+
 def edit_requested(history):
-    """Does the last user message ask to change something?"""
-    for m in reversed(history):
-        if m.get('role') == 'user':
-            return bool(_EDIT_REQUEST.search(str(m.get('content', ''))[:4000]))
-    return False
+    """Does the last user message ask to change something?
+
+    When the model answered the request with clarifying questions, the last
+    user message is only the ANSWERS (« npm », « oui ») — the change itself is
+    in the user message before the questionnaire, so that one counts too."""
+    turns = [m for m in history if m.get('role') in ('user', 'assistant')]
+    asks = lambda m: bool(_EDIT_REQUEST.search(str(m.get('content', ''))[:4000]))
+    if not turns or turns[-1].get('role') != 'user':
+        return False
+    if asks(turns[-1]):
+        return True
+    return (len(turns) >= 3
+            and turns[-2].get('role') == 'assistant'
+            and bool(_ASKED.search(str(turns[-2].get('content', ''))))
+            and turns[-3].get('role') == 'user' and asks(turns[-3]))
 
 
 def _file_tools():

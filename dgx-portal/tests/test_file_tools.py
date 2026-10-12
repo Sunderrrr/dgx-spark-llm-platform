@@ -130,6 +130,23 @@ class BoundsAndTriggerTest(unittest.TestCase):
         for t in ("merci !", "explique-moi ce code", "what does it do?"):
             self.assertFalse(ask(t), t)
 
+    def test_answers_to_clarifying_questions_keep_the_edit_request(self):
+        # Seen in production: « modifie le compose pour intégrer le network de
+        # mon npm » → the model asks a question → the answer alone (« npm »)
+        # turned the tools off and the files came back rewritten in full.
+        q = '```ask\n{"questions": [{"question": "Nom du réseau ?", "options": ["npm"]}]}\n```'
+        hist = [{'role': 'user', 'content': "tu peux me modif le compose pour le network de mon npm"},
+                {'role': 'assistant', 'content': q},
+                {'role': 'user', 'content': "npm"}]
+        self.assertTrue(file_tools.edit_requested(hist))
+        # Without a questionnaire in between, a bare « ok » is not a change.
+        hist[1] = {'role': 'assistant', 'content': "Voilà, c'est fait."}
+        self.assertFalse(file_tools.edit_requested(hist))
+        # Nor an answer to questions about a request that changed nothing.
+        hist = [{'role': 'user', 'content': "explique-moi garage"},
+                {'role': 'assistant', 'content': q}, {'role': 'user', 'content': "npm"}]
+        self.assertFalse(file_tools.edit_requested(hist))
+
     def test_edits_note_only_for_real_changes(self):
         self.assertEqual(file_tools.edits_note({'a': 'x'}, {'a': 'x'}), '')
         self.assertIn("Do NOT output these files again",

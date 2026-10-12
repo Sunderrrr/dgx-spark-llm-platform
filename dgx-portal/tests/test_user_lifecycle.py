@@ -36,9 +36,9 @@ except ImportError:                      # single module: tests.test_x
 import litellm_client
 import user_lifecycle
 
-TARGET_USER = 'ztest-cible'
+TARGET_USER = 'ztest-target'
 ADMIN = 'ztest-admin'
-DIRECTORY_USER = 'ztest-annuaire'
+DIRECTORY_USER = 'ztest-directory'
 MDP = 'MotDePasse123'
 
 
@@ -668,13 +668,13 @@ class PasswordPolicyTest(unittest.TestCase):
         self.assertIsNotNone(self._err('password123'))
 
     def test_username_in_password_refused(self):
-        self.assertIsNotNone(self._err('ztest-cible2026', 'ztest-cible'))
+        self.assertIsNotNone(self._err('ztest-target2026', 'ztest-target'))
 
     def test_repetitive_refused(self):
         self.assertIsNotNone(self._err('aaaaaaaaaaaa'))
 
     def test_correct_password_accepted(self):
-        self.assertIsNone(self._err('ChevalPileOrage42', 'ztest-cible'))
+        self.assertIsNone(self._err('ChevalPileOrage42', 'ztest-target'))
 
 
 class QuotaTest(AccountsBase):
@@ -744,7 +744,7 @@ class PasswordNotificationTest(unittest.TestCase):
             self.assertFalse(user_lifecycle.notify_password_changed(TARGET_USER))
 
     def test_unreachable_directory_does_not_raise(self):
-        with patch('auth.ldap_lookup_email', side_effect=RuntimeError('annuaire HS')):
+        with patch('auth.ldap_lookup_email', side_effect=RuntimeError('directory down')):
             self.assertFalse(
                 user_lifecycle._send_password_notification(TARGET_USER))
 
@@ -794,7 +794,7 @@ class PasswordNotificationTest(unittest.TestCase):
             self.assertTrue(user_lifecycle.notify_password_changed(TARGET_USER))
             elapsed = _time.time() - t0
             self.assertLess(elapsed, 0.5,
-                            f"la réponse a attendu l'annuaire ({elapsed:.2f} s)")
+                            f"the response waited for the directory ({elapsed:.2f} s)")
             for _ in range(60):                       # up to ~3 s
                 if seen:
                     break

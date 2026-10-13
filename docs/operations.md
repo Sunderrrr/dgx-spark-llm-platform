@@ -159,7 +159,7 @@ v0.5.0 binary A/B) are in
 
 ## Media sidecars
 
-OCR, video, image, music, voice and dictation run in separate containers, each
+OCR, video, image, voice and dictation run in separate containers, each
 with its own docker network and GPU slice, started by the admin or at first use
 and **absent from memory when idle** (one GPU cannot hold the chat model and
 several media models at once). They are **never exposed as separate public UIs**:
@@ -343,7 +343,7 @@ root** on the host (access to the docker socket + the 600 `.env`).
 
 Health endpoints (portal side): `GET /healthz` gives minimal **public** liveness
 `{ok, time}` (healthcheck / probe). `GET /api/health` gives aggregated
-**connected** state (`runner`, `litellm`, `chat`, `video/ocr/voice/image/music` as
+**connected** state (`runner`, `litellm`, `chat`, `video/ocr/voice/image` as
 `ready`/`on_demand`).
 
 ## After a reboot

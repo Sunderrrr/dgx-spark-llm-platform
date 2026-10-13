@@ -102,7 +102,7 @@ export type AdminUserDetail = {
   activity?: Activity | null;
   directory_status?: DirectoryStatus | null;
   /** Jobs per media page: how many, and the last one. */
-  media?: Record<"image" | "music" | "video" | "voice" | "ocr", { count: number; last: string | null }> | null;
+  media?: Record<"image" | "video" | "voice" | "ocr", { count: number; last: string | null }> | null;
   /** The account's last model requests. */
   model_requests?: { model_id: string; status: string; created_at: string }[] | null;
 };

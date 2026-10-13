@@ -3,7 +3,7 @@
 The web UI of the DGX Spark self-service LLM platform. Built with
 **Next.js 16** (App Router) and Meta's **Astryx** design system (React +
 StyleX). It owns the platform's public port (`:5000`) and covers every page:
-home, playground, OCR, video, image, music, voice, memory, keys, search,
+home, playground, OCR, video, image, voice, memory, keys, search,
 ranking, request, support, users, admin, login.
 
 Flask (`../dgx-portal/`) remains the authority for everything that matters —
@@ -124,7 +124,7 @@ app/
 │   │                              #   mic recording or file upload; page adapts to the loaded
 │   │                              #   engine; audio served by Flask at /voice/audio/<job id>
 │   ├── support/                   # streaming chat with the Support assistant (tool-calling)
-│   ├── image/, music/, memory/      # generation pages + the memory graph
+│   ├── image/, memory/      # generation pages + the memory graph
 │   ├── keys/, search/, ranking/, request/, users/, admin/
 │   └── _components/
 │       ├── SettingsDialog.tsx     # account/usage/keys/appearance/MCP/skills, incl. the language toggle

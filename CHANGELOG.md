@@ -19,6 +19,15 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Removed
+
+- **Music generation.** The `/music` page, its routes (`/api/music/*`,
+  `/music/file/*`, `/admin/music/*`), the `music` sidecar and its image, the
+  runner's `/music/*` endpoints, the scoped sudo rule, `music_net` and
+  `MUSIC_URL` are gone. Existing deployments drop the `music_jobs` table at the
+  next start; the generated tracks (`data/music_files`) and the host's
+  `music` container, image and model cache can be deleted by hand.
+
 ### Breaking (deployment)
 
 - **LDAP, SSO and SMTP are configured from the web only** (Admin → Config).

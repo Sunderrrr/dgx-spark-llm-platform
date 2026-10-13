@@ -1,7 +1,7 @@
 """Guards shared by the costly routes (maintenance, rate).
 
 Extracted from app.py on 28/08, with the media blueprints: video, image and
-music all call the same two guards, which lived in the monolith. Leaving
+voice all call the same two guards, which lived in the monolith. Leaving
 them there would have forced each blueprint to re-import app.py — the cycle
 we have avoided since db.py.
 
@@ -70,7 +70,7 @@ def media_block_json():
     """The TWO refusals that open any media generation: maintenance, then rate.
 
     Returns the response to send back, or None when the request can proceed.
-    The four media routes (image, music, video, voice) repeated these four
+    The media routes (image, video, voice) repeated these four
     lines identically; the ORDER — maintenance first — is a decision, which
     now has a single place to be reviewed.
     """
@@ -121,7 +121,7 @@ def _chat_rate_limited(username, bucket, max_requests=None, window=None):
 
 
 def media_rate_block():
-    """Rate guard for the expensive GPU endpoints (video/OCR/voice/image/music).
+    """Rate guard for the expensive GPU endpoints (video/OCR/voice/image).
     None goes through a LiteLLM key: the token budget therefore doesn't cap
     them, and each holds a gunicorn thread for up to 180 s while
     saturating the shared GPU. We bound the number of calls per user, as
@@ -154,9 +154,9 @@ def dictation_rate_block():
     return None
 
 
-# ── Async jobs (image/music): per-user concurrency bound ───────────────────
+# ── Async jobs (image): per-user concurrency bound ─────────────────────────
 # media_rate_block bounds the RATE (20/min), but each request creates a
-# daemon thread that blocks up to 600 s (image) / 1800 s (music) on the
+# daemon thread that blocks up to 600 s (image) on the
 # sidecar. Over several windows one account can thus stack threads that stay
 # hooked to the GPU. We bound the number of IN-FLIGHT jobs per account,
 # independently of the pace — the only real limit for a background thread.

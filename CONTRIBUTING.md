@@ -97,7 +97,7 @@ the cause, or say in the pull request why the check itself is wrong.
 Top level: `dgx-portal/` (Flask API), `dgx-portal-frontend/` (Next.js app),
 `vllm-runner/` (host model-lifecycle daemon), `systemd/` (units),
 `monitoring/` (host-side checks and backups), one directory per media sidecar
-(`ocr/`, `voice/`, `voice-qwen/`, `asr/`, `image-gen/`, `music/`),
+(`ocr/`, `voice/`, `voice-qwen/`, `asr/`, `image-gen/`),
 `scripts/` (developer tooling), `assets/` (README screenshots).
 The per-file module map is in [`README.md`](README.md#repository-layout).
 

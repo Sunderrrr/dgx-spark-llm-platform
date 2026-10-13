@@ -37,7 +37,6 @@ class CrossAuthorizationTest(unittest.TestCase):
     # A's identifiers, all chosen to be guessable by B.
     CONV_A = "zz-conv-a"
     IMG_A = "aaaaaaaaaaaaaaaa"
-    MUS_A = "bbbbbbbbbbbbbbbb"
     VID_A = "cccccccccccccccc"
     SID_A = "zz-sid-a"
     KEY_A = "sk-zz-cle-de-a"
@@ -74,9 +73,6 @@ class CrossAuthorizationTest(unittest.TestCase):
                     username=self.A, text=self.MARKER + "-voix",
                     audio_path="/tmp/zz-a.wav", audio_ms=1000,
                     created_at="2026-09-17T00:00:00"),
-                "music_jobs": dict(
-                    username=self.A, job_id=self.MUS_A, prompt=self.MARKER + "-musique",
-                    status="running", created_at="2026-09-17T00:00:00"),
                 "video_jobs": dict(
                     username=self.A, prompt_id=self.VID_A, prompt=self.MARKER + "-video",
                     status="running", created_at="2026-09-17T00:00:00"),
@@ -117,7 +113,7 @@ class CrossAuthorizationTest(unittest.TestCase):
             for u in (self.A, self.B):
                 for table in ("local_users", "user_sources", "api_keys", "user_sessions",
                               "conversations", "conversation_shares", "user_prefs",
-                              "image_jobs", "ocr_jobs", "voice_jobs", "music_jobs",
+                              "image_jobs", "ocr_jobs", "voice_jobs",
                               "video_jobs"):
                     try:
                         db.execute(f"DELETE FROM {table} WHERE username=?", (u,))
@@ -278,7 +274,7 @@ class CrossAuthorizationTest(unittest.TestCase):
 
     def test_b_cannot_see_a_jobs(self):
         for route in ("/api/image/history", "/api/ocr/history", "/api/voice/history",
-                      "/api/music/history", "/api/video/history"):
+                      "/api/video/history"):
             r = self.client_b.get(route)
             self.assertEqual(r.status_code, 200, route)
             self.assertNotIn(self.MARKER, r.get_data(as_text=True), route)
@@ -286,7 +282,6 @@ class CrossAuthorizationTest(unittest.TestCase):
     def test_b_cannot_cancel_a_jobs(self):
         calls = [
             ("/api/image/cancel/" + self.IMG_A, "image_jobs", "prompt_id", self.IMG_A),
-            ("/api/music/cancel/" + self.MUS_A, "music_jobs", "job_id", self.MUS_A),
             ("/api/video/cancel/" + self.VID_A, "video_jobs", "prompt_id", self.VID_A),
         ]
         for route, table, key, value in calls:
@@ -297,7 +292,6 @@ class CrossAuthorizationTest(unittest.TestCase):
 
     def test_b_cannot_read_a_statuses(self):
         for route in ("/api/image/status/" + self.IMG_A,
-                      "/api/music/status/" + self.MUS_A,
                       "/api/video/status/" + self.VID_A):
             r = self.client_b.get(route)
             self._refuse(r, f"GET {route}")
@@ -316,7 +310,6 @@ class CrossAuthorizationTest(unittest.TestCase):
             self._refuse(r, route)
         for route in (f"/ocr/image/{self.ids['ocr_jobs']}",
                       f"/voice/audio/{self.ids['voice_jobs']}",
-                      f"/music/file/{self.MUS_A}",
                       f"/video/file/{self.VID_A}"):
             r = self.client_b.get(route)
             self._refuse(r, f"GET {route}")

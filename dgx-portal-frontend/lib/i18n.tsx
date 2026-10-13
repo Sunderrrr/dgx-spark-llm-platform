@@ -109,7 +109,6 @@ const EN: Record<string, string> = {
   "Demander plus de budget": "Request more budget",
   "Annulé": "Cancelled",
   "Génération annulée.": "Generation cancelled.",
-  "Composition annulée.": "Composition cancelled.",
   "Impossible d'annuler.": "Could not cancel.",
   "Journal d'audit": "Audit log",
   "Acteur": "Actor",
@@ -135,7 +134,7 @@ const EN: Record<string, string> = {
   "Notifications": "Notifications",
   "Aucune notification": "No notifications",
   // Notification type coming from the server (layout.tsx); the raw type stays
-  // the fallback for any unknown type, and "Image"/"Musique" already exist elsewhere.
+  // the fallback for any unknown type, and "Image" already exists elsewhere.
   "Demande": "Request",
   "Rechercher une conversation": "Search conversations",
   "Épingler": "Pin",
@@ -620,8 +619,8 @@ const EN: Record<string, string> = {
     "The API speaks both OpenAI and Anthropic. In Settings → API keys, pick your tool (Claude Code, OpenCode, Cursor, Aider, cURL…): the configuration is generated with your key, ready to copy. Target the “auto-model” model and nothing needs changing when the admin switches models.",
   "Voir les intégrations": "See the integrations",
   "4. Besoin d'autre chose ?": "4. Need something else?",
-  "Image, voix, musique, OCR et vidéo ont chacun leur page. Si le modèle qu'il te faut n'est pas là, demande-le : un administrateur reçoit la demande et peut l'ajouter. Et le Support répond à tes questions sur la plateforme.":
-    "Image, voice, music, OCR and video each have their own page. If the model you need is missing, request it: an admin gets the request and can add it. And Support answers your questions about the platform.",
+  "Image, voix, OCR et vidéo ont chacun leur page. Si le modèle qu'il te faut n'est pas là, demande-le : un administrateur reçoit la demande et peut l'ajouter. Et le Support répond à tes questions sur la plateforme.":
+    "Image, voice, OCR and video each have their own page. If the model you need is missing, request it: an admin gets the request and can add it. And Support answers your questions about the platform.",
   "Aperçu": "Preview",
   "Code source": "Source code",
   "Affichage": "Display",
@@ -1104,31 +1103,9 @@ const EN: Record<string, string> = {
   "Aucun modèle image chargé": "No image model loaded",
   "La génération est indisponible pour l'instant, mais tu peux revoir tes images précédentes ci-dessous.": "Generation is unavailable for now, but you can review your previous images below.",
   "Logs à afficher": "Logs to show",
-  "Musique": "Music",
-  "Nombre de versions": "Number of versions",
-  "Composer {n} versions": "Compose {n} versions",
   "Version": "Version",
   "versions": "versions",
-  "Version {d} sur {n} — tu peux quitter la page, la composition continue.": "Version {d} of {n} — you can leave the page, composing continues.",
-  "Génération musicale": "Music generation",
-  "Une description de style et, si tu veux, des paroles → une chanson complète générée sur le GPU.": "A style description and, if you like, lyrics → a full song generated on the GPU.",
-  "Aucun modèle musique n'est disponible": "No music model is available",
-  "Demande à un admin de démarrer un modèle musique pour utiliser cette page.": "Ask an admin to start a music model to use this page.",
-  "Aucun modèle musique chargé": "No music model loaded",
-  "La génération est indisponible pour l'instant, mais tu peux réécouter tes morceaux précédents ci-dessous.": "Generation is unavailable for now, but you can replay your previous tracks below.",
-  "Décris la musique": "Describe the music",
-  "Ex : pop acoustique, 96 BPM, do majeur, voix féminine douce, guitare en arpèges, montée progressive vers le refrain.": "E.g. acoustic pop, 96 BPM, C major, soft female vocals, fingerpicked guitar, a gradual build into the chorus.",
-  "Paroles (optionnel)": "Lyrics (optional)",
-  "Utilise des balises de section : [Intro], [Couplet], [Refrain], [Pont], [Outro]. Sans paroles, le morceau sera instrumental.": "Use section tags: [Intro], [Verse], [Chorus], [Bridge], [Outro]. Without lyrics the track will be instrumental.",
   "Composer": "Compose",
-  "Composition en cours…": "Composing…",
-  "Morceau prêt.": "Track ready.",
-  "La composition d'un morceau prend plusieurs minutes — tu peux quitter la page, elle reste en cours.": "Composing a track takes several minutes — you can leave the page, it keeps running.",
-  "Service musique injoignable.": "Music service unreachable.",
-  "Modèle musique": "Music model",
-  "Identifiant HuggingFace (ex : MiniMaxAI/MiniMax-Music3)": "HuggingFace ID (e.g. MiniMaxAI/MiniMax-Music3)",
-  "Lancer un modèle musique": "Launch a music model",
-  "Le conteneur télécharge le modèle depuis HuggingFace au démarrage — le premier lancement peut prendre plusieurs minutes.": "The container downloads the model from HuggingFace on startup — the first launch can take several minutes.",
   "Année": "Year",
   "Tout": "All time",
   "12 derniers mois": "Last 12 months",
@@ -1526,7 +1503,6 @@ const EN: Record<string, string> = {
   // ── Home: media service cards (« Ouvrir » button) ──
   "Ouvrir le chat": "Open chat",
   "Ouvrir la génération d'image": "Open image generation",
-  "Ouvrir la génération musicale": "Open music generation",
   // ── Support: dynamic home, confirmation of a sensitive action,
   //    stream stop, restored thread and votes ──
   "Pourquoi le modèle est-il arrêté ?": "Why is the model stopped?",
@@ -1851,8 +1827,6 @@ const EN: Record<string, string> = {
   "Enregistrement trop court.": "Recording too short.",
   "Enregistrement trop long ({dur}s, maximum {max}s).": "Recording too long ({dur}s, maximum {max}s).",
   "Enregistrement refusé.": "Recording refused.",
-  "Une description musicale est requise.": "A music description is required.",
-  "Aucun modèle musique configuré.": "No music model configured.",
   "Trop de générations en cours. Attends la fin des précédentes.":
     "Too many generations in progress. Wait for the previous ones to finish.",
   "Trop de générations d'images en cours. Attends la fin des précédentes.":

@@ -64,7 +64,7 @@ def log_audit(username, action, detail):
 
 def add_notification(username, kind, title, max_per_user=50):
     """Creates an in-app notification (dedicated connection, usable outside a
-    request — even from a thread worker). `kind` = 'image'|'music'|'request'|...
+    request — even from a thread worker). `kind` = 'image'|'request'|...
     We bound the history per user so the database does not bloat."""
     try:
         c = sqlite3.connect(DB_PATH, timeout=5)
@@ -400,17 +400,6 @@ def init_db():
             duration_ms     INTEGER,
             created_at      TEXT NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS music_jobs (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            username    TEXT NOT NULL,
-            job_id      TEXT NOT NULL,
-            prompt      TEXT NOT NULL,
-            lyrics      TEXT,
-            duration_s  INTEGER,
-            status      TEXT NOT NULL DEFAULT 'running',
-            duration_ms INTEGER,
-            created_at  TEXT NOT NULL
-        );
         CREATE TABLE IF NOT EXISTS ocr_jobs (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             username   TEXT NOT NULL,
@@ -435,7 +424,6 @@ def init_db():
         -- DESC LIMIT n) and purged with the same shape; an index on the leading
         -- username column turns what was a full scan into an indexed range lookup.
         CREATE INDEX IF NOT EXISTS idx_image_jobs_user   ON image_jobs(username, id);
-        CREATE INDEX IF NOT EXISTS idx_music_jobs_user   ON music_jobs(username, id);
         CREATE INDEX IF NOT EXISTS idx_video_jobs_user   ON video_jobs(username, id);
         CREATE INDEX IF NOT EXISTS idx_voice_jobs_user   ON voice_jobs(username, id);
         CREATE INDEX IF NOT EXISTS idx_ocr_jobs_user     ON ocr_jobs(username, id);
@@ -602,13 +590,9 @@ def init_db():
     ocr_cols = {r[1] for r in db.execute("PRAGMA table_info(ocr_jobs)")}
     if 'image_path' not in ocr_cols:
         db.execute("ALTER TABLE ocr_jobs ADD COLUMN image_path TEXT")
-    # Several versions of one piece (files <job_id>_<idx>.wav): same principle
-    # as images — count = requested, done_count = already produced.
-    _mj = {r[1] for r in db.execute("PRAGMA table_info(music_jobs)")}
-    if 'count' not in _mj:
-        db.execute("ALTER TABLE music_jobs ADD COLUMN count INTEGER NOT NULL DEFAULT 1")
-    if 'done_count' not in _mj:
-        db.execute("ALTER TABLE music_jobs ADD COLUMN done_count INTEGER NOT NULL DEFAULT 0")
+    # Music generation was removed (2026-10-13): its history goes with it.
+    db.execute("DROP TABLE IF EXISTS music_jobs")
+    db.execute("DELETE FROM notifications WHERE kind='music'")
     # Batch image generation: N variations per prompt (files <prompt_id>_<idx>.png).
     # count = requested, done_count = produced so far (progressive display).
     _ij = {r[1] for r in db.execute("PRAGMA table_info(image_jobs)")}

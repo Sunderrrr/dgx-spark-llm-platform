@@ -105,11 +105,11 @@ class MediaRequestRouteTest(unittest.TestCase):
         # the 2nd is refused (429) regardless of the frontend lock
         # (reset on navigation).
         c = self._client("demo")
-        r1 = c.post("/api/model/request", json={"category": "music"},
+        r1 = c.post("/api/model/request", json={"category": "video"},
                     headers={"X-CSRFToken": "tok"})
         self.assertEqual(r1.status_code, 200)
-        self.assertEqual(self.calls, [("music", "demo", "")])
-        r2 = c.post("/api/model/request", json={"category": "music"},
+        self.assertEqual(self.calls, [("video", "demo", "")])
+        r2 = c.post("/api/model/request", json={"category": "video"},
                     headers={"X-CSRFToken": "tok"})
         self.assertEqual(r2.status_code, 429)
         self.assertEqual(len(self.calls), 1)

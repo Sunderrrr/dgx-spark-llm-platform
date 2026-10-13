@@ -55,13 +55,11 @@ export type AdminData = {
   image_status: string;
   image_model_name: string | null;
   image_model_ids: string[];
-  music_status: string;
-  music_model_name: string | null;
   ocr_cfgs: OcrCfg[];
   voice_cfgs: VoiceCfg[];
 };
 
-export type CatalogKind = "llm" | "ocr" | "voice" | "video" | "image" | "music";
+export type CatalogKind = "llm" | "ocr" | "voice" | "video" | "image";
 
 /** Result of an admin action, as the backend now answers it:
  * {ok: false, error} on refusal, {ok: true, message?, warning?} otherwise. */

@@ -60,8 +60,8 @@ all checked against the real routes):
 
 - `/admin/settings`, `/api/memory/facts`, `/api/memory/enabled` are **POST-only**
   (405 is right for a GET).
-- `budget/set` takes `budget`. `music/generate` takes `prompt`. `model/request`
-  takes JSON with a **media** category (`image`/`music`/`video`/`ocr`/`voice`).
+- `budget/set` takes `budget`. `model/request`
+  takes JSON with a **media** category (`image`/`video`/`ocr`/`voice`).
 - `account/delete` with a bad confirmation answers **409** « Confirmation
   requise » with the inventory of what would be lost.
 - Errors that must reach the user are never **502**: Cloudflare replaces the body

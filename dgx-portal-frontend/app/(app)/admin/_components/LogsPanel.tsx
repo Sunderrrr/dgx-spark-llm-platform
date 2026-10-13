@@ -27,7 +27,7 @@ import { useT } from "@/lib/i18n";
 import { useStickToBottom } from "@/lib/useStickToBottom";
 import { copyText } from "@/lib/clipboard";
 
-export type LogKind = "llm" | "ocr" | "voice" | "asr" | "image" | "music" | "video";
+export type LogKind = "llm" | "ocr" | "voice" | "asr" | "image" | "video";
 
 export function LogsPanel({ model, logKind, onLogKindChange, logs, sidecarLogs }: {
   /** Served chat model, for the title of the "llm" tab. */
@@ -114,7 +114,6 @@ export function LogsPanel({ model, logKind, onLogKindChange, logs, sidecarLogs }
               <SegmentedControlItem value="voice" label={t("Voix")} />
               <SegmentedControlItem value="asr" label={t("Dictée")} />
               <SegmentedControlItem value="image" label={t("Image")} />
-              <SegmentedControlItem value="music" label={t("Musique")} />
               <SegmentedControlItem value="video" label={t("Vidéo")} />
             </SegmentedControl>
             <Button

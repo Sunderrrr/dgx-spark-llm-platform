@@ -1,7 +1,7 @@
 """Guards of the media routes: maintenance first, rate second.
 
-Written on 2026-09-17 along with the grouping of the four identical
-preambles (image, music, video, voice) into `guards.media_block_json`: this
+Written on 2026-09-17 along with the grouping of the identical
+preambles (image, video, voice) into `guards.media_block_json`: this
 path had NO test, so nothing proved the refactor kept the refusal order nor
 the status codes. A guard refusal must never let the request through (the
 sidecar saturates the shared GPU).
@@ -14,9 +14,8 @@ from unittest.mock import patch
 import app as portal
 from db import set_setting
 
-# The four media generation routes, all behind the same guard.
-ROUTES = ('/api/image/generate', '/api/music/generate',
-          '/api/video/generate', '/api/voice/generate')
+# The media generation routes, all behind the same guard.
+ROUTES = ('/api/image/generate', '/api/video/generate', '/api/voice/generate')
 
 
 class _BaseMedia(unittest.TestCase):

@@ -3,7 +3,7 @@
 Extracted from app.py on 28/08, from the « Helpers » banner.
 
 The availability PROBES (get_ocr_model, get_voice_model, asr_is_up,
-image_ready, get_image_model, music_ready, get_music_model) live here and
+image_ready, get_image_model) live here and
 not in the corresponding blueprints. I first put them there, wrongly: a
 sidecar is probed independently of its routes, and leaving them there
 created a CROSS dependency (sidecars needs the probes, the routes need
@@ -26,7 +26,7 @@ from flask import current_app, jsonify, session
 
 from announcements import _announce_launch
 from comfyui_client import comfyui_is_up
-from config import (ASR_URL, IMAGE_URL, MUSIC_URL, OCR_URL, RUNNER_TOKEN,
+from config import (ASR_URL, IMAGE_URL, OCR_URL, RUNNER_TOKEN,
                     RUNNER_URL, VOICE_URL)
 from db import log_audit, set_setting
 from litellm_client import _point_auto_model, _register_litellm_model
@@ -233,22 +233,6 @@ def image_ready():
 def get_image_model():
     try:
         r = requests.get(f"{IMAGE_URL}/model-info", timeout=_PROBE_TIMEOUT)
-        if r.ok:
-            return r.json().get('model')
-    except Exception:
-        pass
-    return None
-
-def music_ready():
-    try:
-        r = requests.get(f"{MUSIC_URL}/health", timeout=3)
-        return bool(r.ok and r.json().get('ready'))
-    except Exception:
-        return False
-
-def get_music_model():
-    try:
-        r = requests.get(f"{MUSIC_URL}/model-info", timeout=_PROBE_TIMEOUT)
         if r.ok:
             return r.json().get('model')
     except Exception:
@@ -546,7 +530,6 @@ def _sidecar_status(kind):
              else get_voice_model() is not None if kind == 'voice'
              else asr_is_up() if kind == 'asr'
              else image_ready() if kind == 'image'
-             else music_ready() if kind == 'music'
              else False)
     if ready:
         return 'running'
@@ -580,11 +563,7 @@ def _mem_available_gb():
 # higher threshold to keep a real cushion. The chat model's memory is,
 # itself, frozen at launch (KV pre-allocated), so once a sidecar is loaded
 # the whole is stable — that's what makes these thresholds reliable.
-# 'music' covers the sidecar's default mode: 8-bit quantization of the two
-# big LLMs (~24 Go in bf16 → ~13 Go). Overridable by env if the sidecar goes
-# back to full precision (MUSIC_QUANT=none) or 4-bit.
-_SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5, 'image': 40,
-                        'music': int(os.environ.get('MUSIC_MEM_NEED_GB', 15))}
+_SIDECAR_MEM_NEED_GB = {'ocr': 20, 'video': 28, 'voice': 15, 'asr': 5, 'image': 40}
 
 def _mem_guard(kind):
     """Return an error message if starting `kind` risks an OOM, otherwise None."""
@@ -1027,19 +1006,6 @@ def _image_launch(model_id):
     """
     try:
         r = requests.post(f"{RUNNER_URL}/image/launch", headers=_runner_headers(),
-                          json={'model_id': model_id}, timeout=180)
-        return r.ok, refusal_reason(r)
-    except Exception as e:
-        return False, str(e)
-
-# Music models: free HuggingFace id (like OCR), the shape is validated
-# here AND on the runner side before any sudo call.
-_HF_ID_RE = re.compile(r'^[A-Za-z0-9][\w.-]{0,60}/[A-Za-z0-9][\w.-]{0,80}$')
-
-def _music_launch(model_id):
-    """Recreates the music container with another HF model."""
-    try:
-        r = requests.post(f"{RUNNER_URL}/music/launch", headers=_runner_headers(),
                           json={'model_id': model_id}, timeout=180)
         return r.ok, refusal_reason(r)
     except Exception as e:

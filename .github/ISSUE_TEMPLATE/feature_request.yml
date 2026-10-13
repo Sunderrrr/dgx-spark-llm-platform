@@ -19,7 +19,7 @@ body:
         - Playground
         - Support assistant (/support)
         - Memory
-        - A media page (OCR, voice, video, image, music)
+        - A media page (OCR, voice, video, image)
         - Model lifecycle / runner
         - Deployment and operations
         - Documentation

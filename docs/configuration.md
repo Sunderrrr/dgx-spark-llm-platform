@@ -55,7 +55,6 @@ it belongs to Postgres and LiteLLM.
 | `VOICE_URL` | Internal URL of the voice container (default `http://voice:8004`) |
 | `ASR_URL` | Internal URL of the Whisper transcription container (default `http://asr:8006`) |
 | `IMAGE_URL` | Internal URL of the text-to-image container (default `http://image:8007`) |
-| `MUSIC_URL` | Internal URL of the text-to-music container (default `http://music:8008`) |
 | `COMFYUI_URL` | Internal URL of the ComfyUI video backend (default `http://host.docker.internal:8188`) |
 | `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.example.org/v1`) |
 | `SESSION_COOKIE_SECURE` | `1` behind an HTTPS proxy (Traefik), `0` for plain-HTTP LAN |

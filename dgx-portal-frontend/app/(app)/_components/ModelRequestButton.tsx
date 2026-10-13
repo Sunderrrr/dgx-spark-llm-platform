@@ -11,7 +11,7 @@ import { useCsrf } from "@/lib/useCsrf";
 import { sendJSON } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
-type MediaCategory = "image" | "music" | "video" | "ocr" | "voice";
+type MediaCategory = "image" | "video" | "ocr" | "voice";
 type Req = { ok?: boolean; error?: { message?: string }; retry_after?: number; email_sent?: boolean };
 
 /**

@@ -52,7 +52,7 @@ const STEPS: Step[] = [
     icon: SparklesIcon,
     title: "4. Besoin d'autre chose ?",
     body:
-      "Image, voix, musique, OCR et vidéo ont chacun leur page. Si le modèle qu'il te faut n'est pas là, demande-le : un administrateur reçoit la demande et peut l'ajouter. Et le Support répond à tes questions sur la plateforme.",
+      "Image, voix, OCR et vidéo ont chacun leur page. Si le modèle qu'il te faut n'est pas là, demande-le : un administrateur reçoit la demande et peut l'ajouter. Et le Support répond à tes questions sur la plateforme.",
     action: { label: "Demander un modèle", kind: "request" },
   },
 ];

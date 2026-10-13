@@ -1,5 +1,5 @@
 # Docker log rotation (audit of 2026-10-02): with no cap, a log grows until it
-# fills the disk. Observed outside compose (music 696 MB, traefik 172 MB, no
+# fills the disk. Observed outside compose (a sidecar at 696 MB, traefik 172 MB, no
 # /etc/docker/daemon.json) and growing here too. The anchor avoids copying four
 # lines six times; max-size is PER container, not global.
 x-logging: &logging
@@ -300,7 +300,6 @@ services:
       voice_net: {}
       asr_net: {}
       image_net: {}
-      music_net: {}
       web_net: {}
 
   # ─── DGX Portal Frontend — Next.js + Astryx, full new UI ───────────────────
@@ -409,10 +408,6 @@ networks:
   # a user prompt into third-party model code, isolated from litellm/postgres.
   # Only dgx-portal reaches it (IMAGE_URL=http://image:8007).
   image_net:
-  # Music generation (MiniMax-Music3 & co, diffusers): same, and all the more so
-  # since the model is freely chosen from the admin — arbitrary third-party
-  # model code has no business on the litellm/postgres network.
-  music_net:
   # Web search: this is the MOST exposed sidecar of the machine — crawl4ai
   # drives a browser visiting arbitrary pages, i.e. content entirely controlled
   # by third parties, and SearXNG queries external engines. Neither has the

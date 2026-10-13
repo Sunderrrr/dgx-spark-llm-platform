@@ -40,12 +40,11 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
   const [newOcr, setNewOcr] = useState({ name: "", hf_model_id: "", vllm_args: "" });
   const [newVoice, setNewVoice] = useState({ name: "", repo_id: "Qwen3-TTS-12Hz-1.7B-Base" });
   const [catalogKind, setCatalogKind] = useState<CatalogKind>("llm");
-  const [musicModel, setMusicModel] = useState("MiniMaxAI/MiniMax-Music3");
   // Catalog filter: the catalog grows, so the entries are matched on their
   // name AND on their identifier (hf_model_id / repo_id / image model id),
   // case-insensitively. It covers every kind that holds entries (LLM, OCR,
-  // voice, image); the music launcher and the video notice are not a list,
-  // so those two have nothing to filter.
+  // voice, image); the video notice is not a list, so it has nothing to
+  // filter.
   const [catalogFilter, setCatalogFilter] = useState("");
 
   const st = data?.v_status.status;
@@ -222,27 +221,6 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                 </Text>
               </VStack>
             </Card>
-            <Card>
-              <VStack gap={2}>
-                <HStack hAlign="between" vAlign="center" gap={2}>
-                  <HStack gap={2} vAlign="center">
-                    <StatusDot
-                      variant={SIDECAR_VARIANT[data.music_status] ?? "error"}
-                      label={t(SIDECAR_LABEL[data.music_status] ?? "Injoignable")}
-                    />
-                    <Text weight="semibold">{t("Musique")}</Text>
-                  </HStack>
-                  {data.music_status === "running" || data.music_status === "starting" ? (
-                    <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/music/stop")} />
-                  ) : (
-                    <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/music/start")} />
-                  )}
-                </HStack>
-                <Text type="supporting" color="secondary" wordBreak="break-all">
-                  {data.music_model_name || t("aucun modèle")}
-                </Text>
-              </VStack>
-            </Card>
           </Grid>
         )}
       </VStack>
@@ -263,7 +241,6 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
             <SegmentedControlItem value="ocr" label="OCR" />
             <SegmentedControlItem value="voice" label={t("Voix")} />
             <SegmentedControlItem value="image" label={t("Image")} />
-            <SegmentedControlItem value="music" label={t("Musique")} />
             <SegmentedControlItem value="video" label={t("Vidéo")} />
           </SegmentedControl>
         </HStack>
@@ -427,35 +404,6 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                 <Text type="supporting" color="secondary">
                   {t("Les poids image (gated, ~35 Go) se téléchargent côté hôte puis s'ajoutent à la liste blanche — même principe que l'OCR/voix. Lance ensuite le modèle ci-contre.")}
                 </Text>
-              </VStack>
-            </Card>
-          </Grid>
-        )}
-
-        {data && catalogKind === "music" && (
-          <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
-            <Card>
-              <VStack gap={2}>
-                <Text type="supporting" color="secondary">{t("Lancer un modèle musique")}</Text>
-                <TextInput
-                  label={t("Modèle musique")}
-                  isLabelHidden
-                  value={musicModel}
-                  onChange={setMusicModel}
-                  placeholder={t("Identifiant HuggingFace (ex : MiniMaxAI/MiniMax-Music3)")}
-                  size="sm"
-                />
-                <Text type="supporting" color="secondary">
-                  {t("Le conteneur télécharge le modèle depuis HuggingFace au démarrage — le premier lancement peut prendre plusieurs minutes.")}
-                </Text>
-                <Button
-                  label={t("Lancer")}
-                  variant="primary"
-                  size="sm"
-                  icon={<Icon icon={PlayIcon} size="sm" />}
-                  isDisabled={actionDisabled}
-                  onClick={() => act("/admin/music/launch", { model_id: musicModel.trim() })}
-                />
               </VStack>
             </Card>
           </Grid>

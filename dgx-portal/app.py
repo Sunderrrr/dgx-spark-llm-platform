@@ -154,7 +154,7 @@ from config import (  # noqa: E402
     AUTO_MODEL_NAME, AVATAR_IDS, AVATAR_LABELS, LANGS, THEME_IDS, VLLM_API_BASE,
     LITELLM_URL, LITELLM_KEY, VLLM_API,
     RUNNER_URL, RUNNER_TOKEN, COMFYUI_URL, OCR_URL,
-    VOICE_URL, ASR_URL, MUSIC_URL, DISCORD_API,
+    VOICE_URL, ASR_URL, DISCORD_API,
     KEY_BUDGET, KEY_DURATION, PUBLIC_API_URL, PUBLIC_WEB_URL, LITELLM_DB_URL,
     MEDIA_REQUEST_COOLDOWN_S,
     LOCAL_TZ,
@@ -211,13 +211,12 @@ from announcements import _announce_launch, add_announcement  # noqa: E402
 
 # Runner and sidecars (state, launch, logs, probes): see sidecars.py
 from sidecars import (  # noqa: E402
-    _drop_log_noise, _image_launch, _mem_guard, _music_launch, _ocr_launch,
+    _drop_log_noise, _image_launch, _mem_guard, _ocr_launch,
     _runner_headers, _sidecar_action, _sidecar_proc_status, _sidecar_start_json,
     VOICE_REPO_IDS, _sidecar_status, _voice_launch, get_image_model,
-    get_music_model,
-    get_ocr_model, get_voice_model, image_ready, music_ready, runner_launch,
+    get_ocr_model, get_voice_model, image_ready, runner_launch,
     runner_logs, runner_metrics, runner_status, runner_stop,
-    IMAGE_MODEL_IDS, _HF_ID_RE, _LOG_NOISE_RE,
+    IMAGE_MODEL_IDS, _LOG_NOISE_RE,
 )
 
 # ── ComfyUI (MiniMax H3 video generation) ────────────────────────────────────
@@ -321,10 +320,6 @@ from video_routes import bp as video_bp  # noqa: E402
 # ── Image generation (diffusers sidecar) ──
 # Blueprint: see image_routes.py (28/08).
 from image_routes import bp as image_bp  # noqa: E402  (get_image_model/image_ready already imported from sidecars)
-
-# ── Music (diffusers sidecar) ──
-# Blueprint: see music_routes.py (28/08).
-from music_routes import bp as music_bp  # noqa: E402  (get_music_model/music_ready already imported from sidecars)
 
 # ── OCR ──────────────────────────────────────────────────────────────────────
 # Blueprint: see ocr_routes.py (28/08). Boundary redrawn — see its docstring.
@@ -850,13 +845,11 @@ def _running_and_metrics():
             'ocr': _probes.submit(get_ocr_model),
             'comfy': _probes.submit(comfyui_is_up),
             'image': _probes.submit(image_ready),
-            'music': _probes.submit(music_ready),
             'voice': _probes.submit(get_voice_model),
             # The MODEL names and the per-sidecar metrics are probes too: left
             # behind, they kept the first call at 3.1 s (measured) even with the
             # availability checks running in parallel.
             'image_model': _probes.submit(_probe, get_image_model),
-            'music_model': _probes.submit(_probe, get_music_model),
             'm_ocr': _probes.submit(_probe, _sidecar_metrics, 'ocr'),
             'm_video': _probes.submit(_probe, _sidecar_metrics, 'video'),
             'm_voice': _probes.submit(_probe, _sidecar_metrics, 'voice'),
@@ -873,8 +866,6 @@ def _running_and_metrics():
         metrics['video'] = _results['m_video']
     if _results['image']:
         running.append({'name': _results['image_model'] or 'Image', 'kind': 'image', 'exposed': False})
-    if _results['music']:
-        running.append({'name': _results['music_model'] or 'Musique', 'kind': 'music', 'exposed': False})
     voice_model = _results['voice']
     if voice_model:
         _vlabel = 'Qwen3-TTS' if get_voice_engine() == 'qwen3-tts' else 'Chatterbox'
@@ -1121,7 +1112,6 @@ def api_health():
             'ocr': {'ready': bool(get_ocr_model()), 'on_demand': True},
             'voice': {'ready': bool(get_voice_model()), 'on_demand': True},
             'image': {'ready': bool(image_ready()), 'on_demand': True},
-            'music': {'ready': bool(music_ready()), 'on_demand': True},
         },
         'time': int(time.time()),
     })
@@ -1189,7 +1179,7 @@ def api_home():
 @login_required
 def api_running_models():
     """Only « what runs right now ». The media pages (image, video, voice,
-    music, OCR) read nothing else, yet fetched the whole /api/home on every
+    OCR) read nothing else, yet fetched the whole /api/home on every
     visit: spend aggregates, LiteLLM budget lookup, runner metrics — up to
     700 ms measured on 2026-10-11 against ~5 ms for this list."""
     running, _ = _running_and_metrics()
@@ -1236,7 +1226,7 @@ def api_pending_count():
 # A "request" only makes sense if NO model of the category is loaded:
 # otherwise the button is pointless (the page already allows generating).
 _MEDIA_CATEGORIES = {
-    'image', 'music', 'video', 'ocr', 'voice',
+    'image', 'video', 'ocr', 'voice',
 }
 
 
@@ -1245,8 +1235,6 @@ def _media_category_running(category):
     _index_data, to avoid duplicating the notion of « disponible »)."""
     if category == 'image':
         return image_ready()
-    if category == 'music':
-        return music_ready()
     if category == 'video':
         return comfyui_is_up()
     if category == 'ocr':
@@ -1628,7 +1616,6 @@ def request_model():
 app.register_blueprint(admin_bp)
 app.register_blueprint(video_bp)
 app.register_blueprint(image_bp)
-app.register_blueprint(music_bp)
 app.register_blueprint(ocr_bp)
 app.register_blueprint(voice_bp)
 app.register_blueprint(voice_chat_bp)

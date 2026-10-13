@@ -22,7 +22,7 @@ body:
         - Playground (chat, dictation, web search)
         - Support assistant (/support)
         - Memory
-        - A media page (OCR, voice, video, image, music)
+        - A media page (OCR, voice, video, image)
         - Model lifecycle (launch, stop, auto-resume, vllm-runner)
         - Deployment (install, systemd, Docker, Traefik)
         - Documentation

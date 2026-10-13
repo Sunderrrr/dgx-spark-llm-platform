@@ -17,7 +17,7 @@ Three things happen here, and NONE was done before 2026-09-13:
 
 The audit log (`audit_log`) is NOT purged: it is the trace of admin
 actions, and it must outlive the account it concerns. The generated media
-files (image/music/voice) are not deleted here either: the backup
+files (image/voice) are not deleted here either: the backup
 script's orphan purge handles them, with its 7-day grace — deleting the
 jobs is enough to orphan them.
 """
@@ -53,7 +53,6 @@ PURGED_TABLES = (
     'memory_edges',
     'memory_nodes',
     'model_requests',
-    'music_jobs',
     'notifications',
     'ocr_jobs',
     'pending_actions',
@@ -73,7 +72,7 @@ PURGED_TABLES = (
     'webauthn_credentials',
 )
 
-_JOBS_MEDIA = ('image_jobs', 'music_jobs', 'ocr_jobs', 'video_jobs', 'voice_jobs')
+_JOBS_MEDIA = ('image_jobs', 'ocr_jobs', 'video_jobs', 'voice_jobs')
 
 
 def _account(table, username, column='username'):

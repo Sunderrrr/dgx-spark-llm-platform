@@ -40,7 +40,6 @@ PORTAL_VOLUME = "/var/lib/docker/volumes/ai-platform_portal_data/_data"
 PORTAL_DATA_IN_CONTAINER = "/app/data"
 PORTAL_CONTAINER = "dgx-portal"
 ORPHAN_DIRS = [("image_files", "image_jobs", "prompt_id"),
-               ("music_files", "music_jobs", "job_id"),
                # video_files was missing (audit of 2026-10-02): videos piled
                # up unbounded (10 to 100 MB per job) while the table itself was
                # properly purged to 10 rows per account.

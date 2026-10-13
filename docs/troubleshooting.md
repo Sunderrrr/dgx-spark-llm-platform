@@ -20,7 +20,7 @@ measurement history, the operating guide kept on the machine
   (130.6 GB) usable, and that is the number `free` prints — the measurements in
   these docs quote it ("99 GB out of 121"), so a headroom calculation must not
   mix the two. Only **one chat model** runs at a time. OCR, video (ComfyUI), ASR,
-  voice, image and music are separate **on-demand** sidecars (started at first
+  voice and image are separate **on-demand** sidecars (started at first
   use, absent from memory when idle — hence not probed by the monitor). If a
   launch OOMs, **stop a sidecar from Admin** — don't shrink the chat model's
   context.

@@ -264,7 +264,7 @@ def _support_tools(is_admin):
             {"type": "function", "function": {
                 "name": "read_logs",
                 "description": ("(Admin) Lit la fin des logs d'un service (model, litellm, ocr, video, "
-                                "voice, asr, image, music). Les logs ne sont PAS dans ton "
+                                "voice, asr, image). Les logs ne sont PAS dans ton "
                                 "contexte : appelle cet outil quand un service ne répond pas — "
                                 "la cause exacte (erreur de chargement, OOM, dépendance absente) "
                                 "y est écrite. Lecture seule, aucun effet de bord."),
@@ -277,7 +277,7 @@ def _support_tools(is_admin):
             {"type": "function", "function": {
                 "name": "manage_service",
                 "description": ("(Admin) Démarre, redémarre ou arrête un service de la plateforme "
-                                "(ocr, video, voice, asr, image, music). À utiliser quand un "
+                                "(ocr, video, voice, asr, image). À utiliser quand un "
                                 "service est arrêté, en échec ou bloqué au démarrage : l'outil "
                                 "renvoie son nouvel état. Confirmer avant."),
                 "parameters": {"type": "object", "properties": {
@@ -435,7 +435,7 @@ def _exec_support_tool(name, args, username, fullname, is_admin):
 # Services the Support can inspect and act on: the media sidecars (started on
 # demand) plus the video backend. Their state is what « ça ne marche pas »
 # means before anyone opens a shell.
-SERVICE_KINDS = ('ocr', 'video', 'voice', 'asr', 'image', 'music')
+SERVICE_KINDS = ('ocr', 'video', 'voice', 'asr', 'image')
 # « model » = the runner's own buffer (the served chat model), the rest = the
 # sidecars. Same vocabulary as SERVICE_KINDS plus the model itself.
 # « model » = the runner's own buffer (the served chat model), « litellm » =

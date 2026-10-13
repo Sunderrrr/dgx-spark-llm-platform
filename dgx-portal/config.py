@@ -28,7 +28,6 @@ OCR_URL       = os.environ.get('OCR_URL', 'http://ocr:8000/v1')
 VOICE_URL     = os.environ.get('VOICE_URL', 'http://voice:8004')
 # Transcription (dictation) — same.
 ASR_URL       = os.environ.get('ASR_URL', 'http://asr:8006')
-MUSIC_URL     = os.environ.get('MUSIC_URL', 'http://music:8008')
 # Image sidecar: was declared in the monolith's image section, although it is
 # a service URL like the others — and sidecars.py needs it.
 IMAGE_URL = os.environ.get('IMAGE_URL', 'http://image:8007')

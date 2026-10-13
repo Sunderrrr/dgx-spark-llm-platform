@@ -74,7 +74,6 @@ PAGES = [
     ("voice", "/voice"),
     ("video", "/video"),
     ("image", "/image"),
-    ("music", "/music"),
     ("memory", "/memory"),
     ("search", "/search"),
     ("request", "/request"),
@@ -102,7 +101,7 @@ SENSITIVE = (r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}"
 # publishing that instead of a demo would be a regression. So we keep the
 # published capture as long as no media model is loaded; `screenshots.py ocr`
 # forces the shot when one of them is running.
-MEDIA = {"ocr", "voice", "video", "image", "music"}
+MEDIA = {"ocr", "voice", "video", "image"}
 SKIP_REFRESH = MEDIA          # a media page is only captured with its backend
 
 # Internal pages: never published (they list accounts, see .gitignore), so
@@ -142,7 +141,7 @@ def media_ready(page):
     knows which answers (the one the Admin shows)."""
     return page.evaluate("""() => fetch('/api/health').then(r => r.json())
         .then(d => Object.entries(d.services || {})
-          .filter(([k, v]) => ['ocr', 'voice', 'video', 'image', 'music'].includes(k)
+          .filter(([k, v]) => ['ocr', 'voice', 'video', 'image'].includes(k)
                             && v && v.ready)
           .map(([k]) => k))""")
 
@@ -360,7 +359,7 @@ def verify(folder="assets"):
         "playground": [r"LiteLLM|platform"],
         "support": [r"assistant", r"message"],
         "ocr": [r"OCR"], "voice": [r"Voice"], "video": [r"Video"],
-        "image": [r"Image"], "music": [r"Music"],
+        "image": [r"Image"],
         "memory": [r"Memor"], "search": [r"model"], "request": [r"Request"],
         "admin": [r"Logs", r"Add a model"],
         "users": [r"User"],
@@ -377,7 +376,7 @@ def verify(folder="assets"):
     # from the repo (README → Screenshots). Missing = normal, not a failure; as
     # soon as a new capture exists, it goes through the same checks as the
     # others, empty-state guard included.
-    removed = {"voice", "music"}
+    removed = {"voice"}
     ko = 0
     for name, marks in expected.items():
         path = f"{folder}/{name}.png"

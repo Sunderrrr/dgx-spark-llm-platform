@@ -188,7 +188,7 @@ export function UserDetailDialog({
                     <VStack gap={2}>
                       <Text weight="semibold">{t("Médias")}</Text>
                       {([
-                        ["image", "Images"], ["music", "Musique"], ["video", "Vidéo"],
+                        ["image", "Images"], ["video", "Vidéo"],
                         ["voice", "Voix"], ["ocr", "OCR"],
                       ] as const).map(([k, label]) => {
                         const m = detail.media![k];

@@ -9,7 +9,7 @@ Account and login behaviour lives in [authentication](authentication.md).
 | [Account security](authentication.md) | Settings ▸ Security | passkeys, active sessions (IP, device), change your own password |
 | [Playground](#playground) | `/playground` | streaming chat with the active model, attachments, dictation, web search |
 | [Memory](#memory) | Settings ▸ Memory | knowledge graph of what the assistant knows about you — on by default, opt out any time |
-| [Media pages](#media-pages) | `/ocr` `/video` `/image` `/music` `/voice` | OCR, video, image, music, voice cloning |
+| [Media pages](#media-pages) | `/ocr` `/video` `/image` `/voice` | OCR, video, image, voice cloning |
 | [Support](#support-assistant) | `/support` | an assistant that can act on your account |
 | [Find a model](#find-a-model) | `/search` | live Hugging Face search, GB10-tested first |
 | [Request a model](#request-a-model) | `/request` | ask an admin for a model or more tokens |
@@ -151,7 +151,6 @@ graph, admins included.
   short video with synced audio (MiniMax H3); keeps your last 10 results.
 - **Image** — text-to-image; the backend runs 35 diffusion steps per image by
   default (`IMAGE_STEPS`).
-- **Music** — text-to-music, same shape as the image page.
 - **Voice** — record a sample straight from your microphone (1 min max, with
   playback before you commit) or upload one, give it any text, and get that text
   read back in that voice (zero-shot, a few seconds per generation). The page
@@ -234,11 +233,11 @@ diagnosis instead of only its conclusion.
 Its context stays **light on purpose**: the services' logs are never dumped
 into the prompt. When a service misbehaves the assistant **pulls the tail of its
 logs on demand** (`read_logs`, admin-only, read-only) for model runner, ocr,
-video, voice, asr, image or music, and answers from the exact cause written
+video, voice, asr or image, and answers from the exact cause written
 there. Reading once, precisely, beats carrying a blind snapshot on every turn.
 
-It also **sees every service's real state** (ocr, video, voice, asr, image,
-music: `running` when it actually answers, `starting` while it loads, `stopped`,
+It also **sees every service's real state** (ocr, video, voice, asr, image:
+`running` when it actually answers, `starting` while it loads, `stopped`,
 `failed`) and can **relaunch one** (start / restart / stop) — admin-only, and
 like launching a model it goes through an in-chat confirmation. The answer
 carries the service's new state, so « relancé, il démarre » is a fact, not a

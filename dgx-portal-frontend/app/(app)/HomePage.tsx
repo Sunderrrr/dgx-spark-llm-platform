@@ -27,7 +27,6 @@ import {
   FilmIcon,
   SpeakerWaveIcon,
   PhotoIcon,
-  MusicalNoteIcon,
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
 import { authFetch, getJSON } from "@/lib/api";
@@ -83,7 +82,7 @@ interface ModelRequest extends Record<string, unknown> {
   created_at: string;
 }
 
-type RunningModel = { name: string; kind: "chat" | "image" | "music" | "video" | "ocr" | "voice"; exposed: boolean };
+type RunningModel = { name: string; kind: "chat" | "image" | "video" | "ocr" | "voice"; exposed: boolean };
 
 type SidecarMetric = {
   count_today: number;
@@ -158,11 +157,10 @@ function sidecarLines(
 // What each capability does, in one line (shown on each model card).
 // Destination + label of the « Ouvrir » button on the media service cards.
 // Each capability goes to ITS own page (the « vidéo » fallback was the bug:
-// image and music landed on /video).
+// image landed on /video).
 const KIND_OPEN: Record<RunningModel["kind"], { label: string; href: string }> = {
   chat: { label: "Ouvrir le chat", href: "/playground" },
   image: { label: "Ouvrir la génération d'image", href: "/image" },
-  music: { label: "Ouvrir la génération musicale", href: "/music" },
   video: { label: "Ouvrir la génération vidéo", href: "/video" },
   ocr: { label: "Ouvrir l'OCR", href: "/ocr" },
   voice: { label: "Ouvrir le clonage de voix", href: "/voice" },
@@ -175,7 +173,6 @@ const KIND_NAME: Record<"ocr" | "video" | "voice", string> = { ocr: "OCR", video
 const CAPS: { kind: RunningModel["kind"]; label: string; icon: typeof PhotoIcon }[] = [
   { kind: "chat", label: "Chat", icon: ChatBubbleLeftRightIcon },
   { kind: "image", label: "Image", icon: PhotoIcon },
-  { kind: "music", label: "Musique", icon: MusicalNoteIcon },
   { kind: "video", label: "Vidéo", icon: FilmIcon },
   { kind: "ocr", label: "OCR", icon: DocumentMagnifyingGlassIcon },
   { kind: "voice", label: "Voix", icon: SpeakerWaveIcon },

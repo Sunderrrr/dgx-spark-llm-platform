@@ -10,7 +10,7 @@ journey does WHAT A USER DOES:
             (try/finally) so the admin queue is not polluted;
   /memory   a preference is read and written (original state restored);
   /support  a message to the assistant gets an answer;
-  /image /video /ocr /voice /music: the form is usable and the service state
+  /image /video /ocr /voice: the form is usable and the service state
             is announced honestly (available / on demand) — no heavy
             generation here (covered by « image tool »).
 """
@@ -28,7 +28,6 @@ MEDIA = [
     ("/video", "Génération vidéo", "Video generation"),
     ("/ocr", "OCR", "OCR"),
     ("/voice", "Clonage de voix", "Voice cloning"),
-    ("/music", "Génération musicale", "Music generation"),
 ]
 
 # How a media page announces its service, in both interface languages.

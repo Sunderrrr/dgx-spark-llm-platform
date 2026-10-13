@@ -47,12 +47,12 @@ from notify import (notify_discord_test, notify_infra_alert_email, notify_mainte
                     send_test_email, send_user_email, sender_address)
 from user_lifecycle import (count_data, deprovision_account,
                             notify_password_changed, revoke_account_keys)
-from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _HF_ID_RE, _LOG_NOISE_RE,
-                      _image_launch, _mem_guard, _music_launch, _ocr_launch,
+from sidecars import (IMAGE_MODEL_IDS, VOICE_REPO_IDS, _LOG_NOISE_RE,
+                      _image_launch, _mem_guard, _ocr_launch,
                       _runner_headers, _sidecar_start_json,
                       _sidecar_status, _sidecar_stop_json, _voice_launch,
                       asr_load_error, asr_model_name, get_image_model,
-                      get_music_model, get_ocr_model, get_voice_model,
+                      get_ocr_model, get_voice_model,
                       runner_delete_files, runner_launch, runner_logs, runner_metrics,
                       runner_status, runner_stop)
 from directory import directory_states_for
@@ -142,8 +142,6 @@ def api_admin():
         'asr_load_error': asr_load_error,
         'image_status': lambda: _sidecar_status('image'),
         'image_model_name': lambda: get_image_model(),
-        'music_status': lambda: _sidecar_status('music'),
-        'music_model_name': lambda: get_music_model(),
         'v_status': runner_status,
         'init_logs': lambda: runner_logs(120),
     }
@@ -606,34 +604,6 @@ def launch_image():
         notify_infra_alert_email("Image model launch failed", f"{model_id}: {detail}")
     return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance image : {detail}"}), (200 if ok else 503)
 
-@bp.route('/admin/music/start', methods=['POST'])
-@admin_required
-def start_music():
-    return _sidecar_start_json('music')
-
-@bp.route('/admin/music/stop', methods=['POST'])
-@admin_required
-def stop_music():
-    return _sidecar_stop_json('music')
-
-@bp.route('/admin/music/launch', methods=['POST'])
-@admin_required
-def launch_music():
-    """Launches a music model (free HF id, like OCR). The container downloads
-    the model itself at startup: nothing to do on the shell side."""
-    model_id = request.form.get('model_id', '').strip()
-    if not _HF_ID_RE.fullmatch(model_id):
-        return jsonify({'ok': False, 'error': "Identifiant HuggingFace invalide (attendu : org/nom)."}), 400
-    err = _mem_guard('music')
-    if err:
-        return jsonify({'ok': False, 'error': err}), 507
-    ok, detail = _music_launch(model_id)
-    log_audit(session.get('username'), 'music.launch',
-              f"lancement musique {model_id}" if ok else f"échec du lancement musique : {detail}")
-    if not ok:
-        notify_infra_alert_email("Music model launch failed", f"{model_id}: {detail}")
-    return jsonify({'ok': bool(ok), 'error': None if ok else f"Échec de la relance musique : {detail}"}), (200 if ok else 503)
-
 @bp.route('/admin/voice/catalog/add', methods=['POST'])
 @admin_required
 def add_voice_cfg():
@@ -670,9 +640,9 @@ def launch_voice_cfg():
     cfg = get_db().execute("SELECT * FROM voice_configs WHERE name=?", (name,)).fetchone()
     if not cfg:
         return _json_error("Modèle voix introuvable.", 404)
-    # Same memory guard as OCR, image and music: recreating the voice
-    # container reloads a model (~15 Go), and this route was the ONLY one of the
-    # four not to set it — on unified memory, an OOM kills the biggest RSS,
+    # Same memory guard as OCR and image: recreating the voice
+    # container reloads a model (~15 Go), and this route was the ONLY one
+    # not to set it — on unified memory, an OOM kills the biggest RSS,
     # i.e. the served chat model.
     err = _mem_guard('voice')
     if err:
@@ -699,7 +669,7 @@ def add_model_cfg():
         return _json_error("Nom et HF model ID requis.")
     # No shape validation on hf_id here, deliberately: `local:<name>`
     # (local GGUF) is a legitimate identifier, which the « org/nom » regex of
-    # image and music would refuse. The runner keeps its own shape guard
+    # an HF id would refuse. The runner keeps its own shape guard
     # before building argv.
     db = get_db()
     try:
@@ -1476,7 +1446,7 @@ def admin_user_detail(username):
         # card of the Users tab showed — now in the one place an admin opens.
         'media': {k: dict(zip(('count', 'last'), db.execute(
             f"SELECT COUNT(*), MAX(created_at) FROM {t} WHERE username=?", (username,)).fetchone()))
-                  for k, t in (('image', 'image_jobs'), ('music', 'music_jobs'),
+                  for k, t in (('image', 'image_jobs'),
                                ('video', 'video_jobs'), ('voice', 'voice_jobs'),
                                ('ocr', 'ocr_jobs'))},
         'model_requests': [dict(r) for r in db.execute(
@@ -2105,7 +2075,7 @@ def admin_runner_logs():
 # above; these relay the containerised sidecars + ComfyUI). The portal has no
 # docker access — the runner reads them via scoped sudo (see /etc/sudoers.d/
 # vllmrunner-logs) and returns the tail as a list of lines.
-_SIDECAR_LOG_KINDS = {'ocr', 'voice', 'image', 'video', 'asr', 'music'}
+_SIDECAR_LOG_KINDS = {'ocr', 'voice', 'image', 'video', 'asr'}
 
 @bp.route('/admin/sidecar-logs/<kind>')
 @admin_required

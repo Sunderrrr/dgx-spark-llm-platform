@@ -828,7 +828,7 @@ class ResolvableNamesTest(unittest.TestCase):
     MODULES = [
         'app', 'auth', 'config', 'db', 'guards', 'comfyui_client', 'discord_notify',
         'websearch_tools', 'memory_routes', 'conversation_routes', 'video_routes',
-        'image_routes', 'music_routes', 'voice_routes', 'asr_routes', 'ocr_routes',
+        'image_routes', 'voice_routes', 'asr_routes', 'ocr_routes',
     ]
 
     def _unresolved_names(self, path):
@@ -890,8 +890,7 @@ class HealthRouteTest(unittest.TestCase):
                 mock.patch.object(portal, "comfyui_is_up", return_value=False), \
                 mock.patch.object(portal, "get_ocr_model", return_value=None), \
                 mock.patch.object(portal, "get_voice_model", return_value=None), \
-                mock.patch.object(portal, "image_ready", return_value=False), \
-                mock.patch.object(portal, "music_ready", return_value=False):
+                mock.patch.object(portal, "image_ready", return_value=False):
             c = portal.app.test_client()
             with c.session_transaction() as s:
                 s["username"] = "demo"
@@ -926,8 +925,7 @@ class HealthRouteTest(unittest.TestCase):
                 mock.patch.object(portal, "comfyui_is_up", return_value=False), \
                 mock.patch.object(portal, "get_ocr_model", return_value=None), \
                 mock.patch.object(portal, "get_voice_model", return_value=None), \
-                mock.patch.object(portal, "image_ready", return_value=False), \
-                mock.patch.object(portal, "music_ready", return_value=False):
+                mock.patch.object(portal, "image_ready", return_value=False):
             c = portal.app.test_client()
             with c.session_transaction() as s:
                 s["username"] = "demo"
@@ -1181,7 +1179,7 @@ class PromMetricsTest(unittest.TestCase):
 
 
 class MediaCancelTest(unittest.TestCase):
-    """Cancellation of an image/music/video generation (« Arrêter » button)."""
+    """Cancellation of an image/video generation (« Arrêter » button)."""
 
     CSRF = "test-csrf"
 
@@ -1189,7 +1187,7 @@ class MediaCancelTest(unittest.TestCase):
         portal.app.config["TESTING"] = True
         with portal.app.app_context():
             db = portal.get_db()
-            for t in ("image_jobs", "music_jobs", "video_jobs"):
+            for t in ("image_jobs", "video_jobs"):
                 db.execute(f"DELETE FROM {t}")
             db.commit()
 
@@ -1233,19 +1231,6 @@ class MediaCancelTest(unittest.TestCase):
         with portal.app.app_context():
             st = portal.get_db().execute(
                 "SELECT status FROM image_jobs WHERE prompt_id='p2'").fetchone()["status"]
-        self.assertEqual(st, "cancelled")
-
-    def test_music_cancel_cancels(self):
-        with portal.app.app_context():
-            portal.get_db().execute(
-                "INSERT INTO music_jobs (username,job_id,prompt,status,count,done_count,created_at,duration_ms) "
-                "VALUES ('demo','m1','x','running',3,0,'2025-01-01',NULL)")
-            portal.get_db().commit()
-        c = portal.app.test_client(); self._login(c)
-        self.assertTrue(c.post("/api/music/cancel/m1", headers=self._headers()).get_json()["ok"])
-        with portal.app.app_context():
-            st = portal.get_db().execute(
-                "SELECT status FROM music_jobs WHERE job_id='m1'").fetchone()["status"]
         self.assertEqual(st, "cancelled")
 
     def test_video_cancel_cancels(self):
@@ -2349,7 +2334,6 @@ class RunningModelsLegerTest(unittest.TestCase):
                 mock.patch.object(portal, "get_ocr_model", return_value=None), \
                 mock.patch.object(portal, "get_voice_model", return_value=None), \
                 mock.patch.object(portal, "image_ready", return_value=False), \
-                mock.patch.object(portal, "music_ready", return_value=False), \
                 mock.patch.object(portal, "_litellm_user_info") as litellm, \
                 mock.patch.object(portal, "_tokens_by_model") as aggregate:
             c = portal.app.test_client()

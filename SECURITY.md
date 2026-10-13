@@ -24,7 +24,7 @@ which is why several controls below are about *resource* abuse, not just access.
 client → Cloudflare → Traefik → dgx-portal-frontend (:5000) → dgx-portal (Flask)
                         │                                        ├→ LiteLLM (:4001) → Postgres
                         │                                        ├→ vllm-runner (:8001) → vLLM (:8000)
-                        └─ forwardAuth → /internal/authcheck      └→ sidecars (OCR, voice, ASR, image, music, video, web search)
+                        └─ forwardAuth → /internal/authcheck      └→ sidecars (OCR, voice, ASR, image, video, web search)
 ```
 
 TLS terminates at Cloudflare/Traefik; everything behind it is plain HTTP on
@@ -131,7 +131,7 @@ secrets and their mount lists stay minimal (see §3.2).
 ### 2.3 Network isolation
 
 Each sidecar has its own docker network — `ocr_net`, `voice_net`, `asr_net`,
-`image_net`, `music_net`, `web_net` — shared only with `dgx-portal`. Third-party
+`image_net`, `web_net` — shared only with `dgx-portal`. Third-party
 model code therefore has no L3 route to LiteLLM, Postgres or Traefik.
 
 Two host-level rules complete this, because a docker network does not isolate
@@ -265,7 +265,7 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
 
 GPU-heavy routes do not go through a LiteLLM key, so token budgets do not cap
 them. A per-account sliding window does, in separate buckets: `rl-media`
-(video / OCR / voice / image / music), `rl-support` and `rl-playground`.
+(video / OCR / voice / image), `rl-support` and `rl-playground`.
 
 The Support assistant, however, *does* bill the account: it calls LiteLLM with
 the **user's own key**, not the master key, so token budgets do apply to it and
@@ -484,7 +484,7 @@ of `/ocr/launch`, `..` refused in absolute paths.
    directory (or the link) grants root without a password.
 4. **No default log rotation on the daemon** (`/etc/docker/daemon.json` absent):
    containers started by `docker run` (sidecars, traefik) keep unbounded logs —
-   696 MB observed for `music`. The compose is covered.
+   696 MB observed for one sidecar. The compose is covered.
 5. **The Traefik access log writes the query strings** (an API key observed in
    clear), and the Traefik dashboard shares a single apr1 basicAuth across the
    whole Netbird plane.

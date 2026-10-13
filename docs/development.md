@@ -234,14 +234,14 @@ Shell traps that cost real time:
 > first, so it can never capture an idle page. Start a sidecar from Admin, run
 > `--media`, then `--verify --install`.
 >
-> **Two pages are absent from the gallery above: Voice cloning and Music
-> generation.** Their published images showed nothing but the empty state
+> **One page is absent from the gallery above: Voice cloning.** Its
+> published image showed nothing but the empty state
 > ("Ask an admin to start a voice model to use this page"), which 2026-08-29
 > shipped and a caption quietly promised otherwise. An image of an error screen
-> is worse than no image, so both files are withdrawn until a capture can be
+> is worse than no image, so the file is withdrawn until a capture can be
 > taken with their backend actually loaded — the refresh pass above reinstates
-> them in one command. `--verify` now refuses that empty state by name, which is
-> how the two were found; it also keeps the three media pages that *do* show real
+> it in one command. `--verify` now refuses that empty state by name, which is
+> how it was found; it also keeps the three media pages that *do* show real
 > content (OCR, video, image) honest.
 >
 > | Page | Route | File |
@@ -253,7 +253,6 @@ Shell traps that cost real time:
 > | Voice cloning | `/voice` | `assets/voice.png` — *withdrawn, see above* |
 > | Video generation | `/video` | `assets/video.png` |
 > | Image generation | `/image` | `assets/image.png` |
-> | Music generation | `/music` | `assets/music.png` — *withdrawn, see above* |
 > | Memory | Settings ▸ Memory (or `/memory`) | `assets/memory.png` |
 > | Find a model | `/search` | `assets/search.png` |
 > | Request a model | `/request` | `assets/request.png` |

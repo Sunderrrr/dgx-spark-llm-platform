@@ -18,7 +18,7 @@ account). A Support assistant can act on your behalf.
 
 - **Chat + reasoning** — streaming playground with adaptive thinking (visible
   collapsible reasoning), attachments, a live document panel, dictation.
-- **Image, video, OCR, voice, music** — generated from dedicated pages *and*
+- **Image, video, OCR, voice** — generated from dedicated pages *and*
   callable by the model as tools; each service is an on-demand sidecar that says
   so when it isn't loaded instead of failing.
 - **Web search** — on explicit request: SearXNG finds the links, crawl4ai reads
@@ -53,7 +53,7 @@ the OpenAI-compatible gateway that serves the public API
 no host port at all. It keeps keys and spend logs in **PostgreSQL**.
 On the GPU, a systemd daemon (`vllm-runner`) starts and stops **one chat model**
 at a time (vLLM, llama.cpp, ds4 or exllamav3) and auto-resumes it after a crash
-or reboot. OCR, video, image, music, voice and dictation run in **on-demand
+or reboot. OCR, video, image, voice and dictation run in **on-demand
 sidecars**, each on its own network: one 128 GB GPU cannot hold the chat model
 and several media models at once, so they start at first use and leave memory
 when idle. Full diagram and component map: [docs/architecture.md](docs/architecture.md).

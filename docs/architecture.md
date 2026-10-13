@@ -47,7 +47,6 @@ flowchart LR
 | **OCR container** | vLLM serving an OCR-capable VLM (baidu/Unlimited-OCR by default, chandra-ocr-2 also supported), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
 | **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports; measured on disk: 11.7 GiB ≈ 12.5 GB per UNET, two UNET variants) | `8188`, host-restricted | systemd service on the host |
 | **Image container** | Text-to-image (diffusers). FLUX.2 Klein 4B by default, 35 diffusion steps per image (`IMAGE_STEPS`) | internal only | Docker container, own network + GPU slice |
-| **Music container** | Text-to-music (diffusers, MiniMax-Music3 & co) | internal only | Docker container, own network + GPU slice |
 | **ASR container** | Whisper (`large-v3-turbo` by default) for Playground dictation | internal only | Docker container, own network + GPU slice |
 | **Voice container** | Zero-shot voice cloning. Two interchangeable engines: **Qwen3-TTS** (default, Apache 2.0, 10 languages, 3 s cloning) or **Chatterbox** (MIT) | internal only | Docker container, own network + GPU slice |
 | **SearXNG + crawl4ai** | Web search for the playground: SearXNG finds links, crawl4ai reads the pages | internal only | Docker containers, shared `web_net` |
@@ -81,7 +80,7 @@ longer has a published port.
 ├── vllm-runner/runner.py      # model lifecycle daemon + scoped sidecar control
 ├── monitoring/                # host monitors: health alerts + daily DB dumps (systemd timers)
 ├── needrestart/               # needrestart policy (keeps vllm-runner out of its restarts)
-├── ocr/ · voice/ · voice-qwen/ · asr/ · image-gen/ · music/   # sidecar images and host wrappers
+├── ocr/ · voice/ · voice-qwen/ · asr/ · image-gen/   # sidecar images and host wrappers
 ├── searxng/settings.yml.example  # web-search config template (setup.sh writes the real one)
 └── systemd/                   # host units (runner, firewalls, ComfyUI, recreate scripts)
 ```
@@ -125,7 +124,7 @@ keeps the handful of routes that other modules reach by name (`index`, `login`,
 | [`admin_routes.py`](../dgx-portal/admin_routes.py) | `/admin/*` — models, sidecars, accounts, quotas, maintenance |
 | [`conversation_routes.py`](../dgx-portal/conversation_routes.py) · [`settings_routes.py`](../dgx-portal/settings_routes.py) · [`memory_routes.py`](../dgx-portal/memory_routes.py) | history · user settings · memory graph |
 | [`ocr_routes.py`](../dgx-portal/ocr_routes.py) · [`voice_routes.py`](../dgx-portal/voice_routes.py) · [`asr_routes.py`](../dgx-portal/asr_routes.py) | OCR · voice cloning · dictation |
-| [`image_routes.py`](../dgx-portal/image_routes.py) · [`music_routes.py`](../dgx-portal/music_routes.py) · [`video_routes.py`](../dgx-portal/video_routes.py) | the generation pages |
+| [`image_routes.py`](../dgx-portal/image_routes.py) · [`video_routes.py`](../dgx-portal/video_routes.py) | the generation pages |
 | [`preview_routes.py`](../dgx-portal/preview_routes.py) · [`discord_routes.py`](../dgx-portal/discord_routes.py) | sandboxed HTML preview · Discord account linking |
 | [`webauthn_routes.py`](../dgx-portal/webauthn_routes.py) | `/api/security/*` — passkey registration, login challenge, 2FA toggle |
 

@@ -13,7 +13,7 @@ What is probed (always supposed to be up):
   - dgx-portal           → container (docker inspect)
   - dgx-portal-frontend  → container (docker inspect)
 
-What is NOT probed: vLLM (:8000) and the media sidecars (OCR/voice/music/
+What is NOT probed: vLLM (:8000) and the media sidecars (OCR/voice/
 image/ComfyUI/ASR) — they are *on-demand* (started/stopped on request);
 alerting on them would produce false positives. Their state stays visible in
 /health.
@@ -81,7 +81,7 @@ COUNTERS_CODE = (
     "import sqlite3;c=sqlite3.connect('file:/app/data/portal.db?mode=ro',uri=True);"
     "print(c.execute('SELECT COUNT(*) FROM conversations').fetchone()[0],"
     "sum(c.execute('SELECT COUNT(*) FROM '+t).fetchone()[0]"
-    " for t in ('image_jobs','music_jobs','video_jobs')))"
+    " for t in ('image_jobs','video_jobs')))"
 )
 
 

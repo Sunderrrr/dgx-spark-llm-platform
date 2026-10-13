@@ -1308,11 +1308,10 @@ def image_launch():
     return jsonify({"ok": ok, "detail": out})
 
 
-# ── Music (diffusers, MiniMax-Music3 & co) ──────────────────────────────────
-# Unlike image (closed allowlist), the model is free: the admin pastes a
-# HuggingFace id, as for OCR. So we validate the SHAPE of the id before any sudo
-# call — the host script revalidates on its side, and the argument goes in argv
-# (never interpreted by a shell).
+# ── HF id shapes ────────────────────────────────────────────────────────────
+# Where the model id is free (an admin pastes a HuggingFace id), validate its
+# SHAPE before any sudo call — the argument goes in argv (never interpreted by
+# a shell).
 _HF_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,60}/[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
 # Local GGUF ("local:<name>", ds4/llamacpp) — same charset, no required slash.
 _LOCAL_ID_RE = re.compile(r"^local:[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
@@ -1321,45 +1320,6 @@ _LOCAL_ID_RE = re.compile(r"^local:[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
 # vllm receives the id verbatim in argv (never in a shell); the risk is a local
 # file read, not execution, and /launch already sits behind admin auth.
 _ABS_PATH_RE = re.compile(r"^/[A-Za-z0-9._/@+-]+(/[A-Za-z0-9._/@+-]+)*$")
-
-
-@app.route("/music/status")
-def music_status():
-    ok, out = _sudo("/usr/bin/docker", "inspect", "music")
-    if not ok:
-        return jsonify({"status": "unknown", "detail": out})
-    try:
-        state = json.loads(out)[0]["State"]
-        return jsonify({"status": "running" if bool(state.get("Running")) else "stopped"})
-    except Exception as e:
-        return jsonify({"status": "unknown", "detail": str(e)})
-
-
-@app.route("/music/start", methods=["POST"])
-def music_start():
-    ok, out = _sudo("/usr/bin/docker", "start", "music", timeout=60)
-    return jsonify({"ok": ok, "detail": out})
-
-
-@app.route("/music/stop", methods=["POST"])
-def music_stop():
-    ok, out = _sudo("/usr/bin/docker", "stop", "music", timeout=30)
-    return jsonify({"ok": ok, "detail": out})
-
-
-@app.route("/music/launch", methods=["POST"])
-def music_launch():
-    data = request.get_json(silent=True) or {}
-    model = (data.get("model_id") or "").strip()
-    if not _HF_ID_RE.fullmatch(model):
-        return jsonify({"ok": False, "detail": "invalid model_id"}), 400
-    ok, out = _sudo("/usr/local/sbin/music-recreate.sh", model, timeout=180)
-    return jsonify({"ok": ok, "detail": out})
-
-
-@app.route("/music/logs")
-def music_logs():
-    return _container_logs("music")
 
 
 @app.route("/video/status")

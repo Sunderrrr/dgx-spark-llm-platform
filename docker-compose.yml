@@ -308,8 +308,8 @@ services:
   # ─── DGX Portal Frontend — Next.js + Astryx, full new UI ───────────────────
   # Published on host port 5000 for a first install (`http://<host>:5000`).
   # Behind a Traefik on the same Docker network (it targets
-  # `dgx-portal-frontend:3000`), the host port is not needed: set
-  # DGX_WEB_PUBLISH=127.0.0.1:5000 to keep it off the network.
+  # `dgx-portal-frontend:3000`), the host port is not needed: bind
+  # DGX_WEB_PUBLISH to loopback to keep it off the network.
   # Anything that is not a known Next page is forwarded internally to
   # dgx-portal:5000 (see next.config.ts → rewrites().fallback).
   dgx-portal-frontend:

@@ -97,6 +97,10 @@ id "$RUNNER_USER" >/dev/null 2>&1 || {
 if command -v setfacl >/dev/null 2>&1; then
   setfacl -m u:"$RUNNER_USER":--x /root
   setfacl -m u:"$RUNNER_USER":--x "$REPO_DIR" 2>/dev/null || true
+  # Its own code directory needs READ too: Python lists a directory to import
+  # a module from it, so with --x alone `import launch_env` fails
+  # (ModuleNotFoundError) although runner.py, opened by path, runs.
+  setfacl -m u:"$RUNNER_USER":r-x "$REPO_DIR/vllm-runner" 2>/dev/null || true
 else
   echo "!! setfacl missing: if $REPO_DIR is under /root, vllm-runner cannot read"
   echo "   runner.py (the service will crash-loop). Install 'acl', or move the"

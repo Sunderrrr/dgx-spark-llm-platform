@@ -1,22 +1,34 @@
 #!/usr/bin/env bash
 #
 # DGX — one-shot host bootstrap for the DGX Spark LLM platform.
-# Installs system packages (Docker, Python, pipx, vLLM), clones the repo,
-# generates .env, installs the systemd units, and prints the next steps.
+# Installs system packages (Docker, Python, pipx, vLLM, earlyoom), clones the
+# repo, generates .env, installs the systemd units, checks what it installed,
+# and prints the next steps.
 #
 # Usage:
 #   sudo ./install.sh                         # from inside a cloned repo
 #   curl -fsSL <raw>/install.sh | sudo bash   # standalone (clones the repo)
 #
+# Exit status: 0 when every check of the final summary passed, 1 otherwise —
+# the summary lists what to fix. Re-running the script is safe.
 set -euo pipefail
 
 REPO_URL="${DGX_REPO:-https://github.com/Sunderrrr/dgx-spark-llm-platform.git}"
 DEFAULT_DIR="/root/ai-platform"        # systemd units reference this path
 RUNNER_USER="vllmrunner"
 RUNNER_HOME="/var/lib/vllm-runner"
+# Both as set in systemd/vllm-runner.service (VLLM_BIN, HF_HOME).
+VLLM_BIN="/root/.local/bin/vllm"
+HF_HOME_DIR="/root/.cache/huggingface"
+# The subnet the portal's URLs (172.19.0.1:8000/8001/8188, docker-compose.yml)
+# and vllm-restrict.service are written for.
+DEFAULT_SUBNET="172.19.0.0/16"
+DEFAULT_GATEWAY="172.19.0.1"
 
-log() { printf '\n\033[1;32m==>\033[0m %s\n' "$*"; }
-die() { printf '\033[1;31m!!\033[0m %s\n' "$*" >&2; exit 1; }
+PROBLEMS=()
+log()  { printf '\n\033[1;32m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; PROBLEMS+=("$*"); }
+die()  { printf '\033[1;31m!!\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "Run as root (sudo)."
 
@@ -24,7 +36,10 @@ die() { printf '\033[1;31m!!\033[0m %s\n' "$*" >&2; exit 1; }
 log "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y ca-certificates curl git iptables acl python3 python3-pip pipx
+# earlyoom is not optional on the GB10: GPU memory is invisible to the kernel
+# OOM killer, which then kills everything BUT the culprit and the box freezes.
+# earlyoom acts on MemAvailable first (drop-in installed in step 7).
+apt-get install -y ca-certificates curl git iptables acl python3 python3-pip pipx earlyoom sudo
 
 # Flask for the host runner (system python3). PEP 668-safe. Pinned version
 # (audit M5) — aligned with dgx-portal/requirements.txt.
@@ -46,16 +61,16 @@ if ! command -v docker >/dev/null 2>&1; then
   rm -f "$DOCKER_SH"
 fi
 docker compose version >/dev/null 2>&1 || apt-get install -y docker-compose-plugin
-systemctl enable --now docker >/dev/null 2>&1 || true
+systemctl enable --now docker >/dev/null 2>&1 || warn "could not enable/start docker"
 
 # ── 3. vLLM (host, for the runner) ──────────────────────────────────────────
-if [ ! -x /root/.local/bin/vllm ] && ! command -v vllm >/dev/null 2>&1; then
+if [ ! -x "$VLLM_BIN" ] && ! command -v vllm >/dev/null 2>&1; then
   log "Installing vLLM via pipx (this can take a while)"
-  # Pinned version (audit M5): aligned with the runner (0.24.0 observed in prod).
-  # On GB10/Blackwell, NVIDIA publishes a prebuilt wheel; if the generic install
-  # fails, install that wheel manually.
-  pipx install "vllm==0.24.0" \
-    || echo "!! vLLM install failed — on GB10/Blackwell you may need NVIDIA's prebuilt wheel; install it manually so /root/.local/bin/vllm exists."
+  # Pinned version (audit M5): the one serving in production (0.31.0,
+  # 2026-10-14). On GB10/Blackwell, NVIDIA publishes a prebuilt wheel; if the
+  # generic install fails, install that wheel so $VLLM_BIN exists.
+  pipx install "vllm==0.31.0" \
+    || warn "vLLM install failed — on GB10/Blackwell install NVIDIA's prebuilt wheel so $VLLM_BIN exists"
 fi
 
 # ── 4. Repository ───────────────────────────────────────────────────────────
@@ -78,7 +93,7 @@ log "Using repo at $REPO_DIR"
 # ── 5. .env (random secrets) ────────────────────────────────────────────────
 if [ ! -f .env ]; then
   log "Generating .env with random secrets"
-  ./setup.sh || true
+  ./setup.sh || warn "setup.sh failed — .env is missing or incomplete; run ./setup.sh and read its error"
 fi
 chmod 600 .env 2>/dev/null || true
 
@@ -88,23 +103,67 @@ id "$RUNNER_USER" >/dev/null 2>&1 || {
   useradd -r -m -d "$RUNNER_HOME" -s /usr/sbin/nologin "$RUNNER_USER"
 }
 
-# ── 6b. /root must stay TRAVERSABLE by the runner ───────────────────────────
-# The repo lives under /root (0700 by default on Debian/Ubuntu) and the unit
-# runs as vllmrunner: without this ACL, the interpreter cannot even OPEN
-# runner.py, and since the unit has Restart=always it crash-loops — silently,
-# because the activation above uses `|| true`. We only loosen TRAVERSAL (--x),
-# never reading of the directory.
+# ── 6b. What the runner must reach under /root ──────────────────────────────
+# The repo, vLLM and the model cache live under /root (0700 by default on
+# Debian/Ubuntu) while the runner runs as $RUNNER_USER. Without these ACLs the
+# install LOOKS complete and fails at first use: the unit crash-loops (it
+# cannot open runner.py), a launch dies on « permission denied » (it cannot
+# execute vLLM), a download fails (it cannot write the cache). We grant the
+# least each path needs: TRAVERSAL (--x) on the parents, never their listing.
+#
+# grant_traverse <path>: --x on every ancestor directory of <path> that
+# « others » cannot already traverse.
+grant_traverse() {
+  local d
+  d=$(dirname "$1")
+  while [ "$d" != "/" ]; do
+    if [ "$(stat -c %A "$d" | cut -c10)" != "x" ]; then
+      setfacl -m u:"$RUNNER_USER":--x "$d"
+    fi
+    d=$(dirname "$d")
+  done
+}
 if command -v setfacl >/dev/null 2>&1; then
-  setfacl -m u:"$RUNNER_USER":--x /root
-  setfacl -m u:"$RUNNER_USER":--x "$REPO_DIR" 2>/dev/null || true
-  # Its own code directory needs READ too: Python lists a directory to import
-  # a module from it, so with --x alone `import launch_env` fails
-  # (ModuleNotFoundError) although runner.py, opened by path, runs.
-  setfacl -m u:"$RUNNER_USER":r-x "$REPO_DIR/vllm-runner" 2>/dev/null || true
+  # The code: runner.py and its modules. READ on its own directory too:
+  # Python lists a directory to import a module from it, so with --x alone
+  # `import launch_env` fails although runner.py, opened by path, runs.
+  grant_traverse "$REPO_DIR/vllm-runner/runner.py"
+  setfacl -m u:"$RUNNER_USER":r-x "$REPO_DIR/vllm-runner"
+  # The engine: the vllm link AND the pipx venv it points to.
+  if [ -e "$VLLM_BIN" ]; then
+    grant_traverse "$VLLM_BIN"
+    grant_traverse "$(readlink -f "$VLLM_BIN")"
+  fi
+  # The model cache: read-write, and inherited by what gets downloaded.
+  mkdir -p "$HF_HOME_DIR"
+  grant_traverse "$HF_HOME_DIR"
+  setfacl -m u:"$RUNNER_USER":rwx -m d:u:"$RUNNER_USER":rwx "$HF_HOME_DIR"
 else
-  echo "!! setfacl missing: if $REPO_DIR is under /root, vllm-runner cannot read"
-  echo "   runner.py (the service will crash-loop). Install 'acl', or move the"
-  echo "   repository out of /root and adapt the units."
+  warn "setfacl missing: the runner cannot reach its code, vLLM or the model cache under /root. Install 'acl' and re-run."
+fi
+
+# ── 6c. The Docker network the portal's URLs are written for ────────────────
+# The portal reaches the host engines at 172.19.0.1 and vllm-restrict.service
+# admits 172.19.0.0/16: both assume the stack's default network has THAT
+# subnet. Docker picks the next free one — on a host with other networks it
+# can be anything, and then nothing is logged: the portal just never finds a
+# model. Compose adopts a network created beforehand with its labels (verified,
+# Compose v5.2), so a fresh install creates it with the expected subnet. An
+# existing network is never touched (recreating it detaches running stacks).
+# Compose names the project from COMPOSE_PROJECT_NAME (environment, then .env),
+# else from the directory.
+PROJECT=${COMPOSE_PROJECT_NAME:-$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env 2>/dev/null | tail -1)}
+PROJECT=${PROJECT:-$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')}
+NET="${PROJECT}_default"
+if ! docker network inspect "$NET" >/dev/null 2>&1; then
+  docker network create --subnet "$DEFAULT_SUBNET" --gateway "$DEFAULT_GATEWAY" \
+    --label com.docker.compose.project="$PROJECT" --label com.docker.compose.network=default \
+    "$NET" >/dev/null \
+    || warn "could not create $NET on $DEFAULT_SUBNET (subnet taken?) — the portal will not reach the runner; see the subnet note in docker-compose.yml"
+else
+  sub=$(docker network inspect "$NET" -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}')
+  [ "$sub" = "$DEFAULT_SUBNET" ] \
+    || warn "$NET has subnet $sub, not $DEFAULT_SUBNET — the portal will not reach the runner; see the subnet note in docker-compose.yml"
 fi
 
 # ── 7. systemd units (paths patched to the real repo dir) ───────────────────
@@ -113,7 +172,7 @@ log "Installing systemd units"
 # and the monitor/backup pair are described in the README as deployed, and
 # without them the install is half-protected in silence.
 for unit in vllm-runner.service vllm-restrict.service dgx-docker-restrict.service \
-             dgx-web-restrict.service dgx-ocr-restrict.service hawser-restrict.service \
+             dgx-web-restrict.service dgx-ocr-restrict.service \
              dgx-traefik-boot.service dgx-monitor.service dgx-monitor.timer \
              dgx-backup.service dgx-backup.timer dgx-logs.service dgx-logs.timer \
              dgx-validation.service dgx-validation.path \
@@ -121,39 +180,47 @@ for unit in vllm-runner.service vllm-restrict.service dgx-docker-restrict.servic
   [ -f "systemd/$unit" ] || continue
   sed "s#/root/ai-platform#${REPO_DIR}#g" "systemd/$unit" > "/etc/systemd/system/$unit"
 done
+# The site's firewall sources: a template only, never overwritten.
+[ -f /etc/default/dgx-firewall ] || install -m 0644 systemd/dgx-firewall.example /etc/default/dgx-firewall
 # earlyoom drop-in (GB10 unified memory: the kernel OOM killer cannot see GPU
-# memory, earlyoom acts on MemAvailable first). Only when earlyoom is there.
+# memory, earlyoom acts on MemAvailable first).
 if systemctl cat earlyoom.service >/dev/null 2>&1; then
   install -d /etc/systemd/system/earlyoom.service.d
   install -m 0644 systemd/earlyoom.service.d-dgx.conf /etc/systemd/system/earlyoom.service.d/dgx.conf
+else
+  warn "earlyoom is not installed — the box has no protection against GPU-memory exhaustion"
 fi
 
-# ── 7b. Root-owned wrappers called by the runner via scoped sudo ────────────
-# Without them, the admin can launch a model but NO media sidecar at all:
-# runner.py runs them with `sudo`, and the sudoers rules below are the only ones
-# authorizing them. A missing wrapper shows up as « command not allowed » on the
-# first click on « lancer », not at install time.
+# ── 7b. Root-owned scripts: wrappers called by the runner via scoped sudo,
+#        and helpers of the units ─────────────────────────────────────────────
+# Without the wrappers, the admin can launch a model but NO media sidecar and
+# cannot delete model files: runner.py runs them with `sudo`, and the sudoers
+# rules below are the only ones authorizing them. A missing wrapper shows up as
+# « command not allowed » on the first click, not at install time.
 for s in ocr/ocr-recreate.sh voice/voice-recreate.sh voice-qwen/voice-qwen-recreate.sh \
          voice-kyutai/voice-kyutai-recreate.sh \
-         asr/asr-recreate.sh systemd/image-recreate.sh \
-         systemd/ocr-restrict.sh; do
+         asr/asr-recreate.sh systemd/image-recreate.sh systemd/model-files-rm.sh \
+         systemd/ocr-restrict.sh systemd/dgx-docker-restrict.sh; do
   if [ -f "$s" ]; then
     install -o root -g root -m 0755 "$s" "/usr/local/sbin/$(basename "$s")"
   fi
 done
+# Every wrapper a sudoers rule names must exist, or that feature is dead.
+for w in $(grep -ho '/usr/local/sbin/[A-Za-z0-9._-]*' systemd/sudoers.d-* 2>/dev/null | sort -u); do
+  [ -x "$w" ] || warn "$w is named by a sudoers rule but is not installed"
+done
 
 # ── 7c. Scoped sudo rules (0440 mandatory: sudo REFUSES a file writable by
 #        its owner) ──────────────────────────────────────────────────────────
+# An invalid rule breaks sudo for EVERYONE, repair included: each file is
+# validated BEFORE it is put in place, not after.
 for f in systemd/sudoers.d-*; do
-  if [ -f "$f" ]; then
-    install -o root -g root -m 0440 "$f" "/etc/sudoers.d/$(basename "$f" | sed 's/^sudoers\.d-//')"
+  [ -f "$f" ] || continue
+  if command -v visudo >/dev/null 2>&1 && ! visudo -cf "$f" >/dev/null; then
+    die "invalid sudoers rule $f — nothing was installed from it; fix it and re-run"
   fi
+  install -o root -g root -m 0440 "$f" "/etc/sudoers.d/$(basename "$f" | sed 's/^sudoers\.d-//')"
 done
-# An invalid rule breaks sudo for EVERYONE, repair included: validate it before
-# continuing, if the tool is there.
-if command -v visudo >/dev/null 2>&1; then
-  visudo -c >/dev/null || die "a sudoers rule is invalid — see /etc/sudoers.d/"
-fi
 
 # ── 7d. needrestart: do not restart vllm-runner at every update ─────────────
 # The file is NOT a systemd unit (it is Perl): it lives outside systemd/ on
@@ -170,40 +237,78 @@ if [ -f needrestart/99-vllm-runner.conf ]; then
     /etc/needrestart/conf.d/99-vllm-runner.conf
 fi
 
+# ── 7e. Enable ──────────────────────────────────────────────────────────────
 systemctl daemon-reload
-systemctl enable --now vllm-restrict.service dgx-docker-restrict.service 2>/dev/null || true
-systemctl enable --now vllm-runner.service 2>/dev/null || true
-# Network isolation: those three are iptables rules, they must survive a reboot
+# enable_units [--now] <unit>…: a failure is reported, not swallowed.
+enable_units() {
+  local now=() u
+  [ "$1" = "--now" ] && { now=(--now); shift; }
+  for u in "$@"; do
+    systemctl enable "${now[@]}" "$u" >/dev/null 2>&1 || warn "could not enable ${now[*]} $u (systemctl status $u)"
+  done
+}
+enable_units --now earlyoom.service
+systemctl restart earlyoom.service >/dev/null 2>&1 || true   # pick up the drop-in
+enable_units --now vllm-restrict.service dgx-docker-restrict.service
+enable_units --now vllm-runner.service
+# Network isolation: those are iptables rules, they must survive a reboot
 # (without them, web_net regains access to the host).
-systemctl enable --now dgx-web-restrict.service dgx-ocr-restrict.service 2>/dev/null || true
-systemctl enable hawser-restrict.service 2>/dev/null || true
+enable_units --now dgx-web-restrict.service dgx-ocr-restrict.service
 # Monitoring, backup and log shipping: the responsible parties are TIMERS.
-systemctl enable --now dgx-monitor.timer dgx-backup.timer dgx-logs.timer 2>/dev/null || true
+enable_units --now dgx-monitor.timer dgx-backup.timer dgx-logs.timer
 # The admin panel's « run the validation » button (request file → path unit).
-systemctl enable --now dgx-validation.path 2>/dev/null || true
+enable_units --now dgx-validation.path
 # Traefik boot guard: enabled for the next boot, not started now (no point
 # restarting an already healthy Traefik at install time).
-systemctl enable dgx-traefik-boot.service 2>/dev/null || true
+enable_units dgx-traefik-boot.service
 # comfyui and comfyui-relay are deliberately ON-DEMAND: installed, never
 # enabled (see the header of their units).
 
+# ── 8. Checks: does what was installed actually work? ───────────────────────
+log "Checking the installation"
+# The runner can load its code and run its engine, as ITS user — exactly what
+# failed silently before (2026-10-14: a module it could not import).
+for f in "$REPO_DIR"/vllm-runner/*.py; do
+  m=$(basename "$f" .py); [ "$m" = runner ] && continue
+  (cd /tmp && sudo -u "$RUNNER_USER" python3 -c "import sys; sys.path.insert(0, '${f%/*}'); import $m") >/dev/null 2>&1 \
+    || warn "the runner cannot import its module '$m' as $RUNNER_USER"
+done
+sudo -u "$RUNNER_USER" test -r "$REPO_DIR/vllm-runner/runner.py" || warn "the runner cannot read runner.py as $RUNNER_USER"
+if [ -e "$VLLM_BIN" ]; then
+  sudo -u "$RUNNER_USER" test -x "$(readlink -f "$VLLM_BIN")" || warn "the runner cannot execute $VLLM_BIN as $RUNNER_USER"
+fi
+sudo -u "$RUNNER_USER" test -w "$HF_HOME_DIR" || warn "the runner cannot write the model cache $HF_HOME_DIR"
+failed=$(systemctl list-units --state=failed --plain --no-legend 'dgx-*' 'vllm-*' earlyoom.service 2>/dev/null | awk '{print $1}')
+[ -z "$failed" ] || warn "failed units: $(echo "$failed" | tr '\n' ' ')"
+
 # ── Done ────────────────────────────────────────────────────────────────────
+if [ "${#PROBLEMS[@]}" -eq 0 ]; then
+  log "Bootstrap complete — every check passed"
+else
+  printf '\n\033[1;31m==> Bootstrap finished with %d problem(s):\033[0m\n' "${#PROBLEMS[@]}"
+  for p in "${PROBLEMS[@]}"; do printf '   - %s\n' "$p"; done
+fi
 cat <<EOF
 
-$(log "Bootstrap complete")
 Next steps:
   1. Edit  $REPO_DIR/.env : set DGX_WEB and DGX_API (docker compose refuses
      to start without them). Nothing else is required there.
   2. Start the stack:      cd $REPO_DIR && docker compose up -d
-  3. Open DGX_WEB: the login page creates the OWNER account. It asks for the
-     setup token printed in the portal's log:
+  3. Open the portal: http://<host>:5000 for a first look, or DGX_WEB behind
+     your reverse proxy. The login page creates the OWNER account; it asks for
+     the setup token printed in the portal's log:
        docker logs dgx-portal 2>&1 | grep setup
   4. Admin → Config: LDAP, SSO and e-mail (all optional). Then Admin → launch
      a model from the catalog.
 
-Firewall note: the portal's 5000 (published to container 3000) is open to
-Traefik only, and LiteLLM publishes NO port at all — the API is reachable
-solely through the public API domain (DGX_API), which keeps the maintenance
-forwardAuth in the path. Adjust systemd/dgx-docker-restrict.service for
-your network.
+Exposure (see .env.example, « Host ports »):
+  - Web UI: host port 5000 on every interface by default. Behind a reverse
+    proxy on the stack's Docker network, bind it to loopback (DGX_WEB_PUBLISH).
+  - LiteLLM: loopback only by default; the API is meant to be reached through
+    DGX_API, which keeps the maintenance gate in the path (DGX_LITELLM_PUBLISH).
+  - Model engine (8000), runner (8001), ComfyUI (8188): local and Docker
+    bridge only (vllm-restrict.service).
+  - To restrict published ports by source, edit /etc/default/dgx-firewall
+    and run: systemctl restart dgx-docker-restrict
 EOF
+[ "${#PROBLEMS[@]}" -eq 0 ]

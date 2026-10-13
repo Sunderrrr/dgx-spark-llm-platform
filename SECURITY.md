@@ -155,13 +155,14 @@ the *host*:
   whether re-arming belongs in the service itself or stays launch-scoped is the
   operator's call, to settle at the next OCR launch.
 
-Published ports are filtered in `DOCKER-USER` by
-`dgx-docker-restrict.service`: the frontend (published `5000→3000`) accepts
-Traefik's host only — the unit filters container-side dport `3000`, since
-DOCKER-USER sees traffic after DNAT, so a rule on `5000` would match nothing —
-and the Traefik dashboard `8080` and the manager agent `8090` are
-Netbird/manager-host only. **LiteLLM has no published port at all** (verified
-2026-09-13: empty `PortBindings`); it is reachable only over the docker networks.
+Published ports can be filtered by source in `DOCKER-USER` by
+`dgx-docker-restrict.service`. The allowed sources are site configuration,
+kept out of the repository in `/etc/default/dgx-firewall` (template:
+`systemd/dgx-firewall.example`). The port to list is the CONTAINER port
+(`3000` for the web UI published as `5000→3000`): DOCKER-USER sees traffic
+after DNAT, so a rule on `5000` would match nothing. **LiteLLM is published on
+loopback only by default** (`DGX_LITELLM_PUBLISH`); public access goes through
+`DGX_API`, which keeps the maintenance gate in the path.
 
 `GET /metrics` (Prometheus text: CPU, RAM, GPU, temperature, model online) is
 for a LAN/Netbird scrape and is **refused with a 403 as soon as the request

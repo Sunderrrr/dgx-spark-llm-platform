@@ -74,10 +74,10 @@ must not be undone:
   plus the operator's own networks (LAN, Netbird, loopback) may reach the vhosts.
   Before it, a client hitting the ORIGIN IP with the right `Host` skipped every
   Cloudflare control and read `/metrics` (pen test M3).
-- **`ip6tables` DOCKER-USER** now mirrors the IPv4 admin-port allowlist
-  (3000/8080/8090 DROP): `docker-proxy` publishes the same ports on `[::]` and
-  userland-proxy forwarding never passes the IPv4 chain (pen test M4). The mirror
-  is also in `dgx-docker-restrict.service` so it survives a boot.
+- **`ip6tables` DOCKER-USER** mirrors the IPv4 allowlist of every filtered
+  published port (DROP, loopback only): `docker-proxy` publishes the same ports
+  on `[::]` and userland-proxy forwarding never passes the IPv4 chain (pen test
+  M4). `dgx-docker-restrict.service` applies both at boot.
 - **`comfyui-relay.service`** (socat 172.19.0.1:8188 → 127.0.0.1:8188) exists so
   the portal can reach ComfyUI, which deliberately listens on loopback; the
   firewall accepts 8188 from the PORTAL's address only (pen test H1). If the

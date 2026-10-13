@@ -1,0 +1,11 @@
+# /etc/default/dgx-firewall — site firewall settings, read by
+# dgx-docker-restrict.service. Copy this file there and adapt it: it is the
+# place for YOUR addresses, which never go into the repository.
+#
+# DGX_PUBLISHED_ALLOW: for each Docker-published port, the only sources
+# allowed to reach it. Space-separated `port=source,source` entries. The port
+# is the CONTAINER port (the web UI published as 5000->3000 is 3000).
+#
+# Example: the web UI reachable only from the Docker bridge (Traefik) and the
+# host itself:
+#DGX_PUBLISHED_ALLOW="3000=172.19.0.0/16,127.0.0.1"

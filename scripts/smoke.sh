@@ -33,6 +33,18 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -m 15 "$API/v1/models")
 # it refuses strangers. Anything else is a problem.
 [ "$code" = "401" ] && ok "API without a key (401, as expected)" || ko "API without a key (HTTP $code, expected 401)"
 
+echo "· the portal reaches the host engines"
+# The portal's URLs target 172.19.0.1 (see the subnet note in
+# docker-compose.yml). On another subnet the packets leave with a source the
+# firewall drops, and the only symptom is « no model », with nothing logged.
+if docker exec dgx-portal python3 -c "import os, requests
+requests.get(os.environ.get('VLLM_RUNNER_URL', 'http://172.19.0.1:8001') + '/status', timeout=5)" >/dev/null 2>&1; then
+  ok "runner reachable from the portal"
+else
+  gw=$(docker inspect dgx-portal -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}={{$v.Gateway}} {{end}}' 2>/dev/null)
+  ko "runner unreachable from the portal — its networks: ${gw:-?} (expected a 172.19.0.1 gateway)"
+fi
+
 echo "· the model serves an answer"
 if docker exec dgx-portal python3 - <<'PY' >/dev/null 2>&1
 import sqlite3, sys

@@ -1,58 +1,17 @@
 [Unit]
-Description=Restrict the web UI (3000, published via DGX_WEB_PUBLISH), Traefik dashboard (8080) and Traefik Manager Agent (8090) published ports by source
+Description=Filter Docker-published host ports by source (sources from /etc/default/dgx-firewall)
 After=network.target docker.service
 Requires=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Ports published by Docker → filtered in the DOCKER-USER chain (not INPUT).
-#   (4001 LiteLLM: loopback by default, see DGX_LITELLM_PUBLISH.)
-#   3000 (web portal): Traefik 192.0.2.7 only (+ bridge + localhost) —
-#                        direct access must stay behind Traefik/HTTPS.
-#                        CAREFUL: we filter 3000, NOT 5000. DOCKER-USER sees
-#                        the traffic AFTER address translation, and this
-#                        service is published 5000->3000 (unlike the others,
-#                        which keep the same number on both sides). So a rule
-#                        on --dport 5000 NEVER matches: it looks like it
-#                        protects the portal while filtering nothing at all.
-#   8080 (Traefik dashboard): Netbird VPN 100.64.0.0/16 + the Traefik Manager
-#                        machine 100.64.45.103 + localhost. NOT the LAN: the
-#                        dashboard gives the full routing map, it has no
-#                        reason to be reachable from the office network.
-#                        Never publicly exposed either.
-#   8090 (Traefik Manager Agent): 100.64.45.103 (Traefik Manager machine)
-#                        only + docker bridge + localhost.
-# add(): DROP by default (append, at the bottom) + ACCEPT of the sources
-#        (insert, above).
-ExecStart=/bin/sh -c '\
-add() { P=$1; shift; \
-  iptables -C DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || iptables -A DOCKER-USER -p tcp --dport $P -j DROP; \
-  for S in "$@"; do iptables -C DOCKER-USER -p tcp --dport $P -s $S -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -p tcp --dport $P -s $S -j ACCEPT; done; }; \
-add 3000 192.0.2.7 172.19.0.0/16 127.0.0.1; \
-add 8080 100.64.0.0/16 100.64.45.103 127.0.0.1; \
-add 8090 100.64.45.103 172.19.0.0/16 127.0.0.1'
-ExecStop=/bin/sh -c '\
-del() { P=$1; shift; \
-  iptables -D DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || true; \
-  for S in "$@"; do iptables -D DOCKER-USER -p tcp --dport $P -s $S -j ACCEPT 2>/dev/null || true; done; }; \
-del 3000 192.0.2.7 172.19.0.0/16 127.0.0.1; \
-del 8080 100.64.0.0/16 100.64.45.103 127.0.0.1; \
-del 8090 100.64.45.103 172.19.0.0/16 127.0.0.1'
-# IPv6 mirror (audit 2026-10-06, M4): docker-proxy also publishes these ports
-# on [::], and that traffic never meets the IPv4 chain above. The VPN and LAN
-# sources are IPv4-only, so over IPv6 only loopback keeps the agent port.
-# It used to sit AFTER [Install] on the host, where systemd ignores it
-# (« Unknown key name 'ExecStartPost' in section 'Install' »): the rules only
-# existed because they had been added by hand, and a reboot dropped them.
-ExecStartPost=/bin/sh -c '\
-for P in 3000 8080 8090; do \
-  ip6tables -C DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || ip6tables -A DOCKER-USER -p tcp --dport $P -j DROP; \
-done; \
-ip6tables -C DOCKER-USER -p tcp --dport 8090 -s ::1/128 -j ACCEPT 2>/dev/null || ip6tables -I DOCKER-USER -p tcp --dport 8090 -s ::1/128 -j ACCEPT'
-ExecStopPost=/bin/sh -c '\
-for P in 3000 8080 8090; do ip6tables -D DOCKER-USER -p tcp --dport $P -j DROP 2>/dev/null || true; done; \
-ip6tables -D DOCKER-USER -p tcp --dport 8090 -s ::1/128 -j ACCEPT 2>/dev/null || true'
+# Which ports and which sources is site configuration: it lives in
+# /etc/default/dgx-firewall (template: systemd/dgx-firewall.example), never in
+# the repository. Without that file, nothing is filtered here.
+EnvironmentFile=-/etc/default/dgx-firewall
+ExecStart=/usr/local/sbin/dgx-docker-restrict.sh start
+ExecStop=/usr/local/sbin/dgx-docker-restrict.sh stop
 
 [Install]
 WantedBy=multi-user.target

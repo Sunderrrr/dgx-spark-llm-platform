@@ -300,8 +300,8 @@ are contracts, not decoration:
 | Unit | Role |
 |---|---|
 | `vllm-runner.service` | The runner daemon (non-root `vllmrunner` user) |
-| `vllm-restrict.service` | iptables: host ports **8000**/**8001** limited to localhost + Docker bridge, and **8188** (ComfyUI) off the LAN |
-| `dgx-docker-restrict.service` | DOCKER-USER rules: the published frontend port (**5000** on the host → **3000** in the container) reachable from Traefik's host only, plus **8080**/**8090**. LiteLLM has no published port at all |
+| `vllm-restrict.service` | iptables: host ports **8000**/**8001**/**8188** limited to localhost + Docker bridge, and dropped on the VPN interface in the `raw` table (where the VPN's own ACCEPT cannot pre-empt it) |
+| `dgx-docker-restrict.service` | DOCKER-USER rules: each Docker-published port listed in `/etc/default/dgx-firewall` (site file, template `systemd/dgx-firewall.example`) only accepts the sources listed there; IPv6 keeps loopback only. Lists the CONTAINER port (the web UI published 5000→3000 is **3000**) |
 | `dgx-web-restrict.service` | Drops new connections from the web-search network to the host |
 | `dgx-ocr-restrict.service` | Prevents the OCR container from opening a connection to the portal |
 | `dgx-traefik-boot.service` | One-shot at boot: waits for DNS, then restarts Traefik once (avoids the plugin/ACME race that 404s the site after a reboot) |

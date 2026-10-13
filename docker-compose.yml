@@ -388,11 +388,12 @@ volumes:
   portal_data:
 
 networks:
-  # NB: subnet NOT pinned here — doing so forces Docker to recreate the
-  # network, which it refuses because traefik (outside this compose) is
-  # attached to it. 172.19.0.0/16 is the stable allocation observed;
-  # vllm-restrict.service allows it and the URLs above target its gateway
-  # 172.19.0.1.
+  # The URLs above target 172.19.0.1 and vllm-restrict.service admits
+  # 172.19.0.0/16, so this network MUST have that subnet. It is not pinned
+  # here: on an existing install, pinning forces Docker to recreate the
+  # network, which it refuses while another stack (e.g. a reverse proxy) is
+  # attached. install.sh creates it with that subnet on a fresh install
+  # (Compose adopts it), and scripts/smoke.sh fails loudly if it differs.
   default:
   # Dedicated OCR network: the OCR container (vllm-openai image, the admin can
   # relaunch it with --trust-remote-code on another HF repo, see README

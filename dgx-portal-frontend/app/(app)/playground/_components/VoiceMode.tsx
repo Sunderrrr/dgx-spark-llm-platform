@@ -88,6 +88,12 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
     { awaitFrom: null, index: null, cut: 0, queue: [], pumping: false });
   const voiceOk = useRef(true);
   const failures = useRef(0);
+  // A sound over the assistant, not yet confirmed as an interruption.
+  const barge = useRef(false);
+  // The « said » boundary in the answer: the view follows it as it moves.
+  const markRef = useRef<HTMLElement | null>(null);
+  const threadRef = useRef<HTMLDivElement | null>(null);
+  const userScrolledAt = useRef(0);
   // Everything the mic callbacks read: they are set up ONCE, at opening —
   // a captured `onSend` was the first render's, with an empty CSRF token,
   // and every spoken turn failed (400 → « Erreur réseau »).
@@ -208,13 +214,37 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
       }
       if (closed) { mic.close(); return; }
       micRef.current = mic;
+      // Over the assistant, a sound only LOWERS its voice; the answer is cut
+      // once the speech is confirmed (CONFIRM_MS). A blip — a cough, the
+      // room, its own echo — restores it: « …les ressources et la » was cut
+      // by a sound that transcribed to nothing (2026-10-13).
       mic.onSpeechStart = () => {
         const p = live.current.phase;
-        if (p === "thinking" || p === "speaking") interrupt();
+        if (p === "thinking" || p === "speaking") {
+          barge.current = true;
+          playerRef.current?.duck(true);
+          return;
+        }
         setLiveText("");
         setPhase("hearing");
       };
-      mic.onSpeechEnd = async (wav) => {
+      mic.onSpeechConfirmed = () => {
+        if (!barge.current) return;
+        barge.current = false;
+        interrupt();
+        setLiveText("");
+        setPhase("hearing");
+      };
+      mic.onSpeechEnd = async (wav, confirmed) => {
+        if (barge.current && !confirmed) {
+          barge.current = false;
+          playerRef.current?.duck(false);
+          return;
+        }
+        if (!wav) {
+          if (live.current.phase === "hearing") setPhase("listening");
+          return;
+        }
         setPhase("thinking");
         let r = await transcribe(wav, live.current.csrf);
         // First use: the transcription service is still loading — wait for it.
@@ -304,9 +334,24 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // The view follows the voice: the « said » boundary is kept in the upper
+  // part of the screen as it moves down (it stayed off-screen, the reader had
+  // to scroll by hand). A manual scroll pauses the following for a few
+  // seconds; otherwise a new message brings the end into view.
   useEffect(() => {
+    if (Date.now() - userScrolledAt.current < 4000) return;
+    const box = threadRef.current;
+    const mark = markRef.current;
+    if (voiced !== null && box && mark) {
+      const b = box.getBoundingClientRect();
+      const y = mark.getBoundingClientRect().top - b.top;
+      if (y > b.height * 0.55 || y < 0) {
+        box.scrollTo({ top: box.scrollTop + y - b.height * 0.3, behavior: "smooth" });
+      }
+      return;
+    }
     endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [messages.length, liveText, phase]);
+  }, [messages.length, liveText, phase, said, voiced]);
 
   const toggleMic = () => {
     const next = !micMuted;
@@ -353,7 +398,9 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
           />
         )}
       </HStack>
-      <VStack className="voice-thread" gap={6}>
+      <VStack className="voice-thread" gap={6} ref={threadRef}
+        onWheel={() => { userScrolledAt.current = Date.now(); }}
+        onTouchMove={() => { userScrolledAt.current = Date.now(); }}>
         {shown.map(({ m, i }) =>
           m.role === "user" ? (
             <HStack key={i} hAlign="end">
@@ -364,6 +411,7 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
               {i === voicedIndex && speakerOn ? (
                 <>
                   <Text className="voice-said">{speakable(m.content).slice(0, said)}</Text>
+                  <Text ref={markRef} className="voice-mark">{""}</Text>
                   <Text className="voice-unsaid">{speakable(m.content).slice(said)}</Text>
                 </>
               ) : speakable(m.content)}

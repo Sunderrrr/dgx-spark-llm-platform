@@ -27,3 +27,13 @@ def request_texts(history):
             and turns[last - 2].get('role') == 'user'):
         texts.append(str(turns[last - 2].get('content', '')))
     return texts
+
+
+def previous_answer(history):
+    """The assistant message just before the last user message ('' if none)."""
+    turns = [m for m in history if m.get('role') in ('user', 'assistant')]
+    for k in range(len(turns) - 1, 0, -1):
+        if turns[k].get('role') == 'user':
+            prev = turns[k - 1]
+            return str(prev.get('content', '')) if prev.get('role') == 'assistant' else ''
+    return ''

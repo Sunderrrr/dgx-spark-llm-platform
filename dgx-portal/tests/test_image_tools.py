@@ -33,6 +33,17 @@ class TriggerTest(unittest.TestCase):
         hist[1] = {'role': 'assistant', 'content': "Voilà !"}
         self.assertFalse(image_tools._image_requested(hist))
 
+    def test_follow_up_on_generated_images_keeps_the_tool(self):
+        # « ajuste les photos » right after generated images: no image noun
+        # nor verb, but the tool must stay offered — without it the model
+        # invented /image/file/<id>/3…8 (2026-10-13).
+        hist = [{'role': 'user', 'content': "fais-moi 3 images d'halloween"},
+                {'role': 'assistant', 'content': "![image générée](/image/file/abc123/0)"},
+                {'role': 'user', 'content': "vasi ajuste les photo fait des promte de meilleur qualité"}]
+        self.assertTrue(image_tools._image_requested(hist))
+        hist[1] = {'role': 'assistant', 'content': "Bonjour !"}
+        self.assertFalse(image_tools._image_requested(hist))
+
     def test_explicit_directives_(self):
         for text in (
             "génère une image d'un chat astronaute",
@@ -51,6 +62,8 @@ class TriggerTest(unittest.TestCase):
             "hello fait moi une image pour halloween",   # « fait » (sic)
             "tu peux me faire 3 visuels pour la soirée",
             "fais-moi une affiche pour la fête",
+            "vasi génére les image",                       # génére + les (2026-10-13)
+            "refais l'image en plus sombre",
         ):
             self.assertTrue(self._requested(text), text)
 
@@ -193,3 +206,16 @@ class ToolsPhaseTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class InventedImagesTest(unittest.TestCase):
+    """An answer citing generated-image addresses that serve nothing."""
+
+    def test_only_missing_files_are_reported(self):
+        exists = {('abc123', 0), ('abc123', 1)}
+        with mock.patch.object(image_tools, 'image_exists',
+                               side_effect=lambda user, pid, idx=0: (pid, idx) in exists):
+            text = ("![a](/image/file/abc123/0) ![b](/image/file/abc123/1) "
+                    "![c](/image/file/abc123/3) ![d](/image/file/abc123/3) ![e](/image/file/ffff00/0)")
+            self.assertEqual(image_tools.invented_images(text, 'demo'),
+                             ['/image/file/abc123/3', '/image/file/ffff00/0'])

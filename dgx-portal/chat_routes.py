@@ -59,7 +59,7 @@ from support import (GUARDED_TOOLS, TOOLS_REFUSED_IF_EXTERNAL, SUPPORT_SYSTEM, s
 from vllm_health import ctx_split, effective_ctx, get_running_models, slots_busy
 from websearch_tools import (_tools_phase, _search_relevant,
                              _findings_text, websearch_active)
-from image_tools import _image_requested, image_available
+from image_tools import _image_requested, image_available, invented_images
 from video_tools import _video_requested, video_available
 import file_tools
 import skills_store
@@ -1494,6 +1494,7 @@ def playground_chat():
             _direct_update = 0.0  # gauge written at most once per second
             _first_tok_wall = None  # first-token wall time (decode-rate denominator)
             _response = []      # full model text, for memory extraction
+            _answer, _answer_len = [], [0]   # the answer's text (invented-image check)
             _thread.start()
             while True:
                 try:
@@ -1536,6 +1537,9 @@ def playground_chat():
                                 # ratio calibrated on the exact `usage` of each
                                 # finished request (see stats.py). 1 write/second.
                                 _chars_seen += _dc
+                                if _dl.get('content') and _answer_len[0] < 200_000:
+                                    _answer.append(_dl['content'])
+                                    _answer_len[0] += len(_dl['content'])
                                 if time.monotonic() - _direct_update >= 1.0:
                                     _direct_update = time.monotonic()
                                     _inflight_tokens(_rid, _chars_seen, _first_tok_wall)
@@ -1625,6 +1629,18 @@ def playground_chat():
                                    _who, _finish, _out)
             elif _out and _out > 4000:
                 _log.warning("playground %s: normal end (stop) after %s tokens", _who, _out)
+            # Images the answer « shows » but nobody generated: without the
+            # tool, qwen38-27b « redid » three images by citing
+            # /image/file/<id>/3…8 — broken frames presented as new (2026-10-13).
+            _text = ''.join(_answer)
+            if '/image/file/' in _text:
+                try:
+                    _ghosts = invented_images(_text, _who)
+                except Exception:                                # noqa: BLE001
+                    _ghosts = []
+                if _ghosts:
+                    _log.warning("playground %s: %d invented image address(es)", _who, len(_ghosts))
+                    yield _sse_notice('image_invented', done=False, count=len(_ghosts))
             if _mem_on and _finish == 'stop':
                 # Memory write: AFTER the reply (the client is served), in a
                 # throwaway thread — the extractor logs its failures and

@@ -17,6 +17,7 @@ minutes) and the frontend proxy cuts on inactivity — so we emit SSE
 heartbeats while waiting (same reason as the websearch phase, see
 _phase_outils).
 """
+import os
 import re
 import secrets
 import sqlite3
@@ -24,7 +25,7 @@ import threading
 import time
 from datetime import datetime
 
-from request_turns import request_texts
+from request_turns import previous_answer, request_texts
 from db import get_db
 from sidecars import wait_media_job
 from guards import media_job_done, media_job_slot
@@ -47,13 +48,15 @@ _HEARTBEAT_EVERY_S = 15
 # Both forms are accepted now. « redessine » still does not match (\b mid-word
 # does not exist).
 _IMAGE_REQUEST = re.compile(
-    r"\b(?:genere|génère|generer|générer|généré|générée|générés|générées|"
+    # g[ée]n[éeè]r…: génère, génére (sic), générer, générées, genere…
+    r"\b(?:g[ée]n[éeè]r\w*|"
     r"cree|crée|creer|créer|créé|créée|créés|créées|veux|voudrais|"
     # « fait » (sic) is how « fais-moi » is very often typed (2026-10-13).
     r"aimerais|fais|fait|faire|faites|refais|refait|generate|create|make|design)\b"
     r"[^.!?\n]{0,40}?"
-    r"\b(?:une?|des|an?|\d+)\s+(?:image|dessin|illustration|logo|ic[ôo]ne|avatar|visuel|affiche|"
-    r"flyer|poster|picture|drawing|icon)s?\b"
+    r"(?:\b(?:une?|des|les|ces|mes|la|le|an?|\d+|deux|trois|quatre|cinq)\s+|\bl')"
+    r"(?:image|dessin|illustration|logo|ic[ôo]ne|avatar|visuel|affiche|"
+    r"flyer|poster|photo|picture|drawing|icon)s?\b"
     r"|\bdessine\b[^.!?\n]{0,40}"
     r"|\bdraw\b[^.!?\n]{0,40}",
     re.I)
@@ -76,7 +79,41 @@ def _image_requested(history):
         if any(not _NOT_AN_IMAGE.search(text[m.start():m.end() + 40])
                for m in _IMAGE_REQUEST.finditer(text)):
             return True
-    return False
+    # A follow-up on images just generated (« ajuste les photos », « refais en
+    # plus sombre »): the tool stays offered. Without it the model « redid »
+    # them by inventing addresses (/image/file/<id>/3…8, 2026-10-13).
+    return '/image/file/' in previous_answer(history)
+
+
+# A generated image cited in an answer: ![…](/image/file/<prompt_id>/<idx>).
+_IMAGE_REF = re.compile(r'/image/file/([0-9a-f]+)(?:/(\d+))?')
+
+
+def image_exists(username, prompt_id, idx=0):
+    """Does /image/file/<prompt_id>/<idx> serve a file to this user? Same
+    lookup as the route (image_routes.image_file)."""
+    from image_routes import IMAGE_EXT, IMAGE_FILES_DIR
+    if not get_db().execute("SELECT 1 FROM image_jobs WHERE prompt_id=? AND username=?",
+                            (prompt_id, username)).fetchone():
+        return False
+    if any(os.path.isfile(os.path.join(IMAGE_FILES_DIR, f"{prompt_id}_{idx}.{ext}"))
+           for ext in IMAGE_EXT.values()):
+        return True
+    return idx == 0 and os.path.isfile(os.path.join(IMAGE_FILES_DIR, prompt_id + '.png'))
+
+
+def invented_images(text, username):
+    """The generated-image addresses an answer cites that serve nothing — the
+    model « showing » images it never produced."""
+    seen, out = set(), []
+    for m in _IMAGE_REF.finditer(text or ''):
+        key = (m.group(1), int(m.group(2) or 0))
+        if key in seen:
+            continue
+        seen.add(key)
+        if not image_exists(username, *key):
+            out.append(m.group(0))
+    return out
 
 
 def image_available():

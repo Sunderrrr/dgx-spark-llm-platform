@@ -1280,3 +1280,21 @@ class InlineThinkHistoryTest(unittest.TestCase):
         ])
         self.assertEqual([m['content'] for m in out],
                          ['Abois', '…', 'Ha, non !', 'Le tag <think> reste là.'])
+
+
+class InventedImageNoticeTest(_BasePlayground):
+    """An answer « showing » images nobody generated is flagged to the user."""
+
+    def test_notice_after_an_answer_citing_missing_images(self):
+        up = _FakeUpstream([_delta('Voilà ![image générée](/image/file/'), _delta('abc123/3)'), _end()])
+        with patch.object(chat, 'invented_images', return_value=['/image/file/abc123/3']) as seen:
+            body = self._flux(self._body(), post=self._single_upstream(up))
+        self.assertIn('/image/file/abc123/3', seen.call_args[0][0], "the URL split across chunks is read whole")
+        events = [json.loads(l[6:]) for l in body.split('\n') if l.startswith('data: {')]
+        self.assertIn({'id': 'image_invented', 'count': 1}, [e.get('dgx_notice') for e in events])
+
+    def test_no_check_without_image_address(self):
+        up = _FakeUpstream([_delta('Bonjour'), _end()])
+        with patch.object(chat, 'invented_images') as seen:
+            self._flux(self._body(), post=self._single_upstream(up))
+        seen.assert_not_called()

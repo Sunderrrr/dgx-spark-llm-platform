@@ -203,7 +203,7 @@ export type StreamDelta = {
   webStep?: WebStep;
   /** STRUCTURED system notice (quota exceeded, model error…): translated at
      render time into the UI language — the server never sends a sentence. */
-  notice?: { id: string; reset?: string; status?: number };
+  notice?: { id: string; reset?: string; status?: number; count?: number };
   /** A file the platform edited (playground edit tools): its new version. */
   fileEdit?: { name: string; content: string; created?: boolean };
   /** Engine occupancy while waiting for the first token (llama.cpp /slots). */
@@ -236,7 +236,7 @@ type SSEPayload = {
   usage?: { total_tokens?: number; completion_tokens?: number; prompt_tokens?: number };
   choices?: { delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }[];
   dgx_web?: WebStep;
-  dgx_notice?: { id: string; reset?: string; status?: number };
+  dgx_notice?: { id: string; reset?: string; status?: number; count?: number };
   dgx_confirm?: SupportConfirmRequest;
   tool_call?: ToolCallEvent;
   dgx_file?: { name: string; content: string; created?: boolean };

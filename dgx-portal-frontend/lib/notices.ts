@@ -16,6 +16,8 @@ export type DgxNotice = {
   wait?: number;
   /** Free memory in GiB (MemAvailable), sent with the `*_service_off` notices. */
   free_gib?: number;
+  /** How many images an answer cited without generating them (`image_invented`). */
+  count?: number;
 };
 
 /** The `*_service_off` notices all carry the free memory: under a ~100 GB chat
@@ -66,6 +68,10 @@ export function noticeText(
       return t("Peux-tu reformuler ta demande ?");
     case "model_timeout":
       return t("Le modèle n'a pas répondu à temps. Réessaie dans un instant.");
+    case "image_invented":
+      // The model « showed » images it never generated (broken frames).
+      return t("⚠️ Ces images n'ont pas été générées : le modèle a cité {n} image(s) qui n'existent pas. Demande « génère les images » pour les créer vraiment.")
+        .replace("{n}", String(notice.count ?? ""));
     case "image_service_off":
       // Free memory: under a ~100 GB model the sidecar often simply cannot
       // start — saying only "the service is stopped" makes a click look enough.

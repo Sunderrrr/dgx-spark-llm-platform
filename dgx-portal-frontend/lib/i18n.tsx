@@ -181,6 +181,7 @@ const EN: Record<string, string> = {
   "Le modèle répond aussi à d'autres conversations ({busy}/{total} sessions) : la réponse peut tarder…": "The model is also answering other conversations ({busy}/{total} sessions): the reply may take a while…",
   "Répondre maintenant": "Answer now",
   "Par défaut (moyenne)": "Default (medium)",
+  "⚠️ Ces images n'ont pas été générées : le modèle a cité {n} image(s) qui n'existent pas. Demande « génère les images » pour les créer vraiment.": "⚠️ These images were not generated: the model cited {n} image(s) that do not exist. Ask « generate the images » to really create them.",
   // Voice mode (2026-10-13): hands-free conversation with Kyutai TTS.
   "Mode vocal": "Voice mode",
   "Quitter le mode vocal": "Leave voice mode",

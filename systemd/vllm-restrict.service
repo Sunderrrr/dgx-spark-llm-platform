@@ -1,19 +1,27 @@
 [Unit]
-Description=Restrict vLLM (8000), vllm-runner (8001) and ComfyUI (8188) to localhost + ai-platform docker bridge only
-# After netbird: Netbird inserts a blanket `-i wt0 -j ACCEPT` into INPUT that,
-# if it precedes our port DROPs, lets any VPN peer reach the unauthenticated
-# model API (:8000) and ComfyUI (:8188). We run after it and insert a wt0 DROP
-# for those ports at the TOP of INPUT so it is evaluated first (audit H1, 2026-08-12).
+Description=Host perimeter: vLLM (8000), vllm-runner (8001) and ComfyUI (8188) local-only, never reachable over the VPN
+# Two layers.
 #
-# MEASUREMENT OF 2026-09-17: the original `-C … || -I INPUT 1` does NOT fix
-# the order. The rule already existing (further down), the `-C` test succeeded
-# and nothing was re-inserted; yet netbird reinstalls its general ACCEPT at
-# position 1 on every (re)start. Observed: ACCEPT `-i wt0` as rule 1 (491 000
-# packets) and our DROP as rule 14 (0 packets) — never evaluated, so a VPN
-# peer reached `:8000` without authentication (HTTP 200 on /v1/models). Hence
-# the two fixes: the rule is DELETED then RE-INSERTED at the top at every run,
-# and `PartOf=netbird.service` replays the unit when netbird restarts — that is
-# the very cause of the drift.
+# 1. filter/INPUT: 8000, 8001 and 8188 accept localhost and the ai-platform
+#    docker bridge (the portal reaches them via 172.19.0.1), drop the rest.
+#
+# 2. raw/PREROUTING, chain DGX-PERIMETER: the VPN (netbird, `wt0`) rules.
+#    They used to live in filter/INPUT and LOST THE RACE every time: netbird
+#    re-inserts its blanket `-i wt0 -j ACCEPT` at the top of INPUT whenever
+#    it reconfigures, so our DROP sat below it with 0 packets (measured
+#    2026-09-17 and again 2026-10-13: any VPN peer reached the
+#    unauthenticated :8000 and :8188). `raw` is evaluated BEFORE `filter` and
+#    netbird does not touch it, so the order can no longer drift.
+#    wt0 → 8000/8001/8188: DROP (no VPN peer has any use for them).
+#    Site-specific rules (e.g. LiteLLM published with DGX_LITELLM_PUBLISH and
+#    admitted from wt0 only) belong in a machine-local drop-in
+#    (`vllm-restrict.service.d/*.conf`, ExecStartPost appending to
+#    DGX-PERIMETER): ExecStart rebuilds the chain from scratch, ExecStop
+#    removes it whole, drop-in rules included.
+#
+# Comments stay OUT of ExecStart: systemd joins the `\` lines into ONE shell
+# line, so a `#` inside the script comments out everything after it (this is
+# what silently disabled the final wt0 rule of the previous version).
 After=network.target docker.service netbird.service
 Wants=netbird.service
 PartOf=netbird.service
@@ -22,25 +30,25 @@ PartOf=netbird.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/sh -c '\
-iptables -D INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP 2>/dev/null || true; \
-# 8188 (ComfyUI) is NOT a model API: it has no auth at all and executes
-  # workflow graphs as the runner user. Only the PORTAL may reach it (audit
-  # 2026-10-06, H1) — the /16 also let litellm, postgres and the agents in.
-  # The IP is the portal container's on ai-platform_default (docker inspect
-  # dgx-portal): it changes if the container is recreated — update it here.
-  for PORT in 8000 8001; do \
+for PORT in 8000 8001 8188; do \
   iptables -C INPUT -p tcp --dport $PORT -j DROP 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -j DROP; \
   iptables -C INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT; \
   iptables -C INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT; \
 done; \
-iptables -C INPUT -p tcp --dport 8188 -s 172.22.0.2 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport 8188 -s 172.22.0.2 -j ACCEPT; \niptables -I INPUT 1 -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP'
-ExecStop=/bin/sh -c '\
 iptables -D INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP 2>/dev/null || true; \
+iptables -t raw -N DGX-PERIMETER 2>/dev/null || iptables -t raw -F DGX-PERIMETER; \
+iptables -t raw -A DGX-PERIMETER -i lo -j RETURN; \
+iptables -t raw -A DGX-PERIMETER -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP; \
+iptables -t raw -C PREROUTING -j DGX-PERIMETER 2>/dev/null || iptables -t raw -I PREROUTING 1 -j DGX-PERIMETER'
+ExecStop=/bin/sh -c '\
 for PORT in 8000 8001 8188; do \
   iptables -D INPUT -p tcp --dport $PORT -j DROP 2>/dev/null || true; \
   iptables -D INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT 2>/dev/null || true; \
   iptables -D INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT 2>/dev/null || true; \
-done'
+done; \
+iptables -t raw -D PREROUTING -j DGX-PERIMETER 2>/dev/null || true; \
+iptables -t raw -F DGX-PERIMETER 2>/dev/null || true; \
+iptables -t raw -X DGX-PERIMETER 2>/dev/null || true'
 
 [Install]
 WantedBy=multi-user.target

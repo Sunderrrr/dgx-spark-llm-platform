@@ -8,6 +8,8 @@ In both cases the model is served on :8000 → LiteLLM routing is identical.
 import hmac, json, os, re, shutil, signal, subprocess, threading, time, urllib.request
 from flask import Flask, jsonify, request, Response
 
+import launch_env
+
 VLLM_BIN     = os.environ.get("VLLM_BIN", "/root/.local/bin/vllm")
 # Separate venv (vLLM 0.25.1 + FlashInfer nightly) for models that require a
 # newer vLLM than the globally installed one — avoids a major version bump that
@@ -954,38 +956,7 @@ def _start_process(hf_id, name, extra_tokens, engine="vllm"):
         if run_log is not None:
             run_log.write(f"[runner] model-specific env: {model_env}")
 
-    # Explicit minimal env rather than **os.environ — avoids leaking the full
-    # root environment (assorted secrets) into /logs and /stream.
-    env = {
-        "PATH": os.environ.get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
-        "HOME": os.environ.get("HOME", "/root"),
-        "HF_HOME": HF_HOME,
-        "PYTHONUNBUFFERED": "1",
-        # FlashInfer ships its kernels in a companion package (`flashinfer-cubin`)
-        # whose version trails the Python one (0.6.13 vs 0.7.0.post1 — there is
-        # no 0.7 cubin on PyPI). Their version gate is checked at IMPORT and
-        # kills vLLM outright, while the kernels we use on GB10 are the CUTLASS
-        # paths, not those cubins. Bypass the check rather than pin a stale
-        # flashinfer-python (that dragged torch back to 2.10 and broke vLLM).
-        "FLASHINFER_DISABLE_VERSION_CHECK": "1",
-        # DeepGEMM E8M0 breaks FP8 MoE on Blackwell/GB10 ("Unknown SF
-        # transformation") and degrades accuracy (vLLM partially auto-disables
-        # it) → we turn it off entirely, CUTLASS fallback.
-        "VLLM_USE_DEEP_GEMM": "0",
-        # FlashInfer JIT-compiles its NVFP4 kernels at startup. Without MAX_JOBS
-        # it passes no -j to ninja, which spawns ~nproc+2 `cicc` compilers of
-        # ~3 GB each — on top of the already-loaded weights, that triggers the
-        # OOM killer and the model dies at init (seen on Leanstral and Nemotron).
-        # 4 jobs ≈ 12 GB peak: compilation a bit slower, but only once (kernels
-        # are then cached).
-        "MAX_JOBS": os.environ.get("MAX_JOBS", "4"),
-    }
-    env.update(model_env)
-    if os.environ.get("HF_TOKEN"):
-        env["HF_TOKEN"] = os.environ["HF_TOKEN"]
-    if engine == "ds4":
-        # KV cache packed in FP8 → ~7 GiB saved at 1M context (see model card).
-        env["DS4_KV_TURBO"] = "1"
+    env = launch_env.build(engine, model_env, HF_HOME)
 
     _proc = subprocess.Popen(
         cmd,

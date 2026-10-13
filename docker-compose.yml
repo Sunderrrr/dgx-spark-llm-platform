@@ -73,11 +73,14 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    # NO published port: LiteLLM is reachable only from the Docker network.
-    # Traefik (`http://litellm:4001`) and the portal (LITELLM_URL) go through
-    # there; external access goes through ${DGX_API}/v1, which
-    # additionally applies the maintenance forwardAuth — which the old
-    # published port bypassed.
+    # Traefik (`http://litellm:4001`) and the portal (LITELLM_URL) reach
+    # LiteLLM over the Docker network; public access goes through
+    # ${DGX_API}/v1, which also applies the maintenance forwardAuth.
+    # DGX_LITELLM_PUBLISH optionally publishes it on the host (default:
+    # loopback only). Filter that port at the host firewall yourself: this
+    # direct path skips the maintenance gate (the API keys still apply).
+    ports:
+      - "${DGX_LITELLM_PUBLISH:-127.0.0.1:4001}:4001"
     volumes:
       # The proxy config is READ-ONLY: LiteLLM reads it at startup and never
       # writes it (its models live in Postgres, `store_model_in_db: true`).
@@ -303,9 +306,10 @@ services:
       web_net: {}
 
   # ─── DGX Portal Frontend — Next.js + Astryx, full new UI ───────────────────
-  # Takes over port 5000 (the one dgx-docker-restrict.service already
-  # filters and Traefik routes to): nothing to change on the firewall/Traefik
-  # side, they keep targeting ":5000", which now serves this container.
+  # Published on host port 5000 for a first install (`http://<host>:5000`).
+  # Behind a Traefik on the same Docker network (it targets
+  # `dgx-portal-frontend:3000`), the host port is not needed: set
+  # DGX_WEB_PUBLISH=127.0.0.1:5000 to keep it off the network.
   # Anything that is not a known Next page is forwarded internally to
   # dgx-portal:5000 (see next.config.ts → rewrites().fallback).
   dgx-portal-frontend:
@@ -322,7 +326,7 @@ services:
     cap_drop:
       - ALL
     ports:
-      - "5000:3000"
+      - "${DGX_WEB_PUBLISH:-5000}:3000"
 
   # ─── Web search: SearXNG (metasearch) + crawl4ai (extraction) ──────────────
   # No `ports:`: neither is reachable from outside, only dgx-portal reaches

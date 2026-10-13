@@ -1,5 +1,5 @@
 [Unit]
-Description=Restrict dgx-portal (5000->3000), Traefik dashboard (8080) and Traefik Manager Agent (8090) published ports by source
+Description=Restrict the web UI (3000, published via DGX_WEB_PUBLISH), Traefik dashboard (8080) and Traefik Manager Agent (8090) published ports by source
 After=network.target docker.service
 Requires=docker.service
 
@@ -7,7 +7,7 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 # Ports published by Docker → filtered in the DOCKER-USER chain (not INPUT).
-#   (4001 LiteLLM is no longer published at all — Docker network only.)
+#   (4001 LiteLLM: loopback by default, see DGX_LITELLM_PUBLISH.)
 #   3000 (web portal): Traefik 192.0.2.7 only (+ bridge + localhost) —
 #                        direct access must stay behind Traefik/HTTPS.
 #                        CAREFUL: we filter 3000, NOT 5000. DOCKER-USER sees

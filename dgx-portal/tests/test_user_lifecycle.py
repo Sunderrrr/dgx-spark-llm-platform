@@ -29,6 +29,7 @@ from unittest.mock import patch
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import app as portal
+import admin_users  # noqa: E402
 try:                                     # discovery runs tests/ as top level
     from settings_helper import live_settings
 except ImportError:                      # single module: tests.test_x
@@ -426,12 +427,11 @@ class DetailTest(AccountsBase):
     def test_detail_carries_activity_and_directory_state(self):
         """The admin sees the same 6-month activity as the account's own
         settings, and, for a directory account, its state in the directory."""
-        import admin_routes
         series_ = {'days': [{'date': '2026-10-10', 'tokens': 42}], 'total': 42, 'prompt': 40,
                  'completion': 2, 'peak': 42, 'peak_day': '2026-10-10', 'active_days': 1, 'avg': 42}
         admin = self._client(ADMIN, is_admin=True)
-        with mock.patch.object(admin_routes, '_account_activity', return_value=series_) as act, \
-             mock.patch.object(admin_routes, 'directory_states_for',
+        with mock.patch.object(admin_users, '_account_activity', return_value=series_) as act, \
+             mock.patch.object(admin_users, 'directory_states_for',
                                return_value={DIRECTORY_USER: 'disabled'}):
             body = admin.get(f'/admin/users/{DIRECTORY_USER}/detail').get_json()
             local = admin.get(f'/admin/users/{TARGET_USER}/detail').get_json()
@@ -444,7 +444,6 @@ class DetailTest(AccountsBase):
         self.assertIsNone(local['directory_status'], "a local account's state is `enabled`")
 
     def test_list_carries_directory_state_of_non_local_accounts(self):
-        import admin_routes
         with portal.app.app_context():
             db = portal.get_db()
             db.execute("INSERT OR REPLACE INTO user_sources (username, sources, fullname, last_source, "
@@ -452,7 +451,7 @@ class DetailTest(AccountsBase):
                        (DIRECTORY_USER, 'ldap', DIRECTORY_USER, 'ldap', '2026-10-11T10:00:00', 0))
             db.commit()
         admin = self._client(ADMIN, is_admin=True)
-        with mock.patch.object(admin_routes, 'directory_states_for',
+        with mock.patch.object(admin_users, 'directory_states_for',
                                side_effect=lambda names: {n: 'active' for n in names}) as states:
             users = {u['username']: u for u in admin.get('/api/admin/users').get_json()['users']}
         requests_ = set(states.call_args[0][0])
@@ -682,7 +681,7 @@ class QuotaTest(AccountsBase):
 
     def test_quota_failure_reported_on_creation(self):
         admin = self._client(ADMIN, is_admin=True)
-        with patch('admin_routes._sync_local_user_budget', return_value=False):
+        with patch('admin_users._sync_local_user_budget', return_value=False):
             r = self._post(admin, '/admin/users/create',
                            data={'username': 'ztest-nouveau', 'password': 'MotDePasse123'})
         self.assertEqual(r.status_code, 200)
@@ -706,7 +705,7 @@ class QuotaTest(AccountsBase):
             seen.append(username)
             return True
 
-        with patch('admin_routes._sync_local_user_budget', side_effect=fake_sync):
+        with patch('admin_users._sync_local_user_budget', side_effect=fake_sync):
             r = self._post(admin, '/admin/groups/delete/ztest-groupe')
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()['members'], 1)
@@ -728,7 +727,7 @@ class QuotaTest(AccountsBase):
                        "WHERE username=?", (TARGET_USER,))
             db.commit()
         admin = self._client(ADMIN, is_admin=True)
-        with patch('admin_routes._sync_local_user_budget',
+        with patch('admin_users._sync_local_user_budget',
                    side_effect=lambda u, r: seen.append(u) or True):
             self._post(admin, '/admin/groups/delete/ztest-groupe')
         # Their personal cap did not depend on the group: nothing to propagate.

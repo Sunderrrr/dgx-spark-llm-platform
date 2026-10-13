@@ -22,8 +22,13 @@ function maskKey(k: string): string {
   return k.slice(0, 6) + "••••••••••••••••" + k.slice(-4);
 }
 
-const BUILDERS: Record<IntegrationTool, (base: string, key: string, model: string, limits: Record<string, ModelLimit>) => string> = {
-  claudecode: (base, k, m, limits) => {
+// The comments inside a snippet are UI text: French msgids, translated by the
+// caller's `t` like any other screen text.
+type Translate = (msgid: string) => string;
+type Builder = (base: string, key: string, model: string, limits: Record<string, ModelLimit>, t: Translate) => string;
+
+const BUILDERS: Record<IntegrationTool, Builder> = {
+  claudecode: (base, k, m, limits, t) => {
     // Claude Code adds « /v1/messages » itself: ANTHROPIC_BASE_URL must be
     // the ROOT, not the OpenAI-compatible path that serves the other tools.
     const root = base.replace(/\/v1\/?$/, "");
@@ -32,25 +37,24 @@ const BUILDERS: Record<IntegrationTool, (base: string, key: string, model: strin
     // configuration file copied by the user, so it must not depend on the
     // browser language (it was the last hardcoded `fr-FR` in the repo, but a
     // config snippet is not a UI display).
-    const ctx = lim ? `\n# Contexte du modèle : ${lim.context} tokens (sortie max ${lim.output}).` : "";
+    const ctx = lim
+      ? "\n# " + t("Contexte du modèle : {context} tokens (sortie max {output}).")
+        .replace("{context}", String(lim.context)).replace("{output}", String(lim.output))
+      : "";
     return `# Claude Code — https://claude.com/claude-code
-# Installation : npm install -g @anthropic-ai/claude-code
+# Install : npm install -g @anthropic-ai/claude-code
 
-# Le proxy expose l'API Anthropic sur /v1/messages : Claude Code s'y branche
-# directement, sans passerelle ni adaptateur.
+# ${t("Le proxy expose l'API Anthropic sur /v1/messages : Claude Code s'y branche\n# directement, sans passerelle ni adaptateur.")}
 export ANTHROPIC_BASE_URL="${root}"
 export ANTHROPIC_AUTH_TOKEN="${k}"
 
-# Indispensable : sans ces deux lignes Claude Code réclame ses modèles
-# « claude-… », que le proxy ne connaît pas — il répond 400 « Invalid model name ».
+# ${t("Indispensable : sans ces deux lignes Claude Code réclame ses modèles\n# « claude-… », que le proxy ne connaît pas — il répond 400 « Invalid model name ».")}
 export ANTHROPIC_MODEL="${m}"
 export ANTHROPIC_SMALL_FAST_MODEL="${m}"
 
 claude${ctx}
 
-# À savoir : le modèle est un modèle ouvert auto-hébergé, pas un modèle Anthropic.
-# Le fonctionnement est le même (outils, édition de fichiers, commandes), mais la
-# qualité sur les tâches longues et l'enchaînement d'outils reste en deçà.`;
+# ${t("À savoir : le modèle est un modèle ouvert auto-hébergé, pas un modèle Anthropic.\n# Le fonctionnement est le même (outils, édition de fichiers, commandes), mais la\n# qualité sur les tâches longues et l'enchaînement d'outils reste en deçà.")}`;
   },
   opencode: (base, k, m, limits) => {
     const lim = limits[m];
@@ -78,20 +82,20 @@ claude${ctx}
   }
 }`;
   },
-  hermes: (base, k, m, limits) => {
+  hermes: (base, k, m, limits, t) => {
     const lim = limits[m];
     const limits_ = lim ? `\n  context_length: ${lim.context}\n  max_tokens: ${lim.output}` : "";
     return `# Hermes Agent (Nous Research) — https://hermes-agent.nousresearch.com
 # Install : npm install -g @nousresearch/hermes-agent
 
-# ── Option A — assistant interactif ───────────────────────────────
+# ── ${t("Option A — assistant interactif")} ───────────────────────────────
 hermes model
-#   → choisir « Custom endpoint (self-hosted / vLLM / etc.) »
+#   → ${t("choisir « Custom endpoint (self-hosted / vLLM / etc.) »")}
 #   → API base URL : ${base}
 #   → API key      : ${k}
 #   → Model name   : ${m}
 
-# ── Option B — éditer ~/.hermes/config.yaml ───────────────────────
+# ── ${t("Option B — éditer ~/.hermes/config.yaml")} ───────────────────────
 model:
   default: "${m}"
   provider: "custom"
@@ -109,8 +113,8 @@ aider \\
   --openai-api-key "${k}" \\
   --openai-api-base "${base}" \\
   --model openai/${m}`,
-  continue: (base, k, m) =>
-    `// ~/.continue/config.json  →  ajouter dans "models"
+  continue: (base, k, m, _limits, t) =>
+    `// ~/.continue/config.json  →  ${t("ajouter dans « models »")}
 {
   "models": [
     {
@@ -128,7 +132,7 @@ aider \\
 # Provider URL : ${base}
 # API Key      : ${k}
 # Model name   : ${m}`,
-  langchain: (base, k, m) =>
+  langchain: (base, k, m, _limits, t) =>
     `# Install : pip install langchain-openai
 from langchain_openai import ChatOpenAI
 
@@ -138,8 +142,8 @@ llm = ChatOpenAI(
     model="${m}",
     temperature=0,
 )
-print(llm.invoke("Bonjour !").content)`,
-  python: (base, k, m) =>
+print(llm.invoke("${t("Bonjour !")}").content)`,
+  python: (base, k, m, _limits, t) =>
     `from openai import OpenAI
 
 client = OpenAI(
@@ -148,14 +152,14 @@ client = OpenAI(
 )
 response = client.chat.completions.create(
     model="${m}",
-    messages=[{"role": "user", "content": "Bonjour !"}]
+    messages=[{"role": "user", "content": "${t("Bonjour !")}"}]
 )
 print(response.choices[0].message.content)`,
-  curl: (base, k, m) =>
+  curl: (base, k, m, _limits, t) =>
     `curl ${base}/chat/completions \\
   -H "Authorization: Bearer ${k}" \\
   -H "Content-Type: application/json" \\
-  -d '{"model":"${m}","messages":[{"role":"user","content":"Bonjour !"}]}'`,
+  -d '{"model":"${m}","messages":[{"role":"user","content":"${t("Bonjour !")}"}]}'`,
   env: (base, k, m) =>
     `export OPENAI_API_KEY="${k}"
 export OPENAI_BASE_URL="${base}"
@@ -183,8 +187,9 @@ export function buildSnippet(
   model: string,
   limits: Record<string, ModelLimit>,
   reveal: boolean,
+  t: Translate = (msgid) => msgid,
 ): string {
-  return BUILDERS[tool](base, reveal ? key : maskKey(key), model, limits);
+  return BUILDERS[tool](base, reveal ? key : maskKey(key), model, limits, t);
 }
 
 export function snippetLanguage(tool: IntegrationTool): string {

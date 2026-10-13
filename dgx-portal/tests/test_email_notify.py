@@ -6,10 +6,8 @@ config), and the logic of the /api/model/request route (login guard, valid
 category, refusal if a model of the category is already loaded, notification
 emitted otherwise).
 """
-import os
 import time
 import unittest
-from unittest.mock import patch
 
 import app as portal
 from notify import notify_maintenance_email, notify_media_request_email

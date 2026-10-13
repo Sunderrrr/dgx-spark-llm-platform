@@ -24,7 +24,6 @@ defects are locked in there, all verified by reading the code before the fix:
    and the quota resynchronization was unconditional — so a simple rename
    erased an ongoing grant.
 """
-import os
 import time
 import unittest
 from unittest.mock import patch
@@ -32,6 +31,8 @@ from unittest.mock import patch
 from werkzeug.security import generate_password_hash
 
 import admin_routes
+import admin_users  # noqa: E402
+import admin_models  # noqa: E402
 import app as portal
 try:                                     # discovery runs tests/ as top level
     from settings_helper import live_settings
@@ -115,9 +116,9 @@ class JsonContractTest(BaseAdmin):
 
     def test_refused_stop_is_reported_as_a_failure(self):
         c = self._client(ADMIN1)
-        with patch.object(admin_routes, 'runner_stop',
+        with patch.object(admin_models, 'runner_stop',
                           return_value=(False, 'runner injoignable (ConnectionError)', False)), \
-             patch.object(admin_routes, 'notify_infra_alert_email'):
+             patch.object(admin_models, 'notify_infra_alert_email'):
             r = self._post(c, '/admin/model/stop')
         self.assertEqual(r.status_code, 503)
         body = r.get_json()
@@ -128,7 +129,7 @@ class JsonContractTest(BaseAdmin):
         """The runner did not answer: we do not claim the stop failed."""
         c = self._client(ADMIN1)
         reason = "Le runner n'a pas répondu dans le délai imparti (45 s) : l'arrêt est peut-être en cours."
-        with patch.object(admin_routes, 'runner_stop', return_value=(False, reason, True)):
+        with patch.object(admin_models, 'runner_stop', return_value=(False, reason, True)):
             r = self._post(c, '/admin/model/stop')
         self.assertEqual(r.status_code, 202)
         body = r.get_json()
@@ -144,9 +145,9 @@ class JsonContractTest(BaseAdmin):
                        "VALUES ('ztest-modele', 'org/modele', '--ctx-size 4096', 'vllm', ?)",
                        (time.time(),))
             db.commit()
-        with patch.object(admin_routes, 'runner_launch',
+        with patch.object(admin_models, 'runner_launch',
                           return_value=(False, 'flag not allowed: --x', False)), \
-             patch.object(admin_routes, 'notify_infra_alert_email') as alert:
+             patch.object(admin_models, 'notify_infra_alert_email') as alert:
             r = self._post(c, '/admin/model/launch', {'model_name': 'ztest-modele'})
         self.assertEqual(r.status_code, 503)
         self.assertFalse(r.get_json()['ok'])
@@ -162,9 +163,9 @@ class JsonContractTest(BaseAdmin):
                        "VALUES ('ztest-modele', 'org/modele', '--ctx-size 4096', 'vllm', ?)",
                        (time.time(),))
             db.commit()
-        with patch.object(admin_routes, 'runner_launch',
+        with patch.object(admin_models, 'runner_launch',
                           return_value=(False, 'délai dépassé (150 s)', True)), \
-             patch.object(admin_routes, 'notify_infra_alert_email') as alert:
+             patch.object(admin_models, 'notify_infra_alert_email') as alert:
             r = self._post(c, '/admin/model/launch', {'model_name': 'ztest-modele'})
         self.assertEqual(r.status_code, 202)
         self.assertTrue(r.get_json()['uncertain'])
@@ -180,8 +181,8 @@ class JsonContractTest(BaseAdmin):
                        "VALUES ('ztest-modele', 'org/modele', '--ctx-size 4096', 'vllm', ?)",
                        (time.time(),))
             db.commit()
-        with patch.object(admin_routes, 'runner_launch', return_value=(True, '', False)), \
-             patch.object(admin_routes, 'add_announcement') as announcement:
+        with patch.object(admin_models, 'runner_launch', return_value=(True, '', False)), \
+             patch.object(admin_models, 'add_announcement') as announcement:
             r = self._post(c, '/admin/model/launch', {'model_name': 'ztest-modele'})
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()['ok'])
@@ -318,11 +319,11 @@ class QuotasTest(BaseAdmin):
                 "created_at, updated_at) VALUES (?,?,?,?,?,?)",
                 (SIMPLE, 200000000, 250000000, '2020-01-01T00:00:00', '2020-01-01', '2020-01-01'))
             db.commit()
-        with patch.object(admin_routes, '_litellm_user_info',
+        with patch.object(admin_users, '_litellm_user_info',
                           return_value={'max_budget': 250000000}), \
-             patch.object(admin_routes, 'litellm_update_user_budget', return_value=False):
+             patch.object(admin_users, 'litellm_update_user_budget', return_value=False):
             with portal.app.app_context():
-                brought_back = admin_routes.revert_expired_grants()
+                brought_back = admin_users.revert_expired_grants()
         self.assertEqual(brought_back, 0)
         with portal.app.app_context():
             remaining = portal.get_db().execute(
@@ -360,8 +361,8 @@ class ModelLifecycleTest(BaseAdmin):
         nothing is touched — neither the catalog, nor the files."""
         mid = self._model()
         c = self._client(ADMIN1)
-        with patch.object(admin_routes, 'get_running_models', return_value=['ztest-modele']), \
-             patch.object(admin_routes, 'runner_delete_files') as erase:
+        with patch.object(admin_models, 'get_running_models', return_value=['ztest-modele']), \
+             patch.object(admin_models, 'runner_delete_files') as erase:
             r = self._post(c, f'/admin/model/delete/{mid}', {'confirm': '1'})
         self.assertEqual(r.status_code, 409)
         erase.assert_not_called()
@@ -372,9 +373,9 @@ class ModelLifecycleTest(BaseAdmin):
     def test_deletion_erases_files(self):
         mid = self._model('ztest-modele3')
         c = self._client(ADMIN1)
-        with patch.object(admin_routes, 'get_running_models', return_value=[]), \
-             patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
-             patch.object(admin_routes, 'runner_delete_files',
+        with patch.object(admin_models, 'get_running_models', return_value=[]), \
+             patch.object(admin_models, '_unregister_litellm_model', return_value=True), \
+             patch.object(admin_models, 'runner_delete_files',
                           return_value=(True, 3 * 2**30, '')) as erase:
             r = self._post(c, f'/admin/model/delete/{mid}')
         self.assertEqual(r.status_code, 200)
@@ -387,9 +388,9 @@ class ModelLifecycleTest(BaseAdmin):
         mid = self._model('ztest-modele4')
         self._model('ztest-modele5')
         c = self._client(ADMIN1)
-        with patch.object(admin_routes, 'get_running_models', return_value=[]), \
-             patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
-             patch.object(admin_routes, 'runner_delete_files') as erase:
+        with patch.object(admin_models, 'get_running_models', return_value=[]), \
+             patch.object(admin_models, '_unregister_litellm_model', return_value=True), \
+             patch.object(admin_models, 'runner_delete_files') as erase:
             r = self._post(c, f'/admin/model/delete/{mid}')
         self.assertEqual(r.status_code, 200)
         erase.assert_not_called()
@@ -398,9 +399,9 @@ class ModelLifecycleTest(BaseAdmin):
     def test_erase_failure_reported(self):
         mid = self._model('ztest-modele6')
         c = self._client(ADMIN1)
-        with patch.object(admin_routes, 'get_running_models', return_value=[]), \
-             patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
-             patch.object(admin_routes, 'runner_delete_files',
+        with patch.object(admin_models, 'get_running_models', return_value=[]), \
+             patch.object(admin_models, '_unregister_litellm_model', return_value=True), \
+             patch.object(admin_models, 'runner_delete_files',
                           return_value=(False, 0, 'runner injoignable')):
             r = self._post(c, f'/admin/model/delete/{mid}')
         self.assertEqual(r.status_code, 200)
@@ -409,9 +410,9 @@ class ModelLifecycleTest(BaseAdmin):
     def test_deletion_reports_deregistration_failure(self):
         mid = self._model('ztest-modele2')
         c = self._client(ADMIN1)
-        with patch.object(admin_routes, 'get_running_models', return_value=[]), \
-             patch.object(admin_routes, '_unregister_litellm_model', return_value=False), \
-             patch.object(admin_routes, 'runner_delete_files', return_value=(True, 0, '')):
+        with patch.object(admin_models, 'get_running_models', return_value=[]), \
+             patch.object(admin_models, '_unregister_litellm_model', return_value=False), \
+             patch.object(admin_models, 'runner_delete_files', return_value=(True, 0, '')):
             r = self._post(c, f'/admin/model/delete/{mid}')
         self.assertEqual(r.status_code, 200)
         self.assertIn('warning', r.get_json())
@@ -425,8 +426,8 @@ class ModelLifecycleTest(BaseAdmin):
                        "('ztest-voix', 'ResembleAI/chatterbox', ?)", (time.time(),))
             db.commit()
         c = self._client(ADMIN1)
-        with patch.object(admin_routes, '_mem_guard', return_value='Mémoire insuffisante'), \
-             patch.object(admin_routes, '_voice_launch') as lance:
+        with patch.object(admin_models, '_mem_guard', return_value='Mémoire insuffisante'), \
+             patch.object(admin_models, '_voice_launch') as lance:
             r = self._post(c, '/admin/voice/catalog/launch', {'voice_name': 'ztest-voix'})
         self.assertEqual(r.status_code, 507)
         lance.assert_not_called()
@@ -442,8 +443,8 @@ class ModelLifecycleTest(BaseAdmin):
             rid = db.execute("SELECT id FROM model_requests WHERE username=?",
                              (SIMPLE,)).fetchone()['id']
         c = self._client(ADMIN1)
-        with patch.object(admin_routes, '_register_litellm_model', return_value=False), \
-             patch.object(admin_routes, 'send_user_email') as mail:
+        with patch.object(admin_models, '_register_litellm_model', return_value=False), \
+             patch.object(admin_models, 'send_user_email') as mail:
             r = self._post(c, f'/admin/update/{rid}', {'status': 'done'})
         self.assertEqual(r.status_code, 503)
         mail.assert_not_called()

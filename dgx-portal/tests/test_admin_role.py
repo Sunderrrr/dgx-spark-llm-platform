@@ -7,7 +7,6 @@ comes from the last login (SSO token group / directory entry), stored in
 user_sources.last_is_admin. These tests lock that: no LDAP on the request
 path, one source for sessions and API keys, the admin group is configurable.
 """
-import os
 import time
 import unittest
 from unittest.mock import patch

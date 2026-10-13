@@ -94,8 +94,9 @@ go to **Admin**, and launch a model from the catalog. The detailed guide
 ./scripts/validate.sh     # run after EVERY modification
 ```
 
-One command, four groups: code gates (724 backend tests, frontend, types, lint,
-i18n, secret scan), the **running** service, the user journeys (login/SSO, chat,
+One command, four groups: code gates (backend tests, frontend, types, lint,
+i18n, secrets, static analysis, English-only code, module size, vulnerable
+dependencies), the **running** service, the user journeys (login/SSO, chat,
 reasoning, image, web search, skills, conversations, export, admin, API keys,
 page sweep, page actions, security) with route coverage of 158 routes, and
 health. Safe to run at any moment (no destructive action), time-bounded, 7–8

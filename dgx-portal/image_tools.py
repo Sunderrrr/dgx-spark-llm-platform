@@ -20,9 +20,7 @@ _phase_outils).
 import os
 import re
 import secrets
-import sqlite3
 import threading
-import time
 from datetime import datetime
 
 from request_turns import previous_answer, request_texts

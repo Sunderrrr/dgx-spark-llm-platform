@@ -1,0 +1,21 @@
+# Static analysis of every Python file of the repo (scripts/validate.sh 1.7,
+# CI). Pyflakes-level errors plus the bug patterns that bite in this code base
+# (late-bound loop variables in closures, mutable defaults, requests without a
+# timeout). Style is not enforced: the code base has its own.
+target-version = "py312"
+extend-exclude = ["runtime", "dgx-portal-frontend", "**/node_modules"]
+
+[lint]
+select = [
+  "F",      # pyflakes: undefined names, unused imports/variables, …
+  "E9",     # syntax / IO errors
+  "PLE",    # pylint errors
+  "B006",   # mutable default argument
+  "B023",   # closure using a loop variable (late binding)
+  "S113",   # requests call without a timeout
+]
+
+[lint.per-file-ignores]
+# app.py re-exports the helpers its blueprints were extracted from: the test
+# suite patches them as `app.<name>` (mock.patch.object(portal, …)).
+"dgx-portal/app.py" = ["F401"]

@@ -33,10 +33,10 @@ table. Scale the ceremony to the risk.
 
 **`./scripts/validate.sh` runs after EVERY modification**, before anything is
 called done. It is the whole thing: code gates (the full backend suite, frontend,
-types, lint, i18n, secret scan), the running service, 14 journeys
-(login/SSO, chat, reasoning, image, web search, skills, conversations, export,
-admin, API keys, page sweep, page actions, security, route coverage of 158
-routes), and health.
+types, lint, i18n, secrets, static analysis, English-only code, module size,
+vulnerable dependencies), the running service, 14 journeys (login/SSO, chat,
+reasoning, image, web search, skills, conversations, export, admin, API keys,
+page sweep, page actions, security, route coverage), and health.
 
 It exists because a green test suite and a broken service cohabited twice: once
 when LiteLLM's entrypoint died on its own test while 724 tests passed, and once
@@ -47,13 +47,29 @@ minutes — that is the price of not being surprised.
 
 Four groups, each with its own verdict:
 
-1. **Code gates** — backend tests, frontend tests, typing, lint, i18n, secret
-   scan (it reuses the existing scripts, no duplication).
+1. **Code gates** (12 checks, ~1.5 min):
+   - backend suite, frontend tests, `tsc`, eslint with **zero warnings** (a
+     deliberate exception is an `eslint-disable-next-line` with its reason);
+   - i18n coverage (`scripts/check-i18n.py`);
+   - secrets over the **whole tracked tree** — the range scan of the pre-push
+     gate inspects nothing once the work is pushed;
+   - Python static analysis (`ruff`, rules in `ruff.toml`) and shell
+     (`shellcheck`), with pinned tools in their own venv
+     (`scripts/check-tools.sh`);
+   - dependencies: fails on a high/critical advisory that **has a fix**,
+     reports the others (`scripts/check-deps.py`);
+   - config files: `docker compose config`, `visudo -c` on every sudoers rule;
+   - **code is English** (`scripts/check-english.py`): comments, docstrings,
+     logs and identifiers — the UI msgids, server messages and prompts stay
+     French by design;
+   - **no monolith** (`scripts/check-structure.py`): a source file stays under
+     1200 lines; the few above are frozen at their size and may only shrink.
 2. **Service in operation** — `scripts/smoke.sh` against the DEPLOYED service.
 3. **User journeys** — `tests/e2e/`: Playwright journeys that do what a user
    does (chat, reasoning, image, web search, skills, conversations, export,
-   admin, API keys + API domain, pages, actions, security) plus the coverage of
-   the 158 routes.
+   admin, API keys + API domain, pages, actions, security — every protected
+   route refuses an anonymous visitor, session cookies are Secure/HttpOnly/
+   SameSite) plus the coverage of every route.
 4. **Health & resources** — memory, served model, disk, backup.
 
 Guarantees: safe to run **at any moment**, even while someone uses the platform

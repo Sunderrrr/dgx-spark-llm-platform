@@ -45,6 +45,8 @@ export function OwnerSetup({ csrf }: { csrf: string }) {
         return;
       }
       // Logged in as the owner: the rest is configured from Admin → Config.
+      // Full reload: the new session cookie must reach the server render.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.assign("/admin?tab=config");
     } finally {
       setBusy(false);

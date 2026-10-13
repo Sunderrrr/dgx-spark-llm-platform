@@ -5,7 +5,6 @@ that package is incompatible with torch 2.10 (torchvision functional_tensor
 removed), while the architecture itself is ~150 lines with no dependency.
 The RealESRGAN_x4plus.pth (x4) weights are mounted read-only (/esrgan).
 """
-import threading
 
 import torch
 from torch import nn

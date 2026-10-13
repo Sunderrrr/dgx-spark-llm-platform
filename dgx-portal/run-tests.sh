@@ -20,9 +20,16 @@ export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ai-platform}"
 # docker-compose.yml requires DGX_WEB and DGX_API, and `compose build`
 # interpolates the whole file. The build does not use them, so a clone without
 # a .env (CI, a fresh checkout) gets placeholders; a real .env still wins.
+# The stack's secrets are REQUIRED by compose (`${VAR:?}`: an empty
+# LITELLM_MASTER_KEY would start the gateway without authentication), so a
+# clone without .env gets throwaway values too — the build uses none of them.
 if [ ! -f .env ]; then
   export DGX_WEB="${DGX_WEB:-https://dgx.example.org}"
   export DGX_API="${DGX_API:-https://api.example.org}"
+  : "${POSTGRES_PASSWORD:=ci-placeholder}" "${LITELLM_MASTER_KEY:=ci-placeholder}"
+  : "${WEBUI_SECRET_KEY:=ci-placeholder}" "${RUNNER_TOKEN:=ci-placeholder}"
+  : "${SEARXNG_SECRET:=ci-placeholder}"
+  export POSTGRES_PASSWORD LITELLM_MASTER_KEY WEBUI_SECRET_KEY RUNNER_TOKEN SEARXNG_SECRET
 fi
 docker compose build dgx-portal >/dev/null
 # The unittest arguments are chosen BEFORE the exec: `${1:+tests.$1}

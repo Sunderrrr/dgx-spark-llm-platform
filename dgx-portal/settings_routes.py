@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request, session
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import generate_password_hash
 
 from auth import complete_session_origin, login_required
 from config import AVATAR_IDS, AVATAR_LABELS, KEY_BUDGET, KEY_DURATION, LANGS, THEME_IDS
@@ -512,7 +512,7 @@ def api_account_delete():
     if local:
         # Same guard as on the admin side, but here self-deletion is the goal: it
         # is refused only if it would take away the LAST local admin.
-        from admin_routes import _last_local_admin
+        from admin_users import _last_local_admin
         if session.get('is_admin') and _last_local_admin(username):
             return jsonify({'ok': False,
                             'error': "Tu es le dernier administrateur local : nomme un "

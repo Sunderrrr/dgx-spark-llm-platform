@@ -23,7 +23,6 @@ class _BaseMedia(unittest.TestCase):
 
     def setUp(self):
         with self._db():
-            db = portal.get_db()
             portal.get_db().execute(
                 "DELETE FROM login_attempts WHERE key LIKE 'rl-media|%'")
             portal.get_db().commit()

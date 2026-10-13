@@ -1676,7 +1676,7 @@ def _start_grant_reaper():
     def _loop():
         # Local import: the thread starts at app.py import time, BEFORE the
         # admin routes module (mounted below) is loaded.
-        from admin_routes import revert_expired_grants
+        from admin_users import revert_expired_grants
         while True:
             try:
                 with app.app_context():

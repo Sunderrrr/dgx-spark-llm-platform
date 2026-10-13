@@ -322,6 +322,8 @@ export function SecurityContent() {
           + (res.warning ? ` ${res.warning}` : ""),
       );
       // Session already revoked server-side: staying here would make no sense.
+      // Full reload: the session is gone, no client state may survive.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.setTimeout(() => window.location.assign("/login"), res.deleted ? 2500 : 6000);
     } catch {
       setSuppressionMsg(t("Le serveur n'a pas répondu — réessaie."));

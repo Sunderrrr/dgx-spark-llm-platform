@@ -1388,7 +1388,7 @@ export default function PlaygroundPage({
     setWebSteps([]);
     setQueueInfo(null);
     // New send: the reader wants to see the answer arrive, we rearm the tracking.
-    scrollToBottom();   // on re-suit le bas quand on envoie
+    scrollToBottom();
     // « quand un texte est lancé je veux garder la barre latérale, là il la fait
     // disparaitre »: a DOCUMENT draft shows up in the panel from the very first
     // word, the way writing a code file already does — before, `liveDocOpen`

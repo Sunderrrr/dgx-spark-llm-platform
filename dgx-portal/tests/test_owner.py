@@ -159,7 +159,7 @@ class ProtectionTest(BaseSetup):
 
     def test_list_flags_owner(self):
         from unittest import mock
-        with mock.patch('admin_routes.directory_states_for', return_value=None):
+        with mock.patch('admin_users.directory_states_for', return_value=None):
             users = {u['username']: u for u in
                      self._admin(OWNER).get('/api/admin/users').get_json()['users']}
         self.assertTrue(users[OWNER]['owner'])

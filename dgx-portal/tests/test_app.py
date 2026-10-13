@@ -30,7 +30,8 @@ import support as assistance
 # target their own module rather than make app.py a facade.
 import websearch_tools as web_tools
 
-import admin_routes
+import admin_users  # noqa: E402
+import admin_models  # noqa: E402
 
 
 class SafeNextTest(unittest.TestCase):
@@ -1004,8 +1005,8 @@ class DeletedModelAnnouncementTest(unittest.TestCase):
             s["auth_at"] = int(time.time())
             s["is_admin"] = True
             s["csrf"] = "test-csrf"
-        with patch.object(admin_routes, '_unregister_litellm_model', return_value=True), \
-             patch.object(admin_routes, 'runner_delete_files', return_value=(True, 0, '')):
+        with patch.object(admin_models, '_unregister_litellm_model', return_value=True), \
+             patch.object(admin_models, 'runner_delete_files', return_value=(True, 0, '')):
             r = c.post(f"/admin/model/delete/{self.mid}",
                        headers={'X-CSRFToken': 'test-csrf'})
         # JSON contract: no more redirect. The `flash` was rendered by no
@@ -1050,8 +1051,8 @@ class BudgetGrantsTest(unittest.TestCase):
 
     def test_temporary_approve_creates_grant(self):
         """Approve with duration: boosted cap + budget_grants row."""
-        with patch.object(admin_routes, '_litellm_user_info', return_value={'max_budget': 200000000}), \
-             patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
+        with patch.object(admin_users, '_litellm_user_info', return_value={'max_budget': 200000000}), \
+             patch.object(admin_users, 'litellm_update_user_budget', return_value=True) as up:
             c = portal.app.test_client()
             self._login(c)
             r = c.post(f"/admin/budget/approve/{self.req_id}", data={"amount": "50000000", "grant_days": "3", "csrf_token": "test-csrf"})
@@ -1075,9 +1076,9 @@ class BudgetGrantsTest(unittest.TestCase):
                 "VALUES ('demo', 200000000, 250000000, '2020-01-01T00:00:00', '2020-01-01', '2020-01-01')")
             db.commit()
         with portal.app.app_context(), \
-             patch.object(admin_routes, '_litellm_user_info', return_value={'max_budget': 250000000}), \
-             patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
-            brought_back = admin_routes.revert_expired_grants()
+             patch.object(admin_users, '_litellm_user_info', return_value={'max_budget': 250000000}), \
+             patch.object(admin_users, 'litellm_update_user_budget', return_value=True) as up:
+            brought_back = admin_users.revert_expired_grants()
         self.assertEqual(brought_back, 1)
         args = up.call_args
         self.assertEqual(args.args[1], 200000000)          # …to the base, nothing else
@@ -1093,9 +1094,9 @@ class BudgetGrantsTest(unittest.TestCase):
                 "VALUES ('demo', 200000000, 250000000, '2020-01-01T00:00:00', '2020-01-01', '2020-01-01')")
             db.commit()
         with portal.app.app_context(), \
-             patch.object(admin_routes, '_litellm_user_info', return_value={'max_budget': 50000000}), \
-             patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
-            brought_back = admin_routes.revert_expired_grants()
+             patch.object(admin_users, '_litellm_user_info', return_value={'max_budget': 50000000}), \
+             patch.object(admin_users, 'litellm_update_user_budget', return_value=True) as up:
+            brought_back = admin_users.revert_expired_grants()
         self.assertEqual(brought_back, 0)
         up.assert_not_called()                             # the admin decision is authoritative
 
@@ -1107,7 +1108,7 @@ class BudgetGrantsTest(unittest.TestCase):
                 "INSERT INTO budget_grants (username, base_budget, current_budget, expires_at, created_at, updated_at) "
                 "VALUES ('demo', 200000000, 250000000, '2099-01-01T00:00:00', '2025-01-01', '2025-01-01')")
             db.commit()
-        with patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
+        with patch.object(admin_users, 'litellm_update_user_budget', return_value=True) as up:
             c = portal.app.test_client()
             self._login(c)
             r = c.post("/admin/users/demo/budget/set", data={"budget": "50000000", "csrf_token": "test-csrf"})
@@ -1119,7 +1120,7 @@ class BudgetGrantsTest(unittest.TestCase):
             self.assertIsNone(portal.get_db().execute("SELECT * FROM budget_grants").fetchone())
 
     def test_set_refuses_unrealistic_amounts(self):
-        with patch.object(admin_routes, 'litellm_update_user_budget', return_value=True) as up:
+        with patch.object(admin_users, 'litellm_update_user_budget', return_value=True) as up:
             c = portal.app.test_client()
             self._login(c)
             c.post("/admin/users/demo/budget/set", data={"budget": "6666726666666", "csrf_token": "test-csrf"})
@@ -1909,7 +1910,7 @@ class SupportServicesTest(unittest.TestCase):
         assistance._services_cache['at'] = 0.0
         with patch.object(assistance, "_sidecar_status", return_value="running"), \
              patch.object(assistance, "runner_status", return_value={"status": "running"}), \
-             patch.object(assistance, "runner_logs",
+             patch.object(assistance, "runner_logs", create=True,
                           return_value=["LIGNE_DE_LOG_QUI_NE_DOIT_PAS_APPARAITRE"]), \
              patch.object(assistance, "get_db") as gdb:
             gdb.return_value.execute.return_value.fetchall.return_value = []

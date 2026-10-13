@@ -7,7 +7,6 @@
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Slider } from "@astryxdesign/core/Slider";
-import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { Selector } from "@astryxdesign/core/Selector";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";

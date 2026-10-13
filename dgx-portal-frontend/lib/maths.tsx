@@ -103,7 +103,7 @@ export function mathPlugin(formulas: Formula[]): MarkdownInlinePlugin {
     render: (match, key) => {
       const formula = formulas[Number(match[1])];
       // Out of bounds or fabricated marker: we render the text as-is rather
-      // than crash (see rendreMath).
+      // than crash (see renderMath).
       if (!formula) return <span key={key}>{match[0]}</span>;
       return (
         <span key={key} className="dgx-inline-math"

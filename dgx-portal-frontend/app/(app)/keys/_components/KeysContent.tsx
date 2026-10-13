@@ -319,11 +319,11 @@ export function KeysContent() {
   // revealed) and the copied one (always the real key).
   const shownSnippet =
     data && selectedKey && selectedModel
-      ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, revealKeyInSnippet)
+      ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, revealKeyInSnippet, t)
       : "";
   const actualSnippet =
     data && selectedKey && selectedModel
-      ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, true)
+      ? buildSnippet(tool, data.public_api_url, selectedKey, selectedModel, data.model_limits, true, t)
       : "";
 
   return (
@@ -431,6 +431,8 @@ export function KeysContent() {
                 label={t("Lier mon compte Discord")}
                 variant="primary"
                 size="sm"
+                // /discord/link is a Flask route redirecting to Discord.
+                // eslint-disable-next-line @next/next/no-location-assign-relative-destination
                 onClick={() => { window.location.href = "/discord/link"; }}
               />
             )}

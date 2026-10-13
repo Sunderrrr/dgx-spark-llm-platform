@@ -26,7 +26,7 @@ from mcp_client import MCPClient, MCPError, list_tools_cached
 from notify import (notify_budget_discord, notify_budget_email, notify_discord,
                     notify_email)
 from sidecars import (_mem_guard, _sidecar_action, _sidecar_status,
-                      runner_launch, runner_logs, runner_status, runner_stop,
+                      runner_launch, runner_status, runner_stop,
                       sidecar_logs)
 from stats import user_hourly
 from vllm_health import effective_ctx, get_running_models

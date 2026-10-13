@@ -311,7 +311,7 @@ def _post_with_heartbeats(*args, **kwargs):
 
     def _run():
         try:
-            box['r'] = requests.post(*args, **kwargs)
+            box['r'] = requests.post(*args, **kwargs)  # noqa: S113 — the caller passes timeout=
         except Exception as e:                      # noqa: BLE001 — re-raised below
             box['e'] = e
 

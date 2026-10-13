@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import app as portal
+import admin_config  # noqa: E402
 import instance_config
 import sso_client
 
@@ -207,10 +208,9 @@ class ConfigTestRouteTest(unittest.TestCase):
         self.assertIn('https://idp.example', body['message'])
 
     def test_discord_posts_to_webhook(self):
-        import admin_routes
         with portal.app.app_context():
             instance_config.set_value('discord_webhook_url', 'https://discord.invalid/hook')
-        with patch.object(admin_routes, 'notify_discord_test', return_value=True):
+        with patch.object(admin_config, 'notify_discord_test', return_value=True):
             self.assertTrue(self._test('discord').get_json()['ok'])
 
     def test_defaults_and_suggestions(self):

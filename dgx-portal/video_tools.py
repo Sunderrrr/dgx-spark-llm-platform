@@ -26,7 +26,6 @@ absent from memory when idle. The tool STARTS it at first use
 to the model while the service is up or startable (video_disponible).
 """
 import re
-import sqlite3
 import threading
 import time
 from datetime import datetime

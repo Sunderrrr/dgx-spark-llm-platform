@@ -213,7 +213,7 @@ class RoutesTest(GroupsBase):
         with portal.app.app_context():
             dg.import_groups(ACCOUNT, {'ldap': ['cn=ztest-famille,dc=x'], 'sso': ['ztest-famille']})
             dg.import_groups(OTHER, {'sso': ['ztest-famille']})
-        with mock.patch('admin_routes.directory_states_for', return_value=None):
+        with mock.patch('admin_users.directory_states_for', return_value=None):
             body = self._admin().get('/api/admin/users').get_json()
         users = {u['username']: u for u in body['users']}
         self.assertEqual(users[ACCOUNT]['directory_groups'], ['ztest-famille'])

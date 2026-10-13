@@ -10,14 +10,16 @@
 #
 # Usage:
 #   ./scripts/pre-push-check.sh              # scan @{u}..HEAD, run tests
-#   SKIP_TESTS=1 ./scripts/pre-push-check.sh # scan only (fast)
+#   SKIP_TESTS=1 ./scripts/pre-push-check.sh # skip the backend suite
+#   SECRETS_ONLY=1 SCAN_TREE=1 ./scripts/pre-push-check.sh
+#                                            # secrets only, whole tracked tree
 #
 # It is also installed as .git/hooks/pre-push (see scripts/install-git-hooks.sh),
 # where git feeds it "<local ref> <local sha> <remote ref> <remote sha>" on stdin.
 #
 # Exit non-zero → push is aborted. Never push around a red gate.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 2
 
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; RST=$'\033[0m'
 fail() { printf '%s✗ %s%s\n' "$RED" "$1" "$RST" >&2; }
@@ -106,11 +108,44 @@ for range in "${ranges[@]}"; do
   done < <(git diff --diff-filter=AM -U0 "$range" 2>/dev/null | grep -E '^\+[^+]')
 done
 
+# ── 1b. Whole tracked tree (SCAN_TREE=1, used by validate.sh) ───────────────
+# The range scan above only sees what is about to be pushed: run after a push,
+# it inspects NOTHING. The tree scan answers « is any secret in the repo right
+# now », whatever commit brought it.
+if [ "${SCAN_TREE:-0}" = "1" ]; then
+  info "Scanning the whole tracked tree…"
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    if printf '%s' "$f" | grep -qE "$FORBIDDEN_FILE_ALLOW"; then continue; fi
+    if printf '%s' "$f" | grep -qE "$FORBIDDEN_FILE_RE"; then
+      fail "Forbidden file tracked: $f"; secret_hit=1
+    fi
+  done < <(git ls-files)
+  while IFS= read -r hit; do
+    if printf '%s' "$hit" | grep -qEi "$PLACEHOLDER_RE"; then continue; fi
+    fail "Secret-looking value tracked: $(printf '%.80s' "$hit")"; secret_hit=1
+  done < <(git grep -I -n -E "$SECRET_VALUE_RE" 2>/dev/null)
+  if [ -f .env ]; then
+    while IFS='=' read -r key val; do
+      [ -z "$key" ] && continue
+      case "$key" in \#*|'') continue ;; esac
+      val=${val%\"}; val=${val#\"}
+      [ "${#val}" -lt 8 ] && continue
+      if git grep -I -q -F -- "$val" 2>/dev/null; then
+        fail "A value from .env ($key) is in a tracked file."; secret_hit=1
+      fi
+    done < .env
+  fi
+fi
+
 if [ "$secret_hit" -ne 0 ]; then
   fail "Secret scan FAILED — push aborted. Remove the secret / file and rewrite the commit."
   exit 1
 fi
 ok "Secret scan clean"
+if [ "${SECRETS_ONLY:-0}" = "1" ]; then
+  exit 0
+fi
 
 # ── 2. Test suite ─────────────────────────────────────────────────────────────
 if [ "${SKIP_TESTS:-0}" = "1" ]; then

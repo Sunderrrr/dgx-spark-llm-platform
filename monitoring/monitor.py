@@ -33,7 +33,6 @@ import argparse
 import html
 import json
 import os
-import socket
 import smtplib
 import sys
 from email.mime.multipart import MIMEMultipart
@@ -375,7 +374,7 @@ def main():
     newly_down = sorted(set(down) - prev_down)
     recovered = sorted(prev_down - set(down))
     if newly_down:
-        _send(f"[DGX platform] Alert — services down",
+        _send("[DGX platform] Alert — services down",
               {k: down[k] for k in newly_down})
         print(f"alert sent for: {newly_down}")
     # Recovery email only when the incident is resolved.

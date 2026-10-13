@@ -5,6 +5,7 @@ function redirectToLogin(): never {
   if (typeof window !== "undefined") {
     // Deliberate full reload (not next/link): the session just expired
     // server-side, all in-memory client state is stale.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = "/login";
   }
   throw new Error("Non authentifié");

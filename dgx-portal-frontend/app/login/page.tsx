@@ -112,6 +112,7 @@ export default function LoginPage() {
       if (who.ok) {
         // Deliberate full reload: we just obtained a session cookie,
         // and the server render must start over with it.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.assign("/");
       } else if (res.status === 400) {
         setError(t("Session expirée — recharge la page et réessaie."));
@@ -151,6 +152,8 @@ export default function LoginPage() {
       setError(j?.error ? tServer(j.error, t) : t("Vérification de la clé échouée."));
       return;
     }
+    // Same full reload as the password login: a session was just opened.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign("/");
   }
 
@@ -202,6 +205,7 @@ export default function LoginPage() {
                 icon={<Icon icon={ShieldCheckIcon} size="sm" />}
                 // /login/sso is a Flask route that redirects to Authentik:
                 // a next/link navigation couldn't get out of it.
+                // eslint-disable-next-line @next/next/no-location-assign-relative-destination
                 onClick={() => (window.location.href = "/login/sso")}
               />
             </>

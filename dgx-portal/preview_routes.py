@@ -74,22 +74,22 @@ def playground_preview_create():
 # also what breaks at load time.
 _PREVIEW_REPORT = """<script>
 (function(){
-  var envoye = 0;
-  // Le bac à sable lui-même provoque des erreurs qui ne disent RIEN sur la page :
-  // origine opaque (donc parent.document illisible, localStorage interdit), et
-  // ressources externes bloquées. Les remonter accusait à tort du code correct.
-  var bruit = /cross-origin|Blocked a frame|SecurityError|operation is insecure|localStorage|sessionStorage|indexedDB|Access is denied/i;
-  function dire(m){
+  var sent = 0;
+  // The sandbox itself raises errors that say NOTHING about the page: opaque
+  // origin (so parent.document unreadable, localStorage forbidden) and blocked
+  // external resources. Reporting them blamed correct code.
+  var noise = /cross-origin|Blocked a frame|SecurityError|operation is insecure|localStorage|sessionStorage|indexedDB|Access is denied/i;
+  function report(m){
     var s = String(m);
-    if (bruit.test(s)) return;
-    if (envoye++ > 3) return;                       // on ne noie pas le parent
+    if (noise.test(s)) return;
+    if (sent++ > 3) return;                         // do not flood the parent
     try { parent.postMessage({ dgxPreviewError: s.slice(0, 400) }, '*'); } catch (e) {}
   }
   window.addEventListener('error', function(e){
-    dire(e && e.message ? e.message : 'erreur de chargement');
+    report(e && e.message ? e.message : 'resource failed to load');
   }, true);
   window.addEventListener('unhandledrejection', function(e){
-    dire((e && e.reason && e.reason.message) || 'promesse rejetee');
+    report((e && e.reason && e.reason.message) || 'unhandled promise rejection');
   });
 })();
 </script>"""
@@ -124,7 +124,10 @@ def playground_preview_show(pid):
         'sandbox allow-scripts allow-forms allow-modals allow-popups; '
         "default-src 'none'; script-src 'unsafe-inline'; "
         "img-src 'self' data: blob:; style-src 'unsafe-inline'; "
-        "connect-src 'self'; font-src 'self' data:")
+        "connect-src 'self'; font-src 'self' data:; "
+        # A generated form must not POST the page's content to another host
+        # (default-src does not cover form submissions).
+        "form-action 'none'")
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     resp.headers['Cache-Control'] = 'no-store'
     return resp

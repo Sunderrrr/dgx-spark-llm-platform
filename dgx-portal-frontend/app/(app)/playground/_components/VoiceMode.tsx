@@ -184,6 +184,27 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
     const player = new SpeechPlayer();
     playerRef.current = player;
     void player.resume();
+    // Whisper loads in ~10 s when it was idle: started with the voice mode
+    // (by /start) and announced until ready, instead of a silent wait after
+    // the first sentence (2026-10-13).
+    const awaitTranscription = async () => {
+      const label = t("Démarrage de la transcription…");
+      setNotice(label);
+      for (let k = 0; k < 60 && !closed; k++) {
+        await new Promise((ok) => setTimeout(ok, 1500));
+        const st = await fetch("/api/voice/chat/status", { credentials: "include" })
+          .then((r) => r.json()).catch(() => ({}));
+        if (st.asr_ready) break;
+      }
+      if (!closed) setNotice((n) => (n === label ? null : n));
+    };
+    // /start also resets the transcription's idle clock: a voice mode left
+    // open in silence must not find it stopped (10 min reaper).
+    const keepAlive = setInterval(() => {
+      void fetch("/api/voice/chat/start", {
+        method: "POST", credentials: "include", headers: { "X-CSRFToken": live.current.csrf },
+      }).catch(() => null);
+    }, 4 * 60_000);
     (async () => {
       // The page's token may still be loading when the voice mode opens.
       const token = live.current.csrf || await fetchCsrfToken().catch(() => "");
@@ -192,6 +213,7 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
       }).catch(() => null);
       const data = res ? await res.json().catch(() => ({})) : {};
       if (closed) return;
+      if (data.asr === "starting") void awaitTranscription();
       if (res?.ok && data.ready) {
         setVoices(data.voices ?? []);
       } else {
@@ -271,6 +293,7 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
     })();
     return () => {
       closed = true;
+      clearInterval(keepAlive);
       micRef.current?.close();
       micRef.current = null;
       player.close();

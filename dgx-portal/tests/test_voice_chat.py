@@ -62,8 +62,15 @@ class VoiceChatTest(unittest.TestCase):
             s['auth_at'] = int(time.time())
             s['csrf'] = self.CSRF
 
-    def _stack(self, info, proc='running', post=None, autostart=(True, '')):
+    def _stack(self, info, proc='running', post=None, autostart=(True, ''), asr_up=True):
         st = ExitStack()
+        self.asr_starts = []
+        st.enter_context(patch.object(vc, 'asr_is_up', return_value=asr_up))
+        st.enter_context(patch.object(vc, 'asr_note_activity'))
+        st.enter_context(patch.object(vc, 'asr_start_watcher'))
+        st.enter_context(patch.object(vc, 'asr_memory_ok', return_value=(True, '')))
+        st.enter_context(patch.object(vc, 'asr_autostart',
+                                      side_effect=lambda: self.asr_starts.append(1) or (True, '')))
         st.enter_context(patch.object(vc, '_sidecar_proc_status', return_value=proc))
         st.enter_context(patch.object(vc, 'maintenance_block_json', return_value=None))
         st.enter_context(patch.object(vc, 'sidecar_autostart', return_value=autostart))
@@ -85,6 +92,18 @@ class VoiceChatTest(unittest.TestCase):
             r = self.c.post('/api/voice/chat/start', headers={'X-CSRFToken': self.CSRF})
         self.assertEqual(r.status_code, 409)
         self.assertEqual(r.get_json()['code'], 'voice_engine')
+
+    def test_start_warms_the_transcription_up(self):
+        # Whisper loads in ~10 s: started with the voice mode, not after the
+        # user's first sentence (2026-10-13).
+        with self._stack(KYUTAI, proc='stopped', asr_up=False):
+            body = self.c.post('/api/voice/chat/start', headers={'X-CSRFToken': self.CSRF}).get_json()
+        self.assertEqual(body['asr'], 'starting')
+        self.assertEqual(self.asr_starts, [1])
+        with self._stack(KYUTAI):
+            body = self.c.post('/api/voice/chat/start', headers={'X-CSRFToken': self.CSRF}).get_json()
+        self.assertEqual(body['asr'], 'ready')
+        self.assertEqual(self.asr_starts, [])
 
     def test_speak_relays_the_pcm_stream_and_closes_upstream(self):
         sent, up = {}, _Resp(chunks=[b'\x01\x00' * 4, b'', b'\x02\x00' * 4],

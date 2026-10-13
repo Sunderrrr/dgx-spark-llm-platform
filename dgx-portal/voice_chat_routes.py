@@ -18,7 +18,8 @@ from flask import Blueprint, Response, jsonify, request, session, stream_with_co
 from auth import login_required
 from config import VOICE_URL
 from guards import _chat_rate_limited, maintenance_block_json
-from sidecars import _sidecar_proc_status, sidecar_autostart
+from sidecars import (_sidecar_proc_status, asr_autostart, asr_is_up, asr_memory_ok,
+                      asr_note_activity, asr_start_watcher, sidecar_autostart)
 
 bp = Blueprint('voice_chat', __name__)
 
@@ -55,6 +56,22 @@ def _kyutai_ready():
     return info.get('engine') == KYUTAI_ENGINE and bool(info.get('loaded'))
 
 
+def _warm_asr():
+    """Start the transcription with the voice mode instead of on the first
+    sentence: whisper takes ~10 s to load, which the user waited out after
+    speaking (2026-10-13). Never blocks; same guards as /api/transcribe. Also
+    resets the idle clock, so an open voice mode is not reaped mid-session.
+    Returns 'ready', 'starting' or 'unavailable'."""
+    asr_note_activity()
+    asr_start_watcher()
+    if asr_is_up():
+        return 'ready'
+    if _sidecar_proc_status('asr') in ('stopped', 'unknown'):
+        if not asr_memory_ok()[0] or not asr_autostart()[0]:
+            return 'unavailable'
+    return 'starting'
+
+
 def _status_body():
     info = _voice_info()
     state = _sidecar_proc_status('voice')
@@ -69,6 +86,7 @@ def _status_body():
         'voices': info.get('voices') or [],
         'default_voice': info.get('default_voice'),
         'sample_rate': info.get('sample_rate') or 24000,
+        'asr_ready': asr_is_up(),
     }
 
 
@@ -86,16 +104,17 @@ def voice_chat_start():
     blocked = maintenance_block_json()
     if blocked:
         return blocked
+    asr = _warm_asr()
     if not _kyutai_ready():
         ok, reason = sidecar_autostart('voice', _kyutai_ready, timeout_s=120)
         if not ok:
             body = _status_body()
             if body['wrong_engine']:
                 return jsonify({**body, 'ok': False, 'code': 'voice_engine',
-                                'error': "Le moteur vocal chargé n'est pas Kyutai TTS."}), 409
+                                'asr': asr, 'error': "Le moteur vocal chargé n'est pas Kyutai TTS."}), 409
             return jsonify({**body, 'ok': False, 'code': 'voice_unavailable',
-                            'error': reason}), 503
-    return jsonify({**_status_body(), 'ok': True})
+                            'asr': asr, 'error': reason}), 503
+    return jsonify({**_status_body(), 'ok': True, 'asr': asr})
 
 
 @bp.route('/api/voice/speak', methods=['POST'])

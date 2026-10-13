@@ -297,7 +297,7 @@ const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you 
 // spoken »: told that it is in a spoken conversation, qwen38-27b treats
 // backchannels (« Mm-hmm », « Ouais, j'aime bien ») as needing no reply and
 // ends its turn at once — <|im_end|> at 97 % (measured 2026-10-13).
-const VOICE_INSTRUCTION = `Your reply will be read by a text-to-speech engine: write it as short plain sentences (one to four unless the user asks for more), conversational, in the user's language, without markdown, lists, headings, tables, emoji, code blocks or URLs. If the user asks for code or a file, say in one sentence what it would do and offer to write it in the written chat.`;
+const VOICE_INSTRUCTION = `Your reply will be read by a text-to-speech engine: keep it brief — two or three short sentences, under 60 words, unless the user explicitly asks for more detail; if the topic is large, give the essentials and offer to go further. Write plain sentences, conversational, in the user's language, without markdown, lists, headings, tables, emoji, code blocks or URLs. If the user asks for code or a file, say in one sentence what it would do and offer to write it in the written chat.`;
 // Added to the last user message of a RETRY only (an empty spoken turn): in
 // the message itself it got an answer 8 times out of 8 where the system
 // instruction alone still left 5 out of 8 empty.

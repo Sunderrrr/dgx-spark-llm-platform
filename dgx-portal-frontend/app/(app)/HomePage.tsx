@@ -248,7 +248,7 @@ export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]
   useEffect(() => {
     let alive = true;
     const readValue = () =>
-      fetch("/api/latence")
+      fetch("/api/latency")
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => { if (alive && d) setLatency(d); })
         .catch(() => {});

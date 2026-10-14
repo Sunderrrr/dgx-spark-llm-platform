@@ -77,6 +77,9 @@ const FIELDS: Record<string, Field> = {
   s3_prefix: { label: "Préfixe", help: "Optionnel : dossier du bucket où tout est rangé.", example: "dgx" },
   s3_access_key: { label: "Clé d'accès" },
   s3_secret_key: { label: "Clé secrète" },
+  ranking_price_input: { label: "Prix en entrée", help: "Par million de tokens, au tarif d'une API commerciale de référence." },
+  ranking_price_output: { label: "Prix en sortie", help: "Par million de tokens générés." },
+  ranking_price_currency: { label: "Devise", help: "Code ISO : USD, EUR…" },
   security_contact: { label: "Contact sécurité", help: "Publié dans /.well-known/security.txt. Vide : le destinataire des alertes.", example: "mailto:security@example.org" },
 };
 
@@ -131,6 +134,11 @@ const SECTIONS: Section[] = [
     id: "s3", title: "Stockage S3", prefixes: ["s3_"], test: "s3",
     description: "Optionnel : sauvegardes et fichiers générés sur un stockage S3 (réglés plus bas).",
     state: (v) => accordingTo(v, ["s3_endpoint", "s3_bucket", "s3_access_key", "s3_secret_key"]),
+  },
+  {
+    id: "classement", title: "Classement", prefixes: ["ranking_"],
+    description: "Le tarif de référence du « ce que ça aurait coûté » de la page Classement.",
+    state: () => ACTIVE,
   },
   {
     id: "securite", title: "Sécurité", prefixes: ["security_"],

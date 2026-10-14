@@ -111,9 +111,17 @@ def main() -> int:
         errors: list[str] = []
         page.on("console", lambda m: errors.append(m.text[:200]) if m.type == "error" else None)
         page.on("pageerror", lambda e: errors.append(f"pageerror: {str(e)[:200]}"))
+        # A page calling an API route that does not exist (404) or that fails
+        # (5xx). Refusals (401/403) are answers, not defects. Added 2026-10-14:
+        # the home page had called a renamed route (/api/latence) since the
+        # English pass, and nothing in the sweep looked at network answers.
+        broken: list[str] = []
+        page.on("response", lambda r: broken.append(f"{r.status} {r.request.method} {r.url.split('?')[0]}")
+                if "/api/" in r.url and (r.status == 404 or r.status >= 500) else None)
 
         for path, label, alternatives in PAGES:
             errors.clear()
+            broken.clear()
             start = time.time()
             try:
                 page.goto(f"{c.BASE}{path}", wait_until="domcontentloaded", timeout=15000)
@@ -155,6 +163,10 @@ def main() -> int:
                 p.fail(f"page {path} ({label})",
                        "no React console error nor unhandled exception",
                        f"{len(remaining)} error(s): {remaining[0]!r}")
+            page.wait_for_timeout(500)          # late API calls of the page
+            if broken:
+                p.fail(f"page {path} ({label})", "every API call of the page answered",
+                       f"{len(broken)} broken: {broken[0]}")
             p.ok(f"page {path}", f"{detail}, {duration:.1f} s, "
                                  f"{len(remaining)} blocking React error(s)")
 

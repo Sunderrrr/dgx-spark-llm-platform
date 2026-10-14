@@ -16,7 +16,7 @@ import requests
 import secrets
 import sqlite3
 import time
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from config import LITELLM_URL, LOCAL_TZ
@@ -31,8 +31,6 @@ from vllm_health import vllm_health
 # Pseudo-keys that don't correspond to a user (admin/health calls).
 _NON_USER_KEYS = {'litellm_proxy_master_key', 'None', ''}
 
-# What a ranking can be based on: both together, or either one.
-RANKING_METRICS = ('total', 'completion', 'prompt')
 
 
 def _real_tokens_by_user(since_utc=None):
@@ -664,186 +662,7 @@ def _known_accounts():
     except Exception:
         return None
 
-def _metric_value(prompt, completion, metric):
-    """The figure we RANK on: the input, the generated, or both."""
-    if metric == 'completion':
-        return completion or 0
-    if metric == 'prompt':
-        return prompt or 0
-    return (prompt or 0) + (completion or 0)
-
-# Month arithmetic for the « 12 derniers mois » and « depuis le début »
-# periods: timedelta knows no months (unequal lengths), and we avoid
-# adding dateutil for so little.
-_MIDNIGHT = {'hour': 0, 'minute': 0, 'second': 0, 'microsecond': 0}
-
-def relativedelta_months(n, day=None):
-    """Shift of n months, applicable to a datetime via `dt + relativedelta_months(n)`."""
-    class _Shift:
-        def __radd__(self, dt):
-            y, m = dt.year, dt.month + n
-            y += (m - 1) // 12
-            m = (m - 1) % 12 + 1
-            return dt.replace(year=y, month=m, day=day if day else min(dt.day, 28))
-    return _Shift()
-
-def _month_buckets(start, end):
-    """List of the 1sts of the month from `start` to `end` included (sparkline keys)."""
-    out, y, m = [], start.year, start.month
-    while (y, m) <= (end.year, end.month):
-        out.append(date(y, m, 1))
-        m += 1
-        if m > 12:
-            m = 1; y += 1
-    return out
-
-def ranking_full(period='day', me=None, metric='total'):
-    """Enriched ranking: really consumed tokens, share of the period total,
-    delta vs the previous period, input/generated breakdown and trend,
-    per account.
-
-    `metric` chooses what is RANKED: 'total' (input + generated),
-    'completion' (generated) or 'prompt' (input). The choice is not
-    cosmetic — measured on 2026-09-14 over 30 days: the #1 concentrated
-    32,2 % of the total but only 0,46 % of the generated. A « total »
-    ranking thus mostly ranks those who SEND context, and the order
-    really changes when ranking the generated (one account leaves the top 5).
-
-    Rows matching no account (`inconnu`, test key leftovers) leave the
-    ranking: no rank nor medal, and they do not count in the active
-    accounts. They stay in the period TOTAL, which describes the platform
-    — not the ranking.
-    """
-    metric = metric if metric in RANKING_METRICS else 'total'
-    conn = _spend_conn()
-    empty = {'period': period, 'metric': metric, 'rows': [], 'active_count': 0,
-             'total': 0, 'avg': 0, 'has_prev': period != 'all'}
-    if not conn:
-        return empty
-    try:
-        now_local = datetime.now(ZoneInfo(LOCAL_TZ))
-        today = now_local.date()
-        if period == 'week':
-            cur_start = now_local - timedelta(days=7)
-            prev_start = now_local - timedelta(days=14)
-            buckets = [today - timedelta(days=i) for i in range(6, -1, -1)]
-            bucket_kind = 'day'
-        elif period == 'month':
-            cur_start = now_local - timedelta(days=30)
-            prev_start = now_local - timedelta(days=60)
-            buckets = [today - timedelta(days=i) for i in range(29, -1, -1)]
-            bucket_kind = 'day'
-        elif period in ('year', 'all'):
-            # MONTHLY buckets: over a year, 365 points would make an unreadable
-            # sparkline (and 30x more rows to aggregate on the SQL side).
-            if period == 'year':
-                cur_start = now_local.replace(**_MIDNIGHT) + relativedelta_months(-11, day=1)
-                prev_start = cur_start + relativedelta_months(-12)
-            else:
-                # Since the start: we begin at the very first log (otherwise, this month).
-                c0 = conn.cursor()
-                c0.execute('SELECT MIN("startTime") FROM "LiteLLM_SpendLogs"')
-                first = (c0.fetchone() or [None])[0]
-                start_date = first.date().replace(day=1) if first else today.replace(day=1)
-                cur_start = now_local.replace(**_MIDNIGHT).replace(
-                    year=start_date.year, month=start_date.month, day=1)
-                prev_start = cur_start  # no previous period → no delta
-            buckets = _month_buckets(cur_start.date(), today)
-            bucket_kind = 'month'
-        else:  # day
-            cur_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-            prev_start = cur_start - timedelta(days=1)
-            buckets = list(range(24))
-            bucket_kind = 'hour'
-        cur_start_utc = cur_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-        prev_start_utc = prev_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-        umap = _key_user_map(conn)
-        known = _known_accounts()
-        cur = conn.cursor()
-        if bucket_kind == 'hour':
-            bexpr = "EXTRACT(HOUR FROM ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::int"
-        elif bucket_kind == 'month':
-            bexpr = "date_trunc('month', ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s))::date"
-        else:
-            bexpr = "((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s)::date"
-        # Current period: per bucket AND per key. BOTH counters are
-        # fetched, not only their sum: this is what allows ranking on
-        # the input, the generated, or both.
-        cur.execute(
-            f'SELECT {bexpr} AS b, api_key, SUM(prompt_tokens), SUM(completion_tokens) '
-            'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s GROUP BY b, api_key',
-            (LOCAL_TZ, cur_start_utc))
-        agg = {}
-        for b, api_key, prompt, comp in cur.fetchall():
-            if api_key in _NON_USER_KEYS:
-                continue
-            u = umap.get(api_key, 'unknown')
-            p, c = prompt or 0, comp or 0
-            a = agg.setdefault(u, {'tokens': 0, 'prompt': 0, 'completion': 0, 'spark': {}})
-            a['tokens'] += p + c; a['prompt'] += p; a['completion'] += c
-            # The trend follows the displayed metric, not the total: a context
-            # curve does not have the same shape as a generation curve.
-            v = _metric_value(p, c, metric)
-            if v:
-                a['spark'][b] = a['spark'].get(b, 0) + v
-        # Previous period, same metric: a delta compares what is
-        # comparable. « Depuis le debut » has nothing before it — we skip the
-        # query, and `has_prev` warns the UI that there is no delta to
-        # display. The old version displayed « nouveau » on ALL rows of
-        # that period: for lack of distinguishing « no previous period »
-        # from « account absent the period before ».
-        prev = {}
-        if period != 'all':
-            cur.execute('SELECT api_key, SUM(COALESCE(prompt_tokens,0)), SUM(COALESCE(completion_tokens,0)) '
-                        'FROM "LiteLLM_SpendLogs" '
-                        'WHERE "startTime" >= %s AND "startTime" < %s GROUP BY api_key',
-                        (prev_start_utc, cur_start_utc))
-            for api_key, p, c in cur.fetchall():
-                if api_key in _NON_USER_KEYS:
-                    continue
-                u = umap.get(api_key, 'unknown')
-                prev[u] = prev.get(u, 0) + _metric_value(p, c, metric)
-        # The metric is computed ONCE per account: it serves the sort, the
-        # total, the share and the delta.
-        for a in agg.values():
-            a['value'] = _metric_value(a['prompt'], a['completion'], metric)
-
-        def is_residue(u):
-            """Row that is nobody's account — see `_comptes_connus`."""
-            return u == 'unknown' or (known is not None and u not in known)
-
-        def line(u, a, rank):
-            pv = prev.get(u, 0)
-            residue = is_residue(u)
-            return {
-                'rank': rank, 'username': u, 'is_me': u == me,
-                'is_unattributed': residue,
-                'value': int(a['value']),                 # what we rank on
-                'tokens': int(a['tokens']),
-                'prompt': int(a['prompt']), 'completion': int(a['completion']),
-                'share_pct': (a['value'] / total * 100) if total else 0,
-                # No delta on an unattributed row: its « +290 919 % » of the
-                # month compares nothing useful, and a leftover has no history.
-                'delta': None if residue or not pv else (a['value'] - pv) / pv * 100,
-                'trend': [a['spark'].get(b, 0) for b in buckets],
-            }
-
-        actives = [(u, a) for u, a in agg.items() if a['value'] > 0 and not is_residue(u)]
-        others = [(u, a) for u, a in agg.items() if a['value'] > 0 and is_residue(u)]
-        actives.sort(key=lambda x: x[1]['value'], reverse=True)
-        others.sort(key=lambda x: x[1]['value'], reverse=True)
-        total = sum(a['value'] for _, a in actives + others)
-        total_active = sum(a['value'] for _, a in actives)
-        rows = [line(u, a, i + 1) for i, (u, a) in enumerate(actives)]
-        rows += [line(u, a, None) for u, a in others]
-        return {'period': period, 'metric': metric, 'rows': rows,
-                'active_count': len(actives), 'total': round(total),
-                'avg': round(total_active / len(actives)) if actives else 0,
-                'has_prev': period != 'all'}
-    except Exception:
-        return empty
-    finally:
-        conn.close()
+# The ranking (page /ranking) lives in ranking.py.
 
 _USER_HOURLY_CACHE = {}
 _USER_HOURLY_TTL = 30.0

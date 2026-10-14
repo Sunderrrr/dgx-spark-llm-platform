@@ -17,6 +17,7 @@ a fake cursor that answers according to the query (current or previous).
 import unittest
 from unittest import mock
 
+import ranking
 import stats
 
 
@@ -64,12 +65,16 @@ def _ranking(current_value, previous=(), accounts=('alice', 'bob'), metric='tota
     `precedent`: rows (key, prompt, generated) of the period before.
     `comptes`: the names that REALLY exist (the rest is a leftover).
     """
-    conn = _FakeConn(current_value, previous)
+    # The ranking's queries carry the model and the request count since
+    # 2026-10-14: (bucket, key, model, prompt, generated, requests) and
+    # (key, prompt, generated, requests). One request per row here.
+    conn = _FakeConn([(b, k, 'm', p, c, 1) for b, k, p, c in current_value],
+                     [(k, p, c, 1) for k, p, c in previous])
     with mock.patch.object(stats, '_spend_conn', return_value=conn), \
          mock.patch.object(stats, '_key_user_map', return_value={k: k for k in
                         {l[1] for l in current_value} | {l[0] for l in previous}}), \
          mock.patch.object(stats, '_known_accounts', return_value=set(accounts)):
-        return stats.ranking_full(period, metric=metric)
+        return ranking.ranking_full(period, metric=metric)
 
 
 class TestResidues(unittest.TestCase):
@@ -108,11 +113,11 @@ class TestResidues(unittest.TestCase):
         # nothing. Only `inconnu` stays unattributed, by construction.
         with mock.patch.object(stats, 'get_db', side_effect=RuntimeError('base illisible')):
             self.assertIsNone(stats._known_accounts())
-        conn = _FakeConn([(1, 'alice', 10, 1), (1, 'martin', 5, 0)], [])
+        conn = _FakeConn([(1, 'alice', 'm', 10, 1, 1), (1, 'martin', 'm', 5, 0, 1)], [])
         with mock.patch.object(stats, '_spend_conn', return_value=conn), \
              mock.patch.object(stats, '_key_user_map', return_value={'alice': 'alice', 'martin': 'martin'}), \
              mock.patch.object(stats, '_known_accounts', return_value=None):
-            d = stats.ranking_full('month')
+            d = ranking.ranking_full('month')
         self.assertEqual([r['rank'] for r in d['rows']], [1, 2])
         self.assertFalse(any(r['is_unattributed'] for r in d['rows']))
 
@@ -214,7 +219,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_postgres_unreachable(self):
         with mock.patch.object(stats, '_spend_conn', return_value=None):
-            d = stats.ranking_full('month')
+            d = ranking.ranking_full('month')
         self.assertEqual(d['rows'], [])
         self.assertTrue(d['has_prev'])
 

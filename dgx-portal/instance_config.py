@@ -56,6 +56,11 @@ CONFIGURABLE = [
     ('s3_prefix',       'S3 — préfixe', False, '', ''),
     ('s3_access_key',   "S3 — clé d'accès", False, '', ''),
     ('s3_secret_key',   'S3 — clé secrète', True, '', ''),
+    # Leaderboard « ce que ça aurait coûté »: a commercial API's list price,
+    # per million tokens (ranking.prices).
+    ('ranking_price_input', 'Classement — prix en entrée (par million de tokens)', False, '', '2.50'),
+    ('ranking_price_output', 'Classement — prix en sortie (par million de tokens)', False, '', '10.00'),
+    ('ranking_price_currency', 'Classement — devise', False, '', 'USD'),
 ]
 _BY_NAME = {c[0]: c for c in CONFIGURABLE}
 

@@ -539,6 +539,13 @@ def init_db():
                 db.execute(f"ALTER TABLE user_prefs ADD COLUMN {col} INTEGER NOT NULL DEFAULT 1")
             except sqlite3.OperationalError:
                 pass    # another gunicorn worker added it first
+    # Leaderboard privacy (2026-10-14): shown to the others as « anonymous
+    # account », OFF by default like before.
+    if 'ranking_anonymous' not in pref_cols:
+        try:
+            db.execute("ALTER TABLE user_prefs ADD COLUMN ranking_anonymous INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass    # another gunicorn worker added it first
     mcp_cols = {r[1] for r in db.execute("PRAGMA table_info(mcp_servers)")}
     for col, ddl in (('description', "TEXT DEFAULT ''"),
                      ('allowed_tools', "TEXT DEFAULT ''"),

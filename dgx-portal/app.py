@@ -303,9 +303,9 @@ from chat_routes import bp as chat_bp  # noqa: E402
 # ── Usage statistics (LiteLLM Postgres database) ─────────────────────────────
 # Statistics (aggregates, rankings, active users): see stats.py
 from stats import (  # noqa: E402
-    RANKING_METRICS, _account_activity, _active_users, _inflight_end, _inflight_start,
+    _account_activity, _active_users, _inflight_end, _inflight_start,
     _real_tokens_by_user, _tokens_by_model,
-    ranking_full, user_hourly,
+    user_hourly,
 )
 
 # ── Administration (models, sidecars, accounts, announcements) ───────────────
@@ -330,6 +330,7 @@ from ocr_routes import bp as ocr_bp  # noqa: E402  (get_ocr_model already import
 # Voice goes to voice_routes.py, dictation to asr_routes.py,
 # bootstrapping stays below.
 from voice_chat_routes import bp as voice_chat_bp  # noqa: E402
+from ranking_routes import bp as ranking_bp  # noqa: E402
 from voice_routes import (  # noqa: E402
     bp as voice_bp, get_voice_engine, get_voice_languages,
 )
@@ -1525,42 +1526,6 @@ def api_search():
                     'hf_token': hf_token_present()})
 
 
-RANKING_LABELS = {'day': "Aujourd'hui", 'week': '7 derniers jours', 'month': '30 derniers jours',
-                  'year': '12 derniers mois', 'all': 'Depuis le début'}
-RANKING_PREV_LABELS = {'day': 'hier', 'week': 'la semaine précédente', 'month': 'les 30 jours précédents',
-                       'year': 'les 12 mois précédents', 'all': ''}
-RANKING_PERIODS = tuple(RANKING_LABELS)
-
-
-
-@app.route('/api/ranking')
-@login_required
-def api_ranking():
-    period = request.args.get('period', 'day')
-    if period not in RANKING_PERIODS:
-        period = 'day'
-    # The metric is validated here like the period: a ranking on anything other
-    # than input, generation or their sum does not exist, and falling back to
-    # the total beats answering an error to a page that opens.
-    metric = request.args.get('metric', 'total')
-    if metric not in RANKING_METRICS:
-        metric = 'total'
-    data = ranking_full(period, me=session['username'], metric=metric)
-    # The avatar of each row. The ranking only named accounts; an avatar is
-    # recognized faster than a nickname, and the admin list already showed it.
-    # ONE read for the whole page (not one per row): `user_prefs` is
-    # small, but the page refreshes often. A row absent from the table
-    # keeps `None`, i.e. the avatar generated from the nickname — the default of
-    # every account, see /api/whoami.
-    avatars = {name: av for name, av in get_db().execute(
-        "SELECT username, avatar_id FROM user_prefs").fetchall()}
-    for line in data['rows']:
-        line['avatar_id'] = avatars.get(line.get('username'))
-    return jsonify({'rows': data['rows'], 'active_count': data['active_count'],
-                    'period': period, 'metric': metric,
-                    'total': data['total'], 'avg': data['avg'], 'has_prev': data['has_prev'],
-                    'period_label': RANKING_LABELS[period], 'prev_label': RANKING_PREV_LABELS[period]})
-
 @app.route('/request', methods=['GET', 'POST'])
 @login_required
 def request_model():
@@ -1619,6 +1584,7 @@ app.register_blueprint(image_bp)
 app.register_blueprint(ocr_bp)
 app.register_blueprint(voice_bp)
 app.register_blueprint(voice_chat_bp)
+app.register_blueprint(ranking_bp)
 app.register_blueprint(asr_bp)
 app.register_blueprint(webauthn_bp)
 

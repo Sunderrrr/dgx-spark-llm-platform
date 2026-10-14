@@ -84,9 +84,12 @@ def main() -> int:
         r = ctx.request.get(f"{c.BASE}/api/ranking?period=day&metric=total")
         rows = (r.json() or {}).get("rows", []) if r.status == 200 else []
         text = page.locator("body").inner_text()
-        if rows and rows[0].get("username") in text:
+        # An account may appear anonymously (username null): the first NAMED
+        # row is the one to find on screen.
+        named = [x for x in rows if x.get("username")]
+        if named and named[0]["username"] in text:
             p.ok("leaderboard shown", f"{len(rows)} ranked account(s), "
-                                      f"first « {rows[0]['username']} » visible")
+                                      f"first named « {named[0]['username']} » visible")
         elif not rows:
             # No consumption over the period: an empty leaderboard IS a real
             # render, but at least the table's structure is required.
@@ -98,6 +101,21 @@ def main() -> int:
             p.fail("leaderboard shown",
                    f"the first account « {rows[0].get('username')} » in the table",
                    f"table not in line with /api/ranking — text: {text[:200]!r}")
+
+        # The heatmap and the records under it (2026-10-14).
+        act = ctx.request.get(f"{c.BASE}/api/ranking/activity?period=month&scope=all")
+        cells = (act.json() or {}).get("cells", []) if act.status == 200 else []
+        if len(cells) == 7 and all(len(row) == 24 for row in cells):
+            p.ok("activity heatmap", f"7 × 24 cells, {act.json().get('total_requests')} request(s) over 30 days")
+        else:
+            p.fail("activity heatmap", "7 × 24 cells from /api/ranking/activity", f"HTTP {act.status}")
+        if c.visible_text(page, "Quand la plateforme travaille", "When the platform works") is None:
+            p.fail("activity heatmap", "the heatmap card on /ranking", "not rendered")
+        rec = ctx.request.get(f"{c.BASE}/api/ranking/records")
+        if rec.status == 200 and {"best_days", "longest_streaks", "firsts"} <= set(rec.json() or {}):
+            p.ok("records", f"{len(rec.json()['best_days'])} biggest day(s), {len(rec.json()['firsts'])} first(s)")
+        else:
+            p.fail("records", "best days, streaks and firsts from /api/ranking/records", f"HTTP {rec.status}")
 
         # ── 3. /request: the form submits (then cleanup) ────────────────────
         model_id = f"e2e-validate/test-{time.strftime('%H%M%S')}"

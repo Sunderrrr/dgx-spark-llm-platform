@@ -32,6 +32,20 @@ fails if `package.json` and the newest version here have drifted apart.
   - backups to the local volume, S3 or both, with a retention for each
     (1-365 archives, default 7), and the result of the last run.
   Conversations stay in the portal database, which every backup includes.
+- **Leaderboard** (page Classement):
+  - two more metrics, **requests** and **tokens per request**, which tell
+    « many small questions » from « few huge documents »;
+  - a **model filter**, and each account's top models under its name;
+  - **by group** (local and directory groups; an account counts in each);
+  - « **ce que ça aurait coûté** »: the consumption at a reference commercial
+    price per million tokens, set in Admin → Config (« Classement »);
+  - an **activity heatmap** (day of the week × hour, the viewer or the
+    platform), **records and streaks** (biggest days, longest and current
+    streaks, first on each model);
+  - **appear anonymously**: name and avatar hidden from the other users (not
+    from oneself nor the admins), records included;
+  - for admins: the **budget used** per account, a **CSV export**, and any
+    account's detail (per model, per day) — each user can open their own.
 - The nightly backup runs the **orphan sweep** of generated files again (files
   whose database row is gone, after 7 days) — on the volume and on S3.
 
@@ -44,6 +58,8 @@ fails if `package.json` and the newest version here have drifted apart.
   `DGX_S3_BUCKET` are no longer used by the backups (the log shipping still
   uses s3cmd).
 - Validation 4.4 checks the backups where Admin → Stockage sends them.
+- The page sweep journey fails on a page calling a missing or failing API
+  route (404/5xx), not only on React errors.
 - S3 calls retry a transient refusal (400/403/5xx, 4 attempts in ~5 s): HEAD
   answered 403 on about a quarter of the calls in bursts behind a proxy, on
   objects that exist.

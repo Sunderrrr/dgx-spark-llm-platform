@@ -6,7 +6,7 @@ import HomePage, { type HomeSeed } from "./HomePage";
 // resume: see lib/server-api.ts.
 export default async function Page() {
   const [seed, convs] = await Promise.all([
-    pageSeed<Omit<HomeSeed, "recent">>({ home: "/api/home", latency: "/api/latence" }),
+    pageSeed<Omit<HomeSeed, "recent">>({ home: "/api/home", latency: "/api/latency" }),
     serverRead<ApiConversations>("/api/conversations"),
   ]);
   // Only the three cards' metadata: the full list can weigh megabytes and

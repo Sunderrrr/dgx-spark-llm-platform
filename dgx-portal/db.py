@@ -236,6 +236,13 @@ def init_db():
             repo_id     TEXT NOT NULL,   -- chatterbox | chatterbox-turbo | chatterbox-multilingual
             added_at    TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS web_sessions (
+            token_hash TEXT PRIMARY KEY,   -- sha256 of the cookie token (session_store.py)
+            data       TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_web_sessions_expires ON web_sessions(expires_at);
         CREATE TABLE IF NOT EXISTS settings (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL

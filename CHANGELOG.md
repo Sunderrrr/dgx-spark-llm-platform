@@ -51,6 +51,13 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Changed
 
+- **Sessions are server-side**: the `session` cookie is an opaque random
+  token, the data lives in the `web_sessions` table (keyed by the token's
+  SHA-256, never the token itself). The token is renewed at every login,
+  logging out deletes the row, and a visitor who never logs in keeps a 2 h
+  row only. An existing signed cookie is converted on its next request:
+  nobody is logged out by the upgrade. First step of the Rust migration
+  (another service can read a session without Flask's cookie format).
 - `scripts/backup.sh` follows Admin → Stockage instead of a fixed S3 bucket:
   the upload runs inside the portal (the bucket keys never leave it), a failed
   upload keeps the archive locally and reports the failure, and `state.json`

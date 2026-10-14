@@ -559,11 +559,11 @@ def _apply_session(username, fullname, is_admin, via_sso=False):
     # after a local login) masked the problem; the SSO, whose return does not
     # always go through a fresh document, exposed it.
     #
-    # Why keeping the token relaxes nothing: it lives in a SIGNED and HttpOnly
-    # cookie, so neither readable nor forgeable by a page — CSRF fixation
-    # assumes an attacker able to impose a value, which the signature forbids.
-    # Protection against session fixation remains assured by the fresh `sid`
-    # created below, which is the real revocable identifier.
+    # Why keeping the token relaxes nothing: it lives in the server-side
+    # session (the cookie is an opaque token, HttpOnly), so it is neither
+    # readable nor forgeable by a page — CSRF fixation assumes an attacker able
+    # to impose a value. Protection against session fixation comes from the
+    # session token renewed at every login, and the fresh `sid` created below.
     #
     # If there is no token yet (new browser, missing cookie), we create one:
     # the session must never leave without one, else several parallel requests
@@ -572,6 +572,10 @@ def _apply_session(username, fullname, is_admin, via_sso=False):
     # already avoided, and it keeps avoiding it.
     csrf = session.get('csrf')
     session.clear()
+    # A new session token at every login: one known before authentication
+    # (session fixation) must not survive it (session_store.py).
+    if hasattr(session, 'regenerate'):
+        session.regenerate()
     session['csrf'] = csrf or secrets.token_urlsafe(32)
     session['username'] = username
     session['fullname'] = fullname

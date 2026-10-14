@@ -6,28 +6,15 @@ from urllib.parse import urlparse
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-_WEAK_SECRETS = {'changeme', 'secret', 'dev', 'test', 'password', 'changeme!'}
-
 app = Flask(__name__)
 
 # How long the API takes, measured on every request (see latency.py).
 from latency import _bp as _latency_bp, record as _latency_record  # noqa: E402
 app.register_blueprint(_latency_bp)
 
-# The session-cookie signing key is the portal's most critical secret: the Flask
-# cookie is SIGNED but not encrypted, so whoever knows the key can forge
-# `{'username': 'admin', 'is_admin': True}` and impersonate that account.
-# `os.environ[...]` already failed if the variable was missing, but accepted any
-# value — including the `changeme` of `.env.example`, with which a forged
-# session is accepted (verified on a throwaway app). So we refuse at startup,
-# loudly, rather than at exploitation time.
-_SECRET_KEY = os.environ['SECRET_KEY']
-if len(_SECRET_KEY) < 32 or _SECRET_KEY.strip().lower() in _WEAK_SECRETS:
-    raise RuntimeError(
-        "SECRET_KEY absente ou non aléatoire : il faut au moins 32 caractères "
-        "aléatoires (elle est générée par setup.sh dans .env — ne jamais "
-        "recopier la valeur d'exemple).")
-app.secret_key = _SECRET_KEY
+# Sessions: the signing key (refused if weak) and the server-side store.
+import session_store  # noqa: E402
+session_store.install(app)
 
 # Behind Traefik (TLS terminated at the proxy, forwarded as HTTP to the container):
 # trust the X-Forwarded-* headers so Flask knows the real

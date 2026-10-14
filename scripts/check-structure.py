@@ -22,7 +22,7 @@ MAX_LINES = 1200
 FROZEN = {
     'dgx-portal-frontend/app/(app)/playground/PlaygroundPage.tsx': 2585,
     'dgx-portal/chat_routes.py': 1680,
-    'dgx-portal/app.py': 1688,
+    'dgx-portal/app.py': 1675,
     'vllm-runner/runner.py': 1492,
 }
 

@@ -14,8 +14,9 @@
 #   DGX_ROOT        the checkout (default: this repository)
 #   DGX_WEB         the web UI origin (default: https://example.org)
 #   DGX_API         the API origin (default: https://api.example.org)
-#   DGX_S3_CFG      s3cmd configuration file (default: <root>/secrets/s3-garage.cfg)
-#   DGX_S3_BUCKET   where the backups go (default: s3://dgx/backups)
+#   DGX_S3_CFG      s3cmd configuration file of the log shipping (default:
+#                   <root>/secrets/s3-garage.cfg). The BACKUPS use the S3 of
+#                   Admin → Config instead (scripts/backup.sh).
 #   DGX_S3_LOGS     where the journals go (default: s3://dgx/logs)
 #   DGX_DEMO_USER   demo account used by the validation journeys
 #   DGX_DEMO_PASS   file holding its password (never the password itself)
@@ -42,7 +43,6 @@ export DGX_ROOT="${DGX_ROOT:-$_REPO_ROOT}"
 export DGX_WEB="${DGX_WEB:-https://example.org}"
 export DGX_API="${DGX_API:-https://api.example.org}"
 export DGX_S3_CFG="${DGX_S3_CFG:-$DGX_ROOT/secrets/s3-garage.cfg}"
-export DGX_S3_BUCKET="${DGX_S3_BUCKET:-s3://dgx/backups}"
 export DGX_S3_LOGS="${DGX_S3_LOGS:-s3://dgx/logs}"
 export DGX_DEMO_USER="${DGX_DEMO_USER:-demo}"
 export DGX_DEMO_PASS="${DGX_DEMO_PASS:-/root/shots/demo-credentials}"

@@ -212,8 +212,13 @@ def _test_discord():
     return False, "Le webhook a refusé le message : vérifie son URL."
 
 
+def _test_s3():
+    import object_store
+    return object_store.test()
+
+
 _TESTS = {'ldap': _test_ldap, 'sso': _test_sso, 'smtp': _test_smtp,
-          'discord': _test_discord}
+          'discord': _test_discord, 's3': _test_s3}
 
 
 @bp.route('/admin/config/test/<part>', methods=['POST'])

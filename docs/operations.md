@@ -323,16 +323,20 @@ root** on the host (access to the docker socket + the 600 `.env`).
   04/09/2026, stayed invisible for 3 days) triggers the same alert. **Sticky**
   state in `/var/lib/dgx-monitor/state.json` (1 alert per incident). The media
   sidecars are **on-demand**: not probed, to avoid false positives. The monitor
-  also probes the **freshness of the portal dump** (`/var/backups/dgx/portal-*.db`
+  also probes the **freshness of the last backup** (`/var/backups/dgx/state.json`,
   < 26 h): a missing/old backup counts as a service down.
 - **`dgx-backup.timer`/`.service`** (daily 03:00) → `scripts/backup.sh`:
   consistent SQLite copy of the portal database, `pg_dump` of the LiteLLM
-  database, `docker-compose.yml`, `.env` and `secrets/`, archived and uploaded
-  to `DGX_S3_BUCKET`, then **listed back from the bucket** before the run counts
-  as a success. Retention: 7 archives. It writes `/var/backups/dgx/etat.json`,
-  which the monitor and the Admin card read. **The archive contains `.env` and
-  the databases — the bucket must be private.** `monitoring/backup.py` (local
-  dumps + purge of orphan media files) is kept as a manual tool, not scheduled.
+  database, `docker-compose.yml`, `.env` and `secrets/`, archived. **Admin →
+  Stockage** chooses where it goes — local (`/var/backups/dgx/archives`, 0700),
+  the S3 bucket of Admin → Config, or both — and how many archives each keeps
+  (default 7). The upload runs inside the portal (`dgx-portal/backups.py`: the
+  bucket keys never leave it) and the archive is **read back from the bucket**
+  before the run counts as a success; a failed upload keeps the archive locally
+  and the run reports the failure. It writes `/var/backups/dgx/state.json`,
+  which the monitor and the Admin panel read, and runs the **orphan sweep** of
+  the generated files (`media_store.py sweep`). **The archive contains `.env`
+  and the databases — the bucket must be private.**
   The portal also writes a `.db_initialized` marker: marker present + empty
   database at startup → infra alert. Restoration: download the archive, then
   `docker cp` of the `.db`/SQL dump and `pg_restore`/`psql`.

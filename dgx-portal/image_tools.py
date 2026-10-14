@@ -17,7 +17,6 @@ minutes) and the frontend proxy cuts on inactivity — so we emit SSE
 heartbeats while waiting (same reason as the websearch phase, see
 _phase_outils).
 """
-import os
 import re
 import secrets
 import threading
@@ -90,14 +89,11 @@ _IMAGE_REF = re.compile(r'/image/file/([0-9a-f]+)(?:/(\d+))?')
 def image_exists(username, prompt_id, idx=0):
     """Does /image/file/<prompt_id>/<idx> serve a file to this user? Same
     lookup as the route (image_routes.image_file)."""
-    from image_routes import IMAGE_EXT, IMAGE_FILES_DIR
+    from image_routes import find_image
     if not get_db().execute("SELECT 1 FROM image_jobs WHERE prompt_id=? AND username=?",
                             (prompt_id, username)).fetchone():
         return False
-    if any(os.path.isfile(os.path.join(IMAGE_FILES_DIR, f"{prompt_id}_{idx}.{ext}"))
-           for ext in IMAGE_EXT.values()):
-        return True
-    return idx == 0 and os.path.isfile(os.path.join(IMAGE_FILES_DIR, prompt_id + '.png'))
+    return find_image(prompt_id, idx) is not None
 
 
 def invented_images(text, username):

@@ -204,15 +204,24 @@ check_disk() {
   [ "$pct" -le "$DISK_MAX_PCT" ]
 }
 
-check_s3() {
-  # The backup must be REACHABLE: a backup that cannot be listed does not
-  # exist (dump freshness is watched by the monitor).
-  local out
-  out=$(timeout 60 s3cmd -c "$DGX_S3_CFG" ls "${DGX_S3_BUCKET}/" 2>&1) || {
-    echo "s3cmd failed: $(printf '%s' "$out" | tail -2)"; return 1; }
-  if [ -z "$out" ]; then echo "${DGX_S3_BUCKET}/ is empty or unreadable"; return 1; fi
-  echo "latest visible backups:"
-  printf '%s\n' "$out" | tail -3
+check_backup() {
+  # The backup must be REACHABLE where Admin → Stockage sends it: a backup
+  # that cannot be listed does not exist (freshness is watched by the monitor).
+  docker exec dgx-portal python3 -c '
+import json, sys
+import backups, object_store
+cfg = backups.settings()
+print("destination:", cfg["destination"], "| keep local", cfg["keep_local"], "| keep S3", cfg["keep_s3"])
+last = backups.last_state() or {}
+print("last run:", last.get("last_attempt") or last.get("last_backup"), "ok" if last.get("last_ok", True) else "FAILED: " + str(last.get("error")))
+if cfg["destination"] != "local":
+    if not cfg["s3_ready"]:
+        sys.exit("S3 destination chosen but S3 is not configured")
+    found = backups._archives()
+    if not found:
+        sys.exit("no archive in the bucket")
+    print("latest in the bucket:", ", ".join(k.rsplit("/", 1)[-1] for k, _s, _m in found[:3]))
+'
 }
 
 # ── Header ──────────────────────────────────────────────────────────────────
@@ -378,11 +387,11 @@ if group_wanted 4; then
   GROUP_NUM=4
   printf '%s══ Group 4 — Health & resources ══%s\n' "$BOLD" "$RST"
   # timeout cannot run shell functions: export them, call them in a subshell.
-  export -f check_memory check_model check_disk check_s3 model_state runner_token
+  export -f check_memory check_model check_disk check_backup model_state runner_token
   run_check "4.1 Available memory (configurable floor)" 60 bash -c check_memory
   run_check "4.2 Served model is « running »" 60 bash -c check_model
   run_check "4.3 Disk under the ceiling" 60 bash -c check_disk
-  run_check "4.4 S3 backup reachable (s3cmd ls ${DGX_S3_BUCKET}/)" 120 bash -c check_s3
+  run_check "4.4 Backups reachable where Admin → Stockage sends them" 120 bash -c check_backup
   close_group "Health & resources"
 fi
 

@@ -48,6 +48,14 @@ CONFIGURABLE = [
     ('discord_client_secret', 'Discord — client secret', True, 'DISCORD_CLIENT_SECRET', ''),
     ('discord_redirect_uri', 'Discord — URI de retour', False, 'DISCORD_REDIRECT_URI', ''),
     ('security_contact', 'Sécurité — contact (security.txt)', False, 'DGX_SECURITY_CONTACT', ''),
+    # S3-compatible object storage (Garage, MinIO, AWS…): backups and, when
+    # chosen in Admin → Stockage, the generated files. No legacy env var.
+    ('s3_endpoint',     'S3 — endpoint', False, '', ''),
+    ('s3_region',       'S3 — région', False, '', 'us-east-1'),
+    ('s3_bucket',       'S3 — bucket', False, '', ''),
+    ('s3_prefix',       'S3 — préfixe', False, '', ''),
+    ('s3_access_key',   "S3 — clé d'accès", False, '', ''),
+    ('s3_secret_key',   'S3 — clé secrète', True, '', ''),
 ]
 _BY_NAME = {c[0]: c for c in CONFIGURABLE}
 
@@ -111,6 +119,15 @@ def oidc_config():
     c = {k: setting('oidc_' + k) for k in
          ('metadata_url', 'client_id', 'client_secret', 'admin_group', 'redirect_uri', 'logout_url')}
     c['enabled'] = bool(c['metadata_url'] and c['client_id'] and c['client_secret'])
+    return c
+
+
+def s3_config():
+    """Object storage details; `enabled` once endpoint, bucket and keys are set."""
+    c = {k: setting('s3_' + k) for k in
+         ('endpoint', 'region', 'bucket', 'prefix', 'access_key', 'secret_key')}
+    c['prefix'] = c['prefix'].strip('/')
+    c['enabled'] = bool(c['endpoint'] and c['bucket'] and c['access_key'] and c['secret_key'])
     return c
 
 

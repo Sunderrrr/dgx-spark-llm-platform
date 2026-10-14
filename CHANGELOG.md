@@ -19,7 +19,39 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ## [Unreleased]
 
+### Added
+
+- **S3 storage in Admin → Config**: endpoint, region, bucket, prefix and keys of
+  any S3-compatible service (Garage, MinIO, AWS), with a « Tester » button that
+  writes, reads back and deletes a probe object. The secret key is write-only.
+- **Admin → Config « Stockage et sauvegardes »**:
+  - generated files (images, videos, OCR scans, voice audio) on the local
+    volume or on S3. Switching changes where new files go; existing files stay
+    readable wherever they are, and « Migrer » moves them in the background
+    (verified copy before each deletion, progress shown);
+  - backups to the local volume, S3 or both, with a retention for each
+    (1-365 archives, default 7), and the result of the last run.
+  Conversations stay in the portal database, which every backup includes.
+- The nightly backup runs the **orphan sweep** of generated files again (files
+  whose database row is gone, after 7 days) — on the volume and on S3.
+
+### Changed
+
+- `scripts/backup.sh` follows Admin → Stockage instead of a fixed S3 bucket:
+  the upload runs inside the portal (the bucket keys never leave it), a failed
+  upload keeps the archive locally and reports the failure, and `state.json`
+  keeps the time of the last good backup on a failed run. s3cmd and
+  `DGX_S3_BUCKET` are no longer used by the backups (the log shipping still
+  uses s3cmd).
+- Validation 4.4 checks the backups where Admin → Stockage sends them.
+- S3 calls retry a transient refusal (400/403/5xx, 4 attempts in ~5 s): HEAD
+  answered 403 on about a quarter of the calls in bursts behind a proxy, on
+  objects that exist.
+
 ### Removed
+
+- `monitoring/backup.py`: no unit ran it any more; its orphan sweep moved to
+  `dgx-portal/media_store.py`.
 
 - **Music generation.** The `/music` page, its routes (`/api/music/*`,
   `/music/file/*`, `/admin/music/*`), the `music` sidecar and its image, the

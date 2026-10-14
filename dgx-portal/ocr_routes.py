@@ -10,14 +10,12 @@ know whether the OCR container answers.
 """
 import base64
 import json
-import os
 import secrets
 import time
 from datetime import datetime
 
 import requests
-from flask import (Blueprint, Response, abort, jsonify, request, send_file,
-                   session, stream_with_context)
+from flask import (Blueprint, Response, abort, jsonify, request, session, stream_with_context)
 
 from auth import login_required
 from config import OCR_URL
@@ -25,6 +23,7 @@ from db import get_db
 from guards import (_chat_rate_limited, _read_uploaded_image, _sse_msg,
                     maintenance_block_sse)
 from sidecars import get_ocr_model
+import media_store
 
 bp = Blueprint('ocr', __name__)
 
@@ -167,17 +166,12 @@ def api_ocr_extract():
     # Image saved BEFORE streaming (random name, never derived from the
     # filename sent by the client): the history must be able to redisplay
     # the analyzed image with the "detected zones" view, not just the text.
-    os.makedirs(OCR_IMAGES_DIR, exist_ok=True)
     image_filename = f"{secrets.token_hex(16)}.{_OCR_IMAGE_EXT.get(err_or_mime, 'png')}"
-    with open(os.path.join(OCR_IMAGES_DIR, image_filename), 'wb') as f:
-        f.write(data)
+    media_store.save('ocr_images', image_filename, data, err_or_mime)
 
     def _persist(text):
         if not text:
-            try:
-                os.remove(os.path.join(OCR_IMAGES_DIR, image_filename))
-            except OSError:
-                pass
+            media_store.delete('ocr_images', image_filename)
             return
         db = get_db()
         duration_ms = int((time.time() - _t0) * 1000)  # real extraction time
@@ -194,12 +188,8 @@ def api_ocr_extract():
                AND id NOT IN (SELECT id FROM ocr_jobs WHERE username=? ORDER BY id DESC LIMIT ?)""",
             (username, username, OCR_HISTORY_LIMIT)).fetchall()
         for row in stale:
-            if not row['image_path']:
-                continue
-            try:
-                os.remove(os.path.join(OCR_IMAGES_DIR, row['image_path']))
-            except OSError:
-                pass
+            if row['image_path']:
+                media_store.delete('ocr_images', row['image_path'])
         if stale:
             db.execute("DELETE FROM ocr_jobs WHERE id IN (%s)"
                        % ','.join('?' * len(stale)), [r['id'] for r in stale])
@@ -229,8 +219,11 @@ def ocr_image(job_id):
         (job_id, session['username'])).fetchone()
     if not row or not row['image_path']:
         abort(404)
-    path = os.path.join(OCR_IMAGES_DIR, row['image_path'])
-    if not os.path.isfile(path):
-        abort(404)
-    return send_file(path)
+    import mimetypes
+    mime = mimetypes.guess_type(row['image_path'])[0] or 'application/octet-stream'
+    try:
+        stored = media_store.serve('ocr_images', row['image_path'], mime)
+    except ValueError:
+        stored = None
+    return stored or abort(404)
 

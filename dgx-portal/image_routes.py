@@ -13,7 +13,7 @@ import threading
 from datetime import datetime
 
 import requests
-from flask import Blueprint, abort, jsonify, request, send_file, session
+from flask import Blueprint, abort, jsonify, request, session
 
 from auth import login_required
 from db import DB_PATH, add_notification, get_db
@@ -22,6 +22,7 @@ from sidecars import shared_memory_note, image_ready
 
 _log = logging.getLogger('app')
 from guards import media_block_json, media_job_done, media_job_slot
+import media_store
 
 bp = Blueprint('image', __name__)
 
@@ -73,7 +74,6 @@ def _image_worker(prompt_id, username, prompt_text, count, fmt='png',
     started = datetime.now()
     done = 0
     ext = IMAGE_EXT.get(fmt, 'png')
-    os.makedirs(IMAGE_FILES_DIR, exist_ok=True)
     for idx in range(count):
         if _image_cancelled(prompt_id, username):
             break
@@ -84,8 +84,8 @@ def _image_worker(prompt_id, username, prompt_text, count, fmt='png',
                                     'out_width': out_width, 'out_height': out_height},
                               timeout=600)
             if r.ok and r.headers.get('Content-Type', '').startswith('image/'):
-                with open(os.path.join(IMAGE_FILES_DIR, f"{prompt_id}_{idx}.{ext}"), 'wb') as f:
-                    f.write(r.content)
+                media_store.save('image_files', f"{prompt_id}_{idx}.{ext}", r.content,
+                                 r.headers.get('Content-Type', 'image/png'))
                 done += 1
                 _image_set_done(prompt_id, username, done)
         except Exception:
@@ -216,20 +216,11 @@ def api_image_delete(prompt_id, idx):
     if not safe:
         abort(404)
     idx = max(0, min(IMAGE_MAX_BATCH - 1, int(idx)))
-    # The format varies from job to job: we look for the file under any known
-    # extension before removing it.
-    for ext in IMAGE_EXT.values():
-        path = os.path.join(IMAGE_FILES_DIR, f"{safe}_{idx}.{ext}")
-        if os.path.isfile(path):
-            try:
-                os.remove(path)
-            except Exception as exc:
-                # `str(exc)` of an `os.remove` carries the ABSOLUTE path of the volume
-                # (internal tree) and leaked into the HTTP response. The log
-                # keeps the detail, the user gets one sentence.
-                _log.warning("image deletion %s/%s failed: %r", safe, idx, exc)
-                return jsonify({'error': "Suppression impossible."}), 500
-            return jsonify({'ok': True})
+    # The format varies from job to job: the file is looked for under any known
+    # extension, locally or in the bucket (media_store), before removing it.
+    name = find_image(safe, idx)
+    if name:
+        media_store.delete('image_files', name)
     return jsonify({'ok': True})
 
 
@@ -246,20 +237,25 @@ def image_file(prompt_id, idx=0):
     if not safe:
         abort(404)
     idx = max(0, min(IMAGE_MAX_BATCH - 1, int(idx)))
-    # The format (and thus the extension) varies from job to job: we look for the
-    # file under each known extension, then serve the right Content-Type.
-    path = None
-    for ext in IMAGE_EXT.values():
-        cand = os.path.join(IMAGE_FILES_DIR, f"{safe}_{idx}.{ext}")
-        if os.path.isfile(cand):
-            path = cand
-            break
-    # Backward-compat: jobs made before batching saved a single <prompt_id>.png.
-    if path is None and idx == 0:
-        legacy = os.path.join(IMAGE_FILES_DIR, safe + '.png')
-        if os.path.isfile(legacy):
-            path = legacy
-    if path is None:
+    name = find_image(safe, idx)
+    if name is None:
         abort(404)
-    mime = IMAGE_MIME.get(os.path.splitext(path)[1].lstrip('.').lower(), 'image/png')
-    return send_file(path, mimetype=mime)
+    mime = IMAGE_MIME.get(os.path.splitext(name)[1].lstrip('.').lower(), 'image/png')
+    return media_store.serve('image_files', name, mime) or abort(404)
+
+
+def find_image(safe, idx):
+    """The stored file name of image <idx> of a job, or None. The format (and
+    so the extension) varies from job to job; jobs made before batching saved
+    a single <prompt_id>.png. Local first (free), then the bucket."""
+    names = [f"{safe}_{idx}.{ext}" for ext in IMAGE_EXT.values()]
+    if idx == 0:
+        names.append(safe + '.png')
+    try:
+        media_store.local_path('image_files', names[0])
+    except ValueError:
+        return None                                  # not a server-made id
+    for n in names:
+        if os.path.isfile(media_store.local_path('image_files', n)):
+            return n
+    return next((n for n in names if media_store.exists('image_files', n)), None)

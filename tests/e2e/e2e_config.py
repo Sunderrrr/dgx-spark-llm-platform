@@ -29,8 +29,6 @@ DOMAIN = WEB.split("//", 1)[-1].split("/", 1)[0]
 # journey checks the redirect's shape (another host, client_id, redirect_uri).
 SSO_DOMAIN = os.environ.get("DGX_SSO_DOMAIN", "")
 API = os.environ.get("DGX_API", "https://api.example.org")
-S3_CFG = os.environ.get("DGX_S3_CFG", str(ROOT / "secrets/s3-garage.cfg"))
-S3_BUCKET = os.environ.get("DGX_S3_BUCKET", "s3://dgx/backups")
 DEMO_USER = os.environ.get("DGX_DEMO_USER", "demo")
 DEMO_PASS = os.environ.get("DGX_DEMO_PASS", "/root/shots/demo-credentials")
 PYTEST_BIN = os.environ.get("DGX_PYTEST_BIN", "/root/shots-venv/bin/python")

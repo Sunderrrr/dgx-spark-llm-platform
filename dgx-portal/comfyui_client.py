@@ -157,19 +157,26 @@ def _comfyui_output_file(video_path, subfolder=''):
         return cand
     return None
 
-def _local_video_path(prompt_id):
+def _video_name(prompt_id):
+    """The stored file name of a job's video (media_store, kind video_files)."""
     safe = re.sub(r'[^A-Za-z0-9_-]', '', str(prompt_id))
-    return os.path.join(VIDEO_FILES_DIR, safe + '.mp4') if safe else None
+    return safe + '.mp4' if safe else None
+
+def _local_video_path(prompt_id):
+    name = _video_name(prompt_id)
+    return os.path.join(VIDEO_FILES_DIR, name) if name else None
 
 def _cache_video_local(prompt_id, st):
-    """Download the finished MP4 from ComfyUI into VIDEO_FILES_DIR once, so it can
-    be served from disk later without the sidecar. Best-effort; returns the local
-    path if available."""
-    dest = _local_video_path(prompt_id)
-    if not dest:
+    """Download the finished MP4 from ComfyUI once and store it (media_store:
+    the portal volume or the bucket), so it can be served later without the
+    sidecar. Best-effort; returns the stored file NAME if available."""
+    import media_store
+    name = _video_name(prompt_id)
+    if not name:
         return None
-    if os.path.isfile(dest) and os.path.getsize(dest) > 0:
-        return dest
+    dest = _local_video_path(prompt_id)
+    if media_store.exists('video_files', name):
+        return name
     if not st or not st.get('video_path'):
         return None
     tmp = dest + '.part'
@@ -185,7 +192,10 @@ def _cache_video_local(prompt_id, st):
                     f.write(chunk)
         if os.path.getsize(tmp) > 0:
             os.replace(tmp, dest)
-            return dest
+            # Downloaded to disk first (a stream of unknown length), then
+            # moved to the bucket when that is where files go.
+            media_store.offload('video_files', name, 'video/mp4')
+            return name
     except Exception:
         pass
     finally:

@@ -12,20 +12,20 @@ get_voice_model stay in app.py — they serve model launching from the
 admin, not the voice routes.
 """
 import io as _io
-import os
 import secrets
 import time
 import wave as _wave
 from datetime import datetime
 
 import requests
-from flask import Blueprint, abort, jsonify, request, send_file, session
+from flask import Blueprint, abort, jsonify, request, session
 
 from auth import login_required
 from config import VOICE_URL
 from db import get_db
 from guards import _MAX_VOICE_UPLOAD_BYTES, media_block_json
 from sidecars import refusal_reason
+import media_store
 
 bp = Blueprint('voice', __name__)
 
@@ -215,10 +215,8 @@ def api_voice_generate():
     duration_ms = int((time.time() - _t0) * 1000)  # real generation time
     audio_ms = _wav_duration_ms(audio_bytes)        # duration of the produced audio (WAV)
     username = session['username']
-    os.makedirs(VOICE_AUDIO_DIR, exist_ok=True)
     audio_filename = f"{secrets.token_hex(16)}.mp3"
-    with open(os.path.join(VOICE_AUDIO_DIR, audio_filename), 'wb') as f:
-        f.write(audio_bytes)
+    media_store.save('voice_audio', audio_filename, audio_bytes, 'audio/mpeg')
     db = get_db()
     db.execute("INSERT INTO voice_jobs (username, text, audio_path, created_at, duration_ms, audio_ms) VALUES (?,?,?,?,?,?)",
                (username, text, audio_filename, datetime.now().isoformat(), duration_ms, audio_ms))
@@ -233,10 +231,8 @@ def api_voice_generate():
         "  SELECT id FROM voice_jobs WHERE username=? ORDER BY id DESC LIMIT ?)",
         (username, username, VOICE_HISTORY_LIMIT)).fetchall()
     for row in stale:
-        try:
-            os.remove(os.path.join(VOICE_AUDIO_DIR, row['audio_path']))
-        except OSError:
-            pass
+        if row['audio_path']:
+            media_store.delete('voice_audio', row['audio_path'])
     if stale:
         db.execute("DELETE FROM voice_jobs WHERE id IN (%s)"
                    % ','.join('?' * len(stale)), [r['id'] for r in stale])
@@ -277,10 +273,11 @@ def voice_audio(job_id):
         (job_id, session['username'])).fetchone()
     if not row:
         abort(404)
-    path = os.path.join(VOICE_AUDIO_DIR, row['audio_path'])
-    if not os.path.isfile(path):
-        abort(404)
-    return send_file(path, mimetype='audio/mpeg')
+    try:
+        stored = media_store.serve('voice_audio', row['audio_path'], 'audio/mpeg')
+    except ValueError:
+        stored = None
+    return stored or abort(404)
 
 
 # Loaded Chatterbox variant, brought over from app.py on 28/08: a purely

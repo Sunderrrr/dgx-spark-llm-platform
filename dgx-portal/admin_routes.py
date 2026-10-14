@@ -559,7 +559,8 @@ def admin_support_feedback():
 
 # The other admin domains register their routes on `bp` when imported: they
 # live in their own modules (models & sidecars, accounts & budgets, instance
-# configuration) so that no file does everything.
+# configuration, storage) so that no file does everything.
 import admin_config  # noqa: E402,F401
 import admin_models  # noqa: E402,F401
+import admin_storage  # noqa: E402,F401
 import admin_users  # noqa: E402,F401

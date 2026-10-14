@@ -1,14 +1,15 @@
 [Unit]
-Description=DGX backup (data, configuration, identity) to the S3 bucket
+Description=DGX backup (data, configuration, identity), local and/or S3 (Admin → Stockage)
 After=network-online.target docker.service
 Wants=network-online.target
 
 # scripts/backup.sh: consistent SQLite copies, Postgres dump, compose file,
-# .env and secrets, archived and uploaded to DGX_S3_BUCKET, then listed back
-# from the bucket before the run counts as a success. It also refreshes the
-# local state the admin panel reads (/var/backups/dgx).
+# .env and secrets, archived; kept in /var/backups/dgx/archives and/or
+# uploaded through the portal to the S3 bucket of Admin → Config (verified),
+# with the retention of Admin → Stockage. It also refreshes the state the
+# admin panel and the monitor read (/var/backups/dgx/state.json).
 # No sandboxing here (unlike dgx-monitor.service): the script needs the
-# docker socket, /tmp, the repository's secrets/ and the s3cmd config.
+# docker socket, /tmp, /var/backups and the repository's secrets/.
 [Service]
 Type=oneshot
 ExecStart=/root/ai-platform/scripts/backup.sh

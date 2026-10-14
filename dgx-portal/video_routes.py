@@ -4,7 +4,6 @@ Blueprint without url_prefix: the paths stay identical to the character, so
 the frontend has nothing to change. See memory_routes.py for the full
 reasoning about the endpoints.
 """
-import os
 import sqlite3
 from datetime import datetime
 
@@ -12,7 +11,7 @@ from flask import Blueprint, Response, abort, jsonify, request, send_file, sessi
 
 from auth import login_required
 from comfyui_client import (
-    _cache_video_local, _comfyui_output_file, _local_video_path,
+    _cache_video_local, _comfyui_output_file, _video_name,
     comfyui_cancel, comfyui_fetch_video, comfyui_generate, comfyui_status,
 )
 from db import DB_PATH, get_db
@@ -21,6 +20,7 @@ from guards import (
     media_block_json,
 )
 from sidecars import shared_memory_note
+import media_store
 
 bp = Blueprint('video', __name__)
 
@@ -78,14 +78,11 @@ def api_video_generate():
                (session['username'], session['username'], VIDEO_HISTORY_LIMIT))
     db.commit()
     for old in evinces:
-        path = _local_video_path(old)
-        try:
-            if path and os.path.isfile(path):
-                os.remove(path)
-        except OSError:
-            # A file we fail to delete must not fail the ongoing generation: the orphan
-            # sweep will pick it up again.
-            pass
+        # Wherever it is (volume or bucket). A file we fail to delete must not
+        # fail the ongoing generation: the orphan sweep picks it up again.
+        name = _video_name(old)
+        if name:
+            media_store.delete('video_files', name)
     return jsonify({'prompt_id': prompt_id})
 
 @bp.route('/api/video/history')
@@ -198,10 +195,12 @@ def video_file(prompt_id):
         (prompt_id, session['username'])).fetchone()
     if not owned:
         abort(404)
-    # 1) Serve the locally cached copy first — works even when ComfyUI is stopped.
-    local = _local_video_path(prompt_id)
-    if local and os.path.isfile(local) and os.path.getsize(local) > 0:
-        return send_file(local, mimetype='video/mp4')
+    # 1) Serve the stored copy first (volume or bucket) — works even when
+    #    ComfyUI is stopped.
+    name = _video_name(prompt_id)
+    stored = media_store.serve('video_files', name, 'video/mp4') if name else None
+    if stored is not None:
+        return stored
     # 2) Serve straight from ComfyUI's output dir on disk (read-only mount) — also
     #    works with the ComfyUI process stopped, and covers videos made before the
     #    portal-side cache existed.
@@ -219,7 +218,9 @@ def video_file(prompt_id):
             abort(404)
     cached = _cache_video_local(prompt_id, st)
     if cached:
-        return send_file(cached, mimetype='video/mp4')
+        stored = media_store.serve('video_files', cached, 'video/mp4')
+        if stored is not None:
+            return stored
     upstream = comfyui_fetch_video(st['video_path'], st.get('video_subfolder', ''),
                                    st.get('video_type', 'output'))
     if upstream is None:

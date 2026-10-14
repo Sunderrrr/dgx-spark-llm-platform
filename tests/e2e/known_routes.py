@@ -21,6 +21,9 @@ ADMIN_READ = "secondary admin read: outside the tabs j09_admin checks"
 
 ROUTES = {
     'admin.admin_config': ('journey', 'j09_admin — the Configuration tab is shown and read there'),
+    'admin.admin_storage': ('journey', 'j09_admin — the Configuration tab loads the storage card'),
+    'admin.admin_storage_save': ('excluded', ADMIN_ACTION + ' — covered by test_storage.AdminStorageTest'),
+    'admin.admin_storage_migrate': ('excluded', ADMIN_ACTION + ' (moves every generated file) — covered by test_storage.MediaStoreTest'),
     'admin.admin_config_test': ('excluded', 'Admin → Config « Test » buttons: they reach the directory, the SSO provider, SMTP (a real e-mail) and Discord — covered by test_live_config.ConfigTestRouteTest'),
     'admin.add_model_cfg': ('excluded', ADMIN_ACTION),
     'admin.add_ocr_cfg': ('excluded', ADMIN_ACTION),

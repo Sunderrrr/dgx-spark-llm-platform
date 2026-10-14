@@ -27,6 +27,7 @@ import { useCsrf } from "@/lib/useCsrf";
 import { useT, tServer } from "@/lib/i18n";
 import { copyText } from "@/lib/clipboard";
 import { BrandingConfig } from "./BrandingConfig";
+import { StorageConfig } from "./StorageConfig";
 
 type Row = {
   name: string;
@@ -70,6 +71,12 @@ const FIELDS: Record<string, Field> = {
   discord_client_id: { label: "Client ID", help: "Application OAuth2 qui lie un compte Discord." },
   discord_client_secret: { label: "Client secret" },
   discord_redirect_uri: { label: "URI de retour", help: "Vide : l'adresse suggérée ci-dessous." },
+  s3_endpoint: { label: "Endpoint", help: "Adresse du service S3 (Garage, MinIO, AWS…).", example: "https://s3.example.org" },
+  s3_region: { label: "Région", help: "Garage : « garage » ; MinIO : souvent « us-east-1 »." },
+  s3_bucket: { label: "Bucket", help: "Doit exister et rester privé : il reçoit les sauvegardes (avec .env).", example: "dgx" },
+  s3_prefix: { label: "Préfixe", help: "Optionnel : dossier du bucket où tout est rangé.", example: "dgx" },
+  s3_access_key: { label: "Clé d'accès" },
+  s3_secret_key: { label: "Clé secrète" },
   security_contact: { label: "Contact sécurité", help: "Publié dans /.well-known/security.txt. Vide : le destinataire des alertes.", example: "mailto:security@example.org" },
 };
 
@@ -121,6 +128,11 @@ const SECTIONS: Section[] = [
       || (v("discord_client_id") && v("discord_client_secret")) ? ACTIVE : DISABLED),
   },
   {
+    id: "s3", title: "Stockage S3", prefixes: ["s3_"], test: "s3",
+    description: "Optionnel : sauvegardes et fichiers générés sur un stockage S3 (réglés plus bas).",
+    state: (v) => accordingTo(v, ["s3_endpoint", "s3_bucket", "s3_access_key", "s3_secret_key"]),
+  },
+  {
     id: "securite", title: "Sécurité", prefixes: ["security_"],
     description: "Contact publié pour signaler une faille.",
     state: (v) => (v("security_contact") ? ACTIVE : DISABLED),
@@ -145,6 +157,8 @@ export function ConfigTab() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [sending, setSending] = useState<string | null>(null);
   const [test, setTest] = useState<Record<string, { running: boolean; ok?: boolean; message?: string }>>({});
+  // Bumped at every (re)load: the storage card re-reads when S3 changes.
+  const [version, setVersion] = useState(0);
 
   const load = useCallback(async () => {
     const d = await fetch("/admin/config").then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -154,6 +168,7 @@ export function ConfigTab() {
     const v: Record<string, string> = {};
     for (const l of d.config as Row[]) v[l.name] = initial(l);
     setDraft(v);
+    setVersion((n) => n + 1);
   }, []);
 
   useEffect(() => {
@@ -361,6 +376,7 @@ export function ConfigTab() {
           </Card>
         );
       })}
+      <StorageConfig version={version} />
     </VStack>
   );
 }

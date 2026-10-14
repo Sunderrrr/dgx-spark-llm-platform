@@ -1171,3 +1171,86 @@ pub async fn settings_avatar(State(state): State<AppState>, headers: HeaderMap, 
         Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
     }
 }
+
+/// POST /conversations - `action=save` (upsert, bounded, the 30 newest kept) or
+/// `action=delete` (one of the viewer's; `deleted` counts the rows).
+pub async fn conversations_post(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let form = form_of(&headers, &body);
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(true) => {}
+    }
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    let bad = |msg: String| (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": msg}))).into_response();
+    let action = form.get("action").map(String::as_str);
+    match action {
+        Some("save") => {
+            let field = |k: &str| form.get(k).map(String::as_str).unwrap_or("").trim().to_string();
+            let client_id: String = field("id").chars().take(64).collect();
+            let title: String = field("title").chars().take(120).collect();
+            let title = if title.is_empty() { "Conversation".to_string() } else { title };
+            let model: String = field("model").chars().take(80).collect();
+            if client_id.is_empty() {
+                return bad("id manquant".to_string());
+            }
+            let raw = form.get("messages").map(String::as_str).unwrap_or("[]");
+            let Ok(Value::Array(messages)) = serde_json::from_str::<Value>(raw) else {
+                return bad("messages invalides".to_string());
+            };
+            match conversations::save(state.db.pool(), &session.username, &client_id, &title, &model, &messages).await {
+                Ok(()) => Json(json!({"ok": true})).into_response(),
+                Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+            }
+        }
+        Some("delete") => {
+            let id = form.get("id").map(String::as_str).unwrap_or("");
+            match conversations::delete(state.db.pool(), &session.username, id).await {
+                Ok(n) => Json(json!({"ok": true, "deleted": n})).into_response(),
+                Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+            }
+        }
+        other => bad(format!("Action inconnue : {}", conversations::py_repr(other))),
+    }
+}
+
+/// POST /conversations/share - a read-only link to one of the viewer's conversations
+pub async fn conversations_share(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let form = form_of(&headers, &body);
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(true) => {}
+    }
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    // Flask: `request.get_json(silent=True) or request.form` (JSON only with its type).
+    let is_json = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/json"));
+    let json_body = if is_json { serde_json::from_slice::<Value>(&body).ok().filter(keys::truthy) } else { None };
+    let raw_id: String = match &json_body {
+        Some(v) => match v.get("client_id") {
+            None => String::new(),
+            Some(Value::String(s)) => s.clone(),
+            Some(Value::Null) => "None".to_string(),
+            Some(other) => other.to_string(),
+        },
+        None => form.get("client_id").cloned().unwrap_or_default(),
+    };
+    let client_id: String = raw_id.trim().chars().take(64).collect();
+    if client_id.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": "id manquant"}))).into_response();
+    }
+    match conversations::share(state.db.pool(), &session.username, &client_id).await {
+        Ok(Some(token)) => Json(json!({"ok": true, "token": token})).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({"ok": false, "error": "conversation introuvable"}))).into_response(),
+        Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+    }
+}

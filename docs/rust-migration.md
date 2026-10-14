@@ -159,7 +159,16 @@ Also routed: `/api/keys` (the viewer's keys in clear, with LiteLLM's figures
 read from its database; the budget reset date of a key goes out as an HTTP
 date, as Flask's JSON encoding does; its only route is GET, the writes are
 under `/keys`), and `/api/discord/status` (the configured branch is not exercised: no
-Discord is set up on the bench). Also routed: the two preference writes `/settings/appearance` and
+Discord is set up on the bench). Also routed: the conversation writes `POST /conversations` (save, delete) and
+`POST /conversations/share`. The save stores the SAME text as Flask: the
+messages are reshaped as Flask does (user/assistant only, bounded content,
+flags, file edits, image data URLs, the last 60) and serialized like Python's
+`json.dumps(..., ensure_ascii=False)` (`, ` and `: ` separators, insertion
+order — serde_json runs with `preserve_order`). Compared on the demo account:
+the stored text was byte-identical for a payload with Unicode, control
+characters, hidden messages, duplicate file names and a rejected image; every
+error identical; share tokens are 32-character `token_urlsafe(24)`; the test
+data was removed afterwards. Also routed: the two preference writes `/settings/appearance` and
 `/settings/avatar` (CSRF first; allow-lists first, so a refusal writes nothing;
 compared on the demo account, values restored afterwards). Not routed: the
 account's password and deletion (phase 6, with its security review).

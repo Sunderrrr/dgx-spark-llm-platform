@@ -77,6 +77,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/c/:token", get(handlers::share_view))
         .route("/settings/appearance", post(handlers::settings_appearance))
         .route("/settings/avatar", post(handlers::settings_avatar))
+        .route("/conversations", post(handlers::conversations_post))
+        .route("/conversations/share", post(handlers::conversations_share))
         .route("/api/conversations/:client_id", get(handlers::api_conversation))
         .route("/api/notifications", get(handlers::api_notifications))
         .route("/api/announcements", get(handlers::api_announcements))

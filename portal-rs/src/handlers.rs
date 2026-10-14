@@ -48,7 +48,7 @@ pub async fn api_config() -> impl IntoResponse {
 pub async fn security_txt() -> impl IntoResponse {
     (
         StatusCode::OK,
-        "Contact: security@cronos.website\n",
+        "# Security contact\n# See deployment documentation\n",
     )
 }
 

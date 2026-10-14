@@ -2,6 +2,7 @@ use std::sync::Arc;
 pub mod handlers;
 pub mod db;
 pub mod error;
+pub mod auth;
 
 pub use db::Database;
 pub use error::ApiError;

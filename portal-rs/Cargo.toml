@@ -24,6 +24,8 @@ anyhow = "1.0"
 thiserror = "1.0"
 dotenv = "0.15"
 clap = { version = "4", features = ["derive"] }
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 tokio-test = "0.4"

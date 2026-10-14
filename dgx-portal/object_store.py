@@ -91,14 +91,27 @@ def put_stream(k, stream):
 
 
 def head(k):
-    """The object's metadata, or None when it does not exist."""
+    """The object's size as {'ContentLength': n}, or None when it does not exist.
+
+    Read with a ONE-BYTE ranged GET, not a HEAD: behind the operator's proxy
+    HEAD answered 400/403 on a good share of the calls (a bare 400 on the
+    first try, then 200), while GET never failed in the same measurements
+    (2026-10-14). The image page probes up to four extensions, and each
+    retried HEAD cost seconds — the image arrived late or as a 404. The
+    answer's Content-Range carries the full size."""
     from botocore.exceptions import ClientError
     try:
-        return _call(client().head_object, Bucket=bucket(), Key=k)
+        r = _call(client().get_object, Bucket=bucket(), Key=k, Range='bytes=0-0')
     except ClientError as exc:
-        if exc.response.get('Error', {}).get('Code') in ('404', 'NoSuchKey', 'NotFound'):
+        code = exc.response.get('Error', {}).get('Code')
+        if code in _MISSING:
             return None
+        if code == 'InvalidRange':                   # an empty object has no byte 0
+            return {'ContentLength': 0}
         raise
+    r['Body'].close()
+    total = (r.get('ContentRange') or '').rsplit('/', 1)[-1]
+    return {'ContentLength': int(total) if total.isdigit() else r['ContentLength']}
 
 
 def get(k, byte_range=None):

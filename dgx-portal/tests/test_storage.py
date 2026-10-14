@@ -30,6 +30,9 @@ class FakeBody:
     def __init__(self, data):
         self.data = data
 
+    def close(self):
+        pass
+
     def iter_chunks(self, size):
         for i in range(0, len(self.data), size):
             yield self.data[i:i + size]
@@ -266,16 +269,16 @@ class TransientS3Test(StorageBase):
 
     def test_transient_refusal_is_retried_missing_is_not(self):
         self.s3.objects['backups/a.tar.gz'] = (b'abc', datetime.now(timezone.utc))
-        real = self.s3.head_object
+        real = self.s3.get_object
         calls = []
 
         def flaky(**kw):
             calls.append(kw['Key'])
             if len(calls) <= 2:
                 raise ClientError({'Error': {'Code': '403'},
-                                   'ResponseMetadata': {'HTTPStatusCode': 403}}, 'HeadObject')
+                                   'ResponseMetadata': {'HTTPStatusCode': 403}}, 'GetObject')
             return real(**kw)
-        with patch.object(self.s3, 'head_object', flaky), \
+        with patch.object(self.s3, 'get_object', flaky), \
              patch.object(object_store, '_TRANSIENT_WAIT_S', (0, 0, 0)):
             self.assertEqual(object_store.head('backups/a.tar.gz')['ContentLength'], 3)
             self.assertEqual(len(calls), 3)
@@ -284,11 +287,23 @@ class TransientS3Test(StorageBase):
             # 2 refusals then the real 404: a missing object is not hammered
             self.assertEqual(len(calls), 3)
 
+    def test_existence_never_uses_head(self):
+        """HEAD is unreliable behind the proxy: existence and size come from
+        a one-byte ranged GET."""
+        self.s3.objects['media/image_files/x_0.png'] = (b'0123456789', datetime.now(timezone.utc))
+
+        def no_head(**kw):
+            raise AssertionError("HEAD must not be used")
+        with patch.object(self.s3, 'head_object', no_head):
+            self.assertEqual(object_store.head('media/image_files/x_0.png')['ContentLength'], 10)
+            self.assertIsNone(object_store.head('media/image_files/nope.png'))
+            self.assertTrue(media_store.exists('image_files', 'x_0.png'))
+
     def test_persistent_refusal_is_reported(self):
         def denied(**kw):
             raise ClientError({'Error': {'Code': 'AccessDenied'},
-                               'ResponseMetadata': {'HTTPStatusCode': 403}}, 'HeadObject')
-        with patch.object(self.s3, 'head_object', denied), \
+                               'ResponseMetadata': {'HTTPStatusCode': 403}}, 'GetObject')
+        with patch.object(self.s3, 'get_object', denied), \
              patch.object(object_store, '_TRANSIENT_WAIT_S', (0, 0, 0)):
             with self.assertRaises(ClientError):
                 object_store.head('backups/a.tar.gz')

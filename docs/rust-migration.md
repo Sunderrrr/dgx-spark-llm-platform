@@ -155,7 +155,10 @@ Not ported, on purpose:
 Ported and compared (bench, demo account): `/api/pending-count` and the
 conversation reads `/api/conversations` and `/api/conversations/<id>` (routed:
 their prefix holds only GET routes, the writes live under `/conversations`).
-Also routed: `/api/discord/status` (the configured branch is not exercised: no
+Also routed: `/api/keys` (the viewer's keys in clear, with LiteLLM's figures
+read from its database; the budget reset date of a key goes out as an HTTP
+date, as Flask's JSON encoding does; its only route is GET, the writes are
+under `/keys`), and `/api/discord/status` (the configured branch is not exercised: no
 Discord is set up on the bench). Also ported: `/api/notifications`,
 `/api/announcements`, `/api/skills`. Not routed:
 `/api/notifications`, `/api/announcements` and `/api/skills` have write routes

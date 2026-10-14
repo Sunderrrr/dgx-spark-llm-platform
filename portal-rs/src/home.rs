@@ -185,7 +185,7 @@ pub fn thousands(x: f64) -> String {
 }
 
 /// app._budget_remaining: (used, remaining) real tokens over the budget window, cached 60 s.
-async fn budget_remaining(pool: Option<&PgPool>, username: &str, budget: f64, days: i64) -> (i64, i64) {
+pub(crate) async fn budget_remaining(pool: Option<&PgPool>, username: &str, budget: f64, days: i64) -> (i64, i64) {
     if let Some(v) = cached(&BUDGET, username, Duration::from_secs(60)) {
         return (v[0].as_i64().unwrap_or(0), v[1].as_i64().unwrap_or(0));
     }

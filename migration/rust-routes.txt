@@ -34,3 +34,4 @@
 /api/pending-count
 /api/conversations
 /api/discord/status
+/api/keys

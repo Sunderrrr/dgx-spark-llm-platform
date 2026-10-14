@@ -17,6 +17,7 @@ pub mod sidecars;
 pub mod media;
 pub mod userdata;
 pub mod conversations;
+pub mod keys;
 
 pub use db::Database;
 pub use error::ApiError;

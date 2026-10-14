@@ -32,3 +32,4 @@
 /api/voice/info
 /api/transcribe/available
 /api/pending-count
+/api/conversations

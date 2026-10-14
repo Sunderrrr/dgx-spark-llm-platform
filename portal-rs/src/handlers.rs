@@ -7,7 +7,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use crate::{AppState, auth, docs, health, hf, home, media, models, probes, ranking, sidecars, system, userdata};
+use crate::{AppState, auth, conversations, docs, health, hf, home, media, models, probes, ranking, sidecars, system, userdata};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -698,5 +698,27 @@ pub async fn api_skills(State(state): State<AppState>, headers: HeaderMap) -> Re
     match viewer(&state, &headers).await {
         Err(r) => r,
         Ok(s) => data_or_503(userdata::skills(state.db.pool(), &s.username, 50).await),
+    }
+}
+
+/// GET /api/conversations - the list, newest first, with its size budget
+pub async fn api_conversations(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    match viewer(&state, &headers).await {
+        Err(r) => r,
+        Ok(s) => data_or_503(conversations::list(state.db.pool(), &s.username).await),
+    }
+}
+
+/// GET /api/conversations/:client_id - one whole conversation (Flask's JSON errors)
+pub async fn api_conversation(State(state): State<AppState>, headers: HeaderMap, Path(client_id): Path<String>) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    match conversations::one(state.db.pool(), &session.username, &client_id).await {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err("introuvable")) => (StatusCode::NOT_FOUND, Json(json!({"ok": false, "error": "conversation introuvable"}))).into_response(),
+        Ok(Err(_)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"ok": false, "error": "conversation illisible"}))).into_response(),
+        Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
     }
 }

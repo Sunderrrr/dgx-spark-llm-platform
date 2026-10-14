@@ -68,6 +68,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/voice/info", get(handlers::api_voice_info))
         .route("/api/transcribe/available", get(handlers::api_transcribe_available))
         .route("/api/pending-count", get(handlers::api_pending_count))
+        .route("/api/conversations", get(handlers::api_conversations))
+        .route("/api/conversations/:client_id", get(handlers::api_conversation))
         .route("/api/notifications", get(handlers::api_notifications))
         .route("/api/announcements", get(handlers::api_announcements))
         .route("/api/skills", get(handlers::api_skills))

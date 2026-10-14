@@ -7,6 +7,9 @@ pub mod probes;
 pub mod ranking;
 pub mod models;
 pub mod spend;
+pub mod health;
+pub mod home;
+pub mod security;
 
 pub use db::Database;
 pub use error::ApiError;

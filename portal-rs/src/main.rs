@@ -61,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/latency", get(handlers::api_latency))
         .route("/", get(handlers::index))
         
+        .layer(axum::middleware::from_fn(portal_rs::security::layer))
         .layer(TraceLayer::new_for_http())
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024)) // 16 MB max body
         .with_state(state);

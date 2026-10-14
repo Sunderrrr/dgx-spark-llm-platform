@@ -113,7 +113,7 @@ pub async fn prices(db: &Database) -> Value {
 /// Python's round(x, n): the correctly rounded decimal of the exact binary
 /// value, ties to even. Rust's `{:.n}` formatting does exactly that (checked
 /// on 0.25, 2.675, 1.005 and the live averages), a multiply-and-round does not.
-fn round_to(x: f64, digits: usize) -> f64 {
+pub(crate) fn round_to(x: f64, digits: usize) -> f64 {
     format!("{x:.digits$}").parse().unwrap_or(x)
 }
 

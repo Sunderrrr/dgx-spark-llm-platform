@@ -298,6 +298,50 @@ impl Database {
         Ok(())
     }
 
+    /// model_configs (engine, vllm_args) of a catalog model.
+    pub async fn model_config(&self, name: &str) -> Result<Option<(Option<String>, Option<String>)>> {
+        Ok(sqlx::query_as("SELECT engine, vllm_args FROM model_configs WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
+    /// stats.accumulate_generated_tokens, READ-ONLY: the same total, never
+    /// written. While Flask serves the dashboard it is the only writer — two
+    /// probers updating one row from slightly different readings would take a
+    /// later reading for a counter reset and archive it twice.
+    pub async fn generated_tokens_total(&self, model: &str, value: i64) -> Option<i64> {
+        let row: Option<(i64, i64)> = sqlx::query_as("SELECT base, last_value FROM model_counters WHERE model = ?")
+            .bind(model)
+            .fetch_optional(&self.pool)
+            .await
+            .ok()?;
+        Some(match row {
+            None => value,
+            Some((base, last)) if value >= last => base + value,
+            Some((base, last)) => base + last + value,
+        })
+    }
+
+    /// stats.live_decode_rate: sum of tokens / decode time over the in-flight
+    /// requests (written by the chat relay), in tok/s.
+    pub async fn live_decode_rate(&self) -> Option<f64> {
+        let rows: Vec<(f64, f64, Option<f64>)> = sqlx::query_as(
+            "SELECT CAST(tokens AS REAL), started_at, decode_since FROM inflight_requests WHERE tokens > 0",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .ok()?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs_f64();
+        let total: f64 = rows
+            .into_iter()
+            .map(|(tok, start, since)| (tok, now - since.unwrap_or(start)))
+            .filter(|(_, age)| *age > 1.0)
+            .map(|(tok, age)| tok / age)
+            .sum();
+        Some(crate::ranking::round_to(total, 1))
+    }
+
     /// Maintenance mode (db.maintenance_active).
     pub async fn maintenance_active(&self) -> bool {
         self.get_setting("maintenance_mode").await.ok().flatten().as_deref() == Some("1")

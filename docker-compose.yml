@@ -415,8 +415,13 @@ services:
       LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (run setup.sh)}@postgres/litellm
       DGX_WEB: ${DGX_WEB:?set DGX_WEB in .env (see .env.example)}
       TZ_DISPLAY: Europe/Paris
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set in .env (run setup.sh)}
+      PUBLIC_API_URL: ${DGX_API:?set DGX_API in .env (see .env.example)}/v1
+      DGX_INFLIGHT_DB: /run/dgx/inflight.db
     volumes:
       - portal_data:/app/data
+      # The LiteLLM callback's in-flight requests, READ-ONLY as for dgx-portal.
+      - ./runtime:/run/dgx:ro
     ports:
       - "127.0.0.1:5100:5100"
     healthcheck:

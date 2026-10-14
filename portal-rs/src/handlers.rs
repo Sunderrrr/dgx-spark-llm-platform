@@ -7,7 +7,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use crate::{AppState, auth, models, probes, ranking};
+use crate::{AppState, auth, health, home, models, probes, ranking};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -150,77 +150,27 @@ pub async fn api_health(
     .into_response()
 }
 
-/// GET /api/home - Dashboard aggregated state (auth required)
+/// GET /api/home - the home dashboard (app._index_data)
 pub async fn api_home(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _session = match auth::require_session(&headers, &state.db).await {
+    let session = match auth::require_session(&headers, &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(s) => s,
+        Ok(session) => session,
     };
-
-    // TODO: Fetch real data:
-    // - model status from runner :8001/status
-    // - throughput from runner or litellm metrics
-    // - user's budget from litellm
-    // - sidecars status from health checks
-    // - user's recent requests from audit/spend logs
-
-    (
-        StatusCode::OK,
-        Json(json!({
-            "model": null,
-            "uptime_seconds": 0,
-            "tps": 0.0,
-            "tps_prefill": null,
-            "tps_moyen": null,
-            "ttft_ms": 0,
-            "requests_in_flight": 0,
-            "tokens_generated": 0,
-            "tokens_prompt": 0,
-            "spend": {
-                "budget": 0.0,
-                "spent": 0.0,
-                "limit": 0.0,
-                "period": "weekly"
-            },
-            "sidecars": {
-                "video": { "ready": false, "on_demand": true },
-                "ocr": { "ready": false, "on_demand": true },
-                "voice": { "ready": false, "on_demand": true },
-                "image": { "ready": false, "on_demand": true },
-            },
-            "my_requests": [],
-            "active_users": [],
-            "time": chrono::Utc::now().timestamp(),
-        })),
-    )
-    .into_response()
+    Json(home::index_data(&state.db, state.spend.as_ref(), &session.username, session.is_admin).await).into_response()
 }
 
-/// GET /api/modelhealth - Model health (auth required)
+/// GET /api/modelhealth - health of the served model alone (1 s dashboard poll)
 pub async fn api_modelhealth(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
-        Err(e) => return e.into_response(),
-        Ok(_session) => {}
+    if let Err(e) = auth::require_session(&headers, &state.db).await {
+        return e.into_response();
     }
-
-    (
-        StatusCode::OK,
-        Json(json!({
-            "model": null,
-            "requests_processing": 0,
-            "tokens_generated": 0,
-            "tps": 0.0,
-            "ttft_ms": 0,
-            "time": chrono::Utc::now().timestamp(),
-        })),
-    )
-    .into_response()
+    Json(health::vllm_health(&state.db, state.spend.as_ref()).await).into_response()
 }
 
 /// GET /api/running-models - List running models (auth required)

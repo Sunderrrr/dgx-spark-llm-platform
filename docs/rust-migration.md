@@ -87,10 +87,11 @@ metrics, by group, with a model filter and with invalid parameters, and the
 rest of the leaderboard — `activity` (3 periods × 2 scopes), `records`,
 `user/<name>` (own detail; someone else's is 404), `export.csv` (404 for a
 non-admin) and `POST privacy` (the CSRF check runs first: 400 without a
-valid token, even with no session, as in Flask). The
+valid token, even with no session, as in Flask), `/api/modelhealth`, and
+`/api/home` except its media sidecars. The
 `login_required` guard is ported whole (max age, `user_sessions` registry,
 account state re-read, owner rule); a database error answers 503, never a
-logout.
+logout. The security headers (`nosniff`, CSP, HSTS…) match Flask's.
 
 Not routable yet, and why:
 
@@ -99,10 +100,16 @@ Not routable yet, and why:
   join, their probes read the containers' state, and ComfyUI's port is
   firewalled to the Flask portal's address. The Rust portal answers `null`
   (unknown) for them — never « stopped ».
-- **Admin view of `/api/ranking`**: `quota_pct` needs LiteLLM's `/user/list`
-  (master key); it is `null` on the Rust side.
-- **Response headers**: Flask adds `nosniff`, CSP, HSTS and friends to every
-  answer; the Rust portal does not yet.
+- **Admin views, ported but never compared**: the bench account is not an
+  admin, so `active_users` on `/api/home`, another account's ranking detail
+  and `export.csv` have only been checked to answer 404 to a non-admin.
+  `quota_pct` on `/api/ranking` needs LiteLLM's `/user/list` and is `null` on
+  the Rust side.
+- **Flask-only writes**: `vllm_health` archives the engine's token counter
+  (`model_counters`) and `_active_users` sweeps stale `inflight_requests`.
+  The Rust side computes the same figures READ-ONLY — two probers writing one
+  row would take a later reading for a counter reset and archive it twice —
+  so these writes must move to Rust together with the routes, not before.
 - **Dropped sessions**: Flask writes a `session.invalidee` audit line and
   clears the cookie; the Rust portal only refuses the request.
 
@@ -113,7 +120,10 @@ meaning unset; `password_managed_by` comes from the cumulative
 `user_sources.sources`; ties in the ranking follow Postgres' aggregation
 order, so the Rust side runs ranking.py's SQL verbatim as a subquery; and
 Python's `round()` is ties-to-even on the exact binary value, which Rust's
-`{:.n}` formatting reproduces and a multiply-and-round does not.
+`{:.n}` formatting reproduces and a multiply-and-round does not. The
+instantaneous throughput and the age of the engine's tasks keep state per
+process (each gunicorn worker has its own): they never match across backends
+and the bench ignores them (`tps`, `oldest_s`, `last_s`, `since_s`).
 
 ## Stack
 

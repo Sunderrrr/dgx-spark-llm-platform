@@ -40,7 +40,7 @@ pub enum AuthError {
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
         match self {
-            AuthError::Unauthorized => (StatusCode::UNAUTHORIZED, "").into_response(),
+            AuthError::Unauthorized => html_status(StatusCode::UNAUTHORIZED),
             AuthError::Unavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({"ok": false, "error": "Base du portail illisible."})),
@@ -48,6 +48,12 @@ impl IntoResponse for AuthError {
                 .into_response(),
         }
     }
+}
+
+/// A bare error status typed like Flask's `abort()` pages (text/html): the
+/// clients read only the status, the type keeps both backends alike.
+pub fn html_status(status: StatusCode) -> Response {
+    (status, [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], "").into_response()
 }
 
 /// Absolute session lifetime in seconds (SESSION_MAX_AGE, default 12 h).
@@ -99,6 +105,35 @@ pub fn account_state(facts: &AccountFacts) -> Option<Option<bool>> {
         return Some(Some(true));
     }
     Some(facts.last_is_admin)
+}
+
+/// The CSRF check every POST/PUT/PATCH/DELETE passes BEFORE login_required
+/// (app.before_request `_csrf_protect`): the token from the `csrf_token` form
+/// field or the `X-CSRFToken` header must equal the session's, compared in
+/// constant time. No session, no token: refused (400) as in Flask.
+pub async fn csrf_ok(headers: &HeaderMap, form_token: Option<&str>, db: &Database) -> Result<bool, AuthError> {
+    let sent = form_token
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .or_else(|| headers.get("x-csrftoken").and_then(|v| v.to_str().ok()).map(str::to_string))
+        .unwrap_or_default();
+    let Some(token) = get_session_token(headers) else { return Ok(false) };
+    let data = db.get_session(&token).await.map_err(|_| AuthError::Unavailable)?;
+    let expected = data
+        .as_ref()
+        .and_then(|d| d.get("csrf"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Ok(!expected.is_empty() && constant_time_eq(expected.as_bytes(), sent.as_bytes()))
+}
+
+/// hmac.compare_digest on bytes: no early exit on the first difference.
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Require a valid session (login_required).
@@ -183,5 +218,13 @@ mod tests {
         assert_eq!(account_state(&AccountFacts::default()), Some(None));
         let f = AccountFacts { last_is_admin: Some(true), ..Default::default() };
         assert_eq!(account_state(&f), Some(Some(true)));
+    }
+
+    #[test]
+    fn csrf_comparison_is_exact() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"ab"));
+        assert!(!constant_time_eq(b"", b"x"));
     }
 }

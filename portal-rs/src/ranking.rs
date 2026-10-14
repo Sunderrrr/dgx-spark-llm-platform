@@ -537,6 +537,386 @@ pub async fn ranking_for_viewer(
     data
 }
 
+/// ranking.ACTIVITY_DAYS: days per period for the heatmap and the detail.
+fn activity_days(period: &str) -> Option<i64> {
+    match period {
+        "week" => Some(7),
+        "month" => Some(30),
+        "year" => Some(365),
+        _ => None,
+    }
+}
+
+/// Today's local date and the UTC instant of local midnight `back` days ago,
+/// from Postgres (the portal image carries no time zone database). Without
+/// the database, UTC's today — only the empty grid's dates depend on it.
+async fn local_today(pool: Option<&PgPool>, tz: &str, back: i64) -> (NaiveDate, Option<String>) {
+    if let Some(pool) = pool {
+        let row: Result<(String, String), _> = sqlx::query_as(
+            "SELECT (now() AT TIME ZONE $1)::date::text, \
+             ((((now() AT TIME ZONE $1)::date - $2::int)::timestamp AT TIME ZONE $1) AT TIME ZONE 'UTC')::text",
+        )
+        .bind(tz)
+        .bind(back as i32)
+        .fetch_one(pool)
+        .await;
+        if let Ok((today, since)) = row {
+            if let Ok(d) = NaiveDate::parse_from_str(&today, "%Y-%m-%d") {
+                return (d, Some(since));
+            }
+        }
+    }
+    (chrono::Utc::now().date_naive(), None)
+}
+
+fn iso(d: NaiveDate) -> String {
+    d.format("%Y-%m-%d").to_string()
+}
+
+/// ranking.activity: successful requests and tokens per real hour (week) or
+/// per real day (month, year); `username` restricts it to one account.
+pub async fn activity(pool: Option<&PgPool>, period: &str, username: Option<&str>) -> Value {
+    let period = if activity_days(period).is_some() { period } else { "month" };
+    let days = activity_days(period).unwrap_or(30);
+    let tz = spend::local_tz();
+    let (today, since) = local_today(pool, &tz, days - 1).await;
+    let dates: Vec<NaiveDate> = (0..days).rev().map(|i| today - chrono::Duration::days(i)).collect();
+    let hourly = period == "week";
+    // date → 24 cells (hourly) or 1 cell, each [requests, tokens]
+    let mut grid: HashMap<String, Vec<[i64; 2]>> =
+        dates.iter().map(|d| (iso(*d), vec![[0, 0]; if hourly { 24 } else { 1 }])).collect();
+
+    if let (Some(pool), Some(since)) = (pool, since) {
+        let umap = spend::key_user_map(pool).await;
+        let local = "((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE $1)";
+        let sql = format!(
+            "SELECT d::text, h, api_key, n, t::bigint FROM (\
+             SELECT ({local})::date AS d, EXTRACT(HOUR FROM {local})::int AS h, api_key, COUNT(*) AS n, \
+             SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) AS t \
+             FROM \"LiteLLM_SpendLogs\" WHERE \"startTime\" >= $2::timestamp AND status = 'success' \
+             GROUP BY 1, 2, api_key) s"
+        );
+        let rows: Vec<(String, i32, Option<String>, i64, Option<i64>)> =
+            sqlx::query_as(&sql).bind(&tz).bind(&since).fetch_all(pool).await.unwrap_or_default();
+        for (d, hour, api_key, n, tokens) in rows {
+            if api_key.as_deref().is_some_and(|k| spend::NON_USER_KEYS.contains(&k)) {
+                continue;
+            }
+            let Some(cells) = grid.get_mut(&d) else { continue };
+            if let Some(u) = username {
+                if api_key.as_ref().and_then(|k| umap.get(k)).map(String::as_str) != Some(u) {
+                    continue;
+                }
+            }
+            let c = &mut cells[if hourly { hour.clamp(0, 23) as usize } else { 0 }];
+            c[0] += n;
+            c[1] += tokens.unwrap_or(0);
+        }
+    }
+
+    let cell = |c: &[i64; 2]| json!({"requests": c[0], "tokens": c[1]});
+    let mut out = json!({"period": period, "mode": if hourly { "hours" } else { "days" }});
+    let flat: Vec<i64> = if hourly {
+        out["rows"] = dates
+            .iter()
+            .map(|d| json!({"day": iso(*d), "cells": grid[&iso(*d)].iter().map(cell).collect::<Vec<_>>()}))
+            .collect();
+        dates.iter().flat_map(|d| grid[&iso(*d)].iter().map(|c| c[0])).collect()
+    } else {
+        out["days"] = dates
+            .iter()
+            .map(|d| {
+                let c = grid[&iso(*d)][0];
+                json!({"day": iso(*d), "requests": c[0], "tokens": c[1]})
+            })
+            .collect();
+        dates.iter().map(|d| grid[&iso(*d)][0][0]).collect()
+    };
+    out["max_requests"] = json!(flat.iter().copied().max().unwrap_or(0));
+    out["total_requests"] = json!(flat.iter().sum::<i64>());
+    out
+}
+
+/// ranking._streaks: (longest run of consecutive active days, current run —
+/// alive if it reaches today or yesterday). Pure.
+pub fn streaks(days: &[NaiveDate], today: NaiveDate) -> (i64, i64) {
+    let mut sorted = days.to_vec();
+    sorted.sort();
+    let (mut longest, mut run) = (0i64, 0i64);
+    let mut prev: Option<NaiveDate> = None;
+    for d in &sorted {
+        run = if prev.is_some_and(|p| *d - p == chrono::Duration::days(1)) { run + 1 } else { 1 };
+        longest = longest.max(run);
+        prev = Some(*d);
+    }
+    let current = match prev {
+        Some(p) if (today - p).num_days() <= 1 => run,
+        _ => 0,
+    };
+    (longest, current)
+}
+
+struct History {
+    /// account → (local day → [tokens, requests]), both in first-seen order
+    days: Vec<(String, Vec<(NaiveDate, [i64; 2])>)>,
+    /// model → (first use epoch, first use UTC date, account), first-seen order
+    firsts: Vec<(String, f64, String, String)>,
+}
+
+static HISTORY: std::sync::Mutex<Option<(std::time::Instant, std::sync::Arc<History>)>> =
+    std::sync::Mutex::new(None);
+
+/// ranking._daily_history over all time (successes only), cached 120 s.
+async fn daily_history(db: &Database, pool: Option<&PgPool>) -> std::sync::Arc<History> {
+    if let Some((at, h)) = HISTORY.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if at.elapsed() < std::time::Duration::from_secs(120) {
+            return h.clone();
+        }
+    }
+    let empty = std::sync::Arc::new(History { days: Vec::new(), firsts: Vec::new() });
+    let Some(pool) = pool else { return empty };
+    let umap = spend::key_user_map(pool).await;
+    let known = db.known_accounts().await;
+    let sql = "SELECT d::text, api_key, model_group, t::bigint, n, EXTRACT(EPOCH FROM f)::float8, f::date::text FROM (\
+               SELECT ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE $1)::date AS d, api_key, \
+               model_group, SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) AS t, COUNT(*) AS n, \
+               MIN(\"startTime\") AS f FROM \"LiteLLM_SpendLogs\" WHERE status = 'success' \
+               GROUP BY d, api_key, model_group) s";
+    let rows: Result<Vec<(String, Option<String>, Option<String>, Option<i64>, i64, f64, String)>, _> =
+        sqlx::query_as(sql).bind(spend::local_tz()).fetch_all(pool).await;
+    let Ok(rows) = rows else { return empty };
+    let mut h = History { days: Vec::new(), firsts: Vec::new() };
+    for (d, api_key, mdl, tokens, n, first, first_day) in rows {
+        let Some(u) = owner_of(&api_key, &umap) else { continue };
+        if u == "unknown" || known.as_ref().is_some_and(|k| !k.contains(&u)) {
+            continue;
+        }
+        let Ok(day) = NaiveDate::parse_from_str(&d, "%Y-%m-%d") else { continue };
+        let i = match h.days.iter().position(|(name, _)| *name == u) {
+            Some(i) => i,
+            None => {
+                h.days.push((u.clone(), Vec::new()));
+                h.days.len() - 1
+            }
+        };
+        let per_day = &mut h.days[i].1;
+        match per_day.iter_mut().find(|(x, _)| *x == day) {
+            Some((_, v)) => {
+                v[0] += tokens.unwrap_or(0);
+                v[1] += n;
+            }
+            None => per_day.push((day, [tokens.unwrap_or(0), n])),
+        }
+        if let Some(m) = mdl.filter(|m| !m.is_empty()) {
+            match h.firsts.iter_mut().find(|(name, ..)| *name == m) {
+                Some(entry) if first < entry.1 => *entry = (m, first, first_day, u.clone()),
+                Some(_) => {}
+                None => h.firsts.push((m, first, first_day, u.clone())),
+            }
+        }
+    }
+    let h = std::sync::Arc::new(h);
+    *HISTORY.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), h.clone()));
+    h
+}
+
+/// The first n rows by `key`, descending, ties in their original order.
+fn top(mut rows: Vec<Value>, key: &str, n: usize) -> Vec<Value> {
+    rows.sort_by(|a, b| b[key].as_i64().unwrap_or(0).cmp(&a[key].as_i64().unwrap_or(0)));
+    rows.truncate(n);
+    rows
+}
+
+/// ranking.records: biggest days, longest and current streaks, first to use
+/// each model, and the viewer's own.
+pub async fn records(db: &Database, pool: Option<&PgPool>, me: Option<&str>) -> Value {
+    let h = daily_history(db, pool).await;
+    let (today, _) = local_today(pool, &spend::local_tz(), 0).await;
+    let (mut best_days, mut longest, mut current) = (Vec::new(), Vec::new(), Vec::new());
+    let mut mine = Value::Null;
+    for (u, per_day) in &h.days {
+        // max() keeps the FIRST maximum met, as Python's does.
+        let Some((d, [tokens, n])) =
+            per_day.iter().fold(None::<&(NaiveDate, [i64; 2])>, |best, x| match best {
+                Some(b) if b.1[0] >= x.1[0] => Some(b),
+                _ => Some(x),
+            })
+        else {
+            continue;
+        };
+        best_days.push(json!({"username": u, "day": iso(*d), "tokens": tokens, "requests": n}));
+        let day_list: Vec<NaiveDate> = per_day.iter().map(|(x, _)| *x).collect();
+        let (lg, cr) = streaks(&day_list, today);
+        longest.push(json!({"username": u, "days": lg}));
+        if cr != 0 {
+            current.push(json!({"username": u, "days": cr}));
+        }
+        if Some(u.as_str()) == me {
+            let mut first_on: Vec<&String> =
+                h.firsts.iter().filter(|(_, _, _, who)| Some(who.as_str()) == me).map(|(m, ..)| m).collect();
+            first_on.sort();
+            mine = json!({
+                "best_day": {"day": iso(*d), "tokens": tokens},
+                "longest_streak": lg, "current_streak": cr, "active_days": per_day.len(),
+                "first_on": first_on,
+            });
+        }
+    }
+    let mut firsts = h.firsts.clone();
+    firsts.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    firsts.truncate(8);
+    json!({
+        "best_days": top(best_days, "tokens", 3),
+        "longest_streaks": top(longest, "days", 3),
+        "current_streaks": top(current, "days", 3),
+        "firsts": firsts.iter().map(|(m, _, day, who)| json!({"model": m, "username": who, "day": day})).collect::<Vec<_>>(),
+        "me": mine,
+    })
+}
+
+/// ranking.user_detail: per model and per day, over the period, for ONE account.
+pub async fn user_detail(db: &Database, pool: Option<&PgPool>, username: &str, period: &str) -> Value {
+    let days = activity_days(period).unwrap_or(30);
+    let price = prices(db).await;
+    let mut out = json!({
+        "username": username, "period": if activity_days(period).is_some() { period } else { "month" },
+        "models": [], "daily": [], "prompt": 0, "completion": 0, "requests": 0, "cost": 0,
+    });
+    let Some(pool) = pool else { return out };
+    let umap = spend::key_user_map(pool).await;
+    let keys: Vec<String> = umap.iter().filter(|(_, u)| u.as_str() == username).map(|(k, _)| k.clone()).collect();
+    if keys.is_empty() {
+        return out;
+    }
+    let tz = spend::local_tz();
+    let sql = "SELECT d::text, model_group, p::bigint, c::bigint, n FROM (\
+               SELECT ((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE $1)::date AS d, model_group, \
+               SUM(COALESCE(prompt_tokens,0)) AS p, SUM(COALESCE(completion_tokens,0)) AS c, COUNT(*) AS n \
+               FROM \"LiteLLM_SpendLogs\" WHERE api_key = ANY($2) \
+               AND \"startTime\" >= (((now() AT TIME ZONE $1) - make_interval(days => $3)) AT TIME ZONE $1) AT TIME ZONE 'UTC' \
+               AND status = 'success' GROUP BY d, model_group) s";
+    let rows: Result<Vec<(String, Option<String>, Option<i64>, Option<i64>, i64)>, _> =
+        sqlx::query_as(sql).bind(&tz).bind(&keys).bind(days as i32).fetch_all(pool).await;
+    let Ok(rows) = rows else { return out };
+    let mut per_model: Vec<(String, [i64; 3])> = Vec::new();
+    let mut per_day: HashMap<String, [i64; 3]> = HashMap::new();
+    for (d, mdl, p, c, n) in rows {
+        let m = mdl.unwrap_or_else(|| "?".to_string());
+        let m = if m.is_empty() { "?".to_string() } else { m };
+        let add = |acc: &mut [i64; 3]| {
+            acc[0] += p.unwrap_or(0);
+            acc[1] += c.unwrap_or(0);
+            acc[2] += n;
+        };
+        match per_model.iter_mut().find(|(x, _)| *x == m) {
+            Some((_, v)) => add(v),
+            None => {
+                let mut v = [0; 3];
+                add(&mut v);
+                per_model.push((m, v));
+            }
+        }
+        add(per_day.entry(d).or_insert([0; 3]));
+    }
+    let mut models = per_model.clone();
+    models.sort_by(|a, b| (b.1[0] + b.1[1]).cmp(&(a.1[0] + a.1[1])));
+    out["models"] = models
+        .iter()
+        .map(|(m, v)| json!({"model": m, "prompt": v[0], "completion": v[1], "requests": v[2]}))
+        .collect();
+    let (today, _) = local_today(Some(pool), &tz, 0).await;
+    let start = today - chrono::Duration::days(days - 1);
+    out["daily"] = if days <= 31 {
+        (0..days)
+            .map(|i| {
+                let d = iso(start + chrono::Duration::days(i));
+                let v = per_day.get(&d).copied().unwrap_or([0; 3]);
+                json!({"day": d, "tokens": v[0] + v[1], "requests": v[2]})
+            })
+            .collect()
+    } else {
+        json!([])
+    };
+    let (p, c, n) = per_model.iter().fold((0, 0, 0), |a, (_, v)| (a.0 + v[0], a.1 + v[1], a.2 + v[2]));
+    out["prompt"] = json!(p);
+    out["completion"] = json!(c);
+    out["requests"] = json!(n);
+    out["cost"] = json!(cost(p, c, price["input"].as_f64().unwrap_or(2.5), price["output"].as_f64().unwrap_or(10.0)));
+    out["currency"] = price["currency"].clone();
+    out
+}
+
+/// Python's str() of a number in a CSV cell: an integral float keeps its
+/// `.0` (« 12.0 »), an int has none. Rust's shortest round-trip display is
+/// the same algorithm as Python's repr otherwise.
+fn py_num(v: &Value) -> String {
+    match v {
+        Value::Number(n) if n.is_f64() => {
+            let f = n.as_f64().unwrap_or(0.0);
+            if f.fract() == 0.0 && f.is_finite() { format!("{f:.1}") } else { format!("{f}") }
+        }
+        Value::Number(n) => n.to_string(),
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// csv.writer's QUOTE_MINIMAL: quote a field holding the delimiter, a quote
+/// or a line break, doubling inner quotes.
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\r', '\n']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// ranking_routes.api_ranking_export's body and file name.
+pub fn export_csv(data: &Value, period: &str) -> (String, String) {
+    let currency = data["prices"]["currency"].as_str().unwrap_or("USD");
+    let mut out = String::new();
+    let mut line = |cells: Vec<String>| {
+        out.push_str(&cells.iter().map(|c| csv_field(c)).collect::<Vec<_>>().join(","));
+        out.push_str("\r\n");
+    };
+    line(
+        ["rank", "name", "value", "tokens", "prompt", "completion", "requests", "share_pct", "delta_pct"]
+            .iter()
+            .map(|s| s.to_string())
+            .chain(std::iter::once(format!("cost_{currency}")))
+            .collect(),
+    );
+    for r in data["rows"].as_array().into_iter().flatten() {
+        let opt_round = |v: &Value, digits: usize| match v.as_f64() {
+            Some(f) => py_num(&json!(round_to(f, digits))),
+            None => String::new(),
+        };
+        line(vec![
+            match &r["rank"] {
+                Value::Null => String::new(),
+                v => py_num(v),
+            },
+            py_num(&r["username"]),
+            py_num(&r["value"]),
+            py_num(&r["tokens"]),
+            py_num(&r["prompt"]),
+            py_num(&r["completion"]),
+            py_num(&r["requests"]),
+            opt_round(&r["share_pct"], 2),
+            opt_round(&r["delta"], 1),
+            py_num(&r["cost"]),
+        ]);
+    }
+    let name = format!(
+        "ranking-{}-{}-{}.csv",
+        data["by"].as_str().unwrap_or("account"),
+        period,
+        data["metric"].as_str().unwrap_or("total")
+    );
+    (out, name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -580,5 +960,15 @@ mod tests {
         // 1M prompt at 2.5 + 1M completion at 10 = 12.5
         assert_eq!(cost(1_000_000, 1_000_000, 2.5, 10.0), 12.5);
         assert_eq!(cost(1, 1, 2.5, 10.0), 0.0);
+    }
+
+    #[test]
+    fn streaks_count_consecutive_days_and_a_run_lives_until_yesterday() {
+        let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        let days = [d("2026-10-01"), d("2026-10-02"), d("2026-10-03"), d("2026-10-05"), d("2026-10-06")];
+        assert_eq!(streaks(&days, d("2026-10-07")), (3, 2));
+        assert_eq!(streaks(&days, d("2026-10-06")), (3, 2));
+        assert_eq!(streaks(&days, d("2026-10-08")), (3, 0));
+        assert_eq!(streaks(&[], d("2026-10-08")), (0, 0));
     }
 }

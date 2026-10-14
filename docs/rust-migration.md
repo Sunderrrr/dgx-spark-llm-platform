@@ -82,8 +82,12 @@ routes. The mixed state is stable — the migration can stop at any phase.
 ### Phase 2 — state (bench against live Flask, demo account)
 
 Identical on every case replayed: `/api/config`, `/.well-known/security.txt`,
-`/api/session`, `/api/whoami`, and `/api/ranking` over the 5 periods × 5
-metrics, by group, with a model filter and with invalid parameters. The
+`/api/session`, `/api/whoami`, `/api/ranking` over the 5 periods × 5
+metrics, by group, with a model filter and with invalid parameters, and the
+rest of the leaderboard — `activity` (3 periods × 2 scopes), `records`,
+`user/<name>` (own detail; someone else's is 404), `export.csv` (404 for a
+non-admin) and `POST privacy` (the CSRF check runs first: 400 without a
+valid token, even with no session, as in Flask). The
 `login_required` guard is ported whole (max age, `user_sessions` registry,
 account state re-read, owner rule); a database error answers 503, never a
 logout.

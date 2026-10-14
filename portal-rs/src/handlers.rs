@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{StatusCode, HeaderMap},
     response::IntoResponse,
     Json,
@@ -343,32 +343,46 @@ pub async fn api_ranking(
     (StatusCode::OK, Json(data)).into_response()
 }
 
-/// GET /api/ranking/activity - Ranking activity (auth required)
+/// GET /api/ranking/activity - day × hour heatmap, the viewer's (`scope=me`) or the platform's
 pub async fn api_ranking_activity(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
+    let session = match auth::require_session(&headers, &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(_session) => {}
-    }
-
-    (StatusCode::OK, Json(json!({"activity": []})))
-        .into_response()
+        Ok(session) => session,
+    };
+    let period = q.get("period").map(String::as_str).unwrap_or("month");
+    let me = q.get("scope").map(String::as_str) == Some("me");
+    let user = me.then_some(session.username.as_str());
+    Json(ranking::activity(state.spend.as_ref(), period, user).await).into_response()
 }
 
-/// GET /api/ranking/records - Ranking records (auth required)
+/// GET /api/ranking/records - records and streaks, anonymity applied
 pub async fn api_ranking_records(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
+    let session = match auth::require_session(&headers, &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(_session) => {}
+        Ok(session) => session,
+    };
+    let me = session.username.as_str();
+    let mut data = ranking::records(&state.db, state.spend.as_ref(), Some(me)).await;
+    let anonymous = state.db.anonymous_accounts().await;
+    for key in ["best_days", "longest_streaks", "current_streaks", "firsts"] {
+        if let Some(rows) = data[key].as_array_mut() {
+            for r in rows {
+                let name = r["username"].as_str().unwrap_or_default().to_string();
+                r["is_me"] = json!(name == me);
+                if anonymous.contains(&name) && name != me && !session.is_admin {
+                    r["username"] = serde_json::Value::Null;
+                }
+            }
+        }
     }
-
-    (StatusCode::OK, Json(json!({"records": []})))
-        .into_response()
+    Json(data).into_response()
 }
 
 /// GET /api/search - HF model search (auth required)
@@ -427,46 +441,89 @@ pub async fn api_latency(
         .into_response()
 }
 
-/// GET /api/ranking/user/:username - User ranking (auth required)
+/// GET /api/ranking/user/:username - one account's detail: itself, or an admin
 pub async fn api_ranking_user(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Path(username): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
+    let session = match auth::require_session(&headers, &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(_session) => {}
+        Ok(session) => session,
+    };
+    if username != session.username && !session.is_admin {
+        return auth::html_status(StatusCode::NOT_FOUND);
     }
-
-    (StatusCode::OK, Json(json!({"user": null})))
-        .into_response()
+    let period = q.get("period").map(String::as_str).unwrap_or("month");
+    Json(ranking::user_detail(&state.db, state.spend.as_ref(), &username, period).await).into_response()
 }
 
-/// GET /api/ranking/export.csv - Export ranking as CSV (auth required)
+/// GET /api/ranking/export.csv - the ranking as CSV, admin only (it carries every name)
 pub async fn api_ranking_export(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
+    let session = match auth::require_session(&headers, &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(_session) => {}
+        Ok(session) => session,
+    };
+    if !session.is_admin {
+        return auth::html_status(StatusCode::NOT_FOUND);
     }
-
-    (StatusCode::OK, "username,tokens\n")
+    let period = q.get("period").map(String::as_str).filter(|p| ranking::PERIODS.contains(p)).unwrap_or("month");
+    let metric = q.get("metric").map(String::as_str).unwrap_or("total");
+    let by = q.get("by").map(String::as_str).unwrap_or("account");
+    let model: Option<String> = q
+        .get("model")
+        .map(|m| m.trim().chars().take(120).collect::<String>())
+        .filter(|m| !m.is_empty());
+    let data = ranking::ranking_full(&state.db, state.spend.as_ref(), period, None, metric, model.as_deref(), by).await;
+    let (body, name) = ranking::export_csv(&data, period);
+    (
+        StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()),
+            (axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+        ],
+        body,
+    )
         .into_response()
 }
 
-/// POST /api/ranking/privacy - Update ranking privacy (auth required)
+/// POST /api/ranking/privacy - appear anonymously (anonymous=1|true|on) or not
 pub async fn api_ranking_privacy(
     State(state): State<AppState>,
     headers: HeaderMap,
+    body: axum::body::Bytes,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
+    // request.form: a body that is not a form simply has no fields.
+    let is_form = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/x-www-form-urlencoded"));
+    let form: HashMap<String, String> =
+        if is_form { serde_urlencoded::from_bytes(&body).unwrap_or_default() } else { HashMap::new() };
+    // CSRF first, like Flask's before_request: 400 even without a session.
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(_session) => {}
+        Ok(false) => return (StatusCode::BAD_REQUEST, "").into_response(),
+        Ok(true) => {}
     }
-
-    (StatusCode::OK, Json(json!({"ok": true})))
-        .into_response()
+    let session = match auth::require_session(&headers, &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(session) => session,
+    };
+    let anonymous = matches!(form.get("anonymous").map(String::as_str), Some("1" | "true" | "on"));
+    if state.db.set_ranking_anonymous(&session.username, anonymous).await.is_err() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"ok": false, "error": "Base du portail illisible."})),
+        )
+            .into_response();
+    }
+    Json(json!({"ok": true, "anonymous": anonymous})).into_response()
 }
 
 /// GET /docs - OpenAPI docs (auth required)

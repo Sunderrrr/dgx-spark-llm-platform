@@ -285,6 +285,19 @@ impl Database {
             .unwrap_or_default()
     }
 
+    /// Réglages: appear anonymously in the leaderboard (ranking_routes.api_ranking_privacy).
+    pub async fn set_ranking_anonymous(&self, username: &str, anonymous: bool) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO user_prefs (username, ranking_anonymous) VALUES (?, ?) \
+             ON CONFLICT(username) DO UPDATE SET ranking_anonymous = excluded.ranking_anonymous",
+        )
+        .bind(username)
+        .bind(anonymous as i64)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Maintenance mode (db.maintenance_active).
     pub async fn maintenance_active(&self) -> bool {
         self.get_setting("maintenance_mode").await.ok().flatten().as_deref() == Some("1")

@@ -7,7 +7,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use crate::{AppState, auth, docs, health, hf, home, models, probes, ranking, system};
+use crate::{AppState, auth, docs, health, hf, home, models, probes, ranking, sidecars, system};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -141,15 +141,17 @@ pub async fn api_health(
         Ok(_session) => {}
     }
 
-    // Probe services in parallel
-    let (runner_ok, litellm_ok, chat) = tokio::join!(
+    // Probe services in parallel (app.api_health). Media services are
+    // on-demand: their absence does not invalidate the overall health.
+    let (runner_ok, litellm_ok, chat, video, ocr, voice, image) = tokio::join!(
         probes::probe_runner(),
         probes::probe_litellm(),
         models::running_models(),
+        sidecars::comfyui_up(),
+        sidecars::ocr_model(),
+        sidecars::voice_model(),
+        sidecars::image_ready(),
     );
-
-    // The media sidecars live on dedicated networks portal-rs does not join
-    // yet: their state is UNKNOWN here (null), never reported as stopped.
     (
         StatusCode::OK,
         Json(json!({
@@ -158,10 +160,10 @@ pub async fn api_health(
                 "runner": { "reachable": runner_ok },
                 "litellm": { "reachable": litellm_ok },
                 "chat": { "running": chat, "ready": !chat.is_empty() },
-                "video": { "ready": null, "on_demand": true },
-                "ocr": { "ready": null, "on_demand": true },
-                "voice": { "ready": null, "on_demand": true },
-                "image": { "ready": null, "on_demand": true },
+                "video": { "ready": video, "on_demand": true },
+                "ocr": { "ready": ocr.is_some(), "on_demand": true },
+                "voice": { "ready": voice.is_some(), "on_demand": true },
+                "image": { "ready": image, "on_demand": true },
             },
             "time": chrono::Utc::now().timestamp(),
         })),
@@ -204,14 +206,7 @@ pub async fn api_running_models(
 
     (
         StatusCode::OK,
-        Json(json!({
-            // Chat model only: the sidecars are not probed by portal-rs yet.
-            "running_models": models::running_models()
-                .await
-                .into_iter()
-                .map(|m| json!({"name": m, "kind": "chat", "exposed": true}))
-                .collect::<Vec<_>>(),
-        })),
+        Json(json!({"running_models": sidecars::running_and_metrics(&state.db).await.0})),
     )
     .into_response()
 }

@@ -88,7 +88,9 @@ rest of the leaderboard — `activity` (3 periods × 2 scopes), `records`,
 `user/<name>` (own detail; someone else's is 404), `export.csv` (404 for a
 non-admin) and `POST privacy` (the CSRF check runs first: 400 without a
 valid token, even with no session, as in Flask), `/api/modelhealth`, and
-`/api/home` except its media sidecars, `/usage/hourly`, `/system/stats`
+`/api/home` and `/api/running-models` with the media sidecars (portal-rs
+joins the sidecar networks like dgx-portal, the portal it replaces, with
+`default` keeping the default route), `/usage/hourly`, `/system/stats`
 (the runner's status, the active users for an admin), `/metrics` (the
 Cloudflare guard included), `/api/branding/logo`, `/api/search` (Hugging Face
 outage answered 503, unknown task 400), `/docs` (byte-identical to Flask's
@@ -100,11 +102,6 @@ logout. The security headers (`nosniff`, CSP, HSTS…) match Flask's.
 
 Not routable yet, and why:
 
-- **Media sidecars** (`/api/health`, `/api/running-models`, `/api/home`): OCR,
-  voice, ASR and image sit on dedicated networks the Rust portal does not
-  join, their probes read the containers' state, and ComfyUI's port is
-  firewalled to the Flask portal's address. The Rust portal answers `null`
-  (unknown) for them — never « stopped ».
 - **Admin views, ported but never compared**: the bench account is not an
   admin, so `active_users` on `/api/home`, another account's ranking detail
   and `export.csv` have only been checked to answer 404 to a non-admin.

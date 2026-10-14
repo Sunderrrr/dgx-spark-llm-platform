@@ -13,6 +13,7 @@ pub mod security;
 pub mod system;
 pub mod hf;
 pub mod docs;
+pub mod sidecars;
 
 pub use db::Database;
 pub use error::ApiError;

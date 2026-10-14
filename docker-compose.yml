@@ -418,6 +418,12 @@ services:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set in .env (run setup.sh)}
       PUBLIC_API_URL: ${DGX_API:?set DGX_API in .env (see .env.example)}/v1
       DGX_INFLIGHT_DB: /run/dgx/inflight.db
+      # Media sidecars, same addresses as dgx-portal.
+      OCR_URL: http://ocr:8000/v1
+      VOICE_URL: http://voice:8004
+      ASR_URL: http://asr:8006
+      IMAGE_URL: ${IMAGE_URL:-http://image:8007}
+      COMFYUI_URL: http://172.19.0.1:8188
     volumes:
       - portal_data:/app/data
       # The LiteLLM callback's in-flight requests, READ-ONLY as for dgx-portal.
@@ -433,8 +439,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    # The portal it is meant to replace sits on the same networks, with the same
+    # secrets: no new exposure. `priority` keeps `default` carrying the default
+    # route, so calls to 172.19.0.1 (runner, engine, ComfyUI relay) leave from
+    # the 172.19.x address vllm-restrict.service allows — see dgx-portal.
     networks:
-      - default
+      default:
+        priority: 100
+      ocr_net: {}
+      voice_net: {}
+      asr_net: {}
+      image_net: {}
 
 volumes:
   postgres_data:

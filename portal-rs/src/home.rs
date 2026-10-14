@@ -400,11 +400,7 @@ pub async fn active_users(db: &Database, pool: Option<&PgPool>, model_health: &V
 
 /// app._index_data: the whole /api/home payload for one viewer.
 pub async fn index_data(db: &Database, pool: Option<&PgPool>, username: &str, is_admin: bool) -> Value {
-    let running: Vec<Value> = crate::models::running_models()
-        .await
-        .into_iter()
-        .map(|m| json!({"name": m, "kind": "chat", "exposed": true}))
-        .collect();
+    let (running, sidecar_metrics) = crate::sidecars::running_and_metrics(db).await;
     let my_requests: Vec<Value> = sqlx::query_as::<_, (i64, String, String, String, Option<String>, Option<String>, String, Option<String>)>(
         "SELECT id, username, fullname, model_id, reason, status, created_at, updated_at FROM model_requests \
          WHERE username = ? ORDER BY created_at DESC LIMIT 5",
@@ -461,9 +457,7 @@ pub async fn index_data(db: &Database, pool: Option<&PgPool>, username: &str, is
         "usage": usage,
         "usage_by_model": by_model,
         "sysmetrics": sysmetrics,
-        // The media sidecars are not observed by portal-rs yet (see
-        // docs/rust-migration.md): none of their metrics, rather than zeros.
-        "sidecar_metrics": {},
+        "sidecar_metrics": sidecar_metrics,
         "modelhealth": model_health,
         "active_users": active,
         "budget_tokens": thousands(effective),

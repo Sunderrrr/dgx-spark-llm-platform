@@ -12,6 +12,18 @@ pub struct SessionData {
     pub is_admin: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserPrefs {
+    pub avatar_id: Option<String>,
+    pub theme_id: Option<String>,
+    pub lang: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PasswordManagement {
+    pub password_managed_by: String, // 'portail' | 'annuaire' | 'fournisseur_identite' | 'inconnu'
+}
+
 pub struct Database {
     pool: SqlitePool,
 }
@@ -102,5 +114,60 @@ impl Database {
         .await?;
 
         Ok(row.map(|(v,)| v))
+    }
+
+    /// Get user preferences (avatar, theme, lang)
+    pub async fn get_user_prefs(&self, username: &str) -> Result<UserPrefs> {
+        let row: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT avatar_id, theme_id, lang FROM user_prefs WHERE username = ?"
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(match row {
+            Some((avatar_id, theme_id, lang)) => UserPrefs {
+                avatar_id,
+                theme_id,
+                lang,
+            },
+            None => UserPrefs {
+                avatar_id: None,
+                theme_id: Some("neutral".to_string()),
+                lang: Some("fr".to_string()),
+            },
+        })
+    }
+
+    /// Get password management source for a user
+    pub async fn get_password_management(&self, username: &str) -> Result<String> {
+        // Check local_users first (authoritative)
+        let is_local: Option<(i32,)> = sqlx::query_as(
+            "SELECT 1 FROM local_users WHERE username = ?"
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if is_local.is_some() {
+            return Ok("portail".to_string());
+        }
+
+        // Check user_sources for last auth source
+        let source: Option<(String, i32)> = sqlx::query_as(
+            "SELECT source, CASE WHEN is_admin = 1 THEN 1 ELSE 0 END FROM user_sources WHERE username = ? ORDER BY last_login DESC LIMIT 1"
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(match source {
+            Some((src, _)) => match src.as_str() {
+                "ldap" => "annuaire".to_string(),
+                "sso" => "fournisseur_identite".to_string(),
+                _ => "inconnu".to_string(),
+            },
+            None => "inconnu".to_string(),
+        })
     }
 }

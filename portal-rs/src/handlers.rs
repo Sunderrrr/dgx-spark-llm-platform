@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use crate::{AppState, auth};
+use crate::{AppState, auth, probes};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -28,15 +28,13 @@ pub async fn metrics() -> impl IntoResponse {
 
 /// GET /api/config - Public platform config (branding + SSO + setup status)
 pub async fn api_config(State(state): State<AppState>) -> impl IntoResponse {
-    let oidc_enabled = state.db.get_setting("oidc_enabled").await.ok().flatten()
-        .map(|v| v == "1")
-        .unwrap_or(false);
-    let platform_name = state.db.get_setting("platform_name").await.ok().flatten()
-        .unwrap_or_else(|| "DGX Portal".to_string());
-    let platform_logo = state.db.get_setting("platform_logo").await.ok().flatten();
-    let setup_required = state.db.get_setting("setup_required").await.ok().flatten()
-        .map(|v| v == "1")
-        .unwrap_or(false);
+    // Fetch all settings needed for config
+    let (oidc_enabled, platform_name, platform_logo, setup_required) = tokio::join!(
+        async { state.db.get_setting("oidc_enabled").await.ok().flatten().map(|v| v == "1").unwrap_or(false) },
+        async { state.db.get_setting("platform_name").await.ok().flatten().unwrap_or_else(|| "DGX Portal".to_string()) },
+        async { state.db.get_setting("platform_logo").await.ok().flatten() },
+        async { state.db.get_setting("setup_required").await.ok().flatten().map(|v| v == "1").unwrap_or(false) },
+    );
 
     (
         StatusCode::OK,
@@ -44,7 +42,7 @@ pub async fn api_config(State(state): State<AppState>) -> impl IntoResponse {
             "oidc_enabled": oidc_enabled,
             "branding": {
                 "name": platform_name,
-                "logo": platform_logo.map(|_| "/api/branding/logo")
+                "logo": if platform_logo.is_some() { Some("/api/branding/logo") } else { None }
             },
             "setup_required": setup_required,
         })),
@@ -96,15 +94,20 @@ pub async fn api_health(
         Ok(_session) => {}
     }
 
-    // TODO: Probe runner (:8001), litellm (:4001)
+    // Probe services in parallel
+    let (runner_ok, litellm_ok) = tokio::join!(
+        probes::probe_runner(),
+        probes::probe_litellm(),
+    );
+
     (
         StatusCode::OK,
         Json(json!({
             "ok": true,
             "services": {
-                "runner": { "reachable": false },
-                "litellm": { "reachable": false },
-                "chat": { "running": null, "ready": false },
+                "runner": { "reachable": runner_ok },
+                "litellm": { "reachable": litellm_ok },
+                "chat": { "running": null, "ready": runner_ok && litellm_ok },
                 "video": { "ready": false, "on_demand": true },
                 "ocr": { "ready": false, "on_demand": true },
                 "voice": { "ready": false, "on_demand": true },
@@ -121,10 +124,17 @@ pub async fn api_home(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
+    let _session = match auth::require_session(&headers, &state.db).await {
         Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
-        Ok(_session) => {}
-    }
+        Ok(s) => s,
+    };
+
+    // TODO: Fetch real data:
+    // - model status from runner :8001/status
+    // - throughput from runner or litellm metrics
+    // - user's budget from litellm
+    // - sidecars status from health checks
+    // - user's recent requests from audit/spend logs
 
     (
         StatusCode::OK,
@@ -132,12 +142,26 @@ pub async fn api_home(
             "model": null,
             "uptime_seconds": 0,
             "tps": 0.0,
+            "tps_prefill": null,
+            "tps_moyen": null,
             "ttft_ms": 0,
             "requests_in_flight": 0,
             "tokens_generated": 0,
-            "spend": { "budget": 0, "spend": 0 },
-            "sidecars": {},
+            "tokens_prompt": 0,
+            "spend": {
+                "budget": 0.0,
+                "spent": 0.0,
+                "limit": 0.0,
+                "period": "weekly"
+            },
+            "sidecars": {
+                "video": { "ready": false, "on_demand": true },
+                "ocr": { "ready": false, "on_demand": true },
+                "voice": { "ready": false, "on_demand": true },
+                "image": { "ready": false, "on_demand": true },
+            },
             "my_requests": [],
+            "active_users": [],
             "time": chrono::Utc::now().timestamp(),
         })),
     )
@@ -204,15 +228,39 @@ pub async fn api_whoami(
     match auth::require_session(&headers, &state.db).await {
         Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
         Ok(session) => {
+            // Fetch user preferences and password management
+            let (prefs, pwd_mgmt) = match (
+                state.db.get_user_prefs(&session.username).await,
+                state.db.get_password_management(&session.username).await,
+            ) {
+                (Ok(prefs), Ok(pwd_mgmt)) => (prefs, pwd_mgmt),
+                _ => {
+                    return (
+                        StatusCode::OK,
+                        Json(json!({
+                            "username": session.username,
+                            "fullname": session.fullname.unwrap_or_else(|| session.username.clone()),
+                            "is_admin": session.is_admin,
+                            "avatar_id": null,
+                            "theme_id": "neutral",
+                            "lang": "fr",
+                            "password_managed_by": "inconnu",
+                        })),
+                    )
+                    .into_response();
+                }
+            };
+
             (
                 StatusCode::OK,
                 Json(json!({
                     "username": session.username,
                     "fullname": session.fullname.unwrap_or_else(|| session.username.clone()),
                     "is_admin": session.is_admin,
-                    "avatar_id": null,
-                    "theme_id": "neutral",
-                    "lang": "fr",
+                    "avatar_id": prefs.avatar_id,
+                    "theme_id": prefs.theme_id.unwrap_or_else(|| "neutral".to_string()),
+                    "lang": prefs.lang.unwrap_or_else(|| "fr".to_string()),
+                    "password_managed_by": pwd_mgmt,
                 })),
             )
             .into_response()

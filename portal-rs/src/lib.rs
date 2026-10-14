@@ -3,6 +3,7 @@ pub mod handlers;
 pub mod db;
 pub mod error;
 pub mod auth;
+pub mod probes;
 
 pub use db::Database;
 pub use error::ApiError;

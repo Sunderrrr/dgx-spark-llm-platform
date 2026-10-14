@@ -27,13 +27,19 @@ pub async fn metrics() -> impl IntoResponse {
     )
 }
 
-/// GET /api/config - Public platform config
+/// GET /api/config - Public platform config (branding + SSO + setup status)
 pub async fn api_config() -> impl IntoResponse {
+    // TODO: Read from DB: oidc_enabled, branding.name, branding.logo, setup_required
+    // For now: defaults matching Flask fallback
     (
         StatusCode::OK,
         Json(json!({
-            "version": "0.1.0",
-            "app_name": "DGX Portal",
+            "oidc_enabled": false,
+            "branding": {
+                "name": "DGX Portal",
+                "logo": null
+            },
+            "setup_required": false,
         })),
     )
 }
@@ -54,44 +60,57 @@ pub async fn branding_logo() -> impl IntoResponse {
 
 /// GET /api/health - Aggregated service health (auth required)
 pub async fn api_health(State(_state): State<AppState>) -> impl IntoResponse {
-    // TODO: Probe runner, litellm, sidecars
+    // TODO: Probe runner (:8001), litellm (:4001), sidecars
     (
         StatusCode::OK,
         Json(json!({
-            "runner": "unknown",
-            "litellm": "unknown",
-            "chat": "unknown",
-            "image": "off",
-            "video": "off",
-            "ocr": "off",
-            "voice": "off",
+            "ok": true,
+            "services": {
+                "runner": { "reachable": false },
+                "litellm": { "reachable": false },
+                "chat": { "running": null, "ready": false },
+                "video": { "ready": false, "on_demand": true },
+                "ocr": { "ready": false, "on_demand": true },
+                "voice": { "ready": false, "on_demand": true },
+                "image": { "ready": false, "on_demand": true },
+            },
+            "time": chrono::Utc::now().timestamp(),
         })),
     )
 }
 
 /// GET /api/home - Dashboard aggregated state (auth required)
 pub async fn api_home(State(_state): State<AppState>) -> impl IntoResponse {
+    // TODO: Read from vllm_health(), LiteLLM spend, user requests, sidecars
     (
         StatusCode::OK,
         Json(json!({
             "model": null,
-            "uptime": 0,
-            "tps": 0,
-            "ttft": 0,
+            "uptime_seconds": 0,
+            "tps": 0.0,
+            "ttft_ms": 0,
+            "requests_in_flight": 0,
+            "tokens_generated": 0,
+            "spend": { "budget": 0, "spend": 0 },
             "sidecars": {},
+            "my_requests": [],
+            "time": chrono::Utc::now().timestamp(),
         })),
     )
 }
 
 /// GET /api/modelhealth - Model health (auth required)
 pub async fn api_modelhealth(State(_state): State<AppState>) -> impl IntoResponse {
+    // TODO: Read from vllm_health() endpoint
     (
         StatusCode::OK,
         Json(json!({
             "model": null,
             "requests_processing": 0,
-            "tokens": 0,
-            "tps": 0,
+            "tokens_generated": 0,
+            "tps": 0.0,
+            "ttft_ms": 0,
+            "time": chrono::Utc::now().timestamp(),
         })),
     )
 }

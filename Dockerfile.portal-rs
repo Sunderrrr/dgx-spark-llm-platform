@@ -26,6 +26,9 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=builder /app/portal-rs/target/release/portal /usr/local/bin/
 
+RUN useradd -u 10001 portal && mkdir -p /app && chown -R portal:portal /app /usr/local/bin/portal
+
+USER portal
 WORKDIR /app
 EXPOSE 5100
 

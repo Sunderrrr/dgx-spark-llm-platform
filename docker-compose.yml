@@ -406,7 +406,7 @@ services:
       PORTAL_RUST_PORT: "5100"
       RUST_LOG: info
     volumes:
-      - portal_data:/app/data:ro
+      - portal_data:/app/data
     ports:
       - "127.0.0.1:5100:5100"
     healthcheck:

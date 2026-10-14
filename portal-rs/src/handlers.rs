@@ -28,13 +28,44 @@ pub async fn metrics() -> impl IntoResponse {
 
 /// GET /api/config - Public platform config (branding + SSO + setup status)
 pub async fn api_config(State(state): State<AppState>) -> impl IntoResponse {
-    // Fetch all settings needed for config
-    let (oidc_enabled, platform_name, platform_logo, setup_required) = tokio::join!(
-        async { state.db.get_setting("oidc_enabled").await.ok().flatten().map(|v| v == "1").unwrap_or(false) },
-        async { state.db.get_setting("platform_name").await.ok().flatten().unwrap_or_else(|| "DGX Portal".to_string()) },
+    // Fetch all settings needed for config (parallel)
+    let (oidc_metadata_url, oidc_client_id, oidc_client_secret, platform_name_setting, platform_logo, has_local_admin, has_dir_admin) = tokio::join!(
+        async { state.db.get_setting("oidc_metadata_url").await.ok().flatten() },
+        async { state.db.get_setting("oidc_client_id").await.ok().flatten() },
+        async { state.db.get_setting("oidc_client_secret").await.ok().flatten() },
+        async { state.db.get_setting("platform_name").await.ok().flatten() },
         async { state.db.get_setting("platform_logo").await.ok().flatten() },
-        async { state.db.get_setting("setup_required").await.ok().flatten().map(|v| v == "1").unwrap_or(false) },
+        async {
+            // Check for enabled local admin: local_users with enabled=1 and (is_admin=1 or group with is_admin=1)
+            sqlx::query_scalar::<_, i32>(
+                "SELECT 1 FROM local_users u LEFT JOIN user_groups g ON g.name = u.group_name
+                 WHERE u.enabled = 1 AND (u.is_admin = 1 OR g.is_admin = 1) LIMIT 1"
+            )
+            .fetch_optional(state.db.pool())
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+        },
+        async {
+            // Check for directory admin
+            sqlx::query_scalar::<_, i32>("SELECT 1 FROM user_sources WHERE last_is_admin = 1 LIMIT 1")
+            .fetch_optional(state.db.pool())
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+        },
     );
+
+    // oidc_enabled = all three components present
+    let oidc_enabled = oidc_metadata_url.is_some() && oidc_client_id.is_some() && oidc_client_secret.is_some();
+
+    // setup_required = no admins exist (neither local nor directory)
+    let setup_required = !has_local_admin && !has_dir_admin;
+
+    // platform_name defaults to "DGX" (not "DGX Portal")
+    let platform_name = platform_name_setting.unwrap_or_else(|| "DGX".to_string());
 
     (
         StatusCode::OK,
@@ -51,12 +82,20 @@ pub async fn api_config(State(state): State<AppState>) -> impl IntoResponse {
 
 /// GET /.well-known/security.txt
 pub async fn security_txt(State(state): State<AppState>) -> impl IntoResponse {
-    let contact = state.db.get_setting("security_contact").await.ok().flatten();
-    let contact = if contact.is_none() {
-        state.db.get_setting("admin_email").await.ok().flatten()
-    } else {
-        contact
-    };
+    let (security_contact, admin_email, platform_name_setting) = tokio::join!(
+        async { state.db.get_setting("security_contact").await.ok().flatten() },
+        async { state.db.get_setting("admin_email").await.ok().flatten() },
+        async { state.db.get_setting("platform_name").await.ok().flatten() },
+    );
+
+    let contact = security_contact.or(admin_email);
+    let platform_name = platform_name_setting.unwrap_or_else(|| "DGX".to_string());
+
+    // PUBLIC_WEB_URL from env, default to https://example.org
+    let public_web_url = std::env::var("DGX_WEB")
+        .unwrap_or_else(|_| "https://example.org".to_string())
+        .trim_end_matches('/')
+        .to_string();
 
     match contact {
         Some(c) => {
@@ -69,9 +108,11 @@ pub async fn security_txt(State(state): State<AppState>) -> impl IntoResponse {
             (
                 StatusCode::OK,
                 format!(
-                    "# Report a security issue\nContact: {}\nExpires: {}\nPreferred-Languages: en, fr\n",
+                    "# Report a security issue on {}.\nContact: {}\nExpires: {}\nCanonical: {}/.well-known/security.txt\nPreferred-Languages: en, fr\n",
+                    platform_name,
                     contact_line,
-                    expires.format("%Y-%m-%dT00:00:00Z")
+                    expires.format("%Y-%m-%dT00:00:00Z"),
+                    public_web_url,
                 ),
             )
         }

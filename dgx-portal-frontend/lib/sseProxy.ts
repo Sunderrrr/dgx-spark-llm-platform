@@ -1,4 +1,4 @@
-const BACKEND_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
+import { backendFor } from "./backend";
 
 // Time to receive the response HEADERS. Every Flask SSE route emits a ":"
 // comment as its very first action precisely so the headers leave
@@ -76,7 +76,7 @@ export async function proxySSE(request: Request, path: string): Promise<Response
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
     });
   }
-  const check = await fetch(`${BACKEND_URL}/api/whoami`, {
+  const check = await fetch(`${backendFor("/api/whoami")}/api/whoami`, {
     headers: { Cookie: request.headers.get("cookie") || "" },
     signal: AbortSignal.timeout(WHOAMI_TIMEOUT_MS),
   }).catch(() => null);
@@ -107,7 +107,7 @@ export async function proxySSE(request: Request, path: string): Promise<Response
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${BACKEND_URL}${path}`, {
+    upstream = await fetch(`${backendFor(path)}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": request.headers.get("content-type") || "application/json",
@@ -153,7 +153,7 @@ export async function proxySSEGet(request: Request, path: string): Promise<Respo
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${BACKEND_URL}${path}`, {
+    upstream = await fetch(`${backendFor(path)}${path}`, {
       method: "GET",
       headers: { Cookie: request.headers.get("cookie") || "" },
       signal: connectController.signal,

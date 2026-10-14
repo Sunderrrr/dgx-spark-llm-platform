@@ -321,6 +321,12 @@ services:
       # Server rendering formats hours on THIS clock (the playground greeting):
       # the operator's time zone, not the container's UTC.
       TZ: ${TZ_DISPLAY:-Europe/Paris}
+      # Rust migration (docs/rust-migration.md): the Rust portal's address.
+      # Empty: every route stays on Flask. The migrated prefixes are the
+      # mounted migration/rust-routes.txt below (lib/backend.ts).
+      DGX_RUST_URL: ${DGX_RUST_URL:-}
+    volumes:
+      - ./migration/rust-routes.txt:/app/migration/rust-routes.txt:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { SESSION_COOKIE, checkRedirects, gateDecision } from "./lib/session-gate";
-
-const BACKEND_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
+import { backendFor, onRust } from "./lib/backend";
 
 // Paths with their own Route Handler (app/**/route.ts) — proxy must NOT
 // rewrite these itself, or it would bypass their streaming-safe logic (see
@@ -55,7 +54,12 @@ export async function proxy(request: NextRequest) {
   // Flask. Proxy runs before Next's own routing, so it can catch these by
   // method instead of maintaining a list of colliding paths.
   if (request.method !== "GET" && request.method !== "HEAD" && !OWN_ROUTE_HANDLERS.has(pathname)) {
-    return NextResponse.rewrite(new URL(pathname + request.nextUrl.search, BACKEND_URL));
+    return NextResponse.rewrite(new URL(pathname + request.nextUrl.search, backendFor(pathname)));
+  }
+  // Rust migration: a prefix moved to the Rust portal is served there for
+  // every method (lib/backend.ts) — the rewrites of next.config only know Flask.
+  if (onRust(pathname) && !OWN_ROUTE_HANDLERS.has(pathname)) {
+    return NextResponse.rewrite(new URL(pathname + request.nextUrl.search, backendFor(pathname)));
   }
 
   // A logged-out visitor is sent to /login before any page markup goes out,
@@ -71,7 +75,7 @@ export async function proxy(request: NextRequest) {
     let status: number | null = null;
     let setCookie: string | null = null;
     try {
-      const r = await fetch(new URL("/api/session", BACKEND_URL), {
+      const r = await fetch(new URL("/api/session", backendFor("/api/session")), {
         headers: { cookie: request.headers.get("cookie") ?? "" },
         redirect: "manual",
         cache: "no-store",

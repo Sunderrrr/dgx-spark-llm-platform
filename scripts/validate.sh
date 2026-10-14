@@ -305,6 +305,10 @@ if group_wanted 1; then
     python3 scripts/check-english.py
   run_check "1.12 No monolith (scripts/check-structure.py)" 60 \
     python3 scripts/check-structure.py
+  # Rust migration: every route has a phase, and docs/rust-routes.md says
+  # where each one is served (docs/rust-migration.md).
+  run_check "1.13 Route inventory up to date (scripts/routes-inventory.py)" 60 \
+    python3 scripts/routes-inventory.py --check
   close_group "Code gates"
 fi
 

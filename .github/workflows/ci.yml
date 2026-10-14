@@ -126,6 +126,8 @@ jobs:
         run: python3 scripts/check-english.py
       - name: No monolith
         run: python3 scripts/check-structure.py
+      - name: Route inventory up to date (Rust migration)
+        run: python3 scripts/routes-inventory.py --check
       - name: Sudoers rules parse
         run: for f in systemd/sudoers.d-*; do sudo visudo -cf "$f" >/dev/null || { echo "::error::invalid sudoers rule $f"; exit 1; }; done
       - name: Compose file parses

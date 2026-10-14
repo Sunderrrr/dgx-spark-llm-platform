@@ -12,7 +12,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Seed } from "./seed";
 
-const BACKEND_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
+import { backendFor } from "./backend";
 
 // The page waits for these reads before anything is sent: past this budget the
 // page renders without them and the client fetches them as before. Flask
@@ -39,7 +39,7 @@ export async function serverRead<T>(path: string): Promise<ServerRead<T>> {
       const v = incoming.get(name);
       if (v) h[name] = v;
     }
-    const r = await fetch(new URL(path, BACKEND_URL), {
+    const r = await fetch(new URL(path, backendFor(new URL(path, "http://x").pathname)), {
       headers: h,
       redirect: "manual",
       cache: "no-store",

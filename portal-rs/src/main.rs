@@ -25,6 +25,7 @@ async fn main() -> anyhow::Result<()> {
     let db = Database::new(&db_url).await?;
     let state = AppState {
         db: Arc::new(db),
+        spend: portal_rs::spend::pool_from_env(),
     };
 
     info!("Portal Rust starting on 0.0.0.0:{}", port);

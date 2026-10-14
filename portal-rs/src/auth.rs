@@ -1,36 +1,187 @@
-use axum::http::HeaderMap;
-use crate::db::SessionData;
+//! Session guard, parity with dgx-portal/auth.py `login_required`.
+//!
+//! A session holds only if, at THIS request:
+//!   - it carries a username (no name = not signed in, never a default user);
+//!   - it is younger than SESSION_MAX_AGE since `auth_at` (no `auth_at` =
+//!     expired, not eternal);
+//!   - its `sid`, when it has one, is in the registry, not revoked, not past
+//!     its expiry (a session without sid predates the registry: age only);
+//!   - the account is still valid: not blocked, not a disabled local account.
+//! The role is re-read too: a local account's role is the portal's (own flag
+//! or group); a directory account keeps the role recorded at its last login,
+//! the owner is always an admin, and missing data never demotes anyone.
+//!
+//! Not ported: Flask also clears the cookie and writes a `session.invalidee`
+//! audit line when it drops a session. Here the request is refused only.
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde_json::{json, Value};
 
-/// Extract session from cookies
-pub fn get_session_token(headers: &HeaderMap) -> Option<String> {
-    // Look for "session" cookie
-    headers
-        .get("cookie")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|cookies| {
-            cookies
-                .split(';')
-                .find_map(|cookie| {
-                    let trimmed = cookie.trim();
-                    if trimmed.starts_with("session=") {
-                        trimmed.strip_prefix("session=").map(|s| s.to_string())
-                    } else {
-                        None
-                    }
-                })
-        })
+use crate::db::{AccountFacts, Database};
+
+/// A signed-in user, with the role re-read at this request.
+#[derive(Debug, Clone)]
+pub struct SessionData {
+    pub username: String,
+    pub fullname: Option<String>,
+    pub is_admin: bool,
+    pub csrf: Option<String>,
 }
 
-/// Require authenticated session
-pub async fn require_session(
-    headers: &HeaderMap,
-    db: &crate::db::Database,
-) -> Result<SessionData, String> {
-    let token = get_session_token(headers)
-        .ok_or_else(|| "No session token".to_string())?;
+#[derive(Debug)]
+pub enum AuthError {
+    /// Not signed in, expired, revoked or invalid account: 401.
+    Unauthorized,
+    /// The portal database could not be read: 503, never a forced logout.
+    Unavailable,
+}
 
-    db.get_session(&token)
+impl IntoResponse for AuthError {
+    fn into_response(self) -> Response {
+        match self {
+            AuthError::Unauthorized => (StatusCode::UNAUTHORIZED, "").into_response(),
+            AuthError::Unavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"ok": false, "error": "Base du portail illisible."})),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Absolute session lifetime in seconds (SESSION_MAX_AGE, default 12 h).
+fn max_age() -> f64 {
+    std::env::var("SESSION_MAX_AGE")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(12.0 * 3600.0)
+}
+
+fn now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+/// The `session` cookie's value.
+pub fn get_session_token(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get_all("cookie")
+        .iter()
+        .filter_map(|h| h.to_str().ok())
+        .flat_map(|c| c.split(';'))
+        .find_map(|c| c.trim().strip_prefix("session=").map(str::to_string))
+        .filter(|v| !v.is_empty())
+}
+
+/// Too old since `auth_at` (missing = expired)? Pure.
+pub fn too_old(auth_at: Option<f64>, now: f64, max_age: f64) -> bool {
+    now - auth_at.unwrap_or(0.0) > max_age
+}
+
+/// Registry verdict for a session with a sid. Pure.
+pub fn registry_holds(row: Option<(bool, f64)>, now: f64) -> bool {
+    matches!(row, Some((false, expires_at)) if expires_at >= now)
+}
+
+/// auth.account_state: Some(role) when the account holds (None role = no
+/// opinion, keep the session's), None when the session must be dropped. Pure.
+pub fn account_state(facts: &AccountFacts) -> Option<Option<bool>> {
+    if facts.blocked {
+        return None;
+    }
+    if let Some(local) = facts.local {
+        return if local.enabled { Some(Some(local.is_admin)) } else { None };
+    }
+    if facts.is_owner {
+        return Some(Some(true));
+    }
+    Some(facts.last_is_admin)
+}
+
+/// Require a valid session (login_required).
+pub async fn require_session(headers: &HeaderMap, db: &Database) -> Result<SessionData, AuthError> {
+    let token = get_session_token(headers).ok_or(AuthError::Unauthorized)?;
+    let data: Value = db
+        .get_session(&token)
         .await
-        .map_err(|e| format!("Database error: {}", e))?
-        .ok_or_else(|| "Invalid or expired session".to_string())
+        .map_err(|_| AuthError::Unavailable)?
+        .ok_or(AuthError::Unauthorized)?;
+
+    let username = data
+        .get("username")
+        .and_then(Value::as_str)
+        .filter(|u| !u.is_empty())
+        .ok_or(AuthError::Unauthorized)?
+        .to_string();
+    let t = now();
+    if too_old(data.get("auth_at").and_then(Value::as_f64), t, max_age()) {
+        return Err(AuthError::Unauthorized);
+    }
+    if let Some(sid) = data.get("sid").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        let row = db.get_session_registry(sid).await.map_err(|_| AuthError::Unavailable)?;
+        if !registry_holds(row, t) {
+            return Err(AuthError::Unauthorized);
+        }
+    }
+    let facts = db.get_account_facts(&username).await.map_err(|_| AuthError::Unavailable)?;
+    let role = account_state(&facts).ok_or(AuthError::Unauthorized)?;
+    let session_admin = data.get("is_admin").and_then(Value::as_bool).unwrap_or(false);
+
+    Ok(SessionData {
+        username,
+        fullname: data.get("fullname").and_then(Value::as_str).map(str::to_string),
+        is_admin: role.unwrap_or(session_admin),
+        csrf: data.get("csrf").and_then(Value::as_str).map(str::to_string),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::LocalAccount;
+
+    #[test]
+    fn age_is_counted_from_auth_at_and_missing_means_expired() {
+        assert!(!too_old(Some(1000.0), 1000.0 + 3600.0, 43200.0));
+        assert!(too_old(Some(1000.0), 1000.0 + 43201.0, 43200.0));
+        assert!(too_old(None, 1_800_000_000.0, 43200.0));
+    }
+
+    #[test]
+    fn registry_refuses_missing_revoked_or_expired() {
+        assert!(registry_holds(Some((false, 200.0)), 100.0));
+        assert!(!registry_holds(None, 100.0));
+        assert!(!registry_holds(Some((true, 200.0)), 100.0));
+        assert!(!registry_holds(Some((false, 50.0)), 100.0));
+    }
+
+    #[test]
+    fn blocked_wins_over_everything() {
+        let f = AccountFacts { blocked: true, is_owner: true, ..Default::default() };
+        assert_eq!(account_state(&f), None);
+    }
+
+    #[test]
+    fn a_disabled_local_account_is_dropped_and_an_enabled_one_has_the_portal_role() {
+        let off = AccountFacts { local: Some(LocalAccount { enabled: false, is_admin: true }), ..Default::default() };
+        assert_eq!(account_state(&off), None);
+        let on = AccountFacts { local: Some(LocalAccount { enabled: true, is_admin: false }), ..Default::default() };
+        assert_eq!(account_state(&on), Some(Some(false)));
+    }
+
+    #[test]
+    fn the_owner_is_always_admin() {
+        let f = AccountFacts { is_owner: true, last_is_admin: Some(false), ..Default::default() };
+        assert_eq!(account_state(&f), Some(Some(true)));
+    }
+
+    #[test]
+    fn missing_data_never_demotes_a_directory_account() {
+        assert_eq!(account_state(&AccountFacts::default()), Some(None));
+        let f = AccountFacts { last_is_admin: Some(true), ..Default::default() };
+        assert_eq!(account_state(&f), Some(Some(true)));
+    }
 }

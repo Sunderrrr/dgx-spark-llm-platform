@@ -1,49 +1,44 @@
+//! Service probes, parity with dgx-portal/app.py `_service_reachable`.
 use std::time::Duration;
-use reqwest::Client;
 
-/// Probe runner service on :8001
-/// 401 = unauthorized but reachable (no RUNNER_TOKEN in env); treat as success for health
-pub async fn probe_runner() -> bool {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build();
+/// Runner base URL (`VLLM_RUNNER_URL`, as for the Flask portal).
+pub fn runner_url() -> String {
+    env_url("VLLM_RUNNER_URL", "http://host.docker.internal:8001")
+}
 
-    match client {
-        Ok(client) => {
-            match client
-                .get("http://host.docker.internal:8001/status")
-                .bearer_auth("") // Will return 401 if runner requires auth; that's OK
-                .send()
-                .await
-            {
-                Ok(resp) => {
-                    // 2xx = success; 401 = unauthorized but reachable
-                    resp.status().is_success() || resp.status().as_u16() == 401
-                },
-                Err(_) => false,
-            }
-        }
+/// LiteLLM base URL (`LITELLM_URL`): the proxy listens on 4001 inside the
+/// Docker network (the same port Traefik and dgx-portal use).
+pub fn litellm_url() -> String {
+    env_url("LITELLM_URL", "http://litellm:4001")
+}
+
+fn env_url(name: &str, default: &str) -> String {
+    std::env::var(name)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default.to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// True when the service answers with one of the `expect` statuses within 3 s.
+pub async fn reachable(url: &str, expect: &[u16]) -> bool {
+    let Ok(client) = reqwest::Client::builder().timeout(Duration::from_secs(3)).build() else {
+        return false;
+    };
+    match client.get(url).send().await {
+        Ok(resp) => expect.contains(&resp.status().as_u16()),
         Err(_) => false,
     }
 }
 
-/// Probe LiteLLM service on :4000 (Docker network alias, not :4001 from host)
-pub async fn probe_litellm() -> bool {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build();
+/// The runner answers 401 without a token: that still proves it is up.
+pub async fn probe_runner() -> bool {
+    reachable(&format!("{}/status", runner_url()), &[200, 401]).await
+}
 
-    match client {
-        Ok(client) => {
-            match client
-                .get("http://litellm:4000/health")
-                .send()
-                .await
-            {
-                Ok(resp) => resp.status().is_success(),
-                Err(_) => false,
-            }
-        }
-        Err(_) => false,
-    }
+/// `/health/liveliness`, not `/health`: since LiteLLM 1.102 `/health` needs an
+/// API key and answers 401 without one.
+pub async fn probe_litellm() -> bool {
+    reachable(&format!("{}/health/liveliness", litellm_url()), &[200]).await
 }

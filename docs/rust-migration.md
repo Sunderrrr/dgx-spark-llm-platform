@@ -79,6 +79,38 @@ it, a look-alike path and the rest of the portal stayed on Flask.
 Decision point after phase 2: compare the Rust service with Flask on the same
 routes. The mixed state is stable — the migration can stop at any phase.
 
+### Phase 2 — state (bench against live Flask, demo account)
+
+Identical on every case replayed: `/api/config`, `/.well-known/security.txt`,
+`/api/session`, `/api/whoami`, and `/api/ranking` over the 5 periods × 5
+metrics, by group, with a model filter and with invalid parameters. The
+`login_required` guard is ported whole (max age, `user_sessions` registry,
+account state re-read, owner rule); a database error answers 503, never a
+logout.
+
+Not routable yet, and why:
+
+- **Media sidecars** (`/api/health`, `/api/running-models`, `/api/home`): OCR,
+  voice, ASR and image sit on dedicated networks the Rust portal does not
+  join, their probes read the containers' state, and ComfyUI's port is
+  firewalled to the Flask portal's address. The Rust portal answers `null`
+  (unknown) for them — never « stopped ».
+- **Admin view of `/api/ranking`**: `quota_pct` needs LiteLLM's `/user/list`
+  (master key); it is `null` on the Rust side.
+- **Response headers**: Flask adds `nosniff`, CSP, HSTS and friends to every
+  answer; the Rust portal does not yet.
+- **Dropped sessions**: Flask writes a `session.invalidee` audit line and
+  clears the cookie; the Rust portal only refuses the request.
+
+Porting notes that cost a wrong first attempt: LiteLLM listens on 4001 inside
+the Docker network and `/health` needs a key since 1.102 (probe
+`/health/liveliness`); instance settings are stored as `cfg_<name>` with empty
+meaning unset; `password_managed_by` comes from the cumulative
+`user_sources.sources`; ties in the ranking follow Postgres' aggregation
+order, so the Rust side runs ranking.py's SQL verbatim as a subquery; and
+Python's `round()` is ties-to-even on the exact binary value, which Rust's
+`{:.n}` formatting reproduces and a multiply-and-round does not.
+
 ## Stack
 
 `axum` + `tokio` (HTTP), `sqlx` (SQLite, Postgres), `reqwest` (LiteLLM,

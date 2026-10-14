@@ -5,6 +5,8 @@ pub mod error;
 pub mod auth;
 pub mod probes;
 pub mod ranking;
+pub mod models;
+pub mod spend;
 
 pub use db::Database;
 pub use error::ApiError;
@@ -12,6 +14,8 @@ pub use error::ApiError;
 #[derive(Clone)]
 pub struct AppState {
     pub db: Arc<Database>,
+    /// LiteLLM's database (consumption), None when LITELLM_DATABASE_URL is unset.
+    pub spend: Option<sqlx::PgPool>,
 }
 
 #[cfg(test)]

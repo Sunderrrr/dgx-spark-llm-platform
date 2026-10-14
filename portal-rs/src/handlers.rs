@@ -1,11 +1,13 @@
+use std::collections::HashMap;
+
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{StatusCode, HeaderMap},
     response::IntoResponse,
     Json,
 };
 use serde_json::json;
-use crate::{AppState, auth, probes};
+use crate::{AppState, auth, models, probes, ranking};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -27,97 +29,82 @@ pub async fn metrics() -> impl IntoResponse {
 }
 
 /// GET /api/config - Public platform config (branding + SSO + setup status)
+/// Parity: dgx-portal/app.py api_config (instance settings are `cfg_<name>`).
 pub async fn api_config(State(state): State<AppState>) -> impl IntoResponse {
-    // Fetch all settings needed for config (parallel)
-    let (oidc_metadata_url, oidc_client_id, oidc_client_secret, platform_name_setting, platform_logo, has_local_admin, has_dir_admin) = tokio::join!(
-        async { state.db.get_setting("oidc_metadata_url").await.ok().flatten() },
-        async { state.db.get_setting("oidc_client_id").await.ok().flatten() },
-        async { state.db.get_setting("oidc_client_secret").await.ok().flatten() },
-        async { state.db.get_setting("platform_name").await.ok().flatten() },
-        async { state.db.get_setting("platform_logo").await.ok().flatten() },
-        async {
-            // Check for enabled local admin: local_users with enabled=1 and (is_admin=1 or group with is_admin=1)
-            sqlx::query_scalar::<_, i32>(
-                "SELECT 1 FROM local_users u LEFT JOIN user_groups g ON g.name = u.group_name
-                 WHERE u.enabled = 1 AND (u.is_admin = 1 OR g.is_admin = 1) LIMIT 1"
-            )
-            .fetch_optional(state.db.pool())
-            .await
-            .ok()
-            .flatten()
-            .is_some()
-        },
-        async {
-            // Check for directory admin
-            sqlx::query_scalar::<_, i32>("SELECT 1 FROM user_sources WHERE last_is_admin = 1 LIMIT 1")
-            .fetch_optional(state.db.pool())
-            .await
-            .ok()
-            .flatten()
-            .is_some()
-        },
+    let db = &state.db;
+    let (metadata_url, client_id, client_secret, name, logo, setup_required) = tokio::join!(
+        db.get_config("oidc_metadata_url"),
+        db.get_config("oidc_client_id"),
+        db.get_config("oidc_client_secret"),
+        db.get_setting_set("platform_name"),
+        db.get_setting_set("platform_logo"),
+        setup_required(db),
     );
-
-    // oidc_enabled = all three components present
-    let oidc_enabled = oidc_metadata_url.is_some() && oidc_client_id.is_some() && oidc_client_secret.is_some();
-
-    // setup_required = no admins exist (neither local nor directory)
-    let setup_required = !has_local_admin && !has_dir_admin;
-
-    // platform_name defaults to "DGX" (not "DGX Portal")
-    let platform_name = platform_name_setting.unwrap_or_else(|| "DGX".to_string());
-
+    let oidc_enabled = metadata_url.is_some() && client_id.is_some() && client_secret.is_some();
     (
         StatusCode::OK,
         Json(json!({
             "oidc_enabled": oidc_enabled,
             "branding": {
-                "name": platform_name,
-                "logo": if platform_logo.is_some() { Some("/api/branding/logo") } else { None }
+                "name": name.unwrap_or_else(|| "DGX".to_string()),
+                "logo": logo.map(|_| "/api/branding/logo"),
             },
             "setup_required": setup_required,
         })),
     )
 }
 
-/// GET /.well-known/security.txt
-pub async fn security_txt(State(state): State<AppState>) -> impl IntoResponse {
-    let (security_contact, admin_email, platform_name_setting) = tokio::join!(
-        async { state.db.get_setting("security_contact").await.ok().flatten() },
-        async { state.db.get_setting("admin_email").await.ok().flatten() },
-        async { state.db.get_setting("platform_name").await.ok().flatten() },
-    );
-
-    let contact = security_contact.or(admin_email);
-    let platform_name = platform_name_setting.unwrap_or_else(|| "DGX".to_string());
-
-    // PUBLIC_WEB_URL from env, default to https://example.org
-    let public_web_url = std::env::var("DGX_WEB")
-        .unwrap_or_else(|_| "https://example.org".to_string())
-        .trim_end_matches('/')
-        .to_string();
-
-    match contact {
-        Some(c) => {
-            let contact_line = if c.starts_with("https://") || c.starts_with("mailto:") {
-                c
-            } else {
-                format!("mailto:{}", c)
-            };
-            let expires = chrono::Utc::now() + chrono::Duration::days(180);
-            (
-                StatusCode::OK,
-                format!(
-                    "# Report a security issue on {}.\nContact: {}\nExpires: {}\nCanonical: {}/.well-known/security.txt\nPreferred-Languages: en, fr\n",
-                    platform_name,
-                    contact_line,
-                    expires.format("%Y-%m-%dT00:00:00Z"),
-                    public_web_url,
-                ),
-            )
-        }
-        None => (StatusCode::NOT_FOUND, "No security contact configured\n".to_string()),
+/// owner.setup_required: no owner, no enabled local admin (own flag or group),
+/// no directory admin. A database error answers false: never offer the setup
+/// form on an instance we could not read.
+async fn setup_required(db: &crate::Database) -> bool {
+    if db.get_setting_set("owner_username").await.is_some() {
+        return false;
     }
+    let local_admin = sqlx::query_scalar::<_, i32>(
+        "SELECT 1 FROM local_users u LEFT JOIN user_groups g ON g.name = u.group_name \
+         WHERE u.enabled = 1 AND (u.is_admin = 1 OR g.is_admin = 1) LIMIT 1",
+    )
+    .fetch_optional(db.pool())
+    .await;
+    let directory_admin =
+        sqlx::query_scalar::<_, i32>("SELECT 1 FROM user_sources WHERE last_is_admin = 1 LIMIT 1")
+            .fetch_optional(db.pool())
+            .await;
+    matches!((local_admin, directory_admin), (Ok(None), Ok(None)))
+}
+
+/// GET /.well-known/security.txt - RFC 9116, parity with app.py security_txt.
+pub async fn security_txt(State(state): State<AppState>) -> impl IntoResponse {
+    let db = &state.db;
+    let (security_contact, admin_email, name) = tokio::join!(
+        db.get_config("security_contact"),
+        db.get_config("admin_email"),
+        db.get_setting_set("platform_name"),
+    );
+    let Some(contact) = security_contact.or(admin_email) else {
+        return (StatusCode::NOT_FOUND, "no security contact configured\n".to_string());
+    };
+    let contact = if contact.starts_with("https://") || contact.starts_with("mailto:") {
+        contact
+    } else {
+        format!("mailto:{contact}")
+    };
+    let public_web_url = std::env::var("DGX_WEB")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "https://example.org".to_string());
+    let expires = chrono::Utc::now() + chrono::Duration::days(180);
+    (
+        StatusCode::OK,
+        format!(
+            "# Report a security issue on {}.\nContact: {}\nExpires: {}\nPreferred-Languages: en, fr\nCanonical: {}/.well-known/security.txt\n",
+            name.unwrap_or_else(|| "DGX".to_string()),
+            contact,
+            expires.format("%Y-%m-%dT00:00:00Z"),
+            public_web_url.trim_end_matches('/'),
+        ),
+    )
 }
 
 /// GET /api/branding/logo
@@ -131,28 +118,31 @@ pub async fn api_health(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
     // Probe services in parallel
-    let (runner_ok, litellm_ok) = tokio::join!(
+    let (runner_ok, litellm_ok, chat) = tokio::join!(
         probes::probe_runner(),
         probes::probe_litellm(),
+        models::running_models(),
     );
 
+    // The media sidecars live on dedicated networks portal-rs does not join
+    // yet: their state is UNKNOWN here (null), never reported as stopped.
     (
         StatusCode::OK,
         Json(json!({
-            "ok": true,
+            "ok": runner_ok && litellm_ok,
             "services": {
                 "runner": { "reachable": runner_ok },
                 "litellm": { "reachable": litellm_ok },
-                "chat": { "running": null, "ready": runner_ok && litellm_ok },
-                "video": { "ready": false, "on_demand": true },
-                "ocr": { "ready": false, "on_demand": true },
-                "voice": { "ready": false, "on_demand": true },
-                "image": { "ready": false, "on_demand": true },
+                "chat": { "running": chat, "ready": !chat.is_empty() },
+                "video": { "ready": null, "on_demand": true },
+                "ocr": { "ready": null, "on_demand": true },
+                "voice": { "ready": null, "on_demand": true },
+                "image": { "ready": null, "on_demand": true },
             },
             "time": chrono::Utc::now().timestamp(),
         })),
@@ -166,7 +156,7 @@ pub async fn api_home(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let _session = match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(s) => s,
     };
 
@@ -215,7 +205,7 @@ pub async fn api_modelhealth(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -239,13 +229,20 @@ pub async fn api_running_models(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
     (
         StatusCode::OK,
-        Json(json!({"models": []})),
+        Json(json!({
+            // Chat model only: the sidecars are not probed by portal-rs yet.
+            "running_models": models::running_models()
+                .await
+                .into_iter()
+                .map(|m| json!({"name": m, "kind": "chat", "exposed": true}))
+                .collect::<Vec<_>>(),
+        })),
     )
     .into_response()
 }
@@ -256,8 +253,13 @@ pub async fn api_session(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Ok(_session) => (StatusCode::NO_CONTENT, "").into_response(),
-        Err(_) => (StatusCode::UNAUTHORIZED, "").into_response(),
+        Ok(_session) => (
+            StatusCode::NO_CONTENT,
+            [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            "",
+        )
+            .into_response(),
+        Err(e) => return e.into_response(),
     }
 }
 
@@ -267,41 +269,36 @@ pub async fn api_whoami(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(session) => {
-            // Fetch user preferences and password management
-            let (prefs, pwd_mgmt) = match (
-                state.db.get_user_prefs(&session.username).await,
-                state.db.get_password_management(&session.username).await,
-            ) {
-                (Ok(prefs), Ok(pwd_mgmt)) => (prefs, pwd_mgmt),
-                _ => {
-                    return (
-                        StatusCode::OK,
-                        Json(json!({
-                            "username": session.username,
-                            "fullname": session.fullname.unwrap_or_else(|| session.username.clone()),
-                            "is_admin": session.is_admin,
-                            "avatar_id": null,
-                            "theme_id": "neutral",
-                            "lang": "fr",
-                            "password_managed_by": "inconnu",
-                        })),
-                    )
+            // Parity: app.py api_whoami.
+            let (prefs, management, maintenance) = tokio::join!(
+                state.db.get_user_prefs(&session.username),
+                state.db.get_password_management(&session.username),
+                state.db.maintenance_active(),
+            );
+            let (Ok(prefs), Ok(management)) = (prefs, management) else {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({"ok": false, "error": "Base du portail illisible."})),
+                )
                     .into_response();
-                }
             };
-
             (
                 StatusCode::OK,
                 Json(json!({
                     "username": session.username,
-                    "fullname": session.fullname.unwrap_or_else(|| session.username.clone()),
+                    "fullname": session.fullname,
                     "is_admin": session.is_admin,
                     "avatar_id": prefs.avatar_id,
                     "theme_id": prefs.theme_id.unwrap_or_else(|| "neutral".to_string()),
                     "lang": prefs.lang.unwrap_or_else(|| "fr".to_string()),
-                    "password_managed_by": pwd_mgmt,
+                    "onboarded": prefs.onboarded,
+                    "local_account": management.local,
+                    "password_managed_by": management.management,
+                    "auth_sources": management.sources,
+                    "passkey_possible": management.passkey,
+                    "maintenance_mode": maintenance,
                 })),
             )
             .into_response()
@@ -313,14 +310,37 @@ pub async fn api_whoami(
 pub async fn api_ranking(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
-        Ok(_session) => {}
-    }
-
-    (StatusCode::OK, Json(json!({"users": []})))
-        .into_response()
+    let session = match auth::require_session(&headers, &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(session) => session,
+    };
+    // Validated like Flask: an unknown period or metric falls back rather than
+    // answering an error to a page that opens.
+    let period = q.get("period").map(String::as_str).filter(|p| ranking::PERIODS.contains(p)).unwrap_or("day");
+    let metric = q
+        .get("metric")
+        .map(String::as_str)
+        .filter(|m| ranking::RANKING_METRICS.contains(m))
+        .unwrap_or("total");
+    let by = q.get("by").map(String::as_str).unwrap_or("account");
+    let model: Option<String> = q
+        .get("model")
+        .map(|m| m.trim().chars().take(120).collect::<String>())
+        .filter(|m| !m.is_empty());
+    let data = ranking::ranking_for_viewer(
+        &state.db,
+        state.spend.as_ref(),
+        period,
+        metric,
+        by,
+        model.as_deref(),
+        &session.username,
+        session.is_admin,
+    )
+    .await;
+    (StatusCode::OK, Json(data)).into_response()
 }
 
 /// GET /api/ranking/activity - Ranking activity (auth required)
@@ -329,7 +349,7 @@ pub async fn api_ranking_activity(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -343,7 +363,7 @@ pub async fn api_ranking_records(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -357,7 +377,7 @@ pub async fn api_search(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -371,7 +391,7 @@ pub async fn system_stats(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -385,7 +405,7 @@ pub async fn usage_hourly(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -399,7 +419,7 @@ pub async fn api_latency(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -413,7 +433,7 @@ pub async fn api_ranking_user(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -427,7 +447,7 @@ pub async fn api_ranking_export(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -441,7 +461,7 @@ pub async fn api_ranking_privacy(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -455,7 +475,7 @@ pub async fn docs(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 
@@ -469,7 +489,7 @@ pub async fn index(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(_) => return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
+        Err(e) => return e.into_response(),
         Ok(_session) => {}
     }
 

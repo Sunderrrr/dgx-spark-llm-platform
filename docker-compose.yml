@@ -405,6 +405,16 @@ services:
       DATABASE_URL: sqlite:/app/data/portal.db
       PORTAL_RUST_PORT: "5100"
       RUST_LOG: info
+      # Same upstreams as dgx-portal, so both backends answer alike during
+      # the migration (docs/rust-migration.md). The runner address is the
+      # 172.19.x gateway the firewall allows, not host-gateway.
+      VLLM_RUNNER_URL: http://172.19.0.1:8001
+      RUNNER_TOKEN: ${RUNNER_TOKEN:?RUNNER_TOKEN must be set in .env (run setup.sh)}
+      VLLM_API_URL: http://172.19.0.1:8000/v1
+      LITELLM_URL: http://litellm:4001
+      LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (run setup.sh)}@postgres/litellm
+      DGX_WEB: ${DGX_WEB:?set DGX_WEB in .env (see .env.example)}
+      TZ_DISPLAY: Europe/Paris
     volumes:
       - portal_data:/app/data
     ports:

@@ -159,7 +159,11 @@ Also routed: `/api/keys` (the viewer's keys in clear, with LiteLLM's figures
 read from its database; the budget reset date of a key goes out as an HTTP
 date, as Flask's JSON encoding does; its only route is GET, the writes are
 under `/keys`), and `/api/discord/status` (the configured branch is not exercised: no
-Discord is set up on the bench). Also routed: `/api/notifications` and `/api/announcements`, with their
+Discord is set up on the bench). Also routed: `/api/settings` (the settings page's data: MCP servers, skills,
+preferences, the account block, the 182-day activity and the real quotas;
+identical to Flask on the demo account, which has 13 MCP servers and activity
+to compare; the page's writes live under other prefixes), `/api/notifications`
+and `/api/announcements`, with their
 mark-as-seen POSTs (CSRF checked first, as Flask does). Also ported:
 `/api/skills`. Not routed:
 `/api/notifications`, `/api/announcements` and `/api/skills` have write routes

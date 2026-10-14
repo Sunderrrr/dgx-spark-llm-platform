@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use sqlx::Row;
 use axum::{
     extract::{Path, Query, State},
     http::{StatusCode, HeaderMap},
@@ -7,7 +8,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use crate::{AppState, auth, conversations, docs, health, hf, home, keys, media, models, probes, ranking, sidecars, system, userdata};
+use crate::{AppState, auth, conversations, docs, health, hf, home, keys, media, models, probes, ranking, settings, sidecars, system, userdata};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -855,4 +856,140 @@ pub async fn api_announcements_seen(State(state): State<AppState>, headers: Head
         Ok(()) => Json(json!({"ok": true})).into_response(),
         Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
     }
+}
+
+/// GET /api/settings - the settings page's data (settings_routes.api_settings)
+pub async fn api_settings(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    let db = state.db.pool();
+    let username = session.username.as_str();
+    let servers: Vec<Value> = match sqlx::query(
+        "SELECT id, name, url, description, allowed_tools, enabled, (auth_header IS NOT NULL) AS has_auth, created_at \
+         FROM mcp_servers WHERE username = ? ORDER BY created_at DESC",
+    )
+    .bind(username)
+    .fetch_all(db)
+    .await
+    {
+        Ok(rows) => rows.iter().map(|r| json!({
+            "id": r.get::<i64, _>("id"),
+            "name": r.get::<Option<String>, _>("name"),
+            "url": r.get::<Option<String>, _>("url"),
+            "description": r.get::<Option<String>, _>("description"),
+            "allowed_tools": r.get::<Option<String>, _>("allowed_tools"),
+            "enabled": r.get::<Option<i64>, _>("enabled"),
+            "has_auth": r.get::<Option<i64>, _>("has_auth"),
+            "created_at": r.get::<Option<String>, _>("created_at"),
+        })).collect(),
+        Err(_) => return data_or_503(Err(sqlx::Error::PoolTimedOut)),
+    };
+    let skills: Vec<Value> = match sqlx::query(
+        "SELECT id, name, description, instructions, created_at, source, version, enabled \
+         FROM skills WHERE username = ? ORDER BY created_at DESC",
+    )
+    .bind(username)
+    .fetch_all(db)
+    .await
+    {
+        Ok(rows) => rows.iter().map(|r| json!({
+            "id": r.get::<i64, _>("id"),
+            "name": r.get::<Option<String>, _>("name"),
+            "description": r.get::<Option<String>, _>("description"),
+            "instructions": r.get::<Option<String>, _>("instructions"),
+            "created_at": r.get::<Option<String>, _>("created_at"),
+            "source": r.get::<Option<String>, _>("source"),
+            "version": r.get::<Option<String>, _>("version"),
+            "enabled": r.get::<Option<i64>, _>("enabled"),
+        })).collect(),
+        Err(_) => return data_or_503(Err(sqlx::Error::PoolTimedOut)),
+    };
+    let pref: Option<(Option<String>, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT avatar_id, theme_id, lang FROM user_prefs WHERE username = ?")
+            .bind(username)
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten();
+    let (avatar_id, theme_id, lang) = match pref {
+        Some((a, t, l)) => (a, t, l),
+        None => (None, None, None),
+    };
+
+    let key_budget: f64 = std::env::var("KEY_MAX_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(200_000_000.0);
+    let default_budget: f64 = state
+        .db
+        .get_setting("default_key_budget")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(key_budget);
+    let duration = state
+        .db
+        .get_setting("default_key_duration")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| std::env::var("KEY_BUDGET_DURATION").unwrap_or_else(|_| "7d".to_string()));
+    let acct = keys::account_info(username).await;
+    let key_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE username = ?")
+        .bind(username)
+        .fetch_one(db)
+        .await
+        .unwrap_or(0);
+
+    let running = models::running_models().await;
+    let ctx = match running.first() {
+        Some(model) => match state.db.model_config(model).await {
+            Ok(Some((engine, args))) => {
+                let engine = engine.filter(|e| !e.is_empty()).unwrap_or_else(|| "vllm".to_string());
+                health::effective_ctx(args.as_deref().unwrap_or_default(), &engine)
+            }
+            _ => None,
+        },
+        None => None,
+    };
+    let activity = settings::activity(state.spend.as_ref(), username, 182).await;
+    let limits = settings::limits(
+        db,
+        username,
+        session.is_admin,
+        default_budget,
+        &acct,
+        servers.len() as i64,
+        skills.len() as i64,
+        &running,
+        ctx,
+    )
+    .await;
+
+    Json(json!({
+        "mcp_servers": servers,
+        "skills": skills,
+        "avatar_id": avatar_id,
+        "theme_id": theme_id.unwrap_or_else(|| "neutral".to_string()),
+        "lang": lang.unwrap_or_else(|| "en".to_string()),
+        "theme_ids": settings::THEME_IDS,
+        "langs": settings::LANGS,
+        "avatars": settings::AVATAR_IDS.iter().map(|a| json!({"id": a, "label": settings::avatar_label(a)})).collect::<Vec<_>>(),
+        "account": {
+            "username": username,
+            "fullname": session.fullname.clone().unwrap_or_else(|| username.to_string()),
+            "is_admin": session.is_admin,
+            "spend": acct.spend,
+            "max_budget": acct.max_budget,
+            "unlimited": session.is_admin,
+            "budget_reset_at": Some(acct.budget_reset_at.clone()).filter(|s| !s.is_empty()),
+            "budget_duration": duration,
+            "key_count": key_count,
+            "mcp_count": servers.len(),
+            "skill_count": skills.len(),
+        },
+        "activity": activity,
+        "limits": limits,
+    }))
+    .into_response()
 }

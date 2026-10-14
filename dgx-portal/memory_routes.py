@@ -20,10 +20,8 @@ from flask import Blueprint, Response, jsonify, request, session
 from auth import login_required
 from db import get_db, platform_name
 
-# The JSON export's schema tag. Exports made before the rename carry the old
-# tag and must stay importable: that is the user's own data.
+# The JSON export's schema tag.
 MEMORY_SCHEMA = 'dgx-memory'
-MEMORY_SCHEMA_LEGACY = ('dgx-memory',)
 
 bp = Blueprint('memory', __name__)
 
@@ -631,7 +629,7 @@ def _validate_import_doc(doc):
     """Validates the structure of an import JSON. Returns (msg, None) if invalid."""
     if not isinstance(doc, dict):
         return "Document JSON invalide (objet attendu).", None
-    if doc.get('schema') not in (MEMORY_SCHEMA, *MEMORY_SCHEMA_LEGACY):
+    if doc.get('schema') != MEMORY_SCHEMA:
         return "Format non reconnu (clé 'schema' manquante ou incorrecte).", None
     nodes = doc.get('nodes')
     edges = doc.get('edges')

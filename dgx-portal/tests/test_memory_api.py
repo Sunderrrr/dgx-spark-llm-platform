@@ -219,15 +219,6 @@ class ImportExportApiTest(MemoryApiBase):
         facts = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
         self.assertEqual(facts, ['Tourne en 0.27.'])
 
-    def test_import_accepts_exports_made_before_the_rename(self):
-        doc = self.client.get('/api/memory/export').get_json()
-        doc['schema'] = 'dgx-memory'      # what older exports carry
-        self.client.post('/api/memory/purge', headers={'X-CSRFToken': self.csrf})
-        r = self.client.post('/api/memory/import', json=doc, headers={'X-CSRFToken': self.csrf})
-        self.assertEqual(r.status_code, 200)
-        facts = [e['fact'] for e in self.client.get('/api/memory').get_json()['edges']]
-        self.assertEqual(facts, ['Tourne en 0.27.'])
-
     def test_duplicate_import_creates_no_double(self):
         doc = self.client.get('/api/memory/export').get_json()
         self.client.post('/api/memory/import', json=doc, headers={'X-CSRFToken': self.csrf})

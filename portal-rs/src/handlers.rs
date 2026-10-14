@@ -8,7 +8,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use crate::{AppState, auth, conversations, docs, health, hf, home, keys, media, models, probes, ranking, settings, sidecars, system, userdata};
+use crate::{AppState, auth, conversations, docs, health, hf, home, keys, media, models, probes, ranking, sessions, settings, sidecars, system, userdata};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -992,4 +992,102 @@ pub async fn api_settings(State(state): State<AppState>, headers: HeaderMap) -> 
         "limits": limits,
     }))
     .into_response()
+}
+
+/// GET /api/account/sessions - the viewer's active sessions and how the password is managed
+pub async fn api_account_sessions(State(state): State<AppState>, headers: HeaderMap, connect: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    // complete_session_origin: fill in this browser's origin where missing.
+    if let Some(sid) = session.sid.as_deref() {
+        let ip = auth::client_ip(&headers, connect.map(|c| c.0.ip()));
+        let ua = headers.get(axum::http::header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or_default();
+        if let Err(e) = sessions::complete_origin(state.db.pool(), sid, &session.username, &ip, ua).await {
+            let _ = e;
+        }
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    let listed = match sessions::list(state.db.pool(), &session.username, session.sid.as_deref(), now).await {
+        Ok(v) => v,
+        Err(_) => return data_or_503(Err(sqlx::Error::PoolTimedOut)),
+    };
+    let management = match state.db.get_password_management(&session.username).await {
+        Ok(m) => m,
+        Err(_) => return data_or_503(Err(sqlx::Error::PoolTimedOut)),
+    };
+    Json(json!({
+        "sessions": listed,
+        "local_account": management.local,
+        "password_managed_by": management.management,
+        "passkey_possible": management.passkey,
+    }))
+    .into_response()
+}
+
+/// POST /api/account/sessions/revoke - close one of the viewer's sessions (`id`), or all the others (`all`)
+pub async fn api_account_sessions_revoke(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    // CSRF first, then the session; the body is JSON, or a form as the fallback.
+    let form: std::collections::HashMap<String, String> = if headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/x-www-form-urlencoded"))
+    {
+        serde_urlencoded::from_bytes(&body).unwrap_or_default()
+    } else {
+        Default::default()
+    };
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(true) => {}
+    }
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    // Flask: `request.get_json(silent=True) or request.form`.
+    let json_body: Option<Value> = serde_json::from_slice::<Value>(&body).ok().filter(|v| v.is_object());
+    let field = |name: &str| -> Option<Value> {
+        match &json_body {
+            Some(v) if v.get(name).is_some() => v.get(name).cloned(),
+            _ => form.get(name).map(|s| Value::String(s.clone())),
+        }
+    };
+    let all = match field("all") {
+        Some(Value::Bool(true)) => true,
+        Some(Value::String(s)) => matches!(s.as_str(), "1" | "true" | "on"),
+        _ => false,
+    };
+    let db = state.db.pool();
+    if all {
+        let n = match sessions::revoke_others(db, &session.username, session.sid.as_deref()).await {
+            Ok(n) => n,
+            Err(_) => return data_or_503(Err(sqlx::Error::PoolTimedOut)),
+        };
+        sessions::log_audit(db, &session.username, "account.sessions.revoke",
+            &format!("{n} autre(s) session(s) fermée(s) par l'utilisateur")).await;
+        return Json(json!({"ok": true, "revoked": n})).into_response();
+    }
+    let ident = match field("id") {
+        Some(Value::String(s)) => s.trim().to_string(),
+        _ => String::new(),
+    };
+    match sessions::revoke_one(db, &session.username, &ident).await {
+        Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+        Ok(sessions::RevokeOne::TooShort) => (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": "Identifiant de session invalide."}))).into_response(),
+        Ok(sessions::RevokeOne::NotFound) => (StatusCode::NOT_FOUND, Json(json!({"ok": false, "error": "Session introuvable (déjà fermée ?)."}))).into_response(),
+        Ok(sessions::RevokeOne::Ambiguous) => (StatusCode::CONFLICT, Json(json!({"ok": false, "error": "Identifiant de session ambigu, réessaie."}))).into_response(),
+        Ok(sessions::RevokeOne::Revoked(target)) => {
+            let current = session.sid.as_deref() == Some(target.as_str());
+            let detail = if current { "fermeture de la session courante".to_string() } else { format!("fermeture de la session {ident}") };
+            sessions::log_audit(db, &session.username, "account.sessions.revoke", &detail).await;
+            Json(json!({"ok": true, "revoked": 1, "current": current})).into_response()
+        }
+    }
 }

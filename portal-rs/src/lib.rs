@@ -19,6 +19,7 @@ pub mod userdata;
 pub mod conversations;
 pub mod keys;
 pub mod settings;
+pub mod sessions;
 
 pub use db::Database;
 pub use error::ApiError;

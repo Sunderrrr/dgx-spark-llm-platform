@@ -37,3 +37,4 @@
 /api/notifications
 /api/announcements
 /api/settings
+/api/account/sessions

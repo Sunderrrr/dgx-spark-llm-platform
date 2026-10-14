@@ -27,6 +27,8 @@ pub struct SessionData {
     pub fullname: Option<String>,
     pub is_admin: bool,
     pub csrf: Option<String>,
+    /// The session's registry identifier (its own sessions list marks it as current).
+    pub sid: Option<String>,
 }
 
 #[derive(Debug)]
@@ -170,6 +172,7 @@ pub async fn require_session(headers: &HeaderMap, db: &Database) -> Result<Sessi
         fullname: data.get("fullname").and_then(Value::as_str).map(str::to_string),
         is_admin: role.unwrap_or(session_admin),
         csrf: data.get("csrf").and_then(Value::as_str).map(str::to_string),
+        sid: data.get("sid").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string),
     })
 }
 
@@ -227,4 +230,38 @@ mod tests {
         assert!(!constant_time_eq(b"abc", b"ab"));
         assert!(!constant_time_eq(b"", b"x"));
     }
+
+    #[test]
+    fn client_ip_prefers_a_valid_cloudflare_header_then_the_last_forwarded_hop() {
+        use axum::http::HeaderValue;
+        let mut h = HeaderMap::new();
+        h.insert("cf-connecting-ip", HeaderValue::from_static("203.0.113.9"));
+        assert_eq!(client_ip(&h, None), "203.0.113.9");
+        let mut h = HeaderMap::new();
+        h.insert("cf-connecting-ip", HeaderValue::from_static("not-an-ip"));
+        h.insert("x-forwarded-for", HeaderValue::from_static("fake, 198.51.100.7"));
+        assert_eq!(client_ip(&h, None), "198.51.100.7");
+        let h = HeaderMap::new();
+        assert_eq!(client_ip(&h, None), "unknown");
+    }
+}
+
+/// `_client_ip`: the visitor's real address. A Cloudflare header counts only
+/// when it is a valid IP; of X-Forwarded-For only the LAST hop is trusted (the
+/// first is client-controlled). Falls back on the connection's own address.
+pub fn client_ip(headers: &HeaderMap, remote: Option<std::net::IpAddr>) -> String {
+    let valid = |v: &str| v.parse::<std::net::IpAddr>().ok().map(|ip| ip.to_string());
+    if let Some(ip) = headers.get("cf-connecting-ip").and_then(|v| v.to_str().ok()).map(str::trim).and_then(valid) {
+        return ip;
+    }
+    let last_hop = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').last())
+        .map(str::trim)
+        .unwrap_or_default();
+    if let Some(ip) = valid(last_hop) {
+        return ip;
+    }
+    remote.map(|ip| ip.to_string()).unwrap_or_else(|| "unknown".to_string())
 }

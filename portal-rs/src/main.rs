@@ -72,6 +72,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/discord/status", get(handlers::api_discord_status))
         .route("/api/keys", get(handlers::api_keys))
         .route("/api/settings", get(handlers::api_settings))
+        .route("/api/account/sessions", get(handlers::api_account_sessions))
+        .route("/api/account/sessions/revoke", post(handlers::api_account_sessions_revoke))
         .route("/api/conversations/:client_id", get(handlers::api_conversation))
         .route("/api/notifications", get(handlers::api_notifications))
         .route("/api/announcements", get(handlers::api_announcements))
@@ -86,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Run server
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
 
     Ok(())
 }

@@ -28,4 +28,8 @@ EXPOSE 5000
 # see ocr_extract()) can approach 120 s under GPU contention (H3 video running
 # in parallel), which got the worker killed in the middle of an otherwise
 # healthy request.
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "-w", "4", "--worker-class", "gthread", "--threads", "16", "--timeout", "200", "app:app"]
+# --keep-alive 75: gunicorn's default (2 s) closes an idle connection exactly
+# when the Next.js proxy reuses it — the proxy then fails with « socket hang
+# up » (ECONNRESET, reproduced 2026-10-14 on bursts: 2 failures in 280). The
+# server must hold idle connections LONGER than the client's pool does.
+CMD ["gunicorn", "-b", "0.0.0.0:5000", "-w", "4", "--worker-class", "gthread", "--threads", "16", "--timeout", "200", "--keep-alive", "75", "app:app"]

@@ -821,3 +821,38 @@ pub async fn api_keys(State(state): State<AppState>, headers: HeaderMap) -> Resp
     }))
     .into_response()
 }
+
+/// Shared shape of the viewer's POST writes that take no body: CSRF first (as
+/// Flask's before_request does, 400 even without a session), then the session.
+async fn csrf_then_viewer(state: &AppState, headers: &HeaderMap) -> Result<auth::SessionData, Response> {
+    match auth::csrf_ok(headers, None, &state.db).await {
+        Err(e) => return Err(e.into_response()),
+        Ok(false) => return Err(auth::html_status(StatusCode::BAD_REQUEST)),
+        Ok(true) => {}
+    }
+    viewer(state, headers).await
+}
+
+/// POST /api/notifications/seen - mark the bell's notifications as read
+pub async fn api_notifications_seen(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match csrf_then_viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    match userdata::notifications_seen(state.db.pool(), &session.username).await {
+        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
+    }
+}
+
+/// POST /api/announcements/seen - mark the announcements as read up to the newest
+pub async fn api_announcements_seen(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match csrf_then_viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    match userdata::announcements_seen(state.db.pool(), &session.username).await {
+        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
+    }
+}

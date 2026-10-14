@@ -140,3 +140,28 @@ pub async fn discord_status(
         "discord_name": name.unwrap_or_default(),
     })
 }
+
+/// `POST /api/notifications/seen`: every unseen notification of the viewer becomes seen.
+pub async fn notifications_seen(pool: &SqlitePool, username: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE notifications SET seen = 1 WHERE username = ? AND seen = 0")
+        .bind(username)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// `POST /api/announcements/seen`: the viewer has seen every announcement up to the newest.
+pub async fn announcements_seen(pool: &SqlitePool, username: &str) -> Result<(), sqlx::Error> {
+    let newest: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(id), 0) FROM announcements")
+        .fetch_one(pool)
+        .await?;
+    sqlx::query(
+        "INSERT INTO announcement_state (username, last_seen_id) VALUES (?, ?) \
+         ON CONFLICT(username) DO UPDATE SET last_seen_id = excluded.last_seen_id",
+    )
+    .bind(username)
+    .bind(newest)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

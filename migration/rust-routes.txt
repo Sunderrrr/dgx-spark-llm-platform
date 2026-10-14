@@ -3,10 +3,9 @@
 #
 # Phase 3 (media), read-only routes only: the routes that create or act on jobs,
 # and those that return a stored file (media_store may read S3), stay on Flask.
-# Also not routed, on purpose: /api/skills, /api/notifications and
-# /api/announcements. A prefix covers its sub-paths, and each has write routes
-# under it (skills import/sync/enabled, POST .../seen) that the Rust portal does
-# not serve yet: they would answer 405. Their read routes are ported.
+# Also not routed, on purpose: /api/skills. A prefix covers its sub-paths, and
+# its write routes (import, import-git, sync, enabled) are not ported yet: they
+# would answer 405.
 # Not routed yet, on purpose: /api/home, /system/stats and /api/ranking, whose
 # ADMIN branches are ported but not compared to Flask (the bench account is not
 # an admin); /api/latency, which measures the Flask process itself; and the
@@ -35,3 +34,5 @@
 /api/conversations
 /api/discord/status
 /api/keys
+/api/notifications
+/api/announcements

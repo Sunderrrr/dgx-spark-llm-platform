@@ -159,8 +159,9 @@ Also routed: `/api/keys` (the viewer's keys in clear, with LiteLLM's figures
 read from its database; the budget reset date of a key goes out as an HTTP
 date, as Flask's JSON encoding does; its only route is GET, the writes are
 under `/keys`), and `/api/discord/status` (the configured branch is not exercised: no
-Discord is set up on the bench). Also ported: `/api/notifications`,
-`/api/announcements`, `/api/skills`. Not routed:
+Discord is set up on the bench). Also routed: `/api/notifications` and `/api/announcements`, with their
+mark-as-seen POSTs (CSRF checked first, as Flask does). Also ported:
+`/api/skills`. Not routed:
 `/api/notifications`, `/api/announcements` and `/api/skills` have write routes
 under the same prefix (`/seen` POST, skill import, sync, enable), which the
 Rust portal does not serve yet; a prefix would capture them. Verify before

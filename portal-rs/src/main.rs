@@ -75,6 +75,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/notifications", get(handlers::api_notifications))
         .route("/api/announcements", get(handlers::api_announcements))
         .route("/api/skills", get(handlers::api_skills))
+        .route("/api/notifications/seen", post(handlers::api_notifications_seen))
+        .route("/api/announcements/seen", post(handlers::api_announcements_seen))
         
         .layer(axum::middleware::from_fn(portal_rs::security::layer))
         .layer(TraceLayer::new_for_http())

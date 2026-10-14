@@ -1,0 +1,27 @@
+[package]
+name = "vllm-runner-rs"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "vllm-runner"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+thiserror = "1.0"
+dotenv = "0.15"
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+libc = "0.2"
+nix = { version = "0.27", features = ["process"] }
+
+[dev-dependencies]

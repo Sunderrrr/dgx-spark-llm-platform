@@ -2,6 +2,7 @@ use std::time::Duration;
 use reqwest::Client;
 
 /// Probe runner service on :8001
+/// 401 = unauthorized but reachable (no RUNNER_TOKEN in env); treat as success for health
 pub async fn probe_runner() -> bool {
     let client = Client::builder()
         .timeout(Duration::from_secs(2))
@@ -11,11 +12,14 @@ pub async fn probe_runner() -> bool {
         Ok(client) => {
             match client
                 .get("http://host.docker.internal:8001/status")
-                .bearer_auth("") // Runner token would go here if we had it
+                .bearer_auth("") // Will return 401 if runner requires auth; that's OK
                 .send()
                 .await
             {
-                Ok(resp) => resp.status().is_success(),
+                Ok(resp) => {
+                    // 2xx = success; 401 = unauthorized but reachable
+                    resp.status().is_success() || resp.status().as_u16() == 401
+                },
                 Err(_) => false,
             }
         }
@@ -23,7 +27,7 @@ pub async fn probe_runner() -> bool {
     }
 }
 
-/// Probe LiteLLM service on :4001
+/// Probe LiteLLM service on :4000 (Docker network alias, not :4001 from host)
 pub async fn probe_litellm() -> bool {
     let client = Client::builder()
         .timeout(Duration::from_secs(2))
@@ -32,7 +36,7 @@ pub async fn probe_litellm() -> bool {
     match client {
         Ok(client) => {
             match client
-                .get("http://host.docker.internal:4001/health")
+                .get("http://litellm:4000/health")
                 .send()
                 .await
             {

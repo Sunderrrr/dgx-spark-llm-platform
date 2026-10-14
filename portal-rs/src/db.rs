@@ -140,6 +140,7 @@ impl Database {
     }
 
     /// Get password management source for a user
+    /// local_users → 'portail', ldap → 'annuaire', sso → 'fournisseur_identite', unknown → 'inconnu'
     pub async fn get_password_management(&self, username: &str) -> Result<String> {
         // Check local_users first (authoritative)
         let is_local: Option<(i32,)> = sqlx::query_as(
@@ -154,15 +155,15 @@ impl Database {
         }
 
         // Check user_sources for last auth source
-        let source: Option<(String, i32)> = sqlx::query_as(
-            "SELECT source, CASE WHEN is_admin = 1 THEN 1 ELSE 0 END FROM user_sources WHERE username = ? ORDER BY last_login DESC LIMIT 1"
+        let source: Option<(String,)> = sqlx::query_as(
+            "SELECT last_source FROM user_sources WHERE username = ?"
         )
         .bind(username)
         .fetch_optional(&self.pool)
         .await?;
 
         Ok(match source {
-            Some((src, _)) => match src.as_str() {
+            Some((src,)) => match src.as_str() {
                 "ldap" => "annuaire".to_string(),
                 "sso" => "fournisseur_identite".to_string(),
                 _ => "inconnu".to_string(),

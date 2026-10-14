@@ -150,6 +150,15 @@ Not ported, on purpose:
   porting S3 access is a sub-project.
 - **`/api/video/status`**: it asks ComfyUI and persists the result.
 
+### Phase 4 — state (user data, read-only part)
+
+Ported and compared (bench, demo account): `/api/pending-count` (routed),
+`/api/notifications`, `/api/announcements`, `/api/skills`. Not routed:
+`/api/notifications`, `/api/announcements` and `/api/skills` have write routes
+under the same prefix (`/seen` POST, skill import, sync, enable), which the
+Rust portal does not serve yet; a prefix would capture them. Verify before
+routing any prefix: no route under it may need another method.
+
 Porting notes that cost a wrong first attempt: LiteLLM listens on 4001 inside
 the Docker network and `/health` needs a key since 1.102 (probe
 `/health/liveliness`); instance settings are stored as `cfg_<name>` with empty

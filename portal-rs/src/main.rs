@@ -67,6 +67,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/voice/history", get(handlers::api_voice_history))
         .route("/api/voice/info", get(handlers::api_voice_info))
         .route("/api/transcribe/available", get(handlers::api_transcribe_available))
+        .route("/api/pending-count", get(handlers::api_pending_count))
+        .route("/api/notifications", get(handlers::api_notifications))
+        .route("/api/announcements", get(handlers::api_announcements))
+        .route("/api/skills", get(handlers::api_skills))
         
         .layer(axum::middleware::from_fn(portal_rs::security::layer))
         .layer(TraceLayer::new_for_http())

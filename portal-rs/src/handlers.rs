@@ -7,7 +7,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use crate::{AppState, auth, docs, health, hf, home, media, models, probes, ranking, sidecars, system};
+use crate::{AppState, auth, docs, health, hf, home, media, models, probes, ranking, sidecars, system, userdata};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -659,4 +659,44 @@ pub async fn api_transcribe_available(State(state): State<AppState>, headers: He
         return r;
     }
     Json(json!({"available": media::transcribe_available().await})).into_response()
+}
+
+/// Answer of a user-data read: the value, or the unreadable-database refusal.
+fn data_or_503(r: Result<Value, sqlx::Error>) -> Response {
+    match r {
+        Ok(v) => Json(v).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
+    }
+}
+
+/// GET /api/pending-count - the sidebar's badges
+pub async fn api_pending_count(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    match viewer(&state, &headers).await {
+        Err(r) => r,
+        Ok(s) => data_or_503(userdata::pending_count(state.db.pool(), &s.username, s.is_admin).await),
+    }
+}
+
+/// GET /api/notifications - the bell
+pub async fn api_notifications(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    match viewer(&state, &headers).await {
+        Err(r) => r,
+        Ok(s) => data_or_503(userdata::notifications(state.db.pool(), &s.username).await),
+    }
+}
+
+/// GET /api/announcements - announcements the viewer has not seen
+pub async fn api_announcements(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    match viewer(&state, &headers).await {
+        Err(r) => r,
+        Ok(s) => data_or_503(userdata::announcements(state.db.pool(), &s.username).await),
+    }
+}
+
+/// GET /api/skills - the viewer's skills
+pub async fn api_skills(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    match viewer(&state, &headers).await {
+        Err(r) => r,
+        Ok(s) => data_or_503(userdata::skills(state.db.pool(), &s.username, 50).await),
+    }
 }

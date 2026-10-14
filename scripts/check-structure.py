@@ -20,7 +20,7 @@ MAX_LINES = 1200
 
 # Files above MAX_LINES on 2026-10-13, frozen at their size that day.
 FROZEN = {
-    'dgx-portal-frontend/app/(app)/playground/PlaygroundPage.tsx': 2593,
+    'dgx-portal-frontend/app/(app)/playground/PlaygroundPage.tsx': 2585,
     'dgx-portal/chat_routes.py': 1680,
     'dgx-portal/app.py': 1722,
     'vllm-runner/runner.py': 1492,

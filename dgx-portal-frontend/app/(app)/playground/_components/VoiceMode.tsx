@@ -6,8 +6,9 @@
 // in your bubble), it goes out as an ordinary turn of THIS conversation. The
 // answer is read sentence by sentence by Kyutai TTS while the model is still
 // writing; on screen the whole answer is shown in grey and turns white as it
-// is said. Speak over it and it stops (barge-in). A warm halo at the bottom
-// breathes with whoever is talking.
+// is said. Speak over it and it pauses; once your words are recognised it
+// stops and your turn goes out (barge-in) — a sound that was not speech lets
+// it go on. A warm halo at the bottom breathes with whoever is talking.
 //
 // Everything stays in the conversation's history: closing the voice mode
 // leaves the thread exactly as a written exchange would.
@@ -24,7 +25,7 @@ import {
   SpeakerXMarkIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { useT } from "@/lib/i18n";
+import { useLang, useT } from "@/lib/i18n";
 import { fetchCsrfToken } from "@/lib/api";
 import type { ChatMsg } from "@/lib/types";
 import { MicListener, SpeechPlayer } from "@/lib/voiceAudio";
@@ -50,9 +51,14 @@ const VOICE_LABELS: Record<string, string> = { "fr-a": "A", "fr-b": "B", "fr-c":
 /** Messages kept on screen: the voice mode is the end of a conversation. */
 const SHOWN_MESSAGES = 16;
 
-async function transcribe(wav: Blob, csrf: string): Promise<{ text: string; starting?: boolean; error?: string }> {
+async function transcribe(wav: Blob, csrf: string, lang: string): Promise<{ text: string; starting?: boolean; error?: string }> {
   const body = new FormData();
   body.append("audio", new File([wav], "speech.wav", { type: "audio/wav" }));
+  // The language is forced: a voice turn is one short sentence, too little for
+  // Whisper to detect it — « Arrête d'expliquer, fais-le » came out as
+  // Icelandic (2026-10-14). The written dictation keeps auto-detection: it
+  // re-reads a growing buffer, which is enough to settle the language.
+  body.append("language", lang);
   const res = await fetch("/api/transcribe", {
     method: "POST", credentials: "include", headers: { "X-CSRFToken": csrf }, body,
   });
@@ -63,6 +69,7 @@ async function transcribe(wav: Blob, csrf: string): Promise<{ text: string; star
 
 export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrupt, onClose }: Props) {
   const t = useT();
+  const { lang } = useLang();
   const [phase, setPhase] = useState<Phase>("preparing");
   const [notice, setNotice] = useState<string | null>(null);
   const [liveText, setLiveText] = useState("");
@@ -83,9 +90,13 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
   const glowRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   // The answer being voiced: its index in `messages`, how far its text has
-  // been cut into sentences, the sentences waiting for the voice.
-  const turn = useRef<{ awaitFrom: number | null; index: number | null; cut: number; queue: Sentence[]; pumping: boolean }>(
-    { awaitFrom: null, index: null, cut: 0, queue: [], pumping: false });
+  // been cut into sentences, the sentences waiting for the voice, those
+  // already handed to it, and whether a sound over it has paused it (resumed
+  // from `resumeAt` if that sound turns out not to be speech).
+  const turn = useRef<{
+    awaitFrom: number | null; index: number | null; cut: number; queue: Sentence[]; given: Sentence[];
+    pumping: boolean; paused: boolean; resumeAt: number;
+  }>({ awaitFrom: null, index: null, cut: 0, queue: [], given: [], pumping: false, paused: false, resumeAt: 0 });
   const voiceOk = useRef(true);
   const failures = useRef(0);
   // A sound over the assistant, not yet confirmed as an interruption.
@@ -97,9 +108,9 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
   // Everything the mic callbacks read: they are set up ONCE, at opening —
   // a captured `onSend` was the first render's, with an empty CSRF token,
   // and every spoken turn failed (400 → « Erreur réseau »).
-  const live = useRef({ messages, streaming, voice, speakerOn, phase, csrf, onSend, onInterrupt });
+  const live = useRef({ messages, streaming, voice, speakerOn, phase, csrf, lang, onSend, onInterrupt });
   useEffect(() => {
-    live.current = { messages, streaming, voice, speakerOn, phase, csrf, onSend, onInterrupt };
+    live.current = { messages, streaming, voice, speakerOn, phase, csrf, lang, onSend, onInterrupt };
   });
 
   // ── The voice: one sentence after another, each request as soon as the
@@ -112,6 +123,7 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
     try {
       while (tr.queue.length) {
         const s = tr.queue.shift()!;
+        tr.given.push(s);
         if (!live.current.speakerOn || !voiceOk.current) continue;
         try {
           await player.speak(s.text, live.current.voice, live.current.csrf, s.start, s.end);
@@ -143,10 +155,12 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
       tr.awaitFrom = null;
       tr.cut = 0;
       tr.queue = [];
+      tr.given = [];
+      tr.paused = false;
       playerRef.current?.reset();
       setSaid(0);
     }
-    if (tr.index === null) return;
+    if (tr.index === null || tr.paused) return;
     const m = messages[tr.index];
     // An error is shown, never read; an empty spoken turn is asked again by
     // the page, and its new answer replaces this one from the start.
@@ -155,6 +169,7 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
     if (text.length < tr.cut) {
       tr.cut = 0;
       tr.queue = [];
+      tr.given = [];
       playerRef.current?.reset();
       setSaid(0);
     }
@@ -172,11 +187,48 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
     const tr = turn.current;
     playerRef.current?.stop();
     tr.queue = [];
+    tr.paused = false;
     if (live.current.streaming) live.current.onInterrupt();
     if (tr.index !== null) setSaid(Number.MAX_SAFE_INTEGER);   // what was written stays readable
     tr.index = null;
     setVoiced(null);
   }, []);
+
+  // A sound confirmed over the answer only PAUSES it: the voice stops, the
+  // model keeps writing. Whether it was the user is known once the sound is
+  // transcribed — a laugh or the room taken for speech used to cancel the
+  // answer for good, mid-word (« …Règle », then « Pourquoi tu t'arrêtes ? »,
+  // 2026-10-14).
+  const pauseVoice = useCallback(() => {
+    const tr = turn.current;
+    if (tr.index === null || tr.paused) return;
+    const spoken = playerRef.current?.spokenChars() ?? 0;
+    // Resume at the start of the sentence that was being said.
+    const current = tr.given.filter((s) => s.start <= spoken).pop();
+    tr.resumeAt = current ? current.start : 0;
+    tr.paused = true;
+    tr.queue = [];
+    playerRef.current?.stop();
+  }, []);
+
+  // Not speech after all: the answer goes on from where its voice stopped.
+  const resumeVoice = useCallback(() => {
+    const tr = turn.current;
+    if (!tr.paused) return false;
+    tr.paused = false;
+    if (tr.index === null) return false;
+    const m = live.current.messages[tr.index];
+    tr.cut = tr.resumeAt;
+    tr.given = [];
+    if (m && m.role === "assistant" && !m.isError) {
+      const final = !live.current.streaming || tr.index !== live.current.messages.length - 1;
+      const { sentences, end } = nextSentences(speakable(m.content), tr.cut, final);
+      tr.cut = end;
+      tr.queue.push(...sentences);
+      void pump();
+    }
+    return true;
+  }, [pump]);
 
   // ── Open: voice service, transcription warm-up, microphone.
   useEffect(() => {
@@ -253,7 +305,7 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
       mic.onSpeechConfirmed = () => {
         if (!barge.current) return;
         barge.current = false;
-        interrupt();
+        pauseVoice();
         setLiveText("");
         setPhase("hearing");
       };
@@ -264,25 +316,36 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
           return;
         }
         if (!wav) {
-          if (live.current.phase === "hearing") setPhase("listening");
+          if (resumeVoice()) setPhase("thinking");
+          else if (live.current.phase === "hearing") setPhase("listening");
           return;
         }
         setPhase("thinking");
-        let r = await transcribe(wav, live.current.csrf);
+        let r = await transcribe(wav, live.current.csrf, live.current.lang);
         // First use: the transcription service is still loading — wait for it.
         for (let k = 0; r.starting && k < 30; k++) {
           setNotice(t("Démarrage de la transcription…"));
           await new Promise((ok) => setTimeout(ok, 2000));
-          r = await transcribe(wav, live.current.csrf);
+          r = await transcribe(wav, live.current.csrf, live.current.lang);
         }
         setNotice((n) => (n === t("Démarrage de la transcription…") ? null : n));
         setLiveText("");
         if (r.error) {
           setNotice(r.error);
-          setPhase("listening");
+          if (!resumeVoice()) setPhase("listening");
           return;
         }
-        if (isPhantomTranscript(r.text) || live.current.streaming) {
+        if (isPhantomTranscript(r.text)) {
+          if (!resumeVoice()) setPhase("listening");
+          return;
+        }
+        // Real words over a paused answer: now it is an interruption. The
+        // generation is stopped and the turn waits for it to wind down.
+        if (turn.current.paused) {
+          interrupt();
+          for (let k = 0; live.current.streaming && k < 30; k++) await new Promise((ok) => setTimeout(ok, 100));
+        }
+        if (live.current.streaming) {
           setPhase("listening");
           return;
         }
@@ -312,7 +375,7 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
       if (busy || !snap) return;
       busy = true;
       try {
-        const r = await transcribe(snap, live.current.csrf);
+        const r = await transcribe(snap, live.current.csrf, live.current.lang);
         if (live.current.phase === "hearing" && r.text && !isPhantomTranscript(r.text)) setLiveText(r.text.trim());
       } finally {
         busy = false;
@@ -332,7 +395,7 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
       if (mic) mic.guard = playing;
       const level = Math.max(live.current.phase === "hearing" ? mic?.level ?? 0 : 0, playing ? player!.level() : 0);
       glowRef.current?.style.setProperty("--voice-level", level.toFixed(3));
-      if (tr.index !== null && player) {
+      if (tr.index !== null && player && !tr.paused) {
         const n = player.spokenChars();
         setSaid((prev) => (prev === n ? prev : n));
         if (playing && live.current.phase === "thinking") setPhase("speaking");

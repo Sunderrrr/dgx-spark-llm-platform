@@ -3,6 +3,29 @@
  * The same `speakable` text is what the screen shows, so the « already said »
  * highlight (grey → white) indexes the exact characters that were read. */
 
+/** The system instruction of a spoken turn.
+ *
+ *  Framed as a text-to-speech constraint, NOT as « this conversation is
+ *  spoken »: told that it is in a spoken conversation, qwen38-27b treats
+ *  backchannels (« Mm-hmm », « Ouais, j'aime bien ») as needing no reply and
+ *  ends its turn at once — <|im_end|> at 97 % (measured 2026-10-13; this
+ *  wording: 0 empty out of 32, 2026-10-14).
+ *
+ *  Long content is done NOW, in parts. The previous wording (« two or three
+ *  short sentences, under 60 words ») made a long request impossible to
+ *  honour, so the model announced it instead — « je vais rédiger le sommaire
+ *  des 20 chapitres » — five times in a row, never writing it (a real
+ *  session, 2026-10-14). Replayed on the same requests (book, guide, story,
+ *  « fais-moi un PDF », « vas-y »), this wording writes the content every
+ *  time (75-200 words, then « on continue ? »), « oui, continue » resumes at
+ *  the next part, and small talk stays at 25-40 words. */
+export const VOICE_INSTRUCTION = `Your reply will be read by a text-to-speech engine, and the user's messages come from speech recognition. In conversation, answer in one to three short sentences. When the user asks for something long — a story, a guide, an explanation, a plan, chapters — do it now, in this reply. Never announce what you are about to do, never say you will write it in a later message (there is none unless the user speaks), and never ask permission to start when the request is clear. Speak long content in parts of about 150 words: give the first part, then ask in a few words whether to go on; when the user agrees, continue exactly where you stopped. Write as people speak: plain sentences, with no markdown, lists, headings, tables, emoji, code or URLs; say a list as sentences ("first…, then…"). You cannot create files such as a PDF here: say so in a few words and speak the content instead. Speech recognition makes mistakes: a message that looks garbled or comes out in another language is a recognition error — answer what the user most likely meant, and always in the language the conversation is held in.`;
+
+/** Added to the last user message of a RETRY only (an empty spoken turn): in
+ *  the message itself it got an answer 8 times out of 8 where the system
+ *  instruction alone still left 5 out of 8 empty. */
+export const VOICE_NUDGE = "\n\n[Reply to this message out loud: at least one short sentence.]";
+
 /** A model answer as it is read aloud: no markdown, no code, no URLs. The
  *  voice-mode instruction asks for plain speech already; this is the net for
  *  the answers that slip (and for the turns written before voice mode). */

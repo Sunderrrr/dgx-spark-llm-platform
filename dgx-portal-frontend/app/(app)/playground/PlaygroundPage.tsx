@@ -87,6 +87,7 @@ import { ThreadMessage } from "./_components/ThreadMessage";
 import { ThreadTabs } from "./_components/ThreadTabs";
 import { SkillCreator } from "./_components/SkillCreator";
 import { BASE_SKILLS, type Skill, loadCustomSkills, saveCustomSkills, skillMatches } from "@/lib/skills";
+import { VOICE_INSTRUCTION, VOICE_NUDGE } from "@/lib/voice-text";
 
 const DEFAULT_SETTINGS: Settings = {
   system: "",
@@ -293,15 +294,6 @@ const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you 
 // Voice mode: the answer is READ ALOUD sentence by sentence (VoiceMode).
 // Written-chat habits sound absurd spoken — a bullet list, a code block, a
 // URL spelled out — and a long answer keeps the user waiting to talk.
-// Framed as a text-to-speech constraint, NOT as « this conversation is
-// spoken »: told that it is in a spoken conversation, qwen38-27b treats
-// backchannels (« Mm-hmm », « Ouais, j'aime bien ») as needing no reply and
-// ends its turn at once — <|im_end|> at 97 % (measured 2026-10-13).
-const VOICE_INSTRUCTION = `Your reply will be read by a text-to-speech engine: keep it brief — two or three short sentences, under 60 words, unless the user explicitly asks for more detail; if the topic is large, give the essentials and offer to go further. Write plain sentences, conversational, in the user's language, without markdown, lists, headings, tables, emoji, code blocks or URLs. If the user asks for code or a file, say in one sentence what it would do and offer to write it in the written chat.`;
-// Added to the last user message of a RETRY only (an empty spoken turn): in
-// the message itself it got an answer 8 times out of 8 where the system
-// instruction alone still left 5 out of 8 empty.
-const VOICE_NUDGE = "\n\n[Reply to this message out loud: at least one short sentence.]";
 
 const COMPLETENESS_INSTRUCTION = `Never abridge a file you were asked to produce. Never write that a file is "too long to show here", never say you are giving a "shortened", "simplified" or "essential" version, and never replace any part of a file with an ellipsis, a placeholder, or a comment such as "rest of the code unchanged". There is no display limit: write the file in full, from its first line to its last. If you run out of room before the end, stop mid-file rather than closing it early — you will be asked to continue, and you will resume at the exact character where you stopped. A truncated file presented as complete is the worst possible answer.`;
 

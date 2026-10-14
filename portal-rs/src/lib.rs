@@ -4,6 +4,7 @@ pub mod db;
 pub mod error;
 pub mod auth;
 pub mod probes;
+pub mod ranking;
 
 pub use db::Database;
 pub use error::ApiError;

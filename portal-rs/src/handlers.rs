@@ -722,3 +722,18 @@ pub async fn api_conversation(State(state): State<AppState>, headers: HeaderMap,
         Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
     }
 }
+
+/// GET /api/discord/status - account linking and DMs, and this account's link
+pub async fn api_discord_status(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    let (client_id, client_secret, bot_token) = tokio::join!(
+        state.db.get_config("discord_client_id"),
+        state.db.get_config("discord_client_secret"),
+        state.db.get_config("discord_bot_token"),
+    );
+    let link_enabled = client_id.is_some() && client_secret.is_some();
+    Json(userdata::discord_status(state.db.pool(), &session.username, link_enabled, bot_token.is_some()).await).into_response()
+}

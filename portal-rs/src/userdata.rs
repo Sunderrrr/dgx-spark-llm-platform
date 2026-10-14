@@ -116,3 +116,27 @@ pub async fn skills(pool: &SqlitePool, username: &str, max: i64) -> Result<Value
     }
     Ok(json!({"ok": true, "skills": out, "max": max}))
 }
+
+/// `GET /api/discord/status`: whether account linking and DMs are configured
+/// (instance settings), and whether this account is linked and under which name.
+/// A failed lookup reads as « not linked », as in Flask.
+pub async fn discord_status(
+    pool: &SqlitePool,
+    username: &str,
+    link_enabled: bool,
+    dm_enabled: bool,
+) -> Value {
+    let name: Option<Option<String>> = sqlx::query_scalar("SELECT discord_name FROM discord_links WHERE username = ?")
+        .bind(username)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    let name = name.flatten();
+    json!({
+        "linkable": link_enabled,
+        "dm_enabled": dm_enabled,
+        "linked": name.is_some(),
+        "discord_name": name.unwrap_or_default(),
+    })
+}

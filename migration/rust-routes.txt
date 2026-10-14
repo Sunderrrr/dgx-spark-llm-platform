@@ -33,3 +33,4 @@
 /api/transcribe/available
 /api/pending-count
 /api/conversations
+/api/discord/status

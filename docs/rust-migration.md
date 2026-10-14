@@ -155,7 +155,9 @@ Not ported, on purpose:
 Ported and compared (bench, demo account): `/api/pending-count` and the
 conversation reads `/api/conversations` and `/api/conversations/<id>` (routed:
 their prefix holds only GET routes, the writes live under `/conversations`).
-Also ported: `/api/notifications`, `/api/announcements`, `/api/skills`. Not routed:
+Also routed: `/api/discord/status` (the configured branch is not exercised: no
+Discord is set up on the bench). Also ported: `/api/notifications`,
+`/api/announcements`, `/api/skills`. Not routed:
 `/api/notifications`, `/api/announcements` and `/api/skills` have write routes
 under the same prefix (`/seen` POST, skill import, sync, enable), which the
 Rust portal does not serve yet; a prefix would capture them. Verify before

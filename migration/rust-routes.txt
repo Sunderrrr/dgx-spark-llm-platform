@@ -39,3 +39,5 @@
 /api/settings
 /api/account/sessions
 /c/
+/settings/appearance
+/settings/avatar

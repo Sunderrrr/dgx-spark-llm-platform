@@ -75,6 +75,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/account/sessions", get(handlers::api_account_sessions))
         .route("/api/account/sessions/revoke", post(handlers::api_account_sessions_revoke))
         .route("/c/:token", get(handlers::share_view))
+        .route("/settings/appearance", post(handlers::settings_appearance))
+        .route("/settings/avatar", post(handlers::settings_avatar))
         .route("/api/conversations/:client_id", get(handlers::api_conversation))
         .route("/api/notifications", get(handlers::api_notifications))
         .route("/api/announcements", get(handlers::api_announcements))

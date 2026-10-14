@@ -1106,3 +1106,68 @@ pub async fn share_view(State(state): State<AppState>, headers: HeaderMap, Path(
         }
     }
 }
+
+/// Form fields of a POST (request.form): an urlencoded body, nothing else.
+fn form_of(headers: &HeaderMap, body: &axum::body::Bytes) -> std::collections::HashMap<String, String> {
+    let is_form = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/x-www-form-urlencoded"));
+    if is_form { serde_urlencoded::from_bytes(body).unwrap_or_default() } else { Default::default() }
+}
+
+/// POST /settings/appearance - theme and language (allow-listed)
+pub async fn settings_appearance(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let form = form_of(&headers, &body);
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(true) => {}
+    }
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    let theme = form.get("theme_id").map(String::as_str);
+    let lang = form.get("lang").map(String::as_str);
+    if let Some(t) = theme {
+        if !settings::THEME_IDS.contains(&t) {
+            return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": "Thème inconnu."}))).into_response();
+        }
+    }
+    if let Some(l) = lang {
+        if !settings::LANGS.contains(&l) {
+            return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": "Langue inconnue."}))).into_response();
+        }
+    }
+    match userdata::set_appearance(state.db.pool(), &session.username, theme, lang).await {
+        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+    }
+}
+
+/// POST /settings/avatar - a listed avatar, or the generated one ('' or 'genere')
+pub async fn settings_avatar(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let form = form_of(&headers, &body);
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(true) => {}
+    }
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    let requested = form.get("avatar_id").map(String::as_str).unwrap_or_default();
+    let avatar: Option<&str> = if requested.is_empty() || requested == "genere" {
+        None
+    } else if settings::AVATAR_IDS.contains(&requested) {
+        Some(requested)
+    } else {
+        return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": "Avatar inconnu."}))).into_response();
+    };
+    match userdata::set_avatar(state.db.pool(), &session.username, avatar).await {
+        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+    }
+}

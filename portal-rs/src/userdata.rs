@@ -165,3 +165,43 @@ pub async fn announcements_seen(pool: &SqlitePool, username: &str) -> Result<(),
     .await?;
     Ok(())
 }
+
+/// `POST /settings/appearance`: theme and language, each checked against its list
+/// first (a refusal writes nothing), then written in one transaction.
+pub async fn set_appearance(pool: &SqlitePool, username: &str, theme: Option<&str>, lang: Option<&str>) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    if let Some(t) = theme {
+        sqlx::query(
+            "INSERT INTO user_prefs (username, theme_id) VALUES (?, ?) \
+             ON CONFLICT(username) DO UPDATE SET theme_id = excluded.theme_id",
+        )
+        .bind(username)
+        .bind(t)
+        .execute(&mut *tx)
+        .await?;
+    }
+    if let Some(l) = lang {
+        sqlx::query(
+            "INSERT INTO user_prefs (username, lang) VALUES (?, ?) \
+             ON CONFLICT(username) DO UPDATE SET lang = excluded.lang",
+        )
+        .bind(username)
+        .bind(l)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await
+}
+
+/// `POST /settings/avatar`: the chosen avatar, or NULL for the generated one.
+pub async fn set_avatar(pool: &SqlitePool, username: &str, avatar: Option<&str>) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO user_prefs (username, avatar_id) VALUES (?, ?) \
+         ON CONFLICT(username) DO UPDATE SET avatar_id = excluded.avatar_id",
+    )
+    .bind(username)
+    .bind(avatar)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

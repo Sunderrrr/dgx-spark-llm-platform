@@ -159,7 +159,11 @@ Also routed: `/api/keys` (the viewer's keys in clear, with LiteLLM's figures
 read from its database; the budget reset date of a key goes out as an HTTP
 date, as Flask's JSON encoding does; its only route is GET, the writes are
 under `/keys`), and `/api/discord/status` (the configured branch is not exercised: no
-Discord is set up on the bench). Also routed: `/c/<token>`, a shared conversation (the page is byte-identical to
+Discord is set up on the bench). Also routed: the two preference writes `/settings/appearance` and
+`/settings/avatar` (CSRF first; allow-lists first, so a refusal writes nothing;
+compared on the demo account, values restored afterwards). Not routed: the
+account's password and deletion (phase 6, with its security review).
+Also routed: `/c/<token>`, a shared conversation (the page is byte-identical to
 Flask's for the demo account's share; unknown token 404; every view counts,
 as in Flask; signed-out visitors are sent to the login page). The share
 creation (`/conversations/share`) stays on Flask. Also routed:

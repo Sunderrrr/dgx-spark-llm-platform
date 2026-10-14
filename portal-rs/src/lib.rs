@@ -12,6 +12,7 @@ pub mod home;
 pub mod security;
 pub mod system;
 pub mod hf;
+pub mod docs;
 
 pub use db::Database;
 pub use error::ApiError;

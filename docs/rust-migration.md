@@ -91,7 +91,8 @@ valid token, even with no session, as in Flask), `/api/modelhealth`, and
 `/api/home` except its media sidecars, `/usage/hourly`, `/system/stats`
 (the runner's status, the active users for an admin), `/metrics` (the
 Cloudflare guard included), `/api/branding/logo`, `/api/search` (Hugging Face
-outage answered 503, unknown task 400) and the root page (302 to the login
+outage answered 503, unknown task 400), `/docs` (byte-identical to Flask's
+page) and the root page (302 to the login
 page when signed out, 204 when signed in). The
 `login_required` guard is ported whole (max age, `user_sessions` registry,
 account state re-read, owner rule); a database error answers 503, never a
@@ -112,8 +113,8 @@ Not routable yet, and why:
 - **`/api/latency` is not ported on purpose**: it is an in-memory ring of this
   process's own request durations. A Rust port would report the Rust
   process's latencies under the same name, which is a different measurement;
-  it moves with the routes instead.
-- **`/docs`** (the API page) is still Flask's.
+  the Rust route answers 501 until the routes move and the measurement moves
+  with them.
 - **Flask-only writes**: `vllm_health` archives the engine's token counter
   (`model_counters`) and `_active_users` sweeps stale `inflight_requests`.
   The Rust side computes the same figures READ-ONLY — two probers writing one

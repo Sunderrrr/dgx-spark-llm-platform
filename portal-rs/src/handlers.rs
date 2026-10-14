@@ -7,7 +7,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use crate::{AppState, auth, health, hf, home, models, probes, ranking, system};
+use crate::{AppState, auth, docs, health, hf, home, models, probes, ranking, system};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -441,17 +441,21 @@ pub async fn usage_hourly(
     }
 }
 
-/// GET /api/latency - API latency measurements (auth required)
+/// GET /api/latency - NOT PORTED. This is an in-memory ring of this process's
+/// own request durations (latency.py); answering from the Rust process would
+/// report a different measurement under the same name. Answered 501 rather
+/// than an empty list that reads as « no requests ».
 pub async fn api_latency(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
-        Err(e) => return e.into_response(),
-        Ok(_session) => {}
+    if let Err(e) = auth::require_session(&headers, &state.db).await {
+        return e.into_response();
     }
-
-    (StatusCode::OK, Json(json!({"routes": []})))
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({"ok": false, "error": "Non porté sur le portail Rust : mesure du processus Flask."})),
+    )
         .into_response()
 }
 
@@ -540,18 +544,28 @@ pub async fn api_ranking_privacy(
     Json(json!({"ok": true, "anonymous": anonymous})).into_response()
 }
 
-/// GET /docs - OpenAPI docs (auth required)
+/// GET /docs - the API page (app.docs). Not an API: signed out → redirect to login.
 pub async fn docs(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(e) => return e.into_response(),
-        Ok(_session) => {}
+        Ok(_session) => {
+            let platform = state.db.get_setting_set("platform_name").await.unwrap_or_else(|| "DGX".to_string());
+            let public_api = std::env::var("PUBLIC_API_URL").unwrap_or_default();
+            let auto = std::env::var("AUTO_MODEL_NAME")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| "auto-model".to_string());
+            let served = models::running_models().await;
+            let page = docs::html(&platform, &public_api, &auto, &served);
+            ([(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], page).into_response()
+        }
+        Err(auth::AuthError::Unauthorized) => {
+            (StatusCode::FOUND, [(axum::http::header::LOCATION, "/login?next=/docs")]).into_response()
+        }
+        Err(e) => e.into_response(),
     }
-
-    (StatusCode::OK, "OpenAPI docs")
-        .into_response()
 }
 
 /// GET / - the page itself is the Next.js frontend's. Flask keeps the route for

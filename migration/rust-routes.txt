@@ -38,3 +38,4 @@
 /api/announcements
 /api/settings
 /api/account/sessions
+/c/

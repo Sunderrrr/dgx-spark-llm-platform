@@ -159,7 +159,11 @@ Also routed: `/api/keys` (the viewer's keys in clear, with LiteLLM's figures
 read from its database; the budget reset date of a key goes out as an HTTP
 date, as Flask's JSON encoding does; its only route is GET, the writes are
 under `/keys`), and `/api/discord/status` (the configured branch is not exercised: no
-Discord is set up on the bench). Also routed: `/api/account/sessions` and its revoke POST (CSRF first; the
+Discord is set up on the bench). Also routed: `/c/<token>`, a shared conversation (the page is byte-identical to
+Flask's for the demo account's share; unknown token 404; every view counts,
+as in Flask; signed-out visitors are sent to the login page). The share
+creation (`/conversations/share`) stays on Flask. Also routed:
+`/api/account/sessions` and its revoke POST (CSRF first; the
 viewer's own sessions, the 12-character identifiers, the origin filled in only
 where missing; the audit line written in Flask's format, the 5 000-row
 trimming included; the error paths identical). Checked on two throwaway

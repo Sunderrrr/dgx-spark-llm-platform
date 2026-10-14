@@ -8,7 +8,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use crate::{AppState, auth, conversations, docs, health, hf, home, keys, media, models, probes, ranking, sessions, settings, sidecars, system, userdata};
+use crate::{AppState, auth, conversations, docs, health, hf, home, keys, media, models, probes, ranking, sessions, settings, sharing, sidecars, system, userdata};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -1088,6 +1088,21 @@ pub async fn api_account_sessions_revoke(
             let detail = if current { "fermeture de la session courante".to_string() } else { format!("fermeture de la session {ident}") };
             sessions::log_audit(db, &session.username, "account.sessions.revoke", &detail).await;
             Json(json!({"ok": true, "revoked": 1, "current": current})).into_response()
+        }
+    }
+}
+
+/// GET /c/:token - a shared conversation, read-only, for signed-in viewers only
+pub async fn share_view(State(state): State<AppState>, headers: HeaderMap, Path(token): Path<String>) -> Response {
+    if let Err(r) = viewer(&state, &headers).await {
+        return r;
+    }
+    match sharing::load_and_count(state.db.pool(), &token).await {
+        Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+        Ok(None) => auth::html_status(StatusCode::NOT_FOUND),
+        Ok(Some(share)) => {
+            let platform = state.db.get_setting_set("platform_name").await.unwrap_or_else(|| "DGX".to_string());
+            ([(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], sharing::page(&share, &platform)).into_response()
         }
     }
 }

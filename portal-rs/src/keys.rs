@@ -77,7 +77,7 @@ pub async fn account_info(username: &str) -> AccountInfo {
 }
 
 /// Python truthiness of a JSON value (for `x or y`).
-fn truthy(v: &Value) -> bool {
+pub fn truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
         Value::Bool(b) => *b,

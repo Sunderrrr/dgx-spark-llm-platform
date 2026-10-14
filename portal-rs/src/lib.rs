@@ -20,6 +20,7 @@ pub mod conversations;
 pub mod keys;
 pub mod settings;
 pub mod sessions;
+pub mod sharing;
 
 pub use db::Database;
 pub use error::ApiError;

@@ -1,0 +1,32 @@
+# Build stage
+FROM rust:1.99 AS builder
+
+WORKDIR /app
+
+# Install cargo-chef for faster layer caching
+RUN cargo install cargo-chef
+
+COPY portal-rs/Cargo.* ./portal-rs/
+WORKDIR /app/portal-rs
+
+RUN cargo chef prepare --recipe-path recipe.json
+
+RUN cargo chef cook --release --recipe-path recipe.json
+
+COPY portal-rs/src ./src
+
+RUN cargo build --release
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/portal-rs/target/release/portal /usr/local/bin/
+
+WORKDIR /app
+EXPOSE 5100
+
+CMD ["portal"]

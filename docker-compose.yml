@@ -389,6 +389,35 @@ services:
     networks:
       - web_net
 
+  # ─── Portal Rust (Phase 2: stateless reads) ────────────────────────────────
+  portal-rs:
+    logging: *logging
+    build:
+      context: .
+      dockerfile: Dockerfile.portal-rs
+    container_name: portal-rs
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DATABASE_URL: sqlite:/app/data/portal.db
+      PORTAL_RUST_PORT: "5100"
+      RUST_LOG: info
+    volumes:
+      - portal_data:/app/data:ro
+    ports:
+      - "127.0.0.1:5100:5100"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5100/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - default
+
 volumes:
   postgres_data:
   portal_data:

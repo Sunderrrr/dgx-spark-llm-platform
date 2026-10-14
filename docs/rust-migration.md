@@ -120,11 +120,17 @@ Not routable yet, and why:
 - **Dropped sessions**: Flask writes a `session.invalidee` audit line and
   clears the cookie; the Rust portal only refuses the request.
 
-**Routed to Rust since 2026-10-14:** `/api/config` and `/healthz`, through
-`migration/rust-routes.txt` and the `DGX_RUST_URL` setting in `.env` (the
-Rust portal's address on the stack's Docker network). Verified from the frontend's own traffic: both reach `portal-rs`,
-`/api/whoami` and a look-alike path (`/healthzz`) do not. Rollback: empty the
-file and recreate the frontend.
+**Routed to Rust since 2026-10-14** (`migration/rust-routes.txt`): `/api/config`,
+`/healthz`, `/api/session`, `/api/whoami`, `/api/health`, `/api/modelhealth`,
+`/api/running-models`, `/api/search`, `/.well-known/security.txt`,
+`/api/branding/logo`, `/usage/hourly`, `/metrics`, `/docs`. Each prefix covers
+only itself. Checked from the frontend's own traffic: these reach `portal-rs`;
+`/api/home`, `/api/ranking`, `/api/latency` and look-alike paths stay on Flask.
+Held back: `/api/home`, `/system/stats` and `/api/ranking`, whose ADMIN
+branches are ported but not compared (the bench account is not an admin).
+Rollback: empty the file and restart the frontend (`docker restart
+dgx-portal-frontend`: it reads the file at start, and `compose up` does not
+recreate it when only the file changed).
 
 Porting notes that cost a wrong first attempt: LiteLLM listens on 4001 inside
 the Docker network and `/health` needs a key since 1.102 (probe

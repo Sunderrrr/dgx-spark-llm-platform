@@ -557,7 +557,7 @@ pub async fn docs(
             ([(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], page).into_response()
         }
         Err(auth::AuthError::Unauthorized) => {
-            (StatusCode::FOUND, [(axum::http::header::LOCATION, "/login?next=/docs")]).into_response()
+            (StatusCode::FOUND, [(axum::http::header::LOCATION, "/login?next=/docs"), (axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")]).into_response()
         }
         Err(e) => e.into_response(),
     }
@@ -573,7 +573,7 @@ pub async fn index(
     match auth::require_session(&headers, &state.db).await {
         Ok(_session) => StatusCode::NO_CONTENT.into_response(),
         Err(auth::AuthError::Unauthorized) => {
-            (StatusCode::FOUND, [(axum::http::header::LOCATION, "/login?next=/")]).into_response()
+            (StatusCode::FOUND, [(axum::http::header::LOCATION, "/login?next=/"), (axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")]).into_response()
         }
         Err(e) => e.into_response(),
     }

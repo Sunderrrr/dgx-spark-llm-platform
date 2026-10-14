@@ -1,4 +1,20 @@
 # URL prefixes served by the Rust portal instead of Flask (Rust migration,
 # docs/rust-migration.md). One per line. Empty: everything is on Flask.
+#
+# Not routed yet, on purpose: /api/home, /system/stats and /api/ranking, whose
+# ADMIN branches are ported but not compared to Flask (the bench account is not
+# an admin); /api/latency, which measures the Flask process itself; and the
+# root page /, which would catch every path.
 /api/config
 /healthz
+/api/session
+/api/whoami
+/api/health
+/api/modelhealth
+/api/running-models
+/api/search
+/.well-known/security.txt
+/api/branding/logo
+/usage/hourly
+/metrics
+/docs

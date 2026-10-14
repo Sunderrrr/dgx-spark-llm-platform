@@ -41,6 +41,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/branding/logo", get(handlers::branding_logo))
         
         // Auth-required routes (placeholder for now)
+        .route("/api/session", get(handlers::api_session))
+        .route("/api/whoami", get(handlers::api_whoami))
         .route("/api/health", get(handlers::api_health))
         .route("/api/home", get(handlers::api_home))
         .route("/api/modelhealth", get(handlers::api_modelhealth))

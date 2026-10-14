@@ -1,3 +1,4 @@
 # URL prefixes served by the Rust portal instead of Flask (Rust migration,
 # docs/rust-migration.md). One per line. Empty: everything is on Flask.
 /healthz
+/api/config

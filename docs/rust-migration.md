@@ -120,6 +120,12 @@ Not routable yet, and why:
 - **Dropped sessions**: Flask writes a `session.invalidee` audit line and
   clears the cookie; the Rust portal only refuses the request.
 
+**Routed to Rust since 2026-10-14:** `/api/config` and `/healthz`, through
+`migration/rust-routes.txt` and the `DGX_RUST_URL` setting in `.env` (the
+Rust portal's address on the stack's Docker network). Verified from the frontend's own traffic: both reach `portal-rs`,
+`/api/whoami` and a look-alike path (`/healthzz`) do not. Rollback: empty the
+file and recreate the frontend.
+
 Porting notes that cost a wrong first attempt: LiteLLM listens on 4001 inside
 the Docker network and `/health` needs a key since 1.102 (probe
 `/health/liveliness`); instance settings are stored as `cfg_<name>` with empty
